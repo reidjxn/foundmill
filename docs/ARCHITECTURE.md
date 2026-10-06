@@ -125,6 +125,7 @@ WebSocket at `/?token=<supabase access token | dev token>`. Client → server: `
 ## 13. API (`apps/api`)
 
 - Hono app; `/trpc/*` via `@hono/trpc-server`; `/health`; `/webhooks/*` is **not** here (that is `apps/ingest`).
+- On boot, before listening: run the drizzle migrator over `DATABASE_URL` under `pg_advisory_lock(7461)` (idempotent, safe with several replicas), then, if `SEED_ON_BOOT=1` and the demo businesses are absent, run the seed. Log and keep serving if the database is unreachable (health reports it).
 - Context: `{ db, redis, temporal, userId, email, log }`. `protectedProcedure` requires a user; `businessProcedure` takes `{ businessId }` in input, asserts membership (and section permission where given) and provides `ctx.rls(fn)` = `withRls(db, { userId }, fn)`.
 - Routers named exactly as BUILD §8.3 (`founder.profile.get`, `inbox.list`, …) in `src/routers/<area>.ts`, merged in `src/router.ts`; `export type AppRouter`. Every mutation: Zod input, membership + permission, `audit`, `writeEvent` where relevant.
 - JWT verification: `jose` against `${SUPABASE_URL}/auth/v1/.well-known/jwks.json` (cached). `DEV_AUTH_USER_ID` bypass only when `APP_ENV` is development/test.
