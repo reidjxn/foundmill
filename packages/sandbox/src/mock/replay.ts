@@ -139,6 +139,11 @@ export class SessionReplay {
     return this.status_;
   }
 
+  /** Read through a method so TypeScript does not narrow `status_` across the awaits in run(). */
+  private isStopped(): boolean {
+    return this.status_ === "stopped";
+  }
+
   /** Scrubber position: next event index, total, and the recorded offset reached so far. */
   get position(): { index: number; total: number; tMs: number; durationMs: number } {
     const prev = this.recording.events[Math.max(0, this.index - 1)];
@@ -255,20 +260,20 @@ export class SessionReplay {
     const events = this.recording.events;
     if (this.status_ !== "stopped") this.status_ = "playing";
     let prevTMs = 0;
-    while (this.index < events.length && this.status_ !== "stopped") {
+    while (this.index < events.length && !this.isStopped()) {
       const rec = events[this.index]!;
       const delay = this.scaleMs(rec.tMs - prevTMs);
       prevTMs = rec.tMs;
       await this.waitWhilePaused();
-      if (delay > 0 && this.status_ !== "stopped") await this.sleep(delay, this.abort.signal);
+      if (delay > 0 && !this.isStopped()) await this.sleep(delay, this.abort.signal);
       await this.waitWhilePaused();
-      if (this.status_ === "stopped") break;
+      if (this.isStopped()) break;
       const index = this.index;
       await this.emit({ ...(rec.event as SessionEventInput), at: this.atFor(rec.tMs) }, index, rec.tMs);
       this.index++;
       if (rec.hold) {
         const decision = await this.hold(rec, index);
-        if (this.status_ === "stopped") break;
+        if (this.isStopped()) break;
         if (decision === "rejected") {
           const opened = rec.event as Record<string, unknown>;
           const callId = typeof opened.callId === "string" ? opened.callId : `call-${index}`;

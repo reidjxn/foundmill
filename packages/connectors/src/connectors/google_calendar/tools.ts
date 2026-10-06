@@ -39,7 +39,7 @@ export const googleCalendarTools = [
     untrustedRef: (a) => `events:${a.calendarId}:${a.timeMin}`,
     annotations: { readOnlyHint: true },
   }),
-  defineTool({ name: "get_event", description: "One event.", input: z.object({ calendarId: CalendarId, eventId: EventId }), output: CalendarEvent, hints: {}, untrusted: "api", untrustedRef: (a) => `event:${a.eventId}`, annotations: { readOnlyHint: true } }),
+  defineTool({ name: "get_event", description: "Fetch one event by id, with its attendees, times and status.", input: z.object({ calendarId: CalendarId, eventId: EventId }), output: CalendarEvent, hints: {}, untrusted: "api", untrustedRef: (a) => `event:${a.eventId}`, annotations: { readOnlyHint: true } }),
   defineTool({
     name: "create_event",
     description: "Create an event; attendees receive invitations (sendUpdates). Use for founder-approved calls with leads, suppliers and candidates.",

@@ -167,3 +167,15 @@ Local building is suspended (the founder's laptop has no free disk). The build c
 ## 2026-10-06 — GitHub Actions is the verification machine
 
 With local building suspended and no Claude cloud environment on the account yet, `.github/workflows/ci.yml` runs the whole-repo checks on every push to `main` and every pull request: banned-terms scan, `turbo run typecheck lint` and `turbo run test` (all packages except `e2e`) in one job, and the Dugout Storybook build in a second. Everything runs with `INTEGRATIONS_MODE=mock` and `MODEL_MODE=mock`, no secrets. The e2e Playwright suite is excluded until the golden path (BUILD §17) exists and has a seeded environment to run against; add it as a third job then. Read a failing run with `gh run view <id> --log-failed`.
+
+## 2026-10-06 — Contract suite: the replay check verifies one delivery twice
+
+`describeConnectorContract`'s "rejects a replayed delivery" case used to call `valid()` twice and expect the second request to fail. Mocks keep one `ReplayGuard` per connector for the whole test file, so the earlier "verifies a correctly signed delivery" case had already consumed the only delivery `valid()` could build and the first verify failed. The suite now verifies the *same* Request twice (the webhook helpers clone the body before reading), and `ContractWebhookCase.valid()` is documented as having to produce a distinct delivery per call when `replay` is set (Dropbox Sign increments the callback `event_time`).
+
+## 2026-10-06 — Policy hot-path test budgets per evaluation
+
+`@cedar-policy/cedar-wasm` has no persistent policy-set handle, so every `isAuthorized` call re-parses the policy set: about 1 ms per evaluation on a laptop and 10-20 ms on a shared GitHub Actions runner (measured 16.8 ms). The test asserts a per-evaluation budget (3 ms locally, 60 ms when `CI` is set, over 1,000 or 100 evaluations) instead of "1,000 evaluations under two seconds". The gateway should treat a policy evaluation as a 1-20 ms call: evaluate once per tool call, never in a tight loop, and consider caching `(principal, tool, context)` → outcome for identical repeated calls within a session.
+
+## 2026-10-06 — Mock sandbox recordings are TypeScript, not JSON
+
+Recordings for the mock sandbox (`packages/sandbox/src/mock/recordings/index.ts`) are typed TypeScript objects built with small helpers and validated with `parseRecording` at module load, rather than JSON files: events are typed as `SessionEventDraft` from `@founder-manager/events`, so a recording that drifts from the session event schema fails `tsc`, and the progress values are computed from the BUILD §11.6 formula instead of being typed by hand. The bundled set covers every outcome the Training Ground has to render (done, blocked with an approval hold and a hard gate, failed with loop detection).

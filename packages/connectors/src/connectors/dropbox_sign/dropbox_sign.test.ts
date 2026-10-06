@@ -9,10 +9,14 @@ import { dropboxSignMock, signedCallbackRequest } from "./mock";
 const DONE = HS_REQUESTS[0]!.signature_request_id;
 const PENDING = HS_REQUESTS[1]!.signature_request_id;
 
+// Each valid() call is a distinct delivery (fresh event_time → fresh event_hash) so the shared ReplayGuard
+// in the mock never sees an earlier case's delivery as the replay (see ContractWebhookCase.valid).
+let callbackTime = 1_759_500_100;
+
 const webhookCases = [
   {
     name: "signature_request_all_signed",
-    valid: () => signedCallbackRequest(TEST_BUSINESS_ID, { eventType: "signature_request_all_signed", signature_request: HS_REQUESTS[0] }),
+    valid: () => signedCallbackRequest(TEST_BUSINESS_ID, { eventType: "signature_request_all_signed", signature_request: HS_REQUESTS[0], eventTime: callbackTime++ }),
     tampered: () => signedCallbackRequest(TEST_BUSINESS_ID, { eventType: "signature_request_all_signed", signature_request: HS_REQUESTS[0] }, "wrong-api-key"),
     replay: true,
     expectEvents: 1,

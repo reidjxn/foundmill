@@ -1,1 +1,2 @@
 @electric-sql/pglite-pgvector — 0.2.x (match @electric-sql/pglite 0.5.8) — pgvector for the PGlite RLS harness; today the harness rewrites vector(1024) to real[] when it is absent (src/testing/pglite.ts) — packages/db agent
+@founder-manager/events — workspace:* — packages/sandbox imports its session event types and, in tests, its Zod schemas; today reached through tsconfig `paths` and a vitest alias (src/types.ts, vitest.config.ts) because adding the dependency needs `pnpm install` to update the lockfile — packages/sandbox agent

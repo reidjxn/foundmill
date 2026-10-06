@@ -57,7 +57,11 @@ export interface ContractWebhookCase {
   name: string;
   /** Index into `connector.webhooks`. Default 0. */
   index?: number;
-  /** A correctly signed request. Built fresh per use (bodies are single-read). */
+  /**
+   * A correctly signed request. Built fresh per call (bodies are single-read). When `replay` is set, every call
+   * must also be a *distinct* delivery (vary the event id or timestamp), because the connector's mock keeps one
+   * ReplayGuard for the whole test file and earlier cases have already delivered what `valid()` returned.
+   */
   valid(): Request;
   /** A request whose signature must be rejected. */
   tampered?(): Request;
@@ -228,11 +232,10 @@ export function describeConnectorContract(title: string, opts: ContractSuiteOpti
         }
         if (wh.replay) {
           it("rejects a replayed delivery", async () => {
-            const first = wh.valid();
-            const second = wh.valid();
-            const firstOk = await webhook().verify(first);
-            expect(firstOk).toBe(true);
-            expect(await webhook().verify(second)).toBe(false);
+            // The same delivery twice: verify() clones the body, so one Request can be checked again.
+            const delivery = wh.valid();
+            expect(await webhook().verify(delivery), "a fresh delivery must verify (valid() has to produce a new delivery per call)").toBe(true);
+            expect(await webhook().verify(delivery)).toBe(false);
           });
         }
       });
