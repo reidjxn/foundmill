@@ -2,8 +2,11 @@
 project_id = "sdruubitufjqibsjyxlc"
 
 [auth]
-site_url = "https://founder-manager.vercel.app"
+site_url = "https://foundmill.com"
 additional_redirect_urls = [
+  "https://foundmill.com/**",
+  "https://www.foundmill.com/**",
+  "https://foundmill.vercel.app/**",
   "https://founder-manager.vercel.app/**",
   "https://*-fm-2f083c2b.vercel.app/**",
   "http://localhost:3000/**",
