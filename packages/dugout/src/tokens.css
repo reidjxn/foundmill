@@ -1,0 +1,80 @@
+/* Dugout tokens — BUILD §5.1 plus DESIGN.md additions. The only file in the repo allowed to contain colour literals. */
+:root {
+  /* Surfaces */
+  --bg-base: #0f1318;
+  --bg-panel: #171c23;
+  --bg-panel-alt: #1d232b;
+  --bg-ink: #0b0e12;
+  --line-subtle: #2a313b;
+
+  /* Text */
+  --text-primary: #e8ecf1;
+  --text-secondary: #9aa4b2;
+  --accent-link: #7cc4ff;
+
+  /* Status */
+  --status-good: #3dd68c;
+  --status-warn: #f5b841;
+  --status-bad: #f2545b;
+  --status-info: #5b8cff;
+
+  /* Rating ramp 1–20 */
+  --rating-1: #f2545b; /* 1-5 */
+  --rating-2: #f5b841; /* 6-10 */
+  --rating-3: #a6e3b8; /* 11-15 light green */
+  --rating-4: #3dd68c; /* 16-20, bold */
+
+  /* Kit (overwritten per business by AppShell) */
+  --kit-primary: #2b6cb0;
+  --kit-secondary: #ffffff;
+  --kit-on-primary: #ffffff; /* computed: white or near-black by APCA Lc >= 75 */
+
+  /* Department colours */
+  --dept-1: #5b8cff;
+  --dept-2: #3dd68c;
+  --dept-3: #f5b841;
+  --dept-4: #f2545b;
+  --dept-5: #b98cff;
+  --dept-6: #4fd1c5;
+  --dept-7: #ff8a5b;
+  --dept-8: #e879c8;
+
+  /* Gold: Match Day, trophies, customer won */
+  --gold: #e8c56b;
+  --gold-deep: #b8923a;
+
+  /* Shape */
+  --radius-panel: 4px;
+  --radius-chip: 3px;
+  --row-compact: 28px;
+  --row-comfortable: 34px;
+
+  /* Layout */
+  --sidebar-width: 232px;
+  --sidebar-width-collapsed: 64px;
+  --kitbar-height: 56px;
+  --processing-strip-height: 3px;
+  --tabbar-height: 40px;
+  --right-rail-width: 320px;
+  --panel-header-height: 32px;
+  --panel-padding: 12px;
+  --gutter: 16px;
+  --min-viewport: 1280px;
+
+  /* Type */
+  --font-display: "Barlow Semi Condensed", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-micro: 120ms;
+  --dur-panel: 200ms;
+  --dur-view: 320ms;
+  --dur-ribbon: 1200ms;
+
+  /* Depth */
+  --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.55);
+  --inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  --backdrop: rgba(15, 19, 24, 0.72);
+}
