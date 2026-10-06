@@ -54,4 +54,4 @@ Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
 
 ## Build log
 
-- 2026-10-06 — Local building suspended (laptop disk full). Wave scripts now take the repo path from Workflow `args.root`; the build continues in a Claude Code cloud session per `docs/BUILD_RUNBOOK.md`. Next: re-run wave 1 there (agents complete what exists in their package), then wave 2, then integration/gates.
+- 2026-10-06 — Local building suspended (laptop disk full). Wave scripts now take the repo path from Workflow `args.root`; GitHub Actions (`.github/workflows/ci.yml`) verifies every push; the build continues in a Claude Code cloud session per `docs/BUILD_RUNBOOK.md` once the account has a cloud environment. Next: re-run wave 1 there (agents complete what exists in their package), then wave 2, then integration/gates.

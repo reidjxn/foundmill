@@ -1,0 +1,55 @@
+# Cloud verification for every push (docs/DECISIONS.md "Cloud-first build and deploy").
+# Everything runs in mock mode with no secrets; e2e (Playwright) is excluded until the golden path lands.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: true
+  APP_ENV: test
+  INTEGRATIONS_MODE: mock
+  MODEL_MODE: mock
+  TURBO_TELEMETRY_DISABLED: 1
+  DO_NOT_TRACK: 1
+
+jobs:
+  checks:
+    name: Typecheck, lint, unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # version comes from "packageManager" in package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Banned terms
+        run: node scripts/banned-terms.mjs
+      - name: Typecheck and lint (all packages)
+        run: pnpm exec turbo run typecheck lint --continue --output-logs=new-only
+      - name: Unit tests (all packages except e2e)
+        run: pnpm exec turbo run test --continue --output-logs=new-only --filter='!@founder-manager/e2e'
+
+  storybook:
+    name: Storybook build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @founder-manager/dugout storybook:build
