@@ -1,0 +1,23 @@
+/** Platform limits and defaults (BUILD §9, §10, §11). */
+export const LIMITS = {
+  minViewportWidth: 1280,
+  referenceViewportWidth: 1440,
+  cycleTimeBoxAgentHours: 4,
+  defaultMaxConcurrentAgents: 16,
+  hardMaxConcurrentAgents: 64,
+  inboxRefreshDebounceMs: 3000,
+  inboxBufferSize: 3,
+  approvalThresholdMinorDefault: 25000, // €250.00
+  runwayWarnMonths: [12, 9, 6] as const,
+  runwayBlockMonths: 3,
+  matchDayFullUntilCount: 100,
+  matchDayValuePercentile: 75,
+  attributionPositionBasedUntilConversions: 200,
+  xcArchetypePriorUntilConversions: 50,
+  spamRateAutoPause: 0.003,
+  killSwitchSeconds: 30,
+  skillTestsPerSkill: { min: 12, max: 30 },
+  rollbackWatchDays: 7,
+  leadRetentionMonths: 24,
+  budgetAlertPercents: [50, 80, 100] as const,
+} as const;

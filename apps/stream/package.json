@@ -1,0 +1,35 @@
+{
+  "name": "@founder-manager/stream",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*.css": "./src/*.css",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "ws": "catalog:",
+    "ioredis": "catalog:",
+    "jose": "catalog:",
+    "pino": "catalog:",
+    "pino-pretty": "catalog:",
+    "zod": "catalog:",
+    "@founder-manager/shared": "workspace:*",
+    "@founder-manager/config": "workspace:*",
+    "@founder-manager/events": "workspace:*",
+    "@founder-manager/db": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "catalog:",
+    "tsx": "catalog:",
+    "@types/ws": "catalog:"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "@founder-manager/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*.css": "./src/*.css",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "hono": "catalog:",
+    "@hono/node-server": "catalog:",
+    "@hono/zod-validator": "catalog:",
+    "@modelcontextprotocol/sdk": "catalog:",
+    "zod": "catalog:",
+    "jose": "catalog:",
+    "ioredis": "catalog:",
+    "pino": "catalog:",
+    "pino-pretty": "catalog:",
+    "@founder-manager/policy": "workspace:*",
+    "@founder-manager/connectors": "workspace:*",
+    "@founder-manager/db": "workspace:*",
+    "@founder-manager/events": "workspace:*",
+    "@founder-manager/shared": "workspace:*",
+    "@founder-manager/config": "workspace:*",
+    "@founder-manager/models": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "catalog:",
+    "tsx": "catalog:"
+  }
+}

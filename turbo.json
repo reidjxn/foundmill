@@ -1,0 +1,14 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "globalEnv": ["APP_ENV", "INTEGRATIONS_MODE", "MODEL_MODE", "NODE_ENV", "CI"],
+  "tasks": {
+    "build": { "dependsOn": ["^build"], "outputs": [".next/**", "!.next/cache/**", "dist/**", "storybook-static/**"] },
+    "dev": { "cache": false, "persistent": true },
+    "typecheck": { "dependsOn": [], "outputs": [] },
+    "lint": { "dependsOn": [], "outputs": [] },
+    "test": { "dependsOn": [], "outputs": ["coverage/**"] },
+    "test:rls": { "cache": false },
+    "storybook:build": { "outputs": ["storybook-static/**"] }
+  }
+}

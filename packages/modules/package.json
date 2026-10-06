@@ -1,0 +1,37 @@
+{
+  "name": "@founder-manager/modules",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*.css": "./src/*.css",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "react": "catalog:",
+    "zod": "catalog:",
+    "lucide-react": "catalog:",
+    "clsx": "catalog:",
+    "date-fns": "catalog:",
+    "@tanstack/react-query": "catalog:",
+    "@founder-manager/dugout": "workspace:*",
+    "@founder-manager/widgets": "workspace:*",
+    "@founder-manager/shared": "workspace:*",
+    "@founder-manager/config": "workspace:*",
+    "@founder-manager/journey": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "vitest": "catalog:",
+    "happy-dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:"
+  }
+}

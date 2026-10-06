@@ -1,0 +1,41 @@
+{
+  "name": "@founder-manager/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*.css": "./src/*.css",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run --passWithNoTests",
+    "migrate": "tsx src/migrate.ts",
+    "seed": "tsx src/seed.ts",
+    "test:rls": "vitest run --dir src/__tests__/rls",
+    "generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "drizzle-orm": "catalog:",
+    "postgres": "catalog:",
+    "@supabase/supabase-js": "catalog:",
+    "zod": "catalog:",
+    "nanoid": "catalog:",
+    "date-fns": "catalog:",
+    "@faker-js/faker": "catalog:",
+    "seedrandom": "catalog:",
+    "@founder-manager/shared": "workspace:*",
+    "@founder-manager/config": "workspace:*",
+    "@founder-manager/agents": "workspace:*",
+    "@founder-manager/journey": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "catalog:",
+    "tsx": "catalog:",
+    "drizzle-kit": "catalog:",
+    "@electric-sql/pglite": "catalog:",
+    "@types/seedrandom": "catalog:"
+  }
+}

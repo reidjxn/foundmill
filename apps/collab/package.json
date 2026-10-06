@@ -1,0 +1,32 @@
+{
+  "name": "@founder-manager/collab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*.css": "./src/*.css",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@hocuspocus/server": "catalog:",
+    "yjs": "catalog:",
+    "jose": "catalog:",
+    "pino": "catalog:",
+    "pino-pretty": "catalog:",
+    "@founder-manager/db": "workspace:*",
+    "@founder-manager/shared": "workspace:*",
+    "@founder-manager/config": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "catalog:",
+    "tsx": "catalog:"
+  }
+}
