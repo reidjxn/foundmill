@@ -1,2 +1,10 @@
-@electric-sql/pglite-pgvector — 0.2.x (match @electric-sql/pglite 0.5.8) — pgvector for the PGlite RLS harness; today the harness rewrites vector(1024) to real[] when it is absent (src/testing/pglite.ts) — packages/db agent
-@founder-manager/events — workspace:* — packages/sandbox imports its session event types and, in tests, its Zod schemas; today reached through tsconfig `paths` and a vitest alias (src/types.ts, vitest.config.ts) because adding the dependency needs `pnpm install` to update the lockfile — packages/sandbox agent
+Dependencies a build agent needed but could not add itself (`package — version — why — who`). The orchestrating session adds them between waves.
+
+## Resolved 2026-10-06 (cloud session, `pnpm install` available again)
+
+- `@electric-sql/pglite-pgvector` — 0.0.9 (peer `@electric-sql/pglite` 0.5.8) — added as a devDependency of `packages/db`; the PGlite RLS harness now loads the real pgvector extension (`hasVector: true`) instead of rewriting `vector(1024)` to `real[]`.
+- `@founder-manager/events` — `workspace:*` — added as a dependency of `packages/sandbox`; the tsconfig `paths` entry and the vitest alias that stood in for it can be removed.
+
+## Open
+
+(none)

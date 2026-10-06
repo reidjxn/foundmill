@@ -10,9 +10,11 @@ export const meta = {
 // ROOT is the absolute repo path on the machine running the wave: pass it as Workflow args { root: '<path>' } (falls back to the founder's laptop path).
 const ROOT = (typeof args === 'object' && args && args.root) || '/Users/reidjackson/code/founder-manager'
 
-const PRE = `You are one of many parallel build agents constructing Founder Manager, a large TypeScript monorepo at ${ROOT}. Work ONLY inside the directory you are assigned. Other agents are editing other packages at the same time.
+const PRE = `You are one of many parallel build agents constructing Foundmill (working title in docs/BUILD.md: "Founder Manager"; the product name is always APP_NAME from packages/config; the package scope is still @founder-manager/* for this wave — do not rename it), a large TypeScript monorepo at ${ROOT}. Work ONLY inside the directory you are assigned. Other agents are editing other packages at the same time.
 
-READ FIRST (in this order, all of it): ${ROOT}/docs/ARCHITECTURE.md, ${ROOT}/docs/DECISIONS.md, ${ROOT}/CLAUDE.md, and the sections of ${ROOT}/docs/BUILD.md named in your assignment (use sed -n to read line ranges; BUILD.md is 1,560 lines). If your work is UI, also read ${ROOT}/docs/DESIGN.md in full.
+READ FIRST (in this order, all of it): ${ROOT}/docs/ARCHITECTURE.md, ${ROOT}/docs/DECISIONS.md, ${ROOT}/CLAUDE.md, your package's rows in ${ROOT}/docs/PROGRESS.md, and the sections of ${ROOT}/docs/BUILD.md named in your assignment (use sed -n to read line ranges; BUILD.md is 1,560 lines). If your work is UI, also read ${ROOT}/docs/DESIGN.md in full.
+
+THIS IS A CONTINUATION. An earlier run already wrote part (sometimes most) of your package: list and read every file that exists in your assigned directory before writing anything, keep what is correct, and complete what is missing or incomplete against the assignment below. Never start over, never delete working code, never rename existing exports other packages may already import (grep the repo for usages first). Run the package's typecheck/lint/test first to see where it stands.
 
 HARD RULES (docs/ARCHITECTURE.md §16):
 - Edit only your assigned directory. Never touch root files, pnpm-workspace.yaml, pnpm-lock.yaml, other packages, or docs except: append your own rows/lines to docs/PROGRESS.md and docs/DECISIONS.md.
@@ -208,11 +210,21 @@ const LANES = [
 
 const S2_LABELS = { db: ['db-repos'], dugout: ['dugout-shell', 'dugout-data', 'dugout-journey', 'dugout-agents'] }
 
-log(`Wave 1: ${LANES.length} lanes, ${LANES.reduce((n, l) => n + 1 + l.s2.length, 0)} agents`)
+// args.stage1Done: lane keys whose stage-1 package is already complete and green (per docs/PROGRESS.md);
+// their stage-1 agent is skipped and their stage-2 agents (if any) start immediately.
+// args.only: optional list of lane keys to run (default: every lane).
+const STAGE1_DONE = new Set((typeof args === 'object' && args && args.stage1Done) || [])
+const ONLY = (typeof args === 'object' && args && args.only) || null
+const ACTIVE = LANES.filter((l) => !ONLY || ONLY.includes(l.key)).filter((l) => !(STAGE1_DONE.has(l.key) && !l.s2.length))
+
+log(`Wave 1: ${ACTIVE.length} lanes, ${ACTIVE.reduce((n, l) => n + (STAGE1_DONE.has(l.key) ? 0 : 1) + l.s2.length, 0)} agents (stage 1 skipped for: ${[...STAGE1_DONE].join(', ') || 'none'})`)
 
 const results = await pipeline(
-  LANES,
-  (lane) => agent(lane.s1, { label: `build:${lane.key}`, phase: 'Foundations', schema: REPORT, effort: lane.effort }).then((r) => ({ lane, s1: r })),
+  ACTIVE,
+  (lane) =>
+    STAGE1_DONE.has(lane.key)
+      ? Promise.resolve({ lane, s1: { package: lane.key, summary: 'Stage 1 already complete before this run (see docs/PROGRESS.md); skipped.', exports: 'See docs/PROGRESS.md and the package src/index.ts', commands: [], skipped: true } })
+      : agent(lane.s1, { label: `build:${lane.key}`, phase: 'Foundations', schema: REPORT, effort: lane.effort }).then((r) => ({ lane, s1: r })),
   async (prev, lane) => {
     if (!prev) return null
     if (!lane.s2.length) return { lane: lane.key, s1: prev.s1, s2: [] }

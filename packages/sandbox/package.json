@@ -14,15 +14,16 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "zod": "catalog:",
+    "@founder-manager/config": "workspace:*",
+    "@founder-manager/events": "workspace:*",
+    "@founder-manager/shared": "workspace:*",
     "e2b": "catalog:",
     "ws": "catalog:",
-    "@founder-manager/shared": "workspace:*",
-    "@founder-manager/config": "workspace:*"
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "vitest": "catalog:",
+    "@types/ws": "catalog:",
     "tsx": "catalog:",
-    "@types/ws": "catalog:"
+    "vitest": "catalog:"
   }
 }

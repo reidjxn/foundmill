@@ -18,24 +18,25 @@
     "generate": "drizzle-kit generate"
   },
   "dependencies": {
-    "drizzle-orm": "catalog:",
-    "postgres": "catalog:",
-    "@supabase/supabase-js": "catalog:",
-    "zod": "catalog:",
-    "nanoid": "catalog:",
-    "date-fns": "catalog:",
     "@faker-js/faker": "catalog:",
-    "seedrandom": "catalog:",
-    "@founder-manager/shared": "workspace:*",
-    "@founder-manager/config": "workspace:*",
     "@founder-manager/agents": "workspace:*",
-    "@founder-manager/journey": "workspace:*"
+    "@founder-manager/config": "workspace:*",
+    "@founder-manager/journey": "workspace:*",
+    "@founder-manager/shared": "workspace:*",
+    "@supabase/supabase-js": "catalog:",
+    "date-fns": "catalog:",
+    "drizzle-orm": "catalog:",
+    "nanoid": "catalog:",
+    "postgres": "catalog:",
+    "seedrandom": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "vitest": "catalog:",
-    "tsx": "catalog:",
-    "drizzle-kit": "catalog:",
     "@electric-sql/pglite": "catalog:",
-    "@types/seedrandom": "catalog:"
+    "@electric-sql/pglite-pgvector": "0.0.9",
+    "@types/seedrandom": "catalog:",
+    "drizzle-kit": "catalog:",
+    "tsx": "catalog:",
+    "vitest": "catalog:"
   }
 }
