@@ -8,14 +8,14 @@ Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
 | --- | --- | --- | --- | --- | --- |
 | 0.1 | Monorepo (pnpm, Turborepo, TS strict, ESLint incl. no-raw-db, Prettier, Vitest, Playwright, Storybook) | ☑ | root configs, `eslint.config.mjs`, package manifests | | |
 | 0.2 | Bootstrap files (§4) | ☑ | `CLAUDE.md`, `.claude/**`, `.mcp.json`, `.env.example` | | MCP tokens are a HUMAN CHECKPOINT |
-| 0.3 | Supabase + migrations for §7.1 helpers and core tables; RLS + cross-tenant tests | ☐ | `packages/db` | | |
-| 0.4 | Dugout: tokens, fonts, shell components, Storybook | ☐ | `packages/dugout` | | |
-| 0.5 | `packages/events` outbox + Redis relay; `apps/stream` skeleton | ☐ | | | |
+| 0.3 | Supabase + migrations for §7.1 helpers and core tables; RLS + cross-tenant tests | ☑ | `packages/db/migrations/0001…0012`, `src/schema/*`, `src/client.ts`, `src/migrate.ts`, `src/testing/pglite.ts` | `pnpm --filter @founder-manager/db test` (migrations invariants + schema mirror; generated cross-tenant suite over 61 business-scoped tables; user-scoped/social; credentials + audit chain; helpers) | pgvector for PGlite not installed (see NEEDED_DEPS.md); repos/seeds are task 0.8 / later agent; `pnpm db:migrate` not yet run against staging |
+| 0.4 | Dugout: tokens, fonts, shell components, Storybook | ◐ | `packages/dugout` — foundation stage done: `tokens.css`, `fonts.css`, `dugout.css` (Tailwind v4 `@theme inline`), `lib/` (cn, format, rating, colour/APCA, seed PRNG, reducedMotion), 33 foundation primitives in `src/components/foundation/*` with stories, Storybook 10 (`.storybook/`, Tokens + Welcome pages) | 57 vitest tests (cn, format, rating, APCA/kitOnPrimary, seed, crest + avatar determinism, Button, IconButton, StatusPill); `typecheck`, `lint`, `test`, `storybook:build` pass | Shell/data/journey/agents barrels are empty `export {}` for stage 2 |
+| 0.5 | `packages/events` outbox + Redis relay; `apps/stream` skeleton | ◐ | `packages/events/src/{catalogue,keys,redis,consume,session-stream}.ts`, `src/outbox/{writer,relay}.ts`, `src/testing/{memory-redis,fake-db,fixtures}.ts` — **events package ☑** (37 event types with Zod payloads, `writeEvent`/`writeEvents`, `runOutboxRelay`, `consume` with retry + dead-letter + pending-claim, `publishSessionEvent`/`readSessionEvents`, in-memory Redis fake). `apps/stream` skeleton: other agent | `pnpm --filter @founder-manager/events test` — 57 tests incl. outbox → relay → consumer-group round trip (`src/__tests__/roundtrip.test.ts`) | Relay/consumer run only against `MemoryRedis` so far; smoke against real Redis + Postgres once `packages/db` migrations land (column names assumed from BUILD §7.2: `events(id, business_id, type, occurred_at, actor, entity_ids, payload, narrated)`, `outbox(event_id, published_at)`) |
 | 0.6 | Temporal local + orchestrator hello workflow; gateway skeleton with Cedar + one mock connector | ☐ | | | |
 | 0.7 | Envelope encryption utility (KMS + libsodium) | ☐ | `packages/shared/src/crypto` | | |
-| 0.8 | Seed script with two demo businesses (§17.2) | ☐ | `packages/db/src/seed` | | |
+| 0.8 | Seed script with two demo businesses (§17.2) | ☐ | `packages/db/src/seed` | | `src/seed.ts` is a placeholder that prints "seed not implemented yet" |
 
-**Gate 0:** ☐ shell renders seeded data at 1440 px · ☐ NeedsLargerWindow below 1280 px · ☐ cross-tenant tests pass · ☐ outbox → stream round trip test · ☐ gateway denies a hard-gate tool in a policy test · ☐ Storybook builds
+**Gate 0:** ☐ shell renders seeded data at 1440 px · ☐ NeedsLargerWindow below 1280 px · ☑ cross-tenant tests pass (PGlite) · ☐ outbox → stream round trip test · ☐ gateway denies a hard-gate tool in a policy test · ☑ Storybook builds (foundation stage, 2026-10-05)
 
 ## Phase 1 — Core loop (BUILD §16.2)
 
@@ -44,3 +44,9 @@ Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
 | Supabase project `foundermanager` (EU, Stockholm) | ☑ | created by the human; CLI linked |
 | Railway project `founder-manager` | ☑ | created 2026-10-05; services pending |
 | Vercel project | ☐ | |
+
+## Build wave — packages
+
+| Package | Status | Files | Tests | Open issues |
+| --- | --- | --- | --- | --- |
+| `packages/policy` (Cedar) | ☑ | `src/schema.ts`, `src/policies/*.cedar` (8 files, 15 policies), `src/policies/index.ts`, `src/cedar.ts`, `src/evaluate.ts`, `src/types.ts` | 151 Vitest tests: every rule × every mode, hard gates unliftable, suppression, untrusted recipient, caps boundary, AC-11.8.5, kit mode, fail-closed | Gate 0 "gateway denies a hard-gate tool in a policy test" is covered here; `apps/gateway` must call `evaluate()` and map `deny` on `hard-gate` to a founder task |

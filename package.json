@@ -1,10 +1,12 @@
 {
-  "name": "founder-manager",
+  "name": "foundmill",
   "private": true,
   "version": "0.1.0",
-  "description": "Founder Manager (working title): the agent platform where any founder builds a real business end to end with a squad of AI agents.",
+  "description": "Foundmill: the agent platform where any founder builds a real business end to end with a squad of AI agents.",
   "packageManager": "pnpm@12.9.1",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",

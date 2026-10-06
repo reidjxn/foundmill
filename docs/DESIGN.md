@@ -1,6 +1,6 @@
 # DESIGN.md — Dugout art direction
 
-Dugout is the design system of Founder Manager (`packages/dugout`). This document is the taste. `docs/BUILD.md` §5 is the contract (tokens, components, keyboard); this file says how it must *feel* and look. When the two seem to disagree, BUILD.md wins on facts and this file wins on aesthetics.
+Dugout is the design system of Foundmill (`packages/dugout`). This document is the taste. `docs/BUILD.md` §5 is the contract (tokens, components, keyboard); this file says how it must *feel* and look. When the two seem to disagree, BUILD.md wins on facts and this file wins on aesthetics.
 
 ## 1. The feeling
 

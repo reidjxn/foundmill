@@ -1,6 +1,6 @@
-# CLAUDE.md — Founder Manager
+# CLAUDE.md — Foundmill
 
-You are building Founder Manager (working title; use APP_NAME from packages/config). The full build plan is docs/BUILD.md. Read the relevant section before every task.
+You are building Foundmill (always via APP_NAME from packages/config). The full build plan is docs/BUILD.md. Read the relevant section before every task.
 
 ## Product vocabulary
 Business = club. Founder = manager. Agents = squad. Human team = staff. Chief of Staff agent = assistant manager. Customer won (signup, activation, payment) = match. Quarter = season/chapter. Brand colours = kit. Logo = crest. Departments are labels over modules; never hard-code a department name.
