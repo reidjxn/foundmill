@@ -1,11 +1,12 @@
 /* Dugout tokens — BUILD §5.1 plus DESIGN.md additions. The only file in the repo allowed to contain colour literals. */
 :root {
-  /* Surfaces */
+  /* Surfaces (DESIGN §3 luminance ladder) */
   --bg-base: #0f1318;
   --bg-panel: #171c23;
   --bg-panel-alt: #1d232b;
   --bg-ink: #0b0e12;
   --line-subtle: #2a313b;
+  --white: #ffffff;
 
   /* Text */
   --text-primary: #e8ecf1;
@@ -27,7 +28,9 @@
   /* Kit (overwritten per business by AppShell) */
   --kit-primary: #2b6cb0;
   --kit-secondary: #ffffff;
-  --kit-on-primary: #ffffff; /* computed: white or near-black by APCA Lc >= 75 */
+  --kit-on-primary: #ffffff; /* computed: white or near-black by APCA Lc >= 75 (lib/colour kitOnPrimary) */
+  --on-kit-light: #ffffff; /* the two candidates kitOnPrimary chooses between */
+  --on-kit-dark: #0f1318;
 
   /* Department colours */
   --dept-1: #5b8cff;
@@ -48,8 +51,15 @@
   --radius-chip: 3px;
   --row-compact: 28px;
   --row-comfortable: 34px;
+  --control-sm: 28px; /* buttons sm */
+  --control-md: 32px; /* buttons md, inputs */
+  --chip-height: 20px; /* chips and status pills */
+  --icon-size: 16px;
+  --icon-size-inline: 14px;
+  --icon-size-empty: 20px;
+  --icon-stroke: 1.75;
 
-  /* Layout */
+  /* Layout (DESIGN §6) */
   --sidebar-width: 232px;
   --sidebar-width-collapsed: 64px;
   --kitbar-height: 56px;
@@ -59,22 +69,57 @@
   --panel-header-height: 32px;
   --panel-padding: 12px;
   --gutter: 16px;
+  --reading-measure: 640px;
   --min-viewport: 1280px;
 
-  /* Type */
+  /* Type families */
   --font-display: "Barlow Semi Condensed", system-ui, sans-serif;
   --font-body: "Inter", system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
 
-  /* Motion */
+  /* Type scale (DESIGN §4): size / line-height / tracking */
+  --fs-display-xl: 40px;
+  --lh-display-xl: 44px;
+  --fs-display-lg: 28px;
+  --lh-display-lg: 32px;
+  --fs-display-md: 20px;
+  --lh-display-md: 24px;
+  --fs-display-sm: 15px;
+  --lh-display-sm: 20px;
+  --fs-tab: 13px;
+  --lh-tab: 16px;
+  --ls-tab: 0.04em;
+  --fs-label: 11px;
+  --lh-label: 14px;
+  --ls-label: 0.06em;
+  --fs-body: 13px;
+  --lh-body: 19px;
+  --fs-reading: 15px;
+  --lh-reading: 24px;
+  --fs-small: 12px;
+  --lh-small: 16px;
+  --fs-mono: 12px;
+  --lh-mono: 18px;
+  --fw-display: 600;
+  --fw-body: 400;
+  --fw-body-strong: 500;
+
+  /* Motion (DESIGN §7) */
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --dur-micro: 120ms;
+  --dur-hover-card: 160ms;
   --dur-panel: 200ms;
   --dur-view: 320ms;
+  --dur-pulse: 600ms;
   --dur-ribbon: 1200ms;
+  --dur-shimmer: 1600ms;
+  --delay-hover-card: 300ms;
 
   /* Depth */
   --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.55);
   --inner-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   --backdrop: rgba(15, 19, 24, 0.72);
+  --backdrop-blur: 2px;
+  --focus-ring: 2px solid var(--accent-link);
+  --focus-offset: 1px;
 }

@@ -1,0 +1,9 @@
+export { sourcingManufacturing } from "./sourcing_manufacturing";
+export { formulationChemist } from "./formulation_chemist";
+export { pharmacologyRegulatory } from "./pharmacology_regulatory";
+export { certification } from "./certification";
+export { packagingDesign } from "./packaging_design";
+export { quality } from "./quality";
+export { logistics } from "./logistics";
+export { costing } from "./costing";
+export { defineSpecialistTemplate, SPECIALIST_PLATFORM_TOOLS } from "./_specialist";

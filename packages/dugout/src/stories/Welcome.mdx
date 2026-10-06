@@ -1,0 +1,57 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Dugout/Welcome" />
+
+# Dugout
+
+Dugout is the design system of Founder Manager. **A broadcast control room at night, built for one manager**: dark slate, machined panels, condensed capitals, numbers that feel alive. Three words: composed, dense, alive.
+
+This Storybook holds the **foundation** layer: tokens, typography, and the primitives every heavier component (shell, data tables, journey, agents) is built from.
+
+## How to use it
+
+```ts
+// once, at the app root
+import "@founder-manager/dugout/fonts.css";
+import "@founder-manager/dugout/dugout.css";
+
+import { Button, StatusPill, Crest, cn, formatMoney } from "@founder-manager/dugout";
+```
+
+`dugout.css` imports Tailwind v4, the token sheet, and a `@theme inline` block that maps every token to a utility.
+The default Tailwind palette is removed: `bg-red-500` does not exist here, `bg-status-bad` does.
+
+| You want | Use |
+| --- | --- |
+| Surfaces | `bg-base`, `bg-panel`, `bg-panel-alt`, `bg-ink`, `surface-panel`, `surface-overlay` |
+| Text | `text-primary`, `text-secondary`, `text-link`, `text-disabled` |
+| Hairlines | `border-subtle`, `divide-subtle`, `hairline-50` |
+| Status | `text-status-good`, `bg-status-warn/12`, `StatusPill` |
+| Rating ramp | `text-rating-1` … `text-rating-4`, `ratingClass(n)` |
+| Kit | `bg-kit-primary`, `text-kit-on-primary`, `border-kit-secondary` |
+| Departments | `bg-dept-1` … `bg-dept-8`, `deptColourVar("dept-3")` |
+| Type | `t-display-xl`, `t-display-lg`, `t-display-md`, `t-display-sm`, `t-tab`, `t-label`, `t-body`, `t-body-strong`, `t-reading`, `t-small`, `t-mono` |
+| Sizes | `h-control-sm` (28), `h-control-md` (32), `h-chip` (20), `h-row-compact` (28), `h-row-comfortable` (34), `w-sidebar`, `w-rail` |
+| Motion | `ease-dugout`, `duration-micro`, `duration-panel`, `duration-view`, `animate-shimmer`, `animate-rise-in` |
+
+## Rules that are enforced here
+
+- **Tokens only.** No hex outside `tokens.css`. No arbitrary colour values in class names (the compiled CSS is checked for leaked literals).
+- **Lucide only.** 16 px default, 14 px inline, 20 px in empty states, stroke 1.75 — `<Icon icon={Search} />` does this for you.
+- **Colour is never the only signal.** Pills carry an icon and a word, ratings carry a number, deltas carry an arrow.
+- **Reduced motion** turns every animation into an instant state change. The global rule in `dugout.css` handles CSS; `usePrefersReducedMotion()` handles JS.
+- **Desktop only.** Reference 1440 px, minimum 1280 px.
+- **Kit colours with restraint.** `variant="primary"` on a Button is the kit colour; use it only where DESIGN §5 allows.
+
+## Library
+
+- `cn()` — clsx + tailwind-merge.
+- `format*` — numbers, compact numbers, percent, money (via `@founder-manager/shared`), dates, relative time, durations, deltas, initials.
+- `ratingTone / ratingClass / ratingCells` — the 1–20 ramp.
+- `kitOnPrimary(hex)` — white or near-black by APCA Lc ≥ 75 (APCA 0.1.9 formula, tested against reference values).
+- `createRng(seed)` / `mulberry32` — deterministic randomness for crests, avatars and mock data.
+- `usePrefersReducedMotion()`.
+
+## Second stage
+
+`shell`, `data`, `journey` and `agents` barrels are empty on purpose. The next wave of agents fills them with AppShell, DataTable, JourneyRibbon, AgentTile and friends, built from these primitives.

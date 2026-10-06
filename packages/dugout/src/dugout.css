@@ -1,0 +1,441 @@
+/*
+ * Dugout — the design system stylesheet (BUILD §5, docs/DESIGN.md).
+ * Import order for an app: fonts.css, then this file (which imports tokens.css).
+ * Every colour comes from tokens.css; the default Tailwind palette is removed so
+ * `bg-red-500` and friends do not exist. Use the token utilities below.
+ */
+@import "tailwindcss";
+@import "./tokens.css";
+
+/* Components in this package and in the packages built on top of it. Paths are relative to this file. */
+@source "./components";
+@source "./stories";
+@source "../.storybook";
+
+/* Remove the default palette: tokens only (DESIGN §2). */
+@theme {
+  --color-*: initial;
+  --breakpoint-*: initial;
+  --breakpoint-desktop: 1280px;
+  --breakpoint-wide: 1440px;
+}
+
+/* Map tokens to utilities. `inline` so the utilities read the live variable (kit colours are swapped per business). */
+@theme inline {
+  /* Surfaces → bg-base, bg-panel, bg-panel-alt, bg-ink */
+  --color-base: var(--bg-base);
+  --color-panel: var(--bg-panel);
+  --color-panel-alt: var(--bg-panel-alt);
+  --color-ink: var(--bg-ink);
+  --color-white: var(--white);
+
+  /* Text → text-primary, text-secondary */
+  --color-primary: var(--text-primary);
+  --color-secondary: var(--text-secondary);
+
+  /* Hairline → border-subtle, divide-subtle, bg-subtle */
+  --color-subtle: var(--line-subtle);
+
+  /* Links → text-link / text-accent-link */
+  --color-link: var(--accent-link);
+  --color-accent-link: var(--accent-link);
+
+  /* Status → text-status-good, bg-status-good/12 … */
+  --color-status-good: var(--status-good);
+  --color-status-warn: var(--status-warn);
+  --color-status-bad: var(--status-bad);
+  --color-status-info: var(--status-info);
+
+  /* Rating ramp → text-rating-1 … text-rating-4 */
+  --color-rating-1: var(--rating-1);
+  --color-rating-2: var(--rating-2);
+  --color-rating-3: var(--rating-3);
+  --color-rating-4: var(--rating-4);
+
+  /* Kit → bg-kit-primary, text-kit-on-primary, border-kit-secondary */
+  --color-kit-primary: var(--kit-primary);
+  --color-kit-secondary: var(--kit-secondary);
+  --color-kit-on-primary: var(--kit-on-primary);
+
+  /* Departments → bg-dept-1 … bg-dept-8 */
+  --color-dept-1: var(--dept-1);
+  --color-dept-2: var(--dept-2);
+  --color-dept-3: var(--dept-3);
+  --color-dept-4: var(--dept-4);
+  --color-dept-5: var(--dept-5);
+  --color-dept-6: var(--dept-6);
+  --color-dept-7: var(--dept-7);
+  --color-dept-8: var(--dept-8);
+
+  /* Gold → text-gold, bg-gold-deep */
+  --color-gold: var(--gold);
+  --color-gold-deep: var(--gold-deep);
+
+  /* Type scale → text-display-xl … text-mono (font-size + line-height; colour stays separate) */
+  --text-display-xl: var(--fs-display-xl);
+  --text-display-xl--line-height: var(--lh-display-xl);
+  --text-display-lg: var(--fs-display-lg);
+  --text-display-lg--line-height: var(--lh-display-lg);
+  --text-display-md: var(--fs-display-md);
+  --text-display-md--line-height: var(--lh-display-md);
+  --text-display-sm: var(--fs-display-sm);
+  --text-display-sm--line-height: var(--lh-display-sm);
+  --text-tab: var(--fs-tab);
+  --text-tab--line-height: var(--lh-tab);
+  --text-label: var(--fs-label);
+  --text-label--line-height: var(--lh-label);
+  --text-body: var(--fs-body);
+  --text-body--line-height: var(--lh-body);
+  --text-reading: var(--fs-reading);
+  --text-reading--line-height: var(--lh-reading);
+  --text-small: var(--fs-small);
+  --text-small--line-height: var(--lh-small);
+  --text-mono: var(--fs-mono);
+  --text-mono--line-height: var(--lh-mono);
+  --tracking-tab: var(--ls-tab);
+  --tracking-label: var(--ls-label);
+
+  /* Overlay backdrop → bg-backdrop, backdrop-blur-dialog */
+  --color-backdrop: var(--backdrop);
+  --blur-dialog: var(--backdrop-blur);
+
+  /* Fonts → font-display, font-body, font-mono */
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+  --font-sans: var(--font-body);
+
+  /* Radii → rounded-panel, rounded-chip */
+  --radius-panel: var(--radius-panel);
+  --radius-chip: var(--radius-chip);
+
+  /* Sizes → h-row-compact, h-row-comfortable, h-control-sm, h-control-md, h-chip, w-sidebar, w-rail … */
+  --spacing-row-compact: var(--row-compact);
+  --spacing-row-comfortable: var(--row-comfortable);
+  --spacing-control-sm: var(--control-sm);
+  --spacing-control-md: var(--control-md);
+  --spacing-chip: var(--chip-height);
+  --spacing-sidebar: var(--sidebar-width);
+  --spacing-sidebar-collapsed: var(--sidebar-width-collapsed);
+  --spacing-kitbar: var(--kitbar-height);
+  --spacing-tabbar: var(--tabbar-height);
+  --spacing-rail: var(--right-rail-width);
+  --spacing-panel-header: var(--panel-header-height);
+  --spacing-panel-pad: var(--panel-padding);
+  --spacing-gutter: var(--gutter);
+  --spacing-reading: var(--reading-measure);
+  --spacing-icon: var(--icon-size);
+  --spacing-icon-inline: var(--icon-size-inline);
+  --spacing-icon-empty: var(--icon-size-empty);
+
+  /* Motion → ease-dugout, duration-micro … */
+  --ease-dugout: var(--ease);
+  --default-transition-timing-function: var(--ease);
+  --default-transition-duration: var(--dur-micro);
+
+  /* Depth → shadow-overlay, shadow-inner-highlight */
+  --shadow-overlay: var(--shadow-overlay);
+  --shadow-inner-highlight: var(--inner-highlight);
+
+  /* Animations → animate-shimmer, animate-sweep, animate-ring-pulse, animate-spin-slow */
+  --animate-shimmer: dugout-shimmer var(--dur-shimmer) linear infinite;
+  --animate-sweep: dugout-sweep var(--dur-shimmer) var(--ease) infinite;
+  --animate-ring-pulse: dugout-ring-pulse var(--dur-pulse) var(--ease) 1;
+  --animate-rise-in: dugout-rise-in var(--dur-hover-card) var(--ease);
+  --animate-fade-in: dugout-fade-in var(--dur-panel) var(--ease);
+  --animate-fade-out: dugout-fade-out var(--dur-panel) var(--ease);
+
+  @keyframes dugout-shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
+  @keyframes dugout-sweep {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes dugout-ring-pulse {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in oklab, var(--kit-primary) 60%, transparent);
+    }
+    100% {
+      box-shadow: 0 0 0 12px color-mix(in oklab, var(--kit-primary) 0%, transparent);
+    }
+  }
+  @keyframes dugout-rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes dugout-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes dugout-fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+}
+
+/* Duration utilities for the named token durations → duration-micro, duration-panel, duration-view, duration-ribbon */
+@utility duration-micro {
+  transition-duration: var(--dur-micro);
+}
+@utility duration-hover-card {
+  transition-duration: var(--dur-hover-card);
+}
+@utility duration-panel {
+  transition-duration: var(--dur-panel);
+}
+@utility duration-view {
+  transition-duration: var(--dur-view);
+}
+@utility duration-ribbon {
+  transition-duration: var(--dur-ribbon);
+}
+
+/* ---------- Base ---------- */
+@layer base {
+  html {
+    color-scheme: dark;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    font-size: var(--fs-body);
+    line-height: var(--lh-body);
+    font-weight: var(--fw-body);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "cv11", "ss01";
+  }
+  body {
+    min-height: 100%;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    overflow-x: hidden;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--accent-link) 35%, transparent);
+    color: var(--text-primary);
+  }
+  ::placeholder {
+    color: var(--text-secondary);
+    opacity: 1;
+  }
+  /* Scrollbars: 6 px, thumb hairline, track transparent (DESIGN §3) */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-subtle) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--line-subtle);
+    border-radius: 3px;
+  }
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  /* Focus: 2 px accent outline, 1 px offset, keyboard only */
+  :focus {
+    outline: none;
+  }
+  :focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: var(--focus-offset);
+  }
+  a {
+    color: var(--accent-link);
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+    font-size: var(--fs-mono);
+    line-height: var(--lh-mono);
+  }
+  hr {
+    border-color: var(--line-subtle);
+  }
+  /* Reduced motion: every animation becomes an instant state change with identical information (DESIGN §2) */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ---------- Typography utilities (DESIGN §4) ---------- */
+@utility t-display-xl {
+  font-family: var(--font-display);
+  font-weight: var(--fw-display);
+  font-size: var(--fs-display-xl);
+  line-height: var(--lh-display-xl);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+@utility t-display-lg {
+  font-family: var(--font-display);
+  font-weight: var(--fw-display);
+  font-size: var(--fs-display-lg);
+  line-height: var(--lh-display-lg);
+  font-variant-numeric: tabular-nums;
+}
+@utility t-display-md {
+  font-family: var(--font-display);
+  font-weight: var(--fw-display);
+  font-size: var(--fs-display-md);
+  line-height: var(--lh-display-md);
+}
+@utility t-display-sm {
+  font-family: var(--font-display);
+  font-weight: var(--fw-display);
+  font-size: var(--fs-display-sm);
+  line-height: var(--lh-display-sm);
+}
+@utility t-tab {
+  font-family: var(--font-display);
+  font-weight: var(--fw-display);
+  font-size: var(--fs-tab);
+  line-height: var(--lh-tab);
+  letter-spacing: var(--ls-tab);
+  text-transform: uppercase;
+}
+@utility t-tab-sm {
+  /* button labels: tab style at 12 px (DESIGN §6) */
+  font-family: var(--font-display);
+  font-weight: var(--fw-display);
+  font-size: var(--fs-small);
+  line-height: var(--lh-small);
+  letter-spacing: var(--ls-tab);
+  text-transform: uppercase;
+}
+@utility t-label {
+  font-family: var(--font-display);
+  font-weight: var(--fw-display);
+  font-size: var(--fs-label);
+  line-height: var(--lh-label);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+@utility t-body {
+  font-family: var(--font-body);
+  font-weight: var(--fw-body);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+}
+@utility t-body-strong {
+  font-family: var(--font-body);
+  font-weight: var(--fw-body-strong);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+}
+@utility t-reading {
+  font-family: var(--font-body);
+  font-weight: var(--fw-body);
+  font-size: var(--fs-reading);
+  line-height: var(--lh-reading);
+  max-width: var(--reading-measure);
+}
+@utility t-small {
+  font-family: var(--font-body);
+  font-weight: var(--fw-body);
+  font-size: var(--fs-small);
+  line-height: var(--lh-small);
+}
+@utility t-mono {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-body);
+  font-size: var(--fs-mono);
+  line-height: var(--lh-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* `tabular-nums` is a built-in Tailwind utility; `tabular` is the short Dugout alias used in tables. */
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Panel surface (DESIGN §3): bg-panel, hairline, 4 px radius, inner highlight, no drop shadow */
+@utility surface-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--inner-highlight);
+}
+
+/* Overlay surface (menus, hover cards, dialogs): raised, hairline, overlay shadow */
+@utility surface-overlay {
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-overlay);
+}
+
+/* Shimmer for skeletons and the processing strip: bg-panel-alt with a travelling 1.6 s gradient */
+@utility shimmer {
+  background-color: var(--bg-panel-alt);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklab, var(--white) 4%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: dugout-shimmer var(--dur-shimmer) linear infinite;
+}
+
+/* Hairline row divider at 50 % (table rows) */
+@utility hairline-50 {
+  border-color: color-mix(in oklab, var(--line-subtle) 50%, transparent);
+}
+
+/* Disabled text: text-secondary at 50 % */
+@utility text-disabled {
+  color: color-mix(in oklab, var(--text-secondary) 50%, transparent);
+}

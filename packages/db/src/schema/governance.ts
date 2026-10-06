@@ -1,0 +1,209 @@
+/** 0011 — integrations, credentials, webhooks, policies, approvals, audit log, events, outbox. */
+import { ACTOR_KINDS, CONNECTOR_AUTH_KINDS, INTEGRATION_STATUSES } from "@founder-manager/shared";
+import { sql } from "drizzle-orm";
+import { bigint, boolean, index, integer, jsonb, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { bytea, createdAt, emptyArray, emptyObject, id, timestamps, timestampsWithArchive, tstz } from "./_common";
+import { businessId } from "./_refs";
+import { agentSessions, agents } from "./agents";
+import { inboxItems, planActions } from "./inbox";
+
+export const POLICY_SCOPES = ["business", "department", "agent"] as const;
+export const APPROVAL_OUTCOMES = ["approved", "rejected", "expired"] as const;
+export const APPROVAL_BY_KINDS = ["user", "chief_of_staff", "system"] as const;
+export const WEBHOOK_STATUSES = ["active", "paused", "failed"] as const;
+
+export const integrations = pgTable(
+  "integrations",
+  {
+    id: id(),
+    businessId: businessId(),
+    connectorKey: text("connector_key").notNull(),
+    status: text("status", { enum: INTEGRATION_STATUSES }).notNull().default("disconnected"),
+    authKind: text("auth_kind", { enum: CONNECTOR_AUTH_KINDS }),
+    scopes: text("scopes").array().notNull().default(emptyArray),
+    accountLabel: text("account_label"),
+    settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default(emptyObject),
+    lastHealthAt: tstz("last_health_at"),
+    lastError: text("last_error"),
+    connectedBy: uuid("connected_by"),
+    ...timestampsWithArchive(),
+  },
+  (t) => [
+    uniqueIndex("integrations_business_id_connector_key_key").on(t.businessId, t.connectorKey),
+    index("integrations_business_id_idx").on(t.businessId),
+    index("integrations_status_idx").on(t.businessId, t.status),
+  ],
+);
+export type Integration = typeof integrations.$inferSelect;
+export type NewIntegration = typeof integrations.$inferInsert;
+
+/** Only service_role may read or write this table (see 0011). Never expose through tRPC. */
+export const credentials = pgTable(
+  "credentials",
+  {
+    id: id(),
+    businessId: businessId(),
+    integrationId: uuid("integration_id").notNull().references(() => integrations.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull().default("secret"),
+    ciphertext: bytea("ciphertext").notNull(),
+    dataKeyCiphertext: bytea("data_key_ciphertext").notNull(),
+    kmsKeyId: text("kms_key_id").notNull(),
+    nonce: bytea("nonce"),
+    expiresAt: tstz("expires_at"),
+    rotatedAt: tstz("rotated_at"),
+    ...timestampsWithArchive(),
+  },
+  (t) => [
+    index("credentials_business_id_idx").on(t.businessId),
+    index("credentials_integration_id_idx").on(t.integrationId),
+    index("credentials_expires_at_idx").on(t.expiresAt).where(sql`${t.expiresAt} is not null`),
+  ],
+);
+export type Credential = typeof credentials.$inferSelect;
+export type NewCredential = typeof credentials.$inferInsert;
+
+export const webhooks = pgTable(
+  "webhooks",
+  {
+    id: id(),
+    businessId: businessId(),
+    integrationId: uuid("integration_id").references(() => integrations.id, { onDelete: "cascade" }),
+    connectorKey: text("connector_key").notNull(),
+    externalId: text("external_id"),
+    secretRef: uuid("secret_ref").references(() => credentials.id, { onDelete: "set null" }),
+    endpointPath: text("endpoint_path").notNull(),
+    events: text("events").array().notNull().default(emptyArray),
+    status: text("status", { enum: WEBHOOK_STATUSES }).notNull().default("active"),
+    lastReceivedAt: tstz("last_received_at"),
+    ...timestampsWithArchive(),
+  },
+  (t) => [
+    index("webhooks_business_id_idx").on(t.businessId),
+    index("webhooks_integration_id_idx").on(t.integrationId),
+    index("webhooks_connector_external_idx").on(t.connectorKey, t.externalId),
+    index("webhooks_secret_ref_idx").on(t.secretRef),
+  ],
+);
+export type Webhook = typeof webhooks.$inferSelect;
+export type NewWebhook = typeof webhooks.$inferInsert;
+
+export const policies = pgTable(
+  "policies",
+  {
+    id: id(),
+    businessId: businessId(),
+    scope: text("scope", { enum: POLICY_SCOPES }).notNull(),
+    scopeId: uuid("scope_id"),
+    name: text("name").notNull().default(""),
+    cedarText: text("cedar_text").notNull(),
+    version: integer("version").notNull().default(1),
+    enabled: boolean("enabled").notNull().default(true),
+    createdBy: uuid("created_by"),
+    ...timestampsWithArchive(),
+  },
+  (t) => [index("policies_business_id_idx").on(t.businessId), index("policies_scope_idx").on(t.businessId, t.scope, t.scopeId).where(sql`${t.enabled}`)],
+);
+export type Policy = typeof policies.$inferSelect;
+export type NewPolicy = typeof policies.$inferInsert;
+
+export const approvals = pgTable(
+  "approvals",
+  {
+    id: id(),
+    businessId: businessId(),
+    planActionId: uuid("plan_action_id").references((): AnyPgColumn => planActions.id, { onDelete: "set null" }),
+    agentId: uuid("agent_id").references((): AnyPgColumn => agents.id, { onDelete: "set null" }),
+    sessionId: uuid("session_id").references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
+    inboxItemId: uuid("inbox_item_id").references((): AnyPgColumn => inboxItems.id, { onDelete: "set null" }),
+    connectorKey: text("connector_key"),
+    tool: text("tool"),
+    args: jsonb("args").$type<Record<string, unknown>>().notNull().default(emptyObject),
+    reasons: text("reasons").array().notNull().default(emptyArray),
+    requestedAt: tstz("requested_at").notNull().defaultNow(),
+    resolvedAt: tstz("resolved_at"),
+    outcome: text("outcome", { enum: APPROVAL_OUTCOMES }),
+    byKind: text("by_kind", { enum: APPROVAL_BY_KINDS }),
+    byId: uuid("by_id"),
+    ...timestamps(),
+  },
+  (t) => [
+    index("approvals_business_id_idx").on(t.businessId, t.requestedAt),
+    index("approvals_pending_idx").on(t.businessId).where(sql`${t.resolvedAt} is null`),
+    index("approvals_plan_action_id_idx").on(t.planActionId),
+    index("approvals_agent_id_idx").on(t.agentId),
+    index("approvals_session_id_idx").on(t.sessionId),
+    index("approvals_inbox_item_id_idx").on(t.inboxItemId),
+  ],
+);
+export type Approval = typeof approvals.$inferSelect;
+export type NewApproval = typeof approvals.$inferInsert;
+
+/**
+ * Append-only, hash-chained per business. seq/prev_hash/hash are computed by the audit_log_chain
+ * trigger — pass anything (or nothing) for them on insert; updates and deletes raise.
+ */
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: id(),
+    businessId: businessId(),
+    seq: bigint("seq", { mode: "number" }).notNull().default(0),
+    actorKind: text("actor_kind", { enum: ACTOR_KINDS }).notNull(),
+    actorId: uuid("actor_id"),
+    action: text("action").notNull(),
+    target: jsonb("target").$type<Record<string, unknown>>().notNull().default(emptyObject),
+    details: jsonb("details").$type<Record<string, unknown>>().notNull().default(emptyObject),
+    prevHash: text("prev_hash"),
+    hash: text("hash").notNull().default(""),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("audit_log_business_id_seq_key").on(t.businessId, t.seq),
+    index("audit_log_business_id_idx").on(t.businessId, t.createdAt),
+    index("audit_log_actor_idx").on(t.actorKind, t.actorId),
+    index("audit_log_action_idx").on(t.businessId, t.action),
+  ],
+);
+export type AuditEntry = typeof auditLog.$inferSelect;
+export type NewAuditEntry = typeof auditLog.$inferInsert;
+
+export const events = pgTable(
+  "events",
+  {
+    id: id(),
+    businessId: businessId(),
+    type: text("type").notNull(),
+    occurredAt: tstz("occurred_at").notNull().defaultNow(),
+    actor: jsonb("actor").$type<{ kind: string; id: string }>().notNull().default(sql`'{"kind":"system","id":"platform"}'::jsonb`),
+    entityIds: uuid("entity_ids").array().notNull().default(emptyArray),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(emptyObject),
+    narrated: boolean("narrated").notNull().default(false),
+    idempotencyKey: text("idempotency_key"),
+    ...timestamps(),
+  },
+  (t) => [
+    index("events_business_id_idx").on(t.businessId, t.occurredAt),
+    index("events_type_idx").on(t.businessId, t.type, t.occurredAt),
+    index("events_unnarrated_idx").on(t.businessId, t.occurredAt).where(sql`not ${t.narrated}`),
+    index("events_entity_ids_idx").using("gin", t.entityIds),
+    uniqueIndex("events_idempotency_idx").on(t.businessId, t.idempotencyKey).where(sql`${t.idempotencyKey} is not null`),
+  ],
+);
+export type Event = typeof events.$inferSelect;
+export type NewEvent = typeof events.$inferInsert;
+
+export const outbox = pgTable(
+  "outbox",
+  {
+    id: id(),
+    businessId: businessId(),
+    eventId: uuid("event_id").notNull().unique().references(() => events.id, { onDelete: "cascade" }),
+    publishedAt: tstz("published_at"),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    ...timestamps(),
+  },
+  (t) => [index("outbox_business_id_idx").on(t.businessId), index("outbox_unpublished_idx").on(t.createdAt).where(sql`${t.publishedAt} is null`)],
+);
+export type OutboxRow = typeof outbox.$inferSelect;
+export type NewOutboxRow = typeof outbox.$inferInsert;

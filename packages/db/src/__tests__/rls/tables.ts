@@ -1,0 +1,162 @@
+/**
+ * The single list that drives the cross-tenant suite: every business-scoped table (business_id not null)
+ * with a sample insert and its intended write posture.
+ *
+ *   member  → owner/admin/member may write (BUILD §7.1 default)
+ *   admin   → only owner/admin may write
+ *   service → app roles read only; rows are produced by services (service_role)
+ *   append  → app roles may insert, never update/delete (audit_log)
+ *
+ * Tables with a nullable business_id, user-owned tables and the social tables have their own suites.
+ */
+import { CHANNEL_KEYS } from "@founder-manager/shared";
+import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
+import * as s from "../../schema";
+import type { BusinessFixture } from "./fixtures";
+
+export type WriteMode = "member" | "admin" | "service" | "append";
+
+export type TenantTable = PgTable & { id: AnyPgColumn; businessId: AnyPgColumn };
+
+export interface TenantTableSpec {
+  name: string;
+  table: TenantTable;
+  write: WriteMode;
+  /** Insert values excluding business_id (the test adds it). Called once per insert; must produce unique rows. */
+  sample: (f: BusinessFixture) => Record<string, unknown>;
+  /** Update payload for the "can/cannot update" cases. Defaults to touching updated_at. */
+  patch?: Record<string, unknown>;
+}
+
+const counter = (() => {
+  let n = 0;
+  return () => ++n;
+})();
+const uniq = (prefix: string) => `${prefix}-${counter()}-${crypto.randomUUID().slice(0, 8)}`;
+const day = () => {
+  const n = counter();
+  return `2026-${String(1 + (n % 12)).padStart(2, "0")}-${String(1 + (n % 28)).padStart(2, "0")}`;
+};
+/** Pops one id from a fixture pool so unique-pair tables never collide across inserts. */
+const take = (pool: string[], who: string): string => {
+  const id = pool.pop();
+  if (!id) throw new Error(`${who} sample: fixture pool exhausted`);
+  return id;
+};
+
+const spec = <T extends TenantTable>(name: string, table: T, write: WriteMode, sample: TenantTableSpec["sample"], patch?: Record<string, unknown>): TenantTableSpec => ({
+  name,
+  table,
+  write,
+  sample,
+  patch,
+});
+
+export const TENANT_TABLES: TenantTableSpec[] = [
+  // 0003 product
+  spec("spec_blocks", s.specBlocks, "member", () => ({ section: "vision", position: counter() })),
+  spec("spec_versions", s.specVersions, "member", () => ({ version: counter() })),
+  spec("change_proposals", s.changeProposals, "member", (f) => ({ title: uniq("proposal"), proposedByAgentId: f.agentId })),
+  spec("roadmap_items", s.roadmapItems, "member", () => ({ title: uniq("item"), horizon: "later" })),
+  spec("roadmap_dependencies", s.roadmapDependencies, "member", (f) => ({ fromItem: f.roadmapItemId, toItem: take(f.roadmapItemIds, "roadmap_dependencies") })),
+  spec("proposal_hunks", s.proposalHunks, "member", (f) => ({ proposalId: f.proposalId, specBlockId: f.specBlockId, position: counter() })),
+  spec("sources", s.sources, "member", () => ({ kind: "doc", title: uniq("source"), uri: "https://example.test/doc" })),
+  // 0004 agents, departments, tasks
+  spec("agents", s.agents, "member", () => ({ name: uniq("agent"), agentType: "engineer" })),
+  spec("agent_versions", s.agentVersions, "member", (f) => ({ agentId: f.agentId, version: 100 + counter() })),
+  spec("departments", s.departments, "admin", () => ({ name: uniq("dept"), slug: uniq("dept") })),
+  spec("department_members", s.departmentMembers, "admin", (f) => ({ departmentId: f.departmentId, memberKind: "agent", memberId: crypto.randomUUID() })),
+  spec("screen_definitions", s.screenDefinitions, "member", (f) => ({ departmentId: f.departmentId, tabSlug: uniq("tab"), title: "Tab" })),
+  spec("agent_skills", s.agentSkills, "service", (f) => ({ agentId: f.agentId, skillKey: uniq("skill"), group: "craft", displayed: 10, potential: 15 })),
+  spec("training_runs", s.trainingRuns, "member", (f) => ({ agentId: f.agentId, fromVersionId: f.agentVersionId })),
+  spec("tasks", s.tasks, "member", (f) => ({ kind: "code", title: uniq("task"), assigneeAgentId: f.agent2Id, departmentId: f.departmentId })),
+  spec("task_edges", s.taskEdges, "member", (f) => ({ fromTask: f.taskId, toTask: take(f.taskIds, "task_edges") })),
+  spec("agent_sessions", s.agentSessions, "service", (f) => ({ agentId: f.agentId, versionId: f.agentVersionId, taskId: f.taskId })),
+  spec("agent_metrics", s.agentMetrics, "service", (f) => ({ agentId: f.agent2Id, day: day(), tasksDone: 1 })),
+  spec("playbooks", s.playbooks, "member", (f) => ({ departmentId: f.departmentId, name: uniq("playbook"), sourceText: "When x do y" })),
+  spec("holiday_periods", s.holidayPeriods, "admin", () => ({ untilAt: new Date("2026-12-24T00:00:00Z") })),
+  // 0005 inbox
+  spec("inbox_items", s.inboxItems, "member", (f) => ({ type: "update", subject: uniq("subject"), fromAgentId: f.agentId })),
+  spec("plans", s.plans, "member", (f) => ({ origin: "free_text", inboxItemId: f.inboxItemId })),
+  spec("decisions", s.decisions, "member", (f) => ({ inboxItemId: f.inboxItemId, chosenOption: "a", planId: f.planId })),
+  spec("plan_actions", s.planActions, "member", (f) => ({ planId: f.planId, type: "reply_only", position: counter() })),
+  spec("composer_buffer", s.composerBuffer, "service", () => ({ candidate: { subject: "x" }, sourceHash: uniq("hash") })),
+  // 0006 distribution
+  spec("channels", s.channels, "member", () => ({ channelKey: CHANNEL_KEYS[counter() % 14]!, line: "attack" })),
+  spec("campaigns", s.campaigns, "member", (f) => ({ channelId: f.channelId, name: uniq("campaign") })),
+  spec("assets", s.assets, "member", (f) => ({ campaignId: f.campaignId, kind: "email", title: uniq("asset") })),
+  spec("channel_metrics", s.channelMetrics, "service", (f) => ({ channelId: f.channelId, campaignId: f.campaignId, day: day(), spendMinor: 100 })),
+  // 0007 journey
+  spec("visitors", s.visitors, "service", () => ({ anonId: uniq("anon") })),
+  spec("touches", s.touches, "service", (f) => ({ visitorId: f.visitorId, channelKey: "seo", campaignId: f.campaignId })),
+  spec("conversions", s.conversions, "service", (f) => ({ entityId: f.entityId, kind: "signup" })),
+  spec("journeys", s.journeys, "service", (f) => {
+    const conversionId = f.conversionIds.pop();
+    if (!conversionId) throw new Error("journeys sample: out of fixture conversions");
+    return { conversionId, matchdayLevel: "friendly" };
+  }),
+  spec("milestones", s.milestones, "member", () => ({ kind: "customer", label: uniq("milestone") })),
+  // 0008 crm
+  spec("entities", s.entities, "member", () => ({ kind: "person", displayName: uniq("Person"), identifiers: { email: `${uniq("p")}@x.test` } })),
+  spec("entity_roles", s.entityRoles, "member", (f) => ({ entityId: f.entityId, role: "lead", stage: "new" })),
+  spec("relationships", s.relationships, "member", (f) => ({ fromEntity: f.entityId, toEntity: f.entity2Id, type: uniq("works_at") })),
+  spec("interactions", s.interactions, "member", (f) => ({ kind: "note", entityIds: [f.entityId], summary: "Spoke on the phone" })),
+  spec("mentions", s.mentions, "member", (f) => ({ entityId: f.entityId, containerKind: "inbox_item", containerId: crypto.randomUUID() })),
+  spec("field_provenance", s.fieldProvenance, "member", (f) => ({ entityId: f.entityId, field: "email", source: "import" })),
+  spec("merge_log", s.mergeLog, "member", (f) => ({ keptId: f.entityId, mergedId: crypto.randomUUID() })),
+  // 0009 finance
+  spec("accounts", s.accounts, "admin", () => ({ provider: "mock_bank", externalId: uniq("acct"), name: "Ops" })),
+  spec("transactions", s.transactions, "member", (f) => ({ accountId: f.accountId, externalId: uniq("tx"), bookedAt: new Date(), amountMinor: -1200 })),
+  spec("ledger_snapshots", s.ledgerSnapshots, "member", () => ({ period: uniq("2026-01"), basis: "cash" })),
+  spec("forecasts", s.forecasts, "member", (f) => ({ scenario: "base", generatedByAgentId: f.agentId })),
+  spec("securities", s.securities, "admin", () => ({ class: uniq("Series"), kind: "preferred" })),
+  spec("cap_table_entries", s.capTableEntries, "admin", (f) => ({ holderEntityId: f.entityId, securityId: f.securityId, quantity: "1000" })),
+  spec("usage_ledger", s.usageLedger, "service", (f) => ({ agentId: f.agentId, sessionId: f.sessionId, kind: "tokens", quantity: 500, costMinor: 3 })),
+  spec("credit_balances", s.creditBalances, "service", () => ({ period: uniq("2026-02"), balanceMinor: 10000 })),
+  // 0010 legal
+  spec("legal_entities", s.legalEntities, "admin", () => ({ jurisdiction: "GB", entityType: "ltd", legalName: uniq("Legal") })),
+  spec("incorporations", s.incorporations, "admin", (f) => ({ legalEntityId: f.legalEntityId, route: "kit" })),
+  spec("filings", s.filings, "member", (f) => ({ legalEntityId: f.legalEntityId, kind: "confirmation_statement", dueAt: new Date() })),
+  spec("contracts", s.contracts, "member", (f) => ({ counterpartyEntityId: f.entity2Id, kind: "supplier" })),
+  spec("compliance_events", s.complianceEvents, "member", (f) => ({ legalEntityId: f.legalEntityId, kind: "vat_return", dueAt: new Date() })),
+  // 0011 integrations & governance (credentials has its own suite)
+  spec("integrations", s.integrations, "admin", () => ({ connectorKey: uniq("connector") })),
+  spec("webhooks", s.webhooks, "admin", (f) => ({ integrationId: f.integrationId, connectorKey: "stripe", endpointPath: uniq("/webhooks/stripe") })),
+  spec("policies", s.policies, "admin", () => ({ scope: "business", cedarText: "permit(principal, action, resource);" })),
+  spec("approvals", s.approvals, "member", (f) => ({ planActionId: f.planActionId, agentId: f.agentId, tool: "stripe.refund" })),
+  spec("audit_log", s.auditLog, "append", () => ({ actorKind: "user", action: uniq("action") }), { details: { tampered: true } }),
+  spec("events", s.events, "member", () => ({ type: "task.started", payload: { n: counter() } })),
+  spec("outbox", s.outbox, "member", (f) => {
+    const eventId = f.eventIds.pop();
+    if (!eventId) throw new Error("outbox sample: out of fixture events");
+    return { eventId };
+  }),
+];
+
+/** Keeps the catalogue honest: every spec must name the table its Drizzle object points at. */
+export const expectedTableNames = () => TENANT_TABLES.map((t) => t.name);
+
+// Kept for the schema-mirror test, which must know which tables deliberately sit outside this list.
+export const NON_TENANT_TABLES = [
+  "memberships",
+  "businesses",
+  "founder_profiles",
+  "ideas",
+  "idea_versions",
+  "idea_comparisons",
+  "dashboard_layouts",
+  "skill_definitions",
+  "skill_tests",
+  "suppression_list",
+  "credentials",
+  "connections",
+  "message_threads",
+  "messages",
+  "communities",
+  "community_members",
+  "posts",
+  "leaderboards",
+  "leaderboard_entries",
+  "negotiation_threads",
+] as const;
+

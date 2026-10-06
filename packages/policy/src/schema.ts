@@ -1,0 +1,82 @@
+/**
+ * The Cedar schema (JSON format) for the tool-call policy (BUILD §9.5, ARCHITECTURE §7).
+ * One action, `Action::"call"`, from an `Agent` to a `Tool`. Agents are members of their `Business`.
+ * Every attribute a policy reads is `required` so that evaluation can never hit a missing-attribute error;
+ * src/types.ts supplies the defaults. Optional context attributes are informational only.
+ */
+import type { SchemaJson } from "@cedar-policy/cedar-wasm/nodejs";
+
+export const CEDAR_NAMESPACE = "";
+
+const str = { type: "String" } as const;
+const bool = { type: "Boolean" } as const;
+const long = { type: "Long" } as const;
+
+export const CEDAR_SCHEMA: SchemaJson<string> = {
+  [CEDAR_NAMESPACE]: {
+    entityTypes: {
+      Agent: {
+        memberOfTypes: ["Business"],
+        shape: {
+          type: "Record",
+          attributes: {
+            department: str,
+            type: str,
+            modelKey: str,
+            autonomy: str,
+            /** Effective mode for this agent: business mode unless the agent's autonomy overrides it. */
+            businessMode: str,
+            spendCapMinor: long,
+            approvalThresholdMinor: long,
+          },
+        },
+      },
+      Tool: {
+        shape: {
+          type: "Record",
+          attributes: {
+            connector: str,
+            name: str,
+            spendsMoney: bool,
+            contactsThirdParty: bool,
+            requiresKitMode: bool,
+            irreversible: bool,
+            hardGate: bool,
+            finance: bool,
+            contract: bool,
+          },
+        },
+      },
+      Business: {
+        shape: {
+          type: "Record",
+          attributes: {
+            businessMode: str,
+            holidayActive: bool,
+          },
+        },
+      },
+    },
+    actions: {
+      call: {
+        appliesTo: {
+          principalTypes: ["Agent"],
+          resourceTypes: ["Tool"],
+          context: {
+            type: "Record",
+            attributes: {
+              amountMinor: long,
+              recipient: { ...str, required: false },
+              recipientFirstSeenInUntrusted: bool,
+              recipientCountry: { ...str, required: false },
+              localTimeAtRecipient: { ...str, required: false },
+              suppressed: bool,
+              holidayActive: bool,
+              kitMode: bool,
+            },
+          },
+        },
+      },
+    },
+  },
+};

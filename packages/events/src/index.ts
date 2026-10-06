@@ -1,2 +1,16 @@
-// @founder-manager/events — see docs/ARCHITECTURE.md
-export {};
+// @founder-manager/events — event catalogue, transactional outbox, Redis relay, consumers, session streams.
+// See docs/ARCHITECTURE.md §5 and BUILD §8.
+export * from "./catalogue";
+export * from "./keys";
+export * from "./redis";
+export * from "./outbox/writer";
+export * from "./outbox/relay";
+export * from "./consume";
+export * from "./session-stream";
+export {
+  MemoryRedis,
+  MemoryStore,
+  RedisReplyError,
+  createMemoryRedisWithClock,
+} from "./testing/memory-redis";
+export type { MemoryRedisOptions } from "./testing/memory-redis";

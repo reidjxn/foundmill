@@ -1,0 +1,145 @@
+/**
+ * Model prices and metering (BUILD §10.4, docs/ARCHITECTURE.md §6).
+ *
+ * Prices are CONFIG, not facts: they are list prices per million tokens as published by Anthropic on `PRICING_AS_OF`
+ * and every number derived from them is an **Estimate** (BUILD §2.1 rule 6). The founder's invoice from Anthropic is
+ * the only real cost. Update this table when prices change and bump `PRICING_AS_OF`.
+ *
+ * Arithmetic is done in integer micro-minor-units (1e-6 of a cent) so that thousands of tiny Haiku calls sum without
+ * drift; callers writing `usage_ledger.cost_minor` should store `costMinorInt` per row and, when aggregating many rows,
+ * sum `costMicroMinor` and round once.
+ */
+import { MODELS, type ModelId } from "./routing";
+import type { TokenUsage } from "./types";
+
+export const PRICING_CURRENCY = "USD" as const;
+export const PRICING_LABEL = "Estimate" as const;
+export const PRICING_AS_OF = "2026-10-05";
+
+/** Message Batches API bills at 50% of the standard price. */
+export const BATCH_DISCOUNT = 0.5;
+
+export interface ModelPrice {
+  /** USD per million uncached input tokens. */
+  inputPerMTok: number;
+  /** USD per million output tokens. */
+  outputPerMTok: number;
+  /** USD per million tokens written to the 5-minute prompt cache (1.25x input). */
+  cacheWritePerMTok: number;
+  /** USD per million tokens read from the prompt cache. */
+  cacheReadPerMTok: number;
+  /** Human label for settings screens. */
+  displayName: string;
+}
+
+export const MODEL_PRICING: Record<ModelId, ModelPrice> = {
+  [MODELS.opus]: { displayName: "Claude Opus 5.5", inputPerMTok: 4, outputPerMTok: 20, cacheWritePerMTok: 5, cacheReadPerMTok: 0.2 },
+  [MODELS.sonnet]: { displayName: "Claude Sonnet 5.5", inputPerMTok: 2, outputPerMTok: 10, cacheWritePerMTok: 2.5, cacheReadPerMTok: 0.2 },
+  [MODELS.haiku]: { displayName: "Claude Haiku 4.5", inputPerMTok: 1, outputPerMTok: 5, cacheWritePerMTok: 1.25, cacheReadPerMTok: 0.1 },
+};
+
+export interface MeterBreakdown {
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+}
+
+export interface MeterResult {
+  modelId: ModelId;
+  currency: typeof PRICING_CURRENCY;
+  /** Exact cost in minor units (cents). May be fractional for small calls. */
+  costMinor: number;
+  /** Cost in minor units rounded half-up to an integer: what one ledger row stores. */
+  costMinorInt: number;
+  /** Cost in integer micro-minor-units (1e-6 cent) for lossless aggregation across rows. */
+  costMicroMinor: number;
+  /** Exact per-component cost in minor units. */
+  breakdown: MeterBreakdown;
+  /** Always "Estimate": list-price arithmetic, not an invoice (BUILD §2.1 rule 6). */
+  label: typeof PRICING_LABEL;
+  pricingAsOf: string;
+  batch: boolean;
+}
+
+export interface MeterOptions {
+  /** Apply the Message Batches discount. Only when the call really went through the Batches API. */
+  batch?: boolean;
+}
+
+/** USD per million tokens → integer micro-cents per token. ($4/MTok = 400 cents/MTok = 400 micro-cents per token.) */
+const microPerToken = (usdPerMTok: number): number => Math.round(usdPerMTok * 100 * 1_000_000) / 1_000_000;
+
+export function priceFor(modelId: ModelId): ModelPrice {
+  const price = MODEL_PRICING[modelId];
+  if (!price) throw new Error(`No price configured for model ${modelId}`);
+  return price;
+}
+
+/** Cost of a completion in minor units (labelled estimate). */
+export function meter(usage: TokenUsage, modelId: ModelId, opts: MeterOptions = {}): MeterResult {
+  const price = priceFor(modelId);
+  const batch = opts.batch === true;
+  const factor = batch ? BATCH_DISCOUNT : 1;
+  const nonNeg = (n: number) => (Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
+
+  const micro = {
+    input: Math.round(nonNeg(usage.inputTokens) * microPerToken(price.inputPerMTok) * factor),
+    output: Math.round(nonNeg(usage.outputTokens) * microPerToken(price.outputPerMTok) * factor),
+    cacheWrite: Math.round(nonNeg(usage.cacheCreationInputTokens) * microPerToken(price.cacheWritePerMTok) * factor),
+    cacheRead: Math.round(nonNeg(usage.cacheReadInputTokens) * microPerToken(price.cacheReadPerMTok) * factor),
+  };
+  const costMicroMinor = micro.input + micro.output + micro.cacheWrite + micro.cacheRead;
+  const toMinor = (m: number) => m / 1_000_000;
+  return {
+    modelId,
+    currency: PRICING_CURRENCY,
+    costMinor: toMinor(costMicroMinor),
+    costMinorInt: Math.round(toMinor(costMicroMinor)),
+    costMicroMinor,
+    breakdown: { input: toMinor(micro.input), output: toMinor(micro.output), cacheWrite: toMinor(micro.cacheWrite), cacheRead: toMinor(micro.cacheRead) },
+    label: PRICING_LABEL,
+    pricingAsOf: PRICING_AS_OF,
+    batch,
+  };
+}
+
+/** Sum several meter results (same currency). Rounds once at the end. */
+export function sumMeters(results: readonly MeterResult[], modelId: ModelId): MeterResult {
+  const micro = results.reduce((acc, r) => acc + r.costMicroMinor, 0);
+  const breakdown = results.reduce<MeterBreakdown>(
+    (acc, r) => ({ input: acc.input + r.breakdown.input, output: acc.output + r.breakdown.output, cacheWrite: acc.cacheWrite + r.breakdown.cacheWrite, cacheRead: acc.cacheRead + r.breakdown.cacheRead }),
+    { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 },
+  );
+  return {
+    modelId,
+    currency: PRICING_CURRENCY,
+    costMinor: micro / 1_000_000,
+    costMinorInt: Math.round(micro / 1_000_000),
+    costMicroMinor: micro,
+    breakdown,
+    label: PRICING_LABEL,
+    pricingAsOf: PRICING_AS_OF,
+    batch: results.length > 0 && results.every((r) => r.batch),
+  };
+}
+
+export const ZERO_USAGE: TokenUsage = { inputTokens: 0, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
+
+export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheCreationInputTokens: a.cacheCreationInputTokens + b.cacheCreationInputTokens,
+    cacheReadInputTokens: a.cacheReadInputTokens + b.cacheReadInputTokens,
+  };
+}
+
+/**
+ * Rough token estimate (≈ 4 characters per token for English prose and JSON). Used for rate-limit reservations and for
+ * mock-mode usage. Label anything derived from it an estimate.
+ */
+export function estimateTokens(text: string): number {
+  if (!text) return 0;
+  return Math.max(1, Math.ceil(text.length / 4));
+}
