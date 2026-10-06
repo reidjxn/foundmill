@@ -157,3 +157,11 @@ WebSocket at `/?token=<supabase access token | dev token>`. Client → server: `
 7. **Design discipline.** UI follows `docs/DESIGN.md`. Tokens only, Dugout components only, Lucide only, desktop only.
 8. **Do not commit.** The orchestrating session commits between waves.
 9. **Report** at the end: what exists, what is stubbed, commands that pass, and anything another package must know (exported names changed, contracts added).
+
+## 17. Staging deployment notes (Railway + Vercel)
+
+- Every backend service is built from the root `Dockerfile` (one image, `APP` build arg selects the package) and started with `pnpm --filter @founder-manager/<app> start`.
+- Railway's private network is IPv6-only: HTTP and WebSocket servers must listen on host `::` (not `127.0.0.1`, and prefer `::` over `0.0.0.0`). Read the port from `PORT` first (see §3).
+- Internal URLs between services use `http://<service>.railway.internal:<port>` (e.g. `GATEWAY_URL=http://gateway.railway.internal:4001`, `TEMPORAL_ADDRESS=temporal.railway.internal:7233`, `REDIS_URL` from the Railway Redis service).
+- Public URLs exist only for `api` (tRPC), `stream` (WebSocket), `ingest` (webhooks) and the Vercel-hosted `web`.
+- `web` on Vercel has root directory `apps/web`; it reads `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_STREAM_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
