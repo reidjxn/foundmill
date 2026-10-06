@@ -7,7 +7,8 @@ export const meta = {
   ],
 }
 
-const ROOT = process.env.FM_ROOT || '/Users/reidjackson/code/founder-manager'
+// Set ROOT to the absolute path of this repository on the machine running the wave.
+const ROOT = '/Users/reidjackson/code/founder-manager'
 
 const PRE = `You are one of many parallel build agents constructing Founder Manager, a large TypeScript monorepo at ${ROOT}. Work ONLY inside the directory you are assigned. Other agents are editing other packages at the same time.
 
