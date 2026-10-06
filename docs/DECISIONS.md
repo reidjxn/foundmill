@@ -179,3 +179,7 @@ With local building suspended and no Claude cloud environment on the account yet
 ## 2026-10-06 — Mock sandbox recordings are TypeScript, not JSON
 
 Recordings for the mock sandbox (`packages/sandbox/src/mock/recordings/index.ts`) are typed TypeScript objects built with small helpers and validated with `parseRecording` at module load, rather than JSON files: events are typed as `SessionEventDraft` from `@founder-manager/events`, so a recording that drifts from the session event schema fails `tsc`, and the progress values are computed from the BUILD §11.6 formula instead of being typed by hand. The bundled set covers every outcome the Training Ground has to render (done, blocked with an approval hold and a hard gate, failed with loop detection).
+
+## 2026-10-06 — Commit identity for Vercel's commit-author check
+
+The Vercel project is on a Hobby team, and Vercel blocks any deployment whose commit author it cannot match to the team owner's connected GitHub account (block code `COMMIT_AUTHOR_REQUIRED`; CLI deploys from a git checkout carry the same commit metadata and are blocked the same way). The founder's work address belongs to a different GitHub account than `reidjxn`, which owns the repository, so commits in this repo are authored as `Reid Jackson <40631036+reidjxn@users.noreply.github.com>` — GitHub's noreply address for `reidjxn`, which GitHub attributes to that account without any email verification. Set with `git config user.email` in the repo (not globally); cloud sessions and CI do not commit as the founder and are unaffected.

@@ -43,7 +43,7 @@ Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
 | GitHub repo `reidjxn/founder-manager` (private) | ☑ | created 2026-10-05 |
 | Supabase project `foundermanager` (EU, Stockholm) | ☑ | created by the human; CLI linked |
 | Railway project `founder-manager` | ☑ | created 2026-10-05; services pending |
-| Vercel project | ☐ | |
+| Vercel project `foundmill` (team fm-2f083c2b, Hobby) | ◐ | linked to `reidjxn/foundmill`, production branch `main`, root `apps/web`; foundmill.com DNS points at Vercel. Every deployment up to 2026-10-06 was blocked by the commit-author check (see DECISIONS.md "Commit identity"); first attributed commit pushed 2026-10-06 |
 
 ## Build wave — packages
 
