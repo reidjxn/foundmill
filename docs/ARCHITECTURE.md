@@ -165,3 +165,7 @@ WebSocket at `/?token=<supabase access token | dev token>`. Client → server: `
 - Internal URLs between services use `http://<service>.railway.internal:<port>` (e.g. `GATEWAY_URL=http://gateway.railway.internal:4001`, `TEMPORAL_ADDRESS=temporal.railway.internal:7233`, `REDIS_URL` from the Railway Redis service).
 - Public URLs exist only for `api` (tRPC), `stream` (WebSocket), `ingest` (webhooks) and the Vercel-hosted `web`.
 - `web` on Vercel has root directory `apps/web`; it reads `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_STREAM_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+
+## 18. Widget and module data contract
+
+`packages/widgets` and `packages/modules` never import the tRPC client or the Next.js router. They read data through `WidgetDataSource` (packages/widgets/src/data.tsx): `useWidgetQuery(path, input)` for tRPC queries by dotted path (e.g. `"inbox.list"`), `mutate(path, input)`, `navigate(href)`, `subscribe(channel, handler)`, `businessId`, `glossary`. `apps/web` wraps every business page in `<WidgetDataProvider source={…}>` with an implementation backed by its tRPC client, router and stream client. Widgets register with `registerWidget({ key, title, defaultSize, settingsSchema, Component })`; module screens register with `registerModule({ key, screens })` and are looked up by `getModuleScreen(moduleKey, tabSlug)`. Screen definitions (`screen_definitions.layout`) reference widgets by key and module screens as `module:<moduleKey>/<tabSlug>`.
