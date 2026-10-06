@@ -3,9 +3,9 @@
 The build runs as **waves of parallel agents** orchestrated with the Workflow tool. Each wave is a script in `.claude/workflows/`. Read `docs/ARCHITECTURE.md`, `docs/DESIGN.md`, `docs/DECISIONS.md` and `docs/PROGRESS.md` first.
 
 ## Ground rules for the orchestrating session
-1. Work on a machine with ample disk (the founder's laptop is full; local building is suspended — build in the cloud).
+1. Work on a machine with ample disk (the founder's laptop is full; local building is suspended — build in the cloud). Local hooks in `.claude/hooks` are gated by `FM_HOOKS=1`; set it in the cloud session once `pnpm install` has run.
 2. `pnpm install` once at the start (`pnpm approve-builds --all -y` if pnpm complains about build scripts).
-3. The scripts assume `ROOT` is the repo path: set `FM_ROOT=$(pwd)` or edit the constant at the top of each script before running.
+3. The scripts take the repo path from Workflow `args`: run them with `args: { "root": "<absolute repo path>" }` (e.g. `Workflow({ scriptPath: ".claude/workflows/wave1-packages.js", args: { root: "/home/user/foundmill" } })`). Without args they fall back to the founder's laptop path. Workflow scripts cannot read `process.env`.
 4. Sub-agents read the user's most recent chat message as their request. Before launching a wave, make sure that message is the build instruction (e.g. "Build Foundmill end to end per docs/BUILD.md").
 5. After each wave: `node .claude/workflows/reports.mjs <transcript-dir>/journal.jsonl "Wave N reports" > docs/WAVEN_REPORTS.md`, run `pnpm typecheck && pnpm lint && pnpm test` for the whole repo, fix integration issues (small fix-up agents per failing package are fine), commit, push.
 6. Never commit secrets. Never rename the package scope mid-wave.
