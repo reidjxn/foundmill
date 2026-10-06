@@ -1,0 +1,10 @@
+# Only the properties declared here are pushed to the linked project (supabase config push).
+project_id = "sdruubitufjqibsjyxlc"
+
+[auth]
+site_url = "https://founder-manager.vercel.app"
+additional_redirect_urls = [
+  "https://founder-manager.vercel.app/**",
+  "https://*-fm-2f083c2b.vercel.app/**",
+  "http://localhost:3000/**",
+]
