@@ -140,9 +140,12 @@ function normaliseDiff(input: InstructionsDiffInput): InstructionsDiff {
   return input;
 }
 
-const NEGATION = /\b(never|do not|don't|dont|must not|mustn't|shall not|should not|shouldn't|cannot|can't|not allowed|not permitted|forbidden|prohibited|refuse|avoid|without ever|no circumstances|is not ok|is not okay|instead of)\b/i;
+const NEGATION = /\b(no|never|do not|don't|dont|must not|mustn't|shall not|should not|shouldn't|cannot|can't|not allowed|not permitted|forbidden|prohibited|refuse|avoid|without ever|no circumstances|is not ok|is not okay|instead of)\b/i;
 const PERMISSION =
   /\b(you may|you can|you're allowed|you are allowed|allowed to|permitted to|it is ok|it's ok|it is okay|it's okay|it is fine|fine to|feel free|go ahead|should|always|directly|yourself|on your own|without asking|without approval|without the founder|without a human|when (needed|necessary|helpful|useful|convenient|asked)|if (needed|necessary|helpful|useful|convenient|asked)|whenever)\b/i;
+
+/** Text that hands a hard-gated action to the founder instead of performing it. */
+const ESCALATION = /\brequest_human_action\b|\bhard[- ]gate\b|\bfounder (task|action|decision|approval)\b|\bneeds the founder\b|\bhuman action\b/i;
 
 interface ActionPattern {
   ruleId: ClubRule["id"];
@@ -196,7 +199,7 @@ const ACTION_PATTERNS: ActionPattern[] = [
   { ruleId: 1, action: /\b(change|modify|edit|update|disable|turn off|alter|rotate)\b[^.]{0,20}\b(security settings?|2fa|mfa|two-factor|password policy|firewall|access controls?|permissions? settings?)\b/i, reason: "permits changing security settings" },
   {
     ruleId: 1,
-    action: /\b(no need to|don't|do not|never|skip|avoid|stop)\b[^.]{0,15}\b(create|creating|raise|raising|file|filing|emit|emitting)\b[^.]{0,10}\brequest_human_action\b/i,
+    action: /\b(no need to|don't|do not|never|skip|avoid|without|stop(?= (creating|raising|filing|emitting)))\b[^.]{0,15}\b(create|creating|raise|raising|file|filing|emit|emitting)\b[^.]{0,10}\brequest_human_action\b/i,
     selfContained: true,
     reason: "removes the request_human_action escalation for hard gates",
   },
@@ -291,7 +294,7 @@ const ACTION_PATTERNS: ActionPattern[] = [
   // Rule 7 — ask when unsure
   {
     ruleId: 7,
-    action: /\b(don't|do not|never|avoid|stop|no need to|without)\b[^.]{0,10}\b(ask|asking|check with|checking with|consult|consulting|escalate|escalating to|bother|bothering|interrupt|interrupting|wait for|waiting for)\b[^.]{0,15}\b(the )?(founder|lead|your lead|a human|humans|anyone|approval|permission|confirmation)\b/i,
+    action: /\b(don't|do not|never|avoid|no need to|without|stop(?= (asking|checking|consulting|escalating|bothering|interrupting|waiting)))\b[^.]{0,10}\b(ask|asking|check with|checking with|consult|consulting|escalate|escalating to|bother|bothering|interrupt|interrupting|wait for|waiting for)\b[^.]{0,15}\b(the )?(founder|lead|your lead|a human|humans|anyone|approval|permission|confirmation)\b/i,
     selfContained: true,
     reason: "forbids asking the lead or founder",
   },
@@ -306,9 +309,19 @@ function splitSentences(line: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-/** Strip the "rule:"/"goal:" prefix that flattenInstructions adds so patterns see the natural sentence. */
+/**
+ * Strip the "rule:"/"goal:" prefix that flattenInstructions adds so patterns see the natural sentence. For examples only
+ * the output half is inspected: the input is sample content the agent receives (a customer DM, a founder reply) and the
+ * output is the behaviour a draft teaches.
+ */
 function stripFieldPrefix(line: string): string {
-  return line.replace(/^(role|goal|rule|playbook|tone|example):\s*/i, "");
+  const example = /^example:\s*/i.exec(line);
+  if (example) {
+    const body = line.slice(example[0].length);
+    const sep = body.indexOf(" => ");
+    return sep >= 0 ? body.slice(sep + 4) : body;
+  }
+  return line.replace(/^(role|goal|rule|playbook|tone):\s*/i, "");
 }
 
 /**
@@ -349,6 +362,9 @@ export function detectClubRuleViolation(input: InstructionsDiffInput): ClubRuleV
           push({ ruleId: p.ruleId, ruleSlug: rule.slug, line, reason: p.reason });
           continue;
         }
+        // A hard-gated action described as the content of an escalation ("create a request_human_action: pay invoice …")
+        // routes the action to the founder; that is the compliant pattern, not a permission.
+        if (p.ruleId === 1 && ESCALATION.test(sentence)) continue;
         const before = sentence.slice(0, m.index);
         const negatedBefore = NEGATION.test(before);
         // "Never X" / "Do not X" / "X is forbidden" → compliant restatement, not a violation.

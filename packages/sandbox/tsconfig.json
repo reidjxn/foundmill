@@ -3,11 +3,7 @@
   "compilerOptions": {
     "types": [
       "node"
-    ],
-    "paths": {
-      "@founder-manager/events": ["../events/src/index.ts"],
-      "@founder-manager/events/*": ["../events/src/*.ts"]
-    }
+    ]
   },
   "include": [
     "src",

@@ -1,2 +1,32 @@
-// @founder-manager/connectors — see docs/ARCHITECTURE.md
-export {};
+// @founder-manager/connectors — connector contract, registry, mock utilities and every connector (docs/ARCHITECTURE.md §8).
+export * from "./contract";
+export * from "./define";
+export * from "./registry";
+export * from "./catalogue";
+export * from "./mock-utils";
+export * from "./quarantine";
+export * from "./webhooks";
+export * from "./http";
+export * from "./platform";
+export { generateBankHistory, filterTransactions, type BankHistory, type BankAccountFixture, type BankTransactionFixture, type BankHistoryOptions } from "./fixtures/bank-history";
+export { BankAccount, BankTransaction, ConsentStatus, SyncResult, makeBankingTools, type BankAccountT, type BankTransactionT } from "./connectors/_shared/banking";
+
+export { createAnthropicConnector, anthropicMock, ANTHROPIC_KEY } from "./connectors/anthropic";
+export { createVoyageConnector, voyageMock, VOYAGE_KEY } from "./connectors/voyage";
+export { createGithubConnector, githubMock, GITHUB_KEY, githubSignature, normaliseGithubEvent, signedDeliveryRequest as signedGithubDeliveryRequest } from "./connectors/github";
+export { createGoogleDriveConnector, googleDriveMock, GOOGLE_DRIVE_KEY } from "./connectors/google_drive";
+export { createGmailConnector, gmailMock, GMAIL_KEY } from "./connectors/gmail";
+export { createGoogleCalendarConnector, googleCalendarMock, GOOGLE_CALENDAR_KEY } from "./connectors/google_calendar";
+export { createNotionConnector, notionMock, NOTION_KEY } from "./connectors/notion";
+export { createCloudflareDnsConnector, cloudflareDnsMock, CLOUDFLARE_KEY } from "./connectors/cloudflare_dns";
+export { createOpencorporatesConnector, opencorporatesMock, OPENCORPORATES_KEY } from "./connectors/opencorporates";
+export { createBolagsverketConnector, bolagsverketMock, BOLAGSVERKET_KEY } from "./connectors/bolagsverket";
+export { createCompaniesHouseConnector, companiesHouseMock, COMPANIES_HOUSE_KEY } from "./connectors/companies_house";
+export { createE2bConnector, e2bMock, E2B_KEY } from "./connectors/e2b";
+export { createDropboxSignConnector, dropboxSignMock, DROPBOX_SIGN_KEY, DROPBOX_SIGN_CALLBACK_RESPONSE } from "./connectors/dropbox_sign";
+export { createEcbRatesConnector, ecbRatesMock, ECB_KEY } from "./connectors/ecb_rates";
+export { createStripeConnector, stripeMock, STRIPE_KEY, normaliseStripeEvent, verifyStripeSignature, stripeSignatureHeader, signedStripeRequest } from "./connectors/stripe";
+export { createSendgridConnector, sendgridMock, SENDGRID_KEY, normaliseSendgridEvents, normaliseInboundMail, verifySendgridSignature, signedEventRequest as signedSendgridEventRequest, inboundParseRequest as sendgridInboundParseRequest } from "./connectors/sendgrid";
+export { createShopifyConnector, shopifyMock, SHOPIFY_KEY, normaliseShopifyEvent, shopifyHmac, signedShopifyRequest } from "./connectors/shopify";
+export { createTinkConnector, tinkMock, TINK_KEY } from "./connectors/tink";
+export { createPlaidConnector, plaidMock, PLAID_KEY } from "./connectors/plaid";

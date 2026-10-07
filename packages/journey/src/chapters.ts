@@ -54,7 +54,8 @@ export function buildChapters(input: BuildChaptersInput): Chapter[] {
         summary,
       }),
     );
-    if (future >= horizon) break;
+    // Stop once the current quarter is in and `horizon` future ones follow it (horizon 0 ends on the current quarter).
+    if (status !== "past" && future >= horizon) break;
     index += 1;
     quarter += 1;
     if (quarter > 4) {

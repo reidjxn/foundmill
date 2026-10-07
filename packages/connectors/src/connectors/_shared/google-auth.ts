@@ -3,7 +3,7 @@
  * access token (+ refresh token); when it is about to expire and the platform client id/secret are known,
  * the token is refreshed against https://oauth2.googleapis.com/token (RFC 6749 §6).
  */
-import { ConfigError, type ToolContext } from "../../contract";
+import { ConfigError, type IntegrationRecord, type ToolContext } from "../../contract";
 import { createHttp, type FetchLike } from "../../http";
 import type { PlatformSecrets } from "../../platform";
 
@@ -42,7 +42,7 @@ export async function googleAccessToken(ctx: ToolContext, deps: GoogleAuthDeps):
 export const googleHeaders = (token: string): Record<string, string> => ({ authorization: `Bearer ${token}` });
 
 /** OAuth code exchange shared by the Google connectors' `connect()`. */
-export async function googleOAuthConnect(input: unknown, deps: GoogleAuthDeps, opts: { businessId: string; scopes: string[]; label: string; newId: () => string }): Promise<import("../../contract").IntegrationRecord> {
+export async function googleOAuthConnect(input: unknown, deps: GoogleAuthDeps, opts: { businessId: string; scopes: string[]; label: string; newId: () => string }): Promise<IntegrationRecord> {
   const code = typeof input === "object" && input && typeof (input as { code?: unknown }).code === "string" ? (input as { code: string; redirectUri?: string }) : null;
   if (!code) throw new ConfigError(deps.connectorKey, "OAuth authorization code", "connect() expects { code, redirectUri } from the Google OAuth redirect");
   const { googleClientId, googleClientSecret } = deps.secrets;

@@ -128,7 +128,24 @@ const AI_HOSTS = ["chatgpt.com", "chat.openai.com", "openai.com", "perplexity.ai
 const SOCIAL_HOSTS = [
   "facebook.com", "fb.com", "instagram.com", "t.co", "twitter.com", "x.com", "linkedin.com", "lnkd.in", "tiktok.com", "youtube.com", "youtu.be",
   "reddit.com", "threads.net", "pinterest.", "snapchat.com", "mastodon.", "bsky.app",
+  // Communities count as social: the social agent posts there and the referral is organic.
+  "news.ycombinator.com", "producthunt.com", "indiehackers.com", "lobste.rs", "dev.to",
 ];
+
+/** Providers that name the channel they report for (CRM / event-tool / outbound-tool webhooks without a URL). */
+const PROVIDER_TO_CHANNEL: Record<string, ChannelKey> = {
+  outbound: "lead_generation", sdr: "lead_generation", sequence: "lead_generation", lead_generation: "lead_generation", leadgen: "lead_generation",
+  events: "events", event: "events", luma: "events", eventbrite: "events",
+  direct_mail: "direct_mail", lob: "direct_mail", print: "print", broadcast: "broadcast", outdoor: "outdoor",
+  affiliate: "affiliate", influencer: "influencer", pr: "pr", social: "social",
+};
+
+/** Provider event names for non-email channels. */
+const PROVIDER_EVENT_KIND: Record<string, TouchKind> = {
+  form_submit: "form_submit", form: "form_submit", lead: "form_submit", badge_scan: "form_submit", registered: "form_submit", attended: "meeting",
+  meeting: "meeting", meeting_booked: "meeting", call: "call", called: "call", message: "message", dm: "message", reply: "email_reply", replied: "email_reply",
+  scan: "qr_scan", engagement: "social_engagement", like: "social_engagement", comment: "social_engagement", share: "social_engagement", visit: "visit", click: "visit",
+};
 const WEBMAIL_HOSTS = ["mail.google.com", "outlook.live.com", "outlook.office.com", "outlook.office365.com", "mail.yahoo.com", "mail.proton.me", "icloud.com"];
 
 /** Prefix heuristics for codes that are not in the registry (the registry is the real path; these are a fallback). */
@@ -166,11 +183,20 @@ function lookupCode(code: string, registry?: AttributionRegistry): CodeRegistryE
   return null;
 }
 
+/** Digits of a phone number that survive country-code and trunk-prefix differences ("+44 20 …" vs "020 …"). */
+const NATIONAL_DIGITS = 9;
+
+/** Same number when the digits are equal, or both are long enough and share their last nine digits. */
+function sameNumber(a: string, b: string): boolean {
+  if (a === b) return true;
+  return a.length >= NATIONAL_DIGITS && b.length >= NATIONAL_DIGITS && a.slice(-NATIONAL_DIGITS) === b.slice(-NATIONAL_DIGITS);
+}
+
 function lookupTrackingNumber(num: string, registry?: AttributionRegistry): CodeRegistryEntry | null {
   if (!registry?.trackingNumbers) return null;
   const wanted = digitsOnly(num);
   if (!wanted) return null;
-  for (const [k, v] of Object.entries(registry.trackingNumbers)) if (digitsOnly(k) === wanted) return v;
+  for (const [k, v] of Object.entries(registry.trackingNumbers)) if (sameNumber(digitsOnly(k), wanted)) return v;
   return null;
 }
 
@@ -316,6 +342,13 @@ export function parseTouchSource(input: ParseTouchSourceInput): ParsedTouchSourc
     });
   }
 
+  // 4b. Providers that name their channel (an events tool, an outbound tool) when nothing on the URL says otherwise.
+  const providerChannel = provider ? PROVIDER_TO_CHANNEL[provider] : undefined;
+  if (providerChannel && presentClickIds.length === 0 && !channelFromUtm(utm, presentClickIds)) {
+    const kind: TouchKind = (eventName && PROVIDER_EVENT_KIND[eventName]) || (u ? "visit" : "form_submit");
+    return finish(providerChannel, kind, OFFLINE_CHANNELS.has(providerChannel) ? "offline" : mediumForChannel(providerChannel), 0.8, `provider:${provider}`, { firstParty: true });
+  }
+
   // 5. QR scans without a code (qr=1, utm_medium=qr, /qr/... paths).
   const isQr = (q?.has("qr") ?? false) || norm(utm.medium) === "qr" || norm(utm.medium) === "qr_code" || (u?.pathname.toLowerCase().startsWith("/qr/") ?? false) || eventName === "scan";
   if (isQr) {
@@ -344,10 +377,11 @@ export function parseTouchSource(input: ParseTouchSourceInput): ParsedTouchSourc
 
   // 8. Referrer.
   if (referrerHost) {
-    if (hostMatches(referrerHost, SEARCH_HOSTS)) return finish("seo", "visit", "organic_search", 0.9, "referrer:search", { firstParty: true });
-    if (hostMatches(referrerHost, AI_HOSTS)) return finish("geo", "visit", "ai_search", 0.9, "referrer:ai", { firstParty: true });
-    if (hostMatches(referrerHost, SOCIAL_HOSTS)) return finish("social", "visit", "social", 0.85, "referrer:social", { firstParty: true });
+    // Webmail and AI assistants first: mail.google.com and gemini.google.com would otherwise match the search pattern.
     if (hostMatches(referrerHost, WEBMAIL_HOSTS)) return finish("email_automation", "email_click", "email", 0.6, "referrer:webmail", { firstParty: true });
+    if (hostMatches(referrerHost, AI_HOSTS)) return finish("geo", "visit", "ai_search", 0.9, "referrer:ai", { firstParty: true });
+    if (hostMatches(referrerHost, SEARCH_HOSTS)) return finish("seo", "visit", "organic_search", 0.9, "referrer:search", { firstParty: true });
+    if (hostMatches(referrerHost, SOCIAL_HOSTS)) return finish("social", "visit", "social", 0.85, "referrer:social", { firstParty: true });
     // Any other site linking to us is coverage: PR owns "referral visits" (CHANNEL_META.pr.coreMetric).
     return finish("pr", "visit", "referral", 0.4, "referrer:other", { firstParty: true });
   }

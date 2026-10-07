@@ -1428,7 +1428,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       [
         "Follow-up adds value, not pressure.",
         "Stop rule stated.",
-        "Short.",
+        "Under 80 words with no new claims.",
       ],
     ),
     bp(

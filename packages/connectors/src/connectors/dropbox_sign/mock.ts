@@ -3,7 +3,7 @@ import { MOCK_NOW, mockHealth, mockIntegrationRecord, stableHash } from "../../m
 import { makeWebhookRequest, ReplayGuard } from "../../webhooks";
 import { HS_REQUESTS, MOCK_DROPBOX_SIGN_API_KEY } from "./fixtures/requests";
 import { DROPBOX_SIGN_KEY, DROPBOX_SIGN_RATE_LIMITS, dropboxSignTools, mapSignatureRequest, type HsSignatureRequest } from "./tools";
-import { createDropboxSignWebhook, eventHash, type HsCallbackEvent } from "./webhooks";
+import { createDropboxSignWebhook, eventHash, normaliseCallback, type HsCallbackEvent } from "./webhooks";
 
 const notFound = (id: string) => Object.assign(new Error(`signature request ${id} not found`), { status: 404 });
 
@@ -57,9 +57,11 @@ export function createDropboxSignMock() {
     connect: async (businessId) => mockIntegrationRecord(DROPBOX_SIGN_KEY, businessId, { accountLabel: "Dropbox Sign (mock, test mode)" }),
     healthcheck: async () => mockHealth(DROPBOX_SIGN_KEY, { requests: requests.size }),
     simulations: {
-      "contract.signed": async (params) => {
-        const req = signedCallbackRequest(params.businessId, { eventType: "signature_request_all_signed", signature_request: HS_REQUESTS[0], eventTime: Math.floor((params.occurredAt ?? MOCK_NOW).getTime() / 1000) + (typeof params.seed === "string" ? params.seed.length : 0) });
-        return (await webhook.verify(req)) ? webhook.normalise(req) : [];
+      // Normalises the payload a signed callback would carry; the replay guard is a webhook concern, so
+      // re-simulating the same seed yields the same event (the Simulate panel may fire it repeatedly).
+      "contract.signed": (params) => {
+        const eventTime = Math.floor((params.occurredAt ?? MOCK_NOW).getTime() / 1000) + (typeof params.seed === "string" ? params.seed.length : 0);
+        return normaliseCallback({ event: { event_time: String(eventTime), event_type: "signature_request_all_signed", event_hash: eventHash(MOCK_DROPBOX_SIGN_API_KEY, String(eventTime), "signature_request_all_signed") }, signature_request: HS_REQUESTS[0] }, params.businessId, () => MOCK_NOW);
       },
     },
   });

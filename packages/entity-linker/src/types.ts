@@ -203,8 +203,10 @@ export interface SweepResult {
 }
 
 /**
- * The slice of `@founder-manager/models` `ModelClient` the sweep needs. Structural so tests can pass a stub and so
- * this package compiles whether or not the models package has finished its client (it is only ever a type here).
+ * The slice of `@founder-manager/models` `ModelClient` the sweep needs. Structural so tests can pass a stub, and so
+ * `MockModelClient` and `LiveModelClient` are accepted as they are: this package only ever makes schema requests, so
+ * `schema` is required here and matches the models client's typed overload (`src/__tests__/mock-client.test.ts`
+ * asserts the assignability at compile time).
  */
 export interface LinkerModelClient {
   readonly mode: "mock" | "live";
@@ -215,7 +217,7 @@ export interface LinkerCompleteRequest<T> {
   route: "linker";
   system?: string | readonly string[];
   messages: readonly { role: "user" | "assistant"; content: string }[];
-  schema?: z.ZodType<T>;
+  schema: z.ZodType<T>;
   maxTokens?: number;
   temperature?: number;
   scope?: string;

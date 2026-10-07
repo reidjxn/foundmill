@@ -1,11 +1,12 @@
 /**
  * Recorded agent sessions for the mock sandbox (BUILD §13.3 "a mock sandbox that replays recorded agent
- * sessions"). A recording is a JSON file in ./recordings: metadata, a small virtual filesystem, canned
- * command results and a timed list of `SessionEvent`s (without `at`, which replay fills in).
+ * sessions"). A recording is a typed TypeScript module in ./recordings (docs/DECISIONS.md "Mock sandbox
+ * recordings are TypeScript, not JSON"): metadata, a small virtual filesystem, canned command results and a
+ * timed list of `SessionEvent`s (without `at`, which replay fills in).
  *
- * Event payloads are validated in full against `@founder-manager/events`' Zod schemas by the test suite
- * (`recordings.test.ts`); at runtime this module only checks the envelope so the sandbox package stays
- * free of a runtime dependency on the events package (docs/NEEDED_DEPS.md).
+ * Event payloads are typed as `SessionEventDraft` from `@founder-manager/events` (so drift fails `tsc`) and
+ * validated in full against the events package's Zod schemas by `recordings.test.ts`; at runtime this
+ * module checks the envelope and ordering.
  */
 import { ModelKey, TaskKind } from "@founder-manager/shared";
 import { z } from "zod";

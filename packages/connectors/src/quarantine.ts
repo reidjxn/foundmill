@@ -102,7 +102,7 @@ export function extractCandidateRecipients(content: unknown): CandidateRecipient
   const uniq = (xs: string[]) => [...new Set(xs.map((x) => x.trim()))];
   return {
     emails: uniq((text.match(EMAIL_RE) ?? []).map((e) => e.toLowerCase())),
-    urls: uniq(text.match(URL_RE) ?? []),
+    urls: uniq((text.match(URL_RE) ?? []).map((u) => u.replace(/[.,;:!?]+$/, ""))),
     phones: uniq((text.match(PHONE_RE) ?? []).map((p) => p.replace(/[\s().-]/g, ""))).filter((p) => p.replace(/\D/g, "").length >= 8),
   };
 }

@@ -1,47 +1,18 @@
 /**
- * Bundled recordings for the mock sandbox (BUILD §13.3). Four sessions over the two demo businesses
- * (BUILD §17.2): a code task that merges, a research task, a finance task that meets an approval hold and
- * then a hard gate, and a code task that loops and fails. `recordings.test.ts` validates every event against
- * the `@founder-manager/events` schemas and replays each recording end to end.
+ * Bundled recordings for the mock sandbox (BUILD §13.3). Six sessions over the two demo businesses
+ * (BUILD §17.2): a backend task that fails its tests and then fixes them, a research task, a finance task
+ * that meets an auto-resolving approval hold and then a hard gate, a code task that loops and fails, a
+ * frontend task with Playwright and a founder Shout, and a backend task that waits on the founder's approval
+ * for a schema change. `recordings.test.ts` validates every event against the `@founder-manager/events`
+ * schemas and replays each recording end to end.
  *
- * Events are `SessionEventDraft`s (no `at`; replay fills it in). Progress follows BUILD §11.6:
- * 0.2·plan + 0.5·acceptance + 0.2·review + 0.1·merged — never token-based.
+ * Events are `SessionEventDraft`s (no `at`; replay fills it in; see ./helpers.ts). Progress follows BUILD
+ * §11.6: 0.2·plan + 0.5·acceptance + 0.2·review + 0.1·merged — never token-based.
  */
-import type { SessionEventDraft } from "@founder-manager/events";
-import type { z } from "zod";
-import { parseRecording, type RecordedEvent, type RecordedHold, type Recording, type RecordingInput } from "../recording";
-
-type Draft<K extends SessionEventDraft["kind"]> = Extract<SessionEventDraft, { kind: K }>;
-type RecordedEventInput = z.input<typeof RecordedEvent>;
-type RecordedHoldInput = z.input<typeof RecordedHold>;
-
-const ev = (tMs: number, event: SessionEventDraft, hold?: RecordedHoldInput): RecordedEventInput => (hold ? { tMs, event, hold } : { tMs, event });
-
-const phase = (from: Draft<"phase_changed">["from"], to: Draft<"phase_changed">["to"], reason?: string): SessionEventDraft => ({ kind: "phase_changed", from, to, ...(reason ? { reason } : {}) });
-
-const note = (text: string, source: Draft<"note">["source"] = "agent", level: Draft<"note">["level"] = "info"): SessionEventDraft => ({ kind: "note", text, source, level });
-
-const call = (
-  callId: string,
-  connectorKey: string | null,
-  tool: string,
-  status: Draft<"tool_call">["status"],
-  extra: Omit<Draft<"tool_call">, "kind" | "callId" | "connectorKey" | "tool" | "status"> = {},
-): SessionEventDraft => ({ kind: "tool_call", callId, connectorKey, tool, status, ...extra });
-
-const progress = (planStepsDone: number, planSteps: number, acceptanceTestsPassing: number, acceptanceTests: number, reviewPassed = false, merged = false): SessionEventDraft => ({
-  kind: "progress",
-  progress:
-    Math.round(
-      (0.2 * (planSteps > 0 ? planStepsDone / planSteps : 0) + 0.5 * (acceptanceTests > 0 ? acceptanceTestsPassing / acceptanceTests : 0) + (reviewPassed ? 0.2 : 0) + (merged ? 0.1 : 0)) * 100,
-    ) / 100,
-  planStepsDone,
-  planSteps,
-  acceptanceTestsPassing,
-  acceptanceTests,
-  reviewPassed,
-  merged,
-});
+import { parseRecording, type Recording, type RecordingInput } from "../recording";
+import { call, ev, note, phase, progress } from "./helpers";
+import { ledgerlyUsageIndex } from "./ledgerly-usage-index";
+import { northwindBundlePicker } from "./northwind-bundle-picker";
 
 const FAILING_TEST_OUTPUT = [
   "FAIL src/webhooks/stripe.test.ts",
@@ -251,7 +222,7 @@ const ledgerlyFlakyImportTest: RecordingInput = {
 };
 
 /** Every bundled recording, validated at module load so a malformed fixture fails fast. */
-export const RECORDINGS: readonly Recording[] = [ledgerlyWebhookRetry, northwindSupplierShortlist, ledgerlyAnnualPlanDiscount, ledgerlyFlakyImportTest].map(parseRecording);
+export const RECORDINGS: readonly Recording[] = [ledgerlyWebhookRetry, northwindSupplierShortlist, ledgerlyAnnualPlanDiscount, ledgerlyFlakyImportTest, northwindBundlePicker, ledgerlyUsageIndex].map(parseRecording);
 
 export const RECORDING_KEYS: readonly string[] = RECORDINGS.map((r) => r.key);
 

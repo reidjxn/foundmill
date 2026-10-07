@@ -63,6 +63,7 @@ export class ReplayGuard {
     this.sweep(now);
     if (this.seen.has(id)) return false;
     this.seen.set(id, now);
+    this.sweep(now);
     return true;
   }
 
