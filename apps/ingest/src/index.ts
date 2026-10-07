@@ -16,7 +16,7 @@ import { createIngestApp, type CreatedIngestApp, type IngestApp } from "./app";
 import { prepareDb } from "./db-boot";
 import { MemoryNonceStore, RedisNonceStore, type NonceStore, type RedisNonceClient } from "./nonce-store";
 import { createBusinessSecretResolver } from "./secrets";
-import { simulateEnabledFor } from "./simulate";
+import { simulateEnabledFor, simulateRoutesMounted } from "./simulate";
 import { silentLogger, type IngestDeps, type IngestLogger } from "./types";
 
 export * from "./types";
@@ -27,6 +27,7 @@ export * from "./conversions";
 export * from "./ingest";
 export * from "./webhooks";
 export * from "./simulate";
+export * from "./simulate-token";
 export * from "./app";
 export * from "./db-boot";
 
@@ -47,8 +48,10 @@ export interface BuildIngestOptions {
   nonceTtlMs?: number;
   /** Maps a vendor account (Stripe `acct_…`, GitHub installation, Shopify shop) to a business for shared endpoints. */
   resolveBusinessId?: BusinessResolver;
-  /** Force the Simulate routes on or off (defaults to `simulateEnabledFor(APP_ENV)`). */
+  /** Force the Simulate routes on or off (defaults to `simulateEnabledFor(APP_ENV)`; production is always off). */
   simulateEnabled?: boolean;
+  /** Secret the Simulate service token is verified with (defaults to `SESSION_TOKEN_SECRET`; null refuses every request). */
+  simulateTokenSecret?: string | null;
 }
 
 export interface BuiltIngest extends CreatedIngestApp {
@@ -93,7 +96,11 @@ export function buildIngest(options: BuildIngestOptions = {}): BuiltIngest {
     nonceTtlMs: options.nonceTtlMs ?? DEFAULT_NONCE_TTL_MS,
     env: { APP_ENV: env.APP_ENV },
     simulateEnabled: options.simulateEnabled ?? simulateEnabledFor(env.APP_ENV, FLAGS.devSimulatePanel),
+    simulateTokenSecret: options.simulateTokenSecret === undefined ? (env.SESSION_TOKEN_SECRET ?? null) : options.simulateTokenSecret,
   };
+  if (simulateRoutesMounted(deps) && !deps.simulateTokenSecret) {
+    log.warn({ env: env.APP_ENV }, "Simulate routes are enabled but SESSION_TOKEN_SECRET is not set: every simulate request will be refused (401)");
+  }
   const created = createIngestApp(deps);
   return { ...created, deps, env };
 }

@@ -32,6 +32,11 @@ export interface IngestDeps {
   env: { APP_ENV: "development" | "test" | "staging" | "production" };
   /** Whether the dev-only Simulate panel is enabled (`FLAGS.devSimulatePanel` and APP_ENV development/staging). */
   simulateEnabled: boolean;
+  /**
+   * `SESSION_TOKEN_SECRET`: every Simulate request must carry a service JWT apps/api minted with it
+   * (docs/SECURITY_REVIEW.md SEC-2). Null means the routes refuse every request (401), never that they open up.
+   */
+  simulateTokenSecret: string | null;
 }
 
 export const INGEST_SERVICE = "ingest";

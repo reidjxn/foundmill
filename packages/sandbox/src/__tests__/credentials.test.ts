@@ -95,6 +95,21 @@ describe("assertNoLongLivedCredentials (AC-11.6.6)", () => {
     expect(classifyJwt("not.a.jwt.at.all").kind).toBe("not_jwt");
   });
 
+  it("allowValues exempts the value and JWT checks only together with allowNames (SEC-3 host model key)", () => {
+    const modelKey = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
+    // The SDK host process may hold its model key; both lists name it.
+    expect(findLongLivedCredentials({ ANTHROPIC_API_KEY: modelKey }, { allowNames: ["ANTHROPIC_API_KEY"], allowValues: ["ANTHROPIC_API_KEY"] })).toEqual([]);
+    // allowNames alone: the value shape still reports it.
+    expect(findLongLivedCredentials({ ANTHROPIC_API_KEY: modelKey }, { allowNames: ["ANTHROPIC_API_KEY"] }).map((f) => f.patternId)).toEqual(["value.anthropic_api_key"]);
+    // allowValues alone: the name rule still reports it.
+    expect(findLongLivedCredentials({ ANTHROPIC_API_KEY: modelKey }, { allowValues: ["ANTHROPIC_API_KEY"] }).map((f) => f.patternId)).toEqual(["name.platform_secret"]);
+    // The exemption is per name: every other variable is still checked by name, value and JWT shape.
+    const serviceJwt = jwt({ role: "service_role", iss: "supabase" });
+    const findings = findLongLivedCredentials({ ANTHROPIC_API_KEY: modelKey, STRIPE_SECRET_KEY: "x", TOKEN: "ghp_abcdefghijklmnopqrstuvwxyz0123456789", SB: serviceJwt }, { allowNames: ["ANTHROPIC_API_KEY"], allowValues: ["ANTHROPIC_API_KEY"] });
+    expect(findings.map((f) => f.name).sort()).toEqual(["SB", "STRIPE_SECRET_KEY", "TOKEN"]);
+    expect(() => assertNoLongLivedCredentials({ ANTHROPIC_API_KEY: modelKey, DATABASE_URL: "postgres://u:p@h/db" }, { allowNames: ["ANTHROPIC_API_KEY"], allowValues: ["ANTHROPIC_API_KEY"] })).toThrow(LongLivedCredentialError);
+  });
+
   it("passes the git auth env the worktree helper builds for a short-lived token", () => {
     const env = gitAuthEnv({ token: "ghs_abcdefghijklmnopqrstuvwxyz0123456789" });
     expect(() => assertNoLongLivedCredentials(env)).not.toThrow();

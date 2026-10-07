@@ -13,7 +13,14 @@ import { repos, type Db, type Event } from "@foundmill/db";
 import type { EventType } from "@foundmill/shared";
 import { buildIngest, type BuildIngestOptions, type BuiltIngest } from "../index";
 import { MemoryNonceStore } from "../nonce-store";
+import { signSimulateToken, type SignSimulateTokenInput } from "../simulate-token";
 import { silentLogger } from "../types";
+
+/** The `SESSION_TOKEN_SECRET` of the test ingest (never a real one). */
+export const SIMULATE_TEST_SECRET = "ingest-test-session-token-secret";
+
+/** A service token for `businessId` as apps/api would mint it, dated at the ingest clock (`MOCK_NOW`). */
+export const simulateToken = (businessId: string, extra: Partial<SignSimulateTokenInput> = {}, secret = SIMULATE_TEST_SECRET, now: () => Date = () => MOCK_NOW): string => signSimulateToken(secret, { businessId, svc: "api", ...extra }, now);
 
 export interface IngestHarness {
   h: TestHarness;
@@ -34,9 +41,11 @@ export async function createIngestHarness(prefix: string, options: BuildIngestOp
   const db = h.db as unknown as Db;
   const [A, B] = await Promise.all([createBusinessFixture(h, `${prefix}-a`), createBusinessFixture(h, `${prefix}-b`)]);
   const registry = createDefaultRegistry({ now: () => MOCK_NOW });
+  // APP_ENV is "development" so the Simulate gate (packages/config `simulatePanelHonoured`) is exercised as the
+  // real thing rather than bypassed for tests; the secret is what `simulateToken()` signs with.
   const build = (extra: BuildIngestOptions = {}) =>
     buildIngest({
-      env: { APP_ENV: "test", INTEGRATIONS_MODE: "mock", MODEL_MODE: "mock" } as BuiltIngest["env"],
+      env: { APP_ENV: "development", INTEGRATIONS_MODE: "mock", MODEL_MODE: "mock" } as BuiltIngest["env"],
       db,
       registry,
       vault: null,
@@ -44,6 +53,7 @@ export async function createIngestHarness(prefix: string, options: BuildIngestOp
       log: silentLogger,
       now: () => MOCK_NOW,
       simulateEnabled: true,
+      simulateTokenSecret: SIMULATE_TEST_SECRET,
       ...options,
       ...extra,
     });

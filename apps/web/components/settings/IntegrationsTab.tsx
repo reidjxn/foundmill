@@ -1,15 +1,17 @@
 "use client";
 /**
  * Settings › Integrations (BUILD §11.15, §13): the connector catalogue with connect / disconnect / health, scopes
- * and status pills, plus the dev-only Simulate panel (BUILD §13.3) that posts to apps/ingest
- * `POST /simulate/:eventName` (NEXT_PUBLIC_INGEST_URL; the route only exists in development and staging).
+ * and status pills, plus the dev-only Simulate panel (BUILD §13.3). The panel calls `dev.simulate` on apps/api
+ * (owner/admin only), which mints the service token and proxies to apps/ingest over the private network
+ * (docs/SECURITY_REVIEW.md SEC-2); the browser never talks to ingest. The procedure exists in development and
+ * staging only.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Activity, ExternalLink, FlaskConical, Plug, Unplug } from "lucide-react";
 import { useState } from "react";
 import { Button, Chip, IconButton, SimpleSelect, StatusPill, type StatusTone } from "@foundmill/dugout";
 import type { IntegrationStatus } from "@foundmill/shared";
-import { publicEnv, simulatePanelAvailable } from "@/lib/env";
+import { simulatePanelAvailable } from "@/lib/env";
 import { formatDateTime } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -36,23 +38,26 @@ export const SIMULATIONS: { name: string; label: string; description: string }[]
   { name: "credential.expiring", label: "Credential expiry", description: "A connector credential about to expire" },
 ];
 
+/** What `dev.simulate` answers: ingest's status and body, shown verbatim (ingest labels it "Simulated"). */
 export interface SimulateResult {
   ok: boolean;
   status: number;
   body: unknown;
 }
 
-/** POST the simulation; the response is shown verbatim (the ingest service labels it "Simulated"). */
-export async function postSimulation(ingestUrl: string, eventName: string, body: Record<string, unknown>, fetchImpl: typeof fetch = fetch): Promise<SimulateResult> {
-  const res = await fetchImpl(`${ingestUrl}/simulate/${encodeURIComponent(eventName)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const text = await res.text();
-  let parsed: unknown = text;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    /* plain text */
-  }
-  return { ok: res.ok, status: res.status, body: parsed };
+/** The `dev.simulate` input for one panel click (the API mints the token; the browser sends no credential of its own). */
+export function simulateInput(businessId: string, eventName: string, connector: string): { businessId: string; eventName: string; connector?: string } {
+  return { businessId, eventName, ...(connector ? { connector } : {}) };
+}
+
+/** The result pane text: `name → status` then the body (JSON pretty-printed, text verbatim). */
+export function formatSimulateResult(name: string, result: SimulateResult): string {
+  return `${name} → ${result.status}\n${typeof result.body === "string" ? result.body : JSON.stringify(result.body, null, 2)}`;
+}
+
+/** The toast line for a refusal: the status and ingest's message. */
+export function simulateRefusalMessage(result: SimulateResult): string {
+  return `${result.status}: ${typeof result.body === "string" ? result.body : JSON.stringify(result.body)}`;
 }
 
 export function IntegrationsTab() {
@@ -127,39 +132,41 @@ export function IntegrationsTab() {
   );
 }
 
-function SimulatePanel({ businessId, connectors }: { businessId: string; connectors: { key: string; label: string; simulations: readonly string[] }[] }) {
+export function SimulatePanel({ businessId, connectors }: { businessId: string; connectors: { key: string; label: string; simulations: readonly string[] }[] }) {
+  const trpc = useTRPC();
   const t = useSettingsToast();
   const invalidate = useInvalidateRouters();
   const [connector, setConnector] = useState<string>("");
   const [last, setLast] = useState<{ name: string; result: SimulateResult } | null>(null);
-  const fire = useMutation({
-    mutationFn: async (name: string) => postSimulation(publicEnv().ingestUrl, name, { businessId, ...(connector ? { connector } : {}) }),
-    onSuccess: (result, name) => {
-      setLast({ name, result });
-      if (result.ok) {
-        t.saved("Simulated", `${name} went through the webhook path.`);
-        void invalidate(["inbox", "journey", "finance", "integrations", "distribution"]);
-      } else t.failed(new Error(`${result.status}: ${typeof result.body === "string" ? result.body : JSON.stringify(result.body)}`), "Simulation refused");
-    },
-    onError: (e) => t.failed(e, "Ingest unreachable"),
-  });
+  const fire = useMutation(
+    trpc.dev.simulate.mutationOptions({
+      onSuccess: (result, vars) => {
+        setLast({ name: vars.eventName, result });
+        if (result.ok) {
+          t.saved("Simulated", `${vars.eventName} went through the webhook path.`);
+          void invalidate(["inbox", "journey", "finance", "integrations", "distribution"]);
+        } else t.failed(new Error(simulateRefusalMessage(result)), "Simulation refused");
+      },
+      onError: (e) => t.failed(e, "Simulation failed"),
+    }),
+  );
   return (
     <SettingsSection title="Simulate" actions={<Chip tone="warn" icon={FlaskConical}>Development only</Chip>} data-testid="simulate-panel">
-      <Hint>Fires a mock platform event through apps/ingest exactly as a vendor webhook would: it is labelled “Simulated”, costs nothing and never leaves this environment.</Hint>
+      <Hint>Fires a mock platform event through the API and apps/ingest exactly as a vendor webhook would: it is labelled “Simulated”, costs nothing and never leaves this environment. Owners and admins only.</Hint>
       <div className="flex items-center gap-3">
         <span className="t-label">Connector</span>
         <SimpleSelect aria-label="Connector" controlSize="sm" value={connector} onValueChange={setConnector} placeholder="Default per event" options={[{ value: "", label: "Default per event" }, ...connectors.map((c) => ({ value: c.key, label: c.label }))]} className="w-56" />
       </div>
       <div className="grid grid-cols-3 gap-2">
         {SIMULATIONS.map((s) => (
-          <Button key={s.name} size="sm" variant="default" loading={fire.isPending && fire.variables === s.name} onClick={() => fire.mutate(s.name)} title={s.description} data-simulate={s.name}>
+          <Button key={s.name} size="sm" variant="default" loading={fire.isPending && fire.variables?.eventName === s.name} onClick={() => fire.mutate(simulateInput(businessId, s.name, connector))} title={s.description} data-simulate={s.name}>
             {s.label}
           </Button>
         ))}
       </div>
       {last ? (
         <pre className="max-h-48 overflow-auto rounded-panel bg-ink p-2 font-mono text-mono text-secondary" data-testid="simulate-result">
-          {`${last.name} → ${last.result.status}\n${typeof last.result.body === "string" ? last.result.body : JSON.stringify(last.result.body, null, 2)}`}
+          {formatSimulateResult(last.name, last.result)}
         </pre>
       ) : null}
     </SettingsSection>

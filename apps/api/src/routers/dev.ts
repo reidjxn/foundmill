@@ -1,19 +1,35 @@
 /**
  * dev.tasks.plan/list/start/pause/resume/shout/reassign/upgradeModel/stop/openInClaudeCode, dev.sessions.stream/replay,
- * dev.prs.list (BUILD §11.6). Every control is a Temporal signal to `session:{sessionId}` that degrades to
- * `{ queued: false, reason }`; the local task state is always updated so the Training Ground reflects the intent.
+ * dev.prs.list (BUILD §11.6) and dev.simulate (BUILD §13.3, SEC-2). Every control is a Temporal signal to
+ * `session:{sessionId}` that degrades to `{ queued: false, reason }`; the local task state is always updated so the
+ * Training Ground reflects the intent.
  */
+import { FLAGS, isSimulateEnv } from "@foundmill/config";
 import { TaskListFilter, repos, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
 import { TaskGraphOutput } from "@foundmill/models";
-import { ValidationError } from "@foundmill/shared";
+import { NotFoundError, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { replaySession } from "../services/replay";
 import { SIGNALS, WORKFLOWS, workflowIds, type SignalName } from "../services/temporal";
-import { Id, audit, emit, router, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
+import { Id, adminProcedure, audit, emit, router, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
 const read = sectionRead("development");
 const write = sectionWrite("development");
+
+/** Simulation names are connector catalogue keys (`payment.received`, `bank.sync`…); nothing else reaches the URL. */
+export const SimulationName = z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/, "simulation names look like payment.received").max(60);
+
+export const SimulateInput = z.object({
+  eventName: SimulationName,
+  connector: z.string().trim().min(1).max(60).optional(),
+  seed: z.string().max(120).optional(),
+  /** Event-specific overrides (amountMinor, email, sentiment, channelKey...). */
+  params: z.record(z.string(), z.unknown()).optional(),
+});
+
+/** Whether `dev.simulate` exists here: the flag and development/staging; production and test never (404). */
+export const simulateAvailable = (appEnv: string, flag: boolean = FLAGS.devSimulatePanel): boolean => flag && isSimulateEnv(appEnv);
 
 const SHOUT_PRESETS = ["Focus on tests", "Simplify", "Ask before schema changes", "Match the design system", "Hurry up"] as const;
 
@@ -201,6 +217,25 @@ export const devRouter = router({
       return { session, recordingRef: session.recordingRef, channel: sessionStreamKey(session.id), live: session.endedAt === null, ...replay };
     }),
     list: read.input(z.object({ agentId: Id.optional(), taskId: Id.optional(), openOnly: z.boolean().optional(), limit: z.number().int().min(1).max(200).default(50) })).query(({ ctx, input }) => ctx.rls((tx) => repos.agents.listSessions(tx, ctx.businessId, input))),
+  }),
+
+  /**
+   * Settings → Integrations → Simulate (owner/admin only; SEC-2). Membership and role are asserted by
+   * `adminProcedure`; the service token is minted here for exactly this business and user, and ingest refuses
+   * anything else. The answer is ingest's verbatim (the panel shows it), and the attempt is audited either way.
+   */
+  simulate: adminProcedure.input(SimulateInput).mutation(async ({ ctx, input }) => {
+    if (!simulateAvailable(ctx.env.APP_ENV)) throw new NotFoundError("route");
+    const result = await ctx.ingest.simulate({ businessId: ctx.businessId, userId: ctx.userId, eventName: input.eventName, connector: input.connector, seed: input.seed, params: input.params });
+    const written = typeof result.body === "object" && result.body !== null ? (result.body as { written?: unknown; duplicates?: unknown; connector?: unknown }) : {};
+    await ctx.rls((tx) =>
+      audit(tx, ctx, {
+        action: "dev.simulate",
+        target: { kind: "simulation", id: input.eventName },
+        details: { eventName: input.eventName, connector: input.connector ?? (typeof written.connector === "string" ? written.connector : null), seed: input.seed ?? null, ok: result.ok, status: result.status, written: typeof written.written === "number" ? written.written : null, duplicates: typeof written.duplicates === "number" ? written.duplicates : null },
+      }),
+    );
+    return { ...result, label: "Simulated" as const };
   }),
 
   prs: router({

@@ -16,7 +16,11 @@ import { createCaller } from "../router";
 import { createComposerClient } from "../services/composer";
 import { silentLog } from "../services/log";
 import type { RecordingResolver } from "../services/replay";
+import { createIngestClient } from "../services/simulate";
 import { createTemporalService, type TemporalClientLike } from "../services/temporal";
+
+/** The `SESSION_TOKEN_SECRET` the test api mints simulate tokens with (never a real one). */
+export const TEST_SESSION_TOKEN_SECRET = "api-test-session-token-secret";
 
 export interface ApiHarness {
   h: TestHarness;
@@ -36,11 +40,13 @@ export interface HarnessOptions {
   redis?: StreamRedis | null;
   /** Recording resolver for replay tests; default none. */
   recordings?: RecordingResolver | null;
+  /** Stands in for apps/ingest in `dev.simulate` tests; default: every call fails as unreachable. */
+  ingestFetch?: typeof globalThis.fetch;
 }
 
 export async function createApiHarness(options: HarnessOptions): Promise<ApiHarness> {
   resetEnvCache();
-  const env = loadEnv({ APP_ENV: "test", INTEGRATIONS_MODE: "mock", MODEL_MODE: "mock", DEV_MASTER_KEY: generateMasterKey(), KMS_KEY_ID: undefined, DEV_AUTH_USER_ID: undefined, LOG_LEVEL: "silent" });
+  const env = loadEnv({ APP_ENV: "test", INTEGRATIONS_MODE: "mock", MODEL_MODE: "mock", DEV_MASTER_KEY: generateMasterKey(), KMS_KEY_ID: undefined, DEV_AUTH_USER_ID: undefined, LOG_LEVEL: "silent", SESSION_TOKEN_SECRET: TEST_SESSION_TOKEN_SECRET, INGEST_URL: "http://ingest.test" });
   const h = await createTestDb();
   const db = h.db as unknown as Db;
   const log = silentLog();
@@ -68,6 +74,15 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
     auth: createAuthVerifier({ appEnv: "test" }),
     log,
     recordings: options.recordings ?? null,
+    ingest: createIngestClient({
+      url: env.INGEST_URL,
+      secret: env.SESSION_TOKEN_SECRET ?? null,
+      fetch:
+        options.ingestFetch ??
+        (async () => {
+          throw new Error("ingest service not running in tests");
+        }),
+    }),
     health: { db: async () => true, redis: async () => false, temporal: () => temporal.reachable() },
   };
   const [A, B] = await Promise.all([createBusinessFixture(h, `${options.prefix}-a`), createBusinessFixture(h, `${options.prefix}-b`)]);

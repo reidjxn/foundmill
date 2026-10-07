@@ -1,7 +1,9 @@
 /**
  * Dev-only Simulate panel backend (BUILD §13.3; Settings → Integrations → Simulate). Enabled only when
  * `APP_ENV` is development or staging and `FLAGS.devSimulatePanel` is on; in every other environment the
- * routes do not exist (404), so production cannot fabricate events.
+ * routes do not exist (404), so production cannot fabricate events. Where the routes exist, every request must
+ * carry the service token apps/api mints for a signed-in owner/admin (`simulate-token.ts`; SEC-2) and the token's
+ * `businessId` must be the body's; ingest is a public service, so nothing here trusts the caller.
  *
  * Each of the six panel actions is served by a mock connector's `simulate()` (the panel can name one; otherwise
  * the first mock that offers the simulation in catalogue order is used) and, when no mock offers it, by the
@@ -9,11 +11,12 @@
  * deliveries, so a simulated payment records its conversion and its `customer.converted` event exactly like a
  * real one — the actor says `system:simulate` so nothing can pass for a real delivery.
  */
-import { FLAGS } from "@foundmill/config";
+import { FLAGS, isSimulateEnv, simulatePanelHonoured } from "@foundmill/config";
 import { isMockConnector, SIMULATE_EVENTS, SIMULATE_EVENT_NAMES, simulate as simulateGeneric, type MockConnector, type PlatformEvent, type SimulateParams } from "@foundmill/connectors";
-import { AppError, NotFoundError, isUuid } from "@foundmill/shared";
+import { AppError, ForbiddenError, NotFoundError, isUuid } from "@foundmill/shared";
 import { z } from "zod";
 import { ingestPlatformEvents, isValidationError, type IngestResult } from "./ingest";
+import type { SimulateTokenClaims } from "./simulate-token";
 import type { IngestDeps } from "./types";
 
 export const SIMULATE_ACTOR = { kind: "system" as const, id: "simulate" };
@@ -32,7 +35,13 @@ export const SimulateBody = z
 export type SimulateBody = z.input<typeof SimulateBody>;
 
 /** Whether the Simulate routes exist for this environment (never in test or production). */
-export const simulateEnabledFor = (appEnv: string, flag: boolean = FLAGS.devSimulatePanel): boolean => flag && (appEnv === "development" || appEnv === "staging");
+export const simulateEnabledFor = (appEnv: string, flag: boolean = FLAGS.devSimulatePanel): boolean => flag && isSimulateEnv(appEnv);
+
+/**
+ * Whether the routes are mounted at all: the computed/forced `simulateEnabled` and never production, whatever a
+ * caller passed (`buildIngest({ simulateEnabled: true })` in production still yields 404s).
+ */
+export const simulateRoutesMounted = (deps: Pick<IngestDeps, "env" | "simulateEnabled">): boolean => deps.simulateEnabled && deps.env.APP_ENV !== "production";
 
 export interface SimulationCatalogueEntry {
   name: string;
@@ -80,9 +89,17 @@ export interface SimulateOutcome {
   result: IngestResult;
 }
 
-export async function runSimulation(deps: IngestDeps, eventName: string, body: z.output<typeof SimulateBody>): Promise<SimulateOutcome> {
-  if (!deps.simulateEnabled) throw new NotFoundError("route");
+/**
+ * Runs one simulation for a request that already passed the token middleware. `token` is the verified service
+ * token; it is re-checked here (the gate from packages/config and the business binding) so no other caller of
+ * `runSimulation` can skip it.
+ */
+export async function runSimulation(deps: IngestDeps, eventName: string, body: z.output<typeof SimulateBody>, token: SimulateTokenClaims): Promise<SimulateOutcome> {
+  if (!simulateRoutesMounted(deps)) throw new NotFoundError("route");
+  if (!token || typeof token.businessId !== "string") throw new AppError("unauthorized", "A simulate service token is required", 401);
+  if (!simulatePanelHonoured({ appEnv: deps.env.APP_ENV, flag: deps.simulateEnabled, serviceTokenVerified: true })) throw new NotFoundError("route");
   if (!isUuid(body.businessId)) throw new AppError("validation", "businessId must be a UUID", 400);
+  if (token.businessId.toLowerCase() !== body.businessId.toLowerCase()) throw new ForbiddenError("The simulate token is for another business");
   const known = (SIMULATE_EVENT_NAMES as readonly string[]).includes(eventName);
   const mock = pickMockFor(deps, eventName, body.connector);
   if (!mock && !known) throw new NotFoundError("simulation", eventName);
@@ -93,7 +110,7 @@ export async function runSimulation(deps: IngestDeps, eventName: string, body: z
   const source = `simulate:${mock?.key ?? "generic"}`;
   try {
     const result = await ingestPlatformEvents(deps.db, stamped, { source, actor: SIMULATE_ACTOR, log: deps.log });
-    deps.log.info({ eventName, connector: mock?.key ?? null, businessId: body.businessId, written: result.written, duplicates: result.duplicates }, "simulation ingested");
+    deps.log.info({ eventName, connector: mock?.key ?? null, businessId: body.businessId, requestedBy: token.userId, svc: token.svc, written: result.written, duplicates: result.duplicates }, "simulation ingested");
     return { eventName, connector: mock?.key ?? null, events: stamped, result };
   } catch (e) {
     if (isValidationError(e)) throw new AppError("invalid_payload", e.message, 422, e.details);

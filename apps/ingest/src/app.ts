@@ -1,17 +1,18 @@
 /**
  * HTTP surface (docs/ARCHITECTURE.md §1, §17). `createIngestApp(deps)` is pure so tests boot it on an ephemeral
- * port: `GET /health`, `POST /webhooks/:connector[/:businessId]`, and — development/staging only —
- * `GET /simulate` + `POST /simulate/:eventName`.
+ * port: `GET /health`, `POST /webhooks/:connector[/:businessId]`, and — development/staging only, behind the
+ * service token apps/api mints (SEC-2) — `GET /simulate` + `POST /simulate/:eventName`.
  */
-import { APP_NAME } from "@foundmill/config";
-import { AppError } from "@foundmill/shared";
-import { Hono } from "hono";
+import { APP_NAME, simulatePanelHonoured } from "@foundmill/config";
+import { AppError, UnauthorizedError } from "@foundmill/shared";
+import { Hono, type MiddlewareHandler } from "hono";
 import { repos } from "@foundmill/db";
 import { ackBody, handleWebhook, mountedWebhooks, type MountedWebhook } from "./webhooks";
-import { runSimulation, SimulateBody, simulationCatalogue } from "./simulate";
+import { runSimulation, SimulateBody, simulateRoutesMounted, simulationCatalogue } from "./simulate";
+import { bearerToken, verifySimulateToken, type SimulateTokenClaims } from "./simulate-token";
 import { INGEST_SERVICE, type IngestDeps } from "./types";
 
-type Variables = { requestId: string };
+type Variables = { requestId: string; simulateToken: SimulateTokenClaims };
 
 export type IngestApp = Hono<{ Variables: Variables }>;
 
@@ -73,9 +74,24 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
   app.post("/webhooks/:connector", (c) => webhookRoute(c.req.param("connector"), null, c.req.raw));
   app.post("/webhooks/:connector/:businessId", (c) => webhookRoute(c.req.param("connector"), c.req.param("businessId"), c.req.raw));
 
-  if (deps.simulateEnabled) {
-    app.get("/simulate", (c) => c.json({ enabled: true, env: deps.env.APP_ENV, simulations: simulationCatalogue(deps) }));
+  if (simulateRoutesMounted(deps)) {
+    // SEC-2: the service token is verified before anything else happens (the body is not even read), so a request
+    // without one has no side effects. A missing secret fails closed: every request is refused.
+    const requireSimulateToken: MiddlewareHandler<{ Variables: Variables }> = async (c, next) => {
+      const token = bearerToken(c.req.header("authorization"));
+      if (!token) throw new UnauthorizedError("A simulate service token is required (Settings → Integrations → Simulate goes through the API)");
+      const claims = verifySimulateToken(deps.simulateTokenSecret, token, deps.now);
+      if (!simulatePanelHonoured({ appEnv: deps.env.APP_ENV, flag: deps.simulateEnabled, serviceTokenVerified: true })) throw new AppError("not_found", "No route for simulate in this environment", 404);
+      c.set("simulateToken", claims);
+      await next();
+    };
+    app.use("/simulate", requireSimulateToken);
+    app.use("/simulate/*", requireSimulateToken);
+
+    app.get("/simulate", (c) => c.json({ enabled: true, env: deps.env.APP_ENV, businessId: c.get("simulateToken").businessId, simulations: simulationCatalogue(deps) }));
     app.post("/simulate/:eventName", async (c) => {
+      const token = c.get("simulateToken");
+      if (!token) throw new UnauthorizedError("A simulate service token is required");
       let raw: unknown;
       try {
         raw = await c.req.json();
@@ -85,7 +101,7 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
       const parsed = SimulateBody.safeParse(raw);
       if (!parsed.success) throw new AppError("validation", "Invalid request body", 400, parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })));
       const eventName = c.req.param("eventName") ?? "";
-      const r = await runSimulation(deps, eventName, parsed.data);
+      const r = await runSimulation(deps, eventName, parsed.data, token);
       return c.json({
         ok: true,
         eventName: r.eventName,

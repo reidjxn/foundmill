@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { PRICE_TBA_LABEL } from "@foundmill/config";
 import { tierPriceLabel } from "../BillingTab";
 import { glossaryRows, rowsToGlossary } from "../GlossaryTab";
-import { postSimulation, SIMULATIONS } from "../IntegrationsTab";
+import { formatSimulateResult, simulateInput, simulateRefusalMessage, SIMULATIONS } from "../IntegrationsTab";
 import { GAME_MODE_REVIEW } from "../ModeTab";
 
 describe("settings logic", () => {
@@ -18,13 +18,12 @@ describe("settings logic", () => {
     expect(rowsToGlossary([...rows, { id: 9, term: "  Order ", replacement: " booking " }, { id: 10, term: "x", replacement: "" }])).toEqual({ customer: "client", lead: "patient", order: "booking" });
   });
 
-  it("posts simulations to the ingest service and parses the answer", async () => {
-    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => new Response(JSON.stringify({ written: 1, label: "Simulated", url: String(url), body: init?.body }), { status: 200 }));
-    const r = await postSimulation("http://ingest.test", "payment.received", { businessId: "b1", connector: "stripe" }, fetchImpl as unknown as typeof fetch);
-    expect(r.ok).toBe(true);
-    expect(r.body).toMatchObject({ written: 1, label: "Simulated", url: "http://ingest.test/simulate/payment.received", body: JSON.stringify({ businessId: "b1", connector: "stripe" }) });
-    const refused = await postSimulation("http://ingest.test", "x", {}, (async () => new Response("Not found", { status: 404 })) as unknown as typeof fetch);
-    expect(refused).toEqual({ ok: false, status: 404, body: "Not found" });
+  it("builds the dev.simulate input (no credential of its own) and renders the API's answer verbatim", () => {
+    expect(simulateInput("b1", "payment.received", "stripe")).toEqual({ businessId: "b1", eventName: "payment.received", connector: "stripe" });
+    expect(simulateInput("b1", "payment.received", "")).toEqual({ businessId: "b1", eventName: "payment.received" });
+    expect(formatSimulateResult("payment.received", { ok: true, status: 200, body: { written: 1 } })).toBe('payment.received → 200\n{\n  "written": 1\n}');
+    expect(formatSimulateResult("x", { ok: false, status: 404, body: "Not found" })).toBe("x → 404\nNot found");
+    expect(simulateRefusalMessage({ ok: false, status: 400, body: { error: "unknown_simulation" } })).toBe('400: {"error":"unknown_simulation"}');
     expect(SIMULATIONS.map((s) => s.name)).toContain("payment.received");
   });
 

@@ -66,4 +66,23 @@ test.describe("shell", () => {
       await expect(page.getByTestId("settings-screen")).toHaveAttribute("data-tab", tab);
     }
   });
+
+  test("the Simulate panel goes through the API (dev.simulate), never to ingest from the browser (SEC-2)", async ({ page }) => {
+    test.skip(!/\/b\//.test(page.url()), "no seeded business for the dev user");
+    const bid = page.url().match(/\/b\/([0-9a-f-]+)/)?.[1];
+    const ingestRequests: string[] = [];
+    page.on("request", (req) => {
+      if (/\/simulate\//.test(req.url()) && !/\/trpc\//.test(req.url())) ingestRequests.push(req.url());
+    });
+    await page.goto(`/b/${bid}/settings/integrations`);
+    await expect(page.getByTestId("simulate-panel")).toBeVisible();
+    const mutation = page.waitForRequest((req) => /\/trpc\/dev\.simulate/.test(req.url()) && req.method() === "POST");
+    await page.locator('[data-simulate="payment.received"]').click();
+    const req = await mutation;
+    expect(req.postData() ?? "").toContain("payment.received");
+    expect(req.headers()["authorization"]).toMatch(/^Bearer /);
+    // The result pane shows whatever the API answered (ingest may not be running in the e2e stack: that is a 5xx, still through the API).
+    await expect(page.getByTestId("simulate-result").or(page.getByText(/Simulation (failed|refused)|Simulated/))).toBeVisible();
+    expect(ingestRequests).toEqual([]);
+  });
 });

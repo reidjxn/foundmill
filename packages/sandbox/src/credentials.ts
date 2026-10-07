@@ -72,6 +72,13 @@ export const LONG_LIVED_VALUE_PATTERNS: readonly CredentialPattern[] = [
 export interface CredentialCheckOptions {
   /** Variable names exempt from name-based checks (values are still checked). */
   allowNames?: readonly string[];
+  /**
+   * Variable names whose value is also exempt from the value-shape and JWT checks. For the one credential a host
+   * process legitimately has to hold (the model key the Claude Agent SDK runs on; SEC-3): a name listed here must
+   * also be in `allowNames`, otherwise the name rule still reports it. Never use it for an environment destined for
+   * a sandbox.
+   */
+  allowValues?: readonly string[];
   /** A JWT is "short-lived" when it expires within this many seconds of `now`. Default 24 h. */
   maxJwtTtlSeconds?: number;
   /** Clock for JWT expiry checks (tests). */
@@ -127,6 +134,7 @@ function isAwsStsTriple(env: Record<string, string>, name: string): boolean {
 export function findLongLivedCredentials(env: Record<string, string | undefined>, opts: CredentialCheckOptions = {}): CredentialFinding[] {
   const findings: CredentialFinding[] = [];
   const allow = new Set(opts.allowNames ?? []);
+  const allowValue = new Set(opts.allowValues ?? []);
   const defined: Record<string, string> = {};
   for (const [k, v] of Object.entries(env)) if (typeof v === "string") defined[k] = v;
 
@@ -139,6 +147,7 @@ export function findLongLivedCredentials(env: Record<string, string | undefined>
         continue;
       }
     }
+    if (allowValue.has(name)) continue;
     const jwt = classifyJwt(value, opts);
     if (jwt.kind === "long_lived") {
       findings.push({ name, patternId: "value.long_lived_jwt", reason: jwt.reason });

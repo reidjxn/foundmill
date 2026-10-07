@@ -8,9 +8,10 @@
  * `SessionEvent`s to `as:{sessionId}`, heartbeat on every event, persist progress, create approval rows when a tool
  * call waits for the founder, write the usage ledger and fail the session when the same tool call repeats three times.
  * `finishSession` settles the task, the agent and the events.
+ *
+ * The live SDK process is confined by ./sdk-isolation (SECURITY_REVIEW SEC-3): from-scratch environment, private
+ * per-session workspace deleted in `finally`, built-in tools by task kind and a path guard on every file-tool call.
  */
-import { mkdir } from "node:fs/promises";
-import path from "node:path";
 import { AgentInstructions, buildSystemPrompt, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, ToolGrant, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
 import { repos, type Agent, type AgentVersion, type Task } from "@foundmill/db";
@@ -25,6 +26,7 @@ import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { applySessionEvent, initialProgress, type ProgressState } from "../progress";
 import { LoopDetector } from "./loop";
+import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
 import type { AgentSessionInput, SessionFinish, SessionLaunch, SessionResult } from "./types";
 
 const ToolGrants = z.array(ToolGrant);
@@ -357,7 +359,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           const r = await runMockSession(deps, recorder, sandbox, input, signal);
           return { ...base(), ...r };
         }
-        const r = await runLiveSession(deps, recorder, sandbox, { input, launch, task, agent, startedAtMs }, { business, version, template, briefText, resolveApiKey });
+        const r = await runLiveSession(deps, recorder, sandbox, { input, launch, task, agent, startedAtMs }, { business, version, template, briefText, resolveApiKey, sandboxEnv: env });
         return { ...base(), ...r };
       } catch (err) {
         const message = (err as Error).message ?? String(err);
@@ -552,6 +554,8 @@ interface LiveContext {
   template: AgentTemplate;
   briefText: string | null;
   resolveApiKey: (businessId: string, billing: "byok" | "credits") => Promise<{ apiKey: string | null; source: "byok" | "platform" | "none" }>;
+  /** The sandbox's short-lived identifiers (`buildSandboxEnv`); the SDK process receives the same and nothing from the host. */
+  sandboxEnv: Record<string, string>;
 }
 
 /** A prompt queue the SDK consumes as streaming input: the task first, then every Shout as a user turn. */
@@ -593,12 +597,13 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary });
   if (!hasClubRulesPrefix(systemPrompt)) throw new Error("club rules missing from the system prompt");
 
-  const cwd = path.join(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
-  await mkdir(cwd, { recursive: true });
-  const allowedTools = [...mcpToolNames(grants), "Read", "Glob", "Grep", "Edit", "Write"];
-  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", `Work on branch ${launch.branch}. Report each phase change and keep every external action inside the tools you were given.`].filter(Boolean).join("\n\n");
-
   const sdk = await import("@anthropic-ai/claude-agent-sdk");
+  // SEC-3: the SDK process lives in a private per-session workspace (cwd, HOME, TMPDIR), with a from-scratch environment
+  // (never `process.env`), built-in tools by task kind only, and a path guard on every file-tool call. Deleted in `finally`.
+  const cwd = await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
+  const policy = sdkToolPolicyFor(task.kind, mcpToolNames(grants));
+  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? `Work on branch ${launch.branch} inside your working directory; it is the only place you can read or write files.` : "Keep every action inside the tools you were given; this task has no file access.", "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
+
   const queue = new PromptQueue(input.sessionId);
   queue.push(taskPrompt);
   const abort = new AbortController();
@@ -646,17 +651,37 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   cancel?.addEventListener("abort", onCancel, { once: true });
 
   try {
+    const env = sdkEnvFor({ cwd, apiKey: key.apiKey, sessionToken: token.token, sandboxEnv: live.sandboxEnv });
     const q = sdk.query({
       prompt: queue.messages(),
       options: {
         systemPrompt,
         model: launch.modelId,
         mcpServers,
-        allowedTools,
+        tools: policy.tools,
+        allowedTools: policy.allowedTools,
+        disallowedTools: policy.disallowedTools,
         maxTurns: launch.maxTurns,
         cwd,
-        env: { ...process.env, ANTHROPIC_API_KEY: key.apiKey },
+        env,
+        // No host settings, CLAUDE.md, hooks or permission rules from the orchestrator's file system.
+        settingSources: [],
         permissionMode: "dontAsk",
+        permissionPrompts: "none",
+        hooks: {
+          PreToolUse: [
+            {
+              hooks: [
+                async (hook) => {
+                  if (hook.hook_event_name !== "PreToolUse") return { continue: true };
+                  const verdict = await guardToolCall(hook.tool_name, hook.tool_input, { cwd, policy });
+                  if (!verdict.allow) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: `Blocked ${hook.tool_name}: ${verdict.reason}.` });
+                  return hookOutputFor(verdict);
+                },
+              ],
+            },
+          ],
+        },
         abortController: abort,
         persistSession: false,
       },
@@ -727,6 +752,11 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     clearInterval(timer);
     cancel?.removeEventListener("abort", onCancel);
     queue.close();
+    try {
+      await removeSessionWorkspace(cwd);
+    } catch (err) {
+      deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "session workspace cleanup failed");
+    }
   }
 }
 

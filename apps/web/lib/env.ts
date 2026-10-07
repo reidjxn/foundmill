@@ -66,7 +66,7 @@ export function hasSupabase(env: Pick<PublicEnv, "supabaseUrl" | "supabaseAnonKe
   return env.supabaseUrl.length > 0 && env.supabaseAnonKey.length > 0;
 }
 
-/** The Simulate panel (BUILD §13.3) is served by apps/ingest in development and staging only. */
+/** The Simulate panel (BUILD §13.3) exists in development and staging only; it calls `dev.simulate` on apps/api, never ingest directly (SEC-2). */
 export function simulatePanelAvailable(env: Pick<PublicEnv, "appEnv"> = publicEnv()): boolean {
   return env.appEnv === "development" || env.appEnv === "staging";
 }

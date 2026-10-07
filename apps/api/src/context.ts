@@ -18,6 +18,7 @@ import { createComposerClient, type ComposerClient } from "./services/composer";
 import { createApiModelClient } from "./services/models";
 import { createRedis } from "./services/redis";
 import { createSandboxRecordingResolver, type RecordingResolver } from "./services/replay";
+import { createIngestClient, type IngestClient } from "./services/simulate";
 import { createTemporalService, type TemporalService } from "./services/temporal";
 import { createLog, type ApiLogger } from "./services/log";
 
@@ -36,6 +37,8 @@ export interface ApiDeps {
   log: ApiLogger;
   /** Mock sandbox recordings for session replays without Redis (null when the sandbox package is not linked). */
   recordings: RecordingResolver | null;
+  /** apps/ingest over the private network; `dev.simulate` mints the service token and proxies through it (SEC-2). */
+  ingest: IngestClient;
   /** Reachability probes for /health; each must never throw. */
   health: {
     db(): Promise<boolean>;
@@ -94,6 +97,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
 
   const connectors = createDefaultRegistry();
   const recordings = options.recordings === undefined ? createSandboxRecordingResolver() : options.recordings;
+  const ingest = createIngestClient({ url: env.INGEST_URL, secret: env.SESSION_TOKEN_SECRET ?? null });
   const auth = createAuthVerifier({
     supabaseUrl: env.SUPABASE_URL ?? null,
     // SUPABASE_JWT_SECRET is not in the shared env schema yet (packages/shared/src/env.ts); read here only.
@@ -128,7 +132,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     temporal: () => temporal.reachable(),
   };
 
-  return { env, db, redis, temporal, models, composer, vault, connectors, auth, log, recordings, health };
+  return { env, db, redis, temporal, models, composer, vault, connectors, auth, log, recordings, ingest, health };
 }
 
 /** Per-request context factory for `trpcServer({ createContext })`. */
