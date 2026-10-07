@@ -1,0 +1,616 @@
+/**
+ * Pure helpers for the agent profile (BUILD §11.10, DESIGN §9 "Agent profile"): the tab list, skill rows and the
+ * blend formula (AC-11.10.3), the position map derived from the template catalogue, traits, the development chart
+ * series from training runs, instruction versions, training-flow state (draft → run → results → watch), model options
+ * and the autonomy/negotiation forms. Everything here is deterministic and unit-tested; the screens only render.
+ */
+import type { AgentStatus, DeptColourToken, ModelKey, SkillGroup } from "@foundmill/shared";
+import type { AgentInstructions, InstructionVersion, InstructionViolation, ModelOption, PositionRole, SkillRow, Trait, TrainingSkillResult, TrainingSessionMark, SkillHistorySeries, InstructionSection } from "@foundmill/dugout";
+import { MODEL_LABELS, positionLevelFor } from "@foundmill/dugout";
+import type { RouterOutputs } from "@/lib/trpc";
+
+export type AgentProfile = RouterOutputs["agent"]["profile"]["get"];
+export type AgentRow = AgentProfile["agent"];
+export type AgentSkillRecord = AgentProfile["skills"][number];
+export type AgentVersionRecord = AgentProfile["versions"][number];
+export type TrainingRunRecord = AgentProfile["trainingRuns"][number];
+export type SessionRecord = AgentProfile["sessions"][number];
+export type ModelCompare = RouterOutputs["agent"]["model"]["compare"];
+export type ModelSetResult = RouterOutputs["agent"]["model"]["set"];
+export type TrainingResultsRecord = RouterOutputs["agent"]["training"]["results"];
+export type CatalogueTemplate = RouterOutputs["team"]["agents"]["catalogue"][number];
+
+export type Iso = Date | string | null | undefined;
+
+export { AGENT_TABS, AGENT_TAB_IDS, isAgentTab, type AgentTab } from "./tabs";
+
+export const TRAINING_SUB_TABS = [
+  { id: "instructions", label: "Instructions" },
+  { id: "focus", label: "Focus" },
+  { id: "model", label: "Model" },
+  { id: "tools", label: "Tools" },
+] as const;
+export type TrainingSubTab = (typeof TRAINING_SUB_TABS)[number]["id"];
+
+/** Half-life of the live-outcome blend (BUILD §11.10: `w = n / (n + 20)`). */
+export const BLEND_HALF_LIFE = 20;
+
+export function toIso(d: Iso): string | null {
+  if (!d) return null;
+  const date = typeof d === "string" ? new Date(d) : d;
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+export function toMillis(d: Iso): number {
+  const iso = toIso(d);
+  return iso ? Date.parse(iso) : 0;
+}
+
+const ACRONYMS: Record<string, string> = { api: "API", seo: "SEO", ui: "UI", ux: "UX", sql: "SQL", rfq: "RFQ", qa: "QA", crm: "CRM", pr: "PR", ads: "Ads", a11y: "Accessibility" };
+
+/** `api_design` → "API design"; `knowing_when_to_ask` → "Knowing when to ask". */
+export function humaniseKey(key: string): string {
+  const words = key.split(/[_\-\s]+/).filter(Boolean);
+  return words
+    .map((w, i) => {
+      const lower = w.toLowerCase();
+      if (ACRONYMS[lower]) return ACRONYMS[lower];
+      return i === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower;
+    })
+    .join(" ");
+}
+
+export function clampRating(v: number): number {
+  return Math.max(1, Math.min(20, Math.round(v)));
+}
+
+/** AC-11.10.3: `skill = w * proven + (1 - w) * tested`, `w = n / (n + 20)`; without live outcomes the tested rating stands. */
+export function blendDisplayed(tested: number | null, proven: number | null, nLive: number): number {
+  if (tested === null && proven === null) return 1;
+  if (proven === null || nLive <= 0) return clampRating(tested ?? 1);
+  if (tested === null) return clampRating(proven);
+  const w = nLive / (nLive + BLEND_HALF_LIFE);
+  return clampRating(w * proven + (1 - w) * tested);
+}
+
+export function asNumber(v: string | number | null | undefined): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** The most recent promoted run with per-skill results: its deltas are the ▲/▼ arrows on the SkillGrid. */
+export function latestPromotedRun(runs: readonly TrainingRunRecord[]): TrainingRunRecord | null {
+  return runs.filter((r) => r.decision === "promoted" && r.results && Object.keys(r.results).length > 0).sort((a, b) => toMillis(b.endedAt ?? b.createdAt) - toMillis(a.endedAt ?? a.createdAt))[0] ?? null;
+}
+
+export function toSkillRows(skills: readonly AgentSkillRecord[], runs: readonly TrainingRunRecord[] = []): SkillRow[] {
+  const promoted = latestPromotedRun(runs);
+  return skills.map((s) => {
+    const tested = asNumber(s.tested);
+    const proven = asNumber(s.proven);
+    const value = s.displayed > 0 ? s.displayed : blendDisplayed(tested, proven, s.nLive);
+    const r = promoted?.results?.[s.skillKey];
+    return {
+      id: s.skillKey,
+      name: humaniseKey(s.skillKey),
+      group: s.group,
+      value,
+      delta: r ? Math.round(r.new - r.old) : undefined,
+      tested: tested === null ? undefined : Math.round(tested),
+      proven: proven === null ? undefined : Math.round(proven),
+      tasks: s.nLive,
+      potential: s.potential,
+    };
+  });
+}
+
+export function meanRating(rows: readonly { value: number }[]): number | null {
+  if (!rows.length) return null;
+  return Math.round((rows.reduce((s, r) => s + r.value, 0) / rows.length) * 10) / 10;
+}
+
+/** 1–20 mean → 0–5 stars in halves. */
+export function starsFor(rating: number | null): number | undefined {
+  if (rating === null) return undefined;
+  return Math.max(0.5, Math.min(5, Math.round((rating / 4) * 2) / 2));
+}
+
+export interface PositionFit extends PositionRole {
+  rating: number;
+  templateKey: string;
+  coverage: number;
+}
+
+/**
+ * Position map (DESIGN §9): every template of the same family is a role the agent could play. Fit = mean of the
+ * agent's displayed ratings over the template's skills (missing skills count as 5, "untested"), weighted by how much of
+ * the template's craft the agent covers. The agent's own template is always listed and marked current.
+ */
+export function positionFits(agent: Pick<AgentRow, "agentType" | "layer">, skills: readonly SkillRow[], catalogue: readonly CatalogueTemplate[], max = 8): PositionFit[] {
+  const byKey = new Map(skills.map((s) => [s.id, s.value]));
+  const own = catalogue.find((t) => t.key === agent.agentType);
+  const family = own?.family;
+  const candidates = catalogue.filter((t) => (family ? t.family === family : t.layer === agent.layer));
+  const fits: PositionFit[] = candidates.map((t) => {
+    const keys = t.skills.length ? t.skills : [...byKey.keys()];
+    const covered = keys.filter((k) => byKey.has(k));
+    const coverage = keys.length ? covered.length / keys.length : 0;
+    const mean = keys.length ? keys.reduce((s, k) => s + (byKey.get(k) ?? 5), 0) / keys.length : 1;
+    const rating = clampRating(mean * (0.6 + 0.4 * coverage));
+    return { id: t.key, templateKey: t.key, label: t.role || t.name, rating, level: positionLevelFor(rating), coverage: Math.round(coverage * 100) / 100 };
+  });
+  const sorted = fits.sort((a, b) => (a.templateKey === agent.agentType ? -1 : b.templateKey === agent.agentType ? 1 : b.rating - a.rating));
+  return sorted.slice(0, max);
+}
+
+export function traitsFor(traits: readonly string[], instructions?: AgentInstructions | null): Trait[] {
+  const lines = instructions ? [...instructions.rules, ...instructions.playbook, ...instructions.goals] : [];
+  return traits.map((label, i) => {
+    const words = label.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+    const derivedFrom = lines.find((l) => words.some((w) => l.toLowerCase().includes(w)));
+    const tone: Trait["tone"] = /asks|never|checks|tests/i.test(label) ? "good" : /spends|skips|rushes/i.test(label) ? "warn" : "neutral";
+    return { id: `${i}-${label}`, label, derivedFrom, tone };
+  });
+}
+
+/** Skill history: each finished run with results is a point (`new`) at its end; the current displayed value closes the line. */
+export function developmentSeries(skills: readonly SkillRow[], runs: readonly TrainingRunRecord[], now: Date = new Date(), maxSeries = 5): SkillHistorySeries[] {
+  const finished = runs.filter((r) => r.results && Object.keys(r.results).length > 0 && (r.endedAt ?? r.createdAt)).sort((a, b) => toMillis(a.endedAt ?? a.createdAt) - toMillis(b.endedAt ?? b.createdAt));
+  const chosen = skills
+    .slice()
+    .sort((a, b) => (a.group === "craft" ? -1 : 1) - (b.group === "craft" ? -1 : 1) || b.value - a.value)
+    .slice(0, maxSeries);
+  return chosen.map((s) => {
+    const points: SkillHistorySeries["points"] = [];
+    for (const r of finished) {
+      const res = r.results?.[s.id];
+      const at = toIso(r.endedAt ?? r.createdAt);
+      if (!res || !at) continue;
+      if (points.length === 0) points.push({ at: toIso(r.startedAt ?? r.createdAt) ?? at, value: clampRating(res.old) });
+      points.push({ at, value: clampRating(r.decision === "promoted" || r.decision === null ? res.new : res.old) });
+    }
+    points.push({ at: now.toISOString(), value: s.value });
+    return { skillId: s.id, name: s.name, points };
+  });
+}
+
+export function trainingSessionMarks(runs: readonly TrainingRunRecord[]): TrainingSessionMark[] {
+  return runs
+    .filter((r) => r.decision !== null && (r.endedAt ?? r.createdAt))
+    .map((r) => ({ at: toIso(r.endedAt ?? r.createdAt)!, label: `Training run${r.toVersionId ? "" : ""} · ${r.status}`, promoted: r.decision === "promoted" }))
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+}
+
+/** Stored `instructions` jsonb → the editor's shape; unknown example shapes become empty pairs. */
+export function parseInstructions(raw: unknown): AgentInstructions {
+  const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  const examples = Array.isArray(o.examples)
+    ? o.examples.map((e) => {
+        const ex = (e && typeof e === "object" ? e : {}) as Record<string, unknown>;
+        return { input: str(ex.input), output: str(ex.output) };
+      })
+    : [];
+  return { role: str(o.role), goals: list(o.goals), rules: list(o.rules), playbook: list(o.playbook), tone: str(o.tone), examples };
+}
+
+export function instructionVersions(versions: readonly AgentVersionRecord[], viewer?: { userId: string | null; email: string | null }): InstructionVersion[] {
+  return versions
+    .slice()
+    .sort((a, b) => b.version - a.version)
+    .map((v) => ({
+      version: v.version,
+      createdAt: toIso(v.createdAt) ?? new Date(0).toISOString(),
+      author: v.createdByKind === "user" ? (viewer && v.createdBy === viewer.userId ? "You" : "Founder") : v.createdByKind === "agent" ? "Coach" : "System",
+      state: v.state,
+      instructions: parseInstructions(v.instructions),
+    }));
+}
+
+export function currentVersion(profile: Pick<AgentProfile, "agent" | "versions">): AgentVersionRecord | null {
+  return profile.versions.find((v) => v.id === profile.agent.currentVersionId) ?? profile.versions.find((v) => v.state === "live") ?? null;
+}
+
+export function latestDraft(versions: readonly AgentVersionRecord[]): AgentVersionRecord | null {
+  return versions.filter((v) => v.state === "draft").sort((a, b) => b.version - a.version)[0] ?? null;
+}
+
+/** Map the API's club-rule violations (offending line + reason) onto the editor's section/index flags (AC-11.10.4). */
+export function violationsToEditor(violations: readonly { line: string; reason: string }[], instructions: AgentInstructions): InstructionViolation[] {
+  const out: InstructionViolation[] = [];
+  const norm = (s: string) => s.trim().toLowerCase();
+  for (const v of violations) {
+    const needle = norm(v.line.replace(/^[a-z]+:\s*/i, ""));
+    const lists: [InstructionSection, string[]][] = [
+      ["rules", instructions.rules],
+      ["playbook", instructions.playbook],
+      ["goals", instructions.goals],
+    ];
+    let placed = false;
+    for (const [section, items] of lists) {
+      const index = items.findIndex((it) => norm(it) === needle || (needle.length > 8 && norm(it).includes(needle)));
+      if (index >= 0) {
+        out.push({ section, index, reason: v.reason });
+        placed = true;
+        break;
+      }
+    }
+    if (placed) continue;
+    const exIndex = instructions.examples.findIndex((e) => norm(e.output) === needle || norm(e.input) === needle);
+    if (exIndex >= 0) out.push({ section: "examples", index: exIndex, reason: v.reason });
+    else if (norm(instructions.role) === needle) out.push({ section: "role", reason: v.reason });
+    else if (norm(instructions.tone) === needle) out.push({ section: "tone", reason: v.reason });
+    else out.push({ section: "rules", index: 0, reason: v.reason });
+  }
+  return out;
+}
+
+export const ACTIVE_RUN_STATUSES = ["queued", "running", "grading"] as const;
+export type TrainingPhase = "idle" | "active" | "awaiting" | "watch" | "failed";
+
+export interface TrainingFlow {
+  phase: TrainingPhase;
+  /** Queued/running/grading run. */
+  active: TrainingRunRecord | null;
+  /** Finished, undecided run with results. */
+  awaiting: TrainingRunRecord | null;
+  /** Promoted run inside its 7-day watch window. */
+  watch: { run: TrainingRunRecord; until: string; daysLeft: number } | null;
+  failed: TrainingRunRecord | null;
+}
+
+export function trainingFlow(runs: readonly TrainingRunRecord[], now: Date = new Date()): TrainingFlow {
+  const byRecency = runs.slice().sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
+  const active = byRecency.find((r) => (ACTIVE_RUN_STATUSES as readonly string[]).includes(r.status)) ?? null;
+  const awaiting = byRecency.find((r) => r.decision === null && (r.status === "awaiting_decision" || r.status === "done")) ?? null;
+  const promoted = byRecency.find((r) => r.decision === "promoted" && r.watchUntil && toMillis(r.watchUntil) > now.getTime()) ?? null;
+  const watch = promoted ? { run: promoted, until: toIso(promoted.watchUntil)!, daysLeft: Math.max(0, Math.ceil((toMillis(promoted.watchUntil) - now.getTime()) / 86_400_000)) } : null;
+  const failed = byRecency[0]?.status === "failed" ? byRecency[0] : null;
+  const phase: TrainingPhase = active ? "active" : awaiting ? "awaiting" : failed ? "failed" : watch ? "watch" : "idle";
+  return { phase, active, awaiting, watch, failed };
+}
+
+export const RUN_PHASE_LABEL: Record<string, string> = { queued: "Queued", running: "Running tests", grading: "Grading", awaiting_decision: "Awaiting your decision", done: "Done", failed: "Failed", cancelled: "Cancelled" };
+
+/** Progress of an active run from its status and elapsed time against the estimate (Estimate; never token-based). */
+export function runProgress(run: Pick<TrainingRunRecord, "status" | "startedAt" | "createdAt">, estimateMinutes: number, now: Date = new Date()): number {
+  if (run.status === "queued") return 0.05;
+  if (run.status === "grading") return 0.85;
+  if (run.status === "awaiting_decision" || run.status === "done") return 1;
+  const started = toMillis(run.startedAt ?? run.createdAt);
+  if (!started) return 0.1;
+  const frac = (now.getTime() - started) / Math.max(1, estimateMinutes * 60_000);
+  return Math.max(0.1, Math.min(0.8, 0.1 + frac * 0.7));
+}
+
+export function toTrainingResults(results: TrainingResultsRecord, skills: readonly AgentSkillRecord[]): TrainingSkillResult[] {
+  const groupOf = new Map(skills.map((s) => [s.skillKey, s.group]));
+  return results.deltas.map((d) => ({
+    id: d.skillKey,
+    name: humaniseKey(d.skillKey),
+    group: (groupOf.get(d.skillKey) ?? "craft") as SkillGroup,
+    before: clampRating(d.old),
+    after: clampRating(d.new),
+    tests: results.publicTestCounts[d.skillKey] !== undefined ? { run: results.publicTestCounts[d.skillKey]!, passed: Math.round((results.publicTestCounts[d.skillKey]! * clampRating(d.new)) / 20) } : undefined,
+  }));
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Focus and Coach proposals (BUILD §11.10 Training › Focus)
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const FOCUS_STORAGE_PREFIX = "fm:focus:";
+
+export function readFocus(agentId: string): string[] {
+  try {
+    const raw = window.localStorage.getItem(FOCUS_STORAGE_PREFIX + agentId);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string").slice(0, 3) : [];
+  } catch {
+    return [];
+  }
+}
+export function writeFocus(agentId: string, ids: readonly string[]): void {
+  try {
+    window.localStorage.setItem(FOCUS_STORAGE_PREFIX + agentId, JSON.stringify(ids.slice(0, 3)));
+  } catch {
+    /* private mode */
+  }
+}
+
+export interface CoachProposal {
+  id: string;
+  skillId: string;
+  skillName: string;
+  section: "rules" | "playbook" | "examples";
+  text: string;
+  /** Expected gain in rating points (Estimate: 40 % of the gap to potential, at least 1 when there is a gap). */
+  expectedGain: number;
+}
+
+const PROPOSAL_TEMPLATES: Record<string, { section: CoachProposal["section"]; text: string }[]> = {
+  testing: [{ section: "playbook", text: "Write the failing test before the implementation and run the full suite before opening a pull request." }],
+  debugging: [{ section: "playbook", text: "Reproduce the bug with a minimal failing case and record the root cause in the pull request description." }],
+  speed: [{ section: "rules", text: "Time-box exploration to 15 minutes; after that, ask or ship the simplest safe version." }],
+  reliability: [{ section: "rules", text: "Never report a task done until acceptance tests pass in a clean sandbox." }],
+  cost_efficiency: [{ section: "rules", text: "Reuse cached context and avoid re-reading files you already summarised in this session." }],
+  communication: [{ section: "playbook", text: "End every session with a three-line note: what changed, what is risky, what you need from the founder." }],
+  knowing_when_to_ask: [{ section: "rules", text: "Ask before any action that spends money, contacts a third party or changes a schema." }],
+  risk_awareness: [{ section: "rules", text: "List the two most likely ways the change could break production before starting." }],
+  scope_control: [{ section: "rules", text: "Do only what the task asks; log unrelated improvements as follow-ups instead of doing them." }],
+  prioritisation: [{ section: "playbook", text: "Order work by customer impact first, then by risk, then by effort." }],
+  planning: [{ section: "playbook", text: "Write a numbered plan with acceptance criteria before touching code." }],
+  deliverability: [{ section: "rules", text: "Check the suppression list and the sender's warm-up status before every send." }],
+  copywriting: [{ section: "examples", text: "Subject lines under 45 characters; one call to action per email." }],
+};
+
+export function coachProposals(focus: readonly string[], skills: readonly SkillRow[]): CoachProposal[] {
+  const out: CoachProposal[] = [];
+  for (const id of focus) {
+    const skill = skills.find((s) => s.id === id);
+    if (!skill) continue;
+    const gap = Math.max(0, (skill.potential ?? skill.value) - skill.value);
+    const expectedGain = gap > 0 ? Math.max(1, Math.round(gap * 0.4)) : 0;
+    const templates = PROPOSAL_TEMPLATES[id] ?? [{ section: "playbook" as const, text: `Add a step that exercises ${humaniseKey(id).toLowerCase()} on every task and records the outcome in the session note.` }];
+    templates.forEach((t, i) => out.push({ id: `${id}-${i}`, skillId: id, skillName: skill.name, section: t.section, text: t.text, expectedGain }));
+  }
+  return out;
+}
+
+export function applyProposal(instructions: AgentInstructions, proposal: CoachProposal): AgentInstructions {
+  if (proposal.section === "examples") return { ...instructions, examples: [...instructions.examples, { input: `Task touching ${proposal.skillName.toLowerCase()}`, output: proposal.text }] };
+  const list = instructions[proposal.section];
+  if (list.includes(proposal.text)) return instructions;
+  return { ...instructions, [proposal.section]: [...list, proposal.text] };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Model (BUILD §11.10 "Model selection")
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const MODEL_DESCRIPTIONS: Record<ModelKey, string> = {
+  opus: "Deepest judgement; the default for the Chief of Staff and leads.",
+  sonnet: "Fast and capable; the default for workers.",
+  haiku: "Cheapest; classification, linking and other utility work.",
+};
+const MODEL_RANK: Record<ModelKey, number> = { opus: 3, sonnet: 2, haiku: 1 };
+
+export function isChiefOfStaff(agent: Pick<AgentRow, "agentType" | "layer">): boolean {
+  return agent.agentType === "chief_of_staff" || agent.layer === "assistant";
+}
+/** Routes `packages/models` locks to Opus (BUILD §10.1: the Inbox Composer and the plan compiler). */
+export function isComposerRoute(route: string): boolean {
+  return route === "inboxComposer" || route === "planCompiler";
+}
+
+export function agentTypeNoun(agent: Pick<AgentRow, "agentType" | "role" | "layer">): string {
+  if (agent.agentType) return humaniseKey(agent.agentType).toLowerCase();
+  return agent.role?.toLowerCase() || agent.layer;
+}
+
+export function modelOptions(compare: ModelCompare, currency: string): ModelOption[] {
+  const current = compare.options.find((o) => o.modelKey === compare.current);
+  const base = current?.predictedWageMinor ?? 0;
+  return compare.options.map((o) => ({
+    key: o.modelKey,
+    label: MODEL_LABELS[o.modelKey],
+    description: MODEL_DESCRIPTIONS[o.modelKey],
+    skillDelta: o.predictedSkillDelta ?? 0,
+    wageDelta: { amountMinor: o.predictedWageMinor - base, currency },
+    lockedReason: o.allowed ? undefined : (o.warning ?? "Locked for this agent's route."),
+    warning: o.allowed && o.warning ? o.warning : undefined,
+  }));
+}
+
+/** Warnings shown before the scope dialog: Chief of Staff downgrade, Composer lock (BUILD §11.10 exceptions). */
+export function modelChangeWarnings(agent: Pick<AgentRow, "agentType" | "layer" | "modelKey">, route: string, candidate: ModelKey): string[] {
+  const out: string[] = [];
+  if (isComposerRoute(route)) out.push("The Inbox Composer is locked to Opus; this model cannot change.");
+  if (isChiefOfStaff(agent) && MODEL_RANK[candidate] < MODEL_RANK[agent.modelKey]) out.push(`Downgrading the Chief of Staff to ${MODEL_LABELS[candidate]} weakens cycle planning and every decision it makes for you. Expect lower Judgement ratings.`);
+  return out;
+}
+
+export function describeModelSet(result: ModelSetResult, modelKey: ModelKey): string {
+  const parts = [`Model set to ${MODEL_LABELS[modelKey]} for ${result.updated.length} ${result.updated.length === 1 ? "agent" : "agents"}`];
+  if (result.skipped.length) parts.push(`${result.skipped.length} skipped (${[...new Set(result.skipped.map((s) => s.reason))].join("; ")})`);
+  if (result.retests.length) parts.push(`${result.retests.length} ${result.retests.length === 1 ? "retest" : "retests"} queued`);
+  if (result.warnings.length) parts.push(result.warnings.join("; "));
+  return parts.join(" · ");
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Autonomy and negotiation (BUILD §9.2, §9.6)
+// ---------------------------------------------------------------------------------------------------------------------
+
+export type AutonomyMode = "inherit" | "lower" | "higher";
+export interface AutonomyForm {
+  mode: AutonomyMode;
+  spendCapMinor: number | null;
+  approvalThresholdMinor: number | null;
+}
+export interface NegotiationForm {
+  enabled: boolean;
+  priceMinMinor: number | null;
+  priceMaxMinor: number | null;
+  walkAwayMinor: number | null;
+  maxConcessionPct: number | null;
+  topics: string[];
+}
+
+const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+export function autonomyFromAgent(raw: unknown): AutonomyForm {
+  const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const mode = o.mode === "lower" || o.mode === "higher" ? o.mode : "inherit";
+  return { mode, spendCapMinor: num(o.spendCapMinor), approvalThresholdMinor: num(o.approvalThresholdMinor) };
+}
+
+export function negotiationFromAgent(raw: unknown): NegotiationForm {
+  const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    enabled: o.enabled === true,
+    priceMinMinor: num(o.priceMinMinor),
+    priceMaxMinor: num(o.priceMaxMinor),
+    walkAwayMinor: num(o.walkAwayMinor),
+    maxConcessionPct: num(o.maxConcessionPct),
+    topics: Array.isArray(o.topics) ? o.topics.filter((t): t is string => typeof t === "string") : [],
+  };
+}
+
+export const AUTONOMY_MODE_COPY: Record<AutonomyMode, { label: string; description: string }> = {
+  inherit: { label: "Follow the business mode", description: "Acts and asks exactly as the business mode says." },
+  lower: { label: "Ask more often", description: "One notch more cautious than the business mode: every external action and spend becomes a decision for you." },
+  higher: { label: "Act more freely", description: "One notch more autonomous than the business mode, within the caps below. Hard gates still apply." },
+};
+
+/** Mirrors the API's rules: negotiation needs a walk-away and at least one price limit; caps must be non-negative. */
+export function validateNegotiation(form: NegotiationForm): string | null {
+  if (!form.enabled) return null;
+  if (form.walkAwayMinor === null) return "Set a walk-away amount before enabling negotiation.";
+  if (form.priceMinMinor === null && form.priceMaxMinor === null) return "Set a price floor or a price ceiling before enabling negotiation.";
+  if (form.priceMinMinor !== null && form.priceMaxMinor !== null && form.priceMinMinor > form.priceMaxMinor) return "The price floor is above the ceiling.";
+  if (form.maxConcessionPct !== null && (form.maxConcessionPct < 0 || form.maxConcessionPct > 100)) return "Max concession is a percentage between 0 and 100.";
+  return null;
+}
+export function validateAutonomy(form: AutonomyForm): string | null {
+  if (form.spendCapMinor !== null && form.spendCapMinor < 0) return "The spend cap cannot be negative.";
+  if (form.approvalThresholdMinor !== null && form.approvalThresholdMinor < 0) return "The approval threshold cannot be negative.";
+  if (form.spendCapMinor !== null && form.approvalThresholdMinor !== null && form.approvalThresholdMinor > form.spendCapMinor) return "The approval threshold is above the spend cap, so it would never trigger.";
+  return null;
+}
+
+export function autonomyToInput(form: AutonomyForm): { mode: AutonomyMode; spendCapMinor?: number; approvalThresholdMinor?: number } {
+  return { mode: form.mode, ...(form.spendCapMinor !== null ? { spendCapMinor: form.spendCapMinor } : {}), ...(form.approvalThresholdMinor !== null ? { approvalThresholdMinor: form.approvalThresholdMinor } : {}) };
+}
+export function negotiationToInput(form: NegotiationForm): { enabled: boolean; priceMinMinor?: number; priceMaxMinor?: number; walkAwayMinor?: number; maxConcessionPct?: number; topics: string[] } {
+  return {
+    enabled: form.enabled,
+    ...(form.priceMinMinor !== null ? { priceMinMinor: form.priceMinMinor } : {}),
+    ...(form.priceMaxMinor !== null ? { priceMaxMinor: form.priceMaxMinor } : {}),
+    ...(form.walkAwayMinor !== null ? { walkAwayMinor: form.walkAwayMinor } : {}),
+    ...(form.maxConcessionPct !== null ? { maxConcessionPct: form.maxConcessionPct } : {}),
+    topics: form.topics,
+  };
+}
+
+/** "12.50" → 1250 minor units; blank → null. */
+export function parseMajor(text: string): number | null {
+  const t = text.replace(/[^\d.,-]/g, "").replace(",", ".");
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? Math.round(n * 100) : null;
+}
+export function formatMajor(minor: number | null): string {
+  return minor === null ? "" : (minor / 100).toFixed(2);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Tools (BUILD §11.10 Training › Tools, "Tools and permissions")
+// ---------------------------------------------------------------------------------------------------------------------
+
+export interface ToolGrant {
+  connectorKey: string;
+  tools: string[];
+}
+
+export function parseToolGrants(raw: unknown): ToolGrant[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ToolGrant[] = [];
+  for (const g of raw) {
+    if (typeof g === "string") out.push({ connectorKey: g, tools: [] });
+    else if (g && typeof g === "object") {
+      const o = g as Record<string, unknown>;
+      if (typeof o.connectorKey === "string") out.push({ connectorKey: o.connectorKey, tools: Array.isArray(o.tools) ? o.tools.filter((t): t is string => typeof t === "string") : [] });
+    }
+  }
+  return out;
+}
+
+export function toggleToolGrant(grants: readonly ToolGrant[], connectorKey: string, tool: string): ToolGrant[] {
+  const existing = grants.find((g) => g.connectorKey === connectorKey);
+  if (!existing) return [...grants, { connectorKey, tools: [tool] }];
+  const tools = existing.tools.includes(tool) ? existing.tools.filter((t) => t !== tool) : [...existing.tools, tool];
+  const next = grants.map((g) => (g.connectorKey === connectorKey ? { ...g, tools } : g));
+  return next.filter((g) => g.tools.length > 0);
+}
+
+export function grantsEqual(a: readonly ToolGrant[], b: readonly ToolGrant[]): boolean {
+  const key = (gs: readonly ToolGrant[]) =>
+    gs
+      .map((g) => `${g.connectorKey}:${g.tools.slice().sort().join(",")}`)
+      .sort()
+      .join("|");
+  return key(a) === key(b);
+}
+
+export function grantedTools(grants: readonly ToolGrant[]): number {
+  return grants.reduce((s, g) => s + g.tools.length, 0);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Sessions (Logs tab)
+// ---------------------------------------------------------------------------------------------------------------------
+
+export interface SessionRow {
+  id: string;
+  startedAt: string;
+  endedAt: string | null;
+  durationMs: number;
+  model: ModelKey;
+  tokens: number;
+  costMinor: number;
+  currency: string;
+  outcome: string;
+  taskId: string | null;
+  live: boolean;
+  recordingRef: string | null;
+}
+
+export function sessionRows(sessions: readonly SessionRecord[], now: Date = new Date()): SessionRow[] {
+  return sessions
+    .map((s) => {
+      const startedAt = toIso(s.startedAt) ?? now.toISOString();
+      const endedAt = toIso(s.endedAt);
+      return {
+        id: s.id,
+        startedAt,
+        endedAt,
+        durationMs: Math.max(0, (endedAt ? Date.parse(endedAt) : now.getTime()) - Date.parse(startedAt)),
+        model: s.modelKey,
+        tokens: Number(s.tokensIn ?? 0) + Number(s.tokensOut ?? 0),
+        costMinor: Number(s.costMinor ?? 0),
+        currency: s.currency ?? "EUR",
+        outcome: s.outcome ?? (endedAt ? "ended" : "running"),
+        taskId: s.taskId ?? null,
+        live: !endedAt,
+        recordingRef: s.recordingRef ?? null,
+      };
+    })
+    .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
+}
+
+export const OUTCOME_TONE: Record<string, "good" | "warn" | "bad" | "info" | "neutral"> = { success: "good", succeeded: "good", done: "good", partial: "warn", failure: "bad", failed: "bad", stopped: "warn", running: "info", ended: "neutral" };
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Header facts and status
+// ---------------------------------------------------------------------------------------------------------------------
+
+export function departmentColour(profile: Pick<AgentProfile, "departments">): DeptColourToken {
+  return profile.departments[0]?.colourToken ?? "dept-1";
+}
+
+export function statusWord(status: AgentStatus): string {
+  return ({ healthy: "Healthy", degraded: "Degraded", failing: "Failing", injured: "Down", paused: "Paused", idle: "Idle" } as Record<AgentStatus, string>)[status];
+}
+
+/** Lines of "What I do" from the template-derived description and the never-does list. */
+export function whatIDo(profile: Pick<AgentProfile, "agent" | "neverDoes" | "current">): { description: string; inputs: string[]; outputs: string[]; neverDoes: string[] } {
+  const instructions = profile.current ? parseInstructions(profile.current.instructions) : null;
+  return {
+    description: profile.agent.descriptionMd?.trim() || instructions?.role || "",
+    inputs: instructions?.goals ?? [],
+    outputs: instructions?.playbook ?? [],
+    neverDoes: profile.neverDoes,
+  };
+}

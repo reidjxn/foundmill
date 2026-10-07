@@ -1,9 +1,20 @@
-import { SurfacePlaceholder } from "@/components/placeholders/SurfacePlaceholder";
+import { notFound } from "next/navigation";
+import { Suspense } from "react";
+import { AgentProfileScreen } from "@/components/agents/AgentProfileScreen";
+import { isAgentTab } from "@/components/agents/tabs";
+import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 
 export const dynamic = "force-dynamic";
 
-/** Agent profile: overview | training | autonomy | tools | history | logs (BUILD §6.2). */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** /b/[bid]/agents/[agentId]/[tab] — agent profile: overview | training | autonomy | tools | history | logs (BUILD §6.2, §11.10). */
 export default async function AgentPage({ params }: { params: Promise<{ bid: string; agentId: string; tab: string }> }) {
   const { agentId, tab } = await params;
-  return <SurfacePlaceholder surface="agent" detail={`agent ${agentId} · ${tab}`} />;
+  if (!UUID_RE.test(agentId) || !isAgentTab(tab)) notFound();
+  return (
+    <Suspense fallback={<ScreenSkeleton />}>
+      <AgentProfileScreen agentId={agentId} tab={tab} />
+    </Suspense>
+  );
 }

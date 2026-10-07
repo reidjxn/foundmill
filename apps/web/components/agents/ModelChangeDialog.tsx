@@ -1,0 +1,138 @@
+"use client";
+/**
+ * Model change from anywhere on the profile (header chip, Training › Model): `agent.model.compare` feeds the
+ * ModelPicker with predicted wage deltas (Estimate), the Chief of Staff downgrade warning and the Inbox Composer lock
+ * notice are shown before ApplyScopeDialog asks "this agent / all of its type / all agents", then `agent.model.set`
+ * applies it and the API queues the retests (BUILD §11.10 "Model selection", AC-11.10.5).
+ */
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Lock, TriangleAlert } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ApplyScopeDialog, Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, MODEL_LABELS, ModelPicker, SkeletonText, useToast, type ApplyScope } from "@foundmill/dugout";
+import type { ModelKey } from "@foundmill/shared";
+import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
+import { useTRPC } from "@/lib/trpc-react";
+import { agentTypeNoun, describeModelSet, modelChangeWarnings, modelOptions, type AgentProfile } from "./logic";
+
+export interface ModelChangeDialogProps {
+  businessId: string;
+  profile: AgentProfile;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Agents sharing the type and the whole squad, for the scope dialog's copy. */
+  typeCount?: number;
+  allCount?: number;
+  currency?: string;
+  /** Open straight at the warning/scope step for this model (Training › Model has its own picker). */
+  preselect?: ModelKey | null;
+}
+
+type Step = "pick" | "warn" | "scope";
+
+export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typeCount, allCount, currency = "EUR", preselect = null }: ModelChangeDialogProps) {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const agent = profile.agent;
+  const compareQ = useQuery(trpc.agent.model.compare.queryOptions({ businessId, agentId: agent.id }, { enabled: open, staleTime: 60_000 }));
+  const [candidate, setCandidate] = useState<ModelKey | null>(null);
+  const [step, setStep] = useState<Step>("pick");
+  useEffect(() => {
+    if (!open) {
+      setCandidate(null);
+      setStep("pick");
+      return;
+    }
+    if (preselect && preselect !== agent.modelKey && !profile.modelLock) {
+      const needsWarning = modelChangeWarnings(agent, profile.route, preselect).some((w) => w.includes("Chief of Staff"));
+      setCandidate((c) => c ?? preselect);
+      setStep((s) => (s === "pick" ? (needsWarning ? "warn" : "scope") : s));
+    }
+  }, [open, preselect, agent, profile.route, profile.modelLock]);
+
+  const setModel = useMutation(
+    trpc.agent.model.set.mutationOptions({
+      onSuccess: (result, vars) => {
+        void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("agent") as unknown[] });
+        void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("team") as unknown[] });
+        toast({ title: `Model: ${MODEL_LABELS[vars.modelKey]}`, description: describeModelSet(result, vars.modelKey), tone: result.skipped.length ? "warn" : "good" });
+        onOpenChange(false);
+      },
+      onError: (err) => toast({ title: "Model change failed", description: errorMessage(err), tone: "bad" }),
+    }),
+  );
+
+  const current = compareQ.data?.current ?? agent.modelKey;
+  const options = compareQ.data ? modelOptions(compareQ.data, agent.currency ?? currency) : [];
+  const locked = profile.modelLock || compareQ.data?.locked === true;
+  const warnings = candidate ? modelChangeWarnings(agent, profile.route, candidate) : [];
+  const cosWarning = warnings.find((w) => w.includes("Chief of Staff"));
+
+  const choose = (m: ModelKey) => {
+    if (m === current || locked) return;
+    setCandidate(m);
+    setStep(modelChangeWarnings(agent, profile.route, m).some((w) => w.includes("Chief of Staff")) ? "warn" : "scope");
+  };
+  const reset = () => {
+    setCandidate(null);
+    setStep("pick");
+  };
+
+  return (
+    <>
+      <Dialog open={open && step === "pick"} onOpenChange={onOpenChange}>
+        <DialogContent size="md" data-testid="model-dialog">
+          <DialogHeader>
+            <DialogTitle>Model for {agent.name}</DialogTitle>
+            <DialogDescription>Predicted wages are estimates from this month's usage. A retest is queued after the change so the skills reflect the new model.</DialogDescription>
+          </DialogHeader>
+          <DialogBody className="flex flex-col gap-3">
+            {locked ? (
+              <p className="flex items-start gap-1.5 rounded-panel border border-subtle bg-panel-alt p-2 text-small text-secondary" data-testid="model-locked-notice">
+                <Icon icon={Lock} size="inline" className="mt-0.5" />
+                {profile.route === "inboxComposer" ? "The Inbox Composer is locked to Opus. Only the current model is allowed for this agent." : "This agent's route is locked; only the current model is allowed."}
+              </p>
+            ) : null}
+            {compareQ.isLoading ? <SkeletonText lines={3} /> : compareQ.error ? <p className="text-small text-status-bad">{errorMessage(compareQ.error)}</p> : <ModelPicker options={options} value={current} onChange={choose} disabled={setModel.isPending || locked} />}
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={open && step === "warn"} onOpenChange={(o) => !o && reset()}>
+        <DialogContent size="sm" data-testid="cos-downgrade-warning">
+          <DialogHeader>
+            <DialogTitle>Downgrade the Chief of Staff?</DialogTitle>
+            <DialogDescription>{cosWarning}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={reset}>
+              Keep {MODEL_LABELS[agent.modelKey]}
+            </Button>
+            <Button variant="danger" icon={TriangleAlert} onClick={() => setStep("scope")} data-testid="cos-downgrade-continue">
+              Continue anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ApplyScopeDialog
+        open={open && step === "scope" && !!candidate}
+        onOpenChange={(o) => !o && reset()}
+        agentName={agent.name}
+        agentType={agentTypeNoun(agent)}
+        typeCount={typeCount}
+        allCount={allCount}
+        settingLabel={`Model: ${candidate ? MODEL_LABELS[candidate] : ""}`}
+        onApply={async (scope: ApplyScope) => {
+          if (!candidate) return;
+          await setModel.mutateAsync({ businessId, agentId: agent.id, modelKey: candidate, applyScope: scope });
+        }}
+      />
+    </>
+  );
+}
