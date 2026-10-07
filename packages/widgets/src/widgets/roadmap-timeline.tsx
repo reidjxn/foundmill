@@ -1,3 +1,4 @@
+"use client";
 /**
  * Roadmap timeline widget (BUILD §11.5 "Now/Next/Later board + timeline"): the roadmap items per horizon with status
  * words, target dates and linked-task progress. Status comes from the API (Done only when acceptance criteria pass,

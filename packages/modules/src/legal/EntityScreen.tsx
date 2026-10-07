@@ -1,3 +1,4 @@
+"use client";
 /**
  * Legal › Entity (BUILD §11.11): the operating legal entity's facts, its officers as CRM links, the incorporation
  * history, and the "Import existing company" form (registration number + country → legal.import.lookup →

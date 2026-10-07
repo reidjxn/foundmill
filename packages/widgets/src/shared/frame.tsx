@@ -1,3 +1,4 @@
+"use client";
 /**
  * The frame every widget renders inside: a Dugout Panel with the three states the gallery requires (loading skeleton,
  * empty state, error state with retry) and a provenance footer. Widgets never draw a spinner (DESIGN §7).

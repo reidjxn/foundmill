@@ -1,3 +1,4 @@
+"use client";
 /**
  * Community feed widget (LIVE only, BUILD §11.14): recent posts from one community the founder belongs to.
  */

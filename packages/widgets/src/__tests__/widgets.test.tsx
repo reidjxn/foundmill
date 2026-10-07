@@ -33,7 +33,7 @@ const CASES: Case[] = [
   { key: "cash_runway", expectData: /Net burn \/ month/, expectEmpty: /Connect a bank account/ },
   { key: "revenue_customers", expectData: /Revenue this month/, expectEmpty: /appear once Stripe, Shopify or a bank/ },
   { key: "funnel", expectData: /Impressions/, expectEmpty: /funnel fills as channels run/ },
-  { key: "channel_form_guide", expectData: /Paid advertising/, expectEmpty: /No channels are on the pitch/ },
+  { key: "channel_form_guide", expectData: /Paid advertising/, expectEmpty: /No channels are on the board/ },
   { key: "roadmap_timeline", expectData: /Usage-based billing/, expectEmpty: /Roadmap items appear once/ },
   { key: "agent_of_the_week", expectData: /Ember/, expectEmpty: /first agent of the week/ },
   { key: "trophy_cabinet", expectData: /2 of 8 won/, expectEmpty: /Customer names show only/ },
@@ -140,13 +140,13 @@ describe("Forecast and Estimate chips", () => {
     expect(screen.getAllByText("Estimate").length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText("Forecast").length).toBeGreaterThanOrEqual(1);
   });
-  it("status strip marks runway as an estimate and keeps the league tile for LIVE only", () => {
+  it("status strip marks runway as an estimate and keeps the leaderboard tile for LIVE only", () => {
     const { unmount } = mount(getWidget("status_strip")!, dataResponses());
     expect(screen.getAllByText("Estimate").length).toBeGreaterThanOrEqual(1);
-    expect(screen.queryByText("League position")).toBeNull();
+    expect(screen.queryByText("Leaderboard position")).toBeNull();
     unmount();
     mount(getWidget("status_strip")!, dataResponses(), { live: true });
-    expect(screen.getByText("League position")).toBeTruthy();
+    expect(screen.getByText("Leaderboard position")).toBeTruthy();
     expect(screen.getByText("#8")).toBeTruthy();
   });
 });

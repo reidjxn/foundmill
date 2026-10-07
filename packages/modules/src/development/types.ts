@@ -69,8 +69,11 @@ export interface SessionReplayResponse {
   session: SessionRow;
   recordingRef: string | null;
   channel: string;
-  /** Not returned by the API today (see openIssues); honoured when present. */
+  /** `dev.sessions.replay` events (packages/events SessionEvent: `kind` + `at`), from the `as:<sessionId>` stream or the mock recording; read through readSessionEvent. */
   events?: unknown[];
+  total?: number;
+  source?: "stream" | "recording" | "none";
+  live?: boolean;
 }
 
 /* team.agents.list */

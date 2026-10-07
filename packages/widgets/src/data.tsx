@@ -1,3 +1,4 @@
+"use client";
 /**
  * Data contract between widgets/module screens and the host app (docs/ARCHITECTURE.md §18).
  * Widgets never import the tRPC client; the host provides an implementation of `WidgetDataSource`.

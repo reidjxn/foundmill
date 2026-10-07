@@ -1,3 +1,4 @@
+"use client";
 /** Add a source by hand (a link, a pasted note, a competitor page). Saves through `product.sources.add`. */
 import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";

@@ -1,3 +1,4 @@
+"use client";
 /**
  * Recategorise one bank transaction (BUILD §11.8 "founder recategorisations become rules"): pick a line of the standard
  * chart of accounts, optionally apply it to every transaction of the same counterparty as a rule, save through

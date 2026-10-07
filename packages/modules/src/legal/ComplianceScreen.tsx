@@ -1,3 +1,4 @@
+"use client";
 /**
  * Legal › Compliance (BUILD §11.11): compliance events and filings with due dates as a list (DataTable with saved
  * views and right-click verbs) and a twelve-month calendar. The headline is days to the next deadline (the

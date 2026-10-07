@@ -1,3 +1,4 @@
+"use client";
 /**
  * Finance › Profit and loss (BUILD §11.8, DESIGN §9): the management P&L as a DataTable with indented category lines,
  * subtotal rules and totals over a selectable period, labelled "Management P&L, unaudited, cash basis" when the

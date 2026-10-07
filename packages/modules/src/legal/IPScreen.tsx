@@ -1,3 +1,4 @@
+"use client";
 /**
  * Legal › IP (BUILD §11.11, §11.1 "USPTO/EUIPO quick screen"): word-mark screening labelled "screen, not legal
  * clearance" (distinctiveness, obvious objections, Nice classes for the archetype, official databases the founder

@@ -1,3 +1,4 @@
+"use client";
 /**
  * Team › Hierarchy (BUILD §6.3, §11.9): the org chart founder → Chief of Staff → leads → workers on Dugout's
  * HierarchyChart (arrow keys walk the tree). Reporting lines come from `lineManagerId`; an agent without one reports

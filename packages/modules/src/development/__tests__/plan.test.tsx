@@ -42,12 +42,12 @@ describe("PlanScreen", () => {
     expect(fake.refetches["dev.tasks.list"]).toBe(1);
   });
 
-  it("plans from a goal alone", async () => {
+  it("plans from an objective alone", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ responses: responses(), onMutate: () => ({ tasks: [], graph: { tasks: [], edges: [] }, costMinor: 0, costLabel: "Estimate" }) });
     renderScreen(fake, <PlanScreen {...props} />);
     await screen.findByRole("grid", { name: "Tasks" });
-    await user.type(screen.getByLabelText("Goal"), "Rate-limit the public API");
+    await user.type(screen.getByLabelText("Objective"), "Rate-limit the public API");
     await user.click(screen.getByRole("button", { name: "Build task graph" }));
     await waitFor(() => expect(fake.mutations).toContainEqual({ path: "dev.tasks.plan", input: { goal: "Rate-limit the public API" } }));
   });

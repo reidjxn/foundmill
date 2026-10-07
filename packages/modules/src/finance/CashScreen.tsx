@@ -1,3 +1,4 @@
+"use client";
 /**
  * Finance › Cash (BUILD §11.8): every connected account with its latest balance and open-banking consent expiry
  * (AC-11.8.2: a warning from 7 days before lapse), and the transactions DataTable with category chips, saved views,

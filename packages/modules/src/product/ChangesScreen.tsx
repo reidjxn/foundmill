@@ -1,3 +1,4 @@
+"use client";
 /**
  * Product › Changes (BUILD §11.5): the change proposals the Source Watcher and the Product lead raised, as a DataTable
  * with saved views and right-click verbs, and the selected proposal with its per-hunk three-way diffs

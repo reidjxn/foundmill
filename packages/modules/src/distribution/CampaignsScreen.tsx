@@ -1,3 +1,4 @@
+"use client";
 /**
  * Distribution › Campaigns (BUILD §11.7 engine loop Plan → Create → Approve → Launch): a DataTable of campaigns with
  * saved views and right-click status verbs, plus the selected campaign's detail with its assets and their approval
@@ -173,7 +174,7 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
         title={selected ? selected.name : "Campaign"}
         span={4}
         loading={campaigns.isLoading}
-        empty={!selected && campaigns.data ? "Pick a campaign to see its goal, budget and assets." : undefined}
+        empty={!selected && campaigns.data ? "Pick a campaign to see its objective, budget and assets." : undefined}
         actions={selected ? <StatusPill tone={CAMPAIGN_STATUS_WORDS[selected.status].tone}>{CAMPAIGN_STATUS_WORDS[selected.status].word}</StatusPill> : null}
       >
         {selected ? <CampaignDetail row={selected} agents={agents.data} businessId={businessId} pending={action.pending} onStatus={(s) => setStatus(selected, s)} onDecide={decideAsset} onOpenAsset={(a) => navigate(`${routes.department(businessId, "distribution", "creative")}?asset=${a.id}`)} /> : null}
@@ -205,8 +206,8 @@ function CampaignDetail({ row, agents, businessId, pending, onStatus, onDecide }
         ]}
       />
       {row.goal ? (
-        <section aria-label="Goal">
-          <p className="t-label mb-1">Goal</p>
+        <section aria-label="Objective">
+          <p className="t-label mb-1">Objective</p>
           <Markdown variant="body">{row.goal}</Markdown>
         </section>
       ) : null}

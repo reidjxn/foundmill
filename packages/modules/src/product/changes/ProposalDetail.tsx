@@ -1,3 +1,4 @@
+"use client";
 /**
  * One change proposal (BUILD §11.5): rationale with entity links, evidence (sources), impact (dates, tasks, cost —
  * estimates), then one three-way DiffView per hunk. A hunk is accepted, rejected or saved as edited through

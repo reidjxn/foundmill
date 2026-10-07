@@ -1,3 +1,4 @@
+"use client";
 /**
  * Development › Environments (BUILD §6.3, §11.6 "preview deployment per branch"): one row per agent branch with its
  * latest preview deployment. Branches come from the tasks (`agent/<taskId>` for code tasks in flight or review) and

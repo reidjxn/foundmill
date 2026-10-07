@@ -1,6 +1,7 @@
+"use client";
 /**
  * Status strip widget (BUILD §11.2, DESIGN §9): six tiles under the Ribbon — cash, runway, revenue, customers this
- * week, business health and league position when LIVE. Display-lg figures with label captions; every non-measured
+ * week, business health and leaderboard position when LIVE. Display-lg figures with label captions; every non-measured
  * number carries Estimate.
  */
 import { useMemo } from "react";
@@ -16,7 +17,7 @@ import { addDays, dailySeries, dayKey, lastDays, monthKey, sumInRange } from "..
 import type { DepartmentRow, FinanceOverview, LeaderboardPositionRow, RibbonResponse } from "../shared/types";
 
 export const StatusStripSettings = z.object({
-  /** Show the league tile in LIVE mode. */
+  /** Show the leaderboard tile in LIVE mode. */
   showLeague: z.boolean().default(true),
 });
 export type StatusStripSettings = z.infer<typeof StatusStripSettings>;
@@ -66,7 +67,7 @@ export function statusTiles(i: StatusStripInputs): MetricTileProps[] {
   if (i.live) {
     const best = (i.positions ?? []).slice().sort((a, b) => a.position - b.position)[0];
     tiles.push({
-      label: "League position",
+      label: "Leaderboard position",
       value: best ? `#${best.position}` : i.loading.positions ? null : "—",
       loading: i.loading.positions,
       delta: best && best.movement ? { value: best.movement, label: "places" } : undefined,
@@ -128,7 +129,7 @@ function StatusStripWidget({ settings }: WidgetProps<StatusStripSettings>) {
 export const statusStripWidget = registerWidget<StatusStripSettings>({
   key: "status_strip",
   title: "Status strip",
-  description: "Cash, runway, revenue, customers this week, business health and league position when LIVE.",
+  description: "Cash, runway, revenue, customers this week, business health and leaderboard position when LIVE.",
   icon: "gauge",
   surfaces: ["home", "department"],
   defaultSize: { w: 12, h: 6, minW: 6, minH: 5, maxH: 8 },

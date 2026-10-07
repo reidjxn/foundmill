@@ -1,3 +1,4 @@
+"use client";
 /**
  * Legal › Incorporate (BUILD §11.11): the jurisdiction recommender ("For your business, we recommend X or Y" with up
  * to six cards stamped with the date checked, always captioned "Information, not legal or tax advice"), the route

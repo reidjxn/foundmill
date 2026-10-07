@@ -1,3 +1,4 @@
+"use client";
 /**
  * Team › Recruitment (BUILD §6.3, §11.9, §11.13): the catalogue of agent templates (team.agents.catalogue) with a
  * saved view per family and "Hire…" into a department (team.agents.hire); the agent builder entry (a sentence →
@@ -144,7 +145,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
                 <li key={s.template.key} className="flex flex-col gap-2 rounded-panel border border-subtle bg-panel-alt p-panel-pad" data-suggestion={s.template.key}>
                   <span className="flex items-center justify-between gap-2">
                     <span className="truncate text-body-strong">{s.template.name}</span>
-                    <Chip tone={s.score >= 0.5 ? "good" : "neutral"}>{Math.round(s.score * 100)} % match</Chip>
+                    <Chip tone={s.score >= 0.5 ? "good" : "neutral"}>{Math.round(s.score * 100)} % fit</Chip>
                   </span>
                   <span className="text-small text-secondary">{s.template.role} · {FAMILY_LABELS[s.template.family]}</span>
                   <span className="line-clamp-2 text-small text-secondary">{s.template.description}</span>

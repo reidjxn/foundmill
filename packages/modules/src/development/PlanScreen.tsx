@@ -1,3 +1,4 @@
+"use client";
 /**
  * Development › Plan (BUILD §6.3, §11.6): the task graph as a DataTable with saved views and right-click verbs, a
  * dependency view (TaskGraph) for the selected task, and the planner trigger (`dev.tasks.plan` from a roadmap item or
@@ -216,7 +217,7 @@ export function PlanScreen({ businessId }: ModuleScreenProps) {
           selectedIds={selected ? [selected.id] : []}
           height={520}
           exportFileName="tasks"
-          empty={{ icon: ListTree, children: "No tasks yet. Pick a roadmap item or write a goal on the right and the Planner builds the task graph." }}
+          empty={{ icon: ListTree, children: "No tasks yet. Pick a roadmap item or write an objective on the right and the Planner builds the task graph." }}
           aria-label="Tasks"
         />
       </Panel>
@@ -226,7 +227,7 @@ export function PlanScreen({ businessId }: ModuleScreenProps) {
           <Field htmlFor={`${id}-roadmap`} label="Roadmap item">
             <SimpleSelect id={`${id}-roadmap`} aria-label="Roadmap item" options={roadmapOptions} value={roadmapItemId || undefined} onValueChange={setRoadmapItemId} placeholder={roadmap.isLoading ? "Loading roadmap…" : roadmapOptions.length ? "Choose an item" : "No roadmap items yet"} disabled={!roadmapOptions.length} />
           </Field>
-          <Field htmlFor={`${id}-goal`} label="Goal" hint="Optional with a roadmap item; required without one.">
+          <Field htmlFor={`${id}-goal`} label="Objective" hint="Optional with a roadmap item; required without one. Sent to the Planner as its goal.">
             <Textarea id={`${id}-goal`} rows={3} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="Ship a bundle picker on the product page with Playwright coverage." maxLength={4000} />
           </Field>
           <div className="flex items-center gap-2">

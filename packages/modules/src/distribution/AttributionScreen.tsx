@@ -1,3 +1,4 @@
+"use client";
 /**
  * Distribution › Attribution (BUILD §11.4 attribution, §11.7 Measure): the model in use (position-based 40/20/40 until
  * 200 labelled wins, then data-driven Markov), the touch funnel from `distribution.channels.list`, the channel

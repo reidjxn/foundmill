@@ -1,3 +1,4 @@
+"use client";
 /**
  * The fallback spec block editor used when the host supplies no `SpecEditor` through `ModuleEnv` (the collaborative
  * editor is Tiptap 3 + Yjs + @hocuspocus/provider, which only apps/web carries; see docs/NEEDED_DEPS.md).

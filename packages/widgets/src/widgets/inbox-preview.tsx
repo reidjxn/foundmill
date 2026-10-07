@@ -1,3 +1,4 @@
+"use client";
 /**
  * Inbox preview widget (BUILD §11.2, DESIGN §9 Inbox rows): the latest rows at a glance; a row opens the item.
  */

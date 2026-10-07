@@ -1,3 +1,4 @@
+"use client";
 /**
  * Host-provided environment for module screens (docs/ARCHITECTURE.md §18 keeps modules free of the tRPC client and the
  * Next router; this context carries the few non-data things a screen needs from the host).

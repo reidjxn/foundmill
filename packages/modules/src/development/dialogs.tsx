@@ -1,3 +1,4 @@
+"use client";
 /** Dialogs the Training Ground and Plan tabs share: Reassign, Stop and discard, Open in Claude Code. */
 import { useId, useState } from "react";
 import { ExternalLink, Square, UserRoundCog } from "lucide-react";

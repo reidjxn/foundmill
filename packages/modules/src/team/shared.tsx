@@ -1,3 +1,4 @@
+"use client";
 /**
  * Helpers shared by the team screens: layout, mutations with pending/error state, the live status overlay
  * (AC-11.9.1: `agent.health_changed` updates the squad within 2 s), and the AgentRow → SquadRow mapping.

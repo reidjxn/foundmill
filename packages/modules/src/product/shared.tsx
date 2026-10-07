@@ -1,3 +1,4 @@
+"use client";
 /** Helpers shared by the product screens: section ordering, authorship, mutations with pending/error state, layout. */
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { Bot, Lock, UserRound } from "lucide-react";

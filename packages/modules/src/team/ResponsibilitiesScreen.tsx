@@ -1,3 +1,4 @@
+"use client";
 /**
  * Team › Responsibilities (BUILD §6.3, §11.9, AC-11.9.2): the matrix of decision types × handler (founder, a named
  * human, a named agent). One click takes a decision back; "Delegate…" picks a handler and, optionally, a single

@@ -1,3 +1,4 @@
+"use client";
 /**
  * Development › Specialists (BUILD §6.3, §11.6): a grid of SpecialistTiles, one per task of kind "specialist",
  * showing the RFQ funnel, quote table, sample tracker and shipments instead of a terminal. Data comes from the

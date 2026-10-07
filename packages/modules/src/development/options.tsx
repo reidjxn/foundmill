@@ -1,3 +1,4 @@
+"use client";
 /**
  * Render options for the development screens the host (or a test) may override: the terminal renderer and diff
  * engine the tiles use (xterm + Monaco in a browser; plain + local in tests and SSR), a fixed clock for

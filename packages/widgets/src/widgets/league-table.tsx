@@ -1,5 +1,6 @@
+"use client";
 /**
- * League table widget (LIVE only, BUILD §11.14): one leaderboard with this club's row highlighted. Positions come
+ * Leaderboard widget (LIVE only, BUILD §11.14; registry key `league_table`): one leaderboard with this club's row highlighted. Positions come
  * from verified integration metrics only (AC-11.14.1); the widget never computes rank itself.
  */
 import { useMemo } from "react";
@@ -59,9 +60,9 @@ function LeagueTableWidget({ settings }: WidgetProps<LeagueTableSettings>) {
   ];
   if (!live) {
     return (
-      <WidgetFrame title="League table" data-widget="league_table">
+      <WidgetFrame title="Leaderboard" data-widget="league_table">
         <EmptyState icon={ListOrdered} className="py-4">
-          League tables are part of LIVE. Switch the game mode in Settings to play in a league.
+          Leaderboards are part of LIVE. Switch the game mode in Settings to join one.
         </EmptyState>
       </WidgetFrame>
     );
@@ -69,7 +70,7 @@ function LeagueTableWidget({ settings }: WidgetProps<LeagueTableSettings>) {
   const mine = entries.data?.find((e) => e.businessId === businessId);
   return (
     <WidgetFrame
-      title={board?.title ? `League · ${board.title}` : "League table"}
+      title={board?.title ? `Leaderboard · ${board.title}` : "Leaderboard"}
       data-widget="league_table"
       queries={board ? [boards, entries] : [boards]}
       flush
@@ -77,14 +78,14 @@ function LeagueTableWidget({ settings }: WidgetProps<LeagueTableSettings>) {
       actions={board ? <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={() => navigate(routes.leaderboard(board.id))}>Open</Button> : null}
       footer={<span>{board ? `${board.period}${board.division ? ` · ${board.division}` : ""}` : "LIVE"} · {mine ? `You are #${mine.position}` : "Not ranked yet"} · verified metrics only</span>}
     >
-      <MiniTable columns={columns} rows={rows} getRowKey={(r) => r.businessId} highlight={(r) => r.businessId === businessId} onRowClick={() => board && navigate(routes.leaderboard(board.id))} aria-label="League table" emptyText="No entries." />
+      <MiniTable columns={columns} rows={rows} getRowKey={(r) => r.businessId} highlight={(r) => r.businessId === businessId} onRowClick={() => board && navigate(routes.leaderboard(board.id))} aria-label="Leaderboard" emptyText="No entries." />
     </WidgetFrame>
   );
 }
 
 export const leagueTableWidget = registerWidget<LeagueTableSettings>({
   key: "league_table",
-  title: "League table",
+  title: "Leaderboard",
   description: "Where your club stands this period (LIVE).",
   icon: "list-ordered",
   surfaces: ["home"],

@@ -1,3 +1,4 @@
+"use client";
 /**
  * Distribution › Formation (BUILD §11.7): the Board fed by `distribution.channels.list`. Drag or Enter moves a channel
  * on or off → `distribution.channels.enable/disable`, then the Strategist re-scores through `distribution.recommend`

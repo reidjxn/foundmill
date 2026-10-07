@@ -1,7 +1,8 @@
+"use client";
 /**
  * Journey Ribbon widget (BUILD §11.2): the Home hero. Reads `journey.ribbon` (daily rows, conversions, milestones,
  * chapters), `product.roadmap.list` (ghosted upcoming flags) and `finance.overview` (forecast cone + runway horizon),
- * ripples live events into the Today line and opens Match Days / day digests.
+ * ripples live events into the Today line and opens Customer Updates / day digests.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import { z } from "zod";
@@ -99,6 +100,16 @@ export function forecastCone(forecasts: FinanceOverview["forecasts"] | undefined
   });
 }
 
+/**
+ * Where a payment marker navigates. The Ribbon only knows conversion ids; when the API's conversion row carries its
+ * `journeyId` the Customer Update opens in one request, otherwise the route takes the conversion id and apps/web
+ * resolves it (components/journey/JourneyScreen.tsx).
+ */
+export function journeyHref(businessId: string, conversions: readonly RibbonResponse["conversions"][number][] | undefined, conversionId: string): string {
+  const row = conversions?.find((c) => c.id === conversionId);
+  return routes.journey(businessId, row?.journeyId ?? conversionId);
+}
+
 export function roadmapFlags(items: RoadmapListResponse["items"] | undefined, today: string): RoadmapFlag[] {
   return (items ?? [])
     .filter((i) => i.status !== "done")
@@ -176,7 +187,7 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
           horizonMonths={settings.horizonMonths}
           zoom={zoom}
           onZoomChange={onZoomChange}
-          onOpenJourney={(conversionId) => navigate(routes.journey(businessId, conversionId))}
+          onOpenJourney={(conversionId) => navigate(journeyHref(businessId, data.conversions, conversionId))}
           onOpenDay={(day) => setDigestDay(day)}
           height={settings.height}
           currency={currency}
@@ -190,7 +201,7 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
             <DayDigest
               summary={digest}
               currency={currency}
-              onOpenJourney={(conversionId) => navigate(routes.journey(businessId, conversionId))}
+              onOpenJourney={(conversionId) => navigate(journeyHref(businessId, data?.conversions, conversionId))}
               onOpenEntity={(id) => navigate(routes.crm(businessId, id))}
               onPrevDay={() => setDigestDay(addDays(digest.day, -1))}
               onNextDay={digest.isToday ? undefined : () => setDigestDay(addDays(digest.day, 1))}
@@ -206,7 +217,7 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
 export const journeyRibbonWidget = registerWidget<JourneyRibbonSettings>({
   key: "journey_ribbon",
   title: "Journey Ribbon",
-  description: "The river of agent work, revenue, matches and milestones from kick-off to the forecast horizon.",
+  description: "The river of agent work, revenue, wins and milestones from day one to the forecast horizon.",
   icon: "route",
   surfaces: ["home"],
   defaultSize: { w: 12, h: 16, minW: 6, minH: 12, maxH: 24 },

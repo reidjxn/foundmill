@@ -2,20 +2,21 @@
 import { describe, expect, it } from "vitest";
 import { readWidgetEvent } from "../data";
 import { addDays, dailySeries, daysUntil, lastDays, weekKey } from "../shared/time";
-import { pickAgent } from "../widgets/agent-of-the-week";
+import { agentRows, pickAgent } from "../widgets/agent-of-the-week";
 import { buildFormRows, formCells } from "../widgets/channel-form-guide";
 import { forecastSeries, runwayTone } from "../widgets/cash-runway";
 import { postPreview } from "../widgets/community-feed";
 import { funnelStages } from "../widgets/funnel";
 import { previewLine } from "../widgets/inbox-preview";
-import { forecastCone, rippleFor, roadmapFlags } from "../widgets/journey-ribbon";
+import { forecastCone, journeyHref, rippleFor, roadmapFlags } from "../widgets/journey-ribbon";
 import { pickBoard, windowRows } from "../widgets/league-table";
 import { describeEvent } from "../widgets/live-feed";
 import { customersPerWeek } from "../widgets/revenue-customers";
 import { groupByHorizon, roadmapStatus, taskProgress } from "../widgets/roadmap-timeline";
 import { sessionsToPulseCells } from "../widgets/squad-pulse";
 import { squadHealth, statusTiles } from "../widgets/status-strip";
-import { trophyCards } from "../widgets/trophy-cabinet";
+import { milestoneKey, trophyCards } from "../widgets/trophy-cabinet";
+import { routes } from "../shared/routes";
 import { BID, TODAY, channelMetrics, channels, departments, finance, leaderboardEntries, leaderboards, ribbon, roadmap, sessions, team } from "./fixtures";
 
 describe("readWidgetEvent", () => {
@@ -87,7 +88,7 @@ describe("status strip", () => {
     expect(personal[3]!.value).toBe(2);
     const live = statusTiles({ ...base, live: true, positions: [{ ...leaderboardEntries[7]!, board: leaderboards[0]! }] });
     expect(live.length).toBe(6);
-    expect(live[5]).toMatchObject({ label: "League position", value: "#8" });
+    expect(live[5]).toMatchObject({ label: "Leaderboard position", value: "#8" });
     expect(squadHealth(departments)).toBeCloseTo(5 / 6, 5);
     expect(squadHealth([])).toBeNull();
   });
@@ -158,10 +159,17 @@ describe("agent of the week", () => {
     expect(pickAgent(team, { by: "rating", departmentId: departments[0]!.id })!.name).toBe("Atlas");
     expect(pickAgent([], { by: "rating", departmentId: null })).toBeNull();
   });
+  it("reads team.agents.list as the API's { agents, templates } envelope or a bare array", () => {
+    expect(agentRows(undefined)).toEqual([]);
+    expect(agentRows(team)).toBe(team);
+    expect(agentRows({ agents: team, templates: ["generalist"] })).toBe(team);
+    expect(agentRows({ agents: undefined as unknown as typeof team })).toEqual([]);
+    expect(pickAgent(agentRows({ agents: team }), { by: "rating", departmentId: null })!.name).toBe("Ember");
+  });
 });
 
-describe("trophies", () => {
-  it("marks won trophies from milestones, shows the customer only with permission and shares only in LIVE", () => {
+describe("milestones", () => {
+  it("marks reached milestones from stored rows, shows the customer only with permission and shares only in LIVE", () => {
     const cards = trophyCards(ribbon().milestones, "EUR", false);
     expect(cards.length).toBe(8);
     expect(cards.find((c) => c.key === "customer_1")).toMatchObject({ achievedAt: expect.any(String), customerName: "Nordic Beauty AB", shareable: false });
@@ -169,9 +177,39 @@ describe("trophies", () => {
     expect(cards.find((c) => c.key === "mrr_10k")!.achievedAt).toBeNull();
     expect(trophyCards(ribbon().milestones, "EUR", true).find((c) => c.key === "customer_1")!.shareable).toBe(true);
   });
+  it("matches seeded rows that keep the key in ref.trophyKey (milestones has no trophy_key column)", () => {
+    const seeded = ribbon().milestones.map((m) => ({ ...m, trophyKey: undefined as unknown as string, ref: { ...(m.ref as object), trophyKey: m.trophyKey } }));
+    expect(milestoneKey(seeded[0]!)).toBe("customer_1");
+    expect(milestoneKey({ trophyKey: undefined as unknown as string, ref: {} })).toBeNull();
+    const cards = trophyCards(seeded, "EUR", false);
+    expect(cards.find((c) => c.key === "customer_1")).toMatchObject({ achievedAt: expect.any(String), customerName: "Nordic Beauty AB" });
+    expect(cards.find((c) => c.key === "mrr_1k")!.achievedAt).toEqual(expect.any(String));
+    expect(cards.filter((c) => c.achievedAt).length).toBe(2);
+  });
+  it("falls back to kind + label only for rows without any key, so a keyed row never claims another milestone", () => {
+    const rows = [{ ...ribbon().milestones[0]!, trophyKey: "customer_10", label: "First customer" }];
+    const cards = trophyCards(rows, "EUR", false);
+    expect(cards.find((c) => c.key === "customer_1")!.achievedAt).toBeNull();
+    expect(cards.find((c) => c.key === "customer_10")!.achievedAt).toEqual(expect.any(String));
+  });
 });
 
-describe("league table", () => {
+describe("routes", () => {
+  it("builds the milestones and journey hrefs the host serves (CLAUDE.md vocabulary: no /trophies)", () => {
+    expect(routes.milestones(BID)).toBe(`/b/${BID}/milestones`);
+    expect(routes.milestones(BID, "customer_1")).toBe(`/b/${BID}/milestones?share=customer_1`);
+    expect(routes.journey(BID, "j1")).toBe(`/b/${BID}/journey/j1`);
+    expect(Object.keys(routes)).not.toContain("trophies");
+  });
+  it("opens a Ribbon marker by journey id when the conversion row carries one, else by conversion id", () => {
+    const [first] = ribbon().conversions;
+    expect(journeyHref(BID, ribbon().conversions, first!.id)).toBe(`/b/${BID}/journey/${first!.id}`);
+    expect(journeyHref(BID, [{ ...first!, journeyId: "journey-9" }], first!.id)).toBe(`/b/${BID}/journey/journey-9`);
+    expect(journeyHref(BID, undefined, "conv-x")).toBe(`/b/${BID}/journey/conv-x`);
+  });
+});
+
+describe("leaderboard", () => {
   it("picks the board and windows the rows around this club", () => {
     expect(pickBoard(leaderboards, "nope")!.id).toBe(leaderboards[0]!.id);
     expect(pickBoard([], null)).toBeUndefined();

@@ -1,3 +1,4 @@
+"use client";
 /**
  * Change an agent's model from the squad table (BUILD §11.9 Model column, §11.10 AC-11.10.5): the picker shows the
  * predicted wage per model (Estimate, from `agent.model.compare`), locked routes with the reason, then ApplyScopeDialog

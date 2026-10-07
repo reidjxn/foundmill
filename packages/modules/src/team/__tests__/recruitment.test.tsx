@@ -82,7 +82,7 @@ describe("RecruitmentScreen", () => {
     const list = await screen.findByRole("list", { name: "Suggested templates" });
     const first = within(list).getAllByRole("listitem")[0]!;
     expect(first.getAttribute("data-suggestion")).toBe("newsletter_writer");
-    expect(within(first).getByText(/% match/)).toBeTruthy();
+    expect(within(first).getByText(/% fit/)).toBeTruthy();
     await user.click(within(first).getByRole("button", { name: "Hire from this template" }));
     const dialog = await screen.findByTestId("hire-dialog");
     await user.click(within(dialog).getByTestId("hire-confirm"));

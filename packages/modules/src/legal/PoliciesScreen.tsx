@@ -1,3 +1,4 @@
+"use client";
 /**
  * Legal › Policies (BUILD §11.11): privacy policy, terms of service and cookie policy generated from the real
  * integrations and data flows (`integrations.list`), the legal entity and the archetype. The published text lives

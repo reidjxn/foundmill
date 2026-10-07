@@ -1,3 +1,4 @@
+"use client";
 /**
  * Product › Sources (BUILD §11.5): everything the Source Watcher reads — interviews, feedback, issues, documents,
  * competitor pages, legal and finance notes — as a DataTable with kind filters, saved views, right-click verbs and

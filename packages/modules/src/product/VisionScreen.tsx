@@ -1,3 +1,4 @@
+"use client";
 /**
  * Product › Vision (BUILD §6.3, §11.5): the narrative sections of the spec read as one page, the pinned
  * (human-edited) blocks, the spec at a glance and what the squad is building now.

@@ -1,3 +1,4 @@
+"use client";
 /**
  * Product › Research (BUILD §11.5, §11.1): what the Research agent and the Source Watcher learned — competitor cards,
  * research notes with entity links, the topics that keep coming up, and how well each spec section is backed by

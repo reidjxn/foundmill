@@ -1,3 +1,4 @@
+"use client";
 /**
  * Channel profile (BUILD §11.7 "Click → channel profile": agents, budget, rules, results, pause), shown in the right
  * rail of the Formation tab. Reuses Dugout's ChannelProfileCard for the token facts and adds the budget editor,

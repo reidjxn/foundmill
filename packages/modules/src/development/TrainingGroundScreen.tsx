@@ -1,3 +1,4 @@
+"use client";
 /**
  * Development › Training Ground (BUILD §6.3, §11.6; DESIGN §9): the split-screen of AgentTiles fed by `dev.tasks.list`
  * + `as:<sessionId>` streams with focus-aware throttling, the Formation view (task graph), the session scrubber

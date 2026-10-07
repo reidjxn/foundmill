@@ -1,3 +1,4 @@
+"use client";
 /**
  * Live feed widget (BUILD §11.2): platform events as they arrive on `ev:<businessId>`, newest first. Seeded from
  * the last cycle's tasks so the panel is not empty on open, then grown live. Capped to keep the DOM small.
@@ -57,7 +58,7 @@ export function describeEvent(e: WidgetEvent): Described {
     case "payment.received":
       return { title: `Payment received${money(p.amount) ? ` · ${money(p.amount)}` : ""}`, description: str(p.productRef), icon: Coins, tone: "good", statusWord: p.firstPayment ? "First" : undefined };
     case "customer.converted":
-      return { title: `Customer won (${str(p.kind) ?? "match"})`, description: money(p.amount), icon: Trophy, tone: "good", statusWord: "Won" };
+      return { title: `Customer won (${str(p.kind) ?? "win"})`, description: money(p.amount), icon: Trophy, tone: "good", statusWord: "Won" };
     case "lead.replied":
       return { title: "A lead replied", description: str(p.sentiment), icon: MessageSquare, tone: p.sentiment === "negative" ? "warn" : "info" };
     case "approval.requested":

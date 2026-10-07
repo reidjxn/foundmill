@@ -1,3 +1,4 @@
+"use client";
 /**
  * Funnel widget: impressions → leads → signups → activations → customers over the last 35 days, blended across
  * channels or for one channel (BUILD §11.7 channel metrics).

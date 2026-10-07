@@ -1,3 +1,4 @@
+"use client";
 /**
  * Dialogs the Squad and Recruitment tabs share (BUILD §11.9 Recruitment: hire, release, clone, loan). Each one owns
  * its form state, runs the mutation through `useAction`, keeps the dialog open on error and tells the caller when it

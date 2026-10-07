@@ -1,3 +1,4 @@
+"use client";
 /** Helpers shared by the distribution screens: layout, mutations with pending/error state, vocabulary, formatting. */
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { PageGrid, cn } from "@foundmill/dugout";

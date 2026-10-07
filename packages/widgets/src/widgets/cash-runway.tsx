@@ -1,3 +1,4 @@
+"use client";
 /**
  * Cash and runway widget (BUILD §11.2 gallery, §11.8 metric definitions): cash in bank, net burn (Estimate), runway
  * (Estimate, amber under 9 months, red under 6) and the cash forecast cone (Forecast) or the monthly cash flow.

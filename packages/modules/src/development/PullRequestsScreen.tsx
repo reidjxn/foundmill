@@ -1,3 +1,4 @@
+"use client";
 /**
  * Development › Pull requests (BUILD §6.3, §11.6): open PRs from `dev.prs.list` with their merge-queue status and
  * preview links, and the merged PRs (`pr.merged` events) in a second table.

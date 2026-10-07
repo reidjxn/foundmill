@@ -1,3 +1,4 @@
+"use client";
 /** Create / edit a roadmap item and link it to spec blocks (product.roadmap.upsert + product.roadmap.link). */
 import { useEffect, useMemo, useState } from "react";
 import { Save } from "lucide-react";

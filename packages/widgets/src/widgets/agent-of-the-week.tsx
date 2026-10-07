@@ -1,3 +1,4 @@
+"use client";
 /**
  * Agent of the week widget: the squad member with the best week (rating, recent form or value for money), with a
  * player-card treatment (BUILD §11.9 squad columns, DESIGN §8 ProfileHeader).
@@ -12,7 +13,7 @@ import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
 import { routes } from "../shared/routes";
-import type { TeamAgentRow } from "../shared/types";
+import type { TeamAgentRow, TeamAgentsListResponse } from "../shared/types";
 
 export const AGENT_PICKS = ["rating", "form", "value"] as const;
 export const AgentOfTheWeekSettings = z.object({
@@ -37,13 +38,20 @@ export function pickAgent(rows: readonly TeamAgentRow[], settings: AgentOfTheWee
   return pool.slice().sort((x, y) => agentScore(y, settings.by) - agentScore(x, settings.by) || x.name.localeCompare(y.name))[0] ?? null;
 }
 
+/** Rows of `team.agents.list` whichever shape the host returns (`{ agents }` from apps/api, or a bare array). */
+export function agentRows(data: TeamAgentsListResponse | undefined): TeamAgentRow[] {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  return Array.isArray(data.agents) ? data.agents : [];
+}
+
 const PICK_WORD = { rating: "Highest rating", form: "Best form", value: "Best value" } as const;
 
 function AgentOfTheWeekWidget({ settings }: WidgetProps<AgentOfTheWeekSettings>) {
   const { businessId, navigate } = useWidgetData();
-  const team = useWidgetQuery<TeamAgentRow[]>("team.agents.list", {});
+  const team = useWidgetQuery<TeamAgentsListResponse>("team.agents.list", {});
   useBusinessEvents(() => team.refetch(), ["task.completed", "training.completed", "agent.promoted", "cycle.completed"]);
-  const agent = useMemo(() => pickAgent(team.data ?? [], settings), [team.data, settings]);
+  const agent = useMemo(() => pickAgent(agentRows(team.data), settings), [team.data, settings]);
   const dept = agent?.departments[0];
   return (
     <WidgetFrame

@@ -1,3 +1,4 @@
+"use client";
 /**
  * Team › Health (BUILD §6.3, §9.10, §11.9): a status board grouped by health, the ones that need the founder first
  * (failing, down, degraded, paused, idle, healthy). "Down" shows the expected return once the integration is

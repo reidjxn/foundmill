@@ -1,3 +1,4 @@
+"use client";
 /**
  * Revenue and customers widget: monthly revenue (cash basis) as bars and customers won per week from the journey
  * daily rows; two headline tiles on top.
@@ -69,7 +70,7 @@ function RevenueCustomersWidget({ settings }: WidgetProps<RevenueCustomersSettin
       data-widget="revenue_customers"
       queries={queries}
       flush
-      empty={loaded && !hasData ? { icon: TrendingUp, text: "Revenue and customers appear once Stripe, Shopify or a bank is connected and the first match is won.", action: { label: "Open integrations", onClick: () => navigate(routes.settings(businessId, "integrations")) } } : null}
+      empty={loaded && !hasData ? { icon: TrendingUp, text: "Revenue and customers appear once Stripe, Shopify or a bank is connected and the first customer is won.", action: { label: "Open integrations", onClick: () => navigate(routes.settings(businessId, "integrations")) } } : null}
       footer={<span>{finance.data?.revenue.label ?? "Revenue on a cash basis"} · customers = first payments</span>}
     >
       <div className="flex h-full min-h-0 flex-col">

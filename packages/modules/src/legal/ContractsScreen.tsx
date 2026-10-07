@@ -1,3 +1,4 @@
+"use client";
 /**
  * Legal › Contracts (BUILD §11.11): the contract register as a DataTable with saved views and right-click lifecycle
  * verbs, a new-contract form, and the selected contract's detail with its obligations. Signing is founder-only:

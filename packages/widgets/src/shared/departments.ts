@@ -1,3 +1,4 @@
+"use client";
 /** Department lookups shared by the department card, squad pulse, status strip and navigation helpers. */
 import type { ModuleKey } from "@foundmill/shared";
 import { MODULE_KEYS } from "@foundmill/shared";

@@ -1,3 +1,4 @@
+"use client";
 /**
  * Finance › Runway (BUILD §11.8): the driver-based forecast in Base, Upside and Downside scenarios, every value
  * captioned Forecast; drivers are edited here and saved as a new forecast version through `finance.forecast.update`

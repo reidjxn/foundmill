@@ -1,3 +1,4 @@
+"use client";
 /**
  * A fake `WidgetDataSource` for tests and stories (import from "@foundmill/widgets/testing").
  *

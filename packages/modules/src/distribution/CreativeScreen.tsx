@@ -1,3 +1,4 @@
+"use client";
 /**
  * Distribution › Creative (BUILD §11.7 Create → Approve): every asset the engines drafted, as a gallery grouped by
  * kind (email, post, ad, video, article, mailer, print, script) with its campaign, author and approval state.

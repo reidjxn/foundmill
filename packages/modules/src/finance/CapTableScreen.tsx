@@ -1,3 +1,4 @@
+"use client";
 /**
  * Finance › Cap table (BUILD §11.8): holders (CRM entities), share classes, issuances with vesting, the option pool,
  * SAFEs and convertible notes; round modelling (pre-money + investment → pro forma with SAFE conversion and pool

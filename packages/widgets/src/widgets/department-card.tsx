@@ -1,3 +1,4 @@
+"use client";
 /**
  * Department card widget (BUILD §11.2, DESIGN §9). One card per department: lead, health, squad strip, up to three
  * "Now" lines (entities linked), the module's headline metric with a sparkline, and "Next up". Reacts to

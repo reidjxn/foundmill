@@ -1,3 +1,4 @@
+"use client";
 /**
  * Finance › Wage bill (BUILD §11.8): per-agent monthly cost (tokens, sandbox minutes, tool calls, training) against
  * each agent's wage cap, the human payroll line from categorised bank transactions, and output per euro (tasks

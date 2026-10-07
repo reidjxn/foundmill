@@ -1,3 +1,4 @@
+"use client";
 /**
  * Distribution › Leads (BUILD §11.7 lead generation): every entity holding the `lead` role (`crm.roles.byRole`) in a
  * DataTable with saved views, a lawful-basis column, a suppression indicator and right-click verbs (open profile,

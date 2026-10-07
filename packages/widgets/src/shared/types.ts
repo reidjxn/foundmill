@@ -37,10 +37,13 @@ export interface DepartmentRow {
 /* journey.ribbon */
 export interface RibbonResponse {
   rows: JourneyDailyRow[];
-  conversions: (Conversion & { occurredAt: Iso })[];
+  /** `journeyId` is read when the API joins it; the Ribbon navigates by conversion id otherwise. */
+  conversions: (Conversion & { occurredAt: Iso; journeyId?: string | null })[];
   milestones: (Milestone & { achievedAt: Iso; kind: MilestoneKind })[];
   chapters: Chapter[];
+  /** First day of the business (the API also returns it as `firstDay`). */
   kickoff: DayKey;
+  firstDay?: DayKey;
   today: DayKey;
   forecastLabel?: "Forecast";
 }
@@ -55,7 +58,9 @@ export interface JourneyListRow {
   viewedAt?: Iso | null;
   amountMinor?: number;
   currency?: string;
+  /** Standout agent of the win (the stored column keeps its wave-1 name). */
   playerOfTheMatch?: string | null;
+  standoutAgentId?: string | null;
 }
 export interface Page<T> {
   items: T[];
@@ -191,7 +196,8 @@ export interface TaskRow {
   roadmapItemId?: string | null;
 }
 
-/* team.agents.list */
+/* team.agents.list: apps/api returns `{ agents, templates }`; a bare array is accepted for older hosts and fixtures. */
+export type TeamAgentsListResponse = TeamAgentRow[] | { agents: TeamAgentRow[]; templates?: readonly string[] };
 export interface TeamAgentRow {
   id: string;
   name: string;

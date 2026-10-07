@@ -1,3 +1,4 @@
+"use client";
 /** Helpers shared by the finance screens: layout, clock, money, mutations with pending/error state, downloads. */
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
 import type { Money } from "@foundmill/shared";

@@ -1,3 +1,4 @@
+"use client";
 /**
  * Team › Squad (BUILD §6.3, §11.9): the squad DataTable with the exact columns Agent, Role, Department(s), Status,
  * Current task, Form, Rating, Tools, Model, Wage, Latest update built from Dugout's squad cells, the five saved views

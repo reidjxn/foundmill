@@ -1,3 +1,4 @@
+"use client";
 /**
  * Custom metric widget (BUILD §11.2): a named query id or a sentence the server compiles (Haiku) into a read-only
  * query against business-scoped views. The widget itself only renders a number; compiling, previewing and saving

@@ -1,4 +1,4 @@
-/** Journey Ribbon widget: data flow into the Dugout ribbon, zoom persistence, marker → Match Day, live ripples. */
+/** Journey Ribbon widget: data flow into the Dugout ribbon, zoom persistence, marker → Customer Update, live ripples. */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { WidgetDataProvider } from "../data";
@@ -59,7 +59,7 @@ describe("journey ribbon widget", () => {
     expect(root.getAttribute("data-zoom")).toBe("week");
   });
 
-  it("opens the Match Day when a single payment marker is clicked (AC-11.2.2)", async () => {
+  it("opens the Customer Update when a single payment marker is clicked (AC-11.2.2)", async () => {
     const { fake, container } = mountRibbon({ zoom: "all" });
     await screen.findByRole("group", { name: /Journey Ribbon/ });
     const single = container.querySelector("[data-marker='payment'][data-count='1']") as SVGGElement | null;

@@ -1,3 +1,4 @@
+"use client";
 /**
  * Timeline view of the roadmap (BUILD §11.5 "board + timeline"): one row per scheduled item, a bar from target start
  * to target end tinted by computed status, month ticks along the top and a glowing Today line. Undated items are

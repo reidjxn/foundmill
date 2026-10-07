@@ -1,6 +1,8 @@
+"use client";
 /**
- * Trophy cabinet widget (BUILD §11.4): the eight trophies from `@foundmill/journey`, won ones in gold with the date
- * (and the customer when permission is recorded), the rest ghosted. LIVE adds Share.
+ * Milestones widget (BUILD §11.4; registry key `trophy_cabinet`): the eight milestone definitions from
+ * `@foundmill/journey`, reached ones in gold with the date (and the customer when permission is recorded), the rest
+ * ghosted. LIVE adds Share.
  */
 import { useMemo } from "react";
 import { z } from "zod";
@@ -16,7 +18,7 @@ import type { RibbonResponse } from "../shared/types";
 
 export const TrophyCabinetSettings = z.object({
   columns: z.union([z.literal(2), z.literal(3), z.literal(4)]).default(4),
-  /** Hide trophies not yet won. */
+  /** Hide milestones not yet reached. */
   wonOnly: z.boolean().default(false),
 });
 export type TrophyCabinetSettings = z.infer<typeof TrophyCabinetSettings>;
@@ -27,11 +29,24 @@ function describe(t: TrophyDefinition, currency: string): string {
   return "A signed contract above the enterprise threshold.";
 }
 
-/** Match stored milestones to trophy definitions by trophyKey (or kind + label as a fallback). */
+type MilestoneRow = RibbonResponse["milestones"][number];
+
+/**
+ * The milestone definition key a stored row carries. `milestones` has no trophy_key column: the seed and the
+ * journey consumer keep it in `ref.trophyKey`, while older fixtures put it on the row itself; both are read.
+ */
+export function milestoneKey(m: Pick<MilestoneRow, "trophyKey" | "ref">): string | null {
+  if (typeof m.trophyKey === "string" && m.trophyKey) return m.trophyKey;
+  const ref = (m.ref ?? null) as Record<string, unknown> | null;
+  return ref && typeof ref.trophyKey === "string" && ref.trophyKey ? ref.trophyKey : null;
+}
+
+/** Match stored milestones to milestone definitions by key (row or ref.trophyKey), or kind + label as a fallback. */
 export function trophyCards(milestones: RibbonResponse["milestones"] | undefined, currency: string, live: boolean): TrophyCard[] {
   return TROPHIES.map((t) => {
     const label = t.label(currency);
-    const won = (milestones ?? []).find((m) => m.trophyKey === t.key || (m.kind === t.kind && m.label === label));
+    const rows = milestones ?? [];
+    const won = rows.find((m) => milestoneKey(m) === t.key) ?? rows.find((m) => milestoneKey(m) === null && m.kind === t.kind && m.label === label);
     const ref = (won?.ref ?? {}) as Record<string, unknown>;
     const permission = ref.permission === true || ref.shareCustomer === true;
     return {
@@ -58,21 +73,21 @@ function TrophyCabinetWidget({ settings }: WidgetProps<TrophyCabinetSettings>) {
   }, [ribbon.data, currency, gameMode, settings.wonOnly]);
   return (
     <WidgetFrame
-      title="Trophy cabinet"
+      title="Milestones"
       data-widget="trophy_cabinet"
       queries={[ribbon]}
-      empty={ribbon.data && cards.length === 0 ? { icon: Trophy, text: "The first trophy is the first paying customer. Win a match to start the cabinet." } : null}
+      empty={ribbon.data && cards.length === 0 ? { icon: Trophy, text: "The first milestone is the first paying customer. The first win starts the list." } : null}
       footer={<span>Customer names show only when permission is recorded</span>}
     >
-      <TrophyCabinet trophies={cards} columns={settings.columns} onOpen={() => navigate(routes.trophies(businessId))} onShare={gameMode === "live" ? (key) => navigate(`${routes.trophies(businessId)}?share=${encodeURIComponent(key)}`) : undefined} />
+      <TrophyCabinet trophies={cards} columns={settings.columns} onOpen={() => navigate(routes.milestones(businessId))} onShare={gameMode === "live" ? (key) => navigate(routes.milestones(businessId, key)) : undefined} />
     </WidgetFrame>
   );
 }
 
 export const trophyCabinetWidget = registerWidget<TrophyCabinetSettings>({
   key: "trophy_cabinet",
-  title: "Trophy cabinet",
-  description: "Customer and revenue milestones, won and still to win.",
+  title: "Milestones",
+  description: "Customer and revenue milestones, reached and still to reach.",
   icon: "trophy",
   surfaces: ["home", "department"],
   defaultSize: { w: 6, h: 14, minW: 4, minH: 8 },

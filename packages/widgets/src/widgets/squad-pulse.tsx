@@ -1,3 +1,4 @@
+"use client";
 /**
  * Squad pulse widget (BUILD §11.2): a 7 × 24 heatmap of agent activity by hour and department over the last seven
  * days, built from `dev.sessions.list` (session start/end per agent → department via `department.list`).

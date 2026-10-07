@@ -1,3 +1,4 @@
+"use client";
 /**
  * The Now / Next / Later board (BUILD §11.5). Cards drag between columns (HTML5 drag and drop) and move with the
  * keyboard (Alt+←/→ on a focused card, or the right-click verbs); each move is a `product.roadmap.upsert` with the new

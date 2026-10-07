@@ -1,3 +1,4 @@
+"use client";
 /**
  * Product › Roadmap (BUILD §11.5): the Now / Next / Later board with drag between columns, the timeline view, items
  * linked to spec blocks and tasks, and a status that is computed from tasks and acceptance criteria (AC-11.5.4).

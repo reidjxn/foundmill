@@ -1,3 +1,4 @@
+"use client";
 /**
  * Channel form guide widget (BUILD §11.7 "form guide (last 5 weeks of CPA)"): every enabled channel with its fit,
  * five weekly form cells and this week's cost per customer (Estimate).
@@ -115,7 +116,7 @@ function ChannelFormGuideWidget({ settings }: WidgetProps<ChannelFormGuideSettin
       data-widget="channel_form_guide"
       queries={[channels, metrics]}
       flush
-      empty={channels.data && rows.length === 0 ? { icon: Megaphone, text: "No channels are on the pitch yet. Enable starters on the Formation board.", action: { label: "Open Formation", onClick: () => navigate(moduleHref(businessId, departments.data, "distribution", "formation") ?? `/b/${businessId}/home`) } } : null}
+      empty={channels.data && rows.length === 0 ? { icon: Megaphone, text: "No channels are on the board yet. Enable starters on the Formation board.", action: { label: "Open Formation", onClick: () => navigate(moduleHref(businessId, departments.data, "distribution", "formation") ?? `/b/${businessId}/home`) } } : null}
       actions={<ProvenanceChip kind="estimate" title="CPA = spend ÷ customers attributed to the channel" />}
       footer={<span>Form: each week's CPA against the channel's own median · last {FORM_WEEKS} weeks</span>}
     >

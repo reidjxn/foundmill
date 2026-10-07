@@ -1,3 +1,4 @@
+"use client";
 /**
  * Distribution › Channels (BUILD §11.7): a DataTable of the 15 channels — line, fit, potential stars, cost-per-customer
  * range (Estimate), budget, status and the offline-tracking chip — with saved views and right-click verbs

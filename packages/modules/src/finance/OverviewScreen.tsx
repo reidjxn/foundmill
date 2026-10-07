@@ -1,3 +1,4 @@
+"use client";
 /**
  * Finance › Overview (BUILD §11.8): the ten metric tiles with hover-visible definitions, provenance and sparklines,
  * runway warnings at 12/9/6 months (red and blocking under 3), cash history against the Base forecast, and monthly

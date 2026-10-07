@@ -1,3 +1,4 @@
+"use client";
 /**
  * Live tile state for the Training Ground: one `AgentTileSession` per visible task, fed by `subscribe("as:<id>")`
  * through the host data source, with focus-aware throttling (the focused tile gets every event at once; the others

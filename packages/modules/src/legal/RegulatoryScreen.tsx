@@ -1,3 +1,4 @@
+"use client";
 /**
  * Legal › Regulatory (BUILD §11.11, §15 "regulated-sector gates"): the sector gates (health, finance, legal
  * services, food, cosmetics, children's products) suggested from the business profile and confirmed by the founder,

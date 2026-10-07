@@ -1,3 +1,4 @@
+"use client";
 /** Helpers shared by the development screens: layout, mutations with pending/error state, agent and task lookups. */
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { PageGrid, StatusPill, TASK_STATUS_META, cn, type TileAgent } from "@foundmill/dugout";

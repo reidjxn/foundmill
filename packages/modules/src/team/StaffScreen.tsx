@@ -1,3 +1,4 @@
+"use client";
 /**
  * Team › Staff (BUILD §6.3, §11.9): the humans of the business (Owner, Admin, Member, Viewer, Advisor) with their
  * per-section permissions and the decision types they approve. Invite, change role or permissions, remove

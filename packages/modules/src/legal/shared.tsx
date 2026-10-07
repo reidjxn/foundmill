@@ -1,3 +1,4 @@
+"use client";
 /**
  * Helpers shared by the legal screens: layout, clock, mutations with pending/error state, the mandatory
  * "Information, not legal or tax advice" caption, founder-only link-outs (the only way to an external submit,

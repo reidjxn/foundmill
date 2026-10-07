@@ -1,3 +1,4 @@
+"use client";
 /**
  * Product › Specification (BUILD §11.5): the block outline, one block in the collaborative editor (the host's Tiptap +
  * Yjs editor over apps/collab, or the plain fallback), pinned-block locks, and version history with compare and restore.
