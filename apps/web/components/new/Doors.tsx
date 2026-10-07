@@ -7,7 +7,8 @@
 import { ArrowRight, FolderInput, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Chip, Icon, Panel, StarRating, cn, type IconComponent } from "@foundmill/dugout";
+import { Chip, Icon, Panel, StarRating, buttonVariants, cn, type IconComponent } from "@foundmill/dugout";
+import { LinkButton } from "./LinkButton";
 import { useTRPC } from "@/lib/trpc-react";
 import { StudioFrame } from "./StudioFrame";
 import { commitHref, num, toConcept } from "./ideate/concepts";
@@ -84,9 +85,10 @@ export function Doors({ viewer, profileLine, businessCount }: DoorsProps) {
                 ))}
               </ol>
               <div className="mt-auto flex justify-end">
-                <Button variant="primary" iconRight={ArrowRight} asChild>
-                  <span>{d.cta}</span>
-                </Button>
+                <span className={cn(buttonVariants({ variant: "primary" }))} data-variant="primary">
+                  {d.cta}
+                  <Icon icon={ArrowRight} />
+                </span>
               </div>
             </div>
           </Link>
@@ -108,18 +110,18 @@ export function Doors({ viewer, profileLine, businessCount }: DoorsProps) {
                     <StarRating value={num(idea.current?.starsCurrent)} potential={num(idea.current?.starsPotential)} label="Current ability" />
                     <p className="mt-1 line-clamp-2 text-small text-secondary">{c.pitch}</p>
                   </div>
-                  <Button size="sm" variant="default" asChild>
-                    <Link href={commitHref(idea.id)}>Commit</Link>
-                  </Button>
+                  <LinkButton size="sm" variant="default" href={commitHref(idea.id)}>
+                    Commit
+                  </LinkButton>
                 </li>
               );
             })}
           </ul>
           {ideas.length > 0 ? (
             <div className="mt-3 flex justify-end">
-              <Button variant="ghost" size="sm" asChild>
-                <Link href="/new/ideate">Back to the studio</Link>
-              </Button>
+              <LinkButton variant="ghost" size="sm" href="/new/ideate">
+                Back to the studio
+              </LinkButton>
             </div>
           ) : null}
         </Panel>

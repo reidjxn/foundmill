@@ -221,12 +221,13 @@ function forecastPoints(series: unknown[] | undefined): { x: string; y: number |
 export function runwayForecast(input: FinanceLike | undefined): ExhibitData {
   const currency = input?.cash.currency ?? "EUR";
   const scenarios = ["base", "upside", "downside"] as const;
-  const series = scenarios
-    .map((s) => {
-      const f = input?.forecasts?.[s];
-      return f ? { key: s, label: s.charAt(0).toUpperCase() + s.slice(1), points: forecastPoints(f.series) } : null;
-    })
-    .filter((s): s is ExhibitSeries => s !== null && s.points.length > 0);
+  const series: ExhibitSeries[] = [];
+  for (const s of scenarios) {
+    const f = input?.forecasts?.[s];
+    if (!f) continue;
+    const points = forecastPoints(f.series);
+    if (points.length > 0) series.push({ key: s, label: s.charAt(0).toUpperCase() + s.slice(1), points });
+  }
   return { id: "runway_forecast", title: EXHIBIT_TITLES.runway_forecast, label: "Forecast", source: "Driver-based forecast (base / upside / downside)", currency, series };
 }
 

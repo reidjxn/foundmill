@@ -3,14 +3,17 @@
  * /onboarding — the founder profile (BUILD §11.1, AC-11.1.1): experience, five skills 1–20, time commitment, budget
  * and currency, citizenship and residence, target markets, constraint chips, risk appetite → founder.profile.update
  * → /new. A rail on the left tracks the sections; the form sits in Dugout panels on the right. First-run feel:
- * the page opens on the wordmark, a display-xl line and a short promise, then the form.
+ * the page opens on the wordmark, a display line and a short promise, then the form.
+ *
+ * `OnboardingForm` is pure (props in, `onSubmit(patch)` out) so it is tested without tRPC; `OnboardingScreen` wires
+ * the mutation, the toast and the redirect.
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Check, Plus, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { APP_NAME } from "@foundmill/config";
-import { Button, Chip, Field, Input, Panel, RadioGroup, RadioGroupItem, RatingBar, SimpleSelect, Slider, StatusPill, cn, ratingBandLabel, ratingClass, useToast } from "@foundmill/dugout";
+import { Button, Chip, Field, Input, Kbd, Panel, RadioGroup, RadioGroupItem, RatingBar, SimpleSelect, Slider, StatusPill, cn, ratingBandLabel, ratingClass, useToast } from "@foundmill/dugout";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { StudioFrame } from "@/components/new/StudioFrame";
@@ -28,12 +31,14 @@ import {
   addChip,
   formFromProfile,
   profilePatch,
+  profileSummary,
   removeChip,
   sectionStatus,
   toggleChip,
   validateProfileForm,
   type ProfileForm,
   type ProfileLike,
+  type ProfilePatch,
   type ProfileSectionId,
 } from "./profile-form";
 
@@ -48,23 +53,43 @@ export function OnboardingScreen({ profile, email }: OnboardingScreenProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const editing = profile !== null;
-  const [form, setForm] = useState<ProfileForm>(() => formFromProfile(profile, email));
-  const [touched, setTouched] = useState(false);
-  const errors = useMemo(() => validateProfileForm(form), [form]);
-  const status = useMemo(() => sectionStatus(form), [form]);
-  const valid = Object.keys(errors).length === 0;
-  const set = <K extends keyof ProfileForm>(key: K, value: ProfileForm[K]) => setForm((f) => ({ ...f, [key]: value }));
 
   const save = useMutation(
     trpc.founder.profile.update.mutationOptions({
       onSuccess: async () => {
         await queryClient.invalidateQueries({ queryKey: trpcPathPrefix("founder") as unknown[] });
-        toast({ title: editing ? "Profile updated" : "Welcome to the dugout", description: editing ? "Your constraints shape every concept the studio drafts." : "Next: ideate a concept or import what already exists.", tone: "good" });
+        toast({
+          title: editing ? "Profile updated" : "Welcome to the dugout",
+          description: editing ? "Your constraints shape every concept the studio drafts." : "Next: ideate a concept or import what already exists.",
+          tone: "good",
+        });
         router.push("/new");
+        router.refresh();
       },
       onError: (err) => toast({ title: "Profile not saved", description: errorMessage(err), tone: "bad" }),
     }),
   );
+
+  return <OnboardingForm profile={profile} email={email} saving={save.isPending} error={save.error ? errorMessage(save.error) : null} onSubmit={(patch) => save.mutate(patch)} />;
+}
+
+export interface OnboardingFormProps {
+  profile: ProfileLike | null;
+  email: string | null;
+  saving?: boolean;
+  error?: string | null;
+  onSubmit: (patch: ProfilePatch) => void;
+}
+
+export function OnboardingForm({ profile, email, saving = false, error, onSubmit }: OnboardingFormProps) {
+  const editing = profile !== null;
+  const [form, setForm] = useState<ProfileForm>(() => formFromProfile(profile, email));
+  const [touched, setTouched] = useState(false);
+  const errors = useMemo(() => validateProfileForm(form), [form]);
+  const status = useMemo(() => sectionStatus(form), [form]);
+  const summary = useMemo(() => profileSummary(form), [form]);
+  const valid = Object.keys(errors).length === 0;
+  const set = <K extends keyof ProfileForm>(key: K, value: ProfileForm[K]) => setForm((f) => ({ ...f, [key]: value }));
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -74,10 +99,11 @@ export function OnboardingScreen({ profile, email }: OnboardingScreenProps) {
       if (first) document.getElementById(`section-${first.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
-    save.mutate(profilePatch(form));
+    onSubmit(profilePatch(form));
   }
 
   const show = (key: keyof ProfileForm) => (touched ? errors[key] : undefined);
+  const errorCount = Object.keys(errors).length;
 
   return (
     <StudioFrame
@@ -86,7 +112,7 @@ export function OnboardingScreen({ profile, email }: OnboardingScreenProps) {
       lede={editing ? "Every concept, forecast and decision is shaped by this. Change it any time." : `${APP_NAME} drafts concepts, hires the squad and runs the business within your constraints. Five minutes here saves months of wrong turns.`}
       viewer={{ email }}
       actions={
-        <Button variant="primary" iconRight={ArrowRight} onClick={submit} loading={save.isPending} data-testid="profile-submit">
+        <Button variant="primary" iconRight={ArrowRight} onClick={submit} loading={saving} data-testid="profile-submit">
           {editing ? "Save and continue" : "Continue"}
         </Button>
       }
@@ -114,7 +140,13 @@ export function OnboardingScreen({ profile, email }: OnboardingScreenProps) {
                 })}
               </ol>
             </nav>
-            <p className="px-1 text-small text-secondary">Your profile is private. Agents read it as context; it is never shown in LIVE mode (BUILD §11.1).</p>
+            <div className="surface-panel overflow-hidden" data-testid="profile-summary">
+              <div className="flex h-panel-header items-center border-b border-subtle bg-panel-alt px-panel-pad">
+                <span className="t-label">How the squad reads you</span>
+              </div>
+              <p className="p-panel-pad text-body text-secondary">{summary || "Pick your experience and time to see the one-line brief every agent starts from."}</p>
+            </div>
+            <p className="px-1 text-small text-secondary">Your profile is private. Agents read it as context; it is never shown in LIVE mode.</p>
           </div>
         </aside>
 
@@ -122,7 +154,7 @@ export function OnboardingScreen({ profile, email }: OnboardingScreenProps) {
           <Section id="identity" title="Who you are">
             <div className="grid grid-cols-2 gap-gutter">
               <Field htmlFor="profile-name" label="What the squad calls you" required error={show("displayName")}>
-                <Input id="profile-name" icon={UserRound} value={form.displayName} onChange={(e) => set("displayName", e.target.value)} maxLength={120} autoFocus={!editing} placeholder="Your name" />
+                <Input id="profile-name" icon={UserRound} value={form.displayName} onChange={(e) => set("displayName", e.target.value)} maxLength={120} autoFocus={!editing} placeholder="Your name" invalid={Boolean(show("displayName"))} />
               </Field>
             </div>
             <Field htmlFor="profile-experience" label="Experience" required error={show("experience")}>
@@ -139,13 +171,13 @@ export function OnboardingScreen({ profile, email }: OnboardingScreenProps) {
               {SKILL_KEYS.map((key) => {
                 const value = form.skills[key];
                 return (
-                  <div key={key} className="grid grid-cols-[160px_1fr_56px_200px] items-center gap-4" data-skill={key}>
+                  <div key={key} className="grid grid-cols-[160px_1fr_56px_220px] items-center gap-4" data-skill={key}>
                     <div className="min-w-0">
                       <div className="text-body-strong">{SKILL_LABELS[key].label}</div>
                       <div className="truncate text-small text-secondary">{SKILL_LABELS[key].hint}</div>
                     </div>
                     <Slider value={[value]} min={1} max={20} step={1} onValueChange={([v]) => set("skills", { ...form.skills, [key]: v ?? value })} thumbLabels={[`${SKILL_LABELS[key].label} rating`]} aria-label={`${SKILL_LABELS[key].label} rating`} />
-                    <div className={cn("t-display-sm text-right tabular-nums", ratingClass(value))} aria-live="polite">
+                    <div className={cn("t-display-sm text-right tabular-nums", ratingClass(value))} aria-live="polite" data-skill-value={key}>
                       {value}
                     </div>
                     <div className="flex items-center gap-2">
@@ -168,7 +200,7 @@ export function OnboardingScreen({ profile, email }: OnboardingScreenProps) {
             </Field>
             <div className="grid grid-cols-[1fr_160px] gap-gutter">
               <Field htmlFor="profile-budget" label="Budget you can commit" hint="Your own money for the first year, before any revenue. Leave empty if none. Accepts 25k." error={show("budget")}>
-                <Input id="profile-budget" numeric inputMode="decimal" value={form.budget} onChange={(e) => set("budget", e.target.value)} placeholder="25000" trailing={<span className="text-small text-secondary">{form.currency}</span>} />
+                <Input id="profile-budget" numeric inputMode="decimal" value={form.budget} onChange={(e) => set("budget", e.target.value)} placeholder="25000" invalid={Boolean(show("budget"))} trailing={<span className="text-small text-secondary">{form.currency}</span>} />
               </Field>
               <Field htmlFor="profile-currency" label="Currency" error={show("currency")}>
                 <SimpleSelect id="profile-currency" value={form.currency} onValueChange={(v) => set("currency", v)} options={CURRENCIES.map((c) => ({ value: c, label: c }))} aria-label="Currency" />
@@ -201,15 +233,19 @@ export function OnboardingScreen({ profile, email }: OnboardingScreenProps) {
 
           <div className="flex items-center justify-between gap-4 border-t border-subtle pt-4">
             <div className="text-small text-secondary">
-              {touched && !valid ? (
+              {error ? (
+                <StatusPill tone="bad" role="alert">
+                  {error}
+                </StatusPill>
+              ) : touched && !valid ? (
                 <StatusPill tone="warn" role="alert">
-                  {Object.keys(errors).length} field{Object.keys(errors).length === 1 ? "" : "s"} to complete
+                  {errorCount} field{errorCount === 1 ? "" : "s"} to complete
                 </StatusPill>
               ) : (
                 <span>Everything can be changed later from Settings.</span>
               )}
             </div>
-            <Button type="submit" variant="primary" iconRight={ArrowRight} loading={save.isPending} data-testid="profile-submit-bottom">
+            <Button type="submit" variant="primary" iconRight={ArrowRight} loading={saving} data-testid="profile-submit-bottom">
               {editing ? "Save and continue" : "Continue to New business"}
             </Button>
           </div>
@@ -219,7 +255,7 @@ export function OnboardingScreen({ profile, email }: OnboardingScreenProps) {
   );
 }
 
-function Section({ id, title, hint, children }: { id: ProfileSectionId; title: string; hint?: string; children: React.ReactNode }) {
+function Section({ id, title, hint, children }: { id: ProfileSectionId; title: string; hint?: string; children: ReactNode }) {
   return (
     <Panel id={`section-${id}`} title={title} data-section={id} className="scroll-mt-6">
       <div className="flex flex-col gap-4">
@@ -231,7 +267,7 @@ function Section({ id, title, hint, children }: { id: ProfileSectionId; title: s
 }
 
 /** A radio option drawn as a selectable card: panel-alt, hairline, 3 px kit edge when selected (DESIGN §8 sidebar). */
-function OptionCard({ id, value, label, description, selected }: { id: string; value: string; label: string; description?: string; selected: boolean }) {
+export function OptionCard({ id, value, label, description, selected }: { id: string; value: string; label: string; description?: string; selected: boolean }) {
   return (
     <div className={cn("relative flex items-start gap-2 rounded-panel border border-subtle bg-panel-alt p-3 transition-colors duration-micro ease-dugout hover:border-secondary/50", selected && "border-link")} data-option={value} data-selected={selected || undefined}>
       {selected ? <span aria-hidden className="absolute inset-y-0 left-0 w-0.75 rounded-l-panel bg-kit-primary" /> : null}
@@ -299,7 +335,8 @@ export function ChipField({ id, label, hint, error, required, values, suggestion
             ))}
           </div>
         ) : null}
-        <Input id={id} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} onBlur={commit} placeholder={placeholder} trailing={draft ? <Button type="button" size="sm" variant="ghost" icon={Plus} onClick={commit} aria-label={`Add ${draft}`} className="h-6 px-1" /> : undefined} />
+        {/* The trailing slot is always rendered: Dugout's Input changes its DOM shape when `trailing` appears, which would remount the field mid-word. */}
+        <Input id={id} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} onBlur={commit} placeholder={placeholder} invalid={Boolean(error)} trailing={draft ? <Button type="button" size="sm" variant="ghost" icon={Plus} onClick={commit} aria-label={`Add ${draft}`} className="h-6 px-1" /> : <Kbd>↵</Kbd>} />
         {remaining.length > 0 ? (
           <div className="flex flex-wrap gap-1.5" aria-label={`${label} suggestions`}>
             {remaining.map((s) => (

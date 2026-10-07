@@ -191,7 +191,7 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
         ) : null}
       </div>
     ),
-    [editable, editing, row, mine, list.length, create.isPending, update.isPending, onCopyShared, onNew, update, businessId, invalidate],
+    [editable, editing, row, mine, list.length, create.isPending, onCopyShared, onNew, update, businessId, invalidate],
   );
   useShellChrome({ title: "Home", tabs: tabs.length ? { tabs, activeId: row?.id ?? dashboardId ?? "", onChange: (id) => router.push(routes.home(businessId, id)), trailing, "aria-label": "Dashboards" } : undefined }, [tabs, row?.id, dashboardId, trailing]);
 

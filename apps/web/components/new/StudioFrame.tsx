@@ -8,7 +8,8 @@ import { Check } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { APP_NAME } from "@foundmill/config";
-import { Button, Icon, LogoMark, Wordmark, cn } from "@foundmill/dugout";
+import { Icon, LogoMark, Wordmark, cn } from "@foundmill/dugout";
+import { LinkButton } from "./LinkButton";
 
 export type StudioStep = "profile" | "new" | "ideate" | "import" | "compare" | "commit";
 
@@ -87,9 +88,9 @@ export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, 
         </nav>
         <div className="ml-auto flex items-center gap-3">
           {viewer?.email ? <span className="text-small text-secondary">{viewer.email}</span> : null}
-          <Button variant="ghost" size="sm" asChild>
-            <a href="/auth/signout">Sign out</a>
-          </Button>
+          <LinkButton variant="ghost" size="sm" href="/auth/signout" external>
+            Sign out
+          </LinkButton>
         </div>
       </header>
       <main className={cn("mx-auto w-full flex-1 px-gutter py-6", width === "wide" ? "max-w-[1440px]" : "max-w-[960px]")}>

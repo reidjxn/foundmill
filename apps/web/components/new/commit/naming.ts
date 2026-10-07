@@ -69,6 +69,7 @@ export function nameSuggestions(title: string, pitch: string, archetype: Archety
 export const DOMAIN_TLDS = [".com", ".io", ".co", ".app", ".ai"] as const;
 
 export function domainSlug(name: string): string {
+  if (!name.trim()) return "";
   return slugify(name).replace(/-/g, "");
 }
 
@@ -184,14 +185,14 @@ export function extractPalette(data: Uint8ClampedArray | number[], opts: { sampl
   const ranked = [...buckets.values()].sort((x, y) => y.n - x.n);
   const top = ranked[0];
   if (!top) return null;
-  const avg = (bk: (typeof ranked)[number]) => rgbToHex({ r: bk.r / bk.n, g: bk.g / bk.n, b: bk.b / bk.n });
+  const avg = (bk: (typeof ranked)[number]) => rgbToHex({ r: bk.r / bk.n, g: bk.g / bk.n, b: bk.b / bk.n }).toLowerCase();
   const primary = avg(top);
   const hueDiff = (a: number, b: number) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
   const second = ranked.find((bk) => hueDiff(bk.h, top.h) >= 60);
   if (second) return { primary, secondary: avg(second) };
   const { h, s, l } = rgbToHsl(hexToRgb(primary));
   const shifted = { h: (h + 180) % 360, s: Math.max(0.5, s), l: Math.min(0.68, Math.max(0.45, l + 0.15)) };
-  return { primary, secondary: rgbToHex(hslToRgb(shifted)) };
+  return { primary, secondary: rgbToHex(hslToRgb(shifted)).toLowerCase() };
 }
 
 export function isValidKit(kit: Kit): boolean {
@@ -308,5 +309,5 @@ export function commitInput(ideaId: string, form: CommitForm) {
 
 /** Crest seed for the preview: the slug of the name (the API slugs the name the same way, plus a suffix). */
 export function crestSeedFor(name: string, fallback: string): string {
-  return slugify(name) || fallback;
+  return name.trim() ? slugify(name) : fallback;
 }

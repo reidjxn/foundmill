@@ -5,7 +5,7 @@
  * (shortlist, discarded-card snapshots) that the API has no procedure for.
  */
 import { ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
-import { CONCEPT_ATTRIBUTE_KEYS, createRng, hslToRgb, rgbToHex, type Concept, type ConceptAttribute, type ConceptEvidence, type Kit } from "@foundmill/dugout";
+import { CONCEPT_ATTRIBUTE_KEYS, createRng, hslToRgb, kitOnPrimaryDetail, rgbToHex, type Concept, type ConceptAttribute, type ConceptEvidence, type Kit } from "@foundmill/dugout";
 
 export const META_KIND = "foundmill:meta";
 
@@ -70,12 +70,19 @@ export function citationsOf(research: { citations: unknown[] } | null | undefine
     .filter((c) => c.url.length > 0 || c.title !== "Source");
 }
 
-/** Brand colours derived from the crest seed: a saturated hue and its offset partner, deterministic. */
+/**
+ * Brand colours derived from the crest seed: a saturated hue and its offset partner, deterministic. The primary is
+ * darkened until text on it passes APCA Lc ≥ 75 (DESIGN §5), so a generated kit never fails the Commit screen's check.
+ */
 export function kitFromSeed(seed: string | number): Kit {
   const rng = createRng(`kit:${seed}`);
   const hue = rng.int(0, 359);
-  const primary = rgbToHex(hslToRgb({ h: hue, s: 0.62, l: 0.42 }));
-  const secondary = rgbToHex(hslToRgb({ h: (hue + rng.pick([150, 180, 210])) % 360, s: 0.7, l: 0.58 }));
+  let primary = "";
+  for (let l = 0.42; l >= 0.18; l -= 0.04) {
+    primary = rgbToHex(hslToRgb({ h: hue, s: 0.62, l })).toLowerCase();
+    if (kitOnPrimaryDetail(primary).passes) break;
+  }
+  const secondary = rgbToHex(hslToRgb({ h: (hue + rng.pick([150, 180, 210])) % 360, s: 0.7, l: 0.58 })).toLowerCase();
   return { primary, secondary };
 }
 

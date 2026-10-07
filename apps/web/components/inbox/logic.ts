@@ -423,3 +423,102 @@ export function journeyForItem(item: { type: InboxItemType; entityIds: readonly 
 export function headerDates(item: { createdAt: Date | string; state: InboxState }, decidedAt: Date | string | null | undefined): { created: Date; decided: Date | null } {
   return { created: new Date(item.createdAt), decided: decidedAt && (item.state === "answered" || item.state === "archived") ? new Date(decidedAt) : null };
 }
+
+// --- agents and departments ---------------------------------------------------------------------------------------
+
+export interface DepartmentLike {
+  id: string;
+  name: string;
+  colourToken: string;
+  squad: readonly { id: string; name: string; role: string; avatarSeed: string; status?: string; modelKey?: string }[];
+}
+
+export interface AgentIndexEntry {
+  id: string;
+  name: string;
+  role: string;
+  seed: string;
+  dept: string;
+  departmentId: string;
+  departmentName: string;
+  status?: string;
+  modelKey?: string;
+}
+
+/** agentId → presentation data, from `department.list` squads (the first department that lists the agent wins). */
+export function agentIndex(departments: readonly DepartmentLike[]): Map<string, AgentIndexEntry> {
+  const out = new Map<string, AgentIndexEntry>();
+  for (const d of departments) {
+    for (const a of d.squad) {
+      if (out.has(a.id)) continue;
+      out.set(a.id, { id: a.id, name: a.name, role: a.role, seed: a.avatarSeed || a.id, dept: d.colourToken, departmentId: d.id, departmentName: d.name, status: a.status, modelKey: a.modelKey });
+    }
+  }
+  return out;
+}
+
+// --- status strip sources -----------------------------------------------------------------------------------------
+
+export type StripSource = "finance" | "conversions" | "tasks" | "channels";
+
+const SOURCE_FOR_METRIC: Record<string, StripSource> = {
+  cash: "finance",
+  runway: "finance",
+  burn: "finance",
+  net_burn: "finance",
+  mrr: "finance",
+  revenue: "finance",
+  customers_30d: "finance",
+  customers_week: "conversions",
+  signups_week: "conversions",
+  signups_30d: "conversions",
+  activations_week: "conversions",
+  tasks_running: "tasks",
+  channels_enabled: "channels",
+};
+
+/** Which live queries a note's status strip needs, so the pane fetches only those. */
+export function stripSources(strip: unknown): Set<StripSource> {
+  const out = new Set<StripSource>();
+  if (!Array.isArray(strip)) return out;
+  for (const m of strip) {
+    const metric = m && typeof m === "object" ? (m as { metric?: unknown }).metric : undefined;
+    const src = typeof metric === "string" ? SOURCE_FOR_METRIC[metric] : undefined;
+    if (src) out.add(src);
+  }
+  return out;
+}
+
+// --- plans on screen ------------------------------------------------------------------------------------------------
+
+export interface PlanLike {
+  status: string;
+  actions: readonly PlanActionLike[];
+}
+
+/** One line for the answered strip: "Done · 3 of 3 actions" / "Awaiting your confirmation" / "Running · 1 of 3". */
+export function planStatusLine(plan: PlanLike | null | undefined): { word: string; tone: "good" | "warn" | "bad" | "info" | "neutral"; detail: string } | null {
+  if (!plan) return null;
+  const total = plan.actions.length;
+  const done = plan.actions.filter((a) => a.status === "done").length;
+  const failed = plan.actions.filter((a) => a.status === "failed" || a.status === "denied").length;
+  const of = total ? `${done} of ${total} action${total === 1 ? "" : "s"} done` : "no actions";
+  switch (plan.status) {
+    case "pending_confirmation":
+      return { word: "Awaiting your confirmation", tone: "warn", detail: `${total} action${total === 1 ? "" : "s"} planned` };
+    case "executing":
+      return { word: "Running", tone: "info", detail: of };
+    case "done":
+      return { word: failed ? "Done with issues" : "Done", tone: failed ? "warn" : "good", detail: failed ? `${of}, ${failed} failed or denied` : of };
+    case "failed":
+      return { word: "Failed", tone: "bad", detail: of };
+    default:
+      return { word: plan.status.replace(/_/g, " "), tone: "neutral", detail: of };
+  }
+}
+
+/** The id of the item from the pathname (`/b/<bid>/inbox/<itemId>`), or null on the list route. */
+export function itemIdFromPath(pathname: string | null | undefined): string | null {
+  const m = /\/inbox\/([^/?#]+)/.exec(pathname ?? "");
+  return m?.[1] ? decodeURIComponent(m[1]) : null;
+}
