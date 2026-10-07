@@ -17,6 +17,7 @@ import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
 import { bearerToken, mintSessionToken, verifyServiceToken, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
 import { executeToolCall, GatewayError, type GatewayDeps } from "./pipeline";
 import { handleMcpRequest } from "./mcp";
+import { STATE_ERROR_CODES, stateDenial } from "./state";
 import { CallRequest, MintSessionTokenRequest, type GatewayErrorBody, type HealthResponse, type MintSessionTokenResponse } from "./types";
 import { DEFAULT_SESSION_TTL_SECONDS, MAX_SESSION_TTL_SECONDS } from "./config";
 
@@ -88,12 +89,23 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     const ttl = Math.min(maxTtl, input.ttlSeconds ?? defaultTtl);
     const { ttlSeconds: _ttl, ...claims } = input;
     // The business and the agent must exist: a token can only be minted for a real session of a real club.
-    await repos.businesses.get(deps.db, claims.businessId).catch(() => {
+    const business = await repos.businesses.get(deps.db, claims.businessId, { includeArchived: true }).catch(() => {
       throw new GatewayError("business_not_found", `business ${claims.businessId} is not available to this gateway`, 404);
     });
-    await repos.agents.get(deps.db, claims.businessId, claims.agentId).catch(() => {
+    const agent = await repos.agents.get(deps.db, claims.businessId, claims.agentId).catch(() => {
       throw new GatewayError("agent_not_found", `agent ${claims.agentId} is not in business ${claims.businessId}`, 404);
     });
+    // ...and be allowed to work (SEC-1): no token for an archived club, a released agent or a paused one.
+    const denial = stateDenial(business, agent);
+    if (denial) {
+      await repos.audit.append(deps.db, claims.businessId, {
+        actorKind: "system",
+        action: "gateway.session_token.refused",
+        target: { agentId: claims.agentId, sessionId: claims.sessionId },
+        details: { service: c.var.service.svc, policyIds: [denial.policyId], reasons: denial.reasons, allowedTools: claims.allowedTools },
+      });
+      throw new GatewayError(STATE_ERROR_CODES[denial.policyId], denial.reasons[0] ?? denial.policyId, 403, { policyIds: [denial.policyId] });
+    }
     const minted = await mintSessionToken(secret, claims, ttl, now);
     await repos.audit.append(deps.db, claims.businessId, {
       actorKind: "system",

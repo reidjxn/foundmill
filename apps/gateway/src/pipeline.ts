@@ -2,8 +2,9 @@
  * The tool-call pipeline (BUILD §9.5, docs/ARCHITECTURE.md §9):
  *
  *   authenticate (done by the route) → scope check against the session token → load connector →
- *   rate limit → build the Cedar request (agent attrs from repos.agents, tool hints from the connector,
- *   business mode + holiday, suppression + untrusted-recipient context) → evaluate →
+ *   rate limit → load business + agent and re-check their state (archived club, released or paused agent,
+ *   revoked BYOK key: deny before Cedar, SEC-1) → build the Cedar request (agent attrs from repos.agents,
+ *   tool hints from the connector, business mode + holiday, suppression + untrusted-recipient context) → evaluate →
  *     deny  → audit, 403 (a hard gate also queues an approval so the founder sees the task)
  *     ask   → approvals row + `approval.requested` through the outbox, audit, return approvalId
  *     allow → decrypt credential in memory → connector.callTool → wrap untrusted content and remember
@@ -36,6 +37,7 @@ import { loadCredential, toIntegrationRecord, type LoadedCredential } from "./cr
 import { writeGatewayEvent } from "./events";
 import { checkRateLimit, type RateLimitStore } from "./rate-limit";
 import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRecipientRegistry } from "./recipients";
+import { checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
 import { toolAllowed, toolRef, type SessionToken } from "./tokens";
 import type { AllowResponse, AskResponse, CallRequestParsed, CallResponse, DenyResponse, RateLimitedResponse } from "./types";
 
@@ -54,6 +56,19 @@ export interface GatewayDeps {
   log: GatewayLogger;
   now?: () => Date;
   policyEngine?: PolicyEngine;
+  /** Per-session memo of the BYOK credential check (≤ 5 s). One is created per `deps` when omitted. */
+  stateCache?: SessionStateCache;
+}
+
+const defaultStateCaches = new WeakMap<GatewayDeps, SessionStateCache>();
+function stateCacheFor(deps: GatewayDeps): SessionStateCache {
+  if (deps.stateCache) return deps.stateCache;
+  let cache = defaultStateCaches.get(deps);
+  if (!cache) {
+    cache = new SessionStateCache();
+    defaultStateCaches.set(deps, cache);
+  }
+  return cache;
 }
 
 export interface ToolCallResult {
@@ -69,9 +84,18 @@ export class GatewayError extends AppError {
   }
 }
 
+/** Thrown by `loadContext` when the club or the agent may not work (SEC-1); `executeToolCall` turns it into an audited 403. */
+export class SessionStateDenied extends Error {
+  constructor(readonly denial: StateDenial) {
+    super(denial.reasons[0] ?? denial.policyId);
+    this.name = "SessionStateDenied";
+  }
+}
+
 export const SESSION_SCOPE_POLICY_ID = "session-scope";
 export const HARD_GATE_POLICY_ID = "hard-gate";
 export const AUDIT_ACTION_TOOL_CALL = "tool.call";
+export { AGENT_ARCHIVED_POLICY_ID, AGENT_PAUSED_POLICY_ID, BUSINESS_ARCHIVED_POLICY_ID, KEY_REVOKED_POLICY_ID } from "./state";
 
 /** Finance-module connectors: read-only in v1 (BUILD §11.8, AC-11.8.5). The policy forbids any of their tools that would spend. */
 export const FINANCE_CONNECTORS: ReadonlySet<string> = new Set(["tink", "plaid", "ecb_rates"]);
@@ -174,8 +198,20 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
     return { status: 429, body };
   }
 
-  // 4. Business, agent, integration, holiday.
-  const loaded = await loadContext(deps, session, connector, tool);
+  // 4. Business, agent, integration, holiday — and their state. An archived club, a released or paused agent
+  //    (Stop all agents, key revoke) or a revoked BYOK key is refused here, before Cedar, so no permit can lift it.
+  let loaded: Loaded;
+  try {
+    loaded = await loadContext(deps, session, connector, tool, now);
+  } catch (e) {
+    if (e instanceof SessionStateDenied) {
+      const { policyId, reasons } = e.denial;
+      const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [policyId] });
+      log.warn({ reasons, policyIds: [policyId] }, "tool call refused: agent or club state");
+      return { status: 403, body: { outcome: "deny", reasons, policyIds: [policyId], costMinor: 0, auditId: audit.id } };
+    }
+    throw e;
+  }
 
   // 5. Cedar input.
   const policyInput = await buildPolicyInput(deps, session, req, loaded, args);
@@ -186,11 +222,14 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
   return allow(deps, session, req, loaded, decision, args, log, now);
 }
 
-async function loadContext(deps: GatewayDeps, session: SessionToken, connector: Connector, tool: McpToolDefinition): Promise<Loaded> {
+async function loadContext(deps: GatewayDeps, session: SessionToken, connector: Connector, tool: McpToolDefinition, now: () => Date): Promise<Loaded> {
   const { db } = deps;
-  const { businessId, agentId } = session;
-  const business = await repos.businesses.get(db, businessId).catch(rethrowNotFound("business", businessId));
+  const { businessId, agentId, sessionId } = session;
+  // Archived clubs are loaded on purpose: the answer is a 403 with a stable policy id, not a 404.
+  const business = await repos.businesses.get(db, businessId, { includeArchived: true }).catch(rethrowNotFound("business", businessId));
   const agent = await repos.agents.get(db, businessId, agentId).catch(rethrowNotFound("agent", agentId));
+  const denial = stateDenial(business, agent) ?? (await checkByokKey(db, stateCacheFor(deps), { businessId, sessionId, business, connectorKey: connector.key }, now().getTime()));
+  if (denial) throw new SessionStateDenied(denial);
   const integrationRow = await repos.integrations.getByKey(db, businessId, connector.key);
   const holiday = await repos.holidays.current(db, businessId);
   return { connector, tool, business, agent, integrationRow, holidayActive: holiday !== null, holidayBudgetMinor: holiday?.budgetCeilingMinor ?? null };
