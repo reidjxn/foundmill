@@ -42,7 +42,7 @@ So `@foundmill/db/repos` resolves to `packages/db/src/repos.ts` (a file that re-
 
 ## 2. Vocabulary (`packages/shared/src/types.ts`)
 
-Every enum used by more than one package is defined once here as a `const` tuple with a matching Zod enum and TS type: game modes, business modes, plan tiers, archetypes, module keys, membership roles, inbox item types/states, agent statuses, model keys, channel keys and lines, task kinds/statuses, plan action types, conversion kinds, match-day levels, entity kinds, skill groups, integration statuses, visibility, event types. Import from `@foundmill/shared`. Do not redeclare these elsewhere.
+Every enum used by more than one package is defined once here as a `const` tuple with a matching Zod enum and TS type: game modes, business modes, plan tiers, archetypes, module keys, membership roles, inbox item types/states, agent statuses, model keys, channel keys and lines, task kinds/statuses, plan action types, conversion kinds, Customer Update levels (`matchday_level`), entity kinds, skill groups, integration statuses, visibility, event types. Import from `@foundmill/shared`. Do not redeclare these elsewhere.
 
 Money is `{ amountMinor: number; currency: string }` (minor units, `bigint` in the DB, `number` in TS; values are below 2^53). Ids are UUID strings. Times are ISO strings on the wire and `Date` in TS.
 
@@ -116,7 +116,7 @@ HTTP (JSON), service-to-service auth with `SESSION_TOKEN_SECRET`-signed JWTs (`j
 
 - `POST /v1/narrate` `{ businessId, eventIds }` → writes one `inbox_items` row (schema BUILD §11.3, validated with Zod, links validated by entity-linker, one re-ask on invalid ids) and returns it.
 - `POST /v1/refresh` `{ businessId }` → exactly one new item from the buffer (priority: un-narrated event → data-change insight → next-best decision); refills the 3-item buffer asynchronously; debounced 3 s per business; p95 < 400 ms warm.
-- `POST /v1/commentary` `{ journeyId }` → commentary lines for Match Day. `POST /v1/chapter-title` for quarters.
+- `POST /v1/commentary` `{ journeyId }` → commentary lines for a Customer Update. `POST /v1/chapter-title` for quarters.
 
 ## 12. Stream (`apps/stream`)
 
@@ -133,7 +133,7 @@ WebSocket at `/?token=<supabase access token | dev token>`. Client → server: `
 ## 14. Web (`apps/web`)
 
 - `app/layout.tsx` loads `@foundmill/dugout/fonts.css`, `tokens.css`, `dugout.css` and `app/globals.css` (`@import "tailwindcss"; @source "../../../packages/dugout/src"; @source "../../../packages/widgets/src"; @source "../../../packages/modules/src";`).
-- Routes exactly BUILD §6.2. `app/b/[bid]/layout.tsx` renders `AppShell` with sidebar from `department.list`, kit colours from `business.get`, and the Continue state from `inbox.list` + the current cycle.
+- Routes exactly BUILD §6.2. `app/b/[bid]/layout.tsx` renders `AppShell` with sidebar from `department.list`, brand colours from `business.get`, and the Continue state from `inbox.list` + the current cycle.
 - `lib/trpc.ts` (`@trpc/tanstack-react-query` with superjson, `NEXT_PUBLIC_API_URL`, Bearer from Supabase session), `lib/supabase/client.ts` + `server.ts` (`@supabase/ssr`), `lib/stream.ts` (one WebSocket per tab, subscription multiplexer, focus-aware throttling), `lib/keys.ts` (keyboard map from BUILD §5.5 with `react-hotkeys-hook`).
 - Department screens: `app/b/[bid]/d/[deptSlug]/[tabSlug]/page.tsx` loads the `screen_definition` and renders `WidgetGrid` with widgets from `@foundmill/widgets`; module full-screen widgets come from `@foundmill/modules` (`getModuleScreen(moduleKey, tabSlug)`).
 - Below 1280 px the `b/[bid]` layout renders `NeedsLargerWindow` only (measured client-side, SSR renders the shell).
@@ -146,6 +146,8 @@ WebSocket at `/?token=<supabase access token | dev token>`. Client → server: `
 - Policy: every rule × mode.
 - E2E: `e2e/` Playwright against `pnpm dev` in mock mode with `DEV_AUTH_USER_ID` set to the seed owner; golden path spec names carry AC ids (e.g. `AC-11.3.3`).
 - Evals: `evals/` Vitest with `MODEL_MODE=live`, skipped when no key.
+- Vocabulary: `node scripts/banned-terms.mjs` (CI job `banned-terms`) fails on Football Manager / SI / SEGA anywhere in source and on football-only words (CLAUDE.md "Product vocabulary") in user-facing text: string literals, template literals and JSX text in apps/web, packages/dugout, packages/widgets, packages/modules, packages/agents/src/{prompts,templates}, apps/composer, plus the prose of docs/DESIGN.md and this file. Identifiers, enum keys, CSS tokens, import paths, class names and tests are not scanned; `--sweep docs/VOCAB_SWEEP.md` writes the hit list by package; a line marked `vocab-allow` is exempt (glossary entries only). Self-test: `node --test scripts/banned-terms.test.mjs`.
+- CI e2e job (`.github/workflows/ci.yml`): seeds `pglite:./.pglite/e2e`, starts apps/api on :4000 and apps/web on :3000, runs `apps/web/e2e` and `e2e/` with `E2E_BASE_URL`; `continue-on-error: true` until the golden path is green. Chromium comes from `playwright install --with-deps chromium` on the runner; the build container's `/opt/pw-browsers/chromium` is used only when `FM_CHROMIUM` is set.
 
 ## 16. Rules for parallel build agents
 

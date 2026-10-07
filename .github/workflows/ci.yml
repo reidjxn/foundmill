@@ -1,5 +1,7 @@
 # Cloud verification for every push (docs/DECISIONS.md "Cloud-first build and deploy").
-# Everything runs in mock mode with no secrets; e2e (Playwright) is excluded until the golden path lands.
+# Everything runs in mock mode with no secrets. The e2e job runs the Playwright suites against the PGlite-backed
+# local stack; it is allowed to fail (continue-on-error) until the golden path is green, then the golden-path
+# agent flips it.
 name: CI
 
 on:
@@ -22,15 +24,29 @@ env:
 
 jobs:
   banned-terms:
-    name: Banned terms
+    name: Banned terms and vocabulary
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # version comes from "packageManager" in package.json
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node scripts/banned-terms.mjs
+          cache: pnpm
+      # The vocabulary scan parses source files with the TypeScript compiler API from the root devDependencies.
+      - run: pnpm install --frozen-lockfile
+      - name: Scanner self-test
+        run: node --test scripts/banned-terms.test.mjs
+      - name: Brand scan (Football Manager / SI / SEGA) and vocabulary scan (football-only words in user-facing text)
+        run: node scripts/banned-terms.mjs --sweep docs/VOCAB_SWEEP.md
+      - name: Upload the vocabulary sweep
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: vocab-sweep
+          path: docs/VOCAB_SWEEP.md
+          if-no-files-found: ignore
 
   checks:
     name: Typecheck, lint, unit tests
@@ -38,7 +54,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4 # version comes from "packageManager" in package.json
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -63,3 +79,80 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @foundmill/dugout storybook:build
+
+  e2e:
+    name: Playwright (web screens + golden path)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Allowed to fail until the golden path is green; the golden-path agent flips this to false (docs/PROGRESS.md).
+    continue-on-error: true
+    env:
+      # One file-backed PGlite database, seeded below, shared by the api and the seed script (packages/db/src/pglite.ts:
+      # a relative dir resolves against the workspace root, so every package sees the same files).
+      DATABASE_URL: pglite:./.pglite/e2e
+      # Dev auth bypass (docs/DECISIONS.md): the seed owner from packages/db/src/seed/constants.ts DEMO_OWNER_USER_ID.
+      DEV_AUTH_USER_ID: 0f0a0d00-0000-4000-8000-00000000f0a1
+      API_PORT: 4000
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+      NEXT_PUBLIC_APP_ENV: test
+      NODE_OPTIONS: --max-old-space-size=4096
+      # FM_CHROMIUM is deliberately unset here: apps/web/playwright.config.ts applies launchOptions.executablePath only
+      # when FM_CHROMIUM is set (the build container's /opt/pw-browsers/chromium); GitHub runners use the browser that
+      # `playwright install` downloads below.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium (replaces the preinstalled-browser step used in the build container)
+        run: pnpm --filter @foundmill/web exec playwright install --with-deps chromium
+      - name: Seed the PGlite database (Northwind Skincare + Ledgerly, reduced volume)
+        run: SEED_TARGET=pglite SEED_PGLITE_DIR=./.pglite/e2e SEED_VOLUME_SCALE=0.1 pnpm --filter @foundmill/db seed
+      - name: Start apps/api against the seeded database
+        # No Redis, Temporal or composer URL: the api degrades to in-process behaviour (docs/ARCHITECTURE.md §13).
+        run: |
+          nohup pnpm --filter @foundmill/api start > api.log 2>&1 &
+          echo $! > api.pid
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:4000/health > /dev/null; then echo "api up after ${i}s"; exit 0; fi
+            sleep 1
+          done
+          echo "apps/api did not answer /health within 60 s"; cat api.log; exit 1
+      - name: Start apps/web (next dev on :3000, shared by both Playwright runs)
+        run: |
+          nohup pnpm --filter @foundmill/web dev > web.log 2>&1 &
+          echo $! > web.pid
+          for i in $(seq 1 120); do
+            if curl -sf -o /dev/null http://localhost:3000/login; then echo "web up after ${i}s"; exit 0; fi
+            sleep 1
+          done
+          echo "apps/web did not answer within 120 s"; cat web.log; exit 1
+      - name: Playwright (apps/web screens)
+        # E2E_BASE_URL makes both configs skip their own webServer and use the servers started above.
+        run: E2E_BASE_URL=http://localhost:3000 pnpm --filter @foundmill/web exec playwright test
+      - name: Playwright (e2e/ golden path and smoke)
+        if: ${{ !cancelled() }}
+        run: E2E_BASE_URL=http://localhost:3000 pnpm --filter @foundmill/e2e test
+      - name: Stop the servers
+        if: ${{ always() }}
+        run: |
+          for f in web.pid api.pid; do
+            if [ -f "$f" ]; then kill "$(cat "$f")" 2>/dev/null || true; fi
+          done
+          echo "--- api.log (tail)"; tail -n 50 api.log || true
+          echo "--- web.log (tail)"; tail -n 50 web.log || true
+      - name: Upload Playwright reports and traces
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            e2e/playwright-report
+            e2e/test-results
+          if-no-files-found: ignore
+          retention-days: 7
