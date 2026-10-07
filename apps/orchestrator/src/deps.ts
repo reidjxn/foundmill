@@ -1,0 +1,178 @@
+/**
+ * Process-wide dependencies for the orchestrator's activities (docs/ARCHITECTURE.md §10).
+ *
+ * Everything an activity touches comes through this object so tests can swap the database (PGlite), Redis (memory),
+ * the model client (mock), the sandbox runner (replay), the gateway/composer (offline) and the clock (fake). Nothing
+ * here is imported by workflow code.
+ */
+import { createDb, type Db } from "@foundmill/db";
+import { MemoryRedis, type StreamRedis } from "@foundmill/events";
+import { createModelClient, type ModelClient, type UsageEvent } from "@foundmill/models";
+import { MockSandboxProvider, resolveSandboxProvider, type SandboxMode, type SandboxProvider } from "@foundmill/sandbox";
+import { createLogger, createVault, type Logger, type Vault } from "@foundmill/shared";
+import { repos } from "@foundmill/db";
+import { Redis } from "ioredis";
+import { systemClock, type Clock } from "./clock";
+import { createComposerClient, createOfflineComposerClient, type ComposerClient } from "./composer-client";
+import { MemoryControlBus, RedisControlBus, type SessionControlBus } from "./control-bus";
+import { loadOrchestratorEnv, type OrchestratorEnv } from "./env";
+import { createGatewayClient, createOfflineGatewayClient, type GatewayClient } from "./gateway-client";
+
+export interface OrchestratorDeps {
+  env: OrchestratorEnv;
+  db: Db;
+  /** Session streams `as:{sessionId}`; null disables streaming (never in production). */
+  redis: StreamRedis;
+  control: SessionControlBus;
+  models: ModelClient;
+  gateway: GatewayClient;
+  composer: ComposerClient;
+  /** Resolved lazily so a missing docker daemon is reported per session, not at boot. */
+  sandbox: () => Promise<{ provider: SandboxProvider; mode: SandboxMode; fellBackFrom: string | null }>;
+  vault: Vault | null;
+  clock: Clock;
+  log: Logger;
+  /** Stop everything this process opened. */
+  close(): Promise<void>;
+}
+
+export interface CreateDepsOptions {
+  env?: OrchestratorEnv;
+  db?: Db;
+  redis?: StreamRedis;
+  control?: SessionControlBus;
+  models?: ModelClient;
+  gateway?: GatewayClient;
+  composer?: ComposerClient;
+  sandboxProvider?: SandboxProvider;
+  vault?: Vault | null;
+  clock?: Clock;
+  log?: Logger;
+}
+
+/** Book every model call (tokens) to the usage ledger when it carries a business attribution (BUILD §9.3, §10.4). */
+export function usageSink(db: Db, log: Logger): (event: UsageEvent) => Promise<void> {
+  return async (event) => {
+    const a = event.attribution;
+    if (!a?.businessId) return;
+    try {
+      await repos.usage.record(db, a.businessId, {
+        agentId: a.agentId ?? null,
+        sessionId: a.sessionId ?? null,
+        kind: "tokens",
+        modelKey: event.modelKey,
+        quantity: event.usage.inputTokens + event.usage.outputTokens,
+        unit: "tokens",
+        costMinor: Math.max(0, event.cost.costMinorInt),
+        currency: event.cost.currency,
+        billedTo: "credits",
+        occurredAt: event.occurredAt,
+        details: { route: event.route, model: event.model, mode: event.mode, kind: a.kind ?? null, taskId: a.taskId ?? null, label: event.cost.label, attempt: event.attempt },
+      });
+    } catch (err) {
+      log.warn({ err: (err as Error).message, route: event.route }, "usage ledger write failed");
+    }
+  };
+}
+
+export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
+  const env = options.env ?? loadOrchestratorEnv();
+  const log = options.log ?? createLogger("orchestrator", env.LOG_LEVEL);
+  const closers: (() => Promise<unknown>)[] = [];
+
+  let db: Db;
+  if (options.db) db = options.db;
+  else if (env.DATABASE_URL) {
+    const service = createDb(env.DATABASE_URL, { max: 10 });
+    db = service as unknown as Db;
+    closers.push(() => service.$client.end({ timeout: 5 }));
+  } else {
+    log.error({}, "DATABASE_URL is not set; activities that touch the database will fail");
+    db = createDb("postgres://invalid@127.0.0.1:1/invalid", { max: 1 }) as unknown as Db;
+  }
+
+  let redis: StreamRedis;
+  let control: SessionControlBus;
+  if (options.redis) {
+    redis = options.redis;
+    control = options.control ?? new MemoryControlBus();
+  } else if (env.APP_ENV === "test") {
+    redis = new MemoryRedis();
+    control = options.control ?? new MemoryControlBus();
+  } else {
+    const client = new Redis(env.REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 3, enableOfflineQueue: true });
+    client.on("error", (err) => log.warn({ err: err.message }, "redis error"));
+    redis = client as unknown as StreamRedis;
+    control = options.control ?? new RedisControlBus(client);
+    closers.push(() => client.quit().catch(() => undefined));
+  }
+
+  const models =
+    options.models ??
+    createModelClient({
+      mode: env.MODEL_MODE,
+      apiKey: env.ANTHROPIC_API_KEY,
+      onUsage: usageSink(db, log),
+      logger: log,
+    });
+
+  const gateway =
+    options.gateway ??
+    (env.SESSION_TOKEN_SECRET
+      ? createGatewayClient({ baseUrl: env.GATEWAY_URL, serviceSecret: env.SESSION_TOKEN_SECRET, serviceName: "orchestrator" })
+      : (() => {
+          if (env.INTEGRATIONS_MODE === "live") log.error({}, "SESSION_TOKEN_SECRET is not set; live sessions cannot mint gateway tokens");
+          return createOfflineGatewayClient(env.GATEWAY_URL);
+        })());
+
+  const composer = options.composer ?? (env.COMPOSER_URL ? createComposerClient({ baseUrl: env.COMPOSER_URL }) : createOfflineComposerClient());
+
+  let vault: Vault | null = options.vault === undefined ? null : options.vault;
+  if (options.vault === undefined) {
+    try {
+      vault = createVault(env);
+    } catch (err) {
+      log.warn({ err: (err as Error).message }, "vault not configured; bring-your-own-key sessions will use the platform key");
+    }
+  }
+
+  let resolved: Promise<{ provider: SandboxProvider; mode: SandboxMode; fellBackFrom: string | null }> | null = null;
+  const sandbox = () => {
+    if (!resolved) {
+      resolved = options.sandboxProvider
+        ? Promise.resolve({ provider: options.sandboxProvider, mode: options.sandboxProvider.mode, fellBackFrom: null })
+        : resolveSandboxProvider({
+            mode: env.SANDBOX_MODE,
+            env: { INTEGRATIONS_MODE: env.INTEGRATIONS_MODE, E2B_API_KEY: env.E2B_API_KEY },
+            providers: { mock: new MockSandboxProvider({ speed: env.mockSessionSpeed, autoplay: false, holds: "as_recorded" }) },
+          }).then((r) => ({ provider: r.provider, mode: r.mode, fellBackFrom: r.fellBackFrom }));
+      resolved.catch(() => {
+        resolved = null; // retry next session
+      });
+    }
+    return resolved;
+  };
+
+  return {
+    env,
+    db,
+    redis,
+    control,
+    models,
+    gateway,
+    composer,
+    sandbox,
+    vault,
+    clock: options.clock ?? systemClock,
+    log,
+    async close() {
+      for (const c of closers.reverse()) {
+        try {
+          await c();
+        } catch {
+          /* best effort */
+        }
+      }
+    },
+  };
+}

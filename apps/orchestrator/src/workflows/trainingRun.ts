@@ -1,0 +1,41 @@
+/**
+ * trainingRun (BUILD §11.10, AC-11.10.1): re-score a draft agent version. Skill test sets run in parallel (one
+ * activity per skill, each heartbeating per test), results are written on the run and narrated through
+ * `training.completed`. The live version is never touched; Promote/Discard is the founder's decision in apps/api.
+ */
+import { allHandlersFinished, condition, proxyActivities, setHandler } from "@temporalio/workflow";
+import type { Activities, SkillTestsOutcome, TrainingRunInput, TrainingRunResult } from "../activities";
+import { stopSignal } from "./signals";
+
+const acts = proxyActivities<Activities>({ startToCloseTimeout: "5 minutes", retry: { maximumAttempts: 3 } });
+const tests = proxyActivities<Activities>({ startToCloseTimeout: "30 minutes", heartbeatTimeout: "5 minutes", retry: { maximumAttempts: 2 } });
+
+/** Skill test activities run at once (target 2–5 minutes for a whole run). */
+export const TRAINING_PARALLELISM = 6;
+
+export async function trainingRun(input: TrainingRunInput): Promise<TrainingRunResult> {
+  let cancelled = false;
+  setHandler(stopSignal, () => {
+    cancelled = true;
+  });
+  const startedAt = new Date().toISOString();
+  const loaded = await acts.loadTrainingRun(input);
+  const outcomes: SkillTestsOutcome[] = [];
+  const queue = [...loaded.skillKeys];
+  let error: string | null = null;
+  const worker = async () => {
+    for (;;) {
+      const skillKey = queue.shift();
+      if (!skillKey || cancelled || error) return;
+      try {
+        outcomes.push(await tests.runSkillTests({ ...input, agentId: loaded.agentId, draftVersionId: loaded.draftVersionId, skillKey, modelKey: loaded.modelKey }));
+      } catch (err) {
+        error = `${skillKey}: ${(err as Error).message}`.slice(0, 400);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(TRAINING_PARALLELISM, Math.max(1, queue.length)) }, worker));
+  const result = await acts.finalizeTrainingRun({ ...input, agentId: loaded.agentId, draftVersionId: loaded.draftVersionId, liveVersionId: loaded.liveVersionId, outcomes, clubRuleFlags: loaded.clubRuleFlags, startedAt, ...(cancelled ? { status: "cancelled" as const } : error ? { status: "failed" as const, error } : {}) });
+  await condition(allHandlersFinished);
+  return result;
+}

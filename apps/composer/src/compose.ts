@@ -1,0 +1,248 @@
+/**
+ * The narration pipeline (BUILD §11.3 "Hyperlinking pipeline", §12.2):
+ *
+ *   inputs → `inboxComposer` route (locked Opus; mock in mock mode) → Zod Composer schema → entity-linker
+ *   `checkComposerText` (unknown / invisible ids rejected) → one re-ask → still invalid → reject (narrate) or strip
+ *   (refresh, which must always yield an item) → `linkComposerText` sweep for remaining proper nouns → a `ComposerItem`
+ *   for `repos.inbox.createItem` with `blocks_continue` set by the type rules, not by the model.
+ *
+ * The model never decides which events were narrated (`source_event_ids` are the real ids), never chooses an exhibit
+ * outside the registry (AC-11.3.6) and never puts an unknown id in front of the founder (AC-11.3.1).
+ */
+import { clubRulesPrompt, prompts } from "@foundmill/agents";
+import { APP_NAME } from "@foundmill/config";
+import type { ComposerItem, Event } from "@foundmill/db";
+import { checkComposerText, linkComposerText, stripMarkup, type LinkedText, type ValidationResult } from "@foundmill/entity-linker";
+import { ComposerOutput, type ChatMessage, type CompleteResultWithJson, type ModelClient, type ModelLogger, type TokenUsage } from "@foundmill/models";
+import { AppError, type InboxItemType } from "@foundmill/shared";
+import { businessBrief, type ComposeContext } from "./context";
+import type { NextBestDecision } from "./decisions";
+import { namedQueryCatalogue, sanitizeExhibit } from "./exhibits";
+import type { Insight } from "./insights";
+import { blocksForRunway } from "./metrics";
+
+/** The Zod Composer schema (BUILD §11.3), shared with @foundmill/models' mock and the API. */
+export const ComposerSchema = ComposerOutput;
+export type ComposerSchema = ComposerOutput;
+
+export type ComposeBrief = { mode: "events"; events: Event[] } | { mode: "insight"; insight: Insight } | { mode: "decision"; decision: NextBestDecision };
+
+export type ComposeSlot = ComposeBrief["mode"];
+
+export interface ComposeOptions {
+  /** `reject` throws `ComposerRejectedError` after the single re-ask (narrate); `strip` demotes the offending mentions (refresh). */
+  onInvalidLinks: "reject" | "strip";
+  /** Rate-limit scope / cost attribution for the model calls. */
+  scope?: string;
+}
+
+export interface ComposedNote {
+  item: ComposerItem;
+  slot: ComposeSlot;
+  /** Ids of the events this note narrates (what `markNarrated` receives). */
+  eventIds: string[];
+  /** Metered cost of the composer completions in minor units (label "Estimate"). */
+  costMinorInt: number;
+  costCurrency: string;
+  usage: TokenUsage;
+  model: string;
+  modelKey: string;
+  /** True when the first output had invalid mentions and the model was asked once more. */
+  reasked: boolean;
+  /** True when the final text still had invalid mentions and they were stripped (refresh only). */
+  stripped: boolean;
+  /** True when the mock/live client repaired the JSON against the schema. */
+  repaired: boolean;
+  validation: ValidationResult;
+  linked: LinkedText;
+  /** Unknown proper nouns the sweep found (BUILD §11.3: drafted as unverified CRM entities). */
+  drafts: { name: string; kindGuess: string }[];
+}
+
+export class ComposerRejectedError extends AppError {
+  constructor(message: string, details?: unknown) {
+    super("composer_rejected", message, 422, details);
+    this.name = "ComposerRejectedError";
+  }
+}
+
+export const MATCH_DAY_OPTIONS = [
+  { id: "thank_you", label: "Send a thank-you", recommended: true, consequence: "A short, disclosed note goes out on behalf of the business.", cost_minor: 0, reversible: false },
+  { id: "review_14d", label: "Ask for a review in 14 days", recommended: false, consequence: "A scheduled, suppressible request after they have used the product.", cost_minor: 0, reversible: true },
+  { id: "annual_upgrade", label: "Offer an annual upgrade", recommended: false, consequence: "An upgrade offer is drafted for your approval first.", cost_minor: 0, reversible: true },
+  { id: "celebrate", label: "Just celebrate", recommended: false, consequence: "No outbound message; the replay opens.", cost_minor: 0, reversible: true },
+] as const;
+
+export const DEFAULT_DECISION_OPTIONS = [
+  { id: "proceed", label: "Proceed as recommended", recommended: true, consequence: "The squad continues with the recommended next step.", cost_minor: 0, reversible: true },
+  { id: "hold", label: "Hold for now", recommended: false, consequence: "Nothing changes until you decide.", cost_minor: 0, reversible: true },
+] as const;
+
+const RUNWAY_EVENT = "runway.threshold_crossed";
+
+/** blocks_continue by type (BUILD §11.3 Types): decision and customer_won always; warning only when runway < 3 months. */
+export function blocksContinueFor(type: InboxItemType, ctx: Pick<ComposeContext, "metrics">, events: readonly Event[]): boolean {
+  if (type === "decision" || type === "customer_won") return true;
+  if (type !== "warning") return false;
+  if (blocksForRunway(ctx.metrics.runwayMonths)) return true;
+  return events.some((e) => {
+    if (e.type !== RUNWAY_EVENT) return false;
+    const months = (e.payload as { runwayMonths?: unknown }).runwayMonths;
+    return typeof months === "number" && blocksForRunway(months);
+  });
+}
+
+/** Builds the JSON input block the model (and the mock) reads. */
+export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record<string, unknown> {
+  const base: Record<string, unknown> = {
+    business: businessBrief(ctx),
+    business_name: ctx.business.name,
+    app_name: APP_NAME,
+    from_agent: { id: ctx.voice.id, name: ctx.voice.name, role: ctx.voice.role || "assistant manager" },
+    agents: ctx.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, agent_type: a.agentType, status: a.status })),
+    manifest: ctx.manifest.toJSON(),
+    metrics: ctx.status.map((m) => ({ metric: m.metric, value: m.value, source: m.source, label: m.label })),
+    named_queries: namedQueryCatalogue(),
+    glossary: ctx.glossary,
+  };
+  switch (brief.mode) {
+    case "events":
+      return { ...base, events: brief.events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt.toISOString(), actor: e.actor, entity_ids: e.entityIds, payload: e.payload })) };
+    case "insight":
+      return {
+        ...base,
+        events: [],
+        type: "warning",
+        insight: { kind: brief.insight.kind, title: brief.insight.title, facts: brief.insight.facts, exhibit: brief.insight.exhibit },
+        note: "No new event. This note reports a real change in the data described under `insight`. Quote only its facts. Never invent an event.",
+      };
+    case "decision":
+      return {
+        ...base,
+        events: [],
+        type: "decision",
+        decision_needed: true,
+        next_best_decision: { kind: brief.decision.kind, title: brief.decision.title, facts: brief.decision.facts, exhibit: brief.decision.exhibit },
+        options: brief.decision.options,
+        note: "No new event and no data change. Offer the next-best decision grounded in the current state using the options given. Never invent an event.",
+      };
+  }
+}
+
+export function systemPrompt(ctx: ComposeContext): string[] {
+  return [
+    clubRulesPrompt.render({ business_name: ctx.business.name, APP_NAME }),
+    prompts.inboxComposerPrompt.render({ business_name: ctx.business.name, from_agent_name: ctx.voice.name, from_agent_role: ctx.voice.role || "assistant manager" }),
+  ];
+}
+
+function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheCreationInputTokens: a.cacheCreationInputTokens + b.cacheCreationInputTokens,
+    cacheReadInputTokens: a.cacheReadInputTokens + b.cacheReadInputTokens,
+  };
+}
+
+const plain = (s: string): string => stripMarkup(s).replace(/\s+/g, " ").trim();
+
+export interface ComposeDeps {
+  models: ModelClient;
+  log: ModelLogger;
+}
+
+export async function composeNote(deps: ComposeDeps, ctx: ComposeContext, brief: ComposeBrief, options: ComposeOptions): Promise<ComposedNote> {
+  const events = brief.mode === "events" ? brief.events : [];
+  const eventIds = events.map((e) => e.id);
+  const system = systemPrompt(ctx);
+  const inputs = composerInputs(ctx, brief);
+  const messages: ChatMessage[] = [{ role: "user", content: "```json\n" + JSON.stringify(inputs) + "\n```" }];
+  const attribution = { businessId: ctx.businessId, agentId: ctx.voice.id, kind: "inbox_composer" };
+
+  const call = (msgs: ChatMessage[]): Promise<CompleteResultWithJson<ComposerOutput>> =>
+    deps.models.complete({ route: "inboxComposer", schema: ComposerSchema, system, messages: msgs, attribution, cacheSystem: true, scope: options.scope ?? `composer:${ctx.businessId}` });
+
+  let result = await call(messages);
+  let usage = result.usage;
+  let costMinorInt = result.cost.costMinorInt;
+  let repaired = result.repaired;
+  let reasked = false;
+  let stripped = false;
+
+  let check = checkComposerText(result.json.body_md, ctx.manifest, 0);
+  if (!check.ok && check.reask) {
+    reasked = true;
+    deps.log.debug({ businessId: ctx.businessId, unknown: check.validation.unknownIds, invisible: check.validation.invisibleIds }, "composer output had invalid mentions; re-asking once");
+    result = await call([...messages, { role: "assistant", content: result.text }, check.reask.message]);
+    usage = addUsage(usage, result.usage);
+    costMinorInt += result.cost.costMinorInt;
+    repaired = repaired || result.repaired;
+    check = checkComposerText(result.json.body_md, ctx.manifest, 1);
+  }
+
+  let bodyMd = result.json.body_md;
+  if (!check.ok) {
+    if (options.onInvalidLinks === "reject") {
+      throw new ComposerRejectedError("The composer referenced entities outside the manifest after one re-ask; the note was not written (AC-11.3.1).", {
+        unknownIds: check.validation.unknownIds,
+        invisibleIds: check.validation.invisibleIds,
+        malformed: check.validation.malformed.length,
+      });
+    }
+    stripped = true;
+    bodyMd = check.fallbackText;
+    deps.log.warn({ businessId: ctx.businessId, unknown: check.validation.unknownIds }, "composer output still invalid after re-ask; invalid mentions stripped so Refresh can still answer");
+  }
+
+  const linked = await linkComposerText(bodyMd, ctx.manifest, deps.models, {
+    ignore: [ctx.business.name, APP_NAME],
+    attribution: { businessId: ctx.businessId, kind: "entity_sweep" },
+    scope: options.scope ?? `composer:${ctx.businessId}`,
+    businessId: ctx.businessId,
+  });
+
+  const out = result.json;
+  const type = out.type;
+  const decision =
+    type === "decision" || type === "customer_won"
+      ? (out.decision ?? { options: [...(type === "customer_won" ? MATCH_DAY_OPTIONS : DEFAULT_DECISION_OPTIONS)], free_text: true, expires_at: null })
+      : out.decision;
+  const allowedMetrics = new Set(ctx.status.map((m) => m.metric));
+  const item: ComposerItem = {
+    type,
+    from_agent_id: ctx.agentIds.has(out.from_agent_id) ? out.from_agent_id : ctx.voice.id,
+    subject: plain(out.subject).slice(0, 80) || plain(linked.text).slice(0, 80) || "Update",
+    body_md: linked.text.trim().length > 0 ? linked.text : plain(out.subject),
+    status_strip: out.status_strip.filter((m) => allowedMetrics.has(m.metric)).slice(0, 4),
+    // Insight and next-best-decision notes exhibit the query their facts came from; event notes take the model's pick, registry-checked.
+    exhibit: brief.mode === "insight" ? sanitizeExhibit(brief.insight.exhibit) : brief.mode === "decision" ? sanitizeExhibit(brief.decision.exhibit) : sanitizeExhibit(out.exhibit),
+    decision: decision
+      ? {
+          options: decision.options.map((o) => ({ ...o, id: plain(o.id).slice(0, 40) || "option", label: plain(o.label).slice(0, 120) || "Option", consequence: plain(o.consequence) })),
+          free_text: decision.free_text,
+          expires_at: decision.expires_at,
+        }
+      : null,
+    blocks_continue: blocksContinueFor(type, ctx, events),
+    source_event_ids: eventIds,
+    entity_ids: linked.entityIds.filter((id) => ctx.crmIds.has(id)),
+  };
+
+  return {
+    item,
+    slot: brief.mode,
+    eventIds,
+    costMinorInt,
+    costCurrency: result.cost.currency,
+    usage,
+    model: result.model,
+    modelKey: result.modelKey,
+    reasked,
+    stripped,
+    repaired,
+    validation: check.validation,
+    linked,
+    drafts: linked.sweep.drafts.map((d) => ({ name: d.name, kindGuess: d.kindGuess })),
+  };
+}
