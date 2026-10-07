@@ -1,8 +1,8 @@
 /**
- * Match Day commentary (BUILD §11.4 "Match (touches as events with Sonnet commentary, entities linked)";
- * ARCHITECTURE §11 `POST /v1/commentary`). One line per touch plus kick-off and full time, written by the
- * `journeyCommentary` route (Sonnet), every mention validated against a manifest of the customer and the agents on the
- * team sheet, persisted on `journeys.commentary` in the shape Dugout's JourneyStage reads (`{ text, touchId?, highlight? }`).
+ * Customer Update commentary (BUILD §11.4: touches as events with Sonnet commentary, entities linked;
+ * ARCHITECTURE §11 `POST /v1/commentary`). One line per touch plus the first touch and the debrief, written by the
+ * `journeyCommentary` route (Sonnet), every mention validated against a manifest of the customer and the agents who
+ * were involved, persisted on `journeys.commentary` in the shape Dugout's JourneyStage reads (`{ text, touchId?, highlight? }`).
  */
 import { prompts } from "@foundmill/agents";
 import { repos, type Db, type JourneyDetail } from "@foundmill/db";
@@ -13,11 +13,11 @@ import { CHANNEL_META, type EntityKind } from "@foundmill/shared";
 export interface CommentaryLine {
   /** Markdown with `[[ent:<id>|Name]]` mentions, validated against the manifest. */
   text: string;
-  /** The touch this line describes; null for kick-off / full-time lines. */
+  /** The touch this line describes; null for the first-touch / debrief lines. */
   touchId: string | null;
   touchIndex: number | null;
   tone: CommentaryOutput["lines"][number]["tone"];
-  /** True for the goal line (the Goal stage in the replay). */
+  /** True for the win-moment line (the Win moment stage in the replay). */
   highlight: boolean;
 }
 
@@ -34,7 +34,7 @@ export interface CommentaryResult {
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-/** Agent ids a journey names: on its team sheet (`journeys.agents`) and in touch sources. */
+/** Agent ids a journey names: who was involved (`journeys.agents`) and touch sources. */
 function agentIdsOf(journey: JourneyDetail): string[] {
   const ids = new Set<string>();
   for (const a of journey.agents) {

@@ -20,7 +20,7 @@ export const PHASE4_ROUTERS = [
   { path: "/v1/connections", feature: "connections", summary: "Connection requests, acceptance and blocking between founders." },
   { path: "/v1/messages", feature: "messages", summary: "Human-to-human message threads (agents may draft, never send without Send)." },
   { path: "/v1/communities", feature: "communities", summary: "Cohort, category, geography and private communities with feeds, members and events." },
-  { path: "/v1/leaderboards", feature: "leaderboards", summary: "League tables over verified integration metrics with divisions and monthly promotion/relegation." },
+  { path: "/v1/leaderboards", feature: "leaderboards", summary: "Leaderboards over verified integration metrics with divisions and monthly promotion/relegation." },
   { path: "/v1/negotiation", feature: "negotiation", summary: "B2B negotiation threads between agents within founder-set limits; final terms are a hard-gate founder task." },
 ] as const;
 export type Phase4Feature = (typeof PHASE4_ROUTERS)[number]["feature"];
@@ -44,6 +44,8 @@ export interface AppOptions {
   env?: { APP_ENV: string; INTEGRATIONS_MODE: string; MODEL_MODE: string };
   log?: SocialLogger;
   now?: () => Date;
+  /** For `/health`: whether the database answered at boot (see db-boot.ts). Defaults to true. */
+  dbReady?: () => boolean;
 }
 
 type Variables = { requestId: string };
@@ -65,17 +67,19 @@ export function createApp(db: Db, options: AppOptions = {}) {
 
   app.get("/", (c) => c.json({ name: APP_NAME, service: SOCIAL_SERVICE, ok: true, phase: 4, routers: PHASE4_ROUTERS.map((r) => ({ path: r.path, status: 501 })) }));
 
-  app.get("/health", (c) =>
-    c.json({
-      ok: true,
+  app.get("/health", (c) => {
+    const db = options.dbReady ? options.dbReady() : true;
+    return c.json({
+      ok: db,
+      db,
       app: APP_NAME,
       service: SOCIAL_SERVICE,
       liveMode: FLAGS.liveMode,
       env: options.env?.APP_ENV ?? null,
       modes: { integrations: options.env?.INTEGRATIONS_MODE ?? null, models: options.env?.MODEL_MODE ?? null },
       time: now().toISOString(),
-    }),
-  );
+    });
+  });
 
   /**
    * Public profiles: the only read this service performs today. The `public_profiles` view selects LIVE, committed,

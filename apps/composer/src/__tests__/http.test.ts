@@ -142,9 +142,9 @@ describe("chapter title rules", () => {
     expect(titleAcceptable("Three customers won in Q3.", facts)).toBe(false);
   });
   it("the provisional title is deterministic and grounded", () => {
-    expect(provisionalTitle(facts)).toMatchObject({ title: "A Season Of Firsts", mood: "breakthrough" });
+    expect(provisionalTitle(facts)).toMatchObject({ title: "A Chapter Of Firsts", mood: "breakthrough" });
     expect(provisionalTitle({ ...facts, milestones: [] }).title).toBe("Points On The Board");
-    expect(provisionalTitle({ ...facts, milestones: [], customersWon: 0, signups: 0, activations: 0, decisionsMade: 0, events: 0 }).title).toBe("A Quiet Pre-Season");
+    expect(provisionalTitle({ ...facts, milestones: [], customersWon: 0, signups: 0, activations: 0, decisionsMade: 0, events: 0 }).title).toBe("A Quiet Opening Chapter");
     expect(titleAcceptable(provisionalTitle(facts).title, facts)).toBe(true);
   });
 });

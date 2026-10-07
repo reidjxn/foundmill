@@ -8,9 +8,13 @@
 import { fileURLToPath } from "node:url";
 import { NativeConnection, Worker, type NativeConnection as NativeConnectionType } from "@temporalio/worker";
 import { APP_NAME } from "@foundmill/config";
+import { MemoryRedis } from "@foundmill/events";
 import { createActivities } from "./activities";
+import { MemoryControlBus } from "./control-bus";
+import { prepareDb } from "./db-boot";
 import { createDeps, type OrchestratorDeps } from "./deps";
 import { loadOrchestratorEnv } from "./env";
+import { chooseRedisBackend, probeRedis } from "./redis";
 
 export { createActivities } from "./activities";
 export type { Activities } from "./activities";
@@ -24,6 +28,8 @@ export { createGatewayClient, createOfflineGatewayClient, signServiceToken } fro
 export { createComposerClient, createOfflineComposerClient, ComposerUnavailableError } from "./composer-client";
 export { MemoryControlBus, RedisControlBus, type SessionControlBus, type SessionCommand } from "./control-bus";
 export { LoopDetector, LOOP_THRESHOLD } from "./activities/loop";
+export { probeRedis, chooseRedisBackend, createRedisClient, type RedisProbe, type RedisBackendChoice } from "./redis";
+export { prepareDb, type DbReadiness } from "./db-boot";
 
 /** Absolute path of the workflow bundle entry (a TypeScript file; the worker bundles it with swc). */
 export const WORKFLOWS_PATH = fileURLToPath(new URL("./workflows/index.ts", import.meta.url));
@@ -92,9 +98,14 @@ export async function connectWithRetry(deps: OrchestratorDeps, signal?: AbortSig
 
 export async function main(): Promise<void> {
   const env = loadOrchestratorEnv();
-  const deps = createDeps({ env });
+  // Redis first (one bounded probe): unreachable in development means the in-memory stream + control bus, never a retry storm.
+  const backend = chooseRedisBackend(env, await probeRedis(env.REDIS_URL));
+  const deps = createDeps({ env, ...(backend.kind === "memory" ? { redis: new MemoryRedis(), control: new MemoryControlBus() } : {}) });
+  deps.log[backend.level]({ redis: backend.kind }, backend.message);
+  // Database: PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line, activities then fail per call.
+  const readiness = await prepareDb(deps.db, deps.log, { service: "orchestrator" });
   const abort = new AbortController();
-  deps.log.info({ app: APP_NAME, taskQueue: env.TEMPORAL_TASK_QUEUE, address: env.TEMPORAL_ADDRESS, integrations: env.INTEGRATIONS_MODE, models: env.MODEL_MODE }, "orchestrator starting");
+  deps.log.info({ app: APP_NAME, taskQueue: env.TEMPORAL_TASK_QUEUE, address: env.TEMPORAL_ADDRESS, integrations: env.INTEGRATIONS_MODE, models: env.MODEL_MODE, db: readiness.ok, driver: readiness.driver, redis: backend.kind }, "orchestrator starting");
   const connection = await connectWithRetry(deps, abort.signal);
   if (!connection) return;
   const { worker } = await createWorker({ deps, connection });

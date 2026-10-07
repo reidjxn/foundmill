@@ -48,6 +48,8 @@ export interface CollabServerDeps {
   auth: CollabAuthenticator;
   log?: CollabLogger;
   store?: SpecBlockStore;
+  /** For `/health`: whether the database answered at boot (see db-boot.ts). Defaults to true. */
+  dbReady?: () => boolean;
 }
 
 export interface CollabServerOptions {
@@ -78,6 +80,8 @@ export interface HealthReport {
   app: string;
   service: typeof COLLAB_SERVICE;
   uptimeMs: number;
+  /** False when the database did not answer at boot (the server still runs; see db-boot.ts). */
+  db: boolean;
   documents: number;
   connections: number;
   closing: boolean;
@@ -254,7 +258,8 @@ export function createCollabServer(deps: CollabServerDeps, options: CollabServer
   const hocuspocus = server.hocuspocus;
 
   function health(): HealthReport {
-    return { ok: !closing, app: APP_NAME, service: COLLAB_SERVICE, uptimeMs: Date.now() - startedAt, documents: hocuspocus.getDocumentsCount(), connections: hocuspocus.getConnectionsCount(), closing };
+    const db = deps.dbReady ? deps.dbReady() : true;
+    return { ok: !closing && db, db, app: APP_NAME, service: COLLAB_SERVICE, uptimeMs: Date.now() - startedAt, documents: hocuspocus.getDocumentsCount(), connections: hocuspocus.getConnectionsCount(), closing };
   }
 
   async function edit(principal: Principal, name: SpecDocumentName, content: unknown, options: EditOptions = {}): Promise<EditResult> {

@@ -321,6 +321,11 @@ describe("lifecycle", () => {
   it("listens on an ephemeral port on the first available host and reports it", () => {
     expect(server.port).toBeGreaterThan(0);
     expect(server.url).toMatch(/^ws:\/\//);
-    expect(server.health().ok).toBe(true);
+    expect(server.health()).toMatchObject({ ok: true, db: true });
+  });
+
+  it("reports ok:false with db:false when the database did not answer at boot", () => {
+    const degraded = createCollabServer({ db, auth: createCollabAuthenticator({ appEnv: "test", jwtSecret: JWT_SECRET, serviceSecret: SERVICE_SECRET }), dbReady: () => false });
+    expect(degraded.health()).toMatchObject({ ok: false, db: false, service: "collab" });
   });
 });

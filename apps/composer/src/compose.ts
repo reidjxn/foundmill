@@ -66,7 +66,8 @@ export class ComposerRejectedError extends AppError {
   }
 }
 
-export const MATCH_DAY_OPTIONS = [
+/** Default options of a Customer Update (customer_won) decision when the model offers none. */
+export const CUSTOMER_UPDATE_OPTIONS = [
   { id: "thank_you", label: "Send a thank-you", recommended: true, consequence: "A short, disclosed note goes out on behalf of the business.", cost_minor: 0, reversible: false },
   { id: "review_14d", label: "Ask for a review in 14 days", recommended: false, consequence: "A scheduled, suppressible request after they have used the product.", cost_minor: 0, reversible: true },
   { id: "annual_upgrade", label: "Offer an annual upgrade", recommended: false, consequence: "An upgrade offer is drafted for your approval first.", cost_minor: 0, reversible: true },
@@ -206,7 +207,7 @@ export async function composeNote(deps: ComposeDeps, ctx: ComposeContext, brief:
   const type = out.type;
   const decision =
     type === "decision" || type === "customer_won"
-      ? (out.decision ?? { options: [...(type === "customer_won" ? MATCH_DAY_OPTIONS : DEFAULT_DECISION_OPTIONS)], free_text: true, expires_at: null })
+      ? (out.decision ?? { options: [...(type === "customer_won" ? CUSTOMER_UPDATE_OPTIONS : DEFAULT_DECISION_OPTIONS)], free_text: true, expires_at: null })
       : out.decision;
   const allowedMetrics = new Set(ctx.status.map((m) => m.metric));
   const item: ComposerItem = {

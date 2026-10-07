@@ -7,11 +7,12 @@
  * on host "::" (Railway's private network is IPv6-only, §17; falls back to 0.0.0.0) → graceful shutdown on
  * SIGTERM/SIGINT. The browser client lives in `./client` (`@foundmill/stream/client`) and pulls in none of this.
  */
-import { Redis } from "ioredis";
 import { createServiceDb, closeDb } from "@foundmill/db";
 import { createLogger, loadEnv, servicePort } from "@foundmill/shared";
 import { createTokenVerifier } from "./auth";
 import { createCachedAuthorizer, createRepoAuthorizer } from "./authorize";
+import { prepareDb } from "./db-boot";
+import { createStreamRedis, probeRedis, unreachableMessage } from "./redis";
 import { createStreamServer } from "./server";
 
 export { createTokenVerifier, parseDevToken, StreamAuthError, type AuthUser, type TokenVerifier, type TokenVerifierOptions } from "./auth";
@@ -22,6 +23,8 @@ export { StreamHub, silentLog, type HubListener, type StreamHubOptions, type Str
 export { Metrics, COUNTER_NAMES, GAUGE_NAMES, type CounterName, type GaugeName, type MetricsSnapshot } from "./metrics";
 export * from "./protocol";
 export { createStreamServer, type StreamServer, type StreamServerDeps, type StreamServerOptions, type HealthReport } from "./server";
+export { probeRedis, createStreamRedis, unreachableMessage, type RedisProbe } from "./redis";
+export { prepareDb, type DbReadiness } from "./db-boot";
 
 export async function main(): Promise<void> {
   const env = loadEnv();
@@ -31,10 +34,13 @@ export async function main(): Promise<void> {
     process.exit(1);
   }
   const db = createServiceDb({ max: 4 });
+  const readiness = await prepareDb(db, log, { service: "stream" });
+  // Redis is required for fan-out: one bounded probe, one clear line when it is down, then stay up and unhealthy.
+  const probe = await probeRedis(env.REDIS_URL);
+  if (!probe.ok) log.error({ reason: probe.reason }, unreachableMessage(env.REDIS_URL, probe));
   // Blocking XREADs run on duplicated connections; the base one only duplicates and answers /health pings.
-  const redis = new Redis(env.REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: null, enableOfflineQueue: true });
-  redis.on("error", (err) => log.warn({ err }, "redis error"));
-  redis.connect().catch((err) => log.warn({ err }, "redis unreachable at boot; readers will keep retrying"));
+  const redis = createStreamRedis(env.REDIS_URL, log);
+  redis.connect().catch(() => undefined); // failures are logged (de-duplicated) by the client's error handler
 
   const auth = createTokenVerifier({
     supabaseUrl: env.SUPABASE_URL,
@@ -50,10 +56,11 @@ export async function main(): Promise<void> {
     authorizer: createCachedAuthorizer(createRepoAuthorizer(db, { log })),
     log,
     options: {
-      checkRedis: async () => (await redis.ping()) === "PONG",
+      checkRedis: async () => redis.status === "ready" && (await redis.ping()) === "PONG",
     },
   });
-  await server.listen(servicePort(env, "STREAM_PORT"));
+  const address = await server.listen(servicePort(env, "STREAM_PORT"));
+  log.info({ port: address.port, host: address.address, db: readiness.ok, driver: readiness.driver, redis: probe.ok }, "stream listening");
 
   let stopping = false;
   const shutdown = async (signal: string) => {

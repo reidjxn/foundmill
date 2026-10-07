@@ -8,6 +8,7 @@
 import { closeDb, createServiceDb } from "@foundmill/db";
 import { createLogger, loadEnv, servicePort } from "@foundmill/shared";
 import { createCollabAuthenticator } from "./auth";
+import { prepareDb } from "./db-boot";
 import { createCollabServer } from "./server";
 
 export { COLLAB_SERVICE_AUDIENCE, SUPABASE_AUDIENCE, CollabAuthError, createCollabAuthenticator, mintCollabServiceToken, parseDevToken, type CollabAuthenticator, type CollabAuthenticatorOptions, type MintServiceTokenInput, type Principal } from "./auth";
@@ -16,6 +17,7 @@ export { DEFAULT_FRAGMENT, EMPTY_DOC, InvalidProseMirrorJsonError, docToPmDoc, f
 export { contentToPmDoc, createSpecBlockStore, type Author, type AuthorKind, type SpecBlockStore, type SpecBlockStoreOptions } from "./store";
 export { COLLAB_SERVICE, ReadOnlyError, WRITE_ROLES, bearerToken, createCollabServer, httpError, readJsonBody, silentLogger, type Authorization, type CollabContext, type CollabLogger, type CollabServer, type CollabServerDeps, type CollabServerOptions, type EditOptions, type EditResult, type HealthReport, type ReadResult, StaleRevisionError } from "./server";
 export { createCollabClient, type CollabClient, type CollabClientError, type CollabClientOptions } from "./client";
+export { prepareDb, type DbReadiness } from "./db-boot";
 
 export async function main(): Promise<void> {
   const env = loadEnv();
@@ -25,6 +27,8 @@ export async function main(): Promise<void> {
     process.exit(1);
   }
   const db = createServiceDb();
+  // PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line and /health says db:false.
+  const readiness = await prepareDb(db, log, { service: "collab" });
   const auth = createCollabAuthenticator({
     appEnv: env.APP_ENV,
     supabaseUrl: env.SUPABASE_URL,
@@ -34,8 +38,9 @@ export async function main(): Promise<void> {
     devUserId: env.DEV_AUTH_USER_ID ?? null,
   });
   if (!env.SESSION_TOKEN_SECRET) log.warn({}, "SESSION_TOKEN_SECRET is not set; agents cannot connect to the collab server");
-  const server = createCollabServer({ db, auth, log });
+  const server = createCollabServer({ db, auth, log, dbReady: () => readiness.ok });
   await server.listen(servicePort(env, "COLLAB_PORT"));
+  log.info({ db: readiness.ok, driver: readiness.driver }, "collab ready");
 
   const shutdown = async (signal: string) => {
     log.info({ signal }, "collab shutting down");

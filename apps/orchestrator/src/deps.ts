@@ -5,18 +5,18 @@
  * the model client (mock), the sandbox runner (replay), the gateway/composer (offline) and the clock (fake). Nothing
  * here is imported by workflow code.
  */
-import { createDb, type Db } from "@foundmill/db";
+import { closeDb, createDb, type Db } from "@foundmill/db";
 import { MemoryRedis, type StreamRedis } from "@foundmill/events";
 import { createModelClient, type ModelClient, type UsageEvent } from "@foundmill/models";
 import { MockSandboxProvider, resolveSandboxProvider, type SandboxMode, type SandboxProvider } from "@foundmill/sandbox";
 import { createLogger, createVault, type Logger, type Vault } from "@foundmill/shared";
 import { repos } from "@foundmill/db";
-import { Redis } from "ioredis";
 import { systemClock, type Clock } from "./clock";
 import { createComposerClient, createOfflineComposerClient, type ComposerClient } from "./composer-client";
 import { MemoryControlBus, RedisControlBus, type SessionControlBus } from "./control-bus";
 import { loadOrchestratorEnv, type OrchestratorEnv } from "./env";
 import { createGatewayClient, createOfflineGatewayClient, type GatewayClient } from "./gateway-client";
+import { createRedisClient } from "./redis";
 
 export interface OrchestratorDeps {
   env: OrchestratorEnv;
@@ -83,9 +83,11 @@ export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
   let db: Db;
   if (options.db) db = options.db;
   else if (env.DATABASE_URL) {
+    // postgres.js or PGlite, decided by the URL (`pglite:<dir>`); closeDb ends either. Readiness (boot, migrations on
+    // PGlite, a locked directory) is settled once in main() through prepareDb (./db-boot).
     const service = createDb(env.DATABASE_URL, { max: 10 });
-    db = service as unknown as Db;
-    closers.push(() => service.$client.end({ timeout: 5 }));
+    db = service;
+    closers.push(() => closeDb(service));
   } else {
     log.error({}, "DATABASE_URL is not set; activities that touch the database will fail");
     db = createDb("postgres://invalid@127.0.0.1:1/invalid", { max: 1 }) as unknown as Db;
@@ -100,8 +102,8 @@ export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
     redis = new MemoryRedis();
     control = options.control ?? new MemoryControlBus();
   } else {
-    const client = new Redis(env.REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: 3, enableOfflineQueue: true });
-    client.on("error", (err) => log.warn({ err: err.message }, "redis error"));
+    // main() probes Redis first and passes the memory pair when it is unreachable in development (./redis).
+    const client = createRedisClient(env.REDIS_URL, log);
     redis = client as unknown as StreamRedis;
     control = options.control ?? new RedisControlBus(client);
     closers.push(() => client.quit().catch(() => undefined));

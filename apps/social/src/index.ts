@@ -10,7 +10,9 @@ import { serve } from "@hono/node-server";
 import { closeDb, createServiceDb } from "@foundmill/db";
 import { createLogger, loadEnv, servicePort } from "@foundmill/shared";
 import { createApp } from "./app";
+import { prepareDb } from "./db-boot";
 
+export { prepareDb, type DbReadiness } from "./db-boot";
 export { createApp, PHASE4_ROUTERS, PublicProfilesQuery, SOCIAL_SERVICE, type AppOptions, type Phase4Feature, type SocialApp, type SocialLogger } from "./app";
 
 export async function main(): Promise<void> {
@@ -21,7 +23,9 @@ export async function main(): Promise<void> {
     process.exit(1);
   }
   const db = createServiceDb();
-  const app = createApp(db, { env, log });
+  // PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line and /health says db:false.
+  const readiness = await prepareDb(db, log, { service: "social" });
+  const app = createApp(db, { env, log, dbReady: () => readiness.ok });
   const server = await listen(app, servicePort(env, "SOCIAL_PORT"), log);
 
   const shutdown = async (signal: string) => {

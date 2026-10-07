@@ -57,7 +57,7 @@ export function createChannelActivities(deps: OrchestratorDeps) {
             return done("Founder approved; scheduled.");
           }
           await repos.campaigns.setStatus(db, businessId, state.campaignId, "pending_approval");
-          const approval = await repos.approvals.create(db, businessId, { agentId: owner?.id ?? null, connectorKey: "platform", tool: "launch_campaign", args: { campaignId: state.campaignId, channelKey: key }, reasons: [business.businessMode === "augmented" ? "augmented mode: every external action asks" : "kit mode: the founder submits"] });
+          const approval = await repos.approvals.create(db, businessId, { agentId: owner?.id ?? null, connectorKey: "platform", tool: "launch_campaign", args: { campaignId: state.campaignId, channelKey: key }, reasons: [business.businessMode === "augmented" ? "augmented mode: every external action asks" : "offline tracking: the agent prepares, the founder submits"] });
           state.approvalId = approval.id;
           if (owner) {
             await emitEvent(db, { businessId, type: "approval.requested", actor: { kind: "agent", id: owner.id }, payload: { approvalId: approval.id, agentId: owner.id, connectorKey: "platform", tool: "launch_campaign", amount: channel.budgetMinor === null ? null : { amountMinor: Number(channel.budgetMinor), currency: channel.currency ?? "EUR" }, reasons: ["campaign launch needs your approval"], policyIds: [], decisionType: "publish_content", hardGate: false, summary: `${owner.name} wants to launch "${meta.label} — ${weekLabel}"` } });

@@ -149,7 +149,7 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
         `**Decisions I took (${chiefDecisions.length})** — each one inside the authority you set; open any item to see the option and the reason.`,
         ...chiefDecisions.slice(0, 10).map((e) => `- ${new Date(e.occurredAt).toISOString().slice(0, 10)}: option "${(e.payload as { chosenOption?: string }).chosenOption ?? "free text"}" on inbox item ${(e.payload as { inboxItemId?: string }).inboxItemId ?? ""}`),
         ``,
-        `**Match days (${conversions.items.length})** — ${conversions.items.length ? "replays are in the Customers tab, newest first." : "no customers won while you were away."}`,
+        `**Customer Updates (${conversions.items.length})** — ${conversions.items.length ? "the replays are in the Customers tab, newest first." : "no customers won while you were away."}`,
         ``,
         `**Money** — in: ${fmt(moneyIn)} across ${payments.items.length} payment${payments.items.length === 1 ? "" : "s"}; squad spend: ${fmt(usage.costMinor)} (Estimate).`,
         ``,

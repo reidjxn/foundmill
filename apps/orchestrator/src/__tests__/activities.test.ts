@@ -117,6 +117,8 @@ describe("holiday activities (BUILD §9.6)", () => {
     expect(report.type).toBe("report");
     expect(report.subject).toBe("While you were away");
     expect(report.bodyMd).toMatch(/Decisions I took/);
+    expect(report.bodyMd).toMatch(/Customer Updates \(\d+\)/);
+    expect(report.bodyMd).not.toMatch(/match/i);
     expect(report.bodyMd).toMatch(/Waiting for you/);
     expect(report.bodyMd).toMatch(/Estimate/);
     expect((await repos.holidays.get(t.db, t.businessId, h.id)).endedAt).not.toBeNull();

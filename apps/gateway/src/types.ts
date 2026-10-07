@@ -110,6 +110,8 @@ export interface HealthResponse {
   ok: boolean;
   service: "gateway";
   app: string;
+  /** False when the database did not answer at boot (the service still runs; see db-boot.ts). */
+  db: boolean;
   mode: "mock" | "live";
   connectors: number;
   policy: { cedar: string; policies: number };

@@ -127,8 +127,15 @@ describe("health and listening", () => {
   it("GET /health reports the service and modes", async () => {
     const res = await get("/health");
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, app: "Foundmill", service: "social", env: "test", modes: { integrations: "mock", models: "mock" }, liveMode: false });
+    expect(await res.json()).toMatchObject({ ok: true, db: true, app: "Foundmill", service: "social", env: "test", modes: { integrations: "mock", models: "mock" }, liveMode: false });
     expect(res.headers.get("x-request-id")).toBeTruthy();
+  });
+
+  it("GET /health reports ok:false with db:false when the database did not answer at boot", async () => {
+    const degraded = createApp(db, { env: { APP_ENV: "test", INTEGRATIONS_MODE: "mock", MODEL_MODE: "mock" }, dbReady: () => false });
+    const res = await degraded.request("/health");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: false, db: false, service: "social" });
   });
 
   it("listens on an ephemeral port on :: (or 0.0.0.0 when IPv6 is unavailable) and serves the same app", async () => {

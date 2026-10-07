@@ -40,8 +40,16 @@ const asAllow = (r: CallResponse): AllowResponse => {
 describe("health and catalogue", () => {
   it("GET /health reports the mode, the connectors and the policy set", async () => {
     const health = await g.client.health();
-    expect(health).toMatchObject({ ok: true, service: "gateway", mode: "mock", connectors: 1, vault: "local", rateLimitStore: "memory" });
+    expect(health).toMatchObject({ ok: true, db: true, service: "gateway", mode: "mock", connectors: 1, vault: "local", rateLimitStore: "memory" });
     expect(health.policy.policies).toBeGreaterThanOrEqual(15);
+  });
+
+  it("GET /health reports ok:false with db:false when the database did not answer at boot", async () => {
+    const { createGatewayApp } = await import("../app");
+    const app = createGatewayApp(g.deps, { sessionTokenSecret: "x".repeat(32), dbReady: () => false });
+    const res = await app.request("/health");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: false, db: false, service: "gateway" });
   });
 
   it("GET /v1/connectors lists phase, auth kind, tools and policyHints", async () => {

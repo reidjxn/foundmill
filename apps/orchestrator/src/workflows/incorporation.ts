@@ -1,5 +1,5 @@
 /**
- * incorporation (BUILD §9.4, §11.11): Atlas / Companies House / kit as a supervised session. The squad prepares the
+ * incorporation (BUILD §9.4, §11.11): Atlas / Companies House / filing pack as a supervised session. The squad prepares the
  * documents and asks the founder to review; filing in the founder's name is a hard gate, so the workflow waits for the
  * `founderSubmit` signal (the founder took over the browser session and submitted) before recording the filing.
  */
@@ -28,7 +28,7 @@ export async function incorporation(input: IncorporationInput): Promise<Incorpor
   await acts.incorporationStep({ businessId: input.businessId, incorporationId: input.incorporationId, step: "prepare_documents", workflowId: info.workflowId });
   await acts.incorporationStep({ businessId: input.businessId, incorporationId: input.incorporationId, step: "founder_review", workflowId: info.workflowId });
 
-  // Wait for the founder: submitted (continue), cancel (abandon) or stop. No timeout: the kit waits.
+  // Wait for the founder: submitted (continue), cancel (abandon) or stop. No timeout: the pack waits.
   await condition(() => (state.founder !== null && state.founder.kind !== "takeover") || state.stopped !== null);
   const f = state.founder;
   if (state.stopped || !f || f.kind === "cancel") {

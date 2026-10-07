@@ -47,7 +47,7 @@ export function createMiscActivities(deps: OrchestratorDeps) {
 
     // ---- incorporation --------------------------------------------------------------------------------------------
     /**
-     * One step of the supervised incorporation (BUILD §11.11). The squad prepares documents and the kit; filing with
+     * One step of the supervised incorporation (BUILD §11.11). The squad prepares the documents and the filing pack; filing with
      * the founder's identity is a hard gate: the founder submits (founderSubmit signal) and the step records it.
      */
     async incorporationStep(input: { businessId: string; incorporationId: string; step: IncorporationStep; workflowId: string; founderPayload?: Record<string, unknown> | null }): Promise<{ status: string; note: string }> {
@@ -64,7 +64,7 @@ export function createMiscActivities(deps: OrchestratorDeps) {
         case "founder_review": {
           const chief = await repos.agents.chiefOfStaff(db, input.businessId);
           if (chief) {
-            await repos.inbox.createItem(db, input.businessId, { type: "decision", from_agent_id: chief.id, subject: "Incorporation kit ready for your review", body_md: `The ${inc.route.replace(/_/g, " ")} kit is prepared. Review the documents, then submit the filing yourself: filing in your name is a hard gate the squad never performs. The browser session stays supervised until you take over.`, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: "review", label: "Open the kit and submit", recommended: true, consequence: "You take over the browser session and file", cost_minor: 0, reversible: true }, { id: "later", label: "Not now", recommended: false, consequence: "The kit waits; nothing is filed", cost_minor: 0, reversible: true }], free_text: true, expires_at: null }, blocks_continue: false, source_event_ids: [], entity_ids: [] });
+            await repos.inbox.createItem(db, input.businessId, { type: "decision", from_agent_id: chief.id, subject: "Incorporation pack ready for your review", body_md: `The ${inc.route.replace(/_/g, " ")} pack is prepared. Review the documents, then submit the filing yourself: filing in your name is a hard gate the squad never performs. The browser session stays supervised until you take over.`, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: "review", label: "Open the pack and submit", recommended: true, consequence: "You take over the browser session and file", cost_minor: 0, reversible: true }, { id: "later", label: "Not now", recommended: false, consequence: "The pack waits; nothing is filed", cost_minor: 0, reversible: true }], free_text: true, expires_at: null }, blocks_continue: false, source_event_ids: [], entity_ids: [] });
           }
           push("Asked the founder to review and submit.");
           await repos.legal.updateIncorporation(db, input.businessId, inc.id, { status: "awaiting_founder", steps, browserSessionId: `supervised:${uuid()}` });

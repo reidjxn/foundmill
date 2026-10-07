@@ -26,6 +26,8 @@ export interface GatewayAppOptions {
   sessionTokenMaxTtlSeconds?: number;
   /** For `/health`. */
   rateLimitStoreKind?: "memory" | "redis";
+  /** For `/health`: whether the database answered at boot (see db-boot.ts). Defaults to true. */
+  dbReady?: () => boolean;
 }
 
 type Variables = { session: SessionToken; service: ServiceToken };
@@ -55,10 +57,12 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
 
   app.get("/health", (c) => {
     const engine = getPolicyEngine();
+    const db = options.dbReady ? options.dbReady() : true;
     const body: HealthResponse = {
-      ok: true,
+      ok: db,
       service: "gateway",
       app: APP_NAME,
+      db,
       mode: deps.mode,
       connectors: deps.registry.keys().length,
       policy: { cedar: cedarVersion(), policies: Object.keys(engine.policySet.byId).length },

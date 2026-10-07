@@ -10,13 +10,14 @@ import { createServiceDb, closeDb } from "@foundmill/db";
 import { createModelClient } from "@foundmill/models";
 import { createLogger, loadEnv, servicePort } from "@foundmill/shared";
 import { createApp } from "./app";
+import { prepareDb } from "./db-boot";
 import { createComposerService } from "./service";
 import { createUsageSink } from "./usage";
 
 export { createApp, NarrateBody, RefreshBody, CommentaryBody, ChapterTitleBody, type ComposerApp } from "./app";
 export { ComposerService, createComposerService, type ComposerServiceDeps, type ComposerServiceOptions, type NarrateResult } from "./service";
 export { RefreshEngine, type RefreshResult, type RefreshEngineOptions } from "./refresh";
-export { composeNote, ComposerSchema, ComposerRejectedError, blocksContinueFor, composerInputs, MATCH_DAY_OPTIONS, DEFAULT_DECISION_OPTIONS, type ComposedNote, type ComposeBrief } from "./compose";
+export { composeNote, ComposerSchema, ComposerRejectedError, blocksContinueFor, composerInputs, CUSTOMER_UPDATE_OPTIONS, DEFAULT_DECISION_OPTIONS, type ComposedNote, type ComposeBrief } from "./compose";
 export { loadContext, type ComposeContext } from "./context";
 export { NAMED_QUERIES, NAMED_QUERY_IDS, getNamedQuery, isNamedQueryId, namedQueryCatalogue, runNamedQuery, sanitizeExhibit, type ExhibitData, type NamedQuery, type NamedQueryId } from "./exhibits";
 export { loadMetricsSnapshot, statusMetrics, estimateRunwayMonths, runwayThresholdsBelow, blocksForRunway, type MetricsSnapshot } from "./metrics";
@@ -26,6 +27,7 @@ export { composeCommentary, type CommentaryResult, type CommentaryLine } from ".
 export { composeChapterTitle, loadQuarterFacts, parseQuarter, quarterOf, provisionalTitle, titleAcceptable, ChapterTitleOutput, type ChapterTitleResult } from "./chapter";
 export { createUsageSink } from "./usage";
 export { persistNote, persistDrafts, writeEventRow } from "./persist";
+export { prepareDb, type DbReadiness } from "./db-boot";
 
 export async function main(): Promise<void> {
   const env = loadEnv();
@@ -35,12 +37,15 @@ export async function main(): Promise<void> {
     process.exit(1);
   }
   const db = createServiceDb();
+  // PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line and /health says db:false.
+  const readiness = await prepareDb(db, log, { service: "composer" });
   const models = createModelClient({ mode: env.MODEL_MODE, apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage: createUsageSink(db, log) });
   const service = createComposerService({ db, models, log });
   const app = createApp(service, { env, log });
   const port = servicePort(env, "COMPOSER_PORT");
 
   const server = await listen(app, port, log);
+  log.info({ db: readiness.ok, driver: readiness.driver, modes: { integrations: env.INTEGRATIONS_MODE, models: env.MODEL_MODE } }, "composer ready (refresh debounce and buffer refills are in-process; no Redis needed)");
   const shutdown = async (signal: string) => {
     log.info({ signal }, "composer shutting down");
     await new Promise<void>((resolve) => server.close(() => resolve()));
