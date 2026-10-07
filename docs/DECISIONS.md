@@ -509,3 +509,27 @@ AC-11.7.2 says a drag re-scores the Board. `distribution.recommend` is a mutatio
 ## 2026-10-07 — packages/modules distribution: Vocabulary over Dugout's Formation strings
 
 User-facing strings in the module follow CLAUDE.md: lines read Acquisition / Engagement / Organic / Offline, the pitch is the Board, kit mode is “Offline tracking”, update levels are Brief / Standard / Featured and a won customer opens a Customer Update. Dugout’s `FormationBoard`, `ChannelToken` and `ChannelProfileCard` still render their own “Pitch”, “Attack/Midfield/Defence/Wings” and “Kit mode” labels; those are left for the wave-3 vocabulary sweep in `packages/dugout` rather than forked here.
+
+## 2026-10-07 — packages/modules finance: Metric definitions live in the tile's provenance
+
+BUILD §11.8 asks for hover-visible definitions on every Overview tile. Dugout's `MetricTile` already has one hover affordance, the provenance info button, so each tile's definition (the spec wording, verbatim where the spec gives it, in `METRIC_DEFINITIONS`) goes into `provenance.note` next to the source and the named query. One tooltip per tile, no second icon, and the definition and the source read together.
+
+## 2026-10-07 — packages/modules finance: MRR is a trailing cash-basis average until a ledger or Stripe subscriptions exist
+
+Without subscription records the module cannot see recurring revenue directly. MRR is revenue categorised into the chart of accounts over the trailing three full months divided by three (ARR = MRR × 12), labelled Estimate with that definition on hover. Revenue, gross margin and payback use the same window as the burn figures so the tiles agree with each other. When `finance.pnl` reports a ledger, the Revenue tile drops the Estimate chip.
+
+## 2026-10-07 — packages/modules finance: Forecast drivers contract and the local projection
+
+`forecasts.drivers` is free JSON in the schema. The module defines the contract `{ startingCashMinor, monthlyRevenueMinor, revenueGrowthPct, monthlyCostsMinor, costGrowthPct, horizonMonths, runway_months }` and projects cash month by month on the client (`projectForecast`), so the chart reacts to every keystroke and the saved version carries both the drivers and the series. `runway_months` is written on save because `finance.forecast.update` reads it to raise `runway.threshold_crossed`. Unsaved scenarios are seeded from today's cash, MRR and gross burn (Base 5 %/1 %, Upside 10 %/1 %, Downside 0 %/2 % monthly revenue/cost growth); the distribution plan's budgets feed the Overview's acquisition cost, not the seeds, until pricing and spend plans are structured data.
+
+## 2026-10-07 — packages/modules finance: Round modelling is a client-side pure function (post-money SAFE method)
+
+`finance.capTable.modelRound` only dilutes every holder pro rata. The Cap table tab uses `modelRound` from `metrics.ts` instead: capped SAFEs convert first at principal ÷ post-money cap of the pre-round capitalisation (shares = pct × existing ÷ (1 − Σpct)), the option pool is topped up so the unallocated pool is the target share of the post-money fully diluted, the round price is pre-money ÷ pre-round fully diluted, discount SAFEs and notes convert at price × (1 − discount) (a capped SAFE takes whichever gives more shares), and new shares are investment ÷ price. SAFE terms are read from the security's `terms` (`valuationCapMinor`/`postMoneyCapMinor`, `discountPct`, `principalMinor`) with the entry's `quantity × priceMinor` as the principal fallback. Everything is labelled Estimate and verified against hand-computed fixtures (AC-11.8.4).
+
+## 2026-10-07 — packages/modules finance: Share-register exports are CSV, with a copyable fallback
+
+The Delaware stock ledger and the Swedish aktiebok are produced as CSV (certificate numbers per issuance; share numbers in sequence per class, "Fysisk/Juridisk person"), downloaded through a Blob URL. Where object URLs are unavailable (tests, sandboxed viewers) the register opens in a dialog as text to copy. PDF layouts can be added in apps/web without changing the row builders.
+
+## 2026-10-07 — packages/modules finance: Human payroll comes from categorised bank outflows
+
+There is no payroll procedure in BUILD §8.3. The Wage bill tab's "Human payroll" is the month's bank outflows categorised Payroll or Contractors (from `finance.pnl` for the month), labelled Estimate, next to the staff list from `team.humans.list`. Output per euro is tasks marked done in the month per 100 units of squad cost.
