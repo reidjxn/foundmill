@@ -63,7 +63,7 @@ jobs:
         run: pnpm exec turbo run typecheck lint --continue --output-logs=new-only
       - name: Unit tests (all packages except e2e)
         if: ${{ !cancelled() }}
-        run: pnpm exec turbo run test --continue --output-logs=new-only --filter='!@foundmill/e2e'
+        run: pnpm exec turbo run test --continue --concurrency=2 --output-logs=new-only --filter='!@foundmill/e2e' -- --maxWorkers=2
 
   storybook:
     name: Storybook build
