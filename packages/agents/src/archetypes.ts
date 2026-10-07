@@ -179,7 +179,7 @@ const b2bSaas = ArchetypeSeed.parse({
     "Where should the first customer come from?",
     [
       "The squad is hired and the first cycle has started. Development is planning the first vertical slice; Distribution has scored the channels.",
-      "The Board asks for one decision before spending: which route to the first paying customer should take priority this season?",
+      "The Board asks for one decision before spending: which route to the first paying customer should take priority this chapter?",
     ],
     [
       {
@@ -386,7 +386,7 @@ const dtcPhysical = ArchetypeSeed.parse({
     "Sample before storefront, or both at once?",
     [
       "Operations is ready to send RFQs and Development can start the storefront. Cash is finite and samples take weeks.",
-      "The Board asks how to sequence the first season.",
+      "The Board asks how to sequence the first chapter.",
     ],
     [
       {
@@ -588,12 +588,12 @@ const contentMedia = ArchetypeSeed.parse({
     "content_media",
     "Free first or paid from issue one?",
     [
-      "Audience compounds; revenue needs an audience. The Board asks whether the first season builds reach or charges from the start.",
+      "Audience compounds; revenue needs an audience. The Board asks whether the first chapter builds reach or charges from the start.",
     ],
     [
       {
         id: "free_then_paid",
-        label: "Free for the first season, paid tier at 1,000 subscribers",
+        label: "Free for the first chapter, paid tier at 1,000 subscribers",
         recommended: true,
         consequence: "Faster audience growth; sponsorship starts when reach justifies it.",
         costMinor: THRESHOLD,

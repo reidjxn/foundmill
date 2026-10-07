@@ -669,10 +669,10 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Automation terms check at {business}",
-      "For each platform {business} uses, state whether automated posting is allowed for the account type (fixture terms summary), and switch to kit mode where it is not.",
+      "For each platform {business} uses, state whether automated posting is allowed for the account type (fixture terms summary), and switch to offline tracking where it is not.",
       [
         "Decisions follow the fixture terms.",
-        "Kit mode applied correctly.",
+        "Offline tracking applied correctly.",
         "No evasion suggested.",
       ],
       { fixtures: { terms: "fixtures/social/platform_terms.json" }, checks: [CHECK.policy()] },
@@ -806,7 +806,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Offline attribution codes for {business}",
-      "{business} runs a print ad and a direct-mail batch. Design the codes and vanity URLs so Match Day attributes touches correctly; describe the redemption flow and the report.",
+      "{business} runs a print ad and a direct-mail batch. Design the codes and vanity URLs so the Customer Update attributes touches correctly; describe the redemption flow and the report.",
       [
         "Codes unique per campaign/recipient as appropriate.",
         "Redemption flow ties to journeys.",
@@ -1309,7 +1309,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Attribution for offline at {business}",
-      "Explain how {business} attributes an outdoor campaign: QR scans, short URLs, geo-lift, and what you cannot attribute; how Match Day records these touches.",
+      "Explain how {business} attributes an outdoor campaign: QR scans, short URLs, geo-lift, and what you cannot attribute; how the Customer Update records these touches.",
       [
         "Methods correct and combined sensibly.",
         "Unattributable portion acknowledged.",

@@ -17,7 +17,7 @@ export const channelSocial = defineChannelTemplate({
   ],
   guardrails: [
     "Brand accounts only: never post from, or as, a personal account, and never create additional accounts.",
-    "Respect each platform's rate limits and automation terms; when a platform forbids automated posting for this account type, switch to kit mode.",
+    "Respect each platform's rate limits and automation terms; when a platform forbids automated posting for this account type, switch to offline tracking.",
     "Replies are factual and sourced; DMs that ask for personal data, payments or urgency are triaged to a human, never answered with commitments.",
   ],
   playbook: [

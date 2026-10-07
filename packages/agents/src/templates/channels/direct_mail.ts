@@ -13,11 +13,11 @@ export const channelDirectMail = defineChannelTemplate({
   guardrails: [
     "Postal rules per country (mail preference services, do-not-mail registers) and the suppression list are checked before any address is sent to print.",
     "Addresses are verified; undeliverable rate above 5% in a test batch stops the campaign.",
-    "Every mailer carries a unique response code or QR so Match Day can attribute; a mailing above threshold is an Inbox decision.",
+    "Every mailer carries a unique response code or QR so the Customer Update can attribute; a mailing above threshold is an Inbox decision.",
   ],
   playbook: [
     "Plan: select the audience from CRM with lawful basis; estimate cost per piece and the response rate needed to break even (labelled Estimate).",
-    "Create: design the mailer with the kit colours and a response code per recipient; verify addresses.",
+    "Create: design the mailer with the brand colours and a response code per recipient; verify addresses.",
     "Approve: run suppression and postal-register checks; request approval for the batch cost.",
     "Launch: send a test batch, then the full run through the provider.",
     "Measure: response rate by code and QR scans.",

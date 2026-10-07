@@ -193,7 +193,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
   component_craft: [
     bp(
       "Build a reusable component for {business}",
-      "Build a StatusPill component for {business}'s squad table in the design system: props (status, size), states (healthy, degraded, failing, injured, paused, idle), tokens only, a Storybook story with every state, and a DOM test.",
+      "Build a StatusPill component for {business}'s squad table in the design system: props (status, size), states (healthy, degraded, failing, down, paused, idle), tokens only, a Storybook story with every state, and a DOM test.",
       [
         "Props are typed; all states covered; uses tokens only.",
         "Story and test exist and pass.",
@@ -524,7 +524,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       [
         "All signals and thresholds match the health spec.",
         "Event emitted only on change.",
-        "Injured state tied to credentials with expected return.",
+        "Down state tied to credentials with expected return.",
       ],
     ),
   ],
@@ -571,7 +571,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Boundary analysis for {business}",
-      "Design tests for {business}'s Match Day volume rule: every conversion gets a Match Day until the 100th of its kind; after that only above the 75th percentile of value. List the boundary cases and expected outcomes.",
+      "Design tests for {business}'s Customer Update volume rule: every conversion gets a Customer Update until the 100th of its kind; after that only above the 75th percentile of value. List the boundary cases and expected outcomes.",
       [
         "Covers the 99th, 100th, 101st and percentile boundaries.",
         "Expected outcomes are correct.",
@@ -662,11 +662,11 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Runbook for {business}",
-      "Write the runbook for '{integration} credential expired' at {business}: detection, who is notified, steps (founder reconnects), verification, and what agents do meanwhile (injured state).",
+      "Write the runbook for '{integration} credential expired' at {business}: detection, who is notified, steps (founder reconnects), verification, and what agents do meanwhile (down state).",
       [
         "Steps are correct and ordered; founder action identified.",
         "Verification step present.",
-        "Injured-state behaviour accurate.",
+        "Down-state behaviour accurate.",
       ],
     ),
     bp(

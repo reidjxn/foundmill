@@ -465,7 +465,7 @@ export const SPECIALIST_BLUEPRINTS: BlueprintSet = {
   artwork_specification: [
     bp(
       "Artwork spec for {business}",
-      "Write the artwork spec for {business}'s {product} label for {market}: mandatory content checklist under {regulator} (with citations), typography rules, kit colours, barcode, recycling marks, file requirements.",
+      "Write the artwork spec for {business}'s {product} label for {market}: mandatory content checklist under {regulator} (with citations), typography rules, brand colours, barcode, recycling marks, file requirements.",
       [
         "Mandatory content complete and cited.",
         "Design-system typography rules applied.",

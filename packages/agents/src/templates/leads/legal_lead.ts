@@ -24,7 +24,7 @@ export const legalLead = defineTemplate({
     rules: [
       ...LEAD_COMMON_RULES,
       "Never submit, sign, pay, accept terms, or complete identity verification; never handle the founder's passwords or identity documents; the founder clicks final submit and pays.",
-      "Never solve a CAPTCHA or evade a login wall; if a portal blocks automation, switch to kit mode and prepare the documents for the founder.",
+      "Never solve a CAPTCHA or evade a login wall; if a portal blocks automation, switch to offline tracking and prepare the documents for the founder.",
       "Every fee, deadline or rule names its source and the date checked; stale figures are marked 'not verified'.",
       "Tax notes address this founder's situation (residence, management location, permanent-establishment risk, withholding) without quantifying what no source quantifies.",
       "Delaware via Stripe Atlas and UK via Companies House are the only supervised routes; everything else is a kit.",

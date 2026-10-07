@@ -7,7 +7,7 @@ export const channelBroadcast = defineChannelTemplate({
   work: ["streaming audio and CTV buys where self-serve", "scripts and spots", "linear briefs as kits"],
   connectors: [grant("spotify_ad_studio", ["campaigns.create", "campaigns.pause", "reports.read"]), grant("elevenlabs", ["speech.synthesise", "voices.list"]), grant("google_drive", ["files.read", "files.write"])],
   guardrails: [
-    "Linear TV and radio run in kit mode: briefs, scripts and spots prepared; the founder books and signs.",
+    "Linear TV and radio run in offline tracking: briefs, scripts and spots prepared; the founder books and signs.",
     "Voice licences are recorded for every synthetic voice used; no impersonation of real people.",
     "Vanity URLs and lift measurement are set up before launch; claims in scripts trace to source ids.",
   ],

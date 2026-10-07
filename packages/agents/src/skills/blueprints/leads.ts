@@ -337,7 +337,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Re-score after a drag at {business}",
-      "{founder} dragged 'events' onto the pitch for {business} ({market}, {customer}). Re-score events given {price} and {currency} 2,000/month, restate the budget split over the starters, and flag guardrails (contracts, deposits).",
+      "{founder} dragged 'events' onto the board for {business} ({market}, {customer}). Re-score events given {price} and {currency} 2,000/month, restate the budget split over the starters, and flag guardrails (contracts, deposits).",
       [
         "Gives a justified new score and adjusts the split to sum to 100 over the starters.",
         "Flags sponsorship contracts and deposits as founder decisions.",

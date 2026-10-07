@@ -30,7 +30,7 @@ export const FullMatch: Story = { name: "Replay · Full match (54 s)", args: { d
 export const Instant: Story = { name: "Instant result", args: { defaultSpeed: "instant" }, render: Highlights.render };
 export const Paused: Story = { name: "Paused on Who was involved (step through)", args: { defaultSpeed: "full", autoplay: false }, render: Highlights.render };
 export const SecondBrandColours: Story = { name: "Ledgerly brand colours", args: { defaultSpeed: "highlights", kit: LEDGERLY_KIT }, render: Highlights.render };
-export const ReducedMotion: Story = { name: "Reduced motion (static summary)", args: { defaultSpeed: "full", overlay: "none" }, parameters: { docs: { description: { story: "Enable reduced motion in the OS (or the a11y addon) to see the static summary: Goal card, Full time, Team sheet and Rails at once." } } }, render: Highlights.render };
+export const ReducedMotion: Story = { name: "Reduced motion (static summary)", args: { defaultSpeed: "full", overlay: "none" }, parameters: { docs: { description: { story: "Enable reduced motion in the OS (or the a11y addon) to see the static summary: Win moment, Debrief, Who was involved and Rails at once." } } }, render: Highlights.render };
 
 const roundup: RoundupRow[] = [
   { conversionId: "r1", kind: "payment", level: "cup", customerName: "Alma Botanics", entityId: "0f7c2d1e-4b1a-4c8e-9a3b-2d5f6e7a8b9c", channelKey: "paid_ads", amountMinor: 5900, currency: "EUR", occurredAt: "2026-10-07T11:42:00.000Z", touchCount: 7 },

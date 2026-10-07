@@ -14,7 +14,7 @@ export const chapterTitlePrompt = definePrompt({
   key: "chapter_title",
   version: 1,
   route: "inboxComposer",
-  description: "Names a quarter of the Journey Ribbon like a season chapter, grounded only in the quarter's facts.",
+  description: "Names a quarter of the Journey Ribbon like a chapter of a story, grounded only in the quarter's facts.",
   variables: ChapterTitleVariables,
   text: `Title the {quarter_label} chapter of {business_name}'s story. Facts: {quarter_facts}
 Return JSON {{"title" (3-6 words, no quotes, no punctuation at the end), "subtitle" (<= 20 words, cites one fact from the input), "mood": "rising|steady|turbulent|breakthrough"}}.

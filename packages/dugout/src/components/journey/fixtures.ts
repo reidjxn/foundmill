@@ -185,7 +185,7 @@ export function generateJourneyFixture(opts: { days?: number; today?: string; se
   const horizon = addDays(todayDate, 183);
   let cursor = startOfQuarter(kickoffDate);
   let index = 0;
-  const titles = ["Finding the formula", "First customers", "The bundle season", "Scaling the lab", "Retail on the horizon", "Steady state", "Second summer", "Northern expansion", "Autumn push"];
+  const titles = ["Finding the formula", "First customers", "The bundle chapter", "Scaling the lab", "Retail on the horizon", "Steady state", "Second summer", "Northern expansion", "Autumn push"];
   while (cursor <= horizon) {
     const start = cursor;
     const end = endOfQuarter(cursor);
@@ -200,7 +200,7 @@ export function generateJourneyFixture(opts: { days?: number; today?: string; se
       endsOn: day(end),
       status,
       title: status === "past" ? (titles[index] ?? null) : null,
-      provisionalTitle: `Season ${index + 1}`,
+      provisionalTitle: `Chapter ${index + 1}`,
     });
     cursor = addDays(end, 1);
     index += 1;

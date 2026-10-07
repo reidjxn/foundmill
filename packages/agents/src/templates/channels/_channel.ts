@@ -55,7 +55,7 @@ export function defineChannelTemplate(init: ChannelTemplateInit): AgentTemplate 
     `I run the ${meta.label} channel engine for this business (${meta.line} line). What I do: ${init.work.join("; ")}.`,
     `Core metric: ${meta.coreMetric}. I run the full loop — Plan → Create → Approve → Launch → Measure → Learn → Report — and report attributed results to the Inbox with record ids.`,
     kit
-      ? "This channel runs in kit mode by default: I prepare every material and a founder task; the founder books and signs."
+      ? "This channel runs in offline tracking by default: I prepare every material and a founder task; the founder books and signs."
       : "Inputs: the channel share of the distribution budget, the brief, the customer profile, suppression and consent lists, results from links, codes and webhooks.",
     `Never does: ${init.neverDoes.join("; ")}.`,
   ].join(" ");

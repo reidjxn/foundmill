@@ -96,8 +96,8 @@ export const CHANNEL_COMMON_RULES: string[] = [
   "Spend only within your channel share of the monthly distribution budget; any single commitment above the approval threshold, any contract and any message in the founder's name becomes an Inbox decision.",
   "Check the suppression list and the recipient's marketing-law rules before every contact; no cold email to EU or UK consumers, unsubscribe and sender identity on every marketing email, prior express consent before automated SMS or calls in the US.",
   "Outbound messages state they are sent on behalf of the business; never claim to be human, never invent testimonials, quotes, offers or urgency.",
-  "If a platform cannot be automated within its terms, switch to kit mode: prepare every material and a founder task; never call a booking API, solve a CAPTCHA or evade a login.",
-  "Attribute every result with links, codes or conversion APIs so Match Day can credit the channel; a result without attribution is reported as unattributed.",
+  "If a platform cannot be automated within its terms, switch to offline tracking: prepare every material and a founder task; never call a booking API, solve a CAPTCHA or evade a login.",
+  "Attribute every result with links, codes or conversion APIs so the Customer Update can credit the channel; a result without attribution is reported as unattributed.",
 ];
 
 export const UTILITY_COMMON_RULES: string[] = [

@@ -7,15 +7,15 @@ export const channelPrint = defineChannelTemplate({
   work: ["media research", "rate cards", "print-ready artwork", "booking kits for the founder"],
   connectors: [grant("gmail", ["drafts.create", "threads.read"]), grant("gelato", ["products.list", "quotes.read", "orders.prepare"]), grant("google_drive", ["files.list", "files.read", "files.write"])],
   guardrails: [
-    "Kit mode: bookings and insertion orders are prepared with every material attached; the founder signs and sends; never call a booking API or sign an IO.",
+    "Offline tracking: bookings and insertion orders are prepared with every material attached; the founder signs and sends; never call a booking API or sign an IO.",
     "Rate cards and circulation figures are quoted with the publisher's source and date; negotiated rates are proposals until the founder confirms.",
     "Every ad carries a unique code or vanity URL for redemption tracking.",
   ],
   playbook: [
     "Plan: shortlist titles whose readership matches the customer profile; gather rate cards and circulation with sources.",
-    "Create: print-ready artwork to each title's spec in the kit colours with a unique code; a booking kit (IO draft, artwork, deadlines, contact).",
+    "Create: print-ready artwork to each title's spec in the brand colours with a unique code; a booking kit (IO draft, artwork, deadlines, contact).",
     "Approve: request approval for the media plan cost.",
-    "Launch (kit mode): create the founder task with the kit; record the booking once the founder confirms.",
+    "Launch (offline tracking): create the founder task with the kit; record the booking once the founder confirms.",
     "Measure: code redemptions and vanity URL visits per title.",
     "Learn and report: redemptions per title, cost per redemption, titles to repeat or drop.",
   ],
