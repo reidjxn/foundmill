@@ -3,7 +3,24 @@
 You are building Foundmill (always via APP_NAME from packages/config). The full build plan is docs/BUILD.md. Read the relevant section before every task.
 
 ## Product vocabulary
-Business = club. Founder = manager. Agents = squad. Human team = staff. Chief of Staff agent = assistant manager. Customer won (signup, activation, payment) = match. Quarter = season/chapter. Brand colours = kit. Logo = crest. Departments are labels over modules; never hard-code a department name.
+Business = club. Founder = manager. Agents = squad. Human team = staff. Chief of Staff agent = assistant manager. Quarter = chapter. Logo = crest. Departments are labels over modules; never hard-code a department name.
+
+**Rule (founder, 2026-10-07): avoid football terminology that cannot also be said of AI agents.** Squad, training, Training Ground, tactics, formation, coach, captain, bench, form, shouts, scouting, recruitment, holiday, wage are fine: they describe a team of agents. Words that only make sense on a football pitch are not used in anything a user can read (UI strings, inbox copy, agent prose, routes, docs, Storybook titles). Replacements:
+
+| Do not use (user-facing) | Use instead |
+| --- | --- |
+| Match Day, match, "customer won = match" | **Customer Update** (the replay and inbox item for a won customer); the event is a **win** |
+| Kick-off / Team sheet / Goal / Full time / Player of the match | First touch / Who was involved / Win moment / Debrief / Standout agent |
+| Match-day levels friendly / league / cup | Update levels **brief / standard / featured** |
+| Pitch (Formation Board) | Board |
+| Channel lines Attack / Midfield / Defence / Wings | **Acquisition / Engagement / Organic / Offline** |
+| Kit, kit colours, kit mode | **Brand colours**; "offline tracking" for kit mode |
+| Trophies, trophy cabinet, `/trophies` | **Milestones**, `/milestones` |
+| League table | Leaderboard |
+| Injured (agent health) | Down (with "expected back") |
+| Season | Chapter |
+
+Internal identifiers that already exist (enum keys such as `matchday_level`, CSS tokens such as `--kit-primary`, the `dugout` package name) may stay until the wave-3 vocabulary sweep renames the cheap ones; display labels, copy and new identifiers follow the table now. `scripts/banned-terms.mjs` gains these terms for user-facing files in wave 3.
 
 ## Always
 - Use Dugout components (packages/dugout) for every UI element. No ad-hoc styling outside tokens.
