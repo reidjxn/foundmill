@@ -7,3 +7,4 @@ export * from "./components/journey";
 export * from "./components/agents";
 export * from "./lib";
 export * from "./version";
+export * from "./brand";

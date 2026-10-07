@@ -1,36 +1,92 @@
 import type { SVGAttributes } from "react";
+import { APP_NAME } from "@foundmill/config";
 import { cn } from "../../lib/cn";
+import {
+  ICON_FRAME,
+  MONOGRAM_F_PATH,
+  MONOGRAM_HEIGHT,
+  MONOGRAM_M_PATH,
+  MONOGRAM_WIDTH,
+  iconTransform,
+} from "../../brand/marks";
 
 export interface LogoMarkProps extends Omit<SVGAttributes<SVGSVGElement>, "width" | "height"> {
+  /**
+   * Height of the mark in px for the `glyph` variant (the width follows the 2.73 : 1 letter proportions);
+   * the side of the square for the `tile` variant.
+   */
   size?: number;
-  /** Accessible name. Decorative when omitted. */
-  label?: string;
-  /** Single colour (currentColor) or two-tone (accent + current). */
+  /** Accessible name. Defaults to the product name; pass `null` to make the mark decorative. */
+  label?: string | null;
+  /**
+   * `mono`: both letters in `currentColor`.
+   * `duo`: the F in `currentColor`, the M in the kit colour (falls back to the link accent when no kit is set).
+   */
   tone?: "mono" | "duo";
+  /**
+   * `glyph` (default): the FM letters alone on a transparent background.
+   * `tile`: the letters in light text on a rounded ink square — for places that need an opaque icon
+   * (app launchers, dense chrome). The tile uses `--bg-ink`; the letters use `--text-primary`.
+   */
+  variant?: "glyph" | "tile";
 }
 
+const DUO_FILL = "var(--kit-primary, var(--accent-link))";
+
 /**
- * The app mark: a hexagonal field with an ascending three-step bar — a founder's trajectory,
- * drawn as plain geometry. No letters, no external references.
+ * The product mark: the "FM" monogram cut from the Foundmill wordmark (see `src/brand/marks.ts`).
+ * Vector, fill `currentColor`, so it inherits the surrounding text colour and stays crisp at 16 px.
  */
-export function LogoMark({ size = 24, label, tone = "duo", className, ...rest }: LogoMarkProps) {
-  const accent = tone === "duo" ? "var(--accent-link)" : "currentColor";
+export function LogoMark({
+  size = 24,
+  label = APP_NAME,
+  tone = "mono",
+  variant = "glyph",
+  className,
+  ...rest
+}: LogoMarkProps) {
+  const mFill = tone === "duo" ? DUO_FILL : "currentColor";
+  const a11y = label
+    ? { role: "img" as const, "aria-label": label }
+    : { "aria-hidden": true as const };
+  const base = cn("inline-block shrink-0 align-middle", className);
+
+  if (variant === "tile") {
+    const t = iconTransform(ICON_FRAME, 0.14);
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${ICON_FRAME} ${ICON_FRAME}`}
+        focusable="false"
+        className={base}
+        data-variant="tile"
+        {...a11y}
+        {...rest}
+      >
+        <rect width={ICON_FRAME} height={ICON_FRAME} rx={ICON_FRAME * 0.22} fill="var(--bg-ink)" />
+        <g transform={`translate(${t.x.toFixed(2)} ${t.y.toFixed(2)}) scale(${t.scale.toFixed(5)})`}>
+          <path d={MONOGRAM_F_PATH} fill="var(--text-primary)" />
+          <path d={MONOGRAM_M_PATH} fill={tone === "duo" ? DUO_FILL : "var(--text-primary)"} />
+        </g>
+      </svg>
+    );
+  }
+
+  const width = Math.round((size * MONOGRAM_WIDTH) / MONOGRAM_HEIGHT);
   return (
     <svg
-      width={size}
+      width={width}
       height={size}
-      viewBox="0 0 32 32"
-      role={label ? "img" : undefined}
-      aria-label={label}
-      aria-hidden={label ? undefined : true}
+      viewBox={`0 0 ${MONOGRAM_WIDTH} ${MONOGRAM_HEIGHT}`}
       focusable="false"
-      className={cn("inline-block shrink-0 align-middle", className)}
+      className={base}
+      data-variant="glyph"
+      {...a11y}
       {...rest}
     >
-      <path d="M16 2 L28 9 L28 23 L16 30 L4 23 L4 9 Z" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinejoin="round" />
-      <rect x="9" y="18" width="4" height="6" rx="0.5" fill="currentColor" opacity={0.55} />
-      <rect x="14" y="13" width="4" height="11" rx="0.5" fill="currentColor" opacity={0.8} />
-      <rect x="19" y="8" width="4" height="16" rx="0.5" fill={accent} />
+      <path d={MONOGRAM_F_PATH} fill="currentColor" />
+      <path d={MONOGRAM_M_PATH} fill={mFill} />
     </svg>
   );
 }

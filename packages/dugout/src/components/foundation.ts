@@ -32,3 +32,4 @@ export * from "./foundation/ProgressRing";
 export * from "./foundation/Crest";
 export * from "./foundation/Avatar";
 export * from "./foundation/LogoMark";
+export * from "./foundation/Wordmark";

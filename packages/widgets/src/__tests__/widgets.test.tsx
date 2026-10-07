@@ -1,0 +1,160 @@
+/**
+ * Every gallery widget renders in loading, empty and data states through a fake WidgetDataSource, and the
+ * registry/presets agree on keys, surfaces and LIVE-only rules.
+ */
+import { describe, expect, it } from "vitest";
+import { render, screen, within } from "@testing-library/react";
+import type { ReactElement } from "react";
+import { WidgetDataProvider } from "../data";
+import { getWidget, listWidgets, parseWidgetSettings, type AnyWidgetDefinition } from "../registry";
+import { createFakeSource, type FakeResponse } from "../testing";
+import "../widgets";
+import { BID, dataResponses, emptyResponses } from "./fixtures";
+
+type Case = {
+  key: string;
+  /** Text that proves the data state rendered real data. */
+  expectData: RegExp | string;
+  /** Text that proves the empty state copy. */
+  expectEmpty: RegExp | string;
+  settings?: Record<string, unknown>;
+  /** Settings for the empty case when they differ (an unconfigured custom metric). */
+  emptySettings?: Record<string, unknown>;
+  live?: boolean;
+};
+
+const CASES: Case[] = [
+  { key: "journey_ribbon", expectData: /^Forecast$/, expectEmpty: /river starts flowing/ },
+  { key: "department_card", expectData: /Beacon/, expectEmpty: /No department in this slot/, settings: { slot: 0 } },
+  { key: "squad_pulse", expectData: /agent hours over the last 7 days/, expectEmpty: /appear after the first cycle/ },
+  { key: "inbox_preview", expectData: /Approve the schema change/, expectEmpty: /land here after each cycle/ },
+  { key: "live_feed", expectData: /Done: Usage index/, expectEmpty: /Events appear here/ },
+  { key: "status_strip", expectData: /Customers this week/, expectEmpty: /Finance figures appear once/ },
+  { key: "cash_runway", expectData: /Net burn \/ month/, expectEmpty: /Connect a bank account/ },
+  { key: "revenue_customers", expectData: /Revenue this month/, expectEmpty: /appear once Stripe, Shopify or a bank/ },
+  { key: "funnel", expectData: /Impressions/, expectEmpty: /funnel fills as channels run/ },
+  { key: "channel_form_guide", expectData: /Paid advertising/, expectEmpty: /No channels are on the pitch/ },
+  { key: "roadmap_timeline", expectData: /Usage-based billing/, expectEmpty: /Roadmap items appear once/ },
+  { key: "agent_of_the_week", expectData: /Ember/, expectEmpty: /first agent of the week/ },
+  { key: "trophy_cabinet", expectData: /2 of 8 won/, expectEmpty: /Customer names show only/ },
+  { key: "league_table", expectData: /Ledgerly/, expectEmpty: /No leaderboard is open/, live: true },
+  { key: "community_feed", expectData: /annual-plan discounts/, expectEmpty: /Join a community/, live: true },
+  { key: "custom_metric", expectData: /€1,250/, expectEmpty: /Pick a named query/, settings: { mode: "query", queryId: "mrr", label: "MRR", format: "money" }, emptySettings: {} },
+];
+
+function mount(def: AnyWidgetDefinition, responses: Record<string, FakeResponse>, opts: { settings?: Record<string, unknown>; live?: boolean; missing?: "loading" | "empty" } = {}) {
+  const fake = createFakeSource({ businessId: BID, responses, gameMode: opts.live ? "live" : "personal", missing: opts.missing });
+  const Component = def.Component;
+  const el: ReactElement = (
+    <WidgetDataProvider source={fake.source}>
+      <Component businessId={BID} instanceId={`${def.key}-1`} settings={parseWidgetSettings(def, opts.settings ?? {})} />
+    </WidgetDataProvider>
+  );
+  return { fake, ...render(el) };
+}
+
+describe("widget registry", () => {
+  it("registers every gallery widget from BUILD §11.2 with a Zod settings schema and a default size on the 12-column grid", () => {
+    const keys = listWidgets(undefined, true).map((w) => w.key).sort();
+    expect(keys).toEqual(CASES.map((c) => c.key).sort());
+    for (const w of listWidgets(undefined, true)) {
+      expect(w.settingsSchema, w.key).toBeDefined();
+      expect(w.settingsSchema!.safeParse(w.defaultSettings).success, w.key).toBe(true);
+      expect(w.defaultSize.w).toBeGreaterThanOrEqual(1);
+      expect(w.defaultSize.w).toBeLessThanOrEqual(12);
+      expect(w.defaultSize.h).toBeGreaterThanOrEqual(1);
+      expect(w.surfaces.length).toBeGreaterThan(0);
+      expect(w.icon).toMatch(/^[a-z-]+$/);
+    }
+  });
+  it("hides LIVE-only widgets in Personal mode and lists them in LIVE", () => {
+    const personal = listWidgets("home").map((w) => w.key);
+    expect(personal).not.toContain("league_table");
+    expect(personal).not.toContain("community_feed");
+    expect(listWidgets("home", true).map((w) => w.key)).toEqual(expect.arrayContaining(["league_table", "community_feed"]));
+    expect(listWidgets("department").map((w) => w.key)).not.toContain("journey_ribbon");
+  });
+  it("parses settings leniently: invalid values fall back to defaults instead of crashing", () => {
+    const card = getWidget("department_card")!;
+    expect(parseWidgetSettings(card, { slot: 2, metric: "nonsense" })).toEqual(card.defaultSettings);
+    expect(parseWidgetSettings(card, { slot: 2 })).toMatchObject({ slot: 2, metric: "auto" });
+    expect(parseWidgetSettings(card, "garbage")).toEqual(card.defaultSettings);
+  });
+});
+
+describe.each(CASES)("widget $key", (c) => {
+  const def = getWidget(c.key)!;
+  it("renders a loading skeleton while queries are pending (no spinner, aria-busy)", () => {
+    const { container } = mount(def, {}, { settings: c.settings, live: c.live });
+    const panel = container.querySelector(`[data-widget='${c.key}']`) ?? container.querySelector("section");
+    expect(panel).toBeTruthy();
+    if (c.key !== "status_strip") {
+      expect(panel!.getAttribute("data-state")).toBe("loading");
+      expect(panel!.getAttribute("aria-busy")).toBe("true");
+    } else {
+      expect(container.querySelectorAll("[data-metric-tile][aria-busy='true']").length).toBeGreaterThan(0);
+    }
+    expect(container.querySelector(".animate-spin")).toBeNull();
+  });
+  it("renders the empty state with a line saying what will appear", () => {
+    const { container } = mount(def, emptyResponses(), { settings: c.emptySettings ?? c.settings, live: c.live });
+    expect(screen.getAllByText(c.expectEmpty).length).toBeGreaterThan(0);
+    expect(container.querySelector("[data-state='loading']")).toBeNull();
+    expect(container.querySelector("[role='alert']")).toBeNull();
+  });
+  it("renders the data state", () => {
+    const { container } = mount(def, dataResponses(), { settings: c.settings, live: c.live });
+    const needle = String(c.expectData).replace(/^\/|\/$/g, "").replace(/\\/g, "");
+    const hits = screen.queryAllByText(c.expectData).length + container.querySelectorAll(`[aria-label*="${needle}"]`).length;
+    expect(hits, `expected ${needle} in the data state`).toBeGreaterThan(0);
+    expect(container.querySelector("[data-state='loading']")).toBeNull();
+    expect(container.querySelector("[role='alert']")).toBeNull();
+    expect(container.querySelector("[role='status']")).toBeNull();
+  });
+  it("renders the error state with a retry that refetches", () => {
+    const failing = Object.fromEntries(Object.keys(dataResponses()).map((k) => [k, new Error("boom")]));
+    const { container, fake } = mount(def, failing, { settings: c.settings, live: c.live });
+    const alert = container.querySelector("[role='alert']");
+    expect(alert, "error state").toBeTruthy();
+    const retry = within(alert as HTMLElement).queryByRole("button", { name: /Try again/ });
+    expect(retry).toBeTruthy();
+    retry!.click();
+    expect(Object.values(fake.refetches).reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+  });
+});
+
+describe("LIVE-only widgets in Personal mode", () => {
+  it("explain that the widget needs LIVE instead of querying", () => {
+    for (const key of ["league_table", "community_feed"]) {
+      const { fake, unmount } = mount(getWidget(key)!, dataResponses(), { live: false });
+      expect(screen.getByText(/part of LIVE/)).toBeTruthy();
+      expect(fake.queried.size).toBe(0);
+      unmount();
+    }
+  });
+});
+
+describe("Forecast and Estimate chips", () => {
+  it("label every non-real number", () => {
+    mount(getWidget("cash_runway")!, dataResponses());
+    expect(screen.getAllByText("Estimate").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("Forecast").length).toBeGreaterThanOrEqual(1);
+  });
+  it("status strip marks runway as an estimate and keeps the league tile for LIVE only", () => {
+    const { unmount } = mount(getWidget("status_strip")!, dataResponses());
+    expect(screen.getAllByText("Estimate").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("League position")).toBeNull();
+    unmount();
+    mount(getWidget("status_strip")!, dataResponses(), { live: true });
+    expect(screen.getByText("League position")).toBeTruthy();
+    expect(screen.getByText("#8")).toBeTruthy();
+  });
+});
+
+describe("navigation", () => {
+  it("inbox rows open the item and payment markers open the journey", async () => {
+    const { fake, container } = mount(getWidget("inbox_preview")!, dataResponses());
+    (container.querySelector("[data-inbox-row]") as HTMLButtonElement).click();
+    expect(fake.navigations[0]).toMatch(new RegExp(`^/b/${BID}/inbox/`));
+  });
+});
