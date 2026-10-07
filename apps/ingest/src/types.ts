@@ -1,0 +1,37 @@
+/**
+ * Shared types for the ingest service (docs/ARCHITECTURE.md §1 "apps/ingest", BUILD §13.1, §14).
+ */
+import type { Db } from "@foundmill/db";
+import type { ConnectorMode, ConnectorRegistry } from "@foundmill/connectors";
+import type { NonceStore } from "./nonce-store";
+
+/** Minimal structural logger; pino's `Logger` satisfies it, tests pass a silent one. */
+export interface IngestLogger {
+  debug(obj: unknown, msg?: string): void;
+  info(obj: unknown, msg?: string): void;
+  warn(obj: unknown, msg?: string): void;
+  error(obj: unknown, msg?: string): void;
+}
+
+export const silentLogger: IngestLogger = { debug() {}, info() {}, warn() {}, error() {} };
+
+export interface IngestDeps {
+  db: Db;
+  registry: ConnectorRegistry;
+  /** `INTEGRATIONS_MODE`: which side of every connector the webhooks come from. */
+  mode: ConnectorMode;
+  nonces: NonceStore;
+  log: IngestLogger;
+  /** Injectable clock (the mock connectors sign deliveries at `MOCK_NOW`; tests pin the ingest clock to it too). */
+  now: () => Date;
+  /** Seconds a delivery's own timestamp may differ from `now` before it is refused as stale (BUILD §14 "timestamp window"). */
+  replayWindowSeconds: number;
+  /** How long a verified delivery id is remembered (nonce TTL). */
+  nonceTtlMs: number;
+  /** Environment facts the routes need (the Simulate gate reads these). */
+  env: { APP_ENV: "development" | "test" | "staging" | "production" };
+  /** Whether the dev-only Simulate panel is enabled (`FLAGS.devSimulatePanel` and APP_ENV development/staging). */
+  simulateEnabled: boolean;
+}
+
+export const INGEST_SERVICE = "ingest";
