@@ -2,12 +2,39 @@
  * Helpers shared by the team screens: layout, mutations with pending/error state, the live status overlay
  * (AC-11.9.1: `agent.health_changed` updates the squad within 2 s), and the AgentRow → SquadRow mapping.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CircleAlert } from "lucide-react";
-import { PageGrid, StatusPill, agentStatusTone, cn, formatRelative, type SquadRow } from "@foundmill/dugout";
-import { MODULE_KEYS, type AgentStatus, type DeptColourToken, type MembershipRole } from "@foundmill/shared";
+import { PageGrid, StatusPill, agentStatusTone, cn, formatRelative, type EntityDetails, type SquadRow } from "@foundmill/dugout";
+import { MODULE_KEYS, type AgentStatus, type DecisionType, type DeptColourToken, type MembershipRole } from "@foundmill/shared";
 import { routes, useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState, type WidgetEvent } from "@foundmill/widgets";
-import type { AgentHealthChangedPayload, AgentRow, AgentsListResponse, FounderProfileResponse, MembershipRow } from "./types";
+import type { AgentHealthChangedPayload, AgentRow, AgentsListResponse, FounderProfileResponse, MembershipRow, TemplateRow } from "./types";
+
+/* ---------- Options the host or a test may override ---------- */
+
+export interface TeamScreenOptions {
+  /** Fixed "now" for stories and tests (relative times, "expected back"). */
+  now?: Date;
+  /** Debounce before the squad list is refetched after a live status event (default 400 ms). */
+  liveRefetchMs?: number;
+}
+
+const OptionsCtx = createContext<TeamScreenOptions>({});
+
+export function TeamScreenOptionsProvider({ value, children }: { value: TeamScreenOptions; children: ReactNode }) {
+  return <OptionsCtx.Provider value={value}>{children}</OptionsCtx.Provider>;
+}
+
+export function useTeamOptions(): TeamScreenOptions {
+  return useContext(OptionsCtx);
+}
+
+/** A stable clock for one render: the option when set, else the time the screen mounted. */
+export function useNow(): Date {
+  const { now } = useTeamOptions();
+  const mounted = useRef<Date | null>(null);
+  if (!mounted.current) mounted.current = new Date();
+  return now ?? mounted.current;
+}
 
 /* ---------- Layout ---------- */
 
@@ -305,4 +332,134 @@ export function memberName(m: Pick<MembershipRow, "userId" | "displayName" | "em
   if (me?.userId && me.userId === m.userId) return me.displayName || me.email || `You (${shortId(m.userId)})`;
   if (m.email) return m.email;
   return `Member ${shortId(m.userId)}`;
+}
+
+export interface Me {
+  userId: string | null;
+  displayName: string | null;
+  email: string | null;
+}
+
+/** The signed-in user as the screens need them (the profile may be absent before onboarding completes). */
+export function readMe(data: FounderProfileResponse | undefined, businessId?: string): Me {
+  const membership = data?.memberships?.find((m) => !businessId || m.businessId === businessId) ?? data?.memberships?.[0];
+  return { userId: data?.profile?.userId ?? membership?.userId ?? null, displayName: data?.profile?.displayName ?? null, email: data?.email ?? null };
+}
+
+/** The sections a member can write, then read, as short summaries for a table cell. */
+export function permissionSummary(perms: Record<string, string> | undefined): { write: string[]; read: string[]; none: string[] } {
+  const write: string[] = [];
+  const read: string[] = [];
+  const none: string[] = [];
+  for (const [section, level] of Object.entries(perms ?? {})) {
+    if (level === "write") write.push(sectionLabel(section));
+    else if (level === "read") read.push(sectionLabel(section));
+    else if (level === "none") none.push(sectionLabel(section));
+  }
+  return { write, read, none };
+}
+
+/* ---------- Entity links ---------- */
+
+/** Hover-card details for an agent (DESIGN §8 EntityLink: portrait, chips, three facts). */
+export function agentEntity(businessId: string, agent: AgentRow, currency = "EUR"): EntityDetails {
+  const wage = agent.wage?.costMinor ?? 0;
+  return {
+    id: agent.id,
+    kind: "agent",
+    name: agent.name,
+    href: agentHref(businessId, agent.id),
+    subtitle: agent.role,
+    portrait: { type: "agent", seed: agent.avatarSeed || agent.id, dept: agentDept(agent), status: agent.status },
+    chips: [{ label: STATUS_WORD[agent.status], tone: agentStatusTone(agent.status).tone }, { label: agent.modelKey }],
+    facts: [
+      { label: "Departments", value: (agent.departments ?? []).map((d) => d.name).join(", ") || "—" },
+      { label: "Wage (Estimate)", value: `${new Intl.NumberFormat("en-GB", { style: "currency", currency: agent.currency ?? currency, maximumFractionDigits: 0 }).format(wage / 100)}/mo` },
+      { label: "Current task", value: agent.currentTask?.title ?? "None" },
+    ],
+    verbs: ["open_profile", "message"],
+  };
+}
+
+export function memberEntity(businessId: string, m: MembershipRow, me?: Me | null): EntityDetails {
+  const name = memberName(m, me);
+  return {
+    id: m.entityId ?? m.userId,
+    kind: "team_member",
+    name,
+    href: m.entityId ? routes.crm(businessId, m.entityId) : undefined,
+    subtitle: ROLE_LABELS[m.role],
+    portrait: { type: "person" },
+    chips: [{ label: ROLE_LABELS[m.role], tone: m.role === "owner" ? "kit" : "neutral" }],
+    facts: [
+      { label: "E-mail", value: m.email ?? "—" },
+      { label: "Writes", value: permissionSummary(m.sectionPermissions).write.join(", ") || "—" },
+      { label: "Member since", value: m.createdAt ? formatRelative(toDate(m.createdAt) ?? new Date(), new Date()) : "—" },
+    ],
+    verbs: m.entityId ? ["open_profile", "message"] : ["message"],
+  };
+}
+
+/* ---------- Responsibilities ---------- */
+
+export const DECISION_LABELS: Record<DecisionType, string> = {
+  spend_above_threshold: "Spend above threshold",
+  publish_content: "Publish content",
+  merge_to_main: "Merge to main",
+  sign_contracts: "Sign contracts",
+  message_customers: "Message customers",
+  hire_agents: "Hire agents",
+  change_models: "Change models",
+};
+
+export const DECISION_DESCRIPTIONS: Record<DecisionType, string> = {
+  spend_above_threshold: "Any purchase or budget above the business's approval threshold.",
+  publish_content: "Posts, pages, newsletters and ads going live under the business's name.",
+  merge_to_main: "Pull requests merging into the main branch.",
+  sign_contracts: "Signatures and accepted terms. A hard gate: an agent can never hold this.",
+  message_customers: "Outbound messages to customers and leads.",
+  hire_agents: "Adding agents to the squad and their wage caps.",
+  change_models: "Moving an agent to a different model.",
+};
+
+/** Decision types an agent may never handle (BUILD §2.2 hard gates; the API rejects it too). */
+export const AGENT_GATED_DECISIONS: readonly DecisionType[] = ["sign_contracts"];
+
+/* ---------- Recruitment ---------- */
+
+export const FAMILY_LABELS: Record<TemplateRow["family"], string> = { assistant: "Assistant manager", lead: "Lead", worker: "Worker", channel: "Channel engine", specialist: "Specialist", utility: "Utility" };
+
+const STOP_WORDS = new Set(["a", "an", "the", "and", "or", "to", "of", "for", "in", "on", "with", "who", "that", "our", "my", "me", "we", "i", "is", "are", "be", "can", "will", "it", "as", "at", "by", "from", "this", "agent", "someone", "need", "want", "help", "helps", "please"]);
+
+export function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+}
+
+export interface TemplateMatch {
+  template: TemplateRow;
+  /** 0–1 share of the sentence's words found in the template. */
+  score: number;
+  matched: string[];
+}
+
+/**
+ * The agent builder's first step without a model call: rank catalogue templates by how many of the sentence's words
+ * appear in their name, role, description, skills and module. Stems loosely (prefix match on 4+ letters) so "writes"
+ * finds "writer". Returns the best three with at least one matched word.
+ */
+export function suggestTemplates(sentence: string, catalogue: readonly TemplateRow[], limit = 3): TemplateMatch[] {
+  const words = [...new Set(tokenize(sentence))];
+  if (!words.length) return [];
+  const scored = catalogue.map((template) => {
+    const haystack = tokenize([template.name, template.role, template.description, template.module ?? "", ...(template.skills ?? []), ...(template.traits ?? [])].join(" "));
+    const matched = words.filter((w) => haystack.some((h) => h === w || (w.length >= 4 && h.length >= 4 && (h.startsWith(w.slice(0, 4)) || w.startsWith(h.slice(0, 4))))));
+    return { template, score: matched.length / words.length, matched };
+  });
+  return scored
+    .filter((s) => s.matched.length > 0)
+    .sort((a, b) => b.score - a.score || a.template.name.localeCompare(b.template.name))
+    .slice(0, limit);
 }

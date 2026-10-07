@@ -533,3 +533,19 @@ The Delaware stock ledger and the Swedish aktiebok are produced as CSV (certific
 ## 2026-10-07 — packages/modules finance: Human payroll comes from categorised bank outflows
 
 There is no payroll procedure in BUILD §8.3. The Wage bill tab's "Human payroll" is the month's bank outflows categorised Payroll or Contractors (from `finance.pnl` for the month), labelled Estimate, next to the staff list from `team.humans.list`. Output per euro is tasks marked done in the month per 100 units of squad cost.
+
+## 2026-10-07 — packages/modules team: the squad table reuses Dugout's columns but replaces the Agent and Status cells
+
+`squadColumns()` and `SQUAD_VIEWS` from `@foundmill/dugout` are the one rendering of the §11.9 columns, so the Team tab maps `team.agents.list` rows onto `SquadRow` (`toSquadRow`) and calls `squadColumns()`; only two cells are overridden: Agent becomes Avatar + `EntityLink` (hover card with status, model, departments, wage, task; right-click Open profile) so every agent mention is an entity link, and Status renders `AgentStatusWordPill`, which says **Down** with "expected back …" instead of Dugout's "Injured" (CLAUDE.md vocabulary rule; the internal `injured` enum key is untouched). Column ids and view definitions stay Dugout's so saved views and the column chooser keep working.
+
+## 2026-10-07 — packages/modules team: live status is an overlay, not a cache rewrite
+
+AC-11.9.1 needs the row to change within 2 s. `useLiveAgentStatus` keeps a map of `agent.health_changed` overrides keyed by agent id, applied over the query rows on render, and refetches the list once after a 400 ms debounce; an override is dropped as soon as the refetched row agrees with it. The screens never write into the host's query cache, which the widget contract does not expose.
+
+## 2026-10-07 — packages/modules team: the agent builder entry ranks templates locally
+
+BUILD §11.13 describes a sentence → Opus draft → first training run builder, but §8.3 has no builder procedure and nothing may be added mid-wave. The Recruitment tab's builder box ranks the `team.agents.catalogue` templates by the share of the sentence's words found in their name, role, description, skills and module (loose 4-letter prefix stemming, stop words removed) and hires the chosen one under a custom name through `team.agents.hire`; the first training run is where instructions and skills get drafted. When `agent.builder.*` lands, the box submits the sentence there and keeps the suggestions as the fallback.
+
+## 2026-10-07 — packages/modules team: responsibilities are taken back business-wide, delegated per scope
+
+`team.responsibilities.get` returns the business-wide handler only when every department agrees (`uniform`), so "Take back" on a row always resets every department (no `departmentId`), while "Delegate…" offers "All departments" or one department. Rows that differ by department show a warn chip and a by-department table with a per-department take-back, so the founder can see and fix a split without reading the departments' settings. An agent is never offered for `sign_contracts` (the hard gate the API also enforces).
