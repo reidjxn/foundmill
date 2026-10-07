@@ -10,7 +10,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../client";
 import { repos } from "../repos";
-import { businesses, communities, leaderboardEntries } from "../schema";
+import { businesses, communities, founderProfiles, leaderboardEntries } from "../schema";
 import { parseOwnerEmails, stubAuthProvisioner, type AuthProvisioner } from "./auth";
 import { DEFAULT_SEED_DAYS, DEMO_BUSINESS_SLUGS, DEMO_OWNER_DISPLAY_NAME, DEMO_OWNER_EMAIL, DEMO_OWNER_USER_ID, DEMO_SEED, LEDGERLY_COMMUNITY_SLUG } from "./constants";
 import { createSeedCtx, type SeedOwner } from "./context";
@@ -80,7 +80,14 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
 
   const ctx = createSeedCtx({ db, seed: opts.seed ?? DEMO_SEED, today, days, volumeScale: opts.volumeScale ?? 1, owner, owners, log });
 
+  const ownerProfile = opts.ownerProfile ?? true;
+  if (!ownerProfile) {
+    // SEED_OWNER_PROFILE=0: the demo owner starts without a profile so `/` and `/b/*` redirect to /onboarding.
+    const deleted = await db.delete(founderProfiles).where(eq(founderProfiles.userId, owner.userId)).returning({ userId: founderProfiles.userId });
+    log(`demo owner profile skipped${deleted.length ? " (existing profile removed)" : ""}: the onboarding gate applies to ${owner.email}`);
+  }
   for (const o of owners) {
+    if (!ownerProfile && o.userId === owner.userId) continue;
     if (!(await repos.founders.get(db, o.userId))) {
       await repos.founders.upsert(db, o.userId, {
         displayName: o.userId === owner.userId ? DEMO_OWNER_DISPLAY_NAME : o.email.split("@")[0]!,

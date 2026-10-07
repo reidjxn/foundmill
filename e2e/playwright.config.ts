@@ -44,6 +44,9 @@ const STACK_ENV: Record<string, string> = {
   SEED_TARGET: "pglite",
   SEED_PGLITE_DIR: E2E_PGLITE_DIR,
   SEED_VOLUME_SCALE: process.env.SEED_VOLUME_SCALE ?? "0.1",
+  // SEED_OWNER_PROFILE=0 seeds the dev user without a founder profile; pair it with E2E_EXPECT_PROFILE_GATE=1 so
+  // AC-11.1.1 requires the /onboarding redirect instead of annotating it.
+  ...(process.env.SEED_OWNER_PROFILE ? { SEED_OWNER_PROFILE: process.env.SEED_OWNER_PROFILE } : {}),
 };
 
 const WEB_ENV: Record<string, string> = {

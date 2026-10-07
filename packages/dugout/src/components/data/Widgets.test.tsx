@@ -170,4 +170,30 @@ describe("WidgetGrid", () => {
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.getByRole("button", { name: "Edit layout" })).toBeTruthy();
   });
+
+  it("forwards data-* and aria-* attributes to the root element (e2e selectors hook onto the grid)", () => {
+    render(
+      <WidgetGrid
+        layout={FOUNDERS_VIEW_LAYOUT}
+        registry={registry}
+        width={1200}
+        onChange={() => {}}
+        aria-label="Home widgets"
+        aria-describedby="home-hint"
+        data-testid="home-grid"
+        data-dashboard="founder"
+        id="home-grid-root"
+      />,
+    );
+    const root = screen.getByTestId("home-grid");
+    expect(root.hasAttribute("data-widget-grid")).toBe(true);
+    expect(root.getAttribute("aria-label")).toBe("Home widgets");
+    expect(root.getAttribute("aria-describedby")).toBe("home-hint");
+    expect(root.getAttribute("data-dashboard")).toBe("founder");
+    expect(root.id).toBe("home-grid-root");
+    // The grid's own attributes and classes are not overridden by the forwarded ones.
+    expect(root.className).toContain("flex");
+    expect(root.getAttribute("data-editing")).toBeNull();
+    expect(screen.getByRole("region", { name: "Journey Ribbon" })).toBeTruthy();
+  });
 });

@@ -14,6 +14,12 @@ import { expect, test, type Page } from "@playwright/test";
 const NORTHWIND_BUSINESS_ID = "b1e5e5e5-0000-4000-8000-000000000001";
 const LONG = 60_000;
 const UUID = "[0-9a-f-]{36}";
+/**
+ * E2E_EXPECT_PROFILE_GATE=1: the database was seeded with SEED_OWNER_PROFILE=0, so the dev user has no founder profile
+ * and AC-11.1.1's redirect branch must be taken (a pre-filled form would mean the seed flag was ignored). Without the
+ * flag the branch is annotated, not required: a seed with the demo profile cannot show the gate.
+ */
+const EXPECT_PROFILE_GATE = /^(1|true|yes)$/i.test(process.env.E2E_EXPECT_PROFILE_GATE ?? "");
 
 async function signIn(page: Page): Promise<void> {
   await page.goto("/login");
@@ -81,6 +87,7 @@ test.describe("golden path", () => {
     // `/` sends a founder without a profile to /onboarding and everyone else to a business Home or /new.
     const gated = /\/onboarding/.test(page.url());
     test.info().annotations.push({ type: "profile", description: gated ? "missing: gate exercised, profile saved" : "present (the seed creates the demo founder's profile): pre-filled form saved, gate not reachable with this user" });
+    if (EXPECT_PROFILE_GATE) expect(gated, "E2E_EXPECT_PROFILE_GATE is set: the seed ran with SEED_OWNER_PROFILE=0, so `/` must redirect the dev user to /onboarding").toBe(true);
     await page.goto("/onboarding");
     await expect(page.getByTestId("onboarding-form")).toBeVisible();
     await expect(page.getByTestId("profile-submit")).toHaveText(gated ? /^Continue$/ : /Save and continue/);
@@ -95,7 +102,8 @@ test.describe("golden path", () => {
       await page.getByLabel("First-time founder").check();
       await page.getByLabel("Full time").check();
       await page.getByLabel(/Budget you can commit/).fill("25k");
-      const markets = page.getByLabel(/Target markets/);
+      // The chip input and its suggestions list share the "Target markets" label prefix; the textbox is the field.
+      const markets = page.getByRole("textbox", { name: "Target markets" });
       await markets.fill("Nordics");
       await markets.press("Enter");
       await page.getByRole("button", { name: "Remote only" }).click();
@@ -292,14 +300,32 @@ test.describe("seeded business (Northwind Skincare)", () => {
     const href = (await product.getAttribute("href"))!;
     await page.goto(href.replace(/\/d\/([^/]+)\/.*$/, "/d/$1/changes"));
     await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "product/changes", { timeout: LONG });
-    const proposals = page.getByRole("table", { name: "Change proposals" }).or(page.getByLabel("Change proposals"));
-    const empty = page.getByText("No proposals yet");
-    await expect(proposals.or(empty).first()).toBeVisible({ timeout: LONG });
-    const hunk = page.locator("[data-hunk]").first();
-    const hasHunk = await hunk.isVisible({ timeout: 5_000 }).catch(() => false);
-    test.skip(!hasHunk, "seed gap: Northwind has no spec proposal with hunks (proposals are only created by the orchestrator's Source Watcher); see openIssues");
+    // The seed gives Northwind one open proposal from the interview transcript with three hunks (packages/db/src/seed/northwind.ts).
+    const table = page.getByRole("table", { name: "Change proposals" }).or(page.getByLabel("Change proposals")).first();
+    await expect(table).toBeVisible({ timeout: LONG });
+    await expect(table).toContainText(/Interview panel/, { timeout: LONG });
+    // The screen selects the first open proposal; its detail renders one section per hunk.
+    const detail = page.locator("[data-proposal]");
+    await expect(detail).toBeVisible({ timeout: LONG });
+    // A proposal hunk is the region "Hunk N: <section · block>" (`section[data-hunk=<uuid>]`); the DiffView inside each
+    // one has its own line hunks ("Hunk 1", `data-hunk=<line id>`), so the cards are addressed by their accessible name.
+    const proposalHunks = detail.getByRole("region", { name: /^Hunk \d+: / });
+    await expect(proposalHunks).toHaveCount(3, { timeout: LONG });
+    // The first hunk still waiting for a decision (the first hunk on a fresh seed; the suite stays re-runnable until all three are decided).
+    const hunk = proposalHunks.filter({ has: page.getByRole("button", { name: "Accept hunk" }) }).first();
+    await expect(hunk, "every seeded hunk is already decided: re-seed (pnpm --filter @foundmill/db seed) to run AC-11.5.2 again").toBeVisible({ timeout: LONG });
+    const hunkId = (await hunk.getAttribute("data-hunk"))!;
+    expect(hunkId).toMatch(new RegExp(`^${UUID}$`));
+    await expect(hunk.getByText("Pending").first()).toBeVisible();
     await hunk.getByRole("button", { name: "Accept hunk" }).click();
-    await expect(hunk).toContainText(/Accepted/, { timeout: LONG });
+    // The decision is recorded: the hunk shows Accepted, its buttons are gone, and the progress line counts it.
+    const decided = detail.locator(`section[data-hunk="${hunkId}"]`);
+    await expect(decided).toContainText(/Accepted/, { timeout: LONG });
+    await expect(decided.getByRole("button", { name: "Accept hunk" })).toHaveCount(0);
+    await expect(page.getByText(/[1-3] of 3 hunks decided/)).toBeAttached({ timeout: LONG });
+    // It survives a reload (the api wrote it; nothing was staged client-side only).
+    await page.reload();
+    await expect(page.locator(`section[data-hunk="${hunkId}"]`)).toContainText(/Accepted/, { timeout: LONG });
   });
 
   test("AC-11.12.1: CRM search finds a seeded person and a seeded organisation", async ({ page }) => {

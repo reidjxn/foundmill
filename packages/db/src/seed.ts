@@ -9,6 +9,8 @@
  *   SEED_TARGET=pglite pnpm db:seed                same, default dir ./.pglite/dev (workspace-root relative),
  *                                                  SEED_PGLITE_DIR to override; also the fallback when DATABASE_URL is unset
  *   SEED_TODAY=2026-10-07                          pin "today" (default: now); SEED_DAYS=730; SEED_VOLUME_SCALE=1
+ *   SEED_OWNER_PROFILE=0                           leave the demo owner without a founder profile (removes one an earlier
+ *                                                  seed created) so the AC-11.1.1 onboarding redirect can be exercised
  *
  * Library use: `import { seedDemo } from "@foundmill/db/seed"` (tests, e2e, apps/api SEED_ON_BOOT).
  */
@@ -37,6 +39,7 @@ async function main(): Promise<void> {
   const today = process.env.SEED_TODAY ? new Date(`${process.env.SEED_TODAY}T12:00:00.000Z`) : new Date();
   const days = process.env.SEED_DAYS ? Number(process.env.SEED_DAYS) : undefined;
   const volumeScale = process.env.SEED_VOLUME_SCALE ? Number(process.env.SEED_VOLUME_SCALE) : undefined;
+  const ownerProfile = !/^(0|false|no|off)$/i.test((process.env.SEED_OWNER_PROFILE ?? "").trim());
   const ownerEmails = parseOwnerEmails(env.SEED_OWNER_EMAILS);
   const log = (m: string) => console.warn(`[seed] ${m}`);
 
@@ -45,7 +48,7 @@ async function main(): Promise<void> {
     const local = await openLocalPglite(pgliteDir);
     log(`PGlite at ${local.dataDir} (${local.appliedMigrations.length} migration(s) applied now, pgvector ${local.hasVector ? "on" : "off"}); services: DATABASE_URL=pglite:${local.dataDir}`);
     try {
-      const result = await seedDemo(local.db, { today, days, volumeScale, ownerEmails, log });
+      const result = await seedDemo(local.db, { today, days, volumeScale, ownerEmails, ownerProfile, log });
       log(`done in ${Math.round(result.durationMs / 1000)}s: ${result.businesses.northwind.slug} (${result.businesses.northwind.id}), ${result.businesses.ledgerly.slug} (${result.businesses.ledgerly.id}); owner ${result.owner.email} = ${result.owner.userId}`);
     } finally {
       await local.close();
@@ -63,7 +66,7 @@ async function main(): Promise<void> {
     log("no SUPABASE_SERVICE_ROLE_KEY: owners are stub rows in auth.users (local Postgres only)");
   }
   try {
-    const result = await seedDemo(db, { today, days, volumeScale, ownerEmails, auth, log });
+    const result = await seedDemo(db, { today, days, volumeScale, ownerEmails, ownerProfile, auth, log });
     log(`done in ${Math.round(result.durationMs / 1000)}s: ${result.businesses.northwind.slug} (${result.businesses.northwind.id}), ${result.businesses.ledgerly.slug} (${result.businesses.ledgerly.id}); owners ${result.owners.map((o) => o.email).join(", ")}`);
   } finally {
     await closeDb(db);

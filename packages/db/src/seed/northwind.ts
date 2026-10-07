@@ -11,7 +11,7 @@ import { repos } from "../repos";
 import { entities as entitiesTable, type Entity } from "../schema";
 import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSpec, seedTasks, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
 import { DEMO_OWNER_DISPLAY_NAME, NORTHWIND_BUSINESS_ID, NORTHWIND_NAME, NORTHWIND_SLUG } from "./constants";
-import { addDays, atHour, mention, money, pct, type SeedCtx } from "./context";
+import { addDays, atHour, mention, money, pct, proseDoc, type SeedCtx } from "./context";
 import { seedFinance } from "./finance";
 import { seedJourney } from "./journey";
 import { seedLegal } from "./legal";
@@ -37,6 +37,13 @@ const SPEC_TEXT: Record<string, string[]> = {
   Metrics: ["Blended cost per customer, repeat rate at 90 days, reaction reports per 1,000 units, gross margin per SKU."],
   Risks: ["Supplier lead times; regulatory changes to allowed preservatives; reviews from reactive customers."],
 };
+
+/** The three hunks of the seeded interview proposal: section → the text the proposal would put in its place. */
+const PROPOSAL_HUNKS: ReadonlyArray<{ section: string; proposed: string[] }> = [
+  { section: "Pricing", proposed: ["Routine £54, refills £34 per quarter with a two-routine bundle at £62 (Estimate until the landed-cost model confirms margin; interview panel put the refill ceiling near £35)."] },
+  { section: "Features", proposed: ["Three-step routine in refillable glass; subscription with pause; batch results page per product; ingredient explainer per SKU.", "Reaction diary in the account: customers log a reaction against a batch number; the lab sees aggregated counts per batch (Estimate: two weeks of development)."] },
+  { section: "Customers", proposed: ["Adults 25-45 in the UK and Ireland with sensitive or reactive skin, buying online, who already read ingredient lists.", "Secondary: independent pharmacies and refill stores as retail partners; online dermatology clinics as a referral channel (two of six panel participants arrived that way)."] },
+];
 
 const ROADMAP: RoadmapSpec[] = [
   { title: "Second production batch (3 SKUs)", horizon: "now", status: "in_progress", confidence: 4, startOffsetDays: -14, durationDays: 42, section: "Manufacturing", ownerDepartmentSlug: "operations" },
@@ -168,6 +175,36 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   const roadmapIds = await seedRoadmap(ctx, businessId, ROADMAP, specIds, squad);
   await repos.product.createSource(db, businessId, { kind: "doc", uri: "drive://northwind/lab/batch-002-cpsr.pdf", title: "Batch 002 CPSR (Meridian Labs)", relevance: { score: 0.92, sections: ["Compliance"] }, fetchedAt: addDays(ctx.today, -9) });
   await repos.product.createSource(db, businessId, { kind: "feedback", uri: null, title: "Reaction reports Q3 (12 tickets)", relevance: { score: 0.81, sections: ["Formulation / BOM"] }, fetchedAt: addDays(ctx.today, -3) });
+
+  // One open spec change proposal (BUILD §11.5, AC-11.5.2): a customer interview the Source Watcher read touches three
+  // sections; each hunk carries the current block as base/ours and the proposed text as theirs so Product › Changes
+  // shows a three-way diff and accepting two of three hunks yields a partially accepted proposal.
+  const interview = await repos.product.createSource(db, businessId, {
+    kind: "transcript",
+    uri: "drive://northwind/research/interview-2026-10-04-reactive-skin-panel.md",
+    title: "Customer interview: reactive-skin panel (6 participants)",
+    relevance: { score: 0.88, sections: PROPOSAL_HUNKS.map((h) => h.section) },
+    fetchedAt: addDays(ctx.today, -3),
+  });
+  const researcher = squad.byTemplate.get("researcher");
+  const proposal = await repos.product.createProposal(db, businessId, {
+    title: "Interview panel: refill pricing, a reaction diary and clinic referrals",
+    rationaleMd: [
+      `${researcher ? agentMention(agentEntities, researcher) : "The researcher"} synthesised the reactive-skin panel (six participants, read through the quarantined reader). Three claims touch the specification:`,
+      "- Four of six would switch to a quarterly refill under £35; two called £38 \"a stretch\" (Estimate of price sensitivity, n=6).",
+      "- Five of six keep a private note of which products caused a reaction; none of them trust the brand's own claims without it.",
+      "- Two participants were referred by an online dermatology clinic, a channel the spec does not name.",
+    ].join("\n"),
+    evidence: [interview.id],
+    impact: { summary: "Pricing change plus one new feature; no manufacturing impact (Estimate).", dates: { shiftDays: 7 }, tasks: { count: 2, titles: ["Reaction diary in the account", "Refill price test"] }, costMinor: 180_000, currency: CURRENCY },
+    severity: "normal",
+    proposedByAgentId: researcher?.agent.id ?? null,
+    hunks: PROPOSAL_HUNKS.map((h, position) => {
+      const current = proseDoc(...(SPEC_TEXT[h.section] ?? []));
+      return { specBlockId: specIds.get(h.section)!, base: current, ours: current, theirs: proseDoc(...h.proposed), position };
+    }),
+  });
+  log(`proposal: ${proposal.hunks.length} hunks from source ${interview.id}`);
 
   // --- tasks in mixed states ------------------------------------------------------------------------------------------
   const taskSpecs: TaskSpec[] = [
@@ -407,6 +444,6 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     departmentIds: squad.departments.map((d) => d.id),
     agentIds: squad.agents.map((a) => a.agent.id),
     chiefOfStaffId: chief.agent.id,
-    counts: { ...journey.counts, tasks: tasks.size + historical, inboxItems: inbox.length + 1, transactions: finance.transactions, suppliers: suppliers.length, retailPartners: retailPartners.length },
+    counts: { ...journey.counts, tasks: tasks.size + historical, inboxItems: inbox.length + 1, transactions: finance.transactions, suppliers: suppliers.length, retailPartners: retailPartners.length, sources: 3, proposals: 1, proposalHunks: proposal.hunks.length },
   };
 }

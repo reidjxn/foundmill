@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type HTMLAttributes,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
@@ -67,7 +68,12 @@ export const WIDGET_GRID_ROW_HEIGHT = 8;
 export const WIDGET_GRID_GUTTER = 16;
 const DRAG_HANDLE_CLASS = "fm-widget-drag";
 
-export interface WidgetGridProps {
+/**
+ * Every other root `<div>` attribute (`data-testid`, `aria-describedby`, `id`, `title`…) is forwarded so hosts can hook
+ * e2e selectors onto the grid. `onChange`/`onReset` are the grid's own callbacks, not the DOM form events.
+ */
+export interface WidgetGridProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, "onChange" | "onReset" | "children"> {
   layout: WidgetLayout;
   registry: readonly WidgetRegistryEntry[];
   /** Persist: called with the full layout after every move, resize, add, remove, settings change or preset. */
@@ -540,10 +546,10 @@ export function WidgetGrid({
 
   return (
     <div
+      {...rest}
       className={cn("flex min-w-0 flex-col gap-2", className)}
       data-widget-grid
       data-editing={editing || undefined}
-      aria-label={rest["aria-label"]}
     >
       {hideToolbar ? null : (
         <div className="flex items-center gap-1.5">

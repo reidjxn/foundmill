@@ -150,6 +150,33 @@ describe("seedDemo on PGlite", () => {
     expect(blocks.map((b) => b.section)).toEqual(expect.arrayContaining(["Formulation / BOM", "Manufacturing", "Packaging", "Compliance", "Fulfilment"]));
     expect((await repos.product.listRoadmap(db, LEDGERLY_BUSINESS_ID)).length).toBe(8);
 
+    // AC-11.5.2 needs one open proposal with three hunks and an interview source behind it (e2e/tests/golden-path.spec.ts).
+    const nwSources = await repos.product.listSources(db, NORTHWIND_BUSINESS_ID, { limit: 50 });
+    expect(nwSources.items.length).toBe(result.businesses.northwind.counts.sources);
+    const interview = nwSources.items.find((x) => x.kind === "transcript")!;
+    expect(interview).toBeTruthy();
+    const proposals = await repos.product.listProposals(db, NORTHWIND_BUSINESS_ID, { limit: 50 });
+    expect(proposals.items.length).toBe(result.businesses.northwind.counts.proposals);
+    expect(proposals.items).toHaveLength(1);
+    const proposal = await repos.product.getProposal(db, NORTHWIND_BUSINESS_ID, proposals.items[0]!.id);
+    expect(proposal.status).toBe("open");
+    expect(proposal.evidence).toEqual([interview.id]);
+    expect(proposal.hunks).toHaveLength(3);
+    expect(result.businesses.northwind.counts.proposalHunks).toBe(3);
+    expect(proposal.hunks.map((h) => h.position)).toEqual([0, 1, 2]);
+    for (const h of proposal.hunks) {
+      expect(h.decision).toBe("pending");
+      expect(h.roadmapItemId).toBeNull();
+      const block = blocks.find((b) => b.id === h.specBlockId)!;
+      expect(block, `hunk ${h.position} targets a Northwind spec block`).toBeTruthy();
+      // base and ours are the block as it stands; theirs differs, so the three-way diff has something to show.
+      expect(h.base).toEqual(block.content);
+      expect(h.ours).toEqual(block.content);
+      expect(h.theirs).not.toEqual(block.content);
+    }
+    expect(new Set(proposal.hunks.map((h) => h.specBlockId)).size).toBe(3);
+    expect(await repos.product.listProposals(db, LEDGERLY_BUSINESS_ID, { limit: 50 })).toMatchObject({ items: [] });
+
     const tasks = await repos.tasks.list(db, LEDGERLY_BUSINESS_ID, { limit: 500 });
     const statuses = new Set(tasks.items.map((t) => t.status));
     for (const st of ["running", "review", "blocked", "merging", "done", "ready", "planned", "stopped"]) expect(statuses.has(st as never), `task status ${st}`).toBe(true);
@@ -227,11 +254,18 @@ describe("seedDemo on PGlite", () => {
     expect(strangerInbox.items).toHaveLength(0);
   });
 
-  it("re-running is idempotent and deterministic: same ids, same owner, same conversions", async () => {
+  it("re-running is idempotent and deterministic: same ids, same owner, same conversions; SEED_OWNER_PROFILE=0 removes the demo owner's profile", async () => {
     const before = await db.select({ id: s.conversions.id, amountMinor: s.conversions.amountMinor }).from(s.conversions).where(eq(s.conversions.businessId, NORTHWIND_BUSINESS_ID)).orderBy(s.conversions.id);
     const beforeAgents = await count(s.agents, LEDGERLY_BUSINESS_ID);
-    const again = await seedDemo(db, { ...SEED_OPTS, refreshDaily: false });
+    const beforeProposals = await count(s.changeProposals, NORTHWIND_BUSINESS_ID);
+    expect(beforeProposals).toBe(1);
+    expect(await repos.founders.get(db, result.owner.userId)).not.toBeNull();
+    // ownerProfile: false (SEED_OWNER_PROFILE=0) leaves the demo owner without a profile, even one an earlier seed created.
+    const again = await seedDemo(db, { ...SEED_OPTS, refreshDaily: false, ownerProfile: false });
     expect(again.owner.userId).toBe(result.owner.userId);
+    expect(await repos.founders.get(db, result.owner.userId)).toBeNull();
+    expect(await count(s.changeProposals, NORTHWIND_BUSINESS_ID)).toBe(beforeProposals);
+    expect(await count(s.proposalHunks, NORTHWIND_BUSINESS_ID)).toBe(3);
     const all = await db.select({ slug: s.businesses.slug, id: s.businesses.id }).from(s.businesses);
     expect(all).toHaveLength(2);
     expect(all.find((b) => b.slug === "ledgerly")?.id).toBe(LEDGERLY_BUSINESS_ID);

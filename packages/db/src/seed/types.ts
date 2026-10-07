@@ -16,6 +16,12 @@ export interface SeedDemoOptions {
   auth?: AuthProvisioner;
   /** Whether to refresh journey_daily_mv at the end (default true). */
   refreshDaily?: boolean;
+  /**
+   * Whether the demo owner gets a founder profile (default true). `false` (SEED_OWNER_PROFILE=0) leaves the demo owner
+   * without one (and removes a profile an earlier seed created) so the AC-11.1.1 onboarding redirect can be exercised
+   * with DEV_AUTH_USER_ID = the demo owner. Extra owners (SEED_OWNER_EMAILS) are not affected.
+   */
+  ownerProfile?: boolean;
   log?: (message: string) => void;
 }
 
