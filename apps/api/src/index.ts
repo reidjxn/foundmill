@@ -18,27 +18,66 @@ export { appRouter, createCaller, type AppRouter, type RouterInputs, type Router
 
 const MIGRATION_LOCK_KEY = 7461;
 
-/** Apply pending migrations under an advisory lock; never throws (health reports an unreachable db). */
+/** `pglite:` / `pglite://` URLs select the embedded driver (packages/db `createDb`); everything else is postgres.js. */
+export const isPgliteUrl = (url: string): boolean => /^pglite:/i.test(url);
+
+type MigrateDbFn = (db: unknown) => Promise<{ applied?: string[]; total?: number } | void>;
+
+/**
+ * Apply pending migrations; never throws (health reports an unreachable db).
+ * - When packages/db exposes `migrateDb` (driver-aware: PGlite or postgres.js; PGlite holds its own directory lock),
+ *   use it under `pg_advisory_lock(7461)` on postgres so several replicas never migrate at once.
+ * - Otherwise run drizzle's migrator for the driver the URL selects (postgres.js under the advisory lock; PGlite
+ *   without it: one process per directory).
+ */
 export async function migrateOnBoot(deps: ApiDeps): Promise<boolean> {
   if (!deps.env.DATABASE_URL) return false;
+  const url = deps.env.DATABASE_URL;
+  const pglite = isPgliteUrl(url);
   try {
     const { sql } = await import("drizzle-orm");
+    const dbModule = (await import("@foundmill/db")) as Record<string, unknown> & { MIGRATIONS_DIR: string; MIGRATIONS_SCHEMA: string; MIGRATIONS_TABLE: string };
+    const { MIGRATIONS_DIR, MIGRATIONS_SCHEMA, MIGRATIONS_TABLE } = dbModule;
+    const migrateDb = typeof dbModule.migrateDb === "function" ? (dbModule.migrateDb as MigrateDbFn) : null;
+    const db = deps.db as unknown as { execute(q: unknown): Promise<unknown> };
+    if (migrateDb) {
+      if (pglite) {
+        const result = await migrateDb(deps.db);
+        deps.log.info({ driver: "pglite", applied: result?.applied?.length ?? null }, "migrations applied (migrateDb)");
+        return true;
+      }
+      // eslint-disable-next-line fm/no-raw-db -- advisory lock around the migrator (ARCHITECTURE §13)
+      await db.execute(sql`select pg_advisory_lock(${MIGRATION_LOCK_KEY})`);
+      try {
+        const result = await migrateDb(deps.db);
+        deps.log.info({ driver: "postgres", applied: result?.applied?.length ?? null }, "migrations applied (migrateDb)");
+      } finally {
+        // eslint-disable-next-line fm/no-raw-db -- release the advisory lock
+        await db.execute(sql`select pg_advisory_unlock(${MIGRATION_LOCK_KEY})`);
+      }
+      return true;
+    }
+    const options = { migrationsFolder: MIGRATIONS_DIR, migrationsSchema: MIGRATIONS_SCHEMA, migrationsTable: MIGRATIONS_TABLE };
+    if (pglite) {
+      const { migrate } = await import("drizzle-orm/pglite/migrator");
+      await migrate(deps.db as unknown as Parameters<typeof migrate>[0], options);
+      deps.log.info({ driver: "pglite" }, "migrations applied");
+      return true;
+    }
     const { migrate } = await import("drizzle-orm/postgres-js/migrator");
-    const { MIGRATIONS_DIR, MIGRATIONS_SCHEMA, MIGRATIONS_TABLE } = await import("@foundmill/db");
-    const db = deps.db as unknown as Parameters<typeof migrate>[0] & { execute(q: unknown): Promise<unknown> };
     // Infrastructure statements (lock + migrator), not data queries.
     // eslint-disable-next-line fm/no-raw-db -- advisory lock around the migrator (ARCHITECTURE §13)
     await db.execute(sql`select pg_advisory_lock(${MIGRATION_LOCK_KEY})`);
     try {
-      await migrate(db, { migrationsFolder: MIGRATIONS_DIR, migrationsSchema: MIGRATIONS_SCHEMA, migrationsTable: MIGRATIONS_TABLE });
+      await migrate(deps.db as unknown as Parameters<typeof migrate>[0], options);
     } finally {
       // eslint-disable-next-line fm/no-raw-db -- release the advisory lock
       await db.execute(sql`select pg_advisory_unlock(${MIGRATION_LOCK_KEY})`);
     }
-    deps.log.info({}, "migrations applied");
+    deps.log.info({ driver: "postgres" }, "migrations applied");
     return true;
   } catch (err) {
-    deps.log.error({ err: (err as Error).message }, "migrations failed; serving anyway (health reports db status)");
+    deps.log.error({ err: (err as Error).message, driver: pglite ? "pglite" : "postgres" }, "migrations failed; serving anyway (health reports db status)");
     return false;
   }
 }

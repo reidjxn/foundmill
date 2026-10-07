@@ -17,6 +17,7 @@ import { createAuthVerifier, type AuthVerifier } from "./auth";
 import { createComposerClient, type ComposerClient } from "./services/composer";
 import { createApiModelClient } from "./services/models";
 import { createRedis } from "./services/redis";
+import { createSandboxRecordingResolver, type RecordingResolver } from "./services/replay";
 import { createTemporalService, type TemporalService } from "./services/temporal";
 import { createLog, type ApiLogger } from "./services/log";
 
@@ -33,6 +34,8 @@ export interface ApiDeps {
   connectors: ConnectorRegistry;
   auth: AuthVerifier;
   log: ApiLogger;
+  /** Mock sandbox recordings for session replays without Redis (null when the sandbox package is not linked). */
+  recordings: RecordingResolver | null;
   /** Reachability probes for /health; each must never throw. */
   health: {
     db(): Promise<boolean>;
@@ -44,7 +47,16 @@ export interface ApiDeps {
 export interface Context extends ApiDeps {
   userId: string | null;
   email: string | null;
+  /** When the signed-in user last authenticated (token `amr`/`iat`); null when anonymous or unknown. */
+  authenticatedAt: Date | null;
   requestId: string;
+}
+
+/** A signed-in user for the in-process caller and tests. */
+export interface CallerUser {
+  userId: string;
+  email?: string | null;
+  authenticatedAt?: Date | null;
 }
 
 export interface CreateApiDepsOptions {
@@ -52,6 +64,7 @@ export interface CreateApiDepsOptions {
   db?: Db;
   redis?: StreamRedis | null;
   log?: ApiLogger;
+  recordings?: RecordingResolver | null;
 }
 
 /** Build every process-wide service from the environment. Never throws for an unreachable backend. */
@@ -80,6 +93,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
   }
 
   const connectors = createDefaultRegistry();
+  const recordings = options.recordings === undefined ? createSandboxRecordingResolver() : options.recordings;
   const auth = createAuthVerifier({
     supabaseUrl: env.SUPABASE_URL ?? null,
     // SUPABASE_JWT_SECRET is not in the shared env schema yet (packages/shared/src/env.ts); read here only.
@@ -114,7 +128,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     temporal: () => temporal.reachable(),
   };
 
-  return { env, db, redis, temporal, models, composer, vault, connectors, auth, log, health };
+  return { env, db, redis, temporal, models, composer, vault, connectors, auth, log, recordings, health };
 }
 
 /** Per-request context factory for `trpcServer({ createContext })`. */
@@ -123,11 +137,11 @@ export function createContextFactory(deps: ApiDeps) {
     const authorization = opts.req.headers.get("authorization");
     const user = await deps.auth.resolve(authorization);
     const requestId = c?.get("requestId") ?? opts.req.headers.get("x-request-id") ?? crypto.randomUUID();
-    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, requestId };
+    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, requestId };
   };
 }
 
-/** Context for tests and the in-process caller. */
-export function createTestContext(deps: ApiDeps, user: { userId: string; email?: string | null } | null): Context {
-  return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, requestId: crypto.randomUUID() };
+/** Context for tests and the in-process caller (`authenticatedAt` defaults to now for a signed-in user). */
+export function createTestContext(deps: ApiDeps, user: CallerUser | null): Context {
+  return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user ? (user.authenticatedAt === undefined ? new Date() : user.authenticatedAt) : null, requestId: crypto.randomUUID() };
 }

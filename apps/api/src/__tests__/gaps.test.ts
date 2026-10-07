@@ -1,0 +1,147 @@
+/** Procedures the wave-2 consumers call that the API lacked: product.sources, crm.entity.list/requestDeletion, finance.accounts.list, dashboard metrics, dev.sessions.replay events. */
+import { repos } from "@foundmill/db";
+import { MemoryRedis, publishSessionEvent } from "@foundmill/events";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { METRIC_IDS, matchMetric } from "../services/metrics";
+import type { RecordingLike } from "../services/replay";
+import { createApiHarness, type ApiHarness } from "./harness";
+
+const RECORDING: RecordingLike = {
+  key: "ledgerly-webhook-retry",
+  title: "Retry failed Stripe webhook deliveries with backoff",
+  summary: "An engineer agent adds exponential backoff.",
+  outcome: "done",
+  events: [
+    { tMs: 0, event: { kind: "phase_changed", from: null, to: "planning", reason: "Reading the handler" } },
+    { tMs: 1500, event: { kind: "note", text: "Tests are red: two retries missing", level: "info", source: "agent" } },
+    { tMs: 4000, event: { kind: "progress", progress: 0.4, planStepsDone: 2, planSteps: 5, acceptanceTestsPassing: 1, acceptanceTests: 3, reviewPassed: false, merged: false, etaAt: null } },
+    { tMs: 9000, event: { kind: "nonsense" } },
+  ],
+};
+
+describe("consumer procedure gaps", () => {
+  let hz: ApiHarness;
+  const redis = new MemoryRedis();
+  beforeAll(async () => {
+    hz = await createApiHarness({ prefix: "gaps", redis, recordings: async (ref) => (ref === RECORDING.key ? RECORDING : null) });
+  }, 120_000);
+  afterAll(() => hz.close());
+
+  it("product.sources.add/list/get/remove with the module's input shape; viewers cannot add", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const { businessId } = hz.A;
+    const added = await owner.product.sources.add({ businessId, kind: "competitor", uri: "https://competitor.example/pricing", title: "", contentRef: null, relevance: { summary: "Their pricing page" } });
+    expect(added.title).toBe("https://competitor.example/pricing");
+    expect(added.kind).toBe("competitor");
+    expect((added.relevance as { summary: string; addedBy: string })).toMatchObject({ summary: "Their pricing page", addedBy: "user" });
+    await expect(owner.product.sources.add({ businessId, kind: "doc", uri: null, title: "" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const list = await owner.product.sources.list({ businessId, limit: 200 });
+    expect(list.items.map((s) => s.id)).toContain(added.id);
+    expect(list.nextCursor).toBeNull();
+    const only = await owner.product.sources.list({ businessId, kind: "competitor", limit: 200 });
+    expect(only.items.every((s) => s.kind === "competitor")).toBe(true);
+    expect((await owner.product.sources.get({ businessId, sourceId: added.id })).id).toBe(added.id);
+    await expect(hz.caller({ userId: hz.A.viewerId }).product.sources.add({ businessId, kind: "doc", uri: "https://x.example", title: "x" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(hz.caller({ userId: hz.B.ownerId }).product.sources.list({ businessId, limit: 10 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const removed = await owner.product.sources.remove({ businessId, sourceId: added.id });
+    expect(removed.archivedAt).not.toBeNull();
+    expect((await owner.product.sources.list({ businessId, limit: 200 })).items.map((s) => s.id)).not.toContain(added.id);
+    const audit = await repos.audit.list(hz.db, businessId, { action: ["product.sources.add", "product.sources.remove"] });
+    expect(audit.items).toHaveLength(2);
+  });
+
+  it("crm.entity.list pages the CRM; crm.entity.requestDeletion records the request without deleting anything", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const { businessId, entityId } = hz.A;
+    const list = await owner.crm.entity.list({ businessId, limit: 500 });
+    expect(list.items.map((e) => e.id)).toContain(entityId);
+    expect(list.items.every((e) => e.businessId === businessId)).toBe(true);
+    const people = await owner.crm.entity.list({ businessId, kind: "person", limit: 10 });
+    expect(people.items.every((e) => e.kind === "person")).toBe(true);
+
+    const req = await owner.crm.entity.requestDeletion({ businessId, entityId, reason: "GDPR request by email" });
+    expect(req.status).toBe("requested");
+    expect(req.delayDays).toBe(7);
+    expect(Date.parse(req.earliestAt) - Date.parse(req.requestedAt)).toBe(7 * 86_400_000);
+    const entity = await repos.entities.get(hz.db, businessId, entityId);
+    expect(entity.archivedAt).toBeNull();
+    const notes = await owner.crm.notes.list({ businessId, entityId });
+    expect(JSON.stringify(notes)).toMatch(/Deletion requested by/);
+    const audit = await repos.audit.list(hz.db, businessId, { action: "crm.entity.request_deletion" });
+    expect(audit.items).toHaveLength(1);
+    await expect(hz.caller({ userId: hz.A.viewerId }).crm.entity.requestDeletion({ businessId, entityId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("finance.accounts.list returns the connected accounts (read-only)", async () => {
+    const accounts = await hz.caller({ userId: hz.A.ownerId }).finance.accounts.list({ businessId: hz.A.businessId });
+    expect(accounts.map((a) => a.id)).toEqual([hz.A.accountId]);
+    expect(accounts[0]).toMatchObject({ provider: "mock_bank", name: "Main", currency: "EUR" });
+    await expect(hz.caller({ userId: hz.B.ownerId }).finance.accounts.list({ businessId: hz.A.businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("dashboard.customMetric.list/get and compileMetric: catalogue queries only, never founder SQL (AC-11.2.5)", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const { businessId } = hz.A;
+    const catalogue = await owner.dashboard.customMetric.list({ businessId });
+    expect(catalogue.map((m) => m.id)).toEqual(METRIC_IDS);
+    const customers = await owner.dashboard.customMetric.get({ businessId, queryId: "customers_30d" });
+    // The fixture recorded two payments moments ago.
+    expect(customers).toMatchObject({ value: 2, format: "integer", label: "Customers won, last 30 days", estimate: null });
+    const cash = await owner.dashboard.customMetric.get({ businessId, queryId: "cash" });
+    expect(cash).toMatchObject({ value: 0, currency: "EUR", format: "money" });
+    const runway = await owner.dashboard.customMetric.get({ businessId, queryId: "runway_months" });
+    expect(runway.value).toBeNull();
+    expect(runway.estimate).toBe("estimate");
+
+    expect(matchMetric("How much cash do we have in the bank?")?.queryId).toBe("cash");
+    expect(matchMetric("customers won in the last 30 days")?.queryId).toBe("customers_30d");
+    expect(matchMetric("what is our runway")?.queryId).toBe("runway_months");
+    const compiled = await owner.dashboard.compileMetric({ businessId, sentence: "sign-ups this month" });
+    expect(compiled.queryId).toBe("signups_30d");
+    expect(compiled.sql).toMatch(/^select /);
+    expect(compiled.preview.value).toBe(2);
+    // The compiled sql round-trips; anything else is refused without touching the database.
+    const bySql = await owner.dashboard.customMetric.get({ businessId, sql: compiled.sql });
+    expect(bySql.value).toBe(2);
+    await expect(owner.dashboard.customMetric.get({ businessId, sql: "select count(*) from businesses" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(owner.dashboard.customMetric.get({ businessId, sql: "delete from tasks" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(owner.dashboard.customMetric.get({ businessId, queryId: "nope" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(owner.dashboard.compileMetric({ businessId, sentence: "zebras per fortnight" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("dev.sessions.replay returns the recorded events: from the session stream when Redis has them, else from the mock recording", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const { businessId, sessionId, agent2Id, taskId } = hz.A;
+    // Stream path: the orchestrator published two events for the fixture session.
+    await publishSessionEvent(redis, sessionId, { kind: "note", text: "Starting on the task", level: "info", source: "agent" });
+    await publishSessionEvent(redis, sessionId, { kind: "phase_changed", from: "planning", to: "implementing", reason: null });
+    const streamed = await owner.dev.sessions.replay({ businessId, sessionId });
+    expect(streamed.source).toBe("stream");
+    expect(streamed.events.map((e) => e.kind)).toEqual(["note", "phase_changed"]);
+    expect(streamed.channel).toBe(`as:${sessionId}`);
+    expect(streamed.live).toBe(true);
+    const onlyNotes = await owner.dev.sessions.replay({ businessId, sessionId, kinds: ["note"] });
+    expect(onlyNotes.events).toHaveLength(1);
+
+    // Recording path: a finished mock session with a recording_ref and nothing on the stream.
+    const startedAt = new Date("2026-10-01T09:00:00.000Z");
+    const recorded = await repos.agents.createSession(hz.db, businessId, { agentId: agent2Id, taskId, modelKey: "sonnet", startedAt, recordingRef: RECORDING.key });
+    await repos.agents.endSession(hz.db, businessId, recorded.id, { endedAt: new Date(startedAt.getTime() + 10_000), outcome: "done", recordingRef: RECORDING.key });
+    const replayed = await owner.dev.sessions.replay({ businessId, sessionId: recorded.id });
+    expect(replayed.source).toBe("recording");
+    expect(replayed.recording?.key).toBe(RECORDING.key);
+    expect(replayed.total).toBe(4);
+    // The invalid entry is skipped; `at` is placed on the session's timeline.
+    expect(replayed.events.map((e) => e.kind)).toEqual(["phase_changed", "note", "progress"]);
+    expect(replayed.events[1]!.at).toBe(new Date(startedAt.getTime() + 1500).toISOString());
+    expect(replayed.live).toBe(false);
+
+    // Unknown recording → empty with a reason; other tenants cannot read it.
+    const unknown = await repos.agents.createSession(hz.db, businessId, { agentId: agent2Id, taskId, modelKey: "sonnet", recordingRef: "not-bundled" });
+    const none = await owner.dev.sessions.replay({ businessId, sessionId: unknown.id });
+    expect(none.source).toBe("none");
+    expect(none.events).toEqual([]);
+    expect(none.reason).toMatch(/not bundled/);
+    await expect(hz.caller({ userId: hz.B.ownerId }).dev.sessions.replay({ businessId: hz.B.businessId, sessionId: recorded.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});

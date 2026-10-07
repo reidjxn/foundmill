@@ -4,10 +4,11 @@
  * `{ queued: false, reason }`; the local task state is always updated so the Training Ground reflects the intent.
  */
 import { TaskListFilter, repos, type Task } from "@foundmill/db";
-import { sessionStreamKey } from "@foundmill/events";
+import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
 import { TaskGraphOutput } from "@foundmill/models";
 import { ValidationError } from "@foundmill/shared";
 import { z } from "zod";
+import { replaySession } from "../services/replay";
 import { SIGNALS, WORKFLOWS, workflowIds, type SignalName } from "../services/temporal";
 import { Id, audit, emit, router, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
@@ -193,12 +194,12 @@ export const devRouter = router({
         return { session, channel: sessionStreamKey(session.id), live: session.endedAt === null };
       }),
     ),
-    replay: read.input(z.object({ sessionId: Id })).query(({ ctx, input }) =>
-      ctx.rls(async (tx) => {
-        const session = await repos.agents.getSession(tx, ctx.businessId, input.sessionId);
-        return { session, recordingRef: session.recordingRef, channel: sessionStreamKey(session.id) };
-      }),
-    ),
+    /** The recorded events of a session (its `as:{sessionId}` stream, or the mock recording it was played from) plus where live frames arrive. */
+    replay: read.input(z.object({ sessionId: Id, limit: z.number().int().min(1).max(5000).optional(), after: z.string().max(64).optional(), kinds: z.array(z.enum(SESSION_EVENT_KINDS)).optional() })).query(async ({ ctx, input }) => {
+      const session = await ctx.rls((tx) => repos.agents.getSession(tx, ctx.businessId, input.sessionId));
+      const replay = await replaySession({ redis: ctx.redis, recordings: ctx.recordings }, session, { limit: input.limit, after: input.after, kinds: input.kinds });
+      return { session, recordingRef: session.recordingRef, channel: sessionStreamKey(session.id), live: session.endedAt === null, ...replay };
+    }),
     list: read.input(z.object({ agentId: Id.optional(), taskId: Id.optional(), openOnly: z.boolean().optional(), limit: z.number().int().min(1).max(200).default(50) })).query(({ ctx, input }) => ctx.rls((tx) => repos.agents.listSessions(tx, ctx.businessId, input))),
   }),
 

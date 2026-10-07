@@ -1,18 +1,23 @@
 /** journey.get/list/markViewed + daily rows and milestones for the Ribbon (BUILD §11.2, §11.4). */
 import { JourneyListFilter, repos } from "@foundmill/db";
-import { buildChapters, type Journey as JourneyRecord } from "@foundmill/journey";
+import { buildChapters } from "@foundmill/journey";
+import { buildJourneyRecord } from "../services/journey";
 import { z } from "zod";
 import { Id, businessProcedure, router } from "../trpc";
 
 const DayKey = z.string().date();
 
 export const journeyRouter = router({
-  /** One Match Day: the stored journey record (deterministic replay input, AC-11.4.3) with its conversion and touches. */
+  /**
+   * One Customer Update: the stored row with its conversion, touches and entity, plus `journey`, the full
+   * `@foundmill/journey` Journey record (channels, captain, standout agent, stats, nth of kind, consent / partial
+   * journey, attribution model, xC model source) built server-side so the replay is deterministic (AC-11.4.3).
+   */
   get: businessProcedure.input(z.object({ journeyId: Id })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const detail = await repos.journeys.get(tx, ctx.businessId, input.journeyId);
-      const agents = detail.agents as JourneyRecord["agents"];
-      return { ...detail, agents, speedHint: "full" as const };
+      const record = await buildJourneyRecord(tx, ctx.businessId, detail);
+      return { ...detail, agents: record.journey.agents, journey: record.journey, journeyTouches: record.touches, conversionCount: record.conversionCount, acquisitionCostLabel: record.acquisitionCostLabel, speedHint: record.journey.fullMatchDay ? ("full" as const) : ("highlights" as const) };
     }),
   ),
 
@@ -30,9 +35,10 @@ export const journeyRouter = router({
         repos.journeys.listConversions(tx, ctx.businessId, { from: new Date(from), to: new Date(`${to}T23:59:59.999Z`), limit: 500 }),
         repos.journeys.listMilestones(tx, ctx.businessId, {}),
       ]);
-      const kickoff = (ctx.business.committedAt ?? ctx.business.createdAt).toISOString().slice(0, 10);
-      const chapters = buildChapters({ startDay: kickoff, today: to, horizonQuarters: 2 });
-      return { rows, conversions: conversions.items, milestones, chapters, kickoff, today: to, forecastLabel: "Forecast" as const };
+      const firstDay = (ctx.business.committedAt ?? ctx.business.createdAt).toISOString().slice(0, 10);
+      const chapters = buildChapters({ startDay: firstDay, today: to, horizonQuarters: 2 });
+      // `kickoff` is the wave-2 key the Ribbon reads; `firstDay` is the vocabulary-rule name.
+      return { rows, conversions: conversions.items, milestones, chapters, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const };
     }),
   ),
 

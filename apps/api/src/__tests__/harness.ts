@@ -6,14 +6,16 @@
 import { createBusinessFixture, type BusinessFixture } from "@foundmill/db/__tests__/rls/fixtures";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import type { Db } from "@foundmill/db";
+import type { StreamRedis } from "@foundmill/events";
 import { createDefaultRegistry } from "@foundmill/connectors";
 import { createModelClient } from "@foundmill/models";
 import { createVault, generateMasterKey, loadEnv, resetEnvCache } from "@foundmill/shared";
 import { createAuthVerifier } from "../auth";
-import type { ApiDeps } from "../context";
+import type { ApiDeps, CallerUser } from "../context";
 import { createCaller } from "../router";
 import { createComposerClient } from "../services/composer";
 import { silentLog } from "../services/log";
+import type { RecordingResolver } from "../services/replay";
 import { createTemporalService, type TemporalClientLike } from "../services/temporal";
 
 export interface ApiHarness {
@@ -22,7 +24,7 @@ export interface ApiHarness {
   deps: ApiDeps;
   A: BusinessFixture;
   B: BusinessFixture;
-  caller(user: { userId: string; email?: string | null } | null): ReturnType<typeof createCaller>;
+  caller(user: CallerUser | null): ReturnType<typeof createCaller>;
   close(): Promise<void>;
 }
 
@@ -30,6 +32,10 @@ export interface HarnessOptions {
   prefix: string;
   /** A fake Temporal client; when omitted Temporal is disabled (every call reports queued: false). */
   temporalClient?: TemporalClientLike;
+  /** Session stream backend for replay tests (MemoryRedis from @foundmill/events); default none. */
+  redis?: StreamRedis | null;
+  /** Recording resolver for replay tests; default none. */
+  recordings?: RecordingResolver | null;
 }
 
 export async function createApiHarness(options: HarnessOptions): Promise<ApiHarness> {
@@ -53,7 +59,7 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
   const deps: ApiDeps = {
     env,
     db,
-    redis: null,
+    redis: options.redis ?? null,
     temporal,
     models,
     composer,
@@ -61,6 +67,7 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
     connectors: createDefaultRegistry(),
     auth: createAuthVerifier({ appEnv: "test" }),
     log,
+    recordings: options.recordings ?? null,
     health: { db: async () => true, redis: async () => false, temporal: () => temporal.reachable() },
   };
   const [A, B] = await Promise.all([createBusinessFixture(h, `${options.prefix}-a`), createBusinessFixture(h, `${options.prefix}-b`)]);

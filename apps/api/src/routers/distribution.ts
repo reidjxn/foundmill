@@ -133,7 +133,7 @@ async function setEnabled(ctx: Ctx, channelKey: ChannelKey, enabled: boolean) {
     await audit(tx, ctx, { action: enabled ? "distribution.channels.enable" : "distribution.channels.disable", target: { kind: "channel", id: row.id }, details: { channelKey } });
     return row;
   });
-  // The engine workflow follows the toggle (AC-11.7.2); the Formation Board re-scores from the returned channel list.
+  // The engine workflow follows the toggle (AC-11.7.2); the Board re-scores from the returned channel list.
   const workflowId = workflowIds.engine(channel.id);
   const workflow = enabled
     ? await ctx.temporal.start(WORKFLOWS.channelEngine, { workflowId, args: [{ businessId: ctx.businessId, channelId: channel.id, channelKey }] })

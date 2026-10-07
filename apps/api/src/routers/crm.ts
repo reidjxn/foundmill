@@ -1,9 +1,11 @@
-/** crm.search/entity.get/update/merge/unmerge/notes/roles (BUILD §11.12; AC-11.12.2 via RLS, AC-11.12.3 merge/unmerge). */
-import { AddRoleInput, SearchInput, UpdateEntityInput, repos } from "@foundmill/db";
+/** crm.search/entity.list/get/update/merge/unmerge/create/requestDeletion/notes/roles (BUILD §11.12; AC-11.12.2 via RLS, AC-11.12.3 merge/unmerge). */
+import { AddRoleInput, EntityListFilter, SearchInput, UpdateEntityInput, repos } from "@foundmill/db";
 import { z } from "zod";
 import { Id, audit, router, sectionRead, sectionWrite } from "../trpc";
 
 const read = sectionRead("crm");
+/** Deletion requests complete no earlier than this (matches Settings › Danger zone). */
+const DELETION_DELAY_DAYS = 7;
 const write = sectionWrite("crm");
 
 export const crmRouter = router({
@@ -11,6 +13,23 @@ export const crmRouter = router({
   search: read.input(SearchInput).query(({ ctx, input }) => ctx.rls((tx) => repos.entities.search(tx, ctx.businessId, input))),
 
   entity: router({
+    /** The CRM list without a search term (newest first, keyset paged). */
+    list: read.input(EntityListFilter).query(({ ctx, input }) => ctx.rls((tx) => repos.entities.list(tx, ctx.businessId, { ...input, limit: Math.min(input?.limit ?? 100, 500) }))),
+    /**
+     * GDPR-style deletion request: recorded on the profile (interaction note) and the audit chain; nothing is deleted by
+     * agent or API code (a hard gate). The request names who asked, when and the earliest completion date.
+     */
+    requestDeletion: write.input(z.object({ entityId: Id, reason: z.string().max(1000).optional() })).mutation(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const entity = await repos.entities.resolve(tx, ctx.businessId, input.entityId);
+        const requestedAt = new Date();
+        const earliestAt = new Date(requestedAt.getTime() + DELETION_DELAY_DAYS * 86_400_000);
+        const note = `Deletion requested by ${ctx.email ?? ctx.userId} on ${requestedAt.toISOString().slice(0, 10)}; earliest completion ${earliestAt.toISOString().slice(0, 10)}.${input.reason ? ` Reason: ${input.reason}` : ""}`;
+        const interaction = await repos.entities.addNote(tx, ctx.businessId, entity.id, note);
+        await audit(tx, ctx, { action: "crm.entity.request_deletion", target: { kind: "entity", id: entity.id }, details: { reason: input.reason ?? null, requestedAt: requestedAt.toISOString(), earliestAt: earliestAt.toISOString(), interactionId: interaction.id } });
+        return { entityId: entity.id, status: "requested" as const, requestedAt: requestedAt.toISOString(), earliestAt: earliestAt.toISOString(), delayDays: DELETION_DELAY_DAYS, interactionId: interaction.id };
+      }),
+    ),
     get: read.input(z.object({ entityId: Id })).query(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const entity = await repos.entities.resolve(tx, ctx.businessId, input.entityId);

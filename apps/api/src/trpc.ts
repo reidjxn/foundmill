@@ -64,6 +64,8 @@ const CODE_BY_APP_CODE: Record<string, TRPC_ERROR_CODE_KEY> = {
   validation: "BAD_REQUEST",
   composer_unavailable: "SERVICE_UNAVAILABLE",
   no_agents: "CONFLICT",
+  continue_blocked: "CONFLICT",
+  reauth_required: "PRECONDITION_FAILED",
   config: "PRECONDITION_FAILED",
   invalid_record: "INTERNAL_SERVER_ERROR",
   decrypt_failed: "INTERNAL_SERVER_ERROR",

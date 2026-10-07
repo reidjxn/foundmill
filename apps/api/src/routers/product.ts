@@ -1,6 +1,6 @@
-/** product.spec.* / product.roadmap.* / product.proposals.* (BUILD §11.5; AC-11.5.2, AC-11.5.3). */
-import { EditSpecBlockInput, UpsertRoadmapItemInput, repos } from "@foundmill/db";
-import { HUNK_DECISIONS, ValidationError } from "@foundmill/shared";
+/** product.spec.* / product.roadmap.* / product.proposals.* / product.sources.* (BUILD §11.5; AC-11.5.2, AC-11.5.3). */
+import { CreateSourceInput, EditSpecBlockInput, UpsertRoadmapItemInput, repos } from "@foundmill/db";
+import { HUNK_DECISIONS, SOURCE_KINDS, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { Id, audit, emit, router, sectionRead, sectionWrite } from "../trpc";
 
@@ -72,6 +72,29 @@ export const productRouter = router({
         for (const taskId of input.taskIds ?? []) await repos.tasks.update(tx, ctx.businessId, taskId, { roadmapItemId: item.id });
         await audit(tx, ctx, { action: "product.roadmap.link", target: { kind: "roadmap_item", id: item.id }, details: { dependsOn: input.dependsOn ?? null, specBlocks: input.specBlockIds?.length ?? 0, tasks: input.taskIds?.length ?? 0 } });
         return repos.product.getRoadmapItem(tx, ctx.businessId, item.id);
+      }),
+    ),
+  }),
+
+  /** Sources the Source Watcher reads (docs, issues, feedback, transcripts, competitor pages, legal, finance). */
+  sources: router({
+    list: read.input(z.object({ kind: z.enum(SOURCE_KINDS).optional(), limit: z.number().int().min(1).max(500).default(100), cursor: z.string().nullish() })).query(({ ctx, input }) => ctx.rls((tx) => repos.product.listSources(tx, ctx.businessId, input ?? {}))),
+    get: read.input(z.object({ sourceId: Id })).query(({ ctx, input }) => ctx.rls((tx) => repos.product.getSource(tx, ctx.businessId, input.sourceId))),
+    /** Add by hand (a link, a pasted note, a competitor page); the title falls back to the uri. */
+    add: write.input(CreateSourceInput).mutation(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const title = input.title?.trim() || input.uri?.trim() || "";
+        if (!title) throw new ValidationError("Give the source a title or a link");
+        const source = await repos.product.createSource(tx, ctx.businessId, { ...input, title: title.slice(0, 400), relevance: { ...(input.relevance ?? {}), addedBy: "user" } });
+        await audit(tx, ctx, { action: "product.sources.add", target: { kind: "source", id: source.id }, details: { kind: source.kind, uri: source.uri } });
+        return source;
+      }),
+    ),
+    remove: write.input(z.object({ sourceId: Id })).mutation(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const source = await repos.product.archiveSource(tx, ctx.businessId, input.sourceId);
+        await audit(tx, ctx, { action: "product.sources.remove", target: { kind: "source", id: source.id } });
+        return source;
       }),
     ),
   }),

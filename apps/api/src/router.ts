@@ -1,17 +1,19 @@
 /** The merged AppRouter (BUILD §8.3 names) and a caller factory for tests and in-process use. */
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
-import type { ApiDeps } from "./context";
+import type { ApiDeps, CallerUser } from "./context";
 import { createTestContext } from "./context";
 import { agentRouter } from "./routers/agent";
 import { billingRouter } from "./routers/billing";
 import { businessRouter } from "./routers/business";
 import { crmRouter } from "./routers/crm";
+import { cycleRouter } from "./routers/cycle";
 import { dashboardRouter, departmentRouter, screenRouter } from "./routers/department";
 import { devRouter } from "./routers/dev";
 import { distributionRouter } from "./routers/distribution";
 import { financeRouter } from "./routers/finance";
 import { founderRouter } from "./routers/founder";
 import { ideaRouter } from "./routers/idea";
+import { importRouter } from "./routers/import";
 import { inboxRouter, planRouter } from "./routers/inbox";
 import { integrationsRouter, keysRouter } from "./routers/integrations";
 import { journeyRouter } from "./routers/journey";
@@ -26,6 +28,8 @@ export const appRouter = router({
   founder: founderRouter,
   idea: ideaRouter,
   business: businessRouter,
+  cycle: cycleRouter,
+  import: importRouter,
   department: departmentRouter,
   screen: screenRouter,
   dashboard: dashboardRouter,
@@ -53,7 +57,7 @@ export type RouterOutputs = inferRouterOutputs<AppRouter>;
 const callerFactory = createCallerFactory(appRouter);
 
 /** In-process caller: `createCaller(deps, { userId })` then `caller.inbox.list({ businessId })`. */
-export function createCaller(deps: ApiDeps, user: { userId: string; email?: string | null } | null) {
+export function createCaller(deps: ApiDeps, user: CallerUser | null) {
   return callerFactory(createTestContext(deps, user));
 }
 export type Caller = ReturnType<typeof createCaller>;

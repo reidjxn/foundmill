@@ -16,6 +16,7 @@ export const WORKFLOWS = {
   incorporation: "incorporation",
   playbook: "playbook",
   journeyBuild: "journeyBuild",
+  importBusiness: "importBusiness",
 } as const;
 
 export const SIGNALS = {

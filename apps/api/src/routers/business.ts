@@ -1,11 +1,16 @@
-/** business.get/update/setGameMode/setBusinessMode/startHoliday/endHoliday/stopAllAgents (BUILD §9.6, §11.15, §14). */
+/**
+ * business.get/update/setGameMode/setBusinessMode/continue/pauseCycle/resumeCycle/startHoliday/endHoliday/stopAllAgents/
+ * export/archive/requestDeletion/cancelDeletion (BUILD §9.4, §9.6, §11.15, §14).
+ */
 import { LIMITS } from "@foundmill/config";
 import { repos, UpdateBusinessInput } from "@foundmill/db";
 import { BUSINESS_MODES, DECISION_TYPES, EVENT_TYPES, GAME_MODES } from "@foundmill/shared";
 import { z } from "zod";
+import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
 import { stopAllAgents } from "../services/killswitch";
+import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, requestDeletion } from "../services/lifecycle";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
-import { adminProcedure, audit, businessProcedure, emit, router } from "../trpc";
+import { adminProcedure, audit, businessProcedure, emit, ownerProcedure, router, writeProcedure } from "../trpc";
 
 const HolidayUntil = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("date"), date: z.coerce.date() }),
@@ -15,11 +20,32 @@ const HolidayUntil = z.discriminatedUnion("kind", [
 
 export const businessRouter = router({
   get: businessProcedure.query(async ({ ctx }) => {
-    const [holiday, blocking, departments, agents] = await ctx.rls(async (tx) =>
-      Promise.all([repos.holidays.current(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.departments.list(tx, ctx.businessId), repos.agents.countByStatus(tx, ctx.businessId)]),
+    const [holiday, blocking, departments, agents, deletion] = await ctx.rls(async (tx) =>
+      Promise.all([repos.holidays.current(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.departments.list(tx, ctx.businessId), repos.agents.countByStatus(tx, ctx.businessId), deletionState({ db: tx, businessId: ctx.businessId })]),
     );
-    return { business: ctx.business, role: ctx.role, membership: ctx.membership, holiday, blockingItems: blocking, departments, agentsByStatus: agents, kit: { primary: ctx.business.kitPrimary, secondary: ctx.business.kitSecondary } };
+    return {
+      business: ctx.business,
+      role: ctx.role,
+      membership: ctx.membership,
+      holiday,
+      blockingItems: blocking,
+      departments,
+      agentsByStatus: agents,
+      /** Brand colours (the `kit` key is the wave-1 identifier; display label is "Brand colours"). */
+      kit: { primary: ctx.business.kitPrimary, secondary: ctx.business.kitSecondary },
+      brandColours: { primary: ctx.business.kitPrimary, secondary: ctx.business.kitSecondary },
+      deletion: deletion.status === "scheduled" ? deletion : null,
+    };
   }),
+
+  /**
+   * One press of Continue (BUILD §9.4): starts the next businessCycle on Temporal when reachable, resumes a paused one,
+   * or runs one in-process cycle step (one new Inbox item through the composer) and returns the new Continue state.
+   * Refuses (CONFLICT) while red items block Continue or a holiday is running.
+   */
+  continue: writeProcedure.mutation(({ ctx }) => startCycle(ctx)),
+  pauseCycle: writeProcedure.mutation(({ ctx }) => pauseCycle(ctx)),
+  resumeCycle: writeProcedure.mutation(({ ctx }) => resumeCycle(ctx)),
 
   update: adminProcedure.input(UpdateBusinessInput).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
@@ -136,4 +162,14 @@ export const businessRouter = router({
 
   /** Audit trail (read-only, hash-chained). */
   audit: adminProcedure.input(z.object({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() })).query(({ ctx, input }) => ctx.rls((tx) => repos.audit.list(tx, ctx.businessId, input))),
+
+  // --- Danger zone (BUILD §11.15) -------------------------------------------------------------------------------------
+  /** Export everything as a portable JSON archive (credentials never included); an Inbox note carries the counts. */
+  export: adminProcedure.mutation(({ ctx }) => exportBusiness(ctx)),
+  /** Stop every agent and hide the business. Data stays. */
+  archive: adminProcedure.input(z.object({ reason: z.string().max(200).default("archived") })).mutation(({ ctx, input }) => archiveBusiness(ctx, input.reason)),
+  /** Owner-only, fresh authentication required (PRECONDITION_FAILED `reauth_required` otherwise); deletion runs 7 days later unless cancelled. */
+  requestDeletion: ownerProcedure.input(z.object({ confirmName: z.string().max(200).optional() })).mutation(({ ctx, input }) => requestDeletion(ctx, { confirmName: input.confirmName })),
+  cancelDeletion: ownerProcedure.mutation(({ ctx }) => cancelDeletion(ctx)),
+  deletionStatus: businessProcedure.query(({ ctx }) => ctx.rls((tx) => deletionState({ db: tx, businessId: ctx.businessId }))),
 });

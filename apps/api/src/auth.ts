@@ -12,6 +12,12 @@ import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTPayload, 
 export interface AuthUser {
   userId: string;
   email: string | null;
+  /**
+   * When the user last authenticated: the most recent `amr` timestamp Supabase stamps on the token (password, otp,
+   * oauth, mfa...), falling back to `iat`. Permanent actions (BUILD §11.15 "re-auth") require it to be recent.
+   * The development bypass counts as authenticated now.
+   */
+  authenticatedAt: Date | null;
 }
 
 export interface AuthVerifier {
@@ -49,11 +55,23 @@ export function bearerToken(authorization: string | null | undefined): string | 
   return m?.[1]?.trim() || null;
 }
 
+/** Latest authentication moment from the `amr` claim (`[{ method, timestamp }]`, unix seconds), else `iat`. */
+export function authenticatedAtFromPayload(payload: JWTPayload): Date | null {
+  const amr = Array.isArray(payload.amr) ? (payload.amr as unknown[]) : [];
+  let latest: number | null = null;
+  for (const entry of amr) {
+    const ts = (entry as { timestamp?: unknown })?.timestamp;
+    if (typeof ts === "number" && Number.isFinite(ts)) latest = latest === null ? ts : Math.max(latest, ts);
+  }
+  const seconds = latest ?? (typeof payload.iat === "number" ? payload.iat : null);
+  return seconds === null ? null : new Date(seconds * 1000);
+}
+
 function userFromPayload(payload: JWTPayload): AuthUser {
   const sub = payload.sub;
   if (!sub || !UUID_RE.test(sub)) throw new AuthError("token has no UUID subject");
   const email = typeof payload.email === "string" ? payload.email : null;
-  return { userId: sub, email };
+  return { userId: sub, email, authenticatedAt: authenticatedAtFromPayload(payload) };
 }
 
 export function createAuthVerifier(opts: AuthVerifierOptions): AuthVerifier {
@@ -95,12 +113,12 @@ export function createAuthVerifier(opts: AuthVerifierOptions): AuthVerifier {
     verify,
     async resolve(authorization) {
       const token = bearerToken(authorization);
-      if (!token) return devBypass ? { userId: devBypass, email: null } : null;
+      if (!token) return devBypass ? { userId: devBypass, email: null, authenticatedAt: new Date() } : null;
       try {
         return await verify(token);
       } catch {
         // In development/test a stale token must not lock the founder out of their own machine.
-        return devBypass ? { userId: devBypass, email: null } : null;
+        return devBypass ? { userId: devBypass, email: null, authenticatedAt: new Date() } : null;
       }
     },
   };

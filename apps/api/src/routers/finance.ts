@@ -49,6 +49,11 @@ export const financeRouter = router({
     }),
   ),
 
+  accounts: router({
+    /** Connected bank accounts with their latest balance (read-only; consent expiry shown for open-banking links). */
+    list: read.input(z.object({ includeArchived: z.boolean().default(false) })).query(({ ctx, input }) => ctx.rls((tx) => repos.finance.listAccounts(tx, ctx.businessId, { includeArchived: input.includeArchived }))),
+  }),
+
   transactions: router({
     list: read.input(z.object({ accountId: Id.optional(), from: z.coerce.date().optional(), to: z.coerce.date().optional(), uncategorised: z.boolean().optional(), q: z.string().max(200).optional(), limit: z.number().int().min(1).max(500).default(100), cursor: z.string().nullish() })).query(({ ctx, input }) => ctx.rls((tx) => repos.finance.listTransactions(tx, ctx.businessId, input ?? {}))),
     /** Founder recategorisation; `applyToCounterparty` makes it a rule for the same counterparty (BUILD §11.8). */

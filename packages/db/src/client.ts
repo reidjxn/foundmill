@@ -1,26 +1,32 @@
 /**
  * Database clients (docs/ARCHITECTURE.md §4).
  *
- * - createDb(url)       Drizzle over postgres.js for an explicit connection string.
+ * - createDb(url)       Drizzle over postgres.js for a `postgres://` connection string, or over PGlite for
+ *                        `pglite:<dir>` / `pglite::memory:` (docs/DECISIONS.md "PGlite as the local database driver").
  * - createServiceDb()   Reads DATABASE_URL via loadEnv(); the service-role connection used by workers.
  * - withRls(db, ctx, fn) Runs fn(tx) in a transaction as `authenticated` (or another app role) with
  *                        request.jwt.claims set, so Postgres RLS enforces tenancy for user-originated queries.
- * - closeDb(db)         Ends the underlying pool.
+ * - closeDb(db)         Ends the underlying pool (postgres.js) or closes the PGlite instance.
+ * - migrateDb(db)       See ./migrator: applies packages/db/migrations on either driver.
  */
 import { loadEnv } from "@foundmill/shared";
 import { sql, type ExtractTablesWithRelations } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT, PgTransaction } from "drizzle-orm/pg-core";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres, { type Sql } from "postgres";
+import { createPgliteDb, isPgliteDb, parsePgliteUrl, type PgliteDb } from "./pglite";
 import * as schema from "./schema";
 
 export type Schema = typeof schema;
-/** Any Drizzle Postgres database over our schema (postgres.js in services, PGlite in tests). */
+/** Any Drizzle Postgres database over our schema: the one type apps use for both drivers. */
 export type Db = PgDatabase<PgQueryResultHKT, Schema>;
 /** A transaction handle over our schema; what withRls hands to its callback. */
 export type DbTx = PgTransaction<PgQueryResultHKT, Schema, ExtractTablesWithRelations<Schema>>;
-/** The concrete postgres.js database returned by createDb/createServiceDb. */
+/** The concrete postgres.js database returned by createDb for a postgres:// URL. */
 export type ServiceDb = PostgresJsDatabase<Schema> & { $client: Sql };
+/** What createDb/createServiceDb return: postgres.js or PGlite, decided by the URL. Both are assignable to Db. */
+export type AnyDb = ServiceDb | PgliteDb;
+export type { PgliteDb } from "./pglite";
 
 export const RLS_ROLES = ["authenticated", "anon", "service_role"] as const;
 export type RlsRole = (typeof RLS_ROLES)[number];
@@ -46,8 +52,17 @@ export interface CreateDbOptions {
 
 const isTransactionPooler = (url: string) => /pooler\.supabase\.com:6543/.test(url) || /pgbouncer=true/.test(url);
 
-export function createDb(url: string, options: CreateDbOptions = {}): ServiceDb {
+/**
+ * `pglite:<dir>` / `pglite::memory:` → Drizzle over PGlite (roles, stub auth schema, pg_trgm + pgvector booted
+ * lazily before the first query; run migrateDb(db) to apply the migrations). Anything else → postgres.js.
+ * Pool options (max, idleTimeout, prepare) only apply to postgres.js; PGlite is one in-process connection.
+ */
+export function createDb(url: `pglite:${string}`, options?: CreateDbOptions): PgliteDb;
+export function createDb(url: string, options?: CreateDbOptions): AnyDb;
+export function createDb(url: string, options: CreateDbOptions = {}): AnyDb {
   if (!url) throw new Error("createDb: a connection string is required");
+  const pglite = parsePgliteUrl(url);
+  if (pglite) return createPgliteDb(pglite, { logger: options.logger });
   const client = postgres(url, {
     max: options.max ?? 10,
     idle_timeout: options.idleTimeout,
@@ -58,7 +73,7 @@ export function createDb(url: string, options: CreateDbOptions = {}): ServiceDb 
 }
 
 /** Service-role connection from DATABASE_URL. Only repositories may run raw queries on it (eslint fm/no-raw-db). */
-export function createServiceDb(options: CreateDbOptions = {}): ServiceDb {
+export function createServiceDb(options: CreateDbOptions = {}): AnyDb {
   const env = loadEnv();
   if (!env.DATABASE_URL) throw new Error("DATABASE_URL is not set");
   return createDb(env.DATABASE_URL, options);
@@ -87,6 +102,12 @@ export async function withRls<T>(db: Db, ctx: RlsContext, fn: (tx: DbTx) => Prom
   });
 }
 
-export async function closeDb(db: ServiceDb): Promise<void> {
-  await db.$client.end({ timeout: 5 });
+/** Ends the postgres.js pool or closes the PGlite instance; a no-op for a db without a client (tests' fakes). */
+export async function closeDb(db: Db): Promise<void> {
+  if (isPgliteDb(db)) {
+    await db.$client.close();
+    return;
+  }
+  const client = (db as Partial<ServiceDb>).$client;
+  if (client && typeof client.end === "function") await client.end({ timeout: 5 });
 }
