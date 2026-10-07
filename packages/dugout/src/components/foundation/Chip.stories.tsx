@@ -21,7 +21,7 @@ export const Tones: Story = {
       <Chip tone="warn">Warn</Chip>
       <Chip tone="bad">Bad</Chip>
       <Chip tone="info">Info</Chip>
-      <Chip tone="kit">Kit</Chip>
+      <Chip tone="kit">Brand</Chip>
       <Chip tone="gold">Gold</Chip>
       <Chip tone="ink" mono icon={Cpu}>
         claude-sonnet

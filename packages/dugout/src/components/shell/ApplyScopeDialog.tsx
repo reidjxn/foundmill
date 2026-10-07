@@ -1,3 +1,4 @@
+"use client";
 import { useEffect, useId, useState } from "react";
 import { Bot, Layers, Users } from "lucide-react";
 import { Button } from "../foundation/Button";

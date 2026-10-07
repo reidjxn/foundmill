@@ -1,3 +1,4 @@
+"use client";
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import * as ToastPrimitive from "@radix-ui/react-toast";
 import { Circle, CircleCheck, CircleX, Info, TriangleAlert, X } from "lucide-react";

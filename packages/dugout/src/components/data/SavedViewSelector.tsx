@@ -1,3 +1,4 @@
+"use client";
 import { useState, type FormEvent } from "react";
 import { Bookmark, BookmarkPlus, ChevronDown, Pencil, RotateCcw, Save, Trash2 } from "lucide-react";
 import { cn } from "../../lib/cn";

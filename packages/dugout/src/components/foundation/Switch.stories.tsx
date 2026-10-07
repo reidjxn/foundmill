@@ -5,7 +5,7 @@ import { Switch } from "./Switch";
 const meta = {
   title: "Foundation/Switch",
   component: Switch,
-  args: { "aria-label": "Kit mode", size: "md" },
+  args: { "aria-label": "Offline tracking", size: "md" },
   argTypes: { size: { control: "inline-radio", options: ["sm", "md"] } },
 } satisfies Meta<typeof Switch>;
 export default meta;

@@ -1,3 +1,4 @@
+"use client";
 import { useId, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, GitCompareArrows, MessageSquare, PenLine, Plus, ShieldAlert, X } from "lucide-react";
 import { cn } from "../../lib/cn";

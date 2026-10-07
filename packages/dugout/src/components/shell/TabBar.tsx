@@ -1,3 +1,4 @@
+"use client";
 import { useRef, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "../../lib/cn";

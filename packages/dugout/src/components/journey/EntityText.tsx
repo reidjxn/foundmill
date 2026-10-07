@@ -1,3 +1,4 @@
+"use client";
 import { createElement, Fragment, type ReactNode } from "react";
 import { ENTITY_MARKUP_RE, type EntityKind } from "@foundmill/shared";
 import { EntityLink } from "../data/EntityLink";
@@ -7,7 +8,7 @@ import type { EntityRef } from "../data/types";
  * Journey-group mention rendering. Internal to this group (not exported from the package barrel): the public
  * `EntityText` / `EntityLink` live in the data group. This file keeps the journey components' small prop surface
  * (`text`, `kinds`, `onOpenEntity`) and renders every mention through the data group's `EntityLink`, so hover cards,
- * provider hrefs and right-click verbs (`EntityLinkProvider`) work inside the Ribbon, Match Day and Home widgets.
+ * provider hrefs and right-click verbs (`EntityLinkProvider`) work inside the Ribbon, Customer Update and Home widgets.
  */
 
 /** Segments of agent text: plain runs and `[[ent:<uuid>|Name]]` mentions (BUILD §11.3). */

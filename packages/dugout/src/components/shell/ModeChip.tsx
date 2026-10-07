@@ -29,7 +29,7 @@ export interface ModeChipProps extends Omit<ChipProps, "children" | "tone" | "ic
   holiday?: boolean;
 }
 
-/** The business-mode chip in the kit bar. Icon + word, so the mode reads without colour. */
+/** The business-mode chip in the top bar. Icon + word, so the mode reads without colour. */
 export function ModeChip({ mode, description, onClick, holiday, ...rest }: ModeChipProps) {
   const info = BUSINESS_MODE_INFO[mode];
   const chip = (

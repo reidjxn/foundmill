@@ -1,3 +1,4 @@
+"use client";
 import { forwardRef, type ComponentPropsWithoutRef, type ElementRef } from "react";
 import * as SliderPrimitive from "@radix-ui/react-slider";
 import { cn } from "../../lib/cn";

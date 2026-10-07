@@ -66,6 +66,7 @@
   --processing-strip-height: 3px;
   --tabbar-height: 40px;
   --right-rail-width: 320px;
+  --inbox-list-width: 380px; /* the Inbox list column (BUILD §11.3) */
   --panel-header-height: 32px;
   --panel-padding: 12px;
   --gutter: 16px;

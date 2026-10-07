@@ -5,7 +5,7 @@ import { NORTHWIND_SEGMENTS } from "./fixtures";
 const meta = {
   title: "Shell/ProcessingStrip",
   component: ProcessingStrip,
-  parameters: { layout: "fullscreen", docs: { description: { component: "3 px under the kit bar. One segment per department in its colour; active segments shimmer with a 1.6 s sweep while a cycle runs. Reduced motion leaves them at full colour." } } },
+  parameters: { layout: "fullscreen", docs: { description: { component: "3 px under the top bar. One segment per department in its colour; active segments shimmer with a 1.6 s sweep while a cycle runs. Reduced motion leaves them at full colour." } } },
   args: { segments: NORTHWIND_SEGMENTS, active: true },
 } satisfies Meta<typeof ProcessingStrip>;
 export default meta;

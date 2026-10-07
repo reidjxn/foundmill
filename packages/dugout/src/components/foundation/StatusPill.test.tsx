@@ -24,7 +24,7 @@ describe("StatusPill", () => {
     expect(agentStatusTone("healthy").tone).toBe("good");
     expect(agentStatusTone("degraded").tone).toBe("warn");
     expect(agentStatusTone("failing").tone).toBe("bad");
-    expect(agentStatusTone("injured").word).toBe("Injured");
+    expect(agentStatusTone("injured").word).toBe("Down");
     expect(agentStatusTone("paused").tone).toBe("neutral");
     render(<AgentStatusPill status="idle" />);
     expect(screen.getByText("Idle")).toBeTruthy();

@@ -120,6 +120,7 @@
   --spacing-kitbar: var(--kitbar-height);
   --spacing-tabbar: var(--tabbar-height);
   --spacing-rail: var(--right-rail-width);
+  --spacing-inbox-list: var(--inbox-list-width);
   --spacing-panel-header: var(--panel-header-height);
   --spacing-panel-pad: var(--panel-padding);
   --spacing-gutter: var(--gutter);

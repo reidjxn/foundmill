@@ -9,7 +9,7 @@ export interface BreadcrumbsProps extends HTMLAttributes<HTMLElement> {
   items: BreadcrumbItem[];
 }
 
-/** Small-style trail under the kit bar; the last item is the current page. */
+/** Small-style trail under the top bar; the last item is the current page. */
 export function Breadcrumbs({ items, className, ...rest }: BreadcrumbsProps) {
   if (items.length === 0) return null;
   return (

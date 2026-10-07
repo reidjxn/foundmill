@@ -1,9 +1,10 @@
+"use client";
 /**
  * Squad table cells (BUILD §11.9, DESIGN §9 Team): Form as five 8 px cells, Rating as display-sm, Model as a mono
- * chip, Tools as icons, Wage tabular, Status as a pill with the injured return time. Each cell is a plain component
+ * chip, Tools as icons, Wage tabular, Status as a pill with the expected-back time when an agent is down. Each cell is a plain component
  * usable in any table; `squadColumns()` wires them into DataTable column definitions.
  */
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { Bot, Calendar, Code2, Cpu, CreditCard, FileText, HardDrive, Mail, PenLine, Search, ShoppingBag, Wrench } from "lucide-react";
 import type { AgentStatus, ModelKey } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
@@ -68,7 +69,7 @@ export function RatingCell({ value, className }: { value: number; className?: st
 
 export const MODEL_LABELS: Record<ModelKey, string> = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
 
-export interface ModelChipProps {
+export interface ModelChipProps extends Omit<HTMLAttributes<HTMLSpanElement>, "onClick" | "children"> {
   model: ModelKey;
   /** Locked (e.g. the Inbox Composer is Opus-only): a lock word is appended. */
   locked?: boolean;
@@ -77,10 +78,13 @@ export interface ModelChipProps {
   className?: string;
 }
 
-/** Mono chip on bg-panel-alt with the model name (BUILD §11.10 "model chip in header, squad table, hover cards"). */
-export function ModelChip({ model, locked, onClick, className }: ModelChipProps) {
+/**
+ * Mono chip on bg-panel-alt with the model name (BUILD §11.10 "model chip in header, squad table, hover cards").
+ * Forwards every other span attribute (data-testid, aria-*, title) so hosts can hook e2e selectors onto it.
+ */
+export function ModelChip({ model, locked, onClick, className, ...rest }: ModelChipProps) {
   return (
-    <Chip tone="neutral" mono icon={Cpu} onClick={onClick} className={className} title={locked ? `${MODEL_LABELS[model]} (locked)` : `Model: ${MODEL_LABELS[model]}`}>
+    <Chip tone="neutral" mono icon={Cpu} onClick={onClick} className={className} title={locked ? `${MODEL_LABELS[model]} (locked)` : `Model: ${MODEL_LABELS[model]}`} {...rest}>
       {MODEL_LABELS[model]}
       {locked ? <span className="ml-1 text-secondary">· locked</span> : null}
     </Chip>
@@ -154,7 +158,7 @@ export interface StatusCellProps {
   className?: string;
 }
 
-/** Agent status pill; Injured shows the expected return once reconnected (BUILD §11.9). */
+/** Agent status pill; Down shows the expected return once reconnected (BUILD §11.9). */
 export function StatusCell({ status, expectedReturnAt, now = new Date(), className }: StatusCellProps) {
   return (
     <span className={cn("inline-flex items-center gap-1.5", className)}>

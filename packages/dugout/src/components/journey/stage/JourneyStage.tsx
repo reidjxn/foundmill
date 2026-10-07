@@ -1,3 +1,4 @@
+"use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, Pause, Play, RotateCcw, Star, Trophy, VolumeX } from "lucide-react";
 import { CHANNEL_META, type ChannelKey, type EntityKind, type MatchdayLevel } from "@foundmill/shared";
@@ -32,7 +33,7 @@ import {
   type StageName,
 } from "./schedule";
 
-export const LEVEL_WORD: Record<MatchdayLevel, string> = { friendly: "Friendly", league: "League match", cup: "Cup tie" };
+export const LEVEL_WORD: Record<MatchdayLevel, string> = { friendly: "Brief update", league: "Standard update", cup: "Featured update" };
 export const KIND_RESULT: Record<Journey["kind"], string> = { signup: "Signup", activation: "Activation", payment: "Customer won" };
 
 export interface JourneyStageProps {
@@ -53,7 +54,7 @@ export interface JourneyStageProps {
   onClose?: () => void;
   closeLabel?: string;
   currency?: string;
-  /** "pixi" (default) draws the Goal particle burst; "none" skips the canvas (tests, reduced motion). */
+  /** "pixi" (default) draws the win-moment particle burst; "none" skips the canvas (tests, reduced motion). */
   overlay?: "pixi" | "none";
   className?: string;
 }
@@ -179,10 +180,10 @@ function KickOff({ journey, touches }: { journey: Journey; touches: readonly Tou
   const span = Math.max(1, end - start);
   const captain = journey.captain?.touchId;
   return (
-    <Panelette title="Kick-off" className="h-full" data-stage-panel="kick_off">
+    <Panelette title="First touch" className="h-full" data-stage-panel="kick_off">
       <div className="flex flex-col gap-4" data-stage-panel="kick_off">
         <div className="flex items-baseline gap-3">
-          <span className="t-display-md">{journey.stats.firstTouchAt ? formatDateTime(journey.stats.firstTouchAt) : "Kick-off"}</span>
+          <span className="t-display-md">{journey.stats.firstTouchAt ? formatDateTime(journey.stats.firstTouchAt) : "First touch"}</span>
           <span className="text-small text-secondary">to {formatDateTime(journey.convertedAt)} · {formatDuration(span)}</span>
         </div>
         <div className="relative h-10">
@@ -197,7 +198,7 @@ function KickOff({ journey, touches }: { journey: Journey; touches: readonly Tou
             );
           })}
           <span className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2">
-            <Icon icon={Trophy} size="inline" className="text-gold" label="Conversion" />
+            <Icon icon={Trophy} size="inline" className="text-gold" label="Win" />
           </span>
         </div>
         <p className="text-small text-secondary">
@@ -224,7 +225,7 @@ function MatchFeed({ journey, touches, playedIds, commentaryShown, agents, onOpe
   }, [rows.length, commentaryShown.length]);
   return (
     <div className="grid grid-cols-[1fr_200px] gap-gutter" data-stage-panel="match">
-      <Panelette title="Match">
+      <Panelette title="Touches">
         <ol ref={feedRef} className="flex max-h-[420px] flex-col gap-3 overflow-y-auto pr-1" aria-live="polite" aria-relevant="additions">
           {rows.length === 0 ? <li className="text-small text-secondary">Waiting for the first touch…</li> : null}
           {rows.map((t, idx) => {
@@ -443,7 +444,7 @@ function FullTime({ journey, customer, agents, currency, onReplay, onClose, clos
   const sorted = [...journey.agents].sort((a, b) => b.rating - a.rating || b.contribution - a.contribution);
   return (
     <div className="grid grid-cols-[1fr_1fr] gap-gutter" data-stage-panel="full_time">
-      <Panelette title="Full time">
+      <Panelette title="Debrief">
         <div className="flex flex-col gap-3">
           <div>
             <span className="t-label">{KIND_RESULT[journey.kind]}</span>
@@ -501,7 +502,7 @@ function FullTime({ journey, customer, agents, currency, onReplay, onClose, clos
                     <span className="truncate">{a.name}</span>
                     {isPotm ? (
                       <Chip tone="gold" icon={Trophy}>
-                        Player of the match
+                        Standout agent
                       </Chip>
                     ) : null}
                   </span>
@@ -524,7 +525,7 @@ function FullTime({ journey, customer, agents, currency, onReplay, onClose, clos
 /* ---------- The stage ---------- */
 
 /**
- * Match Day (BUILD §11.4, DESIGN §8): Team sheet → Kick-off → Match → Rails → Goal → Full time, driven by a
+ * Customer Update (BUILD §11.4, DESIGN §8): Who was involved → First touch → Touches → Rails → Win moment → Debrief, driven by a
  * deterministic frame schedule (AC-11.4.3). Speeds Full / Highlights / Instant; a scrubber and pause; the stage
  * stepper jumps to any stage. Reduced motion renders the static summary (AC-11.4.5).
  */
@@ -569,7 +570,7 @@ export function JourneyStage({ journey, touches, customer, agents, kit, speed: s
     <header className="flex flex-wrap items-center gap-3 border-b border-subtle px-gutter py-2" style={{ ["--kit-primary" as string]: kit.primary, ["--kit-secondary" as string]: kit.secondary }}>
       <span className="inline-flex items-center gap-2">
         <Icon icon={Trophy} className="text-gold" />
-        <span className="t-label text-gold">Match Day</span>
+        <span className="t-label text-gold">Customer Update</span>
         <span className="t-display-sm">{LEVEL_WORD[journey.matchdayLevel]}</span>
         <span className="text-small text-secondary">
           {formatOrdinal(journey.nthOfKind)} {journey.kind}

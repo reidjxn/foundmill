@@ -1,4 +1,4 @@
-/** Formation Board logic (BUILD §11.7): lines, icons, pitch/bench grouping and the toggle. Pure. */
+/** Formation Board logic (BUILD §11.7): lines, icons, board/bench grouping and the toggle. Pure. */
 import { Calendar, FileText, Handshake, Mail, Mailbox, Megaphone, MessageSquareQuote, Mic, Newspaper, Radio, Search, Share2, Signpost, Star, Target } from "lucide-react";
 import { CHANNEL_LINES, CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared";
 import type { IconComponent } from "../foundation/Icon";
@@ -22,12 +22,12 @@ export const CHANNEL_ICONS: Record<ChannelKey, IconComponent> = {
   events: Calendar,
 };
 
-export const LINE_LABELS: Record<ChannelLine, string> = { attack: "Attack", midfield: "Midfield", defence: "Defence", wings: "Wings" };
+export const LINE_LABELS: Record<ChannelLine, string> = { attack: "Acquisition", midfield: "Engagement", defence: "Organic", wings: "Offline" };
 export const LINE_HINTS: Record<ChannelLine, string> = {
   attack: "Lead generation, paid advertising, affiliate",
   midfield: "Email, social, influencer, PR, events",
   defence: "SEO, GEO, content",
-  wings: "Offline: direct mail, print, broadcast, outdoor",
+  wings: "Direct mail, print, broadcast, outdoor",
 };
 
 export const FORM_WORDS: Record<FormCell, string> = { good: "under cap", warn: "near cap", bad: "over cap", none: "no data" };
@@ -40,7 +40,7 @@ export function channelLine(key: ChannelKey): ChannelLine {
   return CHANNEL_META[key].line;
 }
 
-/** Starters grouped by line in pitch order (Attack at the top, Wings at the bottom), each line by fit. */
+/** Active channels grouped by line in board order (Acquisition at the top, Offline at the bottom), each line by fit. */
 export function pitchLines(channels: readonly ChannelTokenData[]): ChannelLineGroup[] {
   return CHANNEL_LINES.map((line) => ({
     line,
@@ -49,7 +49,7 @@ export function pitchLines(channels: readonly ChannelTokenData[]): ChannelLineGr
   }));
 }
 
-/** Bench: everything not on the pitch, best fit first. */
+/** Bench: everything not on the board, best fit first. */
 export function benchChannels(channels: readonly ChannelTokenData[]): ChannelTokenData[] {
   return channels
     .filter((c) => !c.enabled)
@@ -64,7 +64,7 @@ export function toggleChannel(channels: readonly ChannelTokenData[], key: Channe
   return channels.map((c, idx) => (idx === i ? { ...c, enabled } : c));
 }
 
-/** Recommended channels in the order they walk onto the pitch (best fit first). */
+/** Recommended channels in the order they walk onto the board (best fit first). */
 export function entranceOrder(channels: readonly ChannelTokenData[]): ChannelKey[] {
   return channels
     .filter((c) => c.enabled)
@@ -73,6 +73,7 @@ export function entranceOrder(channels: readonly ChannelTokenData[]): ChannelKey
     .map((c) => c.key);
 }
 
+/** Internal zone keys (data-drop-zone); the user-facing words are "board" and "bench". */
 export type DropZone = "pitch" | "bench";
 
 /** Which drop zone is under a screen point, using `data-drop-zone` markers. */

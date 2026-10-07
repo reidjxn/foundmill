@@ -1,3 +1,4 @@
+"use client";
 import { Banknote, Diamond, Flag, Landmark, Rocket, Trophy } from "lucide-react";
 import type { MilestoneKind } from "@foundmill/shared";
 import { cn } from "../../../lib/cn";

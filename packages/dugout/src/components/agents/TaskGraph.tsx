@@ -1,3 +1,4 @@
+"use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type WheelEvent } from "react";
 import { Ban, CircleCheck, CircleDashed, CirclePause, CirclePlay, CircleX, Focus, GitMerge, Hourglass, Minus, Plus, SearchCheck, SquareDashed } from "lucide-react";
 import type { TaskStatus } from "@foundmill/shared";

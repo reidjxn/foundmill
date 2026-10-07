@@ -30,31 +30,30 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   ref,
 ) {
   const h = controlSize === "sm" ? "h-control-sm" : "h-control-md";
-  const input = (
-    <input
-      ref={ref}
-      aria-invalid={invalid || rest["aria-invalid"] || undefined}
-      className={cn(
-        inputBaseClass,
-        h,
-        icon ? "pl-7" : "pl-2",
-        trailing ? "pr-8" : "pr-2",
-        mono && "font-mono text-mono",
-        numeric && "text-right tabular-nums",
-        className,
-      )}
-      {...rest}
-    />
-  );
-  if (!icon && !trailing) return input;
+  // The wrapper is always rendered so toggling `icon` or `trailing` (a clear button that appears once there is text)
+  // never remounts the <input> and drops focus or the caret. It is full-width and shrinkable, so it behaves like the
+  // bare input did inside both block and flex parents.
   return (
-    <div className={cn("relative flex items-center", wrapperClassName)}>
+    <div className={cn("relative flex w-full min-w-0 items-center", wrapperClassName)} data-input-wrapper>
       {icon ? (
         <span className="pointer-events-none absolute left-2 inline-flex text-secondary">
           <Icon icon={icon} size="inline" />
         </span>
       ) : null}
-      {input}
+      <input
+        ref={ref}
+        aria-invalid={invalid || rest["aria-invalid"] || undefined}
+        className={cn(
+          inputBaseClass,
+          h,
+          icon ? "pl-7" : "pl-2",
+          trailing ? "pr-8" : "pr-2",
+          mono && "font-mono text-mono",
+          numeric && "text-right tabular-nums",
+          className,
+        )}
+        {...rest}
+      />
       {trailing ? <span className="absolute right-2 inline-flex items-center text-secondary">{trailing}</span> : null}
     </div>
   );

@@ -1,3 +1,4 @@
+"use client";
 import { createContext, forwardRef, useContext, type ReactNode } from "react";
 import type { ShellLinkProps, ShellLinkRenderer } from "./types";
 

@@ -1,5 +1,5 @@
 /**
- * Journey group types (BUILD §11.2 Ribbon, §11.4 Match Day, §11.1 concept cards, DESIGN §8–9).
+ * Journey group types (BUILD §11.2 Ribbon, §11.4 Customer Update, §11.1 concept cards, DESIGN §8–9).
  *
  * The record shapes mirror `@foundmill/journey` (`packages/journey/src/types.ts`) field for field —
  * JourneyDailyRow, Conversion, Milestone, Chapter, Touch, XcPoint, JourneyAgent, Journey — so a value from that
@@ -12,7 +12,7 @@ import type { Kit } from "../shell/types";
 export type DayKey = string; // YYYY-MM-DD (UTC)
 export type IsoDateTime = string;
 
-/** Business kit colours as hex (business data, not design tokens). The shell owns the declaration. */
+/** Business brand colours as hex (business data, not design tokens). The shell owns the declaration. */
 export type { Kit } from "../shell/types";
 
 /* ---------- Daily rows, conversions, milestones, chapters (journey_daily, conversions, milestones) ---------- */
@@ -241,7 +241,7 @@ export interface Journey {
   currency?: string;
 }
 
-/** Customer facts shown on the Match Day rails (left). */
+/** Customer facts shown on the Customer Update rails (left). */
 export interface CustomerFacts {
   name: string;
   kind?: "person" | "organisation";
@@ -321,7 +321,7 @@ export interface Concept {
 export const CONCEPT_ACTIONS = ["shortlist", "merge", "fork", "ask", "discard"] as const;
 export type ConceptAction = (typeof CONCEPT_ACTIONS)[number];
 
-/* ---------- Department cards, squad pulse, trophies (BUILD §11.2, §11.4) ---------- */
+/* ---------- Department cards, squad pulse, milestones (BUILD §11.2, §11.4) ---------- */
 
 export type HealthTone = "good" | "warn" | "bad";
 

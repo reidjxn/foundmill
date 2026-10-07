@@ -1,3 +1,4 @@
+"use client";
 import type { HTMLAttributes, ReactNode } from "react";
 import { Circle } from "lucide-react";
 import { cn } from "../../lib/cn";

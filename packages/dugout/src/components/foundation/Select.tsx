@@ -1,3 +1,4 @@
+"use client";
 import { forwardRef, type ComponentPropsWithoutRef, type ElementRef, type ReactNode } from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";

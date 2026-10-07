@@ -1,3 +1,4 @@
+"use client";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Command } from "cmdk";
 import { Bot, Building2, ChevronRight, Globe, Inbox, LayoutGrid, MapPin, Search, Terminal, UserCog, User, Users, type LucideIcon } from "lucide-react";

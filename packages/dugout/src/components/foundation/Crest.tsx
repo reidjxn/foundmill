@@ -6,7 +6,7 @@ import { createRng } from "../../lib/seed";
 export interface CrestSpec {
   /** Any string or number; the same seed always draws the same crest. */
   seed: string | number;
-  /** Kit colours as hex (business data, not design tokens). */
+  /** Brand colours as hex (business data, not design tokens). */
   kitPrimary: string;
   kitSecondary: string;
   /** 1–2 letters. Longer strings are cut to 2. */

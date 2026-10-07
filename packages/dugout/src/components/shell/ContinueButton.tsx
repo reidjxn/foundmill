@@ -1,3 +1,4 @@
+"use client";
 import { forwardRef, useEffect, useRef, useState, type ReactNode } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { ArrowRight, CircleAlert, Pause, Play, TreePalm, Undo2 } from "lucide-react";
@@ -20,7 +21,7 @@ export interface ContinueHandlers {
   onRespond?: () => void;
   /** processing: pause the running cycle. */
   onPause?: () => void;
-  /** matchday: open the Journey. */
+  /** matchday (a Customer Update is ready): open the Journey. */
   onGoToJourney?: () => void;
   /** holiday: end the holiday early. */
   onComeBack?: () => void;
@@ -78,7 +79,7 @@ export function continueButtonAction(state: ContinueState, handlers: ContinueHan
 
 /**
  * The Continue button (BUILD §5.4, DESIGN §7). At rest a kit-primary fill; blocked is status-bad "Respond · N";
- * processing shows a spinner, "Pause" and a 2 px sweep along the bottom edge; Match Day is gold; holiday is neutral
+ * processing shows a spinner, "Pause" and a 2 px sweep along the bottom edge; Customer Update is gold; holiday is neutral
  * with the caption and "Come back".
  */
 export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>(function ContinueButton(

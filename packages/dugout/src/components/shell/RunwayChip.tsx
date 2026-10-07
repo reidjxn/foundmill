@@ -39,7 +39,7 @@ export interface RunwayChipProps {
 
 const TONE_CLASS: Record<RunwayTone, ChipTone> = { neutral: "ink", warn: "warn", bad: "bad" };
 
-/** Date + runway chip for the kit bar: "7 Oct 2026 · Runway 11 mo". The tone follows the runway horizon rule. */
+/** Date + runway chip for the top bar: "7 Oct 2026 · Runway 11 mo". The tone follows the runway horizon rule. */
 export function RunwayChip({ date, runwayMonths, cash, estimate = true, onClick, className }: RunwayChipProps) {
   const tone = runwayTone(runwayMonths);
   const runway = formatRunway(runwayMonths);

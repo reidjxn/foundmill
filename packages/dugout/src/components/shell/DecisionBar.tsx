@@ -1,3 +1,4 @@
+"use client";
 import { forwardRef, useId, useState, type FormEvent, type HTMLAttributes, type ReactNode } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { CircleCheck, Play, RotateCcw, ThumbsUp, TriangleAlert } from "lucide-react";

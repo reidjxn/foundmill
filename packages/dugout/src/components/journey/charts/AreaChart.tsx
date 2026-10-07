@@ -1,3 +1,4 @@
+"use client";
 import { useMemo, type PointerEvent } from "react";
 import { AxisBottom, AxisLeft } from "@visx/axis";
 import { curveMonotoneX } from "@visx/curve";

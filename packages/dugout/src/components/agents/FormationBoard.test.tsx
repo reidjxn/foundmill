@@ -9,7 +9,7 @@ import { mockChannels } from "./mock";
 const channels = mockChannels();
 
 describe("formation logic", () => {
-  it("groups starters by line in pitch order and benches the rest by fit", () => {
+  it("groups active channels by line in board order and benches the rest by fit", () => {
     const lines = pitchLines(channels);
     expect(lines.map((l) => l.line)).toEqual(["attack", "midfield", "defence", "wings"]);
     expect(lines[0]!.channels.map((c) => c.key)).toEqual(["paid_ads"]);
@@ -48,27 +48,27 @@ describe("FormGuide", () => {
 });
 
 describe("FormationBoard", () => {
-  it("renders four labelled lines, starters on the pitch and the bench sentence", () => {
+  it("renders four labelled lines, active channels on the board and the bench sentence", () => {
     const onToggle = vi.fn();
     render(<FormationBoard channels={channels} onToggle={onToggle} animateEntrance={false} hoverCards={false} />);
-    const pitch = screen.getByRole("group", { name: /Pitch/ });
-    expect(within(pitch).getByRole("group", { name: /Attack line/ })).toBeTruthy();
-    expect(within(pitch).getByRole("group", { name: /Wings line/ })).toBeTruthy();
+    const pitch = screen.getByRole("group", { name: /Board: active channels/ });
+    expect(within(pitch).getByRole("group", { name: /Acquisition line/ })).toBeTruthy();
+    expect(within(pitch).getByRole("group", { name: /Offline line/ })).toBeTruthy();
     expect(within(pitch).getAllByRole("button")).toHaveLength(4);
     const bench = screen.getByRole("group", { name: /Bench: All 15 channels are available/ });
     expect(within(bench).getAllByRole("button")).toHaveLength(11);
-    const paid = within(pitch).getByRole("button", { name: /Paid advertising, fit 17 of 20 \(Excellent\), recommended, on the pitch/ });
+    const paid = within(pitch).getByRole("button", { name: /Paid advertising, fit 17 of 20 \(Excellent\), recommended, on the board/ });
     expect(paid.getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("Enter toggles a token between pitch and bench, O opens the channel", () => {
+  it("Enter toggles a token between board and bench, O opens the channel", () => {
     const onToggle = vi.fn();
     const onOpenChannel = vi.fn();
     render(<FormationBoard channels={channels} onToggle={onToggle} onOpenChannel={onOpenChannel} animateEntrance={false} hoverCards={false} />);
     const seo = screen.getByRole("button", { name: /^SEO,/ });
     fireEvent.keyDown(seo, { key: "Enter" });
     expect(onToggle).toHaveBeenCalledWith("seo", true);
-    expect(screen.getByText(/SEO moved to the pitch/)).toBeTruthy();
+    expect(screen.getByText(/SEO moved to the board/)).toBeTruthy();
     fireEvent.keyDown(screen.getByRole("button", { name: /^Social media,/ }), { key: " " });
     expect(onToggle).toHaveBeenCalledWith("social", false);
     expect(screen.getByText(/Social media moved to the bench/)).toBeTruthy();
@@ -76,7 +76,7 @@ describe("FormationBoard", () => {
     expect(onOpenChannel).toHaveBeenCalledWith("seo");
   });
 
-  it("drags a bench token onto the pitch and treats a still pointer as a click", () => {
+  it("drags a bench token onto the board and treats a still pointer as a click", () => {
     const onToggle = vi.fn();
     const onOpenChannel = vi.fn();
     const { container } = render(<FormationBoard channels={channels} onToggle={onToggle} onOpenChannel={onOpenChannel} animateEntrance={false} hoverCards={false} />);
@@ -108,7 +108,7 @@ describe("FormationBoard", () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
 
-    it("recommended tokens start on the bench and walk onto the pitch one by one", () => {
+    it("recommended tokens start on the bench and walk onto the board one by one", () => {
       const { container } = render(<FormationBoard channels={channels} onToggle={vi.fn()} hoverCards={false} />);
       const pitch = () => container.querySelector('[data-drop-zone="pitch"]') as HTMLElement;
       expect(within(pitch()).queryAllByRole("button")).toHaveLength(0);

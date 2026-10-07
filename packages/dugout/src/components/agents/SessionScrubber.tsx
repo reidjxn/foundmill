@@ -1,3 +1,4 @@
+"use client";
 import { useEffect, useMemo, useRef } from "react";
 import { FileCode2, Flag, FlaskConical, Hourglass, Megaphone, Pause, Play, SkipBack, SkipForward, TriangleAlert } from "lucide-react";
 import { cn } from "../../lib/cn";

@@ -35,13 +35,13 @@ export const Composed: Story = {
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            <SelectLabel>Attack</SelectLabel>
+            <SelectLabel>Acquisition</SelectLabel>
             <SelectItem value="lead_generation">Lead generation</SelectItem>
             <SelectItem value="paid_ads">Paid advertising</SelectItem>
           </SelectGroup>
           <SelectSeparator />
           <SelectGroup>
-            <SelectLabel>Defence</SelectLabel>
+            <SelectLabel>Organic</SelectLabel>
             <SelectItem value="seo">SEO</SelectItem>
             <SelectItem value="content">Content marketing</SelectItem>
           </SelectGroup>

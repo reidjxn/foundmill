@@ -1,3 +1,4 @@
+"use client";
 import { useId, useState } from "react";
 import { Megaphone, MessageSquareText } from "lucide-react";
 import { Button } from "../foundation/Button";

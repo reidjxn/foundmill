@@ -16,7 +16,7 @@ function setReducedMotion(matches: boolean) {
 afterEach(() => setReducedMotion(false));
 
 describe("JourneyStage", () => {
-  it("starts on the team sheet with the captain starred and steps through every stage", async () => {
+  it("starts on Who was involved with the captain starred and steps through every stage", async () => {
     const user = userEvent.setup();
     const onOpenEntity = vi.fn();
     const { container } = render(<JourneyStage journey={fx.journey} touches={fx.touches} customer={fx.customer} agents={fx.agents} kit={NORTHWIND_KIT} autoplay={false} overlay="none" onOpenEntity={onOpenEntity} />);
@@ -24,11 +24,11 @@ describe("JourneyStage", () => {
     expect(root.getAttribute("data-stage")).toBe("team_sheet");
     expect(root.getAttribute("data-schedule-hash")).toBe(buildReplaySchedule(fx.journey, fx.touches, "full").hash);
     expect(screen.getAllByLabelText("Captain").length).toBe(2);
-    expect(screen.getByText("Cup tie")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Kick-off" }));
+    expect(screen.getByText("Featured update")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "First touch" }));
     expect(root.getAttribute("data-stage")).toBe("kick_off");
     expect(container.querySelector("[data-stage-panel='kick_off']")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Match" }));
+    await user.click(screen.getByRole("button", { name: "Touches" }));
     expect(container.querySelectorAll("[data-touch-row]").length).toBe(fx.touches.length);
     await user.click(screen.getAllByRole("link", { name: "Nordic Beauty AB" })[0] as HTMLElement);
     expect(onOpenEntity).toHaveBeenCalledWith(fx.journey.entityId);
@@ -39,18 +39,18 @@ describe("JourneyStage", () => {
     expect(screen.getByRole("img", { name: /Expected conversion over the journey/ })).toBeTruthy();
     fireEvent.keyDown(screen.getByRole("tablist", { name: "Stat panels" }), { key: "ArrowRight" });
     expect(container.querySelector("[data-rail-panel='attribution']")).toBeTruthy();
-    await user.click(screen.getByRole("button", { name: "Goal" }));
+    await user.click(screen.getByRole("button", { name: "Win moment" }));
     expect(container.querySelector("[data-stage-panel='goal']")).toBeTruthy();
     expect(screen.getByText("Customer won")).toBeTruthy();
     expect(screen.getAllByText("Sound off").length).toBeGreaterThan(0);
-    await user.click(screen.getByRole("button", { name: "Full time" }));
+    await user.click(screen.getByRole("button", { name: "Debrief" }));
     expect(container.querySelectorAll("[data-agent-rating]").length).toBe(3);
-    expect(screen.getByText("Player of the match")).toBeTruthy();
+    expect(screen.getByText("Standout agent")).toBeTruthy();
     expect(screen.getByLabelText("Rating 10 of 10")).toBeTruthy();
     expect(screen.getAllByText("Estimate").length).toBeGreaterThan(0);
   });
 
-  it("Instant speed lands on full time at once and speed changes are reported", async () => {
+  it("Instant speed lands on the debrief at once and speed changes are reported", async () => {
     const user = userEvent.setup();
     const onSpeedChange = vi.fn();
     const { container } = render(<JourneyStage journey={fx.journey} touches={fx.touches} customer={fx.customer} kit={NORTHWIND_KIT} defaultSpeed="instant" onSpeedChange={onSpeedChange} overlay="none" />);
@@ -111,7 +111,7 @@ describe("MatchdayRoundupTable", () => {
     expect(screen.getByText("1 payments · 1 activations · 1 signups")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Time" }));
     expect(ids()).toEqual(["c1", "c3", "c2"]);
-    await user.click(screen.getByRole("button", { name: "Result" }));
+    await user.click(screen.getByRole("button", { name: "Win" }));
     expect(ids()[0]).toBe("c2");
     await user.click(screen.getByRole("button", { name: "Replay payment for Alma Botanics" }));
     expect(onOpenReplay).toHaveBeenCalledWith("c2");
@@ -121,6 +121,6 @@ describe("MatchdayRoundupTable", () => {
   });
   it("shows an empty state", () => {
     render(<MatchdayRoundupTable rows={[]} onOpenReplay={() => {}} />);
-    expect(screen.getByRole("status").textContent).toContain("Results that do not get a full Match Day");
+    expect(screen.getByRole("status").textContent).toContain("Wins that do not get a full Customer Update");
   });
 });

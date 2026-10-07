@@ -1,10 +1,11 @@
+"use client";
 import { useEffect, useRef } from "react";
 import type { Application } from "pixi.js";
 import { createRng } from "../../../lib/seed";
 import { cn } from "../../../lib/cn";
 
 /**
- * The Goal moment's particle burst (DESIGN §7): a PixiJS 8 ParticleContainer of a few hundred particles in
+ * The win moment's particle burst (DESIGN §7): a PixiJS 8 ParticleContainer of a few hundred particles in
  * kit-secondary and gold, fired from the centre and falling for 1.2 s. Deterministic from `seed`. pixi.js is
  * imported lazily; when the renderer cannot start nothing is drawn (the static gold card carries the facts).
  */

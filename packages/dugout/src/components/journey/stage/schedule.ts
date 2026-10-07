@@ -1,5 +1,5 @@
 /**
- * Match Day frame schedule (BUILD §11.4 "Replay stages", AC-11.4.3).
+ * Customer Update frame schedule (BUILD §11.4 "Replay stages", AC-11.4.3).
  *
  * A pure function of the journey record, its touches and the chosen speed: the same record always produces the
  * same frames (no clock, no randomness, order-independent input). The stage component only reads the clock and
@@ -12,17 +12,17 @@ export const STAGE_ORDER = ["team_sheet", "kick_off", "match", "rails", "goal", 
 export type StageName = (typeof STAGE_ORDER)[number];
 
 export const STAGE_LABELS: Record<StageName, string> = {
-  team_sheet: "Team sheet",
-  kick_off: "Kick-off",
-  match: "Match",
+  team_sheet: "Who was involved",
+  kick_off: "First touch",
+  match: "Touches",
   rails: "Rails",
-  goal: "Goal",
-  full_time: "Full time",
+  goal: "Win moment",
+  full_time: "Debrief",
 };
 
 export const REPLAY_SPEEDS = ["full", "highlights", "instant"] as const;
 export type ReplaySpeed = (typeof REPLAY_SPEEDS)[number];
-export const REPLAY_SPEED_LABELS: Record<ReplaySpeed, string> = { full: "Full match", highlights: "Highlights", instant: "Instant" };
+export const REPLAY_SPEED_LABELS: Record<ReplaySpeed, string> = { full: "Full replay", highlights: "Highlights", instant: "Instant" };
 
 /** Stage budgets in ms. Full 54 s (45–60), Highlights 12.5 s (10–15), Instant 0 (BUILD §11.4 "Speed"). */
 export const SPEED_BUDGETS: Record<ReplaySpeed, Record<StageName, number>> = {
@@ -166,7 +166,7 @@ function frameKey(f: ReplayFrame): string {
   return `c:${f.commentaryIndex}`;
 }
 
-/** The stage on screen at `timeMs`. Past the end (or for Instant) it is full time. */
+/** The stage on screen at `timeMs`. Past the end (or for Instant) it is the debrief. */
 export function stageAt(schedule: ReplaySchedule, timeMs: number): StageName {
   if (schedule.durationMs === 0 || timeMs >= schedule.durationMs) return "full_time";
   let current: StageName = "team_sheet";

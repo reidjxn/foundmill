@@ -70,7 +70,7 @@ describe("JourneyRibbon", () => {
     expect(root.getAttribute("data-zoom")).toBe("quarter");
   });
 
-  it("opens a Match Day from a single payment marker and a day from a bucket", async () => {
+  it("opens a Customer Update from a single payment marker and a day from a bucket", async () => {
     const user = userEvent.setup();
     const { onOpenJourney, onOpenDay, container } = renderRibbon({ defaultZoom: "week" });
     const single = container.querySelector("[data-marker='payment'][data-count='1']") as SVGGElement | null;

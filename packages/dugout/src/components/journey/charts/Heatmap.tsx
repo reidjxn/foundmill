@@ -1,3 +1,4 @@
+"use client";
 import { cn } from "../../../lib/cn";
 import { formatNumber } from "../../../lib/format";
 import { ChartTooltip, Responsive, toneVar, useChartTooltip, type SeriesTone } from "./common";

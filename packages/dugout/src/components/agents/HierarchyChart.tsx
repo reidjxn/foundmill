@@ -1,3 +1,4 @@
+"use client";
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "../../lib/cn";
 import { Avatar } from "../foundation/Avatar";

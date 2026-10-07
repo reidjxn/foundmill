@@ -1,3 +1,4 @@
+"use client";
 import { ArrowDownToLine, ArrowUpToLine, ExternalLink, Pause, Play } from "lucide-react";
 import { CHANNEL_META, type ChannelKey } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
@@ -43,9 +44,9 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         {channel.recommended ? <Chip tone="kit">Recommended</Chip> : null}
-        <Chip tone={channel.enabled ? "good" : "neutral"}>{channel.enabled ? "On the pitch" : "On the bench"}</Chip>
+        <Chip tone={channel.enabled ? "good" : "neutral"}>{channel.enabled ? "On the board" : "On the bench"}</Chip>
         {channel.paused ? <Chip tone="warn">Paused</Chip> : null}
-        {meta.kitModeByDefault ? <Chip tone="info">Kit mode</Chip> : null}
+        {meta.kitModeByDefault ? <Chip tone="info">Offline tracking</Chip> : null}
       </div>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
         {channel.potential !== undefined ? (
@@ -106,7 +107,7 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
           ) : null}
           {onToggle ? (
             <Button size="sm" icon={channel.enabled ? ArrowDownToLine : ArrowUpToLine} onClick={() => onToggle(channel.key, !channel.enabled)}>
-              {channel.enabled ? "Move to bench" : "Move to pitch"}
+              {channel.enabled ? "Move to bench" : "Move to board"}
             </Button>
           ) : null}
           {onPause && channel.enabled ? (

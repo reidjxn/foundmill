@@ -1,3 +1,4 @@
+"use client";
 import { useMemo } from "react";
 import { AxisBottom, AxisLeft } from "@visx/axis";
 import { Group } from "@visx/group";

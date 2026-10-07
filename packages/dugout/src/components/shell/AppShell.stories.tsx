@@ -22,7 +22,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Sidebar left, kit bar top, processing strip, tab bar, content grid, optional right rail (BUILD §5.3). The kit is applied as CSS variables on the root; the keyboard map (BUILD §5.5) is bound; / and ⌘K open the command palette, ? opens the keyboard help. Below 1280 px only NeedsLargerWindow renders.",
+          "Sidebar left, top bar (KitBar), processing strip, tab bar, content grid, optional right rail (BUILD §5.3). The kit is applied as CSS variables on the root; the keyboard map (BUILD §5.5) is bound; / and ⌘K open the command palette, ? opens the keyboard help. Below 1280 px only NeedsLargerWindow renders.",
       },
     },
   },
@@ -113,7 +113,7 @@ function HomeContent() {
       <StatTile icon={TrendingUp} label="Revenue (30 d)" value={formatMoney({ amountMinor: 1120000, currency: "EUR" })} caption="▲ 8.4 % vs previous 30 d" />
       <StatTile icon={Users} label="Customers this week" value="23" caption="4 from Nordic Beauty AB" />
       <StatTile icon={CircleCheck} label="Business health" value="86" caption="3 warnings" />
-      <StatTile icon={Trophy} label="League position" value="14th" caption="DTC skincare · 212 clubs" />
+      <StatTile icon={Trophy} label="Leaderboard position" value="14th" caption="DTC skincare · 212 clubs" />
       {DEPARTMENTS.map((d) => (
         <DepartmentCard key={d.id} d={d} />
       ))}
@@ -235,8 +235,8 @@ export const ContinueProcessing: Story = {
   args: { ...baseArgs, continueButton: { state: { kind: "processing" } } },
   render: (args) => <Shell {...args} />,
 };
-export const ContinueMatchDay: Story = {
-  name: "Continue · Match Day",
+export const ContinueCustomerUpdate: Story = {
+  name: "Continue · Customer Update",
   args: { ...baseArgs, continueButton: { state: { kind: "matchday" } }, processing: { segments: NORTHWIND_SEGMENTS, active: false } },
   render: (args) => <Shell {...args} />,
 };
@@ -260,8 +260,8 @@ export const WithTabsAndBreadcrumbs: Story = {
     </Shell>
   ),
 };
-export const SecondKit: Story = {
-  name: "Another kit (Ledgerly)",
+export const SecondBrandColours: Story = {
+  name: "Other brand colours (Ledgerly)",
   args: { ...baseArgs, kit: { primary: "#1F6F5F", secondary: "#E8C56B" }, businessName: "Ledgerly", crest: { seed: "ledgerly", monogram: "L" } },
   render: (args) => <Shell {...args} />,
 };

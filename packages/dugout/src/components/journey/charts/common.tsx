@@ -1,3 +1,4 @@
+"use client";
 import { useCallback, useState, type ReactNode } from "react";
 import { ParentSize } from "@visx/responsive";
 import type { DeptColourToken } from "@foundmill/shared";

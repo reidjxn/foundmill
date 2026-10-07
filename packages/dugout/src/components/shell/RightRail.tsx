@@ -1,3 +1,4 @@
+"use client";
 import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { cn } from "../../lib/cn";

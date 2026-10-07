@@ -1,3 +1,4 @@
+"use client";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
@@ -92,7 +93,7 @@ export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJo
           ) : null}
           {summary.conversions.length > 0 ? (
             <div>
-              <span className="t-label">Matches</span>
+              <span className="t-label">Wins</span>
               <ul className="mt-1 flex flex-col divide-y divide-subtle/50">
                 {summary.conversions.slice(0, 8).map((c) => (
                   <li key={c.id} className="flex h-row-compact items-center gap-2">
@@ -100,7 +101,7 @@ export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJo
                     <Chip tone={c.kind === "payment" ? "gold" : c.kind === "activation" ? "info" : "neutral"}>{KIND_WORD[c.kind]}</Chip>
                     <span className="min-w-0 flex-1 truncate">{c.entityId && c.entityName ? <EntityText text={`[[ent:${c.entityId}|${c.entityName}]]`} kinds={entityKinds} onOpenEntity={onOpenEntity} /> : (c.entityName ?? "Anonymous")}</span>
                     {c.kind === "payment" ? <span className="tabular-nums">{formatMoney({ amountMinor: c.amountMinor, currency: c.currency })}</span> : null}
-                    <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={() => onOpenJourney?.(c.id)} aria-label={`Open the Match Day for ${c.entityName ?? KIND_WORD[c.kind]}`}>
+                    <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={() => onOpenJourney?.(c.id)} aria-label={`Open the Customer Update for ${c.entityName ?? KIND_WORD[c.kind]}`}>
                       Replay
                     </Button>
                   </li>

@@ -1,3 +1,4 @@
+"use client";
 import { forwardRef, type ComponentPropsWithoutRef, type ElementRef } from "react";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 import { cn } from "../../lib/cn";

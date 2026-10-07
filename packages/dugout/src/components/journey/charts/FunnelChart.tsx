@@ -1,3 +1,4 @@
+"use client";
 import { cn } from "../../../lib/cn";
 import { formatNumber, formatPercent } from "../../../lib/format";
 import { ProvenanceChip } from "../../foundation/Chip";

@@ -1,3 +1,4 @@
+"use client";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { LayoutGrid, Network } from "lucide-react";
 import type { AgentStatus, DeptColourToken } from "@foundmill/shared";

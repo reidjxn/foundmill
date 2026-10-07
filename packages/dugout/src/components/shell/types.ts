@@ -6,7 +6,7 @@ import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode, Ref } from "r
 import type { BusinessMode, DeptColourToken, GameMode } from "@foundmill/shared";
 import type { IconComponent } from "../foundation/Icon";
 
-/** Business kit colours as hex (business data, not design tokens). */
+/** Business brand colours as hex (business data, not design tokens). The `Kit` name is the internal identifier; copy says "brand colours". */
 export interface Kit {
   primary: string;
   secondary: string;

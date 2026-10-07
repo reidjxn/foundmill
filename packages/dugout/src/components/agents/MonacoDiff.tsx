@@ -1,3 +1,4 @@
+"use client";
 /**
  * Monaco DiffEditor body (lazy chunk: import this file only through `React.lazy`). Uses the locally installed
  * `monaco-editor` through `loader.config({ monaco })`, never the loader's CDN default, and defines an ink theme from

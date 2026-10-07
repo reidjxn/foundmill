@@ -33,9 +33,9 @@ describe("squad cells", () => {
     expect(screen.getByText("+2")).toBeTruthy();
   });
 
-  it("StatusCell shows the expected return for injured agents", () => {
+  it("StatusCell shows the expected return for agents that are down", () => {
     render(<StatusCell status="injured" expectedReturnAt="2026-10-07T12:00:00Z" now={new Date("2026-10-07T09:00:00Z")} />);
-    expect(screen.getByText("Injured")).toBeTruthy();
+    expect(screen.getByText("Down")).toBeTruthy();
     expect(screen.getByText(/back in 3 hr/)).toBeTruthy();
   });
 

@@ -1,3 +1,4 @@
+"use client";
 import { Component, Suspense, lazy, useMemo, useState, type ReactNode } from "react";
 import { Columns2, FileCode2, FileMinus2, FilePen, FilePlus2, Rows3 } from "lucide-react";
 import { cn } from "../../lib/cn";

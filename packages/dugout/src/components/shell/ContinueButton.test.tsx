@@ -39,7 +39,7 @@ describe("ContinueButton", () => {
     expect(handlers.onComeBack).toHaveBeenCalledTimes(1);
   });
 
-  it("renders processing with Pause and a sweep, Match Day in gold", () => {
+  it("renders processing with Pause and a sweep, Customer Update in gold", () => {
     const { rerender } = render(<ContinueButton state={{ kind: "processing" }} />);
     const pause = screen.getByRole("button", { name: "Pause the running cycle" });
     expect(pause.getAttribute("data-continue-state")).toBe("processing");

@@ -1,3 +1,4 @@
+"use client";
 import { useMemo, useState, type ReactNode } from "react";
 import { CircleHelp, Plus } from "lucide-react";
 import type { EntityKind } from "@foundmill/shared";

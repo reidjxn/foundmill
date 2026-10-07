@@ -621,7 +621,7 @@ export const DEMO_WIDGET_REGISTRY: WidgetRegistryEntry[] = [
   },
   {
     key: "league_table",
-    title: "League table",
+    title: "Leaderboard",
     description: "LIVE only.",
     icon: Building2,
     defaultSize: { w: 4, h: 24 },

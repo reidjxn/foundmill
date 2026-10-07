@@ -30,10 +30,10 @@ type Story = StoryObj<typeof meta>;
 export const Idle: Story = {};
 export const Blocked: Story = { args: { continueButton: { state: { kind: "blocked", count: 3 } }, runwayMonths: 5.5 } };
 export const Processing: Story = { args: { continueButton: { state: { kind: "processing" } } } };
-export const MatchDay: Story = { args: { continueButton: { state: { kind: "matchday" } } } };
+export const CustomerUpdate: Story = { args: { continueButton: { state: { kind: "matchday" } } } };
 export const Holiday: Story = { args: { businessMode: "automated", continueButton: { state: { kind: "holiday", until: "2026-10-21" } } } };
-export const LightKit: Story = {
-  name: "Light kit → dark text",
+export const LightBrandColour: Story = {
+  name: "Light brand colour → dark text",
   args: { kit: { primary: "#F5B841", secondary: "#0F1318" }, businessName: "Aurora Candles", crest: { seed: "aurora", monogram: "AU" }, businessMode: "augmented", gameMode: "personal", runwayMonths: 8 },
 };
 export const Ledgerly: Story = { args: { kit: LEDGERLY_KIT, businessName: "Ledgerly", crest: { seed: "ledgerly", monogram: "L" }, screenTitle: "Finance · Runway", runwayMonths: null } };

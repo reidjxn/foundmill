@@ -1,3 +1,4 @@
+"use client";
 import { useEffect, useRef, type CSSProperties } from "react";
 import type { Terminal as XTerminal } from "@xterm/xterm";
 import type { FitAddon as XFitAddon } from "@xterm/addon-fit";

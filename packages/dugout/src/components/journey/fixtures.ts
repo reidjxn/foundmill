@@ -172,7 +172,7 @@ export function generateJourneyFixture(opts: { days?: number; today?: string; se
     if (offset < 0 || offset >= days) return;
     milestones.push({ id: seededUuid(rng), kind, label, achievedAt: `${day(addDays(kickoffDate, offset))}T10:00:00.000Z` });
   };
-  banner(0, "launch", "Kick-off");
+  banner(0, "launch", "Launch day");
   banner(Math.min(12, days - 1), "incorporation", "Northwind Skincare AB incorporated");
   launches.forEach((l, i) => banner(l, "release", ["Retinol serum v1", "Bundle builder", "Subscription plans", "Retail pack"][i] ?? "Release"));
   banner(Math.floor(days * 0.3), "decision", "Chose DTC over wholesale");
@@ -227,7 +227,7 @@ export function fixtureDaysBetween(a: string, b: string): number {
   return differenceInCalendarDays(parseISO(b), parseISO(a));
 }
 
-/* ---------- Match Day fixture ---------- */
+/* ---------- Customer Update fixture ---------- */
 
 export const STAGE_AGENTS: StageAgentMeta[] = [
   { agentId: "a-scout", seed: "scout", dept: "dept-3", status: "healthy", model: "sonnet" },
@@ -242,7 +242,7 @@ export interface MatchDayFixture {
   agents: StageAgentMeta[];
 }
 
-/** A cup tie: Nordic Beauty AB's first payment after nine touches across four channels. */
+/** A featured update: Nordic Beauty AB's first payment after nine touches across four channels. */
 export function matchDayFixture(seed = "matchday"): MatchDayFixture {
   const rng = createRng(seed);
   const entityId = seededUuid(rng);

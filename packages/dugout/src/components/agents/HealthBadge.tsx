@@ -28,7 +28,7 @@ export function healthSummary(status: AgentStatus, details: HealthDetails = {}, 
   return parts.join(" · ");
 }
 
-/** Health (BUILD §9.10, §11.9): the status pill plus heartbeat, error rate, loop flag and, when injured, the expected return. */
+/** Health (BUILD §9.10, §11.9): the status pill plus heartbeat, error rate, loop flag and, when down, the expected return. */
 export function HealthBadge({ status, details = {}, now = new Date(), inline, className }: HealthBadgeProps) {
   const summary = healthSummary(status, details, now);
   const pill = (

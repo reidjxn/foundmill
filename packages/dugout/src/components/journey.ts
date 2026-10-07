@@ -1,4 +1,4 @@
-// Journey components (stage 2): BUILD §11.2 Ribbon + Home widgets, §11.4 Match Day, §11.1 concept cards, charts for exhibits and Finance.
+// Journey components (stage 2): BUILD §11.2 Ribbon + Home widgets, §11.4 Customer Update, §11.1 concept cards, charts for exhibits and Finance.
 export * from "./journey/types";
 export * from "./journey/ribbon/geometry";
 export * from "./journey/ribbon/OnThisDayCard";

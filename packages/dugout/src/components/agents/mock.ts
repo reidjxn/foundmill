@@ -325,7 +325,7 @@ function formFor(rng: Rng, fit: number): FormCell[] {
   });
 }
 
-/** Fifteen channels scored for a DTC skincare business; the four highest are recommended and start on the pitch. */
+/** Fifteen channels scored for a DTC skincare business; the four highest are recommended and start on the board. */
 export function mockChannels(seedKey = "northwind", opts: { enabledFromRecommendation?: boolean } = {}): ChannelTokenData[] {
   const rng = createRng(`channels:${seedKey}`);
   const fits: Record<ChannelKey, number> = {

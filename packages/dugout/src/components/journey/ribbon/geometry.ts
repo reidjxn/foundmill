@@ -1,7 +1,7 @@
 /**
  * Journey Ribbon geometry (BUILD §11.2, DESIGN §8). Pure functions: no React, no DOM.
  *
- * Paths are built once per (data, zoom, size) in a fixed pixels-per-day space covering kick-off → forecast horizon,
+ * Paths are built once per (data, zoom, size) in a fixed pixels-per-day space covering the first day → forecast horizon,
  * so wheel/drag scrolling is a `translate` and nothing is regenerated until the zoom or the data changes
  * (AC-11.2.1: 2 years of daily data under 2 s; see geometry.test.ts for the timing test).
  */
@@ -41,7 +41,7 @@ export interface DayPoint {
   day: DayKey;
   /** UTC midnight. */
   t: number;
-  /** Days since kick-off. */
+  /** Days since the first day. */
   index: number;
   /** agent_hours per department id. */
   hours: Record<string, number>;
@@ -277,7 +277,7 @@ export interface RibbonGeometry {
   zoom: ZoomLevel;
   layout: RibbonLayout;
   pxPerDay: number;
-  /** Width of the full ribbon (kick-off → horizon) at this zoom. */
+  /** Width of the full ribbon (first day → horizon) at this zoom. */
   totalWidth: number;
   totalDays: number;
   kickoff: DayKey;
@@ -297,7 +297,7 @@ export interface RibbonGeometry {
   xOfDay: (day: DayKey) => number;
   /** x of a timestamp (ms). */
   xOfMs: (ms: number) => number;
-  /** The day under an x position (clamped to kick-off … horizon). */
+  /** The day under an x position (clamped to first day … horizon). */
   dayAt: (x: number) => DayKey;
 }
 
@@ -347,7 +347,7 @@ function tickLabel(day: DayKey, zoom: ZoomLevel): string {
   return `${dd} ${mm}`;
 }
 
-/** Marker radius: base size per kind (DESIGN §8: dots 4 px, rings 8 px, goal markers 10 px), grown by log count. */
+/** Marker radius: base size per kind (DESIGN §8: dots 4 px, rings 8 px, win markers 10 px), grown by log count. */
 export function markerRadius(kind: ConversionKind, count: number): number {
   const base = kind === "signup" ? 2 : kind === "activation" ? 4 : 5;
   return count <= 1 ? base : Math.min(base * 1.9, base + Math.log2(count) * 0.9);

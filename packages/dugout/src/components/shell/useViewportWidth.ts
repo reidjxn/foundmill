@@ -1,3 +1,4 @@
+"use client";
 import { useSyncExternalStore } from "react";
 
 /** DESIGN §2 / BUILD §5.3: below this width the shell renders NeedsLargerWindow only. */

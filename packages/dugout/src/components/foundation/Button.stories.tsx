@@ -45,7 +45,7 @@ export const AllVariants: Story = {
             Pause
           </Button>
           <Button size={size} variant="gold">
-            Match Day
+            Customer Update
           </Button>
           <Button size={size} loading>
             Loading

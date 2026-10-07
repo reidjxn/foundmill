@@ -56,7 +56,7 @@ export function agentStatusTone(status: AgentStatus): { tone: StatusTone; word: 
     case "failing":
       return { tone: "bad", word: "Failing" };
     case "injured":
-      return { tone: "bad", word: "Injured", icon: CircleAlert };
+      return { tone: "bad", word: "Down", icon: CircleAlert };
     case "paused":
       return { tone: "neutral", word: "Paused" };
     case "idle":

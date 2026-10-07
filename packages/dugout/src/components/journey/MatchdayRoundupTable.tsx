@@ -1,3 +1,4 @@
+"use client";
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Play, Trophy } from "lucide-react";
 import { CHANNEL_META, type ChannelKey, type ConversionKind, type EntityKind, type MatchdayLevel } from "@foundmill/shared";
@@ -23,13 +24,13 @@ export interface RoundupRow {
   touchCount?: number;
   /** False when the journey has no replay yet (still building). */
   replayAvailable?: boolean;
-  /** Above the 75th percentile or a flagged account: played in full, listed here for completeness. */
+  /** Above the 75th percentile or a flagged account: got a full Customer Update, listed here for completeness. */
   fullMatchDay?: boolean;
 }
 
 export interface MatchdayRoundupTableProps {
   rows: RoundupRow[];
-  /** The day of the round-up (BUILD §11.4: results that did not get a full Match Day roll into a daily table). */
+  /** The day of the round-up (BUILD §11.4: wins that did not get a full Customer Update roll into a daily table). */
   day?: string;
   onOpenReplay: (conversionId: string) => void;
   onOpenEntity?: (id: string) => void;
@@ -40,7 +41,7 @@ export interface MatchdayRoundupTableProps {
 type SortKey = "time" | "value" | "kind";
 
 const KIND_WORD: Record<ConversionKind, string> = { signup: "Signup", activation: "Activation", payment: "Payment" };
-const LEVEL: Record<MatchdayLevel, { word: string; tone: ChipTone }> = { friendly: { word: "Friendly", tone: "neutral" }, league: { word: "League", tone: "info" }, cup: { word: "Cup", tone: "gold" } };
+const LEVEL: Record<MatchdayLevel, { word: string; tone: ChipTone }> = { friendly: { word: "Brief", tone: "neutral" }, league: { word: "Standard", tone: "info" }, cup: { word: "Featured", tone: "gold" } };
 const KIND_RANK: Record<ConversionKind, number> = { payment: 0, activation: 1, signup: 2 };
 
 export function sortRoundupRows(rows: readonly RoundupRow[], key: SortKey, dir: "asc" | "desc"): RoundupRow[] {
@@ -66,7 +67,7 @@ export function MatchdayRoundupTable({ rows, day, onOpenReplay, onOpenEntity, en
   if (rows.length === 0) {
     return (
       <EmptyState icon={Trophy} className={className}>
-        Results that do not get a full Match Day appear here each day once there are more than a hundred of a kind.
+        Wins that do not get a full Customer Update appear here each day once there are more than a hundred of a kind.
       </EmptyState>
     );
   }
@@ -81,7 +82,7 @@ export function MatchdayRoundupTable({ rows, day, onOpenReplay, onOpenEntity, en
   return (
     <div className={cn("flex flex-col", className)} data-roundup>
       <div className="flex items-center gap-3 px-2 py-1.5 text-small text-secondary">
-        <span className="t-display-sm text-primary">Matchday round-up{day ? ` · ${formatDate(day)}` : ""}</span>
+        <span className="t-display-sm text-primary">Customer update round-up{day ? ` · ${formatDate(day)}` : ""}</span>
         <span className="tabular-nums">
           {totals.payment ?? 0} payments · {totals.activation ?? 0} activations · {totals.signup ?? 0} signups
         </span>
@@ -92,7 +93,7 @@ export function MatchdayRoundupTable({ rows, day, onOpenReplay, onOpenEntity, en
           <thead className="sticky top-0 bg-panel-alt">
             <tr className="border-b border-subtle">
               <Header k="time">Time</Header>
-              <Header k="kind">Result</Header>
+              <Header k="kind">Win</Header>
               <th scope="col" className="h-row-compact px-2 text-left t-label">
                 Customer
               </th>
@@ -118,7 +119,7 @@ export function MatchdayRoundupTable({ rows, day, onOpenReplay, onOpenEntity, en
                   <span className="inline-flex items-center gap-1.5">
                     <span className="text-body-strong">{KIND_WORD[r.kind]}</span>
                     <Chip tone={LEVEL[r.level].tone}>{LEVEL[r.level].word}</Chip>
-                    {r.fullMatchDay ? <Chip tone="kit">Full Match Day</Chip> : null}
+                    {r.fullMatchDay ? <Chip tone="kit">Full update</Chip> : null}
                   </span>
                 </td>
                 <td className="max-w-56 truncate px-2">{r.customerName ? <EntityText text={r.entityId ? `[[ent:${r.entityId}|${r.customerName}]]` : r.customerName} kinds={entityKinds} onOpenEntity={onOpenEntity} /> : <span className="text-secondary">Anonymous</span>}</td>

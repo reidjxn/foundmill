@@ -1,3 +1,4 @@
+"use client";
 import { useState } from "react";
 import { GitCompareArrows, ListChecks, MonitorPlay, SquareTerminal } from "lucide-react";
 import { DiffPane } from "./DiffPane";

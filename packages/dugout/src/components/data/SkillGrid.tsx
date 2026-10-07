@@ -1,3 +1,4 @@
+"use client";
 import { useMemo } from "react";
 import { Crosshair, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { SKILL_GROUPS, type SkillGroup } from "@foundmill/shared";

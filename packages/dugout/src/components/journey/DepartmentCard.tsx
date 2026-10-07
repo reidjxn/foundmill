@@ -1,3 +1,4 @@
+"use client";
 import { ArrowRight, CircleCheck, CircleX, Clock, TriangleAlert } from "lucide-react";
 import type { EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";

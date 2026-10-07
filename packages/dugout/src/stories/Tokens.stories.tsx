@@ -68,7 +68,7 @@ export const Palette: Story = {
           <StatusPill tone="neutral">Idle</StatusPill>
         </div>
       </Section>
-      <Section title="Kit — the business identity, used with restraint">
+      <Section title="Brand colours — the business identity, used with restraint">
         <div className="grid grid-cols-3 gap-4">
           <Swatch token="--kit-primary" note="Continue, active edge, crest" />
           <Swatch token="--kit-secondary" />
@@ -82,7 +82,7 @@ export const Palette: Story = {
           ))}
         </div>
       </Section>
-      <Section title="Gold — Match Day, trophies, customer won">
+      <Section title="Gold — Customer Updates, milestones, customer won">
         <div className="grid grid-cols-3 gap-4">
           <Swatch token="--gold" />
           <Swatch token="--gold-deep" note="gradient end" />
@@ -116,7 +116,7 @@ export const RatingRamp: Story = {
 };
 
 const TYPE: Array<{ cls: string; spec: string; where: string; sample?: string }> = [
-  { cls: "t-display-xl", spec: "Barlow Semi Condensed 600, 40/44", where: "Goal moment, hero numbers", sample: "€128,400" },
+  { cls: "t-display-xl", spec: "Barlow Semi Condensed 600, 40/44", where: "Win moment, hero numbers", sample: "€128,400" },
   { cls: "t-display-lg", spec: "Barlow 600, 28/32", where: "Tile numbers, status strip", sample: "14.2 months" },
   { cls: "t-display-md", spec: "Barlow 600, 20/24", where: "Screen titles, profile names", sample: "Northwind Skincare" },
   { cls: "t-display-sm", spec: "Barlow 600, 15/20", where: "Panel subtitles", sample: "Attribution by channel" },
@@ -158,7 +158,7 @@ const SPACING = [
   ["32 px", "md button, input, panel header", "w-8"],
   ["34 px", "comfortable row", "w-row-comfortable"],
   ["40 px", "tab bar", "w-10"],
-  ["56 px", "kit bar", "w-14"],
+  ["56 px", "top bar", "w-14"],
   ["64 px", "collapsed sidebar", "w-16"],
   ["232 px", "sidebar", "w-sidebar"],
   ["320 px", "right rail, hover card", "w-rail"],

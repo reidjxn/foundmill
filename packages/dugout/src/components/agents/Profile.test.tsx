@@ -48,13 +48,13 @@ describe("DevelopmentChart", () => {
 });
 
 describe("HealthBadge", () => {
-  it("summarises injured return, loops and error rate", () => {
+  it("summarises the expected return when down, loops and error rate", () => {
     const now = new Date("2026-10-07T09:00:00Z");
     expect(healthSummary("injured", { expectedReturnAt: "2026-10-07T12:00:00Z" }, now)).toContain("Expected back in 3 hr");
     expect(healthSummary("injured", {}, now)).toContain("Reconnect");
     expect(healthSummary("degraded", { loopDetected: true, errorRate: 0.123, lastHeartbeatAt: "2026-10-07T08:59:00Z" }, now)).toBe("Loop detected on the last session · Error rate 12.3% over 24 h · Last heartbeat 1 min ago");
     render(<HealthBadge status="injured" details={{ expectedReturnAt: "2026-10-07T12:00:00Z" }} now={now} inline />);
-    expect(screen.getByText("Injured")).toBeTruthy();
+    expect(screen.getByText("Down")).toBeTruthy();
     // Once beside the pill, once in the inline summary.
     expect(screen.getAllByText(/back in 3 hr/)).toHaveLength(2);
   });

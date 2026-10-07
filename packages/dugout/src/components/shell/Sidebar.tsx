@@ -1,3 +1,4 @@
+"use client";
 import { forwardRef, useRef, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { DeptColourToken } from "@foundmill/shared";

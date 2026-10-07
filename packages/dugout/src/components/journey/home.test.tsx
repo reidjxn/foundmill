@@ -72,15 +72,16 @@ describe("SquadPulse", () => {
 });
 
 describe("TrophyCabinet", () => {
-  it("gives won trophies the gold treatment, keeps locked ones ghosted and shares", async () => {
+  it("gives reached milestones the gold treatment, keeps locked ones ghosted and shares", async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();
     const onShare = vi.fn();
     const { container } = render(<TrophyCabinet trophies={trophyFixtures()} onOpen={onOpen} onShare={onShare} />);
-    expect(screen.getByText("6 of 8 won")).toBeTruthy();
+    expect(screen.getByText("Milestones")).toBeTruthy();
+    expect(screen.getByText("6 of 8 reached")).toBeTruthy();
     expect(container.querySelectorAll("[data-trophy][data-achieved]").length).toBe(6);
     expect(screen.getAllByText("Not yet").length).toBe(2);
-    await user.click(screen.getByRole("button", { name: /First enterprise contract, won 1 Oct 2026/ }));
+    await user.click(screen.getByRole("button", { name: /First enterprise contract, reached 1 Oct 2026/ }));
     expect(onOpen).toHaveBeenCalledWith("first_enterprise_contract");
     await user.click(screen.getByRole("button", { name: "Share First customer" }));
     expect(onShare).toHaveBeenCalledWith("customer_1");
@@ -89,7 +90,7 @@ describe("TrophyCabinet", () => {
 });
 
 describe("DayDigest", () => {
-  it("shows the day's numbers, matches and squad hours", async () => {
+  it("shows the day's numbers, wins and squad hours", async () => {
     const user = userEvent.setup();
     const data = generateJourneyFixture({ days: 40, seed: "digest" });
     const index = indexDailyRows(data.rows, RIBBON_DEPARTMENTS);
@@ -100,7 +101,7 @@ describe("DayDigest", () => {
     expect(screen.getByRole("region", { name: /Day digest/ })).toBeTruthy();
     expect(screen.getByText("Agent hours")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Nordic Beauty AB" })).toBeTruthy();
-    const replay = screen.getAllByRole("button", { name: /Open the Match Day/ })[0]!;
+    const replay = screen.getAllByRole("button", { name: /Open the Customer Update/ })[0]!;
     await user.click(replay);
     expect(onOpenJourney).toHaveBeenCalledWith(summary.conversions[0]!.id);
     expect(screen.getByText(/won today/)).toBeTruthy();

@@ -1,3 +1,4 @@
+"use client";
 import { Bookmark, BookmarkCheck, GitFork, GitMerge, MessageCircleQuestionMark, Trash } from "lucide-react";
 import { cn } from "../../../lib/cn";
 import { initials } from "../../../lib/format";

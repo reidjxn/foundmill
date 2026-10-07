@@ -1,3 +1,4 @@
+"use client";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Check, Columns2, Pencil, Rows3, X } from "lucide-react";
 import { cn } from "../../lib/cn";

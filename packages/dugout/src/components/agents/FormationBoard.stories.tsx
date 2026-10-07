@@ -15,7 +15,7 @@ function Board({ kit, animateEntrance = true }: { kit?: { primary: string; secon
   const [key, setKey] = useState(0);
   const onToggle = (k: ChannelKey, enabled: boolean) => {
     setChannels((prev) => toggleChannel(prev, k, enabled));
-    setLog((p) => [`${k} → ${enabled ? "pitch" : "bench"} (engine ${enabled ? "enabled" : "disabled"}, board re-scored)`, ...p].slice(0, 5));
+    setLog((p) => [`${k} → ${enabled ? "board" : "bench"} (engine ${enabled ? "enabled" : "disabled"}, board re-scored)`, ...p].slice(0, 5));
   };
   return (
     <div className="flex w-[1040px] flex-col gap-3">
@@ -50,9 +50,9 @@ const meta = {
 export default meta;
 type Story = StoryObj;
 
-/** On load all 15 fade in on the bench; the four recommended channels walk onto the pitch. Drag or press Enter to move a token; O opens it. */
+/** On load all 15 fade in on the bench; the four recommended channels walk onto the board. Drag or press Enter to move a token; O opens it. */
 export const RecommendationsWalkingOn: Story = { render: () => <Board /> };
-export const SecondKit: Story = { render: () => <Board kit={{ primary: "#B8303A", secondary: "#F2E8C9" }} /> };
+export const SecondBrandColours: Story = { name: "Second brand colours", render: () => <Board kit={{ primary: "#B8303A", secondary: "#F2E8C9" }} /> };
 export const StaticNoEntrance: Story = { render: () => <Board animateEntrance={false} /> };
 
 export const Tokens: Story = {

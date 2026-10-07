@@ -19,7 +19,7 @@ export function processingStatusText(segments: ProcessingSegment[], active: bool
 }
 
 /**
- * The 3 px strip under the kit bar (BUILD §5.3): one segment per department in its colour.
+ * The 3 px strip under the top bar (BUILD §5.3): one segment per department in its colour.
  * Active segments shimmer with a 1.6 s sweep (DESIGN §7); at rest they sit at 25 % tint. Reduced motion stops the
  * sweep and leaves the active segments at full colour, so the information is identical.
  */

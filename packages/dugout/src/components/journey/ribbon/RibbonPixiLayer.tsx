@@ -1,3 +1,4 @@
+"use client";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { Application, Graphics } from "pixi.js";
 import { cn } from "../../../lib/cn";

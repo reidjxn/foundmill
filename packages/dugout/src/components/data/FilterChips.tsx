@@ -1,3 +1,4 @@
+"use client";
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { ListFilter, Plus, X } from "lucide-react";
 import { cn } from "../../lib/cn";

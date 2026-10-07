@@ -1,3 +1,4 @@
+"use client";
 import { useId, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import {
   ArrowUpCircle,

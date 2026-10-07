@@ -52,6 +52,71 @@ describe("Button", () => {
     rerender(<Button size="md">A</Button>);
     expect(screen.getByRole("button").className).toContain("h-control-md");
   });
+
+  describe("asChild", () => {
+    it("renders the child element as the button when no icon is given", () => {
+      render(
+        <Button asChild variant="primary">
+          <a href="/b/1/home">Go home</a>
+        </Button>,
+      );
+      const a = screen.getByRole("link", { name: "Go home" });
+      expect(a.tagName).toBe("A");
+      expect(a.getAttribute("href")).toBe("/b/1/home");
+      expect(a.className).toContain("bg-kit-primary");
+      expect(a.getAttribute("type")).toBeNull();
+      expect(a.getAttribute("data-variant")).toBe("primary");
+    });
+    it("keeps leading and trailing icons inside the child element", () => {
+      render(
+        <Button asChild icon={Plus} iconRight={Plus}>
+          <a href="/x">Both</a>
+        </Button>,
+      );
+      const a = screen.getByRole("link", { name: "Both" });
+      expect(a.querySelectorAll("svg")).toHaveLength(2);
+      expect(a.firstElementChild?.tagName.toLowerCase()).toBe("svg");
+      expect(a.lastElementChild?.tagName.toLowerCase()).toBe("svg");
+    });
+    it("renders only the leading or only the trailing icon", () => {
+      const { rerender } = render(
+        <Button asChild icon={Plus}>
+          <a href="/x">Lead</a>
+        </Button>,
+      );
+      expect(screen.getByRole("link", { name: "Lead" }).querySelectorAll("svg")).toHaveLength(1);
+      rerender(
+        <Button asChild iconRight={Plus}>
+          <a href="/x">Trail</a>
+        </Button>,
+      );
+      expect(screen.getByRole("link", { name: "Trail" }).querySelectorAll("svg")).toHaveLength(1);
+    });
+    it("shows the spinner and aria-busy while loading", () => {
+      render(
+        <Button asChild loading>
+          <a href="/x">Busy</a>
+        </Button>,
+      );
+      const a = screen.getByRole("link", { name: "Busy" });
+      expect(a.getAttribute("aria-busy")).toBe("true");
+      expect(a.querySelector("svg.animate-spin")).not.toBeNull();
+    });
+    it("merges the child's own onClick with the button's", async () => {
+      const outer = vi.fn();
+      const inner = vi.fn((e: React.MouseEvent) => e.preventDefault());
+      render(
+        <Button asChild onClick={outer}>
+          <a href="/x" onClick={inner}>
+            Click
+          </a>
+        </Button>,
+      );
+      await userEvent.click(screen.getByRole("link", { name: "Click" }));
+      expect(outer).toHaveBeenCalledTimes(1);
+      expect(inner).toHaveBeenCalledTimes(1);
+    });
+  });
 });
 
 describe("IconButton", () => {

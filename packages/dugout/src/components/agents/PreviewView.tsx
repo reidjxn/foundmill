@@ -1,3 +1,4 @@
+"use client";
 import { useState } from "react";
 import { Camera, Globe, MonitorPlay } from "lucide-react";
 import { cn } from "../../lib/cn";

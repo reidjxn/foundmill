@@ -1,3 +1,4 @@
+"use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRng } from "../../lib/seed";
 import { mockSessions } from "./mock";

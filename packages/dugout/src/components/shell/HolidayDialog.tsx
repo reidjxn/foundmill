@@ -1,3 +1,4 @@
+"use client";
 import { useEffect, useId, useMemo, useState } from "react";
 import { TreePalm } from "lucide-react";
 import { DECISION_TYPES, type DecisionType, type Money } from "@foundmill/shared";
@@ -169,7 +170,7 @@ export function HolidayDialog({ open, onOpenChange, currency = "EUR", today = ne
                   <Textarea value={condition} onChange={(e) => setCondition(e.target.value)} rows={2} placeholder="e.g. when the launch ships or runway drops under 8 months" aria-label="Condition" aria-invalid={!!untilError} data-testid="holiday-condition" />
                 </div>
               ) : null}
-              <RadioOption id={`${id}-return`} value="return" label="Until I return" description="Press Come back in the kit bar." />
+              <RadioOption id={`${id}-return`} value="return" label="Until I return" description="Press Come back in the top bar." />
             </RadioGroup>
             {untilError ? (
               <p role="alert" className="text-small text-status-bad">

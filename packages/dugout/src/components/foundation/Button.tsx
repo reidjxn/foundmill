@@ -1,5 +1,6 @@
+"use client";
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
-import { Slot } from "@radix-ui/react-slot";
+import { Slot, Slottable } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { LoaderCircle } from "lucide-react";
 import { cn } from "../../lib/cn";
@@ -15,12 +16,12 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        /** Kit colour: Continue at rest, recommended decision options. Use sparingly (DESIGN §5). */
+        /** Brand colour: Continue at rest, recommended decision options. Use sparingly (DESIGN §5). */
         primary: "bg-kit-primary text-kit-on-primary border-transparent hover:brightness-110 active:brightness-95",
         default: "bg-panel-alt text-primary border-subtle hover:border-secondary/60 active:bg-panel",
         ghost: "bg-transparent text-secondary border-transparent hover:bg-panel-alt hover:text-primary active:bg-panel",
         danger: "bg-status-bad/12 text-status-bad border-status-bad/40 hover:bg-status-bad/20 active:bg-status-bad/25",
-        /** Match Day and trophies only. */
+        /** Customer Updates and milestones only. */
         gold: "bg-gold text-ink border-transparent hover:brightness-105 active:brightness-95",
       },
       size: {
@@ -53,6 +54,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 ) {
   const Comp = asChild ? Slot : "button";
   const iconSize = size === "sm" ? "inline" : "default";
+  const leading = loading ? <Icon icon={LoaderCircle} size={iconSize} className="animate-spin" /> : icon ? <Icon icon={icon} size={iconSize} /> : null;
+  const trailing = iconRight ? <Icon icon={iconRight} size={iconSize} /> : null;
   return (
     <Comp
       ref={ref}
@@ -64,13 +67,12 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       data-variant={variant ?? "default"}
       {...rest}
     >
-      {loading ? (
-        <Icon icon={LoaderCircle} size={iconSize} className="animate-spin" />
-      ) : icon ? (
-        <Icon icon={icon} size={iconSize} />
-      ) : null}
-      {children}
-      {iconRight ? <Icon icon={iconRight} size={iconSize} /> : null}
+      {leading}
+      {/* Radix Slot wants exactly one element child; Slottable marks which child it merges into, so icons (or their
+          absence) around it never trip "Expected a single React element child". Not wrapped in a fragment: Slot
+          looks for the Slottable among its direct children. */}
+      {asChild ? <Slottable>{children}</Slottable> : children}
+      {trailing}
     </Comp>
   );
 });

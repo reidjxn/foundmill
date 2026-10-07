@@ -1,3 +1,4 @@
+"use client";
 import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Banknote, CalendarDays, Diamond, Flag, Landmark, Rocket, Trophy } from "lucide-react";
 import { AxisBottom } from "@visx/axis";
@@ -46,7 +47,7 @@ export interface JourneyRibbonProps {
   chapters?: readonly Chapter[];
   /** Today (DayKey or Date). Defaults to the last row's day. */
   today?: string | Date;
-  /** Kick-off day. Defaults to the first row's day. */
+  /** First day of the journey. Defaults to the first row's day. */
   kickoff?: string;
   forecast?: readonly ForecastPoint[];
   roadmap?: readonly RoadmapFlag[];
@@ -91,7 +92,7 @@ function markerLabel(m: MarkerBucket, currency: string): string {
   const when = m.day === m.dayEnd ? formatDate(m.day) : `${formatDate(m.day)} to ${formatDate(m.dayEnd)}`;
   const who = m.names.length === 1 && m.count === 1 ? ` · ${m.names[0]}` : "";
   const amount = m.kind === "payment" && m.amountMinor > 0 ? ` · ${formatMoney({ amountMinor: m.amountMinor, currency: m.currency || currency })}` : "";
-  return m.count === 1 ? `${KIND_WORD[m.kind]} on ${when}${who}${amount}. Opens the Match Day` : `${m.count} ${KIND_WORD[m.kind]}s, ${when}${amount}. Opens the day`;
+  return m.count === 1 ? `${KIND_WORD[m.kind]} on ${when}${who}${amount}. Opens the Customer Update` : `${m.count} ${KIND_WORD[m.kind]}s, ${when}${amount}. Opens the day`;
 }
 
 function bannerIcon(kind: string) {
@@ -595,7 +596,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
  * kit-primary, signups / activations / payments as markers, milestones on stems, chapters along the top, a glowing
  * Today line, the forecast cone, ghosted roadmap flags and the runway horizon. SVG via visx with a PixiJS overlay for
  * the flow-in and live ripples. Zoom Week / Month / Quarter / All; wheel and drag scroll; hover scrubber; click opens
- * a day; markers open their Match Day. Reduced motion renders the same picture with no animation (AC-11.2.6).
+ * a day; markers open their Customer Update. Reduced motion renders the same picture with no animation (AC-11.2.6).
  */
 export const JourneyRibbon = forwardRef<JourneyRibbonHandle, JourneyRibbonProps>(function JourneyRibbon({ width, height = RIBBON_DEFAULT_HEIGHT, className, ...rest }, ref) {
   if (width !== undefined) return <RibbonSurface ref={ref} width={width} height={height} className={className} {...rest} />;

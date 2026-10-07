@@ -1,3 +1,4 @@
+"use client";
 import { Lock, Share2, Trophy } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { formatDate, formatMoney } from "../../lib/format";
@@ -18,15 +19,16 @@ export interface TrophyCabinetProps {
 
 const COLS = { 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-4" } as const;
 
-/** Milestone cards with the gold treatment for won trophies (DESIGN §5: gold is reserved for Match Day and trophies). */
+/** Milestone cards with the gold treatment for reached milestones (DESIGN §5: gold is reserved for Customer Updates and milestones). */
 export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, className }: TrophyCabinetProps) {
   const won = trophies.filter((t) => t.achievedAt).length;
   return (
     <div className={cn("flex flex-col gap-2", className)} data-trophy-cabinet>
       <div className="flex items-center gap-2 px-1 text-small text-secondary">
         <Icon icon={Trophy} size="inline" className="text-gold" />
+        <span className="t-label text-primary">Milestones</span>
         <span className="tabular-nums">
-          {won} of {trophies.length} won
+          {won} of {trophies.length} reached
         </span>
       </div>
       <ul className={cn("grid gap-gutter", COLS[columns])}>
@@ -43,14 +45,14 @@ export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, classNam
                   achieved ? "border-gold/50 bg-panel shadow-[inset_0_1px_0_color-mix(in_oklab,var(--gold)_35%,transparent)]" : "border-dashed border-subtle bg-base",
                   Wrapper === "button" && "outline-none transition-[border-color,filter] duration-micro ease-dugout hover:border-gold hover:brightness-110 focus-visible:outline-2 focus-visible:outline-link",
                 )}
-                aria-label={Wrapper === "button" ? `${t.label}, won ${formatDate(t.achievedAt as string)}` : undefined}
+                aria-label={Wrapper === "button" ? `${t.label}, reached ${formatDate(t.achievedAt as string)}` : undefined}
               >
                 {achieved ? <span aria-hidden className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-gold to-gold-deep" /> : null}
                 <div className="flex items-start justify-between gap-2">
                   <span className={cn("inline-flex size-9 items-center justify-center rounded-full", achieved ? "bg-gold/15 text-gold" : "bg-panel-alt text-secondary")}>
                     <Icon icon={achieved ? Trophy : Lock} size="lg" />
                   </span>
-                  {achieved ? <Chip tone="gold">Won</Chip> : <Chip tone="neutral">Not yet</Chip>}
+                  {achieved ? <Chip tone="gold">Reached</Chip> : <Chip tone="neutral">Not yet</Chip>}
                 </div>
                 <div className="min-w-0">
                   <span className={cn("t-display-sm block truncate", achieved ? "text-primary" : "text-secondary")}>{t.label}</span>

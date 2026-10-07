@@ -1,3 +1,4 @@
+"use client";
 /**
  * The keyboard map (BUILD §5.5):
  * Space = Continue · R = refresh Inbox · G then letter = go to section (G H Home, G I Inbox, G C CRM; departments get

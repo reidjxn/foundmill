@@ -8,7 +8,7 @@ import { PALETTE_ITEMS, RECENT_PALETTE_ITEMS } from "./fixtures";
 const meta = {
   title: "Shell/CommandPalette",
   component: CommandPalette,
-  parameters: { docs: { description: { component: "Universal search (BUILD §11.12) on cmdk: results grouped by kind with icons, operators kind:/role:/stage:/owner:/department: and > for commands, a hint row, ↑↓ ↵ Esc. Opens from the kit bar, / or ⌘K." } } },
+  parameters: { docs: { description: { component: "Universal search (BUILD §11.12) on cmdk: results grouped by kind with icons, operators kind:/role:/stage:/owner:/department: and > for commands, a hint row, ↑↓ ↵ Esc. Opens from the top bar, / or ⌘K." } } },
   args: { open: true, onOpenChange: () => {}, items: PALETTE_ITEMS, recent: RECENT_PALETTE_ITEMS, onSelect: () => {} },
 } satisfies Meta<typeof CommandPalette>;
 export default meta;

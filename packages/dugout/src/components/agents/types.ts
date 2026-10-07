@@ -329,7 +329,7 @@ export interface ChannelTokenData {
   /** 1–20 fit from the Distribution Strategist. */
   fit: number;
   recommended: boolean;
-  /** On the pitch (engine enabled) or on the bench. */
+  /** On the board (engine enabled) or on the bench. */
   enabled: boolean;
   /** Last five weeks of CPA versus cap, newest last. */
   form: FormCell[];
@@ -374,7 +374,7 @@ export interface SquadRow {
   /** Monthly cost estimate. */
   wage: Money;
   latestUpdate: { at: string; text: string } | null;
-  /** Injured: when it should be back. */
+  /** Down: when it should be back. */
   expectedReturnAt?: string | null;
 }
 
@@ -464,7 +464,7 @@ export interface HealthDetails {
   /** 0–1 over the last 24 h. */
   errorRate?: number | null;
   loopDetected?: boolean;
-  /** Injured: expected return once reconnected (BUILD §11.9). */
+  /** Down: expected return once reconnected (BUILD §11.9). */
   expectedReturnAt?: string | null;
   reason?: string | null;
 }

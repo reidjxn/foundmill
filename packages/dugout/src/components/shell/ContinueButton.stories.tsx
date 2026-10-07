@@ -18,7 +18,7 @@ const STATES: Array<[string, ContinueState]> = [
   ["Idle", { kind: "idle" }],
   ["Blocked", { kind: "blocked", count: 3 }],
   ["Processing", { kind: "processing" }],
-  ["Match Day", { kind: "matchday" }],
+  ["Customer Update", { kind: "matchday" }],
   ["Holiday (date)", { kind: "holiday", until: "2026-10-21" }],
   ["Holiday (condition)", { kind: "holiday", until: null, untilLabel: "the launch ships" }],
 ];
@@ -26,7 +26,7 @@ const STATES: Array<[string, ContinueState]> = [
 export const Idle: Story = {};
 export const Blocked: Story = { args: { state: { kind: "blocked", count: 3 } } };
 export const Processing: Story = { args: { state: { kind: "processing" } } };
-export const MatchDay: Story = { args: { state: { kind: "matchday" } } };
+export const CustomerUpdate: Story = { args: { state: { kind: "matchday" } } };
 export const Holiday: Story = { args: { state: { kind: "holiday", until: "2026-10-21" } } };
 export const AllStates: Story = {
   render: () => (
