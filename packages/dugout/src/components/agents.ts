@@ -1,2 +1,30 @@
-// agents components (stage 2). Filled by the agents agent; keep this file as the barrel.
-export {};
+// Agents components (stage 2): BUILD §11.6 Training Ground (AgentTile, TileGrid, SessionScrubber, TaskGraph,
+// SpecialistTile, Shouts), §11.7 Formation Board, §11.9 squad table cells and hierarchy, §11.10 profiles and training.
+export * from "./agents/types";
+export * from "./agents/progress";
+export * from "./agents/mock";
+export * from "./agents/TerminalView";
+export * from "./agents/DiffPane";
+export * from "./agents/PreviewView";
+export * from "./agents/PlanView";
+export * from "./agents/ShoutMenu";
+export * from "./agents/TileFrame";
+export * from "./agents/AgentTile";
+export * from "./agents/SpecialistTile";
+export * from "./agents/TileGrid";
+export * from "./agents/SessionScrubber";
+export * from "./agents/TaskGraph";
+export * from "./agents/formation";
+export * from "./agents/ChannelToken";
+export * from "./agents/ChannelProfileCard";
+export * from "./agents/FormationBoard";
+export * from "./agents/SquadCells";
+export * from "./agents/ModelPicker";
+export * from "./agents/InstructionsEditor";
+export * from "./agents/TrainingResults";
+export * from "./agents/PositionMap";
+export * from "./agents/TraitChips";
+export * from "./agents/DevelopmentChart";
+export * from "./agents/HealthBadge";
+export * from "./agents/HierarchyChart";
+export * from "./agents/useLiveMockSessions";

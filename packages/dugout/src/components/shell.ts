@@ -1,2 +1,25 @@
-// shell components (stage 2). Filled by the shell agent; keep this file as the barrel.
-export {};
+// Shell components (stage 2): BUILD §5.3–5.5, §9.6 HolidayDialog/ApplyScopeDialog, §11.3 DecisionBar, DESIGN §8.
+export * from "./shell/types";
+export * from "./shell/useViewportWidth";
+export * from "./shell/keyboard";
+export * from "./shell/ShellLink";
+export * from "./shell/AppShell";
+export * from "./shell/Sidebar";
+export * from "./shell/KitBar";
+export * from "./shell/ContinueButton";
+export * from "./shell/StopAllAgents";
+export * from "./shell/ProcessingStrip";
+export * from "./shell/TabBar";
+export * from "./shell/Panel";
+export * from "./shell/RightRail";
+export * from "./shell/CommandPalette";
+export * from "./shell/NeedsLargerWindow";
+export * from "./shell/ProfileHeader";
+export * from "./shell/DecisionBar";
+export * from "./shell/HolidayDialog";
+export * from "./shell/ApplyScopeDialog";
+export * from "./shell/ModeChip";
+export * from "./shell/RunwayChip";
+export * from "./shell/Breadcrumbs";
+export * from "./shell/PageGrid";
+export * from "./shell/KeyboardHelp";

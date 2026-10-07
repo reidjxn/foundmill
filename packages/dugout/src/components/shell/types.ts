@@ -1,0 +1,109 @@
+/**
+ * Shared shapes for the shell group (BUILD §5.3–5.5, DESIGN §8).
+ * Vocabulary enums come from @founder-manager/shared; nothing here redeclares them.
+ */
+import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode, Ref } from "react";
+import type { BusinessMode, DeptColourToken, GameMode } from "@founder-manager/shared";
+import type { IconComponent } from "../foundation/Icon";
+
+/** Business kit colours as hex (business data, not design tokens). */
+export interface Kit {
+  primary: string;
+  secondary: string;
+}
+
+/** Column spans a panel may snap to on the 12-column grid (BUILD §5.3). */
+export const GRID_SPANS = [3, 4, 6, 8, 12] as const;
+export type GridSpan = (typeof GRID_SPANS)[number];
+
+export type SidebarGroup = "main" | "department" | "live" | "foot";
+
+export interface SidebarItem {
+  id: string;
+  label: string;
+  icon: IconComponent;
+  /** Rendered through the shell link renderer when present; otherwise the item is a button. */
+  href?: string;
+  /** Which block the item belongs to. Items render in the order given; `live` gets the LIVE divider, `foot` sits at the bottom. */
+  group: SidebarGroup;
+  /** Department colour: paints the dot and the badge. */
+  dept?: DeptColourToken;
+  /** Count shown as an 18 px pill. Omitted or 0 hides the badge. */
+  badge?: number;
+  /** Tone for badges on non-department items (Inbox uses "bad": items that need a response). */
+  badgeTone?: "bad" | "neutral";
+  /** Keyboard chord shown in the tooltip, e.g. ["G", "H"]. AppShell fills this in from `fixed` and the department letters. */
+  keys?: string[];
+  /** The fixed surface this item opens (BUILD §5.5: G H Home, G I Inbox, G C CRM). Departments are identified by `group`. */
+  fixed?: "home" | "inbox" | "crm";
+  disabled?: boolean;
+}
+
+/** Continue button states (BUILD §5.4). */
+export type ContinueState =
+  | { kind: "idle" }
+  | { kind: "blocked"; count: number }
+  | { kind: "processing"; label?: string }
+  | { kind: "matchday" }
+  | { kind: "holiday"; until: Date | string | null; untilLabel?: string };
+
+export type ContinueStateKind = ContinueState["kind"];
+
+export interface ProcessingSegment {
+  id: string;
+  /** Department name for the accessible status text. */
+  label: string;
+  dept: DeptColourToken;
+  /** True while agents in this department are working this cycle. */
+  active: boolean;
+  /** Relative width (default 1). */
+  weight?: number;
+}
+
+export interface TabSubView {
+  id: string;
+  label: string;
+  href?: string;
+}
+
+export interface TabItem {
+  id: string;
+  label: string;
+  href?: string;
+  /** Tabs with sub-views show a 12 px caret that opens a dropdown. */
+  subViews?: TabSubView[];
+  badge?: number;
+  disabled?: boolean;
+}
+
+export interface BreadcrumbItem {
+  label: string;
+  href?: string;
+  onClick?: () => void;
+  icon?: IconComponent;
+}
+
+/** Props the shell link renderer receives; apps swap in their router link. */
+export interface ShellLinkProps {
+  href: string;
+  className?: string;
+  children: ReactNode;
+  "aria-current"?: "page" | "true";
+  "aria-selected"?: boolean;
+  "aria-label"?: string;
+  title?: string;
+  tabIndex?: number;
+  role?: string;
+  onClick?: (event: MouseEvent<HTMLElement>) => void;
+  onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
+  style?: CSSProperties;
+  "data-active"?: boolean;
+  id?: string;
+}
+
+export type ShellLinkRenderer = (props: ShellLinkProps & { ref?: Ref<HTMLAnchorElement> }) => ReactNode;
+
+export interface ShellModes {
+  gameMode: GameMode;
+  businessMode: BusinessMode;
+}

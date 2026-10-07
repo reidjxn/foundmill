@@ -7,4 +7,5 @@ Dependencies a build agent needed but could not add itself (`package — version
 
 ## Open
 
-(none)
+- `@founder-manager/entity-linker` — `workspace:*` — optional for `packages/dugout`: `EntityText` re-implements only the display-side parser over the shared `ENTITY_MARKUP_RE` and declares structurally identical node types, so nothing is blocked; add the dependency if dugout should import `RenderNode`/`toRenderTree` directly instead of mirroring the types — dugout data agent (2026-10-07)
+- `@founder-manager/events` — `workspace:*` — optional for `packages/dugout`: the agents group declares `AgentSessionEvent` as a structural mirror of the events package's `SessionEvent` (orchestrator events are assignable unchanged); add the dependency if dugout should import the Zod schema instead of mirroring the type — dugout agents agent (2026-10-07)

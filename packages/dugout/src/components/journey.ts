@@ -1,2 +1,24 @@
-// journey components (stage 2). Filled by the journey agent; keep this file as the barrel.
-export {};
+// Journey components (stage 2): BUILD §11.2 Ribbon + Home widgets, §11.4 Match Day, §11.1 concept cards, charts for exhibits and Finance.
+export * from "./journey/types";
+export * from "./journey/ribbon/geometry";
+export * from "./journey/ribbon/OnThisDayCard";
+export * from "./journey/ribbon/RibbonPixiLayer";
+export * from "./journey/ribbon/JourneyRibbon";
+export * from "./journey/stage/schedule";
+export * from "./journey/stage/GoalBurst";
+export * from "./journey/stage/JourneyStage";
+export * from "./journey/MatchdayRoundupTable";
+export * from "./journey/concept/AttributeBar";
+export * from "./journey/concept/ConceptCard";
+export * from "./journey/concept/ConceptCompare";
+export * from "./journey/concept/RadarChart";
+export * from "./journey/DepartmentCard";
+export * from "./journey/SquadPulse";
+export * from "./journey/TrophyCabinet";
+export * from "./journey/DayDigest";
+export * from "./journey/charts/common";
+export * from "./journey/charts/LineChart";
+export * from "./journey/charts/AreaChart";
+export * from "./journey/charts/BarChart";
+export * from "./journey/charts/FunnelChart";
+export * from "./journey/charts/Heatmap";
