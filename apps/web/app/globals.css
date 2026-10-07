@@ -1,4 +1,32 @@
+/*
+ * Foundmill web stylesheet (docs/ARCHITECTURE.md §14, DESIGN.md).
+ * dugout.css already imports tailwindcss and tokens.css and declares its own @source entries relative to itself;
+ * the packages built on Dugout are scanned here because Tailwind ignores node_modules by default.
+ */
 @import "@foundmill/dugout/fonts.css";
-@import "@foundmill/dugout/tokens.css";
+@import "@foundmill/dugout/dugout.css";
 
-html, body { margin: 0; min-height: 100%; background: var(--bg-base); color: var(--text-primary); font-family: var(--font-body); -webkit-font-smoothing: antialiased; }
+@source "../../../packages/dugout/src";
+@source "../../../packages/widgets/src";
+@source "../../../packages/modules/src";
+@source "../app";
+@source "../components";
+@source "../lib";
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  color-scheme: dark;
+}
+
+/* Settings forms: a left list of sections, right panel forms (DESIGN §9). */
+.settings-grid {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 16px;
+}
