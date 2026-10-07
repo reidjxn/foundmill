@@ -90,10 +90,10 @@ describe("agent templates (BUILD §9.1, §9.2, §11.6, §11.7, §11.10)", () => 
     expect(Object.keys(CHANNEL_TEMPLATES).length).toBe(15);
   });
 
-  it("kit-mode channels (print, broadcast) never carry a booking tool and say so", () => {
+  it("offline-tracking channels (print, broadcast) never carry a booking tool and say so", () => {
     for (const c of ["print", "broadcast"] as const) {
       const t = getChannelTemplate(c);
-      expect(t.description).toMatch(/kit mode/i);
+      expect(t.description).toMatch(/offline tracking/i);
       const toolNames = t.tools.flatMap((g) => g.tools.map((x) => `${g.connectorKey}.${x}`));
       expect(toolNames.some((n) => /book|insertion_order|purchase/.test(n))).toBe(false);
     }
