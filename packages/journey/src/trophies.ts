@@ -35,7 +35,10 @@ const ordinal = (n: number): string => `${n.toLocaleString("en-GB")}${n % 100 >=
 /** "€1K", "€10K", "€100K" (minor units in). */
 export function formatThreshold(amountMinor: number, currency: string): string {
   const major = amountMinor / 100;
-  return new Intl.NumberFormat("en-GB", { style: "currency", currency, notation: "compact", maximumFractionDigits: 0 }).format(major);
+  // ICU builds differ on the compact suffix case ("€1K" vs "€1k"); pin the suffix so labels match across machines.
+  return new Intl.NumberFormat("en-GB", { style: "currency", currency, notation: "compact", maximumFractionDigits: 0 })
+    .format(major)
+    .replace(/(\d)k\b/g, "$1K");
 }
 
 export const TROPHIES: readonly TrophyDefinition[] = [
