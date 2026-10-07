@@ -2,7 +2,7 @@
  * Trophy cabinet (BUILD §11.4): 1st / 10th / 100th / 1,000th customer; first €1K / €10K / €100K MRR;
  * first enterprise contract. Each trophy fires exactly once, when its counter crosses the threshold.
  */
-import type { MilestoneKind } from "@founder-manager/shared";
+import type { MilestoneKind } from "@foundmill/shared";
 import { toIso } from "./time";
 import { Milestone, TROPHY_KEYS, type TrophyKey } from "./types";
 

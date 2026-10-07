@@ -1,6 +1,6 @@
 /** Distribution Strategist recommendation (BUILD §11.7, Opus): scores all 15 channels 1–20 and picks 3–6 starters. */
 import { z } from "zod";
-import { Archetype, CHANNEL_KEYS } from "@founder-manager/shared";
+import { Archetype, CHANNEL_KEYS } from "@foundmill/shared";
 import { definePrompt } from "./template";
 
 export const DistributionStrategistVariables = z.object({

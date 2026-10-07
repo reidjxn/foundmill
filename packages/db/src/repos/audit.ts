@@ -9,7 +9,7 @@
  * and that the trigger's digest equals the same formula evaluated over the stored row (`hashOf`); a mismatch
  * rolls the append back. `verify` runs the database's full-chain check and returns the first broken seq.
  */
-import { ACTOR_KINDS, ValidationError } from "@founder-manager/shared";
+import { ACTOR_KINDS, ValidationError } from "@foundmill/shared";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { auditLog, type AuditEntry } from "../schema";

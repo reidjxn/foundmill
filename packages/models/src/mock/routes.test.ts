@@ -1,4 +1,4 @@
-import { ENTITY_MARKUP_RE } from "@founder-manager/shared";
+import { ENTITY_MARKUP_RE } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { CategoriserOutput, CoachOutput, CodeReviewOutput, CommentaryOutput, CyclePlanOutput, IDEA_ATTRIBUTE_KEYS, IdeationOutput, LinkerOutput, ModerationOutput, SkillGradeOutput, TaskGraphOutput } from "../schemas";
 import { MockModelClient, resolveMention } from "./index";

@@ -1,5 +1,5 @@
 {
-  "name": "@founder-manager/journey",
+  "name": "@foundmill/journey",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -18,8 +18,8 @@
     "d3-array": "catalog:",
     "date-fns": "catalog:",
     "seedrandom": "catalog:",
-    "@founder-manager/shared": "workspace:*",
-    "@founder-manager/config": "workspace:*"
+    "@foundmill/shared": "workspace:*",
+    "@foundmill/config": "workspace:*"
   },
   "devDependencies": {
     "vitest": "catalog:",

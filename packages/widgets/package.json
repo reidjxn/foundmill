@@ -1,5 +1,5 @@
 {
-  "name": "@founder-manager/widgets",
+  "name": "@foundmill/widgets",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -20,10 +20,10 @@
     "clsx": "catalog:",
     "date-fns": "catalog:",
     "@tanstack/react-query": "catalog:",
-    "@founder-manager/dugout": "workspace:*",
-    "@founder-manager/shared": "workspace:*",
-    "@founder-manager/config": "workspace:*",
-    "@founder-manager/journey": "workspace:*"
+    "@foundmill/dugout": "workspace:*",
+    "@foundmill/shared": "workspace:*",
+    "@foundmill/config": "workspace:*",
+    "@foundmill/journey": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "catalog:",

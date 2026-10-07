@@ -3,7 +3,7 @@
  * fake testimonials, unsubstantiated claims, missing unsubscribe or sender identity on marketing email, PII exposure,
  * harassment and prohibited automation.
  */
-import type { Severity } from "@founder-manager/shared";
+import type { Severity } from "@foundmill/shared";
 import type { ModerationOutput } from "../schemas";
 import type { MockContext } from "./inputs";
 

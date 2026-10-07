@@ -1,13 +1,13 @@
 /**
  * events + outbox — the platform event store (BUILD §8.1; ARCHITECTURE §5).
  *
- * `@founder-manager/events`' `writeEvent(tx, …)` is the write path services use: it validates the payload
+ * `@foundmill/events`' `writeEvent(tx, …)` is the write path services use: it validates the payload
  * against the catalogue and inserts into both tables in the caller's transaction. This repo is the read
  * side (the Composer's "highest-priority un-narrated event", the Inbox's source events, the Match Day's
  * payment event) plus `write` for callers inside packages/db (seeds, tests) that already hold a validated
  * payload: it checks the type against the shared vocabulary and the ids, but not the payload shape.
  */
-import { Actor, EVENT_TYPES, uuid, type EventType } from "@founder-manager/shared";
+import { Actor, EVENT_TYPES, uuid, type EventType } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { events, outbox, type Event, type OutboxRow } from "../schema";
@@ -151,7 +151,7 @@ export const eventsRepo = {
     return rows[0] ?? null;
   },
 
-  // outbox (the relay in @founder-manager/events owns publishing; these are for observability and tests) -------------
+  // outbox (the relay in @foundmill/events owns publishing; these are for observability and tests) -------------
   async outboxPending(db: Executor, businessId: string, limit = 100): Promise<(OutboxRow & { event: Event })[]> {
     const rows = await db
       .select({ row: outbox, event: events })

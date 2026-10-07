@@ -12,7 +12,7 @@
  * field. Journey rows (visitors, touches, conversions) are never re-pointed — they are service-written and
  * resolve through `merged_into_id` (`resolve`).
  */
-import { ENTITY_KINDS, INTERACTION_KINDS, ValidationError, VISIBILITY, type EntityKind } from "@founder-manager/shared";
+import { ENTITY_KINDS, INTERACTION_KINDS, ValidationError, VISIBILITY, type EntityKind } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {

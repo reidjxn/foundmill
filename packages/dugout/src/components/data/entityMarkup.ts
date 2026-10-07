@@ -1,13 +1,13 @@
 /**
  * `[[ent:<uuid>|Display]]` markup → render nodes for `EntityText` (BUILD §2.1 rule 3, §11.3).
  *
- * The node shapes are structurally identical to `@founder-manager/entity-linker`'s `RenderNode` family (TextNode,
+ * The node shapes are structurally identical to `@foundmill/entity-linker`'s `RenderNode` family (TextNode,
  * EntityNode, AmbiguousNode, DraftNode), so an Inbox can hand `toRenderTree()` output straight to `EntityText`.
  * Dugout does not depend on the linker package (docs/NEEDED_DEPS.md); the parser here is the display-side half only:
  * it uses the shared `ENTITY_MARKUP_RE` so both sides agree on what a mention looks like, and it never validates ids
  * (that is the linker's job before text is stored).
  */
-import { ENTITY_MARKUP_RE, type EntityKind } from "@founder-manager/shared";
+import { ENTITY_MARKUP_RE, type EntityKind } from "@foundmill/shared";
 
 export interface EntityTextNode {
   type: "text";

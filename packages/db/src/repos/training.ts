@@ -1,5 +1,5 @@
 /** training_runs — the Training screen lifecycle (BUILD §11.10; routers agent.training.*). */
-import { ValidationError } from "@founder-manager/shared";
+import { ValidationError } from "@foundmill/shared";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { TRAINING_DECISIONS, TRAINING_STATUSES, trainingRuns, type TrainingRun } from "../schema";

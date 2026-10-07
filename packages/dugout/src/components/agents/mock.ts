@@ -2,7 +2,7 @@
  * Deterministic mock data for the agents group: stories, tests and the dev-only Simulate panel. Seeded, so the same
  * seed always produces the same squad, sessions and boards. Nothing here reaches production code paths.
  */
-import { CHANNEL_KEYS, CHANNEL_META, type ChannelKey, type DeptColourToken, type ModelKey, type TaskStatus } from "@founder-manager/shared";
+import { CHANNEL_KEYS, CHANNEL_META, type ChannelKey, type DeptColourToken, type ModelKey, type TaskStatus } from "@foundmill/shared";
 import { createRng, type Rng } from "../../lib/seed";
 import type {
   AgentInstructions,

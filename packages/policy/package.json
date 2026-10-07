@@ -1,5 +1,5 @@
 {
-  "name": "@founder-manager/policy",
+  "name": "@foundmill/policy",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -16,8 +16,8 @@
   "dependencies": {
     "@cedar-policy/cedar-wasm": "catalog:",
     "zod": "catalog:",
-    "@founder-manager/shared": "workspace:*",
-    "@founder-manager/config": "workspace:*"
+    "@foundmill/shared": "workspace:*",
+    "@foundmill/config": "workspace:*"
   },
   "devDependencies": {
     "vitest": "catalog:",

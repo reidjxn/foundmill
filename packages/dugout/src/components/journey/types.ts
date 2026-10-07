@@ -1,12 +1,12 @@
 /**
  * Journey group types (BUILD §11.2 Ribbon, §11.4 Match Day, §11.1 concept cards, DESIGN §8–9).
  *
- * The record shapes mirror `@founder-manager/journey` (`packages/journey/src/types.ts`) field for field —
+ * The record shapes mirror `@foundmill/journey` (`packages/journey/src/types.ts`) field for field —
  * JourneyDailyRow, Conversion, Milestone, Chapter, Touch, XcPoint, JourneyAgent, Journey — so a value from that
  * package is assignable here without a cast. Dugout does not depend on the journey package (it depends only on
- * config and shared), so the shapes are declared structurally; vocabulary enums come from @founder-manager/shared.
+ * config and shared), so the shapes are declared structurally; vocabulary enums come from @foundmill/shared.
  */
-import type { AgentStatus, ChannelKey, ConversionKind, DeptColourToken, MatchdayLevel, MilestoneKind } from "@founder-manager/shared";
+import type { AgentStatus, ChannelKey, ConversionKind, DeptColourToken, MatchdayLevel, MilestoneKind } from "@foundmill/shared";
 import type { Kit } from "../shell/types";
 
 export type DayKey = string; // YYYY-MM-DD (UTC)

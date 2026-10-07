@@ -1,8 +1,8 @@
 /**
- * Formatting helpers. Locale defaults to en-GB (matches @founder-manager/shared money formatting).
+ * Formatting helpers. Locale defaults to en-GB (matches @foundmill/shared money formatting).
  * Everything is pure; pass `now` where time is involved so tests and stories are deterministic.
  */
-import { formatMoney as sharedFormatMoney, type Money } from "@founder-manager/shared";
+import { formatMoney as sharedFormatMoney, type Money } from "@foundmill/shared";
 import { format as dfFormat, isValid } from "date-fns";
 
 export const DEFAULT_LOCALE = "en-GB";
@@ -58,7 +58,7 @@ export function formatPercent(value: number, opts: { digits?: number; ofHundred?
   }).format(ratio);
 }
 
-/** Money from minor units via @founder-manager/shared. */
+/** Money from minor units via @foundmill/shared. */
 export function formatMoney(m: Money, opts: { compact?: boolean; locale?: string } = {}): string {
   return sharedFormatMoney(m, opts);
 }

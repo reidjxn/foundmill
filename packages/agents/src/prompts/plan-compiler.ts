@@ -1,6 +1,6 @@
 /** Plan compiler (BUILD §12.3). Opus, locked. Text is spec-verbatim; `action_types` is the PLAN_ACTION_TYPES tuple. */
 import { z } from "zod";
-import { PlanActionType } from "@founder-manager/shared";
+import { PlanActionType } from "@foundmill/shared";
 import { definePrompt } from "./template";
 
 export const PlanCompilerVariables = z.object({

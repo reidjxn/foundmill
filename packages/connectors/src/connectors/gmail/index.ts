@@ -1,5 +1,5 @@
 /** Live Gmail connector over the REST API with per-business OAuth; sends as RFC 5322 raw messages. */
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import type { Connector, ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { createHttp, type HttpClient } from "../../http";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { LIMITS } from "@founder-manager/config";
-import { CONVERSION_KINDS, MATCHDAY_LEVEL_FOR_KIND } from "@founder-manager/shared";
+import { LIMITS } from "@foundmill/config";
+import { CONVERSION_KINDS, MATCHDAY_LEVEL_FOR_KIND } from "@foundmill/shared";
 import { buildMarkovModel } from "../attribution";
 import { buildJourney, matchdayLevelFor, shouldPlayFullMatchDay, type BuildJourneyInput } from "../builder";
 import { generateSyntheticConversionPath } from "../synthetic";

@@ -1,6 +1,6 @@
 /** Anthropic: model listing and BYOK key validation (BUILD §10.2). Completions live in packages/models. */
 import { z } from "zod";
-import { ModelKey } from "@founder-manager/shared";
+import { ModelKey } from "@foundmill/shared";
 import { defineTool } from "../../define";
 
 export const ModelInfoOut = z.object({

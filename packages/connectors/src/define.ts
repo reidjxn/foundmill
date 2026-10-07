@@ -6,7 +6,7 @@
  * through it, so they behave identically at the contract boundary.
  */
 import { z } from "zod";
-import { AppError } from "@founder-manager/shared";
+import { AppError } from "@foundmill/shared";
 import {
   ConfigError,
   VendorError,

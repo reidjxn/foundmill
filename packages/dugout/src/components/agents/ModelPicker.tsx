@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { Lock, TriangleAlert } from "lucide-react";
-import type { ModelKey } from "@founder-manager/shared";
+import type { ModelKey } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { formatDelta, formatMoneyDelta } from "../../lib/format";
 import { ProvenanceChip } from "../foundation/Chip";

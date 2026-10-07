@@ -8,7 +8,7 @@
  * of the local candidates with confidence ≥ 0.9. Anything else leaves the span ambiguous, so the sweep never guesses and
  * works unchanged under MODEL_MODE=mock (the mock client's synthetic answer fails the candidate check).
  */
-import type { EntityKind } from "@founder-manager/shared";
+import type { EntityKind } from "@foundmill/shared";
 import { z } from "zod";
 import { normalizeName } from "./manifest";
 import { parseEntityMarkup, serializeSegments } from "./markup";

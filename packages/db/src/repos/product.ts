@@ -2,7 +2,7 @@
  * product — spec blocks, spec versions, change proposals + hunks, roadmap, sources
  * (BUILD §11.5; routers product.spec.*, product.roadmap.*, product.proposals.*).
  */
-import { HUNK_DECISIONS, ROADMAP_HORIZONS, SEVERITIES, SOURCE_KINDS, ValidationError, type PROPOSAL_STATUSES } from "@founder-manager/shared";
+import { HUNK_DECISIONS, ROADMAP_HORIZONS, SEVERITIES, SOURCE_KINDS, ValidationError, type PROPOSAL_STATUSES } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {

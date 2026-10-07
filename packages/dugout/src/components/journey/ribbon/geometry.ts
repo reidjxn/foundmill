@@ -6,7 +6,7 @@
  * (AC-11.2.1: 2 years of daily data under 2 s; see geometry.test.ts for the timing test).
  */
 import { area, curveBasis, curveMonotoneX, line, stack, stackOffsetSilhouette, stackOrderInsideOut } from "d3-shape";
-import type { ConversionKind, DeptColourToken, MilestoneKind } from "@founder-manager/shared";
+import type { ConversionKind, DeptColourToken, MilestoneKind } from "@foundmill/shared";
 import type { Chapter, Conversion, DayKey, ForecastPoint, JourneyDailyRow, Milestone, RibbonDepartment, RoadmapFlag, ZoomLevel } from "../types";
 
 export const DAY_MS = 86_400_000;

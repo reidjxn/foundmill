@@ -1,5 +1,5 @@
 import { ArrowRight, CircleCheck, CircleX, Clock, TriangleAlert } from "lucide-react";
-import type { EntityKind } from "@founder-manager/shared";
+import type { EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { Avatar } from "../foundation/Avatar";
 import { Button } from "../foundation/Button";

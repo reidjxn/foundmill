@@ -1,5 +1,5 @@
 import { Calendar, Hourglass, TriangleAlert } from "lucide-react";
-import type { Money } from "@founder-manager/shared";
+import type { Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { formatDate, formatMoney, formatNumber } from "../../lib/format";
 import { Chip, type ChipTone } from "../foundation/Chip";

@@ -1,9 +1,9 @@
 /**
  * One valid example payload per event type. Used by this package's tests and available to other packages
- * (connector `simulate`, composer fixtures, apps/stream tests) through `@founder-manager/events/testing/fixtures`.
+ * (connector `simulate`, composer fixtures, apps/stream tests) through `@foundmill/events/testing/fixtures`.
  * Ids are deterministic so recorded fixtures stay stable.
  */
-import type { EventType } from "@founder-manager/shared";
+import type { EventType } from "@foundmill/shared";
 import type { EventPayloadInput, PlatformEvent } from "../catalogue";
 import { buildEvent, type WriteEventInput } from "../outbox/writer";
 

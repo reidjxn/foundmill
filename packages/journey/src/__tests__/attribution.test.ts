@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LIMITS } from "@founder-manager/config";
+import { LIMITS } from "@foundmill/config";
 import {
   attribute, buildMarkovModel, channelWeights, chooseModel, conversionPathsFromTouches, dataDrivenWeights, filterTouchesForConsent, OFFLINE_CHANNELS,
   parseTouchSource, positionBased4020, selectJourneyTouches, type AttributionRegistry, type ConversionPath,

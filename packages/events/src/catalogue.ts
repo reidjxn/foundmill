@@ -33,7 +33,7 @@ import {
   TaskPhase,
   ValidationError,
   type EventType as EventTypeT,
-} from "@founder-manager/shared";
+} from "@foundmill/shared";
 
 // ---------------------------------------------------------------------------------------------------
 // Building blocks

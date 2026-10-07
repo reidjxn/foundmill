@@ -3,7 +3,7 @@
  * Account-scoped until commit: functions take `userId` first and filter on owner_user_id. `commit` stamps the
  * business id on the idea and every version/comparison so they become business-scoped history.
  */
-import { ARCHETYPES, ValidationError } from "@founder-manager/shared";
+import { ARCHETYPES, ValidationError } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { IDEA_ACTIONS, ideaComparisons, ideaVersions, ideas, type Idea, type IdeaComparison, type IdeaVersion } from "../schema";

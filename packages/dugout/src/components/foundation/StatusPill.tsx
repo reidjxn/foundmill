@@ -1,6 +1,6 @@
 import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
 import { Circle, CircleAlert, CircleCheck, CircleX, Info, TriangleAlert } from "lucide-react";
-import type { AgentStatus } from "@founder-manager/shared";
+import type { AgentStatus } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { Icon, type IconComponent } from "./Icon";
 

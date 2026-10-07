@@ -1,7 +1,7 @@
 import { useId, useMemo } from "react";
 import { scaleLinear, scaleTime } from "d3-scale";
 import { curveMonotoneX, line as d3Line } from "d3-shape";
-import type { DeptColourToken } from "@founder-manager/shared";
+import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { deptColourVar } from "../../lib/colour";
 import { formatDate } from "../../lib/format";

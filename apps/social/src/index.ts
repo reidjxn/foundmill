@@ -1,2 +1,2 @@
-// @founder-manager/social — see docs/ARCHITECTURE.md
+// @foundmill/social — see docs/ARCHITECTURE.md
 export {};

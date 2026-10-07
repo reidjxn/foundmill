@@ -1,6 +1,6 @@
 /** Offline structure tests: the eval data is complete and well-formed. These run in mock mode on every change. */
 import { describe, expect, it } from "vitest";
-import { ALL_TEMPLATES, CHECK, hasTemplate, getTemplate } from "@founder-manager/agents";
+import { ALL_TEMPLATES, CHECK, hasTemplate, getTemplate } from "@foundmill/agents";
 import { GOLDEN_TASKS, goldenTasksFor } from "../golden/tasks";
 import { INJECTION_CASES, injectionCasesOfKind } from "../injection/suite";
 import { GoldenTask, INJECTION_KINDS, InjectionCase } from "../types";

@@ -1,6 +1,6 @@
 /**
  * Applies packages/db/migrations to DATABASE_URL with drizzle's migrator (reads meta/_journal.json).
- * Usage: pnpm --filter @founder-manager/db migrate   (or `pnpm db:migrate` from the root)
+ * Usage: pnpm --filter @foundmill/db migrate   (or `pnpm db:migrate` from the root)
  */
 import { sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/postgres-js/migrator";

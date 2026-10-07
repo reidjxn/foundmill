@@ -4,8 +4,8 @@
  * packages/models. Secrets are never logged and never returned.
  */
 import Anthropic from "@anthropic-ai/sdk";
-import { MODELS } from "@founder-manager/models/routing";
-import { uuid } from "@founder-manager/shared";
+import { MODELS } from "@foundmill/models/routing";
+import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";

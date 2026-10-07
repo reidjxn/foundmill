@@ -21,4 +21,4 @@ ENV APP=${APP}
 ENV NODE_ENV=production
 ENV APP_ENV=staging
 EXPOSE 4000
-CMD ["sh", "-c", "pnpm --filter @founder-manager/${APP} start"]
+CMD ["sh", "-c", "pnpm --filter @foundmill/${APP} start"]

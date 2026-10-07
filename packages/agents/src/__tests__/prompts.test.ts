@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { PLAN_ACTION_TYPES } from "@founder-manager/shared";
+import { PLAN_ACTION_TYPES } from "@foundmill/shared";
 import { PROMPTS, PROMPT_LIST, getPrompt } from "../prompts";
 import { PromptRenderError, definePrompt, extractPlaceholders, formatVariable } from "../prompts/template";
 import { ROUTE_DEFAULT_MODEL } from "../types";

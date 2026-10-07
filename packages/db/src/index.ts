@@ -1,4 +1,4 @@
-// @founder-manager/db — see docs/ARCHITECTURE.md §4
+// @foundmill/db — see docs/ARCHITECTURE.md §4
 export * from "./client";
 export * from "./schema";
 export * from "./repos";

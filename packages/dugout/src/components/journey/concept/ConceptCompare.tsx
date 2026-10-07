@@ -1,5 +1,5 @@
 import { Bot } from "lucide-react";
-import type { DeptColourToken } from "@founder-manager/shared";
+import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../../lib/cn";
 import { initials } from "../../../lib/format";
 import { Crest } from "../../foundation/Crest";

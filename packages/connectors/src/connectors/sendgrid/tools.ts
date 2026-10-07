@@ -6,7 +6,7 @@
  * (packages/agents) judges the copy.
  */
 import { z } from "zod";
-import { AppError } from "@founder-manager/shared";
+import { AppError } from "@foundmill/shared";
 import { defineTool } from "../../define";
 
 export const SENDGRID_KEY = "sendgrid";

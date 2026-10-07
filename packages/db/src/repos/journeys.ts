@@ -7,7 +7,7 @@
  * the service role has no membership so `dailyRange` reads the matview directly when the current role
  * bypasses RLS. `refreshDaily` is for the metrics consumer and the nightly schedule.
  */
-import { CHANNEL_KEYS, CONVERSION_KINDS, MATCHDAY_LEVELS, MILESTONE_KINDS, ValidationError, VISIBILITY, type ConversionKind } from "@founder-manager/shared";
+import { CHANNEL_KEYS, CONVERSION_KINDS, MATCHDAY_LEVELS, MILESTONE_KINDS, ValidationError, VISIBILITY, type ConversionKind } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {

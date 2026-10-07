@@ -3,7 +3,7 @@
  * state (AC-11.6.3), the unified-diff splitter the Diff view feeds to Monaco, and small time helpers.
  * Everything is pure.
  */
-import type { TaskPhase, TaskStatus } from "@founder-manager/shared";
+import type { TaskPhase, TaskStatus } from "@foundmill/shared";
 import { formatDuration } from "../../lib/format";
 import type {
   AgentSessionEvent,

@@ -1,5 +1,5 @@
 /** 0012 — LIVE social: public profiles view, connections, messages, communities, leaderboards, negotiations. */
-import { ARCHETYPES, DATA_REGIONS, VISIBILITY } from "@founder-manager/shared";
+import { ARCHETYPES, DATA_REGIONS, VISIBILITY } from "@foundmill/shared";
 import { boolean, index, integer, jsonb, numeric, pgTable, pgView, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { emptyArray, emptyObject, id, timestamps, timestampsWithArchive, tstz } from "./_common";

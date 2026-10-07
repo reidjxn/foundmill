@@ -7,7 +7,7 @@
  *   degrades to a replay: a founder watching the Training Ground must not mistake a recording for work.
  * - An explicit `mode` wins and is checked for availability the same way.
  */
-import { loadEnv } from "@founder-manager/shared";
+import { loadEnv } from "@foundmill/shared";
 import { DockerSandboxProvider, type DockerSandboxOptions } from "./docker";
 import { E2bSandboxProvider, type E2bSandboxOptions } from "./e2b";
 import { SandboxUnavailableError } from "./errors";

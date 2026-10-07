@@ -3,7 +3,7 @@
  * grader"). Pure functions over the agent's output plus what the sandbox observed, so the training runner and `evals/`
  * share one implementation and a grader can never override a failed check (BUILD §12.5).
  */
-import { ENTITY_MARKUP_RE } from "@founder-manager/shared";
+import { ENTITY_MARKUP_RE } from "@foundmill/shared";
 import { type DeterministicCheck, type DeterministicCheckKind } from "../types";
 
 export interface CheckContext {

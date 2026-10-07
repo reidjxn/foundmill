@@ -1,5 +1,5 @@
 {
-  "name": "@founder-manager/evals",
+  "name": "@foundmill/evals",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -16,12 +16,12 @@
   },
   "dependencies": {
     "zod": "catalog:",
-    "@founder-manager/agents": "workspace:*",
-    "@founder-manager/models": "workspace:*",
-    "@founder-manager/shared": "workspace:*",
-    "@founder-manager/config": "workspace:*",
-    "@founder-manager/entity-linker": "workspace:*",
-    "@founder-manager/policy": "workspace:*"
+    "@foundmill/agents": "workspace:*",
+    "@foundmill/models": "workspace:*",
+    "@foundmill/shared": "workspace:*",
+    "@foundmill/config": "workspace:*",
+    "@foundmill/entity-linker": "workspace:*",
+    "@foundmill/policy": "workspace:*"
   },
   "devDependencies": {
     "vitest": "catalog:",

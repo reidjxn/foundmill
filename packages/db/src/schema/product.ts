@@ -1,5 +1,5 @@
 /** 0003 — product: spec blocks, versions, change proposals, roadmap, sources. */
-import { HUNK_DECISIONS, PROPOSAL_STATUSES, ROADMAP_HORIZONS, SEVERITIES, SOURCE_KINDS } from "@founder-manager/shared";
+import { HUNK_DECISIONS, PROPOSAL_STATUSES, ROADMAP_HORIZONS, SEVERITIES, SOURCE_KINDS } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { boolean, date, index, integer, jsonb, pgTable, text, uniqueIndex, uuid, vector, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";

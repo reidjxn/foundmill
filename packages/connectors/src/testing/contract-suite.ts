@@ -5,8 +5,8 @@
  * verification (positive / tampered / replay) and mock determinism.
  */
 import { describe, expect, it } from "vitest";
-import type { EventType } from "@founder-manager/shared";
-import { safeParseEvent } from "@founder-manager/events/catalogue";
+import type { EventType } from "@foundmill/shared";
+import { safeParseEvent } from "@foundmill/events/catalogue";
 import type { Connector, ConnectorMode, DecryptedCredential, IntegrationRecord, ToolContext, ToolLogger, ToolResult } from "../contract";
 import { isMockConnector } from "../define";
 import { mockIntegrationRecord, uuidFromSeed } from "../mock-utils";

@@ -1,4 +1,4 @@
-import { ValidationError } from "@founder-manager/shared";
+import { ValidationError } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { SandboxError } from "../errors";
 import { MockSandboxProvider } from "../mock/replay";

@@ -1,9 +1,9 @@
 /**
  * Small typed builders shared by the bundled recordings. Events are `SessionEventDraft`s from
- * `@founder-manager/events` (no `at`; replay fills it in), so a recording that drifts from the session
+ * `@foundmill/events` (no `at`; replay fills it in), so a recording that drifts from the session
  * event schema fails `tsc`. Progress follows BUILD §11.6 and is computed, never typed by hand.
  */
-import type { SessionEventDraft } from "@founder-manager/events";
+import type { SessionEventDraft } from "@foundmill/events";
 import type { z } from "zod";
 import type { RecordedEvent, RecordedHold } from "../recording";
 

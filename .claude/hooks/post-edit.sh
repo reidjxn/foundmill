@@ -15,7 +15,7 @@ case "$file" in
   *) exit 0 ;;
 esac
 if [[ "$file" == *"packages/db/migrations"* ]]; then
-  pnpm --filter @founder-manager/db test:rls 2>&1 | tail -40
+  pnpm --filter @foundmill/db test:rls 2>&1 | tail -40
 fi
 pnpm -w turbo run typecheck lint --filter='...[HEAD]' --output-logs=errors-only 2>&1 | tail -60
 exit 0

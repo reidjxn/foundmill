@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { APP_NAME, APP_TAGLINE } from "@founder-manager/config";
+import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
 import "./globals.css";
 
 export const metadata: Metadata = { title: APP_NAME, description: APP_TAGLINE };

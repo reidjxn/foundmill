@@ -1,5 +1,5 @@
 import { createElement, Fragment, type ReactNode } from "react";
-import { ENTITY_MARKUP_RE, type EntityKind } from "@founder-manager/shared";
+import { ENTITY_MARKUP_RE, type EntityKind } from "@foundmill/shared";
 import { EntityLink } from "../data/EntityLink";
 import type { EntityRef } from "../data/types";
 

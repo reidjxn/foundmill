@@ -2,7 +2,7 @@
  * Builder for the 15 channel engine agents (BUILD §11.7 channel table). Each channel file supplies the specifics; this
  * composes the description, goals around the channel's core metric, the shared engine-loop rules and the tool grants.
  */
-import { CHANNEL_META, type ChannelKey, type EventType } from "@founder-manager/shared";
+import { CHANNEL_META, type ChannelKey, type EventType } from "@foundmill/shared";
 import { grant, PLATFORM_BASE_TOOLS, QUARANTINE_TOOLS, type ConnectorKey } from "../../connectors";
 import { type AgentExample, type AgentTemplate, type ToolGrant } from "../../types";
 import { CHANNEL_COMMON_RULES, defineTemplate, spendingAutonomy, WORKER_COMMON_RULES, withCoreSkills } from "../_shared";

@@ -1,4 +1,4 @@
-import { type ChannelKey } from "@founder-manager/shared";
+import { type ChannelKey } from "@foundmill/shared";
 import { type AgentTemplate } from "../../types";
 import { channelLeadGeneration } from "./lead_generation";
 import { channelEmailAutomation } from "./email_automation";

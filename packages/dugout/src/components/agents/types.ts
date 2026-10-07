@@ -2,10 +2,10 @@
  * Agents group types (BUILD §11.6 Training Ground, §11.7 Formation Board, §11.9 squad table, §11.10 profiles and
  * training, DESIGN §8 AgentTile/FormationBoard/Avatar, §9 Team/Agent profile).
  *
- * Session events are a structural mirror of `@founder-manager/events` `SessionEvent` (dugout has no dependency on the
+ * Session events are a structural mirror of `@foundmill/events` `SessionEvent` (dugout has no dependency on the
  * events package, see docs/NEEDED_DEPS.md): the orchestrator's events are assignable to `AgentSessionEvent` unchanged.
  */
-import type { Money, AgentStatus, ChannelKey, ChannelLine, DeptColourToken, ModelKey, SkillGroup, TaskKind, TaskPhase, TaskStatus } from "@founder-manager/shared";
+import type { Money, AgentStatus, ChannelKey, ChannelLine, DeptColourToken, ModelKey, SkillGroup, TaskKind, TaskPhase, TaskStatus } from "@foundmill/shared";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Session events (as:{sessionId} stream)

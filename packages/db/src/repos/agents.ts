@@ -2,7 +2,7 @@
  * agents, agent_versions, agent_sessions, agent_metrics — the squad (BUILD §9.1–9.2, §11.9, §11.10;
  * routers team.agents.*, agent.profile.*, agent.model.*, agent.autonomy.*, dev.sessions.*).
  */
-import { AGENT_LAYERS, AGENT_STATUSES, AGENT_VERSION_STATES, MODEL_KEYS, ValidationError, type AgentStatus } from "@founder-manager/shared";
+import { AGENT_LAYERS, AGENT_STATUSES, AGENT_VERSION_STATES, MODEL_KEYS, ValidationError, type AgentStatus } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentMetrics, agentSessions, agentVersions, agents, CREATED_BY_KINDS, type Agent, type AgentMetric, type AgentSession, type AgentVersion } from "../schema";

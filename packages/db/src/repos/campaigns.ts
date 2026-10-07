@@ -2,7 +2,7 @@
  * campaigns + assets — what a channel engine runs and produces (BUILD §11.7; routers distribution.campaigns.*,
  * distribution.assets.approve/reject).
  */
-import { APPROVAL_STATES, ASSET_KINDS, CAMPAIGN_STATUSES, ValidationError, type CampaignStatus } from "@founder-manager/shared";
+import { APPROVAL_STATES, ASSET_KINDS, CAMPAIGN_STATUSES, ValidationError, type CampaignStatus } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { assets, campaigns, channels, type Asset, type Campaign } from "../schema";

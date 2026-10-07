@@ -1,5 +1,5 @@
 /** 0010 — legal: entities, incorporations, filings, contracts, compliance events. */
-import { INCORPORATION_ROUTES } from "@founder-manager/shared";
+import { INCORPORATION_ROUTES } from "@foundmill/shared";
 import { date, index, jsonb, pgTable, text, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { currency, emptyList, id, minor, timestampsWithArchive, tstz } from "./_common";
 import { businessId } from "./_refs";

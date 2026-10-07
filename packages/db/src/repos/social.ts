@@ -7,7 +7,7 @@
  * business-facing. Personal businesses never appear in `publicProfiles`/`searchPublic`: the `public_profiles`
  * view only selects LIVE businesses (0012), so the visibility rule is enforced in SQL, not here.
  */
-import { ARCHETYPES, DATA_REGIONS, ValidationError, VISIBILITY } from "@founder-manager/shared";
+import { ARCHETYPES, DATA_REGIONS, ValidationError, VISIBILITY } from "@foundmill/shared";
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {

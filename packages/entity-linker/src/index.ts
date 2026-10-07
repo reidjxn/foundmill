@@ -1,5 +1,5 @@
 /**
- * @founder-manager/entity-linker — the hyperlinking pipeline (BUILD §2.1 rule 3, §11.3, §11.12).
+ * @foundmill/entity-linker — the hyperlinking pipeline (BUILD §2.1 rule 3, §11.3, §11.12).
  *
  *   buildManifest(entities)            → Manifest { byId, byAlias, text, lines, toJSON }
  *   parseEntityMarkup / validateMarkup → segments, { valid, unknownIds, invisibleIds, ... }

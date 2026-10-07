@@ -1,6 +1,6 @@
 /** Formation Board logic (BUILD §11.7): lines, icons, pitch/bench grouping and the toggle. Pure. */
 import { Calendar, FileText, Handshake, Mail, Mailbox, Megaphone, MessageSquareQuote, Mic, Newspaper, Radio, Search, Share2, Signpost, Star, Target } from "lucide-react";
-import { CHANNEL_LINES, CHANNEL_META, type ChannelKey, type ChannelLine } from "@founder-manager/shared";
+import { CHANNEL_LINES, CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared";
 import type { IconComponent } from "../foundation/Icon";
 import type { ChannelLineGroup, ChannelTokenData, FormCell } from "./types";
 

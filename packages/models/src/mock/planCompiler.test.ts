@@ -1,4 +1,4 @@
-import { PLAN_ACTION_TYPES } from "@founder-manager/shared";
+import { PLAN_ACTION_TYPES } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { PlanOutput } from "../schemas";
 import { MockModelClient, compilePlanRuleBased, detectAmounts, detectChannels, detectHardGates } from "./index";

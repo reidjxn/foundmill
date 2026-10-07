@@ -2,7 +2,7 @@
  * Zod output schemas for the model routes (BUILD §11.3 Composer schema, §12.3 Plan, §11.1 ideation, §12.4–§12.7).
  *
  * These are the default shapes the mock generators produce and the shapes other packages can import when they call
- * `complete({ schema })`. Shared enums come from @founder-manager/shared and are never redeclared here; the few enums
+ * `complete({ schema })`. Shared enums come from @foundmill/shared and are never redeclared here; the few enums
  * that are specific to a single model output (idea attribute keys, chart of accounts, moderation categories) live here.
  */
 import {
@@ -12,7 +12,7 @@ import {
   PlanActionType,
   Severity,
   TaskKind,
-} from "@founder-manager/shared";
+} from "@foundmill/shared";
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------------------------------------------------

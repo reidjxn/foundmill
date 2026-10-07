@@ -5,7 +5,7 @@
  * `integration.externalAccountId`. Webhook secrets: per-business (`stripe_webhook_secret`) → platform.
  */
 import Stripe from "stripe";
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector, type IntegrationRecord, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";

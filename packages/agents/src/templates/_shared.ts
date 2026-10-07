@@ -3,8 +3,8 @@
  * Zod spec at module load) and the common rule fragments every layer inherits. Club rules are NOT here — they are prepended
  * by the runtime (`buildSystemPrompt`) and never stored in instructions (BUILD §9.2).
  */
-import { LIMITS } from "@founder-manager/config";
-import { type AgentLayer, type ModelKey } from "@founder-manager/shared";
+import { LIMITS } from "@foundmill/config";
+import { type AgentLayer, type ModelKey } from "@foundmill/shared";
 import { AgentTemplate, ROUTE_DEFAULT_MODEL, type Autonomy, type TemplateFamily } from "../types";
 import { deriveTraits } from "../traits";
 

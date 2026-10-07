@@ -1,9 +1,9 @@
 /**
  * Shared shapes for the shell group (BUILD §5.3–5.5, DESIGN §8).
- * Vocabulary enums come from @founder-manager/shared; nothing here redeclares them.
+ * Vocabulary enums come from @foundmill/shared; nothing here redeclares them.
  */
 import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode, Ref } from "react";
-import type { BusinessMode, DeptColourToken, GameMode } from "@founder-manager/shared";
+import type { BusinessMode, DeptColourToken, GameMode } from "@foundmill/shared";
 import type { IconComponent } from "../foundation/Icon";
 
 /** Business kit colours as hex (business data, not design tokens). */

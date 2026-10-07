@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Command } from "cmdk";
 import { Bot, Building2, ChevronRight, Globe, Inbox, LayoutGrid, MapPin, Search, Terminal, UserCog, User, Users, type LucideIcon } from "lucide-react";
-import { APP_NAME } from "@founder-manager/config";
-import type { DeptColourToken, EntityKind } from "@founder-manager/shared";
+import { APP_NAME } from "@foundmill/config";
+import type { DeptColourToken, EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { Chip, DeptChip } from "../foundation/Chip";
 import { Dialog, DialogContent, DialogTitle } from "../foundation/Dialog";

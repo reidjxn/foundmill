@@ -1,5 +1,5 @@
 import { ArrowRight, Check, Minus, Trash2, TrendingDown, TrendingUp } from "lucide-react";
-import { SKILL_GROUPS, type Money, type SkillGroup } from "@founder-manager/shared";
+import { SKILL_GROUPS, type Money, type SkillGroup } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { formatDuration, formatMoney } from "../../lib/format";
 import { RatingFigure } from "../data/RatingBar";

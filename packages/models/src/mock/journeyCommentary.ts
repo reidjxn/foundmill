@@ -2,7 +2,7 @@
  * Mock journey commentary (BUILD §11.4 Match Day): one line per touch in the voice of a match commentator, entities
  * linked with manifest ids only.
  */
-import { CHANNEL_KEYS, CHANNEL_META, type ChannelKey, type ChannelLine } from "@founder-manager/shared";
+import { CHANNEL_KEYS, CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared";
 import type { CommentaryOutput } from "../schemas";
 import { type ManifestEntry, type MockContext, ent, isRecord } from "./inputs";
 

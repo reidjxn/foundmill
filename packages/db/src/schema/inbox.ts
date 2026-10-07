@@ -1,5 +1,5 @@
 /** 0005 — inbox items, decisions, plans, plan actions, composer buffer. */
-import { INBOX_ITEM_TYPES, INBOX_STATES, PLAN_ACTION_TYPES, PLAN_ORIGINS, PLAN_STATUSES, POLICY_OUTCOMES } from "@founder-manager/shared";
+import { INBOX_ITEM_TYPES, INBOX_STATES, PLAN_ACTION_TYPES, PLAN_ORIGINS, PLAN_STATUSES, POLICY_OUTCOMES } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { boolean, index, integer, jsonb, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";

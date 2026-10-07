@@ -1,2 +1,2 @@
-// @founder-manager/web — see docs/ARCHITECTURE.md
+// @foundmill/web — see docs/ARCHITECTURE.md
 export {};

@@ -5,7 +5,7 @@
  * mints a fresh one through the authorization-grant flow. Consent itself is given by the founder in Tink
  * Link (hard gate); `connect()` returns the Tink Link URL the Settings page opens.
  */
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector, type DecryptedCredential, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { addDays, isoDay } from "../../mock-utils";

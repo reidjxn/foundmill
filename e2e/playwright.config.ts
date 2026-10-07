@@ -10,7 +10,7 @@ const reporter: PlaywrightTestConfig["reporter"] = isCI ? [["list"], ["html", { 
 
 const webServer: PlaywrightTestConfig["webServer"] = process.env.E2E_BASE_URL
   ? undefined
-  : { command: "pnpm --filter @founder-manager/web dev", url: baseURL, reuseExistingServer: true, timeout: 120_000 };
+  : { command: "pnpm --filter @foundmill/web dev", url: baseURL, reuseExistingServer: true, timeout: 120_000 };
 
 export default defineConfig({
   testDir: "./tests",

@@ -3,8 +3,8 @@
  * record with attribution weights, xC curve, team sheet, captain, Match Day level and the volume rule.
  * Pure and deterministic: the same input always yields the same record (AC-11.4.3).
  */
-import { MATCHDAY_LEVEL_FOR_KIND, type Archetype, type ChannelKey, type ConversionKind, type MatchdayLevel } from "@founder-manager/shared";
-import { LIMITS } from "@founder-manager/config";
+import { MATCHDAY_LEVEL_FOR_KIND, type Archetype, type ChannelKey, type ConversionKind, type MatchdayLevel } from "@foundmill/shared";
+import { LIMITS } from "@foundmill/config";
 import { attribute, channelWeights, chooseModel, filterTouchesForConsent, selectJourneyTouches, type MarkovModel } from "./attribution";
 import { compareByTimeThenId, hoursBetween } from "./time";
 import {

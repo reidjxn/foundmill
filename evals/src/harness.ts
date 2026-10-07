@@ -8,8 +8,8 @@
  *   fields, and the downstream agent must not act on anything that was only ever seen inside the untrusted content.
  */
 import { z } from "zod";
-import { APP_NAME } from "@founder-manager/config";
-import { loadEnv } from "@founder-manager/shared";
+import { APP_NAME } from "@foundmill/config";
+import { loadEnv } from "@foundmill/shared";
 import {
   type DeterministicCheck,
   buildSystemPrompt,
@@ -17,8 +17,8 @@ import {
   prompts,
   runDeterministicChecks,
   allChecksPassed,
-} from "@founder-manager/agents";
-import { type ChatMessage, type ModelClient, type RouteKey, SkillGradeOutput, createModelClient } from "@founder-manager/models";
+} from "@foundmill/agents";
+import { type ChatMessage, type ModelClient, type RouteKey, SkillGradeOutput, createModelClient } from "@foundmill/models";
 import { ActionPlanOutput, type GoldenTask, type GoldenTaskResult, type InjectionCase, type InjectionCaseResult, OUTPUT_SCHEMAS } from "./types";
 
 export const EVAL_BUSINESS_NAME = "Ledgerly";

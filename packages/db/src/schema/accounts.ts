@@ -1,5 +1,5 @@
 /** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses). */
-import { ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, GAME_MODES, MODEL_BILLING, PLAN_TIERS, VISIBILITY } from "@founder-manager/shared";
+import { ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, GAME_MODES, MODEL_BILLING, PLAN_TIERS, VISIBILITY } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";

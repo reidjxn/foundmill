@@ -1,4 +1,4 @@
-import { ENTITY_MARKUP_RE } from "@founder-manager/shared";
+import { ENTITY_MARKUP_RE } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { ComposerOutput } from "../schemas";
 import { MockModelClient, numbersIn, wordCount } from "./index";

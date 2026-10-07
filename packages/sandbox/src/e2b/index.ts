@@ -16,7 +16,7 @@
  * stays in this process and is never passed into the sandbox. The key comes from `E2B_API_KEY`
  * (`loadEnv()`), not from `process.env` directly.
  */
-import { loadEnv } from "@founder-manager/shared";
+import { loadEnv } from "@foundmill/shared";
 import { SandboxError, SandboxFileNotFoundError, SandboxStateError, SandboxUnavailableError } from "../errors";
 import {
   DEFAULT_EXEC_TIMEOUT_MS,

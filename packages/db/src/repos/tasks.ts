@@ -1,5 +1,5 @@
 /** tasks + task_edges — the Development Plan graph (BUILD §11.6; routers dev.tasks.*). */
-import { TASK_KINDS, TASK_PHASES, TASK_STATUSES, ValidationError, type TaskStatus } from "@founder-manager/shared";
+import { TASK_KINDS, TASK_PHASES, TASK_STATUSES, ValidationError, type TaskStatus } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { taskEdges, tasks, type Task, type TaskEdge } from "../schema";

@@ -6,8 +6,8 @@
  */
 import { createHash } from "node:crypto";
 import seedrandom from "seedrandom";
-import { parsePayload, type EventPayloadInput, type PlatformEvent } from "@founder-manager/events/catalogue";
-import type { Actor, ChannelKey, EventType, IntegrationStatus } from "@founder-manager/shared";
+import { parsePayload, type EventPayloadInput, type PlatformEvent } from "@foundmill/events/catalogue";
+import type { Actor, ChannelKey, EventType, IntegrationStatus } from "@foundmill/shared";
 import type { HealthResult, IntegrationRecord, SimulateParams } from "./contract";
 import { canonicalJson } from "./quarantine";
 

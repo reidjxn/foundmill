@@ -6,7 +6,7 @@
  * not present in the inputs (numbers are only ever copied from metric values, event payloads and option costs; every
  * template sentence is digit-free).
  */
-import { CHANNEL_KEYS, EXHIBIT_KINDS, INBOX_ITEM_TYPES, type ChannelKey, type ExhibitKind, type InboxItemType } from "@founder-manager/shared";
+import { CHANNEL_KEYS, EXHIBIT_KINDS, INBOX_ITEM_TYPES, type ChannelKey, type ExhibitKind, type InboxItemType } from "@foundmill/shared";
 import type { ComposerOption, ComposerOutput } from "../schemas";
 import { type ManifestEntry, type MockContext, asUuid, channelLabel, ent, formatMoneyMinor, humaniseKey, isRecord, sentenceCase, truncate, wordCount } from "./inputs";
 

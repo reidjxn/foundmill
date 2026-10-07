@@ -3,7 +3,7 @@
  * patterns the platform forbids or frowns on (raw db calls outside repos, process.env outside env.ts, secrets, eval,
  * debug logging, explicit any, money-moving or signing calls in agent code, no tests in a large change).
  */
-import type { Severity } from "@founder-manager/shared";
+import type { Severity } from "@foundmill/shared";
 import type { CodeReviewOutput } from "../schemas";
 import type { MockContext } from "./inputs";
 

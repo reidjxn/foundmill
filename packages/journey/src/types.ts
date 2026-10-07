@@ -7,7 +7,7 @@
  * normalise them to ISO strings. See docs/DECISIONS.md "Journey records carry ISO strings".
  */
 import { z } from "zod";
-import { Archetype, ChannelKey, ConversionKind, MatchdayLevel, MilestoneKind, Visibility } from "@founder-manager/shared";
+import { Archetype, ChannelKey, ConversionKind, MatchdayLevel, MilestoneKind, Visibility } from "@foundmill/shared";
 
 // ---------------------------------------------------------------------------------------------------
 // Primitives

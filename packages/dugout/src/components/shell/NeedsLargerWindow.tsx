@@ -1,5 +1,5 @@
 import type { HTMLAttributes } from "react";
-import { APP_NAME } from "@founder-manager/config";
+import { APP_NAME } from "@foundmill/config";
 import { cn } from "../../lib/cn";
 import { LogoMark } from "../foundation/LogoMark";
 import { MIN_VIEWPORT_WIDTH } from "./useViewportWidth";

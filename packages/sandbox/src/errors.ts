@@ -1,5 +1,5 @@
-/** Typed errors for @founder-manager/sandbox. All extend the shared AppError so apps map them uniformly. */
-import { AppError } from "@founder-manager/shared";
+/** Typed errors for @foundmill/sandbox. All extend the shared AppError so apps map them uniformly. */
+import { AppError } from "@foundmill/shared";
 
 export class SandboxError extends AppError {
   constructor(message: string, details?: unknown, code = "sandbox", status = 500) {

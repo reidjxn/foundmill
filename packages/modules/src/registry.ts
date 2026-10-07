@@ -1,6 +1,6 @@
 /** Module screens: built-in capability packs rendered as full-screen widgets on department tabs (BUILD §6.1, §6.3). */
 import type { ComponentType } from "react";
-import type { ModuleKey } from "@founder-manager/shared";
+import type { ModuleKey } from "@foundmill/shared";
 
 export type ModuleScreenProps = {
   businessId: string;

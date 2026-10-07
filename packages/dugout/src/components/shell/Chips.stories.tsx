@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { BUSINESS_MODES } from "@founder-manager/shared";
+import { BUSINESS_MODES } from "@foundmill/shared";
 import { Home, Megaphone } from "lucide-react";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { GameModeChip, ModeChip } from "./ModeChip";

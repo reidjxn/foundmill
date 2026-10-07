@@ -8,7 +8,7 @@
  * remote URL (which would persist it in `.git/config`). `gitAuthEnv` output still goes through
  * `assertNoLongLivedCredentials` on the way into the sandbox (AC-11.6.6).
  */
-import { ValidationError } from "@founder-manager/shared";
+import { ValidationError } from "@foundmill/shared";
 import { SandboxError } from "./errors";
 import { shellJoin, shellQuote } from "./shell";
 import type { ExecOptions, ExecResult, Sandbox, SandboxRepo } from "./types";

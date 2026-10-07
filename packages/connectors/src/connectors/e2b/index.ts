@@ -1,5 +1,5 @@
 /** Live E2B connector over the REST API (base https://api.e2b.app, header X-API-Key). */
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { createHttp, type HttpClient } from "../../http";

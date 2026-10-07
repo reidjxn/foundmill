@@ -1,2 +1,2 @@
-// @founder-manager/gateway — see docs/ARCHITECTURE.md
+// @foundmill/gateway — see docs/ARCHITECTURE.md
 export {};

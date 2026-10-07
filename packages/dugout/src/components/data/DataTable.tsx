@@ -79,7 +79,7 @@ import { SavedViewSelector } from "./SavedViewSelector";
 import { ROW_HEIGHT, type RowAction, type SavedView, type TableDensity } from "./types";
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Column meta (TanStack's extension point). Declared here so every consumer of @founder-manager/dugout gets it.
+// Column meta (TanStack's extension point). Declared here so every consumer of @foundmill/dugout gets it.
 // ---------------------------------------------------------------------------------------------------------------------
 
 declare module "@tanstack/react-table" {

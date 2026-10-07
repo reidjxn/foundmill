@@ -4,8 +4,8 @@
  * which applies Cedar policy to `policyHints`, injects the decrypted credential into `ToolContext`, meters
  * `costMinor` and audits the call.
  */
-import { AppError, type ConnectorAuthKind, type IntegrationStatus } from "@founder-manager/shared";
-import type { PlatformEvent } from "@founder-manager/events/catalogue";
+import { AppError, type ConnectorAuthKind, type IntegrationStatus } from "@foundmill/shared";
+import type { PlatformEvent } from "@foundmill/events/catalogue";
 
 export type { PlatformEvent };
 

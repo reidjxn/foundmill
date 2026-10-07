@@ -1,4 +1,4 @@
-// @founder-manager/connectors — connector contract, registry, mock utilities and every connector (docs/ARCHITECTURE.md §8).
+// @foundmill/connectors — connector contract, registry, mock utilities and every connector (docs/ARCHITECTURE.md §8).
 export * from "./contract";
 export * from "./define";
 export * from "./registry";

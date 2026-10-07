@@ -1,14 +1,14 @@
 /**
  * credentials — ciphertext only (BUILD §7.2 "never selectable by client roles", §10.2, §14).
  *
- * This repo stores and loads `EncryptedRecord`s from `@founder-manager/shared` (envelope encryption:
+ * This repo stores and loads `EncryptedRecord`s from `@foundmill/shared` (envelope encryption:
  * data key wrapped by KMS or the local master key, payload sealed with XChaCha20-Poly1305). It never
  * sees a plaintext: callers encrypt with a `Vault` before `store` and decrypt after `load`, in memory,
  * in the gateway or orchestrator only. The table has no RLS policy and no grants for app roles, so every
  * function here only works on a service-role connection; metadata reads (`listMetadata`, `expiring`)
  * omit the ciphertext columns so the credential-expiry scan never carries secrets around.
  */
-import { encryptedRecordFromBytes, encryptedRecordToBytes, EncryptedRecordSchema, ValidationError, type EncryptedRecord } from "@founder-manager/shared";
+import { encryptedRecordFromBytes, encryptedRecordToBytes, EncryptedRecordSchema, ValidationError, type EncryptedRecord } from "@foundmill/shared";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { credentials, integrations, type Credential } from "../schema";

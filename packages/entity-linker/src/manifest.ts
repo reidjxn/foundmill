@@ -5,7 +5,7 @@
  * visible, and the sweep only links to it. `text` and `lines` are what goes into the prompt; `toJSON()` is what the
  * mock model client reads (it looks for a `manifest` array in the prompt JSON).
  */
-import { ENTITY_KINDS, type EntityKind } from "@founder-manager/shared";
+import { ENTITY_KINDS, type EntityKind } from "@foundmill/shared";
 import { foldText } from "./trigram";
 import type { Manifest, ManifestEntity, ManifestEntityInput, ManifestJsonEntry } from "./types";
 

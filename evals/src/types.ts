@@ -4,7 +4,7 @@
  * in `golden/tasks.ts` or `injection/suite.ts`, never a code change in the harness.
  */
 import { z } from "zod";
-import { DeterministicCheck, SnakeKey } from "@founder-manager/agents";
+import { DeterministicCheck, SnakeKey } from "@foundmill/agents";
 import {
   CategoriserOutput,
   ClassifierOutput,
@@ -21,7 +21,7 @@ import {
   SkillGradeOutput,
   TaskGraphOutput,
   WorkerOutput,
-} from "@founder-manager/models";
+} from "@foundmill/models";
 
 /** Output schemas a golden task may demand, by key, so tasks stay plain data. */
 export const OUTPUT_SCHEMAS = {

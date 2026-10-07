@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { LayoutGroup, MotionConfig, motion } from "motion/react";
-import { CHANNEL_LINES, type ChannelKey } from "@founder-manager/shared";
+import { CHANNEL_LINES, type ChannelKey } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { darkenHex } from "../../lib/colour";
 import { usePrefersReducedMotion } from "../../lib/reducedMotion";

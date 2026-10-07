@@ -1,5 +1,5 @@
 {
-  "name": "@founder-manager/web",
+  "name": "@foundmill/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -39,15 +39,15 @@
     "react-hotkeys-hook": "catalog:",
     "nanoid": "catalog:",
     "react-grid-layout": "catalog:",
-    "@founder-manager/dugout": "workspace:*",
-    "@founder-manager/config": "workspace:*",
-    "@founder-manager/shared": "workspace:*",
-    "@founder-manager/widgets": "workspace:*",
-    "@founder-manager/modules": "workspace:*",
-    "@founder-manager/journey": "workspace:*",
-    "@founder-manager/entity-linker": "workspace:*",
-    "@founder-manager/events": "workspace:*",
-    "@founder-manager/api": "workspace:*"
+    "@foundmill/dugout": "workspace:*",
+    "@foundmill/config": "workspace:*",
+    "@foundmill/shared": "workspace:*",
+    "@foundmill/widgets": "workspace:*",
+    "@foundmill/modules": "workspace:*",
+    "@foundmill/journey": "workspace:*",
+    "@foundmill/entity-linker": "workspace:*",
+    "@foundmill/events": "workspace:*",
+    "@foundmill/api": "workspace:*"
   },
   "devDependencies": {
     "tailwindcss": "catalog:",

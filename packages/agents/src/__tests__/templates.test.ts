@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CHANNEL_KEYS } from "@founder-manager/shared";
+import { CHANNEL_KEYS } from "@foundmill/shared";
 import { AgentTemplate, AgentVersionSpec, ROUTE_DEFAULT_MODEL } from "../types";
 import { ALL_TEMPLATES, CHANNEL_TEMPLATES, LEAD_TEMPLATES, SPECIALIST_TEMPLATES, UTILITY_TEMPLATES, WORKER_TEMPLATES, chiefOfStaff } from "../templates";
 import { CONNECTOR_KEYS, isConnectorKey } from "../connectors";

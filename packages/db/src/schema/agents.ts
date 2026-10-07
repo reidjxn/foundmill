@@ -1,7 +1,7 @@
 /** 0004 — agents, versions, skills, training, departments, screens, dashboards, tasks, playbooks, holidays. */
 import {
   AGENT_LAYERS, AGENT_STATUSES, AGENT_VERSION_STATES, DEPT_COLOUR_TOKENS, MODEL_KEYS, SKILL_GROUPS, TASK_KINDS, TASK_PHASES, TASK_STATUSES,
-} from "@founder-manager/shared";
+} from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { boolean, date, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";

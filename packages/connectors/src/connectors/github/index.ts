@@ -6,7 +6,7 @@
  */
 import { App } from "@octokit/app";
 import { Octokit } from "@octokit/rest";
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector, type IntegrationRecord, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
@@ -18,7 +18,7 @@ type RestOctokit = InstanceType<typeof Octokit>;
 
 export function createGithubConnector(options: LiveConnectorOptions = {}): Connector {
   const { secrets, fetch, now, resolveBusinessId } = resolveLiveOptions(options);
-  const OctokitWithFetch = Octokit.defaults({ request: { fetch }, userAgent: "founder-manager-connectors/0.1" });
+  const OctokitWithFetch = Octokit.defaults({ request: { fetch }, userAgent: "foundmill-connectors/0.1" });
 
   const app = (): App => {
     if (!secrets.githubAppId || !secrets.githubAppPrivateKey) throw new ConfigError(GITHUB_KEY, "GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY", "create the GitHub App and paste its id and private key");

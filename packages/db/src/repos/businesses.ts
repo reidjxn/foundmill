@@ -1,5 +1,5 @@
 /** businesses — the club record (BUILD §7.2 "Accounts and businesses", routers business.*). */
-import { ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, GAME_MODES, MODEL_BILLING, PLAN_TIERS, slugify, uuid } from "@founder-manager/shared";
+import { ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, GAME_MODES, MODEL_BILLING, PLAN_TIERS, slugify, uuid } from "@foundmill/shared";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { businesses, memberships, type Business } from "../schema";

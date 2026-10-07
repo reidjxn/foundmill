@@ -1,5 +1,5 @@
 {
-  "name": "@founder-manager/collab",
+  "name": "@foundmill/collab",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -21,9 +21,9 @@
     "jose": "catalog:",
     "pino": "catalog:",
     "pino-pretty": "catalog:",
-    "@founder-manager/db": "workspace:*",
-    "@founder-manager/shared": "workspace:*",
-    "@founder-manager/config": "workspace:*"
+    "@foundmill/db": "workspace:*",
+    "@foundmill/shared": "workspace:*",
+    "@foundmill/config": "workspace:*"
   },
   "devDependencies": {
     "vitest": "catalog:",

@@ -5,12 +5,12 @@
  * and one into `outbox` using the caller's transaction, so the event is committed if and only if the
  * business change it describes is committed. The relay (`./relay`) publishes it to Redis afterwards.
  *
- * This file deliberately does not import `@founder-manager/db`'s schema: it speaks SQL through drizzle's
+ * This file deliberately does not import `@foundmill/db`'s schema: it speaks SQL through drizzle's
  * `sql` tag against the table names in BUILD §7.2, and accepts anything with an `execute(sql)` method
  * (a drizzle `Db`, a drizzle transaction `tx`, or a test fake).
  */
 import { sql, type SQL } from "drizzle-orm";
-import { ValidationError, uuid, type Actor, type EventType } from "@founder-manager/shared";
+import { ValidationError, uuid, type Actor, type EventType } from "@foundmill/shared";
 import {
   getEventDeclaration,
   parsePayload,

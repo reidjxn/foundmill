@@ -1,4 +1,4 @@
-import { SessionEvent, type SessionEventInput } from "@founder-manager/events";
+import { SessionEvent, type SessionEventInput } from "@foundmill/events";
 import { describe, expect, it } from "vitest";
 import { findRecording, RECORDINGS } from "../mock/recordings";
 import { MockSandboxProvider, SessionReplay, type ReplayEventMeta, type Sleep } from "../mock/replay";

@@ -1,5 +1,5 @@
 /** Live Notion connector: per-business OAuth token (public integration) with Notion-Version 2025-09-03. */
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { basicAuth, createHttp, type HttpClient } from "../../http";

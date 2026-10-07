@@ -6,7 +6,7 @@
  * are legal in several jurisdictions). Round modelling (SAFE conversion, pool top-ups) is a pure
  * function in the finance module; this repo only stores the issued positions it starts from.
  */
-import { SECURITY_KINDS, ValidationError } from "@founder-manager/shared";
+import { SECURITY_KINDS, ValidationError } from "@foundmill/shared";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { capTableEntries, entities, securities, type CapTableEntry, type Security } from "../schema";

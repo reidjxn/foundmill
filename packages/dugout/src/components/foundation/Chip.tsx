@@ -1,6 +1,6 @@
 import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
 import { X, TrendingUp, Calculator } from "lucide-react";
-import type { DeptColourToken } from "@founder-manager/shared";
+import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { Icon, type IconComponent } from "./Icon";
 

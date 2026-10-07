@@ -11,7 +11,7 @@
  *   orchestrator's `approval` signal), `resume()` or the hold's own auto-resolve timer. A rejection emits a
  *   `denied` tool_call plus a system note and ends the replay as `stopped`.
  */
-import { ValidationError } from "@founder-manager/shared";
+import { ValidationError } from "@foundmill/shared";
 import { SandboxFileNotFoundError, SandboxStateError } from "../errors";
 import {
   DEFAULT_EXEC_TIMEOUT_MS,

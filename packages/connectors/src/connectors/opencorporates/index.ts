@@ -1,5 +1,5 @@
 /** Live OpenCorporates connector: `api_token` query parameter (redacted from logs by the http client). */
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { createHttp } from "../../http";

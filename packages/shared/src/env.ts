@@ -28,7 +28,7 @@ const Env = z.object({
   REDIS_URL: z.string().default("redis://localhost:6379"),
   TEMPORAL_ADDRESS: z.string().default("localhost:7233"),
   TEMPORAL_NAMESPACE: z.string().default("default"),
-  TEMPORAL_TASK_QUEUE: z.string().default("founder-manager"),
+  TEMPORAL_TASK_QUEUE: z.string().default("foundmill"),
   E2B_API_KEY: z.string().optional(),
   BROWSERBASE_API_KEY: z.string().optional(),
   KMS_KEY_ID: z.string().optional(),

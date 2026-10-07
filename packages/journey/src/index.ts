@@ -1,4 +1,4 @@
-// @founder-manager/journey — attribution, xC, journey builder, round-up, trophies, chapters, daily rows and the
+// @foundmill/journey — attribution, xC, journey builder, round-up, trophies, chapters, daily rows and the
 // synthetic journey data generator (docs/ARCHITECTURE.md §1, BUILD §11.2, §11.4, §17.2).
 export * from "./types";
 export {

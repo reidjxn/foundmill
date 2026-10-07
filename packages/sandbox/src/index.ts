@@ -1,4 +1,4 @@
-// @founder-manager/sandbox — sandbox runners for agent sessions (docs/ARCHITECTURE.md §1, BUILD §3.1, §9.3,
+// @foundmill/sandbox — sandbox runners for agent sessions (docs/ARCHITECTURE.md §1, BUILD §3.1, §9.3,
 // §11.6, §13.3, §14). One interface (`Sandbox`/`SandboxProvider`), three runners: mock (replays recorded
 // sessions), local Docker, E2B. `getSandboxProvider()` picks one from INTEGRATIONS_MODE and availability.
 export * from "./types";

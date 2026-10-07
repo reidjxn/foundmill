@@ -8,7 +8,7 @@
  *   cursor is an opaque base64url token the UI passes back unchanged. `offset` is also accepted for
  *   tables and grids that show page numbers.
  */
-import { NotFoundError, ValidationError } from "@founder-manager/shared";
+import { NotFoundError, ValidationError } from "@foundmill/shared";
 import { and, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, DbTx } from "../client";

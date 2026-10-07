@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { CircleHelp, Plus } from "lucide-react";
-import type { EntityKind } from "@founder-manager/shared";
+import type { EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { Button } from "../foundation/Button";
 import { Chip } from "../foundation/Chip";
@@ -22,7 +22,7 @@ import {
 import type { EntityRef } from "./types";
 
 export interface EntityTextProps {
-  /** Markup text, or a render tree from `@founder-manager/entity-linker`'s `toRenderTree` (same node shapes). */
+  /** Markup text, or a render tree from `@foundmill/entity-linker`'s `toRenderTree` (same node shapes). */
   children: string | readonly EntityRenderNode[];
   /** A span matched several entities: the founder picked one. */
   onResolveAmbiguous?: (node: AmbiguousNode, candidate: AmbiguousCandidate) => void;

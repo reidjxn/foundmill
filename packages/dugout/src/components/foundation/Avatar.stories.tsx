@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { AGENT_STATUSES, DEPT_COLOUR_TOKENS } from "@founder-manager/shared";
+import { AGENT_STATUSES, DEPT_COLOUR_TOKENS } from "@foundmill/shared";
 import { AVATAR_SIZES, Avatar, AvatarStack } from "./Avatar";
 
 const meta = {

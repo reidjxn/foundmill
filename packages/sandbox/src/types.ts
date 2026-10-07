@@ -4,10 +4,10 @@
  *
  * The orchestrator's `agentSession` activity acquires a sandbox through `SandboxProvider.create(spec)`,
  * runs the agent inside it (Claude Agent SDK in live mode, a recorded replay in mock mode) and streams
- * `SessionEvent`s to `as:{sessionId}`. Session event shapes are owned by `@founder-manager/events`
+ * `SessionEvent`s to `as:{sessionId}`. Session event shapes are owned by `@foundmill/events`
  * and only re-used here.
  */
-import type { SessionEvent, SessionEventInput } from "@founder-manager/events";
+import type { SessionEvent, SessionEventInput } from "@foundmill/events";
 import { z } from "zod";
 
 export type { SessionEvent, SessionEventInput };

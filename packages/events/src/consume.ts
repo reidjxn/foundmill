@@ -13,7 +13,7 @@
  * With `pattern` (e.g. `ev:*`) the consumer discovers streams with SCAN every `discoverIntervalMs`,
  * so a business created after start-up is picked up without a restart.
  */
-import { ValidationError } from "@founder-manager/shared";
+import { ValidationError } from "@foundmill/shared";
 import { parseEvent, type PlatformEvent } from "./catalogue";
 import {
   ALL_BUSINESS_STREAMS_PATTERN,

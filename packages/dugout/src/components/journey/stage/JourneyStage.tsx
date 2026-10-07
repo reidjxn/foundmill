@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, Pause, Play, RotateCcw, Star, Trophy, VolumeX } from "lucide-react";
-import { CHANNEL_META, type ChannelKey, type EntityKind, type MatchdayLevel } from "@founder-manager/shared";
+import { CHANNEL_META, type ChannelKey, type EntityKind, type MatchdayLevel } from "@foundmill/shared";
 import { cn } from "../../../lib/cn";
 import { formatDate, formatDateTime, formatDuration, formatMoney, formatNumber, formatOrdinal, formatPercent } from "../../../lib/format";
 import { ratingClass } from "../../../lib/rating";

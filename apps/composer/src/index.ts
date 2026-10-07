@@ -1,2 +1,2 @@
-// @founder-manager/composer — see docs/ARCHITECTURE.md
+// @foundmill/composer — see docs/ARCHITECTURE.md
 export {};

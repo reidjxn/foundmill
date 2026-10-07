@@ -1,5 +1,5 @@
 /** Live Bolagsverket connector: OAuth2 client credentials (Basic) → Bearer calls to the Värdefulla datamängder API. */
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { createHttp } from "../../http";

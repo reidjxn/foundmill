@@ -5,7 +5,7 @@
  * validates it with Zod and checks that every referenced agent, event and entity belongs to the business,
  * so a note can never carry an id from another club.
  */
-import { EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, ValidationError, type InboxItemType, type InboxState } from "@founder-manager/shared";
+import { EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, ValidationError, type InboxItemType, type InboxState } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agents, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItems, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";

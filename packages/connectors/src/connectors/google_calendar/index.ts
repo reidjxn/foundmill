@@ -1,5 +1,5 @@
 /** Live Google Calendar connector (REST v3) with per-business OAuth. */
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import type { Connector, ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { createHttp, type HttpClient } from "../../http";

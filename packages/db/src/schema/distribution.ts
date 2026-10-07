@@ -1,5 +1,5 @@
 /** 0006 — distribution: channels, campaigns, assets, channel metrics, suppression list. */
-import { APPROVAL_STATES, ASSET_KINDS, CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES } from "@founder-manager/shared";
+import { APPROVAL_STATES, ASSET_KINDS, CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES } from "@foundmill/shared";
 import { boolean, date, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { currency, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businessId, businessIdNullable } from "./_refs";

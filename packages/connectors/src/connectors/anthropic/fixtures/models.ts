@@ -1,4 +1,4 @@
-import { MODELS } from "@founder-manager/models/routing";
+import { MODELS } from "@foundmill/models/routing";
 
 export interface FixtureModel {
   id: string;

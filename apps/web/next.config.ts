@@ -4,14 +4,14 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   transpilePackages: [
-    "@founder-manager/config",
-    "@founder-manager/shared",
-    "@founder-manager/dugout",
-    "@founder-manager/widgets",
-    "@founder-manager/modules",
-    "@founder-manager/journey",
-    "@founder-manager/entity-linker",
-    "@founder-manager/events",
+    "@foundmill/config",
+    "@foundmill/shared",
+    "@foundmill/dugout",
+    "@foundmill/widgets",
+    "@foundmill/modules",
+    "@foundmill/journey",
+    "@foundmill/entity-linker",
+    "@foundmill/events",
   ],
 };
 

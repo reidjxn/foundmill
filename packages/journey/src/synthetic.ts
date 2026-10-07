@@ -9,7 +9,7 @@
  *
  * Every number here is synthetic. Consumers must label it (CLAUDE.md: "Label every non-real number").
  */
-import { CHANNEL_KEYS, type Archetype, type ChannelKey, type ModuleKey } from "@founder-manager/shared";
+import { CHANNEL_KEYS, type Archetype, type ChannelKey, type ModuleKey } from "@foundmill/shared";
 import type { AttributionRegistry } from "./attribution";
 import type { BuildJourneyInput, JourneyAgentInput } from "./builder";
 import { buildChapters } from "./chapters";

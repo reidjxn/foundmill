@@ -9,7 +9,7 @@
  *
  * Tables with a nullable business_id, user-owned tables and the social tables have their own suites.
  */
-import { CHANNEL_KEYS } from "@founder-manager/shared";
+import { CHANNEL_KEYS } from "@foundmill/shared";
 import type { AnyPgColumn, PgTable } from "drizzle-orm/pg-core";
 import * as s from "../../schema";
 import type { BusinessFixture } from "./fixtures";

@@ -1,5 +1,5 @@
 /** Live Companies House connector: HTTP Basic with the API key as username (public data API). */
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { basicAuth, createHttp } from "../../http";

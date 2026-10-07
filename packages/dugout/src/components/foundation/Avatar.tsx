@@ -1,5 +1,5 @@
 import type { HTMLAttributes } from "react";
-import type { AgentStatus, DeptColourToken } from "@founder-manager/shared";
+import type { AgentStatus, DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { deptColourVar, mixWith } from "../../lib/colour";
 import { initials } from "../../lib/format";

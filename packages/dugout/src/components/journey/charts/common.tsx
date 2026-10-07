@@ -1,6 +1,6 @@
 import { useCallback, useState, type ReactNode } from "react";
 import { ParentSize } from "@visx/responsive";
-import type { DeptColourToken } from "@founder-manager/shared";
+import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../../lib/cn";
 import { formatCompact } from "../../../lib/format";
 

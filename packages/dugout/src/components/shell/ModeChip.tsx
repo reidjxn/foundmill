@@ -1,6 +1,6 @@
 import { Hand, Handshake, Globe, Lock, Zap } from "lucide-react";
-import type { BusinessMode, GameMode } from "@founder-manager/shared";
-import { APP_NAME } from "@founder-manager/config";
+import type { BusinessMode, GameMode } from "@foundmill/shared";
+import { APP_NAME } from "@foundmill/config";
 import { Chip, type ChipProps } from "../foundation/Chip";
 import type { IconComponent } from "../foundation/Icon";
 import { Tooltip } from "../foundation/Tooltip";

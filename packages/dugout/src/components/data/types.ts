@@ -6,7 +6,7 @@ import type {
   EntityKind,
   Money,
   SkillGroup,
-} from "@founder-manager/shared";
+} from "@foundmill/shared";
 import type { IconComponent } from "../foundation/Icon";
 import type { ChipTone } from "../foundation/Chip";
 import type { FilterChipValue } from "./filters";

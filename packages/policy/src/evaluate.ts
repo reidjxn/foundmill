@@ -8,7 +8,7 @@
  *  - Any evaluation error (a policy that could not be evaluated) fails closed to `deny`.
  */
 import type { CedarValueJson, Entities, EntityJson } from "@cedar-policy/cedar-wasm/nodejs";
-import type { BusinessMode } from "@founder-manager/shared";
+import type { BusinessMode } from "@foundmill/shared";
 import { getPolicyEngine, type PolicyEngine } from "./cedar";
 import { cedarIds, EvaluateInput, type EvaluateInputInput, type EvaluateResult } from "./types";
 

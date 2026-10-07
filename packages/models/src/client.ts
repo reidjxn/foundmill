@@ -15,7 +15,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { loadEnv } from "@founder-manager/shared";
+import { loadEnv } from "@foundmill/shared";
 import { createHash } from "node:crypto";
 import type { z } from "zod";
 import { ModelAbortedError, ModelOutputError, ModelRateLimitError, ModelRequestError, ModelUnavailableError } from "./errors";

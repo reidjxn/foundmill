@@ -1,5 +1,5 @@
 {
-  "name": "@founder-manager/events",
+  "name": "@foundmill/events",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -17,9 +17,9 @@
     "zod": "catalog:",
     "ioredis": "catalog:",
     "drizzle-orm": "catalog:",
-    "@founder-manager/db": "workspace:*",
-    "@founder-manager/shared": "workspace:*",
-    "@founder-manager/config": "workspace:*"
+    "@foundmill/db": "workspace:*",
+    "@foundmill/shared": "workspace:*",
+    "@foundmill/config": "workspace:*"
   },
   "devDependencies": {
     "vitest": "catalog:",

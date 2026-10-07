@@ -3,7 +3,7 @@
  * The gateway creates the row and returns `outcome: "ask"`; the founder (or the Chief of Staff on holiday,
  * within authority) resolves it; `approvalWait` continues on the `decision` signal.
  */
-import { ValidationError } from "@founder-manager/shared";
+import { ValidationError } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { APPROVAL_BY_KINDS, APPROVAL_OUTCOMES, approvals, type Approval } from "../schema";

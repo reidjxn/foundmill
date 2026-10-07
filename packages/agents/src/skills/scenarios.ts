@@ -3,7 +3,7 @@
  * seven archetypes, so a skill's 12 tests span different products, customers, markets and currencies rather than repeating
  * one example. Fields are the placeholders blueprints may use as `{field}`.
  */
-import { type Archetype } from "@founder-manager/shared";
+import { type Archetype } from "@foundmill/shared";
 
 export interface Scenario {
   key: string;

@@ -1,5 +1,5 @@
 /** Live ECB connector: parses the public daily XML feed; cached for an hour since it changes once a day. */
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import type { Connector } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { createHttp } from "../../http";

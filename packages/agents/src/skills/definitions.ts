@@ -3,7 +3,7 @@
  * `agentTypes` for craft skills is derived from the templates that carry the skill, so the catalogue and the templates
  * can never disagree (a test asserts every template skill exists here and every craft skill is used).
  */
-import { type SkillGroup } from "@founder-manager/shared";
+import { type SkillGroup } from "@foundmill/shared";
 import { SkillDefinition } from "../types";
 import { ALL_TEMPLATES } from "../templates";
 

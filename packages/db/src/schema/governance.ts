@@ -1,5 +1,5 @@
 /** 0011 — integrations, credentials, webhooks, policies, approvals, audit log, events, outbox. */
-import { ACTOR_KINDS, CONNECTOR_AUTH_KINDS, INTEGRATION_STATUSES } from "@founder-manager/shared";
+import { ACTOR_KINDS, CONNECTOR_AUTH_KINDS, INTEGRATION_STATUSES } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { bigint, boolean, index, integer, jsonb, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { bytea, createdAt, emptyArray, emptyObject, id, timestamps, timestampsWithArchive, tstz } from "./_common";

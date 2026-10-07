@@ -1,5 +1,5 @@
 /** founder_profiles — account-scoped (userId first), routers founder.profile.get/update. */
-import { VISIBILITY } from "@founder-manager/shared";
+import { VISIBILITY } from "@foundmill/shared";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { founderProfiles, type FounderProfile } from "../schema";

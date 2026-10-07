@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { APP_NAME } from "@founder-manager/config";
+import { APP_NAME } from "@foundmill/config";
 import { CLUB_RULES, clubRulesPrompt } from "../prompts/club-rules";
 import { CLUB_RULES_HEADER, INSTRUCTIONS_HEADER, buildSystemPrompt, detectClubRuleViolation, diffInstructions, flattenInstructions, hasClubRulesPrefix, renderInstructions } from "../club-rules";
 import { ALL_TEMPLATES, chiefOfStaff } from "../templates";

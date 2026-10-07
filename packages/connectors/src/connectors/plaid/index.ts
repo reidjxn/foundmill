@@ -4,7 +4,7 @@
  * founder completes Plaid Link (hard gate). `connect({ redirectUri })` first returns a `link_token` in
  * `config.linkToken` for the Settings page to open Link with.
  */
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { addDays, isoDay } from "../../mock-utils";

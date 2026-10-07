@@ -1,5 +1,5 @@
 /** holiday_periods — founder away, Chief of Staff in charge (BUILD §11.9 "holiday"; routers business.startHoliday/endHoliday). */
-import { ValidationError } from "@founder-manager/shared";
+import { ValidationError } from "@foundmill/shared";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { holidayPeriods, type HolidayPeriod } from "../schema";

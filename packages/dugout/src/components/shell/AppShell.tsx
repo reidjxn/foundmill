@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useMemo, useState, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
-import type { BusinessMode, GameMode, Money } from "@founder-manager/shared";
+import type { BusinessMode, GameMode, Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { TooltipProvider } from "../foundation/Tooltip";
 import { Breadcrumbs } from "./Breadcrumbs";

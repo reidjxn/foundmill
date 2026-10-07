@@ -3,7 +3,7 @@
  * (BUILD §17.2): a backend task that fails its tests and then fixes them, a research task, a finance task
  * that meets an auto-resolving approval hold and then a hard gate, a code task that loops and fails, a
  * frontend task with Playwright and a founder Shout, and a backend task that waits on the founder's approval
- * for a schema change. `recordings.test.ts` validates every event against the `@founder-manager/events`
+ * for a schema change. `recordings.test.ts` validates every event against the `@foundmill/events`
  * schemas and replays each recording end to end.
  *
  * Events are `SessionEventDraft`s (no `at`; replay fills it in; see ./helpers.ts). Progress follows BUILD

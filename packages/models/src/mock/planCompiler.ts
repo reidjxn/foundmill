@@ -9,7 +9,7 @@
  *
  * Exported as a pure function so apps can also use it as a deterministic fallback or pre-check in live mode.
  */
-import { CHANNEL_META, PLAN_ACTION_TYPES, type ChannelKey, type PlanActionType, type TaskKind } from "@founder-manager/shared";
+import { CHANNEL_META, PLAN_ACTION_TYPES, type ChannelKey, type PlanActionType, type TaskKind } from "@foundmill/shared";
 import type { PlanAction, PlanOutput } from "../schemas";
 import { type AgentLike, type ManifestEntry, type MockContext, agentsFrom, sentenceCase, truncate } from "./inputs";
 

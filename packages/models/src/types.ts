@@ -1,5 +1,5 @@
 /**
- * Public types for @founder-manager/models (docs/ARCHITECTURE.md §6).
+ * Public types for @foundmill/models (docs/ARCHITECTURE.md §6).
  *
  * A `ModelClient` is the only way the platform talks to Claude. It exists in two modes: `live` (Anthropic SDK) and
  * `mock` (deterministic fixtures). Both return the same `CompleteResult` shape so every caller works unchanged under
@@ -116,7 +116,7 @@ export interface UsageEvent {
 
 export type UsageSink = (event: UsageEvent) => void | Promise<void>;
 
-/** Structural subset of pino's logger so callers can pass `createLogger()` from @founder-manager/shared or a stub. */
+/** Structural subset of pino's logger so callers can pass `createLogger()` from @foundmill/shared or a stub. */
 export interface ModelLogger {
   debug(obj: unknown, msg?: string): void;
   info(obj: unknown, msg?: string): void;

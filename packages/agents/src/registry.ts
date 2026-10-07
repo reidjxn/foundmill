@@ -1,5 +1,5 @@
 /** Template registry: look templates up by key, type, module, family or channel. */
-import { type ChannelKey, type ModuleKey } from "@founder-manager/shared";
+import { type ChannelKey, type ModuleKey } from "@foundmill/shared";
 import { ALL_TEMPLATES } from "./templates";
 import { type AgentTemplate, type TemplateFamily } from "./types";
 

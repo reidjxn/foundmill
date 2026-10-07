@@ -1,10 +1,10 @@
 /**
  * Seeded demo data for the journey group's stories and tests (Northwind Skincare, BUILD §17.2).
- * Deterministic (lib/seed), no network, shaped like `@founder-manager/journey`'s synthetic generator:
+ * Deterministic (lib/seed), no network, shaped like `@foundmill/journey`'s synthetic generator:
  * ramp-up, growth, weekly rhythm, launches, one dip, trophies in order. Not exported from the package barrel.
  */
 import { addDays, format, parseISO, startOfQuarter, endOfQuarter, differenceInCalendarDays } from "date-fns";
-import type { AgentStatus, ConversionKind } from "@founder-manager/shared";
+import type { AgentStatus, ConversionKind } from "@foundmill/shared";
 import { createRng, seededUuid, type Rng } from "../../lib/seed";
 import type {
   Chapter,

@@ -4,7 +4,7 @@
  * fields only and are reversible: `planMerge` returns the merged record and a snapshot that `unmerge` restores exactly
  * (AC-11.12.3). Everything here is pure; `packages/db` persists and audits the result.
  */
-import type { EntityKind } from "@founder-manager/shared";
+import type { EntityKind } from "@foundmill/shared";
 import { normalizeName } from "./manifest";
 import { foldText, similarity } from "./trigram";
 import type { LinkerModelClient } from "./types";

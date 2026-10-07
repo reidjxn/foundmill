@@ -2,11 +2,11 @@
  * Agent package vocabulary (BUILD §9.2, §11.10, §12).
  *
  * Shared enums (ModelKey, SkillGroup, AgentLayer, TaskKind, ChannelKey, ModuleKey, Archetype, ...) come from
- * `@founder-manager/shared` and are never redeclared here. This file adds the Zod specs that are specific to agent
+ * `@foundmill/shared` and are never redeclared here. This file adds the Zod specs that are specific to agent
  * templates, agent versions, skills and skill tests.
  */
 import { z } from "zod";
-import type { ROUTES as ModelRoutes } from "@founder-manager/models/routing";
+import type { ROUTES as ModelRoutes } from "@foundmill/models/routing";
 import {
   AgentLayer,
   Archetype,
@@ -17,7 +17,7 @@ import {
   ModuleKey,
   SkillGroup,
   TaskKind,
-} from "@founder-manager/shared";
+} from "@foundmill/shared";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Keys

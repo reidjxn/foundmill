@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import type { ModelKey } from "@founder-manager/shared";
+import type { ModelKey } from "@foundmill/shared";
 import { InstructionsEditor, type InstructionComment } from "./InstructionsEditor";
 import { MOCK_COACH_EXPLANATION, mockInstructionVersions, mockModelOptions, mockTrainingResults } from "./mock";
 import { ModelPicker } from "./ModelPicker";

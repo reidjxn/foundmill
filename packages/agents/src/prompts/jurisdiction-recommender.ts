@@ -1,6 +1,6 @@
 /** Jurisdiction recommender (BUILD §11.11, Opus + web research): two-jurisdiction headline and up to 6 cards with "date checked" stamps. */
 import { z } from "zod";
-import { Archetype } from "@founder-manager/shared";
+import { Archetype } from "@foundmill/shared";
 import { definePrompt } from "./template";
 
 export const JurisdictionRecommenderVariables = z.object({

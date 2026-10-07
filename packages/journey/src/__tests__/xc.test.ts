@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { LIMITS } from "@founder-manager/config";
-import { ARCHETYPES, CHANNEL_KEYS } from "@founder-manager/shared";
+import { LIMITS } from "@foundmill/config";
+import { ARCHETYPES, CHANNEL_KEYS } from "@foundmill/shared";
 import { generateSyntheticConversionPath, generateSyntheticJourneyData, syntheticConversionGroups } from "../synthetic";
 import { archetypePrior, pathFeatures, selectXcModel, sigmoid, touchFeatures, trainXcModel, XC_FEATURE_COUNT, XC_FEATURE_NAMES, xcSamplesFromPaths, xcSeries } from "../xc";
 import { XcModel } from "../types";

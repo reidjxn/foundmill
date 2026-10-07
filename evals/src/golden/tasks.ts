@@ -6,8 +6,8 @@
  * All tasks are set in the Ledgerly business (BUILD §17.2 seed): a month-end reconciliation tool for fintech operations
  * teams, £49 per seat per month, UK and US.
  */
-import { CHANNEL_KEYS } from "@founder-manager/shared";
-import { CHECK } from "@founder-manager/agents";
+import { CHANNEL_KEYS } from "@foundmill/shared";
+import { CHECK } from "@foundmill/agents";
 import { type z } from "zod";
 import { GoldenTask } from "../types";
 

@@ -1,5 +1,5 @@
 /** departments + department_members (BUILD §11.13; routers department.*). Departments are labels over modules. */
-import { DEPT_COLOUR_TOKENS, MODULE_KEYS, slugify, ValidationError } from "@founder-manager/shared";
+import { DEPT_COLOUR_TOKENS, MODULE_KEYS, slugify, ValidationError } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { departmentMembers, departments, MEMBER_KINDS, screenDefinitions, type Department, type DepartmentMember } from "../schema";

@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
-import type { EntityKind } from "@founder-manager/shared";
+import type { EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { formatDate, formatMoney, formatNumber } from "../../lib/format";
 import { Button } from "../foundation/Button";

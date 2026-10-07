@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EVENT_TYPES, ValidationError } from "@founder-manager/shared";
+import { EVENT_TYPES, ValidationError } from "@foundmill/shared";
 import {
   DECLARED_EVENT_TYPES,
   EVENTS,

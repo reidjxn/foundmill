@@ -1,5 +1,5 @@
-// @founder-manager/dugout — the design system (docs/DESIGN.md, BUILD §5, ARCHITECTURE §14).
-// Styles: import "@founder-manager/dugout/fonts.css" and "@founder-manager/dugout/dugout.css" once per app.
+// @foundmill/dugout — the design system (docs/DESIGN.md, BUILD §5, ARCHITECTURE §14).
+// Styles: import "@foundmill/dugout/fonts.css" and "@foundmill/dugout/dugout.css" once per app.
 export * from "./components/foundation";
 export * from "./components/shell";
 export * from "./components/data";

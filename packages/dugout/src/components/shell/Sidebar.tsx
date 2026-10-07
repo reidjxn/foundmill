@@ -1,6 +1,6 @@
 import { forwardRef, useRef, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
-import type { DeptColourToken } from "@founder-manager/shared";
+import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { Icon } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";

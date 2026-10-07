@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Play, Trophy } from "lucide-react";
-import { CHANNEL_META, type ChannelKey, type ConversionKind, type EntityKind, type MatchdayLevel } from "@founder-manager/shared";
+import { CHANNEL_META, type ChannelKey, type ConversionKind, type EntityKind, type MatchdayLevel } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { formatDate, formatMoney, formatTime } from "../../lib/format";
 import { Button } from "../foundation/Button";

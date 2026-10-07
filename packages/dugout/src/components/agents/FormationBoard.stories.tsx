@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import type { ChannelKey } from "@founder-manager/shared";
+import type { ChannelKey } from "@foundmill/shared";
 import { Button } from "../foundation/Button";
 import { ChannelProfileCard } from "./ChannelProfileCard";
 import { ChannelToken } from "./ChannelToken";

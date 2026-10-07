@@ -7,7 +7,7 @@
  * (`named_queries`, `namedQueries`, `NamedQueries` all work; nested under `inputs`/`input`/`context`/`data` also works).
  * Prose-only prompts still get sensible output: every generator has defaults and falls back to the text itself.
  */
-import { CHANNEL_META, type ChannelKey } from "@founder-manager/shared";
+import { CHANNEL_META, type ChannelKey } from "@foundmill/shared";
 import { type Rng, isUuidLike, uuidFromSeed } from "../hash";
 import type { RouteKey } from "../routing";
 import type { ChatMessage, CompleteRequest } from "../types";

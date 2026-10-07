@@ -1,5 +1,5 @@
 /** 0001 — memberships (tenancy). Helper functions is_member/has_role/is_public live in SQL only. */
-import { MEMBERSHIP_ROLES } from "@founder-manager/shared";
+import { MEMBERSHIP_ROLES } from "@foundmill/shared";
 import { index, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { emptyObject, id, timestamps } from "./_common";

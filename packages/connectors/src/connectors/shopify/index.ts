@@ -4,7 +4,7 @@
  * client id/secret); the shop domain lives in `integration.externalAccountId`. Webhooks verify with the app
  * client secret, or a per-shop secret (`shopify_webhook_secret`) when the founder uses a custom app.
  */
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { createHttp, type HttpClient } from "../../http";

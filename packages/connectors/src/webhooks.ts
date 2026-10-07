@@ -4,7 +4,7 @@
  * Vendor-specific schemes live in each connector's `webhooks.ts`.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { isUuid } from "@founder-manager/shared";
+import { isUuid } from "@foundmill/shared";
 
 export const WEBHOOK_BASE = "/webhooks";
 

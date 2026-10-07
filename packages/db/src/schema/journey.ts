@@ -1,5 +1,5 @@
 /** 0007 — customer journey: visitors, touches, conversions, journeys, journey_daily, milestones. */
-import { CHANNEL_KEYS, CONVERSION_KINDS, MATCHDAY_LEVELS, MILESTONE_KINDS, VISIBILITY } from "@founder-manager/shared";
+import { CHANNEL_KEYS, CONVERSION_KINDS, MATCHDAY_LEVELS, MILESTONE_KINDS, VISIBILITY } from "@foundmill/shared";
 import { bigint, date, index, integer, jsonb, numeric, pgMaterializedView, pgTable, pgView, text, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { currency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businessId } from "./_refs";

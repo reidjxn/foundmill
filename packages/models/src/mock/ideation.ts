@@ -2,7 +2,7 @@
  * Mock Ideation agent (BUILD §11.1): 6–12 concept cards with 10 attributes (1–20) + evidence and ≥ 2 citations each,
  * seeded by the prompt hash and shaped by the prompt's keywords and the founder profile.
  */
-import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@founder-manager/shared";
+import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
 import { uuidFromSeed } from "../hash";
 import { IDEA_ATTRIBUTE_KEYS, type ConceptCard, type IdeaAttributeKey, type IdeationOutput } from "../schemas";
 import { type MockContext, isRecord, keywords, titleCase } from "./inputs";

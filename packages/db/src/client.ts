@@ -7,7 +7,7 @@
  *                        request.jwt.claims set, so Postgres RLS enforces tenancy for user-originated queries.
  * - closeDb(db)         Ends the underlying pool.
  */
-import { loadEnv } from "@founder-manager/shared";
+import { loadEnv } from "@foundmill/shared";
 import { sql, type ExtractTablesWithRelations } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT, PgTransaction } from "drizzle-orm/pg-core";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";

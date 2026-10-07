@@ -6,8 +6,8 @@
  * Everything here is data validated against `ArchetypeSeed` at module load. Department names are display defaults the
  * founder can rename (AC-11.13.1); code routes by `slug`, `moduleKeys` and template keys, never by name.
  */
-import { LIMITS } from "@founder-manager/config";
-import { ARCHETYPES, type Archetype, ARCHETYPE_LABELS, type ChannelKey, type DeptColourToken, type ModuleKey } from "@founder-manager/shared";
+import { LIMITS } from "@foundmill/config";
+import { ARCHETYPES, type Archetype, ARCHETYPE_LABELS, type ChannelKey, type DeptColourToken, type ModuleKey } from "@foundmill/shared";
 import { ArchetypeSeed, type BoardDecision, type DepartmentSeed, type FirstCycleTask } from "./types";
 
 // ---------------------------------------------------------------------------------------------------------------------

@@ -2,7 +2,7 @@
  * Mock Planner (BUILD §11.6 "Roadmap → agents"): builds a task graph (goal, acceptance criteria, test expectations,
  * file-scope hints, dependencies) from roadmap items or a goal.
  */
-import type { TaskKind } from "@founder-manager/shared";
+import type { TaskKind } from "@foundmill/shared";
 import type { PlannedTask, TaskGraphOutput } from "../schemas";
 import { type MockContext, isRecord, sentenceCase, truncate } from "./inputs";
 

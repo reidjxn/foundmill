@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { TreePalm } from "lucide-react";
-import { DECISION_TYPES, type DecisionType, type Money } from "@founder-manager/shared";
+import { DECISION_TYPES, type DecisionType, type Money } from "@foundmill/shared";
 import { formatDate } from "../../lib/format";
 import { Button } from "../foundation/Button";
 import { Checkbox } from "../foundation/Checkbox";

@@ -1,2 +1,2 @@
-// @founder-manager/api — see docs/ARCHITECTURE.md
+// @foundmill/api — see docs/ARCHITECTURE.md
 export {};

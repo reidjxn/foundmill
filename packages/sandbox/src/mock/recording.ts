@@ -4,15 +4,15 @@
  * recordings are TypeScript, not JSON"): metadata, a small virtual filesystem, canned command results and a
  * timed list of `SessionEvent`s (without `at`, which replay fills in).
  *
- * Event payloads are typed as `SessionEventDraft` from `@founder-manager/events` (so drift fails `tsc`) and
+ * Event payloads are typed as `SessionEventDraft` from `@foundmill/events` (so drift fails `tsc`) and
  * validated in full against the events package's Zod schemas by `recordings.test.ts`; at runtime this
  * module checks the envelope and ordering.
  */
-import { ModelKey, TaskKind } from "@founder-manager/shared";
+import { ModelKey, TaskKind } from "@foundmill/shared";
 import { z } from "zod";
 import { SandboxRepo } from "../types";
 
-/** Mirrors `SESSION_EVENT_KINDS` in @founder-manager/events (asserted equal by recordings.test.ts). */
+/** Mirrors `SESSION_EVENT_KINDS` in @foundmill/events (asserted equal by recordings.test.ts). */
 export const REPLAYABLE_EVENT_KINDS = ["tool_call", "stdout", "file_changed", "test_result", "phase_changed", "progress", "note"] as const;
 export type ReplayableEventKind = (typeof REPLAYABLE_EVENT_KINDS)[number];
 

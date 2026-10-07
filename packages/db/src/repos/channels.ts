@@ -7,7 +7,7 @@
  * (and optionally campaign); `metricsSummary` folds a date range into the per-channel totals and a
  * blended CPA the screen labels "Estimate".
  */
-import { CHANNEL_KEYS, CHANNEL_LINES, type ChannelKey, type ChannelLine } from "@founder-manager/shared";
+import { CHANNEL_KEYS, CHANNEL_LINES, type ChannelKey, type ChannelLine } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { channelMetrics, channels, SUPPRESSION_SCOPES, suppressionList, type Channel, type ChannelMetric, type SuppressionEntry } from "../schema";

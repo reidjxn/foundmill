@@ -1,6 +1,6 @@
 /** Live Voyage AI connector over the official `voyageai` SDK (0.4). Platform key only (embeddings are a platform cost). */
 import { VoyageAIClient } from "voyageai";
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";

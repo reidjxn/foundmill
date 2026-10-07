@@ -3,7 +3,7 @@
  * Not exported from the package barrel.
  */
 import { Bot, Building2, Inbox, LineChart, ListChecks, Trophy, Users } from "lucide-react";
-import type { ChannelKey, EntityKind, SkillGroup } from "@founder-manager/shared";
+import type { ChannelKey, EntityKind, SkillGroup } from "@foundmill/shared";
 import { createRng, seededUuid } from "../../lib/seed";
 import type {
   AttributeRow,

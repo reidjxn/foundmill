@@ -1,5 +1,5 @@
 {
-  "name": "@founder-manager/dugout",
+  "name": "@foundmill/dugout",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -74,8 +74,8 @@
     "zustand": "catalog:",
     "date-fns": "catalog:",
     "zod": "catalog:",
-    "@founder-manager/config": "workspace:*",
-    "@founder-manager/shared": "workspace:*"
+    "@foundmill/config": "workspace:*",
+    "@foundmill/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "catalog:",

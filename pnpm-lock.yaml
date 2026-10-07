@@ -634,34 +634,34 @@ importers:
 
   apps/api:
     dependencies:
-      '@founder-manager/agents':
+      '@foundmill/agents':
         specifier: workspace:*
         version: link:../../packages/agents
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@founder-manager/connectors':
+      '@foundmill/connectors':
         specifier: workspace:*
         version: link:../../packages/connectors
-      '@founder-manager/db':
+      '@foundmill/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@founder-manager/entity-linker':
+      '@foundmill/entity-linker':
         specifier: workspace:*
         version: link:../../packages/entity-linker
-      '@founder-manager/events':
+      '@foundmill/events':
         specifier: workspace:*
         version: link:../../packages/events
-      '@founder-manager/journey':
+      '@foundmill/journey':
         specifier: workspace:*
         version: link:../../packages/journey
-      '@founder-manager/models':
+      '@foundmill/models':
         specifier: workspace:*
         version: link:../../packages/models
-      '@founder-manager/policy':
+      '@foundmill/policy':
         specifier: workspace:*
         version: link:../../packages/policy
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@hono/node-server':
@@ -713,13 +713,13 @@ importers:
 
   apps/collab:
     dependencies:
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@founder-manager/db':
+      '@foundmill/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@hocuspocus/server':
@@ -747,28 +747,28 @@ importers:
 
   apps/composer:
     dependencies:
-      '@founder-manager/agents':
+      '@foundmill/agents':
         specifier: workspace:*
         version: link:../../packages/agents
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@founder-manager/db':
+      '@foundmill/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@founder-manager/entity-linker':
+      '@foundmill/entity-linker':
         specifier: workspace:*
         version: link:../../packages/entity-linker
-      '@founder-manager/events':
+      '@foundmill/events':
         specifier: workspace:*
         version: link:../../packages/events
-      '@founder-manager/journey':
+      '@foundmill/journey':
         specifier: workspace:*
         version: link:../../packages/journey
-      '@founder-manager/models':
+      '@foundmill/models':
         specifier: workspace:*
         version: link:../../packages/models
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@hono/node-server':
@@ -799,25 +799,25 @@ importers:
 
   apps/gateway:
     dependencies:
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@founder-manager/connectors':
+      '@foundmill/connectors':
         specifier: workspace:*
         version: link:../../packages/connectors
-      '@founder-manager/db':
+      '@foundmill/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@founder-manager/events':
+      '@foundmill/events':
         specifier: workspace:*
         version: link:../../packages/events
-      '@founder-manager/models':
+      '@foundmill/models':
         specifier: workspace:*
         version: link:../../packages/models
-      '@founder-manager/policy':
+      '@foundmill/policy':
         specifier: workspace:*
         version: link:../../packages/policy
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@hono/node-server':
@@ -857,19 +857,19 @@ importers:
 
   apps/ingest:
     dependencies:
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@founder-manager/connectors':
+      '@foundmill/connectors':
         specifier: workspace:*
         version: link:../../packages/connectors
-      '@founder-manager/db':
+      '@foundmill/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@founder-manager/events':
+      '@foundmill/events':
         specifier: workspace:*
         version: link:../../packages/events
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@hono/node-server':
@@ -903,37 +903,37 @@ importers:
       '@anthropic-ai/sdk':
         specifier: 'catalog:'
         version: 0.131.0(zod@4.6.5)
-      '@founder-manager/agents':
+      '@foundmill/agents':
         specifier: workspace:*
         version: link:../../packages/agents
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@founder-manager/connectors':
+      '@foundmill/connectors':
         specifier: workspace:*
         version: link:../../packages/connectors
-      '@founder-manager/db':
+      '@foundmill/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@founder-manager/entity-linker':
+      '@foundmill/entity-linker':
         specifier: workspace:*
         version: link:../../packages/entity-linker
-      '@founder-manager/events':
+      '@foundmill/events':
         specifier: workspace:*
         version: link:../../packages/events
-      '@founder-manager/journey':
+      '@foundmill/journey':
         specifier: workspace:*
         version: link:../../packages/journey
-      '@founder-manager/models':
+      '@foundmill/models':
         specifier: workspace:*
         version: link:../../packages/models
-      '@founder-manager/policy':
+      '@foundmill/policy':
         specifier: workspace:*
         version: link:../../packages/policy
-      '@founder-manager/sandbox':
+      '@foundmill/sandbox':
         specifier: workspace:*
         version: link:../../packages/sandbox
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@temporalio/activity':
@@ -976,16 +976,16 @@ importers:
 
   apps/social:
     dependencies:
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@founder-manager/db':
+      '@foundmill/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@founder-manager/events':
+      '@foundmill/events':
         specifier: workspace:*
         version: link:../../packages/events
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@hono/node-server':
@@ -1013,16 +1013,16 @@ importers:
 
   apps/stream:
     dependencies:
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@founder-manager/db':
+      '@foundmill/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@founder-manager/events':
+      '@foundmill/events':
         specifier: workspace:*
         version: link:../../packages/events
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       ioredis:
@@ -1056,31 +1056,31 @@ importers:
 
   apps/web:
     dependencies:
-      '@founder-manager/api':
+      '@foundmill/api':
         specifier: workspace:*
         version: link:../api
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../../packages/config
-      '@founder-manager/dugout':
+      '@foundmill/dugout':
         specifier: workspace:*
         version: link:../../packages/dugout
-      '@founder-manager/entity-linker':
+      '@foundmill/entity-linker':
         specifier: workspace:*
         version: link:../../packages/entity-linker
-      '@founder-manager/events':
+      '@foundmill/events':
         specifier: workspace:*
         version: link:../../packages/events
-      '@founder-manager/journey':
+      '@foundmill/journey':
         specifier: workspace:*
         version: link:../../packages/journey
-      '@founder-manager/modules':
+      '@foundmill/modules':
         specifier: workspace:*
         version: link:../../packages/modules
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@founder-manager/widgets':
+      '@foundmill/widgets':
         specifier: workspace:*
         version: link:../../packages/widgets
       '@hocuspocus/provider':
@@ -1210,22 +1210,22 @@ importers:
 
   evals:
     dependencies:
-      '@founder-manager/agents':
+      '@foundmill/agents':
         specifier: workspace:*
         version: link:../packages/agents
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../packages/config
-      '@founder-manager/entity-linker':
+      '@foundmill/entity-linker':
         specifier: workspace:*
         version: link:../packages/entity-linker
-      '@founder-manager/models':
+      '@foundmill/models':
         specifier: workspace:*
         version: link:../packages/models
-      '@founder-manager/policy':
+      '@foundmill/policy':
         specifier: workspace:*
         version: link:../packages/policy
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../packages/shared
       zod:
@@ -1241,13 +1241,13 @@ importers:
 
   packages/agents:
     dependencies:
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../config
-      '@founder-manager/models':
+      '@foundmill/models':
         specifier: workspace:*
         version: link:../models
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../shared
       zod:
@@ -1272,16 +1272,16 @@ importers:
       '@anthropic-ai/sdk':
         specifier: 'catalog:'
         version: 0.131.0(zod@4.6.5)
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../config
-      '@founder-manager/events':
+      '@foundmill/events':
         specifier: workspace:*
         version: link:../events
-      '@founder-manager/models':
+      '@foundmill/models':
         specifier: workspace:*
         version: link:../models
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/sdk':
@@ -1324,16 +1324,16 @@ importers:
       '@faker-js/faker':
         specifier: 'catalog:'
         version: 10.6.0
-      '@founder-manager/agents':
+      '@foundmill/agents':
         specifier: workspace:*
         version: link:../agents
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../config
-      '@founder-manager/journey':
+      '@foundmill/journey':
         specifier: workspace:*
         version: link:../journey
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../shared
       '@supabase/supabase-js':
@@ -1388,10 +1388,10 @@ importers:
       '@fontsource/inter':
         specifier: 'catalog:'
         version: 5.3.0
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../config
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../shared
       '@monaco-editor/react':
@@ -1620,13 +1620,13 @@ importers:
 
   packages/entity-linker:
     dependencies:
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../config
-      '@founder-manager/models':
+      '@foundmill/models':
         specifier: workspace:*
         version: link:../models
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../shared
       zod:
@@ -1642,13 +1642,13 @@ importers:
 
   packages/events:
     dependencies:
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../config
-      '@founder-manager/db':
+      '@foundmill/db':
         specifier: workspace:*
         version: link:../db
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
@@ -1670,10 +1670,10 @@ importers:
 
   packages/journey:
     dependencies:
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../config
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../shared
       d3-array:
@@ -1707,10 +1707,10 @@ importers:
       '@anthropic-ai/sdk':
         specifier: 'catalog:'
         version: 0.131.0(zod@4.6.5)
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../config
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../shared
       zod:
@@ -1726,19 +1726,19 @@ importers:
 
   packages/modules:
     dependencies:
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../config
-      '@founder-manager/dugout':
+      '@foundmill/dugout':
         specifier: workspace:*
         version: link:../dugout
-      '@founder-manager/journey':
+      '@foundmill/journey':
         specifier: workspace:*
         version: link:../journey
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../shared
-      '@founder-manager/widgets':
+      '@foundmill/widgets':
         specifier: workspace:*
         version: link:../widgets
       '@tanstack/react-query':
@@ -1784,10 +1784,10 @@ importers:
       '@cedar-policy/cedar-wasm':
         specifier: 'catalog:'
         version: 4.13.0
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../config
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../shared
       zod:
@@ -1803,13 +1803,13 @@ importers:
 
   packages/sandbox:
     dependencies:
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../config
-      '@founder-manager/events':
+      '@foundmill/events':
         specifier: workspace:*
         version: link:../events
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../shared
       e2b:
@@ -1865,16 +1865,16 @@ importers:
 
   packages/widgets:
     dependencies:
-      '@founder-manager/config':
+      '@foundmill/config':
         specifier: workspace:*
         version: link:../config
-      '@founder-manager/dugout':
+      '@foundmill/dugout':
         specifier: workspace:*
         version: link:../dugout
-      '@founder-manager/journey':
+      '@foundmill/journey':
         specifier: workspace:*
         version: link:../journey
-      '@founder-manager/shared':
+      '@foundmill/shared':
         specifier: workspace:*
         version: link:../shared
       '@tanstack/react-query':

@@ -7,7 +7,7 @@
  * through pending → running → done/failed/skipped/denied (`startAction`, `finishAction`). `status` rolls the
  * action states up into the plan's own status so the Inbox can show "3 of 5 done".
  */
-import { PLAN_ACTION_TYPES, PLAN_ORIGINS, PLAN_STATUSES, POLICY_OUTCOMES, ValidationError, type PlanStatus } from "@founder-manager/shared";
+import { PLAN_ACTION_TYPES, PLAN_ORIGINS, PLAN_STATUSES, POLICY_OUTCOMES, ValidationError, type PlanStatus } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { PLAN_ACTION_STATUSES, planActions, plans, type Plan, type PlanAction } from "../schema";

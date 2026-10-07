@@ -1,6 +1,6 @@
 /** Offline harness tests with a scripted fake model client: scoring, gating and leak detection without any network. */
 import { describe, expect, it } from "vitest";
-import { type CompleteRequest, type CompleteResult, type ModelClient } from "@founder-manager/models";
+import { type CompleteRequest, type CompleteResult, type ModelClient } from "@foundmill/models";
 import { checkDownstreamOutput, checkReaderOutput, runGoldenTask, runInjectionCase, summariseGolden, summariseInjection, weightedScore, wrapUntrusted } from "../harness";
 import { INJECTION_CASES } from "../injection/suite";
 import { GOLDEN_TASKS } from "../golden/tasks";

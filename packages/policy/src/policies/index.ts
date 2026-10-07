@@ -9,7 +9,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import * as cedar from "@cedar-policy/cedar-wasm/nodejs";
-import { PolicyOutcome } from "@founder-manager/shared";
+import { PolicyOutcome } from "@foundmill/shared";
 
 export interface PolicyMeta {
   /** From `@id`. Unique across the policy set. */

@@ -1,5 +1,5 @@
 /** Live Cloudflare DNS connector: API token (Bearer) scoped to Zone:Read + DNS:Edit, per business or platform. */
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { createHttp, type HttpClient } from "../../http";

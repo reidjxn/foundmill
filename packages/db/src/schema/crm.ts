@@ -1,5 +1,5 @@
 /** 0008 — CRM: entities, roles, relationships, interactions, mentions, provenance, merge log. */
-import { ENTITY_KINDS, INTERACTION_KINDS, VISIBILITY } from "@founder-manager/shared";
+import { ENTITY_KINDS, INTERACTION_KINDS, VISIBILITY } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { index, jsonb, numeric, pgTable, text, uniqueIndex, uuid, vector, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { emptyArray, emptyObject, id, timestamps, timestampsWithArchive, tstz, tsvector } from "./_common";

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { DECISION_TYPES } from "@founder-manager/shared";
+import { DECISION_TYPES } from "@foundmill/shared";
 import { ApplyScopeDialog, applyScopeCopy } from "./ApplyScopeDialog";
 import { DEFAULT_WAKE_EVENTS, HolidayDialog, defaultAuthority, parseMajor, validateHolidaySettings, type HolidaySettings } from "./HolidayDialog";
 import { KeyboardHelp, groupShortcuts } from "./KeyboardHelp";

@@ -1,6 +1,6 @@
 /** Journey commentary (BUILD §11.4 "Match" stage: touches as events with Sonnet commentary, entities linked). */
 import { z } from "zod";
-import { MatchdayLevel } from "@founder-manager/shared";
+import { MatchdayLevel } from "@foundmill/shared";
 import { definePrompt } from "./template";
 
 export const JourneyCommentaryVariables = z.object({

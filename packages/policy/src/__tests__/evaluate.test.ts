@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BUSINESS_MODES, type BusinessMode, type PolicyOutcome } from "@founder-manager/shared";
-import { LIMITS } from "@founder-manager/config";
+import { BUSINESS_MODES, type BusinessMode, type PolicyOutcome } from "@foundmill/shared";
+import { LIMITS } from "@foundmill/config";
 import {
   evaluate, createPolicyEngine, parsePolicyText, toEntities, toContext, effectiveBusinessMode, EvaluateInput, NO_SPEND_CAP_MINOR,
   type EvaluateInputInput, type ToolCtxInput, type CallContextInput, type AgentCtxInput,

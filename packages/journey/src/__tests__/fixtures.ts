@@ -2,7 +2,7 @@
  * Hand-built fixtures for the journey tests. Ids are deterministic GUIDs (not v4) so that fixtures read well; the
  * schemas accept any 8-4-4-4-12 hex id (docs/DECISIONS.md "ids validated as GUIDs").
  */
-import type { ChannelKey } from "@founder-manager/shared";
+import type { ChannelKey } from "@foundmill/shared";
 import type { JourneyAgentInput } from "../builder";
 import { emptyTouchSource } from "../synthetic";
 import type { Conversion, Touch, TouchKind, TouchSource } from "../types";

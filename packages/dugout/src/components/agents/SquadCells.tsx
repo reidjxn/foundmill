@@ -5,7 +5,7 @@
  */
 import type { ReactNode } from "react";
 import { Bot, Calendar, Code2, Cpu, CreditCard, FileText, HardDrive, Mail, PenLine, Search, ShoppingBag, Wrench } from "lucide-react";
-import type { AgentStatus, ModelKey } from "@founder-manager/shared";
+import type { AgentStatus, ModelKey } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { formatMoney, formatNumber, formatRelative } from "../../lib/format";
 import { ratingClass } from "../../lib/rating";

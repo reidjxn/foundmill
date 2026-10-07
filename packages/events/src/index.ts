@@ -1,4 +1,4 @@
-// @founder-manager/events — event catalogue, transactional outbox, Redis relay, consumers, session streams.
+// @foundmill/events — event catalogue, transactional outbox, Redis relay, consumers, session streams.
 // See docs/ARCHITECTURE.md §5 and BUILD §8.
 export * from "./catalogue";
 export * from "./keys";

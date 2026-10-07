@@ -1,5 +1,5 @@
 {
-  "name": "@founder-manager/agents",
+  "name": "@foundmill/agents",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -15,9 +15,9 @@
   },
   "dependencies": {
     "zod": "catalog:",
-    "@founder-manager/models": "workspace:*",
-    "@founder-manager/shared": "workspace:*",
-    "@founder-manager/config": "workspace:*"
+    "@foundmill/models": "workspace:*",
+    "@foundmill/shared": "workspace:*",
+    "@foundmill/config": "workspace:*"
   },
   "devDependencies": {
     "vitest": "catalog:",

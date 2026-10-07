@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { LayoutGrid, Network } from "lucide-react";
-import type { AgentStatus, DeptColourToken } from "@founder-manager/shared";
+import type { AgentStatus, DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { Avatar } from "../foundation/Avatar";
 import { Button } from "../foundation/Button";

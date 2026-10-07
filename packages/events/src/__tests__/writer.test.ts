@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ValidationError } from "@founder-manager/shared";
+import { ValidationError } from "@foundmill/shared";
 import { buildEvent, writeEvent, writeEvents, type WriteEventInput } from "../outbox/writer";
 import { CapturingQueryable, FakeDb } from "../testing/fake-db";
 import {

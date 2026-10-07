@@ -3,7 +3,7 @@
  * this cycle per department, respecting concurrency, budget and rate-limit capacity, preferring work that unblocks
  * customers.
  */
-import { LIMITS } from "@founder-manager/config";
+import { LIMITS } from "@foundmill/config";
 import type { CyclePlanOutput } from "../schemas";
 import { type AgentLike, type MockContext, agentsFrom, isRecord, truncate } from "./inputs";
 

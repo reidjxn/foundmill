@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { DEPT_COLOUR_TOKENS } from "@founder-manager/shared";
+import { DEPT_COLOUR_TOKENS } from "@foundmill/shared";
 import { StatusPill } from "../components/foundation/StatusPill";
 import { ratingClass } from "../lib/rating";
 

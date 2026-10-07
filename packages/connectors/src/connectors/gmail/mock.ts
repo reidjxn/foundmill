@@ -1,4 +1,4 @@
-import { AppError } from "@founder-manager/shared";
+import { AppError } from "@foundmill/shared";
 import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, simulate, stableHash } from "../../mock-utils";
 import { GMAIL_LABELS, GMAIL_MESSAGES, isMockSuppressed, MOCK_MAILBOX_ADDRESS } from "./fixtures/mailbox";

@@ -4,8 +4,8 @@
  * (src/schema.ts) marks as required is given a default here so a policy can never hit a missing-attribute error.
  */
 import { z } from "zod";
-import { BUSINESS_MODES, BusinessMode, ModelKey, PolicyOutcome } from "@founder-manager/shared";
-import { LIMITS } from "@founder-manager/config";
+import { BUSINESS_MODES, BusinessMode, ModelKey, PolicyOutcome } from "@foundmill/shared";
+import { LIMITS } from "@foundmill/config";
 
 /**
  * Per-agent autonomy override (BUILD §9.6 "Per-agent overrides"). `inherit` uses the business mode;

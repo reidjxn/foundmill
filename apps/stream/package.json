@@ -1,5 +1,5 @@
 {
-  "name": "@founder-manager/stream",
+  "name": "@foundmill/stream",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -22,10 +22,10 @@
     "pino": "catalog:",
     "pino-pretty": "catalog:",
     "zod": "catalog:",
-    "@founder-manager/shared": "workspace:*",
-    "@founder-manager/config": "workspace:*",
-    "@founder-manager/events": "workspace:*",
-    "@founder-manager/db": "workspace:*"
+    "@foundmill/shared": "workspace:*",
+    "@foundmill/config": "workspace:*",
+    "@foundmill/events": "workspace:*",
+    "@foundmill/db": "workspace:*"
   },
   "devDependencies": {
     "vitest": "catalog:",

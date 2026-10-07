@@ -8,7 +8,7 @@
  * number (`cashPosition`, `monthlyTotals`, `categoryTotals`) is a cash-basis aggregate the UI labels
  * "Estimate" unless a ledger snapshot exists.
  */
-import { ValidationError } from "@founder-manager/shared";
+import { ValidationError } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {

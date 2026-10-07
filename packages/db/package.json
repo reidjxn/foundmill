@@ -1,5 +1,5 @@
 {
-  "name": "@founder-manager/db",
+  "name": "@foundmill/db",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -19,10 +19,10 @@
   },
   "dependencies": {
     "@faker-js/faker": "catalog:",
-    "@founder-manager/agents": "workspace:*",
-    "@founder-manager/config": "workspace:*",
-    "@founder-manager/journey": "workspace:*",
-    "@founder-manager/shared": "workspace:*",
+    "@foundmill/agents": "workspace:*",
+    "@foundmill/config": "workspace:*",
+    "@foundmill/journey": "workspace:*",
+    "@foundmill/shared": "workspace:*",
     "@supabase/supabase-js": "catalog:",
     "date-fns": "catalog:",
     "drizzle-orm": "catalog:",

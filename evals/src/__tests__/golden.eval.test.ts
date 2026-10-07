@@ -1,6 +1,6 @@
 /**
  * Live golden evals (BUILD §17.1). Runs only with MODEL_MODE=live and ANTHROPIC_API_KEY; `pnpm --filter
- * @founder-manager/evals evals`. Each template must pass every one of its golden tasks at its threshold.
+ * @foundmill/evals evals`. Each template must pass every one of its golden tasks at its threshold.
  */
 import { describe, expect, it } from "vitest";
 import { createEvalClient, isLiveEvalEnabled, runAll, runGoldenTask, summariseGolden } from "../harness";

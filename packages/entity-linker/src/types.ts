@@ -1,11 +1,11 @@
 /**
- * Public types for @founder-manager/entity-linker (BUILD §2.1 rule 3, §11.3 "Hyperlinking pipeline").
+ * Public types for @foundmill/entity-linker (BUILD §2.1 rule 3, §11.3 "Hyperlinking pipeline").
  *
  * The pipeline is: manifest → Opus writes `[[ent:<uuid>|Name]]` → validator → (one re-ask) → Haiku sweep → render tree
  * → `EntityLink` in Dugout. Every stage is a pure function over these types; nothing here touches the database or the
  * network, so the whole package runs unchanged under MODEL_MODE=mock.
  */
-import type { EntityKind } from "@founder-manager/shared";
+import type { EntityKind } from "@foundmill/shared";
 import type { z } from "zod";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -203,7 +203,7 @@ export interface SweepResult {
 }
 
 /**
- * The slice of `@founder-manager/models` `ModelClient` the sweep needs. Structural so tests can pass a stub, and so
+ * The slice of `@foundmill/models` `ModelClient` the sweep needs. Structural so tests can pass a stub, and so
  * `MockModelClient` and `LiveModelClient` are accepted as they are: this package only ever makes schema requests, so
  * `schema` is required here and matches the models client's typed overload (`src/__tests__/mock-client.test.ts`
  * asserts the assignability at compile time).

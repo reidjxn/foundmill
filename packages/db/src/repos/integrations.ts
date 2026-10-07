@@ -2,7 +2,7 @@
  * integrations + webhooks — connector accounts per business (BUILD §13; routers integrations.list / connect /
  * disconnect / health). Secrets never live here: they are ciphertext rows in `credentials` (repos.credentials).
  */
-import { CONNECTOR_AUTH_KINDS, INTEGRATION_STATUSES, type IntegrationStatus } from "@founder-manager/shared";
+import { CONNECTOR_AUTH_KINDS, INTEGRATION_STATUSES, type IntegrationStatus } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { credentials, integrations, WEBHOOK_STATUSES, webhooks, type Integration, type Webhook } from "../schema";

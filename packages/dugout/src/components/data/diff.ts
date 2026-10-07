@@ -6,7 +6,7 @@
  * way `diff -u` does; `applyDecisions` produces the merged text for a set of per-hunk decisions; `threeWay` aligns a
  * base against two revisions and flags hunks where both sides touched the same base lines.
  */
-import type { HunkDecision } from "@founder-manager/shared";
+import type { HunkDecision } from "@foundmill/shared";
 
 export type DiffOpKind = "equal" | "insert" | "delete";
 

@@ -4,7 +4,7 @@
  * diffs with rationale, evidence and impact.
  */
 import { z } from "zod";
-import { Severity } from "@founder-manager/shared";
+import { Severity } from "@foundmill/shared";
 import { definePrompt } from "./template";
 
 export const SourceRelevanceVariables = z.object({

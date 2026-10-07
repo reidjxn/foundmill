@@ -1,5 +1,5 @@
 {
-  "name": "@founder-manager/sandbox",
+  "name": "@foundmill/sandbox",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,9 +14,9 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@founder-manager/config": "workspace:*",
-    "@founder-manager/events": "workspace:*",
-    "@founder-manager/shared": "workspace:*",
+    "@foundmill/config": "workspace:*",
+    "@foundmill/events": "workspace:*",
+    "@foundmill/shared": "workspace:*",
     "e2b": "catalog:",
     "ws": "catalog:",
     "zod": "catalog:"

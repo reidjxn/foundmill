@@ -3,7 +3,7 @@
  * acceptance test, a founder Shout ("Match the design system") lands mid-session, the preview screenshot
  * is refreshed after every build, and the pull request merges after review.
  */
-import type { SessionEventDraft } from "@founder-manager/events";
+import type { SessionEventDraft } from "@foundmill/events";
 import type { RecordingInput } from "../recording";
 import { call, ev, note, phase, progress } from "./helpers";
 

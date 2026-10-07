@@ -1,5 +1,5 @@
 /** skill_definitions, skill_tests, agent_skills — attribute ratings (BUILD §11.10; routers agent.profile.*). */
-import { SKILL_GROUPS } from "@founder-manager/shared";
+import { SKILL_GROUPS } from "@foundmill/shared";
 import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentSkills, skillDefinitions, skillTests, type AgentSkill, type SkillDefinition, type SkillTest } from "../schema";

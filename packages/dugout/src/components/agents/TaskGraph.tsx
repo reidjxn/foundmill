@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type WheelEvent } from "react";
 import { Ban, CircleCheck, CircleDashed, CirclePause, CirclePlay, CircleX, Focus, GitMerge, Hourglass, Minus, Plus, SearchCheck, SquareDashed } from "lucide-react";
-import type { TaskStatus } from "@founder-manager/shared";
+import type { TaskStatus } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { generateAvatar } from "../foundation/Avatar";
 import { Icon, type IconComponent } from "../foundation/Icon";

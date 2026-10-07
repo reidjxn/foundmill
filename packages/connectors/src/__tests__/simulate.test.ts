@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { safeParseEvent } from "@founder-manager/events/catalogue";
+import { safeParseEvent } from "@foundmill/events/catalogue";
 import { createAllConnectors } from "../catalogue";
 import { isMockConnector } from "../define";
 import { createRng, deterministicEmbedding, minorFromDecimal, SIMULATE_EVENTS, simulate, stableHash, uuidFromSeed } from "../mock-utils";

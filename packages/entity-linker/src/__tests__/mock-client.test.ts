@@ -1,12 +1,12 @@
 /**
- * The pipeline against the real `MockModelClient` from @founder-manager/models (MODEL_MODE=mock, no network).
+ * The pipeline against the real `MockModelClient` from @foundmill/models (MODEL_MODE=mock, no network).
  *
  * Two things are verified that the stub-based suites cannot: the mock half of AC-11.3.1 with the *actual* mock
  * composer (100 consecutive `inboxComposer` notes validate against the manifest they were given), and that the sweep
  * stays offline-safe when the real mock client answers its `linker` call with a shape it did not ask for (the mock
  * route returns `LinkerOutput`, the client synthesises something schema-shaped, and nothing synthetic may become a link).
  */
-import { ComposerOutput, MockModelClient, type ChatMessage } from "@founder-manager/models";
+import { ComposerOutput, MockModelClient, type ChatMessage } from "@foundmill/models";
 import { describe, expect, it } from "vitest";
 import { buildManifest, checkComposerText, entityIdsInTree, linkComposerText, sweep, validateMarkup, type LinkerModelClient, type ManifestEntityInput } from "../index";
 import { createRng, FIXTURE_IDS, fixtureManifest, uuidFor } from "../testing";

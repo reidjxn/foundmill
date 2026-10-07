@@ -3,7 +3,7 @@
  * The full-size run uses b2b_saas (the lightest archetype); the shape checks use shorter windows.
  */
 import { describe, expect, it } from "vitest";
-import { ARCHETYPES } from "@founder-manager/shared";
+import { ARCHETYPES } from "@foundmill/shared";
 import { OFFLINE_CHANNELS, parseTouchSource } from "../attribution";
 import { buildJourney } from "../builder";
 import { rollupDaily, sumDaily } from "../daily";

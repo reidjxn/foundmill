@@ -1,5 +1,5 @@
 import { Activity, HeartPulse, Repeat } from "lucide-react";
-import type { AgentStatus } from "@founder-manager/shared";
+import type { AgentStatus } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { formatPercent, formatRelative } from "../../lib/format";
 import { Chip } from "../foundation/Chip";

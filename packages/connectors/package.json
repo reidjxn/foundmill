@@ -1,5 +1,5 @@
 {
-  "name": "@founder-manager/connectors",
+  "name": "@foundmill/connectors",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -23,10 +23,10 @@
     "@modelcontextprotocol/sdk": "catalog:",
     "@anthropic-ai/sdk": "catalog:",
     "seedrandom": "catalog:",
-    "@founder-manager/shared": "workspace:*",
-    "@founder-manager/config": "workspace:*",
-    "@founder-manager/events": "workspace:*",
-    "@founder-manager/models": "workspace:*"
+    "@foundmill/shared": "workspace:*",
+    "@foundmill/config": "workspace:*",
+    "@foundmill/events": "workspace:*",
+    "@foundmill/models": "workspace:*"
   },
   "devDependencies": {
     "vitest": "catalog:",

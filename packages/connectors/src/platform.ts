@@ -5,7 +5,7 @@
  * supplies the rest through `LiveConnectorOptions.secrets` — never by reading `process.env` here
  * (docs/ARCHITECTURE.md §3).
  */
-import { loadEnv, type Env } from "@founder-manager/shared";
+import { loadEnv, type Env } from "@foundmill/shared";
 import type { FetchLike } from "./http";
 import type { BusinessResolver } from "./webhooks";
 

@@ -1,5 +1,5 @@
 /** Live Dropbox Sign connector: Basic auth with the API key (per business or platform), form-encoded sends, verified callbacks. */
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { basicAuth, createHttp, type HttpClient } from "../../http";

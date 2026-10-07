@@ -1,4 +1,4 @@
-import { MODELS } from "@founder-manager/models/routing";
+import { MODELS } from "@foundmill/models/routing";
 import type { z } from "zod";
 import type { ModelInfoOut } from "./tools";
 

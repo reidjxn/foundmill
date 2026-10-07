@@ -1,5 +1,5 @@
 /**
- * @founder-manager/agents — agent templates, prompt templates (BUILD §12), skill definitions and test sets (§11.10),
+ * @foundmill/agents — agent templates, prompt templates (BUILD §12), skill definitions and test sets (§11.10),
  * rating calibration, club-rules enforcement and archetype seeds (§11.1). See docs/ARCHITECTURE.md §1.
  *
  * Nothing here calls a model or a connector: this package is data plus pure functions. The orchestrator, composer and

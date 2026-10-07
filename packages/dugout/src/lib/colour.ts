@@ -2,7 +2,7 @@
  * Colour maths for Dugout. No colour literals here except the two `kit-on-primary` candidates,
  * which mirror `--on-kit-light` / `--on-kit-dark` in tokens.css (a JS function cannot read CSS at compute time).
  */
-import type { DeptColourToken } from "@founder-manager/shared";
+import type { DeptColourToken } from "@foundmill/shared";
 
 export interface Rgb {
   r: number;

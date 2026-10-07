@@ -7,7 +7,7 @@
  * `kind` without parsing JSON. Progress is never token-based (BUILD §11.6 formula).
  */
 import { z } from "zod";
-import { TaskPhase, ValidationError } from "@founder-manager/shared";
+import { TaskPhase, ValidationError } from "@foundmill/shared";
 import { DEFAULT_STREAM_MAXLEN, sessionStreamKey } from "./keys";
 import { fieldsToObject, type StreamRedis } from "./redis";
 

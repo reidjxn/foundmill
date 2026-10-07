@@ -32,17 +32,17 @@ evals/             Golden tasks and rubrics per agent template and skill.
 e2e/               Playwright suites.
 ```
 
-Package names are `@founder-manager/<dir>`. Every package exports TypeScript source directly:
+Package names are `@foundmill/<dir>`. Every package exports TypeScript source directly:
 
 ```json
 "exports": { ".": "./src/index.ts", "./*.css": "./src/*.css", "./*": "./src/*.ts" }
 ```
 
-So `@founder-manager/db/repos` resolves to `packages/db/src/repos.ts` (a file that re-exports `./repos/index`). Subpath modules are files, not directories.
+So `@foundmill/db/repos` resolves to `packages/db/src/repos.ts` (a file that re-exports `./repos/index`). Subpath modules are files, not directories.
 
 ## 2. Vocabulary (`packages/shared/src/types.ts`)
 
-Every enum used by more than one package is defined once here as a `const` tuple with a matching Zod enum and TS type: game modes, business modes, plan tiers, archetypes, module keys, membership roles, inbox item types/states, agent statuses, model keys, channel keys and lines, task kinds/statuses, plan action types, conversion kinds, match-day levels, entity kinds, skill groups, integration statuses, visibility, event types. Import from `@founder-manager/shared`. Do not redeclare these elsewhere.
+Every enum used by more than one package is defined once here as a `const` tuple with a matching Zod enum and TS type: game modes, business modes, plan tiers, archetypes, module keys, membership roles, inbox item types/states, agent statuses, model keys, channel keys and lines, task kinds/statuses, plan action types, conversion kinds, match-day levels, entity kinds, skill groups, integration statuses, visibility, event types. Import from `@foundmill/shared`. Do not redeclare these elsewhere.
 
 Money is `{ amountMinor: number; currency: string }` (minor units, `bigint` in the DB, `number` in TS; values are below 2^53). Ids are UUID strings. Times are ISO strings on the wire and `Date` in TS.
 
@@ -62,7 +62,7 @@ Money is `{ amountMinor: number; currency: string }` (minor units, `bigint` in t
 - Repos live in `packages/db/src/repos/<area>.ts` and are re-exported from `src/repos.ts` as `repos`. Areas mirror BUILD §7.2 groups: `businesses`, `memberships`, `founders`, `ideas`, `product`, `departments`, `screens`, `dashboards`, `agents`, `skills`, `training`, `tasks`, `playbooks`, `holidays`, `inbox`, `plans`, `channels`, `campaigns`, `journeys`, `entities`, `finance`, `capTable`, `usage`, `legal`, `integrations`, `credentials`, `policies`, `approvals`, `audit`, `events`, `social`.
 - Audit log: `repos.audit.append(db, businessId, { actorKind, actorId, action, target, details })` computes the hash chain. No update/delete grants.
 - Migrations: SQL in `packages/db/migrations/*.sql` + `meta/_journal.json` (drizzle-kit format). `pnpm db:migrate` applies them. Schema in `src/schema/*.ts` mirrors the SQL (the SQL is the source of truth for RLS).
-- Tests: `src/__tests__/rls/*.test.ts` run on PGlite via `src/testing/pglite.ts` (`createTestDb()` applies all migrations, creates a stub `auth.uid()` reading `request.jwt.claims`, and exposes `asUser(userId)`); `pnpm --filter @founder-manager/db test:rls`.
+- Tests: `src/__tests__/rls/*.test.ts` run on PGlite via `src/testing/pglite.ts` (`createTestDb()` applies all migrations, creates a stub `auth.uid()` reading `request.jwt.claims`, and exposes `asUser(userId)`); `pnpm --filter @foundmill/db test:rls`.
 - Seeds: `pnpm db:seed` builds Northwind Skincare and Ledgerly (BUILD §17.2) deterministically (seeded PRNG) and grants owner membership to `SEED_OWNER_EMAILS` (creating Supabase auth users through the admin API when `SUPABASE_SERVICE_ROLE_KEY` is set; on PGlite/test, users are plain rows in a stub `auth.users`).
 
 ## 5. Events (`packages/events`)
@@ -132,12 +132,12 @@ WebSocket at `/?token=<supabase access token | dev token>`. Client → server: `
 
 ## 14. Web (`apps/web`)
 
-- `app/layout.tsx` loads `@founder-manager/dugout/fonts.css`, `tokens.css`, `dugout.css` and `app/globals.css` (`@import "tailwindcss"; @source "../../../packages/dugout/src"; @source "../../../packages/widgets/src"; @source "../../../packages/modules/src";`).
+- `app/layout.tsx` loads `@foundmill/dugout/fonts.css`, `tokens.css`, `dugout.css` and `app/globals.css` (`@import "tailwindcss"; @source "../../../packages/dugout/src"; @source "../../../packages/widgets/src"; @source "../../../packages/modules/src";`).
 - Routes exactly BUILD §6.2. `app/b/[bid]/layout.tsx` renders `AppShell` with sidebar from `department.list`, kit colours from `business.get`, and the Continue state from `inbox.list` + the current cycle.
 - `lib/trpc.ts` (`@trpc/tanstack-react-query` with superjson, `NEXT_PUBLIC_API_URL`, Bearer from Supabase session), `lib/supabase/client.ts` + `server.ts` (`@supabase/ssr`), `lib/stream.ts` (one WebSocket per tab, subscription multiplexer, focus-aware throttling), `lib/keys.ts` (keyboard map from BUILD §5.5 with `react-hotkeys-hook`).
-- Department screens: `app/b/[bid]/d/[deptSlug]/[tabSlug]/page.tsx` loads the `screen_definition` and renders `WidgetGrid` with widgets from `@founder-manager/widgets`; module full-screen widgets come from `@founder-manager/modules` (`getModuleScreen(moduleKey, tabSlug)`).
+- Department screens: `app/b/[bid]/d/[deptSlug]/[tabSlug]/page.tsx` loads the `screen_definition` and renders `WidgetGrid` with widgets from `@foundmill/widgets`; module full-screen widgets come from `@foundmill/modules` (`getModuleScreen(moduleKey, tabSlug)`).
 - Below 1280 px the `b/[bid]` layout renders `NeedsLargerWindow` only (measured client-side, SSR renders the shell).
-- `transpilePackages` in `next.config.ts` lists every `@founder-manager/*` package.
+- `transpilePackages` in `next.config.ts` lists every `@foundmill/*` package.
 
 ## 15. Testing
 
@@ -151,7 +151,7 @@ WebSocket at `/?token=<supabase access token | dev token>`. Client → server: `
 
 1. **Own your directory.** Edit only the package/app you were assigned plus `docs/PROGRESS.md` (your rows) and `docs/DECISIONS.md` (append only). Never touch root files, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, or another package.
 2. **No installs, no new dependencies.** Everything you need is already installed (see the catalog in `pnpm-workspace.yaml`). If something essential is missing, append a line to `docs/NEEDED_DEPS.md` (`package — version — why — who`) and write the smallest local substitute so your package still typechecks.
-3. **Check your work**: `pnpm --filter @founder-manager/<name> typecheck`, `lint`, `test`. Fix every error in your package before you finish.
+3. **Check your work**: `pnpm --filter @foundmill/<name> typecheck`, `lint`, `test`. Fix every error in your package before you finish.
 4. **No long-running servers on fixed ports** during the build phase (other agents share the machine). If you must boot something, use an ephemeral `PORT=0`/random port and stop it.
 5. **Fetch current docs** before using an SDK (Temporal, Claude Agent SDK, Anthropic, Drizzle RLS, Tailwind v4, Storybook 10, react-grid-layout 2, TanStack Table 8, visx, PixiJS 8, xterm 6, Tiptap 3). Versions in the catalog are the truth.
 6. **Mock first.** Everything must work with `INTEGRATIONS_MODE=mock` and `MODEL_MODE=mock`. Live paths are implemented but never required for tests.
@@ -161,7 +161,7 @@ WebSocket at `/?token=<supabase access token | dev token>`. Client → server: `
 
 ## 17. Staging deployment notes (Railway + Vercel)
 
-- Every backend service is built from the root `Dockerfile` (one image, `APP` build arg selects the package) and started with `pnpm --filter @founder-manager/<app> start`.
+- Every backend service is built from the root `Dockerfile` (one image, `APP` build arg selects the package) and started with `pnpm --filter @foundmill/<app> start`.
 - Railway's private network is IPv6-only: HTTP and WebSocket servers must listen on host `::` (not `127.0.0.1`, and prefer `::` over `0.0.0.0`). Read the port from `PORT` first (see §3).
 - Internal URLs between services use `http://<service>.railway.internal:<port>` (e.g. `GATEWAY_URL=http://gateway.railway.internal:4001`, `TEMPORAL_ADDRESS=temporal.railway.internal:7233`, `REDIS_URL` from the Railway Redis service).
 - Public URLs exist only for `api` (tRPC), `stream` (WebSocket), `ingest` (webhooks) and the Vercel-hosted `web`.

@@ -1,5 +1,5 @@
 /** Live Google Drive/Docs connector over the REST APIs with per-business OAuth tokens (auto-refresh). */
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import type { Connector, ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { createHttp, type HttpClient } from "../../http";

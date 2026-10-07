@@ -1,5 +1,5 @@
 /** memberships — staff of a club (BUILD §7.1; routers team.humans.*). */
-import { MEMBERSHIP_ROLES, ValidationError, type MembershipRole } from "@founder-manager/shared";
+import { MEMBERSHIP_ROLES, ValidationError, type MembershipRole } from "@foundmill/shared";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { memberships, type Membership } from "../schema";

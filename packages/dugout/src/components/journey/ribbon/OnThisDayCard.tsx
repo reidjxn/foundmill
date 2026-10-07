@@ -1,5 +1,5 @@
 import { Banknote, Diamond, Flag, Landmark, Rocket, Trophy } from "lucide-react";
-import type { MilestoneKind } from "@founder-manager/shared";
+import type { MilestoneKind } from "@foundmill/shared";
 import { cn } from "../../../lib/cn";
 import { formatDate, formatMoney, formatNumber } from "../../../lib/format";
 import { ProvenanceChip } from "../../foundation/Chip";

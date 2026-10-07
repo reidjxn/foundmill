@@ -1,5 +1,5 @@
 import { ArrowDownToLine, ArrowUpToLine, ExternalLink, Pause, Play } from "lucide-react";
-import { CHANNEL_META, type ChannelKey } from "@founder-manager/shared";
+import { CHANNEL_META, type ChannelKey } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { formatMoney, formatPercent } from "../../lib/format";
 import { AvatarStack } from "../foundation/Avatar";

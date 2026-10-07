@@ -1,5 +1,5 @@
-import { SESSION_EVENT_KINDS, SessionEvent, type SessionEventInput } from "@founder-manager/events";
-import { ValidationError } from "@founder-manager/shared";
+import { SESSION_EVENT_KINDS, SessionEvent, type SessionEventInput } from "@foundmill/events";
+import { ValidationError } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
 import { parseRecording, REPLAYABLE_EVENT_KINDS, type Recording } from "./recording";
 import { RECORDINGS, findRecording } from "./recordings";
@@ -28,7 +28,7 @@ describe("bundled recordings", () => {
     expect(findRecording("nope")).toBeUndefined();
   });
 
-  it.each(CASES)("%s: every event validates against @founder-manager/events", (_key, rec) => {
+  it.each(CASES)("%s: every event validates against @foundmill/events", (_key, rec) => {
     for (const [i, e] of rec.events.entries()) {
       const parsed = SessionEvent.safeParse({ ...e.event, at: START.toISOString() });
       expect(parsed.success, `event ${i} (${String(e.event.kind)}): ${parsed.success ? "" : parsed.error.message}`).toBe(true);

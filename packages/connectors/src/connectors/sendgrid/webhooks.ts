@@ -13,7 +13,7 @@
  * an inbound reply → `lead.replied` whose summary never carries the body (the quarantined reader does).
  */
 import { createPublicKey, verify as cryptoVerify, type KeyObject } from "node:crypto";
-import { isUuid } from "@founder-manager/shared";
+import { isUuid } from "@foundmill/shared";
 import type { ConnectorWebhook, PlatformEvent } from "../../contract";
 import { makeEvent, stableHash, uuidFromSeed } from "../../mock-utils";
 import { DEFAULT_TOLERANCE_SECONDS, formFields, header, parseJsonBody, rawBody, ReplayGuard, resolveBusinessId, webhookPath, withinTolerance, type BusinessResolver } from "../../webhooks";

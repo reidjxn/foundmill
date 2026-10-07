@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { AGENT_STATUSES } from "@founder-manager/shared";
+import { AGENT_STATUSES } from "@foundmill/shared";
 import { AgentStatusPill, StatusPill } from "./StatusPill";
 
 const meta = {

@@ -7,7 +7,7 @@
  * the founder's Anthropic invoice is the only real cost (DECISIONS "Prices are config"). Credits: one
  * balance row per period, debited inside a transaction so it can never go negative unnoticed.
  */
-import { MODEL_BILLING, MODEL_KEYS, USAGE_KINDS, ValidationError, type UsageKind } from "@founder-manager/shared";
+import { MODEL_BILLING, MODEL_KEYS, USAGE_KINDS, ValidationError, type UsageKind } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agents, creditBalances, usageLedger, type CreditBalance, type UsageEntry } from "../schema";

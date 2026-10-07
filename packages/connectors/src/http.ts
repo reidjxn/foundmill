@@ -35,7 +35,7 @@ export interface HttpClient {
   raw(method: string, path: string, opts?: RequestOptions): Promise<Response>;
 }
 
-export const DEFAULT_USER_AGENT = "founder-manager-connectors/0.1 (+https://github.com/reidjxn/founder-manager)";
+export const DEFAULT_USER_AGENT = "foundmill-connectors/0.1 (+https://github.com/reidjxn/foundmill)";
 
 export function buildUrl(baseUrl: string, path: string, query?: RequestOptions["query"]): string {
   const url = new URL(path.startsWith("http") ? path : `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`);

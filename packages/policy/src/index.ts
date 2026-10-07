@@ -1,4 +1,4 @@
-// @founder-manager/policy — Cedar schema, policies and evaluator for gateway tool calls (docs/ARCHITECTURE.md §7).
+// @foundmill/policy — Cedar schema, policies and evaluator for gateway tool calls (docs/ARCHITECTURE.md §7).
 export * from "./types";
 export { CEDAR_SCHEMA, CEDAR_NAMESPACE } from "./schema";
 export { loadPolicySet, listPolicyFiles, parsePolicyText, PolicyLoadError } from "./policies/index";

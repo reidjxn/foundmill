@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MODELS } from "@founder-manager/models/routing";
+import { MODELS } from "@foundmill/models/routing";
 import { describeConnectorContract, envKeysPresent, makeToolContext } from "../../testing/contract-suite";
 import { createAnthropicConnector } from "./index";
 import { anthropicMock } from "./mock";

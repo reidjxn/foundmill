@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ARCHETYPES, CHANNEL_KEYS, MODULE_KEYS } from "@founder-manager/shared";
+import { ARCHETYPES, CHANNEL_KEYS, MODULE_KEYS } from "@foundmill/shared";
 import { ARCHETYPE_SEEDS, ARCHETYPE_SEED_LIST, DEPARTMENT_DEFAULTS, getArchetypeSeed, templateKeysForArchetype } from "../archetypes";
 import { ArchetypeSeed } from "../types";
 import { getTemplate, hasTemplate } from "../registry";

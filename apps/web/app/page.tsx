@@ -1,4 +1,4 @@
-import { APP_NAME, APP_TAGLINE } from "@founder-manager/config";
+import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
 
 // Placeholder landing page: replaced by the real shell when the web build lands.
 const BUILDING = [

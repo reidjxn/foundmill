@@ -7,7 +7,7 @@
  * whose gated steps the founder performs; `setContractStatus("signed")` records a signature that happened
  * elsewhere (Dropbox Sign webhook or the founder).
  */
-import { INCORPORATION_ROUTES, ValidationError } from "@founder-manager/shared";
+import { INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {

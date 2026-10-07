@@ -1,4 +1,4 @@
-// @founder-manager/models — see docs/ARCHITECTURE.md §6 and BUILD §10.
+// @foundmill/models — see docs/ARCHITECTURE.md §6 and BUILD §10.
 export * from "./routing";
 export * from "./pricing";
 export * from "./types";

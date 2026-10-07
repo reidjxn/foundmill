@@ -12,10 +12,10 @@ This Storybook holds the **foundation** layer: tokens, typography, and the primi
 
 ```ts
 // once, at the app root
-import "@founder-manager/dugout/fonts.css";
-import "@founder-manager/dugout/dugout.css";
+import "@foundmill/dugout/fonts.css";
+import "@foundmill/dugout/dugout.css";
 
-import { Button, StatusPill, Crest, cn, formatMoney } from "@founder-manager/dugout";
+import { Button, StatusPill, Crest, cn, formatMoney } from "@foundmill/dugout";
 ```
 
 `dugout.css` imports Tailwind v4, the token sheet, and a `@theme inline` block that maps every token to a utility.
@@ -46,7 +46,7 @@ The default Tailwind palette is removed: `bg-red-500` does not exist here, `bg-s
 ## Library
 
 - `cn()` — clsx + tailwind-merge.
-- `format*` — numbers, compact numbers, percent, money (via `@founder-manager/shared`), dates, relative time, durations, deltas, initials.
+- `format*` — numbers, compact numbers, percent, money (via `@foundmill/shared`), dates, relative time, durations, deltas, initials.
 - `ratingTone / ratingClass / ratingCells` — the 1–20 ramp.
 - `kitOnPrimary(hex)` — white or near-black by APCA Lc ≥ 75 (APCA 0.1.9 formula, tested against reference values).
 - `createRng(seed)` / `mulberry32` — deterministic randomness for crests, avatars and mock data.

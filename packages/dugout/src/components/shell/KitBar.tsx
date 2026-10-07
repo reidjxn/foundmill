@@ -1,6 +1,6 @@
 import { forwardRef, isValidElement, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
-import type { BusinessMode, GameMode, Money } from "@founder-manager/shared";
+import type { BusinessMode, GameMode, Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { darkenHex, isHexColour, kitOnPrimary } from "../../lib/colour";
 import { Crest } from "../foundation/Crest";

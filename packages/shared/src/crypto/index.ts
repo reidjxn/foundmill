@@ -1,5 +1,5 @@
 /**
- * Envelope encryption for `@founder-manager/shared` (BUILD §3.1 "Secrets", §10.2, §14; ARCHITECTURE §1).
+ * Envelope encryption for `@foundmill/shared` (BUILD §3.1 "Secrets", §10.2, §14; ARCHITECTURE §1).
  *
  *   const vault = createVault(loadEnv());                       // KMS when KMS_KEY_ID is set, else libsodium
  *   const aad = buildAad(businessId, "credentials", credentialId);

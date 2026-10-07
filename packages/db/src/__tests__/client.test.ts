@@ -1,5 +1,5 @@
 /** createDb/createServiceDb construction and env handling (no network: nothing is connected until a query runs). */
-import { resetEnvCache } from "@founder-manager/shared";
+import { resetEnvCache } from "@foundmill/shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { closeDb, createDb, createServiceDb, MIGRATIONS_DIR } from "../index";
 

@@ -5,7 +5,7 @@
  * business's own (subuser) key in `ctx.credential.secret` → platform SENDGRID_API_KEY.
  */
 import { MailService } from "@sendgrid/mail";
-import { uuid } from "@founder-manager/shared";
+import { uuid } from "@foundmill/shared";
 import { ConfigError, VendorError, type Connector, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { bearer, createHttp, type FetchLike, type HttpClient } from "../../http";

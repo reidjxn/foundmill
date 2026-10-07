@@ -1,7 +1,7 @@
 import { forwardRef, useId, useState, type FormEvent, type HTMLAttributes, type ReactNode } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { CircleCheck, Play, RotateCcw, ThumbsUp, TriangleAlert } from "lucide-react";
-import type { Money } from "@founder-manager/shared";
+import type { Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { formatMoney } from "../../lib/format";
 import { Button } from "../foundation/Button";

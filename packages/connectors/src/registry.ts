@@ -3,7 +3,7 @@
  * mock; the default mode is `INTEGRATIONS_MODE` from the environment, so `registry.get("stripe")` in
  * development is always the mock unless the operator opted into live integrations.
  */
-import { loadEnv, NotFoundError } from "@founder-manager/shared";
+import { loadEnv, NotFoundError } from "@foundmill/shared";
 import type { Connector, ConnectorMode, ConnectorPhase, MockConnector, PolicyHints, McpToolDefinition, ConnectorAuth } from "./contract";
 import { isMockConnector } from "./define";
 
