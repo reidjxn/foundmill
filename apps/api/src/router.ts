@@ -1,0 +1,59 @@
+/** The merged AppRouter (BUILD §8.3 names) and a caller factory for tests and in-process use. */
+import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
+import type { ApiDeps } from "./context";
+import { createTestContext } from "./context";
+import { agentRouter } from "./routers/agent";
+import { billingRouter } from "./routers/billing";
+import { businessRouter } from "./routers/business";
+import { crmRouter } from "./routers/crm";
+import { dashboardRouter, departmentRouter, screenRouter } from "./routers/department";
+import { devRouter } from "./routers/dev";
+import { distributionRouter } from "./routers/distribution";
+import { financeRouter } from "./routers/finance";
+import { founderRouter } from "./routers/founder";
+import { ideaRouter } from "./routers/idea";
+import { inboxRouter, planRouter } from "./routers/inbox";
+import { integrationsRouter, keysRouter } from "./routers/integrations";
+import { journeyRouter } from "./routers/journey";
+import { legalRouter } from "./routers/legal";
+import { liveRouter } from "./routers/live";
+import { productRouter } from "./routers/product";
+import { teamRouter } from "./routers/team";
+import { createCallerFactory, publicProcedure, router } from "./trpc";
+
+export const appRouter = router({
+  health: publicProcedure.query(() => ({ ok: true })),
+  founder: founderRouter,
+  idea: ideaRouter,
+  business: businessRouter,
+  department: departmentRouter,
+  screen: screenRouter,
+  dashboard: dashboardRouter,
+  inbox: inboxRouter,
+  plan: planRouter,
+  journey: journeyRouter,
+  product: productRouter,
+  dev: devRouter,
+  distribution: distributionRouter,
+  finance: financeRouter,
+  team: teamRouter,
+  agent: agentRouter,
+  legal: legalRouter,
+  crm: crmRouter,
+  integrations: integrationsRouter,
+  keys: keysRouter,
+  billing: billingRouter,
+  live: liveRouter,
+});
+
+export type AppRouter = typeof appRouter;
+export type RouterInputs = inferRouterInputs<AppRouter>;
+export type RouterOutputs = inferRouterOutputs<AppRouter>;
+
+const callerFactory = createCallerFactory(appRouter);
+
+/** In-process caller: `createCaller(deps, { userId })` then `caller.inbox.list({ businessId })`. */
+export function createCaller(deps: ApiDeps, user: { userId: string; email?: string | null } | null) {
+  return callerFactory(createTestContext(deps, user));
+}
+export type Caller = ReturnType<typeof createCaller>;

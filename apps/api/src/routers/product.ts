@@ -1,0 +1,105 @@
+/** product.spec.* / product.roadmap.* / product.proposals.* (BUILD §11.5; AC-11.5.2, AC-11.5.3). */
+import { EditSpecBlockInput, UpsertRoadmapItemInput, repos } from "@foundmill/db";
+import { HUNK_DECISIONS, ValidationError } from "@foundmill/shared";
+import { z } from "zod";
+import { Id, audit, emit, router, sectionRead, sectionWrite } from "../trpc";
+
+const read = sectionRead("product");
+const write = sectionWrite("product");
+
+export const productRouter = router({
+  spec: router({
+    get: read.input(z.object({ section: z.string().max(80).optional() })).query(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const [blocks, versions] = await Promise.all([repos.product.listBlocks(tx, ctx.businessId, input ?? {}), repos.product.listVersions(tx, ctx.businessId)]);
+        return { blocks, latestVersion: versions[0] ?? null, versionCount: versions.length };
+      }),
+    ),
+    /** Human edit of a block (pins it: agents never overwrite pinned blocks without an accepted hunk, AC-11.5.3). */
+    editBlock: write.input(z.object({ blockId: Id, patch: EditSpecBlockInput })).mutation(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const block = await repos.product.editBlock(tx, ctx.businessId, input.blockId, { ...input.patch, authoredByKind: "user", authoredBy: ctx.userId, pinned: input.patch.pinned ?? true });
+        await audit(tx, ctx, { action: "product.spec.edit_block", target: { kind: "spec_block", id: block.id }, details: { fields: Object.keys(input.patch) } });
+        return block;
+      }),
+    ),
+    versions: read.query(({ ctx }) => ctx.rls((tx) => repos.product.listVersions(tx, ctx.businessId))),
+    compare: read.input(z.object({ from: z.number().int().positive(), to: z.number().int().positive() })).query(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const [from, to] = await Promise.all([repos.product.getVersion(tx, ctx.businessId, input.from), repos.product.getVersion(tx, ctx.businessId, input.to)]);
+        return { from, to };
+      }),
+    ),
+    publish: write.input(z.object({ changelogMd: z.string().max(4000).default("") })).mutation(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const versions = await repos.product.listVersions(tx, ctx.businessId);
+        const blocks = await repos.product.listBlocks(tx, ctx.businessId);
+        const version = await repos.product.publishVersion(tx, ctx.businessId, { changelogMd: input.changelogMd, publishedBy: ctx.userId });
+        await emit(tx, ctx, { type: "spec.version_published", payload: { specVersionId: version.id, version: version.version, previousVersion: versions[0]?.version ?? null, changedBlockIds: blocks.map((b) => b.id), changelog: input.changelogMd, hunksAccepted: 0, hunksRejected: 0, hunksEdited: 0 } });
+        await audit(tx, ctx, { action: "product.spec.publish", target: { kind: "spec_version", id: version.id }, details: { version: version.version } });
+        return version;
+      }),
+    ),
+    restore: write.input(z.object({ version: z.number().int().positive() })).mutation(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const blocks = await repos.product.restoreVersion(tx, ctx.businessId, input.version);
+        await audit(tx, ctx, { action: "product.spec.restore", target: { kind: "spec_version", id: String(input.version) }, details: { blocks: blocks.length } });
+        return blocks;
+      }),
+    ),
+  }),
+
+  roadmap: router({
+    list: read.input(z.object({ horizon: z.enum(["now", "next", "later"]).optional(), status: z.string().max(40).optional() })).query(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const [items, dependencies, tasks] = await Promise.all([repos.product.listRoadmap(tx, ctx.businessId, input ?? {}), repos.product.listDependencies(tx, ctx.businessId), repos.tasks.list(tx, ctx.businessId, { limit: 500 })]);
+        return { items: items.map((i) => ({ ...i, tasks: tasks.items.filter((t) => t.roadmapItemId === i.id).map((t) => ({ id: t.id, title: t.title, status: t.status, progress: t.progress })) })), dependencies };
+      }),
+    ),
+    upsert: write.input(UpsertRoadmapItemInput).mutation(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const item = await repos.product.upsertRoadmapItem(tx, ctx.businessId, input);
+        await audit(tx, ctx, { action: "product.roadmap.upsert", target: { kind: "roadmap_item", id: item.id }, details: { horizon: item.horizon } });
+        return item;
+      }),
+    ),
+    /** Link two items (dependency) or a block/task to an item. */
+    link: write.input(z.object({ itemId: Id, dependsOn: Id.optional(), specBlockIds: z.array(Id).optional(), taskIds: z.array(Id).optional() })).mutation(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const item = await repos.product.getRoadmapItem(tx, ctx.businessId, input.itemId);
+        if (input.dependsOn) await repos.product.linkRoadmap(tx, ctx.businessId, input.dependsOn, input.itemId);
+        if (input.specBlockIds) await repos.product.upsertRoadmapItem(tx, ctx.businessId, { id: item.id, title: item.title, descriptionMd: item.descriptionMd, horizon: item.horizon, specBlockIds: [...new Set([...item.specBlockIds, ...input.specBlockIds])], status: item.status });
+        for (const taskId of input.taskIds ?? []) await repos.tasks.update(tx, ctx.businessId, taskId, { roadmapItemId: item.id });
+        await audit(tx, ctx, { action: "product.roadmap.link", target: { kind: "roadmap_item", id: item.id }, details: { dependsOn: input.dependsOn ?? null, specBlocks: input.specBlockIds?.length ?? 0, tasks: input.taskIds?.length ?? 0 } });
+        return repos.product.getRoadmapItem(tx, ctx.businessId, item.id);
+      }),
+    ),
+  }),
+
+  proposals: router({
+    list: read.input(z.object({ status: z.enum(["open", "accepted", "partially_accepted", "rejected"]).optional(), limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() })).query(({ ctx, input }) => ctx.rls((tx) => repos.product.listProposals(tx, ctx.businessId, input ?? {}))),
+    get: read.input(z.object({ proposalId: Id })).query(({ ctx, input }) => ctx.rls((tx) => repos.product.getProposal(tx, ctx.businessId, input.proposalId))),
+    decideHunk: write.input(z.object({ hunkId: Id, decision: z.enum(HUNK_DECISIONS), edited: z.record(z.string(), z.unknown()).optional() })).mutation(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        if (input.decision === "pending") throw new ValidationError("Choose accept, reject or edited");
+        const proposal = await repos.product.decideHunk(tx, ctx.businessId, input.hunkId, input.decision, input.edited);
+        await audit(tx, ctx, { action: "product.proposals.decide_hunk", target: { kind: "proposal_hunk", id: input.hunkId }, details: { decision: input.decision, proposalId: proposal.id } });
+        return proposal;
+      }),
+    ),
+    acceptAll: write.input(z.object({ proposalId: Id })).mutation(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const proposal = await repos.product.acceptAll(tx, ctx.businessId, input.proposalId);
+        await audit(tx, ctx, { action: "product.proposals.accept_all", target: { kind: "proposal", id: proposal.id } });
+        return proposal;
+      }),
+    ),
+    reject: write.input(z.object({ proposalId: Id })).mutation(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const proposal = await repos.product.rejectProposal(tx, ctx.businessId, input.proposalId);
+        await audit(tx, ctx, { action: "product.proposals.reject", target: { kind: "proposal", id: proposal.id } });
+        return proposal;
+      }),
+    ),
+  }),
+});
