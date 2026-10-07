@@ -1,15 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_CYCLE, cycleFromSnapshot, reduceCycleEvent } from "../cycle";
+import { EMPTY_CYCLE, cycleFromSnapshot, reduceCycleEvent, setPaused } from "../cycle";
 
 const deptOf = (agentId: string) => ({ a1: "d1", a2: "d2" })[agentId];
 
 describe("cycle status", () => {
-  it("derives a running cycle from running tasks", () => {
-    const s = cycleFromSnapshot({ tasks: [{ status: "running", assigneeAgentId: "a1", departmentId: "d1" }, { status: "done", assigneeAgentId: "a2", departmentId: "d2" }] });
-    expect(s.running).toBe(true);
-    expect(s.activeDepartmentIds).toEqual(["d1"]);
-    expect(s.activeAgentIds).toEqual(["a1"]);
-    expect(cycleFromSnapshot({ tasks: [] }).running).toBe(false);
+  it("adopts the API's cycle.status snapshot", () => {
+    const s = cycleFromSnapshot({ running: true, paused: false, cycleId: "c9", cycleNumber: 9, activeDepartmentIds: ["d1"], activeAgentIds: ["a1"], completedCount: 8, lastCompletedAt: "2026-10-06T10:00:00.000Z", lastOutcome: "completed" });
+    expect(s).toEqual({ running: true, paused: false, cycleId: "c9", cycleNumber: 9, activeDepartmentIds: ["d1"], activeAgentIds: ["a1"], completedCount: 8, lastCompletedAt: "2026-10-06T10:00:00.000Z", lastOutcome: "completed" });
+    expect(cycleFromSnapshot({ running: false })).toEqual(EMPTY_CYCLE);
+  });
+
+  it("pause and resume are local transitions; a new cycle clears the pause", () => {
+    const running = cycleFromSnapshot({ running: true, cycleId: "c1" });
+    const paused = setPaused(running, true);
+    expect(paused).toMatchObject({ running: true, paused: true });
+    expect(setPaused(paused, true)).toBe(paused);
+    expect(setPaused(paused, false)).toMatchObject({ running: true, paused: false });
+    expect(reduceCycleEvent(paused, { type: "cycle.started", payload: { cycleId: "c2" } }).paused).toBe(false);
+    expect(reduceCycleEvent(paused, { type: "cycle.completed", payload: {} }).paused).toBe(false);
   });
 
   it("follows cycle.started → task.started → task.completed → cycle.completed", () => {

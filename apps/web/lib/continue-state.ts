@@ -1,8 +1,10 @@
 /**
  * Continue button state (BUILD §5.4, AC-11.3.3), computed from `inbox.list` (blocking items → "Respond · N"),
- * the current holiday (`business.get`), unviewed wins (customer_won items) and the cycle status (processing).
+ * the current holiday (`business.get`), unviewed wins (customer_won items) and `cycle.status` (processing).
+ * The API's `cycle.continueState` applies the same rules server-side; the shell computes it locally so the
+ * button follows the stream and optimistic updates without a round trip.
  *
- * Priority: holiday › blocked › matchday › processing › idle.
+ * Priority: holiday › blocked › win awaiting its Customer Update (`matchday` is the Dugout state key) › processing › idle.
  * - Holiday first: on holiday the only action is "Come back" (the Chief of Staff runs cycles).
  * - Blocked beats everything else: Continue is disabled until red items are answered (AC-11.3.3).
  * - A won customer waits for its Customer Update ("Go to Journey") before the next cycle.
@@ -23,7 +25,8 @@ export interface ContinueInputs {
   /** First page of inbox items; used for the Customer Update rule and "jump to first red item". */
   items?: readonly ContinueInboxItem[];
   holiday?: { untilAt?: Date | string | null; untilCondition?: { text?: string } | string | null } | null;
-  cycle?: { running: boolean } | null;
+  /** From `cycle.status` (kept current by the stream); a paused cycle shows Continue again (it resumes). */
+  cycle?: { running: boolean; paused?: boolean } | null;
 }
 
 export function unviewedWin(items: readonly ContinueInboxItem[] | undefined): ContinueInboxItem | undefined {
@@ -44,6 +47,6 @@ export function computeContinueState(input: ContinueInputs): ContinueState {
   if (input.holiday) return { kind: "holiday", until: input.holiday.untilAt ?? null, untilLabel: holidayUntilLabel(input.holiday) };
   if (input.blocking > 0) return { kind: "blocked", count: input.blocking };
   if (unviewedWin(input.items)) return { kind: "matchday" };
-  if (input.cycle?.running) return { kind: "processing" };
+  if (input.cycle?.running && !input.cycle.paused) return { kind: "processing" };
   return { kind: "idle" };
 }

@@ -1,13 +1,14 @@
 "use client";
 /**
  * Logs tab (BUILD §11.10 "History and logs", §11.6 replay): the agent's sessions as a DataTable (start, duration,
- * model, tokens, cost, outcome, task) and a replay of the selected one. `dev.sessions.replay` names the stream
- * channel; events arriving on `as:{sessionId}` (live sessions, or a replayed recording the orchestrator re-publishes)
- * are reduced with Dugout's session reducer into an AgentTile behind a SessionScrubber.
+ * model, tokens, cost, outcome, task) and a replay of the selected one. `dev.sessions.replay` returns the recorded
+ * events (the `as:{sessionId}` stream when Redis holds it, else the mock sandbox recording placed on the session's
+ * timeline) and names the channel; live sessions keep appending from the stream. Everything is reduced with Dugout's
+ * session reducer into an AgentTile behind a SessionScrubber.
  */
 import { useQuery } from "@tanstack/react-query";
 import { Play, ScrollText } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AGENT_SESSION_EVENT_KINDS, AgentTile, Chip, DataTable, EmptyState, ModelChip, Panel, SessionScrubber, StatusPill, eventsUntil, formatDateTime, formatDuration, formatMoney, formatTokens, reduceSessionEvents, type AgentSessionEvent, type DataTableColumn, type SavedView, type ScrubberSpeed, type SessionSeed } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets";
 import { useStreamSubscription } from "@/lib/stream-client";
@@ -23,6 +24,20 @@ const VIEWS: SavedView[] = [
 ];
 
 /** Accept only frames that look like a session event; anything else on the channel is ignored. */
+/** Replayed events then live ones, deduplicated by time + kind + payload, kept in time order. */
+export function mergeSessionEvents(existing: readonly AgentSessionEvent[], incoming: readonly AgentSessionEvent[]): AgentSessionEvent[] {
+  if (incoming.length === 0) return [...existing];
+  const seen = new Set(existing.map((e) => JSON.stringify(e)));
+  const out = [...existing];
+  for (const e of incoming) {
+    const key = JSON.stringify(e);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(e);
+  }
+  return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+}
+
 export function readSessionEvent(raw: unknown): AgentSessionEvent | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
@@ -85,11 +100,18 @@ function ReplayPanel({ businessId, profile, session }: { businessId: string; pro
     setPlaying(false);
   }
   const channel = replayQ.data?.channel ?? `as:${session.id}`;
+  // The recorded events seed the replay; the stream only adds to a live session.
+  const recorded = replayQ.data?.events;
+  useEffect(() => {
+    if (!recorded) return;
+    const parsed = recorded.map(readSessionEvent).filter((e): e is AgentSessionEvent => e !== null);
+    setEvents((prev) => mergeSessionEvents(prev, parsed));
+  }, [recorded]);
   const onEvent = useCallback((raw: unknown) => {
     const e = readSessionEvent(raw);
-    if (e) setEvents((prev) => (prev.some((p) => p.at === e.at && p.kind === e.kind && JSON.stringify(p) === JSON.stringify(e)) ? prev : [...prev, e]));
+    if (e) setEvents((prev) => mergeSessionEvents(prev, [e]));
   }, []);
-  useStreamSubscription(channel, onEvent, { enabled: !!replayQ.data });
+  useStreamSubscription(channel, onEvent, { enabled: !!replayQ.data && replayQ.data.live });
 
   const seed = useMemo<SessionSeed>(
     () => ({
@@ -113,6 +135,7 @@ function ReplayPanel({ businessId, profile, session }: { businessId: string; pro
       actions={
         <span className="inline-flex items-center gap-2">
           {session.live ? <Chip tone="info">Live</Chip> : <Chip tone="neutral">{events.length} events</Chip>}
+          {replayQ.data?.source === "recording" && replayQ.data.recording ? <Chip tone="neutral">Recording · {replayQ.data.recording.title}</Chip> : replayQ.data?.source === "stream" ? <Chip tone="neutral">From the stream</Chip> : null}
           {session.recordingRef ? <Chip tone="neutral" mono>{session.recordingRef.slice(0, 24)}</Chip> : null}
         </span>
       }
@@ -122,7 +145,7 @@ function ReplayPanel({ businessId, profile, session }: { businessId: string; pro
     >
       {events.length === 0 ? (
         <EmptyState icon={Play} className="py-8">
-          {session.live ? "Waiting for the first event on this session's stream." : session.recordingRef ? "No events on the channel yet. Recorded sessions replay when the orchestrator re-publishes the recording; the summary above is from the session row." : "This session left no recording."}
+          {replayQ.isLoading ? "Loading the recording…" : session.live ? "Waiting for the first event on this session's stream." : replayQ.data?.reason ? `No events to replay: ${replayQ.data.reason}. The summary above is from the session row.` : "This session left no recording."}
         </EmptyState>
       ) : (
         <div className="flex flex-col">

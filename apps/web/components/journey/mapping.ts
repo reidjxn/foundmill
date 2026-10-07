@@ -1,32 +1,20 @@
 /**
- * `journey.get` → the Dugout JourneyStage inputs (BUILD §11.4). The journeys row stores touch ids, weights, the xC
- * series, commentary, the team sheet and the level; everything the stage shows beyond that (channels, captain,
- * standout agent, stats, nth of kind, full-day rule) is derived here, deterministically from the record
- * (AC-11.4.3), with the same helpers the journey builder used.
+ * `journey.get` → the Dugout JourneyStage inputs (BUILD §11.4). The API returns the full `@foundmill/journey`
+ * Journey record (channels, captain, standout agent, attribution model, xC model source, consent, partial-journey
+ * flag, nth of kind, full-update rule, stats) built server-side, so the replay is deterministic (AC-11.4.3) and
+ * nothing is derived here: this module only reshapes rows for the stage (ISO strings, presentation metadata).
  */
-import { LIMITS } from "@foundmill/config";
-import type { CustomerFacts, Journey as StageJourney, JourneyAgent as StageAgent, StageAgentMeta, Touch as StageTouch, TouchKind, TouchSource, XcPoint } from "@foundmill/dugout";
-import { JourneyAgent, XcPoint as XcPointSchema, channelWeights, chooseModel, shouldPlayFullMatchDay } from "@foundmill/journey";
-import type { AgentStatus, ChannelKey, ConversionKind, DeptColourToken, EntityKind, MatchdayLevel } from "@foundmill/shared";
-
-const NIL_UUID = "00000000-0000-0000-0000-000000000000";
-const HOUR_MS = 3_600_000;
+import type { CustomerFacts, Journey as StageJourney, JourneyAgent as StageAgent, StageAgentMeta, Touch as StageTouch, TouchKind, TouchSource } from "@foundmill/dugout";
+import type { Journey as JourneyRecord } from "@foundmill/journey";
+import type { AgentStatus, ConversionKind, DeptColourToken, EntityKind } from "@foundmill/shared";
 
 const iso = (d: Date | string): string => (typeof d === "string" ? d : d.toISOString());
 
+/** The parts of the `journey.get` row the stage needs beyond the record. */
 export interface JourneyRowLike {
-  id: string;
-  conversionId: string;
-  touchIds: readonly string[];
-  weights: Record<string, number>;
-  xcSeries: unknown[];
-  commentary: unknown[];
-  agents: unknown[];
-  matchdayLevel: MatchdayLevel;
-  viewedAt: Date | string | null;
   conversion: { id: string; entityId: string | null; kind: ConversionKind; amountMinor: number; currency: string; occurredAt: Date | string };
-  touches: readonly TouchRowLike[];
   entity: { id: string; displayName: string; kind: string } | null;
+  viewedAt?: Date | string | null;
 }
 
 export interface TouchRowLike {
@@ -34,10 +22,12 @@ export interface TouchRowLike {
   visitorId?: string | null;
   entityId?: string | null;
   occurredAt: Date | string;
-  channelKey: ChannelKey | null;
+  channelKey: StageTouch["channelKey"];
   campaignId?: string | null;
   kind: string;
   source: Record<string, unknown>;
+  /** Present on the record's touches; derived from click ids for raw rows. */
+  firstParty?: boolean;
 }
 
 function hasClickIds(source: Record<string, unknown>): boolean {
@@ -45,7 +35,7 @@ function hasClickIds(source: Record<string, unknown>): boolean {
   return !!ids && typeof ids === "object" && Object.values(ids as Record<string, unknown>).some((v) => typeof v === "string" && v.length > 0);
 }
 
-/** DB touch rows → stage touches, time-sorted (ties by id) with ISO strings; third-party click ids mark a touch as not first-party. */
+/** Touches → stage touches, time-sorted (ties by id) with ISO strings; third-party click ids mark a touch as not first-party. */
 export function toStageTouches(rows: readonly TouchRowLike[]): StageTouch[] {
   return rows
     .map((t): StageTouch => ({
@@ -57,121 +47,37 @@ export function toStageTouches(rows: readonly TouchRowLike[]): StageTouch[] {
       campaignId: t.campaignId ?? null,
       kind: t.kind as TouchKind,
       source: t.source as TouchSource,
-      firstParty: !hasClickIds(t.source),
+      firstParty: typeof t.firstParty === "boolean" ? t.firstParty : !hasClickIds(t.source),
     }))
     .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id));
 }
 
-export function parseXcSeries(raw: readonly unknown[]): XcPoint[] {
-  const out: XcPoint[] = [];
-  for (const p of raw) {
-    const r = XcPointSchema.safeParse(p);
-    if (r.success) out.push(r.data);
-  }
-  return out;
-}
-
-export function parseAgents(raw: readonly unknown[]): StageAgent[] {
-  const out: StageAgent[] = [];
-  for (const a of raw) {
-    const r = JourneyAgent.safeParse(a);
-    if (r.success) out.push(r.data);
-  }
-  return out;
-}
-
-/** The heaviest touch is the captain; its agent is the one named on the touch, else the agent whose touch list holds it. */
-export function captainOf(touches: readonly StageTouch[], weights: Record<string, number>, agents: readonly StageAgent[]): StageJourney["captain"] {
-  let best: StageTouch | null = null;
-  for (const t of touches) {
-    if (!best || (weights[t.id] ?? 0) > (weights[best.id] ?? 0)) best = t;
-  }
-  if (!best) return null;
-  const named = typeof best.source?.agentId === "string" ? best.source.agentId : null;
-  const owner = named ?? agents.find((a) => a.touchIds.includes(best!.id))?.agentId ?? null;
-  return { touchId: best.id, channelKey: best.channelKey, agentId: owner, weight: weights[best.id] ?? 0 };
-}
-
-/** Standout agent: highest contribution, then rating, then name. */
-export function standoutAgent(agents: readonly StageAgent[]): string | null {
-  return [...agents].sort((a, b) => b.contribution - a.contribution || b.rating - a.rating || a.name.localeCompare(b.name))[0]?.agentId ?? null;
-}
-
-export interface DailyRowLike {
-  day: string;
-  departmentId: string | null;
-  signups: number;
-  activations: number;
-  payments: number;
-}
-
-export interface ConversionLike {
-  id: string;
-  kind: ConversionKind;
-  occurredAt: Date | string;
-}
-
-const COUNT_FIELD: Record<ConversionKind, "signups" | "activations" | "payments"> = { signup: "signups", activation: "activations", payment: "payments" };
-
-/**
- * "The nth payment": business-wide daily rows before the conversion's day plus the same-kind conversions on that day
- * up to and including it. Falls back to 1 when there is no history (day one).
- */
-export function nthOfKind(conversion: ConversionLike, rows: readonly DailyRowLike[] | undefined, sameDay: readonly ConversionLike[] | undefined): number {
-  const at = iso(conversion.occurredAt);
-  const day = at.slice(0, 10);
-  const field = COUNT_FIELD[conversion.kind];
-  const wide = (rows ?? []).filter((r) => r.departmentId === null || r.departmentId === NIL_UUID);
-  const source = wide.length ? wide : (rows ?? []);
-  const before = source.filter((r) => r.day < day).reduce((s, r) => s + (r[field] ?? 0), 0);
-  const today = (sameDay ?? []).filter((c) => c.kind === conversion.kind && iso(c.occurredAt).slice(0, 10) === day && (iso(c.occurredAt) < at || (iso(c.occurredAt) === at && c.id <= conversion.id)));
-  return Math.max(1, before + (today.length || 1));
-}
-
-export interface StageJourneyOptions {
-  nthOfKind: number;
-  /** Labelled conversions the business has (drives the attribution/xC model labels). Default 0. */
-  conversionCount?: number;
-}
-
-/** The stored record + derived fields → what `JourneyStage` renders. */
-export function toStageJourney(row: JourneyRowLike, touches: readonly StageTouch[], opts: StageJourneyOptions): StageJourney {
-  const agents = parseAgents(row.agents);
-  const weights = row.weights ?? {};
-  const convertedAt = iso(row.conversion.occurredAt);
-  const first = touches[0]?.occurredAt ?? null;
-  const last = touches[touches.length - 1]?.occurredAt ?? null;
-  const conversionCount = opts.conversionCount ?? 0;
+/** The API's Journey record → what `JourneyStage` renders (the record plus the conversion's amount and currency). */
+export function stageJourneyFromRecord(record: JourneyRecord, row: JourneyRowLike): StageJourney {
   return {
-    id: row.id,
-    conversionId: row.conversionId,
-    entityId: row.conversion.entityId,
-    kind: row.conversion.kind,
-    touchIds: [...row.touchIds],
-    weights,
-    xcSeries: parseXcSeries(row.xcSeries),
-    commentary: row.commentary,
-    agents,
-    matchdayLevel: row.matchdayLevel,
-    viewedAt: row.viewedAt ? iso(row.viewedAt) : null,
-    channels: channelWeights(touches, weights),
-    captain: captainOf(touches, weights, agents),
-    playerOfTheMatch: standoutAgent(agents),
-    attributionModel: chooseModel(conversionCount),
-    xcModelSource: conversionCount >= LIMITS.xcArchetypePriorUntilConversions ? "trained" : "archetype_prior",
-    consent: "unknown",
-    partialJourney: false,
-    nthOfKind: opts.nthOfKind,
-    fullMatchDay: shouldPlayFullMatchDay(row.conversion.kind, opts.nthOfKind, row.conversion.amountMinor, null, false),
-    stats: {
-      touchCount: touches.length,
-      firstTouchAt: first,
-      lastTouchAt: last,
-      timeToConvertHours: first ? Math.max(0, (Date.parse(convertedAt) - Date.parse(first)) / HOUR_MS) : null,
-      acquisitionCostMinor: null,
-      currency: row.conversion.currency,
-    },
-    convertedAt,
+    id: record.id,
+    businessId: record.businessId,
+    conversionId: record.conversionId,
+    entityId: record.entityId,
+    kind: record.kind,
+    touchIds: [...record.touchIds],
+    weights: record.weights,
+    xcSeries: record.xcSeries,
+    commentary: record.commentary,
+    agents: record.agents,
+    matchdayLevel: record.matchdayLevel,
+    viewedAt: record.viewedAt ?? (row.viewedAt ? iso(row.viewedAt) : null),
+    channels: record.channels,
+    captain: record.captain,
+    playerOfTheMatch: record.playerOfTheMatch,
+    attributionModel: record.attributionModel,
+    xcModelSource: record.xcModelSource,
+    consent: record.consent,
+    partialJourney: record.partialJourney,
+    nthOfKind: record.nthOfKind,
+    fullMatchDay: record.fullMatchDay,
+    stats: record.stats,
+    convertedAt: record.convertedAt,
     amountMinor: row.conversion.amountMinor,
     currency: row.conversion.currency,
   };
@@ -182,7 +88,7 @@ export interface EntityProfileLike {
   roles?: readonly { role?: string | null }[];
 }
 
-/** Customer rail facts: identity, first channel, touches, time to convert, the amount. */
+/** Customer rail facts: identity, first channel, touches, time to convert, consent when it is known. */
 export function customerFactsFor(row: JourneyRowLike, journey: StageJourney, touches: readonly StageTouch[], profile?: EntityProfileLike | null): CustomerFacts {
   const facts: CustomerFacts["facts"] = [];
   const ids = profile?.identifiers ?? {};
@@ -192,7 +98,7 @@ export function customerFactsFor(row: JourneyRowLike, journey: StageJourney, tou
   if (role) facts.push({ label: "Role", value: role });
   const firstChannel = touches[0]?.channelKey;
   facts.push({ label: "First touch", value: firstChannel ? firstChannel.replace(/_/g, " ") : "Direct" });
-  facts.push({ label: "Touches", value: String(touches.length) });
+  facts.push({ label: "Touches", value: journey.partialJourney ? `${touches.length} (consented touches only)` : String(touches.length) });
   if (journey.stats.timeToConvertHours !== null) {
     const h = journey.stats.timeToConvertHours;
     facts.push({ label: "Time to convert", value: h >= 48 ? `${Math.round(h / 24)} days` : `${Math.round(h)} h` });
@@ -206,7 +112,7 @@ export interface SquadLike {
   squad: readonly { id: string; avatarSeed: string; status?: string; modelKey?: string }[];
 }
 
-/** Avatar seeds, department colours, status and model per agent on the team sheet. */
+/** Avatar seeds, department colours, status and model per agent who was involved. */
 export function stageAgentMeta(agents: readonly StageAgent[], departments: readonly SquadLike[]): StageAgentMeta[] {
   return agents.map((a) => {
     for (const d of departments) {
@@ -217,7 +123,7 @@ export function stageAgentMeta(agents: readonly StageAgent[], departments: reado
   });
 }
 
-/** Entity kinds for commentary links: the customer plus every agent on the team sheet. */
+/** Entity kinds for commentary links: the customer plus every agent who was involved. */
 export function entityKindsFor(row: JourneyRowLike, agents: readonly StageAgent[]): Record<string, EntityKind> {
   const out: Record<string, EntityKind> = {};
   if (row.entity) out[row.entity.id] = row.entity.kind as EntityKind;

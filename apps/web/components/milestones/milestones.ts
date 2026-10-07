@@ -68,7 +68,7 @@ export const TIMELINE_KIND_WORD: Record<string, string> = {
   incorporation: "Incorporation",
   funding: "Funding",
   launch: "Launch",
-  trophy: "Trophy",
+  trophy: "Milestone",
 };
 
 /** Everything that is not a cabinet trophy, newest first, for the Timeline under the cabinet. */

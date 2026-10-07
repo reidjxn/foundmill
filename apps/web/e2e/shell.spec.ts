@@ -25,12 +25,22 @@ test.describe("shell", () => {
     await page.waitForURL(/\/b\/[0-9a-f-]+\/home|\/onboarding|\/new/);
   });
 
-  test("renders the AppShell at 1440 px with sidebar, kit bar and Continue", async ({ page }) => {
+  test("renders the AppShell at 1440 px with sidebar, brand-colour bar and Continue", async ({ page }) => {
     test.skip(!/\/b\//.test(page.url()), "no seeded business for the dev user");
     await expect(page.getByTestId("app-shell")).toBeVisible();
     await expect(page.getByTestId("kit-bar")).toBeVisible();
     await expect(page.getByRole("button", { name: /Continue|Respond|Pause|Go to Journey|Come back/ })).toBeVisible();
     await expect(page.getByTestId("stop-all-trigger")).toBeVisible();
+    // The sidebar foot carries the product mark (DESIGN §8a).
+    await expect(page.locator("[data-sidebar-item=brand]")).toBeVisible();
+  });
+
+  test("Continue runs one cycle step through business.continue and reports it", async ({ page }) => {
+    test.skip(!/\/b\//.test(page.url()), "no seeded business for the dev user");
+    const button = page.getByRole("button", { name: /^Continue$/ });
+    test.skip((await button.count()) === 0, "Continue is not idle (blocked items, a win to watch or a holiday)");
+    await button.click();
+    await expect(page.getByText(/Cycle started|One new note|Cycle resumed|already running/).first()).toBeVisible({ timeout: 20_000 });
   });
 
   test("shows NeedsLargerWindow below 1280 px (BUILD §2.1 rule 10)", async ({ page }) => {

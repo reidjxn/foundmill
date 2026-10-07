@@ -28,7 +28,7 @@ export function BusinessTab() {
     trpc.business.update.mutationOptions({
       onSuccess: () => {
         void invalidate(["business"]);
-        t.saved("Business saved", "The crest and kit bar follow the new colours.");
+        t.saved("Business saved", "The crest and the top bar follow the new brand colours.");
       },
       onError: (e) => t.failed(e),
     }),

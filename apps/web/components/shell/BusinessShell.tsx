@@ -2,9 +2,9 @@
 /**
  * The AppShell wiring for /b/[bid] (docs/ARCHITECTURE.md §14, BUILD §5.3–5.5):
  * - sidebar from department.list in the founder's order, badges from inbox.list;
- * - Continue state from inbox.list (blocking → "Respond · N"), the holiday and the cycle status; one pulse per
- *   `cycle.completed`;
- * - Stop all agents → business.stopAllAgents; processing strip from the cycle reducer over the event stream;
+ * - Continue state from inbox.list (blocking → "Respond · N"), the holiday and `cycle.status`; one pulse per
+ *   `cycle.completed`; the button calls `business.continue` / `business.pauseCycle`;
+ * - Stop all agents → business.stopAllAgents; processing strip from `cycle.status` kept current by the event stream;
  * - universal search (CommandPalette, remote) over local screens/commands + crm.search;
  * - date + runway chip from finance.overview, business-mode chip → Settings › Mode;
  * - NeedsLargerWindow below 1280 (AppShell measures the window itself); G-then-letter chords (AppShell);
@@ -12,16 +12,15 @@
  *   screen chrome.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { AppShell, EntityLinkProvider, ShellLinkProvider, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
-// @foundmill/modules does not re-export env.tsx from its barrel yet (open issue); the realpath import shares the
-// same module instance as the screens' own "../env" once bundlers resolve the workspace symlink.
-import { ModuleEnvProvider } from "../../../../packages/modules/src/env";
+import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
 import { readWidgetEvent, routes, type WidgetEvent } from "@foundmill/widgets";
 import { LAST_BUSINESS_COOKIE, SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
 import { computeContinueState, firstBlockingItem, unviewedWin } from "@/lib/continue-state";
-import { CYCLE_EVENT_TYPES, cycleFromSnapshot, reduceCycleEvent, type CycleEvent, type CycleStatus, EMPTY_CYCLE } from "@/lib/cycle";
+import { CYCLE_EVENT_TYPES, cycleFromSnapshot, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus, EMPTY_CYCLE } from "@/lib/cycle";
 import { publicEnv } from "@/lib/env";
 import { monogram } from "@/lib/format";
 import { KeyboardRegistryProvider, createKeyboardRegistry, useRegisteredShortcuts } from "@/lib/keys";
@@ -29,10 +28,10 @@ import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } fr
 import { activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
 import { useStreamSubscription } from "@/lib/stream-client";
 import { getBrowserAccessToken } from "@/lib/supabase/client";
-import { errorMessage, trpcErrorCode, trpcPathPrefix } from "@/lib/trpc";
+import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { WidgetDataHost } from "@/lib/widget-data";
-import { useUntypedApi } from "@/components/providers/AppProviders";
+import { SpecUserProvider } from "@/components/spec/spec-user";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { ShellChromeProvider, useShellChromeValue } from "./chrome";
 import { renderNextShellLink } from "./NextShellLink";
@@ -47,6 +46,14 @@ export interface BusinessShellProps {
 
 const INBOX_PAGE = 50;
 const SEARCH_DEBOUNCE_MS = 150;
+/** `cycle.status` is refetched on cycle events; this is the safety net while nothing streams. */
+const CYCLE_POLL_MS = 30_000;
+
+/**
+ * The collaborative spec editor (Tiptap 3 + Yjs + Hocuspocus) loads on demand: only the Specification tab needs it,
+ * and ProseMirror has no server render. The module screens fall back to their plain editor until it arrives.
+ */
+const SpecEditor = dynamic(() => import("@/components/spec/SpecEditor").then((m) => m.SpecEditor), { ssr: false });
 
 /** Events after which the shell refetches a router's queries. */
 const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
@@ -56,8 +63,9 @@ const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   "agent.health_changed": ["department", "team"],
   "mode.changed": ["business"],
   "holiday.started": ["business"],
-  "holiday.ended": ["business", "inbox"],
-  "cycle.completed": ["inbox", "department", "dev", "finance"],
+  "holiday.ended": ["business", "inbox", "cycle"],
+  "cycle.started": ["cycle"],
+  "cycle.completed": ["inbox", "department", "dev", "finance", "cycle"],
   "bank.balance_updated": ["finance"],
   "runway.threshold_crossed": ["finance", "inbox"],
   "approval.requested": ["inbox"],
@@ -80,9 +88,23 @@ function writeCollapsed(businessId: string, collapsed: boolean): void {
   }
 }
 
-function cycleReducer(status: CycleStatus, action: { type: "event"; event: CycleEvent; agentDepartment: (id: string) => string | null | undefined } | { type: "snapshot"; status: CycleStatus }): CycleStatus {
-  if (action.type === "snapshot") return status.running || status.completedCount > 0 ? status : action.status;
+type CycleAction = { type: "event"; event: CycleEvent; agentDepartment: (id: string) => string | null | undefined } | { type: "snapshot"; status: CycleStatus } | { type: "paused"; paused: boolean };
+
+/** `cycle.status` is authoritative; stream events keep it current between refetches; the pulse key never goes backwards. */
+export function cycleReducer(status: CycleStatus, action: CycleAction): CycleStatus {
+  if (action.type === "snapshot") return { ...action.status, completedCount: Math.max(status.completedCount, action.status.completedCount) };
+  if (action.type === "paused") return setPaused(status, action.paused);
   return reduceCycleEvent(status, action.event, action.agentDepartment);
+}
+
+type ContinueResult = RouterOutputs["business"]["continue"];
+
+/** The toast one press of Continue earns (BUILD §9.4): what happened, and where the new note is in local mode. */
+export function describeContinue(result: ContinueResult): { title: string; description: string; tone: "info" | "good" | "warn"; itemId: string | null } {
+  if (result.action === "already_running") return { title: "A cycle is already running", description: "The squad is still working; the strip shows where.", tone: "info", itemId: null };
+  if (result.action === "resumed") return { title: "Cycle resumed", description: "Paused tasks pick up where they stopped.", tone: "good", itemId: null };
+  if (result.mode === "local" && result.item) return { title: "One new note", description: result.item.subject, tone: "info", itemId: result.item.id };
+  return { title: "Cycle started", description: "The Chief of Staff is planning the next cycle.", tone: "info", itemId: null };
 }
 
 export function BusinessShell(props: BusinessShellProps) {
@@ -96,9 +118,8 @@ export function BusinessShell(props: BusinessShellProps) {
   );
 }
 
-function ShellInner({ businessId, initialBusiness, initialDepartments, children }: BusinessShellProps) {
+function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, children }: BusinessShellProps) {
   const trpc = useTRPC();
-  const untyped = useUntypedApi();
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
@@ -111,7 +132,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, children 
   const departmentsQ = useQuery(trpc.department.list.queryOptions({ businessId, includeHidden: true, includeArchived: false }, { initialData: initialDepartments, staleTime: 30_000 }));
   const inboxQ = useQuery(trpc.inbox.list.queryOptions({ businessId, limit: INBOX_PAGE }, { staleTime: 10_000, refetchInterval: 30_000 }));
   const financeQ = useQuery(trpc.finance.overview.queryOptions({ businessId }, { staleTime: 60_000, retry: false }));
-  const tasksQ = useQuery(trpc.dev.tasks.list.queryOptions({ businessId, status: "running", limit: 100 }, { staleTime: 60_000, retry: false }));
+  const cycleQ = useQuery(trpc.cycle.status.queryOptions({ businessId }, { staleTime: 10_000, refetchInterval: CYCLE_POLL_MS, retry: false }));
 
   const data = businessQ.data ?? initialBusiness;
   const departments = departmentsQ.data ?? initialDepartments;
@@ -125,11 +146,11 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, children 
     [departments],
   );
 
-  // --- cycle status from the stream -----------------------------------------------------------------------------
+  // --- cycle status: `cycle.status` snapshot + the stream ----------------------------------------------------------
   const [cycle, dispatch] = useReducer(cycleReducer, EMPTY_CYCLE);
   useEffect(() => {
-    if (tasksQ.data) dispatch({ type: "snapshot", status: cycleFromSnapshot({ tasks: tasksQ.data.items }) });
-  }, [tasksQ.data]);
+    if (cycleQ.data) dispatch({ type: "snapshot", status: cycleFromSnapshot(cycleQ.data) });
+  }, [cycleQ.data]);
 
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);
 
@@ -202,23 +223,49 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, children 
     }),
   );
 
+  // One press of Continue → `business.continue` (BUILD §9.4): starts the next businessCycle on Temporal, resumes a
+  // paused one, or runs one in-process cycle step (one new note) when no worker answers. The result carries the new
+  // cycle status, adopted at once; the stream keeps it current afterwards.
+  const continueCycle = useMutation(
+    trpc.business.continue.mutationOptions({
+      onSuccess: (result) => {
+        dispatch({ type: "snapshot", status: cycleFromSnapshot(result.status) });
+        void invalidate(["cycle", "inbox", "dev"]);
+        const t = describeContinue(result);
+        toast({ title: t.title, description: t.description, tone: t.tone, action: t.itemId ? { label: "Open", onClick: () => router.push(routes.inbox(businessId, t.itemId!)) } : undefined });
+      },
+      onError: (err) => {
+        const code = trpcErrorCode(err);
+        void invalidate(["cycle", "inbox", "business"]);
+        toast({ title: code === "CONFLICT" ? "Continue is waiting on you" : "Continue failed", description: errorMessage(err), tone: code === "CONFLICT" ? "warn" : "bad" });
+      },
+    }),
+  );
+  const pauseCycle = useMutation(
+    trpc.business.pauseCycle.mutationOptions({
+      onSuccess: (result) => {
+        dispatch({ type: "snapshot", status: cycleFromSnapshot(result.status) });
+        dispatch({ type: "paused", paused: result.paused });
+        void invalidate(["cycle", "dev"]);
+        toast(result.paused ? { title: "Cycle paused", description: `${result.pausedTasks} running task${result.pausedTasks === 1 ? "" : "s"} paused. Continue resumes the cycle.`, tone: "warn" } : { title: "Nothing to pause", description: result.reason ?? "No cycle is running.", tone: "info" });
+      },
+      onError: (err) => toast({ title: "Pause failed", description: errorMessage(err), tone: "bad" }),
+    }),
+  );
+
   const continuing = useRef(false);
+  const startCycle = continueCycle.mutateAsync;
   const onContinue = useCallback(async () => {
     if (continuing.current) return;
     continuing.current = true;
     try {
-      // `business.continue` (one press of Continue → businessCycle) is not in the API yet; until it lands, Continue
-      // advances the Inbox by one note so the loop still moves (docs/PROGRESS.md open issue).
-      await untyped.mutation("business.continue", { businessId });
-      dispatch({ type: "event", event: { type: "cycle.started" }, agentDepartment });
-      toast({ title: "Cycle started", description: "The Chief of Staff is planning the next cycle.", tone: "info" });
-    } catch (err) {
-      if (trpcErrorCode(err) === "NOT_FOUND") refreshInbox.mutate({ businessId });
-      else toast({ title: "Continue failed", description: errorMessage(err), tone: "bad" });
+      await startCycle({ businessId });
+    } catch {
+      /* reported by onError */
     } finally {
       continuing.current = false;
     }
-  }, [untyped, businessId, agentDepartment, toast, refreshInbox]);
+  }, [startCycle, businessId]);
 
   const onRespond = useCallback(() => {
     const first = firstBlockingItem(inboxQ.data?.items);
@@ -228,12 +275,11 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, children 
     const win = unviewedWin(inboxQ.data?.items);
     router.push(win ? routes.inbox(businessId, win.id) : routes.inbox(businessId));
   }, [inboxQ.data?.items, router, businessId]);
+  const pause = pauseCycle.mutate;
+  const pausing = pauseCycle.isPending;
   const onPause = useCallback(() => {
-    void untyped.mutation("business.pauseCycle", { businessId }).catch((err: unknown) => {
-      if (trpcErrorCode(err) === "NOT_FOUND") toast({ title: "Pause is not wired yet", description: "Use Stop all agents to halt the cycle; the API gains business.pauseCycle in a later build.", tone: "warn" });
-      else toast({ title: "Pause failed", description: errorMessage(err), tone: "bad" });
-    });
-  }, [untyped, businessId, toast]);
+    if (!pausing) pause({ businessId });
+  }, [pause, pausing, businessId]);
 
   // --- processing strip -----------------------------------------------------------------------------------------
   const segments = useMemo<ProcessingSegment[]>(
@@ -277,11 +323,15 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, children 
 
   // --- providers for the surfaces below ---------------------------------------------------------------------------
   const businessCtx = useMemo(() => makeBusinessContext(businessId, data, departments), [businessId, data, departments]);
+  // Module environment (docs/ARCHITECTURE.md §18): the collab server, the Supabase access token it authenticates (the
+  // dev bearer when there is no Supabase session) and the host's collaborative SpecEditor. Without a collab URL the
+  // editor keeps its edits local and saves whole blocks through `product.spec.editBlock`.
   const [collabToken, setCollabToken] = useState<string | undefined>(undefined);
   useEffect(() => {
     void getBrowserAccessToken().then((t) => setCollabToken(t ?? undefined));
   }, []);
-  const moduleEnv = useMemo(() => ({ collabUrl: publicEnv().collabUrl, collabToken }), [collabToken]);
+  const moduleEnv = useMemo<Partial<ModuleEnv>>(() => ({ collabUrl: publicEnv().collabUrl, collabToken, SpecEditor }), [collabToken]);
+  const specUser = useMemo(() => ({ id: viewer.userId ?? "dev", name: viewer.email ?? "You" }), [viewer.userId, viewer.email]);
   const entityLinks = useMemo(() => ({ hrefFor: (ref: { id: string }) => routes.crm(businessId, ref.id), onOpen: (ref: { id: string }) => router.push(routes.crm(businessId, ref.id)) }), [businessId, router]);
 
   const financeDept = useMemo(() => visibleDepartments.find((d) => d.moduleKeys.includes("finance")), [visibleDepartments]);
@@ -298,6 +348,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, children 
     <BusinessProvider value={businessCtx}>
       <WidgetDataHost businessId={businessId} glossary={business.glossary ?? {}} gameMode={business.gameMode} currency={currency}>
         <ModuleEnvProvider value={moduleEnv}>
+          <SpecUserProvider value={specUser}>
           <EntityLinkProvider value={entityLinks}>
             <ShellLinkProvider render={renderNextShellLink}>
               <AppShell
@@ -313,7 +364,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, children 
                 continueButton={{
                   state: continueState,
                   pulseKey: cycle.completedCount,
-                  disabled: refreshInbox.isPending || endHoliday.isPending,
+                  disabled: refreshInbox.isPending || endHoliday.isPending || continueCycle.isPending || pauseCycle.isPending,
                   onContinue,
                   onRespond,
                   onPause,
@@ -357,6 +408,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, children 
               </AppShell>
             </ShellLinkProvider>
           </EntityLinkProvider>
+          </SpecUserProvider>
         </ModuleEnvProvider>
       </WidgetDataHost>
     </BusinessProvider>

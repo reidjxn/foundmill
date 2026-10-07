@@ -6,7 +6,8 @@
  * roadmap seeds, "nothing pushed"). "Continue to Commit" turns the report into a concept card through idea.generate
  * and opens the Commit screen with the suggested name.
  *
- * `ImportFlow` is pure (the job runs locally and deterministically, see import-job.ts) so it is tested without tRPC.
+ * The job runs on the API: `import.start` returns the job, `import.status` is polled until it is done and carries the
+ * report. `ImportFlow` is pure over an `ImportRunner` so it is tested with a fake runner and no tRPC.
  */
 import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, Check, CircleDashed, FileSearch, GitBranch, Lock, Play, ShieldCheck, ThumbsUp, X } from "lucide-react";
@@ -15,20 +16,32 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ARCHETYPE_LABELS } from "@foundmill/shared";
 import { Button, Checkbox, Chip, Field, Input, Panel, ProgressRing, StatusPill, cn, usePrefersReducedMotion, useToast } from "@foundmill/dugout";
 import { errorMessage } from "@/lib/trpc";
-import { useTRPC } from "@/lib/trpc-react";
+import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
 import { IMPORT_STEPS, StudioFrame } from "../StudioFrame";
 import { commitHref } from "../ideate/concepts";
-import { IMPORT_SOURCES, IMPORT_SOURCE_GROUPS, advanceJob, buildScoutingReport, completeJob, doneSteps, normaliseSourceValue, planImportJob, reportToPrompt, sourceByKey, totalSteps, validateConfigs, type ImportJob, type ImportSourceKey, type ScoutingReport, type SourceConfig, type StepStatus } from "./import-job";
+import { IMPORT_SOURCES, IMPORT_SOURCE_GROUPS, doneSteps, normaliseSourceValue, reportToPrompt, sourceByKey, totalSteps, validateConfigs, type ImportJob, type ImportSourceKey, type ImportStartInput, type ImportStatus, type ScoutingReport, type SourceConfig, type StepStatus } from "./import-job";
 
 export interface ImportScreenProps {
   viewer: { email: string | null };
 }
 
+/** The two API calls the flow needs (BUILD §11.1 Door B); the screen binds them to tRPC, tests pass a fake. */
+export interface ImportRunner {
+  start(input: ImportStartInput): Promise<ImportStatus>;
+  status(jobId: string): Promise<ImportStatus>;
+}
+
+/** Local-job step length the API applies under reduced motion (the whole job finishes within one poll). */
+export const REDUCED_MOTION_STEP_MS = 1;
+export const DEFAULT_POLL_MS = 400;
+
 export function ImportScreen({ viewer }: ImportScreenProps) {
   const trpc = useTRPC();
+  const client = useTRPCClient();
   const router = useRouter();
   const { toast } = useToast();
+  const runner = useMemo<ImportRunner>(() => ({ start: (input) => client.import.start.mutate(input), status: (jobId) => client.import.status.query({ jobId }) }), [client]);
   const generate = useMutation(
     trpc.idea.generate.mutationOptions({
       onError: (err) => toast({ title: "Could not prepare the Commit screen", description: errorMessage(err), tone: "bad" }),
@@ -37,6 +50,7 @@ export function ImportScreen({ viewer }: ImportScreenProps) {
   return (
     <ImportFlow
       viewer={viewer}
+      runner={runner}
       continuing={generate.isPending}
       onContinue={(report) =>
         generate.mutate(
@@ -61,17 +75,16 @@ export function ImportScreen({ viewer }: ImportScreenProps) {
 
 export interface ImportFlowProps {
   viewer: { email: string | null };
+  runner: ImportRunner;
   onContinue: (report: ScoutingReport, configs: SourceConfig[]) => void;
   continuing?: boolean;
-  /** Milliseconds per job step (tests pass 0; reduced motion completes at once). */
-  stepMs?: number;
+  /** Milliseconds between `import.status` polls (tests pass 0). */
+  pollMs?: number;
 }
 
-type Phase = { kind: "pick" } | { kind: "running"; job: ImportJob } | { kind: "report"; job: ImportJob; report: ScoutingReport };
+type Phase = { kind: "pick"; error?: string } | { kind: "starting" } | { kind: "running"; job: ImportJob } | { kind: "report"; job: ImportJob; report: ScoutingReport } | { kind: "failed"; job: ImportJob | null; message: string };
 
-export const DEFAULT_STEP_MS = 420;
-
-export function ImportFlow({ viewer, onContinue, continuing, stepMs = DEFAULT_STEP_MS }: ImportFlowProps) {
+export function ImportFlow({ viewer, runner, onContinue, continuing, pollMs = DEFAULT_POLL_MS }: ImportFlowProps) {
   const reduced = usePrefersReducedMotion();
   const [chosen, setChosen] = useState<Map<ImportSourceKey, string>>(() => new Map());
   const [touched, setTouched] = useState(false);
@@ -79,11 +92,17 @@ export function ImportFlow({ viewer, onContinue, continuing, stepMs = DEFAULT_ST
   const configs = useMemo<SourceConfig[]>(() => IMPORT_SOURCES.filter((s) => chosen.has(s.key)).map((s) => ({ key: s.key, value: chosen.get(s.key) ?? "" })), [chosen]);
   const errors = useMemo(() => validateConfigs(configs), [configs]);
   const valid = configs.length > 0 && Object.keys(errors).length === 0;
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The polling loop stops when the run id changes (Cancel, Change sources, unmount).
+  const run = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => () => {
-    if (timer.current) clearInterval(timer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      run.current++;
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
 
   function toggle(key: ImportSourceKey) {
     setChosen((m) => {
@@ -98,30 +117,36 @@ export function ImportFlow({ viewer, onContinue, continuing, stepMs = DEFAULT_ST
     setChosen((m) => new Map(m).set(key, value));
   }
 
+  function apply(status: ImportStatus, id: number) {
+    if (id !== run.current) return;
+    if (status.job.status === "failed") setPhase({ kind: "failed", job: status.job, message: "The import did not finish; every source reported a failure." });
+    else if (status.job.status === "done" && status.report) setPhase({ kind: "report", job: status.job, report: status.report });
+    else {
+      setPhase({ kind: "running", job: status.job });
+      timer.current = setTimeout(() => {
+        runner
+          .status(status.job.id)
+          .then((next) => apply(next, id))
+          .catch((err: unknown) => id === run.current && setPhase({ kind: "failed", job: status.job, message: errorMessage(err, "Lost track of the import job.") }));
+      }, pollMs);
+    }
+  }
+
   function start() {
     setTouched(true);
     if (!valid) return;
+    const id = ++run.current;
     const normalised = configs.map((c) => ({ key: c.key, value: normaliseSourceValue(sourceByKey(c.key)!, c.value) }));
-    const planned = planImportJob(normalised, `import-${Date.now().toString(36)}`);
-    if (reduced || stepMs <= 0) {
-      const done = completeJob(planned);
-      setPhase({ kind: "report", job: done, report: buildScoutingReport(normalised, done) });
-      return;
-    }
-    let job = advanceJob(planned);
-    setPhase({ kind: "running", job });
-    timer.current = setInterval(() => {
-      job = advanceJob(job);
-      if (job.status === "done") {
-        if (timer.current) clearInterval(timer.current);
-        timer.current = null;
-        setPhase({ kind: "report", job, report: buildScoutingReport(normalised, job) });
-      } else setPhase({ kind: "running", job });
-    }, stepMs);
+    setPhase({ kind: "starting" });
+    runner
+      .start({ sources: normalised, ...(reduced || pollMs <= 0 ? { stepMs: REDUCED_MOTION_STEP_MS } : {}) })
+      .then((status) => apply(status, id))
+      .catch((err: unknown) => id === run.current && setPhase({ kind: "pick", error: errorMessage(err, "The import could not start.") }));
   }
 
   function reset() {
-    if (timer.current) clearInterval(timer.current);
+    run.current++;
+    if (timer.current) clearTimeout(timer.current);
     timer.current = null;
     setPhase({ kind: "pick" });
   }
@@ -132,7 +157,9 @@ export function ImportFlow({ viewer, onContinue, continuing, stepMs = DEFAULT_ST
     </LinkButton>
   );
 
-  if (phase.kind === "pick") {
+  if (phase.kind === "pick" || phase.kind === "starting") {
+    const starting = phase.kind === "starting";
+    const startError = phase.kind === "pick" ? phase.error : undefined;
     return (
       <StudioFrame step="import" steps={IMPORT_STEPS} title="Import what already exists" lede="Choose the sources. Every connection is read-only; the Import agent never writes until you grant it separately." viewer={viewer} actions={back}>
         <div className="grid grid-cols-12 gap-gutter" data-testid="import-sources">
@@ -191,12 +218,17 @@ export function ImportFlow({ viewer, onContinue, continuing, stepMs = DEFAULT_ST
                   </ul>
                 )}
                 <div className="mt-4 flex flex-col gap-2">
-                  <Button variant="primary" icon={Play} disabled={configs.length === 0} onClick={start} data-testid="start-import">
+                  <Button variant="primary" icon={Play} disabled={configs.length === 0} loading={starting} onClick={start} data-testid="start-import">
                     Start the import
                   </Button>
                   {touched && !valid && configs.length > 0 ? (
                     <StatusPill tone="warn" role="alert">
                       Complete the highlighted fields
+                    </StatusPill>
+                  ) : null}
+                  {startError ? (
+                    <StatusPill tone="bad" role="alert" data-testid="import-start-error">
+                      {startError}
                     </StatusPill>
                   ) : null}
                 </div>
@@ -211,6 +243,24 @@ export function ImportFlow({ viewer, onContinue, continuing, stepMs = DEFAULT_ST
               </Panel>
             </div>
           </aside>
+        </div>
+      </StudioFrame>
+    );
+  }
+
+  if (phase.kind === "failed") {
+    return (
+      <StudioFrame step="import" steps={IMPORT_STEPS} title="The import stopped" lede={phase.message} viewer={viewer} actions={back}>
+        <div className="flex flex-col gap-gutter" data-testid="import-failed">
+          <StatusPill tone="bad" role="alert">
+            {phase.message}
+          </StatusPill>
+          {phase.job ? <JobPanels job={phase.job} /> : null}
+          <div>
+            <Button variant="default" icon={ArrowLeft} onClick={reset}>
+              Change sources and try again
+            </Button>
+          </div>
         </div>
       </StudioFrame>
     );

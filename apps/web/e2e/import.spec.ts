@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * /new/import — Door B (BUILD §11.1, AC-11.1.5). The import job runs locally and deterministically in this build
- * (no import.* API yet); "Continue to Commit" needs apps/api in mock mode. Not run in the build container.
+ * /new/import — Door B (BUILD §11.1, AC-11.1.5). The import job runs on the API (`import.start` / `import.status`,
+ * deterministic without a Temporal worker) and "Continue to Commit" calls `idea.generate` in mock mode. Stack and
+ * commands: e2e/README.md.
  */
 test.describe("import", () => {
   test.beforeEach(async ({ page }) => {

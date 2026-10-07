@@ -8,6 +8,7 @@ export interface PublicEnv {
   appEnv: PublicAppEnv;
   apiUrl: string;
   streamUrl: string;
+  /** Hocuspocus WebSocket (apps/collab); empty when unset, which the spec editor reads as "edit locally". */
   collabUrl: string;
   ingestUrl: string;
   supabaseUrl: string;
@@ -28,7 +29,8 @@ export function parsePublicEnv(raw: Record<string, string | undefined>): PublicE
     appEnv,
     apiUrl: trimSlash(raw.NEXT_PUBLIC_API_URL || "http://localhost:4000"),
     streamUrl: trimSlash(raw.NEXT_PUBLIC_STREAM_URL || "ws://localhost:4003"),
-    collabUrl: trimSlash(raw.NEXT_PUBLIC_COLLAB_URL || "ws://localhost:4004"),
+    // No default: an empty collab URL keeps spec edits local (apps/web SpecEditor saves through product.spec.editBlock).
+    collabUrl: trimSlash(raw.NEXT_PUBLIC_COLLAB_URL ?? ""),
     ingestUrl: trimSlash(raw.NEXT_PUBLIC_INGEST_URL || "http://localhost:4005"),
     supabaseUrl: trimSlash(raw.NEXT_PUBLIC_SUPABASE_URL ?? ""),
     supabaseAnonKey: raw.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",

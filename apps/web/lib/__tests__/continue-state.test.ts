@@ -22,8 +22,9 @@ describe("computeContinueState", () => {
     expect(computeContinueState({ blocking: 0, items: [item({ type: "customer_won", state: "read" })] })).toEqual({ kind: "idle" });
   });
 
-  it("shows processing while a cycle runs", () => {
+  it("shows processing while a cycle runs and Continue again once it is paused", () => {
     expect(computeContinueState({ blocking: 0, items: [], cycle: { running: true } })).toEqual({ kind: "processing" });
+    expect(computeContinueState({ blocking: 0, items: [], cycle: { running: true, paused: true } })).toEqual({ kind: "idle" });
   });
 
   it("holiday wins over everything and carries the until", () => {

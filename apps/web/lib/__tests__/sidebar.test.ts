@@ -20,7 +20,8 @@ describe("sidebar items", () => {
     expect(items.find((i) => i.id === "inbox")?.fixed).toBe("inbox");
     expect(items.find((i) => i.id === "crm")?.fixed).toBe("crm");
     expect(items.some((i) => i.group === "live")).toBe(false);
-    expect(items.filter((i) => i.group === "foot").map((i) => i.label)).toEqual(["Settings", "Anthropic key"]);
+    expect(items.filter((i) => i.group === "foot").map((i) => i.label)).toEqual(["Settings", "Anthropic key", "Foundmill"]);
+    expect(items.find((i) => i.id === "brand")?.href).toBe("/");
   });
 
   it("adds the LIVE block in live mode", () => {

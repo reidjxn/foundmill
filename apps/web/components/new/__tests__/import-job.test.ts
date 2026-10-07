@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { IMPORT_SOURCES, IMPORT_SOURCE_GROUPS, advanceJob, archetypeFromSources, buildScoutingReport, completeJob, doneSteps, normaliseSourceValue, planImportJob, reportToPrompt, sourceByKey, stepsFor, totalSteps, validateConfigs, validateSourceValue } from "../import/import-job";
+import { IMPORT_SOURCES, IMPORT_SOURCE_GROUPS, doneSteps, normaliseSourceValue, reportToPrompt, sourceByKey, totalSteps, validateConfigs, validateSourceValue, type ImportJob, type ScoutingReport } from "../import/import-job";
 
 const github = sourceByKey("github")!;
 const website = sourceByKey("website")!;
@@ -26,70 +26,47 @@ describe("import sources (BUILD §11.1 Door B)", () => {
   });
 });
 
-describe("import job", () => {
-  it("plans the GitHub steps BUILD lists, ending with 'never push'", () => {
-    const steps = stepsFor("github", "acme/ledgerly");
-    expect(steps[0]).toMatch(/Clone acme\/ledgerly/);
-    expect(steps).toEqual(expect.arrayContaining([expect.stringMatching(/top 200 files/), expect.stringMatching(/test suite/), expect.stringMatching(/open issues/)]));
-    expect(steps.at(-1)).toMatch(/nothing was pushed/i);
-  });
-
-  it("advances one step at a time and finishes with summaries", () => {
-    const job = planImportJob([{ key: "github", value: "acme/ledgerly" }, { key: "stripe", value: "" }]);
-    expect(job.status).toBe("idle");
-    expect(totalSteps(job)).toBe(6 + 3);
-    const one = advanceJob(job);
-    expect(one.status).toBe("running");
-    expect(one.sources[0]?.steps[0]?.status).toBe("running");
-    expect(doneSteps(one)).toBe(0);
-    const two = advanceJob(one);
-    expect(doneSteps(two)).toBe(1);
-    const done = completeJob(job);
-    expect(done.status).toBe("done");
-    expect(doneSteps(done)).toBe(totalSteps(done));
-    expect(done.sources.every((s) => s.status === "done" && s.summary)).toBe(true);
-    expect(done.sources[0]?.summary).toMatch(/nothing pushed/);
-    expect(advanceJob(done)).toBe(done);
-  });
-});
-
-describe("Scouting report (AC-11.1.5)", () => {
-  const configs = [{ key: "github" as const, value: "acme/ledgerly" }, { key: "stripe" as const, value: "" }];
-
-  it("never pushes, seeds the roadmap from open issues and labels itself an estimate", () => {
-    const report = buildScoutingReport(configs, completeJob(planImportJob(configs)));
-    expect(report.neverPushed).toBe(true);
-    expect(report.provenance).toBe("Estimate");
-    expect(report.suggestedName).toBe("Ledgerly");
-    expect(report.archetypeHint).toBe("b2b_saas");
-    expect(report.roadmapSeeds.length).toBeGreaterThanOrEqual(3);
-    expect(report.roadmapSeeds.every((s) => /acme\/ledgerly issue #\d+/.test(s.source))).toBe(true);
-    expect(report.whatExists).toHaveLength(2);
-    expect(report.firstDecisions).toHaveLength(3);
-    expect(report.firstDecisions.filter((d) => d.recommended)).toHaveLength(1);
-    expect(report.firstDecisions.every((d) => d.reversible)).toBe(true);
-  });
-
-  it("is deterministic for the same sources and differs for others", () => {
-    const a = buildScoutingReport(configs);
-    expect(a).toEqual(buildScoutingReport(configs));
-    const b = buildScoutingReport([{ key: "website", value: "https://northwind.example" }]);
-    expect(b.suggestedName).toBe("Northwind");
-    expect(b.archetypeHint).toBe("services");
-    expect(b.roadmapSeeds).toEqual([]);
-    expect(b.whatIsMissing.some((m) => /No code source/.test(m))).toBe(true);
-  });
-
-  it("infers archetypes from the sources", () => {
-    expect(archetypeFromSources([{ key: "shopify", value: "" }])).toBe("dtc_physical");
-    expect(archetypeFromSources([{ key: "stripe", value: "" }])).toBe("consumer_app");
-    expect(archetypeFromSources([])).toBe("services");
-  });
+describe("Ideation brief from the Scouting report (AC-11.1.5)", () => {
+  const report: ScoutingReport = {
+    title: "Scouting report: Ledgerly",
+    suggestedName: "Ledgerly",
+    archetypeHint: "b2b_saas",
+    summary: "Ledgerly: 2 sources imported.",
+    whatExists: ["GitHub (acme/ledgerly): 212 files read, nothing pushed", "Stripe: 120 customers, 14 months of revenue"],
+    whatIsMissing: ["No bank connection: runway stays an estimate until one is added."],
+    strengths: ["A working codebase with a test suite."],
+    weaknesses: ["No deployment pipeline was found; releases look manual."],
+    firstDecisions: [{ id: "spec", label: "Rebuild the Specification from the imported sources", recommended: true, consequence: "The Product lead drafts the spec.", reversible: true }],
+    roadmapSeeds: [{ title: "Onboarding drop-off after sign-up", source: "acme/ledgerly issue #12" }],
+    neverPushed: true,
+    provenance: "Estimate",
+  };
 
   it("turns the report into a bounded brief for the Ideation agent", () => {
-    const prompt = reportToPrompt(buildScoutingReport(configs));
+    const prompt = reportToPrompt(report);
     expect(prompt).toMatch(/^Existing business import: Ledgerly\./);
+    expect(prompt).toMatch(/Roadmap seeds: Onboarding drop-off after sign-up\./);
     expect(prompt).toMatch(/describes this business as it is/);
-    expect(prompt.length).toBeLessThanOrEqual(3900);
+    expect(reportToPrompt({ ...report, roadmapSeeds: [] })).not.toMatch(/Roadmap seeds/);
+    expect(reportToPrompt({ ...report, whatExists: Array.from({ length: 200 }, (_, i) => `Source ${i}: ${"x".repeat(60)}`) }).length).toBeLessThanOrEqual(3900);
+  });
+
+  it("counts steps over the API's job shape", () => {
+    const job: ImportJob = {
+      id: "j",
+      mode: "local",
+      businessId: null,
+      workflowId: null,
+      status: "running",
+      startedAt: "2026-10-07T10:00:00.000Z",
+      finishedAt: null,
+      stepMs: 400,
+      sources: [
+        { key: "github", value: "acme/ledgerly", sourceId: null, status: "running", summary: null, steps: [{ id: "github:0", label: "Clone", status: "done" }, { id: "github:1", label: "Read", status: "running" }] },
+        { key: "stripe", value: "", sourceId: null, status: "queued", summary: null, steps: [{ id: "stripe:0", label: "Read customers", status: "queued" }] },
+      ],
+    };
+    expect(totalSteps(job)).toBe(3);
+    expect(doneSteps(job)).toBe(1);
   });
 });

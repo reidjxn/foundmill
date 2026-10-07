@@ -9,7 +9,8 @@ const PUBLIC_DEFAULTS: Record<string, string> = {
   NEXT_PUBLIC_APP_ENV: "development",
   NEXT_PUBLIC_API_URL: "http://localhost:4000",
   NEXT_PUBLIC_STREAM_URL: "ws://localhost:4003",
-  NEXT_PUBLIC_COLLAB_URL: "ws://localhost:4004",
+  // Empty on purpose: without a collab server the spec editor keeps edits local; .env.example sets ws://localhost:4004.
+  NEXT_PUBLIC_COLLAB_URL: "",
   NEXT_PUBLIC_INGEST_URL: "http://localhost:4005",
   NEXT_PUBLIC_SUPABASE_URL: "",
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "",

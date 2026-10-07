@@ -357,7 +357,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
             </Panel>
             <Panel title="What happens next">
               <ol className="flex flex-col gap-1.5 text-body">
-                {["Business, departments and squad are created", "The crest and colours go on the kit bar", "The first cycle starts", "The Board's first item lands in your Inbox: vision and three decisions"].map((s, i) => (
+                {["Business, departments and squad are created", "The crest and brand colours go on the top bar", "The first cycle starts", "The Board's first item lands in your Inbox: vision and three decisions"].map((s, i) => (
                   <li key={s} className="flex items-start gap-2">
                     <span className="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-subtle text-label tabular-nums">{i + 1}</span>
                     <span>{s}</span>

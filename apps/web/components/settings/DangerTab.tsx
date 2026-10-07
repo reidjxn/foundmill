@@ -1,16 +1,15 @@
 "use client";
 /**
- * Settings › Danger zone (BUILD §11.15): export everything, archive the business, permanent deletion
- * (founder-only, re-authentication, 7-day delay). Outlined in status-bad at 40 % (DESIGN §9).
- * The API has no export/archive/delete procedures yet: the buttons call them by path and explain when they are
- * missing, so the copy, confirmations and gates are already right (docs/PROGRESS.md open issue).
+ * Settings › Danger zone (BUILD §11.15): export everything (`business.export`), archive the business
+ * (`business.archive`), permanent deletion (`business.requestDeletion`: founder-only, fresh sign-in required, 7-day
+ * delay, cancellable with `business.cancelDeletion`). Outlined in status-bad at 40 % (DESIGN §9).
  */
-import { useMutation } from "@tanstack/react-query";
-import { Archive, Download, Trash2 } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Archive, Download, Trash2, Undo2 } from "lucide-react";
 import { useState } from "react";
 import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, StatusPill } from "@foundmill/dugout";
-import { errorMessage, trpcErrorCode } from "@/lib/trpc";
-import { useUntypedApi } from "@/components/providers/AppProviders";
+import { errorMessage, trpcErrorCode, trpcPathPrefix } from "@/lib/trpc";
+import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { Hint, useSettingsToast } from "./shared";
 
@@ -18,19 +17,49 @@ export const DELETION_DELAY_DAYS = 7;
 
 export function DangerTab() {
   const { businessId, data, isOwner, isAdmin } = useBusiness();
-  const untyped = useUntypedApi();
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
   const t = useSettingsToast();
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [typedName, setTypedName] = useState("");
+  const refreshBusiness = () => queryClient.invalidateQueries({ queryKey: trpcPathPrefix("business") as unknown[] });
 
-  const notYet = (what: string) => (err: unknown) => {
-    if (trpcErrorCode(err) === "NOT_FOUND") t.info(`${what} is not wired yet`, "The API gains this procedure in a later build; nothing happened.");
-    else t.failed(err, `${what} failed`);
-  };
-  const exportAll = useMutation({ mutationFn: () => untyped.mutation("business.export", { businessId }), onSuccess: () => t.saved("Export started", "You will get an Inbox note with the download when it is ready."), onError: notYet("Export") });
-  const archive = useMutation({ mutationFn: () => untyped.mutation("business.archive", { businessId }), onSuccess: () => (setConfirmArchive(false), t.saved("Business archived", "Agents stopped; the business is hidden from your list and can be restored.")), onError: notYet("Archive") });
-  const requestDeletion = useMutation({ mutationFn: () => untyped.mutation("business.requestDeletion", { businessId }), onSuccess: () => (setConfirmDelete(false), t.saved("Deletion scheduled", `Everything is deleted in ${DELETION_DELAY_DAYS} days unless you cancel.`)), onError: notYet("Permanent deletion") });
+  const exportAll = useMutation(trpc.business.export.mutationOptions({ onSuccess: () => t.saved("Export ready", "An Inbox note carries the archive (spec, roadmap, tasks, CRM, journeys, finance, audit log, agent instructions). Credentials are never included."), onError: (err) => t.failed(err, "Export failed") }));
+  const archive = useMutation(
+    trpc.business.archive.mutationOptions({
+      onSuccess: (result) => {
+        setConfirmArchive(false);
+        void refreshBusiness();
+        const n = result.stopped.pausedAgents;
+        t.saved("Business archived", `${n} agent${n === 1 ? "" : "s"} stopped; the business is hidden from your list and an owner can restore it.`);
+      },
+      onError: (err) => t.failed(err, "Archive failed"),
+    }),
+  );
+  const requestDeletion = useMutation(
+    trpc.business.requestDeletion.mutationOptions({
+      onSuccess: () => {
+        setConfirmDelete(false);
+        void refreshBusiness();
+        t.saved("Deletion scheduled", `Everything is deleted in ${DELETION_DELAY_DAYS} days unless you cancel.`);
+      },
+      onError: (err) => {
+        if (trpcErrorCode(err) === "PRECONDITION_FAILED") t.info("Sign in again first", "Permanent deletion needs a fresh sign-in. Sign out, sign back in with a new link, then schedule the deletion.");
+        else t.failed(err, "Permanent deletion failed");
+      },
+    }),
+  );
+  const cancelDeletion = useMutation(
+    trpc.business.cancelDeletion.mutationOptions({
+      onSuccess: () => {
+        void refreshBusiness();
+        t.saved("Deletion cancelled", "Nothing will be deleted.");
+      },
+      onError: (err) => t.failed(err, "Could not cancel the deletion"),
+    }),
+  );
+  const scheduled = data.deletion;
 
   return (
     <section className="rounded-panel border border-status-bad/40 bg-panel" data-testid="danger-zone">
@@ -42,7 +71,7 @@ export function DangerTab() {
           <span className="t-display-sm">Export everything</span>
           <p className="text-body text-secondary">Spec, roadmap, tasks, CRM, journeys, finance, audit log and agent instructions as a portable archive. Credentials are never included.</p>
           <div>
-            <Button icon={Download} variant="default" disabled={!isAdmin} loading={exportAll.isPending} onClick={() => exportAll.mutate()}>
+            <Button icon={Download} variant="default" disabled={!isAdmin} loading={exportAll.isPending} onClick={() => exportAll.mutate({ businessId })}>
               Export everything
             </Button>
           </div>
@@ -61,12 +90,21 @@ export function DangerTab() {
           <p className="text-body text-secondary">
             Founder only. You re-authenticate, then everything is deleted after a {DELETION_DELAY_DAYS}-day delay during which you can cancel. Permanent deletion is a hard gate: no agent, mode or setting can trigger it.
           </p>
-          <div className="flex items-center gap-3">
-            <Button icon={Trash2} variant="danger" disabled={!isOwner} onClick={() => setConfirmDelete(true)}>
-              Delete {data.business.name}
-            </Button>
-            {!isOwner ? <StatusPill tone="neutral">Owner only</StatusPill> : null}
-          </div>
+          {scheduled ? (
+            <div className="flex items-center gap-3" data-testid="deletion-scheduled">
+              <StatusPill tone="bad">Deletion scheduled{scheduled.scheduledFor ? ` · ${new Date(scheduled.scheduledFor).toLocaleDateString()}` : ""}</StatusPill>
+              <Button icon={Undo2} variant="default" disabled={!isOwner} loading={cancelDeletion.isPending} onClick={() => cancelDeletion.mutate({ businessId })}>
+                Cancel deletion
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <Button icon={Trash2} variant="danger" disabled={!isOwner} onClick={() => setConfirmDelete(true)}>
+                Delete {data.business.name}
+              </Button>
+              {!isOwner ? <StatusPill tone="neutral">Owner only</StatusPill> : null}
+            </div>
+          )}
         </div>
         <Hint>Archive and delete are audited with your account; an Inbox note confirms each step.</Hint>
       </div>
@@ -81,7 +119,7 @@ export function DangerTab() {
             <Button variant="ghost" onClick={() => setConfirmArchive(false)}>
               Cancel
             </Button>
-            <Button variant="danger" loading={archive.isPending} onClick={() => archive.mutate()}>
+            <Button variant="danger" loading={archive.isPending} onClick={() => archive.mutate({ businessId, reason: "archived" })}>
               Archive
             </Button>
           </DialogFooter>
@@ -103,13 +141,13 @@ export function DangerTab() {
             <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
               Cancel
             </Button>
-            <Button variant="danger" disabled={typedName.trim() !== data.business.name} loading={requestDeletion.isPending} onClick={() => requestDeletion.mutate()}>
+            <Button variant="danger" disabled={typedName.trim() !== data.business.name} loading={requestDeletion.isPending} onClick={() => requestDeletion.mutate({ businessId, confirmName: typedName.trim() })}>
               Schedule deletion
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {requestDeletion.error && trpcErrorCode(requestDeletion.error) !== "NOT_FOUND" ? <p className="sr-only" role="alert">{errorMessage(requestDeletion.error)}</p> : null}
+      {requestDeletion.error ? <p className="sr-only" role="alert">{errorMessage(requestDeletion.error)}</p> : null}
     </section>
   );
 }

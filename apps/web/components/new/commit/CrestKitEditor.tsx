@@ -57,14 +57,14 @@ export function CrestKitEditor({ name, seed, kit, onKitChange, onShuffle, error 
         <Button size="sm" variant="default" icon={Dices} onClick={onShuffle} data-testid="shuffle-crest">
           Shuffle crest
         </Button>
-        <div className="flex h-10 w-32 items-center gap-2 rounded-panel bg-kit-primary px-2 text-kit-on-primary" aria-label="Kit bar preview" data-testid="kit-bar-preview">
+        <div className="flex h-10 w-32 items-center gap-2 rounded-panel bg-kit-primary px-2 text-kit-on-primary" aria-label="Brand bar preview" data-testid="kit-bar-preview">
           <Crest seed={seed} kitPrimary={safe.primary} kitSecondary={safe.secondary} monogram={monogram} size={20} title="" />
           <span className="truncate t-display-sm">{name || "Your business"}</span>
         </div>
       </div>
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-gutter">
-          <ColourField label="Primary colour" hint="Kit bar, Continue button, revenue line, crest." value={kit.primary} onChange={(v) => onKitChange({ ...kit, primary: v })} testId="kit-primary" />
+          <ColourField label="Primary colour" hint="Top bar, Continue button, revenue line, crest." value={kit.primary} onChange={(v) => onKitChange({ ...kit, primary: v })} testId="kit-primary" />
           <ColourField label="Secondary colour" hint="Crest field, celebrations, accents." value={kit.secondary} onChange={(v) => onKitChange({ ...kit, secondary: v })} testId="kit-secondary" />
         </div>
         <div className="flex flex-wrap items-center gap-2" data-testid="kit-contrast" data-passes={contrast.passes}>

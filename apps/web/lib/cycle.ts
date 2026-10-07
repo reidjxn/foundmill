@@ -1,13 +1,13 @@
 /**
- * Business-cycle status for the shell (processing strip segments + the Continue "processing" state), reduced from
- * the `ev:<businessId>` stream (`cycle.started`, `task.started`, `task.completed`, `task.failed`, `cycle.completed`)
- * on top of a snapshot taken from the API (agents by status, running tasks).
- *
- * The API has no `cycle.status` procedure yet (open issue), so the snapshot is derived: a cycle counts as running
- * when any task is `running`; the departments with running tasks are the active segments.
+ * Business-cycle status for the shell (processing strip segments + the Continue "processing" state): a snapshot from
+ * the API's `cycle.status` (running cycle, paused flag, active departments/agents, completed count) kept current
+ * by reducing the `ev:<businessId>` stream (`cycle.started`, `task.started`, `task.completed`, `task.failed`,
+ * `cycle.completed`) on top of it.
  */
 export interface CycleStatus {
   running: boolean;
+  /** The founder paused the running cycle (`business.pauseCycle`); Continue resumes it. */
+  paused: boolean;
   cycleId: string | null;
   cycleNumber: number | null;
   /** Department ids with agents working this cycle. */
@@ -20,7 +20,7 @@ export interface CycleStatus {
   lastOutcome: string | null;
 }
 
-export const EMPTY_CYCLE: CycleStatus = { running: false, cycleId: null, cycleNumber: null, activeDepartmentIds: [], activeAgentIds: [], completedCount: 0, lastCompletedAt: null, lastOutcome: null };
+export const EMPTY_CYCLE: CycleStatus = { running: false, paused: false, cycleId: null, cycleNumber: null, activeDepartmentIds: [], activeAgentIds: [], completedCount: 0, lastCompletedAt: null, lastOutcome: null };
 
 export interface CycleEvent {
   type: string;
@@ -28,19 +28,32 @@ export interface CycleEvent {
   payload?: Record<string, unknown>;
 }
 
+/** The subset of the API's `cycle.status` result the shell reads. */
 export interface CycleSnapshotInput {
-  tasks?: readonly { status: string; assigneeAgentId?: string | null; departmentId?: string | null }[];
+  running: boolean;
+  paused?: boolean;
+  cycleId?: string | null;
+  cycleNumber?: number | null;
+  activeDepartmentIds?: readonly string[];
+  activeAgentIds?: readonly string[];
+  completedCount?: number;
+  lastCompletedAt?: string | null;
+  lastOutcome?: string | null;
 }
 
+/** `cycle.status` → the shell's status. */
 export function cycleFromSnapshot(input: CycleSnapshotInput): CycleStatus {
-  const running = (input.tasks ?? []).filter((t) => t.status === "running");
-  const depts = new Set<string>();
-  const agents = new Set<string>();
-  for (const t of running) {
-    if (t.departmentId) depts.add(t.departmentId);
-    if (t.assigneeAgentId) agents.add(t.assigneeAgentId);
-  }
-  return { ...EMPTY_CYCLE, running: running.length > 0, activeDepartmentIds: [...depts], activeAgentIds: [...agents] };
+  return {
+    running: input.running,
+    paused: input.paused ?? false,
+    cycleId: input.cycleId ?? null,
+    cycleNumber: input.cycleNumber ?? null,
+    activeDepartmentIds: [...(input.activeDepartmentIds ?? [])],
+    activeAgentIds: [...(input.activeAgentIds ?? [])],
+    completedCount: input.completedCount ?? 0,
+    lastCompletedAt: input.lastCompletedAt ?? null,
+    lastOutcome: input.lastOutcome ?? null,
+  };
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
@@ -51,7 +64,7 @@ export function reduceCycleEvent(status: CycleStatus, event: CycleEvent, agentDe
   const p = event.payload ?? {};
   switch (event.type) {
     case "cycle.started":
-      return { ...status, running: true, cycleId: str(p.cycleId), cycleNumber: num(p.cycleNumber), activeDepartmentIds: [], activeAgentIds: [] };
+      return { ...status, running: true, paused: false, cycleId: str(p.cycleId), cycleNumber: num(p.cycleNumber), activeDepartmentIds: [], activeAgentIds: [] };
     case "task.started": {
       const agentId = str(p.assigneeAgentId);
       const deptId = str(p.departmentId) ?? (agentId ? (agentDepartment?.(agentId) ?? null) : null);
@@ -75,6 +88,7 @@ export function reduceCycleEvent(status: CycleStatus, event: CycleEvent, agentDe
       return {
         ...status,
         running: false,
+        paused: false,
         activeAgentIds: [],
         activeDepartmentIds: [],
         completedCount: status.completedCount + 1,
@@ -83,7 +97,7 @@ export function reduceCycleEvent(status: CycleStatus, event: CycleEvent, agentDe
       };
     case "holiday.ended":
     case "agents.stopped":
-      return { ...status, running: false, activeAgentIds: [], activeDepartmentIds: [] };
+      return { ...status, running: false, paused: false, activeAgentIds: [], activeDepartmentIds: [] };
     default:
       return status;
   }
@@ -91,3 +105,8 @@ export function reduceCycleEvent(status: CycleStatus, event: CycleEvent, agentDe
 
 /** The events the shell subscribes to for the strip and the Continue pulse. */
 export const CYCLE_EVENT_TYPES = ["cycle.started", "cycle.completed", "task.started", "task.completed", "task.failed", "task.stopped", "task.paused", "holiday.ended"] as const;
+
+/** Pause/resume are mutations, not platform events: the shell applies them to its own status. */
+export function setPaused(status: CycleStatus, paused: boolean): CycleStatus {
+  return status.paused === paused ? status : { ...status, paused, running: paused ? status.running : true };
+}

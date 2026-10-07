@@ -24,6 +24,56 @@ body {
   color-scheme: dark;
 }
 
+/* Collaborative spec editor (components/spec/SpecEditor.tsx): the ProseMirror surface and other writers' carets. */
+.spec-editor-surface {
+  min-height: 14rem;
+  outline: none;
+  color: var(--text-primary);
+}
+.spec-editor-surface p {
+  margin: 0 0 0.75em;
+}
+.spec-editor-surface h1,
+.spec-editor-surface h2,
+.spec-editor-surface h3 {
+  font-family: var(--font-display);
+  margin: 1em 0 0.4em;
+}
+.spec-editor-surface ul,
+.spec-editor-surface ol {
+  padding-left: 1.4em;
+  margin: 0 0 0.75em;
+}
+.spec-editor-surface code {
+  font-family: var(--font-mono);
+}
+.collaboration-carets__caret {
+  position: relative;
+  margin-left: -1px;
+  margin-right: -1px;
+  border-left: 1px solid;
+  border-right: 1px solid;
+  word-break: normal;
+  pointer-events: none;
+}
+.collaboration-carets__label {
+  position: absolute;
+  top: -1.4em;
+  left: -1px;
+  padding: 0 4px;
+  border-radius: 3px 3px 3px 0;
+  font-family: var(--font-body);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--bg-ink);
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+}
+.collaboration-carets__selection {
+  opacity: 0.25;
+}
+
 /* Settings forms: a left list of sections, right panel forms (DESIGN §9). */
 .settings-grid {
   display: grid;

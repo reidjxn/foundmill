@@ -6,6 +6,8 @@ describe("public env", () => {
     const env = parsePublicEnv({ NEXT_PUBLIC_API_URL: "https://api.foundmill.com/", NEXT_PUBLIC_APP_ENV: "staging" });
     expect(env.apiUrl).toBe("https://api.foundmill.com");
     expect(env.streamUrl).toBe("ws://localhost:4003");
+    expect(env.collabUrl).toBe("");
+    expect(parsePublicEnv({ NEXT_PUBLIC_COLLAB_URL: "wss://collab.foundmill.com/" }).collabUrl).toBe("wss://collab.foundmill.com");
     expect(env.appEnv).toBe("staging");
     expect(env.integrationsMode).toBe("mock");
     expect(hasSupabase(env)).toBe(false);

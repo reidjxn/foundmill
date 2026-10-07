@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readSessionEvent } from "../LogsTab";
+import { mergeSessionEvents, readSessionEvent } from "../LogsTab";
 import { historyEvents } from "../HistoryTab";
 
 describe("readSessionEvent", () => {
@@ -9,6 +9,20 @@ describe("readSessionEvent", () => {
     expect(readSessionEvent({ type: "inbox.item_created" })).toBeNull();
     expect(readSessionEvent({ json: "{not json" })).toBeNull();
     expect(readSessionEvent("x")).toBeNull();
+  });
+});
+
+describe("mergeSessionEvents", () => {
+  it("seeds from the recording, appends live events once and keeps time order", () => {
+    const recorded = [
+      { kind: "note", at: "2026-10-07T10:00:02.000Z", level: "info", source: "agent", text: "second" },
+      { kind: "note", at: "2026-10-07T10:00:01.000Z", level: "info", source: "agent", text: "first" },
+    ] as never[];
+    const merged = mergeSessionEvents([], recorded);
+    expect(merged.map((e) => (e as { text: string }).text)).toEqual(["first", "second"]);
+    const again = mergeSessionEvents(merged, [recorded[0]!, { kind: "note", at: "2026-10-07T10:00:03.000Z", level: "info", source: "agent", text: "live" } as never]);
+    expect(again.map((e) => (e as { text: string }).text)).toEqual(["first", "second", "live"]);
+    expect(mergeSessionEvents(merged, [])).toHaveLength(2);
   });
 });
 

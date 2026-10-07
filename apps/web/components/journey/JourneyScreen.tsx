@@ -1,9 +1,10 @@
 "use client";
 /**
- * Customer Update, the replay of a won customer (BUILD §11.4, DESIGN §8 JourneyStage): `journey.get` → Dugout's
- * JourneyStage with the speed remembered per founder (localStorage), `journey.markViewed` on open, the static summary
- * under reduced motion (the stage does that itself, AC-11.4.5), and a link back to the customer's CRM profile.
- * A Ribbon marker addresses the replay by conversion id; that resolves to the journey here.
+ * Customer Update, the replay of a won customer (BUILD §11.4, DESIGN §8 JourneyStage): `journey.get` returns the
+ * full Journey record (channels, captain, standout agent, nth of kind, consent, stats) built server-side, rendered by
+ * Dugout's JourneyStage with the speed remembered per founder (localStorage), `journey.markViewed` on open, the
+ * static summary under reduced motion (the stage does that itself, AC-11.4.5), and a link back to the customer's CRM
+ * profile. A Ribbon marker addresses the replay by conversion id; that resolves to the journey here.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Route, UserRound } from "lucide-react";
@@ -17,14 +18,12 @@ import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
-import { customerFactsFor, entityKindsFor, journeyIdForConversion, nthOfKind, stageAgentMeta, toStageJourney, toStageTouches } from "./mapping";
+import { customerFactsFor, entityKindsFor, journeyIdForConversion, stageAgentMeta, stageJourneyFromRecord, toStageTouches } from "./mapping";
 import { readReplaySpeed, writeReplaySpeed } from "./speed";
 
 export interface JourneyScreenProps {
   journeyId: string;
 }
-
-const dayKey = (d: Date | string): string => (typeof d === "string" ? d : d.toISOString()).slice(0, 10);
 
 export function JourneyScreen({ journeyId }: JourneyScreenProps) {
   const { businessId, data, departments } = useBusiness();
@@ -44,9 +43,6 @@ export function JourneyScreen({ journeyId }: JourneyScreenProps) {
   }, [forwardTo, router, businessId]);
 
   const row = journeyQ.data ?? null;
-  const kickoff = dayKey(data.business.committedAt ?? data.business.createdAt);
-  const convertedDay = row ? dayKey(row.conversion.occurredAt) : kickoff;
-  const ribbonQ = useQuery(trpc.journey.ribbon.queryOptions({ businessId, from: kickoff, to: convertedDay }, { enabled: !!row, staleTime: 300_000, retry: false }));
   const entityId = row?.entity?.id ?? row?.conversion.entityId ?? null;
   const entityQ = useQuery(trpc.crm.entity.get.queryOptions({ businessId, entityId: entityId ?? businessId }, { enabled: !!entityId, staleTime: 60_000, retry: false }));
 
@@ -68,10 +64,9 @@ export function JourneyScreen({ journeyId }: JourneyScreenProps) {
     [userId],
   );
 
-  const touches = useMemo(() => (row ? toStageTouches(row.touches) : []), [row]);
-  const nth = useMemo(() => (row ? nthOfKind(row.conversion, ribbonQ.data?.rows, ribbonQ.data?.conversions) : 1), [row, ribbonQ.data]);
-  const conversionCount = useMemo(() => (ribbonQ.data ? ribbonQ.data.rows.filter((r) => r.departmentId === null).reduce((s, r) => s + r.payments + r.signups + r.activations, 0) : 0), [ribbonQ.data]);
-  const journey = useMemo(() => (row ? toStageJourney(row, touches, { nthOfKind: nth, conversionCount }) : null), [row, touches, nth, conversionCount]);
+  // The record's touches are consent-filtered and sorted server-side; the raw rows only back a record without any.
+  const touches = useMemo(() => (row ? toStageTouches(row.journeyTouches.length ? row.journeyTouches : row.touches) : []), [row]);
+  const journey = useMemo(() => (row ? stageJourneyFromRecord(row.journey, row) : null), [row]);
   const customer = useMemo(() => (row && journey ? customerFactsFor(row, journey, touches, entityQ.data ? { identifiers: entityQ.data.entity.identifiers, roles: entityQ.data.roles as { role?: string | null }[] } : null) : null), [row, journey, touches, entityQ.data]);
   const agents = useMemo(() => (journey ? stageAgentMeta(journey.agents, departments) : []), [journey, departments]);
   const entityKinds = useMemo(() => (row && journey ? entityKindsFor(row, journey.agents) : {}), [row, journey]);
@@ -94,16 +89,17 @@ export function JourneyScreen({ journeyId }: JourneyScreenProps) {
       </div>
     );
   }
-  if (!row || !journey || !customer || ribbonQ.isLoading) return <ScreenSkeleton />;
+  if (!row || !journey || !customer) return <ScreenSkeleton />;
 
   return (
-    <div className="flex min-h-full flex-col" data-testid="journey-screen" data-journey-id={row.id} data-conversion-id={row.conversionId} data-speed={speed} data-nth={journey.nthOfKind}>
+    <div className="flex min-h-full flex-col" data-testid="journey-screen" data-journey-id={row.id} data-conversion-id={row.conversionId} data-speed={speed} data-nth={journey.nthOfKind} data-consent={journey.consent}>
       <div className="flex flex-wrap items-center gap-2 border-b border-subtle bg-panel px-gutter py-1.5" data-testid="journey-toolbar">
         <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={back} data-testid="journey-back">
           Inbox
         </Button>
         <span className="text-small text-secondary">{title}</span>
-        {ribbonQ.error ? <Chip tone="neutral">Count unavailable</Chip> : null}
+        {journey.partialJourney ? <Chip tone="neutral">Consented touches only</Chip> : null}
+        {journey.stats.acquisitionCostMinor !== null ? <Chip tone="neutral">Acquisition cost · {row.acquisitionCostLabel}</Chip> : null}
         <span className="flex-1" />
         {entityId ? (
           <Button size="sm" variant="default" icon={UserRound} onClick={() => router.push(routes.crm(businessId, entityId))} data-testid="journey-crm-link">
