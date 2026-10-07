@@ -1,2 +1,59 @@
-// @foundmill/collab — see docs/ARCHITECTURE.md
-export {};
+/**
+ * @foundmill/collab — Hocuspocus (Yjs) server for spec blocks (docs/ARCHITECTURE.md §1, §3, §17; BUILD §11.5).
+ *
+ * Boot: load env → service database (repositories only) → token verifier (Supabase JWKS / HS256, collab service
+ * tokens, dev bypass) → Hocuspocus server listening on PORT (fallback COLLAB_PORT) on host "::" with a 0.0.0.0
+ * fallback → graceful shutdown flushes pending stores before closing.
+ */
+import { closeDb, createServiceDb } from "@foundmill/db";
+import { createLogger, loadEnv, servicePort } from "@foundmill/shared";
+import { createCollabAuthenticator } from "./auth";
+import { createCollabServer } from "./server";
+
+export { COLLAB_SERVICE_AUDIENCE, SUPABASE_AUDIENCE, CollabAuthError, createCollabAuthenticator, mintCollabServiceToken, parseDevToken, type CollabAuthenticator, type CollabAuthenticatorOptions, type MintServiceTokenInput, type Principal } from "./auth";
+export { InvalidDocumentNameError, SPEC_DOCUMENT_PREFIX, isGuid, parseDocumentName, specDocumentName, tryParseDocumentName, type SpecDocumentName } from "./document-name";
+export { DEFAULT_FRAGMENT, EMPTY_DOC, InvalidProseMirrorJsonError, docToPmDoc, fillFragment, fragmentToPmDoc, parsePmDoc, pmDocToYDoc, pmEqual, reconcileFragment, typesFromNodes, type PmMark, type PmNode, type ReconcileResult } from "./prosemirror";
+export { contentToPmDoc, createSpecBlockStore, type Author, type AuthorKind, type SpecBlockStore, type SpecBlockStoreOptions } from "./store";
+export { COLLAB_SERVICE, ReadOnlyError, WRITE_ROLES, bearerToken, createCollabServer, httpError, readJsonBody, silentLogger, type Authorization, type CollabContext, type CollabLogger, type CollabServer, type CollabServerDeps, type CollabServerOptions, type EditOptions, type EditResult, type HealthReport, type ReadResult, StaleRevisionError } from "./server";
+export { createCollabClient, type CollabClient, type CollabClientError, type CollabClientOptions } from "./client";
+
+export async function main(): Promise<void> {
+  const env = loadEnv();
+  const log = createLogger("collab", env.LOG_LEVEL);
+  if (!env.DATABASE_URL) {
+    log.error({}, "DATABASE_URL is not set; the collab server cannot start");
+    process.exit(1);
+  }
+  const db = createServiceDb();
+  const auth = createCollabAuthenticator({
+    appEnv: env.APP_ENV,
+    supabaseUrl: env.SUPABASE_URL,
+    // Not in the shared env schema yet (same exception as apps/api and apps/stream); legacy HS256 projects only.
+    jwtSecret: process.env.SUPABASE_JWT_SECRET ?? null,
+    serviceSecret: env.SESSION_TOKEN_SECRET ?? null,
+    devUserId: env.DEV_AUTH_USER_ID ?? null,
+  });
+  if (!env.SESSION_TOKEN_SECRET) log.warn({}, "SESSION_TOKEN_SECRET is not set; agents cannot connect to the collab server");
+  const server = createCollabServer({ db, auth, log });
+  await server.listen(servicePort(env, "COLLAB_PORT"));
+
+  const shutdown = async (signal: string) => {
+    log.info({ signal }, "collab shutting down");
+    try {
+      await server.close();
+    } finally {
+      await closeDb(db);
+      process.exit(0);
+    }
+  };
+  process.once("SIGTERM", () => void shutdown("SIGTERM"));
+  process.once("SIGINT", () => void shutdown("SIGINT"));
+}
+
+const entry = process.argv[1] ?? "";
+if (/apps[\\/]collab[\\/]src[\\/]index\.ts$/.test(entry)) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
