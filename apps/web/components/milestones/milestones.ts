@@ -93,3 +93,14 @@ export function shareText(card: TrophyCard, businessName: string): string {
   const who = card.customerName ? ` with ${card.customerName}` : "";
   return `${businessName} · ${card.label}${who}${when ? ` · ${when}` : ""}`;
 }
+
+/**
+ * The window journey.list is asked for when a milestone's ref names a conversion but no journey: the win's conversion
+ * occurred when the milestone was reached, so a day either side finds its journey without paging the whole history
+ * (journey.list has no conversion filter; its default order is creation time, which the seed does not vary).
+ */
+export function replayLookupWindow(achievedAt: Date | string, days = 1): { from: string; to: string } {
+  const at = new Date(achievedAt).getTime();
+  const span = days * 86_400_000;
+  return { from: new Date(at - span).toISOString(), to: new Date(at + span).toISOString() };
+}

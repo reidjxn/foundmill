@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { milestoneForTrophy, otherMilestones, replayRefOf, shareText, trophyCards, trophyKeyOf } from "../milestones";
+import { milestoneForTrophy, otherMilestones, replayLookupWindow, replayRefOf, shareText, trophyCards, trophyKeyOf } from "../milestones";
 
 const rows = [
   { id: "m1", kind: "customer", label: "First customer", achievedAt: new Date("2026-03-01T10:00:00Z"), ref: { trophyKey: "customer_1", amountMinor: 4_900, customerName: "Acme", permission: true, journeyId: "j-1" }, visibility: "public" },
@@ -37,5 +37,10 @@ describe("milestones (BUILD §11.4 trophy cabinet)", () => {
     const cards = trophyCards(rows, "EUR", true);
     expect(shareText(cards.find((c) => c.key === "customer_1")!, "Northwind")).toBe("Northwind · First customer with Acme · 1 Mar 2026");
     expect(shareText(cards.find((c) => c.key === "mrr_1k")!, "Northwind")).not.toContain("Secret");
+  });
+
+  it("looks a conversion's journey up a day either side of the milestone (journey.list has no conversion filter)", () => {
+    expect(replayLookupWindow("2026-09-19T12:00:00.000Z")).toEqual({ from: "2026-09-18T12:00:00.000Z", to: "2026-09-20T12:00:00.000Z" });
+    expect(replayLookupWindow(new Date("2026-03-01T00:00:00Z"), 3)).toEqual({ from: "2026-02-26T00:00:00.000Z", to: "2026-03-04T00:00:00.000Z" });
   });
 });

@@ -4,7 +4,7 @@
  * TrophyCabinet from `journey.ribbon`'s milestones, the timeline of every other milestone, and on LIVE shareable
  * milestone cards with the customer anonymised unless permission is recorded.
  */
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Flag, Gem, Rocket, Trophy } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -16,13 +16,15 @@ import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
-import { TIMELINE_KIND_WORD, milestoneForTrophy, otherMilestones, replayRefOf, shareText, trophyCards } from "./milestones";
+import { journeyIdForConversion } from "@/components/journey/mapping";
+import { TIMELINE_KIND_WORD, milestoneForTrophy, otherMilestones, replayLookupWindow, replayRefOf, shareText, trophyCards } from "./milestones";
 
 const KIND_ICON = { release: Flag, decision: Gem, incorporation: Rocket, funding: Rocket, launch: Rocket, customer: Trophy, revenue: Trophy, trophy: Trophy } as const;
 
 export function MilestonesScreen() {
   const { businessId, data } = useBusiness();
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
   const router = useRouter();
   const search = useSearchParams();
   const { toast } = useToast();
@@ -45,12 +47,27 @@ export function MilestonesScreen() {
   }, [search, live, cards]);
 
   const onOpen = useCallback(
-    (key: string) => {
-      const ref = replayRefOf(milestoneForTrophy(key, milestones, currency));
-      if (ref?.journeyId || ref?.conversionId) router.push(routes.journey(businessId, (ref.journeyId ?? ref.conversionId)!));
-      else toast({ title: "No replay recorded for this milestone", description: "Customer Updates from now on link their replay here.", tone: "info" });
+    async (key: string) => {
+      const milestone = milestoneForTrophy(key, milestones, currency);
+      const ref = replayRefOf(milestone);
+      if (!ref) {
+        toast({ title: "No replay recorded for this milestone", description: "Customer Updates from now on link their replay here.", tone: "info" });
+        return;
+      }
+      let journeyId = ref.journeyId ?? null;
+      if (!journeyId && ref.conversionId && milestone?.achievedAt) {
+        // A ref that names the win's conversion: find its journey around the day the milestone was reached. On any
+        // failure the Customer Update screen gets the conversion id and runs its own lookup.
+        try {
+          const page = await queryClient.fetchQuery(trpc.journey.list.queryOptions({ businessId, ...replayLookupWindow(milestone.achievedAt), limit: 200 }, { staleTime: 60_000 }));
+          journeyId = journeyIdForConversion(ref.conversionId, page.items);
+        } catch {
+          journeyId = null;
+        }
+      }
+      router.push(routes.journey(businessId, journeyId ?? ref.journeyId ?? ref.conversionId!));
     },
-    [milestones, currency, router, businessId, toast],
+    [milestones, currency, router, businessId, toast, queryClient, trpc],
   );
 
   const events = useMemo<TimelineEvent[]>(

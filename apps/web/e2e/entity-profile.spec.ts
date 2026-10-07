@@ -1,80 +1,107 @@
 import { expect, test, type Page } from "@playwright/test";
+import { LONG, openBusiness } from "./helpers";
 
 /**
- * Entity profile (BUILD §11.12 profile tabs; AC-11.12.3 merge then unmerge). Not run in the build container (no
- * browser). Needs apps/api in mock mode with DEV_AUTH_USER_ID set to a seeded owner.
+ * Entity profile (BUILD §11.12 profile tabs; AC-11.12.3 merge then unmerge) on the seeded Northwind Skincare records.
+ * Stack and commands: e2e/README.md.
  */
-async function openFirstEntity(page: Page): Promise<string | null> {
-  const bid = page.url().match(/\/b\/([0-9a-f-]+)/)?.[1];
-  if (!bid) return null;
-  await page.goto(`/b/${bid}/crm`);
-  const link = page.locator("a[href*='/crm/']").filter({ hasNot: page.locator("[href$='/crm']") }).first();
-  if ((await link.count()) === 0) return null;
-  const href = await link.getAttribute("href");
-  if (!href) return null;
-  await page.goto(href);
-  return bid;
+interface CrmRowRef {
+  name: string;
+  kind: string | undefined;
+  href: string;
+}
+
+/** The first visible CRM rows: name, kind and profile link (the Kind column is a chip reading Person / Organisation). */
+async function crmRows(page: Page, limit = 12): Promise<CrmRowRef[]> {
+  const rows = page.getByRole("grid", { name: "CRM records" }).getByRole("row");
+  await expect(rows.nth(1), "the seed gives Northwind CRM records").toBeVisible({ timeout: LONG });
+  const out: CrmRowRef[] = [];
+  const n = Math.min(await rows.count(), limit + 1);
+  for (let i = 1; i < n; i++) {
+    const row = rows.nth(i);
+    const link = row.locator("a[href*='/crm/'][href$='/overview']").first();
+    if (!(await link.count())) continue;
+    const cells = await row.getByRole("gridcell").allInnerTexts();
+    out.push({ name: (await link.innerText()).trim(), kind: cells.map((c) => c.trim()).find((c) => /^(person|organisation|organization)$/i.test(c)), href: (await link.getAttribute("href"))! });
+  }
+  return out;
+}
+
+async function openFirstEntity(page: Page): Promise<string> {
+  await openBusiness(page, "crm");
+  // Name cells are EntityLinks to /b/<bid>/crm/<entityId>/overview.
+  const [first] = await crmRows(page, 1);
+  expect(first, "the seed gives Northwind CRM records").toBeTruthy();
+  await page.goto(first!.href);
+  await expect(page.getByTestId("entity-profile")).toBeVisible({ timeout: LONG });
+  return first!.href;
 }
 
 test.describe("entity profile", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto("/login");
-    await page.getByRole("button", { name: "Continue as developer" }).click();
-    await page.waitForURL(/\/b\/[0-9a-f-]+\/home|\/onboarding|\/new/);
-  });
-
   test("header with relationship strength and lead score, seven tabs", async ({ page }) => {
-    const bid = await openFirstEntity(page);
-    test.skip(!bid, "no seeded records for the dev user");
-    await expect(page.getByTestId("entity-profile")).toBeVisible();
+    await openFirstEntity(page);
     await expect(page.getByTestId("profile-header")).toContainText("Relationship");
     for (const tab of ["Overview", "Activity", "Relationships", "Commercial", "Documents", "Notes", "Journey"]) await expect(page.getByRole("tab", { name: tab })).toBeVisible();
     await expect(page.getByTestId("key-facts")).toBeVisible();
     await expect(page.getByTestId("standing")).toContainText("Lead score");
     await page.getByRole("tab", { name: "Relationships" }).click();
-    await expect(page.getByTestId("relationship-graph")).toBeVisible();
+    await expect(page.getByTestId("relationship-graph")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("intro-paths")).toBeVisible();
     await page.getByRole("tab", { name: "Journey" }).click();
-    await expect(page.getByTestId("journey-list")).toBeVisible();
+    await expect(page.getByTestId("journey-list")).toBeVisible({ timeout: LONG });
   });
 
   test("data duties: export shows the JSON; deletion is queued, never immediate", async ({ page }) => {
-    const bid = await openFirstEntity(page);
-    test.skip(!bid, "no seeded records for the dev user");
+    await openFirstEntity(page);
     await page.getByTestId("entity-export").click();
     await expect(page.getByTestId("export-dialog")).toContainText("exportedAt");
     await page.keyboard.press("Escape");
+    await expect(page.getByTestId("export-dialog")).toBeHidden();
     await page.getByTestId("entity-delete").click();
     await expect(page.getByTestId("delete-request-dialog")).toContainText("never runs immediately");
     await page.keyboard.press("Escape");
+    await expect(page.getByTestId("delete-request-dialog")).toBeHidden();
   });
 
   test("notes can be added", async ({ page }) => {
-    const bid = await openFirstEntity(page);
-    test.skip(!bid, "no seeded records for the dev user");
+    await openFirstEntity(page);
     await page.getByRole("tab", { name: "Notes" }).click();
-    await page.getByTestId("note-input").fill("Met at the trade fair; wants samples in March.");
+    const text = `Met at the trade fair; wants samples in March (${Date.now().toString(36)}).`;
+    await page.getByTestId("note-input").fill(text);
     await page.getByTestId("note-save").click();
-    await expect(page.getByTestId("notes-list")).toContainText("trade fair");
+    await expect(page.getByTestId("notes-list")).toContainText(text, { timeout: LONG });
+    await expect(page.getByTestId("note-input")).toHaveValue("");
   });
 
   test("merge then unmerge restores both records (AC-11.12.3)", async ({ page }) => {
-    const bid = await openFirstEntity(page);
-    test.skip(!bid, "no seeded records for the dev user");
-    const url = page.url();
+    await openBusiness(page, "crm");
+    // The duplicate candidate must be another record of the same kind; the dialog searches by name, email or domain.
+    const rows = await crmRows(page);
+    const source = rows[0]!;
+    const other = rows.find((r) => r.kind === source.kind && r.name !== source.name);
+    expect(other, `the seed gives Northwind a second ${source.kind ?? "record"} to merge with`).toBeTruthy();
+    const url = source.href;
+    await page.goto(url);
+    await expect(page.getByTestId("entity-profile")).toBeVisible({ timeout: LONG });
     await page.getByTestId("entity-merge").click();
     const dialog = page.getByTestId("merge-dialog");
-    await dialog.getByLabel(/Find the duplicate/).fill("a");
-    const match = page.getByTestId("merge-matches").getByRole("option").first();
-    test.skip((await match.count()) === 0, "no duplicate candidate");
-    const otherName = await match.textContent();
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel(/Find the duplicate/).fill(other!.name.split(/\s+/)[0]!);
+    const match = page.getByTestId("merge-matches").getByRole("option").filter({ hasText: other!.name }).first();
+    await expect(match).toBeVisible({ timeout: LONG });
     await match.click();
     await page.getByTestId("merge-confirm").click();
-    await expect(page.getByTestId("merge-banner")).toBeVisible();
+    await expect(dialog).toBeHidden({ timeout: LONG });
+    const banner = page.getByTestId("merge-banner");
+    await expect(banner).toBeVisible({ timeout: LONG });
+    await expect(banner).toContainText("Absorbed a duplicate");
     await page.getByTestId("unmerge").first().click();
-    await expect(page.getByTestId("merge-banner")).toHaveCount(0);
+    await expect(banner).toHaveCount(0, { timeout: LONG });
     await page.goto(url);
-    await expect(page.getByTestId("entity-profile")).toBeVisible();
-    if (otherName) await expect(page.getByTestId("entity-profile")).not.toContainText(`Absorbed`);
+    await expect(page.getByTestId("entity-profile")).toBeVisible({ timeout: LONG });
+    // Nothing is left absorbed: no banner, and every merge in the history is marked reverted.
+    await expect(page.getByTestId("merge-banner")).toHaveCount(0);
+    const history = page.getByTestId("merge-history");
+    if (await history.count()) await expect(history.getByRole("button", { name: "Unmerge" })).toHaveCount(0);
   });
 });

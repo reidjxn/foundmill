@@ -1,33 +1,30 @@
 import { expect, test } from "@playwright/test";
+import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
 
-/**
- * Milestones (BUILD §11.4; the old `/trophies` path forwards here). Not run in the build container (no browser).
- * Needs apps/api in mock mode with DEV_AUTH_USER_ID set to a seeded owner.
- */
+/** Milestones (BUILD §11.4; the old `/trophies` path forwards here) on the seeded Northwind Skincare. Stack: e2e/README.md. */
 test.describe("milestones", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/login");
-    await page.getByRole("button", { name: "Continue as developer" }).click();
-    await page.waitForURL(/\/b\/[0-9a-f-]+\/home|\/onboarding|\/new/);
+    await openBusiness(page);
   });
 
   test("/trophies forwards to /milestones, which shows the eight milestones and the timeline", async ({ page }) => {
-    const bid = page.url().match(/\/b\/([0-9a-f-]+)/)?.[1];
-    test.skip(!bid, "no seeded business for the dev user");
-    await page.goto(`/b/${bid}/trophies`);
-    await expect(page).toHaveURL(new RegExp(`/b/${bid}/milestones$`));
-    await expect(page.getByTestId("milestones-screen")).toBeVisible();
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/trophies`);
+    await expect(page).toHaveURL(new RegExp(`/b/${NORTHWIND_BUSINESS_ID}/milestones$`), { timeout: LONG });
+    await expect(page.getByTestId("milestones-screen")).toBeVisible({ timeout: LONG });
     await expect(page.locator("[data-trophy]")).toHaveCount(8);
     await expect(page.getByTestId("milestones-timeline")).toBeVisible();
+    // Two years of seeded wins light several milestones up.
+    expect(await page.locator("[data-trophy][data-achieved]").count()).toBeGreaterThanOrEqual(1);
+    await expect(page.getByTestId("milestones-screen")).toHaveAttribute("data-won", /^[1-8]$/);
   });
 
   test("a reached milestone opens its Customer Update when one is recorded", async ({ page }) => {
-    const bid = page.url().match(/\/b\/([0-9a-f-]+)/)?.[1];
-    test.skip(!bid, "no seeded business for the dev user");
-    await page.goto(`/b/${bid}/milestones`);
-    const won = page.locator("[data-trophy][data-achieved] button").first();
-    test.skip((await won.count()) === 0, "no milestone reached yet");
-    await won.click();
-    await expect(page.getByTestId("journey-screen").or(page.getByText("No replay recorded for this milestone"))).toBeVisible();
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/milestones`);
+    await expect(page.getByTestId("milestones-screen")).toBeVisible({ timeout: LONG });
+    const reached = page.locator("[data-trophy][data-achieved] button").first();
+    await expect(reached, "the seed gives Northwind at least one reached milestone").toBeVisible();
+    await reached.click();
+    // Either the replay of the win that reached it, or the note that none was recorded (Radix toasts repeat their title for the live region).
+    await expect(page.getByTestId("journey-screen").or(page.getByText("No replay recorded for this milestone").first())).toBeVisible({ timeout: LONG });
   });
 });

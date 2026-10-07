@@ -19,7 +19,7 @@ import { AppShell, EntityLinkProvider, ShellLinkProvider, useToast, type Palette
 import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
 import { readWidgetEvent, routes, type WidgetEvent } from "@foundmill/widgets";
 import { LAST_BUSINESS_COOKIE, SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
-import { computeContinueState, firstBlockingItem, unviewedWin } from "@/lib/continue-state";
+import { computeContinueState, respondHref, unviewedWin } from "@/lib/continue-state";
 import { CYCLE_EVENT_TYPES, cycleFromSnapshot, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus, EMPTY_CYCLE } from "@/lib/cycle";
 import { publicEnv } from "@/lib/env";
 import { monogram } from "@/lib/format";
@@ -268,8 +268,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   }, [startCycle, businessId]);
 
   const onRespond = useCallback(() => {
-    const first = firstBlockingItem(inboxQ.data?.items);
-    router.push(first ? routes.inbox(businessId, first.id) : routes.inbox(businessId));
+    router.push(respondHref(businessId, inboxQ.data?.items));
   }, [inboxQ.data?.items, router, businessId]);
   const onGoToJourney = useCallback(() => {
     const win = unviewedWin(inboxQ.data?.items);

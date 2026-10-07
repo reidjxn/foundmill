@@ -11,6 +11,7 @@
  */
 import type { ContinueState } from "@foundmill/dugout";
 import type { InboxItemType, InboxState } from "@foundmill/shared";
+import { routes } from "@foundmill/widgets/shared/routes";
 
 export interface ContinueInboxItem {
   id: string;
@@ -35,6 +36,15 @@ export function unviewedWin(items: readonly ContinueInboxItem[] | undefined): Co
 
 export function firstBlockingItem(items: readonly ContinueInboxItem[] | undefined): ContinueInboxItem | undefined {
   return items?.find((i) => i.blocksContinue && (i.state === "unread" || i.state === "read"));
+}
+
+/**
+ * Where "Respond · N" goes: the first red item when the inbox page is loaded, else the Respond tab (the shell can
+ * show the count from business.get before inbox.list has answered, so the fallback still lands on the waiting notes).
+ */
+export function respondHref(businessId: string, items: readonly ContinueInboxItem[] | undefined): string {
+  const first = firstBlockingItem(items);
+  return first ? routes.inbox(businessId, first.id) : `${routes.inbox(businessId)}?tab=respond`;
 }
 
 function holidayUntilLabel(h: NonNullable<ContinueInputs["holiday"]>): string | undefined {

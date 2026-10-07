@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
 
 /**
- * Web core screens (not run in the build container: no browser). Needs apps/api in mock mode with
- * DEV_AUTH_USER_ID set to a seeded owner and NEXT_PUBLIC_APP_ENV=development.
+ * Web core screens: login, the AppShell at 1440 px, NeedsLargerWindow below 1280 px, G chords, Settings tabs and the
+ * development-only Simulate panel. Stack and commands: e2e/README.md.
  */
 test.describe("login", () => {
   test("renders the magic-link form and, in development, the dev bypass", async ({ page }) => {
@@ -13,76 +14,79 @@ test.describe("login", () => {
   });
 
   test("redirects a signed-out visitor from a business route to /login with next", async ({ page }) => {
-    await page.goto("/b/00000000-0000-4000-8000-000000000001/home");
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
     await expect(page).toHaveURL(/\/login\?next=/);
   });
 });
 
 test.describe("shell", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/login");
-    await page.getByRole("button", { name: "Continue as developer" }).click();
-    await page.waitForURL(/\/b\/[0-9a-f-]+\/home|\/onboarding|\/new/);
+    await openBusiness(page);
   });
 
   test("renders the AppShell at 1440 px with sidebar, brand-colour bar and Continue", async ({ page }) => {
-    test.skip(!/\/b\//.test(page.url()), "no seeded business for the dev user");
     await expect(page.getByTestId("app-shell")).toBeVisible();
     await expect(page.getByTestId("kit-bar")).toBeVisible();
-    await expect(page.getByRole("button", { name: /Continue|Respond|Pause|Go to Journey|Come back/ })).toBeVisible();
+    await expect(page.getByTestId("kit-bar")).toContainText("Northwind Skincare");
+    await expect(page.getByRole("button", { name: /^(Continue|Respond to \d+ items?|Pause|Go to Journey|Come back)/ })).toBeVisible();
     await expect(page.getByTestId("stop-all-trigger")).toBeVisible();
     // The sidebar foot carries the product mark (DESIGN §8a).
     await expect(page.locator("[data-sidebar-item=brand]")).toBeVisible();
   });
 
-  test("Continue runs one cycle step through business.continue and reports it", async ({ page }) => {
-    test.skip(!/\/b\//.test(page.url()), "no seeded business for the dev user");
-    const button = page.getByRole("button", { name: /^Continue$/ });
-    test.skip((await button.count()) === 0, "Continue is not idle (blocked items, a win to watch or a holiday)");
-    await button.click();
-    await expect(page.getByText(/Cycle started|One new note|Cycle resumed|already running/).first()).toBeVisible({ timeout: 20_000 });
+  test("Continue reads Respond · N while notes wait for an answer and opens the first of them (AC-11.3.3)", async ({ page }) => {
+    // The seed leaves Northwind with decisions waiting (inbox.list counts.respond ≥ 1), so Continue is blocked here;
+    // the idle Continue → business.continue path is exercised on a fresh business in inbox.spec.ts.
+    const respond = page.getByRole("button", { name: /^Respond to \d+ items?$/ });
+    await expect(respond, "the seeded Northwind inbox has notes waiting for an answer; re-seed if none are left").toBeVisible({ timeout: LONG });
+    await expect(respond).toHaveText(/^Respond · \d+$/);
+    await respond.click();
+    await page.waitForURL(/\/inbox\/[0-9a-f-]{36}/);
+    await expect(page.getByTestId("inbox-item")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-state", /unread|read/);
   });
 
   test("shows NeedsLargerWindow below 1280 px (BUILD §2.1 rule 10)", async ({ page }) => {
-    test.skip(!/\/b\//.test(page.url()), "no seeded business for the dev user");
     await page.setViewportSize({ width: 1279, height: 900 });
     await expect(page.getByTestId("needs-larger-window")).toBeVisible();
+    await expect(page.getByTestId("app-shell")).toHaveCount(0);
     await page.setViewportSize({ width: 1440, height: 900 });
     await expect(page.getByTestId("app-shell")).toBeVisible();
   });
 
   test("G then letter navigates to a department; settings tabs resolve", async ({ page }) => {
-    test.skip(!/\/b\//.test(page.url()), "no seeded business for the dev user");
-    const dept = page.locator("[data-testid=app-shell] nav a[aria-keyshortcuts^='G ']").first();
+    const shell = page.getByTestId("app-shell");
+    const dept = shell.locator("nav a[href*='/d/'][aria-keyshortcuts^='G ']").first();
+    await expect(dept).toBeVisible();
     const chord = (await dept.getAttribute("aria-keyshortcuts")) ?? "";
     const letter = chord.split(" ")[1];
-    test.skip(!letter, "no department chord");
+    expect(letter, "every department link carries a G chord").toMatch(/^[A-Z]$/);
+    const target = (await dept.getAttribute("href"))!;
+    // The chord is pending between the two keys (data-chord-pending on the shell), so the letter is not sent too early.
     await page.keyboard.press("g");
+    await expect(shell).toHaveAttribute("data-chord-pending", "true");
     await page.keyboard.press(letter!.toLowerCase());
+    await expect(page).toHaveURL(new RegExp(`${target.replace(/\/[^/]+$/, "")}(/|$)`));
     await expect(page).toHaveURL(/\/d\//);
-    const bid = page.url().match(/\/b\/([0-9a-f-]+)/)?.[1];
     for (const tab of ["business", "mode", "departments", "glossary", "members", "integrations", "keys", "billing", "danger"]) {
-      await page.goto(`/b/${bid}/settings/${tab}`);
-      await expect(page.getByTestId("settings-screen")).toHaveAttribute("data-tab", tab);
+      await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/settings/${tab}`);
+      await expect(page.getByTestId("settings-screen")).toHaveAttribute("data-tab", tab, { timeout: LONG });
     }
   });
 
-  test("the Simulate panel goes through the API (dev.simulate), never to ingest from the browser (SEC-2)", async ({ page }) => {
-    test.skip(!/\/b\//.test(page.url()), "no seeded business for the dev user");
-    const bid = page.url().match(/\/b\/([0-9a-f-]+)/)?.[1];
+  test("the Simulate panel is development-only: absent from Settings › Integrations on the test stack, and nothing calls ingest from the browser (SEC-2)", async ({ page }) => {
+    // `simulatePanelAvailable` (lib/env.ts) is true in development and staging only, and apps/api answers `dev.simulate`
+    // with 404 under APP_ENV=test, so the panel must not render here. SimulatePanel's own path through the API is
+    // covered by components/settings/__tests__/IntegrationsTab.test.tsx.
     const ingestRequests: string[] = [];
     page.on("request", (req) => {
       if (/\/simulate\//.test(req.url()) && !/\/trpc\//.test(req.url())) ingestRequests.push(req.url());
     });
-    await page.goto(`/b/${bid}/settings/integrations`);
-    await expect(page.getByTestId("simulate-panel")).toBeVisible();
-    const mutation = page.waitForRequest((req) => /\/trpc\/dev\.simulate/.test(req.url()) && req.method() === "POST");
-    await page.locator('[data-simulate="payment.received"]').click();
-    const req = await mutation;
-    expect(req.postData() ?? "").toContain("payment.received");
-    expect(req.headers()["authorization"]).toMatch(/^Bearer /);
-    // The result pane shows whatever the API answered (ingest may not be running in the e2e stack: that is a 5xx, still through the API).
-    await expect(page.getByTestId("simulate-result").or(page.getByText(/Simulation (failed|refused)|Simulated/))).toBeVisible();
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/settings/integrations`);
+    await expect(page.getByTestId("settings-screen")).toHaveAttribute("data-tab", "integrations", { timeout: LONG });
+    await expect(page.getByText("Connectors", { exact: true }).first()).toBeVisible();
+    await expect(page.getByTestId("simulate-panel")).toHaveCount(0);
+    await expect(page.locator("[data-simulate]")).toHaveCount(0);
     expect(ingestRequests).toEqual([]);
   });
 });

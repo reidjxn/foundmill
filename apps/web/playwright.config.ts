@@ -87,24 +87,30 @@ const webServer: PlaywrightTestConfig["webServer"] = process.env.E2E_BASE_URL
       },
     ];
 
+const browser = {
+  ...devices["Desktop Chrome"],
+  viewport,
+  launchOptions: chromiumPath ? { executablePath: chromiumPath } : undefined,
+};
+
 export default defineConfig({
   testDir: "./e2e",
-  fullyParallel: true,
+  // One worker, files in order: the specs share one seeded database and several of them write to it (the Inbox
+  // refresh adds a note, Commit creates businesses, the spec editor saves a block), so a second worker would make
+  // the counts they assert non-deterministic.
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: isCI,
   retries: isCI ? 2 : 0,
-  // The seeded database is shared; two workers keep the api responsive on a small machine.
-  workers: isCI ? 2 : 2,
+  timeout: 90_000,
+  expect: { timeout: 15_000 },
   reporter: isCI ? [["list"], ["html", { open: "never" }]] : "list",
   use: { baseURL, viewport, trace: "retain-on-failure", screenshot: "only-on-failure" },
   projects: [
-    {
-      name: "desktop-chromium",
-      use: {
-        ...devices["Desktop Chrome"],
-        viewport,
-        launchOptions: chromiumPath ? { executablePath: chromiumPath } : undefined,
-      },
-    },
+    // The founder profile first (AC-11.1.1): on a database seeded with SEED_OWNER_PROFILE=0 the dev user has none and
+    // every /b/* and /new/* route bounces to /onboarding; onboarding.spec.ts meets the gate and saves the profile.
+    { name: "profile", testMatch: /onboarding\.spec\.ts/, use: browser },
+    { name: "desktop-chromium", testIgnore: /onboarding\.spec\.ts/, dependencies: ["profile"], use: browser },
   ],
   webServer,
 });

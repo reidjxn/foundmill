@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeContinueState, firstBlockingItem, unviewedWin, type ContinueInboxItem } from "../continue-state";
+import { computeContinueState, firstBlockingItem, respondHref, unviewedWin, type ContinueInboxItem } from "../continue-state";
 
 const item = (over: Partial<ContinueInboxItem>): ContinueInboxItem => ({ id: "i1", type: "update", state: "unread", blocksContinue: false, ...over });
 
@@ -39,5 +39,12 @@ describe("computeContinueState", () => {
     expect(firstBlockingItem(items)?.id).toBe("b");
     expect(unviewedWin(items)?.id).toBe("c");
     expect(firstBlockingItem(undefined)).toBeUndefined();
+  });
+
+  it("Respond · N opens the first red item, or the Respond tab before inbox.list has answered", () => {
+    const items = [item({ id: "a", state: "answered", blocksContinue: true }), item({ id: "b", type: "decision", blocksContinue: true })];
+    expect(respondHref("biz", items)).toBe("/b/biz/inbox/b");
+    expect(respondHref("biz", undefined)).toBe("/b/biz/inbox?tab=respond");
+    expect(respondHref("biz", [item({ id: "c", type: "customer_won" })])).toBe("/b/biz/inbox?tab=respond");
   });
 });

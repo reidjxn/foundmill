@@ -265,9 +265,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           </Panel>
         ) : null}
 
-        <Markdown variant="reading" className="t-reading" data-testid="inbox-note">
-          {item.bodyMd}
-        </Markdown>
+        <InboxNote bodyMd={item.bodyMd} />
 
         {tiles.length ? <StatusStrip tiles={tiles} data-testid="status-strip" /> : null}
 
@@ -398,5 +396,16 @@ export function ConfirmPlanDialog({ open, onOpenChange, lines, summary, currency
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The note body in the reading style. Dugout's Markdown keeps its own props, so the test id lives on this wrapper. */
+export function InboxNote({ bodyMd }: { bodyMd: string }) {
+  return (
+    <div data-testid="inbox-note">
+      <Markdown variant="reading" className="t-reading">
+        {bodyMd}
+      </Markdown>
+    </div>
   );
 }
