@@ -489,3 +489,23 @@ BUILD §8.3 has no `dev.specialists.*` procedure, so the Specialists tab derives
 ## 2026-10-07 — packages/modules development: Environments are branches plus live `deploy.succeeded` events
 
 There is no persisted deployment list in BUILD §8.3. The Environments tab builds one row per agent branch (`agent/<taskId>` for every code task in flight, in review, merged or stopped, plus open PR branches) and marks it "Awaiting deployment" until a `deploy.succeeded` business event with `environment: "preview"` names the branch or task; the newest deployment per branch wins, and staging/production deploys without a task appear as release rows. Preview links on the Pull requests tab come from the same events. When the API gains an events-by-type query, the rows can be seeded from history without changing the screen.
+
+## 2026-10-07 — packages/modules distribution: Leads come from the CRM lead role; suppression is read from identifiers
+
+BUILD §8.3 has no `distribution.leads.*` procedure and nothing exposes the `suppression_list` (it stores hashes only). The Leads tab therefore reads `crm.roles.byRole { role: "lead", limit: 500 }` (`Entity & { role }`), shows `entities.lawful_basis` as the lawful-basis column (“Not recorded” when null, settable through `crm.entity.update`), and derives the suppression indicator from the engine-written entity identifiers (`identifiers.suppressed === true` or a `suppression_reason`) or an `entity_roles.stage` of `suppressed`. Lead-generation and email engines should write those identifier flags when they add an address to the suppression list, so the UI and the send-time check agree without a hash lookup from the browser.
+
+## 2026-10-07 — packages/modules distribution: Pausing a channel pauses its campaigns
+
+`channels` has no `paused` column and §8.3 has no `distribution.channels.pause`. The Formation profile’s Pause/Resume therefore calls `distribution.campaigns.setStatus` for every live or scheduled campaign of the channel (and `live` again on resume); a running channel reads as paused when it has paused campaigns and no live or scheduled one. The engine workflow keeps running (budget caps and learning stay in place); only spend-bearing campaigns stop. Moving the channel to the bench is the full stop (`channels.disable` → engine signal).
+
+## 2026-10-07 — packages/modules distribution: Re-score after every toggle; recommendation kept in session state
+
+AC-11.7.2 says a drag re-scores the Board. `distribution.recommend` is a mutation that also persists fit/potential/why to `channels`, but `upsertMany` does not store the cost-per-customer range. The screens keep the last `recommendation` array in component state so the Estimate cost ranges show after a re-score, and fall back to the stored row (and the 35-day measured CPA) otherwise. Toggles are optimistic (`overrides` map) and revert when the enable/disable call fails.
+
+## 2026-10-07 — packages/modules distribution: Attribution table uses the channel summary; partial journeys are offline or consent-trimmed
+
+`journey.list` returns `touchIds` and touch-id-keyed `weights` without channel keys, and loading `journey.get` per win is not a list query. The channel attribution table therefore shows the trailing-35-day `channels.list` summary (leads, signups, customers, spend, CPA Estimate, share of measured customers). “Partial journey” is shown for offline-line / offline-tracking channels (touches are inferred from codes, QR scans and vanity URLs) and, per win, when the builder flagged `partialJourney` or weighted fewer touches than it recorded (consent trimming). The model in use is `chooseModel` logic over labelled paying wins (`LIMITS.attributionPositionBasedUntilConversions`). When the API adds per-journey channel weights to `journey.list`, the table can switch to attributed customers without a UI change.
+
+## 2026-10-07 — packages/modules distribution: Vocabulary over Dugout's Formation strings
+
+User-facing strings in the module follow CLAUDE.md: lines read Acquisition / Engagement / Organic / Offline, the pitch is the Board, kit mode is “Offline tracking”, update levels are Brief / Standard / Featured and a won customer opens a Customer Update. Dugout’s `FormationBoard`, `ChannelToken` and `ChannelProfileCard` still render their own “Pitch”, “Attack/Midfield/Defence/Wings” and “Kit mode” labels; those are left for the wave-3 vocabulary sweep in `packages/dugout` rather than forked here.
