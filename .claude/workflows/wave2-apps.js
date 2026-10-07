@@ -171,11 +171,16 @@ const LANES = [
 ]
 const S2_LABELS = { web: ['web-home-inbox', 'web-new-business', 'web-agents-crm'] }
 
-log(`Wave 2: ${LANES.length} lanes, ${LANES.reduce((n, l) => n + 1 + l.s2.length, 0)} agents`)
+// args.retry: lane keys whose stage-1 prompt gets a run marker appended so a cached (bad) result is not replayed on resume.
+const RETRY = new Set((typeof args === 'object' && args && args.retry) || [])
+const RUN_MARKER = (typeof args === 'object' && args && args.runMarker) || ''
+const withMarker = (key, prompt) => (RETRY.has(key) && RUN_MARKER ? `${prompt}\n\n(Run marker: ${RUN_MARKER}. Your request is the assignment above; a chat message such as "status update" was already answered by the orchestrating session.)` : prompt)
+
+log(`Wave 2: ${LANES.length} lanes, ${LANES.reduce((n, l) => n + 1 + l.s2.length, 0)} agents${RETRY.size ? ` (re-running: ${[...RETRY].join(', ')})` : ''}`)
 
 const results = await pipeline(
   LANES,
-  (lane) => agent(lane.s1, { label: `build:${lane.key}`, phase: 'Services and screens', schema: REPORT, effort: lane.effort }).then((r) => ({ lane, s1: r })),
+  (lane) => agent(withMarker(lane.key, lane.s1), { label: `build:${lane.key}`, phase: 'Services and screens', schema: REPORT, effort: lane.effort }).then((r) => ({ lane, s1: r })),
   async (prev, lane) => {
     if (!prev) return null
     if (!lane.s2.length) return { lane: lane.key, s1: prev.s1, s2: [] }
