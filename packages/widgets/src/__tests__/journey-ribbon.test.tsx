@@ -1,6 +1,9 @@
 /** Journey Ribbon widget: data flow into the Dugout ribbon, zoom persistence, marker → Customer Update, live ripples. */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { configure, act, fireEvent, render, screen } from "@testing-library/react";
+
+// The ribbon mounts visx + PixiJS on happy-dom; shared CI runners need more than the 1 s default to settle.
+configure({ asyncUtilTimeout: 10_000 });
 import { WidgetDataProvider } from "../data";
 import { getWidget, parseWidgetSettings } from "../registry";
 import { createFakeSource } from "../testing";

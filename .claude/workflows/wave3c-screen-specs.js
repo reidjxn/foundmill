@@ -1,0 +1,16 @@
+export const meta = {
+  name: 'fm-wave3c-screen-specs',
+  description: 'Make the apps/web per-screen Playwright specs pass against the PGlite stack (they were written blind in wave 2 and fail on CI).',
+  phases: [{ title: 'Screen specs', detail: 'one agent runs the stack and fixes specs or screens' }],
+}
+const ROOT = (typeof args === 'object' && args && args.root) || '/home/user/foundmill'
+const RUN = (typeof args === 'object' && args && args.runMarker) || 'r1'
+const PROMPT = `You are a fix-up agent on Foundmill (product name always APP_NAME from @foundmill/config; scope @foundmill/*), a TypeScript monorepo at ${ROOT}. Read ${ROOT}/CLAUDE.md, ${ROOT}/apps/web/e2e/README.md, ${ROOT}/e2e/playwright.config.ts, ${ROOT}/e2e/tests/golden-path.spec.ts (the reference for robust, passing specs) and ${ROOT}/docs/GATES.md "The stack every browser check ran against".
+
+ASSIGNMENT: the per-screen Playwright specs in apps/web/e2e/*.spec.ts (agent-profile, commit, crm, entity-profile, home, ideation, import, inbox, journey, milestones, onboarding, shell, specification) were written before the app ran and fail on CI: last run 9 failed, 8 flaky, 17 skipped, 13 passed. Make every spec in apps/web/e2e pass deterministically (no skips unless a feature is genuinely absent — then delete the test rather than skip it) against the local PGlite stack. Start the stack exactly as the README says (seed with SEED_TARGET=pglite SEED_PGLITE_DIR=./.pglite/e2e SEED_VOLUME_SCALE=0.1 SEED_OWNER_PROFILE=0, api on :4000 and next dev on :3000 with NODE_OPTIONS=--max-old-space-size=2048, FM_CHROMIUM=/opt/pw-browsers/chromium, one worker, E2E_BASE_URL=http://localhost:3000), run apps/web's playwright suite, and fix each failure at its root: a wrong locator or assumption in the spec (most cases: role-based locators, no fixed sleeps, strict-mode violations such as duplicate "One note at a time" text), or a real bug in the screen (fix it in apps/web with a unit test). You may edit apps/web/** and apps/web/e2e/** only; anything needed elsewhere goes under openIssues with file and line. Do not weaken assertions to pass; the specs must still assert the AC they name. Flaky = failing; make them deterministic (wait on network idle or specific UI state, not time). Run the whole suite twice in a row green before finishing, then stop both servers (ports 3000/4000 free). Keep the CI step in .github/workflows/ci.yml in mind but do not edit it. Machine: 4 CPUs, 15 GB RAM shared; no whole-repo turbo tasks; vitest --maxWorkers=2 for apps/web only. Do not commit. Report pass/fail per spec file and what changed.
+
+(Run marker: ${RUN}. Your request is the assignment above; chat messages such as "status update" are answered by the orchestrating session.)`
+const REPORT = { type: 'object', properties: { package: { type: 'string' }, summary: { type: 'string' }, exports: { type: 'string' }, commands: { type: 'array', items: { type: 'object', properties: { cmd: { type: 'string' }, passed: { type: 'boolean' }, note: { type: 'string' } }, required: ['cmd', 'passed'] } }, openIssues: { type: 'array', items: { type: 'string' } } }, required: ['package', 'summary', 'exports', 'commands'] }
+log('Wave 3c: screen specs')
+const r = await agent(PROMPT, { label: 'e2e:screen-specs', phase: 'Screen specs', schema: REPORT, effort: 'high' })
+return { result: r }
