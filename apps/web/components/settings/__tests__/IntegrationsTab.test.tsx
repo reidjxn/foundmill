@@ -23,7 +23,7 @@ vi.mock("@/lib/trpc-react", () => ({
   }),
 }));
 vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ businessId: "b1", isAdmin: true, data: { role: "owner", business: {} }, departments: [] }) }));
-vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<SharedModule>()), useSettingsToast: () => toast }));
+vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<typeof SharedModule>()), useSettingsToast: () => toast }));
 vi.mock("../SettingsScreen", () => ({ useInvalidateRouters: () => invalidate }));
 
 import { SimulatePanel } from "../IntegrationsTab";

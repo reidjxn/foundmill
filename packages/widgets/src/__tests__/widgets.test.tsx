@@ -36,7 +36,7 @@ const CASES: Case[] = [
   { key: "channel_form_guide", expectData: /Paid advertising/, expectEmpty: /No channels are on the board/ },
   { key: "roadmap_timeline", expectData: /Usage-based billing/, expectEmpty: /Roadmap items appear once/ },
   { key: "agent_of_the_week", expectData: /Ember/, expectEmpty: /first agent of the week/ },
-  { key: "trophy_cabinet", expectData: /2 of 8 won/, expectEmpty: /Customer names show only/ },
+  { key: "trophy_cabinet", expectData: /2 of 8 reached/, expectEmpty: /Customer names show only/ },
   { key: "league_table", expectData: /Ledgerly/, expectEmpty: /No leaderboard is open/, live: true },
   { key: "community_feed", expectData: /annual-plan discounts/, expectEmpty: /Join a community/, live: true },
   { key: "custom_metric", expectData: /€1,250/, expectEmpty: /Pick a named query/, settings: { mode: "query", queryId: "mrr", label: "MRR", format: "money" }, emptySettings: {} },
