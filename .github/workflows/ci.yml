@@ -1,7 +1,6 @@
 # Cloud verification for every push (docs/DECISIONS.md "Cloud-first build and deploy").
-# Everything runs in mock mode with no secrets. The e2e job runs the Playwright suites against the PGlite-backed
-# local stack; it is allowed to fail (continue-on-error) until the golden path is green, then the golden-path
-# agent flips it.
+# Everything runs in mock mode with no secrets. The e2e job runs the Playwright suites (apps/web screens and the
+# e2e/ golden path) against the PGlite-backed local stack and gates the build like the other jobs.
 name: CI
 
 on:
@@ -84,8 +83,9 @@ jobs:
     name: Playwright (web screens + golden path)
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    # Allowed to fail until the golden path is green; the golden-path agent flips this to false (docs/PROGRESS.md).
-    continue-on-error: true
+    # The golden path (e2e/tests/golden-path.spec.ts) is green against this stack (docs/PROGRESS.md 2026-10-07), so
+    # this job gates the build like the others.
+    continue-on-error: false
     env:
       # One file-backed PGlite database, seeded below, shared by the api and the seed script (packages/db/src/pglite.ts:
       # a relative dir resolves against the workspace root, so every package sees the same files).

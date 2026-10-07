@@ -4,8 +4,13 @@
  * lives in the layout, the page below it owns its tabs, so the page registers them here:
  *
  *   useShellChrome({ title: "Finance", tabs: { tabs, activeId } });
+ *
+ * Two contexts on purpose: the page that declares its chrome subscribes only to the stable setter, the shell that
+ * renders it subscribes to the value. One context carrying both made every declaring page a consumer of its own
+ * declaration (setChrome → provider re-render → page re-render → new `trailing` node → effect again → …), which
+ * React stopped with "Maximum update depth exceeded" on every business screen.
  */
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { AppShellProps, BreadcrumbItem, TabBarProps } from "@foundmill/dugout";
 
 export interface ShellChrome {
@@ -15,31 +20,32 @@ export interface ShellChrome {
   rightRail?: AppShellProps["rightRail"];
 }
 
-interface ChromeStore {
-  chrome: ShellChrome;
-  setChrome: (chrome: ShellChrome) => void;
-}
+type SetChrome = (chrome: ShellChrome) => void;
 
-const Ctx = createContext<ChromeStore | null>(null);
+const ValueCtx = createContext<ShellChrome>({});
+const SetterCtx = createContext<SetChrome | null>(null);
 
 export function ShellChromeProvider({ children }: { children: ReactNode }) {
   const [chrome, setChrome] = useState<ShellChrome>({});
-  const value = useMemo(() => ({ chrome, setChrome }), [chrome]);
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return (
+    <SetterCtx.Provider value={setChrome}>
+      <ValueCtx.Provider value={chrome}>{children}</ValueCtx.Provider>
+    </SetterCtx.Provider>
+  );
 }
 
 /** The shell reads the current chrome. */
 export function useShellChromeValue(): ShellChrome {
-  return useContext(Ctx)?.chrome ?? {};
+  return useContext(ValueCtx);
 }
 
 /** Pages declare their chrome for as long as they are mounted. */
 export function useShellChrome(chrome: ShellChrome, deps: readonly unknown[] = []): void {
-  const store = useContext(Ctx);
+  const setChrome = useContext(SetterCtx);
   useEffect(() => {
-    if (!store) return;
-    store.setChrome(chrome);
-    return () => store.setChrome({});
+    if (!setChrome) return;
+    setChrome(chrome);
+    return () => setChrome({});
     // eslint-disable-next-line react-hooks/exhaustive-deps -- callers pass the values the chrome depends on
-  }, [store, ...deps]);
+  }, [setChrome, ...deps]);
 }

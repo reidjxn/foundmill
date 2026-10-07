@@ -105,7 +105,9 @@ export const ideaRouter = router({
     });
     const versionIds = ideas.map((i) => i.current?.id).filter((v): v is string => Boolean(v));
     const comparison = await repos.ideas.compare(ctx.db, ctx.userId, { ideaVersionIds: versionIds, verdictMd: result.json.verdict_md });
-    return { comparison, ideas, verdict: result.json };
+    // A ranking that does not name the compared ideas (the mock model synthesises one from the schema) is replaced by the cards' own stars, so the Compare screen always has a leader to commit.
+    const ranking = result.json.ranking.every((r) => ideas.some((i) => i.id === r.idea_id)) ? result.json.ranking : [...ideas].sort((a, b) => num(b.current?.starsPotential) - num(a.current?.starsPotential) || num(b.current?.starsCurrent) - num(a.current?.starsCurrent)).map((i, n) => ({ idea_id: i.id, rank: n + 1, reason: "Ranked by potential, then current ability (no model ranking)." }));
+    return { comparison, ideas, verdict: { ...result.json, ranking } };
   }),
 
   /** Merge 2–4 cards into a new idea; the sources get a `merged` version pointing at it. */

@@ -38,7 +38,8 @@ export const journeyRouter = router({
       const firstDay = (ctx.business.committedAt ?? ctx.business.createdAt).toISOString().slice(0, 10);
       const chapters = buildChapters({ startDay: firstDay, today: to, horizonQuarters: 2 });
       // `kickoff` is the wave-2 key the Ribbon reads; `firstDay` is the vocabulary-rule name.
-      return { rows, conversions: conversions.items, milestones, chapters, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const };
+      // The Ribbon (packages/dugout journey types) reads ISO strings; drizzle hands back Date objects for tstz columns.
+      return { rows, conversions: conversions.items.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const };
     }),
   ),
 
