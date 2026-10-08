@@ -7,7 +7,7 @@
  */
 import { serve } from "@hono/node-server";
 import { createServiceDb, closeDb } from "@foundmill/db";
-import { createModelClient } from "@foundmill/models";
+import { createModelClient, effectiveModelMode } from "@foundmill/models";
 import { createLogger, loadEnv, servicePort } from "@foundmill/shared";
 import { createApp } from "./app";
 import { prepareDb } from "./db-boot";
@@ -39,7 +39,7 @@ export async function main(): Promise<void> {
   const db = createServiceDb();
   // PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line and /health says db:false.
   const readiness = await prepareDb(db, log, { service: "composer" });
-  const models = createModelClient({ mode: env.MODEL_MODE, apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage: createUsageSink(db, log) });
+  const models = createModelClient({ mode: effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log), apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage: createUsageSink(db, log) });
   const service = createComposerService({ db, models, log });
   const app = createApp(service, { env, log });
   const port = servicePort(env, "COMPOSER_PORT");

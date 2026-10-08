@@ -33,7 +33,7 @@ Shared by every service:
 | --- | --- |
 | `APP_ENV` | `staging` |
 | `INTEGRATIONS_MODE` | `mock` (switch per connector later) |
-| `MODEL_MODE` | `mock` until a BYOK key is stored through Settings → Keys |
+| `MODEL_MODE` | `live` on api, composer and orchestrator once `ANTHROPIC_API_KEY` is set on them (a service with `live` and no key logs one error and runs on the mock client, so the order does not matter); `mock` elsewhere |
 | `APP_URL` | `https://foundmill.com` |
 | `DATABASE_URL` | the Supabase Postgres connection string (Supabase → Connect → transaction pooler, port 6543, `?sslmode=require`). **Not set as of 2026-10-08**: the api boots and answers `/health` with `db:false`, composer/stream/ingest exit at start. Set it as a Railway shared variable and reference it from every app service, or paste it per service; it holds the database password, so only the founder can enter it |
 | `REDIS_URL` | from the Railway Redis service |
@@ -49,7 +49,7 @@ Per service:
 
 | Service | Extra variables |
 | --- | --- |
-| api | `COMPOSER_URL=http://composer.railway.internal:4002`, `GATEWAY_URL=http://gateway.railway.internal:4001`, `TEMPORAL_ADDRESS=temporal.railway.internal:7233`, `TEMPORAL_TASK_QUEUE=foundmill`. No seed variables: staging holds real businesses only (`SEED_ON_BOOT` was documented here but is not implemented in the api; demo data comes only from `pnpm db:seed` run by hand) |
+| api | `COMPOSER_URL=http://composer.railway.internal:4002`, `GATEWAY_URL=http://gateway.railway.internal:4001`, `TEMPORAL_ADDRESS=temporal.railway.internal:7233`, `TEMPORAL_TASK_QUEUE=foundmill`, `SEED_ON_BOOT=1` and `SEED_OWNER_EMAILS=<the address you sign in with>` (comma-separated for several). On a database with neither demo business the api builds Northwind Skincare and Ledgerly in the background after it starts (owners through the Supabase admin API, so `SUPABASE_SERVICE_ROLE_KEY` must be set); once both exist it only adds missing owner memberships, so an address added later becomes an owner on the next boot. It never deletes: a half-built seed is logged and left for `pnpm db:seed`. `SEED_VOLUME_SCALE` (default 1, two years of history) shrinks the data. An owner without a founder profile gets the demo profile, so the first sign-in lands on Northwind's Home; edit it from the profile screen |
 | gateway | none beyond shared |
 | composer | none beyond shared |
 | stream | none beyond shared (public domain stream.foundmill.com) |
@@ -75,7 +75,7 @@ Migrations run from the api at boot under an advisory lock; no manual `pnpm db:m
 ## 5. First sign-in and live agents
 
 1. Open foundmill.com and sign in with a magic link. A new founder lands on the onboarding profile, then `/new` (Ideation Studio or Import), then Commit, which creates the business, its departments and its agent team. Nothing is pre-seeded.
-2. **Live models.** api, composer and orchestrator call Anthropic with the platform key `ANTHROPIC_API_KEY` from their Railway variables, and only when `MODEL_MODE=live`; with the key missing they log one error and stay on the mock model. Set both on those three services. Settings → Keys (`/b/<business id>/settings/keys`) stores a per-business key, which the orchestrator uses only when the business's model billing is `byok`; the api and composer always use the platform key.
+2. **Live models.** api, composer and orchestrator call Anthropic with the platform key `ANTHROPIC_API_KEY` from their Railway variables when `MODEL_MODE=live` (set on all three since 2026-10-08). Add the key as a project shared variable and reference it from those three services (`ANTHROPIC_API_KEY=${{shared.ANTHROPIC_API_KEY}}`); until it is there they run on the mock client and log one error at boot. Settings → Keys (`/b/<business id>/settings/keys`) stores a per-business key, which the orchestrator uses only when the business's model billing is `byok`; the api and composer always use the platform key. Model ids live in `packages/models/src/routing.ts` (Opus 5.5, Sonnet 5.5, Haiku 4.5; re-verified 2026-10-08).
 3. **Real agent sessions.** With `INTEGRATIONS_MODE=mock` the orchestrator replays recorded sessions. Set `SANDBOX_MODE=e2b` and `E2B_API_KEY` on the orchestrator for real sandboxes while connectors stay in mock; `INTEGRATIONS_MODE=live` switches every connector to its vendor API and needs each vendor's key.
 
 ## 6. Staging status (2026-10-08, cloud session)
@@ -87,7 +87,7 @@ Checked against the Railway GraphQL API (team token), the Vercel and Supabase co
 | `main` carries the full build (`main-emurwq` merged, 0 commits apart) | ✅ |
 | Railway services exist: api, gateway, composer, stream, ingest, orchestrator, temporal, temporal-ui, Redis, Postgres | ✅ (Redis, Postgres, temporal, temporal-ui deployed and healthy) |
 | Shared variables on all six app services (APP, APP_ENV, INTEGRATIONS_MODE, MODEL_MODE, APP_URL, REDIS_URL, SUPABASE_URL, SESSION_TOKEN_SECRET, DEV_MASTER_KEY, LOG_LEVEL, DATA_REGION, TEMPORAL_*) | ✅ |
-| api: `SEED_ON_BOOT`, `SEED_OWNER_EMAILS` | ⬜ set 2026-10-08, then the founder chose real data only; both are inert (seed-on-boot is not implemented) and should be deleted in Railway |
+| api: `SEED_ON_BOOT=1`, `SEED_OWNER_EMAILS=reidjcksn@gmail.com` | ✅ 2026-10-08: seed-on-boot implemented (`apps/api/src/services/seed-on-boot.ts`); the owner is the address the founder signs in with |
 | `TEMPORAL_TASK_QUEUE=foundmill` on api and orchestrator (was `founder-manager`) | ✅ set 2026-10-08 |
 | `DATABASE_URL` on the app services | ⬜ **confirmed missing** by the first boot (api `db:false`; composer, stream, ingest exit). Founder pastes the Supabase pooler string with `sslmode=require` (contains the DB password) on api, gateway, composer, stream, ingest, orchestrator, then redeploys |
 | `SUPABASE_SERVICE_ROLE_KEY` only on api | ◐ removed from gateway, composer and stream in the dashboard (2026-10-08, local Chrome session); ingest and orchestrator still hold it. There is no collab service in staging |

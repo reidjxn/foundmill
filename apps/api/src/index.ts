@@ -2,8 +2,9 @@
  * @foundmill/api — Hono + tRPC (docs/ARCHITECTURE.md §13).
  *
  * Boot: load env → build deps → run migrations under pg_advisory_lock(7461) (idempotent; keep serving if the db is
- * down) → listen on PORT (fallback API_PORT) on host "::" (Railway private network is IPv6-only, §17) → start the
- * outbox relay once Redis answers PING → graceful shutdown on SIGTERM/SIGINT.
+ * down) → listen on PORT (fallback API_PORT) on host "::" (Railway private network is IPv6-only, §17) → with
+ * SEED_ON_BOOT, build the demo businesses in the background (services/seed-on-boot.ts) → start the outbox relay once
+ * Redis answers PING → graceful shutdown on SIGTERM/SIGINT.
  */
 import { serve } from "@hono/node-server";
 import { runOutboxRelay, type OutboxRelay } from "@foundmill/events";
@@ -11,6 +12,7 @@ import { loadEnv, servicePort } from "@foundmill/shared";
 import { createApp } from "./app";
 import { createApiDeps, type ApiDeps } from "./context";
 import { redisReachable, type ApiRedis } from "./services/redis";
+import { seedOnBoot } from "./services/seed-on-boot";
 
 export { createApp } from "./app";
 export { createApiDeps, createContextFactory, createTestContext, type ApiDeps, type Context } from "./context";
@@ -123,11 +125,12 @@ export function listen(app: ReturnType<typeof createApp>, port: number, deps: Ap
 export async function main(): Promise<void> {
   const env = loadEnv();
   const deps = createApiDeps({ env });
-  await migrateOnBoot(deps);
+  const migrated = await migrateOnBoot(deps);
   const app = createApp(deps);
   const port = servicePort(env, "API_PORT");
 
   const server = await listen(app, port, deps);
+  if (migrated) void seedOnBoot(deps);
   if (env.APP_ENV === "development") void deps.temporal.reachable().then((ok) => !ok && deps.log.warn({ address: env.TEMPORAL_ADDRESS }, "Temporal is unreachable: start it with `temporal server start-dev` (workflows will report queued: false until then)"));
 
   let relay: OutboxRelay | null = null;

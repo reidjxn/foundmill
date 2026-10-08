@@ -323,3 +323,16 @@ describe("validateApiKey (BUILD §10.2)", () => {
     expect((await validateApiKey("   ", { mode: "mock" })).ok).toBe(false);
   });
 });
+
+describe("effectiveModelMode", () => {
+  it("runs live only with a key, and logs once when live has none", async () => {
+    const { effectiveModelMode } = await import("./client");
+    const errors: unknown[] = [];
+    const logger = { debug: () => {}, info: () => {}, warn: () => {}, error: (o: unknown, m?: string) => errors.push(m) };
+    expect(effectiveModelMode("live", "sk-ant-x", logger)).toBe("live");
+    expect(effectiveModelMode("mock", undefined, logger)).toBe("mock");
+    expect(effectiveModelMode("live", undefined, logger)).toBe("mock");
+    expect(effectiveModelMode("live", "", logger)).toBe("mock");
+    expect(errors).toHaveLength(2);
+  });
+});

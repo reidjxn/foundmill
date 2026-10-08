@@ -44,6 +44,10 @@ const Env = z.object({
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
   SENTRY_DSN: z.string().optional(),
   SEED_OWNER_EMAILS: z.string().optional(),
+  /** apps/api: build the demo businesses once at boot and give SEED_OWNER_EMAILS owner memberships (docs/DEPLOY.md §3). */
+  SEED_ON_BOOT: z.string().optional(),
+  /** Seed data volume multiplier (1 = the full two years of history). */
+  SEED_VOLUME_SCALE: z.coerce.number().positive().optional(),
   DEV_AUTH_USER_ID: z.string().optional(),
 });
 export type Env = z.infer<typeof Env>;

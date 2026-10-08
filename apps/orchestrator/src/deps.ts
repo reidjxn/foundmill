@@ -7,7 +7,7 @@
  */
 import { closeDb, createDb, type Db } from "@foundmill/db";
 import { MemoryRedis, type StreamRedis } from "@foundmill/events";
-import { createModelClient, type ModelClient, type UsageEvent } from "@foundmill/models";
+import { createModelClient, effectiveModelMode, type ModelClient, type UsageEvent } from "@foundmill/models";
 import { MockSandboxProvider, resolveSandboxProvider, type SandboxMode, type SandboxProvider } from "@foundmill/sandbox";
 import { createLogger, createVault, type Logger, type Vault } from "@foundmill/shared";
 import { repos } from "@foundmill/db";
@@ -112,7 +112,7 @@ export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
   const models =
     options.models ??
     createModelClient({
-      mode: env.MODEL_MODE,
+      mode: effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log),
       apiKey: env.ANTHROPIC_API_KEY,
       onUsage: usageSink(db, log),
       logger: log,

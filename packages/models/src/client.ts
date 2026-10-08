@@ -61,6 +61,19 @@ export function keyFingerprint(apiKey: string): string {
   return `key:${createHash("sha256").update(apiKey).digest("hex").slice(0, 12)}`;
 }
 
+/**
+ * The mode a service should actually run in: `live` only when a platform key is present. A service started with
+ * MODEL_MODE=live and no ANTHROPIC_API_KEY logs one error and runs on the mock client instead of failing to boot,
+ * so the key can be added to a running deployment without a crash in between.
+ */
+export function effectiveModelMode(mode: ModelMode, apiKey: string | undefined, logger?: ModelLogger): ModelMode {
+  if (mode === "live" && !apiKey) {
+    logger?.error({}, "MODEL_MODE=live but ANTHROPIC_API_KEY is missing; running on the mock model client until it is set");
+    return "mock";
+  }
+  return mode;
+}
+
 export function createModelClient(opts: CreateModelClientOptions = {}): ModelClient {
   const mode: ModelMode = opts.mode ?? loadEnv().MODEL_MODE;
   if (mode === "mock") return new MockModelClient({ ...opts.mock, onUsage: opts.onUsage, logger: opts.logger });

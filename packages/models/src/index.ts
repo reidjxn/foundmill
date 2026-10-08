@@ -9,6 +9,7 @@ export * from "./rate-limit";
 export * from "./schemas";
 export {
   createModelClient,
+  effectiveModelMode,
   LiveModelClient,
   validateApiKey,
   keyFingerprint,
