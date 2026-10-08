@@ -58,7 +58,7 @@ test.describe("onboarding", () => {
   test("refuses an incomplete profile, then saves and lands on /new", async ({ page }) => {
     await page.goto("/onboarding");
     await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
-    const name = page.getByLabel(/What the squad calls you/);
+    const name = page.getByLabel(/What the team calls you/);
     await name.fill("");
     await page.getByTestId("profile-submit").click();
     // The field error and the footer count are both alerts: the name field's error is the one that matters here.

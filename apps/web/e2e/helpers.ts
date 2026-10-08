@@ -38,7 +38,7 @@ export async function openBusiness(page: Page, path = "home"): Promise<string> {
 /** Fills the founder profile on /onboarding (the page the dev user is held at without one) and saves it. */
 export async function completeProfile(page: Page): Promise<void> {
   await expect(page.getByTestId("onboarding-form")).toBeVisible({ timeout: LONG });
-  await page.getByLabel(/What the squad calls you/).fill("Playwright Founder");
+  await page.getByLabel(/What the team calls you/).fill("Playwright Founder");
   await page.getByLabel("First-time founder").check();
   await page.getByLabel("Full time").check();
   await page.getByLabel(/Budget you can commit/).fill("25k");

@@ -98,7 +98,7 @@ test.describe("golden path", () => {
       await page.goto("/new/ideate");
       await expect(page).toHaveURL(/\/onboarding$/);
       await page.goto("/onboarding");
-      await page.getByLabel(/What the squad calls you/).fill("Playwright Founder");
+      await page.getByLabel(/What the team calls you/).fill("Playwright Founder");
       await page.getByLabel("First-time founder").check();
       await page.getByLabel("Full time").check();
       await page.getByLabel(/Budget you can commit/).fill("25k");
