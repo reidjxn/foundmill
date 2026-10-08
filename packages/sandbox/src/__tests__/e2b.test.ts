@@ -33,10 +33,11 @@ interface FakeState {
   files: Map<string, string>;
   killed: boolean;
   timeoutMs: number | null;
+  networkUpdates: Array<{ allowOut?: string[]; denyOut?: string[] }>;
 }
 
 function fakeFactory(behaviour: { runner?: (cmd: string, opts: E2bRunOptions | undefined, files: Map<string, string>) => Promise<E2bCommandResult> } = {}): { factory: (o: E2bCreateOptions) => Promise<E2bSandboxClient>; state: FakeState } {
-  const state: FakeState = { created: [], runs: [], files: new Map([["/home/user/work/README.md", "# Northwind\n"]]), killed: false, timeoutMs: null };
+  const state: FakeState = { created: [], runs: [], files: new Map([["/home/user/work/README.md", "# Northwind\n"]]), killed: false, timeoutMs: null, networkUpdates: [] };
   const factory = async (opts: E2bCreateOptions): Promise<E2bSandboxClient> => {
     state.created.push(opts);
     const client: E2bSandboxClient = {
@@ -80,6 +81,7 @@ function fakeFactory(behaviour: { runner?: (cmd: string, opts: E2bRunOptions | u
       kill: async () => ((state.killed = true), true),
       setTimeout: async (ms) => void (state.timeoutMs = ms),
       createSnapshot: async (o) => ({ snapshotId: `${o?.name ?? "snap"}:latest` }),
+      updateNetwork: async (n) => void state.networkUpdates.push(n),
     };
     return client;
   };
@@ -188,5 +190,15 @@ describe("E2bSandboxProvider", () => {
     const sb = await provider.create(spec);
     await expect(sb.start()).rejects.toThrow(/E2B sandbox creation failed: 401/);
     expect(sb.state).toBe("failed");
+  });
+
+  it("closeEgress replaces the egress rules with deny-all and no allow entries", async () => {
+    const { factory, state } = fakeFactory();
+    const sb = await new E2bSandboxProvider({ factory, now: () => NOW }).create(spec);
+    await expect(sb.closeEgress()).rejects.toBeInstanceOf(SandboxStateError);
+    await sb.start();
+    expect(state.created[0]?.network?.allowOut?.length).toBeGreaterThan(0);
+    await sb.closeEgress();
+    expect(state.networkUpdates).toEqual([{ denyOut: ["0.0.0.0/0"] }]);
   });
 });

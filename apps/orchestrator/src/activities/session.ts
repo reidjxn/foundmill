@@ -11,13 +11,15 @@
  *
  * The live SDK process is confined by ./sdk-isolation (SECURITY_REVIEW SEC-3): from-scratch environment, private
  * per-session workspace deleted in `finally`, built-in tools by task kind and a path guard on every file-tool call.
+ * A code task's acceptance tests run in the sandbox on a copy of that workspace (./workspace-sync): dependencies install
+ * while the npm registry is reachable, with every script off; then the network closes and the agent's code runs offline.
  */
 import { AgentInstructions, buildSystemPrompt, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, ToolGrant, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
 import { repos, type Agent, type AgentVersion, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { resolveModel, type RouteKey } from "@foundmill/models";
-import { assertNoLongLivedCredentials, MockSandbox, MockSandboxProvider, RECORDINGS, stableHash32, type Sandbox } from "@foundmill/sandbox";
+import { assertNoLongLivedCredentials, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox } from "@foundmill/sandbox";
 import { buildAad, decryptText, type AgentStatus, type ModelKey, type TaskStatus } from "@foundmill/shared";
 import { Context } from "@temporalio/activity";
 import { z } from "zod";
@@ -27,6 +29,7 @@ import { emitEvent, systemActor } from "../events";
 import { applySessionEvent, initialProgress, type ProgressState } from "../progress";
 import { LoopDetector } from "./loop";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
+import { syncWorkspaceToSandbox } from "./workspace-sync";
 import type { AgentSessionInput, SessionFinish, SessionLaunch, SessionResult } from "./types";
 
 const ToolGrants = z.array(ToolGrant);
@@ -351,7 +354,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       const { provider } = await deps.sandbox();
       let sandbox: Sandbox | null = null;
       try {
-        sandbox = await provider.create({ businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, envShortLived: env, ttlMinutes: 240, ...(launch.recordingKey ? { recording: launch.recordingKey } : {}) });
+        sandbox = await provider.create({ businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, envShortLived: env, ttlMinutes: 240, egressAllowList: sandboxEgressFor(task), ...(launch.recordingKey ? { recording: launch.recordingKey } : {}) });
         await sandbox.start();
         await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Session started for ${agent.name} on "${task.title}" (${launch.sandboxMode} sandbox${launch.fellBackFrom ? `, fell back from ${launch.fellBackFrom}` : ""}, ${launch.modelKey}).` });
 
@@ -735,13 +738,9 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         if (!recorder.pendingApprovalId) queue.close();
       }
     }
-    // Acceptance tests run inside the sandbox, never on the orchestrator host.
+    // Acceptance tests run inside the sandbox, never on the orchestrator host, on a copy of the agent's workspace.
     const acceptanceCommand = acceptanceCommandFor(task);
-    if (acceptanceCommand) {
-      const res = await sandbox.exec(acceptanceCommand, { timeoutMs: 15 * 60 * 1000 });
-      const counts = parseTestCounts(res.stdout + res.stderr);
-      await recorder.publish({ kind: "test_result", at: deps.clock.now().toISOString(), suite: "acceptance", command: acceptanceCommand, passed: counts.passed, failed: res.code === 0 ? counts.failed : Math.max(1, counts.failed), skipped: 0, durationMs: res.durationMs, acceptance: true, failures: [] });
-    }
+    if (acceptanceCommand) await runAcceptance(deps, recorder, sandbox, cwd, acceptanceCommand);
     const usage = { tokensIn, tokensOut, costMinor: Math.round(costUsdCents) };
     if (loopTripped) return { outcome: "failed", reason: "loop detected: the same tool call repeated three times", blockedReason: "loop_detected", approvalId: null, summary: "Stopped after a detected loop.", providerSessionId: sdkSessionId, ...usage };
     const stop = stoppedBy as { reason: string } | null;
@@ -758,6 +757,104 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
       deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "session workspace cleanup failed");
     }
   }
+}
+
+/**
+ * Hosts a code task's sandbox may reach, and only until `closeEgress()`: the npm registry, for pnpm itself and the
+ * project's dependencies. Every other kind gets none. Gateway tools run on the host through MCP, not in the sandbox.
+ */
+export const ACCEPTANCE_EGRESS: readonly string[] = ["registry.npmjs.org"];
+
+export function sandboxEgressFor(task: Pick<Task, "kind">): string[] {
+  return task.kind === "code" ? [...ACCEPTANCE_EGRESS] : [];
+}
+
+/** pnpm for the acceptance run; E2B's base template ships Node and npm but not pnpm. */
+export const SANDBOX_PNPM = "pnpm@10";
+/** Bytes of a phase's output that come back to the orchestrator; the rest stays in a log inside the sandbox. */
+export const ACCEPTANCE_OUTPUT_TAIL_BYTES = 32 * 1024;
+const PNPM_SAFE_FLAGS = "--config.manage-package-manager-versions=false --config.package-manager-strict=false";
+
+/** Run `lines` under `set -e` with their output in a log inside the sandbox, print only its tail, keep the exit code. */
+function withOutputTail(log: string, lines: string[]): string {
+  return ["(", "set -e", ...lines, `) >${log} 2>&1`, "rc=$?", `tail -c ${ACCEPTANCE_OUTPUT_TAIL_BYTES} ${log}`, "exit $rc"].join("\n");
+}
+
+/**
+ * Phase 1, online (the registry is reachable): put pnpm on PATH and install the project's dependencies with every
+ * lifecycle script and pnpmfile off, so no code the agent controls runs while the sandbox can reach the network.
+ * pnpm's own settings that could fetch or switch package managers are pinned on the command line, which outranks
+ * a project `.npmrc`, and in the sandbox user's global config for the offline phase.
+ */
+export function acceptancePrepareScript(): string {
+  return withOutputTail("/tmp/fm-acceptance-prepare.log", [
+    'export PATH="$HOME/.fm-tools/bin:$PATH"',
+    `command -v pnpm >/dev/null 2>&1 || (cd "$HOME" && npm install --global --prefix "$HOME/.fm-tools" --ignore-scripts --no-fund --no-audit --loglevel=error ${SANDBOX_PNPM})`,
+    '(cd "$HOME" && pnpm config set --location=global manage-package-manager-versions false && pnpm config set --location=global package-manager-strict false) >/dev/null',
+    `if [ -f package.json ]; then pnpm install --no-frozen-lockfile --ignore-scripts --ignore-pnpmfile ${PNPM_SAFE_FLAGS} --reporter=append-only; fi`,
+  ]);
+}
+
+/**
+ * Phase 2, offline (after `closeEgress()`): run the dependencies' allowed build scripts, then the task's command. This
+ * is where the agent's code runs, with no network at all.
+ */
+export function acceptanceRunScript(command: string): string {
+  return withOutputTail("/tmp/fm-acceptance.log", [
+    'export PATH="$HOME/.fm-tools/bin:$PATH"',
+    `if [ -f package.json ]; then pnpm rebuild ${PNPM_SAFE_FLAGS} >/dev/null 2>&1 || echo "(some dependency build scripts failed offline)"; fi`,
+    command,
+  ]);
+}
+
+/** Text from the sandbox for a session note: credential-shaped values masked, host paths gone, within the note limit. */
+function sandboxOutputForNote(output: string, max = 1500): string {
+  return redactCredentialValues(output.trim()).slice(-max) || "(no output)";
+}
+
+/**
+ * Copy the workspace into the sandbox, install dependencies online, close the network, run the acceptance command
+ * offline and publish the `test_result`. Every failure ends as a failed acceptance result with its reason; none of them
+ * fails the session.
+ */
+async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, sandbox: Sandbox, cwd: string, command: string): Promise<void> {
+  const at = () => deps.clock.now().toISOString();
+  const failed = async (reason: string, durationMs = 0) => {
+    await recorder.publish({ kind: "test_result", at: at(), suite: "acceptance", command, passed: 0, failed: 1, skipped: 0, durationMs, acceptance: true, failures: [reason.slice(0, 300)] });
+  };
+
+  let synced: Awaited<ReturnType<typeof syncWorkspaceToSandbox>>;
+  try {
+    synced = await syncWorkspaceToSandbox(cwd, sandbox);
+  } catch (err) {
+    const reason = String((err as Error).message ?? err).split(cwd).join("<workspace>");
+    await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `Acceptance tests not run: the workspace could not be copied into the sandbox (${reason.slice(0, 300)}).` });
+    return failed("Workspace not copied to the sandbox");
+  }
+  if (synced.refused) {
+    await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `Acceptance tests not run: ${synced.refused}.` });
+    return failed(`Workspace not copied to the sandbox: ${synced.refused}`);
+  }
+  await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Copied ${synced.files} file${synced.files === 1 ? "" : "s"} (${Math.ceil(synced.bytes / 1024)} KB) into the sandbox for the acceptance tests.` });
+
+  const prep = await sandbox.exec(acceptancePrepareScript(), { timeoutMs: 10 * 60 * 1000 });
+  if (prep.code !== 0) {
+    await recorder.publishRaw({ kind: "note", at: at(), source: "agent", level: "warn", text: `Installing the project's dependencies failed (exit ${prep.code}${prep.timedOut ? ", timed out" : ""}):\n${sandboxOutputForNote(prep.stdout + prep.stderr)}` });
+    return failed("Dependency install failed", prep.durationMs);
+  }
+  try {
+    await sandbox.closeEgress();
+  } catch (err) {
+    await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "error", text: `Acceptance tests not run: the sandbox's network could not be closed (${String((err as Error).message ?? err).slice(0, 200)}).` });
+    return failed("Sandbox network could not be closed; tests not run");
+  }
+
+  const res = await sandbox.exec(acceptanceRunScript(command), { timeoutMs: 15 * 60 * 1000 });
+  const output = res.stdout + res.stderr;
+  const counts = parseTestCounts(output);
+  // The output comes from the task's own scripts, so it is shown as the agent's, never as a system message.
+  if (res.code !== 0) await recorder.publishRaw({ kind: "note", at: at(), source: "agent", level: "warn", text: `Acceptance run exited with code ${res.code}${res.timedOut ? " (timed out)" : ""}. Last output:\n${sandboxOutputForNote(output)}` });
+  await recorder.publish({ kind: "test_result", at: at(), suite: "acceptance", command, passed: counts.passed, failed: res.code === 0 ? counts.failed : Math.max(1, counts.failed), skipped: 0, durationMs: prep.durationMs + res.durationMs, acceptance: true, failures: [] });
 }
 
 export function acceptanceCommandFor(task: Pick<Task, "acceptance" | "kind">): string | null {

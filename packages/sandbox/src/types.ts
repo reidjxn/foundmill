@@ -115,6 +115,11 @@ export interface Sandbox {
   readFile(path: string): Promise<string>;
   listFiles(path?: string): Promise<FileEntry[]>;
   snapshot(): Promise<SandboxSnapshot>;
+  /**
+   * Cut all outbound traffic for the rest of the sandbox's life, whatever `spec.egressAllowList` opened. Call it before
+   * running code the agent controls. Idempotent; a sandbox that never had egress returns at once.
+   */
+  closeEgress(): Promise<void>;
   /** Tear everything down. Idempotent; safe to call from a `finally`. */
   stop(): Promise<void>;
 }

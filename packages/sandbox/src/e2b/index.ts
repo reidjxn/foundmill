@@ -74,6 +74,8 @@ export interface E2bSandboxClient {
   kill(): Promise<boolean>;
   setTimeout(timeoutMs: number): Promise<void>;
   createSnapshot(opts?: { name?: string }): Promise<{ snapshotId: string }>;
+  /** Replaces every egress rule at once; fields left out are cleared (e2b `Sandbox.updateNetwork`). */
+  updateNetwork(network: { allowOut?: string[]; denyOut?: string[] }): Promise<void>;
 }
 
 export interface E2bCreateOptions {
@@ -306,6 +308,11 @@ export class E2bSandbox implements Sandbox {
   /** Extend or shorten the microVM's lifetime (the orchestrator heartbeat can keep a long session alive). */
   async setTtl(minutes: number): Promise<void> {
     await this.running().setTimeout(Math.max(1, Math.round(minutes)) * 60_000);
+  }
+
+  async closeEgress(): Promise<void> {
+    // The update replaces the whole rule set: no allowOut, everything denied.
+    await this.running().updateNetwork({ denyOut: [E2B_ALL_TRAFFIC] });
   }
 
   async stop(): Promise<void> {

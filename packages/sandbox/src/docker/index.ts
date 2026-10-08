@@ -339,6 +339,14 @@ export class DockerSandbox implements Sandbox {
     return { id: res.stdout.trim().replace(/^sha256:/, "") || tag, sandboxId: this.id, provider: "docker", ref: tag, createdAt: createdAt.toISOString() };
   }
 
+  /** Containers started with `--network none` have nothing to close; one on the egress network is disconnected from it. */
+  async closeEgress(): Promise<void> {
+    this.assertRunning();
+    if (!(this.opts.egressProxyUrl && this.spec.egressAllowList.length > 0)) return;
+    const res = await this.run(["network", "disconnect", "--force", this.opts.egressNetwork, this.containerName], { timeoutMs: 60_000 });
+    if (res.spawnError || (res.code !== 0 && !/is not connected/i.test(res.stderr))) throw new SandboxError(`docker network disconnect failed: ${res.spawnError?.message ?? res.stderr.trim()}`, { code: res.code });
+  }
+
   async stop(): Promise<void> {
     if (this.state_ === "stopped") return;
     const wasStarted = this.state_ === "running" || this.state_ === "starting" || this.containerId !== null;

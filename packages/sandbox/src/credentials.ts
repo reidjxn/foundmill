@@ -69,6 +69,19 @@ export const LONG_LIVED_VALUE_PATTERNS: readonly CredentialPattern[] = [
   },
 ];
 
+/**
+ * Mask every substring shaped like a long-lived credential (`LONG_LIVED_VALUE_PATTERNS`) as `[redacted:<id>]`. For text
+ * that leaves a sandbox and reaches people (session notes, logs).
+ */
+export function redactCredentialValues(text: string): string {
+  let out = text;
+  for (const p of LONG_LIVED_VALUE_PATTERNS) {
+    if (!p.value) continue;
+    out = out.replace(new RegExp(p.value.source, p.value.flags.includes("g") ? p.value.flags : `${p.value.flags}g`), `[redacted:${p.id}]`);
+  }
+  return out;
+}
+
 export interface CredentialCheckOptions {
   /** Variable names exempt from name-based checks (values are still checked). */
   allowNames?: readonly string[];

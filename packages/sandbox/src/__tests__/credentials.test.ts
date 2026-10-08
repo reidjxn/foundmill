@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertNoLongLivedCredentials, classifyJwt, describeEnvForAudit, findLongLivedCredentials } from "../credentials";
+import { assertNoLongLivedCredentials, classifyJwt, describeEnvForAudit, findLongLivedCredentials, redactCredentialValues } from "../credentials";
 import { LongLivedCredentialError } from "../errors";
 import { gitAuthEnv } from "../worktree";
 
@@ -115,5 +115,23 @@ describe("assertNoLongLivedCredentials (AC-11.6.6)", () => {
     expect(() => assertNoLongLivedCredentials(env)).not.toThrow();
     expect(env.GIT_CONFIG_KEY_0).toBe("http.extraheader");
     expect(env.GIT_CONFIG_VALUE_0).toMatch(/^Authorization: Basic /);
+  });
+});
+
+describe("redactCredentialValues", () => {
+  it("masks long-lived credential shapes and leaves ordinary output alone", () => {
+    const text = [
+      "Tests  2 passed",
+      "key=sk_live_51Hx8ZkLq9mN0pQrStUvWxYz end",
+      "token ghp_" + "a".repeat(36),
+      "dsn postgres://fm:hunter2@db.internal/fm",
+      "npm_" + "b".repeat(36) + " and npm_" + "c".repeat(36),
+    ].join("\n");
+    const out = redactCredentialValues(text);
+    expect(out).toContain("Tests  2 passed");
+    expect(out).toContain("key=[redacted:value.stripe_secret] end");
+    expect(out).toContain("token [redacted:value.github_pat]");
+    expect(out).not.toContain("hunter2");
+    expect(out.match(/\[redacted:value\.npm_token\]/g)).toHaveLength(2);
   });
 });

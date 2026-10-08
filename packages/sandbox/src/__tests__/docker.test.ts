@@ -250,3 +250,32 @@ describe("parseFindListing", () => {
     expect(parseFindListing("/", "f\t1\t1\tx\n")[0]!.path).toBe("/x");
   });
 });
+
+describe("DockerSandbox.closeEgress", () => {
+  const docker = (network: () => DockerCommandResult) =>
+    scriptedDocker({ version: () => ok("29.8.2\n"), run: () => ok("0123456789abcdef\n"), rm: () => ok(), network });
+
+  it("disconnects a container that joined the egress network, and tolerates one already disconnected", async () => {
+    const script = docker(() => ok());
+    const sb = await new DockerSandboxProvider({ run: script.run, now: () => NOW, egressProxyUrl: "http://fm-egress-proxy:3128" }).create(spec);
+    await sb.start();
+    await sb.closeEgress();
+    expect(script.calls.find((c) => c.args[0] === "network")?.args).toEqual(["network", "disconnect", "--force", "fm-sandbox-egress", "fm-sb-b-1-sess-9"]);
+    const again = docker(() => fail(1, "Error response from daemon: container 0123 is not connected to network fm-sandbox-egress"));
+    const sb2 = await new DockerSandboxProvider({ run: again.run, now: () => NOW, egressProxyUrl: "http://fm-egress-proxy:3128" }).create(spec);
+    await sb2.start();
+    await expect(sb2.closeEgress()).resolves.toBeUndefined();
+  });
+
+  it("has nothing to close on a --network none container, and fails loudly when docker refuses", async () => {
+    const none = docker(() => ok());
+    const sb = await new DockerSandboxProvider({ run: none.run, now: () => NOW }).create(spec);
+    await sb.start();
+    await sb.closeEgress();
+    expect(none.calls.some((c) => c.args[0] === "network")).toBe(false);
+    const broken = docker(() => fail(1, "permission denied"));
+    const sb2 = await new DockerSandboxProvider({ run: broken.run, now: () => NOW, egressProxyUrl: "http://fm-egress-proxy:3128" }).create(spec);
+    await sb2.start();
+    await expect(sb2.closeEgress()).rejects.toThrow(/network disconnect failed: permission denied/);
+  });
+});

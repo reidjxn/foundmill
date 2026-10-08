@@ -24,6 +24,7 @@ function scripted(responses: Array<[RegExp, Partial<ExecResult>]>): { sandbox: S
     readFile: async () => "",
     listFiles: async () => [],
     snapshot: async () => ({ id: "s", sandboxId: "scripted", provider: "mock", ref: "r", createdAt: "" }),
+    closeEgress: async () => {},
     stop: async () => {},
   };
   return { sandbox, calls };

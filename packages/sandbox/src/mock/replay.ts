@@ -485,6 +485,9 @@ export class MockSandbox implements Sandbox {
     };
   }
 
+  /** A replay never touches the network. */
+  async closeEgress(): Promise<void> {}
+
   async stop(): Promise<void> {
     if (this.state_ === "stopped") return;
     this.replay.stop("sandbox_stopped");

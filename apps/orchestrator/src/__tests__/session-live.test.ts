@@ -4,14 +4,14 @@
  * per-session workspace is deleted whether the run succeeds or the SDK throws. The mock-sandbox path is untouched
  * (session.test.ts).
  */
-import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { repos } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
 import { LONG_LIVED_NAME_PATTERNS, parseSandboxSpec, type Sandbox, type SandboxProvider, type SandboxSpecInput } from "@foundmill/sandbox";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { createSessionActivities } from "../activities/session";
+import { ACCEPTANCE_EGRESS, createSessionActivities } from "../activities/session";
 import { FILE_TOOLS, SDK_MODEL_KEY_NAME, SDK_SESSION_TOKEN_NAME } from "../activities/sdk-isolation";
 import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
@@ -35,12 +35,24 @@ const SECRET_HOST_ENV = {
   GITHUB_APP_PRIVATE_KEY: "-----BEGIN RSA PRIVATE KEY-----\nMIIE",
 };
 
+type ExecReply = { code: number; stdout: string; stderr: string; timedOut: boolean; durationMs: number };
+
 /** A non-mock sandbox that records what runs inside it; `runAgentSession` takes the live path for anything but MockSandbox. */
-function fakeSandboxProvider(): SandboxProvider & { execs: string[]; stopped: number } {
-  const state = { execs: [] as string[], stopped: 0 };
+function fakeSandboxProvider(): SandboxProvider & { execs: string[]; stopped: number; specs: ReturnType<typeof parseSandboxSpec>[]; writes: Map<string, string>[]; replies: ExecReply[]; log: string[]; closeFails: boolean } {
+  const state = { execs: [] as string[], stopped: 0, specs: [] as ReturnType<typeof parseSandboxSpec>[], writes: [] as Map<string, string>[], replies: [] as ExecReply[], log: [] as string[], closeFails: false };
   return {
     mode: "docker",
     execs: state.execs,
+    specs: state.specs,
+    writes: state.writes,
+    replies: state.replies,
+    log: state.log,
+    get closeFails() {
+      return state.closeFails;
+    },
+    set closeFails(v: boolean) {
+      state.closeFails = v;
+    },
     get stopped() {
       return state.stopped;
     },
@@ -49,6 +61,9 @@ function fakeSandboxProvider(): SandboxProvider & { execs: string[]; stopped: nu
     },
     async create(input: SandboxSpecInput): Promise<Sandbox> {
       const spec = parseSandboxSpec(input);
+      state.specs.push(spec);
+      const written = new Map<string, string>();
+      state.writes.push(written);
       return {
         id: `fake-${spec.taskId}`,
         provider: "docker",
@@ -58,9 +73,17 @@ function fakeSandboxProvider(): SandboxProvider & { execs: string[]; stopped: nu
         async start() {},
         async exec(cmd) {
           state.execs.push(cmd);
-          return { code: 0, stdout: "3 passed", stderr: "", timedOut: false, durationMs: 5 };
+          state.log.push(cmd.includes("fm-acceptance-prepare.log") ? "exec:prepare" : "exec:run");
+          return state.replies.shift() ?? { code: 0, stdout: "3 passed", stderr: "", timedOut: false, durationMs: 5 };
         },
-        async writeFile() {},
+        async writeFile(p, content) {
+          state.log.push(`write:${p}`);
+          written.set(p, typeof content === "string" ? content : Buffer.from(content).toString("utf8"));
+        },
+        async closeEgress() {
+          state.log.push("closeEgress");
+          if (state.closeFails) throw new Error("network update rejected");
+        },
         async readFile() {
           return "";
         },
@@ -134,6 +157,18 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
       verdicts.bash = await hook({ ...base, tool_name: "Bash", tool_input: { command: "env" } });
       verdicts.inside = await hook({ ...base, tool_name: "Write", tool_input: { file_path: "src/index.ts", content: "" } });
       verdicts.mcp = await hook({ ...base, tool_name: (call.options.allowedTools as string[]).find((x) => x.startsWith("mcp__"))!, tool_input: {} });
+      // What the agent's file tools would leave behind, next to what the SDK itself writes under HOME.
+      await mkdir(path.join(cwdSeen, "src"), { recursive: true });
+      await writeFile(path.join(cwdSeen, "package.json"), '{"scripts":{"test":"vitest run"}}');
+      await writeFile(path.join(cwdSeen, "src", "index.ts"), "export const ok = true;\n");
+      await mkdir(path.join(cwdSeen, ".claude"), { recursive: true });
+      await writeFile(path.join(cwdSeen, ".claude", "settings.json"), "{}");
+      await writeFile(path.join(cwdSeen, ".claude.json"), "{}");
+      await mkdir(path.join(cwdSeen, "node_modules", "dep"), { recursive: true });
+      await writeFile(path.join(cwdSeen, "node_modules", "dep", "index.js"), "");
+      await mkdir(path.join(cwdSeen, "src", ".git"), { recursive: true });
+      await writeFile(path.join(cwdSeen, "src", ".git", "HEAD"), "ref: refs/heads/main");
+      await symlink("/etc/hostname", path.join(cwdSeen, "src", "host.txt"));
       yield* success(sessionId)();
     };
     const result = await acts.runAgentSession(input, launch);
@@ -183,9 +218,87 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
     const notes = await readSessionEvents(t.redis, sessionId, { kinds: ["note"] });
     expect(notes.some((r) => r.event.kind === "note" && r.event.source === "system" && /Blocked Read: .*outside the session workspace/.test(r.event.text))).toBe(true);
 
-    // Acceptance tests still run inside the sandbox, never on the host; the sandbox is stopped.
-    expect(provider.execs).toContain("pnpm test");
+    // The sandbox may reach the npm registry and nothing else; the agent's files (not the SDK's HOME state, dependencies,
+    // git metadata or symlinks) are copied into it, and the acceptance tests run there, never on the host.
+    expect(provider.specs.at(-1)!.egressAllowList).toEqual([...ACCEPTANCE_EGRESS]);
+    expect([...provider.writes.at(-1)!.keys()].sort()).toEqual(["package.json", "src/index.ts"]);
+    expect(provider.writes.at(-1)!.get("src/index.ts")).toBe("export const ok = true;\n");
+    // Online: dependencies only, with scripts and pnpmfiles off. Then the network closes. Offline: the task's command.
+    const order = provider.log.filter((e) => !e.startsWith("write:"));
+    expect(order.slice(-3)).toEqual(["exec:prepare", "closeEgress", "exec:run"]);
+    expect(provider.log.indexOf("write:package.json")).toBeLessThan(provider.log.lastIndexOf("exec:prepare"));
+    const [prepare, run] = provider.execs.slice(-2) as [string, string];
+    expect(prepare).toContain("pnpm install");
+    expect(prepare).toContain("--ignore-scripts");
+    expect(prepare).toContain("--ignore-pnpmfile");
+    expect(prepare).not.toMatch(/\npnpm test\n/);
+    expect(run).toMatch(/\npnpm test\n\) >\/tmp\/fm-acceptance\.log 2>&1\n/);
+    expect(run).toMatch(/tail -c 32768/);
+    const allNotes = await readSessionEvents(t.redis, sessionId, { kinds: ["note"] });
+    expect(allNotes.some((r) => r.event.kind === "note" && /Copied 2 files .* into the sandbox/.test(r.event.text))).toBe(true);
+    const tests = await readSessionEvents(t.redis, sessionId, { kinds: ["test_result"] });
+    expect(tests.at(-1)?.event).toMatchObject({ kind: "test_result", acceptance: true, command: "pnpm test", passed: 3, failed: 0 });
     expect(provider.stopped).toBeGreaterThan(0);
+  });
+
+  it("code task: a failing acceptance run is recorded with its output", async () => {
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = await acts.prepareSession(input);
+    script = async function* (call) {
+      await writeFile(path.join(call.options.cwd as string, "package.json"), "{}");
+      yield* success(sessionId)();
+    };
+    const leaked = "npm_" + "x".repeat(36);
+    provider.replies.push({ code: 0, stdout: "Done in 2s", stderr: "", timedOut: false, durationMs: 30 }, { code: 1, stdout: "Tests  1 failed | 2 passed", stderr: `AssertionError: expected 2 to be 3 ${leaked}`, timedOut: false, durationMs: 40 });
+    const result = await acts.runAgentSession(input, launch);
+    expect(result.outcome).toBe("done");
+    const tests = await readSessionEvents(t.redis, sessionId, { kinds: ["test_result"] });
+    expect(tests.at(-1)?.event).toMatchObject({ kind: "test_result", acceptance: true, passed: 2, failed: 1, durationMs: 70 });
+    const notes = await readSessionEvents(t.redis, sessionId, { kinds: ["note"] });
+    const exitNote = notes.find((r) => r.event.kind === "note" && /exited with code 1/.test(r.event.text))?.event;
+    // The task's own output is the agent's words, never a system message, and credential shapes are masked.
+    expect(exitNote).toMatchObject({ source: "agent", level: "warn", text: expect.stringContaining("AssertionError") });
+    expect(exitNote && "text" in exitNote ? exitNote.text : "").not.toContain(leaked);
+    expect(exitNote && "text" in exitNote ? exitNote.text : "").toContain("[redacted:value.npm_token]");
+  });
+
+  it("code task: a failed dependency install, or a network that will not close, records a failed run and never runs the tests", async () => {
+    for (const mode of ["install", "close"] as const) {
+      const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+      const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+      const launch = await acts.prepareSession(input);
+      script = async function* (call) {
+        await writeFile(path.join(call.options.cwd as string, "package.json"), "{}");
+        yield* success(sessionId)();
+      };
+      if (mode === "install") provider.replies.push({ code: 1, stdout: "", stderr: "ERR_PNPM_FETCH_404 left-pad-nope", timedOut: false, durationMs: 9 });
+      else provider.closeFails = true;
+      const logBefore = provider.log.length;
+      const result = await acts.runAgentSession(input, launch);
+      provider.closeFails = false;
+      expect(result.outcome).toBe("done");
+      expect(provider.log.slice(logBefore)).not.toContain("exec:run");
+      const tests = await readSessionEvents(t.redis, sessionId, { kinds: ["test_result"] });
+      expect(tests.at(-1)?.event).toMatchObject({ kind: "test_result", acceptance: true, passed: 0, failed: 1, failures: [mode === "install" ? "Dependency install failed" : "Sandbox network could not be closed; tests not run"] });
+    }
+  });
+
+  it("code task: a workspace over the size cap is not copied and the acceptance run is recorded as failed, not run", async () => {
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = await acts.prepareSession(input);
+    script = async function* (call) {
+      await writeFile(path.join(call.options.cwd as string, "blob.bin"), Buffer.alloc(5 * 1024 * 1024 + 1));
+      yield* success(sessionId)();
+    };
+    const execsBefore = provider.execs.length;
+    await acts.runAgentSession(input, launch);
+    expect(provider.execs.length).toBe(execsBefore);
+    expect(provider.writes.at(-1)!.size).toBe(0);
+    const tests = await readSessionEvents(t.redis, sessionId, { kinds: ["test_result"] });
+    expect(tests.at(-1)?.event).toMatchObject({ kind: "test_result", acceptance: true, passed: 0, failed: 1, failures: [expect.stringMatching(/blob\.bin is larger than 5 MB/)] });
+    expect(await readdir(workspaceRoot)).toEqual([]);
   });
 
   it("non-code task: no Read/Glob/Grep/Edit/Write at all, only the gateway MCP tools", async () => {
@@ -206,6 +319,8 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
     const read = await hook({ hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "README.md" }, tool_use_id: "x", session_id: "s", transcript_path: "", cwd: options.cwd });
     expect(read).toMatchObject({ hookSpecificOutput: { permissionDecision: "deny", permissionDecisionReason: expect.stringMatching(/not available/) } });
     expect(provider.execs.length).toBe(execsBefore); // no acceptance command for a research task
+    expect(provider.specs.at(-1)!.egressAllowList).toEqual([]); // and no network at all
+    expect(provider.writes.at(-1)!.size).toBe(0);
     await expect(stat(options.cwd as string)).rejects.toThrow();
   });
 
