@@ -1,10 +1,12 @@
 /**
  * SEED_ON_BOOT (services/seed-on-boot.ts): builds the demo businesses once on an empty database, makes the
- * SEED_OWNER_EMAILS addresses owners, and on later boots only adds missing owner memberships; never deletes.
+ * SEED_OWNER_EMAILS addresses owners, and on later boots only adds missing owner memberships; never deletes. A first
+ * sign-in opens the founder's newest business, so Northwind is kept the newer of the two.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { eq, sql } from "drizzle-orm";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
-import { repos, type Db } from "@foundmill/db";
+import { businesses, repos, type Db } from "@foundmill/db";
 import { LEDGERLY_SLUG, NORTHWIND_SLUG, stubAuthProvisioner } from "@foundmill/db/seed";
 import { seedOnBoot, seedOnBootEnabled } from "../services/seed-on-boot";
 
@@ -49,6 +51,7 @@ describe("seedOnBoot", () => {
     const userId = await stubAuthProvisioner(db).ensureUser("founder@example.com");
     const owned = await repos.memberships.listForUser(db, userId);
     expect(owned.filter((m) => m.role === "owner")).toHaveLength(2);
+    expect((await repos.businesses.listForUser(db, userId))[0]?.slug, "newest first: what `/` opens").toBe(NORTHWIND_SLUG);
   }, 240_000);
 
   it("on a later boot adds only the missing owner memberships and deletes nothing", async () => {
@@ -57,5 +60,13 @@ describe("seedOnBoot", () => {
     expect(again).toEqual({ status: "owners_ensured", owners: ["founder@example.com", "second@example.com"], added: 2 });
     expect((await repos.businesses.getBySlug(db, NORTHWIND_SLUG))?.id).toBe(northwind?.id);
     expect(await run(env({ SEED_OWNER_EMAILS: "founder@example.com, second@example.com" }))).toMatchObject({ status: "owners_ensured", added: 0 });
+  }, 60_000);
+
+  it("on a later boot makes Northwind the newer business when an earlier seed left Ledgerly newer", async () => {
+    await db.update(businesses).set({ createdAt: sql`now() + interval '1 hour'` }).where(eq(businesses.slug, LEDGERLY_SLUG));
+    const userId = await stubAuthProvisioner(db).ensureUser("founder@example.com");
+    expect((await repos.businesses.listForUser(db, userId))[0]?.slug).toBe(LEDGERLY_SLUG);
+    expect((await run()).status).toBe("owners_ensured");
+    expect((await repos.businesses.listForUser(db, userId)).map((b) => b.slug)).toEqual([NORTHWIND_SLUG, LEDGERLY_SLUG]);
   }, 60_000);
 });

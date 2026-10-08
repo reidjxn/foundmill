@@ -10,9 +10,10 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../client";
 import { repos } from "../repos";
+import { rowsOf } from "../repos/_shared";
 import { businesses, communities, founderProfiles, leaderboardEntries } from "../schema";
 import { parseOwnerEmails, stubAuthProvisioner, type AuthProvisioner } from "./auth";
-import { DEFAULT_SEED_DAYS, DEMO_BUSINESS_SLUGS, DEMO_OWNER_DISPLAY_NAME, DEMO_OWNER_EMAIL, DEMO_OWNER_USER_ID, DEMO_SEED, LEDGERLY_COMMUNITY_SLUG } from "./constants";
+import { DEFAULT_SEED_DAYS, DEMO_BUSINESS_SLUGS, DEMO_OWNER_DISPLAY_NAME, DEMO_OWNER_EMAIL, DEMO_OWNER_USER_ID, DEMO_SEED, LEDGERLY_COMMUNITY_SLUG, LEDGERLY_SLUG, NORTHWIND_SLUG } from "./constants";
 import { createSeedCtx, type SeedOwner } from "./context";
 import { seedLedgerly } from "./ledgerly";
 import { seedNorthwind } from "./northwind";
@@ -28,6 +29,18 @@ export { FOUNDER_PRESET_LAYOUT } from "./content";
 export async function demoBusinessesPresent(db: Db): Promise<boolean> {
   const rows = await db.select({ slug: businesses.slug }).from(businesses).where(inArray(businesses.slug, [...DEMO_BUSINESS_SLUGS]));
   return rows.length === DEMO_BUSINESS_SLUGS.length;
+}
+
+/**
+ * Makes Northwind the newer demo business. `/` opens a founder's newest business when no last-business cookie is set
+ * (apps/web/app/page.tsx), and Ledgerly is built after Northwind, so without this a first sign-in lands on Ledgerly.
+ * Idempotent; returns whether a row changed.
+ */
+export async function putNorthwindFirst(db: Db): Promise<boolean> {
+  const result = await db.execute(
+    sql`update businesses n set created_at = l.created_at + interval '1 second' from businesses l where n.slug = ${NORTHWIND_SLUG} and l.slug = ${LEDGERLY_SLUG} and n.created_at <= l.created_at returning n.id`,
+  );
+  return rowsOf(result).length > 0;
 }
 
 /**
@@ -109,6 +122,7 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
   log(`northwind done: ${JSON.stringify(northwind.counts)}`);
   const ledgerly = await seedLedgerly(ctx);
   log(`ledgerly done: ${JSON.stringify(ledgerly.counts)}`);
+  await putNorthwindFirst(db);
 
   if (opts.refreshDaily ?? true) {
     await repos.journeys.refreshDaily(db);

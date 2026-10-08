@@ -6,12 +6,13 @@
  * - Neither demo business exists → `seedDemo` (owners through the Supabase admin API when the service role key is set;
  *   on PGlite and local databases the stub `auth.users` rows).
  * - Both exist → only make sure each SEED_OWNER_EMAILS owner has an owner membership on both, so adding an address
- *   later needs no reseed. Nothing is deleted.
+ *   later needs no reseed, and that Northwind is the newer of the two (a first sign-in opens the newest business).
+ *   Nothing is deleted.
  * - Exactly one exists → a seed is still running in another process, or one stopped half-way. Nothing happens: a
  *   rebuild deletes the demo businesses, which stays a deliberate `pnpm db:seed`.
  */
 import { repos, type Db } from "@foundmill/db";
-import { DEMO_BUSINESS_SLUGS, parseOwnerEmails, seedDemo, stubAuthProvisioner, supabaseAuthProvisioner, type AuthProvisioner } from "@foundmill/db/seed";
+import { DEMO_BUSINESS_SLUGS, parseOwnerEmails, putNorthwindFirst, seedDemo, stubAuthProvisioner, supabaseAuthProvisioner, type AuthProvisioner } from "@foundmill/db/seed";
 import type { Env } from "@foundmill/shared";
 
 export type SeedOnBootOutcome =
@@ -74,6 +75,7 @@ export async function seedOnBoot(deps: SeedOnBootDeps, options: SeedOnBootOption
           added++;
         }
       }
+      if (await putNorthwindFirst(db)) log.info({}, "SEED_ON_BOOT: Northwind made the newer demo business, so a first sign-in opens it");
       log.info({ owners: ownerEmails, added }, "SEED_ON_BOOT: demo businesses present; owner memberships ensured");
       return { status: "owners_ensured", owners: ownerEmails, added };
     }
