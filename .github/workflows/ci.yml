@@ -131,8 +131,6 @@ jobs:
           done
           echo "apps/web did not answer within 120 s"; cat web.log; exit 1
       - name: Playwright (apps/web screens)
-        # Per-screen specs were written before the screens ran; wave 3c is making them pass. Until then they report but do not gate.
-        continue-on-error: true
         # E2E_BASE_URL makes both configs skip their own webServer and use the servers started above.
         run: E2E_BASE_URL=http://localhost:3000 pnpm --filter @foundmill/web exec playwright test
       - name: Playwright (e2e/ golden path and smoke)

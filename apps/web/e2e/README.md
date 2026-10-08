@@ -50,7 +50,7 @@ E2E_BASE_URL=http://localhost:3000 pnpm --filter @foundmill/web exec playwright 
 E2E_BASE_URL=http://localhost:3000 pnpm --filter @foundmill/e2e test   # the golden path in /e2e
 ```
 
-Keep `COMPOSER_URL` unset (or pointing at nothing) so the api uses its in-process composer; a stale `.env` with `COMPOSER_URL=http://localhost:4002` is fine as long as nothing listens there. On a small machine keep `NODE_OPTIONS=--max-old-space-size=3072` for the web dev server and run with two workers (the config's default).
+Keep `COMPOSER_URL` unset (or pointing at nothing) so the api uses its in-process composer; a stale `.env` with `COMPOSER_URL=http://localhost:4002` is fine as long as nothing listens there. On a small machine keep `NODE_OPTIONS=--max-old-space-size=2048` for the web dev server. The config runs one worker: the specs share one seeded database and several of them write to it (the Inbox refresh adds a note, Commit creates businesses, the spec editor saves a block), so the counts they assert are only deterministic in file order.
 
 ## Specs
 
@@ -64,4 +64,4 @@ Keep `COMPOSER_URL` unset (or pointing at nothing) so the api uses its in-proces
 | `onboarding.spec.ts`, `ideation.spec.ts`, `import.spec.ts`, `commit.spec.ts` | first-run flow (AC-11.1.1–7): profile gate, Ideation Studio, Door B import through `import.start`/`import.status` (AC-11.1.5 never pushes), Commit |
 | `agent-profile.spec.ts`, `crm.spec.ts`, `entity-profile.spec.ts` | agent profile tabs and training flow (AC-11.10.x), CRM search and saved views, entity profile tabs |
 
-Specs skip themselves (with the reason) when the seed does not give the dev user what they need, for example no won customer; a skipped spec is a seed gap, not a pass.
+No spec skips itself: when the seed does not give the dev user what a spec needs (a won customer, two organisations to merge, a department with specification blocks) it fails with a message that says what is missing and how to re-seed (`seedExpectation` in `helpers.ts`). Every spec is re-runnable against the same database: forks, merges and notes from earlier runs are tolerated, and `onboarding.spec.ts` takes the pre-filled-profile branch once the profile exists (which is the branch CI takes, since CI seeds without `SEED_OWNER_PROFILE=0`).
