@@ -192,7 +192,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
     <StudioFrame
       step="commit"
       title={form.name.trim() ? `Commit to ${form.name.trim()}` : "Commit"}
-      lede="Name it, dress it, choose how it is run. Taking charge seeds the departments and the squad and starts the first cycle."
+      lede="Name it, dress it, choose how it is run. Taking charge seeds the departments and the team and starts the first cycle."
       viewer={viewer}
       actions={
         <>
@@ -266,7 +266,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
             </div>
           </Panel>
 
-          <Panel title="Crest and brand colours">
+          <Panel title="Logo and brand colours">
             <CrestKitEditor name={form.name} seed={seed} kit={form.kit} onKitChange={(kit: Kit) => set("kit", kit)} onShuffle={() => setSalt((s) => s + 1)} error={show("kit")} />
           </Panel>
 
@@ -279,7 +279,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
           </Panel>
 
           <Panel title="Archetype" data-testid="archetype-panel">
-            <Field htmlFor="archetype-group" label="Seeds the departments, the squad and the first roadmap" required error={show("archetype")}>
+            <Field htmlFor="archetype-group" label="Seeds the departments, the team and the first roadmap" required error={show("archetype")}>
               <RadioGroup id="archetype-group" value={form.archetype ?? ""} onValueChange={(v) => set("archetype", v as Archetype)} className="grid-cols-4" aria-label="Archetype">
                 {ARCHETYPE_CARDS.map((a) => (
                   <ModeCardOption key={a.value} id={`arch-${a.value}`} value={a.value} label={a.label} tagline={a.tagline} details={[`First win: ${a.firstWin}`]} selected={form.archetype === a.value} badge={idea.archetype === a.value ? "From the card" : undefined} />
@@ -337,7 +337,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
                       </Chip>
                     ))}
                   </div>
-                  <ul className="flex flex-col divide-y divide-subtle/50" aria-label="Squad">
+                  <ul className="flex flex-col divide-y divide-subtle/50" aria-label="Team">
                     {preview.agents.map((a, i) => (
                       <li key={a.templateKey} className="flex items-center gap-2 py-1.5 first:pt-0 last:pb-0">
                         <Avatar size={24} name={a.name} agent={{ seed: a.templateKey, dept: preview.departments[i % preview.departments.length]?.colourToken ?? "dept-1" }} />
@@ -357,7 +357,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
             </Panel>
             <Panel title="What happens next">
               <ol className="flex flex-col gap-1.5 text-body">
-                {["Business, departments and squad are created", "The crest and brand colours go on the top bar", "The first cycle starts", "The Board's first item lands in your Inbox: vision and three decisions"].map((s, i) => (
+                {["Business, departments and team are created", "The logo and brand colours go on the top bar", "The first cycle starts", "The Board's first item lands in your Inbox: vision and three decisions"].map((s, i) => (
                   <li key={s} className="flex items-start gap-2">
                     <span className="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-subtle text-label tabular-nums">{i + 1}</span>
                     <span>{s}</span>

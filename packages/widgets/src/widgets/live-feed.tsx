@@ -128,7 +128,7 @@ function LiveFeedWidget({ settings }: WidgetProps<LiveFeedSettings>) {
 export const liveFeedWidget = registerWidget<LiveFeedSettings>({
   key: "live_feed",
   title: "Live feed",
-  description: "Everything that happens in the club, as it happens.",
+  description: "Everything that happens in the business, as it happens.",
   icon: "radio",
   surfaces: ["home", "department"],
   defaultSize: { w: 4, h: 12, minW: 3, minH: 8 },

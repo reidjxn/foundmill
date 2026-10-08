@@ -72,7 +72,7 @@ const investor: DashboardLayout = {
 };
 
 export const DASHBOARD_PRESETS: Record<DashboardPresetId, DashboardPreset> = {
-  founder: { id: "founder", name: "Founder's view", description: "The default: Journey Ribbon, status strip, department cards, squad pulse and inbox.", layout: founder },
+  founder: { id: "founder", name: "Founder's view", description: "The default: Journey Ribbon, status strip, department cards, team pulse and inbox.", layout: founder },
   builder: { id: "builder", name: "Builder", description: "Roadmap, live feed, Development and Product up close.", layout: builder },
   seller: { id: "seller", name: "Seller", description: "Funnel, channel form, revenue and customers.", layout: seller },
   investor: { id: "investor", name: "Investor update", description: "The story so far: ribbon, cash and runway, revenue, milestones.", layout: investor },

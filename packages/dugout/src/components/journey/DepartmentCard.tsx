@@ -57,7 +57,7 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
         </StatusPill>
       </header>
       <div className="flex flex-col gap-3 p-panel-pad">
-        <div className="flex items-center gap-2" aria-label={`Squad: ${d.squad.length} agents, ${working} working`}>
+        <div className="flex items-center gap-2" aria-label={`Team: ${d.squad.length} agents, ${working} working`}>
           <ul className="flex items-center" data-squad-strip>
             {squad.map((m, i) => {
               const { word } = agentStatusTone(m.status);

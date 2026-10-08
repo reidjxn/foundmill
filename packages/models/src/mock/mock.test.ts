@@ -128,7 +128,7 @@ describe("MockModelClient", () => {
   it("emits usage events with metered cost and counts a repeated cached system prompt as a cache read", async () => {
     const events: UsageEvent[] = [];
     const client = new MockModelClient({ onUsage: (e) => void events.push(e) });
-    const system = "Club rules. ".repeat(200);
+    const system = "House rules. ".repeat(200);
     const req = { route: "worker" as const, system, messages: [{ role: "user" as const, content: "go" }], cacheSystem: true, scope: "s1", attribution: { agentId: "a1" } };
     const first = await client.complete(req);
     const second = await client.complete(req);

@@ -33,7 +33,7 @@ export const northwindBundlePicker: RecordingInput = {
   key: "northwind-bundle-picker",
   title: "Add a bundle picker to the product page",
   summary:
-    "A frontend agent adds a three-option bundle picker (single, trio, six-pack) to the Northwind Skincare product page: a radio group component, price recalculation, keyboard support, Playwright coverage and a preview screenshot after each build. A founder Shout asks it to match the design system; it swaps ad-hoc spacing for tokens before review.",
+    "A frontend agent adds a three-option bundle picker (single, trio, six-pack) to the Northwind Skincare product page: a radio group component, price recalculation, keyboard support, Playwright coverage and a preview screenshot after each build. A founder Nudge asks it to match the design system; it swaps ad-hoc spacing for tokens before review.",
   taskKind: "code",
   agentTemplate: "frontend_engineer",
   modelKey: "sonnet",
@@ -124,7 +124,7 @@ export const northwindBundlePicker: RecordingInput = {
     ev(14400, progress(3, 5, 1, 3)),
     ev(15000, note("The price shows the single-unit amount after selecting the trio: ProductPurchase passes the base price into AddToBag instead of the bundle's. Arrow keys do nothing because the buttons are not focus-managed. Fixing both.")),
     ev(15800, shout("Match the design system")),
-    ev(16300, note("Shout received: replacing the inline gap and the raw button with the storefront's tokens and the Choice primitive.", "system")),
+    ev(16300, note("Nudge received: replacing the inline gap and the raw button with the storefront's tokens and the Choice primitive.", "system")),
     ev(17600, { kind: "file_changed", path: "src/components/bundle-picker.tsx", change: "modified", additions: 31, deletions: 19, diff: "--- a/src/components/bundle-picker.tsx\n+++ b/src/components/bundle-picker.tsx\n@@ -9,7 +9,7 @@\n-    <div role=\"radiogroup\" aria-labelledby={groupId} style={{ display: \"flex\", gap: 10 }}>\n+    <div role=\"radiogroup\" aria-labelledby={groupId} className=\"bundle-picker\" onKeyDown={moveSelection}>\n" }),
     ev(18100, { kind: "file_changed", path: "src/components/bundle-picker.css", change: "created", additions: 22, deletions: 0, diff: "--- /dev/null\n+++ b/src/components/bundle-picker.css\n@@ -0,0 +1,22 @@\n+.bundle-picker {\n+  display: flex;\n+  gap: var(--space-3);\n+}\n+.bundle-picker [role=\"radio\"][aria-checked=\"true\"] {\n+  outline: 2px solid var(--color-accent);\n+  border-radius: var(--radius-md);\n+}\n" }),
     ev(18700, { kind: "file_changed", path: "src/components/product-purchase.tsx", change: "modified", additions: 6, deletions: 4 }),

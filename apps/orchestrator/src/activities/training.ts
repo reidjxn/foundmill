@@ -169,7 +169,7 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       }
       const drops = skillDeltas.filter((d) => d.before - d.after > 1);
       const gains = skillDeltas.filter((d) => d.after > d.before);
-      const flagNote = input.clubRuleFlags.length ? ` The draft tried to change ${input.clubRuleFlags.length} club rule${input.clubRuleFlags.length > 1 ? "s" : ""} (${input.clubRuleFlags.map((f) => f.ruleId).join(", ")}); those lines were ignored and the rules still apply.` : "";
+      const flagNote = input.clubRuleFlags.length ? ` The draft tried to change ${input.clubRuleFlags.length} house rule${input.clubRuleFlags.length > 1 ? "s" : ""} (${input.clubRuleFlags.map((f) => f.ruleId).join(", ")}); those lines were ignored and the rules still apply.` : "";
       const coachSummaryMd = input.status
         ? `Training ${input.status}${input.error ? `: ${input.error}` : ""}.`
         : `${input.outcomes.reduce((a, o) => a + o.testsRun, 0)} tests across ${input.outcomes.length} skills. ${gains.length} skill${gains.length === 1 ? "" : "s"} up, ${drops.length} dropped by more than a point${drops.length ? ` (${drops.map((d) => `${d.skillKey} ${d.before}→${d.after}`).join(", ")})` : ""}.${flagNote} Recommendation: ${drops.length === 0 && gains.length > 0 ? "promote" : "discard"} (Estimate from tested ratings; proven ratings follow live work).`;

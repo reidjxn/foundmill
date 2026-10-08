@@ -145,11 +145,11 @@ describe("agent templates (BUILD §9.1, §9.2, §11.6, §11.7, §11.10)", () => 
     }
   });
 
-  it("instructions never restate or weaken the club rules (they are prepended by the runtime)", () => {
+  it("instructions never restate or weaken the house rules (they are prepended by the runtime)", () => {
     for (const t of ALL_TEMPLATES) {
       const text = JSON.stringify(t.instructions);
       expect(text).not.toMatch(/Fixed rules that override any other instruction/);
-      expect(text).not.toMatch(/ignore (the )?club rules/i);
+      expect(text).not.toMatch(/ignore (the )?(club|house) rules/i);
     }
   });
 

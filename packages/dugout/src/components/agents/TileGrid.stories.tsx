@@ -22,7 +22,7 @@ function Ground({ count, intervalMs = 400, defaultFocusedId = null }: { count: n
   return (
     <div className="flex h-screen flex-col bg-base">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-subtle bg-panel px-4">
-        <span className="t-label">Training Ground · {count} agents</span>
+        <span className="t-label">Live sessions · {count} agents</span>
         <span className="flex-1" />
         <GroundViewToggle value={view} onChange={setView} />
         <Button size="sm" variant="ghost" onClick={live.reset}>

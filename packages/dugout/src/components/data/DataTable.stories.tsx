@@ -239,7 +239,7 @@ export const ComfortableDensity: Story = {
   args: { data: [], columns: [] },
   render: () => (
     <DataTable
-      title="Squad"
+      title="Team"
       data={generateLeads(30, "squad")}
       columns={columns.slice(0, 7)}
       defaultDensity="comfortable"

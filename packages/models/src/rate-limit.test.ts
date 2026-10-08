@@ -159,7 +159,7 @@ describe("RateLimiter", () => {
     expect(limiter.reportRateLimited("s", { retryAfterMs: 90_000 })).toBe(30_000);
   });
 
-  it("estimates the largest squad the key supports", () => {
+  it("estimates the largest team the key supports", () => {
     const limiter = new RateLimiter();
     expect(limiter.estimateConcurrency("unknown", { inputTokens: 1 })).toBeNull();
     limiter.observe("k1", {

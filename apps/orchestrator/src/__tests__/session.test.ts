@@ -130,7 +130,7 @@ describe("runAgentSession (mock replay)", () => {
     }
   });
 
-  it("pause holds the replay and resume continues it; a Shout appears in the log (AC-11.6.4)", async () => {
+  it("pause holds the replay and resume continues it; a Nudge appears in the log (AC-11.6.4)", async () => {
     const clock = new FakeClock("2026-10-05T08:00:00.000Z");
     const provider = new MockSandboxProvider({ speed: 1, autoplay: false, holds: { autoResolveAfterMs: 1 }, recordings: RECORDINGS, sleep: (ms, signal) => clock.sleep(ms, signal).catch(() => undefined), now: () => clock.now() });
     const local = await setupOrchestratorHarness({ prefix: "pause" });

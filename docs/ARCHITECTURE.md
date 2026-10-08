@@ -141,7 +141,7 @@ WebSocket at `/?token=<supabase access token | dev token>`. Client → server: `
 
 ## 15. Testing
 
-- Unit: Vitest per package (`pnpm test`); DOM tests with happy-dom in dugout/web.
+- Unit: Vitest per package (`pnpm test`); DOM tests with happy-dom in `packages/dugout` and `apps/web`.
 - RLS: PGlite harness (see §4).
 - Policy: every rule × mode.
 - E2E: `e2e/` Playwright against `pnpm dev` in mock mode with `DEV_AUTH_USER_ID` set to the seed owner; golden path spec names carry AC ids (e.g. `AC-11.3.3`).
@@ -157,7 +157,7 @@ WebSocket at `/?token=<supabase access token | dev token>`. Client → server: `
 4. **No long-running servers on fixed ports** during the build phase (other agents share the machine). If you must boot something, use an ephemeral `PORT=0`/random port and stop it.
 5. **Fetch current docs** before using an SDK (Temporal, Claude Agent SDK, Anthropic, Drizzle RLS, Tailwind v4, Storybook 10, react-grid-layout 2, TanStack Table 8, visx, PixiJS 8, xterm 6, Tiptap 3). Versions in the catalog are the truth.
 6. **Mock first.** Everything must work with `INTEGRATIONS_MODE=mock` and `MODEL_MODE=mock`. Live paths are implemented but never required for tests.
-7. **Design discipline.** UI follows `docs/DESIGN.md`. Tokens only, Dugout components only, Lucide only, desktop only.
+7. **Design discipline.** UI follows `docs/DESIGN.md`. Tokens only, design-system components (`packages/dugout`) only, Lucide only, desktop only.
 8. **Do not commit.** The orchestrating session commits between waves.
 9. **Report** at the end: what exists, what is stubbed, commands that pass, and anything another package must know (exported names changed, contracts added).
 

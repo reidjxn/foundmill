@@ -75,7 +75,7 @@ export const CUSTOMER_UPDATE_OPTIONS = [
 ] as const;
 
 export const DEFAULT_DECISION_OPTIONS = [
-  { id: "proceed", label: "Proceed as recommended", recommended: true, consequence: "The squad continues with the recommended next step.", cost_minor: 0, reversible: true },
+  { id: "proceed", label: "Proceed as recommended", recommended: true, consequence: "The team continues with the recommended next step.", cost_minor: 0, reversible: true },
   { id: "hold", label: "Hold for now", recommended: false, consequence: "Nothing changes until you decide.", cost_minor: 0, reversible: true },
 ] as const;
 
@@ -99,7 +99,7 @@ export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record
     business: businessBrief(ctx),
     business_name: ctx.business.name,
     app_name: APP_NAME,
-    from_agent: { id: ctx.voice.id, name: ctx.voice.name, role: ctx.voice.role || "assistant manager" },
+    from_agent: { id: ctx.voice.id, name: ctx.voice.name, role: ctx.voice.role || "Chief of Staff" },
     agents: ctx.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, agent_type: a.agentType, status: a.status })),
     manifest: ctx.manifest.toJSON(),
     metrics: ctx.status.map((m) => ({ metric: m.metric, value: m.value, source: m.source, label: m.label })),
@@ -133,7 +133,7 @@ export function composerInputs(ctx: ComposeContext, brief: ComposeBrief): Record
 export function systemPrompt(ctx: ComposeContext): string[] {
   return [
     clubRulesPrompt.render({ business_name: ctx.business.name, APP_NAME }),
-    prompts.inboxComposerPrompt.render({ business_name: ctx.business.name, from_agent_name: ctx.voice.name, from_agent_role: ctx.voice.role || "assistant manager" }),
+    prompts.inboxComposerPrompt.render({ business_name: ctx.business.name, from_agent_name: ctx.voice.name, from_agent_role: ctx.voice.role || "Chief of Staff" }),
   ];
 }
 

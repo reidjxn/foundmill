@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CREST_SIZES, Crest } from "./Crest";
 
 const meta = {
-  title: "Foundation/Crest",
+  title: "Foundation/Logo",
   component: Crest,
   args: { seed: "northwind", kitPrimary: "#2B6CB0", kitSecondary: "#FFFFFF", monogram: "NW", size: 48 },
   argTypes: { kitPrimary: { control: "color" }, kitSecondary: { control: "color" }, size: { control: "select", options: CREST_SIZES } },

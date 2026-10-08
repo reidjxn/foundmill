@@ -253,7 +253,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
             {active ? <Chip tone="info">An incorporation is in progress</Chip> : null}
           </div>
           <InlineError error={start.error} />
-          <p className="t-small text-secondary">Starting prepares documents only. You sign in, verify your identity, review, submit and pay yourself; the squad never handles passwords, identity documents or CAPTCHAs.</p>
+          <p className="t-small text-secondary">Starting prepares documents only. You sign in, verify your identity, review, submit and pay yourself; the team never handles passwords, identity documents or CAPTCHAs.</p>
         </form>
       </Panel>
 
@@ -293,10 +293,10 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
                   <>
                     <p className="t-body text-primary">Supervised browser session</p>
                     <p className="t-mono text-secondary">{incorporation.browserSessionId}</p>
-                    <p className="t-small text-secondary">The live view shows the squad filling the forms. Take over at any time; you sign in and complete identity checks personally.</p>
+                    <p className="t-small text-secondary">The live view shows the team filling the forms. Take over at any time; you sign in and complete identity checks personally.</p>
                   </>
                 ) : (
-                  <p className="t-small text-secondary">The live view connects once the squad has prepared the documents.</p>
+                  <p className="t-small text-secondary">The live view connects once the team has prepared the documents.</p>
                 )}
               </section>
               <div className="flex flex-wrap items-center gap-2">
@@ -313,7 +313,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
                   </span>
                 )}
                 {!founderSubmitted ? (
-                  <Button icon={CircleDashed} variant="default" disabled={incorporation.status !== "awaiting_founder"} loading={submit.pending !== null} onClick={() => void runFounderSubmitted()} title="Tell the squad you submitted and paid on the registry's page">
+                  <Button icon={CircleDashed} variant="default" disabled={incorporation.status !== "awaiting_founder"} loading={submit.pending !== null} onClick={() => void runFounderSubmitted()} title="Tell the team you submitted and paid on the registry's page">
                     I submitted and paid
                   </Button>
                 ) : (

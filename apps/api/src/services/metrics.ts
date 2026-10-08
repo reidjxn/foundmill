@@ -146,7 +146,7 @@ export const METRICS: readonly MetricDefinition[] = [
   {
     queryId: "tasks_running",
     label: "Tasks running",
-    description: "Squad tasks currently running.",
+    description: "Team tasks currently running.",
     format: "integer",
     provenance: "tasks.status = running",
     estimate: null,
@@ -160,7 +160,7 @@ export const METRICS: readonly MetricDefinition[] = [
   {
     queryId: "tasks_done",
     label: "Tasks done",
-    description: "Squad tasks completed.",
+    description: "Team tasks completed.",
     format: "integer",
     provenance: "tasks.status = done",
     estimate: null,

@@ -24,7 +24,7 @@ const MARKER: Record<ScrubberMarker["kind"], { icon: IconComponent; className: s
   phase: { icon: Flag, className: "text-status-info", word: "Phase" },
   tests_pass: { icon: FlaskConical, className: "text-status-good", word: "Tests passed" },
   tests_fail: { icon: FlaskConical, className: "text-status-bad", word: "Tests failed" },
-  shout: { icon: Megaphone, className: "text-kit-primary", word: "Shout" },
+  shout: { icon: Megaphone, className: "text-kit-primary", word: "Nudge" },
   approval: { icon: Hourglass, className: "text-status-warn", word: "Approval" },
   file: { icon: FileCode2, className: "text-secondary", word: "File" },
   error: { icon: TriangleAlert, className: "text-status-bad", word: "Error" },
@@ -44,7 +44,7 @@ export function scrubberMarkers(events: readonly AgentSessionEvent[], startedAt:
         out.push({ at, kind: e.failed > 0 ? "tests_fail" : "tests_pass", label: `${e.suite || "Tests"}: ${e.passed} passed, ${e.failed} failed` });
         break;
       case "note":
-        if (e.source === "shout") out.push({ at, kind: "shout", label: `Shout: ${e.text}` });
+        if (e.source === "shout") out.push({ at, kind: "shout", label: `Nudge: ${e.text}` });
         else if (e.level === "error") out.push({ at, kind: "error", label: e.text });
         break;
       case "tool_call":

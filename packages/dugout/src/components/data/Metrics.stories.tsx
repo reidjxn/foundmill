@@ -97,7 +97,7 @@ export const HomeStatusStrip: Story = {
         },
         { label: "Business health", value: "Good", caption: "4 of 6 departments healthy" },
         {
-          label: "League position",
+          label: "Leaderboard position",
           value: "14th",
           caption: "DTC founders · Nordics",
           delta: { value: 3, label: "places" },

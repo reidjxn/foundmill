@@ -5,7 +5,7 @@ import { FIXTURE_TODAY, LEDGERLY_KIT, NORTHWIND_KIT } from "./fixtures";
 const meta = {
   title: "Shell/Top bar",
   component: KitBar,
-  parameters: { layout: "fullscreen", docs: { description: { component: "56 px. Gradient from kit-primary to kit-primary darkened 14 %; text in kit-on-primary (APCA ≥ 75). Left: crest, name, back/forward. Centre: title and the 320 px search trigger. Right: date + runway, mode chip, Continue, Stop all agents." } } },
+  parameters: { layout: "fullscreen", docs: { description: { component: "56 px. Gradient from kit-primary to kit-primary darkened 14 %; text in kit-on-primary (APCA ≥ 75). Left: logo, name, back/forward. Centre: title and the 320 px search trigger. Right: date + runway, mode chip, Continue, Stop all agents." } } },
   args: {
     kit: NORTHWIND_KIT,
     crest: { seed: "northwind", monogram: "NW" },

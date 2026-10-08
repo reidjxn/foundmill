@@ -28,7 +28,7 @@ export function BusinessTab() {
     trpc.business.update.mutationOptions({
       onSuccess: () => {
         void invalidate(["business"]);
-        t.saved("Business saved", "The crest and the top bar follow the new brand colours.");
+        t.saved("Business saved", "The logo and the top bar follow the new brand colours.");
       },
       onError: (e) => t.failed(e),
     }),
@@ -52,9 +52,9 @@ export function BusinessTab() {
           <SimpleSelect id="biz-archetype" value={archetype} onValueChange={(v) => setArchetype(v as Archetype)} placeholder="Choose an archetype" options={ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))} />
         </Field>
       </SettingsSection>
-      <SettingsSection title="Crest and brand colours">
+      <SettingsSection title="Logo and brand colours">
         <div className="flex items-start gap-4">
-          <Crest seed={b.slug || b.id} kitPrimary={HEX_RE.test(primary) ? primary : b.kitPrimary} kitSecondary={HEX_RE.test(secondary) ? secondary : b.kitSecondary} monogram={monogram(name || b.name)} size={96} title={`${name} crest`} />
+          <Crest seed={b.slug || b.id} kitPrimary={HEX_RE.test(primary) ? primary : b.kitPrimary} kitSecondary={HEX_RE.test(secondary) ? secondary : b.kitSecondary} monogram={monogram(name || b.name)} size={96} title={`${name} logo`} />
           <div className="flex flex-1 flex-col gap-3">
             <FormRow>
               <Field htmlFor="kit-primary" label="Primary colour" error={HEX_RE.test(primary) ? undefined : "Use a 6-digit hex colour"}>
@@ -64,7 +64,7 @@ export function BusinessTab() {
                 <Input id="kit-secondary" mono value={secondary} onChange={(e) => setSecondary(e.target.value)} trailing={<span aria-hidden className="inline-block h-4 w-4 rounded-chip border border-subtle" style={{ background: HEX_RE.test(secondary) ? secondary : "transparent" }} />} />
               </Field>
             </FormRow>
-            <Hint>The crest is generated from the slug and these colours; text on the primary colour is computed for contrast (APCA Lc ≥ 75).</Hint>
+            <Hint>The logo is generated from the slug and these colours; text on the primary colour is computed for contrast (APCA Lc ≥ 75).</Hint>
           </div>
         </div>
         <SaveBar

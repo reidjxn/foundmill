@@ -278,7 +278,7 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
         {!compact || focused ? <ProvenanceChip kind="estimate" className="h-4 px-1 text-[10px]" /> : null}
         {session.lastNote && (!compact || focused) ? (
           <span className={cn("min-w-0 flex-1 truncate", session.lastNote.level === "error" ? "text-status-bad" : session.lastNote.level === "warn" ? "text-status-warn" : "text-primary")} title={session.lastNote.text}>
-            {session.lastNote.source === "shout" ? "Shout: " : ""}
+            {session.lastNote.source === "shout" ? "Nudge: " : ""}
             {session.lastNote.text}
           </span>
         ) : null}

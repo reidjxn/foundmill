@@ -69,7 +69,7 @@ describe("rows (DESIGN §9)", () => {
     expect(neighbourId(ids, "zz", "prev")).toBe("a");
     expect(neighbourId([], "a", "next")).toBeNull();
   });
-  it("indexes agents by id from the departments' squads", () => {
+  it("indexes agents by id from the departments' teams", () => {
     const idx = agentIndex([
       { id: "d1", name: "Distribution", colourToken: "dept-1", squad: [{ id: "a1", name: "Mara", role: "Lifecycle", avatarSeed: "s1" }] },
       { id: "d2", name: "Finance", colourToken: "dept-2", squad: [{ id: "a1", name: "Mara", role: "Lifecycle", avatarSeed: "s1" }, { id: "a2", name: "Finn", role: "Analyst", avatarSeed: "" }] },

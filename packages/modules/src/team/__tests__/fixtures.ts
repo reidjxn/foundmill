@@ -31,7 +31,7 @@ export const agentsResponse: AgentsListResponse = { agents, templates: ["chief_o
 export const emptyAgentsResponse: AgentsListResponse = { agents: [], templates: [] };
 
 export const departments: DepartmentRow[] = [
-  { id: DEPT_TEAM, name: "Team", slug: "team", colourToken: "dept-5", position: 0, moduleKeys: ["team"], leadAgentId: AGENT_COS, lead: { id: AGENT_COS, name: "Orla", status: "healthy", avatarSeed: "orla" }, squad: [], tabs: [{ id: "t1", slug: "squad", title: "Squad", position: 0 }, { id: "t2", slug: "recruitment", title: "Recruitment", position: 5 }] },
+  { id: DEPT_TEAM, name: "Team", slug: "team", colourToken: "dept-5", position: 0, moduleKeys: ["team"], leadAgentId: AGENT_COS, lead: { id: AGENT_COS, name: "Orla", status: "healthy", avatarSeed: "orla" }, squad: [], tabs: [{ id: "t1", slug: "squad", title: "Team", position: 0 }, { id: "t2", slug: "recruitment", title: "Recruitment", position: 5 }] },
   { id: DEPT_DEV, name: "Development", slug: "development", colourToken: "dept-2", position: 1, moduleKeys: ["development"], leadAgentId: AGENT_PIKE, lead: { id: AGENT_PIKE, name: "Pike", status: "degraded", avatarSeed: "pike" }, squad: [], tabs: [{ id: "t3", slug: "plan", title: "Plan", position: 0 }] },
   { id: DEPT_DIST, name: "Distribution", slug: "distribution", colourToken: "dept-3", position: 2, moduleKeys: ["distribution"], leadAgentId: null, lead: null, squad: [], tabs: [] },
 ];
@@ -63,7 +63,7 @@ export const responsibilities: ResponsibilitiesResponse = {
 };
 
 export const catalogue: TemplateRow[] = [
-  { key: "chief_of_staff", name: "Chief of Staff", role: "Assistant manager", family: "assistant", layer: "assistant", module: "team", modelKey: "opus", description: "Plans every cycle, routes work and compiles your notes into plans.", skills: ["planning", "prioritisation"], wageCapMinor: 60_000, wageLabel: "Estimate", traits: ["Asks before spending"] },
+  { key: "chief_of_staff", name: "Chief of Staff", role: "Chief of Staff", family: "assistant", layer: "assistant", module: "team", modelKey: "opus", description: "Plans every cycle, routes work and compiles your notes into plans.", skills: ["planning", "prioritisation"], wageCapMinor: 60_000, wageLabel: "Estimate", traits: ["Asks before spending"] },
   { key: "engineering_lead", name: "Engineering lead", role: "Lead", family: "lead", layer: "lead", module: "development", modelKey: "opus", description: "Breaks the roadmap into tasks, reviews pull requests and keeps the main branch green.", skills: ["architecture", "review"], wageCapMinor: 50_000, wageLabel: "Estimate" },
   { key: "frontend_engineer", name: "Frontend engineer", role: "Worker", family: "worker", layer: "worker", module: "development", modelKey: "sonnet", description: "Builds screens and components with tests first.", skills: ["react", "testing"], wageCapMinor: 30_000, wageLabel: "Estimate", traits: ["Writes tests first"] },
   { key: "newsletter_writer", name: "Newsletter writer", role: "Worker", family: "worker", layer: "worker", module: "distribution", modelKey: "sonnet", description: "Writes the weekly customer newsletter and drafts replies; asks before sending.", skills: ["copywriting", "email"], wageCapMinor: 15_000, wageLabel: "Estimate" },

@@ -67,8 +67,8 @@ export function generateCoach(ctx: MockContext): CoachOutput {
 
   const summary =
     edits.length === 0
-      ? "No safe edits proposed: every candidate would have touched a club rule, so the instructions stay as they are."
-      : `${edits.length} edit${edits.length === 1 ? "" : "s"} targeting ${edits.map((e) => e.skill).join(", ")}; expected gains are estimates until the next training run confirms them. Club rules are untouched.`;
+      ? "No safe edits proposed: every candidate would have touched a house rule, so the instructions stay as they are."
+      : `${edits.length} edit${edits.length === 1 ? "" : "s"} targeting ${edits.map((e) => e.skill).join(", ")}; expected gains are estimates until the next training run confirms them. House rules are untouched.`;
   return { summary, edits };
 }
 

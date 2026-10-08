@@ -28,7 +28,7 @@ function jobAt(t: number): ImportJob {
 }
 
 const report: ScoutingReport = {
-  title: "Scouting report: Ledgerly",
+  title: "Import report: Ledgerly",
   suggestedName: "Ledgerly",
   archetypeHint: "b2b_saas",
   summary: "Ledgerly: 2 sources imported.",
@@ -108,7 +108,7 @@ describe("ImportFlow (BUILD §11.1 Door B, AC-11.1.5)", () => {
     await waitFor(() => expect(screen.getByTestId("scouting-report")).toBeTruthy());
     expect(runner.polls).toBe(3);
     expect(screen.getByTestId("never-pushed").textContent).toMatch(/Nothing was pushed/);
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Scouting report: Ledgerly");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Import report: Ledgerly");
     expect(screen.getByTestId("roadmap-seeds").querySelectorAll("li").length).toBeGreaterThanOrEqual(3);
     expect(screen.getByTestId("first-decisions").querySelectorAll("[data-recommended]")).toHaveLength(1);
     expect(document.querySelectorAll('[data-source-progress][data-status="done"]')).toHaveLength(2);

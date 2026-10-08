@@ -131,7 +131,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
         >
           {hasData && scored === 0 ? (
             <p className="mb-2 text-small text-secondary" role="status">
-              All 15 channels are on the bench. The Distribution Strategist scores each one 1–20 for fit and walks 3 to 6 starters onto the Board.
+              All 15 channels are off the board. The Distribution Strategist scores each one 1–20 for fit and puts 3 to 6 starters on the Board.
             </p>
           ) : null}
           <InlineError error={action.error} className="mb-2" />

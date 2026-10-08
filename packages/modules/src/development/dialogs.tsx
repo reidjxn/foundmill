@@ -32,7 +32,7 @@ export function ReassignDialog({ open, onOpenChange, taskTitle, currentAgentId, 
         </DialogHeader>
         <DialogBody>
           <Field htmlFor={`${id}-agent`} label="New agent">
-            <SimpleSelect id={`${id}-agent`} aria-label="New agent" options={options} value={agentId || undefined} onValueChange={setAgentId} placeholder={options.length ? "Choose an agent" : "No other agents in the squad"} disabled={!options.length} />
+            <SimpleSelect id={`${id}-agent`} aria-label="New agent" options={options} value={agentId || undefined} onValueChange={setAgentId} placeholder={options.length ? "Choose an agent" : "No other agents in the team"} disabled={!options.length} />
           </Field>
           <InlineError error={error} className="mt-2" />
         </DialogBody>

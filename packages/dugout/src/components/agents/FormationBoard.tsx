@@ -188,9 +188,9 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
   return (
     <MotionConfig reducedMotion="user">
       <LayoutGroup>
-        <section aria-label="Formation Board" className={cn("flex min-w-0 flex-col gap-2", className)} data-formation-board data-walked-on={walkedOn || undefined}>
+        <section aria-label="Channel Board" className={cn("flex min-w-0 flex-col gap-2", className)} data-formation-board data-walked-on={walkedOn || undefined}>
           <p id={hintId} className="sr-only">
-            Drag a channel between the board and the bench, or focus it and press Enter to move it. Press O to open the channel.
+            Drag a channel on or off the board, or focus it and press Enter to move it. Press O to open the channel.
           </p>
           <p id={liveId} aria-live="polite" className="sr-only">
             {announce}
@@ -213,7 +213,7 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
               ))}
             </div>
           </div>
-          <div data-drop-zone="bench" role="group" aria-label={`Bench: ${benchLabel}`} className="surface-panel flex min-h-28 flex-col gap-2 p-3">
+          <div data-drop-zone="bench" role="group" aria-label={`Off the board: ${benchLabel}`} className="surface-panel flex min-h-28 flex-col gap-2 p-3">
             <p className="t-label">{benchLabel}</p>
             <div className="flex flex-wrap gap-3">{bench.map((c) => renderToken(c, "bench"))}</div>
             {bench.length === 0 ? <p className="text-small text-secondary">Every channel is on the board.</p> : null}

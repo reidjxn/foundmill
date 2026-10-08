@@ -106,7 +106,7 @@ describe("tokens and status", () => {
   it("words the status", () => {
     expect(channelStatus({ enabled: true, paused: false, persisted: true })).toEqual({ tone: "good", word: "Running" });
     expect(channelStatus({ enabled: true, paused: true, persisted: true })).toEqual({ tone: "warn", word: "Paused" });
-    expect(channelStatus({ enabled: false, paused: false, persisted: true })).toEqual({ tone: "neutral", word: "On the bench" });
+    expect(channelStatus({ enabled: false, paused: false, persisted: true })).toEqual({ tone: "neutral", word: "Off the board" });
     expect(channelStatus({ enabled: false, paused: false, persisted: false })).toEqual({ tone: "neutral", word: "Not scored" });
   });
 });

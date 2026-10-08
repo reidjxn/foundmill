@@ -9,7 +9,7 @@ const meta = {
   title: "Shell/Panel",
   component: Panel,
   parameters: { docs: { description: { component: "bg-panel, hairline, 4 px radius, inner highlight, no shadow. 32 px raised header with the title in label style and a caret menu (swap content, settings, Pin to Home). Loading shows a skeleton, never a spinner; empty and error states replace the body." } } },
-  args: { title: "Channel form guide", span: 6, children: <p className="text-body">Body content.</p>, menu: { onSwap: () => {}, onSettings: () => {}, onPinToHome: () => {} } },
+  args: { title: "Channel performance", span: 6, children: <p className="text-body">Body content.</p>, menu: { onSwap: () => {}, onSettings: () => {}, onPinToHome: () => {} } },
   argTypes: { span: { control: "select", options: [3, 4, 6, 8, 12] } },
   decorators: [
     (Story) => (

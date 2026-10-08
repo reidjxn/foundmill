@@ -11,7 +11,7 @@ import { createFakeSource, renderScreen } from "./fake-source";
 
 const props = { businessId: BID, departmentId: DEPT_TEAM };
 
-describe("squad rows", () => {
+describe("team rows", () => {
   it("maps an API agent row onto Dugout's SquadRow (tools from keys or grants, rating from skills, wage estimate)", () => {
     const juno = agents.find((a) => a.id === AGENT_JUNO)!;
     const row = toSquadRow(juno, "EUR");
@@ -42,10 +42,10 @@ describe("squad rows", () => {
 });
 
 describe("SquadScreen", () => {
-  it("renders the squad table with the exact columns, Down with expected return, and the saved views", async () => {
+  it("renders the team table with the exact columns, Down with expected return, and the saved views", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <SquadScreen {...props} />);
-    const table = await screen.findByRole("grid", { name: "Squad" });
+    const table = await screen.findByRole("grid", { name: "Agents" });
     expect(within(table).getAllByRole("row")).toHaveLength(agents.length + 1);
     const headers = within(table).getAllByRole("columnheader").map((h) => h.textContent?.replace(/Resize.*$/, "").trim());
     // The General view hides Tools and Wage (reachable from the column chooser); the other nine are the §11.9 columns in order.
@@ -65,7 +65,7 @@ describe("SquadScreen", () => {
   it("flips a row's status the moment agent.health_changed arrives and refetches once (AC-11.9.1)", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <SquadScreen {...props} />);
-    const table = await screen.findByRole("grid", { name: "Squad" });
+    const table = await screen.findByRole("grid", { name: "Agents" });
     expect(within(table).getAllByText("Healthy")).toHaveLength(2);
     const before = Date.now();
     act(() => {
@@ -88,7 +88,7 @@ describe("SquadScreen", () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: (path) => (path === "agent.model.set" ? { updated: [AGENT_JUNO, "x"], skipped: [], warnings: [], retests: [{ runId: "r1" }, { runId: "r2" }] } : {}) });
     renderScreen(fake, <SquadScreen {...props} />);
-    const table = await screen.findByRole("grid", { name: "Squad" });
+    const table = await screen.findByRole("grid", { name: "Agents" });
     const junoRow = within(table).getByRole("link", { name: "Juno" }).closest("[role='row']") as HTMLElement;
     await user.click(within(junoRow).getByRole("button", { name: "Sonnet" }));
     const dialog = await screen.findByTestId("model-dialog");
@@ -108,7 +108,7 @@ describe("SquadScreen", () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: () => ({ id: "new", name: "Juno II" }) });
     renderScreen(fake, <SquadScreen {...props} />);
-    const table = await screen.findByRole("grid", { name: "Squad" });
+    const table = await screen.findByRole("grid", { name: "Agents" });
     fireEvent.contextMenu(within(table).getByText("Chief of Staff"));
     const menu = await screen.findByRole("menu");
     expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Open profile", "Change model (Opus)", "Clone…", "Loan to department…", "Release"]);
@@ -121,7 +121,7 @@ describe("SquadScreen", () => {
     await user.click(within(clone).getByRole("checkbox", { name: "Distribution" }));
     await user.click(within(clone).getByTestId("clone-confirm"));
     await waitFor(() => expect(fake.mutations[0]).toEqual({ path: "team.agents.clone", input: { agentId: AGENT_JUNO, name: "Juno II", departmentIds: [expect.any(String), expect.any(String)] } }));
-    await waitFor(() => expect(screen.getByTestId("model-notice").textContent).toBe("Juno II joined the squad."));
+    await waitFor(() => expect(screen.getByTestId("model-notice").textContent).toBe("Juno II joined the team."));
   });
 
   it("loans and releases from the context menu, keeping the dialog open on an API error", async () => {
@@ -136,7 +136,7 @@ describe("SquadScreen", () => {
       },
     });
     renderScreen(fake, <SquadScreen {...props} />);
-    const table = await screen.findByRole("grid", { name: "Squad" });
+    const table = await screen.findByRole("grid", { name: "Agents" });
     fireEvent.contextMenu(within(table).getByText("Email engine"));
     await user.click(await screen.findByRole("menuitem", { name: "Loan to department…" }));
     const loan = await screen.findByTestId("loan-dialog");

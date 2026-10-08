@@ -11,7 +11,7 @@ import { TrophyCabinet } from "./TrophyCabinet";
 const cards = departmentCardFixtures();
 
 describe("DepartmentCard", () => {
-  it("renders each health state with a worded pill, the squad strip and the metric", () => {
+  it("renders each health state with a worded pill, the team strip and the metric", () => {
     const { container } = render(
       <>
         {cards.map((d) => (
@@ -90,7 +90,7 @@ describe("TrophyCabinet", () => {
 });
 
 describe("DayDigest", () => {
-  it("shows the day's numbers, wins and squad hours", async () => {
+  it("shows the day's numbers, wins and team hours", async () => {
     const user = userEvent.setup();
     const data = generateJourneyFixture({ days: 40, seed: "digest" });
     const index = indexDailyRows(data.rows, RIBBON_DEPARTMENTS);

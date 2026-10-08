@@ -32,7 +32,7 @@ test.describe("commit", () => {
     await expect(page.getByLabel(/Business name/)).not.toHaveValue("Stripe Ledger");
   });
 
-  test("crest preview follows the name and the brand colours; the contrast check reads the primary", async ({ page }) => {
+  test("logo preview follows the name and the brand colours; the contrast check reads the primary", async ({ page }) => {
     const crest = page.getByTestId("crest-preview").locator("[data-crest-seed]");
     const seedBefore = await crest.getAttribute("data-crest-seed");
     await page.getByTestId("shuffle-crest").click();

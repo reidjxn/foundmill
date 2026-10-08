@@ -62,7 +62,7 @@ test.describe("onboarding", () => {
     await name.fill("");
     await page.getByTestId("profile-submit").click();
     // The field error and the footer count are both alerts: the name field's error is the one that matters here.
-    await expect(page.getByRole("alert").filter({ hasText: "Tell the squad what to call you." })).toBeVisible();
+    await expect(page.getByRole("alert").filter({ hasText: "Tell the team what to call you." })).toBeVisible();
     await expect(page.getByRole("alert").filter({ hasText: /field(s)? to complete/ })).toBeVisible();
     await expect(page).toHaveURL(/\/onboarding$/);
     await name.fill("Playwright Founder");

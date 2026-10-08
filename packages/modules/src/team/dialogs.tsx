@@ -92,7 +92,7 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
           <Field htmlFor={`${id}-name`} label="Name" hint="Leave empty to keep the template's name.">
             <Input id={`${id}-name`} value={name} maxLength={80} onChange={(e) => setName(e.target.value)} placeholder={template?.name} />
           </Field>
-          <p className="text-small text-secondary">The first training run sets the skills and the agent appears in the squad table straight away.</p>
+          <p className="text-small text-secondary">The first training run sets the skills and the agent appears in the team table straight away.</p>
           <InlineError error={action.error} />
         </DialogBody>
         <DialogFooter>
@@ -135,7 +135,7 @@ export function ReleaseDialog({ agent, onOpenChange, onReleased }: ReleaseDialog
         <DialogHeader>
           <DialogTitle>Release {agent?.name}</DialogTitle>
           <DialogDescription id={`${id}-desc`}>
-            {cos ? "The Chief of Staff plans every cycle and cannot be released." : `${agent?.name} leaves the squad. Running tasks stop and its history and logs stay on the profile. Nothing is deleted.`}
+            {cos ? "The Chief of Staff plans every cycle and cannot be released." : `${agent?.name} leaves the team. Running tasks stop and its history and logs stay on the profile. Nothing is deleted.`}
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
@@ -267,7 +267,7 @@ export function LoanDialog({ agent, onOpenChange, departments, onLoaned }: LoanD
       <DialogContent size="sm" aria-describedby={`${id}-desc`} data-testid="loan-dialog">
         <DialogHeader>
           <DialogTitle>Loan {agent?.name}</DialogTitle>
-          <DialogDescription id={`${id}-desc`}>The agent joins another department's squad and keeps its skills, tools and model.</DialogDescription>
+          <DialogDescription id={`${id}-desc`}>The agent joins another department's team and keeps its skills, tools and model.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-1">

@@ -381,7 +381,7 @@ function NotesTab({ get, businessId }: { get: EntityGet; businessId: string }) {
           </Button>
         </form>
       </Panel>
-      <Panel title="Notes" span={12} loading={notesQ.isLoading && !notesQ.data} empty={!notesQ.isLoading && notes.length === 0 ? { children: "Notes from you and the squad appear here, newest first." } : undefined} data-testid="notes-list">
+      <Panel title="Notes" span={12} loading={notesQ.isLoading && !notesQ.data} empty={!notesQ.isLoading && notes.length === 0 ? { children: "Notes from you and the team appear here, newest first." } : undefined} data-testid="notes-list">
         <ul className="flex flex-col gap-3">
           {notes.map((n) => (
             <li key={n.id} className="flex flex-col gap-0.5">

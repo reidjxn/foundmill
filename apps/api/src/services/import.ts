@@ -426,7 +426,7 @@ export function buildScoutingReport(configs: readonly SourceConfig[], job?: Impo
   ];
   const roadmapSeeds = seedsFor(configs, rng);
   const summary = `${name}: ${whatExists.length} source${whatExists.length === 1 ? "" : "s"} imported. ${strengths[0] ?? ""} ${whatIsMissing[0] ?? ""}`.trim();
-  return { title: `Scouting report: ${name}`, suggestedName: name, archetypeHint, summary, whatExists, whatIsMissing, strengths, weaknesses, firstDecisions, roadmapSeeds, neverPushed: true, provenance: "Estimate" };
+  return { title: `Import report: ${name}`, suggestedName: name, archetypeHint, summary, whatExists, whatIsMissing, strengths, weaknesses, firstDecisions, roadmapSeeds, neverPushed: true, provenance: "Estimate" };
 }
 
 // --- start / status -------------------------------------------------------------------------------------------------

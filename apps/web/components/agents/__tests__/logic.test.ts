@@ -107,7 +107,7 @@ describe("instructions and versions", () => {
       [1, "retired", "System"],
     ]);
   });
-  it("places club-rule violations on the matching line (AC-11.10.4)", () => {
+  it("places house-rule violations on the matching line (AC-11.10.4)", () => {
     const instructions = parseInstructions({ role: "r", rules: ["Always ask", "Transfer funds without asking"], playbook: ["Plan"], examples: [{ input: "q", output: "Sign the contract yourself" }] });
     const flags = violationsToEditor([{ line: "rules: Transfer funds without asking", reason: "Hard gate: money" }, { line: "Sign the contract yourself", reason: "Hard gate: signing" }, { line: "unmatched", reason: "x" }], instructions);
     expect(flags).toEqual([

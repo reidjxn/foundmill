@@ -178,7 +178,7 @@ const b2bSaas = ArchetypeSeed.parse({
     "b2b_saas",
     "Where should the first customer come from?",
     [
-      "The squad is hired and the first cycle has started. Development is planning the first vertical slice; Distribution has scored the channels.",
+      "The team is hired and the first cycle has started. Development is planning the first vertical slice; Distribution has scored the channels.",
       "The Board asks for one decision before spending: which route to the first paying customer should take priority this chapter?",
     ],
     [
@@ -242,7 +242,7 @@ const consumerApp = ArchetypeSeed.parse({
     "consumer_app",
     "Paid acquisition or organic first?",
     [
-      "The squad is in place. Distribution has a formation ready; Development is planning onboarding.",
+      "The team is in place. Distribution has a formation ready; Development is planning onboarding.",
       "Consumer apps live or die on cost per activated user. The Board asks how the first budget should be spent.",
     ],
     [
@@ -266,7 +266,7 @@ const consumerApp = ArchetypeSeed.parse({
         id: "organic_only",
         label: "Organic only until retention is proven",
         recommended: false,
-        consequence: "No spend, slow signal; the squad focuses on retention loops first.",
+        consequence: "No spend, slow signal; the team focuses on retention loops first.",
         costMinor: 0,
         reversible: true,
       },

@@ -9,7 +9,7 @@ import { ProfileHeader } from "./ProfileHeader";
 const meta = {
   title: "Shell/ProfileHeader",
   component: ProfileHeader,
-  parameters: { layout: "fullscreen", docs: { description: { component: "96 px: avatar or crest 64 px, name display-md, role and kind chips, three key facts, actions right, model chip (mono) and current/potential stars (DESIGN §8)." } } },
+  parameters: { layout: "fullscreen", docs: { description: { component: "96 px: avatar or logo 64 px, name display-md, role and kind chips, three key facts, actions right, model chip (mono) and current/potential stars (DESIGN §8)." } } },
   args: {
     avatar: <Avatar name="Scout" size={64} agent={{ seed: "scout", dept: "dept-3" }} status="healthy" />,
     name: "Scout",

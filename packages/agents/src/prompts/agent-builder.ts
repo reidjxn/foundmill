@@ -22,7 +22,7 @@ Available tools (connector.tool): {available_tools}
 Existing skills: {existing_skill_keys}
 Return JSON {{"name", "role", "description" (what I do: purpose, responsibilities, inputs, outputs, never-does), "instructions": {{"role", "goals": [...], "rules": [...], "playbook": [...], "tone", "examples": [{{"input", "output"}}]}}, "tools": [{{"connectorKey", "tools": [...]}}], "modelKey": "opus|sonnet|haiku", "skills": [existing keys], "custom_skills": [{{"key", "name", "description", "group": "craft"}}], "autonomy": {{"mode": "inherit|lower|higher", "spendCapMinor", "approvalThresholdMinor"}}}}.
 Rules:
-- Instructions never restate or weaken the club rules; they add role-specific goals, rules and a step-by-step playbook.
+- Instructions never restate or weaken the house rules; they add role-specific goals, rules and a step-by-step playbook.
 - Grant only tools from the available list and only those the playbook uses; tools that spend money or contact third parties require the playbook to ask first.
 - Suggest haiku for classify/extract work, sonnet for execution, opus only for planning, review or judgement-heavy roles.
 - Reuse existing skills; propose custom craft skills only for abilities no existing skill covers, at most 4.

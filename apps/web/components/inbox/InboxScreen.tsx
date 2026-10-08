@@ -29,10 +29,10 @@ export const INBOX_LIST_WIDTH = 380;
 const PAGE = 50;
 
 const EMPTY_TEXT: Record<InboxTab, string> = {
-  all: "Notes from the squad arrive here after each cycle. Press R to pull one now.",
+  all: "Notes from the team arrive here after each cycle. Press R to pull one now.",
   respond: "Nothing waits for an answer. Continue is free to run.",
   customers: "Won customers appear here with their Customer Update.",
-  updates: "Updates, milestones and reports from the squad land here.",
+  updates: "Updates, milestones and reports from the team land here.",
   messages: "Messages from other founders on LIVE arrive here.",
   archive: "Decided and archived notes are kept here.",
 };
@@ -114,7 +114,7 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
     const gate = refreshGate(lastRefresh.current, Date.now());
     if (!gate.allowed || refresh.isPending) {
       setWaitMs(gate.waitMs);
-      toast({ id: "inbox-refresh-wait", title: "One note at a time", description: `Refresh settles for ${Math.ceil(gate.waitMs / 1000)} s so the squad never invents events.`, tone: "info", duration: 2000 });
+      toast({ id: "inbox-refresh-wait", title: "One note at a time", description: `Refresh settles for ${Math.ceil(gate.waitMs / 1000)} s so the team never invents events.`, tone: "info", duration: 2000 });
       return;
     }
     lastRefresh.current = Date.now();

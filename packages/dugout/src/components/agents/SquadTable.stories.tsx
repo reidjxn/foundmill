@@ -22,8 +22,8 @@ function Squad() {
         activeViewId={active}
         onViewsChange={setViews}
         onActiveViewChange={setActive}
-        title="Squad"
-        aria-label="Squad"
+        title="Team"
+        aria-label="Team"
         height={560}
       />
       <p className="text-small text-secondary">{picked ? `Model chip clicked for ${picked}: the app opens the model picker, then ApplyScopeDialog.` : "Click a model chip to change the model."}</p>
@@ -32,7 +32,7 @@ function Squad() {
 }
 
 const meta = {
-  title: "Agents/Squad table",
+  title: "Agents/Team table",
   component: Squad,
   parameters: { layout: "padded" },
 } satisfies Meta<typeof Squad>;

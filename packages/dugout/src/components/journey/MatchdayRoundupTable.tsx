@@ -98,7 +98,7 @@ export function MatchdayRoundupTable({ rows, day, onOpenReplay, onOpenEntity, en
                 Customer
               </th>
               <th scope="col" className="h-row-compact px-2 text-left t-label">
-                Captain channel
+                Lead channel
               </th>
               <th scope="col" className="h-row-compact px-2 text-right t-label">
                 Touches

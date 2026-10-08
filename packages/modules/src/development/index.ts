@@ -19,7 +19,7 @@ const COMPONENTS: Record<string, ModuleScreen["Component"]> = {
 const SUB_VIEWS: Record<string, ModuleScreen["subViews"]> = {
   "training-ground": [
     { slug: "tiles", title: "Tiles" },
-    { slug: "formation", title: "Formation" },
+    { slug: "formation", title: "Task graph" },
   ],
 };
 

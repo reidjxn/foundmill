@@ -28,7 +28,7 @@ export const departments: DepartmentRow[] = [
       { id: AGENT.cove, name: "Cove", role: "Frontend", status: "idle", modelKey: "sonnet", avatarSeed: "cove" },
     ],
     tabs: [
-      { id: uuid(1, "b"), slug: "training-ground", title: "Training Ground", position: 0 },
+      { id: uuid(1, "b"), slug: "training-ground", title: "Live sessions", position: 0 },
       { id: uuid(2, "b"), slug: "plan", title: "Plan", position: 1 },
     ],
   },

@@ -98,7 +98,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
           </span>
         ),
       },
-      { id: "hired", accessorKey: "hired", header: "In squad", size: 90, meta: { numeric: true } },
+      { id: "hired", accessorKey: "hired", header: "In team", size: 90, meta: { numeric: true } },
     ],
     [currency],
   );
@@ -174,7 +174,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         empty={catalogue.data && rows.length === 0 ? { icon: Users, children: "The catalogue lists every agent template with its role, model and wage cap once the agents package is loaded." } : undefined}
         actions={
           <span className="text-small text-secondary tabular-nums" data-testid="catalogue-summary">
-            {rows.length} templates · {squad.length} in the squad
+            {rows.length} templates · {squad.length} in the team
           </span>
         }
         footer={notice ? <span data-testid="recruitment-notice">{notice}</span> : "Double-click or right-click a template to hire it into a department. Wage caps are estimates."}
@@ -184,7 +184,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
 
       <Panel
         span={12}
-        title="Squad moves"
+        title="Team moves"
         flush
         loading={agentsQuery.isLoading && !agentsQuery.data}
         error={agentsQuery.error ? agentsQuery.error.message : undefined}
@@ -192,7 +192,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         empty={agentsQuery.data && squad.length === 0 ? { icon: Users, children: "Hired agents appear here; right-click one to clone it, loan it to another department or release it." } : undefined}
         footer="Release stops running tasks and keeps the history. Clone copies instructions, tools, model and skills. Loan adds a department; move replaces it."
       >
-        <DataTable<AgentRow> aria-label="Squad moves" data={squad} columns={movesColumns} views={movesViews} onViewsChange={setMovesViews} defaultViewId="all" rowActions={movesActions} onRowOpen={(a) => open(a.id)} height={Math.min(420, Math.max(200, squad.length * 28 + 48))} exportFileName="squad-moves" className="border-0" />
+        <DataTable<AgentRow> aria-label="Team moves" data={squad} columns={movesColumns} views={movesViews} onViewsChange={setMovesViews} defaultViewId="all" rowActions={movesActions} onRowOpen={(a) => open(a.id)} height={Math.min(420, Math.max(200, squad.length * 28 + 48))} exportFileName="squad-moves" className="border-0" />
       </Panel>
 
       <HireDialog
@@ -209,7 +209,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         }}
       />
       <ReleaseDialog agent={release} onOpenChange={(o) => !o && setRelease(null)} onReleased={(a) => { setNotice(`${a.name} released.`); refetch(); }} />
-      <CloneDialog agent={clone} onOpenChange={(o) => !o && setClone(null)} departments={departments.data} onCloned={(c) => { setNotice(`${c.name} joined the squad.`); refetch(); }} />
+      <CloneDialog agent={clone} onOpenChange={(o) => !o && setClone(null)} departments={departments.data} onCloned={(c) => { setNotice(`${c.name} joined the team.`); refetch(); }} />
       <LoanDialog agent={loan} onOpenChange={(o) => !o && setLoan(null)} departments={departments.data} onLoaned={(a, deptId, move) => { setNotice(`${a.name} ${move ? "moved to" : "on loan to"} ${departments.data?.find((d) => d.id === deptId)?.name ?? "another department"}.`); refetch(); }} />
     </Screen>
   );

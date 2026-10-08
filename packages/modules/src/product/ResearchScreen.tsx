@@ -168,7 +168,7 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
         loading={list.isLoading}
         error={err}
         onRetry={list.refetch}
-        empty={list.data && notes.length === 0 ? { icon: BookOpenText, title: "No research notes yet", children: "Interviews, feedback, documents and issues the squad has read appear here with a summary and the spec blocks they touch." } : undefined}
+        empty={list.data && notes.length === 0 ? { icon: BookOpenText, title: "No research notes yet", children: "Interviews, feedback, documents and issues the team has read appear here with a summary and the spec blocks they touch." } : undefined}
         footer={<span className="tabular-nums">{notes.length} notes · names link to the CRM</span>}
         flush
       >

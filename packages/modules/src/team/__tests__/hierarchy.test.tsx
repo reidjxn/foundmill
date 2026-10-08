@@ -37,11 +37,11 @@ describe("HierarchyScreen", () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <HierarchyScreen {...props} />);
-    const tree = await screen.findByRole("tree", { name: "Squad hierarchy" });
+    const tree = await screen.findByRole("tree", { name: "Team hierarchy" });
     const items = within(tree).getAllByRole("treeitem");
     expect(items).toHaveLength(agents.length + 1);
     expect(items[0]!.getAttribute("aria-label")).toBe("Reid, Founder, Founder");
-    expect(within(tree).getByRole("treeitem", { name: /Orla, Chief of Staff, Team, Assistant manager/ })).toBeTruthy();
+    expect(within(tree).getByRole("treeitem", { name: /Orla, Chief of Staff, Team, Chief of Staff/ })).toBeTruthy();
     expect(screen.getByTestId("hierarchy-summary").textContent).toBe("5 agents · 1 leads · 2 workers");
     await user.click(within(tree).getByRole("treeitem", { name: /Pike/ }));
     const detail = await screen.findByTestId("hierarchy-detail");
@@ -58,7 +58,7 @@ describe("HierarchyScreen", () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <HierarchyScreen {...props} />);
-    const tree = await screen.findByRole("tree", { name: "Squad hierarchy" });
+    const tree = await screen.findByRole("tree", { name: "Team hierarchy" });
     const founder = within(tree).getAllByRole("treeitem")[0]!;
     founder.focus();
     await user.keyboard("{ArrowDown}");

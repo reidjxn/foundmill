@@ -24,7 +24,7 @@ export interface BuildSystemPromptInput {
   glossary?: Record<string, string>;
 }
 
-export const CLUB_RULES_HEADER = "## Club rules";
+export const CLUB_RULES_HEADER = "## House rules";
 export const INSTRUCTIONS_HEADER = "## Your instructions";
 
 /** Render the structured instructions as the markdown block the runtime sends after the club rules. */
@@ -159,20 +159,20 @@ interface ActionPattern {
 /** Phrases that attack the rule set as a whole (any rule). */
 const META_OVERRIDES: { re: RegExp; reason: string }[] = [
   {
-    re: /\b(ignore|override|overrule|disable|bypass|skip|suspend|lift|drop|remove|forget|disregard|set aside|turn off|relax|waive)\b[^.]{0,40}\b(club rules?|fixed rules?|hard[- ]gates?|system (rules|block|prompt)|rules? (1|2|3|4|5|6|7|one|two|three|four|five|six|seven)\b|the rules? above|previous (rules|instructions)|safety rules)/i,
-    reason: "tries to switch off the club rules",
+    re: /\b(ignore|override|overrule|disable|bypass|skip|suspend|lift|drop|remove|forget|disregard|set aside|turn off|relax|waive)\b[^.]{0,40}\b((?:club|house) rules?|fixed rules?|hard[- ]gates?|system (rules|block|prompt)|rules? (1|2|3|4|5|6|7|one|two|three|four|five|six|seven)\b|the rules? above|previous (rules|instructions)|safety rules)/i,
+    reason: "tries to switch off the house rules",
   },
   {
-    re: /\b(club rules?|fixed rules?|hard[- ]gates?|rules? (1|2|3|4|5|6|7|one|two|three|four|five|six|seven))\b[^.]{0,30}\b(does not apply|do not apply|doesn't apply|don't apply|no longer appl|are suspended|is suspended|are optional|is optional|are lifted|is lifted|can be ignored|may be ignored|are waived|is waived)/i,
-    reason: "declares a club rule inapplicable",
+    re: /\b((?:club|house) rules?|fixed rules?|hard[- ]gates?|rules? (1|2|3|4|5|6|7|one|two|three|four|five|six|seven))\b[^.]{0,30}\b(does not apply|do not apply|doesn't apply|don't apply|no longer appl|are suspended|is suspended|are optional|is optional|are lifted|is lifted|can be ignored|may be ignored|are waived|is waived)/i,
+    reason: "declares a house rule inapplicable",
   },
   {
     re: /\b(these|your|the) (instructions|rules) (take precedence over|override|supersede|outrank|beat)\b[^.]{0,30}\b(club rules?|fixed rules?|system|hard[- ]gates?)/i,
-    reason: "claims precedence over the club rules",
+    reason: "claims precedence over the house rules",
   },
   {
     re: /\b(except|apart from|other than)\b[^.]{0,20}\b(club )?rule (1|2|3|4|5|6|7)\b/i,
-    reason: "carves out an exception to a numbered club rule",
+    reason: "carves out an exception to a numbered house rule",
   },
 ];
 

@@ -187,7 +187,7 @@ describe("generateSyntheticJourneyData — two years", () => {
     expect(agree / sample.length).toBeGreaterThan(0.98);
   });
 
-  it("names agents per department from the module roles and gives channels to the distribution squad", () => {
+  it("names agents per department from the module roles and gives channels to the distribution team", () => {
     expect(data.agents.filter((a) => a.departmentId === fid("d", 2)).length).toBe(7);
     expect(data.agents.some((a) => a.role === "Chief of Staff" && a.departmentId === fid("d", 3))).toBe(true);
     expect(data.agents.some((a) => a.channelKeys?.includes("email_automation"))).toBe(true);

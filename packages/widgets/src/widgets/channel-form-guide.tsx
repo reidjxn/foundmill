@@ -112,22 +112,22 @@ function ChannelFormGuideWidget({ settings }: WidgetProps<ChannelFormGuideSettin
   const openChannels = () => navigate(moduleHref(businessId, departments.data, "distribution", "channels") ?? moduleHref(businessId, departments.data, "distribution") ?? `/b/${businessId}/home`);
   return (
     <WidgetFrame
-      title="Channel form guide"
+      title="Channel performance"
       data-widget="channel_form_guide"
       queries={[channels, metrics]}
       flush
-      empty={channels.data && rows.length === 0 ? { icon: Megaphone, text: "No channels are on the board yet. Enable starters on the Formation board.", action: { label: "Open Formation", onClick: () => navigate(moduleHref(businessId, departments.data, "distribution", "formation") ?? `/b/${businessId}/home`) } } : null}
+      empty={channels.data && rows.length === 0 ? { icon: Megaphone, text: "No channels are on the board yet. Enable starters on the Channel board.", action: { label: "Open Formation", onClick: () => navigate(moduleHref(businessId, departments.data, "distribution", "formation") ?? `/b/${businessId}/home`) } } : null}
       actions={<ProvenanceChip kind="estimate" title="CPA = spend ÷ customers attributed to the channel" />}
       footer={<span>Form: each week's CPA against the channel's own median · last {FORM_WEEKS} weeks</span>}
     >
-      <MiniTable columns={columns} rows={rows} getRowKey={(r) => r.channelId} onRowClick={openChannels} aria-label="Channel form guide" emptyText="No channels." />
+      <MiniTable columns={columns} rows={rows} getRowKey={(r) => r.channelId} onRowClick={openChannels} aria-label="Channel performance" emptyText="No channels." />
     </WidgetFrame>
   );
 }
 
 export const channelFormGuideWidget = registerWidget<ChannelFormGuideSettings>({
   key: "channel_form_guide",
-  title: "Channel form guide",
+  title: "Channel performance",
   description: "Every channel's fit, five-week form and cost per customer.",
   icon: "megaphone",
   surfaces: ["home", "department"],

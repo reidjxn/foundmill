@@ -50,7 +50,7 @@ describe("keys.setAnthropic / validate / rotate / revoke (BUILD §10.2)", () => 
     await expect(hz.caller({ userId: hz.B.ownerId }).keys.setAnthropic({ businessId: hz.A.businessId, apiKey: KEY })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("rotate archives the previous credential; revoke pauses the squad and posts an Inbox note", async () => {
+  it("rotate archives the previous credential; revoke pauses the team and posts an Inbox note", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const rotated = await owner.keys.rotate({ businessId: hz.A.businessId, apiKey: `${KEY}-rotated` });
     const metas = await repos.credentials.listMetadata(hz.db, hz.A.businessId, { integrationId: rotated.integrationId });

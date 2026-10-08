@@ -595,7 +595,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   const token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, allowedTools: toolRefs(grants), ttlSeconds: SESSION_TOKEN_TTL_SECONDS });
   const mcpServers = Object.fromEntries(grants.map((g) => [g.connectorKey, { type: "http" as const, url: deps.gateway.mcpUrl(g.connectorKey), headers: deps.gateway.sessionHeaders(token.token) }]));
   const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary });
-  if (!hasClubRulesPrefix(systemPrompt)) throw new Error("club rules missing from the system prompt");
+  if (!hasClubRulesPrefix(systemPrompt)) throw new Error("house rules missing from the system prompt");
 
   const sdk = await import("@anthropic-ai/claude-agent-sdk");
   // SEC-3: the SDK process lives in a private per-session workspace (cwd, HOME, TMPDIR), with a from-scratch environment
@@ -620,7 +620,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     for (const c of await deps.control.drain(input.sessionId)) {
       const at = deps.clock.now().toISOString();
       if (c.kind === "shout") {
-        queue.push(`Founder shout: ${c.message}`);
+        queue.push(`Founder nudge: ${c.message}`);
         await recorder.publishRaw({ kind: "note", at, source: "shout", text: c.message.slice(0, 4000) });
       } else if (c.kind === "pause") {
         paused = true;

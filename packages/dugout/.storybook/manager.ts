@@ -5,7 +5,7 @@ import { create } from "storybook/theming/create";
 addons.setConfig({
   theme: create({
     base: "dark",
-    brandTitle: "Dugout",
+    brandTitle: "Foundmill design system",
     appBg: "#0f1318",
     appContentBg: "#171c23",
     appBorderColor: "#2a313b",

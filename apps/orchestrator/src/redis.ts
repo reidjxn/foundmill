@@ -61,7 +61,7 @@ export function chooseRedisBackend(env: { APP_ENV: string; REDIS_URL: string }, 
     return {
       kind: "memory",
       level: "warn",
-      message: `Redis is unreachable at ${url} (${probe.reason}); session streams and the control bus run in memory for this process: browser tabs will not receive live session events and shouts/pauses only reach sessions in this worker. Start Redis (or set REDIS_URL) to enable them.`,
+      message: `Redis is unreachable at ${url} (${probe.reason}); session streams and the control bus run in memory for this process: browser tabs will not receive live session events and nudges/pauses only reach sessions in this worker. Start Redis (or set REDIS_URL) to enable them.`,
     };
   }
   return {

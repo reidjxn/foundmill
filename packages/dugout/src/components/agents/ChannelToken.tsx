@@ -52,7 +52,7 @@ export const ChannelToken = forwardRef<HTMLButtonElement, ChannelTokenProps>(fun
   const fit = clampRating(channel.fit);
   const tone = ratingTone(fit);
   const label = channelLabel(channel.key);
-  const name = `${label}, fit ${fit} of 20 (${ratingBandLabel(fit)})${channel.recommended ? ", recommended" : ""}, ${channel.enabled ? "on the board" : "on the bench"}${channel.paused ? ", paused" : ""}`;
+  const name = `${label}, fit ${fit} of 20 (${ratingBandLabel(fit)})${channel.recommended ? ", recommended" : ""}, ${channel.enabled ? "on the board" : "off the board"}${channel.paused ? ", paused" : ""}`;
   return (
     <span className={cn("flex w-18 flex-col items-center gap-1", className)} data-channel={channel.key} data-enabled={channel.enabled} data-recommended={channel.recommended || undefined}>
       <button

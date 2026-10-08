@@ -82,9 +82,10 @@ export function generateCrest(spec: CrestSpec): string {
     : "";
 
   const fontSize = mono.length > 1 ? 30 : 36;
-  const title = esc(spec.title ?? "Crest");
+  const title = esc(spec.title ?? "Logo");
 
   return (
+    // vocab-allow: data-crest-* are DOM attribute names, not copy (the visible label is the title, "Logo" by default)
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"${dims} role="img" aria-label="${title}" data-crest-shape="${shape}" data-crest-division="${division}">` +
     `<title>${title}</title>` +
     `<defs><clipPath id="${id}"><path d="${path}"/></clipPath></defs>` +

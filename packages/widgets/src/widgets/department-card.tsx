@@ -75,7 +75,7 @@ export function nowLines(tasks: readonly TaskRow[], squad: readonly SquadMember[
     .filter((t) => (ACTIVE_TASK_STATUSES as readonly string[]).includes(t.status))
     .slice(0, max)
     .map((t) => {
-      const who = t.assigneeAgentId ? `[[ent:${t.assigneeAgentId}|${byId.get(t.assigneeAgentId) ?? "An agent"}]]` : "The squad";
+      const who = t.assigneeAgentId ? `[[ent:${t.assigneeAgentId}|${byId.get(t.assigneeAgentId) ?? "An agent"}]]` : "The team";
       return `${who} ${TASK_VERB[t.status] ?? "is on"} ${t.title}`;
     });
 }
@@ -125,7 +125,7 @@ export function headlineMetric(i: MetricInputs): DepartmentMetric {
     case "squad_health": {
       const healthy = i.squad.filter((m) => m.status === "healthy").length;
       const pct = i.squad.length ? Math.round((healthy / i.squad.length) * 100) : null;
-      return { label: "Squad health", value: pct === null ? "—" : `${pct}%`, series: dailySeries(i.rows, i.days, (r) => r.agentHours) };
+      return { label: "Team health", value: pct === null ? "—" : `${pct}%`, series: dailySeries(i.rows, i.days, (r) => r.agentHours) };
     }
     case "next_filing": {
       const dues = [...(i.compliance?.deadlines ?? []), ...(i.compliance?.filings ?? []).filter((f) => !f.filedAt), ...(i.compliance?.events ?? [])]
@@ -240,7 +240,7 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
 export const departmentCardWidget = registerWidget<DepartmentCardSettings>({
   key: "department_card",
   title: "Department card",
-  description: "Lead, health, squad, what is happening now, the headline metric and what is next for one department.",
+  description: "Lead, health, team, what is happening now, the headline metric and what is next for one department.",
   icon: "layout-grid",
   surfaces: ["home", "department"],
   defaultSize: { w: 4, h: 12, minW: 3, minH: 10 },

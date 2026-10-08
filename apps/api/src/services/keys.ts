@@ -95,8 +95,8 @@ export async function revokeAnthropicKey(ctx: BusinessContext): Promise<{ revoke
       const note = await repos.inbox.createItem(tx, ctx.businessId, {
         type: "warning",
         from_agent_id: chief.id,
-        subject: "Anthropic key revoked: squad paused",
-        body_md: "The Anthropic key was revoked, so every agent is paused until a new key is set in Settings → Keys. Nothing else changed; tasks resume where they stopped once the squad is back.",
+        subject: "Anthropic key revoked: team paused",
+        body_md: "The Anthropic key was revoked, so every agent is paused until a new key is set in Settings → Keys. Nothing else changed; tasks resume where they stopped once the team is back.",
         status_strip: [],
         exhibit: { kind: "none", spec_ref: null },
         decision: null,

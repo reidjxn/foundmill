@@ -56,7 +56,7 @@ describe("SpecialistsScreen", () => {
     const tile = within(grid).getByRole("article", { name: /Wren: Supplier brief/ });
     await user.click(within(tile).getByRole("button", { name: "Pause" }));
     expect(fake.mutations).toContainEqual({ path: "dev.tasks.pause", input: { taskId: TASK_SOURCING } });
-    await user.click(within(tile).getByRole("button", { name: "Shout to Wren" }));
+    await user.click(within(tile).getByRole("button", { name: "Nudge Wren" }));
     await user.click(await screen.findByRole("menuitem", { name: /Simplify/ }));
     expect(fake.mutations).toContainEqual({ path: "dev.tasks.shout", input: { taskId: TASK_SOURCING, preset: "Simplify" } });
   });

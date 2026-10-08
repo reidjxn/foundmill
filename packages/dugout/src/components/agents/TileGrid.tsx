@@ -228,15 +228,15 @@ export interface GroundViewToggleProps {
   className?: string;
 }
 
-/** Tiles / Formation toggle for the Training Ground header (BUILD §11.6 "Formation view toggle"). */
+/** Tiles / Task graph toggle for the Live sessions header (BUILD §11.6 "Formation view toggle"). */
 export function GroundViewToggle({ value, onChange, className }: GroundViewToggleProps) {
   return (
-    <div role="radiogroup" aria-label="Training Ground view" className={cn("inline-flex items-center gap-0.5 rounded-panel border border-subtle bg-panel-alt p-0.5", className)}>
+    <div role="radiogroup" aria-label="Live sessions view" className={cn("inline-flex items-center gap-0.5 rounded-panel border border-subtle bg-panel-alt p-0.5", className)}>
       <Button size="sm" variant={value === "tiles" ? "default" : "ghost"} icon={LayoutGrid} role="radio" aria-checked={value === "tiles"} onClick={() => onChange("tiles")} className="h-6 px-1.5">
         Tiles
       </Button>
       <Button size="sm" variant={value === "formation" ? "default" : "ghost"} icon={Network} role="radio" aria-checked={value === "formation"} onClick={() => onChange("formation")} className="h-6 px-1.5">
-        Formation
+        Task graph
       </Button>
     </div>
   );

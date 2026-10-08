@@ -10,6 +10,9 @@ import { buildManifest, stripInvalidMentions, validateMarkup, type ManifestEntit
 import { CommentaryOutput, type ModelClient, type ModelLogger } from "@foundmill/models";
 import { CHANNEL_META, type EntityKind } from "@foundmill/shared";
 
+/** The prompt sees the update level by its display name (brief / standard / featured), never the internal enum value. */
+const UPDATE_LEVEL_FOR_PROMPT = { friendly: "brief", league: "standard", cup: "featured" } as const;
+
 export interface CommentaryLine {
   /** Markdown with `[[ent:<id>|Name]]` mentions, validated against the manifest. */
   text: string;
@@ -80,7 +83,7 @@ export async function composeCommentary(deps: { db: Db; models: ModelClient; log
   });
   const customerTerm = business.glossary.customer ?? "customer";
   const touchCount = Math.max(1, touches.length);
-  const system = prompts.journeyCommentaryPrompt.render({ business_name: business.name, matchday_level: journey.matchdayLevel, customer_term: customerTerm, touch_count: touchCount });
+  const system = prompts.journeyCommentaryPrompt.render({ business_name: business.name, matchday_level: UPDATE_LEVEL_FOR_PROMPT[journey.matchdayLevel], customer_term: customerTerm, touch_count: touchCount });
   const inputs = {
     business_name: business.name,
     matchday_level: journey.matchdayLevel,

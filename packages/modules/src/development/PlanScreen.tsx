@@ -281,7 +281,7 @@ export function PlanScreen({ businessId }: ModuleScreenProps) {
                   Open in Claude Code
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => navigate(routes.department(businessId, deptSlug, "training-ground"))}>
-                  Training Ground
+                  Live sessions
                 </Button>
               </div>
             </div>

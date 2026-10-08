@@ -113,7 +113,7 @@ export async function seedFinance(ctx: SeedCtx, opts: FinanceSeedOptions): Promi
       for (const d of [7, 14, 21, 28]) push(monthDay(m, d, 6), net / 4, opts.payoutCounterparty, `${opts.payoutCounterparty} payout`, opts.payoutCategory);
     }
     const agentSpend = opts.agentSpendByMonth.get(m) ?? 0;
-    if (agentSpend > 0) push(monthDay(m, 28, 9), -agentSpend, APP_NAME, `${APP_NAME} squad usage (tokens, sandbox, tools)`, "agents");
+    if (agentSpend > 0) push(monthDay(m, 28, 9), -agentSpend, APP_NAME, `${APP_NAME} team usage (tokens, sandbox, tools)`, "agents");
     const adSpend = opts.adSpendByMonth.get(m) ?? 0;
     if (adSpend > 0) {
       push(monthDay(m, 15, 11), -adSpend * 0.6, "Meta Ads", "Advertising", "marketing");

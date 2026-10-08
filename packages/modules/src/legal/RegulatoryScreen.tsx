@@ -84,7 +84,7 @@ export function RegulatoryScreen({ businessId: _businessId }: ModuleScreenProps)
         </ul>
       </Panel>
 
-      <Panel title="While a gate is open" span={8} empty={blocked.length === 0 ? { icon: ShieldCheck, children: "No regulated-sector gate is open. The squad works under the platform's standard hard gates only." } : undefined} footer={<span>The squad never performs these until the gate clears; the Chief of Staff routes them to you as decisions instead.</span>}>
+      <Panel title="While a gate is open" span={8} empty={blocked.length === 0 ? { icon: ShieldCheck, children: "No regulated-sector gate is open. The team works under the platform's standard hard gates only." } : undefined} footer={<span>The team never performs these until the gate clears; the Chief of Staff routes them to you as decisions instead.</span>}>
         <ul aria-label="Blocked activities" className="flex flex-col gap-1">
           {blocked.map((b, i) => (
             <li key={`${b.gate}-${i}`} className="flex items-center gap-2">
@@ -101,7 +101,7 @@ export function RegulatoryScreen({ businessId: _businessId }: ModuleScreenProps)
         const state = gateState(key, chosen, done);
         const doneCount = gate.checklist.filter((i) => done.has(`${key}:${i.id}`)).length;
         return (
-          <Panel key={key} title={`${gate.label} checklist`} span={6} actions={<StatusPill tone={GATE_PILL[state].tone}>{GATE_PILL[state].word}</StatusPill>} footer={<span className="tabular-nums">{doneCount} of {gate.checklist.length} done · founder steps are yours; the squad prepares the rest</span>}>
+          <Panel key={key} title={`${gate.label} checklist`} span={6} actions={<StatusPill tone={GATE_PILL[state].tone}>{GATE_PILL[state].word}</StatusPill>} footer={<span className="tabular-nums">{doneCount} of {gate.checklist.length} done · founder steps are yours; the team prepares the rest</span>}>
             <ul aria-label={`${gate.label} checklist`} className="flex flex-col gap-2">
               {gate.checklist.map((item) => {
                 const itemId = `${key}:${item.id}`;
@@ -113,7 +113,7 @@ export function RegulatoryScreen({ businessId: _businessId }: ModuleScreenProps)
                       <Label htmlFor={itemId} className={cn("t-body-strong", checked ? "text-secondary line-through" : "text-primary")}>
                         {item.title}
                       </Label>
-                      {item.owner === "founder" ? <FounderOnlyChip className="ml-2" /> : <Chip tone="neutral" className="ml-2">Squad prepares</Chip>}
+                      {item.owner === "founder" ? <FounderOnlyChip className="ml-2" /> : <Chip tone="neutral" className="ml-2">Team prepares</Chip>}
                       <p className="t-small text-secondary">{item.detail}</p>
                     </div>
                     {checked ? <Check size={14} aria-hidden className="text-status-good" /> : null}

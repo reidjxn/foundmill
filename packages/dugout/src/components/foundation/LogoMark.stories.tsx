@@ -73,7 +73,7 @@ export const LockUp: Story = {
   render: () => (
     <div className="flex flex-col items-start gap-3 bg-base p-8 text-primary">
       <Wordmark height={28} />
-      <p className="t-body text-secondary">Build a real business with a squad of AI agents.</p>
+      <p className="t-body text-secondary">Build a real business with a team of AI agents.</p>
     </div>
   ),
 };

@@ -116,6 +116,24 @@ const ALLOW_MARKER = /vocab-allow/;
 const EMPLOYMENT_NOUN =
   "(?:employee|employees|employment|staff|hire|hires|hiring|job|jobs|role|roles|work|worker|workers|position|positions|contract|contracts|contractor|contractors|equivalent|equivalents|basis|founder|founders|co-?founder|co-?founders|member|members|team|salary|salaried|salaries|engineer|engineers|developer|developers|designer|designers|headcount|people|person|CEO|CTO|hours|schedule|commitment|pay|wage|wages|income|employ|employed)";
 const VOCAB_TERMS = [
+  // Founder, 2026-10-08: "team" not "squad", and nothing football-related in user-facing copy.
+  { term: "squad (use team)", re: /\bsquads?\b/gi },
+  { term: "dugout", re: /\bdugouts?\b/gi },
+  { term: "whistle", re: /\bwhistles?\b/gi },
+  { term: "match commentator / cup tie", re: /\bmatch\s+commentat\w+|\bcup\s+ties?\b/gi },
+  { term: "club (use business / house rules)", re: /\bclubs?\b/gi, allow: [/\b(?:golf|book|night|social|supper|running|fan|members'?|subscription|wine|loyalty)\s+clubs?\b/gi] },
+  { term: "crest (use logo)", re: /\bcrests?\b/gi },
+  { term: "shout (use nudge)", re: /\bshouts?\b/gi },
+  { term: "bench (use off the board)", re: /\b(?:the|to|on)\s+bench\b/gi },
+  { term: "formation board (use Channel Board)", re: /\bformation\s+board\b/gi },
+  { term: "training ground (use Live sessions)", re: /\btraining\s+ground\b/gi },
+  { term: "captain", re: /\bcaptains?\b/gi },
+  { term: "assistant manager (use Chief of Staff)", re: /\bassistant\s+manager\b/gi },
+  { term: "scouting report", re: /\bscouting\s+reports?\b/gi },
+  { term: "form guide", re: /\bform\s+guides?\b/gi },
+  { term: "line-up", re: /\b(?:starting\s+)?line[\s-]?ups?\b/gi },
+  { term: "player card / player's attributes", re: /\bplayer\s+cards?\b|\bplayer'?s\s+attributes\b/gi },
+  { term: "league position", re: /\bleague\s+(?:position|positions)\b/gi },
   { term: "Match Day", re: /\bmatch[\s-]?days?\b/gi },
   { term: "kick-off", re: /\bkick[\s-]?offs?\b/gi },
   { term: "team sheet", re: /\bteam[\s-]?sheets?\b/gi },

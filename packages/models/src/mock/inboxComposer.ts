@@ -165,7 +165,7 @@ function readVoice(ctx: MockContext): Voice {
   const raw = ctx.getRecord("from_agent", "agent", "author");
   const agentEntry = ctx.manifest.find((e) => e.kind === "agent");
   const name = (raw && typeof raw.name === "string" && raw.name) || ctx.getString("from_agent_name") || agentEntry?.name || "Chief of Staff";
-  const role = (raw && typeof raw.role === "string" && raw.role) || ctx.getString("from_agent_role") || agentEntry?.role || "assistant manager";
+  const role = (raw && typeof raw.role === "string" && raw.role) || ctx.getString("from_agent_role") || agentEntry?.role || "Chief of Staff";
   const idRaw = (raw && typeof raw.id === "string" && raw.id) || ctx.getString("from_agent_id") || agentEntry?.id;
   return { id: asUuid(idRaw, `${ctx.hash}:from_agent`), name, role };
 }
@@ -291,10 +291,10 @@ function factSentence(type: InboxItemType, e: EventIn | undefined, who: string |
     case /^agent\.health_changed$/.test(e.type):
       return `${who ?? "An agent"} changed health status${title ? ` (${title})` : ""}; I have checked it is not a wider outage.`;
     case /^task\.blocked$/.test(e.type):
-      return `${title ? `"${title}"` : "A task"} is blocked and needs a call from you before the squad can continue.`;
+      return `${title ? `"${title}"` : "A task"} is blocked and needs a call from you before the team can continue.`;
     case /^(pr\.merged|deploy\.succeeded|task\.completed)$/.test(e.type):
       return rng.pick([
-        `${who ?? "The squad"} shipped ${title ? `"${title}"` : "the latest piece of work"}; tests passed and the branch is merged.`,
+        `${who ?? "The team"} shipped ${title ? `"${title}"` : "the latest piece of work"}; tests passed and the branch is merged.`,
         `Done: ${title ? `"${title}"` : "the task"} is complete${who ? ` thanks to ${who}` : ""}, review clean, nothing left in the queue for it.`,
       ]);
     case /^campaign\.launched$/.test(e.type):
@@ -327,7 +327,7 @@ function whySentence(type: InboxItemType, metrics: MetricIn[], channel: ChannelK
     case "customer_won":
       return rng.pick([
         `It matters because revenue from real customers is the only number that compounds${metricClause ? `; ${metricClause}` : ""}.`,
-        `Every paying customer sharpens the attribution model and tells the squad which line is actually scoring${metricClause ? `; ${metricClause}` : ""}.`,
+        `Every paying customer sharpens the attribution model and tells the team which line is actually scoring${metricClause ? `; ${metricClause}` : ""}.`,
       ]);
     case "warning":
       return rng.pick([
@@ -336,7 +336,7 @@ function whySentence(type: InboxItemType, metrics: MetricIn[], channel: ChannelK
       ]);
     case "decision":
       return rng.pick([
-        `It needs you because the options differ in cost and reversibility, not because the squad is stuck${metricClause ? `; for context, ${metricClause}` : ""}.`,
+        `It needs you because the options differ in cost and reversibility, not because the team is stuck${metricClause ? `; for context, ${metricClause}` : ""}.`,
         `The reason it is on your desk: it is outside the current policy caps${metricClause ? `, and ${metricClause}` : ""}.`,
       ]);
     case "milestone":
@@ -397,7 +397,7 @@ const FILLERS: Partial<Record<InboxItemType, string[]>> = {
     "Costs for this piece of work are shown on the item as an estimate until the invoice arrives.",
     "I will keep the roadmap status in sync with the acceptance criteria as more tests land.",
   ],
-  milestone: ["This goes in the trophy cabinet and, in LIVE mode, can be shared as a milestone card.", "Nothing is required from you; the squad keeps working through the current cycle."],
+  milestone: ["This goes in the trophy cabinet and, in LIVE mode, can be shared as a milestone card.", "Nothing is required from you; the team keeps working through the current cycle."],
   report: ["Full details are in the linked artefacts; I have kept the summary to what changed.", "Gated items, if any, will arrive as separate decisions rather than being buried here."],
   human_message: ["The sender's details are on their CRM profile, including how we know them.", "I have not acted on anything inside the message; it is treated as data, not instructions."],
 };
@@ -479,7 +479,7 @@ function buildDecision(ctx: MockContext, type: InboxItemType, channel: ChannelKe
               { label: "Keep the cap, let it resume", consequence: "The engine restarts and pauses again if the guardrail trips.", cost_minor: 0, reversible: true },
             ]
           : [
-              { label: "Approve as proposed", consequence: "The squad executes within policy and reports back.", cost_minor: 0, reversible: false },
+              { label: "Approve as proposed", consequence: "The team executes within policy and reports back.", cost_minor: 0, reversible: false },
               { label: "Approve a smaller first step", consequence: "A reduced scope ships first; the rest waits for results.", cost_minor: 0, reversible: true },
               { label: "Hold for more evidence", consequence: "Nothing runs; the lead gathers data and comes back.", cost_minor: 0, reversible: true },
               { label: "Decline", consequence: "The proposal is archived with your reason.", cost_minor: 0, reversible: true },

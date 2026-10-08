@@ -166,7 +166,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         void invalidate(["inbox", "plan", "dev", "distribution", "team", "business"]);
         if (res.requiresConfirmation) setConfirmOpen(true);
         else {
-          toast({ title: "Decided", description: res.executed.length ? `${res.executed.length} action${res.executed.length === 1 ? "" : "s"} done, ${res.deferred.length} handed to the squad.` : res.plan.summaryMd.slice(0, 140), tone: "good", action: res.followUp ? { label: "Open the update", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
+          toast({ title: "Decided", description: res.executed.length ? `${res.executed.length} action${res.executed.length === 1 ? "" : "s"} done, ${res.deferred.length} handed to the team.` : res.plan.summaryMd.slice(0, 140), tone: "good", action: res.followUp ? { label: "Open the update", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
           if (won && journeyId) router.push(routes.journey(businessId, journeyId));
         }
       },
@@ -216,14 +216,14 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     <article className="flex min-h-0 flex-1 flex-col" data-testid="inbox-item" data-item-id={item.id} data-type={item.type} data-state={isAnswered ? "answered" : item.state}>
       {/* header */}
       <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-subtle bg-panel px-gutter py-2" data-testid="inbox-item-header">
-        {persona ? <Avatar size={32} name={persona.name} agent={{ seed: persona.seed, dept: persona.dept as DeptColourToken }} /> : <Avatar size={32} name={item.fromUserId ? "You" : "Squad"} />}
+        {persona ? <Avatar size={32} name={persona.name} agent={{ seed: persona.seed, dept: persona.dept as DeptColourToken }} /> : <Avatar size={32} name={item.fromUserId ? "You" : "Team"} />}
         <div className="flex min-w-0 flex-1 flex-col">
           <h1 className="t-display-sm truncate text-primary">{item.subject}</h1>
           <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-small text-secondary">
             {fromAgent ? (
               <EntityLink entity={{ id: fromAgent.id, kind: "agent", name: fromAgent.name, href: routes.agent(businessId, fromAgent.id) }} onOpen={() => router.push(routes.agent(businessId, fromAgent.id))} hoverCard={false} contextMenu={false} data-testid="persona-link" />
             ) : (
-              <span>{item.fromUserId ? "You" : "Squad"}</span>
+              <span>{item.fromUserId ? "You" : "Team"}</span>
             )}
             {persona?.role ? <span>{persona.role}</span> : null}
             <span aria-hidden>·</span>
@@ -328,7 +328,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           executing={decide.isPending || confirm.isPending}
           answered={answered}
           hotkeys={false}
-          note={expired && !isAnswered ? <span className="inline-flex items-center gap-1 text-small text-status-warn">This decision expired; the squad moved on with the recommended option.</span> : undefined}
+          note={expired && !isAnswered ? <span className="inline-flex items-center gap-1 text-small text-status-warn">This decision expired; the team moved on with the recommended option.</span> : undefined}
           data-testid="decision-bar"
         />
       ) : null}
@@ -367,7 +367,7 @@ export function ConfirmPlanDialog({ open, onOpenChange, lines, summary, currency
           <DialogTitle>Here is what will happen</DialogTitle>
           <DialogDescription>
             {asks} action{asks === 1 ? " sits" : "s sit"} outside the current policy and need{asks === 1 ? "s" : ""} your go-ahead.{denied ? ` ${denied} ${denied === 1 ? "is" : "are"} denied and will be skipped.` : ""}
-            {gates ? ` ${gates} ${gates === 1 ? "is" : "are"} hard-gated: the squad prepares everything and you act.` : ""}
+            {gates ? ` ${gates} ${gates === 1 ? "is" : "are"} hard-gated: the team prepares everything and you act.` : ""}
           </DialogDescription>
         </DialogHeader>
         <DialogBody>

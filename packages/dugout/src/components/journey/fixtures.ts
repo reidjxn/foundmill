@@ -375,7 +375,7 @@ const CONCEPT_SPECS: Array<{ name: string; pitch: string; kit: Kit; values: numb
   },
   {
     name: "Studio Allan",
-    pitch: "Weekly short-form explainers for regional banks, produced by a content squad.",
+    pitch: "Weekly short-form explainers for regional banks, produced by a content team.",
     kit: { primary: "#5A4FCF", secondary: "#FFFFFF" },
     values: [9, 8, 12, 17, 18, 16, 13, 6, 16, 12],
     current: 2.5,

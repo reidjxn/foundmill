@@ -17,7 +17,7 @@ import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
 
 /** What a game-mode switch changes (BUILD §7.3, §11.14); the wizard shows it before the switch. */
 export const GAME_MODE_REVIEW: Record<GameMode, string[]> = {
-  live: ["Your business profile and crest become visible on the network.", "Verified metrics can rank on leaderboards; self-reported numbers never rank.", "Connections, communities and human messages open up.", "Search also shows public profiles, labelled with the product name."],
+  live: ["Your business profile and logo become visible on the network.", "Verified metrics can rank on leaderboards; self-reported numbers never rank.", "Connections, communities and human messages open up.", "Search also shows public profiles, labelled with the product name."],
   personal: ["The business leaves search and leaderboards within 15 minutes.", "Connections and communities are hidden; nothing is deleted.", "Agents keep working exactly as before."],
 };
 

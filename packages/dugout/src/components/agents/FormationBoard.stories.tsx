@@ -42,7 +42,7 @@ function Board({ kit, animateEntrance = true }: { kit?: { primary: string; secon
 }
 
 const meta = {
-  title: "Agents/FormationBoard",
+  title: "Agents/Channel Board",
   component: FormationBoard,
   parameters: { layout: "padded" },
   argTypes: { channels: { control: false } },

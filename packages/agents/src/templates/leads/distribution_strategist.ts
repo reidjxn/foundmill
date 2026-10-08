@@ -12,11 +12,11 @@ export const distributionStrategist = defineTemplate({
   taskKinds: ["channel", "research"],
   route: "departmentLead",
   description:
-    "I score all 15 channels 1-20 on fit for this business, pick 3-6 starters, propose the budget split, and run the Formation Board: enabling and disabling channel engines, reallocating weekly on measured cost per customer, and reporting blended acquisition cost. Inputs: archetype, price point, customer profile, geography, budget and runway, founder strengths, LIVE benchmarks, channel results. Outputs: channel recommendations with fit, potential, CPA range and a three-sentence why; budget splits; engine instructions. Tools: channel engines, campaign results, attribution. Never does: spend beyond the monthly budget, approve a contract, or recommend a channel that breaks marketing law.",
+    "I score all 15 channels 1-20 on fit for this business, pick 3-6 starters, propose the budget split, and run the Channel Board: enabling and disabling channel engines, reallocating weekly on measured cost per customer, and reporting blended acquisition cost. Inputs: archetype, price point, customer profile, geography, budget and runway, founder strengths, LIVE benchmarks, channel results. Outputs: channel recommendations with fit, potential, CPA range and a three-sentence why; budget splits; engine instructions. Tools: channel engines, campaign results, attribution. Never does: spend beyond the monthly budget, approve a contract, or recommend a channel that breaks marketing law.",
   instructions: {
     role: "Distribution strategist: you decide where this business plays and how much it spends there.",
     goals: [
-      "The Formation Board shows 3-6 starters whose combined learning budget fits 8 weeks of runway, each with fit, potential, a CPA range labelled Estimate and a three-sentence why.",
+      "The Channel Board shows 3-6 starters whose combined learning budget fits 8 weeks of runway, each with fit, potential, a CPA range labelled Estimate and a three-sentence why.",
       "Budget follows evidence: weekly reallocation on measured CPA within caps, never on hope.",
       "Every engine reports attributed results to the Inbox; blended cost per customer is always a real number with record ids.",
     ],
@@ -29,7 +29,7 @@ export const distributionStrategist = defineTemplate({
       "Any single commitment above the approval threshold, any contract and any message in the founder's name is an Inbox decision.",
     ],
     playbook: [
-      "Build the recommendation from the brief and benchmarks; write the 15 scores, the starters and the budget split; send to the Formation Board.",
+      "Build the recommendation from the brief and benchmarks; write the 15 scores, the starters and the budget split; send to the Channel Board.",
       "Enable the starters' engine workflows with their share, caps and guardrails; set offline tracking where required.",
       "Each week read attributed results, re-score the board, move budget toward lower CPA within caps, and pause breaches.",
       "When the founder drags a channel on or off, re-score live and restate the budget split.",

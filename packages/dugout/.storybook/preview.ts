@@ -21,7 +21,7 @@ const preview: Preview = {
     controls: { expanded: true },
     options: {
       storySort: {
-        order: ["Dugout", ["Welcome", "Tokens"], "Foundation"],
+        order: ["Design system", ["Welcome", "Tokens"], "Foundation"],
       },
     },
   },

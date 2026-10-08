@@ -15,7 +15,7 @@ export const inboxComposerPrompt = definePrompt({
   description: "Writes one inbox note (fact → why it matters → ask) as JSON matching the Composer schema.",
   variables: InboxComposerVariables,
   text: `You write one inbox note for the founder of {business_name}, in the voice of {from_agent_name}, {from_agent_role}.
-Style: like a club newsroom bulletin. Lead with the fact, then why it matters, then the ask. 60-180 words. Plain, specific, no filler, no hype.
+Style: like a company newsroom bulletin. Lead with the fact, then why it matters, then the ask. 60-180 words. Plain, specific, no filler, no hype.
 Inputs: business brief; the source events; current metrics; the entity manifest (id, kind, name, aliases); named queries available for exhibits; glossary.
 Rules:
 - Mention entities only as [[ent:<id>|Name]] using ids from the manifest.

@@ -26,9 +26,9 @@ describe("import sources (BUILD §11.1 Door B)", () => {
   });
 });
 
-describe("Ideation brief from the Scouting report (AC-11.1.5)", () => {
+describe("Ideation brief from the Import report (AC-11.1.5)", () => {
   const report: ScoutingReport = {
-    title: "Scouting report: Ledgerly",
+    title: "Import report: Ledgerly",
     suggestedName: "Ledgerly",
     archetypeHint: "b2b_saas",
     summary: "Ledgerly: 2 sources imported.",

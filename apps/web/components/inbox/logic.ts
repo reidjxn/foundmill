@@ -234,7 +234,7 @@ export function statusStripTiles(strip: unknown, sources: MetricSources): Metric
         case "activations_week":
           return { label: "Activations this week", value: countKind(sources.conversions, "activation", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days", "conversions_30d") };
         case "tasks_running":
-          return { label: "Tasks running", value: sources.tasks ? sources.tasks.filter((t) => t.status === "running").length : null, format: "integer", provenance: provenance(m, "Squad tasks", "tasks_by_status") };
+          return { label: "Tasks running", value: sources.tasks ? sources.tasks.filter((t) => t.status === "running").length : null, format: "integer", provenance: provenance(m, "Team tasks", "tasks_by_status") };
         case "channels_enabled":
           return { label: "Channels on", value: sources.channelsEnabled ?? null, format: "integer", provenance: provenance(m, "Enabled channels", "channel_cpa") };
         default:
@@ -373,7 +373,7 @@ export function followUpLinks(actions: readonly PlanActionLike[], businessId: st
         if (agentId) push(id, "Open the agent", routes.agent(businessId, agentId));
         else {
           const t = moduleTab(departments, "team", "squad");
-          push(id, "Open the squad", t ? routes.department(businessId, t.slug, t.tab) : null);
+          push(id, "Open the team", t ? routes.department(businessId, t.slug, t.tab) : null);
         }
         break;
       }

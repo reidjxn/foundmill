@@ -59,7 +59,7 @@ export function OnboardingScreen({ profile, email }: OnboardingScreenProps) {
       onSuccess: async () => {
         await queryClient.invalidateQueries({ queryKey: trpcPathPrefix("founder") as unknown[] });
         toast({
-          title: editing ? "Profile updated" : "Welcome to the dugout",
+          title: editing ? "Profile updated" : "Welcome aboard",
           description: editing ? "Your constraints shape every concept the studio drafts." : "Next: ideate a concept or import what already exists.",
           tone: "good",
         });
@@ -108,8 +108,8 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
   return (
     <StudioFrame
       step="profile"
-      title={editing ? "Your founder profile" : "Before the first whistle"}
-      lede={editing ? "Every concept, forecast and decision is shaped by this. Change it any time." : `${APP_NAME} drafts concepts, hires the squad and runs the business within your constraints. Five minutes here saves months of wrong turns.`}
+      title={editing ? "Your founder profile" : "Before you start"}
+      lede={editing ? "Every concept, forecast and decision is shaped by this. Change it any time." : `${APP_NAME} drafts concepts, hires the team and runs the business within your constraints. Five minutes here saves months of wrong turns.`}
       viewer={{ email }}
       actions={
         <Button variant="primary" iconRight={ArrowRight} onClick={submit} loading={saving} data-testid="profile-submit">
@@ -142,7 +142,7 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
             </nav>
             <div className="surface-panel overflow-hidden" data-testid="profile-summary">
               <div className="flex h-panel-header items-center border-b border-subtle bg-panel-alt px-panel-pad">
-                <span className="t-label">How the squad reads you</span>
+                <span className="t-label">How the team reads you</span>
               </div>
               <p className="p-panel-pad text-body text-secondary">{summary || "Pick your experience and time to see the one-line brief every agent starts from."}</p>
             </div>
@@ -153,7 +153,7 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
         <div className="col-span-9 flex flex-col gap-gutter">
           <Section id="identity" title="Who you are">
             <div className="grid grid-cols-2 gap-gutter">
-              <Field htmlFor="profile-name" label="What the squad calls you" required error={show("displayName")}>
+              <Field htmlFor="profile-name" label="What the team calls you" required error={show("displayName")}>
                 <Input id="profile-name" icon={UserRound} value={form.displayName} onChange={(e) => set("displayName", e.target.value)} maxLength={120} autoFocus={!editing} placeholder="Your name" invalid={Boolean(show("displayName"))} />
               </Field>
             </div>
@@ -166,7 +166,7 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
             </Field>
           </Section>
 
-          <Section id="skills" title="Skills" hint="1 to 20, like a player's attributes. Honest ratings make the squad cover the gaps; the Ideation agent scores founder fit from these.">
+          <Section id="skills" title="Skills" hint="1 to 20. Honest ratings make the team cover the gaps; the Ideation agent scores founder fit from these.">
             <div className="flex flex-col gap-3">
               {SKILL_KEYS.map((key) => {
                 const value = form.skills[key];

@@ -15,7 +15,7 @@ export const SHOUT_PRESETS: ReadonlyArray<{ key: ShoutPreset; label: string; hin
   { key: "focus_on_tests", label: "Focus on tests", hint: "Make the acceptance tests pass before anything else." },
   { key: "simplify", label: "Simplify", hint: "Remove abstraction; the smallest change that works." },
   { key: "ask_before_schema_changes", label: "Ask before schema changes", hint: "Stop and request a decision before touching migrations." },
-  { key: "match_design_system", label: "Match the design system", hint: "Tokens and Dugout components only." },
+  { key: "match_design_system", label: "Match the design system", hint: "Design tokens and design-system components only." },
   { key: "hurry_up", label: "Hurry up", hint: "Prefer smaller changes and ship sooner." },
 ];
 
@@ -49,14 +49,14 @@ export function ShoutMenu({ target, onShout, disabled, size = "sm", labelled }: 
         <DropdownMenuTrigger asChild>
           {labelled ? (
             <Button size={size} icon={Megaphone} disabled={disabled}>
-              Shout
+              Nudge
             </Button>
           ) : (
-            <IconButton icon={Megaphone} label={`Shout to ${target}`} size={size} disabled={disabled} />
+            <IconButton icon={Megaphone} label={`Nudge ${target}`} size={size} disabled={disabled} />
           )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-64">
-          <DropdownMenuLabel>Shout to {target}</DropdownMenuLabel>
+          <DropdownMenuLabel>Nudge {target}</DropdownMenuLabel>
           {SHOUT_PRESETS.map((p) => (
             <DropdownMenuItem key={p.key} onSelect={() => onShout({ preset: p.key, text: p.label })} className="h-auto flex-col items-start gap-0 py-1.5">
               <span className="text-body text-primary">{p.label}</span>
@@ -73,7 +73,7 @@ export function ShoutMenu({ target, onShout, disabled, size = "sm", labelled }: 
       <Dialog open={custom} onOpenChange={setCustom}>
         <DialogContent size="sm" aria-describedby={`${id}-desc`}>
           <DialogHeader>
-            <DialogTitle>Shout to {target}</DialogTitle>
+            <DialogTitle>Nudge {target}</DialogTitle>
             <DialogDescription id={`${id}-desc`}>One short instruction. It reaches the session within two seconds and appears in its log.</DialogDescription>
           </DialogHeader>
           <DialogBody>
@@ -97,7 +97,7 @@ export function ShoutMenu({ target, onShout, disabled, size = "sm", labelled }: 
               Cancel
             </Button>
             <Button variant="primary" icon={Megaphone} disabled={!text.trim()} onClick={send}>
-              Send shout
+              Send nudge
             </Button>
           </DialogFooter>
         </DialogContent>

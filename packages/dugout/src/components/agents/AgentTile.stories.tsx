@@ -23,7 +23,7 @@ const SCREENSHOT =
 const controls = (log: (s: string) => void): TileControls => ({
   onPause: (id) => log(`pause ${id}`),
   onResume: (id) => log(`resume ${id}`),
-  onShout: (id, s: Shout) => log(`shout ${id}: ${s.text}`),
+  onShout: (id, s: Shout) => log(`nudge ${id}: ${s.text}`),
   onReassign: (id) => log(`reassign ${id}`),
   onUpgradeModel: (id) => log(`upgrade ${id}`),
   onStop: (id) => log(`stop ${id}`),

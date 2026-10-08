@@ -166,7 +166,7 @@ function evidenceFor(key: IdeaAttributeKey, value: number, archetype: Archetype,
     case "capital_intensity":
       return value >= 14 ? "Software-only; no inventory or tooling needed up front (estimate)." : "Requires inventory, tooling or certification spend before revenue (estimate).";
     case "agent_executability":
-      return value >= 14 ? "Most of the build and distribution work can be run by the squad with existing connectors." : "Key steps need humans: physical samples, licensed sign-off or in-person sales.";
+      return value >= 14 ? "Most of the build and distribution work can be run by the team with existing connectors." : "Key steps need humans: physical samples, licensed sign-off or in-person sales.";
     case "founder_fit":
       return `Based on the founder profile skills and constraints; fit reads ${strength}.`;
     case "defensibility":

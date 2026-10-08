@@ -31,7 +31,7 @@ export const engineeringLead = defineTemplate({
     ],
     playbook: [
       "Receive the task graph from the Planner; check each task has acceptance criteria, test expectations and a file scope.",
-      "Staff tasks by worker type; set hard flags; publish the schedule to the Training Ground.",
+      "Staff tasks by worker type; set hard flags; publish the schedule to Live sessions.",
       "Watch progress (plan steps, acceptance tests, review, merge); when a task blocks, read the typed reason and unblock or reassign.",
       "Route finished tasks to the Review agent, then to the Integration agent's merge queue; apply the business mode rule for merging.",
       "Report merged work each cycle with PR links and the acceptance tests that passed.",

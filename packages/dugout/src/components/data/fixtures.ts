@@ -559,7 +559,7 @@ export const DEMO_WIDGET_REGISTRY: WidgetRegistryEntry[] = [
   {
     key: "department_card",
     title: "Department card",
-    description: "Lead, squad, headline metric and next up.",
+    description: "Lead, team, headline metric and next up.",
     icon: Users,
     defaultSize: { w: 4, h: 30 },
     minSize: { w: 3, h: 20 },
@@ -594,7 +594,7 @@ export const DEMO_WIDGET_REGISTRY: WidgetRegistryEntry[] = [
   },
   {
     key: "squad_pulse",
-    title: "Squad pulse",
+    title: "Team pulse",
     description: "Agent activity by hour and department, last 7 days.",
     icon: Bot,
     defaultSize: { w: 8, h: 30 },

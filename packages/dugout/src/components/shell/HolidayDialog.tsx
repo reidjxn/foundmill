@@ -198,7 +198,7 @@ export function HolidayDialog({ open, onOpenChange, currency = "EUR", today = ne
             </div>
           </fieldset>
 
-          <Field htmlFor={`${id}-budget`} label={`Budget ceiling (${currency})`} hint="Total the squad may spend during the holiday. Leave empty to keep the business cap." error={budgetError}>
+          <Field htmlFor={`${id}-budget`} label={`Budget ceiling (${currency})`} hint="Total the team may spend during the holiday. Leave empty to keep the business cap." error={budgetError}>
             <Input
               id={`${id}-budget`}
               inputMode="decimal"

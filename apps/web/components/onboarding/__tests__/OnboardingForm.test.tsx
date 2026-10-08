@@ -22,7 +22,7 @@ describe("OnboardingForm (BUILD §11.1 founder profile)", () => {
     for (const id of ["identity", "skills", "time", "place", "constraints"]) expect(document.querySelector(`[data-section="${id}"]`)).toBeTruthy();
     expect(document.querySelectorAll("[data-skill]")).toHaveLength(5);
     expect(screen.getAllByRole("slider")).toHaveLength(5);
-    expect((screen.getByLabelText(/What the squad calls you/) as HTMLInputElement).value).toBe("Reid Jackson");
+    expect((screen.getByLabelText(/What the team calls you/) as HTMLInputElement).value).toBe("Reid Jackson");
     expect(document.querySelector('[data-skill-value="engineering"]')?.textContent).toBe("10");
   });
 
@@ -60,7 +60,7 @@ describe("OnboardingForm (BUILD §11.1 founder profile)", () => {
         <OnboardingForm profile={{ displayName: "Sara", experience: "exited", skills: { engineering: 18 }, timeCommitment: "part_time", budgetMinor: 1_000_000, currency: "SEK", citizenship: "Sweden", residence: "Sweden", targetMarkets: ["Nordics"], constraints: ["B2B only"], riskAppetite: "high" }} email="sara@example.com" onSubmit={vi.fn()} />
       </TooltipProvider>,
     );
-    expect((screen.getByLabelText(/What the squad calls you/) as HTMLInputElement).value).toBe("Sara");
+    expect((screen.getByLabelText(/What the team calls you/) as HTMLInputElement).value).toBe("Sara");
     expect(document.querySelector('[data-skill-value="engineering"]')?.textContent).toBe("18");
     expect(screen.getByTestId("profile-submit").textContent).toMatch(/Save and continue/);
     expect(screen.getByText("B2B only")).toBeTruthy();

@@ -38,7 +38,7 @@ export const frontendEngineer = defineTemplate({
     examples: [
       {
         input: "Task T-33: add a 'Respond · N' state to the Continue button when blocking inbox items exist (AC-11.3.3).",
-        output: "Plan: Playwright test apps/web/e2e/inbox.spec.ts 'AC-11.3.3' first; use Dugout Button variant primary with count badge; disabled when N>0; story ContinueButton.stories.tsx with 0/1/5 states.",
+        output: "Plan: Playwright test apps/web/e2e/inbox.spec.ts 'AC-11.3.3' first; use the design-system Button variant primary with count badge; disabled when N>0; story ContinueButton.stories.tsx with 0/1/5 states.",
       },
     ],
   },

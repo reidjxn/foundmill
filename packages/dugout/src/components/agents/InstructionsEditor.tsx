@@ -21,7 +21,7 @@ export const SECTION_LABELS: Record<InstructionSection, string> = { role: "Role"
 export const SECTION_HINTS: Record<InstructionSection, string> = {
   role: "One or two sentences: who this agent is and what it owns.",
   goals: "Outcomes, in priority order.",
-  rules: "Hard constraints the agent follows every time. Club rules are always prepended and cannot be changed here.",
+  rules: "Hard constraints the agent follows every time. House rules are always prepended and cannot be changed here.",
   playbook: "The steps it takes on a typical task, in order.",
   tone: "How it writes: to customers, in pull requests, in notes.",
   examples: "Input and the output you expect. These shape behaviour more than rules do.",
@@ -134,7 +134,7 @@ function ListEditor({
                 {reason ? (
                   <p role="status" className="mt-0.5 flex items-center gap-1 text-small text-status-warn">
                     <Icon icon={ShieldAlert} size="inline" />
-                    Contradicts a club rule and has no effect: {reason}
+                    Contradicts a house rule and has no effect: {reason}
                   </p>
                 ) : null}
               </div>
@@ -222,7 +222,7 @@ export function InstructionsEditor({ value, onChange, previous, versions = [], v
         {dirty ? <Chip tone="info">Draft differs from {compareVersion !== null ? `v${compareVersion}` : "live"}</Chip> : <Chip tone="neutral">No changes</Chip>}
         {violations.length > 0 ? (
           <Chip tone="warn" icon={ShieldAlert}>
-            {violations.length} club-rule {violations.length === 1 ? "conflict" : "conflicts"}
+            {violations.length} house-rule {violations.length === 1 ? "conflict" : "conflicts"}
           </Chip>
         ) : null}
       </div>
@@ -236,7 +236,7 @@ export function InstructionsEditor({ value, onChange, previous, versions = [], v
             {flags("role").size > 0 ? (
               <p role="status" className="flex items-center gap-1 text-small text-status-warn">
                 <Icon icon={ShieldAlert} size="inline" />
-                Contradicts a club rule and has no effect: {flags("role").get(0)}
+                Contradicts a house rule and has no effect: {flags("role").get(0)}
               </p>
             ) : null}
           </Section>
@@ -265,7 +265,7 @@ export function InstructionsEditor({ value, onChange, previous, versions = [], v
                       <Field htmlFor={`${id}-ex-${i}-in`} label="Input">
                         <Textarea id={`${id}-ex-${i}-in`} value={ex.input} readOnly={readOnly} onChange={(e) => setExample(i, { input: e.target.value })} rows={2} autoGrow />
                       </Field>
-                      <Field htmlFor={`${id}-ex-${i}-out`} label="Output" error={reason ? `Contradicts a club rule and has no effect: ${reason}` : undefined}>
+                      <Field htmlFor={`${id}-ex-${i}-out`} label="Output" error={reason ? `Contradicts a house rule and has no effect: ${reason}` : undefined}>
                         <Textarea id={`${id}-ex-${i}-out`} value={ex.output} readOnly={readOnly} onChange={(e) => setExample(i, { output: e.target.value })} rows={2} autoGrow invalid={!!reason} />
                       </Field>
                     </div>

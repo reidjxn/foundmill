@@ -23,7 +23,7 @@ describe("JourneyStage", () => {
     const root = container.querySelector("[data-journey-stage]")!;
     expect(root.getAttribute("data-stage")).toBe("team_sheet");
     expect(root.getAttribute("data-schedule-hash")).toBe(buildReplaySchedule(fx.journey, fx.touches, "full").hash);
-    expect(screen.getAllByLabelText("Captain").length).toBe(2);
+    expect([...screen.getAllByLabelText("Lead channel"), ...screen.getAllByLabelText("Standout agent")].length).toBe(2);
     expect(screen.getByText("Featured update")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "First touch" }));
     expect(root.getAttribute("data-stage")).toBe("kick_off");

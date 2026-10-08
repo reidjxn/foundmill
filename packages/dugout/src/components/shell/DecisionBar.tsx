@@ -83,7 +83,7 @@ export function optionDescription(o: DecisionOption): string {
  * focus) shows consequence, cost and reversibility in a small card; free text + Execute on the right. 1–4 choose.
  */
 export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function DecisionBar(
-  { options, onChoose, onExecute, freeTextPlaceholder = "Or tell the squad what to do…", disabled, executing, answered, onReopen, hotkeys = true, sticky = true, note, className, ...rest },
+  { options, onChoose, onExecute, freeTextPlaceholder = "Or tell the team what to do…", disabled, executing, answered, onReopen, hotkeys = true, sticky = true, note, className, ...rest },
   ref,
 ) {
   const shown = options.slice(0, DECISION_OPTIONS_MAX);

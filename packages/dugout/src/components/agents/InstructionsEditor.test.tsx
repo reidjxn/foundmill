@@ -50,9 +50,9 @@ describe("InstructionsEditor", () => {
     expect(within(diff).getAllByText(/Plain and warm\./).length).toBeGreaterThan(0);
   });
 
-  it("flags club-rule contradictions on the line without removing them", () => {
+  it("flags house-rule contradictions on the line without removing them", () => {
     render(<Harness initial={mockInstructions()} violations={[{ section: "rules", index: 2, reason: "permits a schema change without asking" }]} />);
-    expect(screen.getByText(/1 club-rule conflict/)).toBeTruthy();
+    expect(screen.getByText(/1 house-rule conflict/)).toBeTruthy();
     const rules = screen.getByRole("list", { name: "Rules" });
     const flagged = within(rules).getAllByRole("listitem")[2]!;
     expect(flagged.getAttribute("data-flagged")).toBe("true");

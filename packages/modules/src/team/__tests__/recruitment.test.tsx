@@ -13,7 +13,7 @@ describe("recruitment data", () => {
   it("orders the catalogue by family and counts agents hired from each template", () => {
     const rows = toCatalogueRows(catalogue, agents);
     expect(rows.map((r) => [r.key, r.familyLabel, r.hired])).toEqual([
-      ["chief_of_staff", "Assistant manager", 1],
+      ["chief_of_staff", "Chief of Staff", 1],
       ["engineering_lead", "Lead", 1],
       ["frontend_engineer", "Worker", 1],
       ["newsletter_writer", "Worker", 0],
@@ -39,22 +39,22 @@ describe("recruitment data", () => {
 });
 
 describe("RecruitmentScreen", () => {
-  it("renders the catalogue with model chips, wage caps labelled Estimate and the squad moves table", async () => {
+  it("renders the catalogue with model chips, wage caps labelled Estimate and the team moves table", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <RecruitmentScreen {...props} />);
     const table = await screen.findByRole("grid", { name: "Catalogue" });
     expect(within(table).getAllByRole("row")).toHaveLength(catalogue.length + 1);
     expect(within(table).getAllByText("Estimate").length).toBe(catalogue.length);
     expect(within(table).getByText("Newsletter writer")).toBeTruthy();
-    expect(screen.getByTestId("catalogue-summary").textContent).toBe("7 templates · 5 in the squad");
-    const moves = screen.getByRole("grid", { name: "Squad moves" });
+    expect(screen.getByTestId("catalogue-summary").textContent).toBe("7 templates · 5 in the team");
+    const moves = screen.getByRole("grid", { name: "Team moves" });
     expect(within(moves).getAllByRole("row")).toHaveLength(agents.length + 1);
     expect(within(moves).getByRole("link", { name: "Juno" })).toBeTruthy();
     expect(within(moves).getByText("Down")).toBeTruthy();
     expect(fake.queried.get("team.agents.catalogue")).toEqual({});
   });
 
-  it("hires a template into the open department through the dialog and refetches the squad", async () => {
+  it("hires a template into the open department through the dialog and refetches the team", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: (_p, input) => ({ id: "new-agent", name: input.name ?? "Newsletter writer", status: "idle", modelKey: "sonnet" }) });
     renderScreen(fake, <RecruitmentScreen {...props} />);
@@ -92,12 +92,12 @@ describe("RecruitmentScreen", () => {
     expect(await screen.findByText(/No template matches those words yet/)).toBeTruthy();
   });
 
-  it("clones, loans and releases from the squad moves table; the Chief of Staff cannot be released", async () => {
+  it("clones, loans and releases from the team moves table; the Chief of Staff cannot be released", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: (path) => (path === "team.agents.clone" ? { id: "clone", name: "Juno II" } : {}) });
     renderScreen(fake, <RecruitmentScreen {...props} />);
     await screen.findByRole("grid", { name: "Catalogue" });
-    const moves = screen.getByRole("grid", { name: "Squad moves" });
+    const moves = screen.getByRole("grid", { name: "Team moves" });
     fireEvent.contextMenu(within(moves).getByText("Chief of Staff"));
     const cosMenu = await screen.findByRole("menu");
     expect(within(cosMenu).getByRole("menuitem", { name: "Release" }).getAttribute("aria-disabled")).toBe("true");
@@ -108,7 +108,7 @@ describe("RecruitmentScreen", () => {
     const clone = await screen.findByTestId("clone-dialog");
     await user.click(within(clone).getByTestId("clone-confirm"));
     await waitFor(() => expect(fake.mutations[0]).toEqual({ path: "team.agents.clone", input: { agentId: AGENT_JUNO, name: "Juno II", departmentIds: [DEPT_DEV] } }));
-    await waitFor(() => expect(screen.getByTestId("recruitment-notice").textContent).toBe("Juno II joined the squad."));
+    await waitFor(() => expect(screen.getByTestId("recruitment-notice").textContent).toBe("Juno II joined the team."));
 
     fireEvent.contextMenu(within(moves).getByText("Engineering lead"));
     await user.click(await screen.findByRole("menuitem", { name: "Loan to department…" }));

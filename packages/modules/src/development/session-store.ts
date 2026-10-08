@@ -183,5 +183,5 @@ export class SessionThrottle {
 /** Largest squad the founder's plan and key support (BUILD §11.6: tier limit, default 16, max 64). */
 export function concurrencyHint(limit: number, running: number): string {
   const n = Math.max(1, Math.min(64, Math.round(limit)));
-  return `${running} of ${n} running · ${n} is the largest squad your key supports`;
+  return `${running} of ${n} running · ${n} is the largest team your key supports`;
 }

@@ -95,7 +95,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     fallback: "healthy",
     byTemplate: { data_engineer: "injured", channel_pr: "degraded", channel_content: "healthy", docs_writer: "idle", moderation: "idle", triage: "healthy" },
   });
-  log(`squad: ${squad.agents.length} agents in ${squad.departments.length} departments`);
+  log(`team: ${squad.agents.length} agents in ${squad.departments.length} departments`);
 
   const channels = await seedChannels(ctx, businessId, squad, CURRENCY, {
     enabled: ["lead_generation", "email_automation", "seo", "content", "pr", "geo", "paid_ads"],

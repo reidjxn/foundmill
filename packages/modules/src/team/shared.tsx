@@ -419,7 +419,7 @@ export const DECISION_DESCRIPTIONS: Record<DecisionType, string> = {
   merge_to_main: "Pull requests merging into the main branch.",
   sign_contracts: "Signatures and accepted terms. A hard gate: an agent can never hold this.",
   message_customers: "Outbound messages to customers and leads.",
-  hire_agents: "Adding agents to the squad and their wage caps.",
+  hire_agents: "Adding agents to the team and their wage caps.",
   change_models: "Moving an agent to a different model.",
 };
 
@@ -428,7 +428,7 @@ export const AGENT_GATED_DECISIONS: readonly DecisionType[] = ["sign_contracts"]
 
 /* ---------- Recruitment ---------- */
 
-export const FAMILY_LABELS: Record<TemplateRow["family"], string> = { assistant: "Assistant manager", lead: "Lead", worker: "Worker", channel: "Channel engine", specialist: "Specialist", utility: "Utility" };
+export const FAMILY_LABELS: Record<TemplateRow["family"], string> = { assistant: "Chief of Staff", lead: "Lead", worker: "Worker", channel: "Channel engine", specialist: "Specialist", utility: "Utility" };
 
 const STOP_WORDS = new Set(["a", "an", "the", "and", "or", "to", "of", "for", "in", "on", "with", "who", "that", "our", "my", "me", "we", "i", "is", "are", "be", "can", "will", "it", "as", "at", "by", "from", "this", "agent", "someone", "need", "want", "help", "helps", "please"]);
 

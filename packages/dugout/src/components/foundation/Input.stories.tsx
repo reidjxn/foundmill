@@ -28,13 +28,13 @@ export const Disabled: Story = { args: { disabled: true, defaultValue: "Read onl
 export const InAField: Story = {
   render: () => (
     <div className="flex w-80 flex-col gap-4">
-      <Field htmlFor="biz" label="Business name" hint="Shown in the top bar and on the crest." required>
+      <Field htmlFor="biz" label="Business name" hint="Shown in the top bar and on the logo." required>
         <Input id="biz" placeholder="Northwind Skincare" aria-describedby={fieldDescribedBy("biz", { hint: true })} />
       </Field>
       <Field htmlFor="email" label="Founder email" error="That does not look like an email address.">
         <Input id="email" defaultValue="ada@" invalid aria-describedby={fieldDescribedBy("email", { error: true })} />
       </Field>
-      <Field htmlFor="notes" label="Notes to the squad" hint="Plain language. The Chief of Staff reads this every cycle.">
+      <Field htmlFor="notes" label="Notes to the team" hint="Plain language. The Chief of Staff reads this every cycle.">
         <Textarea id="notes" placeholder="Focus on activation this week." aria-describedby={fieldDescribedBy("notes", { hint: true })} />
       </Field>
     </div>

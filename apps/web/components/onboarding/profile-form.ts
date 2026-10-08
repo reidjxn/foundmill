@@ -32,7 +32,7 @@ export const TIME_OPTIONS: Option[] = [
   { value: "full_time", label: "Full time", description: "40 hours a week or more." },
   { value: "part_time", label: "Part time", description: "15 to 30 hours a week." },
   { value: "evenings_weekends", label: "Evenings and weekends", description: "Around 10 hours a week." },
-  { value: "few_hours", label: "A few hours a week", description: "The squad does most of the work." },
+  { value: "few_hours", label: "A few hours a week", description: "The team does most of the work." },
 ];
 
 export const RISK_OPTIONS: Option[] = [
@@ -151,7 +151,7 @@ export type ProfileErrors = Partial<Record<keyof ProfileForm, string>>;
 
 export function validateProfileForm(form: ProfileForm): ProfileErrors {
   const errors: ProfileErrors = {};
-  if (form.displayName.trim().length === 0) errors.displayName = "Tell the squad what to call you.";
+  if (form.displayName.trim().length === 0) errors.displayName = "Tell the team what to call you.";
   if (form.displayName.trim().length > 120) errors.displayName = "Keep it under 120 characters.";
   if (!form.experience) errors.experience = "Pick the one that fits best.";
   if (!form.timeCommitment) errors.timeCommitment = "How much of your week does this get?";

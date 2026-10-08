@@ -88,7 +88,7 @@ export function layoutHierarchy(nodes: readonly HierarchyNode[], opts: Partial<H
   return { nodes: list, edges, width, height };
 }
 
-const KIND_LABEL: Record<HierarchyKind, string> = { founder: "Founder", assistant: "Assistant manager", lead: "Lead", worker: "Worker", utility: "Utility", human: "Staff" };
+const KIND_LABEL: Record<HierarchyKind, string> = { founder: "Founder", assistant: "Chief of Staff", lead: "Lead", worker: "Worker", utility: "Utility", human: "Staff" };
 
 export interface HierarchyChartProps {
   nodes: readonly HierarchyNode[];
@@ -145,7 +145,7 @@ export function HierarchyChart({ nodes, selectedId, onSelect, layout: layoutOpts
 
   return (
     <div className={cn("overflow-auto", className)} data-hierarchy-chart>
-      <div role="tree" aria-label="Squad hierarchy" className="relative" style={{ width: layout.width, height: layout.height }}>
+      <div role="tree" aria-label="Team hierarchy" className="relative" style={{ width: layout.width, height: layout.height }}>
         <svg width={layout.width} height={layout.height} aria-hidden className="absolute inset-0">
           {layout.edges.map((e) => (
             <path key={`${e.from}-${e.to}`} d={e.path} fill="none" className="stroke-subtle" strokeWidth={1.5} />

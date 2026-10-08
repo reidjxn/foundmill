@@ -141,7 +141,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
         loading={roadmap.isLoading}
         error={roadmap.error ? roadmap.error.message : undefined}
         onRetry={roadmap.refetch}
-        empty={roadmap.data && now.length === 0 ? { icon: MapIcon, children: "Nothing is in Now. Move items there on the Roadmap tab and the squad picks them up next cycle.", action: { label: "Open roadmap", onClick: () => navigate(href("roadmap")) } } : undefined}
+        empty={roadmap.data && now.length === 0 ? { icon: MapIcon, children: "Nothing is in Now. Move items there on the Roadmap tab and the team picks them up next cycle.", action: { label: "Open roadmap", onClick: () => navigate(href("roadmap")) } } : undefined}
         flush
       >
         <ul className="flex flex-col divide-y divide-subtle/50" aria-label="Roadmap items in Now">

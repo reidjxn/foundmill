@@ -207,7 +207,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "design_to_code.fidelity",
     templateKey: "design_to_code",
     title: "Implement a reference design with tokens",
-    prompt: `A Figma reference (fig_8) shows a department card: header with name, colour dot, lead avatar and health pill; a squad strip; a headline metric with sparkline; a "Next up" line. Describe how you implement it as JSON matching the worker schema {summary, steps, artifacts}: which Dugout primitives you compose, how you match spacing and type scale with tokens, how you verify fidelity at 1440 and 1280 px, and what you refuse to do (e.g. custom hex colours, mobile breakpoints).`,
+    prompt: `A Figma reference (fig_8) shows a department card: header with name, colour dot, lead avatar and health pill; a team strip; a headline metric with sparkline; a "Next up" line. Describe how you implement it as JSON matching the worker schema {summary, steps, artifacts}: which Dugout primitives you compose, how you match spacing and type scale with tokens, how you verify fidelity at 1440 and 1280 px, and what you refuse to do (e.g. custom hex colours, mobile breakpoints).`,
     schemaKey: "worker",
     checks: [CHECK.all("1280", "token")],
     rubric: [

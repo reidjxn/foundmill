@@ -241,7 +241,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
               const c = toConcept(idea);
               return (
                 <li key={idea.id} className="flex items-center gap-3 rounded-panel border border-subtle bg-panel-alt p-3" data-discarded={idea.id}>
-                  <Crest seed={c.crestSeed} kitPrimary={c.kit.primary} kitSecondary={c.kit.secondary} monogram={initials(c.name)} size={32} title={`${c.name} crest`} />
+                  <Crest seed={c.crestSeed} kitPrimary={c.kit.primary} kitSecondary={c.kit.secondary} monogram={initials(c.name)} size={32} title={`${c.name} logo`} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-body-strong">{c.name}</div>
                     <div className="text-small text-secondary">Discarded {new Date(discardedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</div>
@@ -321,7 +321,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
               return (
                 <Tooltip key={id} content={c.name}>
                   <span>
-                    <Crest seed={c.crestSeed} kitPrimary={c.kit.primary} kitSecondary={c.kit.secondary} monogram={initials(c.name)} size={32} title={`${c.name} crest`} />
+                    <Crest seed={c.crestSeed} kitPrimary={c.kit.primary} kitSecondary={c.kit.secondary} monogram={initials(c.name)} size={32} title={`${c.name} logo`} />
                   </span>
                 </Tooltip>
               );

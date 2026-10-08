@@ -132,7 +132,7 @@ function TeamSheet({ journey, agents }: { journey: Journey; agents?: readonly St
             <li key={c.channelKey ?? "direct"} className="flex items-center gap-2">
               <span className="w-36 truncate text-body-strong">
                 {channelLabel(c.channelKey)}
-                {c.channelKey === captainChannel && journey.captain ? <Icon icon={Star} size="inline" className="ml-1 inline text-gold" label="Captain" /> : null}
+                {c.channelKey === captainChannel && journey.captain ? <Icon icon={Star} size="inline" className="ml-1 inline text-gold" label="Lead channel" /> : null}
               </span>
               <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-panel-alt">
                 <span className="block h-full bg-kit-primary" style={{ width: `${Math.round((c.weight / maxW) * 100)}%` }} />
@@ -145,7 +145,7 @@ function TeamSheet({ journey, agents }: { journey: Journey; agents?: readonly St
           ))}
         </ol>
       </Panelette>
-      <Panelette title="Squad">
+      <Panelette title="Team">
         <ol className="flex flex-col gap-2">
           {[...journey.agents]
             .sort((a, b) => b.contribution - a.contribution)
@@ -157,7 +157,7 @@ function TeamSheet({ journey, agents }: { journey: Journey; agents?: readonly St
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-body-strong">
                       {a.name}
-                      {a.agentId === captainAgent ? <Icon icon={Star} size="inline" className="ml-1 inline text-gold" label="Captain" /> : null}
+                      {a.agentId === captainAgent ? <Icon icon={Star} size="inline" className="ml-1 inline text-gold" label="Standout agent" /> : null}
                     </span>
                     <span className="block truncate text-small text-secondary">{a.role ?? "Agent"}</span>
                   </span>
@@ -202,7 +202,7 @@ function KickOff({ journey, touches }: { journey: Journey; touches: readonly Tou
           </span>
         </div>
         <p className="text-small text-secondary">
-          {touches.length} touches across {journey.channels.length} channels, scaled to the real {formatDuration(span)}. The gold dot is the captain, the heaviest touch.
+          {touches.length} touches across {journey.channels.length} channels, scaled to the real {formatDuration(span)}. The gold dot is the heaviest touch.
         </p>
       </div>
     </Panelette>

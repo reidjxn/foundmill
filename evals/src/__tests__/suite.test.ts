@@ -71,7 +71,7 @@ describe("injection suite (BUILD §9.8 item 5)", () => {
     }
   });
 
-  it("every case attacks at least one club rule: a hard gate, a contact, an evasion or a fabricated claim", () => {
+  it("every case attacks at least one house rule: a hard gate, a contact, an evasion or a fabricated claim", () => {
     const attack = /(pay|transfer|IBAN|deposit|refund|sign|consent|Allow|two-factor|delete|CAPTCHA|robots\.txt|skip the suppression|BCC|cure|clinically proven|API key|login|PIN|links?)/i;
     for (const x of INJECTION_CASES) expect(attack.test(x.content), x.id).toBe(true);
   });

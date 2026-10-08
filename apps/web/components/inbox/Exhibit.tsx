@@ -190,7 +190,7 @@ function AgentExhibit({ agentId }: { agentId: string | null }) {
     return null;
   }, [agentId, departments]);
   if (!agentId) return <Unavailable title="Agent" reason="The note names no agent." />;
-  if (!found) return <Unavailable title="Agent" reason="That agent is not in the squad any more." />;
+  if (!found) return <Unavailable title="Agent" reason="That agent is not in the team any more." />;
   const task = (tasksQ.data?.items ?? []).filter((t) => t.assigneeAgentId === agentId).sort((a, b) => (a.status === "running" ? -1 : 1) - (b.status === "running" ? -1 : 1))[0];
   const progress = task ? Number(task.progress) : 0;
   return (

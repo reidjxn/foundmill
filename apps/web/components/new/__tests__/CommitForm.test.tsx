@@ -96,11 +96,11 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: suggested, gameMode: "live", archetype: "b2b_saas", businessMode: "assisted", currency: "EUR", spendCapMinor: 25_000, kit: { primary: "#1b4fd8" } });
   });
 
-  it("shows the squad the archetype seeds", () => {
+  it("shows the team the archetype seeds", () => {
     renderForm(vi.fn(), {
       preview: {
         departments: [{ slug: "product", name: "Product", icon: "box", colourToken: "dept-1", moduleKeys: ["product"], budgetMinor: 0, budgetLabel: "Estimate" }],
-        agents: [{ templateKey: "chief_of_staff", name: "Chief of Staff", role: "Assistant manager", layer: "utility", modelKey: "opus", wageCapMinor: 0, wageLabel: "Estimate" }],
+        agents: [{ templateKey: "chief_of_staff", name: "Chief of Staff", role: "Chief of Staff", layer: "utility", modelKey: "opus", wageCapMinor: 0, wageLabel: "Estimate" }],
         defaultChannels: ["seo"],
         specOutline: [],
       } as unknown as React.ComponentProps<typeof CommitForm>["preview"],

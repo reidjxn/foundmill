@@ -99,20 +99,20 @@ describe("AgentTile", () => {
     expect(controls.onUpgradeModel).toHaveBeenCalledWith("session-1");
     await user.click(within(toolbar).getByRole("button", { name: "Stop and discard" }));
     expect(controls.onStop).toHaveBeenCalledWith("session-1");
-    await user.click(within(toolbar).getByRole("button", { name: /Shout to Juno/ }));
+    await user.click(within(toolbar).getByRole("button", { name: /Nudge Juno/ }));
     await user.click(await screen.findByRole("menuitem", { name: /Focus on tests/ }));
     expect(controls.onShout).toHaveBeenCalledWith("session-1", { preset: "focus_on_tests", text: "Focus on tests" });
   });
 
-  it("sends a custom shout from the dialog", async () => {
+  it("sends a custom nudge from the dialog", async () => {
     const user = userEvent.setup();
     const onShout = vi.fn();
     render(<AgentTile session={session} now={NOW} terminalRenderer="plain" controls={{ onShout }} />);
-    await user.click(screen.getByRole("button", { name: /Shout to Juno/ }));
+    await user.click(screen.getByRole("button", { name: /Nudge Juno/ }));
     await user.click(await screen.findByRole("menuitem", { name: /Custom message/ }));
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText("Message"), "Use the existing date helper.");
-    await user.click(within(dialog).getByRole("button", { name: "Send shout" }));
+    await user.click(within(dialog).getByRole("button", { name: "Send nudge" }));
     expect(onShout).toHaveBeenCalledWith("session-1", { preset: null, text: "Use the existing date helper." });
   });
 

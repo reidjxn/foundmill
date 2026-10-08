@@ -70,7 +70,7 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   codeReview: { route: "codeReview", description: "Deterministic review of a unified diff against the platform rules.", schema: CodeReviewOutput, generate: generateCodeReview },
   ideation: { route: "ideation", description: "6–12 concept cards with 10 attributes (1–20), evidence and ≥ 2 citations, seeded by the prompt.", schema: IdeationOutput, generate: generateIdeation },
   skillGrader: { route: "skillGrader", description: "Rubric grading 0–1 per line; deterministic checks are authoritative.", schema: SkillGradeOutput, generate: generateSkillGrader },
-  coach: { route: "coach", description: "Up to 3 instruction diffs for the focus skills; never weakens club rules.", schema: CoachOutput, generate: generateCoach },
+  coach: { route: "coach", description: "Up to 3 instruction diffs for the focus skills; never weakens house rules.", schema: CoachOutput, generate: generateCoach },
   worker: { route: "worker", description: "Generic Sonnet worker: a stepwise plan and artefact list for a task.", schema: WorkerOutput, generate: generateWorker },
   journeyCommentary: { route: "journeyCommentary", description: "Match Day commentary: one line per touch, entities linked from the manifest.", schema: CommentaryOutput, generate: generateJourneyCommentary },
   nightlyBatch: { route: "nightlyBatch", description: "Nightly batch job summary with one result per item.", schema: NightlyBatchOutput, generate: generateNightlyBatch },

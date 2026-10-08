@@ -46,7 +46,7 @@ describe("agentSession workflow", () => {
     void MockSandboxProvider;
   });
 
-  it("delivers pause / shout / decision / resume to the running session in signal order and answers the progress query", async () => {
+  it("delivers pause / nudge / decision / resume to the running session in signal order and answers the progress query", async () => {
     const commands: SessionCommand[] = [];
     let release!: () => void;
     const released = new Promise<void>((r) => (release = r));

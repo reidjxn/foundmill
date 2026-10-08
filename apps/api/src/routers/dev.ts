@@ -149,7 +149,7 @@ export const devRouter = router({
     /** Shout at one task's agent or every running agent (AC-11.6.4: reaches the session within 2 s). */
     shout: write.input(z.object({ taskId: Id.optional(), preset: z.enum(SHOUT_PRESETS).optional(), text: z.string().max(280).optional() })).mutation(async ({ ctx, input }) => {
       const message = input.text?.trim() || input.preset;
-      if (!message) throw new ValidationError("Pick a preset or write a shout");
+      if (!message) throw new ValidationError("Pick a preset or write a nudge");
       const tasks = input.taskId ? [await ctx.rls((tx) => repos.tasks.get(tx, ctx.businessId, input.taskId!))] : (await ctx.rls((tx) => repos.tasks.list(tx, ctx.businessId, { status: "running", limit: 200 }))).items;
       const results = await Promise.all(tasks.map((t) => signalTask(ctx, t, SIGNALS.shout, { message, preset: input.preset ?? null, by: ctx.userId, at: new Date().toISOString() })));
       await ctx.rls((tx) => audit(tx, ctx, { action: "dev.tasks.shout", target: { kind: "task", id: input.taskId ?? "all" }, details: { message, tasks: tasks.length, queued: results.filter((r) => r.queued).length } }));

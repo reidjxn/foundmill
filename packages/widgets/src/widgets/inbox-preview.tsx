@@ -53,7 +53,7 @@ function InboxPreviewWidget({ settings }: WidgetProps<InboxPreviewSettings>) {
       data-widget="inbox_preview"
       queries={[inbox]}
       flush
-      empty={inbox.data && items.length === 0 ? { icon: Inbox, text: "Notes from your squad land here after each cycle. Press Continue to start one.", action: { label: "Open inbox", onClick: () => navigate(routes.inbox(businessId)) } } : null}
+      empty={inbox.data && items.length === 0 ? { icon: Inbox, text: "Notes from your team land here after each cycle. Press Continue to start one.", action: { label: "Open inbox", onClick: () => navigate(routes.inbox(businessId)) } } : null}
       actions={
         <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={() => navigate(routes.inbox(businessId))}>
           Open
@@ -96,7 +96,7 @@ function InboxPreviewWidget({ settings }: WidgetProps<InboxPreviewSettings>) {
 export const inboxPreviewWidget = registerWidget<InboxPreviewSettings>({
   key: "inbox_preview",
   title: "Inbox preview",
-  description: "The latest notes from your squad; click a row to open it.",
+  description: "The latest notes from your team; click a row to open it.",
   icon: "inbox",
   surfaces: ["home", "department"],
   defaultSize: { w: 4, h: 12, minW: 3, minH: 8 },

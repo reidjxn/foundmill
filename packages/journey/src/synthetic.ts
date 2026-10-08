@@ -243,7 +243,7 @@ function script(profile: Profile, archetype: Archetype, days: number): { events:
     { day: at(0.007), kind: "incorporation", label: "Incorporated", signupStep: 1, hoursStep: 1 },
     { day: at(0.06), kind: "launch", label: "Public launch", signupStep: 2.2, hoursStep: 1.3 },
     { day: at(0.15), kind: "decision", label: "Chose the first channels", signupStep: 1, hoursStep: 1 },
-    { day: at(0.35), kind: "decision", label: "Expanded the squad", signupStep: 1, hoursStep: 1.1 },
+    { day: at(0.35), kind: "decision", label: "Expanded the team", signupStep: 1, hoursStep: 1.1 },
     { day: at(0.45), kind: "launch", label: archetype === "dtc_physical" ? "New range launch" : "v2 launch", signupStep: 1.5, hoursStep: 1.15 },
     { day: at(0.6), kind: "decision", label: "Pricing reset", signupStep: 1.1, hoursStep: 1 },
     { day: at(0.77), kind: "launch", label: profile.recurring ? "Annual plans" : "Retail partnership", signupStep: 1.3, hoursStep: 1.05 },

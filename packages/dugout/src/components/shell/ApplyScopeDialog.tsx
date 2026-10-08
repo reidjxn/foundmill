@@ -40,7 +40,7 @@ export function applyScopeCopy(scope: ApplyScope, ctx: Pick<ApplyScopeDialogProp
     case "all":
       return {
         label: "Apply to all agents",
-        description: ctx.allCount !== undefined ? `All ${ctx.allCount} agents in the squad.` : "Every agent in the squad.",
+        description: ctx.allCount !== undefined ? `All ${ctx.allCount} agents in the team.` : "Every agent in the team.",
       };
   }
 }

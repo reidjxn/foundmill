@@ -102,7 +102,7 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
   ref,
 ) {
   const crestNode = isCrestSpec(crest) ? (
-    <Crest seed={crest.seed} monogram={crest.monogram} kitPrimary={kit.primary} kitSecondary={kit.secondary} size={32} title={`${businessName} crest`} />
+    <Crest seed={crest.seed} monogram={crest.monogram} kitPrimary={kit.primary} kitSecondary={kit.secondary} size={32} title={`${businessName} logo`} />
   ) : (
     crest
   );

@@ -112,7 +112,7 @@ export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJo
           ) : null}
         </div>
         <aside className="flex flex-col gap-2" aria-label="Agent hours by department">
-          <span className="t-label">Squad</span>
+          <span className="t-label">Team</span>
           {depts.length === 0 ? <span className="text-small text-secondary">No agent work recorded.</span> : null}
           {depts.map((d) => (
             <div key={d.id} className="flex items-center gap-2 text-small">

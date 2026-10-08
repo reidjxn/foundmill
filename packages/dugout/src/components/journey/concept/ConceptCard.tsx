@@ -53,7 +53,7 @@ export function ConceptCard({ concept, onAction, shortlisted, selected, onToggle
       style={{ ["--kit-primary" as string]: concept.kit.primary, ["--kit-secondary" as string]: concept.kit.secondary }}
     >
       <header className="flex items-start gap-3 border-b border-subtle bg-panel-alt p-panel-pad">
-        <Crest seed={concept.crestSeed} kitPrimary={concept.kit.primary} kitSecondary={concept.kit.secondary} monogram={concept.monogram ?? initials(concept.name)} size={48} title={`${concept.name} crest`} />
+        <Crest seed={concept.crestSeed} kitPrimary={concept.kit.primary} kitSecondary={concept.kit.secondary} monogram={concept.monogram ?? initials(concept.name)} size={48} title={`${concept.name} logo`} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3 className="t-display-sm truncate">{concept.name}</h3>

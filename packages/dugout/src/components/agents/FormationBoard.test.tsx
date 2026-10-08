@@ -55,7 +55,7 @@ describe("FormationBoard", () => {
     expect(within(pitch).getByRole("group", { name: /Acquisition line/ })).toBeTruthy();
     expect(within(pitch).getByRole("group", { name: /Offline line/ })).toBeTruthy();
     expect(within(pitch).getAllByRole("button")).toHaveLength(4);
-    const bench = screen.getByRole("group", { name: /Bench: All 15 channels are available/ });
+    const bench = screen.getByRole("group", { name: /Off the board: All 15 channels are available/ });
     expect(within(bench).getAllByRole("button")).toHaveLength(11);
     const paid = within(pitch).getByRole("button", { name: /Paid advertising, fit 17 of 20 \(Excellent\), recommended, on the board/ });
     expect(paid.getAttribute("aria-pressed")).toBe("true");
@@ -108,7 +108,7 @@ describe("FormationBoard", () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
 
-    it("recommended tokens start on the bench and walk onto the board one by one", () => {
+    it("recommended tokens start off the board and walk onto the board one by one", () => {
       const { container } = render(<FormationBoard channels={channels} onToggle={vi.fn()} hoverCards={false} />);
       const pitch = () => container.querySelector('[data-drop-zone="pitch"]') as HTMLElement;
       expect(within(pitch()).queryAllByRole("button")).toHaveLength(0);
@@ -135,7 +135,7 @@ describe("ChannelProfileCard", () => {
     expect(screen.getByText("Paid advertising")).toBeTruthy();
     expect(screen.getByText("Recommended")).toBeTruthy();
     expect(screen.getByText(/Estimate/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Move to bench" }));
+    fireEvent.click(screen.getByRole("button", { name: "Take off the board" }));
     expect(onToggle).toHaveBeenCalledWith("paid_ads", false);
     fireEvent.click(screen.getByRole("button", { name: "Open channel" }));
     expect(onOpenChannel).toHaveBeenCalledWith("paid_ads");

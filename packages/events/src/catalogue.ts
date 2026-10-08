@@ -129,7 +129,7 @@ const ideaCommitted = declareEvent(
     agentIds: z.array(Id),
   }),
   {
-    doc: "The founder took charge of an idea: the business exists, departments and squad are seeded. The first businessCycle starts after this.",
+    doc: "The founder took charge of an idea: the business exists, departments and team are seeded. The first businessCycle starts after this.",
     consumers: ["composer", "metrics", "playbooks"],
   },
 );
@@ -621,7 +621,7 @@ const agentHealthChanged = declareEvent(
     sessionId: Id.nullable().default(null),
   }),
   {
-    doc: "An agent's computed status changed (healthy → degraded → failing / injured / paused / idle). Squad table and department cards update within 2 s via the stream.",
+    doc: "An agent's computed status changed (healthy → degraded → failing / injured / paused / idle). Team table and department cards update within 2 s via the stream.",
     consumers: ["composer", "health", "metrics", "stream", "playbooks"],
   },
 );

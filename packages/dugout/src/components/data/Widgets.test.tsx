@@ -100,12 +100,12 @@ describe("WidgetGrid", () => {
     expect(screen.getAllByRole("button", { name: /^Move / }).length).toBe(
       FOUNDERS_VIEW_LAYOUT.length,
     );
-    await user.click(screen.getByRole("button", { name: "Remove Squad pulse" }));
+    await user.click(screen.getByRole("button", { name: "Remove Team pulse" }));
     expect(onChange).toHaveBeenCalled();
     expect(onChange.mock.calls.at(-1)?.[0].some((it: { i: string }) => it.i === "pulse")).toBe(
       false,
     );
-    expect(screen.queryByRole("region", { name: "Squad pulse" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Team pulse" })).toBeNull();
   });
 
   it("adds a widget from the drawer and respects single-instance widgets", async () => {

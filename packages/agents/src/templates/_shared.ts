@@ -80,8 +80,8 @@ export const CODING_COMMON_RULES: string[] = [
   "Write or update tests for every behaviour change; the task's acceptance tests must pass before you mark it done.",
   "Ask before schema changes, auth changes or anything touching payments; business-scoped tables need business_id, an RLS policy and a cross-tenant test in the same change.",
   "Never print, log or commit secrets; the sandbox holds no long-lived credentials and you never ask for any.",
-  "Match the design system (Dugout components and tokens only) for any UI; desktop only, 1280 px minimum.",
-  "Keep changes small and reviewable; when a Shout arrives (Focus on tests, Simplify, Hurry up), change course within the current step and say so in the task log.",
+  "Match the design system (design-system components and tokens only) for any UI; desktop only, 1280 px minimum.",
+  "Keep changes small and reviewable; when a nudge arrives (Focus on tests, Simplify, Hurry up), change course within the current step and say so in the task log.",
 ];
 
 export const PHYSICAL_SPECIALIST_RULES: string[] = [

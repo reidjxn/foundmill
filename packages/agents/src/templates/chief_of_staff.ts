@@ -5,7 +5,7 @@ import { AUTONOMY_INHERIT, defineTemplate, LEAD_COMMON_RULES, withCoreSkills } f
 export const chiefOfStaff = defineTemplate({
   key: "chief_of_staff",
   name: "Chief of Staff",
-  role: "Assistant manager",
+  role: "Chief of Staff",
   family: "assistant",
   agentType: "chief_of_staff",
   module: null,
@@ -14,7 +14,7 @@ export const chiefOfStaff = defineTemplate({
   description:
     "I plan each business cycle, route work to the department leads, compile the founder's free-text replies into typed Plans, and decide within my authority when the founder is on holiday. Inputs: the business brief, open tasks, budgets, business mode, pending events, roadmap and approvals waiting. Outputs: a cycle plan per department with assignees and a time box, Plans of typed actions, and Inbox decisions. Tools: the task board, budgets and typed messages. Never does: spend, sign, or act on a hard gate; those always become a founder task.",
   instructions: {
-    role: "Chief of Staff and assistant manager: you run the cycle so the founder only has to read the Inbox and decide.",
+    role: "Chief of Staff and Chief of Staff: you run the cycle so the founder only has to read the Inbox and decide.",
     goals: [
       "Every cycle starts the work that most directly unblocks a customer win, within concurrency, budget and rate-limit capacity.",
       "Every founder reply, button or free text, becomes an executable Plan of typed actions within one step, with hard gates routed to request_human_action.",

@@ -52,10 +52,10 @@ export function CrestKitEditor({ name, seed, kit, onKitChange, onShuffle, error 
     <div className="grid grid-cols-[auto_1fr] gap-gutter" data-testid="crest-kit-editor" style={{ ["--kit-primary" as string]: safe.primary, ["--kit-secondary" as string]: safe.secondary, ["--kit-on-primary" as string]: contrast.onPrimary }}>
       <div className="flex flex-col items-center gap-3">
         <div className="flex size-32 items-center justify-center rounded-panel border border-subtle bg-ink" data-testid="crest-preview">
-          <Crest seed={seed} kitPrimary={safe.primary} kitSecondary={safe.secondary} monogram={monogram} size={96} title={`${name || "Business"} crest`} />
+          <Crest seed={seed} kitPrimary={safe.primary} kitSecondary={safe.secondary} monogram={monogram} size={96} title={`${name || "Business"} logo`} />
         </div>
         <Button size="sm" variant="default" icon={Dices} onClick={onShuffle} data-testid="shuffle-crest">
-          Shuffle crest
+          Shuffle logo
         </Button>
         <div className="flex h-10 w-32 items-center gap-2 rounded-panel bg-kit-primary px-2 text-kit-on-primary" aria-label="Brand bar preview" data-testid="kit-bar-preview">
           <Crest seed={seed} kitPrimary={safe.primary} kitSecondary={safe.secondary} monogram={monogram} size={20} title="" />
@@ -64,8 +64,8 @@ export function CrestKitEditor({ name, seed, kit, onKitChange, onShuffle, error 
       </div>
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-gutter">
-          <ColourField label="Primary colour" hint="Top bar, Continue button, revenue line, crest." value={kit.primary} onChange={(v) => onKitChange({ ...kit, primary: v })} testId="kit-primary" />
-          <ColourField label="Secondary colour" hint="Crest field, celebrations, accents." value={kit.secondary} onChange={(v) => onKitChange({ ...kit, secondary: v })} testId="kit-secondary" />
+          <ColourField label="Primary colour" hint="Top bar, Continue button, revenue line, logo." value={kit.primary} onChange={(v) => onKitChange({ ...kit, primary: v })} testId="kit-primary" />
+          <ColourField label="Secondary colour" hint="Logo field, celebrations, accents." value={kit.secondary} onChange={(v) => onKitChange({ ...kit, secondary: v })} testId="kit-secondary" />
         </div>
         <div className="flex flex-wrap items-center gap-2" data-testid="kit-contrast" data-passes={contrast.passes}>
           <StatusPill tone={contrast.passes ? "good" : "warn"}>{contrast.passes ? `Text on primary passes · Lc ${contrast.lc}` : `Text on primary is weak · Lc ${contrast.lc}`}</StatusPill>

@@ -304,7 +304,7 @@ export function TaskGraph({ nodes, selectedId, onSelect, layout: layoutOpts, hei
   return (
     <div className={cn("flex min-w-0 flex-col surface-panel overflow-hidden", className)} data-task-graph>
       <div className="flex h-panel-header shrink-0 items-center gap-2 border-b border-subtle bg-panel-alt px-panel-pad">
-        <span className="t-label flex-1">Formation · {nodes.length} tasks</span>
+        <span className="t-label flex-1">Task graph · {nodes.length} tasks</span>
         <span className="font-mono text-mono text-secondary tabular-nums" aria-live="polite">
           {Math.round(t.k * 100)}%
         </span>

@@ -73,7 +73,7 @@ export function SquadPulse({ departments, days, cells, onSelect, className }: Sq
   };
   return (
     <div className={cn("flex flex-col gap-2", className)} data-squad-pulse>
-      <div ref={gridRef} role="grid" aria-label={`Squad pulse: ${formatNumber(total, { maxDigits: 0 })} agent hours over the last 7 days, by hour and department`} aria-rowcount={7} aria-colcount={24} className="flex flex-col gap-px" onKeyDown={onKeyDown}>
+      <div ref={gridRef} role="grid" aria-label={`Team pulse: ${formatNumber(total, { maxDigits: 0 })} agent hours over the last 7 days, by hour and department`} aria-rowcount={7} aria-colcount={24} className="flex flex-col gap-px" onKeyDown={onKeyDown}>
         <div role="row" className="flex items-center gap-px pl-12">
           {HOURS.map((h) => (
             <span key={h} role="columnheader" className={cn("flex-1 text-center font-mono text-[10px] leading-3 text-secondary", h % 3 !== 0 && "invisible")} aria-label={`${h}:00`}>

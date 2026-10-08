@@ -80,7 +80,7 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
       </Panel>
 
       {!loading && !error && agents.length === 0 ? (
-        <Panel span={12} title="Squad" empty={{ icon: HeartPulse, title: "No agents to watch", children: "Each agent appears here under its health with heartbeat, error rate and, when down, the expected return.", action: { label: "Go to Recruitment", icon: UserRoundPlus, onClick: () => navigate(recruitHref) } }} />
+        <Panel span={12} title="Team" empty={{ icon: HeartPulse, title: "No agents to watch", children: "Each agent appears here under its health with heartbeat, error rate and, when down, the expected return.", action: { label: "Go to Recruitment", icon: UserRoundPlus, onClick: () => navigate(recruitHref) } }} />
       ) : null}
 
       {groups.map((group) => (

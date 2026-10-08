@@ -193,7 +193,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
   component_craft: [
     bp(
       "Build a reusable component for {business}",
-      "Build a StatusPill component for {business}'s squad table in the design system: props (status, size), states (healthy, degraded, failing, down, paused, idle), tokens only, a Storybook story with every state, and a DOM test.",
+      "Build a StatusPill component for {business}'s team table in the design system: props (status, size), states (healthy, degraded, failing, down, paused, idle), tokens only, a Storybook story with every state, and a DOM test.",
       [
         "Props are typed; all states covered; uses tokens only.",
         "Story and test exist and pass.",
@@ -265,7 +265,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Audit a screen for {business}",
-      "Audit {business}'s squad table (fixture DOM) for accessibility: roles, names, contrast against tokens, keyboard order, status conveyed by colour only. List findings with severity and fix.",
+      "Audit {business}'s team table (fixture DOM) for accessibility: roles, names, contrast against tokens, keyboard order, status conveyed by colour only. List findings with severity and fix.",
       [
         "Finds colour-only status, missing names and keyboard order issues.",
         "Fixes are concrete (text alternatives, aria attributes, order).",
@@ -304,7 +304,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Local vs shared state at {business}",
-      "Classify these states in {business}'s app as local, store or server: selected Training Ground tile, inbox items, edit-mode flag for Home, draft free-text reply, business mode. Justify each in one line.",
+      "Classify these states in {business}'s app as local, store or server: selected Live sessions tile, inbox items, edit-mode flag for Home, draft free-text reply, business mode. Justify each in one line.",
       [
         "Classification is correct and justified.",
         "Draft reply handled as local with persistence consideration.",
@@ -325,7 +325,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Fix alignment drift at {business}",
-      "Rows in {business}'s squad table misalign by 1-2 px between columns (fixture). Find the cause (padding vs line-height vs borders) and the fix that keeps rows at 28 px.",
+      "Rows in {business}'s team table misalign by 1-2 px between columns (fixture). Find the cause (padding vs line-height vs borders) and the fix that keeps rows at 28 px.",
       [
         "Correct cause identified from the fixture.",
         "Fix keeps row height exact.",

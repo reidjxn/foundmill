@@ -20,7 +20,7 @@ describe("ChannelsScreen", () => {
     expect(within(table).getAllByText("Running")).toHaveLength(3);
     expect(within(table).getByText("Paused")).toBeTruthy(); // social: only campaign paused
     expect(within(table).getAllByText("Not scored")).toHaveLength(9);
-    expect(within(table).getAllByText("On the bench")).toHaveLength(2);
+    expect(within(table).getAllByText("Off the board")).toHaveLength(2);
     expect(within(table).getAllByText("Offline tracking").length).toBeGreaterThan(0);
     expect(within(table).getAllByText("Recommended")).toHaveLength(3);
     expect(within(table).getAllByText("Estimate").length).toBeGreaterThan(0);
@@ -46,7 +46,7 @@ describe("ChannelsScreen", () => {
     fireEvent.contextMenu(within(table).getByText("Paid advertising"));
     const menu = await screen.findByRole("menu");
     expect(within(menu).getByRole("menuitem", { name: "Open profile" })).toBeTruthy();
-    await user.click(within(menu).getByRole("menuitem", { name: "Move to bench" }));
+    await user.click(within(menu).getByRole("menuitem", { name: "Take off the board" }));
     await waitFor(() => expect(fake.mutations.map((m) => m.path)).toEqual(["distribution.channels.disable", "distribution.recommend"]));
 
     fireEvent.contextMenu(within(table).getByText("Paid advertising"));

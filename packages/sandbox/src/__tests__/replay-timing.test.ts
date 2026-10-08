@@ -97,7 +97,7 @@ describe("emit callback and ordering through the provider", () => {
     await sb.stop();
   });
 
-  it("the bundled set covers the scenarios the Training Ground needs", () => {
+  it("the bundled set covers the scenarios the Live sessions needs", () => {
     const byKey = new Map(RECORDINGS.map((r) => [r.key, r]));
     type LooseEvent = { kind: string; failed?: number; suite?: string; source?: string; tool?: string };
     const kinds = (key: string) => byKey.get(key)!.events.map((e) => e.event as unknown as LooseEvent);

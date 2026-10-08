@@ -25,7 +25,7 @@ describe("TrainingGroundScreen", () => {
     expect(fake.subscriberCount(`as:${SESSION_INDEX}`)).toBe(1);
     expect(fake.subscriberCount(`as:${SESSION_SOURCING}`)).toBe(1);
     expect(screen.getByTestId("ground-counts").textContent).toBe("3 live · 2 running");
-    expect(screen.getByText(/16 is the largest squad your key supports/)).toBeTruthy();
+    expect(screen.getByText(/16 is the largest team your key supports/)).toBeTruthy();
     expect(fake.queried.get("dev.tasks.list")).toMatchObject({ status: ["running", "paused", "blocked", "review", "merging"] });
   });
 
@@ -47,8 +47,8 @@ describe("TrainingGroundScreen", () => {
     expect(within(tile()).getByText(/ETA/)).toBeTruthy();
     // A frame on another session's channel does not touch this tile.
     act(() => fake.emit(rawFrame(events[3]!), `as:${SESSION_INDEX}`));
-    await waitFor(() => expect(within(within(grid).getByRole("article", { name: /Pike: Usage index/ })).getByText(/Shout: Focus on tests/)).toBeTruthy());
-    expect(within(tile()).queryByText(/Shout: Focus on tests/)).toBeNull();
+    await waitFor(() => expect(within(within(grid).getByRole("article", { name: /Pike: Usage index/ })).getByText(/Nudge: Focus on tests/)).toBeTruthy());
+    expect(within(tile()).queryByText(/Nudge: Focus on tests/)).toBeNull();
   });
 
   it("drives the controls through the dev.tasks procedures", async () => {
@@ -67,17 +67,17 @@ describe("TrainingGroundScreen", () => {
     await user.click(within(dialog).getByRole("button", { name: "Stop and discard" }));
     await waitFor(() => expect(fake.mutations).toContainEqual({ path: "dev.tasks.stop", input: { taskId: TASK_BUNDLE } }));
     // A preset shout to one agent carries the API's preset label.
-    await user.click(within(tile).getByRole("button", { name: "Shout to Juno" }));
+    await user.click(within(tile).getByRole("button", { name: "Nudge Juno" }));
     await user.click(await screen.findByRole("menuitem", { name: /Focus on tests/ }));
     expect(fake.mutations).toContainEqual({ path: "dev.tasks.shout", input: { taskId: TASK_BUNDLE, preset: "Focus on tests" } });
   });
 
-  it("shouts to every agent from the header and reassigns through a dialog", async () => {
+  it("nudges to every agent from the header and reassigns through a dialog", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ responses: trainingGroundResponses(), onMutate: () => ({ ok: true }) });
     renderScreen(fake, <TrainingGroundScreen {...props} />);
     await screen.findByRole("region", { name: "Agent tiles" });
-    await user.click(screen.getByRole("button", { name: "Shout" }));
+    await user.click(screen.getByRole("button", { name: "Nudge" }));
     await user.click(await screen.findByRole("menuitem", { name: /Hurry up/ }));
     expect(fake.mutations).toContainEqual({ path: "dev.tasks.shout", input: { preset: "Hurry up" } });
 
@@ -129,11 +129,11 @@ describe("TrainingGroundScreen", () => {
     expect(screen.getByRole("button", { name: "Back to live" })).toBeTruthy();
     await user.click(within(scrubber).getByRole("button", { name: "Previous event" }));
     await waitFor(() => expect(within(focused()).getByLabelText("Progress 35%")).toBeTruthy());
-    expect(within(focused()).queryByText(/Shout: Focus on tests/)).toBeNull();
+    expect(within(focused()).queryByText(/Nudge: Focus on tests/)).toBeNull();
     await user.click(screen.getByRole("button", { name: "Back to live" }));
     expect(screen.getByRole("button", { name: "Live" })).toHaveProperty("disabled", true);
     await waitFor(() => expect(within(focused()).getByLabelText("Progress 63%")).toBeTruthy());
-    expect(within(focused()).getByText(/Shout: Focus on tests/)).toBeTruthy();
+    expect(within(focused()).getByText(/Nudge: Focus on tests/)).toBeTruthy();
   });
 
   it("switches to the Formation view and draws the whole task graph", async () => {
@@ -142,7 +142,7 @@ describe("TrainingGroundScreen", () => {
     renderScreen(fake, <TrainingGroundScreen {...props} />);
     await screen.findByRole("region", { name: "Agent tiles" });
     await user.click(screen.getByRole("radio", { name: "Formation" }));
-    const graph = await screen.findByRole("application", { name: /Formation: task graph/ });
+    const graph = await screen.findByRole("application", { name: /Task graph by status/ });
     expect(fake.queried.get("dev.tasks.list")).toEqual({ limit: 500 });
     expect(within(graph).getByRole("button", { name: /Playwright coverage for checkout, Ready/ })).toBeTruthy();
     expect(within(graph).getByRole("button", { name: /Add a bundle picker to the product page, Running, Juno/ })).toBeTruthy();
@@ -154,7 +154,7 @@ describe("TrainingGroundScreen", () => {
   it("opens in the Formation sub-view", async () => {
     const fake = createFakeSource({ responses: trainingGroundResponses() });
     renderScreen(fake, <TrainingGroundScreen {...props} subView="formation" />);
-    expect(await screen.findByRole("application", { name: /Formation: task graph/ })).toBeTruthy();
+    expect(await screen.findByRole("application", { name: /Task graph by status/ })).toBeTruthy();
   });
 
   it("shows the empty, loading and error states", async () => {

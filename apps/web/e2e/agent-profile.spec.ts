@@ -10,7 +10,7 @@ import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
 async function openSquadAgent(page: Page): Promise<string> {
   await openBusiness(page, "d/team/squad");
   const links = page.locator("[data-testid=module-screen] a[href*='/agents/']").filter({ hasNotText: "Chief of Staff" });
-  await expect(links.first(), "the seed hires a squad into Northwind's Team department").toBeVisible({ timeout: LONG });
+  await expect(links.first(), "the seed hires a team into Northwind's Team department").toBeVisible({ timeout: LONG });
   const href = (await links.first().getAttribute("href"))!;
   await page.goto(href);
   await expect(page.getByTestId("agent-profile")).toBeVisible({ timeout: LONG });
@@ -37,7 +37,7 @@ test.describe("agent profile", () => {
     await expect(dialog).toBeVisible();
     await expect(dialog.getByTestId("model-locked-notice")).toHaveCount(0);
     const other = dialog.locator("input[type=radio]:not(:checked):not(:disabled)").first();
-    await expect(other, "a squad agent's route allows more than one model").toBeAttached({ timeout: LONG });
+    await expect(other, "a team agent's route allows more than one model").toBeAttached({ timeout: LONG });
     // Picking another model opens the scope dialog before anything is applied, so the radio itself does not flip.
     await other.click();
     await expect(page.getByTestId("apply-scope-dialog")).toBeVisible();

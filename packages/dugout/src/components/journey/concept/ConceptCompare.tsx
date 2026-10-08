@@ -61,7 +61,7 @@ export function ConceptCompare({ concepts, radarSize = 320, className }: Concept
           </span>
           {shown.map((c, i) => (
             <div key={c.id} className="flex min-w-0 items-center gap-2" role="columnheader">
-              <Crest seed={c.crestSeed} kitPrimary={c.kit.primary} kitSecondary={c.kit.secondary} monogram={c.monogram ?? initials(c.name)} size={32} title={`${c.name} crest`} />
+              <Crest seed={c.crestSeed} kitPrimary={c.kit.primary} kitSecondary={c.kit.secondary} monogram={c.monogram ?? initials(c.name)} size={32} title={`${c.name} logo`} />
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span aria-hidden className={cn("inline-block size-2 rounded-full", `bg-${COMPARE_TONES[i]}`)} />

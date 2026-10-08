@@ -55,7 +55,7 @@ describe("training run (BUILD §11.10)", () => {
     const stored = await repos.training.get(t.db, t.businessId, run.id);
     expect(stored.status).toBe("awaiting_decision");
     expect(stored.results[skillKey]).toEqual({ old: expect.any(Number), new: outcome.tested });
-    expect(stored.coachSummaryMd).toMatch(/club rule/);
+    expect(stored.coachSummaryMd).toMatch(/house rule/);
     // Live version and current pointer untouched (AC-11.10.1).
     expect((await repos.agents.get(t.db, t.businessId, agent.id)).currentVersionId).toBe(live.id);
     expect((await repos.agents.getVersion(t.db, t.businessId, draft.id)).state).toBe("draft");

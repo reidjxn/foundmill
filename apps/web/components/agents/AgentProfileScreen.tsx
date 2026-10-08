@@ -70,7 +70,7 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
     {
       title: profile?.agent.name ?? "Agent",
       tabs: { tabs, activeId: tab, onChange: (id) => router.push(routes.agent(businessId, agentId, id)), "aria-label": "Agent profile tabs" },
-      breadcrumbs: [{ label: "Squad", href: squadHref }, { label: profile?.agent.name ?? "Agent" }],
+      breadcrumbs: [{ label: "Agents", href: squadHref }, { label: profile?.agent.name ?? "Agent" }],
     },
     [profile?.agent.name, tabs, tab, squadHref],
   );
@@ -83,7 +83,7 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
   const skillRows = toSkillRows(profile.skills, profile.trainingRuns);
   const mean = meanRating(skillRows);
   const potential = meanRating(skillRows.map((s) => ({ value: s.potential ?? s.value })));
-  const chips: ProfileChip[] = [{ label: agent.role || humaniseKey(agent.agentType) }, { label: agent.layer === "assistant" ? "Assistant manager" : humaniseKey(agent.layer) }, ...profile.departments.map((d) => ({ label: d.name, tone: d.colourToken }))];
+  const chips: ProfileChip[] = [{ label: agent.role || humaniseKey(agent.agentType) }, { label: agent.layer === "assistant" ? "Chief of Staff" : humaniseKey(agent.layer) }, ...profile.departments.map((d) => ({ label: d.name, tone: d.colourToken }))];
   const facts: ProfileFact[] = [
     {
       label: "Line manager",

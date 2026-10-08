@@ -20,7 +20,7 @@ describe("journey.get returns the full Journey record (BUILD §11.4, AC-11.4.3)"
     const conversion = await repos.journeys.recordConversion(hz.db, businessId, { entityId, kind: "payment", amountMinor: 9900, currency: "EUR", occurredAt: new Date(base + 3 * 3_600_000) });
     const weights = { [t1.id]: 0.4, [t2.id]: 0.2, [t3.id]: 0.4 };
     const agents = [
-      { agentId, name: "Chief", role: "assistant manager", departmentId: null, contribution: 0.4, touchIds: [t3.id], rating: 10 },
+      { agentId, name: "Chief", role: "Chief of Staff", departmentId: null, contribution: 0.4, touchIds: [t3.id], rating: 10 },
       { agentId: agent2Id, name: "Engineer", role: null, departmentId: null, contribution: 0.2, touchIds: [t2.id], rating: 8 },
     ];
     const row = await repos.journeys.create(hz.db, businessId, { conversionId: conversion.id, touchIds: [t1.id, t2.id, t3.id], weights, xcSeries: [{ index: 0, touchId: t1.id, at: new Date(base).toISOString(), p: 0.2, cumulative: 0.2 }], commentary: [], agents, matchdayLevel: "cup" });

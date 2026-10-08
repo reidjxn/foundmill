@@ -13,7 +13,7 @@ async function decisionItem(subject: string) {
     type: "decision",
     from_agent_id: hz.A.agentId,
     subject,
-    body_md: "The squad needs a steer on the first channel. Outbound is the recommended route for a narrow ICP.",
+    body_md: "The team needs a steer on the first channel. Outbound is the recommended route for a narrow ICP.",
     status_strip: [],
     exhibit: { kind: "none", spec_ref: null },
     decision: {

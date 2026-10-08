@@ -62,7 +62,7 @@ const DEPARTMENTS = [
   { id: "d-development", name: "Formulation Lab", dept: "dept-2" as const, lead: "Forge", health: "warn" as const, now: ["Forge is waiting for approval: packaging schema change", "Pixel merged the bundle picker (PR #212)"], metric: "9 tasks merged this week", series: [3, 5, 4, 6, 7, 8, 9] },
   { id: "d-distribution", name: "Distribution", dept: "dept-3" as const, lead: "Scout", health: "good" as const, now: ["Scout drafted the Nordic Beauty AB reply", "Beacon paused Meta ads: CPA up 24 %"], metric: "€38 blended cost per customer", series: [52, 48, 46, 44, 41, 40, 38] },
   { id: "d-finance", name: "Finance", dept: "dept-4" as const, lead: "Ledger", health: "good" as const, now: ["Ledger categorised 42 transactions", "VAT return due in 9 days"], metric: "11 mo runway", series: [12.4, 12.1, 11.9, 11.6, 11.4, 11.2, 11] },
-  { id: "d-team", name: "Team", dept: "dept-5" as const, lead: "Atlas", health: "good" as const, now: ["Atlas scheduled training for Beacon (Creative judgement)", "Squad health 92"], metric: "92 squad health", series: [88, 89, 90, 90, 91, 92, 92] },
+  { id: "d-team", name: "Team", dept: "dept-5" as const, lead: "Atlas", health: "good" as const, now: ["Atlas scheduled training for Beacon (Creative judgement)", "Team health 92"], metric: "92 team health", series: [88, 89, 90, 90, 91, 92, 92] },
   { id: "d-legal", name: "Legal", dept: "dept-6" as const, lead: "Clause", health: "warn" as const, now: ["Clause flagged the influencer agreement: exclusivity clause", "Trademark check: 2 similar marks"], metric: "9 days to next filing", series: [30, 27, 24, 20, 16, 12, 9] },
 ];
 
@@ -113,7 +113,7 @@ function HomeContent() {
       <StatTile icon={TrendingUp} label="Revenue (30 d)" value={formatMoney({ amountMinor: 1120000, currency: "EUR" })} caption="▲ 8.4 % vs previous 30 d" />
       <StatTile icon={Users} label="Customers this week" value="23" caption="4 from Nordic Beauty AB" />
       <StatTile icon={CircleCheck} label="Business health" value="86" caption="3 warnings" />
-      <StatTile icon={Trophy} label="Leaderboard position" value="14th" caption="DTC skincare · 212 clubs" />
+      <StatTile icon={Trophy} label="Leaderboard position" value="14th" caption="DTC skincare · 212 businesses" />
       {DEPARTMENTS.map((d) => (
         <DepartmentCard key={d.id} d={d} />
       ))}
@@ -250,12 +250,12 @@ export const PersonalModeCollapsed: Story = {
   render: (args) => <Shell {...args} />,
 };
 export const WithTabsAndBreadcrumbs: Story = {
-  args: { ...baseArgs, screenTitle: "Distribution", breadcrumbs: [{ label: "Distribution" }, { label: "Formation" }] },
+  args: { ...baseArgs, screenTitle: "Distribution", breadcrumbs: [{ label: "Distribution" }, { label: "Board" }] },
   render: (args) => (
     <Shell {...args} tabs={{ tabs: DISTRIBUTION_TABS, activeId: "formation" }}>
       <PageGrid>
-        <Panel title="Formation" span={8} loading />
-        <Panel title="Bench" span={4} empty="Agents not in the starting line-up sit here." />
+        <Panel title="Board" span={8} loading />
+        <Panel title="Off the board" span={4} empty="Channels not on the board sit here." />
       </PageGrid>
     </Shell>
   ),

@@ -22,7 +22,7 @@ export const FIXTURE_ENTITIES: readonly ManifestEntityInput[] = [
   { id: FIXTURE_IDS.saraNovak, kind: "person", name: "Sara Novak", aliases: ["S. Novak"], role: "founder", org: "Glow Collective" },
   { id: FIXTURE_IDS.nordicPackaging, kind: "organisation", name: "Nordic Packaging AB", aliases: ["Nordic Packaging", "NPAB"] },
   { id: FIXTURE_IDS.stripe, kind: "organisation", name: "Stripe", aliases: [] },
-  { id: FIXTURE_IDS.chiefOfStaff, kind: "agent", name: "Astrid", aliases: ["Chief of Staff"], role: "assistant manager" },
+  { id: FIXTURE_IDS.chiefOfStaff, kind: "agent", name: "Astrid", aliases: ["Chief of Staff"], role: "Chief of Staff" },
   { id: FIXTURE_IDS.distributionLead, kind: "agent", name: "Kofi", aliases: ["Distribution lead"], role: "distribution lead" },
   { id: FIXTURE_IDS.johanBerg, kind: "person", name: "Johan Berg", aliases: [], role: "advisor" },
   { id: FIXTURE_IDS.glowCollective, kind: "organisation", name: "Glow Collective", aliases: ["Glow"] },

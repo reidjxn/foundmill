@@ -93,7 +93,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
         setSavedVersionId(r.version.id);
         setSavedSnapshot(instructions);
         setViolations(violationsToEditor(r.violations, instructions));
-        setNotice(r.flagged ? { tone: "warn", text: `Draft v${r.version.version} saved. ${r.violations.length} ${r.violations.length === 1 ? "line contradicts" : "lines contradict"} a club rule and will have no effect.` } : { tone: "good", text: `Draft v${r.version.version} saved. The live version is untouched until you promote.` });
+        setNotice(r.flagged ? { tone: "warn", text: `Draft v${r.version.version} saved. ${r.violations.length} ${r.violations.length === 1 ? "line contradicts" : "lines contradict"} a house rule and will have no effect.` } : { tone: "good", text: `Draft v${r.version.version} saved. The live version is untouched until you promote.` });
         void invalidateAgent();
       },
       onError: (err) => setNotice({ tone: "bad", text: errorMessage(err) }),
@@ -244,7 +244,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
             </Button>
           </span>
         }
-        footer={notice ? <span data-testid="training-notice" data-tone={notice.tone} className={notice.tone === "bad" ? "text-status-bad" : notice.tone === "warn" ? "text-status-warn" : undefined}>{notice.text}</span> : <span>Club rules are prepended by the runtime and cannot be edited here; a draft that contradicts one is flagged and the rule still applies.</span>}
+        footer={notice ? <span data-testid="training-notice" data-tone={notice.tone} className={notice.tone === "bad" ? "text-status-bad" : notice.tone === "warn" ? "text-status-warn" : undefined}>{notice.text}</span> : <span>House rules are prepended by the runtime and cannot be edited here; a draft that contradicts one is flagged and the rule still applies.</span>}
       >
         <TabBar tabs={subTabs} activeId={sub} onChange={(id) => setSub(id as TrainingSubTab)} aria-label="Training sections" className="px-2" />
         <div className="p-panel-pad">

@@ -23,7 +23,7 @@ test.describe("import", () => {
     await expect(page.getByRole("alert").filter({ hasText: /owner\/name/ }).first()).toBeVisible();
   });
 
-  test("AC-11.1.5: a GitHub import never pushes and the Scouting report seeds the roadmap from open issues", async ({ page }) => {
+  test("AC-11.1.5: a GitHub import never pushes and the Import report seeds the roadmap from open issues", async ({ page }) => {
     await page.getByLabel("Import from GitHub").check();
     await page.getByLabel("Repository").fill("acme/ledgerly");
     await page.getByLabel("Import from Stripe").check();
@@ -33,7 +33,7 @@ test.describe("import", () => {
     const report = page.getByTestId("scouting-report");
     await expect(report).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("never-pushed")).toHaveText(/Nothing was pushed/);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Scouting report: Ledgerly");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Import report: Ledgerly");
     expect(await page.getByTestId("roadmap-seeds").locator("li").count()).toBeGreaterThanOrEqual(3);
     await expect(page.getByTestId("first-decisions").locator("[data-recommended]")).toHaveCount(1);
     await expect(report.getByText("Estimate").first()).toBeVisible();

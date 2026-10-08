@@ -21,7 +21,7 @@ describe("development module registration", () => {
     expect(getModuleScreen("development", "match-day")).toBeUndefined();
   });
 
-  it("gives the Training Ground its Tiles / Formation sub-views", () => {
+  it("gives the Live sessions its Tiles / Formation sub-views", () => {
     expect(getModuleScreen("development", "training-ground")?.subViews?.map((v) => v.slug)).toEqual(["tiles", "formation"]);
     expect(getModuleScreen("development", "plan")?.subViews).toBeUndefined();
   });

@@ -101,7 +101,7 @@ describe("TileGrid", () => {
   it("GroundViewToggle is a radio group", () => {
     const onChange = vi.fn();
     render(<GroundViewToggle value="tiles" onChange={onChange} />);
-    fireEvent.click(screen.getByRole("radio", { name: /Formation/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Task graph/ }));
     expect(onChange).toHaveBeenCalledWith("formation");
     expect(screen.getByRole("radio", { name: /Tiles/ }).getAttribute("aria-checked")).toBe("true");
   });

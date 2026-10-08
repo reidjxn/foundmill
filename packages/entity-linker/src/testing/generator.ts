@@ -94,7 +94,7 @@ const WHY = [
   "It matters because the cost per customer on this channel has been drifting upward since the creative refresh, and a confirmed order resets the baseline we plan against.",
   "This is relevant now because the supplier timeline and the marketing calendar were planned together, and either one moving means re-sequencing the other.",
   "The timing matters: the renewal conversation is scheduled for the start of next month, and the support history will shape the terms we can ask for.",
-  "It changes the plan because the forecast assumed a slower ramp on this segment, and the actual numbers suggest the squad should shift effort toward it.",
+  "It changes the plan because the forecast assumed a slower ramp on this segment, and the actual numbers suggest the team should shift effort toward it.",
 ];
 const ASKS = [
   "Do you want me to prepare the proposal now, or wait until the second reference call is done?",
@@ -107,7 +107,7 @@ const FILLERS = [
   "Nothing else in the queue depends on this.",
   "The related tasks are already on the board and nothing has been sent yet.",
   "All numbers above come from the connected ledger and the channel reports.",
-  "The squad will keep working on the agreed plan in the meantime.",
+  "The team will keep working on the agreed plan in the meantime.",
   "No budget has been committed beyond what you already approved.",
   "I have kept the draft in your voice and under two short paragraphs.",
 ];

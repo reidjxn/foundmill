@@ -253,7 +253,7 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
   };
 
   if (!cleaned) {
-    add("reply_only", { question: "I did not catch any instruction. What would you like the squad to do next?" }, null, "Ask one clarifying question.");
+    add("reply_only", { question: "I did not catch any instruction. What would you like the team to do next?" }, null, "Ask one clarifying question.");
     return { summary: summary.join(" "), actions };
   }
 

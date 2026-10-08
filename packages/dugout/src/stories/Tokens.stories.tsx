@@ -4,7 +4,7 @@ import { StatusPill } from "../components/foundation/StatusPill";
 import { ratingClass } from "../lib/rating";
 
 const meta = {
-  title: "Dugout/Tokens",
+  title: "Design system/Tokens",
   parameters: { layout: "padded", a11y: { test: "off" } },
 } satisfies Meta;
 export default meta;
@@ -70,7 +70,7 @@ export const Palette: Story = {
       </Section>
       <Section title="Brand colours — the business identity, used with restraint">
         <div className="grid grid-cols-3 gap-4">
-          <Swatch token="--kit-primary" note="Continue, active edge, crest" />
+          <Swatch token="--kit-primary" note="Continue, active edge, logo" />
           <Swatch token="--kit-secondary" />
           <Swatch token="--kit-on-primary" note="computed by APCA Lc ≥ 75" />
         </div>
@@ -120,7 +120,7 @@ const TYPE: Array<{ cls: string; spec: string; where: string; sample?: string }>
   { cls: "t-display-lg", spec: "Barlow 600, 28/32", where: "Tile numbers, status strip", sample: "14.2 months" },
   { cls: "t-display-md", spec: "Barlow 600, 20/24", where: "Screen titles, profile names", sample: "Northwind Skincare" },
   { cls: "t-display-sm", spec: "Barlow 600, 15/20", where: "Panel subtitles", sample: "Attribution by channel" },
-  { cls: "t-tab", spec: "Barlow 600, 13/16, uppercase, 0.04em", where: "Tab bar, sidebar", sample: "Training Ground" },
+  { cls: "t-tab", spec: "Barlow 600, 13/16, uppercase, 0.04em", where: "Tab bar, sidebar", sample: "Live sessions" },
   { cls: "t-label", spec: "Barlow 600, 11/14, uppercase, 0.06em, secondary", where: "Panel titles, table headers, chips", sample: "Runway" },
   { cls: "t-body", spec: "Inter 400, 13/19", where: "Everything else", sample: "The lead agent shipped the onboarding fix and opened a pull request." },
   { cls: "t-body-strong", spec: "Inter 500, 13/19", where: "Subjects, names in rows", sample: "Pricing page rewrite" },

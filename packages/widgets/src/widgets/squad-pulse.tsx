@@ -76,7 +76,7 @@ function SquadPulseWidget({ settings }: WidgetProps<SquadPulseSettings>) {
   const empty = departments.data && sessions.data && cells.length === 0;
   return (
     <WidgetFrame
-      title="Squad pulse"
+      title="Team pulse"
       data-widget="squad_pulse"
       queries={[departments, sessions]}
       empty={empty ? { icon: Activity, text: "Agent hours by hour and department appear after the first cycle runs." } : null}
@@ -89,7 +89,7 @@ function SquadPulseWidget({ settings }: WidgetProps<SquadPulseSettings>) {
 
 export const squadPulseWidget = registerWidget<SquadPulseSettings>({
   key: "squad_pulse",
-  title: "Squad pulse",
+  title: "Team pulse",
   description: "A 7 × 24 heatmap of agent activity by hour and department.",
   icon: "activity",
   surfaces: ["home", "department"],

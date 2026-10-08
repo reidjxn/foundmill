@@ -51,7 +51,7 @@ export const sessions: SessionRow[] = [
 export const sessionsResponse: SessionsListResponse = { items: sessions, nextCursor: null };
 
 export const departments: DepartmentRow[] = [
-  { id: "d-dev", name: "Development", slug: "development", colourToken: "dept-2", position: 1, moduleKeys: ["development"], lead: null, squad: [], tabs: [{ id: "t1", slug: "training-ground", title: "Training Ground", position: 0 }, { id: "t2", slug: "plan", title: "Plan", position: 1 }] },
+  { id: "d-dev", name: "Development", slug: "development", colourToken: "dept-2", position: 1, moduleKeys: ["development"], lead: null, squad: [], tabs: [{ id: "t1", slug: "training-ground", title: "Live sessions", position: 0 }, { id: "t2", slug: "plan", title: "Plan", position: 1 }] },
 ];
 
 export const openPrs: OpenPrRow[] = [

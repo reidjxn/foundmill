@@ -78,7 +78,7 @@ describe("TabBar", () => {
     render(<TabBar tabs={tabs} activeId="formation" activeSubViewId="paid" onChange={onChange} />);
     const list = screen.getByRole("tablist", { name: "Screen tabs" });
     expect(list.querySelectorAll('[role="tab"]').length).toBe(5);
-    const first = screen.getByRole("tab", { name: /Formation/ });
+    const first = screen.getByRole("tab", { name: /^Board$/ });
     expect(first.getAttribute("aria-selected")).toBe("true");
     first.focus();
     await user.keyboard("{ArrowLeft}");

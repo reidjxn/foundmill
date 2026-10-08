@@ -49,7 +49,7 @@ Per service:
 
 | Service | Extra variables |
 | --- | --- |
-| api | `SEED_ON_BOOT=1` on the first boot only (creates Northwind Skincare and Ledgerly when absent), `SEED_OWNER_EMAILS=<your email>` so your Supabase user owns both demo businesses, `COMPOSER_URL=http://composer.railway.internal:4002`, `GATEWAY_URL=http://gateway.railway.internal:4001`, `TEMPORAL_ADDRESS=temporal.railway.internal:7233`, `TEMPORAL_TASK_QUEUE=foundmill` |
+| api | `COMPOSER_URL=http://composer.railway.internal:4002`, `GATEWAY_URL=http://gateway.railway.internal:4001`, `TEMPORAL_ADDRESS=temporal.railway.internal:7233`, `TEMPORAL_TASK_QUEUE=foundmill`. No seed variables: staging holds real businesses only (`SEED_ON_BOOT` was documented here but is not implemented in the api; demo data comes only from `pnpm db:seed` run by hand) |
 | gateway | none beyond shared |
 | composer | none beyond shared |
 | stream | none beyond shared (public domain stream.foundmill.com) |
@@ -72,11 +72,11 @@ Migrations run from the api at boot under an advisory lock; no manual `pnpm db:m
 - Auth → Providers: Email with magic links enabled. Sign-in is magic link only.
 - The database is the one `DATABASE_URL` points at; `vector` and `pg_trgm` extensions are created by migration 0001.
 
-## 5. First sign-in
+## 5. First sign-in and live agents
 
-1. Open foundmill.com, request a magic link for the address in `SEED_OWNER_EMAILS`.
-2. You land on Home of Northwind Skincare with two years of history; Ledgerly is the second business in the switcher (on holiday, Automated mode).
-3. Settings → Keys to paste an Anthropic key (BYOK) when you want live agents; until then every agent runs in mock mode with deterministic output.
+1. Open foundmill.com and sign in with a magic link. A new founder lands on the onboarding profile, then `/new` (Ideation Studio or Import), then Commit, which creates the business, its departments and its agent team. Nothing is pre-seeded.
+2. **Live models.** api, composer and orchestrator call Anthropic with the platform key `ANTHROPIC_API_KEY` from their Railway variables, and only when `MODEL_MODE=live`; with the key missing they log one error and stay on the mock model. Set both on those three services. Settings → Keys (`/b/<business id>/settings/keys`) stores a per-business key, which the orchestrator uses only when the business's model billing is `byok`; the api and composer always use the platform key.
+3. **Real agent sessions.** With `INTEGRATIONS_MODE=mock` the orchestrator replays recorded sessions. Set `SANDBOX_MODE=e2b` and `E2B_API_KEY` on the orchestrator for real sandboxes while connectors stay in mock; `INTEGRATIONS_MODE=live` switches every connector to its vendor API and needs each vendor's key.
 
 ## 6. Staging status (2026-10-08, cloud session)
 
@@ -87,7 +87,7 @@ Checked against the Railway GraphQL API (team token), the Vercel and Supabase co
 | `main` carries the full build (`main-emurwq` merged, 0 commits apart) | ✅ |
 | Railway services exist: api, gateway, composer, stream, ingest, orchestrator, temporal, temporal-ui, Redis, Postgres | ✅ (Redis, Postgres, temporal, temporal-ui deployed and healthy) |
 | Shared variables on all six app services (APP, APP_ENV, INTEGRATIONS_MODE, MODEL_MODE, APP_URL, REDIS_URL, SUPABASE_URL, SESSION_TOKEN_SECRET, DEV_MASTER_KEY, LOG_LEVEL, DATA_REGION, TEMPORAL_*) | ✅ |
-| api: `SEED_ON_BOOT=1`, `SEED_OWNER_EMAILS` | ✅ set 2026-10-08 |
+| api: `SEED_ON_BOOT`, `SEED_OWNER_EMAILS` | ⬜ set 2026-10-08, then the founder chose real data only; both are inert (seed-on-boot is not implemented) and should be deleted in Railway |
 | `TEMPORAL_TASK_QUEUE=foundmill` on api and orchestrator (was `founder-manager`) | ✅ set 2026-10-08 |
 | `DATABASE_URL` on the app services | ⬜ **confirmed missing** by the first boot (api `db:false`; composer, stream, ingest exit). Founder pastes the Supabase pooler string with `sslmode=require` (contains the DB password) on api, gateway, composer, stream, ingest, orchestrator, then redeploys |
 | `SUPABASE_SERVICE_ROLE_KEY` only on api | ◐ removed from gateway, composer and stream in the dashboard (2026-10-08, local Chrome session); ingest and orchestrator still hold it. There is no collab service in staging |

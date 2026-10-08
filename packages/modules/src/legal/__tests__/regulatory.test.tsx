@@ -9,7 +9,7 @@ import { BID, dataResponses, emptyResponses } from "./fixtures";
 const props = { businessId: BID, departmentId: "d-legal" };
 
 describe("RegulatoryScreen", () => {
-  it("suggests sectors from the profile, opens their gates and lists what the squad will not do", () => {
+  it("suggests sectors from the profile, opens their gates and lists what the team will not do", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <RegulatoryScreen {...props} />);
     const sectors = screen.getByRole("list", { name: "Sectors" });

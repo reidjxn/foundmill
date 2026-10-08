@@ -197,13 +197,13 @@ export function totalBudget(views: readonly Pick<ChannelView, "enabled" | "budge
 
 /* ---------- Status ---------- */
 
-export type ChannelStatusWord = "Running" | "Paused" | "On the bench" | "Not scored";
+export type ChannelStatusWord = "Running" | "Paused" | "Off the board" | "Not scored";
 
 export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "persisted">): { tone: "good" | "warn" | "neutral"; word: ChannelStatusWord } {
   if (view.enabled && view.paused) return { tone: "warn", word: "Paused" };
   if (view.enabled) return { tone: "good", word: "Running" };
   if (!view.persisted) return { tone: "neutral", word: "Not scored" };
-  return { tone: "neutral", word: "On the bench" };
+  return { tone: "neutral", word: "Off the board" };
 }
 
 /* ---------- Guardrails (BUILD §11.7 table; shown in the channel profile under "Rules") ---------- */

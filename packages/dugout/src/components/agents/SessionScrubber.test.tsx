@@ -8,7 +8,7 @@ const START = "2026-10-07T09:00:00Z";
 const events = generateMockSessionEvents("scrub", START, { outcome: "done", shout: true, durationSec: 600 });
 
 describe("scrubber helpers", () => {
-  it("marks phases, tests, shouts, files and errors but not stdout", () => {
+  it("marks phases, tests, nudges, files and errors but not stdout", () => {
     const markers = scrubberMarkers(events, START);
     const kinds = new Set(markers.map((m) => m.kind));
     expect(kinds.has("phase")).toBe(true);

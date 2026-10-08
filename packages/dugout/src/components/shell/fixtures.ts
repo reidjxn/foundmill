@@ -40,7 +40,7 @@ export const NORTHWIND_SEGMENTS: ProcessingSegment[] = [
 ];
 
 export const DISTRIBUTION_TABS: TabItem[] = [
-  { id: "formation", label: "Formation", href: "#formation" },
+  { id: "formation", label: "Board", href: "#formation" },
   { id: "channels", label: "Channels", href: "#channels", subViews: [{ id: "all", label: "All channels" }, { id: "paid", label: "Paid" }, { id: "organic", label: "Organic" }, { id: "partner", label: "Partners" }] },
   { id: "leads", label: "Leads", href: "#leads", badge: 12, subViews: [{ id: "new", label: "New this week" }, { id: "warm", label: "Warm" }, { id: "all", label: "All leads" }] },
   { id: "campaigns", label: "Campaigns", href: "#campaigns" },
@@ -56,7 +56,7 @@ export const PALETTE_ITEMS: PaletteItem[] = [
   { id: "cmd-edit", kind: "command", label: "Edit layout", shortcut: ["E"] },
   { id: "scr-home", kind: "screen", label: "Home", href: "/b/northwind", shortcut: ["G", "H"] },
   { id: "scr-inbox", kind: "screen", label: "Inbox", href: "/b/northwind/inbox", shortcut: ["G", "I"] },
-  { id: "scr-formation", kind: "screen", label: "Formation", description: "Distribution", dept: "dept-3", href: "/b/northwind/d/distribution/formation" },
+  { id: "scr-formation", kind: "screen", label: "Board", description: "Distribution", dept: "dept-3", href: "/b/northwind/d/distribution/formation" },
   { id: "scr-runway", kind: "screen", label: "Runway", description: "Finance", dept: "dept-4", href: "/b/northwind/d/finance/runway" },
   { id: "dept-product", kind: "department", label: "Product", description: "Product", dept: "dept-1", href: "/b/northwind/d/product/vision" },
   { id: "dept-lab", kind: "department", label: "Formulation Lab", description: "Formulation Lab", dept: "dept-2", href: "/b/northwind/d/formulation-lab/training-ground", keywords: ["development"] },

@@ -149,10 +149,10 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
   const overCap = rows.filter((r) => (r.capUsedPct ?? 0) >= CAP_WARN_PCT);
 
   const tiles: MetricTileProps[] = [
-    { label: "Squad wage bill", value: { amountMinor: squadMinor, currency }, estimate: "estimate", provenance: { source: "Usage ledger: tokens, sandbox minutes, tool calls, training", query: "finance.wages", note: "Metered at list prices; the Anthropic invoice is the only real cost." }, caption: `${rows.filter((r) => r.costMinor > 0).length} agents with usage in ${formatMonth(period)}` },
+    { label: "Team wage bill", value: { amountMinor: squadMinor, currency }, estimate: "estimate", provenance: { source: "Usage ledger: tokens, sandbox minutes, tool calls, training", query: "finance.wages", note: "Metered at list prices; the Anthropic invoice is the only real cost." }, caption: `${rows.filter((r) => r.costMinor > 0).length} agents with usage in ${formatMonth(period)}` },
     { label: "Human payroll", value: { amountMinor: payrollMinor, currency }, estimate: "estimate", provenance: { source: pnl.data?.label ?? "Management P&L, unaudited, cash basis", query: "finance.pnl categories Payroll, Contractors", note: "Bank outflows categorised as payroll or contractors in the month." }, caption: `${staff.length} staff member${staff.length === 1 ? "" : "s"}` },
-    { label: "Total wage bill", value: { amountMinor: squadMinor + payrollMinor, currency }, estimate: "estimate", provenance: { source: "Squad wage bill + human payroll", note: "Squad and staff together for the month." }, caption: formatMonth(period) },
-    { label: `Tasks per 100 ${currency}`, value: outputPerHundred(tasksDone, squadMinor) ?? "—", format: "decimal", estimate: "estimate", provenance: { source: "Tasks completed ÷ squad wage bill", query: "dev.tasks.list status=done", note: "Output per euro: tasks marked done in the month per 100 units of squad cost." }, caption: `${tasksDone} tasks done` },
+    { label: "Total wage bill", value: { amountMinor: squadMinor + payrollMinor, currency }, estimate: "estimate", provenance: { source: "Team wage bill + human payroll", note: "Team and staff together for the month." }, caption: formatMonth(period) },
+    { label: `Tasks per 100 ${currency}`, value: outputPerHundred(tasksDone, squadMinor) ?? "—", format: "decimal", estimate: "estimate", provenance: { source: "Tasks completed ÷ team wage bill", query: "dev.tasks.list status=done", note: "Output per euro: tasks marked done in the month per 100 units of team cost." }, caption: `${tasksDone} tasks done` },
   ];
 
   const rowActions = (): RowAction<WageBillRow>[] => [
@@ -169,7 +169,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
         <StatusStrip tiles={tiles.map((t) => ({ ...t, loading }))} />
       </section>
       <Panel
-        title="Squad"
+        title="Team"
         span={8}
         flush
         loading={loading}
@@ -191,7 +191,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
         }
         footer={<span className="tabular-nums">{rows.length} agents · {fmtMoney(squadMinor, currency)} in {formatMonth(period)} · Estimate: metered usage at list prices</span>}
       >
-        <DataTable<WageBillRow> aria-label="Squad wage bill" data={rows} columns={columns} getRowId={(r) => r.agentId} views={views} onViewsChange={setViews} defaultViewId="all" height={480} exportFileName={`wage-bill-${period}`} rowActions={rowActions} onRowOpen={(r) => navigate(routes.agent(businessId, r.agentId))} />
+        <DataTable<WageBillRow> aria-label="Team wage bill" data={rows} columns={columns} getRowId={(r) => r.agentId} views={views} onViewsChange={setViews} defaultViewId="all" height={480} exportFileName={`wage-bill-${period}`} rowActions={rowActions} onRowOpen={(r) => navigate(routes.agent(businessId, r.agentId))} />
       </Panel>
       <Panel title="Staff" span={4} loading={humans.isLoading || pnl.isLoading} error={humans.error ? humans.error.message : undefined} onRetry={humans.refetch} empty={humans.data && staff.length === 0 ? { icon: UserRound, children: "Invite staff from Team › Staff; their payroll shows here from bank transactions." } : undefined} footer={<span>Payroll is the month's bank outflows categorised Payroll or Contractors.</span>}>
         <MiniTable<MembershipRow>

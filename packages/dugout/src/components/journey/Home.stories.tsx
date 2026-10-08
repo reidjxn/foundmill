@@ -14,7 +14,7 @@ const ENTITY_KINDS = { "0f7c2d1e-4b1a-4c8e-9a3b-2d5f6e7a8b9c": "organisation" as
 
 const meta = {
   title: "Journey/Home widgets",
-  parameters: { docs: { description: { component: "The Home widgets around the Ribbon (BUILD §11.2, DESIGN §9): department cards in every health state, the 7 × 24 squad pulse, the milestones and the day digest." } } },
+  parameters: { docs: { description: { component: "The Home widgets around the Ribbon (BUILD §11.2, DESIGN §9): department cards in every health state, the 7 × 24 team pulse, the milestones and the day digest." } } },
 } satisfies Meta;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -31,7 +31,7 @@ export const DepartmentCards: Story = {
 };
 
 export const Pulse: Story = {
-  name: "Squad pulse · 7 × 24",
+  name: "Team pulse · 7 × 24",
   render: () => (
     <div className="surface-panel w-[800px] p-panel-pad">
       <SquadPulse departments={RIBBON_DEPARTMENTS} days={pulse.days} cells={pulse.cells} onSelect={() => {}} />

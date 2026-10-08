@@ -8,7 +8,7 @@ import { createFakeSource, renderScreen } from "./fake-source";
 const props = { businessId: BID, departmentId: DEPT_TEAM };
 
 describe("health groups", () => {
-  it("groups the squad by status, the ones that need the founder first, and reads the health signals", () => {
+  it("groups the team by status, the ones that need the founder first, and reads the health signals", () => {
     const groups = groupByHealth(agents);
     expect(groups.map((g) => [g.word, g.agents.map((a) => a.name)])).toEqual([
       ["Down", ["Mara"]],

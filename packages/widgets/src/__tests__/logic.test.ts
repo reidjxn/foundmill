@@ -65,7 +65,7 @@ describe("journey ribbon helpers", () => {
   });
 });
 
-describe("squad pulse", () => {
+describe("team pulse", () => {
   it("spreads sessions across hour cells per department and clips to the window", () => {
     const days = lastDays(7, TODAY);
     const cells = sessionsToPulseCells(sessions.items, departments, days, new Date(`${TODAY}T12:00:00.000Z`));

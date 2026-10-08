@@ -98,7 +98,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     fallback: "healthy",
     byTemplate: { channel_print: "idle", channel_broadcast: "idle", channel_outdoor: "idle", channel_direct_mail: "idle", channel_affiliate: "idle", channel_pr: "paused", packaging_design: "idle", certification: "degraded", moderation: "idle" },
   });
-  log(`squad: ${squad.agents.length} agents in ${squad.departments.length} departments`);
+  log(`team: ${squad.agents.length} agents in ${squad.departments.length} departments`);
 
   const channels = await seedChannels(ctx, businessId, squad, CURRENCY, {
     enabled: ["influencer", "paid_ads", "social", "email_automation"],
@@ -387,7 +387,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
           type: "milestone",
           fromAgentId: chief.agent.id,
           subject: `Milestone: ${trophy.label}`,
-          bodyMd: `${trophy.label} reached on ${trophy.achievedAt.slice(0, 10)}. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole squad gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
+          bodyMd: `${trophy.label} reached on ${trophy.achievedAt.slice(0, 10)}. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole team gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
           createdDaysAgo: 2,
           state: "read",
         }
@@ -427,7 +427,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   const inbox = await seedInbox(ctx, businessId, inboxSpecs, CURRENCY);
   await repos.inbox.createHumanMessage(db, businessId, { fromUserId: ctx.owner.userId, subject: "Note to the lab", bodyMd: `Please keep the serum fragrance-free in every variant. ${mention(agentEntities.founder.id, DEMO_OWNER_DISPLAY_NAME)}`, entityIds: [agentEntities.founder.id] });
   // Mark the oldest sessions' agent entity as the customer-facing contact so search has an "agent" hit.
-  await db.update(entitiesTable).set({ aliases: ["assistant manager", "CoS"] }).where(eq(entitiesTable.id, agentEntities.byAgentId.get(chief.agent.id)!.id));
+  await db.update(entitiesTable).set({ aliases: ["Chief of Staff", "CoS"] }).where(eq(entitiesTable.id, agentEntities.byAgentId.get(chief.agent.id)!.id));
 
   await repos.audit.append(db, businessId, {
     actorKind: "system",

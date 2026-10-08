@@ -47,7 +47,7 @@ describe("evaluateAction (pure)", () => {
 
 describe("executePlanAction on PGlite", () => {
   it("hard gate: creates a founder task + inbox item and never executes the request", async () => {
-    const plan = await repos.plans.create(t.db, t.businessId, { origin: "free_text", summaryMd: "pay the supplier", actions: [{ type: "request_human_action", params: { request: "pay the supplier invoice of €1,200", instructions: "Pay from the business account; the squad cannot move money." }, agentId: t.chiefId }] });
+    const plan = await repos.plans.create(t.db, t.businessId, { origin: "free_text", summaryMd: "pay the supplier", actions: [{ type: "request_human_action", params: { request: "pay the supplier invoice of €1,200", instructions: "Pay from the business account; the team cannot move money." }, agentId: t.chiefId }] });
     const action = plan.actions[0]!;
     const result = await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId: action.id, workflowId: "plan:test" });
     expect(result.status).toBe("done");

@@ -144,14 +144,14 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       const gatedItemsQueued = pendingApprovals + founderTasks.length;
       const days = Math.max(1, Math.round((now.getTime() - since.getTime()) / 86_400_000));
       const lines = [
-        `You were away ${days} day${days === 1 ? "" : "s"}; the squad ran ${input.cyclesRun} cycle${input.cyclesRun === 1 ? "" : "s"} and the holiday ended because ${describeReason(input.reason, input.wakeEventType)}.`,
+        `You were away ${days} day${days === 1 ? "" : "s"}; the team ran ${input.cyclesRun} cycle${input.cyclesRun === 1 ? "" : "s"} and the holiday ended because ${describeReason(input.reason, input.wakeEventType)}.`,
         ``,
         `**Decisions I took (${chiefDecisions.length})** — each one inside the authority you set; open any item to see the option and the reason.`,
         ...chiefDecisions.slice(0, 10).map((e) => `- ${new Date(e.occurredAt).toISOString().slice(0, 10)}: option "${(e.payload as { chosenOption?: string }).chosenOption ?? "free text"}" on inbox item ${(e.payload as { inboxItemId?: string }).inboxItemId ?? ""}`),
         ``,
         `**Customer Updates (${conversions.items.length})** — ${conversions.items.length ? "the replays are in the Customers tab, newest first." : "no customers won while you were away."}`,
         ``,
-        `**Money** — in: ${fmt(moneyIn)} across ${payments.items.length} payment${payments.items.length === 1 ? "" : "s"}; squad spend: ${fmt(usage.costMinor)} (Estimate).`,
+        `**Money** — in: ${fmt(moneyIn)} across ${payments.items.length} payment${payments.items.length === 1 ? "" : "s"}; team spend: ${fmt(usage.costMinor)} (Estimate).`,
         ``,
         `**Waiting for you (${gatedItemsQueued})** — ${pendingApprovals} approval${pendingApprovals === 1 ? "" : "s"} and ${founderTasks.length} hard-gated action${founderTasks.length === 1 ? "" : "s"} only you can take.`,
       ];

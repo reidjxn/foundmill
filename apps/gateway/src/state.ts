@@ -49,13 +49,13 @@ export interface StateDenial {
 /** Pure: the denial the loaded rows imply, or null when the agent may work. Order: club, then release, then pause. */
 export function stateDenial(business: Pick<Business, "archivedAt">, agent: Pick<Agent, "status" | "archivedAt" | "name">): StateDenial | null {
   if (business.archivedAt) {
-    return { policyId: BUSINESS_ARCHIVED_POLICY_ID, reasons: ["This club is archived; its squad cannot call tools"] };
+    return { policyId: BUSINESS_ARCHIVED_POLICY_ID, reasons: ["This business is archived; its team cannot call tools"] };
   }
   if (agent.archivedAt) {
-    return { policyId: AGENT_ARCHIVED_POLICY_ID, reasons: [`${agent.name} has been released from the squad; tool calls are refused`] };
+    return { policyId: AGENT_ARCHIVED_POLICY_ID, reasons: [`${agent.name} has been released from the team; tool calls are refused`] };
   }
   if (agent.status === "paused") {
-    return { policyId: AGENT_PAUSED_POLICY_ID, reasons: [`${agent.name} is paused (Stop all agents, key revoked or paused by the manager); tool calls are refused until the squad is resumed`] };
+    return { policyId: AGENT_PAUSED_POLICY_ID, reasons: [`${agent.name} is paused (Stop all agents, key revoked or paused by the founder); tool calls are refused until the team is resumed`] };
   }
   return null;
 }

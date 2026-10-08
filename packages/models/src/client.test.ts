@@ -109,7 +109,7 @@ describe("LiveModelClient.complete", () => {
 
     const result = await client.complete({
       route: "inboxComposer",
-      system: ["Club rules block", "Business brief block"],
+      system: ["House rules block", "Business brief block"],
       messages: [{ role: "user", content: "Write the note." }],
       schema: Note,
       cacheSystem: true,
@@ -135,7 +135,7 @@ describe("LiveModelClient.complete", () => {
     expect(body.model).toBe(MODELS.opus);
     expect(body.max_tokens).toBe(2000);
     expect(body.system).toEqual([
-      { type: "text", text: "Club rules block" },
+      { type: "text", text: "House rules block" },
       { type: "text", text: "Business brief block", cache_control: { type: "ephemeral" } },
     ]);
     const outputConfig = body.output_config as { format: { type: string; schema: Record<string, unknown> } };

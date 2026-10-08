@@ -5,7 +5,7 @@ import { FormCells, ModelChip, RatingCell, SQUAD_VIEWS, StatusCell, ToolIcons, W
 import { ModelPicker } from "./ModelPicker";
 import { mockModelOptions } from "./mock";
 
-describe("squad cells", () => {
+describe("team cells", () => {
   it("FormCells carries words and pads to five", () => {
     render(<FormCells form={["success", "partial", "failure"]} name="Juno form" />);
     const list = screen.getByRole("list", { name: "Juno form, last five: none, none, success, partial, failure" });

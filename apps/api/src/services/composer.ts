@@ -154,7 +154,7 @@ export async function composeLocally(db: Db, models: ModelClient, businessId: st
     business: { id: business.id, name: business.name, archetype: business.archetype, business_mode: business.businessMode, glossary: business.glossary },
     business_name: business.name,
     app_name: APP_NAME,
-    from_agent: { id: chief.id, name: chief.name, role: chief.role || "assistant manager" },
+    from_agent: { id: chief.id, name: chief.name, role: chief.role || "Chief of Staff" },
     agents: agents.map((a) => ({ id: a.id, name: a.name, role: a.role, agent_type: a.agentType, department_id: a.departmentIds[0] ?? null, status: a.status })),
     manifest: manifest.toJSON(),
     events: events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt, payload: e.payload, entity_ids: e.entityIds })),
@@ -218,7 +218,7 @@ export async function composeLocally(db: Db, models: ModelClient, businessId: st
 function defaultDecision() {
   return {
     options: [
-      { id: "proceed", label: "Proceed as recommended", recommended: true, consequence: "The squad continues with the recommended next step.", cost_minor: 0, reversible: true },
+      { id: "proceed", label: "Proceed as recommended", recommended: true, consequence: "The team continues with the recommended next step.", cost_minor: 0, reversible: true },
       { id: "hold", label: "Hold for now", recommended: false, consequence: "Nothing changes until you decide.", cost_minor: 0, reversible: true },
     ],
     free_text: true,

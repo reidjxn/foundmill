@@ -26,7 +26,7 @@ export interface BoardProps {
 }
 
 const HORIZON_HINT: Record<RoadmapHorizon, string> = {
-  now: "The squad works on these this cycle.",
+  now: "The team works on these this cycle.",
   next: "Queued; the Chief of Staff pulls from here when Now empties.",
   later: "Direction, not commitment. Dates here are estimates.",
 };

@@ -54,7 +54,7 @@ function LeagueTableWidget({ settings }: WidgetProps<LeagueTableSettings>) {
   const rows = useMemo(() => windowRows(entries.data ?? [], businessId, settings.rows), [entries.data, businessId, settings.rows]);
   const columns: MiniTableColumn<LeaderboardEntryRow>[] = [
     { id: "pos", header: "#", numeric: true, width: 36, cell: (r) => r.position },
-    { id: "club", header: "Club", cell: (r) => <span className={r.businessId === businessId ? "text-body-strong" : undefined}>{r.businessName ?? (r.businessId === businessId ? "Your club" : `Club ${r.businessId.slice(0, 6)}`)}</span> },
+    { id: "club", header: "Business", cell: (r) => <span className={r.businessId === businessId ? "text-body-strong" : undefined}>{r.businessName ?? (r.businessId === businessId ? "Your business" : `Business ${r.businessId.slice(0, 6)}`)}</span> },
     { id: "move", header: "Move", width: 56, cell: (r) => <Movement n={r.movement} /> },
     { id: "metric", header: board?.metricLabel ?? "Metric", numeric: true, width: 90, cell: (r) => formatCompact(Number(r.metricValue)) },
   ];
@@ -74,7 +74,7 @@ function LeagueTableWidget({ settings }: WidgetProps<LeagueTableSettings>) {
       data-widget="league_table"
       queries={board ? [boards, entries] : [boards]}
       flush
-      empty={boards.data && !board ? { icon: ListOrdered, text: "No leaderboard is open this period." } : entries.data && rows.length === 0 ? { icon: ListOrdered, text: "No verified clubs on this board yet. Connect Stripe or Shopify to be ranked." } : null}
+      empty={boards.data && !board ? { icon: ListOrdered, text: "No leaderboard is open this period." } : entries.data && rows.length === 0 ? { icon: ListOrdered, text: "No verified businesses on this board yet. Connect Stripe or Shopify to be ranked." } : null}
       actions={board ? <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={() => navigate(routes.leaderboard(board.id))}>Open</Button> : null}
       footer={<span>{board ? `${board.period}${board.division ? ` · ${board.division}` : ""}` : "LIVE"} · {mine ? `You are #${mine.position}` : "Not ranked yet"} · verified metrics only</span>}
     >
@@ -86,7 +86,7 @@ function LeagueTableWidget({ settings }: WidgetProps<LeagueTableSettings>) {
 export const leagueTableWidget = registerWidget<LeagueTableSettings>({
   key: "league_table",
   title: "Leaderboard",
-  description: "Where your club stands this period (LIVE).",
+  description: "Where your business stands this period (LIVE).",
   icon: "list-ordered",
   surfaces: ["home"],
   defaultSize: { w: 4, h: 12, minW: 3, minH: 8 },

@@ -36,7 +36,7 @@ describe("department card widget", () => {
     expect(screen.getByRole("heading", { name: "Development" })).toBeTruthy();
   });
 
-  it("shows the squad, Now lines with the agent linked, the module metric and Next up", () => {
+  it("shows the team, Now lines with the agent linked, the module metric and Next up", () => {
     const { container } = mountCard({ slot: 0 });
     expect(container.querySelectorAll("[data-squad-member]").length).toBe(3);
     expect(screen.getByText("Healthy")).toBeTruthy();
@@ -59,7 +59,7 @@ describe("department card widget", () => {
     expect(fake.refetches["department.list"]).toBe(1);
   });
 
-  it("ignores health events for agents outside the squad and refetches tasks on task events", () => {
+  it("ignores health events for agents outside the team and refetches tasks on task events", () => {
     const { fake } = mountCard({ slot: 0 });
     act(() => {
       fake.emit({ type: "agent.health_changed", payload: { agentId: AGENT.ember, from: "healthy", to: "failing" } });
@@ -103,7 +103,7 @@ describe("department card logic", () => {
     expect(metricKeyFor({ metric: "squad_health" }, dev)).toBe("squad_health");
     expect(metricKeyFor({ metric: "auto" }, { moduleKeys: ["custom"] })).toBe("tasks_done");
   });
-  it("derives health from the squad and blocked tasks", () => {
+  it("derives health from the team and blocked tasks", () => {
     const squad = toSquad(dev, {}, tasks.items);
     expect(departmentHealth(squad, [])).toEqual({ health: "good", word: "Healthy" });
     expect(departmentHealth(squad, tasks.items)).toEqual({ health: "warn", word: "Waiting" });

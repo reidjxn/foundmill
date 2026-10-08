@@ -40,7 +40,7 @@ import type { CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, Recomme
 export const CHANNEL_VIEWS: SavedView[] = [
   { id: "all", name: "All channels", builtIn: true, columns: ["label", "line", "fit", "stars", "cpa", "budget", "status", "tracking", "customers"], sort: [{ id: "fit", desc: true }], filters: [] },
   { id: "running", name: "Running", builtIn: true, columns: ["label", "line", "fit", "budget", "status", "leads", "customers", "cpaActual"], sort: [{ id: "fit", desc: true }], filters: [{ id: "f-run", field: "enabled", op: "eq", value: true }] },
-  { id: "bench", name: "On the bench", builtIn: true, columns: ["label", "line", "fit", "stars", "cpa", "status"], sort: [{ id: "fit", desc: true }], filters: [{ id: "f-bench", field: "enabled", op: "eq", value: false }] },
+  { id: "bench", name: "Off the board", builtIn: true, columns: ["label", "line", "fit", "stars", "cpa", "status"], sort: [{ id: "fit", desc: true }], filters: [{ id: "f-bench", field: "enabled", op: "eq", value: false }] },
   { id: "offline", name: "Offline tracking", builtIn: true, columns: ["label", "line", "fit", "budget", "status", "tracking"], sort: [{ id: "fit", desc: true }], filters: [{ id: "f-off", field: "tracking", op: "eq", value: true }] },
 ];
 
@@ -115,7 +115,7 @@ export function channelColumns(): DataTableColumn<ChannelView>[] {
         const s = channelStatus(row.original);
         return <StatusPill tone={s.tone}>{s.word}</StatusPill>;
       },
-      meta: { filter: "select", filterOptions: ["Running", "Paused", "On the bench", "Not scored"].map((w) => ({ value: w, label: w })) },
+      meta: { filter: "select", filterOptions: ["Running", "Paused", "Off the board", "Not scored"].map((w) => ({ value: w, label: w })) },
     },
     { id: "enabled", accessorFn: (r) => r.enabled, header: "Running", size: 90, cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
     {
@@ -183,7 +183,7 @@ export function ChannelsScreen({ businessId }: ModuleScreenProps) {
     (row: ChannelView): RowAction<ChannelView>[] => [
       { id: "open", label: "Open profile", icon: ExternalLink, onSelect: (r) => openProfile(r.channelKey) },
       row.enabled
-        ? { id: "bench", label: "Move to bench", icon: ArrowDownToLine, onSelect: (r) => void toggle(r, false), separatorBefore: true }
+        ? { id: "bench", label: "Take off the board", icon: ArrowDownToLine, onSelect: (r) => void toggle(r, false), separatorBefore: true }
         : { id: "start", label: "Move to Board", icon: ArrowUpToLine, onSelect: (r) => void toggle(r, true), separatorBefore: true },
       { id: "pause", label: row.paused ? "Resume campaigns" : "Pause campaigns", icon: row.paused ? Play : Pause, onSelect: (r) => void pause(r, !r.paused), disabled: !row.enabled || row.campaigns.length === 0 },
       { id: "budget", label: "Set budget…", icon: Coins, onSelect: (r) => setBudgetFor(r), disabled: !row.persisted, separatorBefore: true },

@@ -101,7 +101,7 @@ type ContinueResult = RouterOutputs["business"]["continue"];
 
 /** The toast one press of Continue earns (BUILD §9.4): what happened, and where the new note is in local mode. */
 export function describeContinue(result: ContinueResult): { title: string; description: string; tone: "info" | "good" | "warn"; itemId: string | null } {
-  if (result.action === "already_running") return { title: "A cycle is already running", description: "The squad is still working; the strip shows where.", tone: "info", itemId: null };
+  if (result.action === "already_running") return { title: "A cycle is already running", description: "The team is still working; the strip shows where.", tone: "info", itemId: null };
   if (result.action === "resumed") return { title: "Cycle resumed", description: "Paused tasks pick up where they stopped.", tone: "good", itemId: null };
   if (result.mode === "local" && result.item) return { title: "One new note", description: result.item.subject, tone: "info", itemId: result.item.id };
   return { title: "Cycle started", description: "The Chief of Staff is planning the next cycle.", tone: "info", itemId: null };

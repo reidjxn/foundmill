@@ -295,9 +295,9 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Unblock a stuck task at {business}",
-      "T-17 at {business} has been 'implementing' for 3 hours, progress 0.2, same test failing for 40 minutes. Options: shout 'Simplify', upgrade to Opus, reassign, stop. Decide and write the message you send.",
+      "T-17 at {business} has been 'implementing' for 3 hours, progress 0.2, same test failing for 40 minutes. Options: nudge 'Simplify', upgrade to Opus, reassign, stop. Decide and write the message you send.",
       [
-        "Chooses an intervention proportionate to the signal (shout or reassign before upgrade).",
+        "Chooses an intervention proportionate to the signal (nudge or reassign before upgrade).",
         "Message is specific about what to change.",
         "Sets a check-back time.",
       ],

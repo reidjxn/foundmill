@@ -41,10 +41,10 @@ export type ModuleKey = (typeof MODULE_KEYS)[number];
 /** Default tabs per module (BUILD §6.3). Slugs are stable ids; titles are display text. */
 export const MODULE_TABS: Record<ModuleKey, readonly { slug: string; title: string }[]> = {
   product: [{ slug: "vision", title: "Vision" }, { slug: "specification", title: "Specification" }, { slug: "roadmap", title: "Roadmap" }, { slug: "changes", title: "Changes" }, { slug: "sources", title: "Sources" }, { slug: "research", title: "Research" }],
-  development: [{ slug: "training-ground", title: "Training Ground" }, { slug: "plan", title: "Plan" }, { slug: "pull-requests", title: "Pull requests" }, { slug: "environments", title: "Environments" }, { slug: "specialists", title: "Specialists" }],
-  distribution: [{ slug: "formation", title: "Formation" }, { slug: "channels", title: "Channels" }, { slug: "leads", title: "Leads" }, { slug: "campaigns", title: "Campaigns" }, { slug: "creative", title: "Creative" }, { slug: "attribution", title: "Attribution" }],
+  development: [{ slug: "training-ground", title: "Live sessions" }, { slug: "plan", title: "Plan" }, { slug: "pull-requests", title: "Pull requests" }, { slug: "environments", title: "Environments" }, { slug: "specialists", title: "Specialists" }],
+  distribution: [{ slug: "formation", title: "Board" }, { slug: "channels", title: "Channels" }, { slug: "leads", title: "Leads" }, { slug: "campaigns", title: "Campaigns" }, { slug: "creative", title: "Creative" }, { slug: "attribution", title: "Attribution" }],
   finance: [{ slug: "overview", title: "Overview" }, { slug: "pnl", title: "Profit and loss" }, { slug: "cash", title: "Cash" }, { slug: "runway", title: "Runway" }, { slug: "wage-bill", title: "Wage bill" }, { slug: "cap-table", title: "Cap table" }],
-  team: [{ slug: "squad", title: "Squad" }, { slug: "staff", title: "Staff" }, { slug: "responsibilities", title: "Responsibilities" }, { slug: "health", title: "Health" }, { slug: "hierarchy", title: "Hierarchy" }, { slug: "recruitment", title: "Recruitment" }],
+  team: [{ slug: "squad", title: "Agents" }, { slug: "staff", title: "Staff" }, { slug: "responsibilities", title: "Responsibilities" }, { slug: "health", title: "Health" }, { slug: "hierarchy", title: "Hierarchy" }, { slug: "recruitment", title: "Recruitment" }],
   legal: [{ slug: "entity", title: "Entity" }, { slug: "incorporate", title: "Incorporate" }, { slug: "compliance", title: "Compliance" }, { slug: "contracts", title: "Contracts" }, { slug: "ip", title: "IP" }, { slug: "policies", title: "Policies" }, { slug: "regulatory", title: "Regulatory" }],
 };
 

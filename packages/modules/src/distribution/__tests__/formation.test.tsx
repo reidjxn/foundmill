@@ -9,10 +9,10 @@ const props = { businessId: BID, departmentId: "d1", animateEntrance: false };
 const onMutate = (path: string) => (path === "distribution.recommend" ? recommendResponse : {});
 
 describe("FormationScreen", () => {
-  it("renders every channel as a token: starters on the Board, the rest on the bench, with fit and recommendation", () => {
+  it("renders every channel as a token: starters on the Board, the rest off the board, with fit and recommendation", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <FormationScreen {...props} />);
-    const board = screen.getByRole("region", { name: "Formation Board" });
+    const board = screen.getByRole("region", { name: "Channel Board" });
     const tokens = within(board).getAllByRole("button", { name: /fit \d+ of 20/ });
     expect(tokens).toHaveLength(15);
     const paid = within(board).getByRole("button", { name: /^Paid advertising, fit 17 of 20/ });
@@ -20,7 +20,7 @@ describe("FormationScreen", () => {
     expect(paid.getAttribute("aria-label")).toContain("recommended");
     const seo = within(board).getByRole("button", { name: /^SEO, fit 11 of 20/ });
     expect(seo.getAttribute("aria-pressed")).toBe("false");
-    expect(within(board).getByRole("group", { name: /^Bench: All 15 channels are available/ })).toBeTruthy();
+    expect(within(board).getByRole("group", { name: /^Off the board: All 15 channels are available/ })).toBeTruthy();
     expect(screen.getByText("4 of 15 running")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Re-score" })).toBeTruthy();
   });
@@ -28,7 +28,7 @@ describe("FormationScreen", () => {
   it("moves a channel to the bench with Enter → disable, then re-scores through distribution.recommend and refetches", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate });
     renderScreen(fake, <FormationScreen {...props} />);
-    const board = screen.getByRole("region", { name: "Formation Board" });
+    const board = screen.getByRole("region", { name: "Channel Board" });
     const paid = within(board).getByRole("button", { name: /^Paid advertising, fit 17/ });
     await act(async () => {
       fireEvent.keyDown(paid, { key: "Enter" });
@@ -43,7 +43,7 @@ describe("FormationScreen", () => {
   it("moves a bench channel onto the Board with the enable procedure", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate });
     renderScreen(fake, <FormationScreen {...props} />);
-    const board = screen.getByRole("region", { name: "Formation Board" });
+    const board = screen.getByRole("region", { name: "Channel Board" });
     await act(async () => {
       fireEvent.keyDown(within(board).getByRole("button", { name: /^SEO, fit 11/ }), { key: " " });
     });
@@ -53,7 +53,7 @@ describe("FormationScreen", () => {
   it("opens the channel profile with O: agents, budget editor, rules, campaigns and why; saves the budget", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate });
     renderScreen(fake, <FormationScreen {...props} />);
-    const board = screen.getByRole("region", { name: "Formation Board" });
+    const board = screen.getByRole("region", { name: "Channel Board" });
     await act(async () => {
       fireEvent.keyDown(within(board).getByRole("button", { name: /^Paid advertising, fit 17/ }), { key: "o" });
     });
@@ -82,7 +82,7 @@ describe("FormationScreen", () => {
   it("pauses a channel by pausing its live campaigns and resumes them again", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate });
     renderScreen(fake, <FormationScreen {...props} />);
-    const board = screen.getByRole("region", { name: "Formation Board" });
+    const board = screen.getByRole("region", { name: "Channel Board" });
     await act(async () => {
       fireEvent.keyDown(within(board).getByRole("button", { name: /^Paid advertising, fit 17/ }), { key: "O" });
     });
@@ -97,8 +97,8 @@ describe("FormationScreen", () => {
   it("asks for the first recommendation when nothing is scored, and handles loading and error", async () => {
     const empty = createFakeSource({ businessId: BID, responses: emptyResponses, onMutate });
     renderScreen(empty, <FormationScreen {...props} />);
-    expect(screen.getByRole("status").textContent).toContain("All 15 channels are on the bench");
-    expect(screen.getByRole("region", { name: "Formation Board" })).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain("All 15 channels are off the board");
+    expect(screen.getByRole("region", { name: "Channel Board" })).toBeTruthy();
     expect(screen.getAllByRole("button", { name: /fit 1 of 20/ })).toHaveLength(15);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Get recommendation" }));

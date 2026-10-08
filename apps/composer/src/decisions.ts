@@ -42,7 +42,7 @@ export function nextBestDecision(s: MetricsSnapshot, variant = 0): NextBestDecis
       title: "Blocked tasks need a call",
       facts: { blocked_tasks: s.tasks.blocked, running_tasks: s.tasks.running },
       options: [
-        { id: "review", label: "Review the blocked tasks now", recommended: true, consequence: "The squad gets answers this cycle and work resumes.", cost_minor: 0, reversible: true },
+        { id: "review", label: "Review the blocked tasks now", recommended: true, consequence: "The team gets answers this cycle and work resumes.", cost_minor: 0, reversible: true },
         { id: "reassign", label: "Reassign them to the department lead", recommended: false, consequence: "The lead triages and comes back only with hard gates.", cost_minor: 0, reversible: true },
         { id: "park", label: "Park them until the next cycle", recommended: false, consequence: "Nothing moves on those tasks; dependents wait.", cost_minor: 0, reversible: true },
       ],
@@ -57,7 +57,7 @@ export function nextBestDecision(s: MetricsSnapshot, variant = 0): NextBestDecis
       title: "No distribution channel is live",
       facts: { channels_enabled: s.channelsEnabled, signups_30d: s.signups30d, customers_30d: s.customers30d },
       options: [
-        { id: "recommend", label: "Ask the strategist for a formation", recommended: true, consequence: "The Distribution Strategist scores all channels and proposes starters.", cost_minor: 0, reversible: true },
+        { id: "recommend", label: "Ask the strategist for a channel plan", recommended: true, consequence: "The Distribution Strategist scores all channels and proposes starters.", cost_minor: 0, reversible: true },
         { id: "wait", label: "Hold until the product is further along", recommended: false, consequence: "No acquisition work; the pipeline stays empty.", cost_minor: 0, reversible: true },
       ],
       exhibit: { kind: "chart", spec_ref: "channel_cpa" },

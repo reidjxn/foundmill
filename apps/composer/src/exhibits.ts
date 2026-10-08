@@ -53,7 +53,7 @@ export const NAMED_QUERIES: Readonly<Record<NamedQueryId, NamedQuery>> = {
     id: "tasks_by_status",
     title: "Tasks by status",
     kind: "table",
-    description: "Count of squad tasks in each status (planned, running, blocked, review, done…).",
+    description: "Count of team tasks in each status (planned, running, blocked, review, done…).",
     async run(db, businessId, now = new Date()) {
       const counts = await repos.tasks.countByStatus(db, businessId);
       return {

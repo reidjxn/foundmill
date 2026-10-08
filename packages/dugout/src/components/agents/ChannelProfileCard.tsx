@@ -44,7 +44,7 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         {channel.recommended ? <Chip tone="kit">Recommended</Chip> : null}
-        <Chip tone={channel.enabled ? "good" : "neutral"}>{channel.enabled ? "On the board" : "On the bench"}</Chip>
+        <Chip tone={channel.enabled ? "good" : "neutral"}>{channel.enabled ? "On the board" : "Off the board"}</Chip>
         {channel.paused ? <Chip tone="warn">Paused</Chip> : null}
         {meta.kitModeByDefault ? <Chip tone="info">Offline tracking</Chip> : null}
       </div>
@@ -107,7 +107,7 @@ export function ChannelProfileCard({ channel, onOpenChannel, onToggle, onPause, 
           ) : null}
           {onToggle ? (
             <Button size="sm" icon={channel.enabled ? ArrowDownToLine : ArrowUpToLine} onClick={() => onToggle(channel.key, !channel.enabled)}>
-              {channel.enabled ? "Move to bench" : "Move to board"}
+              {channel.enabled ? "Take off the board" : "Put on the board"}
             </Button>
           ) : null}
           {onPause && channel.enabled ? (

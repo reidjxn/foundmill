@@ -182,7 +182,7 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
     <Screen name="development/training-ground" className="h-full">
       <Panel
         span={12}
-        title="Training Ground"
+        title="Live sessions"
         flush
         className="h-full"
         bodyClassName="flex min-h-0 flex-col"
@@ -204,7 +204,7 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
             {concurrencyHint(limit, running)}
             {!plan.data ? <ProvenanceChip kind="estimate" /> : null}
             {action.error ? <InlineError error={action.error} /> : null}
-            {action.pending?.startsWith("shout") ? <span className="text-secondary">Sending shout…</span> : null}
+            {action.pending?.startsWith("shout") ? <span className="text-secondary">Sending nudge…</span> : null}
           </span>
         }
       >
@@ -221,7 +221,7 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
                   setView("tiles");
                 } else navigate(`${planHref}?task=${taskId}`);
               }}
-              aria-label="Formation: task graph by status"
+              aria-label="Task graph by status"
             />
             {graph.isLoading ? <p className="mt-2 text-small text-secondary">Loading the task graph…</p> : null}
             {graph.data && graphNodes.length === 0 ? <p className="mt-2 text-small text-secondary">No tasks yet. Plan work from the roadmap on the Plan tab.</p> : null}

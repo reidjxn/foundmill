@@ -122,7 +122,7 @@ export function createPlanActivities(deps: OrchestratorDeps) {
             type: "warning",
             from_agent_id: chief.id,
             subject: title.slice(0, 80),
-            body_md: `This needs you personally: ${str(params.request, str(params.original_text, "an action the squad is not allowed to take"))}. ${str(params.instructions, "Open the task for the steps.")} The squad prepared everything it could and will not act on this itself (hard gate).`,
+            body_md: `This needs you personally: ${str(params.request, str(params.original_text, "an action the team is not allowed to take"))}. ${str(params.instructions, "Open the task for the steps.")} The team prepared everything it could and will not act on this itself (hard gate).`,
             status_strip: [],
             exhibit: { kind: "none", spec_ref: null },
             decision: null,

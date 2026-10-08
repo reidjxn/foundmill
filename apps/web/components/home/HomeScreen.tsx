@@ -314,7 +314,7 @@ function DashboardGrid({ businessId, row, live, editable, editing, onEditingChan
     return (
       <Panel title={row.name} span={12}>
         <EmptyState icon={LayoutDashboard} title="An empty dashboard" action={editable ? { label: "Add widgets", icon: Pencil, onClick: () => onEditingChange(true) } : undefined}>
-          {editable ? "Press E or Edit to add the Journey Ribbon, department cards, the squad pulse and more; the layout saves as you go." : "This shared dashboard has no widgets yet."}
+          {editable ? "Press E or Edit to add the Journey Ribbon, department cards, the team pulse and more; the layout saves as you go." : "This shared dashboard has no widgets yet."}
         </EmptyState>
       </Panel>
     );
@@ -349,7 +349,7 @@ function DayOne({ businessId, currency }: { businessId: string; currency: string
   const cards = useMemo(() => ghostedMilestones(currency), [currency]);
   if (!dayOne) return null;
   return (
-    <Panel title="Day one" span={12} data-testid="day-one" footer={<span>Milestones light up as customers and revenue arrive; department cards show the staffed squad and its first tasks.</span>}>
+    <Panel title="Day one" span={12} data-testid="day-one" footer={<span>Milestones light up as customers and revenue arrive; department cards show the staffed team and its first tasks.</span>}>
       <div className="flex flex-col gap-3">
         <p className="text-body text-secondary">
           <Trophy className="mr-1 inline size-3.5 text-gold" aria-hidden />

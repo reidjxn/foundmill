@@ -204,7 +204,7 @@ export function MergeDialog({ source, candidates, preselected = [], open, onOpen
                   <li key={c.id}>
                     <label className={cn("flex cursor-pointer items-center gap-3 rounded-panel border border-subtle bg-panel-alt p-2 hover:border-secondary/50", checked && "border-link", full && "cursor-not-allowed opacity-50")} data-merge-candidate={c.id}>
                       <Checkbox checked={checked} disabled={full} onCheckedChange={() => toggle(c.id)} aria-label={`Merge with ${c.title}`} />
-                      <Crest seed={concept.crestSeed} kitPrimary={concept.kit.primary} kitSecondary={concept.kit.secondary} monogram={initials(concept.name)} size={32} title={`${concept.name} crest`} />
+                      <Crest seed={concept.crestSeed} kitPrimary={concept.kit.primary} kitSecondary={concept.kit.secondary} monogram={initials(concept.name)} size={32} title={`${concept.name} logo`} />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-body-strong">{concept.name}</div>
                         <div className="truncate text-small text-secondary">{concept.pitch}</div>
