@@ -208,14 +208,16 @@ describe("coalescing and backpressure", () => {
   });
 
   it("sends the first event of an idle socket immediately rather than waiting for a tick", async () => {
-    const t = await boot();
+    // One frame per second makes the tick 1 s, so "sent at once" and "waited for the tick" are 500 ms apart even on a
+    // loaded CI runner (a 45 ms bound against the default 50 ms tick failed under load).
+    const t = await boot({ options: { queue: { framesPerSecond: 1 } } });
     const sock = await connect(t);
     sock.sub(sessionChannel(SESSION_A));
     await waitFor(() => t.server.hub.readerCount === 1, 2_000, "reader");
     const t0 = performance.now();
     await publishSessionEvent(t.redis, SESSION_A, note("fast"));
     await waitFor(() => sock.events.length === 1, 2_000, "event");
-    expect(performance.now() - t0).toBeLessThan(45);
+    expect(performance.now() - t0).toBeLessThan(500);
   });
 });
 
