@@ -227,6 +227,24 @@ export const journeysRepo = {
     return one(await db.select().from(conversions).where(and(eq(conversions.businessId, businessId), eq(conversions.id, conversionId))).limit(1), "conversion", conversionId);
   },
 
+  /**
+   * Each conversion with its customer's display name and its Customer Update (journey) id, null when there is none:
+   * what the Ribbon's hover card and the day digest show. Two lookups, whatever the number of rows.
+   */
+  async labelConversions<T extends { id: string; entityId: string | null }>(db: Executor, businessId: string, rows: readonly T[]): Promise<Array<T & { entityName: string | null; journeyId: string | null }>> {
+    const entityIds = [...new Set(rows.map((r) => r.entityId).filter((id): id is string => id !== null))];
+    const conversionIds = rows.map((r) => r.id);
+    const names = entityIds.length
+      ? await db.select({ id: entities.id, name: entities.displayName }).from(entities).where(and(eq(entities.businessId, businessId), inArray(entities.id, entityIds)))
+      : [];
+    const updates = conversionIds.length
+      ? await db.select({ id: journeys.id, conversionId: journeys.conversionId }).from(journeys).where(and(eq(journeys.businessId, businessId), inArray(journeys.conversionId, conversionIds)))
+      : [];
+    const nameById = new Map(names.map((n) => [n.id, n.name] as const));
+    const journeyByConversion = new Map(updates.map((u) => [u.conversionId, u.id] as const));
+    return rows.map((r) => ({ ...r, entityName: r.entityId ? (nameById.get(r.entityId) ?? null) : null, journeyId: journeyByConversion.get(r.id) ?? null }));
+  },
+
   async listConversions(db: Executor, businessId: string, filter: ConversionListFilter = {}): Promise<Page<Conversion>> {
     const f = parseInput(ConversionListFilter, filter, "conversion filter");
     const ks = timeKeyset<Conversion>(conversions.occurredAt, conversions.id, (r) => ({ at: r.occurredAt, id: r.id }));

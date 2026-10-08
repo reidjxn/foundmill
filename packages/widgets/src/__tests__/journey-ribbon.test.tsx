@@ -5,6 +5,7 @@ import { configure, act, fireEvent, render, screen } from "@testing-library/reac
 // The ribbon mounts visx + PixiJS on happy-dom; shared CI runners need more than the 1 s default to settle.
 configure({ asyncUtilTimeout: 10_000 });
 import { WidgetDataProvider } from "../data";
+import { RIBBON_GUTTER, RIBBON_TOOLBAR } from "@foundmill/dugout";
 import { getWidget, parseWidgetSettings } from "../registry";
 import { createFakeSource } from "../testing";
 import "../widgets";
@@ -92,5 +93,18 @@ describe("journey ribbon widget", () => {
     expect(fake.queried.has("finance.overview")).toBe(false);
     expect(fake.queried.has("product.roadmap.list")).toBe(false);
     expect(fake.queried.has("journey.ribbon")).toBe(true);
+  });
+
+  it("loads the hovered day's customers by name and opens a Customer Update from the card", async () => {
+    const { fake } = mountRibbon();
+    const root = await screen.findByRole("group", { name: /Journey Ribbon/ });
+    root.getBoundingClientRect = () => ({ left: 0, top: 0, right: 1200, bottom: 300, width: 1200, height: 300, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    // A day well before the latest conversions the ribbon query carries.
+    fireEvent.pointerMove(root, { clientX: RIBBON_GUTTER + 40, clientY: RIBBON_TOOLBAR + 120 });
+    const name = await screen.findByText("Alma Botanics");
+    const day = fake.queried.get("journey.roundup")?.day as string;
+    expect(day).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    fireEvent.click(name.closest("button")!);
+    expect(fake.navigations.at(-1)).toBe(`/b/${BID}/journey/journey-${day}`);
   });
 });

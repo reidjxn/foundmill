@@ -1,4 +1,5 @@
-import { repos } from "@foundmill/db";
+import { entities, repos } from "@foundmill/db";
+import { eq } from "drizzle-orm";
 import { Journey } from "@foundmill/journey";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApiHarness, type ApiHarness } from "./harness";
@@ -95,6 +96,21 @@ describe("journey.ribbon rows (the Ribbon's daily data)", () => {
       expect(typeof r.revenueMinor).toBe("number");
       expect(typeof r.spendMinor).toBe("number");
     }
+  });
+
+  it("names every conversion of a day and links the ones with a Customer Update (journey.roundup and journey.ribbon)", async () => {
+    const { businessId, entityId } = hz.A;
+    const paid = await repos.journeys.recordConversion(hz.db, businessId, { entityId, kind: "payment", amountMinor: 1500, currency: "EUR", occurredAt: new Date("2026-08-14T09:00:00.000Z") });
+    const anonymous = await repos.journeys.recordConversion(hz.db, businessId, { entityId: null, kind: "signup", amountMinor: 0, currency: "EUR", occurredAt: new Date("2026-08-14T07:00:00.000Z") });
+    const update = await repos.journeys.create(hz.db, businessId, { conversionId: paid.id, touchIds: [], weights: {}, xcSeries: [], commentary: [], agents: [], matchdayLevel: "friendly" });
+    const [entity] = await hz.db.select({ name: entities.displayName }).from(entities).where(eq(entities.id, entityId));
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const day = await owner.journey.roundup({ businessId, day: "2026-08-14" });
+    const byId = new Map(day.conversions.map((c) => [c.id, c] as const));
+    expect(byId.get(paid.id)).toMatchObject({ entityName: entity!.name, journeyId: update.id, kind: "payment", occurredAt: "2026-08-14T09:00:00.000Z" });
+    expect(byId.get(anonymous.id)).toMatchObject({ entityName: null, journeyId: null });
+    const ribbon = await owner.journey.ribbon({ businessId, from: "2026-08-01", to: "2026-08-31" });
+    expect(ribbon.conversions.find((c) => c.id === paid.id)).toMatchObject({ entityName: entity!.name, journeyId: update.id });
   });
 });
 

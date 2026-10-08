@@ -202,6 +202,11 @@ export function dataResponses(): Record<string, FakeResponse> {
   return {
     "department.list": departments,
     "journey.ribbon": ribbon(),
+    // Every conversion of one day, named (what the ribbon's hover card and day digest load).
+    "journey.roundup": (input: Record<string, unknown> | undefined) => {
+      const day = String(input?.day ?? TODAY);
+      return { day, conversions: [{ id: `conv-${day}`, businessId: BID, entityId: "ent-alma", entityName: "Alma Botanics", kind: "payment", amountMinor: 5900, currency: "EUR", occurredAt: `${day}T10:00:00.000Z`, sourceEventId: null, journeyId: `journey-${day}` }] };
+    },
     "product.roadmap.list": roadmap,
     "finance.overview": finance,
     "dev.tasks.list": (input: Record<string, unknown> | undefined) => {

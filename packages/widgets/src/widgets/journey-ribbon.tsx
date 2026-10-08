@@ -4,7 +4,7 @@
  * chapters), `product.roadmap.list` (ghosted upcoming flags) and `finance.overview` (forecast cone + runway horizon),
  * ripples live events into the Today line and opens Customer Updates / day digests.
  */
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { Route } from "lucide-react";
 import {
@@ -30,7 +30,7 @@ import { toRibbonDepartments, useDepartments } from "../shared/departments";
 import { WidgetFrame } from "../shared/frame";
 import { routes } from "../shared/routes";
 import { addDays, dayKey } from "../shared/time";
-import type { FinanceOverview, ForecastRecord, ForecastSeriesPoint, RibbonResponse, RoadmapListResponse } from "../shared/types";
+import type { FinanceOverview, ForecastRecord, ForecastSeriesPoint, RibbonResponse, RoadmapListResponse, RoundupResponse } from "../shared/types";
 
 export const JourneyRibbonSettings = z.object({
   zoom: z.enum(ZOOM_LEVELS).default("quarter"),
@@ -45,6 +45,8 @@ export type JourneyRibbonSettings = z.infer<typeof JourneyRibbonSettings>;
 
 /** How many days of history to load: enough for "All time" on a two-year business, one request for every zoom. */
 export const RIBBON_HISTORY_DAYS = 730;
+/** How long the pointer rests on a day before its customers are loaded. */
+export const HOVER_LOAD_DELAY_MS = 150;
 
 const RIPPLE_EVENTS = ["signup.created", "activation.reached", "payment.received", "task.completed", "decision.made", "customer.converted"] as const;
 
@@ -115,7 +117,7 @@ export function forecastCone(forecasts: FinanceOverview["forecasts"] | undefined
  * resolves it (components/journey/JourneyScreen.tsx).
  */
 export function journeyHref(businessId: string, conversions: readonly RibbonResponse["conversions"][number][] | undefined, conversionId: string): string {
-  const row = conversions?.find((c) => c.id === conversionId);
+  const row = conversions?.find((c) => c.id === conversionId && c.journeyId) ?? conversions?.find((c) => c.id === conversionId);
   return routes.journey(businessId, row?.journeyId ?? conversionId);
 }
 
@@ -137,6 +139,25 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
   const handle = useRef<JourneyRibbonHandle>(null);
   const [zoom, setZoom] = useState<ZoomLevel>(settings.zoom);
   const [digestDay, setDigestDay] = useState<string | null>(null);
+  // The ribbon query carries only the latest conversions; a day's full, named list loads when the pointer rests on it
+  // or the day is opened (journey.roundup, cached per day by the host).
+  const [hoverDay, setHoverDay] = useState<string | null>(null);
+  const [restingDay, setRestingDay] = useState<string | null>(null);
+  useEffect(() => {
+    if (!hoverDay) return;
+    const t = setTimeout(() => setRestingDay(hoverDay), HOVER_LOAD_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [hoverDay]);
+  const lastDay = ribbon.data?.today ?? today;
+  const hoverRoundup = useWidgetQuery<RoundupResponse>("journey.roundup", { day: restingDay ?? lastDay }, { enabled: !!restingDay && restingDay <= lastDay });
+  const digestRoundup = useWidgetQuery<RoundupResponse>("journey.roundup", { day: digestDay ?? lastDay }, { enabled: !!digestDay && digestDay <= lastDay });
+  const loadedDays = useMemo(() => {
+    const map = new Map<string, RibbonResponse["conversions"]>();
+    for (const r of [hoverRoundup.data, digestRoundup.data]) if (r) map.set(r.day, r.conversions);
+    return map;
+  }, [hoverRoundup.data, digestRoundup.data]);
+  const dayConversions = useCallback((day: string) => loadedDays.get(day), [loadedDays]);
+  const knownConversions = useMemo(() => [...(ribbon.data?.conversions ?? []), ...[...loadedDays.values()].flat()], [ribbon.data?.conversions, loadedDays]);
 
   useBusinessEvents((event) => {
     const ripple = rippleFor(event);
@@ -160,8 +181,8 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
   const digest = useMemo(() => {
     if (!digestDay || !data) return null;
     const index = indexDailyRows(data.rows, depts, { kickoff: data.kickoff, last: data.today });
-    return summariseDay(digestDay, { index, departments: depts, conversions: data.conversions, milestones: data.milestones, chapters: data.chapters, today: data.today });
-  }, [digestDay, data, depts]);
+    return summariseDay(digestDay, { index, departments: depts, conversions: loadedDays.get(digestDay) ?? data.conversions, milestones: data.milestones, chapters: data.chapters, today: data.today });
+  }, [digestDay, data, depts, loadedDays]);
 
   const empty = data && data.rows.length === 0 && data.conversions.length === 0 && depts.length === 0;
   const runwayMonths = finance.data?.runway.months ?? null;
@@ -196,8 +217,10 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
           horizonMonths={settings.horizonMonths}
           zoom={zoom}
           onZoomChange={onZoomChange}
-          onOpenJourney={(conversionId) => navigate(journeyHref(businessId, data.conversions, conversionId))}
+          onOpenJourney={(conversionId) => navigate(journeyHref(businessId, knownConversions, conversionId))}
           onOpenDay={(day) => setDigestDay(day)}
+          onHoverDay={setHoverDay}
+          dayConversions={dayConversions}
           minHeight={settings.height}
           currency={currency}
           label="Journey Ribbon"
@@ -210,7 +233,7 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
             <DayDigest
               summary={digest}
               currency={currency}
-              onOpenJourney={(conversionId) => navigate(journeyHref(businessId, data?.conversions, conversionId))}
+              onOpenJourney={(conversionId) => navigate(journeyHref(businessId, knownConversions, conversionId))}
               onOpenEntity={(id) => navigate(routes.crm(businessId, id))}
               onPrevDay={() => setDigestDay(addDays(digest.day, -1))}
               onNextDay={digest.isToday ? undefined : () => setDigestDay(addDays(digest.day, 1))}

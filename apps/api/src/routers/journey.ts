@@ -42,7 +42,8 @@ export const journeyRouter = router({
       // The matview keys the business-wide row by the nil uuid and returns numeric/bigint columns as strings; the
       // Ribbon and the revenue widgets read `departmentId: null` and numbers.
       const dailyRows = rows.map((r) => ({ ...r, departmentId: r.departmentId === NO_DEPARTMENT_ID ? null : r.departmentId, agentHours: Number(r.agentHours), spendMinor: Number(r.spendMinor), revenueMinor: Number(r.revenueMinor) }));
-      return { rows: dailyRows, conversions: conversions.items.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const };
+      const labelled = await repos.journeys.labelConversions(tx, ctx.businessId, conversions.items);
+      return { rows: dailyRows, conversions: labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const };
     }),
   ),
 
@@ -51,7 +52,9 @@ export const journeyRouter = router({
       const from = new Date(`${input.day}T00:00:00.000Z`);
       const to = new Date(`${input.day}T23:59:59.999Z`);
       const conversions = await repos.journeys.listConversions(tx, ctx.businessId, { from, to, limit: 500 });
-      return { day: input.day, conversions: conversions.items };
+      // Every conversion of one day, named, for the Ribbon's hover card and day digest (the ribbon query only carries the latest 500).
+      const labelled = await repos.journeys.labelConversions(tx, ctx.businessId, conversions.items);
+      return { day: input.day, conversions: labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })) };
     }),
   ),
 });

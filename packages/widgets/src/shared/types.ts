@@ -37,8 +37,8 @@ export interface DepartmentRow {
 /* journey.ribbon */
 export interface RibbonResponse {
   rows: JourneyDailyRow[];
-  /** `journeyId` is read when the API joins it; the Ribbon navigates by conversion id otherwise. */
-  conversions: (Conversion & { occurredAt: Iso; journeyId?: string | null })[];
+  /** Named by the API (`entityName`) with the Customer Update id (`journeyId`) when there is one. */
+  conversions: (Conversion & { occurredAt: Iso; entityName?: string | null; journeyId?: string | null })[];
   milestones: (Milestone & { achievedAt: Iso; kind: MilestoneKind })[];
   chapters: Chapter[];
   /** First day of the business (the API also returns it as `firstDay`). */
@@ -46,6 +46,12 @@ export interface RibbonResponse {
   firstDay?: DayKey;
   today: DayKey;
   forecastLabel?: "Forecast";
+}
+
+/* journey.roundup: every conversion of one day, named */
+export interface RoundupResponse {
+  day: DayKey;
+  conversions: RibbonResponse["conversions"];
 }
 
 /* journey.list */

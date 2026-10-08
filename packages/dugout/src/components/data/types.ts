@@ -229,6 +229,11 @@ export interface WidgetRegistryEntry {
   single?: boolean;
   /** Only in LIVE mode, for example. */
   hidden?: boolean;
+  /**
+   * The widget draws its own panel (title, actions, states), so the grid adds no header or surface around it and each
+   * widget shows one title. In edit mode the grid's controls (move, settings, remove) float over the widget's header.
+   */
+  framed?: boolean;
   render: (ctx: WidgetRenderContext) => ReactNode;
 }
 

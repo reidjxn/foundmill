@@ -68,6 +68,13 @@ export interface JourneyRibbonProps {
   onOpenJourney?: (conversionId: string) => void;
   onOpenDay?: (day: string) => void;
   onOpenChapter?: (chapterId: string) => void;
+  /** The day under the pointer (null when it leaves), for a host that loads that day's details. */
+  onHoverDay?: (day: string | null) => void;
+  /**
+   * Every conversion of a day, when the host has loaded them (`conversions` may only hold the most recent ones). The
+   * hover card lists these instead of what `conversions` has for that day.
+   */
+  dayConversions?: (day: string) => readonly Conversion[] | undefined;
   /** Fixed width; otherwise the ribbon measures its parent. */
   width?: number;
   /** Fixed height; otherwise the ribbon fills its parent's height, never less than `minHeight`. */
@@ -150,6 +157,8 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
     onOpenJourney,
     onOpenDay,
     onOpenChapter,
+    onHoverDay,
+    dayConversions,
     width,
     height,
     kit,
@@ -351,7 +360,16 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
   };
 
   const hoverDay = hoverX === null ? null : geometry.dayAt(hoverX + scrollX);
-  const hoverSummary = useMemo(() => (hoverDay ? summariseDay(hoverDay, { index, departments, conversions, milestones, chapters, today }) : null), [hoverDay, index, departments, conversions, milestones, chapters, today]);
+  const onHoverDayRef = useRef(onHoverDay);
+  onHoverDayRef.current = onHoverDay;
+  useEffect(() => {
+    onHoverDayRef.current?.(hoverDay);
+  }, [hoverDay]);
+  const hoverDayConversions = hoverDay ? dayConversions?.(hoverDay) : undefined;
+  const hoverSummary = useMemo(
+    () => (hoverDay ? summariseDay(hoverDay, { index, departments, conversions: hoverDayConversions ?? conversions, milestones, chapters, today }) : null),
+    [hoverDay, hoverDayConversions, index, departments, conversions, milestones, chapters, today],
+  );
   // The forecast starts from where revenue is today, as the drawn cone does.
   const forecastFromToday = useMemo(() => {
     const now = index.byDay.get(today)?.revenue7;

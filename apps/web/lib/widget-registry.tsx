@@ -64,6 +64,8 @@ export function toGridEntry(def: AnyWidgetDefinition, businessId: string): Widge
     defaultSettings: (def.defaultSettings ?? undefined) as Record<string, unknown> | undefined,
     single: def.single,
     hidden: def.liveOnly,
+    // Every @foundmill/widgets widget renders inside WidgetFrame, which draws the panel and its header.
+    framed: true,
     render: (ctx) => createElement(def.Component, { businessId, settings: parseWidgetSettings(def, ctx.settings), instanceId: ctx.item.i, editing: ctx.editing }),
   };
 }

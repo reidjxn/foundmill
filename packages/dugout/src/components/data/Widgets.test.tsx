@@ -10,6 +10,7 @@ import {
   toRglLayout,
   WidgetGrid,
 } from "./WidgetGrid";
+import { Panel } from "../shell/Panel";
 import { DEMO_WIDGET_REGISTRY, FOUNDERS_VIEW_LAYOUT, WIDGET_PRESETS } from "./fixtures";
 import type { WidgetLayout } from "./types";
 
@@ -195,5 +196,30 @@ describe("WidgetGrid", () => {
     expect(root.className).toContain("flex");
     expect(root.getAttribute("data-editing")).toBeNull();
     expect(screen.getByRole("region", { name: "Journey Ribbon" })).toBeTruthy();
+  });
+
+  it("draws one header per framed widget: the widget's own panel, with the grid's controls only in edit mode", async () => {
+    const user = userEvent.setup();
+    const framedRegistry = registry.map((e) => ({
+      ...e,
+      framed: true,
+      render: () => (
+        <Panel title={`${e.title} panel`} actions={<span>Forecast</span>}>
+          <div data-testid={`body-${e.key}`} />
+        </Panel>
+      ),
+    }));
+    const { container } = render(<WidgetGrid layout={FOUNDERS_VIEW_LAYOUT} registry={framedRegistry} width={1200} onChange={() => {}} />);
+    const item = container.querySelector("[data-widget-id='ribbon']") as HTMLElement;
+    expect(item.getAttribute("data-framed")).toBe("true");
+    // One title (the widget's), no grid header and no second panel surface.
+    expect(within(item).getAllByRole("heading").map((h) => h.textContent)).toEqual(["Journey Ribbon panel"]);
+    expect(item.querySelectorAll(".surface-panel").length).toBe(1);
+    expect(item.querySelector("[data-widget-controls]")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Edit layout" }));
+    const controls = item.querySelector("[data-widget-controls]") as HTMLElement;
+    expect(within(controls).getByRole("button", { name: /^Move Journey Ribbon/ })).toBeTruthy();
+    expect(within(controls).getByRole("button", { name: "Remove Journey Ribbon" })).toBeTruthy();
+    expect(within(item).getAllByRole("heading").length).toBe(1);
   });
 });

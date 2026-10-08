@@ -649,56 +649,45 @@ export function WidgetGrid({
             {layout.map((it) => {
               const entry = registry.find((e) => e.key === it.widget);
               const size = pxSize(it);
-              const header = (
+              const framed = !!entry?.framed;
+              const dragHandle =
+                editing && !it.static ? (
+                  <button
+                    type="button"
+                    className={cn(
+                      DRAG_HANDLE_CLASS,
+                      "inline-flex size-6 cursor-grab items-center justify-center rounded-chip text-secondary hover:bg-white/6 hover:text-primary active:cursor-grabbing focus-visible:outline-2",
+                    )}
+                    aria-label={`Move ${entry?.title ?? it.widget}. Arrow keys move, Shift+arrows resize.`}
+                    onKeyDown={(e) => onHandleKeyDown(e, it.i)}
+                  >
+                    <Icon icon={GripVertical} size="inline" />
+                  </button>
+                ) : null;
+              const editButtons = editing ? (
+                <>
+                  {entry?.settings && entry.settings.length > 0 ? (
+                    <IconButton size="sm" icon={Settings2} label={`${entry.title} settings`} className="size-6" onClick={() => setSettingsFor(it)} />
+                  ) : null}
+                  {!it.static ? <IconButton size="sm" icon={X} label={`Remove ${entry?.title ?? it.widget}`} className="size-6" onClick={() => remove(it.i)} /> : null}
+                </>
+              ) : null;
+              // A framed widget draws its own panel and header; the grid adds none, so each widget has one title.
+              const header = framed ? null : (
                 <header className="flex h-panel-header shrink-0 items-center gap-1 border-b border-subtle bg-panel-alt pl-1.5 pr-1">
-                  {editing && !it.static ? (
-                    <button
-                      type="button"
-                      className={cn(
-                        DRAG_HANDLE_CLASS,
-                        "inline-flex size-6 cursor-grab items-center justify-center rounded-chip text-secondary hover:bg-white/6 hover:text-primary active:cursor-grabbing focus-visible:outline-2",
-                      )}
-                      aria-label={`Move ${entry?.title ?? it.widget}. Arrow keys move, Shift+arrows resize.`}
-                      onKeyDown={(e) => onHandleKeyDown(e, it.i)}
-                    >
-                      <Icon icon={GripVertical} size="inline" />
-                    </button>
-                  ) : null}
-                  <h3 className="t-label min-w-0 flex-1 truncate pl-0.5">
-                    {entry?.title ?? it.widget}
-                  </h3>
-                  {editing ? (
-                    <>
-                      {entry?.settings && entry.settings.length > 0 ? (
-                        <IconButton
-                          size="sm"
-                          icon={Settings2}
-                          label={`${entry.title} settings`}
-                          className="size-6"
-                          onClick={() => setSettingsFor(it)}
-                        />
-                      ) : null}
-                      {!it.static ? (
-                        <IconButton
-                          size="sm"
-                          icon={X}
-                          label={`Remove ${entry?.title ?? it.widget}`}
-                          className="size-6"
-                          onClick={() => remove(it.i)}
-                        />
-                      ) : null}
-                    </>
-                  ) : null}
+                  {dragHandle}
+                  <h3 className="t-label min-w-0 flex-1 truncate pl-0.5">{entry?.title ?? it.widget}</h3>
+                  {editButtons}
                 </header>
               );
               const body = (
-                <div className="min-h-0 flex-1 overflow-hidden">
+                <div className={cn("min-h-0 flex-1 overflow-hidden", framed && "flex flex-col")}>
                   {entry ? (
                     entry.render({
                       item: it,
                       settings: { ...(entry.defaultSettings ?? {}), ...(it.settings ?? {}) },
                       editing,
-                      size: { width: size.width, height: Math.max(0, size.height - 32) },
+                      size: { width: size.width, height: Math.max(0, size.height - (framed ? 0 : 32)) },
                     })
                   ) : (
                     <EmptyState className="py-4">
@@ -712,13 +701,17 @@ export function WidgetGrid({
                   key={it.i}
                   data-widget={it.widget}
                   data-widget-id={it.i}
+                  data-framed={framed || undefined}
                   className={cn(
                     "group/widget",
+                    framed && "relative",
                     editing && "outline-1 outline-dotted outline-secondary/70 outline-offset-2",
                   )}
                 >
                   {renderFrame ? (
                     renderFrame({ item: it, entry, editing, header, body })
+                  ) : framed ? (
+                    <div className="flex h-full min-w-0 flex-col">{body}</div>
                   ) : (
                     <section
                       aria-label={entry?.title ?? it.widget}
@@ -728,6 +721,12 @@ export function WidgetGrid({
                       {body}
                     </section>
                   )}
+                  {framed && editing ? (
+                    <div className="absolute right-1 top-1 z-10 flex items-center gap-0.5 rounded-chip border border-subtle bg-panel-alt p-0.5" data-widget-controls>
+                      {dragHandle}
+                      {editButtons}
+                    </div>
+                  ) : null}
                 </div>
               );
             })}
