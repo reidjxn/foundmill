@@ -99,7 +99,7 @@ Checked against the Railway GraphQL API (team token), the Vercel and Supabase co
 | First sign-in at foundmill.com | ✅ reidjcksn@gmail.com signs in; `/` serves the landing page when signed out |
 | Demo businesses (Northwind Skincare, Ledgerly) owned by reidjcksn@gmail.com | ✅ built by SEED_ON_BOOT on 2026-10-08 (about 6 minutes on Supabase); Northwind is the newer, so a first sign-in opens it |
 | `ANTHROPIC_API_KEY` on api, composer and orchestrator with `MODEL_MODE=live` | ✅ 2026-10-08: all three boot without the mock fallback; the key lists claude-opus-5-5, claude-sonnet-5-5 and claude-haiku-4-5-20251001 |
-| Real agent sessions: `SANDBOX_MODE=e2b` and `E2B_API_KEY` on the orchestrator | ⬜ not set; sessions replay recordings until then |
+| Real agent sessions: `SANDBOX_MODE=e2b` and `E2B_API_KEY` on the orchestrator | ✅ 2026-10-08: key valid; one real round trip through `resolveSandboxProvider` (create, start, exec, egress refused, stop) in about 10 s. ⬜ code tasks: the agent edits files in the orchestrator's session workspace, which never reaches the sandbox, so their acceptance run (`pnpm test` in the sandbox) reports a failure until the workspace is synced into it |
 | Live connectors: `INTEGRATIONS_MODE=live` plus each vendor key on the gateway | ⬜ every service runs `mock` |
 
 ## 7. Local stack without Postgres or Redis
