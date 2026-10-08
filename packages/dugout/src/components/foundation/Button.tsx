@@ -27,6 +27,7 @@ export const buttonVariants = cva(
       size: {
         sm: "h-control-sm px-2.5",
         md: "h-control-md px-3",
+        lg: "h-control-lg px-4",
       },
     },
     defaultVariants: { variant: "default", size: "md" },

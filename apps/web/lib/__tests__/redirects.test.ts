@@ -4,7 +4,7 @@ import { decideRedirect, isFounderPath, isPublicPath, safeNextPath } from "../au
 describe("proxy redirect rules", () => {
   it("sends signed-out visitors to /login with the original path as next", () => {
     expect(decideRedirect({ pathname: "/b/abc/home", search: "?tab=x", authenticated: false })).toEqual({ kind: "redirect", to: "/login?next=%2Fb%2Fabc%2Fhome%3Ftab%3Dx" });
-    expect(decideRedirect({ pathname: "/", authenticated: false })).toEqual({ kind: "redirect", to: "/login" });
+    expect(decideRedirect({ pathname: "/", authenticated: false })).toEqual({ kind: "next" }); // the landing page
   });
 
   it("lets public paths through either way", () => {

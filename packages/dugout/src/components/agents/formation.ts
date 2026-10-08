@@ -241,7 +241,9 @@ export function boardLayout(channels: readonly ChannelTokenData[]): BoardSlot[] 
     pts.forEach(project);
     if (!moved) break;
   }
-  return pts.map((p) => ({ key: p.key, line: p.line, x: p.x, y: p.y, left: (p.x / BOARD_W) * 100, top: (p.y / BOARD_H) * 100 }));
+  // Rounded so server and browser print identical CSS (float formatting differs between them and breaks hydration).
+  const r4 = (v: number) => Math.round(v * 1e4) / 1e4;
+  return pts.map((p) => ({ key: p.key, line: p.line, x: r4(p.x), y: r4(p.y), left: r4((p.x / BOARD_W) * 100), top: r4((p.y / BOARD_H) * 100) }));
 }
 
 /** A gentle curve from the hub to a token: the control point leans off the straight line, alternating by family. */

@@ -114,6 +114,7 @@
   --spacing-row-comfortable: var(--row-comfortable);
   --spacing-control-sm: var(--control-sm);
   --spacing-control-md: var(--control-md);
+  --spacing-control-lg: var(--control-lg);
   --spacing-chip: var(--chip-height);
   --spacing-sidebar: var(--sidebar-width);
   --spacing-sidebar-collapsed: var(--sidebar-width-collapsed);
@@ -327,6 +328,14 @@
 }
 
 /* ---------- Typography utilities (DESIGN §4) ---------- */
+/* Landing hero only (signed-out page): the one place type goes above display-xl. */
+@utility t-display-hero {
+  font-family: var(--font-display);
+  font-weight: var(--fw-display);
+  font-size: var(--fs-display-hero);
+  line-height: var(--lh-display-hero);
+  letter-spacing: -0.015em;
+}
 @utility t-display-xl {
   font-family: var(--font-display);
   font-weight: var(--fw-display);

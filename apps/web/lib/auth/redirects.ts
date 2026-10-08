@@ -1,7 +1,7 @@
 /**
  * Pure routing rules behind proxy.ts (unit-tested without Next.js).
  *
- * - Unauthenticated → /login?next=<path> for every app route.
+ * - Unauthenticated → /login?next=<path> for every app route, except `/`, which renders the landing page.
  * - Authenticated on /login → / (the index picks the last business or onboarding).
  * - The founder-profile gate for /b/* (AC-11.1.1) is enforced server-side in app/b/[bid]/layout.tsx, because only the
  *   API knows whether the profile exists; the proxy only knows who is signed in.
@@ -38,9 +38,8 @@ export function decideRedirect(input: { pathname: string; search?: string; authe
   }
   if (isPublicPath(pathname)) return { kind: "next" };
   if (!authenticated) {
-    const next = `${pathname}${search}`;
-    const target = next === "/" ? "/login" : `/login?${NEXT_PARAM}=${encodeURIComponent(next)}`;
-    return { kind: "redirect", to: target };
+    if (pathname === "/") return { kind: "next" }; // the landing page
+    return { kind: "redirect", to: `/login?${NEXT_PARAM}=${encodeURIComponent(`${pathname}${search}`)}` };
   }
   return { kind: "next" };
 }

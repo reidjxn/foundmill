@@ -64,7 +64,7 @@ interface DragState {
   from: DropZone;
 }
 
-const pct = (v: number, of: number) => `${(v / of) * 100}%`;
+const pct = (v: number, of: number) => `${Math.round((v / of) * 1e6) / 1e4}%`;
 const mix = (colour: string, amount: number, base = "transparent") => `color-mix(in oklab, ${colour} ${amount}%, ${base})`;
 
 /** Where each family's wash glows, as a percent of the board (the middle of its quadrant). */

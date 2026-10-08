@@ -53,6 +53,7 @@
   --row-comfortable: 34px;
   --control-sm: 28px; /* buttons sm */
   --control-md: 32px; /* buttons md, inputs */
+  --control-lg: 40px; /* buttons lg: signed-out landing calls to action only */
   --chip-height: 20px; /* chips and status pills */
   --icon-size: 16px;
   --icon-size-inline: 14px;
@@ -80,7 +81,9 @@
 
   /* Type scale (DESIGN §4): size / line-height / tracking */
   --fs-display-xl: 40px;
+  --fs-display-hero: 64px; /* signed-out landing hero only */
   --lh-display-xl: 44px;
+  --lh-display-hero: 64px;
   --fs-display-lg: 28px;
   --lh-display-lg: 32px;
   --fs-display-md: 20px;
