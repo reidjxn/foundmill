@@ -1,17 +1,21 @@
 /**
  * Journey Ribbon geometry (BUILD §11.2, DESIGN §8). Pure functions: no React, no DOM.
  *
- * Paths are built once per (data, zoom, size) in a fixed pixels-per-day space covering the first day → forecast horizon,
- * so wheel/drag scrolling is a `translate` and nothing is regenerated until the zoom or the data changes
- * (AC-11.2.1: 2 years of daily data under 2 s; see geometry.test.ts for the timing test).
+ * The ribbon is a timeline of labelled rows on one time axis: revenue per day (with the forecast after Today), new
+ * signups, paying customers and agent hours, under a strip of chapters. Shapes are built once per (data, zoom, size)
+ * in a fixed pixels-per-day space covering the first day → forecast horizon, so wheel/drag scrolling is a `translate`
+ * and nothing is regenerated until the zoom or the data changes (AC-11.2.1: 2 years of daily data under 2 s; see
+ * geometry.test.ts for the timing test).
  */
-import { area, curveBasis, curveMonotoneX, line, stack, stackOffsetSilhouette, stackOrderInsideOut } from "d3-shape";
-import type { ConversionKind, DeptColourToken, MilestoneKind } from "@foundmill/shared";
+import { area, curveMonotoneX, line } from "d3-shape";
+import type { DeptColourToken, MilestoneKind } from "@foundmill/shared";
 import type { Chapter, Conversion, DayKey, ForecastPoint, JourneyDailyRow, Milestone, RibbonDepartment, RoadmapFlag, ZoomLevel } from "../types";
 
 export const DAY_MS = 86_400_000;
 /** Average month for horizon and runway arithmetic. */
 export const MONTH_DAYS = 30.44;
+/** The API's key for the business-wide row (`journey_daily_mv` stores "no department" as the nil uuid). */
+export const NO_DEPARTMENT_ID = "00000000-0000-0000-0000-000000000000";
 
 /* ---------- Dates (UTC, no locale) ---------- */
 
@@ -67,10 +71,17 @@ export interface DailyIndex {
   departmentIds: string[];
 }
 
+/** Numbers as the API sends them: Postgres `numeric` and `bigint` can arrive as strings. */
+function num(v: unknown): number {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 /**
  * Fold `journey_daily` rows into one point per calendar day from `kickoff` (default: first row) to `last`
- * (default: last row or today), filling gaps with zeros. Department rows feed the river; the business-wide row
- * (departmentId null) feeds revenue and conversions, falling back to the sum of department rows when absent.
+ * (default: last row or today), filling gaps with zeros. Department rows feed agent hours; the business-wide row
+ * (departmentId null or the nil uuid) feeds revenue and conversions, falling back to the sum of department rows when
+ * absent. Numeric strings are read as numbers.
  */
 export function indexDailyRows(rows: readonly JourneyDailyRow[], departments: readonly RibbonDepartment[], opts: { kickoff?: DayKey; last?: DayKey } = {}): DailyIndex {
   const departmentIds = departments.map((d) => d.id);
@@ -97,26 +108,27 @@ export function indexDailyRows(rows: readonly JourneyDailyRow[], departments: re
   for (const r of rows) {
     const p = byDay.get(r.day);
     if (!p) continue;
-    if (r.departmentId === null) {
+    if (r.departmentId === null || r.departmentId === NO_DEPARTMENT_ID) {
       hasBusinessRow.add(r.day);
-      p.revenueMinor = r.revenueMinor;
-      p.spendMinor = r.spendMinor;
-      p.signups = r.signups;
-      p.activations = r.activations;
-      p.payments = r.payments;
-      p.tasksDone = r.tasksDone;
-      p.decisions = r.decisions;
+      p.revenueMinor = num(r.revenueMinor);
+      p.spendMinor = num(r.spendMinor);
+      p.signups = num(r.signups);
+      p.activations = num(r.activations);
+      p.payments = num(r.payments);
+      p.tasksDone = num(r.tasksDone);
+      p.decisions = num(r.decisions);
     } else if (r.departmentId in p.hours) {
-      p.hours[r.departmentId] = (p.hours[r.departmentId] ?? 0) + r.agentHours;
-      p.totalHours += r.agentHours;
+      const h = num(r.agentHours);
+      p.hours[r.departmentId] = (p.hours[r.departmentId] ?? 0) + h;
+      p.totalHours += h;
       if (!hasBusinessRow.has(r.day)) {
-        p.revenueMinor += r.revenueMinor;
-        p.spendMinor += r.spendMinor;
-        p.signups += r.signups;
-        p.activations += r.activations;
-        p.payments += r.payments;
-        p.tasksDone += r.tasksDone;
-        p.decisions += r.decisions;
+        p.revenueMinor += num(r.revenueMinor);
+        p.spendMinor += num(r.spendMinor);
+        p.signups += num(r.signups);
+        p.activations += num(r.activations);
+        p.payments += num(r.payments);
+        p.tasksDone += num(r.tasksDone);
+        p.decisions += num(r.decisions);
       }
     }
   }
@@ -134,6 +146,29 @@ export function indexDailyRows(rows: readonly JourneyDailyRow[], departments: re
   return { points, byDay, kickoff: first, last, maxHours, maxRevenue7, departmentIds };
 }
 
+/**
+ * Totals over the `days` days ending on `end` (inclusive): what the row labels show when nothing is hovered.
+ * `revenueChange` compares revenue with the `days` before (null when that window had none).
+ */
+export function windowTotals(index: DailyIndex, end: DayKey, days = 7): { revenuePerDay: number; revenueChange: number | null; signups: number; payments: number; hours: number; from: DayKey; to: DayKey } {
+  const from = addDaysKey(end, -(days - 1));
+  const before = addDaysKey(from, -days);
+  let previous = 0;
+  let revenue = 0;
+  let signups = 0;
+  let payments = 0;
+  let hours = 0;
+  for (const p of index.points) {
+    if (p.day >= before && p.day < from) previous += p.revenueMinor;
+    if (p.day < from || p.day > end) continue;
+    revenue += p.revenueMinor;
+    signups += p.signups;
+    payments += p.payments;
+    hours += p.totalHours;
+  }
+  return { revenuePerDay: revenue / days, revenueChange: previous > 0 ? (revenue - previous) / previous : null, signups, payments, hours, from, to: end };
+}
+
 /* ---------- Zoom ---------- */
 
 export const ZOOM_SPAN_DAYS: Record<Exclude<ZoomLevel, "all">, number> = { week: 7, month: 30, quarter: 91 };
@@ -147,72 +182,88 @@ export function zoomSpanDays(zoom: ZoomLevel, totalDays: number): number {
 
 /* ---------- Layout ---------- */
 
+export type TrackKind = "signups" | "payments" | "hours";
+
+export interface TrackBand {
+  top: number;
+  bottom: number;
+}
+
+/** Vertical bands of the plot (the SVG right of the row labels, under the toolbar). */
 export interface RibbonLayout {
   width: number;
   height: number;
-  chapterBand: number;
-  laneTop: number;
-  lanes: Record<ConversionKind, number>;
+  chapterTop: number;
+  chapterBottom: number;
   revenueTop: number;
   revenueBottom: number;
-  riverTop: number;
-  riverBottom: number;
-  riverMid: number;
+  tracks: Record<TrackKind, TrackBand>;
   axisTop: number;
 }
 
-/** Vertical bands for a given height (reference 300 px, DESIGN §9). Everything scales with the height. */
+const CHAPTER_STRIP = 20;
+const TRACK_HEIGHTS: Record<TrackKind, number> = { signups: 22, payments: 22, hours: 26 };
+const TRACK_GAP = 6;
+const AXIS_HEIGHT = 26;
+
+/** Bands for a plot of `width` × `height`: the chapter strip, the revenue chart (whatever is left), three bar rows, the axis. */
 export function ribbonLayout(width: number, height: number): RibbonLayout {
-  const s = height / 300;
-  const r = (v: number) => Math.round(v * s);
-  const riverTop = r(142);
-  const riverBottom = r(262);
+  const axisTop = height - AXIS_HEIGHT;
+  const hoursBottom = axisTop - 4;
+  const hoursTop = hoursBottom - TRACK_HEIGHTS.hours;
+  const paymentsBottom = hoursTop - TRACK_GAP;
+  const paymentsTop = paymentsBottom - TRACK_HEIGHTS.payments;
+  const signupsBottom = paymentsTop - TRACK_GAP;
+  const signupsTop = signupsBottom - TRACK_HEIGHTS.signups;
+  const revenueTop = CHAPTER_STRIP + 20;
+  const revenueBottom = Math.max(revenueTop + 40, signupsTop - 12);
   return {
     width,
     height,
-    chapterBand: r(20),
-    laneTop: r(26),
-    lanes: { payment: r(34), activation: r(47), signup: r(58) },
-    revenueTop: r(68),
-    revenueBottom: r(136),
-    riverTop,
-    riverBottom,
-    riverMid: Math.round((riverTop + riverBottom) / 2),
-    axisTop: r(266),
+    chapterTop: 0,
+    chapterBottom: CHAPTER_STRIP,
+    revenueTop,
+    revenueBottom,
+    tracks: { signups: { top: signupsTop, bottom: signupsBottom }, payments: { top: paymentsTop, bottom: paymentsBottom }, hours: { top: hoursTop, bottom: hoursBottom } },
+    axisTop,
   };
 }
 
 /* ---------- Geometry ---------- */
 
-export interface RiverBand {
-  departmentId: string;
-  name: string;
-  dept: DeptColourToken;
-  path: string;
+export interface TrackBar {
+  key: string;
+  /** First day of the bar. */
+  day: DayKey;
+  /** Last day of the bar (same as `day` for one-day bars). */
+  dayEnd: DayKey;
+  x: number;
+  w: number;
+  y: number;
+  h: number;
+  value: number;
+  /** Payments only: the conversion ids the ribbon knows for this bar (the API sends the most recent ones). */
+  ids: string[];
+}
+
+export interface TrackGeometry {
+  kind: TrackKind;
+  top: number;
+  bottom: number;
+  /** Largest bar value over the whole history at this zoom. */
+  max: number;
+  /** Days per bar at this zoom (1 or 7). */
+  bucketDays: number;
+  bars: TrackBar[];
 }
 
 export interface RevenueGeometry {
-  path: string;
+  linePath: string;
+  areaPath: string;
   max: number;
   y: (minor: number) => number;
-}
-
-export interface MarkerBucket {
-  key: string;
-  kind: ConversionKind;
-  /** First day of the bucket. */
-  day: DayKey;
-  /** Last day of the bucket (same as `day` for one-day buckets). */
-  dayEnd: DayKey;
-  x: number;
-  y: number;
-  /** Radius in px, grows with the count. */
-  r: number;
-  count: number;
-  amountMinor: number;
-  currency: string;
-  ids: string[];
-  names: string[];
+  /** Gridline values (minor units per day), 0 first. */
+  ticks: number[];
 }
 
 export type MilestoneGlyphKind = "trophy" | "flag" | "diamond" | "banner";
@@ -225,15 +276,23 @@ export interface MilestoneGlyph {
   day: DayKey;
   x: number;
   y: number;
+  /** Lane 0–2 (rows of pins, top first). */
+  lane: number;
+  /** Whether the label fits beside the pin at this zoom; otherwise only the pin is drawn (the name is in its title). */
+  showLabel: boolean;
   stemTo: number;
 }
 
 export interface ChapterSpan {
   id: string;
+  /** "Q3 2026". */
+  name: string;
   x0: number;
   x1: number;
   label: string;
   status: Chapter["status"];
+  /** Position among the chapters, for alternating shading. */
+  order: number;
   chapter: Chapter;
 }
 
@@ -250,6 +309,7 @@ export interface RoadmapGlyph {
   day: DayKey;
   x: number;
   y: number;
+  showLabel: boolean;
 }
 
 export type RunwayHorizonTone = "neutral" | "warn" | "bad";
@@ -259,9 +319,8 @@ export interface RunwayGeometry {
   endDay: DayKey;
   /** x of the runway-out date (may be past the horizon). */
   x: number;
-  /** Clamped to the horizon for drawing. */
-  xDrawn: number;
-  y: number;
+  /** Whether the runway-out date falls inside the drawn range. */
+  inRange: boolean;
   tone: RunwayHorizonTone;
   label: string;
 }
@@ -284,9 +343,8 @@ export interface RibbonGeometry {
   today: DayKey;
   horizon: DayKey;
   todayX: number;
-  bands: RiverBand[];
   revenue: RevenueGeometry;
-  markers: MarkerBucket[];
+  tracks: Record<TrackKind, TrackGeometry>;
   milestones: MilestoneGlyph[];
   chapters: ChapterSpan[];
   forecast: ForecastGeometry | null;
@@ -307,13 +365,16 @@ export interface RibbonGeometryInput {
   conversions: readonly Conversion[];
   milestones: readonly Milestone[];
   chapters: readonly Chapter[];
+  /** Revenue per day after Today (base, upside, downside). */
   forecast?: readonly ForecastPoint[];
   roadmap?: readonly RoadmapFlag[];
   runwayMonths?: number | null;
   today: DayKey;
   horizonMonths?: number;
   zoom: ZoomLevel;
+  /** Plot width (the ribbon minus its row labels). */
   width: number;
+  /** Plot height (the ribbon minus its toolbar). */
   height: number;
 }
 
@@ -347,14 +408,60 @@ function tickLabel(day: DayKey, zoom: ZoomLevel): string {
   return `${dd} ${mm}`;
 }
 
-/** Marker radius: base size per kind (DESIGN §8: dots 4 px, rings 8 px, win markers 10 px), grown by log count. */
-export function markerRadius(kind: ConversionKind, count: number): number {
-  const base = kind === "signup" ? 2 : kind === "activation" ? 4 : 5;
-  return count <= 1 ? base : Math.min(base * 1.9, base + Math.log2(count) * 0.9);
+/** "Mar 2027" for a day. */
+export function monthYear(day: DayKey): string {
+  const d = new Date(dayToMs(day));
+  return `${MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+/** "2026-Q3" → "Q3 2026"; anything else unchanged. */
+export function chapterName(id: string): string {
+  const m = /^(\d{4})-Q([1-4])$/.exec(id);
+  return m ? `Q${m[2]} ${m[1]}` : id;
+}
+
+/** Round gridline values: 0 and up to `count` steps of 1, 2, 2.5 or 5 × 10ⁿ covering `max`. */
+export function niceTicks(max: number, count = 3): number[] {
+  if (!(max > 0)) return [0];
+  const raw = max / count;
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = ([1, 2, 2.5, 5, 10].map((m) => m * pow).find((s) => s >= raw) ?? 10 * pow) as number;
+  const ticks: number[] = [];
+  for (let v = 0; v <= max + step * 0.999; v += step) ticks.push(Math.round(v * 1e6) / 1e6);
+  return ticks;
+}
+
+/** Rough label width at 11 px for lane packing (no DOM to measure in a pure function). */
+const labelWidth = (text: string) => 18 + Math.min(text.length, 28) * 6.1;
+
+/** Pack pins into up to three lanes left to right; a label is shown when it fits before the next pin in its lane. */
+function packPins<T extends { x: number; label: string }>(items: readonly T[], maxLanes = 3): Array<T & { lane: number; showLabel: boolean }> {
+  const out: Array<T & { lane: number; showLabel: boolean }> = [];
+  const laneEnd: number[] = Array.from({ length: maxLanes }, () => -Infinity);
+  for (const it of items) {
+    const withLabel = labelWidth(it.label);
+    let lane = laneEnd.findIndex((end) => it.x - 6 >= end);
+    let showLabel = true;
+    if (lane === -1) {
+      lane = laneEnd.indexOf(Math.min(...laneEnd));
+      showLabel = false;
+    }
+    const nextEnd = it.x + (showLabel ? withLabel : 12);
+    laneEnd[lane] = nextEnd;
+    out.push({ ...it, lane, showLabel });
+  }
+  // A label can only stay if nothing later in its lane starts under it.
+  for (let i = 0; i < out.length; i++) {
+    const a = out[i] as T & { lane: number; showLabel: boolean };
+    if (!a.showLabel) continue;
+    const next = out.slice(i + 1).find((b) => b.lane === a.lane);
+    if (next && next.x - 6 < a.x + labelWidth(a.label)) a.showLabel = false;
+  }
+  return out;
 }
 
 export function buildRibbonGeometry(input: RibbonGeometryInput): RibbonGeometry {
-  const { index, departments, zoom, width, height, today } = input;
+  const { index, zoom, width, height, today } = input;
   const horizonMonths = input.horizonMonths ?? 6;
   const layout = ribbonLayout(width, height);
   const kickoff = index.kickoff;
@@ -372,139 +479,150 @@ export function buildRibbonGeometry(input: RibbonGeometryInput): RibbonGeometry 
     return msToDay(kickoffMs + i * DAY_MS);
   };
   const todayX = xOfDay(today);
+  const history = index.points.filter((p) => p.day <= today);
 
-  // River: stacked silhouette of agent hours per department, curveBasis (DESIGN §8).
-  const half = Math.max(1e-6, index.maxHours / 2);
-  const riverScale = (layout.riverBottom - layout.riverTop) / 2 / half;
-  const riverY = (v: number) => layout.riverMid - v * riverScale;
-  const stacker = stack<DayPoint, string>()
-    .keys(index.departmentIds)
-    .value((d, key) => d.hours[key] ?? 0)
-    .offset(stackOffsetSilhouette)
-    .order(stackOrderInsideOut);
-  const series = stacker(index.points);
-  const areaGen = area<{ 0: number; 1: number; data: DayPoint }>()
-    .x((d) => xOfDay(d.data.day))
-    .y0((d) => riverY(d[0]))
-    .y1((d) => riverY(d[1]))
-    .curve(curveBasis);
-  const deptById = new Map(departments.map((d) => [d.id, d]));
-  const bands: RiverBand[] = series.map((s) => {
-    const dept = deptById.get(String(s.key)) as RibbonDepartment;
-    return { departmentId: dept.id, name: dept.name, dept: dept.dept, path: areaGen(s as unknown as Array<{ 0: number; 1: number; data: DayPoint }>) ?? "" };
-  });
-
-  // Revenue line (7-day mean) in kit-primary, plus the forecast cone on the same scale.
+  // Revenue per day (7-day mean) with gridlines, and the forecast cone on the same scale.
   const forecastPoints = (input.forecast ?? []).filter((f) => f.day > today && f.day <= horizon);
-  let revMax = index.maxRevenue7;
-  for (const f of forecastPoints) if (f.upsideMinor > revMax) revMax = f.upsideMinor;
-  revMax = Math.max(1, revMax);
-  const revY = (v: number) => layout.revenueBottom - (v / revMax) * (layout.revenueBottom - layout.revenueTop);
+  let revPeak = index.maxRevenue7;
+  for (const f of forecastPoints) if (f.upsideMinor > revPeak) revPeak = f.upsideMinor;
+  const ticks = niceTicks(Math.max(1, revPeak));
+  const revMax = Math.max(1, ticks[ticks.length - 1] ?? 1);
+  const revY = (v: number) => layout.revenueBottom - (Math.max(0, v) / revMax) * (layout.revenueBottom - layout.revenueTop);
   const revLine = line<DayPoint>()
     .x((d) => xOfDay(d.day))
     .y((d) => revY(d.revenue7))
     .curve(curveMonotoneX);
-  const revenuePoints = index.points.filter((p) => p.day <= today);
-  const revenue: RevenueGeometry = { path: revenuePoints.length > 1 ? (revLine(revenuePoints) ?? "") : "", max: revMax, y: revY };
+  const revArea = area<DayPoint>()
+    .x((d) => xOfDay(d.day))
+    .y0(layout.revenueBottom)
+    .y1((d) => revY(d.revenue7))
+    .curve(curveMonotoneX);
+  const revenue: RevenueGeometry = {
+    linePath: history.length > 1 ? (revLine(history) ?? "") : "",
+    areaPath: history.length > 1 ? (revArea(history) ?? "") : "",
+    max: revMax,
+    y: revY,
+    ticks,
+  };
 
   let forecast: ForecastGeometry | null = null;
-  if (forecastPoints.length > 1) {
-    const lastReal = revenuePoints[revenuePoints.length - 1];
+  if (forecastPoints.length > 0) {
+    const lastReal = history[history.length - 1];
     const seed: ForecastPoint | null = lastReal ? { day: lastReal.day, baseMinor: lastReal.revenue7, upsideMinor: lastReal.revenue7, downsideMinor: lastReal.revenue7 } : null;
     const pts = seed ? [seed, ...forecastPoints] : [...forecastPoints];
-    const cone = area<ForecastPoint>()
-      .x((d) => xOfDay(d.day))
-      .y0((d) => revY(d.downsideMinor))
-      .y1((d) => revY(d.upsideMinor))
-      .curve(curveMonotoneX);
-    const base = line<ForecastPoint>()
-      .x((d) => xOfDay(d.day))
-      .y((d) => revY(d.baseMinor))
-      .curve(curveMonotoneX);
-    forecast = { conePath: cone(pts) ?? "", basePath: base(pts) ?? "", x1: xOfDay(horizon) };
+    if (pts.length > 1) {
+      const cone = area<ForecastPoint>()
+        .x((d) => xOfDay(d.day))
+        .y0((d) => revY(d.downsideMinor))
+        .y1((d) => revY(d.upsideMinor))
+        .curve(curveMonotoneX);
+      const base = line<ForecastPoint>()
+        .x((d) => xOfDay(d.day))
+        .y((d) => revY(d.baseMinor))
+        .curve(curveMonotoneX);
+      forecast = { conePath: cone(pts) ?? "", basePath: base(pts) ?? "", x1: xOfDay(horizon) };
+    }
   }
 
-  // Conversion markers: individual at wide zooms, bucketed by day(s) when days are narrower than 48 px.
-  const bucketDays = pxPerDay >= 48 ? 0 : Math.max(1, Math.ceil(12 / pxPerDay));
-  const buckets = new Map<string, MarkerBucket>();
+  // Bar rows: one bar per day while days are at least 4 px wide, one per week otherwise.
+  const bucketDays = pxPerDay >= 4 ? 1 : 7;
+  const paymentIds = new Map<DayKey, string[]>();
   for (const c of input.conversions) {
+    if (c.kind !== "payment") continue;
     const ms = Date.parse(c.occurredAt);
     if (!Number.isFinite(ms)) continue;
-    const dayKey = msToDay(ms);
-    if (dayKey < kickoff || dayKey > today) continue;
-    const dayIdx = Math.floor((dayToMs(dayKey) - kickoffMs) / DAY_MS);
-    const y = layout.lanes[c.kind];
-    if (bucketDays === 0) {
-      buckets.set(c.id, { key: c.id, kind: c.kind, day: dayKey, dayEnd: dayKey, x: xOfMs(ms), y, r: markerRadius(c.kind, 1), count: 1, amountMinor: c.amountMinor, currency: c.currency, ids: [c.id], names: c.entityName ? [c.entityName] : [] });
-      continue;
-    }
-    const b = Math.floor(dayIdx / bucketDays);
-    const key = `${c.kind}:${b}`;
-    const startDay = msToDay(kickoffMs + b * bucketDays * DAY_MS);
-    const endDay = msToDay(kickoffMs + Math.min(totalDays - 1, (b + 1) * bucketDays - 1) * DAY_MS);
-    let bucket = buckets.get(key);
-    if (!bucket) {
-      const x0 = xOfMs(kickoffMs + b * bucketDays * DAY_MS);
-      bucket = { key, kind: c.kind, day: startDay, dayEnd: endDay < today ? endDay : today, x: x0 + (bucketDays * pxPerDay) / 2, y, r: 0, count: 0, amountMinor: 0, currency: c.currency, ids: [], names: [] };
-      buckets.set(key, bucket);
-    }
-    bucket.count += 1;
-    bucket.amountMinor += c.amountMinor;
-    bucket.ids.push(c.id);
-    if (c.entityName && bucket.names.length < 6) bucket.names.push(c.entityName);
+    const day = msToDay(ms);
+    const list = paymentIds.get(day) ?? [];
+    list.push(c.id);
+    paymentIds.set(day, list);
   }
-  const markers = Array.from(buckets.values());
-  for (const m of markers) m.r = markerRadius(m.kind, m.count);
-  markers.sort((a, b) => a.x - b.x);
+  const buildTrack = (kind: TrackKind, value: (p: DayPoint) => number): TrackGeometry => {
+    const band = layout.tracks[kind];
+    const sums: Array<{ b: number; value: number; first: DayPoint; last: DayPoint; ids: string[] }> = [];
+    for (const p of history) {
+      const b = Math.floor(p.index / bucketDays);
+      let s = sums[sums.length - 1];
+      if (!s || s.b !== b) {
+        s = { b, value: 0, first: p, last: p, ids: [] };
+        sums.push(s);
+      }
+      s.value += value(p);
+      s.last = p;
+      if (kind === "payments") s.ids.push(...(paymentIds.get(p.day) ?? []));
+    }
+    let max = 0;
+    for (const s of sums) if (s.value > max) max = s.value;
+    const usable = band.bottom - band.top - 1;
+    const span = bucketDays * pxPerDay;
+    // Bars sit centred on their day (or week), like the axis ticks and the revenue line; wide days get a capped bar.
+    const w = Math.max(1, Math.min(span >= 4 ? span - 1 : span, Math.max(span * 0.7, 6), 36));
+    const bars: TrackBar[] = [];
+    for (const s of sums) {
+      if (s.value <= 0) continue;
+      const h = Math.max(1.5, (s.value / Math.max(1e-9, max)) * usable);
+      const centre = xOfMs(dayToMs(s.first.day)) + span / 2;
+      bars.push({ key: `${kind}:${s.b}`, day: s.first.day, dayEnd: s.last.day, x: centre - w / 2, w, y: band.bottom - h, h, value: s.value, ids: s.ids });
+    }
+    return { kind, top: band.top, bottom: band.bottom, max, bucketDays, bars };
+  };
+  const tracks: Record<TrackKind, TrackGeometry> = {
+    signups: buildTrack("signups", (p) => p.signups),
+    payments: buildTrack("payments", (p) => p.payments),
+    hours: buildTrack("hours", (p) => p.totalHours),
+  };
 
-  // Milestones on hairline stems; glyphs that would overlap step down a lane (up to three lanes).
-  const sortedMilestones = [...input.milestones].sort((a, b) => a.achievedAt.localeCompare(b.achievedAt));
-  const milestones: MilestoneGlyph[] = [];
-  const laneLastX = [-Infinity, -Infinity, -Infinity];
-  for (const m of sortedMilestones) {
+  // Milestones and planned roadmap items as labelled pins over the revenue chart, packed together into up to three
+  // rows so no two labels overlap.
+  const pinY = (lane: number) => layout.revenueTop + 2 + lane * 17;
+  type Pin = { x: number; label: string; day: DayKey; id: string } & ({ type: "milestone"; kind: MilestoneKind; glyph: MilestoneGlyphKind } | { type: "planned" });
+  const pins: Pin[] = [];
+  for (const m of input.milestones) {
     const ms = Date.parse(m.achievedAt);
     if (!Number.isFinite(ms)) continue;
-    const dayKey = msToDay(ms);
-    if (dayKey < kickoff || dayKey > horizon) continue;
-    const x = xOfDay(dayKey);
-    let lane = 0;
-    while (lane < 2 && x - (laneLastX[lane] as number) < 16) lane += 1;
-    laneLastX[lane] = x;
-    const y = layout.revenueTop + 4 + lane * 14;
-    milestones.push({ id: m.id ?? `${m.kind}:${m.achievedAt}`, kind: m.kind, glyph: MILESTONE_GLYPH[m.kind], label: m.label, day: dayKey, x, y, stemTo: layout.riverTop });
+    const day = msToDay(ms);
+    if (day < kickoff || day > horizon) continue;
+    pins.push({ type: "milestone", id: m.id ?? `${m.kind}:${m.achievedAt}`, kind: m.kind, glyph: MILESTONE_GLYPH[m.kind], label: m.label, day, x: xOfDay(day) });
+  }
+  for (const f of input.roadmap ?? []) {
+    if (f.plannedOn <= today || f.plannedOn > horizon) continue;
+    pins.push({ type: "planned", id: f.id, label: f.label, day: f.plannedOn, x: xOfDay(f.plannedOn) });
+  }
+  pins.sort((a, b) => a.x - b.x || a.label.localeCompare(b.label));
+  const packed = packPins(pins);
+  const milestones: MilestoneGlyph[] = [];
+  const roadmap: RoadmapGlyph[] = [];
+  for (const p of packed) {
+    if (p.type === "milestone") milestones.push({ id: p.id, kind: p.kind, glyph: p.glyph, label: p.label, day: p.day, x: p.x, y: pinY(p.lane), lane: p.lane, showLabel: p.showLabel, stemTo: layout.revenueBottom });
+    else roadmap.push({ id: p.id, label: p.label, day: p.day, x: p.x, y: pinY(p.lane), showLabel: p.showLabel });
   }
 
-  // Chapters along the top.
+  // Chapters (quarters) along the top.
   const chapters: ChapterSpan[] = [];
   for (const ch of input.chapters) {
     if (ch.endsOn < kickoff || ch.startsOn > horizon) continue;
     const start = ch.startsOn < kickoff ? kickoff : ch.startsOn;
     const end = ch.endsOn > horizon ? horizon : ch.endsOn;
-    chapters.push({ id: ch.id, x0: xOfDay(start) - pxPerDay / 2, x1: xOfDay(end) + pxPerDay / 2, label: ch.title ?? ch.provisionalTitle, status: ch.status, chapter: ch });
+    chapters.push({ id: ch.id, name: chapterName(ch.id), x0: xOfDay(start) - pxPerDay / 2, x1: xOfDay(end) + pxPerDay / 2, label: ch.title ?? ch.provisionalTitle, status: ch.status, order: ch.index, chapter: ch });
   }
 
-  // Ghosted upcoming roadmap flags.
-  const roadmap: RoadmapGlyph[] = (input.roadmap ?? [])
-    .filter((f) => f.plannedOn > today && f.plannedOn <= horizon)
-    .map((f) => ({ id: f.id, label: f.label, day: f.plannedOn, x: xOfDay(f.plannedOn), y: layout.revenueTop + 4 }));
-
-  // Runway horizon: a 1 px line from Today to the runway-out date along the revenue baseline.
+  // Runway: the estimated day the cash runs out.
   let runway: RunwayGeometry | null = null;
   if (input.runwayMonths !== null && input.runwayMonths !== undefined && Number.isFinite(input.runwayMonths)) {
     const months = Math.max(0, input.runwayMonths);
     const endDay = addDaysKey(today, Math.round(months * MONTH_DAYS));
     const x = xOfDay(endDay);
-    runway = { months, endDay, x, xDrawn: Math.min(x, totalWidth), y: layout.revenueBottom, tone: runwayToneFor(months), label: `Runway · ${months < 10 ? months.toFixed(1).replace(/\.0$/, "") : Math.round(months)} mo` };
+    const monthsText = months < 10 ? months.toFixed(1).replace(/\.0$/, "") : String(Math.round(months));
+    runway = { months, endDay, x, inRange: endDay <= horizon, tone: runwayToneFor(months), label: endDay <= horizon ? `Cash runs out ~${monthYear(endDay)}` : `Cash lasts ${monthsText} months` };
   }
 
   // Axis ticks for the whole domain; the component culls to the visible window.
-  const ticks: RibbonTick[] = [];
+  const axisTicks: RibbonTick[] = [];
   const step = zoom === "week" ? 1 : zoom === "month" ? 7 : zoom === "quarter" ? 14 : 0;
   if (step > 0) {
     for (let i = 0; i < totalDays; i += step) {
       const day = msToDay(kickoffMs + i * DAY_MS);
       const d = new Date(dayToMs(day));
-      ticks.push({ x: xOfDay(day), label: tickLabel(day, zoom), major: step === 1 ? d.getUTCDay() === 1 : d.getUTCDate() <= step, day });
+      axisTicks.push({ x: xOfDay(day), label: tickLabel(day, zoom), major: step === 1 ? d.getUTCDay() === 1 : d.getUTCDate() <= step, day });
     }
   } else {
     // Month starts.
@@ -516,13 +634,28 @@ export function buildRibbonGeometry(input: RibbonGeometryInput): RibbonGeometry 
     let k = 0;
     while (d.getTime() <= horizonMs) {
       const day = msToDay(d.getTime());
-      if (k % everyN === 0 || d.getUTCMonth() === 0) ticks.push({ x: xOfDay(day), label: tickLabel(day, zoom), major: d.getUTCMonth() === 0, day });
+      if (k % everyN === 0 || d.getUTCMonth() === 0) axisTicks.push({ x: xOfDay(day), label: tickLabel(day, zoom), major: d.getUTCMonth() === 0, day });
       d.setUTCMonth(d.getUTCMonth() + 1);
       k += 1;
     }
   }
 
-  return { zoom, layout, pxPerDay, totalWidth, totalDays, kickoff, today, horizon, todayX, bands, revenue, markers, milestones, chapters, forecast, roadmap, runway, ticks, xOfDay, xOfMs, dayAt };
+  return { zoom, layout, pxPerDay, totalWidth, totalDays, kickoff, today, horizon, todayX, revenue, tracks, milestones, chapters, forecast, roadmap, runway, ticks: axisTicks, xOfDay, xOfMs, dayAt };
+}
+
+/** The forecast (revenue per day) for a future day, interpolated between the points either side. */
+export function forecastAt(forecast: readonly ForecastPoint[] | undefined, day: DayKey): ForecastPoint | null {
+  if (!forecast || forecast.length === 0) return null;
+  const sorted = [...forecast].sort((a, b) => a.day.localeCompare(b.day));
+  const exact = sorted.find((f) => f.day === day);
+  if (exact) return exact;
+  const after = sorted.findIndex((f) => f.day > day);
+  if (after <= 0) return null; // before the first point or after the last
+  const a = sorted[after - 1] as ForecastPoint;
+  const b = sorted[after] as ForecastPoint;
+  const t = (dayToMs(day) - dayToMs(a.day)) / Math.max(1, dayToMs(b.day) - dayToMs(a.day));
+  const mix = (x: number, y: number) => Math.round(x + (y - x) * t);
+  return { day, baseMinor: mix(a.baseMinor, b.baseMinor), upsideMinor: mix(a.upsideMinor, b.upsideMinor), downsideMinor: mix(a.downsideMinor, b.downsideMinor) };
 }
 
 /* ---------- Scrolling helpers ---------- */

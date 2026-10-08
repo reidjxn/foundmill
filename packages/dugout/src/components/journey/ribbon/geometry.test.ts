@@ -4,15 +4,19 @@ import { ZOOM_LEVELS } from "../types";
 import {
   addDaysKey,
   buildRibbonGeometry,
+  chapterName,
   clampScroll,
   dayToMs,
+  forecastAt,
   indexDailyRows,
-  markerRadius,
   msToDay,
+  niceTicks,
+  NO_DEPARTMENT_ID,
   runwayToneFor,
   scrollForToday,
   scrollKeepingDay,
   summariseDay,
+  windowTotals,
   zoomSpanDays,
 } from "./geometry";
 
@@ -52,17 +56,77 @@ describe("indexDailyRows", () => {
     expect(idx.maxHours).toBe(4);
     expect(idx.points[2]?.revenue7).toBeCloseTo((500 + 0 + 700) / 3);
   });
+
+  it("reads the API's wire format: the nil uuid is the business row and numeric strings are numbers", () => {
+    const wire = [
+      { day: "2026-01-01", departmentId: "a", agentHours: "2.500", tasksDone: 1, spendMinor: "100", revenueMinor: "0", signups: 0, activations: 0, payments: 0, decisions: 0 },
+      { day: "2026-01-01", departmentId: "a", agentHours: "1.250", tasksDone: 0, spendMinor: "0", revenueMinor: "0", signups: 0, activations: 0, payments: 0, decisions: 0 },
+      { day: "2026-01-01", departmentId: NO_DEPARTMENT_ID, agentHours: "0", tasksDone: 0, spendMinor: "0", revenueMinor: "4200", signups: 3, activations: 1, payments: 1, decisions: 0 },
+    ] as unknown as Parameters<typeof indexDailyRows>[0];
+    const idx = indexDailyRows(wire, [{ id: "a", name: "A", dept: "dept-1" }]);
+    expect(idx.points[0]?.hours.a).toBeCloseTo(3.75);
+    expect(idx.points[0]?.totalHours).toBeCloseTo(3.75);
+    expect(idx.maxHours).toBeCloseTo(3.75);
+    expect(idx.points[0]?.revenueMinor).toBe(4200);
+    expect(idx.points[0]?.payments).toBe(1);
+  });
+
+  it("totals the last 7 days and compares revenue with the 7 before", () => {
+    const rows = Array.from({ length: 14 }, (_, i) => ({ day: addDaysKey("2026-01-01", i), departmentId: null, agentHours: 0, tasksDone: 0, spendMinor: 0, revenueMinor: i < 7 ? 100 : 150, signups: 1, activations: 0, payments: i % 2, decisions: 0 }));
+    const idx = indexDailyRows(rows, []);
+    const t = windowTotals(idx, "2026-01-14");
+    expect(t.revenuePerDay).toBe(150);
+    expect(t.revenueChange).toBeCloseTo(0.5);
+    expect(t.signups).toBe(7);
+    expect(t.payments).toBe(4); // days 7–13, odd ones
+    expect(windowTotals(idx, "2026-01-07").revenueChange).toBeNull();
+  });
+});
+
+describe("labels and scales", () => {
+  it("names chapters, picks round gridlines and interpolates the forecast", () => {
+    expect(chapterName("2026-Q3")).toBe("Q3 2026");
+    expect(chapterName("custom")).toBe("custom");
+    expect(niceTicks(0)).toEqual([0]);
+    expect(niceTicks(2_870_000)).toEqual([0, 1_000_000, 2_000_000, 3_000_000]);
+    expect(niceTicks(4_500)).toEqual([0, 2_000, 4_000, 6_000]);
+    const f = [
+      { day: "2026-11-15", baseMinor: 100, upsideMinor: 150, downsideMinor: 50 },
+      { day: "2026-12-15", baseMinor: 400, upsideMinor: 450, downsideMinor: 350 },
+    ];
+    expect(forecastAt(f, "2026-11-15")).toEqual(f[0]);
+    expect(forecastAt(f, "2026-11-30")).toEqual({ day: "2026-11-30", baseMinor: 250, upsideMinor: 300, downsideMinor: 200 });
+    expect(forecastAt(f, "2026-11-01")).toBeNull();
+    expect(forecastAt(f, "2027-01-01")).toBeNull();
+    expect(forecastAt(undefined, "2026-11-30")).toBeNull();
+  });
 });
 
 describe("buildRibbonGeometry", () => {
   const index = indexDailyRows(big.rows, RIBBON_DEPARTMENTS, { last: big.today });
   const base = { index, departments: RIBBON_DEPARTMENTS, conversions: big.conversions, milestones: big.milestones, chapters: big.chapters, forecast: big.forecast, roadmap: big.roadmap, runwayMonths: 7.5, today: big.today, width: 1200, height: 300 } as const;
 
-  it("builds one band per department and a revenue path, and places Today inside the ribbon", () => {
+  it("builds the revenue line and area on a round scale, the three bar rows, and places Today inside the ribbon", () => {
     const g = buildRibbonGeometry({ ...base, zoom: "quarter" });
-    expect(g.bands.map((b) => b.departmentId)).toEqual(expect.arrayContaining(RIBBON_DEPARTMENTS.map((d) => d.id)));
-    expect(g.bands.every((b) => b.path.startsWith("M"))).toBe(true);
-    expect(g.revenue.path.startsWith("M")).toBe(true);
+    expect(g.revenue.linePath.startsWith("M")).toBe(true);
+    expect(g.revenue.areaPath.startsWith("M")).toBe(true);
+    expect(g.revenue.ticks[0]).toBe(0);
+    expect(g.revenue.max).toBe(g.revenue.ticks[g.revenue.ticks.length - 1]);
+    expect(g.revenue.max).toBeGreaterThanOrEqual(index.maxRevenue7);
+    expect(g.revenue.y(0)).toBe(g.layout.revenueBottom);
+    expect(g.revenue.y(g.revenue.max)).toBe(g.layout.revenueTop);
+    for (const kind of ["signups", "payments", "hours"] as const) {
+      const t = g.tracks[kind];
+      expect(t.bars.length).toBeGreaterThan(0);
+      expect(t.bars.every((b) => b.y >= t.top - 0.01 && b.y + b.h <= t.bottom + 0.01)).toBe(true);
+      expect(t.bars.every((b) => b.day <= big.today)).toBe(true);
+    }
+    // The rows stack without overlapping: revenue, signups, paying customers, agent hours, axis.
+    const L = g.layout;
+    expect(L.revenueBottom).toBeLessThan(L.tracks.signups.top);
+    expect(L.tracks.signups.bottom).toBeLessThan(L.tracks.payments.top);
+    expect(L.tracks.payments.bottom).toBeLessThan(L.tracks.hours.top);
+    expect(L.tracks.hours.bottom).toBeLessThanOrEqual(L.axisTop);
     expect(g.todayX).toBeGreaterThan(0);
     expect(g.todayX).toBeLessThan(g.totalWidth);
     // 730 days of history span 729 day-steps, plus the 6-month horizon, plus the horizon day itself.
@@ -72,34 +136,43 @@ describe("buildRibbonGeometry", () => {
     expect(g.xOfDay(big.kickoff)).toBeCloseTo(g.pxPerDay / 2);
   });
 
-  it("keeps individual markers at the week zoom and buckets them when days get narrow", () => {
+  it("draws one bar per day while days are wide enough and one per week when they get narrow, keeping the totals", () => {
+    const sum = (kind: "signups" | "payments" | "hours", zoom: "week" | "all") => buildRibbonGeometry({ ...base, zoom }).tracks[kind].bars.reduce((s, b) => s + b.value, 0);
+    const history = index.points.filter((p) => p.day <= big.today);
     const week = buildRibbonGeometry({ ...base, zoom: "week" });
-    expect(week.markers.every((m) => m.count === 1)).toBe(true);
-    expect(week.markers.length).toBe(big.conversions.length);
+    expect(week.tracks.signups.bucketDays).toBe(1);
+    expect(week.tracks.signups.bars.every((b) => b.day === b.dayEnd)).toBe(true);
+    // Bars are centred on their day, like the axis ticks.
+    const bar = week.tracks.signups.bars[week.tracks.signups.bars.length - 1]!;
+    expect(bar.x + bar.w / 2).toBeCloseTo(week.xOfDay(bar.day));
+    expect(bar.w).toBeLessThanOrEqual(36);
     const all = buildRibbonGeometry({ ...base, zoom: "all" });
-    expect(all.markers.length).toBeLessThan(big.conversions.length / 3);
-    expect(all.markers.some((m) => m.count > 1)).toBe(true);
-    const totalCount = all.markers.reduce((s, m) => s + m.count, 0);
-    expect(totalCount).toBe(big.conversions.length);
-    const paid = all.markers.filter((m) => m.kind === "payment");
-    expect(paid.reduce((s, m) => s + m.amountMinor, 0)).toBe(big.conversions.filter((c) => c.kind === "payment").reduce((s, c) => s + c.amountMinor, 0));
-    expect(markerRadius("payment", 1)).toBe(5);
-    expect(markerRadius("signup", 1)).toBe(2);
-    expect(markerRadius("signup", 64)).toBeGreaterThan(2);
-    expect(markerRadius("signup", 1e6)).toBeLessThanOrEqual(2 * 1.9);
+    expect(all.tracks.payments.bucketDays).toBe(7);
+    expect(all.tracks.payments.bars.length).toBeLessThan(history.length / 5);
+    expect(sum("signups", "all")).toBe(history.reduce((s, p) => s + p.signups, 0));
+    expect(sum("payments", "week")).toBe(history.reduce((s, p) => s + p.payments, 0));
+    expect(sum("hours", "all")).toBeCloseTo(history.reduce((s, p) => s + p.totalHours, 0));
+    // Payment bars carry the ids of the payments the API sent for those days.
+    const withIds = week.tracks.payments.bars.filter((b) => b.ids.length > 0);
+    expect(withIds.length).toBeGreaterThan(0);
+    for (const b of withIds) for (const id of b.ids) expect(big.conversions.find((c) => c.id === id)?.occurredAt.slice(0, 10)).toBe(b.day);
   });
 
-  it("maps milestone kinds to glyphs, staggers overlapping glyphs and ghosts future roadmap flags", () => {
-    const g = buildRibbonGeometry({ ...base, zoom: "all" });
-    const kinds = new Set(g.milestones.map((m) => m.glyph));
-    expect(kinds).toEqual(new Set(["trophy", "flag", "diamond", "banner"]));
-    const lanes = new Set(g.milestones.map((m) => m.y));
-    expect(lanes.size).toBeGreaterThan(1);
-    for (let i = 1; i < g.milestones.length; i++) {
-      const a = g.milestones[i - 1]!;
-      const b = g.milestones[i]!;
-      if (b.x - a.x < 16) expect(b.y).not.toBe(a.y);
+  it("maps milestone kinds to glyphs and packs milestones and planned items into rows where no label overlaps", () => {
+    for (const zoom of ["quarter", "all"] as const) {
+      const g = buildRibbonGeometry({ ...base, zoom });
+      if (zoom === "all") expect(new Set(g.milestones.map((m) => m.glyph))).toEqual(new Set(["trophy", "flag", "diamond", "banner"]));
+      const pins = [...g.milestones.map((m) => ({ x: m.x, y: m.y, label: m.label, showLabel: m.showLabel })), ...g.roadmap.map((r) => ({ x: r.x, y: r.y, label: r.label, showLabel: r.showLabel }))].sort((a, b) => a.x - b.x);
+      expect(new Set(pins.map((p) => p.y)).size).toBeLessThanOrEqual(3);
+      for (const a of pins) {
+        if (!a.showLabel) continue;
+        const end = a.x + 18 + Math.min(a.label.length, 28) * 6.1;
+        const blocker = pins.find((b) => b !== a && b.y === a.y && b.x >= a.x && b.x - 6 < end);
+        expect(blocker, `${a.label} overlaps a pin in its row`).toBeUndefined();
+      }
     }
+    const g = buildRibbonGeometry({ ...base, zoom: "quarter" });
+    expect(g.milestones.some((m) => m.showLabel)).toBe(true);
     expect(g.roadmap.length).toBe(3);
     expect(g.roadmap.every((r) => r.x > g.todayX)).toBe(true);
   });
@@ -110,11 +183,17 @@ describe("buildRibbonGeometry", () => {
     expect(g.forecast?.x1).toBeCloseTo(g.xOfDay(g.horizon));
     expect(g.runway?.tone).toBe("warn");
     expect(g.runway?.x).toBeGreaterThan(g.todayX);
-    expect(g.runway?.label).toBe("Runway · 7.5 mo");
+    // 7.5 months is past the 6-month horizon: said in months, not drawn as a date.
+    expect(g.runway?.inRange).toBe(false);
+    expect(g.runway?.label).toBe("Cash lasts 7.5 months");
+    const soon = buildRibbonGeometry({ ...base, zoom: "quarter", runwayMonths: 4 }).runway;
+    expect(soon?.inRange).toBe(true);
+    expect(soon?.label).toMatch(/^Cash runs out ~[A-Z][a-z]{2} \d{4}$/);
     expect(buildRibbonGeometry({ ...base, zoom: "quarter", runwayMonths: 4 }).runway?.tone).toBe("bad");
     expect(buildRibbonGeometry({ ...base, zoom: "quarter", runwayMonths: null }).runway).toBeNull();
     expect(g.chapters.length).toBe(big.chapters.length);
     expect(g.chapters[0]?.x0).toBeCloseTo(0);
+    expect(g.chapters[0]?.name).toMatch(/^Q[1-4] \d{4}$/);
     const current = g.chapters.find((c) => c.status === "current")!;
     expect(current.x0).toBeLessThanOrEqual(g.todayX);
     expect(current.x1).toBeGreaterThanOrEqual(g.todayX);
@@ -154,11 +233,11 @@ describe("buildRibbonGeometry", () => {
   it("works with a short history (no chapters, no forecast)", () => {
     const idx = indexDailyRows(small.rows, RIBBON_DEPARTMENTS);
     const g = buildRibbonGeometry({ index: idx, departments: RIBBON_DEPARTMENTS, conversions: small.conversions, milestones: small.milestones, chapters: [], today: small.today, zoom: "week", width: 800, height: 240 });
-    expect(g.bands.length).toBe(RIBBON_DEPARTMENTS.length);
+    expect(g.tracks.hours.bars.length).toBeGreaterThan(0);
     expect(g.forecast).toBeNull();
     expect(g.chapters).toEqual([]);
     expect(g.layout.height).toBe(240);
-    expect(g.layout.riverBottom).toBeLessThan(240);
+    expect(g.layout.axisTop).toBeLessThan(240);
   });
 });
 
@@ -170,10 +249,10 @@ describe("performance (AC-11.2.1)", () => {
     let paths = 0;
     for (const zoom of ZOOM_LEVELS) {
       const g = buildRibbonGeometry({ index, departments: RIBBON_DEPARTMENTS, conversions: big.conversions, milestones: big.milestones, chapters: big.chapters, forecast: big.forecast, roadmap: big.roadmap, runwayMonths: 11, today: big.today, zoom, width: 1440, height: 300 });
-      paths += g.bands.length + 1 + g.markers.length;
+      paths += 2 + g.tracks.signups.bars.length + g.tracks.payments.bars.length + g.tracks.hours.bars.length;
     }
     const elapsed = performance.now() - t0;
-    expect(paths).toBeGreaterThan(RIBBON_DEPARTMENTS.length * 4);
+    expect(paths).toBeGreaterThan(4 * 100);
     expect(elapsed).toBeLessThan(2000);
   });
 });

@@ -13,7 +13,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "The hero of Home (BUILD §11.2, DESIGN §8): a streamgraph river of agent hours per department (curveBasis, silhouette offset), the revenue line in kit-primary, signups (dots), activations (rings) and payments (gold goal markers), milestones on hairline stems, chapters along the top, a glowing Today line, the forecast cone, ghosted roadmap flags and the runway horizon. Two years of daily data render from one path build per zoom; scrolling is a translate. Wheel or drag to scroll, ⌘/Ctrl + wheel or + / − to zoom, Home for today.",
+          "The hero of Home (BUILD §11.2, DESIGN §8): the business's story on one time axis, as labelled rows. Revenue per day (7-day average) on a money scale with the forecast after Today and the runway estimate; milestones and planned roadmap items as labelled pins; bars for new signups, paying customers and agent hours; quarters as chapters along the top; the future hatched. The labels on the left show the last 7 days, or the hovered day. Two years of daily data render from one build per zoom; scrolling is a translate. Wheel or drag to scroll, ⌘/Ctrl + wheel or + / − to zoom, Home for today, click a day to open it.",
       },
     },
   },
@@ -35,7 +35,7 @@ const baseArgs: JourneyRibbonProps = {
   runwayMonths: 11,
   today: twoYears.today,
   kit: NORTHWIND_KIT,
-  height: 300,
+  height: 360,
 };
 
 function Frame({ children }: { children: React.ReactNode }) {

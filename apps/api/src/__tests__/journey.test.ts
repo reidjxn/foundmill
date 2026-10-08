@@ -71,3 +71,30 @@ describe("journey.get returns the full Journey record (BUILD §11.4, AC-11.4.3)"
     await expect(hz.caller({ userId: hz.B.ownerId }).journey.get({ businessId: hz.B.businessId, journeyId: row.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
+
+describe("journey.ribbon rows (the Ribbon's daily data)", () => {
+  let hz: ApiHarness;
+  beforeAll(async () => {
+    hz = await createApiHarness({ prefix: "ribbon" });
+  }, 120_000);
+  afterAll(() => hz.close());
+
+  it("sends the business-wide row with departmentId null and every amount as a number", async () => {
+    const { businessId, entityId } = hz.A;
+    await repos.journeys.recordConversion(hz.db, businessId, { entityId, kind: "payment", amountMinor: 4200, currency: "EUR", occurredAt: new Date("2026-09-02T09:00:00.000Z") });
+    await repos.journeys.recordConversion(hz.db, businessId, { entityId, kind: "signup", amountMinor: 0, currency: "EUR", occurredAt: new Date("2026-09-02T08:00:00.000Z") });
+    await repos.journeys.refreshDaily(hz.db);
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const res = await owner.journey.ribbon({ businessId, from: "2026-09-01", to: "2026-09-03" });
+    const business = res.rows.filter((r) => r.day === "2026-09-02" && r.departmentId === null);
+    expect(business).toHaveLength(1);
+    expect(business[0]).toMatchObject({ revenueMinor: 4200, payments: 1, signups: 1 });
+    expect(res.rows.some((r) => r.departmentId === "00000000-0000-0000-0000-000000000000")).toBe(false);
+    for (const r of res.rows) {
+      expect(typeof r.agentHours).toBe("number");
+      expect(typeof r.revenueMinor).toBe("number");
+      expect(typeof r.spendMinor).toBe("number");
+    }
+  });
+});
+

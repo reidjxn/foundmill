@@ -24,7 +24,7 @@ type Case = {
 };
 
 const CASES: Case[] = [
-  { key: "journey_ribbon", expectData: /^Forecast$/, expectEmpty: /river starts flowing/ },
+  { key: "journey_ribbon", expectData: /^Forecast$/, expectEmpty: /journey starts on day one/ },
   { key: "department_card", expectData: /Beacon/, expectEmpty: /No department in this slot/, settings: { slot: 0 } },
   { key: "squad_pulse", expectData: /agent hours over the last 7 days/, expectEmpty: /appear after the first cycle/ },
   { key: "inbox_preview", expectData: /Approve the schema change/, expectEmpty: /land here after each cycle/ },

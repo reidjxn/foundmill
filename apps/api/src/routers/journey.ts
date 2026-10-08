@@ -1,5 +1,5 @@
 /** journey.get/list/markViewed + daily rows and milestones for the Ribbon (BUILD §11.2, §11.4). */
-import { JourneyListFilter, repos } from "@foundmill/db";
+import { JourneyListFilter, NO_DEPARTMENT_ID, repos } from "@foundmill/db";
 import { buildChapters } from "@foundmill/journey";
 import { buildJourneyRecord } from "../services/journey";
 import { z } from "zod";
@@ -39,7 +39,10 @@ export const journeyRouter = router({
       const chapters = buildChapters({ startDay: firstDay, today: to, horizonQuarters: 2 });
       // `kickoff` is the wave-2 key the Ribbon reads; `firstDay` is the vocabulary-rule name.
       // The Ribbon (packages/dugout journey types) reads ISO strings; drizzle hands back Date objects for tstz columns.
-      return { rows, conversions: conversions.items.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const };
+      // The matview keys the business-wide row by the nil uuid and returns numeric/bigint columns as strings; the
+      // Ribbon and the revenue widgets read `departmentId: null` and numbers.
+      const dailyRows = rows.map((r) => ({ ...r, departmentId: r.departmentId === NO_DEPARTMENT_ID ? null : r.departmentId, agentHours: Number(r.agentHours), spendMinor: Number(r.spendMinor), revenueMinor: Number(r.revenueMinor) }));
+      return { rows: dailyRows, conversions: conversions.items.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const };
     }),
   ),
 

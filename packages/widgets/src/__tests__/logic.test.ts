@@ -58,7 +58,9 @@ describe("journey ribbon helpers", () => {
       expect(p.upsideMinor).toBeGreaterThanOrEqual(p.baseMinor);
       expect(p.downsideMinor).toBeLessThanOrEqual(p.baseMinor);
     }
-    expect(forecastCone({ base: { ...finance.forecasts.base!, series: [{ month: "2099-01", revenueMinor: 5 }] } }, TODAY)).toEqual([{ day: "2099-01-01", baseMinor: 5, upsideMinor: 5, downsideMinor: 5 }]);
+    expect(forecastCone({ base: { ...finance.forecasts.base!, series: [{ month: "2099-01", revenueMinor: 3100 }] } }, TODAY)).toEqual([{ day: "2099-01-15", baseMinor: 100, upsideMinor: 100, downsideMinor: 100 }]);
+    // A daily point is already revenue per day.
+    expect(forecastCone({ base: { ...finance.forecasts.base!, series: [{ day: "2099-01-03", revenueMinor: 70 }] } }, TODAY)).toEqual([{ day: "2099-01-03", baseMinor: 70, upsideMinor: 70, downsideMinor: 70 }]);
     expect(forecastCone(undefined, TODAY)).toEqual([]);
     const flags = roadmapFlags(roadmap.items, TODAY);
     expect(flags.map((f) => f.label)).toEqual(["Usage-based billing", "Team seats", "Annual plans"]);

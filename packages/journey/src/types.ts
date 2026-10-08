@@ -296,7 +296,7 @@ export const ChapterSummary = z.object({
 });
 export type ChapterSummary = z.infer<typeof ChapterSummary>;
 
-/** One quarter of the business's life (a season). Titles come from Opus; `provisionalTitle` is a deterministic placeholder. */
+/** One quarter of the business's life (a chapter). Titles come from Opus; `provisionalTitle` is a deterministic placeholder. */
 export const Chapter = z.object({
   id: z.string().regex(/^\d{4}-Q[1-4]$/),
   index: z.number().int().nonnegative(),

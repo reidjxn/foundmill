@@ -3,9 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { generateJourneyFixture, RIBBON_DEPARTMENTS } from "../fixtures";
-import { JourneyRibbon, type JourneyRibbonHandle } from "./JourneyRibbon";
+import { JourneyRibbon, RIBBON_GUTTER, RIBBON_TOOLBAR, type JourneyRibbonHandle } from "./JourneyRibbon";
 
 const data = generateJourneyFixture({ days: 120, seed: "ribbon-test" });
+const PLOT_W = 1200 - RIBBON_GUTTER;
+/** Client coordinates of a point in the plot (the ribbon sits at 0,0). */
+const plotX = (fraction: number) => RIBBON_GUTTER + PLOT_W * fraction;
+const PLOT_Y = RIBBON_TOOLBAR + 100;
 
 function renderRibbon(extra: Partial<React.ComponentProps<typeof JourneyRibbon>> = {}) {
   const ref = createRef<JourneyRibbonHandle>();
@@ -39,14 +43,21 @@ function renderRibbon(extra: Partial<React.ComponentProps<typeof JourneyRibbon>>
 }
 
 describe("JourneyRibbon", () => {
-  it("renders the river, revenue line, forecast, runway, Today line and a summary label", () => {
+  it("renders labelled rows (revenue, signups, paying customers, agent hours), the forecast, runway, Today and a summary label", () => {
     const { container } = renderRibbon();
     const root = screen.getByRole("group", { name: /Journey ribbon/ });
     expect(root.getAttribute("aria-label")).toContain("6 departments");
-    expect(container.querySelectorAll("[data-band]").length).toBe(6);
+    expect(root.getAttribute("aria-label")).toMatch(/\d+ milestones/);
     expect(container.querySelector("[data-revenue-line]")).toBeTruthy();
+    for (const kind of ["signups", "payments", "hours"]) expect(container.querySelector(`[data-track='${kind}']`)?.children.length).toBeGreaterThan(0);
+    const labels = container.querySelector("[data-ribbon-labels]")!;
+    for (const name of ["Revenue", "New signups", "Paying customers", "Agent hours"]) expect(labels.textContent).toContain(name);
+    const legend = container.querySelector("[data-ribbon-legend]")!;
+    for (const name of ["Revenue", "Forecast", "Milestones", "Planned"]) expect(legend.textContent).toContain(name);
     expect(container.querySelector("[data-forecast]")).toBeTruthy();
+    // 5 months of runway falls inside the 6-month horizon: the day the cash runs out is drawn.
     expect(container.querySelector("[data-runway]")?.getAttribute("data-runway")).toBe("bad");
+    expect(container.querySelector("[data-runway]")?.textContent).toMatch(/^Cash runs out ~[A-Z][a-z]{2} \d{4} · Estimate$/);
     expect(container.querySelector("[data-today]")).toBeTruthy();
     expect(container.querySelector("[data-pixi-layer]")).toBeNull();
     expect(root.getAttribute("data-zoom")).toBe("quarter");
@@ -70,16 +81,16 @@ describe("JourneyRibbon", () => {
     expect(root.getAttribute("data-zoom")).toBe("quarter");
   });
 
-  it("opens a Customer Update from a single payment marker and a day from a bucket", async () => {
+  it("opens a Customer Update from a day with one payment and the day from a bar with several", async () => {
     const user = userEvent.setup();
-    const { onOpenJourney, onOpenDay, container } = renderRibbon({ defaultZoom: "week" });
-    const single = container.querySelector("[data-marker='payment'][data-count='1']") as SVGGElement | null;
+    const { onOpenJourney, onOpenDay, container } = renderRibbon({ defaultZoom: "month" });
+    const single = Array.from(container.querySelectorAll("[data-marker='payment'][data-count='1']")).find((el) => /Opens the Customer Update/.test(el.getAttribute("aria-label") ?? "")) as SVGGElement | undefined;
     expect(single).toBeTruthy();
     await user.click(single as unknown as Element);
     expect(onOpenJourney).toHaveBeenCalledTimes(1);
     expect(data.conversions.some((c) => c.id === onOpenJourney.mock.calls[0]?.[0])).toBe(true);
     await user.click(screen.getByRole("button", { name: "All time" }));
-    const bucket = Array.from(container.querySelectorAll("[data-marker='signup']")).find((el) => Number(el.getAttribute("data-count")) > 1) as SVGGElement | undefined;
+    const bucket = Array.from(container.querySelectorAll("[data-marker='payment']")).find((el) => Number(el.getAttribute("data-count")) > 1) as SVGGElement | undefined;
     expect(bucket).toBeTruthy();
     (bucket as unknown as HTMLElement).focus();
     fireEvent.keyDown(bucket as unknown as Element, { key: "Enter" });
@@ -91,10 +102,11 @@ describe("JourneyRibbon", () => {
     renderRibbon();
     const root = screen.getByRole("group", { name: /Journey ribbon/ });
     const start = Number(root.getAttribute("data-scroll-x"));
+    const exact = Number(root.getAttribute("data-scroll-x"));
     fireEvent.keyDown(root, { key: "ArrowRight" });
-    expect(Number(root.getAttribute("data-scroll-x"))).toBe(start + 120);
+    expect(Number(root.getAttribute("data-scroll-x"))).toBeCloseTo(exact + PLOT_W * 0.1, -0.5);
     fireEvent.keyDown(root, { key: "ArrowLeft", shiftKey: true });
-    expect(Number(root.getAttribute("data-scroll-x"))).toBe(Math.max(0, start + 120 - 600));
+    expect(Number(root.getAttribute("data-scroll-x"))).toBeCloseTo(Math.max(0, exact + PLOT_W * 0.1 - PLOT_W * 0.5), -0.5);
     fireEvent.wheel(root, { deltaY: 100000 });
     const max = Number(root.getAttribute("data-scroll-x"));
     fireEvent.wheel(root, { deltaY: 100 });
@@ -103,20 +115,43 @@ describe("JourneyRibbon", () => {
     expect(Number(root.getAttribute("data-scroll-x"))).toBe(start);
   });
 
-  it("shows the On this day card on hover and opens the day on click", () => {
+  it("shows the On this day card on hover, opens the day on click, and ignores the label column", () => {
     const { onOpenDay, container } = renderRibbon();
     const root = screen.getByRole("group", { name: /Journey ribbon/ });
     root.getBoundingClientRect = () => ({ left: 0, top: 0, right: 1200, bottom: 300, width: 1200, height: 300, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
-    fireEvent.pointerMove(root, { clientX: 840, clientY: 150 });
+    fireEvent.pointerMove(root, { clientX: plotX(0.7), clientY: PLOT_Y });
     const card = container.querySelector("[data-on-this-day]");
     expect(card).toBeTruthy();
     expect(card?.textContent).toContain("Today");
     expect(container.querySelector("[data-scrubber]")).toBeTruthy();
-    fireEvent.pointerDown(root, { clientX: 840, clientY: 150, button: 0 });
-    fireEvent.pointerUp(root, { clientX: 840, clientY: 150, button: 0 });
+    fireEvent.pointerDown(root, { clientX: plotX(0.7), clientY: PLOT_Y, button: 0 });
+    fireEvent.pointerUp(root, { clientX: plotX(0.7), clientY: PLOT_Y, button: 0 });
     expect(onOpenDay).toHaveBeenCalledWith(data.today);
     fireEvent.pointerLeave(root);
     expect(container.querySelector("[data-on-this-day]")).toBeNull();
+    // Over the row labels there is no day to show or open.
+    fireEvent.pointerMove(root, { clientX: 40, clientY: PLOT_Y });
+    expect(container.querySelector("[data-on-this-day]")).toBeNull();
+    fireEvent.pointerDown(root, { clientX: 40, clientY: PLOT_Y, button: 0 });
+    fireEvent.pointerUp(root, { clientX: 40, clientY: PLOT_Y, button: 0 });
+    expect(onOpenDay).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels show the last 7 days, then the hovered day's values", () => {
+    const { container } = renderRibbon();
+    const root = screen.getByRole("group", { name: /Journey ribbon/ });
+    root.getBoundingClientRect = () => ({ left: 0, top: 0, right: 1200, bottom: 300, width: 1200, height: 300, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const read = (key: string) => container.querySelector(`[data-readout='${key}']`)?.textContent ?? "";
+    expect(container.querySelector("[data-readout-when]")?.textContent).toBe("Last 7 days");
+    const weekStart = new Date(Date.parse(`${data.today}T00:00:00Z`) - 6 * 86_400_000).toISOString().slice(0, 10);
+    const weekSignups = data.rows.filter((r) => r.departmentId === null && r.day >= weekStart && r.day <= data.today).reduce((s, r) => s + r.signups, 0);
+    expect(read("signups")).toBe(String(weekSignups));
+    fireEvent.pointerMove(root, { clientX: plotX(0.7), clientY: PLOT_Y });
+    expect(container.querySelector("[data-readout-when]")?.textContent).toBe("Today");
+    const todayRow = data.rows.find((r) => r.departmentId === null && r.day === data.today)!;
+    expect(read("signups")).toBe(String(todayRow.signups));
+    expect(read("payments")).toBe(String(todayRow.payments));
+    expect(read("revenue-day")).toMatch(/on the day$/);
   });
 
   it("treats a drag as a scroll, not a click", () => {
@@ -137,7 +172,7 @@ describe("JourneyRibbon", () => {
       act(() => ref.current?.ripple({ kind: "payment", amountMinor: 5900, label: "Payment from Alma Botanics" }));
       expect(container.querySelector("[data-ripple='payment']")).toBeTruthy();
       expect(screen.getByText("Payment from Alma Botanics just now")).toBeTruthy();
-      expect(container.querySelector("[data-today] text")?.textContent).toContain("LIVE 1");
+      expect(container.querySelector("[data-today] text")?.textContent).toContain("Today · 1 live");
       act(() => {
         vi.advanceTimersByTime(400);
       });

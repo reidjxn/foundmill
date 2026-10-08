@@ -48,20 +48,20 @@ export function OnThisDayCard({ summary, forecastPoint, currency = "EUR", onOpen
         <div className="mt-2 flex flex-col gap-1.5">
           <div className="flex items-center gap-2">
             <ProvenanceChip kind="forecast" />
-            <span className="text-small text-secondary">Not yet played</span>
+            <span className="text-small text-secondary">Revenue for this day, if things go as expected</span>
           </div>
           {forecastPoint ? (
             <dl className="grid grid-cols-3 gap-2 tabular-nums">
               <div>
-                <dt className="t-label">Base</dt>
+                <dt className="t-label">Expected</dt>
                 <dd>{formatMoney({ amountMinor: forecastPoint.baseMinor, currency }, { compact: true })}</dd>
               </div>
               <div>
-                <dt className="t-label">Upside</dt>
+                <dt className="t-label">Best case</dt>
                 <dd>{formatMoney({ amountMinor: forecastPoint.upsideMinor, currency }, { compact: true })}</dd>
               </div>
               <div>
-                <dt className="t-label">Downside</dt>
+                <dt className="t-label">Worst case</dt>
                 <dd>{formatMoney({ amountMinor: forecastPoint.downsideMinor, currency }, { compact: true })}</dd>
               </div>
             </dl>
@@ -83,12 +83,12 @@ export function OnThisDayCard({ summary, forecastPoint, currency = "EUR", onOpen
               <dd>{formatNumber(p?.activations ?? 0, { digits: 0 })}</dd>
             </div>
             <div>
-              <dt className="t-label">Paid</dt>
+              <dt className="t-label">Paying</dt>
               <dd>{formatNumber(p?.payments ?? 0, { digits: 0 })}</dd>
             </div>
           </dl>
           <div className="mt-2 flex flex-col gap-1">
-            <span className="t-label">Agent hours · {formatNumber(p?.totalHours ?? 0, { maxDigits: 1 })}</span>
+            <span className="t-label">Agent hours by department · {formatNumber(p?.totalHours ?? 0, { maxDigits: 1 })}</span>
             {top.length === 0 ? <span className="text-small text-secondary">No agent work recorded</span> : null}
             {top.map((d) => (
               <div key={d.id} className="flex items-center gap-2 text-small">

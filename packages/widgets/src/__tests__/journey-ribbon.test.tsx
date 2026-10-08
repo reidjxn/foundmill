@@ -1,4 +1,4 @@
-/** Journey Ribbon widget: data flow into the Dugout ribbon, zoom persistence, marker → Customer Update, live ripples. */
+/** Journey Ribbon widget: data flow into the Dugout ribbon, zoom persistence, payment bar → Customer Update, live ripples. */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { configure, act, fireEvent, render, screen } from "@testing-library/react";
 
@@ -42,11 +42,13 @@ function mountRibbon(settings: Record<string, unknown> = {}) {
 }
 
 describe("journey ribbon widget", () => {
-  it("renders the river with departments, markers, the forecast cone, roadmap flags and the runway horizon", async () => {
+  it("renders the labelled rows, payment bars, the forecast cone, roadmap pins and the runway", async () => {
     const { container } = mountRibbon();
     const root = await screen.findByRole("group", { name: /Journey Ribbon/ });
     expect(root.getAttribute("aria-label")).toContain("3 departments");
-    expect(container.querySelectorAll("[data-band]").length).toBe(3);
+    expect(container.querySelector("[data-revenue-line]")).toBeTruthy();
+    expect(container.querySelector("[data-track='hours']")?.children.length).toBeGreaterThan(0);
+    expect(container.querySelector("[data-ribbon-labels]")?.textContent).toContain("Paying customers");
     expect(container.querySelector("[data-forecast]")).toBeTruthy();
     expect(container.querySelector("[data-runway]")).toBeTruthy();
     expect(container.querySelectorAll("[data-marker='payment']").length).toBeGreaterThan(0);

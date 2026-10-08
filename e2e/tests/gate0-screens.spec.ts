@@ -44,6 +44,10 @@ test.describe("Gate 0 screenshots (seeded Northwind Skincare)", () => {
     const ribbon = home.getByRole("group", { name: /^Journey Ribbon:/ });
     await expect(ribbon).toBeVisible({ timeout: LONG });
     await expect(ribbon).toHaveAccessibleName(/\d+ milestones/, { timeout: LONG });
+    // Every row of the ribbon is named, with its value for the last 7 days.
+    for (const row of ["Revenue", "New signups", "Paying customers", "Agent hours"]) await expect(ribbon.locator("[data-ribbon-labels]")).toContainText(row);
+    await expect(ribbon.locator("[data-readout-when]")).toHaveText("Last 7 days");
+    await expect(ribbon.locator("[data-readout='payments']")).toHaveText(/^\d[\d,]*$/);
     const cards = home.locator("[data-widget=department_card][data-widget-id]");
     await expect(cards.first()).toBeVisible({ timeout: LONG });
     expect(await cards.count()).toBeGreaterThanOrEqual(3);

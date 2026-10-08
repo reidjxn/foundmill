@@ -99,13 +99,13 @@ function summariseByQuarter(daily: readonly JourneyDailyRow[], milestones: reado
 /** A deterministic placeholder title from the quarter's facts; the Opus title replaces it. */
 export function provisionalChapterTitle(input: { index: number; status: ChapterStatus; summary: ChapterSummary; previous: ChapterSummary | null }): string {
   const { index, status, summary: s, previous: p } = input;
-  if (status === "future") return "Next season";
-  if (index === 0) return "Kick-off";
+  if (status === "future") return "Up next";
+  if (index === 0) return "Getting started";
   if (s.payments > 0 && (p === null || p.payments === 0)) return "First paying customers";
   if (s.milestoneLabels.some((l) => /customer/i.test(l))) return "Milestones";
   if (p && p.revenueMinor > 0 && s.revenueMinor >= p.revenueMinor * 1.5) return "Growth";
   if (p && p.revenueMinor > 0 && s.revenueMinor < p.revenueMinor * 0.85) return "A tough quarter";
   if (s.signups > 0 && (p === null || s.signups >= p.signups * 1.3)) return "Building momentum";
-  if (status === "current") return "This season";
-  return "Steady season";
+  if (status === "current") return "In progress";
+  return "Steady progress";
 }

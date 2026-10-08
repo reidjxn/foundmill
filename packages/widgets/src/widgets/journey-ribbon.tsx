@@ -38,7 +38,7 @@ export const JourneyRibbonSettings = z.object({
   horizonMonths: z.number().int().min(1).max(12).default(6),
   showForecast: z.boolean().default(true),
   showRoadmap: z.boolean().default(true),
-  /** Ribbon height in px (the panel adds its header). */
+  /** Smallest ribbon height in px; it grows to fill the panel. */
   height: z.number().int().min(200).max(480).default(RIBBON_DEFAULT_HEIGHT),
 });
 export type JourneyRibbonSettings = z.infer<typeof JourneyRibbonSettings>;
@@ -73,10 +73,17 @@ function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+/** Days in the month of a "YYYY-MM" key. */
+function daysInMonth(month: string): number {
+  const [y, m] = month.split("-").map(Number) as [number, number];
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
 /**
- * Fold the latest forecasts (one record per scenario, `series` as stored) into per-day cone points past Today.
- * A point is read as `{ day | month, revenueMinor | cashMinor | baseMinor }`; scenarios missing a day fall back to
- * the base value so the cone never inverts.
+ * Fold the latest forecasts (one record per scenario, `series` as stored) into cone points past Today, as revenue
+ * per day (the unit the Ribbon draws). A point is read as `{ day | month, revenueMinor | cashMinor | baseMinor }`;
+ * a monthly point is that month's total, so it becomes a per-day value placed mid-month. Scenarios missing a day fall
+ * back to the base value so the cone never inverts.
  */
 export function forecastCone(forecasts: FinanceOverview["forecasts"] | undefined, today: string): ForecastPoint[] {
   if (!forecasts) return [];
@@ -84,8 +91,10 @@ export function forecastCone(forecasts: FinanceOverview["forecasts"] | undefined
     const out = new Map<string, number>();
     for (const raw of (rec?.series ?? []) as ForecastSeriesPoint[]) {
       if (!raw || typeof raw !== "object") continue;
-      const day = typeof raw.day === "string" ? raw.day : typeof raw.month === "string" ? `${raw.month}-01` : null;
-      const value = num(raw.revenueMinor) ?? num(raw.baseMinor) ?? num(raw.cashMinor);
+      const monthly = typeof raw.day !== "string" && typeof raw.month === "string" ? raw.month : null;
+      const day = typeof raw.day === "string" ? raw.day : monthly ? `${monthly}-15` : null;
+      const total = num(raw.revenueMinor) ?? num(raw.baseMinor) ?? num(raw.cashMinor);
+      const value = total !== null && monthly ? Math.round(total / daysInMonth(monthly)) : total;
       if (day && value !== null && day > today) out.set(day, value);
     }
     return out;
@@ -162,7 +171,7 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
       title="Journey"
       data-widget="journey_ribbon"
       queries={[ribbon, departments]}
-      empty={empty ? { icon: Route, text: "The river starts flowing on day one. Press Continue to run the first cycle." } : null}
+      empty={empty ? { icon: Route, text: "Your journey starts on day one. Press Continue to run the first cycle." } : null}
       flush
       actions={
         <>
@@ -189,7 +198,7 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
           onZoomChange={onZoomChange}
           onOpenJourney={(conversionId) => navigate(journeyHref(businessId, data.conversions, conversionId))}
           onOpenDay={(day) => setDigestDay(day)}
-          height={settings.height}
+          minHeight={settings.height}
           currency={currency}
           label="Journey Ribbon"
         />
@@ -217,7 +226,7 @@ function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRi
 export const journeyRibbonWidget = registerWidget<JourneyRibbonSettings>({
   key: "journey_ribbon",
   title: "Journey Ribbon",
-  description: "The river of agent work, revenue, wins and milestones from day one to the forecast horizon.",
+  description: "Revenue per day, new signups, paying customers, agent hours and milestones on one timeline, from day one to the forecast.",
   icon: "route",
   surfaces: ["home"],
   defaultSize: { w: 12, h: 16, minW: 6, minH: 12, maxH: 24 },
