@@ -66,7 +66,7 @@ export function channelColumns(): DataTableColumn<ChannelView>[] {
     {
       id: "line",
       accessorFn: (r) => LINE_LABELS[r.line],
-      header: "Line",
+      header: "Family",
       size: 110,
       meta: { filter: "select", filterOptions: CHANNEL_LINES.map((l) => ({ value: LINE_LABELS[l], label: LINE_LABELS[l] })) },
     },

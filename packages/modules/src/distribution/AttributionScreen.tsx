@@ -27,7 +27,7 @@ export function attributionColumns(currency: string): DataTableColumn<Attributio
   const money = (minor: number) => formatMoney({ amountMinor: minor, currency });
   return [
     { id: "channel", accessorFn: (r) => channelLabel(r.channelKey), header: "Channel", size: 180, cell: ({ row }) => <span className="truncate text-body-strong text-primary">{channelLabel(row.original.channelKey)}</span>, meta: { locked: true } },
-    { id: "line", accessorFn: (r) => LINE_LABELS[r.line], header: "Line", size: 110, meta: { filter: "select", filterOptions: CHANNEL_LINES.map((l) => ({ value: LINE_LABELS[l], label: LINE_LABELS[l] })) } },
+    { id: "line", accessorFn: (r) => LINE_LABELS[r.line], header: "Family", size: 110, meta: { filter: "select", filterOptions: CHANNEL_LINES.map((l) => ({ value: LINE_LABELS[l], label: LINE_LABELS[l] })) } },
     { id: "enabled", accessorFn: (r) => r.enabled, header: "Running", size: 90, cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
     { id: "impressions", accessorFn: (r) => r.impressions, header: "Impressions", size: 110, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue()), { digits: 0 })}</span>, meta: { numeric: true } },
     { id: "leads", accessorFn: (r) => r.leads, header: "Leads", size: 90, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue()), { digits: 0 })}</span>, meta: { numeric: true } },

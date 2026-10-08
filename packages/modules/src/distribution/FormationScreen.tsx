@@ -12,7 +12,7 @@ import { addDays, dayKey, moduleHref, useBusinessEvents, useDepartments, useWidg
 import type { ModuleScreenProps } from "../registry";
 import { ChannelProfileDrawer } from "./ChannelProfileDrawer";
 import { buildChannelViews, toChannelToken, totalBudget, type ChannelView } from "./channel-data";
-import { InlineError, LINE_LABELS, LINE_ORDER, Screen, searchParam, useAction } from "./shared";
+import { InlineError, Screen, searchParam, useAction } from "./shared";
 import type { AgentRow, CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, RecommendResponse, RecommendationRow } from "./types";
 
 export interface FormationScreenProps extends ModuleScreenProps {
@@ -123,7 +123,6 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
                 <span>
                   Budget across running channels {formatMoney({ amountMinor: budget, currency: currency ?? "EUR" })} per month · cost per customer <ProvenanceChip kind="estimate" />
                 </span>
-                <span className="text-secondary">{LINE_ORDER.map((l) => LINE_LABELS[l]).join(" · ")} are the four lines, top to bottom.</span>
               </span>
             ) : undefined
           }

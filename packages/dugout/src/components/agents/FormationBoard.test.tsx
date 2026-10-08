@@ -3,13 +3,13 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { ChannelProfileCard } from "./ChannelProfileCard";
 import { FormGuide } from "./ChannelToken";
 import { FormationBoard } from "./FormationBoard";
-import { benchChannels, entranceOrder, fitShare, pitchLines, toggleChannel } from "./formation";
+import { BOARD_H, BOARD_W, CAPTION_CORRIDOR, FAMILY_QUADRANT, HUB, RX, RY, WEDGE_HALF, benchChannels, boardLayout, channelLine, entranceOrder, fitShare, fitToT, halfWidth, pitchLines, signalPath, toggleChannel } from "./formation";
 import { mockChannels } from "./mock";
 
 const channels = mockChannels();
 
-describe("formation logic", () => {
-  it("groups active channels by line in board order and benches the rest by fit", () => {
+describe("board logic", () => {
+  it("groups running channels by family in board order and lists the rest by fit", () => {
     const lines = pitchLines(channels);
     expect(lines.map((l) => l.line)).toEqual(["attack", "midfield", "defence", "wings"]);
     expect(lines[0]!.channels.map((c) => c.key)).toEqual(["paid_ads"]);
@@ -39,6 +39,75 @@ describe("formation logic", () => {
   });
 });
 
+describe("boardLayout (the quadrant map)", () => {
+  const allOn = channels.map((c) => ({ ...c, enabled: true }));
+  const sameFit = channels.map((c) => ({ ...c, enabled: true, fit: 18 }));
+
+  function assertClear(slots: ReturnType<typeof boardLayout>) {
+    for (let i = 0; i < slots.length; i++) {
+      for (let j = i + 1; j < slots.length; j++) {
+        const a = slots[i]!;
+        const b = slots[j]!;
+        const dx = Math.abs(a.x - b.x) / (halfWidth(a.key) + halfWidth(b.key) + 14);
+        const dy = Math.abs(a.y - b.y) / 142;
+        expect(Math.hypot(dx, dy), `${a.key} vs ${b.key}`).toBeGreaterThan(0.97);
+      }
+    }
+  }
+
+  it("places every channel, running or not, inside the board and its own family's wedge", () => {
+    const slots = boardLayout(channels);
+    expect(slots).toHaveLength(15);
+    for (const s of slots) {
+      expect(s.line).toBe(channelLine(s.key));
+      expect(s.x).toBeGreaterThan(0);
+      expect(s.x).toBeLessThan(BOARD_W);
+      expect(s.y).toBeGreaterThan(0);
+      expect(s.y).toBeLessThan(BOARD_H);
+      const angle = (Math.atan2((s.y - HUB.y) / RY, (s.x - HUB.x) / RX) * 180) / Math.PI;
+      let d = angle - FAMILY_QUADRANT[s.line].angle;
+      while (d > 180) d -= 360;
+      while (d < -180) d += 360;
+      expect(Math.abs(d)).toBeLessThanOrEqual(WEDGE_HALF + 0.5);
+    }
+  });
+
+  it("keeps every token and its full name clear of every other, even with all 15 running or all at the same fit", () => {
+    assertClear(boardLayout(channels));
+    assertClear(boardLayout(allOn));
+    assertClear(boardLayout(sameFit));
+  });
+
+  it("keeps the caption corridor above the hub clear", () => {
+    for (const s of boardLayout(allOn)) if (s.y < HUB.y) expect(Math.abs(s.x - HUB.x)).toBeGreaterThanOrEqual(CAPTION_CORRIDOR - 0.5);
+  });
+
+  it("gives each channel a fixed home: toggling channels never moves the others", () => {
+    const a = boardLayout(channels);
+    const b = boardLayout(allOn);
+    expect(b.map((s) => [s.key, s.x.toFixed(3), s.y.toFixed(3)])).toEqual(a.map((s) => [s.key, s.x.toFixed(3), s.y.toFixed(3)]));
+    expect(boardLayout(channels)).toEqual(a);
+  });
+
+  it("puts a stronger fit closer to the hub within a family", () => {
+    const slots = new Map(boardLayout(channels).map((s) => [s.key, s]));
+    const dist = (k: string) => {
+      const s = slots.get(k as never)!;
+      return Math.hypot((s.x - HUB.x) / RX, (s.y - HUB.y) / RY);
+    };
+    expect(dist("paid_ads")).toBeLessThan(dist("lead_generation")); // 17 vs 4
+    expect(dist("content")).toBeLessThan(dist("geo")); // 12 vs 8
+    expect(fitToT(20)).toBeLessThan(fitToT(1));
+  });
+
+  it("draws each signal as a curve from the hub to the channel", () => {
+    const s = boardLayout(allOn)[0]!;
+    const d = signalPath(s);
+    expect(d.startsWith(`M ${HUB.x} ${HUB.y} Q `)).toBe(true);
+    expect(d.endsWith(`${s.x.toFixed(1)} ${s.y.toFixed(1)}`)).toBe(true);
+  });
+});
+
 describe("FormGuide", () => {
   it("renders five cells with words in the accessible name", () => {
     render(<FormGuide form={["good", "bad"]} name="SEO form" />);
@@ -48,13 +117,16 @@ describe("FormGuide", () => {
 });
 
 describe("FormationBoard", () => {
-  it("renders four labelled lines, active channels on the board and the bench sentence", () => {
+  it("renders the four family groups, running channels on the map, ghosts for the rest and the tray sentence", () => {
     const onToggle = vi.fn();
     render(<FormationBoard channels={channels} onToggle={onToggle} animateEntrance={false} hoverCards={false} />);
     const pitch = screen.getByRole("group", { name: /Board: active channels/ });
-    expect(within(pitch).getByRole("group", { name: /Acquisition line/ })).toBeTruthy();
-    expect(within(pitch).getByRole("group", { name: /Offline line/ })).toBeTruthy();
+    expect(within(pitch).getByRole("group", { name: /Acquisition channels/ })).toBeTruthy();
+    expect(within(pitch).getByRole("group", { name: /Offline channels/ })).toBeTruthy();
     expect(within(pitch).getAllByRole("button")).toHaveLength(4);
+    expect(pitch.querySelectorAll("[data-ghost]")).toHaveLength(11);
+    expect(pitch.querySelectorAll("[data-signal]")).toHaveLength(4);
+    expect(pitch.querySelector("[data-hub]")!.textContent).toContain("4running");
     const bench = screen.getByRole("group", { name: /Off the board: All 15 channels are available/ });
     expect(within(bench).getAllByRole("button")).toHaveLength(11);
     const paid = within(pitch).getByRole("button", { name: /Paid advertising, fit 17 of 20 \(Excellent\), recommended, on the board/ });
@@ -68,15 +140,15 @@ describe("FormationBoard", () => {
     const seo = screen.getByRole("button", { name: /^SEO,/ });
     fireEvent.keyDown(seo, { key: "Enter" });
     expect(onToggle).toHaveBeenCalledWith("seo", true);
-    expect(screen.getByText(/SEO moved to the board/)).toBeTruthy();
+    expect(screen.getByText(/SEO moved onto the board/)).toBeTruthy();
     fireEvent.keyDown(screen.getByRole("button", { name: /^Social media,/ }), { key: " " });
     expect(onToggle).toHaveBeenCalledWith("social", false);
-    expect(screen.getByText(/Social media moved to the bench/)).toBeTruthy();
+    expect(screen.getByText(/Social media moved off the board/)).toBeTruthy();
     fireEvent.keyDown(seo, { key: "o" });
     expect(onOpenChannel).toHaveBeenCalledWith("seo");
   });
 
-  it("drags a bench token onto the board and treats a still pointer as a click", () => {
+  it("drags a token from the tray onto the board, lights its ghost as the target, and treats a still pointer as a click", () => {
     const onToggle = vi.fn();
     const onOpenChannel = vi.fn();
     const { container } = render(<FormationBoard channels={channels} onToggle={onToggle} onOpenChannel={onOpenChannel} animateEntrance={false} hoverCards={false} />);
@@ -87,6 +159,7 @@ describe("FormationBoard", () => {
     fireEvent.pointerDown(content, { button: 0, clientX: 10, clientY: 600 });
     fireEvent.pointerMove(window, { clientX: 400, clientY: 300 });
     expect(content.getAttribute("data-dragging")).toBe("true");
+    expect(pitch.querySelector('[data-ghost="content"]')!.getAttribute("data-target")).toBe("true");
     fireEvent.pointerUp(window, { clientX: 600, clientY: 200 });
     expect(onToggle).toHaveBeenCalledWith("content", true);
     expect(onOpenChannel).not.toHaveBeenCalled();
@@ -108,7 +181,7 @@ describe("FormationBoard", () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
 
-    it("recommended tokens start off the board and walk onto the board one by one", () => {
+    it("recommended channels start off the board and join it one by one", () => {
       const { container } = render(<FormationBoard channels={channels} onToggle={vi.fn()} hoverCards={false} />);
       const pitch = () => container.querySelector('[data-drop-zone="pitch"]') as HTMLElement;
       expect(within(pitch()).queryAllByRole("button")).toHaveLength(0);

@@ -145,6 +145,8 @@
   --animate-rise-in: dugout-rise-in var(--dur-hover-card) var(--ease);
   --animate-fade-in: dugout-fade-in var(--dur-panel) var(--ease);
   --animate-fade-out: dugout-fade-out var(--dur-panel) var(--ease);
+  --animate-signal: dugout-signal 1.8s linear infinite;
+  --animate-orbit: dugout-orbit 24s linear infinite;
 
   @keyframes dugout-shimmer {
     0% {
@@ -186,6 +188,20 @@
     }
     to {
       opacity: 1;
+    }
+  }
+  /* Channel Board: dashes travel from the hub to each running channel; the hub's sweep turns once every 24 s. */
+  @keyframes dugout-signal {
+    from {
+      stroke-dashoffset: 0;
+    }
+    to {
+      stroke-dashoffset: -34;
+    }
+  }
+  @keyframes dugout-orbit {
+    to {
+      transform: rotate(360deg);
     }
   }
   @keyframes dugout-fade-out {

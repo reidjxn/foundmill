@@ -136,12 +136,12 @@ describe("TrainingGroundScreen", () => {
     expect(within(focused()).getByText(/Nudge: Focus on tests/)).toBeTruthy();
   });
 
-  it("switches to the Formation view and draws the whole task graph", async () => {
+  it("switches to the Task graph view and draws the whole task graph", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ responses: trainingGroundResponses() });
     renderScreen(fake, <TrainingGroundScreen {...props} />);
     await screen.findByRole("region", { name: "Agent tiles" });
-    await user.click(screen.getByRole("radio", { name: "Formation" }));
+    await user.click(screen.getByRole("radio", { name: "Task graph" }));
     const graph = await screen.findByRole("application", { name: /Task graph by status/ });
     expect(fake.queried.get("dev.tasks.list")).toEqual({ limit: 500 });
     expect(within(graph).getByRole("button", { name: /Playwright coverage for checkout, Ready/ })).toBeTruthy();
@@ -151,7 +151,7 @@ describe("TrainingGroundScreen", () => {
     expect(fake.navigations[0]).toBe(`/b/${BUSINESS_ID}/d/development/plan?task=${TASK_PLAYWRIGHT}`);
   });
 
-  it("opens in the Formation sub-view", async () => {
+  it("opens in the Task graph sub-view", async () => {
     const fake = createFakeSource({ responses: trainingGroundResponses() });
     renderScreen(fake, <TrainingGroundScreen {...props} subView="formation" />);
     expect(await screen.findByRole("application", { name: /Task graph by status/ })).toBeTruthy();
