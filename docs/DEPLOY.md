@@ -89,14 +89,18 @@ Checked against the Railway GraphQL API (team token), the Vercel and Supabase co
 | Shared variables on all six app services (APP, APP_ENV, INTEGRATIONS_MODE, MODEL_MODE, APP_URL, REDIS_URL, SUPABASE_URL, SESSION_TOKEN_SECRET, DEV_MASTER_KEY, LOG_LEVEL, DATA_REGION, TEMPORAL_*) | ✅ |
 | api: `SEED_ON_BOOT=1`, `SEED_OWNER_EMAILS=reidjcksn@gmail.com` | ✅ 2026-10-08: seed-on-boot implemented (`apps/api/src/services/seed-on-boot.ts`); the owner is the address the founder signs in with |
 | `TEMPORAL_TASK_QUEUE=foundmill` on api and orchestrator (was `founder-manager`) | ✅ set 2026-10-08 |
-| `DATABASE_URL` on the app services | ⬜ **confirmed missing** by the first boot (api `db:false`; composer, stream, ingest exit). Founder pastes the Supabase pooler string with `sslmode=require` (contains the DB password) on api, gateway, composer, stream, ingest, orchestrator, then redeploys |
-| `SUPABASE_SERVICE_ROLE_KEY` only on api | ◐ removed from gateway, composer and stream in the dashboard (2026-10-08, local Chrome session); ingest and orchestrator still hold it. There is no collab service in staging |
-| Railway services connected to `reidjxn/foundmill@main` | ✅ 2026-10-08, after the GitHub app was granted the repo; first builds succeed (Dockerfile + `APP` build arg work). api and gateway run; composer, stream, ingest wait on `DATABASE_URL`; orchestrator waited on the Temporal namespace (fixed, see §3) |
-| CNAMEs api/stream/ingest.foundmill.com → Railway | ⬜ at Spaceship, values in §3 |
+| `DATABASE_URL` on the app services | ✅ Supabase transaction pooler string as a shared variable on all six |
+| `SUPABASE_SERVICE_ROLE_KEY` only on api | ✅ checked 2026-10-08: present on api, absent from gateway, composer, orchestrator, stream and ingest (there is no collab service in staging) |
+| Railway services connected to `reidjxn/foundmill@main` | ✅ 2026-10-08, after the GitHub app was granted the repo; first builds succeed (Dockerfile + `APP` build arg work). all six app services deploy on every push to `main` and run (checked at 311cca1) |
+| CNAMEs api/stream/ingest.foundmill.com → Railway | ✅ all three answer `/health` with 200 |
 | Vercel: project `foundmill` (team `fm-2f083c2b`) serves foundmill.com with `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` baked in | ✅ (seen in the production bundle) |
-| Vercel: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_STREAM_URL`, `NEXT_PUBLIC_INGEST_URL`, `NEXT_PUBLIC_APP_ENV=staging`, `NEXT_PUBLIC_INTEGRATIONS_MODE=mock` | ⬜ the live bundle falls back to `localhost:4000/4003/4005`, so these are unset. The Vercel connector in the cloud session is authorised for the `luminarvc` team only (403 on scope `fm-2f083c2b`); re-authorise it for team `fm-2f083c2b` (claude.ai → Customize → Connectors, then a new session) or set them in the Vercel dashboard, then redeploy |
-| Supabase Auth URL configuration (site URL, the two `/auth/callback` redirect URLs) and Email provider with magic links | ⬜ no API for this in the Supabase connector; Dashboard → Authentication → URL Configuration / Providers. Email provider is on (public settings endpoint); redirect allow-list cannot be read from outside |
-| First sign-in at foundmill.com | ⬜ the login page renders; a magic link cannot land on Home until the api is deployed and `NEXT_PUBLIC_API_URL` points at it |
+| Vercel: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_STREAM_URL`, `NEXT_PUBLIC_INGEST_URL`, `NEXT_PUBLIC_APP_ENV=staging`, `NEXT_PUBLIC_INTEGRATIONS_MODE=mock` | ✅ |
+| Supabase Auth URL configuration (site URL, the two `/auth/callback` redirect URLs) and Email provider with magic links | ✅ set in the dashboard |
+| First sign-in at foundmill.com | ✅ reidjcksn@gmail.com signs in; `/` serves the landing page when signed out |
+| Demo businesses (Northwind Skincare, Ledgerly) owned by reidjcksn@gmail.com | ✅ built by SEED_ON_BOOT on 2026-10-08 (about 6 minutes on Supabase); Northwind is the newer, so a first sign-in opens it |
+| `ANTHROPIC_API_KEY` on api, composer and orchestrator with `MODEL_MODE=live` | ✅ 2026-10-08: all three boot without the mock fallback; the key lists claude-opus-5-5, claude-sonnet-5-5 and claude-haiku-4-5-20251001 |
+| Real agent sessions: `SANDBOX_MODE=e2b` and `E2B_API_KEY` on the orchestrator | ⬜ not set; sessions replay recordings until then |
+| Live connectors: `INTEGRATIONS_MODE=live` plus each vendor key on the gateway | ⬜ every service runs `mock` |
 
 ## 7. Local stack without Postgres or Redis
 
