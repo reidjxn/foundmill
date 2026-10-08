@@ -121,9 +121,11 @@ jobs:
             sleep 1
           done
           echo "apps/api did not answer /health within 60 s"; cat api.log; exit 1
-      - name: Start apps/web (next dev on :3000, shared by both Playwright runs)
+      - name: Build apps/web (production build; next dev compiles routes on demand and times out the slower specs on a shared runner)
+        run: NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @foundmill/web build
+      - name: Start apps/web (next start on :3000, shared by both Playwright runs)
         run: |
-          nohup pnpm --filter @foundmill/web dev > web.log 2>&1 &
+          nohup pnpm --filter @foundmill/web start > web.log 2>&1 &
           echo $! > web.pid
           for i in $(seq 1 120); do
             if curl -sf -o /dev/null http://localhost:3000/login; then echo "web up after ${i}s"; exit 0; fi

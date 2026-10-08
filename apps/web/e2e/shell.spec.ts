@@ -41,7 +41,7 @@ test.describe("shell", () => {
     await expect(respond, "the seeded Northwind inbox has notes waiting for an answer; re-seed if none are left").toBeVisible({ timeout: LONG });
     await expect(respond).toHaveText(/^Respond · \d+$/);
     await respond.click();
-    await page.waitForURL(/\/inbox\/[0-9a-f-]{36}/);
+    await page.waitForURL(/\/inbox\/[0-9a-f-]{36}/, { timeout: LONG });
     await expect(page.getByTestId("inbox-item")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("inbox-item")).toHaveAttribute("data-state", /unread|read/);
   });

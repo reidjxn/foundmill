@@ -127,7 +127,7 @@ test.describe("inbox", () => {
     const open = page.getByTestId("open-replay");
     await expect(open).toBeEnabled({ timeout: LONG });
     await open.click();
-    await expect(page).toHaveURL(/\/journey\/[0-9a-f-]{36}/);
+    await expect(page).toHaveURL(/\/journey\/[0-9a-f-]{36}/, { timeout: LONG });
     await expect(page.getByTestId("journey-screen")).toBeVisible({ timeout: LONG });
     expect(page.url()).toContain(`/b/${NORTHWIND_BUSINESS_ID}/journey/`);
   });
