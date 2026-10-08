@@ -25,7 +25,7 @@ Build command and output are Next defaults. `NODE_OPTIONS=--max-old-space-size=4
 
 ## 3. Railway (backend services)
 
-Project `founder-manager`, environment `production` (it is the staging environment; the name is Railway's default). One service per app, all connected to `reidjxn/foundmill` on `main`, root `Dockerfile`, service variable `APP` = `api` | `gateway` | `composer` | `stream` | `ingest` | `orchestrator` (`collab` and `social` are optional in staging). Railway's private network is IPv6; every service listens on `::` and reads `PORT` (ARCHITECTURE.md §17).
+Project `founder-manager`, environment `production` (it is the staging environment; the name is Railway's default). One service per app, all connected to `reidjxn/foundmill` on `main`, root `Dockerfile`, service variable `APP` = `api` | `gateway` | `composer` | `stream` | `ingest` | `orchestrator` (`collab` and `social` are optional in staging). Railway's private network is IPv6; every service listens on `::` and reads `PORT` (ARCHITECTURE.md §17). The `temporalio/auto-setup` service must have `TEMPORAL_ADDRESS=temporal.railway.internal:7233` (its own private domain), not `0.0.0.0:7233`: the server binds the container's IPv6 address, the setup script polls `TEMPORAL_ADDRESS` to register the `default` namespace, and with `0.0.0.0` it waits forever, so the orchestrator crashes with "Namespace default is not found" (fixed 2026-10-08).
 
 Shared by every service:
 
@@ -35,7 +35,7 @@ Shared by every service:
 | `INTEGRATIONS_MODE` | `mock` (switch per connector later) |
 | `MODEL_MODE` | `mock` until a BYOK key is stored through Settings → Keys |
 | `APP_URL` | `https://foundmill.com` |
-| `DATABASE_URL` | the Supabase Postgres connection string (pooler, `sslmode=require`); already set |
+| `DATABASE_URL` | the Supabase Postgres connection string (Supabase → Connect → transaction pooler, port 6543, `?sslmode=require`). **Not set as of 2026-10-08**: the api boots and answers `/health` with `db:false`, composer/stream/ingest exit at start. Set it as a Railway shared variable and reference it from every app service, or paste it per service; it holds the database password, so only the founder can enter it |
 | `REDIS_URL` | from the Railway Redis service |
 | `SUPABASE_URL` | the Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (api and collab only; never on the web) |
@@ -89,9 +89,9 @@ Checked against the Railway GraphQL API (team token), the Vercel and Supabase co
 | Shared variables on all six app services (APP, APP_ENV, INTEGRATIONS_MODE, MODEL_MODE, APP_URL, REDIS_URL, SUPABASE_URL, SESSION_TOKEN_SECRET, DEV_MASTER_KEY, LOG_LEVEL, DATA_REGION, TEMPORAL_*) | ✅ |
 | api: `SEED_ON_BOOT=1`, `SEED_OWNER_EMAILS` | ✅ set 2026-10-08 |
 | `TEMPORAL_TASK_QUEUE=foundmill` on api and orchestrator (was `founder-manager`) | ✅ set 2026-10-08 |
-| `DATABASE_URL` on the app services | ⬜ **not visible through the API on any service**. Either it is a sealed variable (Railway hides those) or it was never set; the api's first boot log will say. If missing: Supabase → Project settings → Database → pooler connection string with `sslmode=require`, on api, gateway, composer, stream, ingest, orchestrator |
-| `SUPABASE_SERVICE_ROLE_KEY` only on api | ⬜ it is on all six services; remove it from gateway, composer, stream, ingest and orchestrator (Railway dashboard, or allow the session's variable-delete call) |
-| Railway services connected to `reidjxn/foundmill@main` | ⬜ blocked: Railway's GitHub app has no access to the repo (see §3). After granting it, the session can connect all six and the first deploys start |
+| `DATABASE_URL` on the app services | ⬜ **confirmed missing** by the first boot (api `db:false`; composer, stream, ingest exit). Founder pastes the Supabase pooler string with `sslmode=require` (contains the DB password) on api, gateway, composer, stream, ingest, orchestrator, then redeploys |
+| `SUPABASE_SERVICE_ROLE_KEY` only on api | ◐ removed from gateway, composer and stream in the dashboard (2026-10-08, local Chrome session); ingest and orchestrator still hold it. There is no collab service in staging |
+| Railway services connected to `reidjxn/foundmill@main` | ✅ 2026-10-08, after the GitHub app was granted the repo; first builds succeed (Dockerfile + `APP` build arg work). api and gateway run; composer, stream, ingest wait on `DATABASE_URL`; orchestrator waited on the Temporal namespace (fixed, see §3) |
 | CNAMEs api/stream/ingest.foundmill.com → Railway | ⬜ at Spaceship, values in §3 |
 | Vercel: project `foundmill` (team `fm-2f083c2b`) serves foundmill.com with `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` baked in | ✅ (seen in the production bundle) |
 | Vercel: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_STREAM_URL`, `NEXT_PUBLIC_INGEST_URL`, `NEXT_PUBLIC_APP_ENV=staging`, `NEXT_PUBLIC_INTEGRATIONS_MODE=mock` | ⬜ the live bundle falls back to `localhost:4000/4003/4005`, so these are unset. The Vercel connector in the cloud session is authorised for the `luminarvc` team only (403 on scope `fm-2f083c2b`); re-authorise it for team `fm-2f083c2b` (claude.ai → Customize → Connectors, then a new session) or set them in the Vercel dashboard, then redeploy |
