@@ -86,11 +86,13 @@ test.describe("ideation studio", () => {
     const history = page.getByTestId("history-dialog");
     await expect(history).toBeVisible();
     await expect(history.locator("[data-version]")).toHaveCount(2);
-    await expect(history.getByText("Forked")).toBeVisible();
+    // The version row reads exactly "Forked"; the lineage line below it reads "Forked to <name>".
+    await expect(history.getByText("Forked", { exact: true })).toBeVisible();
     await history.getByRole("button", { name: "Older" }).click();
     await expect(history.locator('[data-version][aria-current="true"]')).toHaveAttribute("data-version", "1");
     await expect(history.getByTestId("lineage")).toContainText("Forked to");
-    await history.getByRole("button", { name: "Close" }).click();
+    // The dialog has two Close buttons (Dugout's corner icon and the footer's text button): the footer one is last.
+    await history.getByRole("button", { name: "Close" }).last().click();
     await expect(history).toBeHidden();
 
     // Discard, then restore from the tray.

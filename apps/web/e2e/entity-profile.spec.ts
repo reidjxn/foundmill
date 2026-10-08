@@ -11,7 +11,13 @@ interface CrmRowRef {
   href: string;
 }
 
-/** The first visible CRM rows: name, kind and profile link (the Kind column is a chip reading Person / Organisation). */
+/**
+ * The Kind column is a chip with the plural label of components/crm/search.ts KIND_LABELS (People, Organisations,
+ * Agents, …); innerText carries the chip's CSS uppercase, so the match ignores case and the ref keeps the lower-cased label.
+ */
+const KIND_CHIP = /^(People|Organisations|Agents|Team|Members|Communities|Venues)$/i;
+
+/** The first visible CRM rows: name, kind chip label and profile link. */
 async function crmRows(page: Page, limit = 12): Promise<CrmRowRef[]> {
   const rows = page.getByRole("grid", { name: "CRM records" }).getByRole("row");
   await expect(rows.nth(1), "the seed gives Northwind CRM records").toBeVisible({ timeout: LONG });
@@ -22,7 +28,7 @@ async function crmRows(page: Page, limit = 12): Promise<CrmRowRef[]> {
     const link = row.locator("a[href*='/crm/'][href$='/overview']").first();
     if (!(await link.count())) continue;
     const cells = await row.getByRole("gridcell").allInnerTexts();
-    out.push({ name: (await link.innerText()).trim(), kind: cells.map((c) => c.trim()).find((c) => /^(person|organisation|organization)$/i.test(c)), href: (await link.getAttribute("href"))! });
+    out.push({ name: (await link.innerText()).trim(), kind: cells.map((c) => c.trim()).find((c) => KIND_CHIP.test(c))?.toLowerCase(), href: (await link.getAttribute("href"))! });
   }
   return out;
 }
@@ -75,19 +81,25 @@ test.describe("entity profile", () => {
 
   test("merge then unmerge restores both records (AC-11.12.3)", async ({ page }) => {
     await openBusiness(page, "crm");
-    // The duplicate candidate must be another record of the same kind; the dialog searches by name, email or domain.
+    // The duplicate candidate must be another record of the same kind (the dialog searches by name, email or domain
+    // within the source's kind). The listing also carries the squad as agent records, so the pair is taken from the
+    // people and organisations: the first person or organisation that has a second row of its kind.
     const rows = await crmRows(page);
-    const source = rows[0]!;
-    const other = rows.find((r) => r.kind === source.kind && r.name !== source.name);
-    expect(other, `the seed gives Northwind a second ${source.kind ?? "record"} to merge with`).toBeTruthy();
+    const pair = rows.flatMap((source) => {
+      if (!source.kind || !/^(people|organisations)$/.test(source.kind)) return [];
+      const other = rows.find((r) => r.kind === source.kind && r.name !== source.name);
+      return other ? [{ source, other }] : [];
+    })[0];
+    expect(pair, "the seed gives Northwind two people or two organisations to merge").toBeTruthy();
+    const { source, other } = pair!;
     const url = source.href;
     await page.goto(url);
     await expect(page.getByTestId("entity-profile")).toBeVisible({ timeout: LONG });
     await page.getByTestId("entity-merge").click();
     const dialog = page.getByTestId("merge-dialog");
     await expect(dialog).toBeVisible();
-    await dialog.getByLabel(/Find the duplicate/).fill(other!.name.split(/\s+/)[0]!);
-    const match = page.getByTestId("merge-matches").getByRole("option").filter({ hasText: other!.name }).first();
+    await dialog.getByLabel(/Find the duplicate/).fill(other.name.split(/\s+/)[0]!);
+    const match = page.getByTestId("merge-matches").getByRole("option").filter({ hasText: other.name }).first();
     await expect(match).toBeVisible({ timeout: LONG });
     await match.click();
     await page.getByTestId("merge-confirm").click();
