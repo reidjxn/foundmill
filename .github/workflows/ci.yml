@@ -110,7 +110,7 @@ jobs:
       - name: Install Chromium (replaces the preinstalled-browser step used in the build container)
         run: pnpm --filter @foundmill/web exec playwright install --with-deps chromium
       - name: Seed the PGlite database (Northwind Skincare + Ledgerly, reduced volume)
-        run: SEED_TARGET=pglite SEED_PGLITE_DIR=./.pglite/e2e SEED_VOLUME_SCALE=0.1 pnpm --filter @foundmill/db seed
+        run: SEED_TARGET=pglite SEED_PGLITE_DIR=./.pglite/e2e SEED_VOLUME_SCALE=0.1 SEED_OWNER_PROFILE=0 pnpm --filter @foundmill/db seed
       - name: Start apps/api against the seeded database
         # No Redis, Temporal or composer URL: the api degrades to in-process behaviour (docs/ARCHITECTURE.md §13).
         run: |
@@ -132,7 +132,7 @@ jobs:
           echo "apps/web did not answer within 120 s"; cat web.log; exit 1
       - name: Playwright (apps/web screens)
         # E2E_BASE_URL makes both configs skip their own webServer and use the servers started above.
-        run: E2E_BASE_URL=http://localhost:3000 pnpm --filter @foundmill/web exec playwright test
+        run: E2E_BASE_URL=http://localhost:3000 E2E_EXPECT_PROFILE_GATE=1 pnpm --filter @foundmill/web exec playwright test
       - name: Playwright (e2e/ golden path and smoke)
         if: ${{ !cancelled() }}
         run: E2E_BASE_URL=http://localhost:3000 pnpm --filter @foundmill/e2e test
