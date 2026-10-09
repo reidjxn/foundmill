@@ -167,6 +167,13 @@ Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
   - The api: `respondConnection` and `requestConnection` are race-safe (status-conditioned update, 23505 handled); blocked and not connected share one message; archived threads are closed; foreign-key violations map to Not found (missing reference) or Conflict (in use); INTERNAL errors are redacted in the tRPC `errorFormatter`; `x-request-id` is accepted only as `[A-Za-z0-9-]{8,64}`.
   - Deferred: rate limiting `people.lookup` until a shared limiter exists.
   - Tests: db 1183, api 100, dugout 368, web 277; `live.spec.ts` 6/6.
+- 2026-10-09 — **A real logo: upload or generate (founder request; the procedural shield crests are gone).**
+  - Founders upload a PNG, JPEG, WebP or SVG (resized in the browser, checked by the server), or have the logo designer (route `logoDesigner`, Opus) draw four geometric marks in the brand colours, on the Commit screen and in Settings › Business. Brand colours can be taken from the logo. With no logo, the mark is the business's initials on its primary colour.
+  - Dugout `BusinessLogo` replaces `Crest` everywhere (top bar, Settings, LIVE pages, the landing page's example picker, which now shows six generated marks).
+  - Storage: `business_logos` (migration 0017), written only by the api after its check, read by members; owners and admins upload, generate and remove, audited. `businesses.crest_url` is retired by a check constraint.
+  - The SVG check is a strict XML parser plus an allowlist sanitiser. After two security reviews it runs in linear time (values capped before any pattern runs), refuses logos too heavy to draw (render cost with references expanded, path length weighted, at most 5,000), drops dashed strokes and nested masks, and reports what it removed as counts plus at most 20 names. One check per request, rate-limited.
+  - `business.update` takes only the Settings fields (an admin can no longer change plan tier, billing mode or region through it).
+  - Tests: shared 116 (26 timing tests on 2 M-character inputs), db 1186, api 93, dugout, web; Playwright `commit.spec.ts`, `settings-business.spec.ts`; eval `logo`.
 - 2026-10-09 — **"Take charge" takes seconds, not 36 (founder report).**
   - `idea.commit` made 722 sequential database round trips: about 50 ms each to Supabase, so the button spun for 36 s.
   - It now hires the whole team in a few statements (`agents.createMany`, `skills.upsertForAgents`, `departments.addMembers`, `screens.upsertMany`, a batched `channels.upsertMany`), giving 73 round trips, about 3–4 s.

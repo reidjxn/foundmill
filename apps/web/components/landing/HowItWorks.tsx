@@ -5,8 +5,9 @@
  */
 import { useMemo, useState, type ReactNode } from "react";
 import { Flag, Lightbulb, Play, type LucideIcon } from "lucide-react";
-import { Avatar, Chip, ConceptCard, Crest, Icon, ProvenanceChip, cn, formatMoney, kitBarGradient, kitStyle, type Kit } from "@foundmill/dugout";
+import { Avatar, BusinessLogo, Chip, ConceptCard, Icon, ProvenanceChip, cn, formatMoney, kitBarGradient, kitStyle, type Kit } from "@foundmill/dugout";
 import { EXAMPLE_BUSINESS, LEADS, exampleConcepts } from "./example";
+import { LANDING_LOGOS } from "./logos";
 import { Glass, Reveal, Section, SectionHeading } from "./parts";
 
 export function HowItWorks() {
@@ -76,7 +77,7 @@ function ConceptStack() {
 function BrandPicker() {
   const options = useMemo(() => {
     const kits = exampleConcepts().map((c) => c.kit);
-    return Array.from({ length: 6 }, (_, i) => ({ seed: i === 0 ? EXAMPLE_BUSINESS.seed : `${EXAMPLE_BUSINESS.seed} ${i}`, kit: kits[i % kits.length]! as Kit }));
+    return Array.from({ length: 6 }, (_, i) => ({ seed: i === 0 ? EXAMPLE_BUSINESS.seed : `${EXAMPLE_BUSINESS.seed} ${i}`, kit: kits[i % kits.length]! as Kit, logo: LANDING_LOGOS[i]!.src }));
   }, []);
   const [chosen, setChosen] = useState(0);
   const pick = options[chosen]!;
@@ -84,7 +85,7 @@ function BrandPicker() {
     <div className="flex size-full flex-col justify-center gap-5 px-6" style={kitStyle(pick.kit)}>
       <div className="flex items-center gap-5">
         <span className="grid size-28 shrink-0 place-items-center rounded-panel border border-subtle bg-base transition-shadow duration-panel" style={{ boxShadow: "0 0 48px -10px var(--kit-primary)" }}>
-          <Crest seed={pick.seed} kitPrimary={pick.kit.primary} kitSecondary={pick.kit.secondary} monogram={EXAMPLE_BUSINESS.monogram} size={96} title={`${EXAMPLE_BUSINESS.name} logo`} />
+          <BusinessLogo src={pick.logo} name={EXAMPLE_BUSINESS.name} primary={pick.kit.primary} size={96} />
         </span>
         <div role="group" aria-label="Choose a logo" className="grid grid-cols-3 gap-2">
           {options.map((o, i) => (
@@ -96,13 +97,13 @@ function BrandPicker() {
               onClick={() => setChosen(i)}
               className={cn("grid size-14 place-items-center rounded-panel border bg-base transition-colors duration-micro", i === chosen ? "border-link" : "border-subtle hover:border-secondary/60")}
             >
-              <Crest seed={o.seed} kitPrimary={o.kit.primary} kitSecondary={o.kit.secondary} monogram={EXAMPLE_BUSINESS.monogram} size={48} title={`Logo option ${i + 1}`} />
+              <BusinessLogo src={o.logo} name={EXAMPLE_BUSINESS.name} primary={o.kit.primary} size={48} title={`Logo option ${i + 1}`} />
             </button>
           ))}
         </div>
       </div>
       <div className="flex h-11 items-center gap-2 rounded-panel px-3 text-kit-on-primary transition-[background-image] duration-panel" style={{ backgroundImage: kitBarGradient(pick.kit) }}>
-        <Crest seed={pick.seed} kitPrimary={pick.kit.primary} kitSecondary={pick.kit.secondary} monogram={EXAMPLE_BUSINESS.monogram} size={24} title={`${EXAMPLE_BUSINESS.name} logo`} />
+        <BusinessLogo src={pick.logo} name={EXAMPLE_BUSINESS.name} primary={pick.kit.primary} size={24} />
         <span className="t-display-sm">{EXAMPLE_BUSINESS.name}</span>
         <span className="flex-1" />
         <span className="t-tab-sm rounded-panel bg-ink/25 px-2 py-1">Continue</span>

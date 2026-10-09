@@ -1008,3 +1008,14 @@ The founder asked for a much more exciting landing page, judged from two seats: 
   - Milestones show reached milestones only, labelled Example business and Estimate; example concepts drop evidence quoting real sources.
   - Accessibility: the processing strip announces once per cycle, the team tour and the ticker can be paused, focus moves to Continue after a decision and to the Journey heading after "See the Customer Update", tab focus rings are visible, dimmed scroll-lit words are 3.4:1.
   - Left as they are: `Crest` reuses its clip-path id for one seed (identical content, as everywhere in the app); `ContinueButton`'s tooltip still names Space, which this page does not bind (binding it would steal page scrolling).
+
+## 2026-10-09 — The business logo is uploaded or generated, never a procedural crest (founder)
+
+- **What a logo is.** A PNG, JPEG, WebP or SVG of at most 96 KiB, stored in `business_logos` (one row per business, migration 0017) and rendered only as an `<img>` of a `data:` URL through Dugout `BusinessLogo`. Without one, the mark is the business's initials on its primary colour. `Crest` is deleted and `businesses.crest_url` is retired by a check constraint (the column stays because `public_profiles` selects it).
+- **Generated marks** come from the `logoDesigner` route (Opus). The brief travels only as JSON data in the user message, never in the system prompt, and every mark goes through the same check as an upload.
+- **The SVG check** is a strict XML parser plus an allowlist. It must stay linear: every value is capped (256 characters, 64 KiB for `d` and `points`) before any pattern runs, and every grammar is a single pass or a sticky tokeniser. A logo also has a render budget: each element costs 1, plus a thirty-second of its path length, plus its text length, and `use`, `mask` and `clip-path` expand what they reference (gradients count once); above 5,000 it is refused. Dashed strokes and masks or clip paths inside masks are dropped. What was removed is reported as counts plus at most 20 names.
+- **One check per request.** `checkLogo` results are frozen and registered; `repos.logos.set` stores a registered result as it is and refuses look-alikes.
+- **`business.update` takes only the Settings fields** (name, slug, archetype, brand colours, glossary). Plan tier, billing mode and region change only through their own owner-gated procedures.
+- **The landing page** shows six marks from the mock logo designer, generated once and stored as static data URLs (`apps/web/components/landing/logos.ts`).
+- **Not done:** pre-commit generation is not written to a usage ledger (there is no business yet); public LIVE cards show the initials mark, not the uploaded logo.
+
