@@ -4,6 +4,7 @@
  */
 import { redirect } from "next/navigation";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { pickCurrentBusiness } from "@/lib/auth/current-business";
 import { getLastBusinessId } from "@/lib/auth/server";
 import { serverApi } from "@/lib/trpc-server";
 import { errorMessage } from "@/lib/trpc";
@@ -22,9 +23,7 @@ export default async function IndexPage() {
     return <UnreachablePage message={errorMessage(err, "The API did not answer.")} />;
   }
   if (!profile.complete) redirect("/onboarding");
-  const last = await getLastBusinessId();
-  const businesses = profile.businesses;
-  const target = (last && businesses.find((b) => b.id === last)) ?? businesses[0];
+  const target = pickCurrentBusiness(await getLastBusinessId(), profile.businesses);
   if (target) redirect(routes.home(target.id));
   redirect("/new");
 }

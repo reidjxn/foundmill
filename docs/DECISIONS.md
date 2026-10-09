@@ -963,6 +963,34 @@ Staging's api reaches Supabase's pooler with about 50 ms per query, so a request
 
 The per-row repo functions stay for everything else. When a screen does many sequential queries, batch it the same way.
 
+## 2026-10-09 — LIVE pages: where they sit and who sees what
+
+- **Where.** The LIVE pages live outside `/b/[bid]`, in `app/(live)/`. Their shell business is the last-opened business, else the newest; a founder with none goes to `/new`. A Personal business gets a notice on the page, not a redirect.
+- **Access is enforced in the router.** `live.*` runs on the service connection (no RLS), so the router itself enforces community visibility, members-only feeds, public-only joins, and membership for "post as a business".
+- **Names follow profile visibility:**
+
+  | Setting | Who sees the name |
+  | --- | --- |
+  | Public | everyone |
+  | Connections | connections |
+  | Community | connections, plus people in shared communities |
+  | Private | nobody, except someone who has contacted the viewer |
+
+- **Posts.** Community post text renders without images and without entity links. People and businesses on the network are not CRM entities.
+- **Boards** show their one ranked metric. Separate customers-won, MRR and growth columns would need entries to carry more than one metric.
+
+## 2026-10-09 — LIVE after the security review: blocks, speaking as a business, listed businesses only
+
+- **The client roles are read-only on the LIVE tables except connections.** Threads, messages, posts, communities and community members are written only by the api on the service connection (`authenticated` and `anon` have no insert, update or delete), because the rules that gate them (connections and blocks gate messages, who may speak for a business, a moderator's decisions) do not fit in a policy. On `connections`, `authenticated` may update only `status`, `responded_at` and `blocked_by`, and a trigger stops any role moving a row between people or turning a block into anything else. There is one row per pair of people.
+- **A block belongs to its blocker.** `connections.blocked_by` records who blocked. Nobody else can change or delete the row, `accepted` is never written over it, and the block is never announced: the blocked person's lists omit the row, and a new request only says it could not be sent.
+- **Rules are repeated in the repo and router.** The router runs on the service connection, so the listing rules the RLS policies state (leaderboards, communities, block ownership) are enforced again there. A business leaves boards when it switches from LIVE to Personal and when it is archived, and reads also filter on listed status.
+- **A person speaks as themselves by default.** Speaking as a business needs a writing role with write access to the live section, on a LIVE, committed business. The ids of unlisted businesses are shown only to their own members.
+- **New threads need a connection.** A new thread needs an accepted connection with each recipient, or an existing shared thread, and a Send reaches at most 20 recipients.
+- **Other people's text is filtered in the renderer.** It renders with entity links and images off (`Markdown entities={false} images={false}`), rather than being pre-filtered.
+- **Error messages.** INTERNAL errors outside development and test return a generic message plus the request id, redacted in the tRPC `errorFormatter` so errors from `createContext` are covered too. Foreign-key violations return Not found for a missing reference and Conflict for a row still in use, and log the constraint (globally: tRPC wraps database errors as INTERNAL before the mapper sees them). A client's `x-request-id` is kept only if it matches `[A-Za-z0-9-]{8,64}`.
+- **Blocked and not connected read the same** ("You can't message this person"), so a block is never revealed. Archived threads take no new messages.
+- **Deferred:** rate limiting `people.lookup`, until a shared limiter exists.
+
 ## 2026-10-09 — The landing page, rebuilt around the loop (founder request)
 
 The founder asked for a much more exciting landing page, judged from two seats: a young first-time founder who is AI-native and likes games, and a tier-1 investor. It must never say the product is a game. The page was rebuilt (DESIGN §9a); the calls made on the way:
@@ -981,6 +1009,25 @@ The founder asked for a much more exciting landing page, judged from two seats: 
   - Accessibility: the processing strip announces once per cycle, the team tour and the ticker can be paused, focus moves to Continue after a decision and to the Journey heading after "See the Customer Update", tab focus rings are visible, dimmed scroll-lit words are 3.4:1.
   - Left as they are: `Crest` reuses its clip-path id for one seed (identical content, as everywhere in the app); `ContinueButton`'s tooltip still names Space, which this page does not bind (binding it would steal page scrolling).
 
+## 2026-10-09 — The business logo is uploaded or generated, never a procedural crest (founder)
+
+- **What a logo is.** A PNG, JPEG, WebP or SVG of at most 96 KiB, stored in `business_logos` (one row per business, migration 0017) and rendered only as an `<img>` of a `data:` URL through Dugout `BusinessLogo`. Without one, the mark is the business's initials on its primary colour. `Crest` is deleted and `businesses.crest_url` is retired by a check constraint (the column stays because `public_profiles` selects it).
+- **Generated marks** come from the `logoDesigner` route (Opus). The brief travels only as JSON data in the user message, never in the system prompt, and every mark goes through the same check as an upload.
+- **The SVG check** is a strict XML parser plus an allowlist. It must stay linear: every value is capped (256 characters, 64 KiB for `d` and `points`) before any pattern runs, and every grammar is a single pass or a sticky tokeniser. A logo also has a render budget: each element costs 1, plus a thirty-second of its path length, plus its text length, and `use`, `mask` and `clip-path` expand what they reference (gradients count once); above 5,000 it is refused. Dashed strokes and masks or clip paths inside masks are dropped. What was removed is reported as counts plus at most 20 names.
+- **One check per request.** `checkLogo` results are frozen and registered; `repos.logos.set` stores a registered result as it is and refuses look-alikes.
+- **`business.update` takes only the Settings fields** (name, slug, archetype, brand colours, glossary). Plan tier, billing mode and region change only through their own owner-gated procedures.
+- **The landing page** shows six marks from the mock logo designer, generated once and stored as static data URLs (`apps/web/components/landing/logos.ts`).
+- **Not done:** pre-commit generation is not written to a usage ledger (there is no business yet); public LIVE cards show the initials mark, not the uploaded logo.
+
+## 2026-10-09 — Foundations are drafted on the first open, not at commit (founder)
+
+- **When.** One row per business (migration 0018): pending → drafting → ready or failed, claimed by one conditional update, so it is idempotent across tabs and reloads. The first open by a writer with product write starts it (a viewer opening first does not); reading needs product read, retrying needs product write. It runs on Temporal (`foundations:{businessId}:{attempt}`, heartbeating, cancellable), or in the api in the background when Temporal does not answer, at most two at a time with an eight-minute timeout. Attempts older than 10 minutes (local) or 45 minutes (Temporal) count as interrupted. Only the current attempt may write.
+- **Where it lands.** The vision is stored on the foundations row, not as a spec block. The specification is written into the archetype outline's blocks through `repos.product.writeAgentDraft`, which never writes a pinned block or one someone has edited (the UPDATE checks the version it read). Roadmap acceptance criteria live in the item's `descriptionMd`.
+- **Model text is cleaned when stored, not when shown.** Entity markup becomes its display name, images and links become their text, URLs and addresses become "(link removed)" / "(address removed)", and invisible characters are dropped, repeated until the text stops changing. The Vision tab renders it as plain text (`PlainDoc`).
+- **The model writes a fixed-depth Tiptap subset** (no recursion) so it stays a valid structured-output schema. Finalisation guarantees one block per section opening with a heading, every import seed on the roadmap, and figures not in the founder's own inputs labelled Estimate or Forecast (simulated import numbers do not count as known). The ready note is built from the draft, not by a second model call.
+- **Door 2 is linked through a signed Import job id** (HMAC under SESSION_TOKEN_SECRET, label `foundmill/import-job/v1`, bound to the founder). Commit accepts only the founder's own finished signup job, snapshots the report and stores the sources (http(s) URIs only). Without the secret, development and test sign with a key that lives as long as the process; production and staging refuse.
+- **Left open:** the drafting does not refresh a block that is open in apps/collab; the first cycle's "draft the specification" task now overlaps (it can only propose); Door 2 drafts from summaries until real gateway reads exist; businesses committed before today report no foundations.
+
 ## 2026-10-09 — The landing page's example business is Tutorlane (founder request)
 
 The founder asked for a software example instead of the skincare brand, so the page shows agents building the product itself, and for one that is clearly AI at its core and believable for a first-time founder. Options were generated, scored by two independent judges and name-screened on the web; the founder chose Tutorlane in its AI-native form: an AI teaching assistant for independent tutors (after each lesson: notes, a practice set in the tutor's method and a parent progress note; between lessons: a practice companion that marks handwritten working from photos). "Tutorlane" turned up no company or product in the searches.
@@ -989,4 +1036,5 @@ The founder asked for a software example instead of the skincare brand, so the p
 - **One story across the page:** the hero's first decision is merging photo marking (agreement with tutors' marks 74% → 93% on 200 answers); the customer it wins is Okafor Maths Tuition, whose Customer Update the gold card opens; the live tiles replay the practice-set and marking-eval work; the Channel Board leads with search, content, email and tutor referrals; the Inbox note is a sponsorship above the spend cap; milestones and money are in pounds.
 - **Design system:** the replay generator takes a `MockSessionScript` and `mockChannels` a `MockChannelProfile`; the defaults (`STOREFRONT_SESSION_SCRIPT`, `DTC_CHANNEL_PROFILE`) keep every other screen, story and test unchanged. Brand colours reuse the fixtures' second kit (teal and gold); the two-year Journey is the fixture's, relabelled for Tutorlane in `components/landing/example.ts`.
 - **Ledgerly** (the second seeded demo business) was ruled out for the public page: several real companies use the name, one of them selling month-end close software. Renaming the seeded demo is worth doing separately.
+- **Logos:** the six generated marks from `main` are redrawn for Tutorlane by the same mock logo designer, in the brand picker's own colours (`exampleKits()`), so the first is Tutorlane's teal and gold.
 

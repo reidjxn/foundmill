@@ -9,6 +9,7 @@ import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, Dia
 import { useBusinessEvents, useWidgetQuery } from "@foundmill/widgets";
 import { useModuleEnv, type SpecEditorStatus } from "../env";
 import type { ModuleScreenProps } from "../registry";
+import { FoundationsBanner, useFoundations } from "./foundations";
 import { pmToText } from "./prosemirror";
 import { AuthorRef, InlineError, PinnedChip, Screen, blockTitle, findBlock, groupBySection, useAction, type SectionGroup } from "./shared";
 import { SPEC_EDITOR_STATUS_LABEL, specDocumentName } from "./spec/contract";
@@ -349,6 +350,8 @@ export function SpecificationScreen({ businessId }: ModuleScreenProps) {
     versions.refetch();
   }, [spec, versions]);
   useBusinessEvents(refetchAll, ["spec.version_published"]);
+  // The first specification is drafted on the first open; show the drafting and reload the blocks when it is ready.
+  const foundations = useFoundations(refetchAll);
 
   useEffect(() => {
     if (!spec.data?.blocks.length) return;
@@ -359,6 +362,7 @@ export function SpecificationScreen({ businessId }: ModuleScreenProps) {
 
   return (
     <Screen name="product/specification">
+      <FoundationsBanner foundations={foundations} />
       <Panel
         title="Outline"
         span={3}

@@ -10,6 +10,7 @@ import {
   ExhibitKind,
   InboxItemType,
   PlanActionType,
+  RoadmapHorizon,
   Severity,
   TaskKind,
 } from "@foundmill/shared";
@@ -141,6 +142,28 @@ export const IdeationOutput = z.object({
   concepts: z.array(ConceptCard).min(6).max(12),
 });
 export type IdeationOutput = z.infer<typeof IdeationOutput>;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Logo designer (business logo marks as SVG; packages/agents prompt `logo_designer`). The SVG is untrusted output: the
+// api passes every mark through the strict sanitiser (@foundmill/shared/logo) before it reaches a browser.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const LOGO_SVG_MAX_CHARS = 12_000;
+
+export const LogoMarkDraft = z.object({
+  /** One to three words naming the idea ("Orbit", "Folded page"). */
+  name: z.string().min(1).max(40),
+  /** What the mark shows and why it fits the business (one sentence). */
+  concept: z.string().min(1).max(240),
+  /** A complete `<svg>` document on a 0 0 100 100 viewBox. */
+  svg: z.string().min(40).max(LOGO_SVG_MAX_CHARS),
+});
+export type LogoMarkDraft = z.infer<typeof LogoMarkDraft>;
+
+export const LogoDesignOutput = z.object({
+  marks: z.array(LogoMarkDraft).min(1).max(8),
+});
+export type LogoDesignOutput = z.infer<typeof LogoDesignOutput>;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Chief of Staff cycle plan (BUILD §12.4)
@@ -413,3 +436,83 @@ export const NightlyBatchOutput = z.object({
   items: z.array(z.object({ id: z.string().min(1), result: z.string().min(1) })),
 });
 export type NightlyBatchOutput = z.infer<typeof NightlyBatchOutput>;
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Foundations: the vision, first specification and first roadmap (BUILD §11.1 commit → first open; §11.5)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * The Tiptap (ProseMirror JSON) subset spec blocks are written in: headings, paragraphs, bullet and ordered lists, and
+ * text with bold or italic marks. Fixed depth (a list item holds paragraphs, never another list), so the schema has no
+ * recursion and stays a valid structured-output schema; the Tiptap StarterKit editor reads every node as is.
+ */
+export const TIPTAP_MARKS = ["bold", "italic"] as const;
+export const TiptapText = z.object({
+  type: z.literal("text"),
+  text: z.string().min(1),
+  marks: z.array(z.object({ type: z.enum(TIPTAP_MARKS) })).optional(),
+});
+export const TiptapParagraph = z.object({ type: z.literal("paragraph"), content: z.array(TiptapText).min(1) });
+export const TiptapHeading = z.object({ type: z.literal("heading"), attrs: z.object({ level: z.number().int().min(2).max(4) }), content: z.array(TiptapText).min(1) });
+export const TiptapListItem = z.object({ type: z.literal("listItem"), content: z.array(TiptapParagraph).min(1) });
+export const TiptapBulletList = z.object({ type: z.literal("bulletList"), content: z.array(TiptapListItem).min(1) });
+export const TiptapOrderedList = z.object({ type: z.literal("orderedList"), content: z.array(TiptapListItem).min(1) });
+export const TiptapBlock = z.discriminatedUnion("type", [TiptapHeading, TiptapParagraph, TiptapBulletList, TiptapOrderedList]);
+export const TiptapDoc = z.object({ type: z.literal("doc"), content: z.array(TiptapBlock).min(1) });
+export type TiptapText = z.infer<typeof TiptapText>;
+export type TiptapParagraph = z.infer<typeof TiptapParagraph>;
+export type TiptapBlock = z.infer<typeof TiptapBlock>;
+export type TiptapDoc = z.infer<typeof TiptapDoc>;
+
+/** Non-real numbers carry one of these labels (CLAUDE.md "Label every non-real number"). */
+export const FIGURE_LABELS = ["Estimate", "Forecast"] as const;
+export type FigureLabel = (typeof FIGURE_LABELS)[number];
+
+export const FoundationsPrinciple = z.object({ title: z.string().min(1).max(100), detail: z.string().min(1).max(500) });
+export const FoundationsNorthStar = z.object({
+  metric: z.string().min(1).max(160),
+  definition: z.string().min(1).max(500),
+  /** The target with its horizon, e.g. "40 paying teams by the end of the second chapter (Forecast)". */
+  target: z.string().min(1).max(300),
+  label: z.enum(FIGURE_LABELS),
+});
+export const FoundationsVision = z.object({
+  statement: z.string().min(1).max(600),
+  for_whom: z.string().min(1).max(600),
+  problem: z.string().min(1).max(1000),
+  why_now: z.string().min(1).max(1000),
+  principles: z.array(FoundationsPrinciple).min(3).max(6),
+  north_star: FoundationsNorthStar,
+});
+export type FoundationsVision = z.infer<typeof FoundationsVision>;
+
+export const FoundationsSection = z.object({
+  /** One of the outline sections, spelled as given. */
+  section: z.string().min(1).max(120),
+  content: TiptapDoc,
+  /** Input references the section relies on (an attribute key, a citation title, an imported source or issue). */
+  source_refs: z.array(z.string().min(1).max(300)).max(16),
+});
+export type FoundationsSection = z.infer<typeof FoundationsSection>;
+
+export const FoundationsRoadmapItem = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().max(2000),
+  horizon: RoadmapHorizon,
+  /** Outline sections this item delivers (the roadmap item links to their spec blocks). */
+  sections: z.array(z.string().min(1).max(120)).max(8),
+  /** Checkable criteria; empty when the item is research or an open question. */
+  acceptance_criteria: z.array(z.string().min(1).max(400)).max(10),
+  /** For imported issues: the issue reference from the Import report (e.g. "acme/app issue #42"); null otherwise. */
+  source_ref: z.string().max(300).nullable(),
+  confidence: z.number().int().min(1).max(5),
+});
+export type FoundationsRoadmapItem = z.infer<typeof FoundationsRoadmapItem>;
+
+export const FoundationsOutput = z.object({
+  vision: FoundationsVision,
+  sections: z.array(FoundationsSection).min(1).max(30),
+  roadmap: z.array(FoundationsRoadmapItem).min(3).max(40),
+  open_questions: z.array(z.string().min(1).max(400)).max(10),
+});
+export type FoundationsOutput = z.infer<typeof FoundationsOutput>;

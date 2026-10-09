@@ -1,9 +1,9 @@
-import { forwardRef, isValidElement, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
+import { forwardRef, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import type { BusinessMode, GameMode, Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { darkenHex, isHexColour, kitOnPrimary } from "../../lib/colour";
-import { Crest } from "../foundation/Crest";
+import { BusinessLogo } from "../foundation/BusinessLogo";
 import { Icon } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
 import { Kbd } from "../foundation/Kbd";
@@ -12,9 +12,6 @@ import { GameModeChip, ModeChip } from "./ModeChip";
 import { RunwayChip } from "./RunwayChip";
 import { StopAllAgents, type StopAllAgentsProps } from "./StopAllAgents";
 import type { Kit } from "./types";
-
-/** A procedural crest from the business row, or a ready element (an uploaded crest image). */
-export type CrestInput = { seed: string | number; monogram: string } | ReactNode;
 
 export interface KitBarNav {
   onBack?: () => void;
@@ -25,7 +22,13 @@ export interface KitBarNav {
 
 export interface KitBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   kit: Kit;
-  crest: CrestInput;
+  /**
+   * The business's logo as a data URL (`business.logo.get`); absent or null draws the initials mark in the primary
+   * brand colour.
+   */
+  logoSrc?: string | null;
+  /** A ready element instead of `logoSrc` (stories, previews). */
+  logo?: ReactNode;
   businessName: string;
   /** Display-md title of the current screen. */
   screenTitle: ReactNode;
@@ -46,7 +49,7 @@ export interface KitBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"> 
   gameMode?: GameMode;
   continueButton: ContinueButtonProps;
   stopAll: StopAllAgentsProps;
-  /** Crest + name become a button (go Home). */
+  /** Logo + name become a button (go Home). */
   onHome?: () => void;
 }
 
@@ -66,19 +69,16 @@ export function kitBarGradient(kit: Kit): string {
   return `linear-gradient(90deg, var(--kit-primary) 0%, ${end} 100%)`;
 }
 
-function isCrestSpec(c: CrestInput): c is { seed: string | number; monogram: string } {
-  return typeof c === "object" && c !== null && !isValidElement(c) && "seed" in c && "monogram" in c;
-}
-
 /**
- * The 56 px kit bar (BUILD §5.3, DESIGN §8). Left: crest 32 px, business name, back/forward. Centre: screen title and
+ * The 56 px top bar (BUILD §5.3, DESIGN §8). Left: logo 32 px, business name, back/forward. Centre: screen title and
  * the universal search trigger (320 px, bg-ink at 40 %). Right: date + runway chip, business-mode chip, Continue,
  * Stop all agents. Text is kit-on-primary so it always passes APCA on the kit colour.
  */
 export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
   {
     kit,
-    crest,
+    logoSrc,
+    logo,
     businessName,
     screenTitle,
     nav,
@@ -101,14 +101,10 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
   },
   ref,
 ) {
-  const crestNode = isCrestSpec(crest) ? (
-    <Crest seed={crest.seed} monogram={crest.monogram} kitPrimary={kit.primary} kitSecondary={kit.secondary} size={32} title={`${businessName} logo`} />
-  ) : (
-    crest
-  );
+  const logoNode = logo ?? <BusinessLogo src={logoSrc} name={businessName} primary={kit.primary} size={32} data-testid="kitbar-logo" />;
   const identity = (
     <span className="flex min-w-0 items-center gap-2">
-      {crestNode}
+      {logoNode}
       <span className="t-display-sm truncate" data-testid="kitbar-business-name">
         {businessName}
       </span>

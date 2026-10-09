@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { ApiDeps } from "./context";
 import { createContextFactory } from "./context";
+import { requestIdFrom } from "./request-id";
 import { appRouter } from "./router";
 
 export type AppVariables = { requestId: string };
@@ -32,7 +33,7 @@ export function createApp(deps: ApiDeps) {
   const contextFactory = createContextFactory(deps);
 
   app.use("*", async (c, next) => {
-    const requestId = c.req.header("x-request-id") ?? crypto.randomUUID();
+    const requestId = requestIdFrom(c.req.header("x-request-id"));
     c.set("requestId", requestId);
     c.header("x-request-id", requestId);
     const started = Date.now();

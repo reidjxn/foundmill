@@ -11,6 +11,10 @@ import { stopAllAgents } from "../services/killswitch";
 import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, requestDeletion } from "../services/lifecycle";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { adminProcedure, audit, businessProcedure, emit, ownerProcedure, router, writeProcedure } from "../trpc";
+import { businessLogoRouter } from "./logo";
+
+/** What an admin may change on the business record (Settings › Business and Glossary send these). */
+const BusinessSettingsInput = UpdateBusinessInput.pick({ name: true, slug: true, archetype: true, kitPrimary: true, kitSecondary: true, glossary: true });
 
 const HolidayUntil = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("date"), date: z.coerce.date() }),
@@ -19,12 +23,19 @@ const HolidayUntil = z.discriminatedUnion("kind", [
 ]);
 
 export const businessRouter = router({
+  logo: businessLogoRouter,
+
   get: businessProcedure.query(async ({ ctx }) => {
-    const [holiday, blocking, departments, agents, deletion] = await ctx.rls(async (tx) =>
-      Promise.all([repos.holidays.current(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.departments.list(tx, ctx.businessId), repos.agents.countByStatus(tx, ctx.businessId), deletionState({ db: tx, businessId: ctx.businessId })]),
+    const [holiday, blocking, departments, agents, deletion, logo] = await ctx.rls(async (tx) =>
+      Promise.all([repos.holidays.current(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.departments.list(tx, ctx.businessId), repos.agents.countByStatus(tx, ctx.businessId), deletionState({ db: tx, businessId: ctx.businessId }), repos.logos.getMeta(tx, ctx.businessId)]),
     );
     return {
       business: ctx.business,
+      /**
+       * The logo's metadata only (a few hundred bytes); the image itself comes from `business.logo.get`, keyed by
+       * `sha256`, so this payload stays small. Null: draw the initials mark.
+       */
+      logo,
       role: ctx.role,
       membership: ctx.membership,
       holiday,
@@ -47,7 +58,10 @@ export const businessRouter = router({
   pauseCycle: writeProcedure.mutation(({ ctx }) => pauseCycle(ctx)),
   resumeCycle: writeProcedure.mutation(({ ctx }) => resumeCycle(ctx)),
 
-  update: adminProcedure.input(UpdateBusinessInput).mutation(({ ctx, input }) =>
+  // Settings › Business and Glossary fields only. The plan and model billing change through the owner-only
+  // `billing.changeTier` (audited there); the data region is not changed from here; the logo goes through
+  // `business.logo.*` (crest_url is retired, 0017). Other keys are stripped by the schema.
+  update: adminProcedure.input(BusinessSettingsInput).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const business = await repos.businesses.update(tx, ctx.businessId, input);
       await audit(tx, ctx, { action: "business.update", target: { kind: "business", id: ctx.businessId }, details: { fields: Object.keys(input) } });
@@ -55,17 +69,22 @@ export const businessRouter = router({
     }),
   ),
 
-  setGameMode: adminProcedure.input(z.object({ gameMode: z.enum(GAME_MODES), reason: z.string().max(500).optional() })).mutation(({ ctx, input }) =>
-    ctx.rls(async (tx) => {
+  setGameMode: adminProcedure.input(z.object({ gameMode: z.enum(GAME_MODES), reason: z.string().max(500).optional() })).mutation(async ({ ctx, input }) => {
+    const business = await ctx.rls(async (tx) => {
       const from = ctx.business.gameMode;
-      const business = await repos.businesses.setGameMode(tx, ctx.businessId, input.gameMode);
+      const changed = await repos.businesses.setGameMode(tx, ctx.businessId, input.gameMode);
       if (from !== input.gameMode) {
         await emit(tx, ctx, { type: "mode.changed", payload: { scope: "game", from, to: input.gameMode, reason: input.reason ?? null } });
         await audit(tx, ctx, { action: "business.set_game_mode", target: { kind: "business", id: ctx.businessId }, details: { from, to: input.gameMode } });
       }
-      return business;
-    }),
-  ),
+      return changed;
+    });
+    // LIVE → Personal (BUILD §7.3, AC-11.14.2): the business leaves every leaderboard now. The rows live behind
+    // service_role-only grants, so this runs on the service connection once the mode change has committed; reads also
+    // hide any business that is not LIVE, so a failure here never shows a Personal business.
+    if (input.gameMode !== "live") await repos.social.removeBusinessFromLeaderboards(ctx.db, ctx.businessId);
+    return business;
+  }),
 
   setBusinessMode: adminProcedure.input(z.object({ businessMode: z.enum(BUSINESS_MODES), reason: z.string().max(500).optional() })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
@@ -167,7 +186,11 @@ export const businessRouter = router({
   /** Export everything as a portable JSON archive (credentials never included); an Inbox note carries the counts. */
   export: adminProcedure.mutation(({ ctx }) => exportBusiness(ctx)),
   /** Stop every agent and hide the business. Data stays. */
-  archive: adminProcedure.input(z.object({ reason: z.string().max(200).default("archived") })).mutation(({ ctx, input }) => archiveBusiness(ctx, input.reason)),
+  archive: adminProcedure.input(z.object({ reason: z.string().max(200).default("archived") })).mutation(async ({ ctx, input }) => {
+    const archived = await archiveBusiness(ctx, input.reason);
+    await repos.social.removeBusinessFromLeaderboards(ctx.db, ctx.businessId);
+    return archived;
+  }),
   /** Owner-only, fresh authentication required (PRECONDITION_FAILED `reauth_required` otherwise); deletion runs 7 days later unless cancelled. */
   requestDeletion: ownerProcedure.input(z.object({ confirmName: z.string().max(200).optional() })).mutation(({ ctx, input }) => requestDeletion(ctx, { confirmName: input.confirmName })),
   cancelDeletion: ownerProcedure.mutation(({ ctx }) => cancelDeletion(ctx)),

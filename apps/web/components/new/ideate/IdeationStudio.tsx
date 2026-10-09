@@ -1,7 +1,7 @@
 "use client";
 /**
  * /new/ideate — the Ideation Studio (BUILD §11.1 Door A; AC-11.1.2, AC-11.1.3). Prompt box ("surprise me within my
- * constraints" when empty) → idea.generate → 6–12 ConceptCards (Dugout player cards: crest, stars, ten AttributeBars
+ * constraints" when empty) → idea.generate → 6–12 ConceptCards (Dugout profile cards: the initials mark until a logo is chosen at Commit, stars, ten AttributeBars
  * with evidence hover, citation count). Actions: Shortlist (local), Merge / Fork / Ask (idea.*, each a new version),
  * Discard (idea.discard; reversible from the tray). Select 2–4 cards → Compare. History opens every version.
  *
@@ -12,7 +12,7 @@ import { ArrowRight, Bookmark, Columns3, History, RotateCcw, Sparkles, Trash2, W
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
-import { Button, Chip, ConceptCard, Crest, EmptyState, IconButton, Kbd, Panel, SimpleSelect, Skeleton, SkeletonText, StatusPill, Textarea, Tooltip, cn, initials, useToast, type ConceptAction } from "@foundmill/dugout";
+import { Button, Chip, BusinessLogo, ConceptCard, EmptyState, IconButton, Kbd, Panel, SimpleSelect, Skeleton, SkeletonText, StatusPill, Textarea, Tooltip, cn, useToast, type ConceptAction } from "@foundmill/dugout";
 import { useKeyboardMap } from "@/lib/keys";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -241,7 +241,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
               const c = toConcept(idea);
               return (
                 <li key={idea.id} className="flex items-center gap-3 rounded-panel border border-subtle bg-panel-alt p-3" data-discarded={idea.id}>
-                  <Crest seed={c.crestSeed} kitPrimary={c.kit.primary} kitSecondary={c.kit.secondary} monogram={initials(c.name)} size={32} title={`${c.name} logo`} />
+                  <BusinessLogo name={c.name} primary={c.kit.primary} size={32} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-body-strong">{c.name}</div>
                     <div className="text-small text-secondary">Discarded {new Date(discardedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</div>
@@ -321,7 +321,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
               return (
                 <Tooltip key={id} content={c.name}>
                   <span>
-                    <Crest seed={c.crestSeed} kitPrimary={c.kit.primary} kitSecondary={c.kit.secondary} monogram={initials(c.name)} size={32} title={`${c.name} logo`} />
+                    <BusinessLogo name={c.name} primary={c.kit.primary} size={32} />
                   </span>
                 </Tooltip>
               );

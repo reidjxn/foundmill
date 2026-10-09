@@ -12,6 +12,7 @@
 import { DTC_CHANNEL_PROFILE, STOREFRONT_SESSION_SCRIPT, type Concept, type MockChannelProfile, type MockSessionScript, type RibbonDepartment, type SkillRow, type TrophyCard, type Trait } from "@foundmill/dugout";
 import type { ChannelKey, DeptColourToken, ModuleKey } from "@foundmill/shared";
 import { LEDGERLY_KIT, conceptFixtures, generateJourneyFixture } from "@foundmill/dugout/components/journey/fixtures";
+import { LANDING_LOGOS } from "./logos";
 
 export const EXAMPLE_BUSINESS = { name: "Tutorlane", monogram: "TL", seed: "Tutorlane" } as const;
 /** Brand colours: deep teal and gold (the design system's second example kit). */
@@ -51,7 +52,7 @@ export function exampleConcepts(): Concept[] {
       id: "concept-tutorlane",
       name: "Tutorlane",
       pitch: "An AI teaching assistant for independent tutors: lesson notes, practice sets and progress notes after every lesson.",
-      crestSeed: EXAMPLE_BUSINESS.seed,
+      logoSrc: LANDING_LOGOS[0]!.src,
       monogram: EXAMPLE_BUSINESS.monogram,
       kit: EXAMPLE_KIT,
       currentStars: 3.5,
@@ -65,7 +66,7 @@ export function exampleConcepts(): Concept[] {
       id: "concept-probelark",
       name: "Probelark",
       pitch: "Voice mock exams for language learners, built from their own course materials.",
-      crestSeed: "Probelark",
+      logoSrc: LANDING_LOGOS[3]!.src,
       kit: others[3]?.kit ?? EXAMPLE_KIT,
       currentStars: 3,
       potentialStars: 4,

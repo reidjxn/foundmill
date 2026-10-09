@@ -65,5 +65,12 @@ describe("sidebar items", () => {
     expect(activeSidebarId(`/b/${BID}/settings/mode`, BID, depts)).toBe("settings");
     expect(activeSidebarId(`/b/${BID}/trophies`, BID, depts)).toBe("milestones");
     expect(activeSidebarId(`/b/other/home`, BID, depts)).toBeUndefined();
+    // The LIVE pages are not under /b/[bid]; each lights its own item, detail pages included.
+    expect(activeSidebarId("/network", BID, depts)).toBe("network");
+    expect(activeSidebarId("/communities", BID, depts)).toBe("communities");
+    expect(activeSidebarId(`/communities/${BID}`, BID, depts)).toBe("communities");
+    expect(activeSidebarId("/leaderboards", BID, depts)).toBe("leaderboards");
+    expect(activeSidebarId(`/leaderboards/${BID}`, BID, depts)).toBe("leaderboards");
+    expect(activeSidebarId("/networking", BID, depts)).toBeUndefined();
   });
 });

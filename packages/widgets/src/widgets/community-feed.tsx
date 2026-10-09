@@ -18,6 +18,12 @@ export const CommunityFeedSettings = z.object({
 });
 export type CommunityFeedSettings = z.infer<typeof CommunityFeedSettings>;
 
+/** The community to show: the chosen one, else the first the founder belongs to (the feed is for members). */
+export function pickCommunity(communities: readonly CommunityRow[] | undefined, communityId: string | null): CommunityRow | undefined {
+  const joined = (communities ?? []).filter((c) => c.role !== null);
+  return (communityId ? joined.find((c) => c.id === communityId) : undefined) ?? joined[0];
+}
+
 export function postPreview(bodyMd: string, max = 140): string {
   const plain = bodyMd.replace(/[#*_>`]/g, "").replace(/\s+/g, " ").trim();
   return plain.length > max ? `${plain.slice(0, max - 1)}…` : plain;
@@ -40,7 +46,7 @@ function CommunityFeedWidget({ settings }: WidgetProps<CommunityFeedSettings>) {
   const { navigate, gameMode = "personal" } = useWidgetData();
   const live = gameMode === "live";
   const communities = useWidgetQuery<CommunityRow[]>("live.communities.list", { limit: 50 }, { enabled: live });
-  const community = useMemo(() => (settings.communityId && communities.data?.find((c) => c.id === settings.communityId)) || communities.data?.[0], [communities.data, settings.communityId]);
+  const community = useMemo(() => pickCommunity(communities.data, settings.communityId), [communities.data, settings.communityId]);
   const posts = useWidgetQuery<Page<CommunityPostRow>>("live.communities.posts", { communityId: community?.id, limit: settings.rows }, { enabled: live && !!community });
   const events = useMemo(() => postsToTimeline(posts.data?.items ?? []), [posts.data]);
   if (!live) {

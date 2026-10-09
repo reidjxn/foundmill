@@ -9,6 +9,7 @@
 import { LIMITS } from "@foundmill/config";
 import { apcaLc, createRng, hexToRgb, hslToRgb, isHexColour, kitOnPrimaryDetail, rgbToHex, rgbToHsl, type Kit } from "@foundmill/dugout";
 import { ARCHETYPE_LABELS, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
+import type { LogoDraft } from "@/lib/logo";
 
 export const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
@@ -248,6 +249,8 @@ export const ARCHETYPE_CARDS: ArchetypeCard[] = [
 export interface CommitForm {
   name: string;
   kit: Kit;
+  /** The chosen logo (uploaded or generated, already checked by the server), or null for the initials mark. */
+  logo: LogoDraft | null;
   gameMode: GameMode;
   archetype: Archetype | null;
   businessMode: BusinessMode;
@@ -256,10 +259,11 @@ export interface CommitForm {
   currency: string;
 }
 
-export function initialCommitForm(idea: { title: string; archetype: Archetype | null; crestSeed?: string }, kit: Kit, currency: string): CommitForm {
+export function initialCommitForm(idea: { title: string; archetype: Archetype | null }, kit: Kit, currency: string): CommitForm {
   return {
     name: idea.title.replace(/\s*\(fork\)\s*$/i, "").trim(),
     kit,
+    logo: null,
     gameMode: "personal",
     archetype: idea.archetype,
     businessMode: "assisted",
@@ -302,12 +306,9 @@ export function commitInput(ideaId: string, form: CommitForm) {
     archetype: form.archetype as Archetype,
     businessMode: form.businessMode,
     kit: { primary: normaliseHex(form.kit.primary) ?? DEFAULT_KIT.primary, secondary: normaliseHex(form.kit.secondary) ?? DEFAULT_KIT.secondary },
+    logo: form.logo ? { source: form.logo.source, dataUrl: form.logo.dataUrl } : null,
     currency: form.currency,
     spendCapMinor: cap === null || Number.isNaN(cap) ? null : cap,
   };
 }
 
-/** Crest seed for the preview: the slug of the name (the API slugs the name the same way, plus a suffix). */
-export function crestSeedFor(name: string, fallback: string): string {
-  return name.trim() ? slugify(name) : fallback;
-}

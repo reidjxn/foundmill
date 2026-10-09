@@ -395,7 +395,7 @@ export function conceptFixtures(): Concept[] {
         { text: rng.pick(["Pricing comparables cluster around an annual plan.", "First-customer path is a warm intro, then a pilot.", "Agents can run 70% of the weekly work in a sandbox."]), source: "Research agent" },
       ],
     }));
-    return { id: `concept-${i + 1}`, name: s.name, pitch: s.pitch, crestSeed: s.name, kit: s.kit, currentStars: s.current, potentialStars: s.potential, attributes, verdict: s.verdict, citations: 2 + rng.int(0, 4), archetypeLabel: ["DTC physical product", "B2B SaaS", "Marketplace", "Content / media"][i], version: 1 };
+    return { id: `concept-${i + 1}`, name: s.name, pitch: s.pitch, kit: s.kit, currentStars: s.current, potentialStars: s.potential, attributes, verdict: s.verdict, citations: 2 + rng.int(0, 4), archetypeLabel: ["DTC physical product", "B2B SaaS", "Marketplace", "Content / media"][i], version: 1 };
   });
 }
 

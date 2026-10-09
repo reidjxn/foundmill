@@ -4,6 +4,8 @@ import { readMigrationFiles } from "drizzle-orm/migrator";
 import { PgMaterializedView, PgTable, PgView } from "drizzle-orm/pg-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MIGRATIONS_DIR, readJournal, readMigrations } from "../migrations";
+import { appliedMigrationCount } from "../migrator";
+import type { Db } from "../client";
 import * as schema from "../schema";
 import { createTestDb, rewriteForMissingVector, type TestHarness } from "../testing/pglite";
 import { NON_TENANT_TABLES, TENANT_TABLES } from "./rls/tables";
@@ -20,7 +22,7 @@ describe("journal", () => {
   it("is readable by drizzle's own migrator and by our reader, in the same order", () => {
     const theirs = readMigrationFiles({ migrationsFolder: MIGRATIONS_DIR });
     const ours = readMigrations();
-    expect(theirs).toHaveLength(15);
+    expect(theirs).toHaveLength(18);
     expect(ours.map((m) => m.tag)).toEqual(readJournal().entries.map((e) => e.tag));
     expect(theirs.map((m) => m.folderMillis)).toEqual(ours.map((m) => m.when));
     expect(ours.map((m) => m.tag)).toEqual([
@@ -39,6 +41,9 @@ describe("journal", () => {
       "0013_workspaces",
       "0014_workspace_push",
       "0015_app_installations",
+      "0016_live_hardening",
+      "0017_business_logos",
+      "0018_business_foundations",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);
@@ -161,5 +166,16 @@ describe("Drizzle schema mirrors the SQL", () => {
     const all = drizzleTables.map((t) => getTableName(t)).sort();
     const listed = [...TENANT_TABLES.map((t) => t.name), ...NON_TENANT_TABLES].sort();
     expect(listed).toEqual(all);
+  });
+});
+
+describe("appliedMigrationCount", () => {
+  it("reads postgres.js results (an array of rows) as well as PGlite's `{ rows }`", async () => {
+    const answers = (shape: "array" | "rows") => {
+      const values = [1, 16];
+      return { execute: async () => (shape === "array" ? [{ n: values.shift() }] : { rows: [{ n: values.shift() }] }) } as unknown as Db;
+    };
+    expect(await appliedMigrationCount(answers("array"))).toBe(16);
+    expect(await appliedMigrationCount(answers("rows"))).toBe(16);
   });
 });

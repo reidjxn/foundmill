@@ -7,13 +7,13 @@
  *
  * `pnpm --filter @foundmill/db seed` runs it against DATABASE_URL (or a local PGlite directory, see src/seed.ts).
  */
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../client";
 import { repos } from "../repos";
 import { rowsOf } from "../repos/_shared";
 import { businesses, communities, founderProfiles, leaderboardEntries } from "../schema";
 import { parseOwnerEmails, stubAuthProvisioner, type AuthProvisioner } from "./auth";
-import { DEFAULT_SEED_DAYS, DEMO_BUSINESS_SLUGS, DEMO_OWNER_DISPLAY_NAME, DEMO_OWNER_EMAIL, DEMO_OWNER_USER_ID, DEMO_SEED, LEDGERLY_COMMUNITY_SLUG, LEDGERLY_SLUG, NORTHWIND_SLUG } from "./constants";
+import { DEFAULT_SEED_DAYS, DEMO_BUSINESS_SLUGS, DEMO_OWNER_DISPLAY_NAME, DEMO_OWNER_EMAIL, DEMO_OWNER_USER_ID, DEMO_SEED, LEDGERLY_SLUG, NORTHWIND_SLUG, SEED_COMMUNITY_SLUGS } from "./constants";
 import { createSeedCtx, type SeedOwner } from "./context";
 import { seedLedgerly } from "./ledgerly";
 import { seedNorthwind } from "./northwind";
@@ -64,7 +64,7 @@ export async function deleteDemoBusinesses(db: Db): Promise<number> {
       await tx.execute(sql`alter table audit_log enable trigger audit_log_immutable`);
     });
   }
-  await db.delete(communities).where(and(eq(communities.slug, LEDGERLY_COMMUNITY_SLUG)));
+  await db.delete(communities).where(inArray(communities.slug, [...SEED_COMMUNITY_SLUGS]));
   return rows.length;
 }
 

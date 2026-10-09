@@ -5,7 +5,7 @@ import { addDays, dailySeries, daysUntil, lastDays, weekKey } from "../shared/ti
 import { agentRows, pickAgent } from "../widgets/agent-of-the-week";
 import { buildFormRows, formCells } from "../widgets/channel-form-guide";
 import { forecastSeries, runwayTone } from "../widgets/cash-runway";
-import { postPreview } from "../widgets/community-feed";
+import { pickCommunity, postPreview } from "../widgets/community-feed";
 import { funnelStages } from "../widgets/funnel";
 import { previewLine } from "../widgets/inbox-preview";
 import { forecastCone, journeyHref, rippleFor, roadmapFlags } from "../widgets/journey-ribbon";
@@ -227,6 +227,14 @@ describe("text helpers", () => {
     expect(previewLine("Atlas needs a yes. The migration touches [[ent:x|Nordic]] data.")).toBe("Atlas needs a yes.");
     expect(previewLine("**No full stop here**")).toBe("No full stop here");
     expect(postPreview("# Hello  *world*", 5)).toBe("Hell…");
+    // The feed is for members: the chosen community if joined, else the first joined one, never one the founder is not in.
+    const communities = [{ id: "a", name: "A", role: null }, { id: "b", name: "B", role: "member" }, { id: "c", name: "C", role: "owner" }];
+    expect(pickCommunity(communities, null)?.id).toBe("b");
+    expect(pickCommunity(communities, "c")?.id).toBe("c");
+    expect(pickCommunity(communities, "a")?.id).toBe("b");
+    expect(pickCommunity([{ id: "a", name: "A", role: null }], null)).toBeUndefined();
+    expect(pickCommunity([{ id: "x", name: "X" }], null)?.id).toBe("x"); // an answer without roles shows the first
+    expect(pickCommunity(undefined, null)).toBeUndefined();
     expect(describeEvent({ type: "task.completed", payload: { title: "X", outcome: "partial" } })).toMatchObject({ title: "Done: X", statusWord: "Partial", tone: "warn" });
     expect(describeEvent({ type: "payment.received", payload: { amount: { amountMinor: 4900, currency: "EUR" }, firstPayment: true } }).title).toBe("Payment received · €49.00");
     expect(describeEvent({ type: "something.odd", payload: {} }).title).toBe("something odd");

@@ -14,7 +14,7 @@ import {
   Button,
   Chip,
   ContinueButton,
-  Crest,
+  BusinessLogo,
   Icon,
   ModeChip,
   ProcessingStrip,
@@ -30,6 +30,7 @@ import {
   type ProcessingSegment,
 } from "@foundmill/dugout";
 import { ACTIVITY, EXAMPLE_BUSINESS, EXAMPLE_CHAPTER, EXAMPLE_CURRENCY, EXAMPLE_KIT, EXAMPLE_RUNWAY_MONTHS, LEADS, exampleToday, type ActivityLine, type ExampleDecision, type ExampleWin } from "./example";
+import { LANDING_LOGOS } from "./logos";
 import { continueStateFor, cycleReducer, cycleStatusText, cycleTasks, initialCycleState, type CycleState, type InboxItem } from "./cycle";
 import { useSeen } from "./parts";
 
@@ -100,7 +101,7 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
       <div className="relative overflow-hidden rounded-panel border border-subtle bg-base" style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), 0 60px 120px -40px rgba(0,0,0,0.95)" }}>
         {/* The product's top bar, on the example business's brand colours. */}
         <div className="flex h-kitbar items-center gap-3 px-3 text-kit-on-primary" style={{ backgroundImage: kitBarGradient(EXAMPLE_KIT) }}>
-          <Crest seed={EXAMPLE_BUSINESS.seed} monogram={EXAMPLE_BUSINESS.monogram} kitPrimary={EXAMPLE_KIT.primary} kitSecondary={EXAMPLE_KIT.secondary} size={32} title={`${EXAMPLE_BUSINESS.name} logo`} />
+          <BusinessLogo src={LANDING_LOGOS[0]!.src} name={EXAMPLE_BUSINESS.name} primary={EXAMPLE_KIT.primary} size={32} />
           <span className="t-display-sm whitespace-nowrap">{EXAMPLE_BUSINESS.name}</span>
           <span aria-hidden className="mx-1 h-5 w-px bg-kit-on-primary/25" />
           <span className="t-display-md">Home</span>

@@ -52,7 +52,7 @@ export async function migrateOnBoot(deps: ApiDeps): Promise<boolean> {
       await db.execute(sql`select pg_advisory_lock(${MIGRATION_LOCK_KEY})`);
       try {
         const result = await migrateDb(deps.db);
-        deps.log.info({ driver: "postgres", applied: result?.applied?.length ?? null }, "migrations applied (migrateDb)");
+        deps.log.info({ driver: "postgres", applied: result?.applied?.length ?? null, total: result?.total ?? null, latest: result?.applied?.at(-1) ?? null }, "migrations applied (migrateDb)");
       } finally {
         // eslint-disable-next-line fm/no-raw-db -- release the advisory lock
         await db.execute(sql`select pg_advisory_unlock(${MIGRATION_LOCK_KEY})`);

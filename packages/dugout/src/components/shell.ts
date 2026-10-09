@@ -11,6 +11,7 @@ export * from "./shell/StopAllAgents";
 export * from "./shell/ProcessingStrip";
 export * from "./shell/TabBar";
 export * from "./shell/Panel";
+export * from "./shell/FoundationsStatus";
 export * from "./shell/RightRail";
 export * from "./shell/CommandPalette";
 export * from "./shell/NeedsLargerWindow";

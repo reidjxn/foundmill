@@ -254,6 +254,8 @@ export interface CommunityRow {
   name: string;
   slug?: string;
   memberCount?: number;
+  /** The founder's role in it; null when they have not joined (the feed is for members). Absent on older answers. */
+  role?: string | null;
 }
 export interface CommunityPostRow {
   id: string;

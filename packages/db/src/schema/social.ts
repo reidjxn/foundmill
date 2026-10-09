@@ -1,5 +1,6 @@
 /** 0012 — LIVE social: public profiles view, connections, messages, communities, leaderboards, negotiations. */
 import { ARCHETYPES, DATA_REGIONS, VISIBILITY } from "@foundmill/shared";
+import { sql } from "drizzle-orm";
 import { boolean, index, integer, jsonb, numeric, pgTable, pgView, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { emptyArray, emptyObject, id, timestamps, timestampsWithArchive, tstz } from "./_common";
@@ -38,10 +39,15 @@ export const connections = pgTable(
     status: text("status", { enum: CONNECTION_STATUSES }).notNull().default("requested"),
     message: text("message"),
     respondedAt: tstz("responded_at"),
+    /** Who blocked (0016): set exactly when `status` is "blocked"; only they may change or delete the row. */
+    blockedBy: uuid("blocked_by").references(() => authUsers.id, { onDelete: "cascade" }),
     ...timestamps(),
   },
   (t) => [
     uniqueIndex("connections_from_user_to_user_key").on(t.fromUser, t.toUser),
+    index("connections_blocked_by_idx").on(t.blockedBy),
+    // One row per pair of people, whichever of them asked (0016).
+    uniqueIndex("connections_pair_key").on(sql`least(${t.fromUser}, ${t.toUser})`, sql`greatest(${t.fromUser}, ${t.toUser})`),
     index("connections_to_user_idx").on(t.toUser, t.status),
     index("connections_from_user_idx").on(t.fromUser, t.status),
   ],

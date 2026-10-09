@@ -22,7 +22,7 @@ import { LAST_BUSINESS_COOKIE, SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/const
 import { computeContinueState, respondHref, unviewedWin } from "@/lib/continue-state";
 import { CYCLE_EVENT_TYPES, cycleFromSnapshot, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus, EMPTY_CYCLE } from "@/lib/cycle";
 import { publicEnv } from "@/lib/env";
-import { monogram } from "@/lib/format";
+import { useBusinessLogoSrc } from "@/components/logo/useBusinessLogo";
 import { KeyboardRegistryProvider, createKeyboardRegistry, useRegisteredShortcuts } from "@/lib/keys";
 import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } from "@/lib/search";
 import { SIDEBAR_BRAND, activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
@@ -134,10 +134,31 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const financeQ = useQuery(trpc.finance.overview.queryOptions({ businessId }, { staleTime: 60_000, retry: false }));
   const cycleQ = useQuery(trpc.cycle.status.queryOptions({ businessId }, { staleTime: 10_000, refetchInterval: CYCLE_POLL_MS, retry: false }));
 
+  // --- foundations: the first open drafts the vision, specification and roadmap (BUILD §11.1, §11.5) ---------------
+  // `product.foundations.ensure` is idempotent on the server (it claims a pending draft exactly once, so two tabs or a
+  // reload never start it twice); this keeps it to one call per business per mount. It never blocks the page: the
+  // drafting runs in the background and Home and the Product tabs poll `product.foundations.get`.
+  const ensureFoundations = useMutation(
+    trpc.product.foundations.ensure.mutationOptions({
+      retry: 2,
+      onSuccess: (view) => {
+        if (view.started || view.status !== "none") void queryClient.invalidateQueries({ queryKey: trpc.product.foundations.get.queryKey({ businessId }) });
+      },
+    }),
+  );
+  const ensureFor = ensureFoundations.mutate;
+  const ensuredBusiness = useRef<string | null>(null);
+  useEffect(() => {
+    if (ensuredBusiness.current === businessId) return;
+    ensuredBusiness.current = businessId;
+    ensureFor({ businessId });
+  }, [businessId, ensureFor]);
+
   const data = businessQ.data ?? initialBusiness;
   const departments = departmentsQ.data ?? initialDepartments;
   const visibleDepartments = useMemo(() => orderedVisibleDepartments(departments), [departments]);
   const business = data.business;
+  const logoSrc = useBusinessLogoSrc(businessId, data.logo);
   const live = business.gameMode === "live";
   const currency = financeQ.data?.cash.currency ?? "EUR";
 
@@ -354,7 +375,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 mode={business.gameMode}
                 businessMode={business.businessMode}
                 kit={data.kit}
-                crest={{ seed: business.slug || business.id, monogram: monogram(business.name) }}
+                logoSrc={logoSrc}
                 businessName={business.name}
                 screenTitle={chrome.title ?? "Home"}
                 sidebar={{ items: sidebarItems, activeId, collapsed, onCollapsedChange, brand: SIDEBAR_BRAND }}

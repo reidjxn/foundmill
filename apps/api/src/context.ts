@@ -14,6 +14,7 @@ import type { StreamRedis } from "@foundmill/events";
 import type { ModelClient } from "@foundmill/models";
 import { createDefaultRegistry, type ConnectorRegistry } from "@foundmill/connectors";
 import { createAuthVerifier, type AuthVerifier } from "./auth";
+import { requestIdFrom } from "./request-id";
 import { createComposerClient, type ComposerClient } from "./services/composer";
 import { createApiModelClient } from "./services/models";
 import { createRedis } from "./services/redis";
@@ -144,7 +145,7 @@ export function createContextFactory(deps: ApiDeps) {
   return async (opts: FetchCreateContextFnOptions, c?: HonoContext): Promise<Context> => {
     const authorization = opts.req.headers.get("authorization");
     const user = await deps.auth.resolve(authorization);
-    const requestId = c?.get("requestId") ?? opts.req.headers.get("x-request-id") ?? crypto.randomUUID();
+    const requestId = c?.get("requestId") ?? requestIdFrom(opts.req.headers.get("x-request-id"));
     return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, requestId };
   };
 }

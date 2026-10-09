@@ -104,12 +104,12 @@ try {
     if (v === undefined) problems.push(`${name} is not exported from the barrel`);
     else if (v && v.$$typeof === Symbol.for("react.client.reference")) problems.push(`${name} became a client reference (its file carries "use client")`);
   }
-  // A pure component renders on the server: Crest and StatusPill produce elements without hooks.
+  // A pure component renders on the server: BusinessLogo and StatusPill produce elements without hooks.
   const { createElement } = react;
   const el = createElement(dugout.StatusPill, { tone: "good" }, "Healthy");
   if (!el || typeof el !== "object") problems.push("StatusPill did not produce an element");
-  const svg = dugout.generateCrest({ seed: "northwind", monogram: "NW", kitPrimary: "#2B6CB0", kitSecondary: "#FFFFFF", size: 32 });
-  if (typeof svg !== "string" || !svg.includes("<svg")) problems.push("generateCrest did not return SVG markup");
+  const logo = dugout.BusinessLogo({ name: "Northwind", primary: "#2B6CB0", size: 32 });
+  if (!logo || typeof logo !== "object") problems.push("BusinessLogo did not produce an element");
 
   const exported = Object.keys(dugout).length;
   console.log(`barrel loaded under react-server: ${exported} exports, ${clientModules.size} dugout client modules stubbed, ${clientLibraryModules.size} library modules with their own "use client"`);

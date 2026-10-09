@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+// A relative import on purpose (as playwright.config.ts does for the seed constants): the fixture is Node-only.
+import { makePng } from "../../../packages/shared/src/testing/logo-fixtures";
 
 /**
  * Shared steps for the apps/web screen specs (e2e/README.md). The stack is the PGlite-backed local one: the dev bypass
@@ -73,6 +75,11 @@ export async function ensureDeck(page: Page, minimum = 1): Promise<void> {
 /** Fails the test early with a clear message when the seed lacks something a spec relies on (never a skip). */
 export function seedExpectation(condition: boolean, what: string): void {
   expect(condition, `${what}: re-seed with \`SEED_TARGET=pglite SEED_PGLITE_DIR=./.pglite/e2e pnpm --filter @foundmill/db seed\` (apps/web/e2e/README.md)`).toBe(true);
+}
+
+/** A real 256 px PNG logo in a saturated orange, for the upload specs. */
+export function logoPng(): Buffer {
+  return Buffer.from(makePng(256, 256, [214, 92, 38, 255]));
 }
 
 export { test, expect };

@@ -10,7 +10,7 @@ import { eq } from "drizzle-orm";
 import { repos } from "../repos";
 import { agentSessions, type Entity } from "../schema";
 import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSpec, seedTasks, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
-import { DEMO_OWNER_DISPLAY_NAME, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, LEDGERLY_GITHUB_REPO, LEDGERLY_NAME, LEDGERLY_SLUG } from "./constants";
+import { BOOTSTRAPPED_COMMUNITY_SLUG, DEMO_OWNER_DISPLAY_NAME, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, LEDGERLY_GITHUB_REPO, LEDGERLY_NAME, LEDGERLY_SLUG } from "./constants";
 import { addDays, addHours, atHour, mention, money, pct, quarterKey, type SeedCtx } from "./context";
 import { seedFinance } from "./finance";
 import { seedJourney } from "./journey";
@@ -347,10 +347,15 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
 
   // --- social: community and leaderboard (LIVE) ----------------------------------------------------------------------
   const community = await repos.social.createCommunity(db, { name: "Fintech ops founders", slug: LEDGERLY_COMMUNITY_SLUG, descriptionMd: "Founders selling to operations teams at fintechs. Benchmarks are shared as verified metrics only.", visibility: "public", ownerBusinessId: businessId, createdBy: ctx.owner.userId });
-  await repos.social.createPost(db, { communityId: community.id, authorUserId: ctx.owner.userId, businessId, bodyMd: "We moved first-touch to outbound for UK fintechs and the time to first reply halved. Lawful basis per country is the whole game." });
+  const outboundPost = await repos.social.createPost(db, { communityId: community.id, authorUserId: ctx.owner.userId, businessId, bodyMd: "We moved first-touch to outbound for UK fintechs and the time to first reply halved. Lawful basis per country is the whole game." });
+  await repos.social.createPost(db, { communityId: community.id, authorUserId: ctx.owner.userId, businessId, parentPostId: outboundPost.id, bodyMd: "Follow-up: the same pattern held for Irish fintechs in September, with a slightly longer legitimate-interest review." });
   await repos.social.createPost(db, { communityId: community.id, authorUserId: ctx.owner.userId, businessId, bodyMd: "Question for the room: does anyone run share-of-answer panels for AI assistants and treat them as more than approximate?" });
+  // A second public community nobody has joined (no creator, so no members): the demo founder sees Join on offer.
+  await repos.social.createCommunity(db, { name: "Bootstrapped founders", slug: BOOTSTRAPPED_COMMUNITY_SLUG, descriptionMd: "Founders building without outside funding. Share what you tried, what it cost and what it returned.", visibility: "public" });
   const board = await repos.social.upsertLeaderboard(db, { boardKind: "growth", division: "b2b_saas", period: quarterKey(ctx.today), metric: "mrr_growth_pct", archetype: "b2b_saas", region: "eu" });
   await repos.social.setLeaderboardEntries(db, board.id, [{ businessId, metricValue: 18.4, verified: true, form: "WWDLW" }]);
+  const customersBoard = await repos.social.upsertLeaderboard(db, { boardKind: "customers_won", division: "b2b_saas", period: quarterKey(ctx.today), metric: "customers_won", archetype: "b2b_saas", region: "eu" });
+  await repos.social.setLeaderboardEntries(db, customersBoard.id, [{ businessId, metricValue: journey.paidCustomers, verified: true, form: "WLWWW" }]);
 
   await seedDashboards(ctx, businessId);
 

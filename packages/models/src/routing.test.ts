@@ -12,6 +12,8 @@ describe("routing (BUILD §10.1)", () => {
       planner: { model: "opus" },
       codeReview: { model: "opus" },
       ideation: { model: "opus" },
+      logoDesigner: { model: "opus" },
+      foundations: { model: "opus" },
       skillGrader: { model: "opus" },
       coach: { model: "opus" },
       worker: { model: "sonnet" },

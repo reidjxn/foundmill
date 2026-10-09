@@ -175,6 +175,17 @@ export function rowsOf<T extends Record<string, unknown> = Record<string, unknow
   return [];
 }
 
+/** The Postgres SQLSTATE of a database error, looking through Drizzle's wrapper (`DrizzleQueryError.cause`). */
+export function sqlState(err: unknown): string | undefined {
+  let e: unknown = err;
+  for (let depth = 0; depth < 4 && e && typeof e === "object"; depth++) {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) return code;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
 /** Parses with a Zod schema and rethrows as the platform's ValidationError (400) with the issues attached. */
 export function parseInput<S extends z.ZodType>(schema: S, input: unknown, what: string): z.output<S> {
   const result = schema.safeParse(input);
