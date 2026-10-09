@@ -12,6 +12,7 @@ import {
   msToDay,
   niceTicks,
   NO_DEPARTMENT_ID,
+  revealWidth,
   runwayToneFor,
   scrollForToday,
   scrollKeepingDay,
@@ -254,5 +255,17 @@ describe("performance (AC-11.2.1)", () => {
     const elapsed = performance.now() - t0;
     expect(paths).toBeGreaterThan(4 * 100);
     expect(elapsed).toBeLessThan(2000);
+  });
+});
+
+describe("revealWidth", () => {
+  it("eases from 0 to the plot width and never goes negative when a frame predates the start", () => {
+    expect(revealWidth(1000, 1000, 1200, 800)).toBe(0);
+    // requestAnimationFrame hands over the frame's start, which can be before the animation began.
+    for (const early of [1, 7, 25, 400]) expect(revealWidth(1000 - early, 1000, 1200, 800)).toBe(0);
+    expect(revealWidth(1600, 1000, 1200, 800)).toBe(700);
+    expect(revealWidth(2200, 1000, 1200, 800)).toBe(800);
+    expect(revealWidth(9000, 1000, 1200, 800)).toBe(800);
+    expect(revealWidth(1600, 1000, 1200, -5)).toBe(0);
   });
 });

@@ -1,5 +1,5 @@
 "use client";
-import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useId, type HTMLAttributes, type ReactNode } from "react";
 import { Info, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "../../lib/cn";
 import {
@@ -33,7 +33,10 @@ export interface MetricTileProps extends Omit<HTMLAttributes<HTMLDivElement>, "t
   /** Secondary line in small style. */
   caption?: ReactNode;
   loading?: boolean;
-  /** Tile becomes a button. */
+  /**
+   * Makes the whole tile clickable: a button covers the tile (named by its label and value) and the provenance button
+   * sits above it, so no button is ever nested in another.
+   */
   onClick?: () => void;
   size?: "md" | "lg";
 }
@@ -112,7 +115,8 @@ function ProvenanceTip({ p }: { p: MetricProvenance }) {
 
 /**
  * MetricTile (DESIGN §9): display-lg figure, label caption, delta with an arrow, 48 px sparkline, provenance on hover,
- * Forecast/Estimate chip when the number is not real. Big numbers never animate digit by digit.
+ * Forecast/Estimate chip when the number is not real. Big numbers never animate digit by digit. The tile itself is a
+ * plain container (a StatusStrip gives it `role="listitem"`); when clickable it holds a covering button.
  */
 export const MetricTile = forwardRef<HTMLDivElement, MetricTileProps>(function MetricTile(
   {
@@ -134,29 +138,37 @@ export const MetricTile = forwardRef<HTMLDivElement, MetricTileProps>(function M
   ref,
 ) {
   const text = formatMetricValue(value, format);
-  const Comp = (onClick ? "button" : "div") as "div";
+  const id = useId();
   return (
-    <Comp
+    <div
       ref={ref}
-      {...(onClick ? { type: "button" } : {})}
-      onClick={onClick ? () => onClick() : undefined}
       aria-busy={loading || undefined}
       data-metric-tile
       className={cn(
-        "flex min-w-0 flex-col justify-between gap-1 bg-panel p-panel-pad text-left",
-        onClick &&
-          "cursor-pointer transition-colors duration-micro ease-dugout hover:bg-panel-alt focus-visible:outline-2",
+        "relative flex min-w-0 flex-col justify-between gap-1 bg-panel p-panel-pad text-left",
+        onClick && "cursor-pointer transition-colors duration-micro ease-dugout hover:bg-panel-alt",
         className,
       )}
       {...rest}
     >
+      {onClick ? (
+        <button
+          type="button"
+          onClick={() => onClick()}
+          aria-labelledby={`${id}-label ${id}-value`}
+          data-metric-action
+          className="absolute inset-0 cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2"
+        />
+      ) : null}
       <div className="flex items-center gap-1">
-        <span className="t-label min-w-0 flex-1 truncate">{label}</span>
+        <span id={`${id}-label`} className="t-label min-w-0 flex-1 truncate">
+          {label}
+        </span>
         {provenance ? (
           <Tooltip content={<ProvenanceTip p={provenance} />} side="top" align="end">
             <button
               type="button"
-              className="inline-flex size-4 items-center justify-center rounded-chip text-secondary hover:text-primary focus-visible:outline-2"
+              className="relative z-10 inline-flex size-4 items-center justify-center rounded-chip text-secondary hover:text-primary focus-visible:outline-2"
               aria-label={`Where this number comes from: ${provenance.source}`}
             >
               <Icon icon={Info} size={12} />
@@ -169,13 +181,14 @@ export const MetricTile = forwardRef<HTMLDivElement, MetricTileProps>(function M
       ) : (
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
           <span
+            id={`${id}-value`}
             className={cn(size === "lg" ? "t-display-xl" : "t-display-lg", "text-primary")}
             data-value={text}
           >
             {text}
             {unit ? <span className="ml-0.5 text-display-sm text-secondary">{unit}</span> : null}
           </span>
-          {estimate ? <ProvenanceChip kind={estimate} /> : null}
+          {estimate ? <ProvenanceChip kind={estimate} className="relative z-10" /> : null}
           {delta ? <DeltaBadge delta={delta} /> : null}
         </div>
       )}
@@ -191,7 +204,7 @@ export const MetricTile = forwardRef<HTMLDivElement, MetricTileProps>(function M
           ) : null}
         </div>
       ) : null}
-    </Comp>
+    </div>
   );
 });
 

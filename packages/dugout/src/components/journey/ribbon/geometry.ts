@@ -661,6 +661,15 @@ export function forecastAt(forecast: readonly ForecastPoint[] | undefined, day: 
 /* ---------- Scrolling helpers ---------- */
 
 /** Clamp a scroll offset so the window stays inside the ribbon. */
+/**
+ * Width of the flow-in reveal mask at a frame: ease-out cubic from 0 to `plotW`. A frame's timestamp can be earlier
+ * than the moment the animation started, so progress is clamped to 0–1 and the width is never negative.
+ */
+export function revealWidth(now: number, start: number, durationMs: number, plotW: number): number {
+  const t = Math.min(1, Math.max(0, (now - start) / durationMs));
+  return Math.ceil((1 - Math.pow(1 - t, 3)) * Math.max(0, plotW));
+}
+
 export function clampScroll(scrollX: number, totalWidth: number, width: number): number {
   return Math.max(0, Math.min(Math.max(0, totalWidth - width), scrollX));
 }

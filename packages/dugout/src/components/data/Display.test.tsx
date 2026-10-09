@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { AttributeBars } from "./AttributeBars";
@@ -186,6 +186,28 @@ describe("MetricTile and StatusStrip", () => {
     const tiles = Array.from({ length: 8 }, (_, i) => ({ label: `Tile ${i}`, value: i }));
     render(<StatusStrip tiles={tiles} />);
     expect(screen.getAllByRole("listitem")).toHaveLength(6);
+  });
+  it("a clickable tile is a list item holding one button beside its provenance button, never around it", () => {
+    const opened: string[] = [];
+    const { container } = render(
+      <StatusStrip
+        tiles={[
+          { label: "Cash", value: { amountMinor: 184000, currency: "EUR" }, provenance: { source: "Bank balances" }, onClick: () => opened.push("cash") },
+          { label: "Runway", value: 11.4, format: "decimal", estimate: "estimate", onClick: () => opened.push("runway") },
+          { label: "Plain", value: 3 },
+        ]}
+      />,
+    );
+    expect(container.querySelectorAll("button button")).toHaveLength(0);
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+    const cash = screen.getByRole("button", { name: "Cash €1,840.00" });
+    fireEvent.click(cash);
+    fireEvent.click(screen.getByRole("button", { name: "Runway 11.4" }));
+    expect(opened).toEqual(["cash", "runway"]);
+    // The provenance button is its own control: opening it does not open the tile.
+    fireEvent.click(screen.getByRole("button", { name: /Where this number comes from: Bank balances/ }));
+    expect(opened).toEqual(["cash", "runway"]);
+    expect(screen.getAllByRole("button")).toHaveLength(3);
   });
 });
 

@@ -16,6 +16,7 @@ import {
   clampScroll,
   forecastAt,
   indexDailyRows,
+  revealWidth,
   scrollForToday,
   scrollKeepingDay,
   summariseDay,
@@ -237,14 +238,13 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
     let raf = 0;
     const started = { sweep: false };
     const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / RIBBON_FLOW_IN_MS);
-      const e = 1 - Math.pow(1 - t, 3);
-      rect.setAttribute("width", String(Math.ceil(e * plotW)));
+      const elapsed = Math.max(0, now - start);
+      rect.setAttribute("width", String(revealWidth(now, start, RIBBON_FLOW_IN_MS, plotW)));
       if (!started.sweep && pixiRef.current?.ready()) {
         started.sweep = true;
-        pixiRef.current.sweep(RIBBON_FLOW_IN_MS - (now - start), kitHexRef.current || "#ffffff", { top: RIBBON_TOOLBAR + layout.revenueTop, bottom: RIBBON_TOOLBAR + layout.axisTop });
+        pixiRef.current.sweep(RIBBON_FLOW_IN_MS - elapsed, kitHexRef.current || "#ffffff", { top: RIBBON_TOOLBAR + layout.revenueTop, bottom: RIBBON_TOOLBAR + layout.axisTop });
       }
-      if (t < 1) raf = requestAnimationFrame(tick);
+      if (elapsed < RIBBON_FLOW_IN_MS) raf = requestAnimationFrame(tick);
       else setRevealed(true);
     };
     raf = requestAnimationFrame(tick);
