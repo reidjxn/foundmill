@@ -219,7 +219,8 @@ export const foundationsRepo = {
       const author = inputs.authorAgentId;
       const importedIds = new Map(inputs.importedSources.map((s) => [s.id, s] as const));
       const writtenBlockIds: string[] = [];
-      const kept: { section: string; reason: "pinned" | "written" }[] = [];
+      const kept: { section: string; reason: "pinned" | "written" | "removed" }[] = [];
+      const blocksNow = new Map((await productRepo.listBlocks(tx, businessId)).map((b) => [b.id, b] as const));
       for (const s of draft.sections) {
         if (!s.drafted) continue;
         const sources = [...importedIds.values()].filter((src) => s.sourceRefs.some((r) => r === src.id || r === src.title || (src.uri && r === src.uri))).map((src) => src.id);
@@ -228,18 +229,12 @@ export const foundationsRepo = {
           writtenBlockIds.push(created.id);
           continue;
         }
-        const block = await productRepo.getBlock(tx, businessId, s.blockId);
-        if (block.archivedAt) continue;
-        if (block.pinned) {
-          kept.push({ section: s.section, reason: "pinned" });
-          continue;
-        }
-        if (pmText(block.content).trim()) {
-          kept.push({ section: s.section, reason: "written" });
-          continue;
-        }
-        await productRepo.editBlock(tx, businessId, block.id, { content: s.content, sources, authoredByKind: "agent", authoredBy: author });
-        writtenBlockIds.push(block.id);
+        const block = blocksNow.get(s.blockId);
+        // Removed (archived) since the drafting read it, pinned by a human edit, or already written: left alone.
+        const reason = !block ? "removed" : block.pinned ? "pinned" : pmText(block.content).trim() ? "written" : null;
+        const written = reason === null ? await productRepo.writeAgentDraft(tx, businessId, s.blockId, { content: s.content, sources, authoredBy: author }) : null;
+        if (written) writtenBlockIds.push(written.id);
+        else kept.push({ section: s.section, reason: reason ?? "pinned" });
       }
 
       // Roadmap items after whatever already sits in each horizon.

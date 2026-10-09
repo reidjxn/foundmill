@@ -102,6 +102,20 @@ describe("foundations", () => {
     expect((await repos.product.listRoadmap(r.db, businessId)).length).toBe(before.length + 2);
   });
 
+  it("an agent draft is written in the same statement that checks the block is live and not pinned", async () => {
+    const { businessId } = r.B;
+    const open = await repos.product.createBlock(r.db, businessId, { section: "Risks", authoredByKind: "system" });
+    const mine = await repos.product.createBlock(r.db, businessId, { section: "Data", authoredByKind: "user", pinned: true, content: doc("Ours.") });
+    const gone = await repos.product.createBlock(r.db, businessId, { section: "Integrations", authoredByKind: "system" });
+    await repos.product.archiveBlock(r.db, businessId, gone.id);
+    const written = await repos.product.writeAgentDraft(r.db, businessId, open.id, { content: doc("Drafted.") });
+    expect(written).toMatchObject({ authoredByKind: "agent", version: open.version + 1, content: doc("Drafted.") });
+    expect(await repos.product.writeAgentDraft(r.db, businessId, mine.id, { content: doc("Drafted.") })).toBeNull();
+    expect(await repos.product.writeAgentDraft(r.db, businessId, gone.id, { content: doc("Drafted.") })).toBeNull();
+    expect((await repos.product.getBlock(r.db, businessId, mine.id)).content).toEqual(doc("Ours."));
+    expect(await repos.product.writeAgentDraft(r.db, r.A.businessId, open.id, { content: doc("Other business.") })).toBeNull();
+  });
+
   it("fail only touches the current drafting attempt; a failed row is claimed again by a retry", async () => {
     const { businessId } = r.B;
     await r.svc((tx) => repos.foundations.create(tx, businessId, { door: "ideation" }));

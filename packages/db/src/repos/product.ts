@@ -139,6 +139,20 @@ export const productRepo = {
     );
   },
 
+  /**
+   * An agent's draft of a block (the foundations drafting): written only while the block is live and not pinned, in
+   * the same statement, so a human edit that pins it a moment earlier always wins (AC-11.5.3). Null when not written.
+   */
+  async writeAgentDraft(db: Executor, businessId: string, blockId: string, input: { content: Record<string, unknown>; sources?: string[]; authoredBy?: string | null }): Promise<SpecBlock | null> {
+    const v = parseInput(EditSpecBlockInput, { content: input.content, sources: input.sources, authoredByKind: "agent", authoredBy: input.authoredBy ?? null }, "spec block draft");
+    const rows = await db
+      .update(specBlocks)
+      .set({ ...defined(v), version: sql`${specBlocks.version} + 1` })
+      .where(and(eq(specBlocks.businessId, businessId), eq(specBlocks.id, blockId), isNull(specBlocks.archivedAt), eq(specBlocks.pinned, false)))
+      .returning();
+    return rows[0] ?? null;
+  },
+
   async archiveBlock(db: Executor, businessId: string, blockId: string): Promise<SpecBlock> {
     return one(await db.update(specBlocks).set({ archivedAt: new Date() }).where(and(eq(specBlocks.businessId, businessId), eq(specBlocks.id, blockId))).returning(), "spec block", blockId);
   },

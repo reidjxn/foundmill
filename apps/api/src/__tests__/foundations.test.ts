@@ -238,8 +238,9 @@ describe("product.foundations — Door B (Import)", () => {
 
     // The Board's first item carries the import's suggested first decisions.
     expect(result.boardItem.subject).toBe("Where should the team start with what you imported?");
-    expect(result.boardItem.decision?.options.map((o) => o.id)).toEqual(report.firstDecisions.map((d) => d.id));
-    expect(result.boardItem.decision?.options.filter((o) => o.recommended)).toHaveLength(1);
+    const decision = result.boardItem.decision as { options: { id: string; recommended: boolean }[] } | null;
+    expect(decision?.options.map((o) => o.id)).toEqual(report.firstDecisions.map((d) => d.id));
+    expect(decision?.options.filter((o) => o.recommended)).toHaveLength(1);
 
     await f.caller.product.foundations.ensure({ businessId: bid });
     await settleFoundationRuns();
