@@ -172,13 +172,19 @@ export const integrationsRepo = {
     });
   },
 
-  /** Disconnect: status disconnected, credentials and webhooks archived (ciphertext stays for the audit trail, never usable). */
+  /**
+   * Disconnect: status disconnected, credentials and webhooks archived (ciphertext stays for the audit trail, never
+   * usable), and a verified App installation forgotten, so connecting again needs the account's owner again (a row
+   * edited back to "connected" is never enough).
+   */
   async disconnect(db: Executor, businessId: string, integrationId: string): Promise<Integration> {
     return db.transaction(async (tx) => {
       const now = new Date();
       await tx.update(credentials).set({ archivedAt: now }).where(and(eq(credentials.businessId, businessId), eq(credentials.integrationId, integrationId), isNull(credentials.archivedAt)));
       await tx.update(webhooks).set({ status: "paused", archivedAt: now }).where(and(eq(webhooks.businessId, businessId), eq(webhooks.integrationId, integrationId), isNull(webhooks.archivedAt)));
-      return one(await tx.update(integrations).set({ status: "disconnected", scopes: [], lastError: null }).where(scoped(businessId, integrationId)).returning(), "integration", integrationId);
+      const row = one(await tx.update(integrations).set({ status: "disconnected", scopes: [], lastError: null }).where(scoped(businessId, integrationId)).returning(), "integration", integrationId);
+      await tx.delete(appInstallations).where(and(eq(appInstallations.businessId, businessId), eq(appInstallations.connectorKey, row.connectorKey)));
+      return row;
     });
   },
 

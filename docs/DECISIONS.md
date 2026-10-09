@@ -918,7 +918,8 @@ FM is only the favicon, the app icon and the `public/brand` files. The Wordmark 
 A second review of the fixes above found two more ways to reach another account's installation, and some smaller gaps. This entry supersedes the earlier two where they differ.
 
 - **The verified installation lives in `app_installations` (0015).**
-  - The gateway writes it with the service role after its connect check. Owners and admins read it; no app role writes it.
+  - The gateway writes it with the service role after its connect check. Members read it, as they read `integrations`; no app role writes it.
+  - Disconnecting deletes it, so an integration edited back to "connected" does not bring an installation back without its owner.
   - The gateway mints installation tokens, and runs health checks, only when the integration names the installation recorded there.
   - Why: `settings.config.verifiedAt` on `integrations` could be forged by an owner writing the row straight through PostgREST (`integrations` is writable by owners and admins). SEC-8 is still open: removing `public` from Supabase's exposed schemas is a founder step in the Supabase dashboard.
 - **Only the account's owner connects it.** Being listed in `GET /user/installations` only means having access to one of its repositories, which includes collaborators and org members. Connecting now also requires one of:
@@ -935,3 +936,17 @@ A second review of the fixes above found two more ways to reach another account'
   - The GitHub mock has a 100 MB total budget, forgetting the least recently used business first.
   - The untrusted seed falls back to "everything untrusted" past 512 KB, so `/v1/session-tokens`' 1 MB limit never stops a task's sessions from starting.
 - **Wording.** `.github` is never written, but `[skip ci]` and the `.github` refusal do not stop CI from running agent code: workflows on other events, scripts kept elsewhere, and services that ignore `[skip ci]` still run it. The opt-in with its warning is the control.
+
+**Third review (same day).**
+
+Fixed:
+- Disconnect forgets the verified installation.
+- The simulated GitHub refuses a commit that would make one branch outgrow its business's budget.
+- `/v1/integrations/*` accepts only the api's service token.
+- `[skip ci]` is matched exactly, so an agent's `[SKIP CI]` does not stop the real marker being added.
+- The founder's push settings cover every GitHub tool that changes a repository (`create_branch`, `commit_files`, `open_pr`, `merge_pr`), and a refusal is audited as a deny (`github-push-settings`).
+- Every request to GitHub times out after 60 s.
+
+Not done yet:
+- **Re-checking the verifier.** The verifier is checked once, at connect time. Re-checking on health that they are still an organisation admin, and storing their numeric GitHub id instead of the login, would close the "admin who later leaves" gap.
+- **App webhooks.** They stay off until ingest routes GitHub App deliveries by installation through `app_installations`. Routing by `integrations.settings` would let a business claim another's events.

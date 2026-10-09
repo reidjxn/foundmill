@@ -9,7 +9,7 @@ import { repos } from "@foundmill/db";
 import { storeCredential } from "../credentials";
 import { GatewayClientError } from "../client";
 import { createGatewayApp, MAX_CALL_BODY_BYTES, MAX_MCP_BODY_BYTES, MAX_SERVICE_BODY_BYTES } from "../app";
-import { guardGithubCommit, modeFor } from "../pipeline";
+import { guardGithubWrite, modeFor } from "../pipeline";
 import { signServiceToken } from "../tokens";
 import { hashRecipient } from "../recipients";
 import { SAFE_EMAIL, setupGateway, TEST_CONNECTOR, TEST_SECRET, UNTRUSTED_EMAIL, type GatewayFixture } from "./harness";
@@ -402,6 +402,10 @@ describe("live mode: App connectors (GitHub)", () => {
       expect(live.seen.at(-1)).toMatchObject({ mode: "live", credentialSecret: null, integrationStatus: "connected" });
       await repos.integrations.disconnect(live.db, live.businessId, live.integrationId);
       await expect(call()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
+      // Disconnecting forgets the verification: writing the row back to connected does not bring the installation back.
+      expect(await repos.integrations.verifiedInstallation(live.db, live.businessId, TEST_CONNECTOR)).toBeNull();
+      await setRow("connected", "111");
+      await expect(call()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
     } finally {
       await live.close();
     }
@@ -426,6 +430,8 @@ describe("live mode: App connectors (GitHub)", () => {
         return { status: res.status, body: (await res.json()) as Record<string, unknown> };
       };
       const service = await signServiceToken(TEST_SECRET, "api");
+      // Only the api connects installations; another service's token is refused.
+      expect(await post("/v1/integrations/connect", { businessId: live.businessId, connector: TEST_CONNECTOR, input: { installationId: 1, code: "c0de" } }, await signServiceToken(TEST_SECRET, "orchestrator"))).toMatchObject({ status: 403, body: { error: { code: "forbidden_service" } } });
 
       expect((await post("/v1/integrations/connect", { businessId: live.businessId, connector: TEST_CONNECTOR, input: { installationId: 1, code: "c0de" } })).status).toBe(401);
       expect((await post("/v1/integrations/connect", { businessId: live.businessId, connector: TEST_CONNECTOR, input: {} }, await live.token())).status).toBe(401);
@@ -463,15 +469,24 @@ describe("live mode: App connectors (GitHub)", () => {
   });
 });
 
-describe("GitHub commits follow the founder's push settings", () => {
-  it("writes only to the chosen repository, only while pushing is on, and always with [skip ci]", () => {
-    const row = (settings: Record<string, unknown>) => ({ id: "i1", status: "connected", archivedAt: null, settings }) as unknown as Parameters<typeof guardGithubCommit>[0];
+describe("GitHub writes follow the founder's push settings", () => {
+  it("change only the chosen repository, only while pushing is on, and commits always say [skip ci]; reads are free", () => {
+    const row = (settings: Record<string, unknown>) => ({ id: "i1", status: "connected", archivedAt: null, settings }) as unknown as Parameters<typeof guardGithubWrite>[1];
+    const on = row({ repo: "acme/shop", writeEnabled: true });
     const args = { owner: "Acme", repo: "Shop", branch: "agent/t1", message: "Code saved", files: [] };
-    expect(() => guardGithubCommit(null, args)).toThrow(expect.objectContaining({ code: "push_not_enabled", status: 422 }));
-    expect(() => guardGithubCommit(row({ repo: "acme/shop" }), args)).toThrow(expect.objectContaining({ code: "push_not_enabled" }));
-    expect(() => guardGithubCommit(row({ repo: "acme/other", writeEnabled: true }), args)).toThrow(expect.objectContaining({ code: "repository_not_allowed" }));
-    expect(guardGithubCommit(row({ repo: "acme/shop", writeEnabled: true }), args)).toEqual({ ...args, message: "Code saved\n\n[skip ci]" });
-    expect(guardGithubCommit(row({ repo: "acme/shop", writeEnabled: true }), { ...args, message: "x [skip ci]" }).message).toBe("x [skip ci]");
+    expect(guardGithubWrite("commit_files", null, args)).toEqual({ reason: "Pushing to GitHub is not turned on for this business (Development › Code)" });
+    expect(guardGithubWrite("commit_files", row({ repo: "acme/shop" }), args)).toMatchObject({ reason: expect.stringContaining("not turned on") });
+    expect(guardGithubWrite("commit_files", row({ repo: "acme/other", writeEnabled: true }), args)).toEqual({ reason: "Agents change only acme/other, the repository chosen on Development › Code" });
+    expect(guardGithubWrite("commit_files", on, args)).toEqual({ args: { ...args, message: "Code saved\n\n[skip ci]" } });
+    expect(guardGithubWrite("commit_files", on, { ...args, message: "x [skip ci]" })).toEqual({ args: { ...args, message: "x [skip ci]" } });
+    // An upper-case marker is not GitHub's: the real one is still added.
+    expect(guardGithubWrite("commit_files", on, { ...args, message: "x [SKIP CI]" })).toEqual({ args: { ...args, message: "x [SKIP CI]\n\n[skip ci]" } });
+    for (const tool of ["create_branch", "open_pr", "merge_pr"]) {
+      expect(guardGithubWrite(tool, on, { owner: "evil", repo: "other" }), tool).toMatchObject({ reason: expect.any(String) });
+      expect(guardGithubWrite(tool, row({ repo: "acme/shop" }), { owner: "acme", repo: "shop" }), tool).toMatchObject({ reason: expect.any(String) });
+      expect(guardGithubWrite(tool, on, { owner: "acme", repo: "shop", title: "t" }), tool).toEqual({ args: { owner: "acme", repo: "shop", title: "t" } });
+    }
+    expect(guardGithubWrite("read_file", null, { owner: "anyone", repo: "anything" })).toEqual({ args: { owner: "anyone", repo: "anything" } });
   });
 });
 

@@ -33,6 +33,9 @@ interface GhInstallation {
 const INSTALL_STATE = /^[A-Za-z0-9_-]{1,400}\.[A-Za-z0-9_-]{1,100}$/;
 /** GitHub's OAuth codes are short hex strings; anything else is refused before it reaches GitHub. */
 const OAUTH_CODE = /^[A-Za-z0-9_-]{1,100}$/;
+/** How long one request to GitHub may take. */
+const GITHUB_REQUEST_TIMEOUT_MS = 60_000;
+
 /** commit_files calls one gateway process runs at once. */
 const MAX_CONCURRENT_COMMITS = 4;
 
@@ -87,7 +90,9 @@ export function slots(size: number, maxWaiting = MAX_WAITING_COMMITS, waitMs = C
 const MAX_INSTALLATION_PAGES = 10;
 
 export function createGithubConnector(options: LiveConnectorOptions = {}): Connector {
-  const { secrets, fetch, now, resolveBusinessId } = resolveLiveOptions(options);
+  const { secrets, fetch: baseFetch, now, resolveBusinessId } = resolveLiveOptions(options);
+  // Every GitHub request gives up after a minute, so a hung call never holds a commit slot.
+  const fetch: typeof globalThis.fetch = (input, init) => baseFetch(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS) });
   const OctokitWithFetch = Octokit.defaults({ request: { fetch }, userAgent: "foundmill-connectors/0.1" });
 
   const app = (): App => {

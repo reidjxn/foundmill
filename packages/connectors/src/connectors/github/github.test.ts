@@ -115,6 +115,16 @@ describe("github mock: merge flow and simulation", () => {
     expect(await has(1)).toBe(true);
     expect(await has(3)).toBe(true);
   });
+  it("refuses a commit that would make one branch outgrow the business's budget", async () => {
+    const mock = createGithubMock({ bytesPerBusiness: 1_000, bytesTotal: 2_000 });
+    const ctx = makeToolContext(mock);
+    const write = (i: number) => mock.callTool("commit_files", { owner: "acme", repo: "shop", branch: "agent/one", message: "x", files: [{ path: `f${i}.txt`, content: "x".repeat(400) }] }, ctx);
+    expect((await write(1)).ok).toBe(true);
+    expect((await write(2)).ok).toBe(true);
+    const third = await write(3);
+    expect(third.ok).toBe(false);
+    expect(third.error?.status).toBe(413);
+  });
   it("simulates pr.merged deterministically", async () => {
     const a = await githubMock.simulate("pr.merged", { businessId: TEST_BUSINESS_ID, seed: "s1" });
     const b = await githubMock.simulate("pr.merged", { businessId: TEST_BUSINESS_ID, seed: "s1" });

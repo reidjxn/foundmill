@@ -104,6 +104,11 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   };
   app.use("/v1/session-tokens", requireService);
   app.use("/v1/integrations/*", requireService);
+  // Connecting an App installation is the api's job alone (it checked the founder's signed state).
+  app.use("/v1/integrations/*", async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api connects App installations", 403);
+    await next();
+  });
 
   app.post("/v1/session-tokens", async (c) => {
     const input = MintSessionTokenRequest.parse(await c.req.json());

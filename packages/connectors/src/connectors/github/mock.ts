@@ -112,12 +112,13 @@ export const MOCK_BUSINESSES = 200;
  */
 export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal?: number; businesses?: number } = {}) {
   const bytesTotal = limits.bytesTotal ?? MOCK_BYTES_TOTAL;
+  const bytesPerBusiness = limits.bytesPerBusiness ?? MOCK_BYTES_PER_BUSINESS;
   const businesses = limits.businesses ?? MOCK_BUSINESSES;
   const worlds = new Map<string, ReturnType<typeof newWorld>>();
   const world = (businessId: string) => {
     let w = worlds.get(businessId);
     if (w) worlds.delete(businessId);
-    else w = newWorld(limits.bytesPerBusiness ?? MOCK_BYTES_PER_BUSINESS);
+    else w = newWorld(bytesPerBusiness);
     worlds.set(businessId, w);
     while (worlds.size > businesses) worlds.delete(worlds.keys().next().value!);
     return w;
@@ -216,6 +217,8 @@ export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal
           }
           return { branch, created: !existed, committed: false, sha: parentSha, parentSha, filesWritten: 0, filesDeleted: 0, url: null };
         }
+        // One branch never outgrows the business's budget (older branches give way to it, never the reverse).
+        if ([...next.values()].reduce((n, b) => n + b.byteLength, 0) > bytesPerBusiness) throw Object.assign(new Error(`${branch} would hold more than the simulated GitHub keeps for one business (${Math.round(bytesPerBusiness / (1024 * 1024))} MB)`), { status: 413 });
         const sha = stableHash(`commit:${r.repo.full_name}:${branch}:${parentSha}:${message}:${[...next].map(([p, c]) => `${p}=${blobShaOf(p, c)}`).sort().join(",")}`, 40);
         r.branches[branch] = sha;
         g.setTree(r, branch, next);

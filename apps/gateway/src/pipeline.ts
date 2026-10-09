@@ -97,18 +97,27 @@ export function appInstallationVerified(row: Pick<Integration, "status" | "archi
   return typeof externalAccountId === "string" && externalAccountId === verified.installationId;
 }
 
+/** Policy id on a call refused by the founder's GitHub push settings (audited like any deny). */
+export const GITHUB_PUSH_SETTINGS_POLICY_ID = "github-push-settings";
+/** GitHub tools that change a repository: held to the founder's push settings. */
+const GITHUB_WRITE_TOOLS = new Set(["create_branch", "commit_files", "open_pr", "merge_pr"]);
+
 /**
- * The founder's push settings, enforced here rather than trusted from the caller: `commit_files` writes only to the
- * repository chosen on Development › Code, only while pushing is turned on there, and every commit says `[skip ci]`.
- * (The tool itself already refuses anything but `agent/` branches of private repositories and `.git` / `.github`.)
+ * The founder's push settings, enforced here rather than trusted from the caller: a GitHub tool that changes a
+ * repository works only on the repository chosen on Development › Code, only while pushing is turned on there, and
+ * every commit `commit_files` makes says `[skip ci]`. (The tools themselves already refuse anything but `agent/`
+ * branches of private repositories and `.git` / `.github`.) Reads are not affected. Returns the arguments to run with,
+ * or why the call is refused.
  */
-export function guardGithubCommit(row: Integration | null, args: unknown): Record<string, unknown> {
+export function guardGithubWrite(tool: string, row: Integration | null, args: unknown): { args: unknown } | { reason: string } {
+  if (!GITHUB_WRITE_TOOLS.has(tool)) return { args };
   const target = row ? codeRepositoryOf(row) : null;
-  if (!target?.writeEnabled) throw new GatewayError("push_not_enabled", "Pushing saved code to GitHub is not turned on for this business (Development › Code)", 422);
+  if (!target?.writeEnabled) return { reason: "Pushing to GitHub is not turned on for this business (Development › Code)" };
   const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
-  if (`${String(a.owner)}/${String(a.repo)}`.toLowerCase() !== target.fullName.toLowerCase()) throw new GatewayError("repository_not_allowed", `Saved code is pushed only to ${target.fullName}, the repository chosen on Development › Code`, 422);
+  if (`${String(a.owner)}/${String(a.repo)}`.toLowerCase() !== target.fullName.toLowerCase()) return { reason: `Agents change only ${target.fullName}, the repository chosen on Development › Code` };
+  if (tool !== "commit_files") return { args };
   const message = typeof a.message === "string" ? a.message.slice(0, 4_980) : "";
-  return { ...a, message: /\[skip ci\]/i.test(message) ? message : `${message}\n\n[skip ci]` };
+  return { args: { ...a, message: message.includes("[skip ci]") ? message : `${message}\n\n[skip ci]` } };
 }
 
 export class GatewayError extends AppError {
@@ -512,9 +521,17 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     mode,
   };
 
+  const guarded = connector.key === "github" ? guardGithubWrite(tool.name, loaded.integrationRow, args) : { args };
+  if ("reason" in guarded) {
+    const reasons = [guarded.reason];
+    const audit = await appendAudit(deps, session, req, { outcome: "deny", reasons, policyIds: [GITHUB_PUSH_SETTINGS_POLICY_ID] });
+    log.info({ reasons }, "tool call refused: GitHub push settings");
+    return { status: 403, body: { outcome: "deny", reasons, policyIds: [GITHUB_PUSH_SETTINGS_POLICY_ID], costMinor: 0, auditId: audit.id } };
+  }
+
   let result: ToolResult;
   try {
-    result = await connector.callTool(tool.name, connector.key === "github" && tool.name === "commit_files" ? guardGithubCommit(loaded.integrationRow, args) : args, ctx);
+    result = await connector.callTool(tool.name, guarded.args, ctx);
   } catch (e) {
     if (isConfigError(e)) throw new GatewayError("connector_unconfigured", e.message, 503, { connector: connector.key });
     throw e;

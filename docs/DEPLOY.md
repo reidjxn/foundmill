@@ -85,7 +85,7 @@ Migrations run from the api at boot under an advisory lock; no manual `pnpm db:m
       - "Any account" lets founders install it on their own accounts and organisations.
       - Pre-filled registration link (personal account): `https://github.com/settings/apps/new?name=Foundmill&url=https%3A%2F%2Ffoundmill.com&callback_urls[]=https%3A%2F%2Ffoundmill.com%2Fintegrations%2Fgithub%2Fcallback&request_oauth_on_install=true&public=true&webhook_active=false&contents=write&pull_requests=write&metadata=read&members=read`.
       - Leave the Setup URL empty: with OAuth during installation, GitHub uses the callback URL.
-      - Leave webhooks inactive until merged-PR events are wanted (the URL `https://ingest.foundmill.com/webhooks/github/{business id}` is per business).
+      - Leave webhooks inactive. A GitHub App has one webhook URL for every installation, and ingest routes GitHub deliveries by the business id in the URL, so the App's webhook needs routing by installation (`app_installations`) before it is turned on.
       - Generate a private key and a client secret.
    2. Install the App on the account that owns the repository (all repositories, or only the ones agents may write to). Agents push only to private repositories.
    3. On the **gateway** only: `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` (the PEM; `\n` escapes are accepted), `GITHUB_APP_SLUG` (the App's URL name), `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `LIVE_CONNECTORS=github`. The api needs only `LIVE_CONNECTORS=github` (with `GATEWAY_URL` and `SESSION_TOKEN_SECRET`, already set): it asks the gateway to connect the installation and never holds the App's keys.

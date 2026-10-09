@@ -1,6 +1,7 @@
 -- An App connector's installation (the GitHub App), as the gateway verified it when the business connected it: which
 -- installation, and which GitHub user proved they own or administer its account. The gateway writes it with the
--- service role after checking with GitHub; owners and admins read it. No app role writes it, so a business cannot
+-- service role after checking with GitHub; members of the business read it (as they read `integrations`, which already
+-- shows the installation id). No app role writes it, so a business cannot
 -- point its integration at another account's installation by writing `integrations` directly: the gateway mints
 -- installation tokens only when the integration names the installation recorded here.
 create table app_installations (

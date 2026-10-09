@@ -173,7 +173,7 @@ export const githubTools = [
     input: RepoRef.extend({ branch: z.string().regex(AGENT_BRANCH, "an agent/ working branch"), fromRef: Ref.optional() }),
     output: z.object({ branch: z.string(), sha: z.string(), created: z.boolean() }),
     hints: {},
-    annotations: { idempotentHint: true },
+    annotations: { readOnlyHint: false, idempotentHint: true },
   }),
   defineTool({
     name: "commit_files",
@@ -189,6 +189,7 @@ export const githubTools = [
     input: RepoRef.extend({ title: z.string().min(1).max(256), body: z.string().max(60_000).default(""), head: BranchName, base: BranchName, draft: z.boolean().default(true) }),
     output: PullRequest,
     hints: {},
+    annotations: { readOnlyHint: false },
   }),
   defineTool({
     name: "get_pull_request",

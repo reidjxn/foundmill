@@ -39,7 +39,7 @@ export type NewIntegration = typeof integrations.$inferInsert;
 
 /**
  * 0015 — an App connector's installation as the gateway verified it at connect time (who proved they own or administer
- * its account). Written only by the gateway (service role); owners and admins read it. The gateway trusts an
+ * its account). Written only by the gateway (service role); members read it. Disconnecting deletes it. The gateway trusts an
  * integration's installation id only when it matches this row.
  */
 export const appInstallations = pgTable(
