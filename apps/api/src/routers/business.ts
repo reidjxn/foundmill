@@ -13,11 +13,6 @@ import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { adminProcedure, audit, businessProcedure, emit, ownerProcedure, router, writeProcedure } from "../trpc";
 import { businessLogoRouter } from "./logo";
 
-/**
- * Settings › Business fields. The logo is not one of them: `crest_url` is a legacy column owners could point anywhere,
- * so it is no longer written from here; logos go through `business.logo.*`, which checks them.
- */
-const UpdateBusinessFields = UpdateBusinessInput.omit({ crestUrl: true });
 
 const HolidayUntil = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("date"), date: z.coerce.date() }),
@@ -61,7 +56,8 @@ export const businessRouter = router({
   pauseCycle: writeProcedure.mutation(({ ctx }) => pauseCycle(ctx)),
   resumeCycle: writeProcedure.mutation(({ ctx }) => resumeCycle(ctx)),
 
-  update: adminProcedure.input(UpdateBusinessFields).mutation(({ ctx, input }) =>
+  // Settings › Business fields; the logo is not one of them (`business.logo.*` checks logos; crest_url is retired, 0017).
+  update: adminProcedure.input(UpdateBusinessInput).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const business = await repos.businesses.update(tx, ctx.businessId, input);
       await audit(tx, ctx, { action: "business.update", target: { kind: "business", id: ctx.businessId }, details: { fields: Object.keys(input) } });

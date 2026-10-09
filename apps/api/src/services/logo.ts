@@ -54,7 +54,12 @@ export function checkLogoChoice(choice: LogoChoice): CheckedLogo {
 
 /** What the browser shows after a check: the stored form as a data URL, its size and suggested brand colours. */
 export function preparedView(logo: CheckedLogo) {
-  return { dataUrl: logo.dataUrl, mime: logo.mime, width: logo.width, height: logo.height, bytes: logo.bytes.length, colours: logo.colours.slice(0, 4), removed: logo.removed };
+  return { dataUrl: logo.dataUrl, mime: logo.mime, width: logo.width, height: logo.height, bytes: logo.bytes.length, colours: logo.colours.slice(0, 4), removed: sanitisedSummary(logo) };
+}
+
+/** What the sanitiser took out, bounded (counts per kind, at most 20 names of 40 characters): safe for the audit log. */
+export function sanitisedSummary(logo: CheckedLogo): { counts: Record<string, number>; names: string[] } {
+  return { counts: logo.removedCounts, names: logo.removed };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -130,13 +135,15 @@ export async function generateLogoOptions(models: ModelClient, brief: LogoBrief,
   const count = brief.count ?? LIMITS.logoOptionsPerSet;
   const archetype = brief.archetype ? ARCHETYPE_LABELS[brief.archetype] : "new";
   const pitch = brief.pitch.trim().slice(0, 600) || `A ${archetype} business called ${brief.businessName}.`;
-  const system = prompts.logoDesignerPrompt.render({ business_name: brief.businessName.slice(0, 120), pitch, archetype, primary_colour: brief.colours.primary, secondary_colour: brief.colours.secondary, count });
+  // Instructions only in the system prompt; the founder's brief goes in the user message as data.
+  const system = prompts.logoDesignerPrompt.render({ count });
+  const userBrief: prompts.LogoDesignerBrief = { business_name: brief.businessName.slice(0, 120), pitch, archetype, brand_colours: brief.colours, count, round: brief.round };
   const result = await models
     .complete({
       route: "logoDesigner",
       system,
-      // The brief again as data, so the mock (and the logs) read the same fields; `round` varies the set.
-      messages: [{ role: "user", content: "```json\n" + JSON.stringify({ business_name: brief.businessName, pitch, archetype, brand_colours: brief.colours, count, round: brief.round }) + "\n```" }],
+      // The brief, as data (the prompt says so); `round` varies the set.
+      messages: [{ role: "user", content: "```json\n" + JSON.stringify(userBrief) + "\n```" }],
       schema: LogoDesignOutput,
       maxTokens: LOGO_MAX_TOKENS,
       scope: opts.scope,

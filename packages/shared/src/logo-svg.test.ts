@@ -207,3 +207,90 @@ describe("sanitiseSvg: attack cases", () => {
     expect(huge.ok && huge.svg).not.toContain("#123456");
   });
 });
+
+/** The review's render bombs (poc-logo/usebomb.ts, maskbomb.ts): references that multiply what the browser draws. */
+function referenceBomb(levels: number, fan: number): string {
+  let defs = `<g id="l0"><rect width="100" height="100" fill="#123456" fill-opacity="0.01"/></g>`;
+  for (let l = 1; l <= levels; l++) {
+    let uses = "";
+    for (let k = 0; k < fan; k++) uses += `<use href="#l${l - 1}" x="${(k % 3) * 0.1}"/>`;
+    defs += `<g id="l${l}">${uses}</g>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs>${defs}</defs><use href="#l${levels}"/></svg>`;
+}
+
+function maskChain(levels: number, fan: number, kind: "mask" | "clipPath"): string {
+  const attr = kind === "mask" ? "mask" : "clip-path";
+  let defs = `<${kind} id="m0"><rect width="100" height="100" fill="#fff"/></${kind}>`;
+  for (let l = 1; l <= levels; l++) {
+    let kids = "";
+    for (let k = 0; k < fan; k++) kids += `<rect x="${k}" width="90" height="90" fill="#fff" ${attr}="url(#m${l - 1})"/>`;
+    defs += `<${kind} id="m${l}">${kids}</${kind}>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs>${defs}</defs><rect width="100" height="100" fill="#123456" ${attr}="url(#m${levels})"/></svg>`;
+}
+
+describe("sanitiseSvg: render cost (use, mask and clip-path chains)", () => {
+  it("refuses use chains that expand past the cost cap, however small the file", () => {
+    for (const [levels, fan] of [[3, 10], [5, 10], [9, 10], [33, 3]] as const) {
+      const svg = referenceBomb(levels, fan);
+      expect(svg.length).toBeLessThan(15_000);
+      expect(sanitiseSvg(svg), `${levels}x${fan}`).toMatchObject({ ok: false, reason: expect.stringMatching(/repeats its parts too many times/) });
+    }
+  });
+
+  it("keeps a modest amount of reuse and reports its cost", () => {
+    const r = ok(referenceBomb(2, 10));
+    expect(r.renderCost).toBeGreaterThan(300);
+    expect(r.renderCost).toBeLessThanOrEqual(5000);
+    expect(ok(wrap('<rect width="10" height="10"/>')).renderCost).toBe(2);
+  });
+
+  it("drops mask and clip-path inside a mask or clip path, so mask chains cannot multiply", () => {
+    for (const kind of ["mask", "clipPath"] as const) {
+      const r = ok(maskChain(30, 10, kind));
+      const attr = kind === "mask" ? "mask=" : "clip-path=";
+      // Only the outer shape keeps its reference; none inside the chain does.
+      expect(r.svg.split(attr).length - 1).toBe(1);
+      expect(r.removedCounts.reference).toBe(300);
+      expect(r.removed).toContain(`reference:${kind === "mask" ? "mask" : "clip-path"}-inside-mask`);
+      expect(r.renderCost).toBeLessThan(5000);
+    }
+  });
+
+  it("refuses reference cycles (use, gradients)", () => {
+    expect(sanitiseSvg(wrap('<g id="a"><rect width="1" height="1"/><use href="#a"/></g>'))).toMatchObject({ ok: false, reason: expect.stringMatching(/loop/) });
+    expect(sanitiseSvg(wrap('<defs><g id="b"><use href="#c"/></g><g id="c"><use href="#b"/></g></defs><use href="#b"/><rect width="1" height="1"/>'))).toMatchObject({ ok: false, reason: expect.stringMatching(/loop/) });
+    expect(sanitiseSvg(wrap('<defs><linearGradient id="g1" href="#g2"/><linearGradient id="g2" href="#g1"/></defs><rect width="1" height="1" fill="url(#g1)"/>'))).toMatchObject({ ok: false, reason: expect.stringMatching(/loop/) });
+  });
+});
+
+describe("sanitiseSvg: bounded reports and messages", () => {
+  it("reports at most 20 removed names, each cut to 40 characters, with complete counts per kind", () => {
+    const attrs = Array.from({ length: 7600 }, (_, i) => `${"x".repeat(240)}${i}=""`).join(" ");
+    const r = ok(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1" ${attrs}/>${Array.from({ length: 50 }, (_, i) => `<e${i}${"y".repeat(200)}/>`).join("")}</svg>`);
+    expect(r.removed.length).toBeLessThanOrEqual(20);
+    for (const name of r.removed) expect(name.length).toBeLessThanOrEqual("attribute:".length + 41);
+    expect(r.removedCounts).toEqual({ attribute: 7600, element: 50 });
+    expect(JSON.stringify({ names: r.removed, counts: r.removedCounts }).length).toBeLessThan(2000);
+  });
+
+  it("cuts names taken from the input to 40 characters in error messages", () => {
+    const long = "g".repeat(5000);
+    const end = sanitiseSvg(wrap(`<g></${long}>`));
+    expect(end).toMatchObject({ ok: false, reason: expect.stringContaining(`</${"g".repeat(40)}…>`) });
+    expect(!end.ok && end.reason.length).toBeLessThan(120);
+    const entity = sanitiseSvg(wrap(`<text>&${"q".repeat(31)};</text>`));
+    expect(entity).toMatchObject({ ok: false, reason: expect.stringContaining(`&${"q".repeat(31)};`) });
+    const longEntity = sanitiseSvg(wrap(`<text>&${"q".repeat(5000)};</text>`));
+    expect(longEntity).toMatchObject({ ok: false, reason: expect.stringMatching(/unterminated character reference/) });
+    const attr = sanitiseSvg(wrap(`<rect ${"a".repeat(200)}/>`));
+    expect(!attr.ok && attr.reason.length).toBeLessThan(120);
+  });
+
+  it("drops values over the length cap before any grammar sees them (256; 64 KiB for d and points)", () => {
+    const r = ok(wrap(`<rect width="${"1".repeat(300)}" height="1" fill="#000"/><path d="M0 0 ${"L1 1 ".repeat(1000)}"/>`));
+    expect(r.removedCounts.value).toBe(1);
+    expect(r.svg).toContain('<path d="M0 0 L1 1');
+  });
+});

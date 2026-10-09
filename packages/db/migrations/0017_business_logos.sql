@@ -22,3 +22,10 @@ create table business_logos (
 create unique index business_logos_business_idx on business_logos (business_id);
 --> statement-breakpoint
 select fm_tenant_table('business_logos', array['owner','admin'], 'read_only');
+--> statement-breakpoint
+-- `businesses.crest_url` is retired: owners and admins can update `businesses` directly, so a URL there could point
+-- anywhere (a tracking pixel, an unchecked image) without passing the logo check. It stays only because the 0012
+-- `public_profiles` view selects it; it is emptied and held empty.
+update businesses set crest_url = null where crest_url is not null;
+--> statement-breakpoint
+alter table businesses add constraint businesses_crest_url_retired check (crest_url is null);

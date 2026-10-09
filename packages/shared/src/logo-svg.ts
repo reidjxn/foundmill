@@ -9,16 +9,22 @@
  * - Elements: svg, g, defs, path, rect, circle, ellipse, line, polyline, polygon, linearGradient, radialGradient, stop,
  *   clipPath, mask, text, tspan, use. Anything else (script, style once read, foreignObject, image, a, animate, set,
  *   filter, pattern, symbol, iframe, unknown or prefixed names) is dropped with its children.
- * - Attributes: presentation and geometry only, each value checked against a grammar (numbers, path data, transform
- *   functions, colours, enumerations). No event handlers, no `style` URLs, no class names.
+ * - Attributes: presentation and geometry only, each value capped in length (256 characters; 64 KiB for `d` and
+ *   `points`) and then checked against a grammar (numbers, path data, transform functions, colours, enumerations).
+ *   No event handlers, no `style` URLs, no class names.
  * - References: `href` only as an internal `#id` (on `use` and gradients); `fill`, `stroke`, `clip-path` and `mask`
  *   accept `url(#id)` only, and only when that id exists in the output. External, `javascript:` and `data:` references
- *   are removed.
+ *   are removed. `mask` and `clip-path` are not allowed inside a mask or clip path.
+ * - Render cost: every reference draws a copy of its target, so references can multiply (a chain of `use`, masks or
+ *   clip paths). The expanded size is computed (memoised by element, cycles refused) and a logo above
+ *   SVG_MAX_RENDER_COST is refused, so no logo can stall the browser that draws it.
  * - `style` attributes and `<style>` sheets are read as data: simple element, class and id rules whose declarations
  *   pass the same grammars become presentation attributes; everything else in them (at-rules, `url(…)`, complex
  *   selectors) is ignored.
  *
- * Pure (no DOM, no Node APIs) so the API, the evals and tests share it.
+ * Every regular expression here runs in linear time on its input (no nested or overlapping quantifiers; the timing
+ * tests feed each grammar two million adversarial characters). Pure (no DOM, no Node APIs) so the API, the evals and
+ * tests share it.
  */
 
 export const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
@@ -30,8 +36,22 @@ export const SVG_MAX_DEPTH = 48;
 export const SVG_MAX_USE = 100;
 /** Style rules read from `<style>` sheets; past this the sheets are ignored (every element is matched against every rule). */
 export const SVG_MAX_STYLE_RULES = 400;
+/** Longest attribute or declaration value read; longer values are dropped before any grammar runs. */
+export const SVG_MAX_VALUE_CHARS = 256;
+/** Path data and point lists may be longer. */
+export const SVG_MAX_GEOMETRY_CHARS = 64 * 1024;
+/** Expanded size (elements, with every reference counted as a copy of its target) above which a logo is refused. */
+export const SVG_MAX_RENDER_COST = 5000;
+/** At most this many removed names are reported (each cut to 40 characters); counts per kind are always complete. */
+export const SVG_MAX_REMOVED_NAMES = 20;
 /** Intrinsic size written on the sanitised root: the longer side, in px. */
 export const SVG_INTRINSIC_PX = 512;
+
+const NAME_CHARS = 40;
+const LONG_VALUE_ATTRS = new Set(["d", "points"]);
+
+/** Cuts a name taken from the input before it is echoed in a message or a report. */
+const clip = (s: string, n = NAME_CHARS) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
 export interface SvgSanitiseOptions {
   /** Default SVG_MAX_INPUT_CHARS. */
@@ -49,16 +69,42 @@ export type SvgSanitiseResult =
       width: number;
       height: number;
       viewBox: [number, number, number, number];
-      /** What was taken out, as `kind:name` (for tests and the audit record). */
+      /** What was taken out, as `kind:name`: at most SVG_MAX_REMOVED_NAMES entries, names cut to 40 characters. */
       removed: string[];
+      /** How many things of each kind (`element`, `attribute`, `value`, `style`, `href`, `reference`) were taken out. */
+      removedCounts: Record<string, number>;
       /** Hex colours used by fills, strokes and gradient stops, most used first (brand colour suggestions). */
       colours: string[];
       /** Drawable elements left in the output. */
       shapes: number;
+      /** Expanded size the browser draws (see SVG_MAX_RENDER_COST). */
+      renderCost: number;
     }
   | { ok: false; reason: string };
 
 class SvgParseError extends Error {}
+
+/** Bounded report of what was removed: complete counts per kind, the first few names. */
+class Removed {
+  private readonly counts = new Map<string, number>();
+  private readonly names = new Set<string>();
+
+  add(entry: string): void {
+    const colon = entry.indexOf(":");
+    const kind = colon < 0 ? entry : entry.slice(0, colon);
+    const name = colon < 0 ? "" : entry.slice(colon + 1);
+    this.counts.set(kind, (this.counts.get(kind) ?? 0) + 1);
+    if (this.names.size < SVG_MAX_REMOVED_NAMES) this.names.add(name ? `${kind}:${clip(name)}` : kind);
+  }
+
+  list(): string[] {
+    return [...this.names].sort();
+  }
+
+  countsByKind(): Record<string, number> {
+    return Object.fromEntries([...this.counts.entries()].sort(([a], [b]) => a.localeCompare(b)));
+  }
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // A strict XML reader (just enough for SVG)
@@ -72,7 +118,8 @@ interface XElement {
 type XNode = XElement | { text: string };
 
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_.:-]*/;
-const ENTITY_RE = /&(#x[0-9a-fA-F]{1,6}|#[0-9]{1,7}|[A-Za-z][A-Za-z0-9]*);?/g;
+// Entity names are bounded: a longer one is not one of the five predefined entities anyway.
+const ENTITY_RE = /&(#x[0-9a-fA-F]{1,6}|#[0-9]{1,7}|[A-Za-z][A-Za-z0-9]{0,31});?/g;
 const PREDEFINED: Record<string, string> = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
 
 function validCodePoint(cp: number): boolean {
@@ -89,9 +136,13 @@ function decodeEntities(raw: string): string {
       if (!Number.isFinite(cp) || !validCodePoint(cp)) throw new SvgParseError("invalid character reference");
       return String.fromCodePoint(cp);
     }
-    if (!Object.hasOwn(PREDEFINED, body)) throw new SvgParseError(`entity &${body}; is not allowed`);
+    if (!Object.hasOwn(PREDEFINED, body)) throw new SvgParseError(`entity &${clip(body)}; is not allowed`);
     return PREDEFINED[body]!;
   });
+}
+
+function isSpace(c: string | undefined): boolean {
+  return c === " " || c === "\t" || c === "\n" || c === "\r";
 }
 
 function parseXml(src: string): XElement {
@@ -142,7 +193,7 @@ function parseXml(src: string): XElement {
       const end = indexOrFail(">", i + 2, "end tag");
       const name = src.slice(i + 2, end).trim();
       const open = stack.pop();
-      if (!open || open.name !== name) fail(`mismatched end tag </${name}>`);
+      if (!open || open.name !== name) fail(`mismatched end tag </${clip(name)}>`);
       i = end + 1;
       continue;
     }
@@ -154,7 +205,7 @@ function parseXml(src: string): XElement {
     const attrs = new Map<string, string>();
     let selfClosing = false;
     for (;;) {
-      while (j < n && /\s/.test(src[j]!)) j++;
+      while (j < n && isSpace(src[j])) j++;
       if (j >= n) fail("unterminated start tag");
       if (src[j] === ">") {
         j++;
@@ -169,16 +220,16 @@ function parseXml(src: string): XElement {
       if (!attrMatch) fail("malformed attribute");
       const attrName = attrMatch![0];
       j += attrName.length;
-      while (j < n && /\s/.test(src[j]!)) j++;
-      if (src[j] !== "=") fail(`attribute ${attrName} has no value`);
+      while (j < n && isSpace(src[j])) j++;
+      if (src[j] !== "=") fail(`attribute ${clip(attrName)} has no value`);
       j++;
-      while (j < n && /\s/.test(src[j]!)) j++;
+      while (j < n && isSpace(src[j])) j++;
       const quote = src[j];
-      if (quote !== '"' && quote !== "'") fail(`attribute ${attrName} is not quoted`);
+      if (quote !== '"' && quote !== "'") fail(`attribute ${clip(attrName)} is not quoted`);
       const close = indexOrFail(quote!, j + 1, "attribute value");
       const raw = src.slice(j + 1, close);
       if (raw.includes("<")) fail("'<' inside an attribute value");
-      if (attrs.has(attrName)) fail(`duplicate attribute ${attrName}`);
+      if (attrs.has(attrName)) fail(`duplicate attribute ${clip(attrName)}`);
       attrs.set(attrName, decodeEntities(raw));
       j = close + 1;
     }
@@ -194,38 +245,59 @@ function parseXml(src: string): XElement {
     }
     i = j;
   }
-  if (stack.length) fail(`unclosed <${stack[stack.length - 1]!.name}>`);
+  if (stack.length) fail(`unclosed <${clip(stack[stack.length - 1]!.name)}>`);
   if (!root) fail("no root element");
   return root!;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Value grammars
+// Value grammars (each linear in its input)
 // ---------------------------------------------------------------------------------------------------------------------
 
 type Check = (v: string) => string | null;
 
-const NUM = "[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?";
+// `\d+(?:\.\d*)?` rather than `\d+\.?\d*`: the latter tries every split of a digit run (quadratic on "111…x").
+const NUM = "[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?";
 const NUM_RE = new RegExp(`^${NUM}$`);
 const LENGTH_RE = new RegExp(`^${NUM}(?:px|%|em|ex|pt)?$`);
-const NUM_LIST_RE = /^[\d\s,.eE+-]+$/;
-const PATH_RE = /^[\d\s,.eE+\-MmZzLlHhVvCcSsQqTtAa]*$/;
-const TRANSFORM_RE = /^(?:\s*(?:matrix|translate|scale|rotate|skewX|skewY)\s*\(\s*[\d\s,.eE+-]*\)\s*,?)*\s*$/;
+const PERCENT_RE = /^\d+(?:\.\d+)?%$/;
+// Character-set grammars look for one character outside the set: a single pass with nothing to backtrack.
+const NUM_LIST_BAD_RE = /[^\d\s,.eE+-]/;
+const PATH_BAD_RE = /[^\d\s,.eE+\-MmZzLlHhVvCcSsQqTtAa]/;
+const PATH_MOVE_RE = /[Mm]/;
+// One transform function at a time (sticky): the whole-list pattern with overlapping `\s*` was exponential.
+const TRANSFORM_FN_RE = /\s*(?:matrix|translate|scale|rotate|skewX|skewY)\s*\([\d\s,.eE+-]*\)\s*,?/y;
+const NON_BLANK_RE = /\S/;
+const isBlank = (s: string) => !NON_BLANK_RE.test(s);
 const ID_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/;
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
-const FUNC_COLOUR_RE = /^(?:rgb|rgba|hsl|hsla)\(\s*[\d\s,.%+-]+(?:\/\s*[\d.%]+\s*)?\)$/;
+// No `\s*` before a class that also matches spaces (that was quadratic).
+const FUNC_COLOUR_RE = /^(?:rgb|rgba|hsl|hsla)\([\d\s,.%+-]+(?:\/\s*[\d.%]+\s*)?\)$/;
 const NAMED_COLOUR_RE = /^[a-zA-Z]{3,24}$/;
 const IRI_RE = /^url\(\s*#([A-Za-z_][A-Za-z0-9_.-]{0,63})\s*\)$/;
-const PAINT_IRI_RE = /^url\(\s*#([A-Za-z_][A-Za-z0-9_.-]{0,63})\s*\)(?:\s+(.+))?$/;
+// The fallback colour after a paint reference is split off by hand (`\s+(.+)` overlapped).
+const PAINT_IRI_PREFIX_RE = /^url\(\s*#([A-Za-z_][A-Za-z0-9_.-]{0,63})\s*\)/;
 const FONT_FAMILY_RE = /^[A-Za-z0-9 ,'"-]{1,120}$/;
-const MAX_VALUE = 64 * 1024;
+const FONT_FAMILY_BANNED_RE = /url|expression|javascript/i;
+const PRESERVE_ASPECT_RE = /^(?:none|x(?:Min|Mid|Max)Y(?:Min|Mid|Max))(?:\s+(?:meet|slice))?$/;
+const PAINT_ORDER_RE = /^(?:normal|(?:fill|stroke|markers)(?:\s+(?:fill|stroke|markers)){0,2})$/;
+const ROOT_SIZE_RE = /^\+?(?:\d+(?:\.\d*)?|\.\d+)(?:px)?$/;
+const WHITESPACE_RUN_RE = /\s+/g;
 
-const len = (v: string) => (v.length <= MAX_VALUE ? v : null);
+const squash = (v: string) => v.trim().replace(WHITESPACE_RUN_RE, " ");
 const num: Check = (v) => (NUM_RE.test(v.trim()) ? v.trim() : null);
 const length: Check = (v) => (LENGTH_RE.test(v.trim()) ? v.trim() : null);
-const numList: Check = (v) => (len(v) !== null && NUM_LIST_RE.test(v) ? v.trim().replace(/\s+/g, " ") : null);
-const pathData: Check = (v) => (len(v) !== null && PATH_RE.test(v) && /[Mm]/.test(v) ? v.trim().replace(/\s+/g, " ") : null);
-const transform: Check = (v) => (v.length <= 2048 && TRANSFORM_RE.test(v) ? v.trim().replace(/\s+/g, " ") : null);
+const numList: Check = (v) => (v.length > 0 && !NUM_LIST_BAD_RE.test(v) ? squash(v) : null);
+const pathData: Check = (v) => (!PATH_BAD_RE.test(v) && PATH_MOVE_RE.test(v) ? squash(v) : null);
+const transform: Check = (v) => {
+  let at = 0;
+  while (at < v.length) {
+    TRANSFORM_FN_RE.lastIndex = at;
+    if (!TRANSFORM_FN_RE.exec(v)) return isBlank(v.slice(at)) ? squash(v) : null;
+    at = TRANSFORM_FN_RE.lastIndex;
+  }
+  return squash(v);
+};
 const id: Check = (v) => (ID_RE.test(v) ? v : null);
 const oneOf =
   (...allowed: string[]): Check =>
@@ -233,29 +305,30 @@ const oneOf =
     allowed.includes(v.trim()) ? v.trim() : null;
 const opacity: Check = (v) => {
   const t = v.trim();
-  return NUM_RE.test(t) || /^\d+(?:\.\d+)?%$/.test(t) ? t : null;
+  return NUM_RE.test(t) || PERCENT_RE.test(t) ? t : null;
 };
-const fontFamily: Check = (v) => (FONT_FAMILY_RE.test(v.trim()) && !/url|expression|javascript/i.test(v) ? v.trim() : null);
+const fontFamily: Check = (v) => (FONT_FAMILY_RE.test(v.trim()) && !FONT_FAMILY_BANNED_RE.test(v) ? v.trim() : null);
 const fontWeight = oneOf("normal", "bold", "bolder", "lighter", "100", "200", "300", "400", "500", "600", "700", "800", "900");
-const preserveAspect: Check = (v) => (/^(?:none|x(?:Min|Mid|Max)Y(?:Min|Mid|Max))(?:\s+(?:meet|slice))?$/.test(v.trim()) ? v.trim() : null);
+const preserveAspect: Check = (v) => (PRESERVE_ASPECT_RE.test(v.trim()) ? v.trim() : null);
+const paintOrder: Check = (v) => (PAINT_ORDER_RE.test(v.trim()) ? v.trim() : null);
 
 function colour(v: string): string | null {
   const t = v.trim();
   if (t === "none" || t === "currentColor" || t === "transparent") return t;
   if (HEX_RE.test(t)) return t.toLowerCase();
-  if (FUNC_COLOUR_RE.test(t)) return t.replace(/\s+/g, " ");
+  if (FUNC_COLOUR_RE.test(t)) return squash(t);
   if (NAMED_COLOUR_RE.test(t) && !/^(?:url|expression|javascript|inherit)$/i.test(t)) return t;
   return null;
 }
 const paint: Check = (v) => {
   const t = v.trim();
-  const ref = PAINT_IRI_RE.exec(t);
-  if (ref) {
-    const fallback = ref[2] ? colour(ref[2]) : "";
-    if (fallback === null) return null;
-    return `url(#${ref[1]})${fallback ? ` ${fallback}` : ""}`;
-  }
-  return colour(t);
+  const ref = PAINT_IRI_PREFIX_RE.exec(t);
+  if (!ref) return colour(t);
+  const rest = t.slice(ref[0].length);
+  if (!rest) return `url(#${ref[1]})`;
+  if (!isBlank(rest.slice(0, 1))) return null;
+  const fallback = colour(rest);
+  return fallback === null ? null : `url(#${ref[1]}) ${fallback}`;
 };
 const iri: Check = (v) => {
   const t = v.trim();
@@ -265,8 +338,38 @@ const iri: Check = (v) => {
 };
 const href: Check = (v) => {
   const t = v.trim();
-  return /^#[A-Za-z_][A-Za-z0-9_.-]{0,63}$/.test(t) ? t : null;
+  return t.startsWith("#") && ID_RE.test(t.slice(1)) ? t : null;
 };
+
+function parseRootSize(v: string | undefined): number | null {
+  if (!v) return null;
+  const t = v.trim();
+  if (!ROOT_SIZE_RE.test(t)) return null;
+  const n = Number(t.endsWith("px") ? t.slice(0, -2) : t);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * The value grammars, exported for the timing tests (each must stay linear on adversarial input). Callers use
+ * `sanitiseSvg`, which also caps every value's length before a grammar sees it.
+ */
+export const SVG_VALUE_GRAMMARS = {
+  number: num,
+  length,
+  numberList: numList,
+  pathData,
+  transform,
+  paint,
+  colour,
+  reference: iri,
+  href,
+  opacity,
+  fontFamily,
+  preserveAspectRatio: preserveAspect,
+  paintOrder,
+  id,
+  rootSize: (v: string) => (parseRootSize(v) === null ? null : v),
+} as const;
 
 /** Attributes allowed on every kept element, with their grammar. */
 const PRESENTATION: Record<string, Check> = {
@@ -292,7 +395,7 @@ const PRESENTATION: Record<string, Check> = {
   display: oneOf("inline", "none"),
   "vector-effect": oneOf("none", "non-scaling-stroke"),
   "shape-rendering": oneOf("auto", "optimizeSpeed", "crispEdges", "geometricPrecision"),
-  "paint-order": (v) => (/^(?:normal|(?:fill|stroke|markers)(?:\s+(?:fill|stroke|markers)){0,2})$/.test(v.trim()) ? v.trim() : null),
+  "paint-order": paintOrder,
 };
 
 const TEXT_ATTRS: Record<string, Check> = {
@@ -340,6 +443,7 @@ const ELEMENTS: Record<string, Record<string, Check>> = {
 
 const DRAWABLE = new Set(["path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "text", "use"]);
 const TEXT_ELEMENTS = new Set(["text", "tspan"]);
+const MASKING = new Set(["mask", "clipPath"]);
 
 /** Properties a `style` attribute or sheet may set (the CSS name equals the attribute name). */
 const STYLE_PROPERTIES = new Set([...Object.keys(PRESENTATION).filter((k) => k !== "id" && k !== "transform"), "stop-color", "stop-opacity", "font-family", "font-size", "font-weight", "font-style", "text-anchor", "dominant-baseline", "letter-spacing"]);
@@ -360,18 +464,26 @@ function checkerFor(element: string, attr: string): Check | undefined {
 
 type Declarations = Map<string, string>;
 
-function parseDeclarations(text: string, removed: Set<string>): Declarations {
+const IMPORTANT_RE = /!important\s*$/i;
+const DECL_BANNED_RE = /\\|url\((?!\s*#)|expression|javascript:|@/i;
+const CLASS_SELECTOR_RE = /^\.[A-Za-z_][\w-]*$/;
+const ID_SELECTOR_RE = /^#[A-Za-z_][\w.-]*$/;
+const ELEMENT_SELECTOR_RE = /^[A-Za-z]\w*$/;
+
+function parseDeclarations(text: string, removed: Removed): Declarations {
   const out: Declarations = new Map();
   for (const part of text.split(";")) {
     const colon = part.indexOf(":");
     if (colon < 0) continue;
     const prop = part.slice(0, colon).trim().toLowerCase();
-    const value = part
-      .slice(colon + 1)
-      .replace(/!important\s*$/i, "")
-      .trim();
-    if (!prop || !value) continue;
-    if (!STYLE_PROPERTIES.has(prop) || /\\|url\((?!\s*#)|expression|javascript:|@/i.test(value)) {
+    const rawValue = part.slice(colon + 1);
+    if (!prop || !rawValue.trim()) continue;
+    if (rawValue.length > SVG_MAX_VALUE_CHARS + 16) {
+      removed.add(`style:${prop}`);
+      continue;
+    }
+    const value = rawValue.replace(IMPORTANT_RE, "").trim();
+    if (!STYLE_PROPERTIES.has(prop) || DECL_BANNED_RE.test(value)) {
       removed.add(`style:${prop}`);
       continue;
     }
@@ -388,14 +500,28 @@ interface SheetRule {
   decls: Declarations;
 }
 
-function parseSheet(css: string, removed: Set<string>): SheetRule[] {
-  const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
-  if (text.includes("@") || /\\/.test(text)) {
+/** Removes `/* … *\/` comments with indexOf (a lazy regex rescans the rest of the sheet from every unclosed `/*`). */
+function stripCssComments(css: string): string {
+  let out = "";
+  let i = 0;
+  for (;;) {
+    const start = css.indexOf("/*", i);
+    if (start < 0) return out + css.slice(i);
+    out += css.slice(i, start);
+    const end = css.indexOf("*/", start + 2);
+    if (end < 0) return out;
+    i = end + 2;
+  }
+}
+
+/** The rules of one sheet in document order (`order` continues the caller's counter across sheets); unsorted. */
+function parseSheet(css: string, removed: Removed, counter: { order: number }): SheetRule[] {
+  const text = stripCssComments(css);
+  if (text.includes("@") || text.includes("\\")) {
     removed.add("style:sheet-with-at-rules");
     return [];
   }
   const rules: SheetRule[] = [];
-  let order = 0;
   for (const chunk of text.split("}")) {
     const brace = chunk.indexOf("{");
     if (brace < 0) continue;
@@ -404,18 +530,19 @@ function parseSheet(css: string, removed: Set<string>): SheetRule[] {
     if (!decls.size) continue;
     for (const sel of selectors) {
       let rule: SheetRule | null = null;
-      if (/^\.[A-Za-z_][\w-]*$/.test(sel)) rule = { kind: "class", key: sel.slice(1), specificity: 10, order: order++, decls };
-      else if (/^#[A-Za-z_][\w.-]*$/.test(sel)) rule = { kind: "id", key: sel.slice(1), specificity: 100, order: order++, decls };
-      else if (/^[A-Za-z][\w]*$/.test(sel)) rule = { kind: "element", key: sel, specificity: 1, order: order++, decls };
+      if (sel.length > 128) rule = null;
+      else if (CLASS_SELECTOR_RE.test(sel)) rule = { kind: "class", key: sel.slice(1), specificity: 10, order: counter.order++, decls };
+      else if (ID_SELECTOR_RE.test(sel)) rule = { kind: "id", key: sel.slice(1), specificity: 100, order: counter.order++, decls };
+      else if (ELEMENT_SELECTOR_RE.test(sel)) rule = { kind: "element", key: sel, specificity: 1, order: counter.order++, decls };
       if (rule) rules.push(rule);
       else if (sel) removed.add("style:selector");
+      if (rules.length > SVG_MAX_STYLE_RULES) {
+        removed.add("style:sheet-too-large");
+        return [];
+      }
     }
   }
-  if (rules.length > SVG_MAX_STYLE_RULES) {
-    removed.add("style:sheet-too-large");
-    return [];
-  }
-  return rules.sort((a, b) => a.specificity - b.specificity || a.order - b.order);
+  return rules;
 }
 
 function collectSheets(el: XElement, out: string[]): void {
@@ -437,7 +564,7 @@ interface OutElement {
 }
 
 interface Walk {
-  removed: Set<string>;
+  removed: Removed;
   sheet: SheetRule[];
   ids: Set<string>;
   uses: number;
@@ -446,11 +573,13 @@ interface Walk {
 function applyStyles(el: XElement, w: Walk): Map<string, string> {
   const values = new Map<string, string>();
   for (const [name, value] of el.attrs) values.set(name, value);
-  const classes = (el.attrs.get("class") ?? "").split(/\s+/).filter(Boolean);
-  const elId = el.attrs.get("id");
-  for (const rule of w.sheet) {
-    const hit = rule.kind === "element" ? rule.key === el.name : rule.kind === "class" ? classes.includes(rule.key) : rule.key === elId;
-    if (hit) for (const [k, v] of rule.decls) values.set(k, v);
+  if (w.sheet.length) {
+    const classes = new Set((el.attrs.get("class") ?? "").slice(0, 1024).split(WHITESPACE_RUN_RE).filter(Boolean));
+    const elId = el.attrs.get("id");
+    for (const rule of w.sheet) {
+      const hit = rule.kind === "element" ? rule.key === el.name : rule.kind === "class" ? classes.has(rule.key) : rule.key === elId;
+      if (hit) for (const [k, v] of rule.decls) values.set(k, v);
+    }
   }
   const inline = el.attrs.get("style");
   if (inline) for (const [k, v] of parseDeclarations(inline, w.removed)) values.set(k, v);
@@ -459,7 +588,7 @@ function applyStyles(el: XElement, w: Walk): Map<string, string> {
   return values;
 }
 
-function sanitiseElement(el: XElement, w: Walk, depth: number): OutElement | null {
+function sanitiseElement(el: XElement, w: Walk, insideMask: boolean): OutElement | null {
   const allowed = own(ELEMENTS, el.name);
   if (!allowed) {
     w.removed.add(`element:${el.name}`);
@@ -482,6 +611,16 @@ function sanitiseElement(el: XElement, w: Walk, depth: number): OutElement | nul
       w.removed.add(`attribute:${rawName}`);
       continue;
     }
+    // Length first: no grammar ever sees a value longer than the cap.
+    if (rawValue.length > (LONG_VALUE_ATTRS.has(name) ? SVG_MAX_GEOMETRY_CHARS : SVG_MAX_VALUE_CHARS)) {
+      w.removed.add(`value:${name}`);
+      continue;
+    }
+    // A mask or clip path inside a mask or clip path multiplies the work of drawing it.
+    if (insideMask && (name === "mask" || name === "clip-path")) {
+      w.removed.add(`reference:${name}-inside-mask`);
+      continue;
+    }
     const value = check(rawValue);
     if (value === null) {
       w.removed.add(name === "href" ? "href:not-internal" : `value:${name}`);
@@ -496,11 +635,12 @@ function sanitiseElement(el: XElement, w: Walk, depth: number): OutElement | nul
   const idAttr = attrs.find(([n]) => n === "id");
   if (idAttr) w.ids.add(idAttr[1]);
 
+  const childInsideMask = insideMask || MASKING.has(el.name);
   const children: (OutElement | string)[] = [];
   for (const c of el.children) {
     if ("text" in c) {
       if (TEXT_ELEMENTS.has(el.name)) {
-        const t = c.text.replace(/\s+/g, " ");
+        const t = c.text.slice(0, 1024).replace(WHITESPACE_RUN_RE, " ");
         if (t.trim()) children.push(t.slice(0, 200));
       }
       continue;
@@ -510,17 +650,26 @@ function sanitiseElement(el: XElement, w: Walk, depth: number): OutElement | nul
       w.removed.add(`element:${c.name}`);
       continue;
     }
-    const out = sanitiseElement(c, w, depth + 1);
+    const out = sanitiseElement(c, w, childInsideMask);
     if (out) children.push(out);
   }
   return { name: el.name, attrs, children };
 }
 
-/** Removes references to ids that do not exist in the output; returns the drawable count. */
-function resolveReferences(el: OutElement, ids: Set<string>, removed: Set<string>): boolean {
+/** The id an attribute points at (`url(#id)` in paint, mask and clip-path values; `#id` in href), or null. */
+function referencedId(name: string, value: string): string | null {
+  if (name === "href") return value.startsWith("#") ? value.slice(1) : null;
+  const open = value.indexOf("url(#");
+  if (open < 0) return null;
+  const close = value.indexOf(")", open);
+  return close < 0 ? null : value.slice(open + 5, close);
+}
+
+/** Removes references to ids that do not exist in the output. */
+function resolveReferences(el: OutElement, ids: Set<string>, removed: Removed): boolean {
   el.attrs = el.attrs.filter(([name, value]) => {
-    const ref = /url\(#([^)]+)\)/.exec(value) ?? (name === "href" ? /^#(.+)$/.exec(value) : null);
-    if (ref && !ids.has(ref[1]!)) {
+    const ref = referencedId(name, value);
+    if (ref !== null && !ids.has(ref)) {
       removed.add(`reference:${name}`);
       return false;
     }
@@ -529,6 +678,53 @@ function resolveReferences(el: OutElement, ids: Set<string>, removed: Set<string
   if (el.name === "use" && !el.attrs.some(([n]) => n === "href")) return false;
   el.children = el.children.filter((c) => typeof c === "string" || resolveReferences(c, ids, removed));
   return true;
+}
+
+/**
+ * The size of what a browser draws: 1 per element, plus its children, plus a full copy of every element it references
+ * (`use`, gradients' href, masks, clip paths, paint servers). Memoised per element, so it costs one pass; a reference
+ * cycle is refused; counting stops just past the cap.
+ */
+function renderCost(root: OutElement): number | "cycle" {
+  const byId = new Map<string, OutElement>();
+  const index = (el: OutElement) => {
+    const idAttr = el.attrs.find(([n]) => n === "id");
+    if (idAttr && !byId.has(idAttr[1])) byId.set(idAttr[1], el);
+    for (const c of el.children) if (typeof c !== "string") index(c);
+  };
+  index(root);
+  const cap = SVG_MAX_RENDER_COST + 1;
+  const memo = new Map<OutElement, number>();
+  const visiting = new Set<OutElement>();
+  const state = { cycle: false };
+  const cost = (el: OutElement): number => {
+    const known = memo.get(el);
+    if (known !== undefined) return known;
+    if (visiting.has(el)) {
+      state.cycle = true;
+      return cap;
+    }
+    // A reference chain deeper than this is a cost problem whatever it draws.
+    if (visiting.size > 1000) return cap;
+    visiting.add(el);
+    let total = 1;
+    for (const [name, value] of el.attrs) {
+      if (total >= cap || state.cycle) break;
+      const ref = referencedId(name, value);
+      const target = ref === null ? undefined : byId.get(ref);
+      if (target) total += cost(target);
+    }
+    for (const c of el.children) {
+      if (total >= cap || state.cycle) break;
+      if (typeof c !== "string") total += cost(c);
+    }
+    visiting.delete(el);
+    const bounded = Math.min(total, cap);
+    memo.set(el, bounded);
+    return bounded;
+  };
+  const total = cost(root);
+  return state.cycle ? "cycle" : total;
 }
 
 /** The attributes without which a shape draws nothing. */
@@ -549,10 +745,12 @@ function countDrawable(el: OutElement): number {
   return n;
 }
 
+const HEX_IN_VALUE_RE = /#[0-9a-f]{3,8}\b/;
+
 function collectColours(el: OutElement, counts: Map<string, number>): void {
   for (const [name, value] of el.attrs) {
     if (name !== "fill" && name !== "stroke" && name !== "stop-color") continue;
-    const hex = /#[0-9a-f]{3,8}\b/.exec(value)?.[0];
+    const hex = HEX_IN_VALUE_RE.exec(value)?.[0];
     if (!hex) continue;
     const full = hex.length === 4 ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}` : hex.slice(0, 7);
     counts.set(full, (counts.get(full) ?? 0) + (name === "stroke" ? 1 : 2));
@@ -569,14 +767,6 @@ function serialise(el: OutElement): string {
   return `<${el.name}${attrs}>${el.children.map((c) => (typeof c === "string" ? escapeText(c) : serialise(c))).join("")}</${el.name}>`;
 }
 
-function parseLength(v: string | undefined): number | null {
-  if (!v) return null;
-  const m = /^([+]?(?:\d+\.?\d*|\.\d+))(?:px)?$/.exec(v.trim());
-  if (!m) return null;
-  const n = Number(m[1]);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
 const round = (n: number) => Math.round(n * 1000) / 1000;
 
 /**
@@ -590,7 +780,7 @@ export function sanitiseSvg(input: string, options: SvgSanitiseOptions = {}): Sv
   if (input.length > maxInput) return { ok: false, reason: `The SVG is larger than ${Math.round(maxInput / 1024)} KB.` };
   let root: XElement;
   try {
-    root = parseXml(input.replace(/^\uFEFF/, ""));
+    root = parseXml(input.charCodeAt(0) === 0xfeff ? input.slice(1) : input);
   } catch (err) {
     return { ok: false, reason: `Not a valid SVG: ${(err as Error).message}.` };
   }
@@ -598,27 +788,37 @@ export function sanitiseSvg(input: string, options: SvgSanitiseOptions = {}): Sv
   const ns = root.attrs.get("xmlns");
   if (ns !== undefined && ns !== SVG_NAMESPACE) return { ok: false, reason: "Not an SVG: the root element is in another namespace." };
 
-  const removed = new Set<string>();
+  const removed = new Removed();
   const sheets: string[] = [];
   collectSheets(root, sheets);
   if (sheets.length) removed.add("element:style");
-  let sheet = sheets.flatMap((s) => parseSheet(s, removed));
-  if (sheet.length > SVG_MAX_STYLE_RULES) {
-    removed.add("style:sheet-too-large");
-    sheet = [];
+  let sheet: SheetRule[] = [];
+  const counter = { order: 0 };
+  for (const s of sheets) {
+    sheet = sheet.concat(parseSheet(s, removed, counter));
+    if (sheet.length > SVG_MAX_STYLE_RULES) {
+      removed.add("style:sheet-too-large");
+      sheet = [];
+      break;
+    }
   }
+  // Applied in this order, so a more specific rule, or a later one of the same specificity, wins.
+  sheet.sort((a, b) => a.specificity - b.specificity || a.order - b.order);
   const w: Walk = { removed, sheet, ids: new Set(), uses: 0 };
-  const out = sanitiseElement(root, w, 0);
+  const out = sanitiseElement(root, w, false);
   if (!out) return { ok: false, reason: "Not an SVG." };
   resolveReferences(out, w.ids, removed);
+  const cost = renderCost(out);
+  if (cost === "cycle") return { ok: false, reason: "The SVG refers to itself in a loop, so it cannot be drawn." };
+  if (cost > SVG_MAX_RENDER_COST) return { ok: false, reason: "The SVG repeats its parts too many times to draw quickly (through use, masks or clip paths). Export a simpler mark or a PNG." };
 
   // The root's coordinate system: its viewBox, or its pixel size.
   const rootAttrs = new Map(out.attrs);
   const vbParts = (rootAttrs.get("viewBox") ?? "").split(/[\s,]+/).filter(Boolean).map(Number);
   let viewBox: [number, number, number, number] | null = vbParts.length === 4 && vbParts.every(Number.isFinite) && vbParts[2]! > 0 && vbParts[3]! > 0 ? [vbParts[0]!, vbParts[1]!, vbParts[2]!, vbParts[3]!] : null;
   if (!viewBox) {
-    const width = parseLength(rootAttrs.get("width"));
-    const height = parseLength(rootAttrs.get("height"));
+    const width = parseRootSize(rootAttrs.get("width"));
+    const height = parseRootSize(rootAttrs.get("height"));
     if (width && height) viewBox = [0, 0, width, height];
   }
   if (!viewBox) return { ok: false, reason: "The SVG needs a viewBox (or a width and a height) so it can be scaled." };
@@ -636,5 +836,5 @@ export function sanitiseSvg(input: string, options: SvgSanitiseOptions = {}): Sv
   const counts = new Map<string, number>();
   collectColours(out, counts);
   const colours = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c);
-  return { ok: true, svg, width, height, viewBox, removed: [...removed].sort(), colours, shapes };
+  return { ok: true, svg, width, height, viewBox, removed: removed.list(), removedCounts: removed.countsByKind(), colours, shapes, renderCost: cost };
 }

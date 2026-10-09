@@ -178,13 +178,32 @@ export interface CheckedLogo {
   dataUrl: string;
   width: number;
   height: number;
-  /** SVG only: what the sanitiser removed. */
+  /** SVG only: what the sanitiser removed (at most 20 names, cut to 40 characters). */
   removed: string[];
+  /** SVG only: how many things of each kind the sanitiser removed. */
+  removedCounts: Record<string, number>;
   /** Hex colours read from an SVG's fills (rasters are read in the browser). */
   colours: string[];
 }
 
 export type LogoCheck = { ok: true; logo: CheckedLogo } | { ok: false; reason: string };
+
+/**
+ * Every result `checkLogo` passed, so a caller that already ran the check (an api procedure) can hand the result to
+ * storage without running the sanitiser a second time, and storage can still tell a checked logo from a look-alike
+ * object built by hand. Weak, so results are collected with the request.
+ */
+const CHECKED = new WeakSet<CheckedLogo>();
+
+/** True only for an object `checkLogo` itself returned as passing. */
+export function isCheckedLogo(value: unknown): value is CheckedLogo {
+  return typeof value === "object" && value !== null && CHECKED.has(value as CheckedLogo);
+}
+
+function passed(logo: CheckedLogo): LogoCheck {
+  CHECKED.add(logo);
+  return { ok: true, logo };
+}
 
 /**
  * Validates a logo before it is stored: rasters by magic bytes (which must match the declared type), header dimensions
@@ -198,7 +217,7 @@ export function checkLogo(input: LogoInput): LogoCheck {
     const bytes = utf8Encode(result.svg);
     if (bytes.length > LOGO_MAX_BYTES) return { ok: false, reason: "The SVG is too large after cleaning." };
     const base64 = bytesToBase64(bytes);
-    return { ok: true, logo: { mime: "image/svg+xml", bytes, base64, dataUrl: toLogoDataUrl("image/svg+xml", base64), width: result.width, height: result.height, removed: result.removed, colours: result.colours } };
+    return passed({ mime: "image/svg+xml", bytes, base64, dataUrl: toLogoDataUrl("image/svg+xml", base64), width: result.width, height: result.height, removed: result.removed, removedCounts: result.removedCounts, colours: result.colours });
   }
   if (!(RASTER_LOGO_MIMES as readonly string[]).includes(input.mime)) return { ok: false, reason: "Use a PNG, JPEG, WebP or SVG file." };
   if (input.base64.length > Math.ceil(LOGO_MAX_BYTES / 3) * 4 + 4) return { ok: false, reason: `The image is larger than ${LOGO_MAX_BYTES / 1024} KB after resizing.` };
@@ -214,5 +233,5 @@ export function checkLogo(input: LogoInput): LogoCheck {
   const ratio = info.width / info.height;
   if (ratio > 4 || ratio < 0.25) return { ok: false, reason: "The logo is too wide or too tall; use a mark that fits a square." };
   const base64 = bytesToBase64(bytes);
-  return { ok: true, logo: { mime: info.mime, bytes, base64, dataUrl: toLogoDataUrl(info.mime, base64), width: info.width, height: info.height, removed: [], colours: [] } };
+  return passed({ mime: info.mime, bytes, base64, dataUrl: toLogoDataUrl(info.mime, base64), width: info.width, height: info.height, removed: [], removedCounts: {}, colours: [] });
 }

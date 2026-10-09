@@ -1,10 +1,11 @@
 /** The business logo (0017): `set` checks before it stores, one row per business, members read, only the service writes. */
-import { bytesToBase64, isLogoDataUrl } from "@foundmill/shared/logo";
+import { bytesToBase64, checkLogo, isLogoDataUrl } from "@foundmill/shared/logo";
 import { makePng } from "@foundmill/shared/testing/logo-fixtures";
 import { ValidationError } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../../repos";
-import { businessLogos } from "../../schema";
+import { eq } from "drizzle-orm";
+import { businessLogos, businesses } from "../../schema";
 import { RLS_DENIED } from "../rls/fixtures";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
 
@@ -60,6 +61,28 @@ describe("logos", () => {
     expect(await r.as(r.B.ownerId, (tx) => repos.logos.getMeta(tx, businessId))).toBeNull();
     await expect(r.as(ownerId, (tx) => repos.logos.set(tx, businessId, { source: "upload", logo: png(32) }))).rejects.toThrow(RLS_DENIED);
     expect(await r.as(ownerId, (tx) => repos.logos.remove(tx, businessId).then(() => repos.logos.getMeta(tx, businessId)))).not.toBeNull();
+  });
+
+  it("stores a result checkLogo returned without checking again, and still checks a look-alike object", async () => {
+    const { businessId } = r.B;
+    const check = checkLogo(png(48));
+    if (!check.ok) throw new Error(check.reason);
+    const { meta } = await r.svc((tx) => repos.logos.set(tx, businessId, { source: "upload", logo: check.logo }));
+    expect(meta).toMatchObject({ width: 48, height: 48 });
+    // A hand-built object with the same shape is not trusted: it is checked, and this one fails.
+    const forged = { ...check.logo, mime: "image/svg+xml" as const, bytes: new TextEncoder().encode("<svg onload=alert(1)>") };
+    await expect(r.svc((tx) => repos.logos.set(tx, businessId, { source: "upload", logo: forged as never }))).rejects.toThrow(ValidationError);
+    await r.svc((tx) => repos.logos.remove(tx, businessId));
+  });
+
+  it("crest_url is retired: emptied, and a check refuses any value, even from the service role", async () => {
+    const { businessId, ownerId } = r.A;
+    await expect(r.svc((tx) => tx.update(businesses).set({ crestUrl: "https://evil.example/pixel.png" }).where(eq(businesses.id, businessId)))).rejects.toThrow(/businesses_crest_url_retired|check constraint/);
+    await expect(r.as(ownerId, (tx) => tx.update(businesses).set({ crestUrl: "javascript:alert(1)" }).where(eq(businesses.id, businessId)))).rejects.toThrow(/businesses_crest_url_retired|check constraint/);
+    expect((await repos.businesses.get(r.db, businessId)).crestUrl).toBeNull();
+    // The repo inputs no longer take it.
+    await repos.businesses.update(r.db, businessId, { name: "Still fine", crestUrl: "https://evil.example/x.png" } as never);
+    expect((await repos.businesses.get(r.db, businessId)).crestUrl).toBeNull();
   });
 
   it("removes the logo", async () => {

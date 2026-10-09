@@ -7,7 +7,7 @@ import { ConceptCard, IdeationOutput, ModelOutputError } from "@foundmill/models
 import { AppError, ARCHETYPES, Archetype, BUSINESS_MODES, GAME_MODES, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { commitIdea, squadPreview } from "../services/commit";
-import { LogoChoice } from "../services/logo";
+import { LogoChoice, takeLogoCheck } from "../services/logo";
 import { ideaLogoRouter } from "./logo";
 import { Id, protectedProcedure, router } from "../trpc";
 
@@ -208,6 +208,8 @@ export const ideaRouter = router({
     .mutation(async ({ ctx, input }) => {
       const profile = await repos.founders.get(ctx.db, ctx.userId);
       if (!profile) throw new ValidationError("Complete your founder profile before taking charge of a business");
+      // A logo is an upload check like any other (the SVG check is CPU work).
+      if (input.logo) takeLogoCheck(ctx.userId);
       return commitIdea(ctx.db, ctx.temporal, ctx.userId, input);
     }),
 });

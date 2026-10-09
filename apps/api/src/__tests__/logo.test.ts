@@ -6,13 +6,21 @@
  */
 import { repos } from "@foundmill/db";
 import { LIMITS } from "@foundmill/config";
+import * as sharedLogo from "@foundmill/shared/logo";
 import { bytesToBase64, isLogoDataUrl, sanitiseSvg } from "@foundmill/shared/logo";
 import { makeJpeg, makePng } from "@foundmill/shared/testing/logo-fixtures";
 import { TRPCError } from "@trpc/server";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { logoLimiter, takeLogoAllowance, takeLogoCheck } from "../services/logo";
 import { SlidingWindowLimiter } from "../services/rate-limit";
 import { createApiHarness, type ApiHarness } from "./harness";
+
+// checkLogo is wrapped (still the real one) so the tests can count how often a request runs the check.
+vi.mock("@foundmill/shared/logo", async (importOriginal) => {
+  const real = await importOriginal<typeof sharedLogo>();
+  return { ...real, checkLogo: vi.fn(real.checkLogo) };
+});
+const checkLogoCalls = () => vi.mocked(sharedLogo.checkLogo).mock.calls.length;
 
 let hz: ApiHarness;
 beforeAll(async () => {
@@ -67,7 +75,28 @@ describe("business.logo.* (owner/admin, audited)", () => {
     expect(stored).toContain('fill="#1f6f5f"');
     expect(sanitiseSvg(stored)).toMatchObject({ ok: true, svg: stored });
     const audit = await repos.audit.list(hz.db, businessId, { action: "business.logo.set" });
-    expect(audit.items[0]!.details).toMatchObject({ previousSha256: previous.sha256, sanitised: expect.arrayContaining(["attribute:onload", "element:script", "element:foreignObject", "element:image", "element:style"]) });
+    expect(audit.items[0]!.details).toMatchObject({
+      previousSha256: previous.sha256,
+      sanitised: { counts: expect.objectContaining({ element: 5, attribute: 1 }), names: expect.arrayContaining(["attribute:onload", "element:script", "element:foreignObject", "element:image", "element:style"]) },
+    });
+  });
+
+  it("runs the logo check once per upload (storage takes the checked result as it is)", async () => {
+    const { businessId, ownerId } = hz.A;
+    vi.mocked(sharedLogo.checkLogo).mockClear();
+    await hz.caller({ userId: ownerId }).business.logo.upload({ businessId, source: "upload", dataUrl: svgUrl(HOSTILE_SVG) });
+    expect(checkLogoCalls()).toBe(1);
+  });
+
+  it("keeps the audit record bounded however much the sanitiser removes", async () => {
+    const { businessId, ownerId } = hz.A;
+    const noisy = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#1f6f5f" ${Array.from({ length: 2000 }, (_, i) => `${"z".repeat(100)}${i}=""`).join(" ")}/></svg>`;
+    await hz.caller({ userId: ownerId }).business.logo.upload({ businessId, source: "upload", dataUrl: svgUrl(noisy) });
+    const audit = await repos.audit.list(hz.db, businessId, { action: "business.logo.set" });
+    const details = audit.items[0]!.details as { sanitised: { counts: Record<string, number>; names: string[] } };
+    expect(details.sanitised.counts).toEqual({ attribute: 2000 });
+    expect(details.sanitised.names.length).toBeLessThanOrEqual(20);
+    expect(JSON.stringify(details).length).toBeLessThan(2000);
   });
 
   it("members, viewers and other businesses' owners cannot set, generate or remove it; members can read it", async () => {
@@ -201,13 +230,27 @@ describe("idea.logo.* and idea.commit with a logo", () => {
     expect(await code(caller.idea.commit({ ideaId: idea.id, name: "Ledgerly Bad", archetype: "b2b_saas", logo: { source: "upload", dataUrl: `data:image/png;base64,${bytesToBase64(makeJpeg(64, 64))}` } }))).toBe("BAD_REQUEST");
     expect((await caller.idea.get({ ideaId: idea.id })).idea.committedAt).toBeNull();
 
+    vi.mocked(sharedLogo.checkLogo).mockClear();
     const result = await caller.idea.commit({ ideaId: idea.id, name: "Ledgerly Logo", archetype: "b2b_saas", kit: { primary: "#1F6F5F", secondary: "#E8C56B" }, logo: { source: "generated", dataUrl: set.options[0]!.dataUrl } });
+    // One check for the whole commit: storage takes the checked result as it is.
+    expect(checkLogoCalls()).toBe(1);
     const bid = result.business.id;
     const meta = await repos.logos.getMeta(hz.db, bid);
     expect(meta).toMatchObject({ source: "generated", mime: "image/svg+xml" });
     expect((await caller.business.get({ businessId: bid })).logo?.sha256).toBe(meta!.sha256);
     const audit = await repos.audit.list(hz.db, bid, { action: "idea.commit" });
     expect(audit.items[0]!.details).toMatchObject({ logo: { source: "generated", mime: "image/svg+xml", sha256: meta!.sha256 } });
+  });
+
+  it("a commit with a logo spends an upload check; without one it does not", async () => {
+    const userId = await hz.h.createUser("logo-founder-3@test.local");
+    const caller = hz.caller({ userId });
+    await caller.founder.profile.update({ displayName: "Lea", experience: "operator", skills: { sales: 12 }, targetMarkets: ["EU"], riskAppetite: "low" });
+    const idea = (await caller.idea.generate({ prompt: "a bakery" })).ideas[0]!;
+    for (let i = 0; i < LIMITS.logoChecksPerUserPerHour; i++) takeLogoCheck(userId);
+    expect(await code(caller.idea.commit({ ideaId: idea.id, name: "Crumb", archetype: "dtc_physical", logo: { source: "upload", dataUrl: pngUrl(64) } }))).toBe("TOO_MANY_REQUESTS");
+    expect((await caller.idea.get({ ideaId: idea.id })).idea.committedAt).toBeNull();
+    expect(await code(caller.idea.commit({ ideaId: idea.id, name: "Crumb", archetype: "dtc_physical" }))).toBe("OK");
   });
 
   it("prepare cleans an SVG upload before commit; commit without a logo leaves the initials mark", async () => {

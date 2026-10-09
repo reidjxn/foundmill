@@ -1,13 +1,14 @@
 /**
  * business_logos (0017): the business's logo, one row per business.
  *
- * `set` is the only write path and runs `checkLogo` (@foundmill/shared/logo) itself, so nothing reaches the table
- * without the magic-byte, dimension and size checks for rasters or the strict sanitiser for SVG. Callers write with
+ * `set` is the only write path: it takes either a result `checkLogo` (@foundmill/shared/logo) returned, recognised by
+ * `isCheckedLogo`, or raw input that it checks itself, so nothing reaches the table without the magic-byte, dimension
+ * and size checks for rasters or the strict sanitiser for SVG, and the sanitiser runs once per request. Callers write with
  * the service role (app roles only read this table); the api checks that the caller is an owner or admin first.
  * `getMeta` leaves the bytes out so `business.get` stays small; `get` returns the image as a `data:` URL.
  */
 import { createHash } from "node:crypto";
-import { LOGO_SOURCES, checkLogo, toLogoDataUrl, type CheckedLogo, type LogoInput, type LogoMime, type LogoSource } from "@foundmill/shared/logo";
+import { LOGO_SOURCES, checkLogo, isCheckedLogo, toLogoDataUrl, type CheckedLogo, type LogoInput, type LogoMime, type LogoSource } from "@foundmill/shared/logo";
 import { ValidationError } from "@foundmill/shared";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -32,7 +33,8 @@ export interface BusinessLogoImage extends BusinessLogoMeta {
 
 export const SetLogoInput = z.object({
   source: z.enum(LOGO_SOURCES),
-  logo: z.custom<LogoInput>((v) => typeof v === "object" && v !== null && "mime" in v, "logo input expected"),
+  /** Raw input (checked here), or the result of a `checkLogo` call the caller already made (used as it is). */
+  logo: z.custom<LogoInput | CheckedLogo>((v) => typeof v === "object" && v !== null && "mime" in v, "logo input expected"),
   createdBy: Id.nullable().optional(),
 });
 export type SetLogoInput = z.input<typeof SetLogoInput>;
@@ -83,9 +85,14 @@ export const logosRepo = {
    */
   async set(db: Executor, businessId: string, input: SetLogoInput): Promise<{ meta: BusinessLogoMeta; checked: CheckedLogo; previous: BusinessLogoMeta | null }> {
     const v = parseInput(SetLogoInput, input, "logo");
-    const check = checkLogo(v.logo);
-    if (!check.ok) throw new ValidationError(check.reason);
-    const { logo } = check;
+    // A result checkLogo returned is stored as it is (the sanitiser runs once per request); anything else is checked.
+    let logo: CheckedLogo;
+    if (isCheckedLogo(input.logo)) logo = input.logo;
+    else {
+      const check = checkLogo(v.logo as LogoInput);
+      if (!check.ok) throw new ValidationError(check.reason);
+      logo = check.logo;
+    }
     const previous = await logosRepo.getMeta(db, businessId);
     const values = { source: v.source, mime: logo.mime, content: logo.bytes, sha256: sha256Hex(logo.bytes), width: logo.width, height: logo.height, createdBy: v.createdBy ?? null, updatedAt: new Date() };
     const rows = await db

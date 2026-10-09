@@ -16,7 +16,7 @@
 import { repos } from "@foundmill/db";
 import { AppError, Archetype } from "@foundmill/shared";
 import { z } from "zod";
-import { BrandColours, checkLogoChoice, generateLogoOptions, logoLimiter, LogoChoice, LogoDataUrl, preparedView, takeLogoAllowance, takeLogoCheck, toLogoInput } from "../services/logo";
+import { BrandColours, checkLogoChoice, generateLogoOptions, logoLimiter, LogoChoice, LogoDataUrl, preparedView, sanitisedSummary, takeLogoAllowance, takeLogoCheck } from "../services/logo";
 import { adminProcedure, audit, businessProcedure, Id, protectedProcedure, router } from "../trpc";
 
 const Round = z.number().int().min(0).max(10_000).default(0);
@@ -38,13 +38,14 @@ export const businessLogoRouter = router({
 
   upload: adminProcedure.input(LogoChoice).mutation(async ({ ctx, input }) => {
     takeLogoCheck(ctx.userId);
+    // Checked once here; storage recognises the result and does not run the sanitiser again.
     const checked = checkLogoChoice(input);
     return ctx.db.transaction(async (tx) => {
-      const { meta, previous } = await repos.logos.set(tx, ctx.businessId, { source: input.source, logo: toLogoInput(input.dataUrl), createdBy: ctx.userId });
+      const { meta, previous } = await repos.logos.set(tx, ctx.businessId, { source: input.source, logo: checked, createdBy: ctx.userId });
       await audit(tx, ctx, {
         action: "business.logo.set",
         target: { kind: "business", id: ctx.businessId },
-        details: { source: meta.source, mime: meta.mime, width: meta.width, height: meta.height, bytes: meta.bytes, sha256: meta.sha256, previousSha256: previous?.sha256 ?? null, sanitised: checked.removed },
+        details: { source: meta.source, mime: meta.mime, width: meta.width, height: meta.height, bytes: meta.bytes, sha256: meta.sha256, previousSha256: previous?.sha256 ?? null, sanitised: sanitisedSummary(checked) },
       });
       return { logo: meta, dataUrl: checked.dataUrl };
     });

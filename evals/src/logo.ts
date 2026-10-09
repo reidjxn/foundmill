@@ -194,7 +194,7 @@ export interface LogoEvalResult {
 /** Runs one brief through the real prompt and checks the set. Never throws. */
 export async function runLogoEval(brief: LogoBrief, client: ModelClient): Promise<LogoEvalResult> {
   try {
-    const system = prompts.logoDesignerPrompt.render({ business_name: brief.business_name, pitch: brief.pitch, archetype: brief.archetype, primary_colour: brief.primary, secondary_colour: brief.secondary, count: brief.count });
+    const system = prompts.logoDesignerPrompt.render({ count: brief.count });
     const result = await client.complete({
       route: "logoDesigner",
       system,
