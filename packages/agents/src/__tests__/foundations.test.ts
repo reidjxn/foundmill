@@ -12,6 +12,8 @@ import {
   knownNumbers,
   labelFigures,
   needsFigureLabel,
+  PLAIN_MAX_PASSES,
+  plainPass,
   plainModelText,
   type FoundationsDraft,
   type FoundationsInputs,
@@ -166,6 +168,70 @@ describe("plain model text (M1)", () => {
     }
   });
 
+  it("settles markup that only forms once other markup is removed (N1)", () => {
+    // One pass removes the images and leaves [[ent:…|Your bank]]; the loop removes that too.
+    const n1 = `[![](u)[ent:${ID}|Your bank]![](u)]`;
+    expect(plainModelText(n1)).toBe("Your bank");
+    // Nested deeper than the pass limit: the square brackets go, so nothing can form.
+    let deep = `[ent:${ID}|Your bank]`;
+    for (let i = 0; i < 12; i++) deep = `[![](https://beacon.example/${i}.png)${deep}![](u)]`;
+    const out = plainModelText(deep);
+    expect(out).not.toMatch(/\[\[|!\[|\]\(|ent:|beacon/);
+    expect(out).toContain("Your bank");
+    expect(plainModelText(out)).toBe(out);
+    // Text still changing after PLAIN_MAX_PASSES passes loses its square brackets, and that result is settled.
+    const slow = `ent:ent:](\\[[!!!![a]:ent:Your bank]])(<]:\n\n!]:\n\\:Your bank\\Your bank\n!]:`;
+    let t = slow;
+    let changes = 0;
+    while (plainPass(t) !== t && changes < 50) {
+      t = plainPass(t);
+      changes++;
+    }
+    expect(changes).toBeGreaterThanOrEqual(PLAIN_MAX_PASSES);
+    const settled = plainModelText(slow);
+    expect(settled).not.toMatch(/[[\]]/);
+    expect(plainPass(settled)).toBe(settled);
+    expect(plainModelText(settled)).toBe(settled);
+  });
+
+  it("removes characters that render as nothing, including Unicode tags, before matching", () => {
+    expect(plainModelText("ww\u00ADw.evil.example")).toBe(LINK_REMOVED);
+    expect(plainModelText("ht\u2060tps://evil.example/p")).toBe(LINK_REMOVED);
+    expect(plainModelText("Pay\u{E0020}\u{E0041}\u{E007F} \u061Cnow\u2062")).toBe("Pay now");
+    expect(plainModelText(`[\u200B[ent:${ID}|Bank]\u2064]`)).toBe("Bank");
+  });
+
+  it("removes reference definitions with escaped or multi-line labels, or a destination on another line", () => {
+    expect(plainModelText("[a\\]b]: //evil.example/x.png")).toBe("");
+    expect(plainModelText("Pixel ![x][a\\]b]\n\n[a\\]b]: //evil.example/x.png")).toBe("Pixel x\n\n");
+    // A definition split across two paragraphs of one list item: each node is cleaned on its own.
+    expect(plainModelText("[a]:")).toBe("");
+    expect(plainModelText("//evil.example/x.png")).toBe(LINK_REMOVED);
+    expect(plainModelText("- [a]:\n  //evil.example/x.png")).toBe(`\n  ${LINK_REMOVED}`);
+    expect(plainModelText("> 1. [multi\nline]: /x")).toBe("");
+    expect(plainModelText("Notes [a]: stay in the sentence")).toBe("Notes [a]: stay in the sentence");
+  });
+
+  it("treats anything shaped local@host as an address, whatever the top-level domain", () => {
+    for (const a of ["x@evil.com1", "y@1.2.3.4", "mailto:x@evil.com1", "mailto:y@1.2.3.4", "ops@intranet"]) expect(plainModelText(`Write to ${a} today`), a).toBe(`Write to ${ADDRESS_REMOVED} today`);
+  });
+
+  it("property: the result is a fixed point and carries no live markup, for generated hostile strings", () => {
+    const parts = ["[", "]", "[[", "]]", "!", "![", "](", "(", ")", "u", "ent:", ID, "|", "Your bank", "https://e.example/p.png", "www.e.example", "//e.example/x", "x@e.com1", "mailto:", "@", "1.2.3.4", "<", "img", "/", ">", ":", "\\", "\n", " ", "- ", "> ", "]:", "\u00AD", "\u200B", "\u2060", "\u061C", "\u{E0041}", "javascript:", "a", "."];
+    let seed = 0x5eed;
+    const rand = (n: number) => {
+      seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+      return (seed >>> 8) % n;
+    };
+    const live = /!\[|\]\(|\[\[|<[A-Za-z/!?]|(?:https?|ftp):\/\/|\bwww\.|[A-Za-z0-9._%+-]@[A-Za-z0-9_-]|[\u00AD\u061C\u200B-\u200F\u2060-\u2064\u{E0000}-\u{E007F}]/u;
+    for (let i = 0; i < 3000; i++) {
+      const s = Array.from({ length: 2 + rand(24) }, () => parts[rand(parts.length)]).join("");
+      const once = plainModelText(s);
+      expect(plainModelText(once), JSON.stringify(s)).toBe(once);
+      expect(live.test(once), JSON.stringify(s)).toBe(false);
+    }
+  });
+
   it("escapeMarkdown leaves nothing that Markdown turns into a link, image, tag or mention", () => {
     expect(escapeMarkdown("![x](y) [[ent:a|b]] <b> www.x.example https://x")).toBe("\\!\\[x\\]\\(y\\) \\[\\[ent:a\\|b\\]\\] \\<b\\> www\\.x.example https\\:\\/\\/x");
   });
@@ -312,6 +378,8 @@ describe("finaliseFoundations over a hand-written answer", () => {
     out.vision.north_star.metric = "Paying practices <img src=x onerror=alert(1)>";
     out.vision.north_star.target = "[40](https://phish.example) practices in six months";
     out.vision.principles[0]!.title = "[[ent:" + ID + "|Ops]]";
+    // N1: markup that only forms once the images inside it are removed.
+    out.vision.for_whom = `[![](u)[ent:${ID}|Your bank]![](u)]`;
     out.sections[0]!.content = {
       type: "doc",
       content: [
@@ -325,12 +393,14 @@ describe("finaliseFoundations over a hand-written answer", () => {
     out.roadmap[0]!.description = "Read ![t](https://beacon.example/r.png) transactions.";
     out.roadmap[0]!.acceptance_criteria = [`Works for [[ent:${ID}|Ada]]`];
     out.roadmap[0]!.source_ref = "javascript:alert(1)";
-    out.open_questions = [`Should we [pay](https://phish.example) [[ent:${ID}|Ada]]?`];
+    out.open_questions = [`Should we [pay](https://phish.example) [[ent:${ID}|Ada]]?`, `Ask [![](u)[ent:${ID}|Your bank]![](u)]?`];
     const draft = finaliseFoundations(out, ideationInputs());
     const note = foundationsReadyNote(draft, "ideation", { sectionsWritten: 2, sectionsTotal: 10, sectionsKept: 0, roadmap: { now: 1, next: 2, later: 0 }, importedIssues: 0 });
     const stored = JSON.stringify({ draft, note });
     for (const bad of ["](", "![", "[[", "ent:", "http", "www.", "@billing", "<img", "javascript:"]) expect(stored, bad).not.toContain(bad);
     expect(draft.vision.statement).toBe("Ledgerly x closes the month today, ask Ada.");
+    expect(draft.vision.forWhom).toBe("Your bank");
+    expect(draft.openQuestions[1]).toBe("Ask Your bank?");
     expect(draft.vision.northStar.target).toBe("40 practices in six months (Forecast)");
     expect(draft.roadmap[0]!.title).toBe("Bank feed import");
     expect(docText(draft.sections[0]!.content)).toBe(`Read me\nAsk Ada or mail ${ADDRESS_REMOVED}\nPay at ${LINK_REMOVED} now`);

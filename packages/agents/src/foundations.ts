@@ -227,31 +227,71 @@ export const LINK_REMOVED = "(link removed)";
 export const ADDRESS_REMOVED = "(address removed)";
 
 const ENTITY_RE = new RegExp(ENTITY_MARKUP_RE.source, "g");
-// Control characters (tab, newline and carriage return are whitespace and stay) and bidi overrides.
+/**
+ * Characters that render as nothing: C0 controls and DEL (tab, newline and carriage return are whitespace and stay),
+ * the soft hyphen, the Arabic letter mark, zero-width and bidi marks and overrides, the word joiner and invisible
+ * operators, the byte-order mark, and the Unicode tag characters.
+ */
 // eslint-disable-next-line no-control-regex
-const INVISIBLE_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g;
+const INVISIBLE_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u00AD\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF\u{E0000}-\u{E007F}]/gu;
+
+/**
+ * A link reference definition's `[label]:` at the start of a line (after any indentation, quote or list markers). The
+ * label is escape-aware (`[a\]b]`) and may span lines, as in CommonMark; the whole line goes, whether or not the
+ * destination follows on it (it may sit on the next line, or in the next paragraph of a list item).
+ */
+const LINK_DEFINITION_RE = /^[ \t>]*(?:[*+-][ \t]+|\d{1,9}[.)][ \t]+)?\[(?:\\[\s\S]|[^\\[\]]){1,999}\]:.*$/gm;
+/** Any `local@host`, whatever the top-level domain (`x@evil.com1`, `y@1.2.3.4`), with or without `mailto:`. */
+const ADDRESS_RE = /(?:\bmailto:)?[A-Za-z0-9._%+-]+@[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*/gi;
+/** Passes before `plainModelText` gives up on settling nested markup and drops square brackets altogether. */
+export const PLAIN_MAX_PASSES = 5;
+
+/** One pass of `plainModelText`. Removing one construct can form another (`[![](u)[ent:…]![](u)]`), hence the loop. */
+export function plainPass(input: string): string {
+  let s = input.replace(INVISIBLE_RE, "");
+  s = s.replace(ENTITY_RE, (_m, _id: string, name: string) => name);
+  s = s.replace(/\[\[\s*ent\s*:[^\]|]*\|?/gi, "");
+  s = s.replace(/\[{2,}/g, "[").replace(/\]{2,}/g, "]");
+  s = s.replace(LINK_DEFINITION_RE, "");
+  // Images, then links, inline or by reference; text, labels and destinations may carry backslash escapes (`\]`).
+  s = s.replace(/!\[((?:\\.|[^\\\]\n])*)\]\((?:\\.|[^\\)\n])*\)/g, "$1").replace(/!\[((?:\\.|[^\\\]\n])*)\]\[(?:\\.|[^\\\]\n])*\]/g, "$1");
+  s = s.replace(/\[((?:\\.|[^\\\]\n])*)\]\((?:\\.|[^\\)\n])*\)/g, "$1").replace(/\[((?:\\.|[^\\\]\n])+)\]\[(?:\\.|[^\\\]\n])*\]/g, "$1");
+  s = s.replace(/<(?:https?|ftp|mailto|javascript|data):[^>\s]*>/gi, LINK_REMOVED);
+  s = s.replace(/\b(?:(?:https?|ftp):\/\/|www\.)[^\s<>"'`()[\]{}]+/gi, LINK_REMOVED);
+  // Protocol-relative links (`//evil.example/x.png`) where a link destination could start.
+  s = s.replace(/(^|[\s(<:])\/\/[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+[^\s<>"'`()[\]{}]*/g, `$1${LINK_REMOVED}`);
+  s = s.replace(/\b(?:javascript|data|vbscript):[^\s<>"'`()[\]{}]*/gi, LINK_REMOVED);
+  s = s.replace(ADDRESS_RE, ADDRESS_REMOVED);
+  s = s.replace(/!\[/g, "[").replace(/\]\(/g, "] (");
+  s = s.replace(/<(?=[A-Za-z/!?])/g, "‹");
+  return s;
+}
+
+const noSquareBrackets = (s: string) => s.replace(/\[/g, "(").replace(/\]/g, ")");
 
 /**
  * Every string the model writes is stored as plain text (security review M1): it reaches the Inbox (Markdown), the
  * Vision tab, the spec editor and the roadmap, so nothing in it may become live there. Entity markup becomes its
  * display name (agents may only mention entities through the entity-linker, which validates them), Markdown images
- * and links become their text, link definitions go, bare URLs and email addresses are replaced, and what is left of
- * `![`, `](`, `[[` or an HTML tag opener is broken up. Idempotent.
+ * and links become their text, link definitions go, URLs and addresses are replaced, and what is left of `![`, `](`,
+ * `[[` or an HTML tag opener is broken up. Passes repeat until the text stops changing, so the result is a fixed point
+ * and the function is idempotent; markup still settling after `PLAIN_MAX_PASSES` loses its square brackets.
  */
 export function plainModelText(input: string): string {
-  let s = input.replace(INVISIBLE_RE, "");
-  s = s.replace(ENTITY_RE, (_m, _id: string, name: string) => name);
-  s = s.replace(/\[\[\s*ent\s*:[^\]|]*\|?/gi, "");
-  s = s.replace(/\[{2,}/g, "[").replace(/\]{2,}/g, "]");
-  s = s.replace(/^[ \t]*\[[^\]\n]+\]:[ \t]*\S.*$/gm, "");
-  s = s.replace(/!\[([^\]\n]*)\]\([^)\n]*\)/g, "$1").replace(/!\[([^\]\n]*)\]\[[^\]\n]*\]/g, "$1");
-  s = s.replace(/\[([^\]\n]*)\]\([^)\n]*\)/g, "$1").replace(/\[([^\]\n]+)\]\[[^\]\n]*\]/g, "$1");
-  s = s.replace(/<(?:https?|ftp|mailto|javascript|data):[^>\s]*>/gi, LINK_REMOVED);
-  s = s.replace(/\b(?:(?:https?|ftp):\/\/|www\.)[^\s<>"'`()[\]{}]+/gi, LINK_REMOVED);
-  s = s.replace(/\b(?:javascript|data|vbscript):[^\s<>"'`()[\]{}]*/gi, LINK_REMOVED);
-  s = s.replace(/(?:\bmailto:)?[A-Z0-9._%+-]+@[A-Z0-9-]+(?:\.[A-Z0-9-]+)*\.[A-Z]{2,}\b/gi, ADDRESS_REMOVED);
-  s = s.replace(/!\[/g, "[").replace(/\]\(/g, "] (");
-  s = s.replace(/<(?=[A-Za-z/!?])/g, "‹");
+  let s = input;
+  for (let i = 0; i < PLAIN_MAX_PASSES; i++) {
+    const next = plainPass(s);
+    if (next === s) return s;
+    s = next;
+  }
+  // Without square brackets no link, image, definition or mention can form, and a pass never adds one: what is left
+  // (invisible characters, URLs, addresses, tag openers) settles in a pass or two.
+  s = noSquareBrackets(s);
+  for (let i = 0; i < PLAIN_MAX_PASSES; i++) {
+    const next = plainPass(s);
+    if (next === s) break;
+    s = next;
+  }
   return s;
 }
 
