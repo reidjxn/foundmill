@@ -20,7 +20,11 @@ export interface MigrateResult {
 
 const MIGRATE_CONFIG = { migrationsFolder: MIGRATIONS_DIR, migrationsSchema: MIGRATIONS_SCHEMA, migrationsTable: MIGRATIONS_TABLE } as const;
 
-const firstN = (res: unknown): number => Number((res as { rows?: { n?: number | string }[] }).rows?.[0]?.n ?? 0);
+// PGlite answers `{ rows }`; postgres.js answers the rows themselves (an array).
+const firstN = (res: unknown): number => {
+  const rows = (Array.isArray(res) ? res : (res as { rows?: unknown[] }).rows) as { n?: number | string }[] | undefined;
+  return Number(rows?.[0]?.n ?? 0);
+};
 
 /** Rows in drizzle's migrations table; 0 when the table does not exist yet. */
 export async function appliedMigrationCount(db: Db): Promise<number> {
