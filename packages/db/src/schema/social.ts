@@ -38,10 +38,13 @@ export const connections = pgTable(
     status: text("status", { enum: CONNECTION_STATUSES }).notNull().default("requested"),
     message: text("message"),
     respondedAt: tstz("responded_at"),
+    /** Who blocked (0018): set exactly when `status` is "blocked"; only they may change or delete the row. */
+    blockedBy: uuid("blocked_by").references(() => authUsers.id, { onDelete: "cascade" }),
     ...timestamps(),
   },
   (t) => [
     uniqueIndex("connections_from_user_to_user_key").on(t.fromUser, t.toUser),
+    index("connections_blocked_by_idx").on(t.blockedBy),
     index("connections_to_user_idx").on(t.toUser, t.status),
     index("connections_from_user_idx").on(t.fromUser, t.status),
   ],

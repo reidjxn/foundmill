@@ -20,7 +20,7 @@ describe("journal", () => {
   it("is readable by drizzle's own migrator and by our reader, in the same order", () => {
     const theirs = readMigrationFiles({ migrationsFolder: MIGRATIONS_DIR });
     const ours = readMigrations();
-    expect(theirs).toHaveLength(15);
+    expect(theirs).toHaveLength(16);
     expect(ours.map((m) => m.tag)).toEqual(readJournal().entries.map((e) => e.tag));
     expect(theirs.map((m) => m.folderMillis)).toEqual(ours.map((m) => m.when));
     expect(ours.map((m) => m.tag)).toEqual([
@@ -39,6 +39,7 @@ describe("journal", () => {
       "0013_workspaces",
       "0014_workspace_push",
       "0015_app_installations",
+      "0018_live_hardening", // 0016 and 0017 belong to other branches
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);

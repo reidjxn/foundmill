@@ -106,6 +106,13 @@
       "when": 1791375120000,
       "tag": "0015_app_installations",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791634320000,
+      "tag": "0018_live_hardening",
+      "breakpoints": true
     }
   ]
 }
