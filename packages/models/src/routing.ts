@@ -18,6 +18,7 @@ export const ROUTES = {
   planner: { model: "opus" },
   codeReview: { model: "opus" },
   ideation: { model: "opus" },
+  logoDesigner: { model: "opus" }, // business logo marks as SVG (Commit screen, Settings › Business)
   skillGrader: { model: "opus" },
   coach: { model: "opus" },
   worker: { model: "sonnet" },

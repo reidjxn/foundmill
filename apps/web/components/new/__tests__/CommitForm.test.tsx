@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CONCEPT_ATTRIBUTE_KEYS, TooltipProvider } from "@foundmill/dugout";
-import { CommitForm } from "../commit/CommitScreen";
+import { CommitForm, type CommitLogoApi } from "../commit/CommitScreen";
 import { META_KIND, type IdeaLike } from "../ideate/concepts";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
@@ -30,10 +30,26 @@ const idea: IdeaLike = {
   },
 };
 
+const mark = (fill: string) => `data:image/svg+xml;base64,${btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512"><rect width="100" height="100" rx="22" fill="${fill}"/></svg>`)}`;
+const OPTIONS = [
+  { id: "a1", name: "Orbit", concept: "A ring with one point on it.", dataUrl: mark("#1f6f5f"), colours: ["#1f6f5f", "#e8c56b"] },
+  { id: "a2", name: "Stack", concept: "Three bars.", dataUrl: mark("#2b6cb0"), colours: ["#2b6cb0", "#f5b841"] },
+  { id: "a3", name: "Fold", concept: "Two panels.", dataUrl: mark("#7a3b8f"), colours: ["#7a3b8f", "#f29e4c"] },
+  { id: "a4", name: "Arch", concept: "A doorway.", dataUrl: mark("#b23a2e"), colours: ["#b23a2e", "#f5b841"] },
+];
+
+function fakeLogoApi(over: Partial<CommitLogoApi> = {}): CommitLogoApi & { generate: ReturnType<typeof vi.fn>; prepare: ReturnType<typeof vi.fn> } {
+  return {
+    prepare: vi.fn(async (dataUrl: string) => ({ dataUrl, colours: ["#0f766e", "#fbbf24"] })),
+    generate: vi.fn(async () => ({ options: OPTIONS, cost: { amountMinor: 7, currency: "USD", label: "Estimate" as const }, remaining: 9, mode: "mock" as const })),
+    ...over,
+  } as never;
+}
+
 function renderForm(onCommit = vi.fn(), extra: Partial<React.ComponentProps<typeof CommitForm>> = {}) {
   render(
     <TooltipProvider>
-      <CommitForm idea={idea} viewer={{ email: null }} currency="EUR" onCommit={onCommit} {...extra} />
+      <CommitForm idea={idea} viewer={{ email: null }} currency="EUR" onCommit={onCommit} logoApi={fakeLogoApi()} {...extra} />
     </TooltipProvider>,
   );
   return onCommit;
@@ -94,6 +110,96 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     });
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: suggested, gameMode: "live", archetype: "b2b_saas", businessMode: "assisted", currency: "EUR", spendCapMinor: 25_000, kit: { primary: "#1b4fd8" } });
+  });
+
+  it("starts with the initials mark (no shield), generates four marks, picks one, takes its colours and commits it", async () => {
+    const logoApi = fakeLogoApi();
+    const onCommit = renderForm(vi.fn(), { logoApi });
+    const preview = screen.getByTestId("logo-preview");
+    expect(preview.querySelector("[data-logo]")?.getAttribute("data-logo")).toBe("initials");
+    expect(preview.querySelector("text")?.textContent).toBe("LE");
+    expect(preview.querySelector("path")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("logo-generate"));
+    });
+    expect(logoApi.generate).toHaveBeenCalledWith({ name: "Ledgerly", colours: expect.objectContaining({ primary: expect.any(String) }), archetype: "b2b_saas", round: 0 });
+    const options = screen.getAllByTestId("logo-option");
+    expect(options).toHaveLength(4);
+    expect(options[0]!.querySelector("img")?.getAttribute("src")).toBe(OPTIONS[0]!.dataUrl);
+    expect(screen.getByTestId("logo-cost").textContent).toMatch(/US\$0\.07/);
+    expect(screen.getByTestId("logo-options").textContent).toMatch(/Estimate/);
+
+    await act(async () => {
+      fireEvent.click(options[0]!);
+    });
+    expect(options[0]!.getAttribute("aria-checked")).toBe("true");
+    expect(preview.querySelector("img")?.getAttribute("src")).toBe(OPTIONS[0]!.dataUrl);
+    // The concept card preview follows the chosen logo.
+    expect(document.querySelector("article[data-concept] img")?.getAttribute("src")).toBe(OPTIONS[0]!.dataUrl);
+
+    // Colours from the logo are suggested, applied on request, and still editable.
+    await waitFor(() => expect(screen.getByTestId("logo-colour-suggestion")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("logo-use-colours"));
+    expect((screen.getByTestId("kit-primary-hex") as HTMLInputElement).value).toBe("#1f6f5f");
+    expect((screen.getByTestId("kit-secondary-hex") as HTMLInputElement).value).toBe("#e8c56b");
+    expect(screen.queryByTestId("logo-colour-suggestion")).toBeNull();
+    fireEvent.change(screen.getByTestId("kit-primary-hex"), { target: { value: "#14532d" } });
+
+    // Generate again asks for the next set.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("logo-regenerate"));
+    });
+    expect(logoApi.generate).toHaveBeenLastCalledWith(expect.objectContaining({ round: 1, colours: expect.objectContaining({ primary: "#14532d" }) }));
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge-bottom"));
+    });
+    expect(onCommit.mock.calls[0]![0]).toMatchObject({ logo: { source: "generated", dataUrl: OPTIONS[0]!.dataUrl }, kit: { primary: "#14532d", secondary: "#e8c56b" } });
+  });
+
+  it("uploads an SVG through the server check, shows the cleaned result, and can go back to the initials mark", async () => {
+    const cleaned = mark("#0f766e");
+    const logoApi = fakeLogoApi({ prepare: vi.fn(async () => ({ dataUrl: cleaned, colours: ["#0f766e", "#fbbf24"] })) });
+    const onCommit = renderForm(vi.fn(), { logoApi });
+    const svg = new File(['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" onload="alert(1)"><rect width="10" height="10"/></svg>'], "logo.svg", { type: "image/svg+xml" });
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("logo-file"), { target: { files: [svg] } });
+    });
+    await waitFor(() => expect(logoApi.prepare).toHaveBeenCalledTimes(1));
+    const sent = (logoApi.prepare as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
+    expect(sent.startsWith("data:image/svg+xml;base64,")).toBe(true);
+    await waitFor(() => expect(screen.getByTestId("logo-preview").querySelector("img")?.getAttribute("src")).toBe(cleaned));
+    expect(screen.getByTestId("logo-picker").getAttribute("data-logo-source")).toBe("upload");
+
+    fireEvent.click(screen.getByTestId("logo-clear"));
+    await waitFor(() => expect(screen.getByTestId("logo-picker").getAttribute("data-logo-source")).toBe("initials"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("take-charge-bottom"));
+    });
+    expect(onCommit.mock.calls[0]![0].logo).toBeNull();
+  });
+
+  it("refuses an oversize or unsupported file before sending it, and shows the server's reason when the check fails", async () => {
+    const logoApi = fakeLogoApi({ prepare: vi.fn(async () => Promise.reject(new Error("The file says image/png but its contents are image/jpeg."))) });
+    renderForm(vi.fn(), { logoApi });
+    const big = new File([new Uint8Array(2 * 1024 * 1024 + 1)], "huge.svg", { type: "image/svg+xml" });
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("logo-file"), { target: { files: [big] } });
+    });
+    expect(screen.getByTestId("logo-error").textContent).toMatch(/larger than 2 MB/);
+    const gif = new File(["GIF89a"], "x.gif", { type: "image/gif" });
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("logo-file"), { target: { files: [gif] } });
+    });
+    expect(screen.getByTestId("logo-error").textContent).toMatch(/PNG, JPEG, WebP or SVG/);
+    expect(logoApi.prepare).not.toHaveBeenCalled();
+    const svg = new File(["<svg/>"], "ok.svg", { type: "image/svg+xml" });
+    await act(async () => {
+      fireEvent.change(screen.getByTestId("logo-file"), { target: { files: [svg] } });
+    });
+    await waitFor(() => expect(screen.getByTestId("logo-error").textContent).toMatch(/contents are image\/jpeg/));
+    expect(screen.getByTestId("logo-picker").getAttribute("data-logo-source")).toBe("initials");
   });
 
   it("says what is happening while the business is set up", () => {

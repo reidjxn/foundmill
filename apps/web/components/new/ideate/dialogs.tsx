@@ -5,7 +5,7 @@
  */
 import { ArrowLeft, ArrowRight, GitFork, GitMerge, History, MessageCircleQuestionMark, Send } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Button, Checkbox, Chip, ConceptCard, Crest, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Markdown, SkeletonText, StatusPill, Textarea, cn, formatDateTime, initials } from "@foundmill/dugout";
+import { Button, Checkbox, Chip, BusinessLogo, ConceptCard, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Markdown, SkeletonText, StatusPill, Textarea, cn, formatDateTime } from "@foundmill/dugout";
 import { qaOf, toConcept, versionActionLabel, versionToConcept, type IdeaLike, type IdeaVersionLike } from "./concepts";
 
 /* ---------- Ask ---------- */
@@ -204,7 +204,7 @@ export function MergeDialog({ source, candidates, preselected = [], open, onOpen
                   <li key={c.id}>
                     <label className={cn("flex cursor-pointer items-center gap-3 rounded-panel border border-subtle bg-panel-alt p-2 hover:border-secondary/50", checked && "border-link", full && "cursor-not-allowed opacity-50")} data-merge-candidate={c.id}>
                       <Checkbox checked={checked} disabled={full} onCheckedChange={() => toggle(c.id)} aria-label={`Merge with ${c.title}`} />
-                      <Crest seed={concept.crestSeed} kitPrimary={concept.kit.primary} kitSecondary={concept.kit.secondary} monogram={initials(concept.name)} size={32} title={`${concept.name} logo`} />
+                      <BusinessLogo name={concept.name} primary={concept.kit.primary} size={32} />
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-body-strong">{concept.name}</div>
                         <div className="truncate text-small text-secondary">{concept.pitch}</div>

@@ -39,6 +39,7 @@ export const businesses = pgTable(
     archetype: text("archetype", { enum: ARCHETYPES }),
     kitPrimary: text("kit_primary").notNull().default("#1b4fd8"),
     kitSecondary: text("kit_secondary").notNull().default("#f5c400"),
+    /** Retired (0017): always null (a check holds it empty); the logo lives in business_logos. */
     crestUrl: text("crest_url"),
     region: text("region", { enum: DATA_REGIONS }).notNull().default("eu"),
     committedAt: tstz("committed_at"),

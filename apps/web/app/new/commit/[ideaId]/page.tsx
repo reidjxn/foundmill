@@ -1,4 +1,4 @@
-/** /new/commit/[ideaId] — the Commit screen: name, crest and brand colours, modes, archetype, "Take charge" (BUILD §11.1, AC-11.1.6/7). */
+/** /new/commit/[ideaId] — the Commit screen: name, logo and brand colours, modes, archetype, "Take charge" (BUILD §11.1, AC-11.1.6/7). */
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";

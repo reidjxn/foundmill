@@ -1,0 +1,239 @@
+"use client";
+/**
+ * The logo picker (BUILD §11.1 Commit screen; §11.15 Settings › Business): upload a real logo or generate marks, see
+ * the result as it will be stored, and take brand colours from it.
+ *
+ * - Upload: PNG, JPEG, WebP or SVG up to 2 MB. Rasters are resized in the browser (`readLogoFile`); every file then
+ *   goes to the server's check (`actions.prepare`), and the preview shows exactly what that check returned.
+ * - Generate: four marks from the logo designer (`actions.generate`), already sanitised by the server, shown as
+ *   images; "Generate again" asks for a new set; the cost of each set is shown as an Estimate.
+ * - Colours: once a logo is chosen, the two colours read from it are offered next to the current brand colours; the
+ *   founder applies them with one click and can still edit them.
+ *
+ * Logos are only ever rendered through `<img src>` (Dugout `BusinessLogo`). Desktop only, Dugout components only.
+ */
+import { Check, Eraser, Palette, RefreshCw, Sparkles, Upload } from "lucide-react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { BusinessLogo, Button, Chip, ProvenanceChip, StatusPill, cn, type Kit } from "@foundmill/dugout";
+import { errorMessage } from "@/lib/trpc";
+import { LOGO_FILE_ACCEPT, LOGO_FILE_HINT, formatCostEstimate, readLogoFile, sameKit, suggestKit, type LogoDraft } from "@/lib/logo";
+
+export interface GeneratedLogoOption {
+  id: string;
+  name: string;
+  concept: string;
+  dataUrl: string;
+  colours: string[];
+}
+
+export interface GeneratedLogoSet {
+  options: GeneratedLogoOption[];
+  cost: { amountMinor: number; currency: string; label: "Estimate" };
+  remaining: number;
+  mode: "mock" | "live";
+}
+
+export interface LogoActions {
+  /** Server check of an upload (`idea.logo.prepare` / `business.logo.prepare`): the cleaned data URL and its colours. */
+  prepare(dataUrl: string): Promise<{ dataUrl: string; colours: string[] }>;
+  /** A set of generated marks (`idea.logo.generate` / `business.logo.generate`). */
+  generate(round: number): Promise<GeneratedLogoSet>;
+}
+
+export interface LogoPickerProps {
+  name: string;
+  kit: Kit;
+  /** The chosen logo, or null for the initials mark. */
+  value: LogoDraft | null;
+  /** A new choice (null: back to the initials mark). May return a promise (Settings saves at once). */
+  onChange: (draft: LogoDraft | null) => void | Promise<void>;
+  actions: LogoActions;
+  /** Apply the colours read from the logo. */
+  onUseColours?: (kit: Kit) => void;
+  /** Disables every control (a viewer, or a save in flight). */
+  disabled?: boolean;
+  /** True while `onChange` is saving. */
+  saving?: boolean;
+  className?: string;
+}
+
+/** One line on the logo in use; a stored logo loaded from the server has no label. */
+function describe(value: LogoDraft): string {
+  if (value.source === "generated") return value.label ? `Generated mark: ${value.label}.` : "Using a generated mark.";
+  return value.label ? `Uploaded: ${value.label}.` : "Using an uploaded logo.";
+}
+
+export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, disabled, saving, className }: LogoPickerProps) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState<"upload" | "generate" | null>(null);
+  const [note, setNote] = useState<{ tone: "info" | "bad"; text: string } | null>(null);
+  const [set, setSet] = useState<GeneratedLogoSet | null>(null);
+  const [round, setRound] = useState(0);
+  const [suggestion, setSuggestion] = useState<Kit | null>(null);
+  const locked = disabled || saving || busy !== null;
+
+  // Colours read from the chosen logo (SVG fills from the server, or the raster's pixels). Keyed by content, not by the
+  // draft object, so a parent that rebuilds the draft on render does not re-read it.
+  const valueUrl = value?.dataUrl ?? null;
+  const valueColours = value?.colours.join(",") ?? "";
+  useEffect(() => {
+    let live = true;
+    if (!valueUrl) {
+      setSuggestion(null);
+      return;
+    }
+    void suggestKit({ dataUrl: valueUrl, colours: valueColours ? valueColours.split(",") : [] }).then((k) => {
+      if (live) setSuggestion(k);
+    });
+    return () => {
+      live = false;
+    };
+  }, [valueUrl, valueColours]);
+
+  async function choose(draft: LogoDraft | null) {
+    try {
+      await onChange(draft);
+    } catch (err) {
+      setNote({ tone: "bad", text: errorMessage(err) });
+    }
+  }
+
+  async function onFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy("upload");
+    setNote(null);
+    try {
+      const raw = await readLogoFile(file);
+      const checked = await actions.prepare(raw);
+      await choose({ source: "upload", dataUrl: checked.dataUrl, colours: checked.colours, label: file.name });
+      setNote({ tone: "info", text: `Using ${file.name}.` });
+    } catch (err) {
+      setNote({ tone: "bad", text: errorMessage(err, "That file could not be used.") });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function generate(next: number) {
+    setBusy("generate");
+    setNote(null);
+    try {
+      const result = await actions.generate(next);
+      setSet(result);
+      setRound(next);
+    } catch (err) {
+      setNote({ tone: "bad", text: errorMessage(err, "The logo designer is not available right now.") });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const showSuggestion = suggestion !== null && !sameKit(suggestion, kit);
+
+  return (
+    <div className={cn("grid grid-cols-[auto_1fr] gap-gutter", className)} data-testid="logo-picker" data-logo-source={value?.source ?? "initials"}>
+      <div className="flex flex-col items-center gap-3">
+        <div className="flex size-32 items-center justify-center rounded-panel border border-subtle bg-ink" data-testid="logo-preview">
+          <BusinessLogo src={value?.dataUrl} name={name || "Your business"} primary={kit.primary} size={96} />
+        </div>
+        <div className="flex h-10 w-32 items-center gap-2 rounded-panel bg-kit-primary px-2 text-kit-on-primary" aria-label="Top bar preview" data-testid="kit-bar-preview">
+          <BusinessLogo src={value?.dataUrl} name={name || "Your business"} primary={kit.primary} size={20} title="" />
+          <span className="truncate t-display-sm">{name || "Your business"}</span>
+        </div>
+      </div>
+
+      <div className="flex min-w-0 flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <input ref={fileRef} type="file" accept={LOGO_FILE_ACCEPT} className="sr-only" onChange={onFile} aria-label="Upload a logo" data-testid="logo-file" disabled={locked} tabIndex={-1} />
+          <Button size="sm" icon={Upload} loading={busy === "upload"} disabled={locked} onClick={() => fileRef.current?.click()} data-testid="logo-upload">
+            Upload a logo
+          </Button>
+          {set ? null : (
+            <Button size="sm" icon={Sparkles} loading={busy === "generate"} disabled={locked} onClick={() => void generate(0)} data-testid="logo-generate">
+              Generate logos
+            </Button>
+          )}
+          {value ? (
+            <Button size="sm" variant="ghost" icon={Eraser} disabled={locked} onClick={() => void choose(null)} data-testid="logo-clear">
+              Use initials instead
+            </Button>
+          ) : null}
+        </div>
+        {note ? (
+          note.tone === "bad" ? (
+            <StatusPill tone="bad" role="alert" className="self-start" data-testid="logo-error">
+              {note.text}
+            </StatusPill>
+          ) : (
+            <p className="text-small text-secondary" role="status">
+              {note.text}
+            </p>
+          )
+        ) : (
+          <p className="text-small text-secondary">{value ? describe(value) : `No logo yet: the initials mark stands in. ${LOGO_FILE_HINT}`}</p>
+        )}
+
+        {set ? (
+          <div className="flex flex-col gap-2" data-testid="logo-options">
+            <div role="radiogroup" aria-label="Generated logos" className="grid grid-cols-4 gap-2">
+              {set.options.map((o) => {
+                const selected = value?.source === "generated" && value.dataUrl === o.dataUrl;
+                return (
+                  <button
+                    key={o.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    aria-label={`${o.name}: ${o.concept}`}
+                    title={o.concept}
+                    disabled={locked}
+                    onClick={() => void choose({ source: "generated", dataUrl: o.dataUrl, colours: o.colours, label: o.name })}
+                    data-testid="logo-option"
+                    data-selected={selected || undefined}
+                    className={cn(
+                      "relative flex flex-col items-center gap-1.5 rounded-panel border border-subtle bg-panel-alt p-2 text-left outline-none transition-colors duration-micro ease-dugout hover:border-secondary/60 focus-visible:outline-2 focus-visible:outline-link disabled:opacity-60",
+                      selected && "border-link",
+                    )}
+                  >
+                    <BusinessLogo src={o.dataUrl} name={o.name} primary={kit.primary} size={64} title="" />
+                    <span className="flex max-w-full items-center gap-1 truncate text-small text-primary">
+                      {selected ? <Check size={12} aria-hidden className="shrink-0 text-link" /> : null}
+                      <span className="truncate">{o.name}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-small text-secondary">
+              <Chip mono>Opus</Chip>
+              <span data-testid="logo-cost">This set: {formatCostEstimate(set.cost)}</span>
+              <ProvenanceChip kind="estimate" />
+              <span>· {set.remaining} more {set.remaining === 1 ? "set" : "sets"} this hour</span>
+              <Button size="sm" icon={RefreshCw} loading={busy === "generate"} disabled={locked} onClick={() => void generate(round + 1)} className="ml-auto" data-testid="logo-regenerate">
+                Generate again
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {showSuggestion && onUseColours ? (
+          <div className="flex flex-wrap items-center gap-2 border-t border-subtle pt-3" data-testid="logo-colour-suggestion">
+            <Palette size={14} aria-hidden className="text-secondary" />
+            <span className="text-small text-secondary">Colours from the logo:</span>
+            {[suggestion!.primary, suggestion!.secondary].map((c, i) => (
+              <span key={i} className="inline-flex items-center gap-1 font-mono text-mono text-primary" data-colour={c}>
+                <span aria-hidden className="inline-block size-4 rounded-chip border border-subtle" style={{ backgroundColor: c }} />
+                {c}
+              </span>
+            ))}
+            <Button size="sm" disabled={locked} onClick={() => onUseColours(suggestion!)} data-testid="logo-use-colours">
+              Use these colours
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}

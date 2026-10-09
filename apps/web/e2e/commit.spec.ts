@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, ensureDeck, signIn } from "./helpers";
+import { LONG, ensureDeck, logoPng, signIn } from "./helpers";
 
 /**
  * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7). The test drafts a card in the
@@ -32,25 +32,64 @@ test.describe("commit", () => {
     await expect(page.getByLabel(/Business name/)).not.toHaveValue("Stripe Ledger");
   });
 
-  test("logo preview follows the name and the brand colours; the contrast check reads the primary", async ({ page }) => {
-    const crest = page.getByTestId("crest-preview").locator("[data-crest-seed]");
-    const seedBefore = await crest.getAttribute("data-crest-seed");
-    await page.getByTestId("shuffle-crest").click();
-    await expect(crest).not.toHaveAttribute("data-crest-seed", seedBefore!);
+  test("logo: the initials mark until one is chosen; generate four marks and pick one; the contrast check reads the primary", async ({ page }) => {
+    const preview = page.getByTestId("logo-preview").locator("[data-logo]");
+    await expect(preview).toHaveAttribute("data-logo", "initials");
+    // The fallback is a rounded square with letters, never a shield path.
+    await expect(preview.locator("path")).toHaveCount(0);
+    await page.getByTestId("logo-generate").click();
+    const options = page.getByTestId("logo-option");
+    await expect(options).toHaveCount(4, { timeout: LONG });
+    for (let i = 0; i < 4; i++) await expect(options.nth(i).locator("img")).toHaveAttribute("src", /^data:image\/svg\+xml;base64,/);
+    await expect(page.getByTestId("logo-cost")).toContainText("US$");
+    await expect(page.getByTestId("logo-options")).toContainText("Estimate");
+    const picked = await options.nth(1).locator("img").getAttribute("src");
+    await options.nth(1).click();
+    await expect(options.nth(1)).toHaveAttribute("aria-checked", "true");
+    await expect(preview).toHaveAttribute("data-logo", "image");
+    await expect(preview.locator("img")).toHaveAttribute("src", picked!);
+    // The concept card beside the form shows the chosen logo too.
+    await expect(page.locator("article[data-concept] img").first()).toHaveAttribute("src", picked!);
+    // Generate again gives a different set.
+    await page.getByTestId("logo-regenerate").click();
+    await expect.poll(async () => options.nth(0).locator("img").getAttribute("src"), { timeout: LONG }).not.toBe(picked);
     await page.getByTestId("kit-primary-hex").fill("#ffff00");
     await expect(page.getByTestId("kit-contrast")).toContainText(/near-black/);
     await page.getByTestId("kit-primary-hex").fill("#1b4fd8");
     await expect(page.getByTestId("kit-contrast")).toHaveAttribute("data-passes", "true");
   });
 
+  test("logo: upload a PNG, which the browser resizes and the server checks; brand colours are suggested from it", async ({ page }) => {
+    const preview = page.getByTestId("logo-preview").locator("[data-logo]");
+    await page.getByTestId("logo-file").setInputFiles({ name: "acme.png", mimeType: "image/png", buffer: logoPng() });
+    await expect(preview).toHaveAttribute("data-logo", "image", { timeout: LONG });
+    await expect(preview.locator("img")).toHaveAttribute("src", /^data:image\/(webp|png);base64,/);
+    await expect(page.getByTestId("logo-picker")).toHaveAttribute("data-logo-source", "upload");
+    const suggestion = page.getByTestId("logo-colour-suggestion");
+    await expect(suggestion).toBeVisible({ timeout: LONG });
+    const suggested = await suggestion.locator("[data-colour]").first().getAttribute("data-colour");
+    await page.getByTestId("logo-use-colours").click();
+    await expect(page.getByTestId("kit-primary-hex")).toHaveValue(suggested!);
+    // A file the server refuses says why and keeps the current logo.
+    await page.getByTestId("logo-file").setInputFiles({ name: "fake.png", mimeType: "image/png", buffer: Buffer.from("<html><script>alert(1)</script></html>") });
+    await expect(page.getByTestId("logo-error")).toBeVisible({ timeout: LONG });
+    await expect(preview).toHaveAttribute("data-logo", "image");
+  });
+
   test("AC-11.1.6: Take charge creates the business and opens the Board item in the Inbox", async ({ page }) => {
-    const name = `Playwright Club ${Date.now().toString(36)}`;
+    const name = `Playwright Business ${Date.now().toString(36)}`;
     await page.getByLabel(/Business name/).fill(name);
     await page.getByLabel(/Business mode/).getByLabel(/Assisted/).check();
+    // The chosen logo travels with the commit and lands on the top bar.
+    await page.getByTestId("logo-generate").click();
+    await expect(page.getByTestId("logo-option")).toHaveCount(4, { timeout: LONG });
+    await page.getByTestId("logo-option").first().click();
     await page.getByTestId("take-charge").click();
     await expect(page).toHaveURL(/\/b\/[0-9a-f-]+\/inbox\/[0-9a-f-]+/, { timeout: LONG });
     await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("kit-bar")).toContainText(name);
+    await expect(page.getByTestId("kitbar-logo")).toHaveAttribute("data-logo", "image", { timeout: LONG });
+    await expect(page.getByTestId("kitbar-logo").locator("img")).toHaveAttribute("src", /^data:image\/svg\+xml;base64,/);
     // The Board item: a decision from the Chief of Staff with at least two options.
     const item = page.getByTestId("inbox-item");
     await expect(item).toBeVisible({ timeout: LONG });

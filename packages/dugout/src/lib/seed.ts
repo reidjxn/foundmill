@@ -1,5 +1,5 @@
 /**
- * Deterministic randomness for procedural art (crests, avatars) and mock data.
+ * Deterministic randomness for procedural art (agent avatars) and mock data.
  * Everything here is pure: the same seed always produces the same sequence.
  */
 

@@ -1,6 +1,6 @@
 /**
  * Ideation Studio logic (BUILD §11.1 Door A, AC-11.1.2/3/4). Pure: the API's idea rows → Dugout `Concept`,
- * version metadata (crest seed, lineage, Q&A travel as one tagged entry in `research.citations`, mirroring
+ * version metadata (the colour seed, lineage, Q&A travel as one tagged entry in `research.citations`, mirroring
  * apps/api/src/routers/idea.ts), Compare selection, hrefs and the per-user studio state kept in localStorage
  * (shortlist, discarded-card snapshots) that the API has no procedure for.
  */
@@ -71,7 +71,7 @@ export function citationsOf(research: { citations: unknown[] } | null | undefine
 }
 
 /**
- * Brand colours derived from the crest seed: a saturated hue and its offset partner, deterministic. The primary is
+ * Brand colours derived from the idea's seed: a saturated hue and its offset partner, deterministic. The primary is
  * darkened until text on it passes APCA Lc ≥ 75 (DESIGN §5), so a generated kit never fails the Commit screen's check.
  */
 export function kitFromSeed(seed: string | number): Kit {
@@ -112,7 +112,6 @@ export function toConcept(idea: IdeaLike, opts: { verdict?: string } = {}): Conc
     id: idea.id,
     name: v?.title ?? idea.title,
     pitch: v?.pitch ?? idea.pitch,
-    crestSeed: seed,
     kit: kitFromSeed(seed),
     currentStars: num(v?.starsCurrent),
     potentialStars: num(v?.starsPotential),

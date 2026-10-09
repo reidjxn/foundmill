@@ -1,10 +1,17 @@
 "use client";
-/** Settings › Business: name, slug, archetype, crest preview and the brand colours (BUILD §11.15). */
-import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
-import { Crest, Field, Input, SimpleSelect } from "@foundmill/dugout";
+/**
+ * Settings › Business (BUILD §11.15): name, slug and archetype; the logo (upload a real one, generate marks, or go back
+ * to the initials mark: `business.logo.*`, owner/admin, saved at once and audited); and the brand colours (saved with
+ * the rest of the form, with a suggestion read from the logo).
+ */
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { Field, Input, SimpleSelect, type Kit } from "@foundmill/dugout";
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
-import { monogram } from "@/lib/format";
+import { LogoPicker, type LogoActions } from "@/components/logo/LogoPicker";
+import { useBusinessLogoSrc } from "@/components/logo/useBusinessLogo";
+import type { LogoDraft } from "@/lib/logo";
+import type { RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { useInvalidateRouters } from "./SettingsScreen";
@@ -15,6 +22,7 @@ const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 export function BusinessTab() {
   const { businessId, data } = useBusiness();
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
   const invalidate = useInvalidateRouters();
   const t = useSettingsToast();
   const b = data.business;
@@ -28,11 +36,55 @@ export function BusinessTab() {
     trpc.business.update.mutationOptions({
       onSuccess: () => {
         void invalidate(["business"]);
-        t.saved("Business saved", "The logo and the top bar follow the new brand colours.");
+        t.saved("Business saved", "The top bar and the initials mark follow the new brand colours.");
       },
       onError: (e) => t.failed(e),
     }),
   );
+
+  // --- the logo: saved at once (business.logo.*) ----------------------------------------------------------------------
+  const meta = data.logo;
+  const logoSrc = useBusinessLogoSrc(businessId, meta);
+  const current = useMemo<LogoDraft | null>(() => (meta && logoSrc ? { source: meta.source, dataUrl: logoSrc, colours: [], label: "" } : null), [meta, logoSrc]);
+  const [pending, setPending] = useState<LogoDraft | null | undefined>(undefined);
+  const prepare = useMutation(trpc.business.logo.prepare.mutationOptions());
+  const generate = useMutation(trpc.business.logo.generate.mutationOptions());
+  const upload = useMutation(trpc.business.logo.upload.mutationOptions());
+  const remove = useMutation(trpc.business.logo.remove.mutationOptions());
+  const { mutateAsync: prepareAsync } = prepare;
+  const { mutateAsync: generateAsync } = generate;
+  const kit: Kit = { primary: HEX_RE.test(primary) ? primary : b.kitPrimary, secondary: HEX_RE.test(secondary) ? secondary : b.kitSecondary };
+  const actions = useMemo<LogoActions>(
+    () => ({
+      prepare: (dataUrl) => prepareAsync({ businessId, dataUrl }),
+      generate: (round) => generateAsync({ businessId, colours: kit, round }),
+    }),
+    // The colours a new set uses are the ones on screen, saved or not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [businessId, prepareAsync, generateAsync, kit.primary, kit.secondary],
+  );
+
+  async function saveLogo(draft: LogoDraft | null) {
+    setPending(draft);
+    try {
+      if (draft) {
+        const res = await upload.mutateAsync({ businessId, source: draft.source, dataUrl: draft.dataUrl });
+        // Seed the image under its new version so the top bar swaps without another fetch.
+        const image: RouterOutputs["business"]["logo"]["get"] = { ...res.logo, dataUrl: res.dataUrl };
+        queryClient.setQueryData(trpc.business.logo.get.queryKey({ businessId, version: res.logo.sha256 }), image);
+        t.saved("Logo saved", "The top bar shows it now.");
+      } else {
+        await remove.mutateAsync({ businessId });
+        t.saved("Logo removed", "The initials mark stands in until you add one.");
+      }
+      await invalidate(["business"]);
+    } catch (err) {
+      t.failed(err, "Logo not saved");
+      throw err;
+    } finally {
+      setPending(undefined);
+    }
+  }
 
   const validHex = HEX_RE.test(primary) && HEX_RE.test(secondary);
   const dirty = name !== b.name || slug !== b.slug || (archetype || null) !== (b.archetype ?? null) || primary !== b.kitPrimary || secondary !== b.kitSecondary;
@@ -52,21 +104,28 @@ export function BusinessTab() {
           <SimpleSelect id="biz-archetype" value={archetype} onValueChange={(v) => setArchetype(v as Archetype)} placeholder="Choose an archetype" options={ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))} />
         </Field>
       </SettingsSection>
-      <SettingsSection title="Logo and brand colours">
-        <div className="flex items-start gap-4">
-          <Crest seed={b.slug || b.id} kitPrimary={HEX_RE.test(primary) ? primary : b.kitPrimary} kitSecondary={HEX_RE.test(secondary) ? secondary : b.kitSecondary} monogram={monogram(name || b.name)} size={96} title={`${name} logo`} />
-          <div className="flex flex-1 flex-col gap-3">
-            <FormRow>
-              <Field htmlFor="kit-primary" label="Primary colour" error={HEX_RE.test(primary) ? undefined : "Use a 6-digit hex colour"}>
-                <Input id="kit-primary" mono value={primary} onChange={(e) => setPrimary(e.target.value)} trailing={<span aria-hidden className="inline-block h-4 w-4 rounded-chip border border-subtle" style={{ background: HEX_RE.test(primary) ? primary : "transparent" }} />} />
-              </Field>
-              <Field htmlFor="kit-secondary" label="Secondary colour" error={HEX_RE.test(secondary) ? undefined : "Use a 6-digit hex colour"}>
-                <Input id="kit-secondary" mono value={secondary} onChange={(e) => setSecondary(e.target.value)} trailing={<span aria-hidden className="inline-block h-4 w-4 rounded-chip border border-subtle" style={{ background: HEX_RE.test(secondary) ? secondary : "transparent" }} />} />
-              </Field>
-            </FormRow>
-            <Hint>The logo is generated from the slug and these colours; text on the primary colour is computed for contrast (APCA Lc ≥ 75).</Hint>
-          </div>
-        </div>
+      <SettingsSection title="Logo and brand colours" data-testid="settings-logo">
+        <LogoPicker
+          name={name || b.name}
+          kit={kit}
+          value={pending !== undefined ? pending : current}
+          onChange={saveLogo}
+          actions={actions}
+          saving={pending !== undefined}
+          onUseColours={(k) => {
+            setPrimary(k.primary);
+            setSecondary(k.secondary);
+          }}
+        />
+        <FormRow>
+          <Field htmlFor="kit-primary" label="Primary colour" error={HEX_RE.test(primary) ? undefined : "Use a 6-digit hex colour"}>
+            <Input id="kit-primary" mono value={primary} onChange={(e) => setPrimary(e.target.value)} trailing={<span aria-hidden className="inline-block h-4 w-4 rounded-chip border border-subtle" style={{ background: HEX_RE.test(primary) ? primary : "transparent" }} />} data-testid="kit-primary-hex" />
+          </Field>
+          <Field htmlFor="kit-secondary" label="Secondary colour" error={HEX_RE.test(secondary) ? undefined : "Use a 6-digit hex colour"}>
+            <Input id="kit-secondary" mono value={secondary} onChange={(e) => setSecondary(e.target.value)} trailing={<span aria-hidden className="inline-block h-4 w-4 rounded-chip border border-subtle" style={{ background: HEX_RE.test(secondary) ? secondary : "transparent" }} />} data-testid="kit-secondary-hex" />
+          </Field>
+        </FormRow>
+        <Hint>The logo is saved as soon as you choose it. Brand colours are saved with the button below; text on the primary colour is computed for contrast (APCA Lc ≥ 75).</Hint>
         <SaveBar
           onSave={() => update.mutate({ businessId, name: name.trim(), slug, archetype: archetype || null, kitPrimary: primary, kitSecondary: secondary })}
           saving={update.isPending}

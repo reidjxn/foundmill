@@ -85,14 +85,14 @@ export type EntityPortrait =
   | { type: "agent"; seed: string | number; dept: DeptColourToken; status?: AgentStatus }
   | { type: "person"; src?: string }
   | {
-      type: "crest";
-      seed: string | number;
-      kitPrimary: string;
-      kitSecondary: string;
-      monogram: string;
+      /** An organisation or business: its logo as a data URL, or the initials mark in `primary`. */
+      type: "logo";
+      src?: string | null;
+      primary: string;
+      monogram?: string;
     };
 
-/** What the hover card shows (DESIGN §8 EntityLink): avatar/crest, name, chips, three facts, actions. */
+/** What the hover card shows (DESIGN §8 EntityLink): avatar/logo, name, chips, three facts, actions. */
 export interface EntityDetails extends EntityRef {
   subtitle?: string;
   portrait?: EntityPortrait;

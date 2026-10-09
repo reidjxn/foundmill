@@ -254,13 +254,7 @@ export const ENTITY_DETAILS: Record<string, EntityDetails> = {
     name: "Nordic Beauty AB",
     subtitle: "Retailer · Stockholm",
     href: "#crm/nordic",
-    portrait: {
-      type: "crest",
-      seed: "nordic",
-      kitPrimary: "#1F6F5F",
-      kitSecondary: "#E8C56B",
-      monogram: "NB",
-    },
+    portrait: { type: "logo", primary: "#1F6F5F", monogram: "NB" },
     chips: [
       { label: "Retailer", tone: "info" },
       { label: "Proposal", tone: "warn" },
@@ -277,13 +271,7 @@ export const ENTITY_DETAILS: Record<string, EntityDetails> = {
     name: "Meridian Labs",
     subtitle: "Contract manufacturer · Malmö",
     href: "#crm/meridian",
-    portrait: {
-      type: "crest",
-      seed: "meridian",
-      kitPrimary: "#2B6CB0",
-      kitSecondary: "#FFFFFF",
-      monogram: "ML",
-    },
+    portrait: { type: "logo", primary: "#2B6CB0", monogram: "ML" },
     chips: [{ label: "Supplier", tone: "neutral" }],
     facts: [
       { label: "Lead time", value: "12 days" },

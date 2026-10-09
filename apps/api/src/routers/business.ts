@@ -11,6 +11,8 @@ import { stopAllAgents } from "../services/killswitch";
 import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, requestDeletion } from "../services/lifecycle";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { adminProcedure, audit, businessProcedure, emit, ownerProcedure, router, writeProcedure } from "../trpc";
+import { businessLogoRouter } from "./logo";
+
 
 const HolidayUntil = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("date"), date: z.coerce.date() }),
@@ -19,12 +21,19 @@ const HolidayUntil = z.discriminatedUnion("kind", [
 ]);
 
 export const businessRouter = router({
+  logo: businessLogoRouter,
+
   get: businessProcedure.query(async ({ ctx }) => {
-    const [holiday, blocking, departments, agents, deletion] = await ctx.rls(async (tx) =>
-      Promise.all([repos.holidays.current(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.departments.list(tx, ctx.businessId), repos.agents.countByStatus(tx, ctx.businessId), deletionState({ db: tx, businessId: ctx.businessId })]),
+    const [holiday, blocking, departments, agents, deletion, logo] = await ctx.rls(async (tx) =>
+      Promise.all([repos.holidays.current(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.departments.list(tx, ctx.businessId), repos.agents.countByStatus(tx, ctx.businessId), deletionState({ db: tx, businessId: ctx.businessId }), repos.logos.getMeta(tx, ctx.businessId)]),
     );
     return {
       business: ctx.business,
+      /**
+       * The logo's metadata only (a few hundred bytes); the image itself comes from `business.logo.get`, keyed by
+       * `sha256`, so this payload stays small. Null: draw the initials mark.
+       */
+      logo,
       role: ctx.role,
       membership: ctx.membership,
       holiday,
@@ -47,6 +56,7 @@ export const businessRouter = router({
   pauseCycle: writeProcedure.mutation(({ ctx }) => pauseCycle(ctx)),
   resumeCycle: writeProcedure.mutation(({ ctx }) => resumeCycle(ctx)),
 
+  // Settings › Business fields; the logo is not one of them (`business.logo.*` checks logos; crest_url is retired, 0017).
   update: adminProcedure.input(UpdateBusinessInput).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const business = await repos.businesses.update(tx, ctx.businessId, input);
