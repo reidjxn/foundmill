@@ -13,6 +13,8 @@ import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { adminProcedure, audit, businessProcedure, emit, ownerProcedure, router, writeProcedure } from "../trpc";
 import { businessLogoRouter } from "./logo";
 
+/** What an admin may change on the business record (Settings › Business and Glossary send these). */
+const BusinessSettingsInput = UpdateBusinessInput.pick({ name: true, slug: true, archetype: true, kitPrimary: true, kitSecondary: true, glossary: true });
 
 const HolidayUntil = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("date"), date: z.coerce.date() }),
@@ -56,8 +58,10 @@ export const businessRouter = router({
   pauseCycle: writeProcedure.mutation(({ ctx }) => pauseCycle(ctx)),
   resumeCycle: writeProcedure.mutation(({ ctx }) => resumeCycle(ctx)),
 
-  // Settings › Business fields; the logo is not one of them (`business.logo.*` checks logos; crest_url is retired, 0017).
-  update: adminProcedure.input(UpdateBusinessInput).mutation(({ ctx, input }) =>
+  // Settings › Business and Glossary fields only. The plan and model billing change through the owner-only
+  // `billing.changeTier` (audited there); the data region is not changed from here; the logo goes through
+  // `business.logo.*` (crest_url is retired, 0017). Other keys are stripped by the schema.
+  update: adminProcedure.input(BusinessSettingsInput).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const business = await repos.businesses.update(tx, ctx.businessId, input);
       await audit(tx, ctx, { action: "business.update", target: { kind: "business", id: ctx.businessId }, details: { fields: Object.keys(input) } });
