@@ -29,7 +29,7 @@ import {
   usePrefersReducedMotion,
   type ProcessingSegment,
 } from "@foundmill/dugout";
-import { ACTIVITY, EXAMPLE_BUSINESS, EXAMPLE_CHAPTER, EXAMPLE_RUNWAY_MONTHS, LEADS, NORTHWIND_KIT, exampleToday, type ActivityLine, type ExampleDecision, type ExampleWin } from "./example";
+import { ACTIVITY, EXAMPLE_BUSINESS, EXAMPLE_CHAPTER, EXAMPLE_CURRENCY, EXAMPLE_KIT, EXAMPLE_RUNWAY_MONTHS, LEADS, exampleToday, type ActivityLine, type ExampleDecision, type ExampleWin } from "./example";
 import { continueStateFor, cycleReducer, cycleStatusText, cycleTasks, initialCycleState, type CycleState, type InboxItem } from "./cycle";
 import { useSeen } from "./parts";
 
@@ -95,12 +95,12 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
   const segments: ProcessingSegment[] = LEADS.map((l, i) => ({ id: l.key, label: l.department, dept: l.dept, active: working && (tick + i) % 4 !== 0 }));
 
   return (
-    <div ref={ref} className="relative" style={kitStyle(NORTHWIND_KIT)} data-testid="cycle-deck" data-phase={state.phase}>
+    <div ref={ref} className="relative" style={kitStyle(EXAMPLE_KIT)} data-testid="cycle-deck" data-phase={state.phase}>
       <div aria-hidden className="pointer-events-none absolute -inset-x-24 -bottom-24 top-24 blur-3xl" style={{ background: "radial-gradient(ellipse 45% 55% at 50% 45%, color-mix(in oklab, var(--kit-primary) 38%, transparent), transparent 72%)" }} />
       <div className="relative overflow-hidden rounded-panel border border-subtle bg-base" style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), 0 60px 120px -40px rgba(0,0,0,0.95)" }}>
         {/* The product's top bar, on the example business's brand colours. */}
-        <div className="flex h-kitbar items-center gap-3 px-3 text-kit-on-primary" style={{ backgroundImage: kitBarGradient(NORTHWIND_KIT) }}>
-          <Crest seed={EXAMPLE_BUSINESS.seed} monogram={EXAMPLE_BUSINESS.monogram} kitPrimary={NORTHWIND_KIT.primary} kitSecondary={NORTHWIND_KIT.secondary} size={32} title={`${EXAMPLE_BUSINESS.name} logo`} />
+        <div className="flex h-kitbar items-center gap-3 px-3 text-kit-on-primary" style={{ backgroundImage: kitBarGradient(EXAMPLE_KIT) }}>
+          <Crest seed={EXAMPLE_BUSINESS.seed} monogram={EXAMPLE_BUSINESS.monogram} kitPrimary={EXAMPLE_KIT.primary} kitSecondary={EXAMPLE_KIT.secondary} size={32} title={`${EXAMPLE_BUSINESS.name} logo`} />
           <span className="t-display-sm whitespace-nowrap">{EXAMPLE_BUSINESS.name}</span>
           <span aria-hidden className="mx-1 h-5 w-px bg-kit-on-primary/25" />
           <span className="t-display-md">Home</span>
@@ -292,7 +292,7 @@ function LiveColumn({ feed, state, progress }: { feed: Array<{ key: number; line
         <dl className="flex flex-col gap-1.5">
           <DeckStat label="Tasks done" value={`${done} of ${t.tasks}`} />
           <DeckStat label="Pull requests merged" value={String(Math.min(t.prs, Math.floor(progress * t.prs)))} />
-          <DeckStat label="Agent spend" value={formatMoney({ amountMinor: Math.round(progress * t.tasks * 46), currency: "EUR" })} estimate />
+          <DeckStat label="Agent spend" value={formatMoney({ amountMinor: Math.round(progress * t.tasks * 46), currency: EXAMPLE_CURRENCY })} estimate />
         </dl>
       </div>
     </section>

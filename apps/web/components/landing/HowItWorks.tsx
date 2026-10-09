@@ -6,7 +6,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Flag, Lightbulb, Play, type LucideIcon } from "lucide-react";
 import { Avatar, Chip, ConceptCard, Crest, Icon, ProvenanceChip, cn, formatMoney, kitBarGradient, kitStyle, type Kit } from "@foundmill/dugout";
-import { EXAMPLE_BUSINESS, LEADS, exampleConcepts } from "./example";
+import { EXAMPLE_BUSINESS, EXAMPLE_CURRENCY, FIRST_CYCLE_PLAN, LEADS, exampleConcepts, exampleKits } from "./example";
 import { Glass, Reveal, Section, SectionHeading } from "./parts";
 
 export function HowItWorks() {
@@ -75,7 +75,7 @@ function ConceptStack() {
 /** Logo and brand colours: six generated logos to choose from; the choice paints the brand bar under them. */
 function BrandPicker() {
   const options = useMemo(() => {
-    const kits = exampleConcepts().map((c) => c.kit);
+    const kits = exampleKits();
     return Array.from({ length: 6 }, (_, i) => ({ seed: i === 0 ? EXAMPLE_BUSINESS.seed : `${EXAMPLE_BUSINESS.seed} ${i}`, kit: kits[i % kits.length]! as Kit }));
   }, []);
   const [chosen, setChosen] = useState(0);
@@ -115,17 +115,9 @@ function BrandPicker() {
   );
 }
 
-const PLAN: ReadonlyArray<{ key: string; task: string; tasks: number }> = [
-  { key: "product", task: "Interview five early customers", tasks: 2 },
-  { key: "development", task: "Ship the refill subscription", tasks: 4 },
-  { key: "distribution", task: "Test SEO and email automation", tasks: 3 },
-  { key: "finance", task: "Set up the ledger and runway model", tasks: 1 },
-  { key: "legal", task: "Prepare the incorporation pack", tasks: 1 },
-];
-
 /** The Chief of Staff's plan for a cycle: tasks per department, then the note that comes back. */
 function CyclePlan() {
-  const total = PLAN.reduce((s, p) => s + p.tasks, 0);
+  const total = FIRST_CYCLE_PLAN.reduce((s, p) => s + p.tasks, 0);
   return (
     <div className="flex size-full flex-col gap-3 p-5">
       <span className="flex items-center gap-2">
@@ -136,7 +128,7 @@ function CyclePlan() {
         </span>
       </span>
       <ul className="flex flex-col gap-1.5">
-        {PLAN.map((p, i) => {
+        {FIRST_CYCLE_PLAN.map((p) => {
           const lead = LEADS.find((l) => l.key === p.key)!;
           return (
             <li key={p.key} className="flex items-center gap-2 rounded-panel border border-subtle/70 bg-panel/80 px-2.5 py-1.5">
@@ -145,7 +137,7 @@ function CyclePlan() {
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-small text-primary">{p.task}</span>
                 <span className="mt-1 block h-1 overflow-hidden rounded-full bg-panel-alt">
-                  <span className="block h-full rounded-full" style={{ width: `${[72, 45, 88, 30, 60][i]}%`, backgroundColor: `var(--${lead.dept})` }} />
+                  <span className="block h-full rounded-full" style={{ width: `${p.done}%`, backgroundColor: `var(--${lead.dept})` }} />
                 </span>
               </span>
               <span className="text-small tabular-nums text-secondary">{p.tasks}</span>
@@ -155,7 +147,7 @@ function CyclePlan() {
       </ul>
       <span className="mt-auto flex items-center gap-2 text-small text-secondary">
         <span className="tabular-nums">
-          {total} tasks · {PLAN.length} departments · {formatMoney({ amountMinor: total * 46, currency: "EUR" })}
+          {total} tasks · {FIRST_CYCLE_PLAN.length} departments · {formatMoney({ amountMinor: total * 46, currency: EXAMPLE_CURRENCY })}
         </span>
         <ProvenanceChip kind="estimate" />
       </span>

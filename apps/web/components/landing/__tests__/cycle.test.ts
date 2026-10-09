@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CYCLE_OUTCOMES, EXAMPLE_START_CYCLE } from "../example";
 import { continueStateFor, cycleReducer, cycleStatusText, initialCycleState, type CycleState } from "../cycle";
-import { plainNonUuidMentions } from "../Journey";
 
 const run = (state: CycleState) => cycleReducer(cycleReducer(state, { type: "continue", byVisitor: true }), { type: "finish" });
 
@@ -26,21 +25,21 @@ describe("the landing deck's cycle", () => {
     expect(continueStateFor(waiting)).toEqual({ kind: "blocked", count: 1 });
     expect(waiting.inbox[0]).toMatchObject({ title: `Cycle ${EXAMPLE_START_CYCLE + 1} note`, tone: "note" });
 
-    const decided = cycleReducer(waiting, { type: "decide", optionId: "quote" });
+    const decided = cycleReducer(waiting, { type: "decide", optionId: "hold" });
     expect(decided).toMatchObject({ phase: "idle", current: null });
-    expect(decided.inbox[0]).toMatchObject({ title: "Quotes requested first", tone: "decided" });
+    expect(decided.inbox[0]).toMatchObject({ title: "Merge held for more testing", tone: "decided" });
   });
 
   it("brings a customer on the second cycle (gold Continue) and records it once opened", () => {
     let s = run(initialCycleState());
-    s = cycleReducer(s, { type: "decide", optionId: "approve" });
+    s = cycleReducer(s, { type: "decide", optionId: "merge" });
     s = run(s);
     expect(s).toMatchObject({ phase: "win", pressed: true });
     expect(continueStateFor(s)).toEqual({ kind: "matchday" });
     expect(cycleStatusText(s)).toBe("A customer was won this cycle");
     s = cycleReducer(s, { type: "openWin" });
     expect(s.phase).toBe("idle");
-    expect(s.inbox[0]).toMatchObject({ title: "Nordic Beauty AB is a paying customer", tone: "won" });
+    expect(s.inbox[0]).toMatchObject({ title: "Okafor Maths Tuition is a paying customer", tone: "won" });
     expect(s.inbox.length).toBeLessThanOrEqual(5);
   });
 
@@ -69,13 +68,5 @@ describe("the landing deck's cycle", () => {
       s = s.phase === "win" ? cycleReducer(s, { type: "openWin" }) : cycleReducer(s, { type: "decide", optionId: "x" });
     }
     expect(kinds).toEqual([...CYCLE_OUTCOMES.map((o) => o.id), CYCLE_OUTCOMES[0]!.id]);
-  });
-});
-
-describe("plainNonUuidMentions", () => {
-  it("keeps real entity markup and shows the example's agent ids as plain names", () => {
-    const real = "[[ent:0b7f1c52-3f7a-4c1e-9d2b-6a1f0e4c8d11|Nordic Beauty AB]]";
-    expect(plainNonUuidMentions(`Call with ${real}.`)).toBe(`Call with ${real}.`);
-    expect(plainNonUuidMentions("A sharp opening: [[ent:a-scout-0000-4000-8000-000000000001|Scout]]'s ad.")).toBe("A sharp opening: Scout's ad.");
   });
 });

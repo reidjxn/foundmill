@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRng } from "../../lib/seed";
-import { mockSessions } from "./mock";
+import { mockSessions, type MockSessionScript } from "./mock";
 import { applySessionEvent, emptySession } from "./progress";
 import type { AgentSessionEvent, AgentTileSession } from "./types";
 
@@ -19,6 +19,8 @@ export interface LiveMockOptions {
    * (terminal lines, plan progress) instead of empty. Default 0.
    */
   prefill?: number;
+  /** What the sessions work on. Default: the storefront script. */
+  script?: MockSessionScript;
 }
 
 export interface LiveMockState {
@@ -41,9 +43,9 @@ export function prefillCount(events: number, prefill: number | undefined): numbe
  * panel (AC-11.6.1 rehearsal: 16 tiles streaming). Deterministic for a given seed.
  */
 export function useLiveMockSessions(n: number, opts: LiveMockOptions = {}): LiveMockState {
-  const { intervalMs = 400, advanceChance = 0.55, running = true, seed = "live", prefill = 0 } = opts;
+  const { intervalMs = 400, advanceChance = 0.55, running = true, seed = "live", prefill = 0, script } = opts;
   const startClock = useMemo(() => opts.startClock ?? new Date("2026-10-07T09:30:00Z"), [opts.startClock]);
-  const scripts = useMemo(() => mockSessions(n, startClock), [n, startClock]);
+  const scripts = useMemo(() => mockSessions(n, startClock, script), [n, startClock, script]);
   const cursors = useRef<number[]>([]);
   const rng = useRef(createRng(seed));
   const build = useCallback(

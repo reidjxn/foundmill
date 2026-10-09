@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ArrowRight, CircleStop, FileSignature, Inbox, KeyRound, Landmark, Lock, ShieldCheck, Tag, Trash2, type LucideIcon } from "lucide-react";
 import { Avatar, Button, Chip, DecisionBar, DeptChip, Icon, StatusStrip, TeamOrbit, type DecisionOption } from "@foundmill/dugout";
-import { EXAMPLE_START_CYCLE } from "./example";
+import { EXAMPLE_CURRENCY, EXAMPLE_INBOX_NOTE, EXAMPLE_START_CYCLE } from "./example";
 import { Container, Glass, ProductWindow, Reveal, SIGN_IN, Section, SectionHeading } from "./parts";
 
 const HOUSE_RULES: ReadonlyArray<{ icon: LucideIcon; text: string }> = [
@@ -24,10 +24,11 @@ const CONTROLS: ReadonlyArray<{ icon: LucideIcon; title: string; text: string }>
   { icon: KeyRound, title: "Your key, sealed", text: "Bring your own Anthropic key. Credentials are encrypted per business and never sent into a sandbox." },
 ];
 
+const NOTE = EXAMPLE_INBOX_NOTE;
 const OPTIONS: DecisionOption[] = [
-  { id: "approve", label: "Approve", recommended: true, consequence: "Scout books the print run next cycle.", cost: { amountMinor: 48_000, currency: "EUR" }, reversible: false },
-  { id: "quote", label: "Get a quote first", consequence: "Scout asks two printers for quotes and comes back to you.", cost: null, reversible: true },
-  { id: "later", label: "Not this chapter", consequence: "Print stays off the board until the next chapter.", cost: null, reversible: true },
+  { id: "approve", label: "Approve", recommended: true, consequence: "Scout books the sponsorship and the copy runs next week.", cost: { amountMinor: NOTE.costMinor, currency: EXAMPLE_CURRENCY }, reversible: false },
+  { id: "smaller", label: "Try a smaller list first", consequence: "Scout finds a smaller tutors' list to test the copy on, inside your cap.", cost: null, reversible: true },
+  { id: "later", label: "Not this chapter", consequence: "Communities stay at search and referrals until the next chapter.", cost: null, reversible: true },
 ];
 
 export function YourCall() {
@@ -78,24 +79,29 @@ function InboxNote() {
     <ProductWindow title="Inbox" chips={<Chip tone="neutral">Example business</Chip>} className="h-full">
       <article aria-label="Example Inbox note" className="flex flex-col">
         <header className="flex h-16 items-center gap-3 border-b border-subtle px-5">
-          <Avatar size={32} name="Scout" agent={{ seed: "scout", dept: "dept-3" }} />
+          <Avatar size={32} name={NOTE.from.name} agent={{ seed: NOTE.from.seed, dept: NOTE.from.dept }} />
           <span className="flex min-w-0 flex-1 flex-col">
-            <span className="t-body-strong text-primary">Scout · Distribution Strategist</span>
+            <span className="t-body-strong text-primary">
+              {NOTE.from.name} · {NOTE.from.role}
+            </span>
             <span className="text-small text-secondary">Wed 7 Oct · cycle {EXAMPLE_START_CYCLE + 1}</span>
           </span>
-          <DeptChip dept="dept-3">Distribution</DeptChip>
+          <DeptChip dept={NOTE.from.dept}>{NOTE.department}</DeptChip>
           <Chip tone="bad" icon={Inbox}>
             Needs you
           </Chip>
         </header>
         <div className="flex flex-col gap-4 px-5 py-5">
-          <h3 className="t-display-md text-primary">Approve the first print booking?</h3>
-          <p className="t-reading text-primary">Print is the strongest offline channel for Northwind in Oslo, and three of the last five wholesale buyers mentioned a flyer. The artwork and the booking pack for 2,000 flyers are ready.</p>
-          <p className="t-reading text-secondary">Booking commits €480, above the €250 cap you set for new spend, so it waits for you. The runway stays at 14 months either way.</p>
+          <h3 className="t-display-md text-primary">{NOTE.subject}</h3>
+          {NOTE.paragraphs.map((text, i) => (
+            <p key={i} className={i === 0 ? "t-reading text-primary" : "t-reading text-secondary"}>
+              {text}
+            </p>
+          ))}
           <StatusStrip
             tiles={[
-              { label: "Cost", value: { amountMinor: 48_000, currency: "EUR" }, estimate: "estimate" },
-              { label: "Channel fit", value: "12 of 20" },
+              { label: "Cost", value: { amountMinor: NOTE.costMinor, currency: EXAMPLE_CURRENCY }, estimate: "estimate" },
+              { label: "Channel fit", value: NOTE.fit },
               { label: "Runway after", value: "14 months", estimate: "estimate" },
             ]}
           />

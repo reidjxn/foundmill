@@ -65,14 +65,14 @@ const TASKS = [
   "Postcard campaign for Stockholm pilots",
 ];
 
-export function mockAgent(i: number): TileAgent {
+export function mockAgent(i: number, script: MockSessionScript = STOREFRONT_SESSION_SCRIPT): TileAgent {
   const r = ROLES[i % ROLES.length]!;
-  return { id: `agent-${i + 1}`, name: NAMES[i % NAMES.length]!, seed: `agent-${i + 1}`, dept: r.dept, status: "healthy", model: r.model, role: r.role };
+  return { id: `agent-${i + 1}`, name: script.names[i % script.names.length]!, seed: `agent-${i + 1}`, dept: r.dept, status: "healthy", model: r.model, role: r.role };
 }
 
-export function mockTask(i: number): TileTask {
+export function mockTask(i: number, script: MockSessionScript = STOREFRONT_SESSION_SCRIPT): TileTask {
   const r = ROLES[i % ROLES.length]!;
-  return { id: `task-${i + 1}`, title: TASKS[i % TASKS.length]!, href: `#task-${i + 1}`, kind: r.kind, branch: `agent/task-${i + 1}` };
+  return { id: `task-${i + 1}`, title: script.tasks[i % script.tasks.length]!, href: `#task-${i + 1}`, kind: r.kind, branch: `agent/task-${i + 1}` };
 }
 
 const PLAN_TEMPLATES = [
@@ -84,6 +84,31 @@ const PLAN_TEMPLATES = [
 export function mockPlan(i: number): PlanStep[] {
   const t = PLAN_TEMPLATES[i % PLAN_TEMPLATES.length]!;
   return t.map((text, k) => ({ id: `step-${k + 1}`, text, state: "todo" as const }));
+}
+
+/**
+ * What a replayed session is about: who works, on what, and what their terminal, diff and notes show. The generator's
+ * shape (phases, progress, tests, review, merge) is the same for every script; the default is the storefront example.
+ * `stdout` is played in order: 0–2 install, 3–7 unit tests, 8–12 acceptance run with one failure (lines with ✘ go to
+ * stderr), 13–19 commit, typecheck, lint and a passing acceptance run, 20–21 the pull request.
+ */
+export interface MockSessionScript {
+  names: readonly string[];
+  tasks: readonly string[];
+  stdout: readonly string[];
+  /** Read first, with the GitHub connector. */
+  readPath: string;
+  file: { path: string; diff: string; additions: number; deletions: number };
+  /** Changed after a founder nudge ("Match the design system"). */
+  styleFile: { path: string; diff: string };
+  notes: readonly string[];
+  unitCommand: string;
+  unitPassed: number;
+  acceptanceCommand: string;
+  failingCheck: string;
+  /** The repeated error of a session that loops and is stopped. */
+  failure: string;
+  currency: string;
 }
 
 const STDOUT_LINES = [
@@ -162,6 +187,23 @@ const NOTES = [
   "Review: one finding about focus order, fixed.",
 ];
 
+/** The default script: a storefront team adding a bundle picker (the stories' example business). */
+export const STOREFRONT_SESSION_SCRIPT: MockSessionScript = {
+  names: NAMES,
+  tasks: TASKS,
+  stdout: STDOUT_LINES,
+  readPath: "src/app/products/[slug]/page.tsx",
+  file: { path: "src/components/bundle-picker.tsx", diff: FILE_DIFF, additions: 18, deletions: 2 },
+  styleFile: { path: "src/styles/product.css", diff: CSS_DIFF },
+  notes: NOTES,
+  unitCommand: "pnpm vitest run",
+  unitPassed: 4,
+  acceptanceCommand: "pnpm playwright test",
+  failingCheck: "selecting a bundle updates the price",
+  failure: "Error: price mismatch, expected €42.00 received €4,200.00",
+  currency: "EUR",
+};
+
 export interface MockSessionOptions {
   /** Seconds the whole script spans. Default 540. */
   durationSec?: number;
@@ -169,6 +211,8 @@ export interface MockSessionOptions {
   outcome?: "done" | "blocked" | "failed" | "running";
   /** Include a founder Shout mid-session. */
   shout?: boolean;
+  /** What the session works on. Default: the storefront script. */
+  script?: MockSessionScript;
 }
 
 /**
@@ -180,6 +224,8 @@ export function generateMockSessionEvents(seedKey: string | number, startedAt: s
   const start = Date.parse(startedAt);
   const duration = (opts.durationSec ?? 540) * 1000;
   const outcome = opts.outcome ?? "done";
+  const sc = opts.script ?? STOREFRONT_SESSION_SCRIPT;
+  const STDOUT = sc.stdout;
   const planSteps = 5 + rng.int(0, 2);
   const acceptanceTests = 3;
   const events: AgentSessionEvent[] = [];
@@ -196,24 +242,24 @@ export function generateMockSessionEvents(seedKey: string | number, startedAt: s
   const out = (text: string, channel: "stdout" | "stderr" = "stdout") => events.push({ kind: "stdout", at: at(), channel, text: `${text}\r\n`, command: null });
 
   events.push({ kind: "phase_changed", at: at(), from: null, to: "planning", reason: null });
-  events.push({ kind: "note", at: at(), level: "info", source: "agent", text: NOTES[0]! });
+  events.push({ kind: "note", at: at(), level: "info", source: "agent", text: sc.notes[0]! });
   tick(duration * 0.04);
-  events.push({ kind: "tool_call", at: at(), callId: `c-${seedKey}-1`, connectorKey: "github", tool: "get_file", status: "succeeded", argsSummary: "src/app/products/[slug]/page.tsx", durationMs: 420, costMinor: 0 });
+  events.push({ kind: "tool_call", at: at(), callId: `c-${seedKey}-1`, connectorKey: "github", tool: "get_file", status: "succeeded", argsSummary: sc.readPath, durationMs: 420, costMinor: 0 });
   counts = { ...counts, planStepsDone: 1 };
   progress();
   tick(duration * 0.04);
   events.push({ kind: "phase_changed", at: at(), from: "planning", to: "implementing", reason: null });
-  out(STDOUT_LINES[0]!);
-  out(STDOUT_LINES[1]!);
-  out(STDOUT_LINES[2]!);
+  out(STDOUT[0]!);
+  out(STDOUT[1]!);
+  out(STDOUT[2]!);
   tick(duration * 0.08);
-  events.push({ kind: "file_changed", at: at(), path: "src/components/bundle-picker.tsx", change: "created", additions: 18, deletions: 2, diff: FILE_DIFF });
+  events.push({ kind: "file_changed", at: at(), path: sc.file.path, change: "created", additions: sc.file.additions, deletions: sc.file.deletions, diff: sc.file.diff });
   counts = { ...counts, planStepsDone: 2 };
   progress();
-  events.push({ kind: "note", at: at(), level: "info", source: "agent", text: NOTES[1]! });
+  events.push({ kind: "note", at: at(), level: "info", source: "agent", text: sc.notes[1]! });
   tick(duration * 0.08);
-  for (const line of STDOUT_LINES.slice(3, 8)) out(line);
-  events.push({ kind: "test_result", at: at(), suite: "unit", command: "pnpm vitest run", passed: 4, failed: 0, acceptance: false });
+  for (const line of STDOUT.slice(3, 8)) out(line);
+  events.push({ kind: "test_result", at: at(), suite: "unit", command: sc.unitCommand, passed: sc.unitPassed, failed: 0, acceptance: false });
   counts = { ...counts, planStepsDone: 3 };
   progress();
   if (opts.shout) {
@@ -221,15 +267,15 @@ export function generateMockSessionEvents(seedKey: string | number, startedAt: s
     events.push({ kind: "note", at: at(), level: "info", source: "shout", text: "Match the design system" });
     tick(duration * 0.02);
     events.push({ kind: "note", at: at(), level: "info", source: "agent", text: "Swapping ad-hoc spacing for tokens before the next build." });
-    events.push({ kind: "file_changed", at: at(), path: "src/styles/product.css", change: "modified", additions: 8, deletions: 1, diff: CSS_DIFF });
+    events.push({ kind: "file_changed", at: at(), path: sc.styleFile.path, change: "modified", additions: 8, deletions: 1, diff: sc.styleFile.diff });
   }
   tick(duration * 0.1);
   events.push({ kind: "phase_changed", at: at(), from: "implementing", to: "testing", reason: null });
-  for (const line of STDOUT_LINES.slice(8, 13)) out(line, line.includes("✘") ? "stderr" : "stdout");
-  events.push({ kind: "test_result", at: at(), suite: "e2e", command: "pnpm playwright test", passed: 2, failed: 1, acceptance: true, failures: ["selecting a bundle updates the price"] });
+  for (const line of STDOUT.slice(8, 13)) out(line, line.includes("✘") ? "stderr" : "stdout");
+  events.push({ kind: "test_result", at: at(), suite: "e2e", command: sc.acceptanceCommand, passed: 2, failed: 1, acceptance: true, failures: [sc.failingCheck] });
   counts = { ...counts, planStepsDone: 4, acceptanceTestsPassing: 2 };
   progress();
-  events.push({ kind: "note", at: at(), level: "warn", source: "agent", text: NOTES[3]! });
+  events.push({ kind: "note", at: at(), level: "warn", source: "agent", text: sc.notes[3]! });
 
   if (outcome === "blocked") {
     tick(duration * 0.05);
@@ -239,28 +285,28 @@ export function generateMockSessionEvents(seedKey: string | number, startedAt: s
   }
   if (outcome === "failed") {
     tick(duration * 0.05);
-    out("Error: price mismatch, expected €42.00 received €4,200.00", "stderr");
-    out("Error: price mismatch, expected €42.00 received €4,200.00", "stderr");
+    out(sc.failure, "stderr");
+    out(sc.failure, "stderr");
     events.push({ kind: "note", at: at(), level: "error", source: "system", text: "Loop detected: the same failing command ran four times. Session stopped." });
     return events;
   }
 
   tick(duration * 0.12);
-  for (const line of STDOUT_LINES.slice(13, 20)) out(line);
-  events.push({ kind: "test_result", at: at(), suite: "e2e", command: "pnpm playwright test", passed: 3, failed: 0, acceptance: true, failures: [] });
+  for (const line of STDOUT.slice(13, 20)) out(line);
+  events.push({ kind: "test_result", at: at(), suite: "e2e", command: sc.acceptanceCommand, passed: 3, failed: 0, acceptance: true, failures: [] });
   counts = { ...counts, planStepsDone: 5, acceptanceTestsPassing: 3 };
   progress();
   if (outcome === "running") return events;
 
   tick(duration * 0.12);
   events.push({ kind: "phase_changed", at: at(), from: "testing", to: "review", reason: null });
-  events.push({ kind: "note", at: at(), level: "info", source: "reviewer", text: NOTES[4]! });
+  events.push({ kind: "note", at: at(), level: "info", source: "reviewer", text: sc.notes[4]! });
   tick(duration * 0.1);
   counts = { ...counts, planStepsDone: planSteps, reviewPassed: true };
   progress();
   events.push({ kind: "phase_changed", at: at(), from: "review", to: "merge", reason: null });
-  out(STDOUT_LINES[20]!);
-  out(STDOUT_LINES[21]!);
+  out(STDOUT[20]!);
+  out(STDOUT[21]!);
   events.push({ kind: "tool_call", at: at(), callId: `c-${seedKey}-7`, connectorKey: "github", tool: "create_pull_request", status: "succeeded", argsSummary: "agent/task → main", durationMs: 1800, costMinor: 0 });
   tick(duration * 0.1);
   counts = { ...counts, merged: true };
@@ -270,26 +316,26 @@ export function generateMockSessionEvents(seedKey: string | number, startedAt: s
   return events;
 }
 
-export function mockSessionSeed(i: number, startedAt: string): SessionSeed {
+export function mockSessionSeed(i: number, startedAt: string, script: MockSessionScript = STOREFRONT_SESSION_SCRIPT): SessionSeed {
   const rng = createRng(`seed:${i}`);
   return {
     id: `session-${i + 1}`,
-    agent: mockAgent(i),
-    task: mockTask(i),
+    agent: mockAgent(i, script),
+    task: mockTask(i, script),
     startedAt,
     plan: mockPlan(i),
     tokens: 40_000 + rng.int(0, 180_000),
-    cost: { amountMinor: 60 + rng.int(0, 900), currency: "EUR" },
+    cost: { amountMinor: 60 + rng.int(0, 900), currency: script.currency },
     preview: i % 3 === 0 ? { screenshotUrl: null, url: null, capturedAt: null } : {},
   };
 }
 
 /** A whole squad of `n` sessions with staggered starts and mixed outcomes. */
-export function mockSessions(n: number, now: Date = new Date("2026-10-07T09:30:00Z")): Array<{ seed: SessionSeed; events: AgentSessionEvent[] }> {
+export function mockSessions(n: number, now: Date = new Date("2026-10-07T09:30:00Z"), script: MockSessionScript = STOREFRONT_SESSION_SCRIPT): Array<{ seed: SessionSeed; events: AgentSessionEvent[] }> {
   return Array.from({ length: n }, (_, i) => {
     const startedAt = new Date(now.getTime() - (4 + (i * 37) % 11) * 60_000).toISOString();
     const outcome = i % 7 === 3 ? "blocked" : i % 11 === 5 ? "failed" : i % 5 === 4 ? "done" : "running";
-    return { seed: mockSessionSeed(i, startedAt), events: generateMockSessionEvents(i, startedAt, { outcome, shout: i % 4 === 0, durationSec: 480 + (i % 5) * 60 }) };
+    return { seed: mockSessionSeed(i, startedAt, script), events: generateMockSessionEvents(i, startedAt, { outcome, shout: i % 4 === 0, durationSec: 480 + (i % 5) * 60, script }) };
   });
 }
 
@@ -326,12 +372,28 @@ function formFor(rng: Rng, fit: number): FormCell[] {
 }
 
 /** Fifteen channels scored for a DTC skincare business; the four highest are recommended and start on the board. */
-export function mockChannels(seedKey = "northwind", opts: { enabledFromRecommendation?: boolean } = {}): ChannelTokenData[] {
+/** Which channels fit a business, which four are recommended, and the one-line reason shown on a profile card. */
+export interface MockChannelProfile {
+  fits: Record<ChannelKey, number>;
+  /** Four channels, in budget order. */
+  recommended: readonly ChannelKey[];
+  why: (label: string) => string;
+  currency: string;
+}
+
+/** The default profile: a direct-to-consumer skincare brand (the stories' example business). */
+export const DTC_CHANNEL_PROFILE: MockChannelProfile = {
+  fits: { paid_ads: 17, social: 16, influencer: 15, email_automation: 14, content: 12, seo: 11, affiliate: 10, pr: 9, geo: 8, events: 7, direct_mail: 6, lead_generation: 4, print: 4, broadcast: 3, outdoor: 3 },
+  recommended: ["paid_ads", "social", "influencer", "email_automation"],
+  why: (label) => `${label} fits a direct-to-consumer skincare brand at this price point. Time to first signal is short and the founder already has material for it. Expected cost per customer sits inside the runway budget.`,
+  currency: "EUR",
+};
+
+export function mockChannels(seedKey = "northwind", opts: { enabledFromRecommendation?: boolean; profile?: MockChannelProfile } = {}): ChannelTokenData[] {
   const rng = createRng(`channels:${seedKey}`);
-  const fits: Record<ChannelKey, number> = {
-    paid_ads: 17, social: 16, influencer: 15, email_automation: 14, content: 12, seo: 11, affiliate: 10, pr: 9, geo: 8, events: 7, direct_mail: 6, lead_generation: 4, print: 4, broadcast: 3, outdoor: 3,
-  };
-  const recommended = new Set<ChannelKey>(["paid_ads", "social", "influencer", "email_automation"]);
+  const profile = opts.profile ?? DTC_CHANNEL_PROFILE;
+  const fits = profile.fits;
+  const recommended = new Set<ChannelKey>(profile.recommended);
   return CHANNEL_KEYS.map((key) => {
     const fit = fits[key];
     const rec = recommended.has(key);
@@ -343,8 +405,8 @@ export function mockChannels(seedKey = "northwind", opts: { enabledFromRecommend
       enabled: opts.enabledFromRecommendation === false ? false : rec,
       form: formFor(rng, fit),
       potential: Math.min(5, Math.max(1, Math.round(fit / 4))),
-      cpaRange: { low: { amountMinor: low, currency: "EUR" }, high: { amountMinor: low * 2 + 400, currency: "EUR" } },
-      why: `${CHANNEL_META[key].label} fits a direct-to-consumer skincare brand at this price point. Time to first signal is short and the founder already has material for it. Expected cost per customer sits inside the runway budget.`,
+      cpaRange: { low: { amountMinor: low, currency: profile.currency }, high: { amountMinor: low * 2 + 400, currency: profile.currency } },
+      why: profile.why(CHANNEL_META[key].label),
       agents: rec ? [{ name: NAMES[(fit * 3) % NAMES.length]!, seed: `engine-${key}`, dept: "dept-3", status: "healthy" as const }] : [],
       budgetShare: rec ? [0.35, 0.25, 0.25, 0.15][[...recommended].indexOf(key)] : 0,
       results: rec ? [{ label: CHANNEL_META[key].coreMetric, value: `${12 + fit} this week` }] : [],

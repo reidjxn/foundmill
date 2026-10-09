@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import { Code2, Compass, GraduationCap, Megaphone, Pause, Play, Scale, Users, Wallet, type LucideIcon } from "lucide-react";
 import { Avatar, Button, Chip, DeptChip, Icon, SkillGrid, StarRating, StatusPill, TraitChips, cn, usePrefersReducedMotion } from "@foundmill/dugout";
 import { MODULE_TABS, type ModuleKey } from "@foundmill/shared";
-import { LEADS, type ExampleLead } from "./example";
+import { EXAMPLE_BUSINESS, LEADS, type ExampleLead } from "./example";
 import { Glass, Reveal, Section, SectionHeading, useSeen } from "./parts";
 
 const ICONS: Record<ModuleKey, LucideIcon> = { product: Compass, development: Code2, distribution: Megaphone, finance: Wallet, legal: Scale, team: Users };
@@ -58,7 +58,7 @@ export function TeamSection() {
           }}
         >
           <div className="flex items-center justify-between gap-3">
-            <span className="text-small text-secondary">Northwind Skincare's department leads</span>
+            <span className="text-small text-secondary">{EXAMPLE_BUSINESS.name}'s department leads</span>
             <span className="flex items-center gap-2">
               <Chip tone="neutral">Example business</Chip>
               {touring ? (

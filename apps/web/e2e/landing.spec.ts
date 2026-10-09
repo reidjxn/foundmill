@@ -44,7 +44,8 @@ test.describe("landing page", () => {
     await page.locator("#channels").scrollIntoViewIfNeeded();
     const board = page.getByRole("group", { name: "Board: active channels" });
     await expect(board.getByRole("button")).toHaveCount(4);
-    await page.getByRole("button", { name: /^SEO,/ }).focus();
+    // Social media is off the board for the example business; putting it on adds a fifth running channel.
+    await page.getByRole("button", { name: /^Social media,/ }).focus();
     await page.keyboard.press("Enter");
     await expect(board.getByRole("button")).toHaveCount(5);
 
@@ -59,8 +60,8 @@ test.describe("landing page", () => {
     // The first cycle runs on its own and comes back with a decision; Continue waits for the founder.
     await expect(deck).toHaveAttribute("data-phase", "decision", { timeout: 15_000 });
     await expect(deck.getByRole("button", { name: /Respond to 1 item/ })).toBeVisible();
-    await page.getByTestId("deck-decision").getByRole("button", { name: "Approve" }).click();
-    await expect(deck.getByText("Print booking approved")).toBeVisible();
+    await page.getByTestId("deck-decision").getByRole("button", { name: "Merge" }).click();
+    await expect(deck.getByText("Photo marking merged to production")).toBeVisible();
 
     // Pressing Continue runs the next cycle, which brings a customer; the gold card opens the Journey.
     await deck.getByRole("button", { name: "Continue" }).click();
@@ -72,6 +73,6 @@ test.describe("landing page", () => {
     await expect(page.locator("#journey-title")).toBeFocused();
     await expect(deck).toHaveAttribute("data-phase", "idle");
     // The update it opens is about the same customer.
-    await expect(page.getByRole("region", { name: "Customer Update" }).getByText("Nordic Beauty AB").first()).toBeVisible();
+    await expect(page.getByRole("region", { name: "Customer Update" }).getByText("Okafor Maths Tuition").first()).toBeVisible();
   });
 });

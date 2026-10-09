@@ -980,3 +980,13 @@ The founder asked for a much more exciting landing page, judged from two seats: 
   - Milestones show reached milestones only, labelled Example business and Estimate; example concepts drop evidence quoting real sources.
   - Accessibility: the processing strip announces once per cycle, the team tour and the ticker can be paused, focus moves to Continue after a decision and to the Journey heading after "See the Customer Update", tab focus rings are visible, dimmed scroll-lit words are 3.4:1.
   - Left as they are: `Crest` reuses its clip-path id for one seed (identical content, as everywhere in the app); `ContinueButton`'s tooltip still names Space, which this page does not bind (binding it would steal page scrolling).
+
+## 2026-10-09 — The landing page's example business is Tutorlane (founder request)
+
+The founder asked for a software example instead of the skincare brand, so the page shows agents building the product itself, and for one that is clearly AI at its core and believable for a first-time founder. Options were generated, scored by two independent judges and name-screened on the web; the founder chose Tutorlane in its AI-native form: an AI teaching assistant for independent tutors (after each lesson: notes, a practice set in the tutor's method and a parent progress note; between lessons: a practice companion that marks handwritten working from photos). "Tutorlane" turned up no company or product in the searches.
+
+- **Every step maps to a connector the product has:** Google Calendar and Drive (lesson recordings), Stripe, SendGrid and Gmail, Anthropic and Voyage, GitHub and sandboxes, Dropbox Sign, Cloudflare DNS, Companies House.
+- **One story across the page:** the hero's first decision is merging photo marking (agreement with tutors' marks 74% → 93% on 200 answers); the customer it wins is Okafor Maths Tuition, whose Customer Update the gold card opens; the live tiles replay the practice-set and marking-eval work; the Channel Board leads with search, content, email and tutor referrals; the Inbox note is a sponsorship above the spend cap; milestones and money are in pounds.
+- **Design system:** the replay generator takes a `MockSessionScript` and `mockChannels` a `MockChannelProfile`; the defaults (`STOREFRONT_SESSION_SCRIPT`, `DTC_CHANNEL_PROFILE`) keep every other screen, story and test unchanged. Brand colours reuse the fixtures' second kit (teal and gold); the two-year Journey is the fixture's, relabelled for Tutorlane in `components/landing/example.ts`.
+- **Ledgerly** (the second seeded demo business) was ruled out for the public page: several real companies use the name, one of them selling month-end close software. Renaming the seeded demo is worth doing separately.
+

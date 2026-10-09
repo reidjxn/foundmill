@@ -96,10 +96,10 @@ describe("LandingPage (signed-out /)", () => {
     expect(deck.getAttribute("data-phase")).toBe("decision");
     expect(within(deck).getByRole("button", { name: /Respond to 1 item/ })).toBeTruthy();
     const decision = screen.getByTestId("deck-decision");
-    expect(within(decision).getByText("Approve the first print booking?")).toBeTruthy();
-    fireEvent.click(within(decision).getByRole("button", { name: "Approve" }));
+    expect(within(decision).getByText("Merge photo marking to production?")).toBeTruthy();
+    fireEvent.click(within(decision).getByRole("button", { name: "Merge" }));
     expect(deck.getAttribute("data-phase")).toBe("idle");
-    expect(within(deck).getByText("Print booking approved")).toBeTruthy();
+    expect(within(deck).getByText("Photo marking merged to production")).toBeTruthy();
     // The decision card is gone; keyboard focus moves to Continue, the next thing to press.
     await act(async () => {
       vi.advanceTimersByTime(10);
@@ -115,8 +115,8 @@ describe("LandingPage (signed-out /)", () => {
     expect(deck.getAttribute("data-phase")).toBe("win");
     const win = screen.getByTestId("deck-win");
     // The same customer as the Customer Update the gold card opens.
-    expect(within(win).getByText("Nordic Beauty AB")).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Customer Update" })).getAllByText("Nordic Beauty AB").length).toBeGreaterThan(0);
+    expect(within(win).getByText("Okafor Maths Tuition")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Customer Update" })).getAllByText("Okafor Maths Tuition").length).toBeGreaterThan(0);
     expect(within(deck).getByRole("button", { name: /Go to Journey/ })).toBeTruthy();
     fireEvent.click(within(win).getByRole("button", { name: /See the Customer Update/ }));
     expect(deck.getAttribute("data-phase")).toBe("idle");
