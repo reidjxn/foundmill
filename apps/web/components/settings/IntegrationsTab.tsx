@@ -61,6 +61,17 @@ export function simulateRefusalMessage(result: SimulateResult): string {
   return `${result.status}: ${typeof result.body === "string" ? result.body : JSON.stringify(result.body)}`;
 }
 
+/** The connectors' mode: "Live", "Mock mode", or "Mock mode · GitHub live" when named connectors run live anyway. */
+export function modeLabel(mode: string, rows: readonly { displayName: string; live?: boolean }[]): string {
+  if (mode !== "mock") return "Live";
+  const live = rows.filter((r) => r.live).map((r) => r.displayName);
+  return live.length ? `Mock mode · ${live.join(", ")} live` : "Mock mode";
+}
+
+/** Leaves for a vendor's consent page in this tab (a seam for tests). */
+export const navigation = { assign: (url: string) => window.location.assign(url) };
+const navigateTo = (url: string) => navigation.assign(url);
+
 export function IntegrationsTab() {
   const { businessId } = useBusiness();
   const trpc = useTRPC();
@@ -71,9 +82,12 @@ export function IntegrationsTab() {
     trpc.integrations.connect.mutationOptions({
       onSuccess: (r) => {
         void invalidate(["integrations"]);
-        if (r.consentUrl) t.info("Your consent is needed", "The vendor's consent page opened in a new tab; the connection completes when you accept.");
-        else t.saved("Connected", r.record.accountLabel ?? undefined);
-        if (r.consentUrl) window.open(r.consentUrl, "_blank", "noopener");
+        if (r.consentUrl) {
+          // The vendor's page opens in this tab: a new tab opened after the request returns is a pop-up browsers block
+          // (Safari always). The vendor sends the founder back here to finish (GitHub: /integrations/github/callback).
+          t.info("Your consent is needed", "Opening the vendor's page; the connection completes when you accept and come back here.");
+          navigateTo(r.consentUrl);
+        } else t.saved("Connected", r.record.accountLabel ?? undefined);
       },
       onError: (e) => t.failed(e, "Could not connect"),
     }),
@@ -123,7 +137,7 @@ export function IntegrationsTab() {
           </div>
         </SettingsSection>
       ) : null}
-      <SettingsSection title="Connectors" actions={list.data ? <Chip tone={list.data.mode === "mock" ? "info" : "good"}>{list.data.mode === "mock" ? "Mock mode" : "Live"}</Chip> : undefined} loading={list.isLoading}>
+      <SettingsSection title="Connectors" actions={list.data ? <Chip tone={list.data.mode === "mock" ? "info" : "good"}>{modeLabel(list.data.mode, rows)}</Chip> : undefined} loading={list.isLoading}>
         <Hint>OAuth consents and API keys are yours to grant: a connector that needs one opens the vendor's page and waits for you. Secrets are encrypted at rest and never shown again.</Hint>
         <ul className="flex flex-col divide-y divide-subtle" data-testid="connector-list">
           {rows.map((c) => {
