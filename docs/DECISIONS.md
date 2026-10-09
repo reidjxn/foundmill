@@ -962,3 +962,15 @@ Staging's api reaches Supabase's pooler with about 50 ms per query, so a request
 - `channels.upsertMany` groups rows by the fields supplied, so an update still changes only those fields.
 
 The per-row repo functions stay for everything else. When a screen does many sequential queries, batch it the same way.
+
+## 2026-10-09 — The landing page, rebuilt around the loop (founder request)
+
+The founder asked for a much more exciting landing page, judged from two seats: a young first-time founder who is AI-native and likes games, and a tier-1 investor. It must never say the product is a game. The page was rebuilt (DESIGN §9a); the calls made on the way:
+
+- **Show the loop, don't describe it.** The hero's centrepiece is a working screen of the product: the product's top-bar parts, processing strip, Inbox, team orbit and live feed on the example business. Continue runs a cycle that comes back with a decision or a customer. The first cycle runs once by itself, so the loop is visible without a click; it waits for the visitor after that. Under reduced motion nothing runs by itself.
+- **Not `KitBar` itself.** `KitBar` renders its screen title as an `<h1>`, which would give the page two. The deck composes the same exported parts (`kitStyle`, `kitBarGradient`, `Crest`, `RunwayChip`, `ModeChip`, `ContinueButton`, `StopAllAgents`) instead.
+- **One example business, from the design system.** Brand colours, concepts, the Journey, the Customer Update and milestones come from `@foundmill/dugout/components/journey/fixtures` (Northwind Skincare, the stories' data) through `components/landing/example.ts`. The page has no colour literals of its own and invents no traction: every example is labelled Example and every money figure Estimate.
+- **The investor case is made with a thesis and product depth, not metrics.** A "Why now" section ("The team used to be the hard part.") and four pillars (a whole company in parallel; real work, real outcomes; better every cycle; you stay in charge), each linking to the section that shows it. "Nothing here is a simulation" is the closest the copy comes to the word game.
+- **Progress made visible.** For the first-time founder: agents with attribute ratings, stars and training (the lead's `SkillGrid` per department), a Journey with chapters and milestones, and a gold Customer Update with the standout agent. These are the product's own components, not new ones.
+- **Design-system changes, all small:** `display-hero` goes from 64/64 to 80/80 (three landing headlines); new landing-only motion tokens `--dur-reveal` (720 ms), `animate-marquee` and `animate-progress`, the `landing-lit` text utility and the `[data-reveal]` rise-in; `useLiveMockSessions` gains `prefill` so replayed tiles open mid-session instead of empty; `TeamOrbit` draws the Chief of Staff above the founder, so its label is never cut by the founder's ring.
+- **13 px rem.** The app's root font size is 13 px, so Tailwind's rem spacing is 13/16 of nominal pixels. The Ribbon's wrapper is set in pixels to match its `height`.

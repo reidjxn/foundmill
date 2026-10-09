@@ -112,8 +112,8 @@ export function TeamOrbit({ centreLabel = "You", centreCaption = "Founder", chie
         ))}
       </div>
 
-      {/* First orbit: the Chief of Staff. */}
-      <div aria-hidden className="absolute inset-0 animate-orbit" style={spin(periodSeconds * 0.7)} data-orbit="chief">
+      {/* First orbit: the Chief of Staff, above the founder so its label is never cut by the founder's ring. */}
+      <div aria-hidden className="absolute inset-0 z-10 animate-orbit" style={spin(periodSeconds * 0.7)} data-orbit="chief">
         <span className="absolute -translate-x-1/2 -translate-y-1/2" style={at(R_CHIEF, 30)}>
           <span className="flex animate-orbit flex-col items-center gap-1" style={spin(periodSeconds * 0.7, true)}>
             <Avatar size={36} name={chief.name} agent={{ seed: chief.seed, dept: "dept-1" }} />

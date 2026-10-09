@@ -162,3 +162,10 @@ Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
   - Sidebar keyboard focus rings are visible again (rows had `outline-none`).
   - Tests, stories, e2e specs (shell, landing) and DESIGN §8/§8a/§9a are updated, and a guard test fails if a product component imports `LogoMark`.
   - Tests: dugout 358, web 225.
+- 2026-10-09 — **Landing page rebuilt (founder request: "more gorgeous, more wow", for a first-time founder and a tier-1 investor).**
+  - Hero: the tagline in display-hero (now 80/80) over a working screen of the product on the example business. Continue runs a cycle that comes back with a decision ("Respond · 1") or a customer (gold, opens the Journey); the first cycle runs by itself once on screen.
+  - New sections: an activity ticker; Why now (statement lit on scroll, four pillars); How it works with the real concept cards, a working logo and brand-colour picker and the Chief of Staff's cycle plan; Your team (six department tabs, each lead's profile with attribute ratings, stars, traits, training and real screens); the Journey (Ribbon, a gold Customer Update, Milestones); an Inbox note with a working DecisionBar beside the house rules.
+  - Kept: live sessions (now opening mid-session through `useLiveMockSessions` `prefill`) and the Channel Board.
+  - Split into `components/landing/{LandingPage,Hero,CycleDeck,cycle,Thesis,HowItWorks,TeamSection,LiveSessions,Journey,Control,parts,example}`.
+  - Design system: `--dur-reveal`, `animate-marquee`, `animate-progress`, `landing-lit`, `[data-reveal]`; the `TeamOrbit` Chief of Staff layer above the founder. DESIGN §4/§7/§9a and DECISIONS updated.
+  - Tests: landing unit tests rewritten (7, incl. the deck's decision → customer loop and the team tabs), new `cycle.test.ts` (7), dugout `useLiveMockSessions.test.tsx` (2); `e2e/landing.spec.ts` now covers the deck loop, the team tabs and the Journey (2 tests, pass against `next dev`). Checked in Chromium at 1440 and 1280 px and with reduced motion. Totals: web 235, dugout 360; typecheck, lint and banned terms clean.
