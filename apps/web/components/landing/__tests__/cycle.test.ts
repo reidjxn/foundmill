@@ -40,7 +40,7 @@ describe("the landing deck's cycle", () => {
     expect(cycleStatusText(s)).toBe("A customer was won this cycle");
     s = cycleReducer(s, { type: "openWin" });
     expect(s.phase).toBe("idle");
-    expect(s.inbox[0]).toMatchObject({ title: "Alma Botanics is a paying customer", tone: "won" });
+    expect(s.inbox[0]).toMatchObject({ title: "Nordic Beauty AB is a paying customer", tone: "won" });
     expect(s.inbox.length).toBeLessThanOrEqual(5);
   });
 

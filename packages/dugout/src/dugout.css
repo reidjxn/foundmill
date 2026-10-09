@@ -507,3 +507,10 @@
     opacity var(--dur-reveal) var(--ease),
     transform var(--dur-reveal) var(--ease);
 }
+/* A printed or saved page shows every block, whether or not it was scrolled to. */
+@media print {
+  [data-reveal="pending"] {
+    opacity: 1;
+    transform: none;
+  }
+}

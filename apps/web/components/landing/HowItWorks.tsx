@@ -6,7 +6,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Flag, Lightbulb, Play, type LucideIcon } from "lucide-react";
 import { Avatar, Chip, ConceptCard, Crest, Icon, ProvenanceChip, cn, formatMoney, kitBarGradient, kitStyle, type Kit } from "@foundmill/dugout";
-import { EXAMPLE_BUSINESS, LEADS, conceptFixtures } from "./example";
+import { EXAMPLE_BUSINESS, LEADS, exampleConcepts } from "./example";
 import { Glass, Reveal, Section, SectionHeading } from "./parts";
 
 export function HowItWorks() {
@@ -32,7 +32,12 @@ function Step({ n, icon, title, text, children, delay }: { n: string; icon: Luci
   return (
     <Reveal as="li" delay={delay}>
       <Glass className="flex h-full flex-col overflow-hidden">
-        <div className="relative h-88 overflow-hidden border-b border-subtle bg-ink/70">{children}</div>
+        <div className="relative h-88 overflow-hidden border-b border-subtle bg-ink/70">
+          {children}
+          <span className="absolute right-3 top-3 z-10">
+            <Chip tone="neutral">Example</Chip>
+          </span>
+        </div>
         <div className="flex flex-col gap-3 p-6">
           <span className="flex items-center gap-3">
             <span className="grid size-9 place-items-center rounded-full border" style={{ borderColor: "color-mix(in oklab, var(--kit-primary) 70%, var(--white))", background: "radial-gradient(circle at 50% 35%, color-mix(in oklab, var(--kit-primary) 70%, var(--white)), color-mix(in oklab, var(--kit-primary) 55%, var(--bg-ink)) 75%)" }}>
@@ -50,7 +55,7 @@ function Step({ n, icon, title, text, children, delay }: { n: string; icon: Luci
 
 /** Two of the Ideation Studio's concept cards, the second behind the first, fading out at the bottom. */
 function ConceptStack() {
-  const [front, back] = useMemo(() => conceptFixtures(), []);
+  const [front, back] = useMemo(exampleConcepts, []);
   return (
     <div className="absolute inset-0" style={{ maskImage: "linear-gradient(180deg, black 70%, transparent 100%)" }}>
       {back ? (
@@ -70,7 +75,7 @@ function ConceptStack() {
 /** Logo and brand colours: six generated logos to choose from; the choice paints the brand bar under them. */
 function BrandPicker() {
   const options = useMemo(() => {
-    const kits = conceptFixtures().map((c) => c.kit);
+    const kits = exampleConcepts().map((c) => c.kit);
     return Array.from({ length: 6 }, (_, i) => ({ seed: i === 0 ? EXAMPLE_BUSINESS.seed : `${EXAMPLE_BUSINESS.seed} ${i}`, kit: kits[i % kits.length]! as Kit }));
   }, []);
   const [chosen, setChosen] = useState(0);
@@ -96,7 +101,7 @@ function BrandPicker() {
           ))}
         </div>
       </div>
-      <div className="flex h-11 items-center gap-2 rounded-panel px-3 text-kit-on-primary transition-[background-image] duration-panel" style={{ backgroundImage: kitBarGradient(pick.kit) }} aria-label="Brand bar preview">
+      <div className="flex h-11 items-center gap-2 rounded-panel px-3 text-kit-on-primary transition-[background-image] duration-panel" style={{ backgroundImage: kitBarGradient(pick.kit) }}>
         <Crest seed={pick.seed} kitPrimary={pick.kit.primary} kitSecondary={pick.kit.secondary} monogram={EXAMPLE_BUSINESS.monogram} size={24} title={`${EXAMPLE_BUSINESS.name} logo`} />
         <span className="t-display-sm">{EXAMPLE_BUSINESS.name}</span>
         <span className="flex-1" />

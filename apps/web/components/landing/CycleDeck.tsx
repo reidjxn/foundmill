@@ -6,7 +6,7 @@
  * the cycle comes back with a decision (Continue turns into "Respond · 1") or a customer (gold). The first cycle runs
  * on its own once the deck is on screen, unless the visitor prefers reduced motion.
  */
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ArrowRight, ArrowUp, Check, Inbox as InboxIcon, Star, ThumbsUp, Trophy } from "lucide-react";
 import {
   Avatar,
@@ -29,7 +29,7 @@ import {
   usePrefersReducedMotion,
   type ProcessingSegment,
 } from "@foundmill/dugout";
-import { ACTIVITY, EXAMPLE_BUSINESS, EXAMPLE_CHAPTER, EXAMPLE_RUNWAY_MONTHS, EXAMPLE_TODAY, LEADS, NORTHWIND_KIT, type ActivityLine, type ExampleDecision, type ExampleWin } from "./example";
+import { ACTIVITY, EXAMPLE_BUSINESS, EXAMPLE_CHAPTER, EXAMPLE_RUNWAY_MONTHS, LEADS, NORTHWIND_KIT, exampleToday, type ActivityLine, type ExampleDecision, type ExampleWin } from "./example";
 import { continueStateFor, cycleReducer, cycleStatusText, cycleTasks, initialCycleState, type CycleState, type InboxItem } from "./cycle";
 import { useSeen } from "./parts";
 
@@ -37,6 +37,8 @@ import { useSeen } from "./parts";
 export const DECK_CYCLE_MS = 4200;
 const DECK_CYCLE_MS_REDUCED = 900;
 const FEED_MAX = 6;
+/** A second click this soon after Continue is a double click, not a request to pause the cycle it just started. */
+const PAUSE_GRACE_MS = 800;
 
 export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
   const reduced = usePrefersReducedMotion();
@@ -44,14 +46,35 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
   const [ref, seen] = useSeen<HTMLDivElement>("0px");
   const [autoRan, setAutoRan] = useState(false);
   const decisionRef = useRef<HTMLButtonElement>(null);
-  const tick = useTicker(state.phase === "processing" ? 650 : 2800);
+  const continueRef = useRef<HTMLButtonElement>(null);
+  const startedAt = useRef(0);
+  const today = useMemo(exampleToday, []);
+  const working = state.phase === "processing";
+  const cycleMs = reduced ? DECK_CYCLE_MS_REDUCED : DECK_CYCLE_MS;
+  const tick = useTicker(working ? 650 : 2800);
   const feed = useFeed(tick);
+  const progress = useCycleProgress(working, cycleMs);
+
+  const start = (byVisitor: boolean) => {
+    startedAt.current = performance.now();
+    dispatch({ type: "continue", byVisitor });
+  };
+  const stop = () => {
+    if (performance.now() - startedAt.current < PAUSE_GRACE_MS) return;
+    dispatch({ type: "stopAll" });
+  };
+  // Answering removes the decision card; focus moves to Continue, the next thing to press.
+  const decide = (optionId: string) => {
+    dispatch({ type: "decide", optionId });
+    setTimeout(() => continueRef.current?.focus(), 0);
+  };
 
   // The first cycle runs on its own once the deck is on screen, so the loop is visible without a click.
   useEffect(() => {
     if (!seen || reduced || autoRan) return;
     const t = setTimeout(() => {
       setAutoRan(true);
+      startedAt.current = performance.now();
       dispatch({ type: "continue" });
     }, 1400);
     return () => clearTimeout(t);
@@ -59,17 +82,17 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
 
   useEffect(() => {
     if (state.phase !== "processing") return;
-    const t = setTimeout(() => dispatch({ type: "finish" }), reduced ? DECK_CYCLE_MS_REDUCED : DECK_CYCLE_MS);
+    const t = setTimeout(() => dispatch({ type: "finish" }), cycleMs);
     return () => clearTimeout(t);
-  }, [state.phase, state.cycle, reduced]);
+  }, [state.phase, state.cycle, cycleMs]);
 
   const openWin = () => {
     dispatch({ type: "openWin" });
     onOpenJourney?.();
   };
 
-  const segments: ProcessingSegment[] = LEADS.map((l, i) => ({ id: l.key, label: l.department, dept: l.dept, active: state.phase === "processing" && (tick + i) % 4 !== 0 }));
-  const working = state.phase === "processing";
+  // Segments take turns visually; the strip's spoken status stays one sentence per cycle (its own label is per segment).
+  const segments: ProcessingSegment[] = LEADS.map((l, i) => ({ id: l.key, label: l.department, dept: l.dept, active: working && (tick + i) % 4 !== 0 }));
 
   return (
     <div ref={ref} className="relative" style={kitStyle(NORTHWIND_KIT)} data-testid="cycle-deck" data-phase={state.phase}>
@@ -81,26 +104,27 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
           <span className="t-display-sm whitespace-nowrap">{EXAMPLE_BUSINESS.name}</span>
           <span aria-hidden className="mx-1 h-5 w-px bg-kit-on-primary/25" />
           <span className="t-display-md">Home</span>
-          <span className="truncate text-small text-kit-on-primary/75 tabular-nums">
+          <span className="truncate text-small text-kit-on-primary tabular-nums">
             Cycle {state.phase === "idle" ? state.cycle + 1 : state.cycle} · {EXAMPLE_CHAPTER}
           </span>
           <span className="flex-1" />
-          <RunwayChip date={EXAMPLE_TODAY} runwayMonths={EXAMPLE_RUNWAY_MONTHS} estimate />
+          <RunwayChip date={today} runwayMonths={EXAMPLE_RUNWAY_MONTHS} estimate />
           <ModeChip mode="assisted" />
           <ContinueButton
+            ref={continueRef}
             state={continueStateFor(state)}
             pulseKey={state.phase === "idle" ? undefined : `${state.phase}-${state.cycle}`}
-            onContinue={() => dispatch({ type: "continue", byVisitor: true })}
-            onPause={() => dispatch({ type: "stopAll" })}
+            onContinue={() => start(true)}
+            onPause={stop}
             onRespond={() => decisionRef.current?.focus()}
             onGoToJourney={openWin}
           />
-          <StopAllAgents onConfirm={() => dispatch({ type: "stopAll" })} runningCount={working ? cycleTasks(state.cycle).tasks : 0} />
+          <StopAllAgents onConfirm={stop} runningCount={working ? cycleTasks(state.cycle).tasks : 0} />
         </div>
-        <ProcessingStrip segments={segments} active={working} />
+        <ProcessingStrip segments={segments} active={working} label={working ? `Cycle ${state.cycle} running` : "No cycle running"} />
 
         <div className="grid h-125 grid-cols-[21rem_1fr_18rem]">
-          <InboxColumn state={state} decisionRef={decisionRef} onDecide={(optionId) => dispatch({ type: "decide", optionId })} onOpenWin={openWin} />
+          <InboxColumn state={state} decisionRef={decisionRef} onDecide={decide} onOpenWin={openWin} />
           <div className="relative flex min-w-0 flex-col items-center justify-center gap-3 overflow-hidden">
             <div aria-hidden className="absolute inset-0" style={{ backgroundImage: "radial-gradient(color-mix(in oklab, var(--white) 7%, transparent) 1px, transparent 1.5px)", backgroundSize: "22px 22px", maskImage: "radial-gradient(ellipse 60% 60% at 50% 50%, black 30%, transparent 85%)" }} />
             <TeamOrbit className="relative w-108" />
@@ -109,7 +133,7 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
               {cycleStatusText(state)}
             </p>
           </div>
-          <LiveColumn feed={feed} state={state} tick={tick} />
+          <LiveColumn feed={feed} state={state} progress={progress} />
         </div>
       </div>
 
@@ -238,10 +262,10 @@ function WinCard({ win: w, onOpen }: { win: ExampleWin; onOpen: () => void }) {
 // Live column
 // ---------------------------------------------------------------------------------------------------------------------
 
-function LiveColumn({ feed, state, tick }: { feed: Array<{ key: number; line: ActivityLine }>; state: CycleState; tick: number }) {
+function LiveColumn({ feed, state, progress }: { feed: Array<{ key: number; line: ActivityLine }>; state: CycleState; progress: number }) {
   const working = state.phase === "processing";
   const t = cycleTasks(state.cycle);
-  const done = working ? Math.min(t.tasks, Math.floor(tick / 1.2) % (t.tasks + 1)) : t.tasks;
+  const done = Math.min(t.tasks, Math.floor(progress * t.tasks));
   return (
     <section aria-label="Live now" className="flex min-h-0 flex-col border-l border-subtle bg-panel">
       <div className="flex h-panel-header shrink-0 items-center gap-2 border-b border-subtle bg-panel-alt px-3">
@@ -263,12 +287,14 @@ function LiveColumn({ feed, state, tick }: { feed: Array<{ key: number; line: Ac
           </li>
         ))}
       </ul>
-      <dl className="flex shrink-0 flex-col gap-1.5 border-t border-subtle px-3 py-3">
+      <div className="flex shrink-0 flex-col gap-1.5 border-t border-subtle px-3 py-3">
         <span className="t-label">This cycle</span>
-        <DeckStat label="Tasks done" value={`${done} of ${t.tasks}`} />
-        <DeckStat label="Pull requests merged" value={String(working ? Math.min(t.prs, Math.floor(done / 4)) : t.prs)} />
-        <DeckStat label="Agent spend" value={formatMoney({ amountMinor: t.tasks * 46, currency: "EUR" })} estimate />
-      </dl>
+        <dl className="flex flex-col gap-1.5">
+          <DeckStat label="Tasks done" value={`${done} of ${t.tasks}`} />
+          <DeckStat label="Pull requests merged" value={String(Math.min(t.prs, Math.floor(progress * t.prs)))} />
+          <DeckStat label="Agent spend" value={formatMoney({ amountMinor: Math.round(progress * t.tasks * 46), currency: "EUR" })} estimate />
+        </dl>
+      </div>
     </section>
   );
 }
@@ -276,10 +302,11 @@ function LiveColumn({ feed, state, tick }: { feed: Array<{ key: number; line: Ac
 function DeckStat({ label, value, estimate }: { label: string; value: string; estimate?: boolean }) {
   return (
     <div className="flex items-center gap-2 text-small">
-      <dt className="text-secondary">{label}</dt>
-      <span className="flex-1" />
-      {estimate ? <ProvenanceChip kind="estimate" /> : null}
-      <dd className="t-display-sm tabular-nums text-primary">{value}</dd>
+      <dt className="flex-1 text-secondary">{label}</dt>
+      <dd className="flex items-center gap-2">
+        {estimate ? <ProvenanceChip kind="estimate" /> : null}
+        <span className="t-display-sm tabular-nums text-primary">{value}</span>
+      </dd>
     </div>
   );
 }
@@ -296,6 +323,21 @@ function useTicker(ms: number): number {
     return () => clearInterval(id);
   }, [ms]);
   return tick;
+}
+
+/** How far the running cycle is, 0 to 1 over `durationMs`; 1 when no cycle runs (the last cycle's figures stand). */
+function useCycleProgress(active: boolean, durationMs: number): number {
+  const [fraction, setFraction] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const begun = performance.now();
+    const id = setInterval(() => setFraction(Math.min(1, (performance.now() - begun) / durationMs)), 200);
+    return () => {
+      clearInterval(id);
+      setFraction(0);
+    };
+  }, [active, durationMs]);
+  return active ? fraction : 1;
 }
 
 /** The live feed: one new line per tick, newest first. Starts with four lines so the server and browser agree. */

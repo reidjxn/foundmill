@@ -4,17 +4,43 @@
  * Customer Update), plus the six department leads of the TeamOrbit. The page carries no colour literals and no
  * invented metrics: every number shown here is labelled Example or Estimate where it appears.
  */
-import type { SkillRow, Trait } from "@foundmill/dugout";
+import type { Concept, SkillRow, TrophyCard, Trait } from "@foundmill/dugout";
 import type { DeptColourToken, ModuleKey } from "@foundmill/shared";
+import { conceptFixtures, trophyFixtures } from "@foundmill/dugout/components/journey/fixtures";
 
-export { NORTHWIND_KIT, RIBBON_DEPARTMENTS, conceptFixtures, generateJourneyFixture, matchDayFixture, trophyFixtures } from "@foundmill/dugout/components/journey/fixtures";
+export { NORTHWIND_KIT, RIBBON_DEPARTMENTS, generateJourneyFixture, matchDayFixture } from "@foundmill/dugout/components/journey/fixtures";
 
 export const EXAMPLE_BUSINESS = { name: "Northwind Skincare", monogram: "NS", seed: "Northwind Skincare" } as const;
-/** The example business's cycle count and chapter when the page opens. */
-export const EXAMPLE_START_CYCLE = 14;
-export const EXAMPLE_CHAPTER = "Chapter 2 · First customers";
+/** Where the example business is when the page opens: two years in (the Journey fixture), in its ninth chapter. */
+export const EXAMPLE_START_CYCLE = 214;
+export const EXAMPLE_CHAPTER = "Chapter 9";
 export const EXAMPLE_RUNWAY_MONTHS = 14;
-export const EXAMPLE_TODAY = "2026-10-07";
+/**
+ * Today on the example business, as local noon. The page is server-rendered in UTC and hydrated in the visitor's
+ * time zone, and every date it prints must read the same in both: a date-only ISO string ("2026-10-07") parses as
+ * UTC midnight and prints as 6 Oct west of UTC, so dates here are built in local time.
+ */
+export function exampleToday(): Date {
+  return new Date(2026, 9, 7, 12);
+}
+
+/** An ISO instant moved to local noon on the same calendar day, so it prints the same day in every time zone. */
+export function localNoon(iso: string): string {
+  return `${iso.slice(0, 10)}T12:00:00`;
+}
+
+/** The milestones the example business has reached (no "not yet" cards), with time-zone-safe dates. */
+export function exampleMilestones(): TrophyCard[] {
+  return trophyFixtures()
+    .filter((t) => t.achievedAt)
+    .slice(0, 6)
+    .map((t) => ({ ...t, achievedAt: t.achievedAt ? localNoon(t.achievedAt) : null }));
+}
+
+/** The Ideation Studio's example concepts without their evidence: the stories' evidence quotes real sources for invented facts. */
+export function exampleConcepts(): Concept[] {
+  return conceptFixtures().map((c) => ({ ...c, citations: undefined, attributes: c.attributes.map((a) => ({ key: a.key, value: a.value })) }));
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The live activity: the hero feed and the ticker
@@ -85,18 +111,18 @@ export const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
       { id: "quote", label: "Get a quote first", done: "Quotes requested first", outcome: "Scout asks two printers for quotes and comes back to you." },
     ],
   },
+  // The same customer as the Customer Update the gold card opens (the Journey fixture's featured update).
   {
     kind: "win",
-    id: "alma",
-    customer: "Alma Botanics",
-    plan: "Refill subscription · €59 a month",
-    firstTouch: "Read 'Why retinol needs a slow start'",
+    id: "nordic",
+    customer: "Nordic Beauty AB",
+    plan: "Wholesale starter · €1,860 a year",
+    firstTouch: "Clicked the retinol serum ad",
     standout: { name: "Scout", seed: "scout", dept: "dept-3" },
     involved: [
-      { name: "Quill", seed: "quill", dept: "dept-1" },
       { name: "Scout", seed: "scout", dept: "dept-3" },
-      { name: "Pike", seed: "pike", dept: "dept-3" },
-      { name: "Forge", seed: "forge", dept: "dept-2" },
+      { name: "Lifecycle", seed: "lifecycle", dept: "dept-3" },
+      { name: "Quill", seed: "content", dept: "dept-1" },
     ],
   },
   {

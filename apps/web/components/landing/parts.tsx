@@ -26,7 +26,7 @@ export function SectionHeading({ id, eyebrow, title, lede, align = "left", tone 
     <Reveal>
       <header className={cn("flex max-w-3xl flex-col gap-4", align === "center" && "mx-auto items-center text-center")}>
         <Eyebrow tone={tone}>{eyebrow}</Eyebrow>
-        <h2 id={`${id}-title`} className="t-display-xl text-balance text-primary">
+        <h2 id={`${id}-title`} tabIndex={-1} className="t-display-xl text-balance text-primary outline-none">
           {title}
         </h2>
         {lede ? <p className={cn("t-reading text-pretty text-secondary", align === "center" && "mx-auto")}>{lede}</p> : null}
@@ -81,6 +81,17 @@ export function ProductWindow({ title, chips, children, className, glow = "var(-
       </div>
     </div>
   );
+}
+
+/**
+ * Takes the visitor to a section: scrolls (instantly under reduced motion) and moves keyboard focus to the section's
+ * heading, so a screen reader announces where they landed and Tab continues from there.
+ */
+export function goToSection(id: string): void {
+  const section = document.getElementById(id);
+  if (!section) return;
+  section.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+  document.getElementById(`${id}-title`)?.focus({ preventScroll: true });
 }
 
 /** The live parts run on a clock or measure the window, so they render in the browser only. */

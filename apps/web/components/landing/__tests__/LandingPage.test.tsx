@@ -100,6 +100,11 @@ describe("LandingPage (signed-out /)", () => {
     fireEvent.click(within(decision).getByRole("button", { name: "Approve" }));
     expect(deck.getAttribute("data-phase")).toBe("idle");
     expect(within(deck).getByText("Print booking approved")).toBeTruthy();
+    // The decision card is gone; keyboard focus moves to Continue, the next thing to press.
+    await act(async () => {
+      vi.advanceTimersByTime(10);
+    });
+    expect(document.activeElement).toBe(within(deck).getByRole("button", { name: "Continue" }));
 
     // The visitor presses Continue: the next cycle brings a customer, and Continue turns gold.
     fireEvent.click(within(deck).getByRole("button", { name: "Continue" }));
@@ -109,7 +114,9 @@ describe("LandingPage (signed-out /)", () => {
     });
     expect(deck.getAttribute("data-phase")).toBe("win");
     const win = screen.getByTestId("deck-win");
-    expect(within(win).getByText("Alma Botanics")).toBeTruthy();
+    // The same customer as the Customer Update the gold card opens.
+    expect(within(win).getByText("Nordic Beauty AB")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Customer Update" })).getAllByText("Nordic Beauty AB").length).toBeGreaterThan(0);
     expect(within(deck).getByRole("button", { name: /Go to Journey/ })).toBeTruthy();
     fireEvent.click(within(win).getByRole("button", { name: /See the Customer Update/ }));
     expect(deck.getAttribute("data-phase")).toBe("idle");
@@ -129,6 +136,16 @@ describe("LandingPage (signed-out /)", () => {
     expect(within(screen.getByRole("list", { name: "Development screens" })).getByText("Live sessions")).toBeTruthy();
   });
 
+  it("lets the visitor pause the department tour and the activity ticker", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Pause tour" }));
+    expect(screen.getByRole("button", { name: "Play tour" })).toBeTruthy();
+    const ticker = screen.getByRole("button", { name: "Pause the activity ticker" });
+    fireEvent.click(ticker);
+    expect(ticker.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Play the activity ticker" })).toBeTruthy();
+  });
+
   it("states the house rules and labels example data as such", () => {
     renderPage();
     for (const rule of ["Never moves money", "Never signs anything or accepts terms", "Never changes security settings"]) expect(screen.getByText(rule)).toBeTruthy();
@@ -138,6 +155,9 @@ describe("LandingPage (signed-out /)", () => {
     // The Customer Update and the Inbox note are the example business's.
     expect(screen.getByRole("region", { name: "Customer Update" })).toBeTruthy();
     expect(screen.getByRole("article", { name: "Example Inbox note" })).toBeTruthy();
+    // Only milestones the example reached, each labelled as the example business's.
+    expect(screen.queryByText("Not yet")).toBeNull();
+    expect(screen.getByText(/6 of 6 reached/)).toBeTruthy();
   });
 
   it("renders the live tiles in the browser only, already mid-session, then streams them", async () => {
@@ -148,5 +168,29 @@ describe("LandingPage (signed-out /)", () => {
     });
     const grid = screen.getByRole("region", { name: "Example agent sessions" });
     expect(within(grid).getAllByRole("group")).toHaveLength(4);
+  });
+});
+
+describe("LandingPage server render", () => {
+  // The page is server-rendered on Vercel in UTC and hydrated in the visitor's time zone. Any date it prints must read
+  // the same in both, or React throws a hydration error (a date-only ISO string prints as the day before west of UTC).
+  async function markupIn(timeZone: string): Promise<string> {
+    process.env.TZ = timeZone;
+    vi.resetModules();
+    const [{ renderToString }, { createElement }, dugout, landing] = await Promise.all([import("react-dom/server"), import("react"), import("@foundmill/dugout"), import("../LandingPage")]);
+    return renderToString(createElement(dugout.TooltipProvider, null, createElement(landing.LandingPage, { terminalRenderer: "plain" })));
+  }
+
+  it("is identical in every time zone, so it hydrates cleanly anywhere", async () => {
+    const original = process.env.TZ;
+    try {
+      const utc = await markupIn("UTC");
+      expect(utc).toContain("7 Oct 2026");
+      expect(utc).toContain("22 Sep 2025");
+      for (const zone of ["America/Los_Angeles", "Pacific/Honolulu", "Asia/Tokyo", "Pacific/Auckland"]) expect(await markupIn(zone), zone).toBe(utc);
+    } finally {
+      process.env.TZ = original;
+      vi.resetModules();
+    }
   });
 });

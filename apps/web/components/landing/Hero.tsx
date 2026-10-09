@@ -4,13 +4,13 @@
  * the product on the example business, and pressing its Continue button runs a cycle.
  */
 import Link from "next/link";
-import type { ReactNode } from "react";
-import { ArrowRight, KeyRound, Monitor, ShieldCheck, type LucideIcon } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { ArrowRight, KeyRound, Monitor, Pause, Play, ShieldCheck, type LucideIcon } from "lucide-react";
 import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
 import { Button, Icon } from "@foundmill/dugout";
 import { CycleDeck } from "./CycleDeck";
 import { ACTIVITY, EXAMPLE_BUSINESS } from "./example";
-import { Container, SIGN_IN } from "./parts";
+import { Container, SIGN_IN, goToSection } from "./parts";
 
 /** The words the headline lights; the h1's text stays exactly the tagline. */
 const LIT = "real business";
@@ -56,7 +56,7 @@ export function Hero() {
           </ul>
         </div>
         <div className="flex w-full flex-col gap-4">
-          <CycleDeck onOpenJourney={() => document.getElementById("journey")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+          <CycleDeck onOpenJourney={() => goToSection("journey")} />
           <p className="text-center text-small text-secondary">
             {EXAMPLE_BUSINESS.name} is an example business. Press Continue, answer what comes back, and run another cycle.
           </p>
@@ -75,22 +75,39 @@ function Assurance({ icon, children }: { icon: LucideIcon; children: ReactNode }
   );
 }
 
-/** A full-bleed band of what the example team did this week, moving slowly left. */
+/**
+ * A full-bleed band of what the example team did this week, drifting left. It pauses while the pointer is over it, and
+ * its button pauses it for keyboard and screen-reader users (WCAG 2.2.2). Each item carries its own trailing space, so
+ * the track is two identical halves and the loop never jumps.
+ */
 export function Ticker() {
+  const [paused, setPaused] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const items = [...ACTIVITY, ...ACTIVITY];
   return (
-    <div aria-label={`What the ${EXAMPLE_BUSINESS.name} team did this week`} role="region" className="relative overflow-hidden border-y border-subtle/70 bg-ink/60 py-3">
-      <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-10 w-40 bg-gradient-to-r from-base to-transparent" />
-      <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 z-10 w-40 bg-gradient-to-l from-base to-transparent" />
-      <ul className="flex w-max animate-marquee items-center gap-10 whitespace-nowrap hover:[animation-play-state:paused]">
-        {items.map((l, i) => (
-          <li key={i} aria-hidden={i >= ACTIVITY.length || undefined} className="inline-flex items-center gap-2 text-small">
-            <span className="size-1.5 rounded-full" style={{ backgroundColor: `var(--${l.dept})` }} />
-            <span className="font-medium text-primary">{l.who}</span>
-            <span className="text-secondary">{l.text}</span>
-          </li>
-        ))}
-      </ul>
+    <div aria-label={`What the ${EXAMPLE_BUSINESS.name} team did this week`} role="region" className="relative flex items-center gap-3 border-y border-subtle/70 bg-ink/60 pl-6">
+      <button
+        type="button"
+        onClick={() => setPaused((p) => !p)}
+        aria-pressed={paused}
+        aria-label={paused ? "Play the activity ticker" : "Pause the activity ticker"}
+        className="relative z-20 grid size-7 shrink-0 place-items-center rounded-panel border border-subtle bg-panel text-secondary transition-colors duration-micro hover:text-primary"
+      >
+        <Icon icon={paused ? Play : Pause} size={14} />
+      </button>
+      <div className="relative min-w-0 flex-1 overflow-hidden py-3" onPointerEnter={() => setHovered(true)} onPointerLeave={() => setHovered(false)}>
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 z-10 w-24 bg-gradient-to-r from-base to-transparent" />
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 z-10 w-40 bg-gradient-to-l from-base to-transparent" />
+        <ul className="flex w-max animate-marquee items-center whitespace-nowrap" style={{ animationPlayState: paused || hovered ? "paused" : "running" }}>
+          {items.map((l, i) => (
+            <li key={i} aria-hidden={i >= ACTIVITY.length || undefined} className="inline-flex items-center gap-2 pr-10 text-small">
+              <span className="size-1.5 rounded-full" style={{ backgroundColor: `var(--${l.dept})` }} />
+              <span className="font-medium text-primary">{l.who}</span>
+              <span className="text-secondary">{l.text}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

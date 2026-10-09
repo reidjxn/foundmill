@@ -1,13 +1,14 @@
 "use client";
 /**
- * Your team: the six department leads, one at a time. On the left the departments as tabs; on the right the lead's
+ * Your team: the six department leads, one at a time. Across the top the departments as tabs; under them the lead's
  * profile from the product (portrait, stars, attribute ratings 1–20 with the change since the last training, traits)
- * and the department's real screens. The tabs advance on their own while the section is on screen until the visitor
- * picks one.
+ * and the department's real screens. The tabs advance on their own while the section is on screen, never under
+ * reduced motion; they pause while the pointer or keyboard focus is inside, the Pause button stops them, and picking a
+ * tab stops them for good.
  */
 import { useEffect, useState } from "react";
-import { Code2, Compass, GraduationCap, Megaphone, Scale, Users, Wallet, type LucideIcon } from "lucide-react";
-import { Avatar, Chip, DeptChip, Icon, SkillGrid, StarRating, StatusPill, TraitChips, cn, prefersReducedMotion } from "@foundmill/dugout";
+import { Code2, Compass, GraduationCap, Megaphone, Pause, Play, Scale, Users, Wallet, type LucideIcon } from "lucide-react";
+import { Avatar, Button, Chip, DeptChip, Icon, SkillGrid, StarRating, StatusPill, TraitChips, cn, usePrefersReducedMotion } from "@foundmill/dugout";
 import { MODULE_TABS, type ModuleKey } from "@foundmill/shared";
 import { LEADS, type ExampleLead } from "./example";
 import { Glass, Reveal, Section, SectionHeading, useSeen } from "./parts";
@@ -18,14 +19,19 @@ const ADVANCE_MS = 6500;
 export function TeamSection() {
   const [index, setIndex] = useState(0);
   const [picked, setPicked] = useState(false);
+  const [stopped, setStopped] = useState(false);
+  const [held, setHeld] = useState({ pointer: false, focus: false });
+  const reduced = usePrefersReducedMotion();
   const [ref, seen] = useSeen<HTMLDivElement>("-20%");
   const lead = LEADS[index]!;
+  const touring = seen && !picked && !stopped && !reduced;
+  const advancing = touring && !held.pointer && !held.focus;
 
   useEffect(() => {
-    if (!seen || picked || prefersReducedMotion()) return;
+    if (!advancing) return;
     const t = setInterval(() => setIndex((i) => (i + 1) % LEADS.length), ADVANCE_MS);
     return () => clearInterval(t);
-  }, [seen, picked]);
+  }, [advancing]);
 
   const choose = (i: number) => {
     setPicked(true);
@@ -41,7 +47,31 @@ export function TeamSection() {
         lede="Every department has a lead agent and the specialists it needs. Each agent has attribute ratings from 1 to 20, earned in tests and on real tasks, and is trained between cycles. Ratings only move with evidence."
       />
       <Reveal>
-        <div ref={ref} className="flex flex-col gap-4">
+        <div
+          ref={ref}
+          className="flex flex-col gap-4"
+          onPointerEnter={() => setHeld((h) => ({ ...h, pointer: true }))}
+          onPointerLeave={() => setHeld((h) => ({ ...h, pointer: false }))}
+          onFocus={() => setHeld((h) => ({ ...h, focus: true }))}
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setHeld((h) => ({ ...h, focus: false }));
+          }}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-small text-secondary">Northwind Skincare's department leads</span>
+            <span className="flex items-center gap-2">
+              <Chip tone="neutral">Example business</Chip>
+              {touring ? (
+                <Button size="sm" variant="ghost" icon={Pause} onClick={() => setStopped(true)}>
+                  Pause tour
+                </Button>
+              ) : !picked && !reduced && stopped ? (
+                <Button size="sm" variant="ghost" icon={Play} onClick={() => setStopped(false)}>
+                  Play tour
+                </Button>
+              ) : null}
+            </span>
+          </div>
           <div role="tablist" aria-label="Departments" className="grid grid-cols-6 gap-2">
             {LEADS.map((l, i) => {
               const active = i === index;
@@ -64,7 +94,7 @@ export function TeamSection() {
                     document.getElementById(`team-tab-${LEADS[next]!.key}`)?.focus();
                   }}
                   className={cn(
-                    "group relative flex items-center gap-3 overflow-hidden rounded-panel border px-3 py-3 text-left outline-none transition-colors duration-panel focus-visible:outline-2 focus-visible:outline-link",
+                    "group relative flex items-center gap-3 overflow-hidden rounded-panel border px-3 py-3 text-left transition-colors duration-panel",
                     active ? "border-subtle bg-panel-alt" : "border-subtle/50 bg-panel/40 hover:bg-panel/80",
                   )}
                 >
@@ -76,7 +106,7 @@ export function TeamSection() {
                     <span className={cn("t-display-sm block truncate", active ? "text-primary" : "text-secondary group-hover:text-primary")}>{l.department}</span>
                     <span className="block truncate text-small text-secondary">{l.name}</span>
                   </span>
-                  {active && !picked && seen ? <span aria-hidden className="absolute inset-x-0 bottom-0 h-px origin-left animate-progress" style={{ backgroundColor: `var(--${l.dept})`, animationDuration: `${ADVANCE_MS}ms` }} key={index} /> : null}
+                  {active && advancing ? <span aria-hidden className="absolute inset-x-0 bottom-0 h-px origin-left animate-progress" style={{ backgroundColor: `var(--${l.dept})`, animationDuration: `${ADVANCE_MS}ms` }} key={index} /> : null}
                 </button>
               );
             })}

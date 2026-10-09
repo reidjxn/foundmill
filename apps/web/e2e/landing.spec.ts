@@ -69,6 +69,9 @@ test.describe("landing page", () => {
     await expect(deck.getByRole("button", { name: /Go to Journey/ })).toBeVisible();
     await page.getByTestId("deck-win").getByRole("button", { name: /See the Customer Update/ }).click();
     await expect(page.locator("#journey")).toBeInViewport();
+    await expect(page.locator("#journey-title")).toBeFocused();
     await expect(deck).toHaveAttribute("data-phase", "idle");
+    // The update it opens is about the same customer.
+    await expect(page.getByRole("region", { name: "Customer Update" }).getByText("Nordic Beauty AB").first()).toBeVisible();
   });
 });

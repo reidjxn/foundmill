@@ -11,7 +11,7 @@ import { Container, Eyebrow, Reveal } from "./parts";
 
 const PILLARS: ReadonlyArray<{ icon: LucideIcon; title: string; text: string; href: string; link: string; tone: string }> = [
   { icon: Layers, title: "A whole company, in parallel", text: "Six departments work at once every cycle, against one plan, one budget and one picture of the business. A Chief of Staff keeps them in step.", href: "#team", link: "Meet the team", tone: "var(--dept-1)" },
-  { icon: BadgeCheck, title: "Real work, real outcomes", text: "Code lands in your repository. Campaigns reach real people. Payments reconcile in a real ledger. Nothing here is a simulation.", href: "#live", link: "Watch the work", tone: "var(--dept-2)" },
+  { icon: BadgeCheck, title: "Real work, real outcomes", text: "Agents open real pull requests on your GitHub, send email from your own accounts and reconcile your Stripe and bank data. You connect each one and decide what it may do.", href: "#live", link: "Watch the work", tone: "var(--dept-2)" },
   { icon: TrendingUp, title: "Better every cycle", text: "Agents are trained against real tests between cycles. Ratings move only with evidence, and the business remembers what it learns.", href: "#journey", link: "See it grow", tone: "var(--dept-3)" },
   { icon: ShieldCheck, title: "You stay in charge", text: "Money, contracts, filings and anything irreversible wait for you, with the work prepared and a recommendation attached.", href: "#control", link: "Your calls", tone: "var(--status-good)" },
 ];
@@ -33,15 +33,16 @@ export function Thesis() {
           </Reveal>
           <ScrollLit text={STATEMENT} />
         </div>
+        <Reveal>
         <ol className="grid grid-cols-4 gap-px overflow-hidden rounded-panel border border-subtle bg-subtle">
           {PILLARS.map((p, i) => (
-            <Reveal as="li" key={p.title} delay={i * 80} className="group relative flex flex-col gap-4 bg-base p-6">
+            <li key={p.title} className="group relative flex flex-col gap-4 bg-base p-6">
               <span aria-hidden className="absolute inset-x-0 top-0 h-px opacity-0 transition-opacity duration-panel group-hover:opacity-100" style={{ background: `linear-gradient(90deg, transparent, ${p.tone}, transparent)` }} />
               <span className="flex items-center justify-between">
                 <span className="grid size-10 place-items-center rounded-panel border" style={{ borderColor: `color-mix(in oklab, ${p.tone} 45%, transparent)`, backgroundColor: `color-mix(in oklab, ${p.tone} 12%, var(--bg-ink))`, color: `color-mix(in oklab, ${p.tone} 80%, var(--white))` }}>
                   <Icon icon={p.icon} size={20} />
                 </span>
-                <span className="t-display-md tabular-nums text-secondary/60">0{i + 1}</span>
+                <span className="t-display-md tabular-nums text-secondary">0{i + 1}</span>
               </span>
               <h3 className="t-display-md text-primary">{p.title}</h3>
               <p className="text-body text-secondary">{p.text}</p>
@@ -49,15 +50,19 @@ export function Thesis() {
                 {p.link}
                 <Icon icon={ArrowDown} size={14} />
               </a>
-            </Reveal>
+            </li>
           ))}
         </ol>
+        </Reveal>
       </Container>
     </section>
   );
 }
 
-/** Words light from secondary to primary as the paragraph moves from 85 % to 40 % of the window's height. */
+/**
+ * Words light from dimmed to primary as the paragraph moves from 85 % to 40 % of the window's height. Dimmed words are
+ * text-secondary at 60 % (3.4:1 on the page, above the 3:1 large-text minimum).
+ */
 function ScrollLit({ text }: { text: string }) {
   const ref = useRef<HTMLParagraphElement>(null);
   const words = text.split(" ");
@@ -88,7 +93,7 @@ function ScrollLit({ text }: { text: string }) {
   return (
     <p ref={ref} className="t-display-xl max-w-5xl">
       {words.map((w, i) => (
-        <span key={i} className="transition-colors duration-view" style={{ color: i < lit ? "var(--text-primary)" : "color-mix(in oklab, var(--text-secondary) 45%, transparent)" }}>
+        <span key={i} className="transition-colors duration-view" style={{ color: i < lit ? "var(--text-primary)" : "color-mix(in oklab, var(--text-secondary) 60%, transparent)" }}>
           {w}
           {i < words.length - 1 ? " " : ""}
         </span>

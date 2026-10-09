@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { useId, type CSSProperties } from "react";
 import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { Avatar } from "../foundation/Avatar";
@@ -48,6 +48,8 @@ function at(radius: number, angleDeg: number): { left: string; top: string } {
  * upright; under reduced motion everything holds still. Decorative: one accessible name describes the whole picture.
  */
 export function TeamOrbit({ centreLabel = "You", centreCaption = "Founder", chief = { name: "Orla", seed: "orla" }, departments = DEFAULT_ORBIT_DEPARTMENTS, periodSeconds = 90, className }: TeamOrbitProps) {
+  // Gradient ids are scoped to this instance: the orbit can appear more than once on a page.
+  const uid = useId().replace(/:/g, "");
   const n = departments.length;
   const workers = departments.flatMap((d, i) => d.workers.map((w, j) => ({ ...w, dept: d.dept, angle: (360 / n) * i + (j - (d.workers.length - 1) / 2) * (360 / n / 3) + 360 / n / 2 })));
   const spin = (seconds: number, reverse = false): CSSProperties => ({ animationDuration: `${seconds}s`, animationDirection: reverse ? "reverse" : "normal" });
@@ -80,7 +82,7 @@ export function TeamOrbit({ centreLabel = "You", centreCaption = "Founder", chie
         <svg className="absolute inset-0 size-full" viewBox="0 0 100 100">
           <defs>
             {departments.map((d) => (
-              <radialGradient key={d.name} id={`orbit-spoke-${d.dept}`} cx="50" cy="50" r={R_LEADS} gradientUnits="userSpaceOnUse">
+              <radialGradient key={d.name} id={`orbit-spoke-${uid}-${d.dept}`} cx="50" cy="50" r={R_LEADS} gradientUnits="userSpaceOnUse">
                 <stop offset="0.25" stopColor="var(--kit-primary)" stopOpacity="0.1" />
                 <stop offset="1" stopColor={`var(--${d.dept})`} stopOpacity="0.9" />
               </radialGradient>
@@ -92,7 +94,7 @@ export function TeamOrbit({ centreLabel = "You", centreCaption = "Founder", chie
             const y = Math.round((50 + Math.sin(a) * R_LEADS) * 1e4) / 1e4;
             return (
               <g key={d.name}>
-                <line x1={50} y1={50} x2={x} y2={y} stroke={`url(#orbit-spoke-${d.dept})`} strokeWidth={0.35} strokeLinecap="round" />
+                <line x1={50} y1={50} x2={x} y2={y} stroke={`url(#orbit-spoke-${uid}-${d.dept})`} strokeWidth={0.35} strokeLinecap="round" />
                 <line x1={50} y1={50} x2={x} y2={y} stroke={`var(--${d.dept})`} strokeOpacity={0.75} strokeWidth={0.45} strokeLinecap="round" strokeDasharray="0.3 2.2" className="animate-signal" style={{ animationDuration: `${2.4 + i * 0.3}s` }} />
               </g>
             );

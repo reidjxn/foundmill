@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ArrowRight, CircleStop, FileSignature, Inbox, KeyRound, Landmark, Lock, ShieldCheck, Tag, Trash2, type LucideIcon } from "lucide-react";
 import { Avatar, Button, Chip, DecisionBar, DeptChip, Icon, StatusStrip, TeamOrbit, type DecisionOption } from "@foundmill/dugout";
+import { EXAMPLE_START_CYCLE } from "./example";
 import { Container, Glass, ProductWindow, Reveal, SIGN_IN, Section, SectionHeading } from "./parts";
 
 const HOUSE_RULES: ReadonlyArray<{ icon: LucideIcon; text: string }> = [
@@ -80,7 +81,7 @@ function InboxNote() {
           <Avatar size={32} name="Scout" agent={{ seed: "scout", dept: "dept-3" }} />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="t-body-strong text-primary">Scout · Distribution Strategist</span>
-            <span className="text-small text-secondary">Wed 7 Oct · cycle 15</span>
+            <span className="text-small text-secondary">Wed 7 Oct · cycle {EXAMPLE_START_CYCLE + 1}</span>
           </span>
           <DeptChip dept="dept-3">Distribution</DeptChip>
           <Chip tone="bad" icon={Inbox}>
@@ -99,7 +100,14 @@ function InboxNote() {
             ]}
           />
         </div>
-        <DecisionBar options={OPTIONS} onChoose={(o) => setAnswer(o.id)} answered={answer ? { optionId: answer } : undefined} onReopen={() => setAnswer(null)} hotkeys={false} sticky={false} />
+        <DecisionBar
+          options={OPTIONS}
+          onChoose={(o) => setAnswer(o.id)}
+          answered={answer ? { optionId: answer } : undefined}
+          onReopen={OPTIONS.find((o) => o.id === answer)?.reversible ? () => setAnswer(null) : undefined}
+          hotkeys={false}
+          sticky={false}
+        />
       </article>
     </ProductWindow>
   );
