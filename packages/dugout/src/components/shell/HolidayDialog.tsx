@@ -161,7 +161,7 @@ export function HolidayDialog({ open, onOpenChange, currency = "EUR", today = ne
               <RadioOption id={`${id}-date`} value="date" label="A date" />
               {untilKind === "date" ? (
                 <div className="ml-6">
-                  <Input type="date" value={date} min={toDateInput(today)} onChange={(e) => setDate(e.target.value)} aria-label="Return date" aria-invalid={!!untilError} className="w-48" data-testid="holiday-date" />
+                  <Input type="date" value={date} min={toDateInput(today)} onChange={(e) => setDate(e.target.value)} aria-label="Return date" aria-invalid={!!untilError} wrapperClassName="w-48" data-testid="holiday-date" />
                 </div>
               ) : null}
               <RadioOption id={`${id}-condition`} value="condition" label="A condition" description="The Chief of Staff ends the holiday when it is met." />
@@ -208,7 +208,7 @@ export function HolidayDialog({ open, onOpenChange, currency = "EUR", today = ne
               placeholder="0.00"
               aria-describedby={fieldDescribedBy(`${id}-budget`, { hint: true, error: !!budgetError })}
               invalid={!!budgetError}
-              className="w-48"
+              wrapperClassName="w-48"
               data-testid="holiday-budget"
             />
           </Field>

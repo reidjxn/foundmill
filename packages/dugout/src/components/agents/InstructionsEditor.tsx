@@ -130,7 +130,7 @@ function ListEditor({
                 {numbered ? `${i + 1}.` : "•"}
               </span>
               <div className="min-w-0 flex-1">
-                <Input value={item} readOnly={readOnly} onChange={(e) => set(i, e.target.value)} aria-label={`${numbered ? "Step" : "Item"} ${i + 1}`} invalid={!!reason} className={cn(reason && "border-status-warn")} />
+                <Input value={item} readOnly={readOnly} onChange={(e) => set(i, e.target.value)} aria-label={`${numbered ? "Step" : "Item"} ${i + 1}`} tone={reason ? "warn" : undefined} />
                 {reason ? (
                   <p role="status" className="mt-0.5 flex items-center gap-1 text-small text-status-warn">
                     <Icon icon={ShieldAlert} size="inline" />

@@ -202,8 +202,7 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
                 placeholder={freeTextPlaceholder}
                 disabled={locked}
                 aria-label="Free-text instruction"
-                className="max-w-96"
-                wrapperClassName="min-w-0 flex-1 justify-end"
+                wrapperClassName="min-w-0 max-w-96 flex-1"
               />
               <Button type="submit" variant="default" icon={Play} disabled={locked || text.trim() === ""} loading={executing} aria-label="Execute the instruction">
                 Execute
