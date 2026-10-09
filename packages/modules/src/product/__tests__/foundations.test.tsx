@@ -4,7 +4,7 @@ import { act, fireEvent, screen, within } from "@testing-library/react";
 import { RoadmapScreen } from "../RoadmapScreen";
 import { SpecificationScreen } from "../SpecificationScreen";
 import { VisionScreen } from "../VisionScreen";
-import { foundationsBasis, foundationsSummary } from "../foundations";
+import { FOUNDATIONS_INTERRUPTED, FOUNDATIONS_POLL_MS, foundationsBasis, foundationsSummary } from "../foundations";
 import type { FoundationsResponse } from "../types";
 import { createFakeSource, renderScreen } from "./fake-source";
 import { BID, dataResponses } from "./fixtures";
@@ -77,6 +77,45 @@ describe("foundations on the Product tabs", () => {
     expect(screen.queryByTestId("foundations-status")).toBeNull();
     act(() => fake.setResponse("product.foundations.get", ready));
     expect(screen.queryByTestId("foundations-status")).toBeNull();
+  });
+
+  it("polls while drafting and stops when the attempt is stale, which reads as failed with Try again", async () => {
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "product.foundations.get": base } });
+    renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);
+    expect(fake.intervals["product.foundations.get"]).toBe(FOUNDATIONS_POLL_MS);
+    act(() => fake.setResponse("product.foundations.get", { ...base, stale: true }));
+    expect(fake.intervals["product.foundations.get"]).toBeUndefined();
+    const status = screen.getByTestId("foundations-status");
+    expect(status.getAttribute("data-foundations-state")).toBe("failed");
+    expect(within(status).getByText(FOUNDATIONS_INTERRUPTED)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(within(status).getByRole("button", { name: "Try again" }));
+    });
+    expect(fake.mutations).toEqual([{ path: "product.foundations.retry", input: {} }]);
+  });
+
+  it("Vision: agent-written spec text renders as plain text, never as an image, a link or an entity mention (M1)", () => {
+    const ID = "4f5e6d7c-1111-4222-8333-444455556666";
+    const hostile = {
+      type: "doc",
+      content: [
+        { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Why ![x](https://beacon.example/h.png)" }] },
+        { type: "paragraph", content: [{ type: "text", text: `Pay [here](https://phish.example/login) and ask [[ent:${ID}|Ada]] <img src=x onerror=alert(1)> https://phish.example` }] },
+        { type: "bulletList", content: [{ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "![b](https://beacon.example/b.png)", marks: [{ type: "bold" }] }] }] }] },
+      ],
+    };
+    const spec = dataResponses["product.spec.get"] as { blocks: { section: string; content: unknown }[] };
+    const blocks = spec.blocks.map((b) => (b.section === "Problem" ? { ...b, content: hostile } : b));
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "product.spec.get": { ...spec, blocks }, "product.foundations.get": ready, "department.list": [] } });
+    const { container } = renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);
+    const narrative = container.querySelector("[data-vision-narrative]")!;
+    // The only links are the app's own author references, outside the block text.
+    expect(narrative.querySelectorAll("[data-plain-doc]").length).toBeGreaterThan(0);
+    expect(narrative.querySelectorAll("img, [data-plain-doc] a, [data-plain-doc] [data-entity-id], [data-plain-doc] [data-entity]")).toHaveLength(0);
+    expect(narrative.textContent).toContain("Why ![x](https://beacon.example/h.png)");
+    expect(narrative.textContent).toContain(`[[ent:${ID}|Ada]] <img src=x onerror=alert(1)>`);
+    expect(within(narrative as HTMLElement).getByRole("heading", { name: "Why ![x](https://beacon.example/h.png)" })).toBeTruthy();
+    expect(narrative.querySelectorAll("li strong")).toHaveLength(1);
   });
 
   it("summarises what was written", () => {

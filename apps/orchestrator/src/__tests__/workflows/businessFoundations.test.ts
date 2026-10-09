@@ -2,7 +2,7 @@
 import { ApplicationFailure } from "@temporalio/common";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Activities } from "../../activities";
-import { businessFoundations, FOUNDATIONS_SAVE_FAILED } from "../../workflows";
+import { businessFoundations, FOUNDATIONS_DRAFT_FAILED, FOUNDATIONS_SAVE_FAILED } from "../../workflows";
 import { createTemporalRig, wfId, type TemporalRig } from "./temporal";
 
 let rig: TemporalRig;
@@ -16,12 +16,14 @@ afterAll(async () => {
 const BUSINESS = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const DRAFT = { vision: { statement: "x", forWhom: "y", problem: "z", whyNow: "w", principles: [], northStar: { metric: "m", definition: "d", target: "t", label: "Forecast" as const } }, sections: [], roadmap: [], openQuestions: [], notes: { missingSections: [], ignoredSections: [], addedSeeds: [], labelledFigures: 0 } };
 
-function acts(opts: { draft?: "ok" | "unavailable" | "stale"; apply?: "ok" | "throws" } = {}) {
+function acts(opts: { draft?: "ok" | "unavailable" | "raw" | "stale"; apply?: "ok" | "throws" } = {}) {
   const calls = { draft: 0, apply: 0, fail: [] as string[] };
   const a: Partial<Activities> = {
     async draftFoundations() {
       calls.draft++;
-      if (opts.draft === "unavailable") throw ApplicationFailure.create({ message: "The model service did not answer. Try again in a few minutes.", type: "ModelUnavailableError", nonRetryable: calls.draft >= 2 });
+      if (opts.draft === "unavailable") throw ApplicationFailure.create({ message: "The model service did not answer. Try again in a few minutes.", type: "FoundationsDraftError", nonRetryable: calls.draft >= 2 });
+      // Any other failure (a worker crash, a provider error) carries raw text that must never reach the founder.
+      if (opts.draft === "raw") throw ApplicationFailure.create({ message: "upstream 529 overloaded req_abc at 10.0.0.4", type: "ModelUnavailableError", nonRetryable: true });
       if (opts.draft === "stale") return { current: false, draft: null, door: "ideation" as const, model: {} };
       return { current: true, draft: DRAFT, door: "import" as const, model: { route: "foundations" } };
     },
@@ -54,6 +56,13 @@ describe("businessFoundations workflow", () => {
     expect(m.calls.apply).toBe(0);
     expect(m.calls.fail).toEqual(["The model service did not answer. Try again in a few minutes."]);
   }, 120_000);
+
+  it("only a FoundationsDraftError's message is stored: any other failure stores the generic reason (L4)", async () => {
+    const m = acts({ draft: "raw" });
+    const result = await rig.run(m.a, (client, taskQueue) => client.workflow.execute(businessFoundations, { workflowId: wfId("foundations"), taskQueue, args: [{ businessId: BUSINESS, attempt: 5 }] }));
+    expect(result).toEqual({ status: "failed", inboxItemId: null, error: FOUNDATIONS_DRAFT_FAILED });
+    expect(m.calls.fail).toEqual([FOUNDATIONS_DRAFT_FAILED]);
+  });
 
   it("a save that fails marks the attempt failed; a stale attempt is skipped without writing", async () => {
     const broken = acts({ apply: "throws" });

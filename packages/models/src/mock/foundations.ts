@@ -1,8 +1,9 @@
 /**
  * Mock foundations drafter (BUILD §11.1 first open, §11.5): the vision, content for every outline section in Tiptap
  * JSON, and a Now / Next / Later roadmap, shaped by the real input (packages/agents `buildFoundationsRequest`):
- * the business, the outline, the idea and founder profile (Door A), and the Import report with its roadmap seeds
- * (Door B, read from the `imported` block inside the untrusted wrapper). Deterministic in the input; every figure that
+ * the business, the outline, the idea (its scores trusted, its text read from the untrusted `idea_text` block) and the
+ * founder profile (Door A), and the Import report with its roadmap seeds (Door B, read from the `imported` block inside
+ * the untrusted wrapper). Deterministic in the input; every figure that
  * is not in the input carries "Estimate" or "Forecast".
  */
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
@@ -77,19 +78,22 @@ function readBrief(ctx: MockContext): Brief {
   const business = ctx.getRecord("business");
   const idea = ctx.getRecord("idea");
   const founder = ctx.getRecord("founder", "founder_profile");
+  // The idea card's own text (title, summary, evidence) travels in an untrusted block as `idea_text`.
+  const ideaText = ctx.getRecord("idea_text");
   const imported = ctx.getRecord("imported");
   const report = isRecord(imported?.report) ? imported.report : undefined;
   const archetypeRaw = str(pick(business, "archetype")) ?? str(pick(idea, "archetype"));
   const archetype: Archetype = (ARCHETYPES as readonly string[]).includes(archetypeRaw ?? "") ? (archetypeRaw as Archetype) : "b2b_saas";
-  const name = str(pick(business, "name")) ?? str(pick(idea, "title")) ?? str(pick(report, "suggested_name", "suggestedName")) ?? (keywords(ctx.userText, 1)[0] ? sentenceCase(keywords(ctx.userText, 1)[0]!) : "The business");
-  const pitch = str(pick(idea, "pitch")) ?? str(pick(report, "summary")) ?? `${name} is a ${ARCHETYPE_LABELS[archetype]} business.`;
+  const name = str(pick(business, "name")) ?? str(pick(ideaText, "title")) ?? str(pick(idea, "title")) ?? str(pick(report, "suggested_name", "suggestedName")) ?? (keywords(ctx.userText, 1)[0] ? sentenceCase(keywords(ctx.userText, 1)[0]!) : "The business");
+  const pitch = str(pick(ideaText, "pitch")) ?? str(pick(idea, "pitch")) ?? str(pick(report, "summary")) ?? `${name} is a ${ARCHETYPE_LABELS[archetype]} business.`;
   const helps = /helps\s+(.+?)\s+(cut|see|stop|get|replace|turn|prove|run|find|keep|save|ship|sell|book|learn|reach)\s+([^.,;]+)/i.exec(pitch);
   const audience = helps ? helps[1]!.trim() : DEFAULT_AUDIENCE[archetype];
   // "… helps X get to a first customer through a narrow workflow, built around …": the outcome stops at "through".
   const outcome = helps ? `${helps[2]!.toLowerCase()} ${helps[3]!.split(/\s+(?:through|by|with|using)\s+/)[0]!.trim()}` : "get the result they came for with less effort";
   const markets = strings(pick(founder, "target_markets", "targetMarkets"));
+  const evidence = new Map(records(pick(ideaText, "evidence")).map((e) => [str(e.key) ?? str(e.label) ?? "", str(e.evidence)] as const));
   const attributes = records(pick(idea, "attributes"))
-    .map((a) => ({ label: str(a.label) ?? str(a.key) ?? "", value: typeof a.value === "number" ? a.value : 10, evidence: str(a.evidence) }))
+    .map((a) => ({ label: str(a.label) ?? str(a.key) ?? "", value: typeof a.value === "number" ? a.value : 10, evidence: str(a.evidence) ?? evidence.get(str(a.key) ?? "") ?? evidence.get(str(a.label) ?? "") }))
     .filter((a) => a.label);
   const sorted = [...attributes].sort((a, b) => b.value - a.value);
   const strengths = [...sorted.slice(0, 2).map((a) => `${a.label}: ${a.evidence ?? "scored high on the concept card"}`), ...strings(pick(report, "strengths")).slice(0, 2)];

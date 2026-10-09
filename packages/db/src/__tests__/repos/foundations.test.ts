@@ -102,18 +102,28 @@ describe("foundations", () => {
     expect((await repos.product.listRoadmap(r.db, businessId)).length).toBe(before.length + 2);
   });
 
-  it("an agent draft is written in the same statement that checks the block is live and not pinned", async () => {
+  it("an agent draft is written in the same statement that checks the block is live, not pinned and unchanged", async () => {
     const { businessId } = r.B;
     const open = await repos.product.createBlock(r.db, businessId, { section: "Risks", authoredByKind: "system" });
     const mine = await repos.product.createBlock(r.db, businessId, { section: "Data", authoredByKind: "user", pinned: true, content: doc("Ours.") });
     const gone = await repos.product.createBlock(r.db, businessId, { section: "Integrations", authoredByKind: "system" });
     await repos.product.archiveBlock(r.db, businessId, gone.id);
-    const written = await repos.product.writeAgentDraft(r.db, businessId, open.id, { content: doc("Drafted.") });
+    const written = await repos.product.writeAgentDraft(r.db, businessId, open.id, { content: doc("Drafted."), expectedVersion: open.version });
     expect(written).toMatchObject({ authoredByKind: "agent", version: open.version + 1, content: doc("Drafted.") });
-    expect(await repos.product.writeAgentDraft(r.db, businessId, mine.id, { content: doc("Drafted.") })).toBeNull();
-    expect(await repos.product.writeAgentDraft(r.db, businessId, gone.id, { content: doc("Drafted.") })).toBeNull();
+    expect(await repos.product.writeAgentDraft(r.db, businessId, mine.id, { content: doc("Drafted."), expectedVersion: mine.version })).toBeNull();
+    expect(await repos.product.writeAgentDraft(r.db, businessId, gone.id, { content: doc("Drafted."), expectedVersion: gone.version })).toBeNull();
     expect((await repos.product.getBlock(r.db, businessId, mine.id)).content).toEqual(doc("Ours."));
-    expect(await repos.product.writeAgentDraft(r.db, r.A.businessId, open.id, { content: doc("Other business.") })).toBeNull();
+    expect(await repos.product.writeAgentDraft(r.db, r.A.businessId, open.id, { content: doc("Other business."), expectedVersion: written!.version })).toBeNull();
+  });
+
+  it("an agent draft never lands on a block written after it was read as empty (L5)", async () => {
+    const { businessId } = r.B;
+    const empty = await repos.product.createBlock(r.db, businessId, { section: "Metrics", authoredByKind: "system" });
+    // Someone writes the block (without pinning it) between the drafting's read and its write.
+    const edited = await repos.product.writeAgentDraft(r.db, businessId, empty.id, { content: doc("Written meanwhile."), expectedVersion: empty.version });
+    expect(edited!.version).toBe(empty.version + 1);
+    expect(await repos.product.writeAgentDraft(r.db, businessId, empty.id, { content: doc("Stale draft."), expectedVersion: empty.version })).toBeNull();
+    expect((await repos.product.getBlock(r.db, businessId, empty.id)).content).toEqual(doc("Written meanwhile."));
   });
 
   it("fail only touches the current drafting attempt; a failed row is claimed again by a retry", async () => {
@@ -126,5 +136,30 @@ describe("foundations", () => {
     expect(await r.svc((tx) => repos.foundations.claim(tx, businessId))).toBeNull();
     const retried = await r.svc((tx) => repos.foundations.claim(tx, businessId, ["failed"]));
     expect(retried).toMatchObject({ status: "drafting", attempt: 2, error: null, finishedAt: null });
+  });
+
+  it("the Inbox note's event is written inside the apply transaction: if it fails, nothing is applied", async () => {
+    const { businessId } = r.B;
+    const inputs = await repos.foundations.inputs(r.db, businessId);
+    const ids = Object.fromEntries(inputs.outline.map((o) => [o.section, o.blockId!]));
+    const roadmapBefore = (await repos.product.listRoadmap(r.db, businessId)).length;
+    const note = () => ({ subject: "Vision, specification and roadmap drafted", bodyMd: "Drafted." });
+    await expect(
+      r.svc((tx) =>
+        repos.foundations.apply(tx, businessId, 2, draftFor(ids), {
+          note,
+          onInboxItem: async () => {
+            throw new Error("outbox unavailable");
+          },
+        }),
+      ),
+    ).rejects.toThrow("outbox unavailable");
+    expect(await repos.foundations.get(r.db, businessId)).toMatchObject({ status: "drafting", attempt: 2 });
+    expect((await repos.product.listRoadmap(r.db, businessId)).length).toBe(roadmapBefore);
+
+    const seen: string[] = [];
+    const res = await r.svc((tx) => repos.foundations.apply(tx, businessId, 2, draftFor(ids), { note, onInboxItem: async (_tx, item) => void seen.push(item.id) }));
+    expect(res.applied).toBe(true);
+    expect(seen).toEqual([res.inboxItem!.id]);
   });
 });

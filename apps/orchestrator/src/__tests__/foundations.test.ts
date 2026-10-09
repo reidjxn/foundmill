@@ -3,7 +3,8 @@ import { repos } from "@foundmill/db";
 import { MockModelClient, ModelRequestError, ModelUnavailableError } from "@foundmill/models";
 import { ApplicationFailure } from "@temporalio/common";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createFoundationsActivities } from "../activities/foundations";
+import { FOUNDATIONS_DRAFT_ERROR, createFoundationsActivities } from "../activities/foundations";
+import { FOUNDATIONS_DRAFT_ERROR_TYPE } from "../workflows/businessFoundations";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
 let t: OrchestratorTestHarness;
@@ -63,10 +64,18 @@ describe("businessFoundations activities", () => {
       const err = await busy.draftFoundations({ businessId: h.businessId, attempt: 1 }).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ApplicationFailure);
       expect((err as ApplicationFailure).message).toBe("The model service did not answer. Try again in a few minutes.");
+      expect((err as ApplicationFailure).type).toBe(FOUNDATIONS_DRAFT_ERROR);
+      expect(FOUNDATIONS_DRAFT_ERROR_TYPE).toBe(FOUNDATIONS_DRAFT_ERROR);
       expect((err as ApplicationFailure).nonRetryable).toBe(false);
       const refused = createFoundationsActivities({ ...h.deps, models: new MockModelClient({ failWith: { foundations: new ModelRequestError("invalid x-api-key", 401) } }) });
       const err2 = await refused.draftFoundations({ businessId: h.businessId, attempt: 1 }).catch((e: unknown) => e);
       expect((err2 as ApplicationFailure).nonRetryable).toBe(true);
+      expect((err2 as ApplicationFailure).type).toBe(FOUNDATIONS_DRAFT_ERROR);
+      // A failure before the model call (here the row read) is caught too: same fixed type, no raw database text (L4).
+      const broken = createFoundationsActivities(h.deps);
+      const err3 = await broken.draftFoundations({ businessId: "not-a-uuid", attempt: 1 }).catch((e: unknown) => e);
+      expect(err3).toBeInstanceOf(ApplicationFailure);
+      expect(err3).toMatchObject({ type: FOUNDATIONS_DRAFT_ERROR, message: "The drafting did not finish. Try again." });
 
       const acts = createFoundationsActivities(h.deps);
       expect(await acts.failFoundations({ businessId: h.businessId, attempt: 2, error: "x" })).toEqual({ failed: false });

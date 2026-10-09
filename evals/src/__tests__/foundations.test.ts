@@ -7,7 +7,7 @@ import { buildFoundationsRequest, finaliseFoundations } from "@foundmill/agents"
 import { MockModelClient } from "@foundmill/models";
 import { describe, expect, it } from "vitest";
 import { FOUNDATIONS_CASES } from "../foundations/cases";
-import { checkFoundations, runFoundationsCase } from "../foundations/run";
+import { LIVE_MARKUP_RE, checkFoundations, runFoundationsCase, storedStrings } from "../foundations/run";
 
 describe("foundations eval cases", () => {
   it("cover both doors, have unique ids, a rubric, and a physical archetype", () => {
@@ -29,8 +29,39 @@ describe("foundations eval cases", () => {
       for (const bad of c.mustNotContain) {
         expect(user.indexOf(bad), `${c.id}: ${bad}`).toBeGreaterThan(open);
       }
-      expect(user.match(/<\/untrusted_content>/g)?.length, c.id).toBe(1);
+      expect(user.match(/<\/untrusted_content>/g)?.length, c.id).toBe(user.match(/<untrusted_content /g)?.length);
     }
+  });
+
+  it("model output full of images, links, URLs and entity markup is stored as plain text (M1)", async () => {
+    const ID = "5d6c7b8a-0000-4000-8000-00000000f00d";
+    const poison = (s: string) => `${s} ![p](https://beacon.example/p.png) [verify](https://phish.example/login) [[ent:${ID}|Bank]] <img src=x> www.phish.example ops@phish.example`;
+    const deep = (v: unknown, key = ""): unknown => {
+      if (typeof v === "string") return ["type", "horizon", "label", "section", "sections"].includes(key) ? v : poison(v);
+      if (Array.isArray(v)) return v.map((x) => deep(x, key));
+      if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x, k)]));
+      return v;
+    };
+    const client = new MockModelClient();
+    for (const c of FOUNDATIONS_CASES) {
+      const result = await client.complete({ ...buildFoundationsRequest(c.inputs) });
+      // Not re-parsed: the schema caps lengths, and the point is what finalising does with any string.
+      const hostile = deep(result.json) as typeof result.json;
+      const draft = finaliseFoundations(hostile, c.inputs);
+      const stored = storedStrings(c, draft);
+      expect(stored.filter((t) => LIVE_MARKUP_RE.test(t)), c.id).toEqual([]);
+      for (const bad of ["beacon.example", "phish.example", ID]) expect(stored.join("\n"), `${c.id}: ${bad}`).not.toContain(bad);
+      // The checks agree: nothing stored is flagged, only what the raw text carried.
+      expect(checkFoundations(c, draft, "").filter((p) => p.startsWith("stored text")), c.id).toEqual([]);
+    }
+  });
+
+  it("the stored-text check flags live markup that reached the draft", async () => {
+    const c = FOUNDATIONS_CASES[0]!;
+    const result = await new MockModelClient().complete({ ...buildFoundationsRequest(c.inputs) });
+    const draft = finaliseFoundations(result.json, c.inputs);
+    draft.vision.statement = "See ![p](https://beacon.example/p.png)";
+    expect(checkFoundations(c, draft, result.text).some((p) => p.startsWith("stored text carries live markup"))).toBe(true);
   });
 
   it("the deterministic checks pass over the mock drafter for every case (no grader offline)", async () => {

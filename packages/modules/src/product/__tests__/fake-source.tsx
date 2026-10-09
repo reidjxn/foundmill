@@ -18,6 +18,8 @@ export interface FakeSource {
   mutations: { path: string; input: Record<string, unknown> }[];
   refetches: Record<string, number>;
   queried: Map<string, Record<string, unknown> | undefined>;
+  /** The latest `refetchIntervalMs` each path was queried with (undefined: not polling). */
+  intervals: Record<string, number | undefined>;
 }
 
 export function createFakeSource(opts: { businessId?: string; responses?: Record<string, FakeResponse>; missing?: "loading" | "empty"; onMutate?: (path: string, input: Record<string, unknown>) => unknown } = {}): FakeSource {
@@ -36,6 +38,7 @@ export function createFakeSource(opts: { businessId?: string; responses?: Record
   const mutations: { path: string; input: Record<string, unknown> }[] = [];
   const refetches: Record<string, number> = {};
   const queried = new Map<string, Record<string, unknown> | undefined>();
+  const intervals: Record<string, number | undefined> = {};
 
   const compute = (path: string, input: Record<string, unknown> | undefined, options?: QueryOptions): QueryState<unknown> => {
     const key = `${path}|${JSON.stringify(input ?? null)}|${options?.enabled === false ? "off" : "on"}`;
@@ -72,6 +75,7 @@ export function createFakeSource(opts: { businessId?: string; responses?: Record
         () => version,
         () => version,
       );
+      intervals[path] = options?.refetchIntervalMs;
       return compute(path, input, options) as QueryState<T>;
     },
     async mutate<T>(path: string, input: Record<string, unknown>): Promise<T> {
@@ -105,6 +109,7 @@ export function createFakeSource(opts: { businessId?: string; responses?: Record
     mutations,
     refetches,
     queried,
+    intervals,
   };
 }
 

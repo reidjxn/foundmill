@@ -3,10 +3,10 @@
  * first open, §11.5; AC-11.5.2, AC-11.5.3).
  */
 import { CreateSourceInput, EditSpecBlockInput, UpsertRoadmapItemInput, repos } from "@foundmill/db";
-import { HUNK_DECISIONS, SOURCE_KINDS, ValidationError } from "@foundmill/shared";
+import { HUNK_DECISIONS, SOURCE_KINDS, ValidationError, WRITE_ROLES } from "@foundmill/shared";
 import { z } from "zod";
 import { ensureFoundations, foundationsView, isStale, retryFoundations } from "../services/foundations";
-import { Id, audit, businessProcedure, emit, router, sectionRead, sectionWrite } from "../trpc";
+import { Id, audit, businessProcedure, effectivePermission, emit, router, sectionRead, sectionWrite } from "../trpc";
 
 const read = sectionRead("product");
 const write = sectionWrite("product");
@@ -14,8 +14,8 @@ const write = sectionWrite("product");
 export const productRouter = router({
   /**
    * The business's foundations: the vision, the first specification and the first roadmap, drafted once on the first
-   * open. `ensure` is what the business shell calls on load (any member; idempotent: it claims a pending draft exactly
-   * once and never waits for the drafting); `retry` re-runs a failed one.
+   * open. `ensure` is what the business shell calls on load (any member; idempotent: a member with product write
+   * claims a pending draft exactly once and never waits for the drafting); `retry` re-runs a failed one.
    */
   foundations: router({
     get: read.query(async ({ ctx }) => {
@@ -23,9 +23,12 @@ export const productRouter = router({
       return { ...foundationsView(row), stale: row ? isStale(row, new Date()) : false };
     }),
     ensure: businessProcedure.mutation(async ({ ctx }) => {
-      const result = await ensureFoundations({ db: ctx.db, models: ctx.models, temporal: ctx.temporal, log: ctx.log }, ctx.businessId, { userId: ctx.userId });
-      // Any member may trigger the drafting; the vision itself is read through `get` (product read permission).
-      return { ...result.view, vision: null, started: result.started, stale: false };
+      // Only a member who can write the product claims and starts the drafting (a viewer opening first leaves it
+      // pending for the founder). Everyone gets where it stands, and nothing more: the vision, the summary and the
+      // reason of a failure are read through `get` (product read permission).
+      const canStart = WRITE_ROLES.includes(ctx.role) && effectivePermission(ctx.membership, "product") === "write";
+      const { view, started } = await ensureFoundations({ db: ctx.db, models: ctx.models, temporal: ctx.temporal, log: ctx.log }, ctx.businessId, { userId: ctx.userId, canStart });
+      return { status: view.status, door: view.door, attempt: view.attempt, startedAt: view.startedAt, finishedAt: view.finishedAt, started };
     }),
     retry: write.mutation(async ({ ctx }) => {
       const result = await retryFoundations({ db: ctx.db, models: ctx.models, temporal: ctx.temporal, log: ctx.log }, ctx.businessId, { userId: ctx.userId });

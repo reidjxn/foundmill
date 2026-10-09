@@ -35,6 +35,14 @@ export function foundationsSummary(f: Pick<FoundationsResponse, "summary">): str
   return parts.length ? parts.join(" · ") : null;
 }
 
+/** Shown when an attempt ran past its window without finishing (a restarted api, a lost worker). */
+export const FOUNDATIONS_INTERRUPTED = "The drafting stopped before it finished. Try again.";
+
+/** The state to show: an attempt past its window (`stale`) reads as failed, with Try again, and is no longer polled. */
+export function foundationsDisplayState(f: Pick<FoundationsResponse, "status" | "stale">): FoundationsResponse["status"] {
+  return f.stale && (f.status === "pending" || f.status === "drafting") ? "failed" : f.status;
+}
+
 export interface FoundationsQuery extends QueryState<FoundationsResponse> {
   status: FoundationsResponse["status"] | undefined;
   /** This visit saw the foundations pending or drafting (so a ready state is news worth showing). */
@@ -46,7 +54,7 @@ export function useFoundations(onReady?: () => void): FoundationsQuery {
   const [polling, setPolling] = useState(false);
   const [sawDrafting, setSawDrafting] = useState(false);
   const q = useWidgetQuery<FoundationsResponse>(FOUNDATIONS_PATH, {}, { refetchIntervalMs: polling ? FOUNDATIONS_POLL_MS : undefined });
-  const status = q.data?.status;
+  const status = q.data ? foundationsDisplayState(q.data) : undefined;
   const previous = useRef<FoundationsResponse["status"] | undefined>(undefined);
   const latest = useRef(onReady);
   latest.current = onReady;
@@ -75,13 +83,15 @@ export function FoundationsBanner({ foundations, span = 12, showReady = false, c
   const retry = useAction();
   const f = foundations.data;
   if (!f) return null;
-  const readyNews = showReady && f.status === "ready" && foundations.sawDrafting;
-  if (f.status === "none" || (!foundationsNeedsAttention(f.status) && !readyNews)) return null;
+  const state = foundationsDisplayState(f);
+  const readyNews = showReady && state === "ready" && foundations.sawDrafting;
+  if (state === "none" || (!foundationsNeedsAttention(state) && !readyNews)) return null;
   const visionHref = moduleHref(businessId, departments.data, "product", "vision") ?? routes.department(businessId, "product", "vision");
-  const error = [f.error, retry.error ? errorMessage(retry.error) : null].filter(Boolean).join(" ");
+  const reason = state === "failed" && f.status !== "failed" ? FOUNDATIONS_INTERRUPTED : f.error;
+  const error = [reason, retry.error ? errorMessage(retry.error) : null].filter(Boolean).join(" ");
   return (
     <FoundationsStatus
-      state={f.status}
+      state={state}
       span={span}
       basis={foundationsBasis(f.door)}
       summary={foundationsSummary(f)}

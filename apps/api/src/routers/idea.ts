@@ -8,6 +8,7 @@ import { AppError, ARCHETYPES, Archetype, BUSINESS_MODES, GAME_MODES, Validation
 import { z } from "zod";
 import { commitIdea, squadPreview } from "../services/commit";
 import { linkableImportJob } from "../services/foundations";
+import { importJobKey } from "../services/import";
 import { Id, protectedProcedure, router } from "../trpc";
 
 const Hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
@@ -78,7 +79,7 @@ export const ideaRouter = router({
    * "Continue to Commit": the job the single card describes, recorded on the idea so commit links the business to it.
    */
   generate: protectedProcedure.input(z.object({ prompt: z.string().max(4000).default(""), archetypeHint: Archetype.optional(), single: z.boolean().default(false), importJobId: z.string().min(8).max(8192).optional() })).mutation(async ({ ctx, input }) => {
-    const importJobId = input.importJobId ? linkableImportJob(input.importJobId) : null;
+    const importJobId = input.importJobId ? linkableImportJob(importJobKey(ctx.env), input.importJobId, ctx.userId) : null;
     if (input.importJobId && !importJobId) throw new ValidationError("That import job cannot be linked to a new business");
     const founder = await founderBrief(ctx);
     // `single`: one card for a business that already exists (Import's "Continue to Commit"), a fraction of the wait.
@@ -207,6 +208,6 @@ export const ideaRouter = router({
     .mutation(async ({ ctx, input }) => {
       const profile = await repos.founders.get(ctx.db, ctx.userId);
       if (!profile) throw new ValidationError("Complete your founder profile before taking charge of a business");
-      return commitIdea(ctx.db, ctx.temporal, ctx.userId, input);
+      return commitIdea(ctx.db, ctx.temporal, ctx.userId, input, () => importJobKey(ctx.env));
     }),
 });

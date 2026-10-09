@@ -1,6 +1,6 @@
 import { repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { buildScoutingReport, decodeJobId, validateConfigs } from "../services/import";
+import { buildScoutingReport, decodeJobId, importJobKey, sourceUri, validateConfigs, webUri } from "../services/import";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -37,7 +37,8 @@ describe("import.start / import.status — Door B (BUILD §11.1, AC-11.1.5)", ()
     expect(started.workflow).toBeNull();
     expect(started.job.sources.map((s) => s.key)).toEqual(["github", "stripe", "linear"]);
     expect(started.job.sources[0]!.steps.at(-1)!.label).toMatch(/nothing was pushed/i);
-    expect(decodeJobId(started.job.id).s).toHaveLength(3);
+    expect(decodeJobId(importJobKey(hz.deps.env), started.job.id)).toMatchObject({ u: hz.A.ownerId, b: null });
+    expect(decodeJobId(importJobKey(hz.deps.env), started.job.id).s).toHaveLength(3);
     expect(temporal.starts).toHaveLength(0);
 
     // 12 steps × 5 ms: wait for the schedule to pass, then the report is ready.
@@ -61,6 +62,33 @@ describe("import.start / import.status — Door B (BUILD §11.1, AC-11.1.5)", ()
     expect(again.report).toEqual(report);
     expect(buildScoutingReport(sources)).toEqual(report);
     await expect(user.import.status({ jobId: "not-a-job-id" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("job ids are signed and bound to the account that started them (L1)", async () => {
+    const user = hz.caller({ userId: hz.A.ownerId });
+    const started = await user.import.start({ sources: [{ key: "github", value: "acme/ledgerly" }], stepMs: 1 });
+    const [body, sig] = started.job.id.split(".");
+    expect(sig).toBeTruthy();
+    // Someone else's account cannot read it.
+    await expect(hz.caller({ userId: hz.B.ownerId }).import.status({ jobId: started.job.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    // An edited token (another repository) fails the signature; an unsigned one is refused outright.
+    const token = JSON.parse(Buffer.from(body!, "base64url").toString("utf8")) as Record<string, unknown>;
+    const edited = Buffer.from(JSON.stringify({ ...token, s: [{ k: "github", v: "acme/secret", id: null }] })).toString("base64url");
+    await expect(user.import.status({ jobId: `${edited}.${sig}` })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(user.import.status({ jobId: body! })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(() => decodeJobId("another-secret-0123456789", started.job.id)).toThrow();
+    // The same source twice is refused; production without SESSION_TOKEN_SECRET refuses to sign at all.
+    await expect(user.import.start({ sources: [{ key: "stripe", value: "" }, { key: "stripe", value: "" }] })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(() => importJobKey({ APP_ENV: "production", SESSION_TOKEN_SECRET: undefined })).toThrow(/SESSION_TOKEN_SECRET/);
+  });
+
+  it("only web links become a source's uri", () => {
+    expect(webUri("https://ledgerlyhq.com")).toBe("https://ledgerlyhq.com");
+    expect(webUri("javascript:alert(1)")).toBeNull();
+    expect(webUri("data:text/html,x")).toBeNull();
+    expect(webUri("not a url")).toBeNull();
+    expect(sourceUri("website", "javascript:alert(1)")).toBeNull();
+    expect(sourceUri("github", "acme/ledgerly")).toBe("https://github.com/acme/ledgerly");
   });
 
   it("with a business: sources rows are written and importBusiness starts on Temporal; status follows the orchestrator's updates", async () => {

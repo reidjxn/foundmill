@@ -71,10 +71,16 @@ function uniqueSlug(name: string): string {
   return `${base}-${crypto.randomUUID().slice(0, 6)}`;
 }
 
-export async function commitIdea(db: Db, temporal: TemporalService, userId: string, input: CommitIdeaInput): Promise<CommitIdeaResult> {
+/**
+ * `importKey` returns the key import job ids are signed with (`importJobKey(env)`); it is only called for an idea that
+ * Import drafted, so a Door A commit never needs it.
+ */
+export async function commitIdea(db: Db, temporal: TemporalService, userId: string, input: CommitIdeaInput, importKey: () => string): Promise<CommitIdeaResult> {
   const idea = await repos.ideas.get(db, userId, input.ideaId);
-  // Door B: the Import job this idea was drafted from (recorded by idea.generate), rebuilt before the transaction.
-  const importLink = await resolveImportLink(db, importJobIdOf(idea.current?.research));
+  // Door B: the Import job this idea was drafted from (recorded by idea.generate), verified again (signed for this
+  // founder, finished, valid sources) and rebuilt before the transaction.
+  const importJobId = importJobIdOf(idea.current?.research);
+  const importLink = importJobId ? await resolveImportLink(db, importKey(), importJobId, userId) : null;
   const seed = getArchetypeSeed(input.archetype);
   const businessMode = input.businessMode ?? DEFAULT_BUSINESS_MODE;
   const currency = (input.currency ?? "EUR").toUpperCase();

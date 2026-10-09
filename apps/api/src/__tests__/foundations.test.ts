@@ -6,11 +6,11 @@
  */
 import { getArchetypeSeed } from "@foundmill/agents";
 import { businessFoundations, repos } from "@foundmill/db";
-import { MockModelClient, ModelUnavailableError } from "@foundmill/models";
+import { MockModelClient, ModelUnavailableError, type ModelClient } from "@foundmill/models";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { encodeJobId } from "../services/import";
-import { importJobIdOf, settleFoundationRuns } from "../services/foundations";
+import { encodeJobId, importJobKey } from "../services/import";
+import { FOUNDATIONS_LOCAL_CONCURRENCY, FOUNDATIONS_LOCAL_TIMEOUT_MS, FOUNDATIONS_STALE_MS, acquireFoundationsSlot, foundationsSlots, importJobIdOf, runFoundationsLocally, settleFoundationRuns } from "../services/foundations";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -57,7 +57,10 @@ describe("product.foundations — Door A (Ideation Studio)", () => {
     expect([one.started, two.started].filter(Boolean)).toHaveLength(1);
     const started = one.started ? one : two;
     // Without Temporal the drafting runs in the api, in the background: the call returns while it is drafting.
-    expect(started).toMatchObject({ status: "drafting", attempt: 1, runner: "local" });
+    expect(started).toMatchObject({ status: "drafting", attempt: 1 });
+    // ensure says where it stands and nothing more (L3): the rest is read through `get`.
+    expect(Object.keys(started).sort()).toEqual(["attempt", "door", "finishedAt", "started", "startedAt", "status"]);
+    expect(await a.caller.product.foundations.get({ businessId: a.businessId })).toMatchObject({ runner: "local" });
     const reload = await a.caller.product.foundations.ensure({ businessId: a.businessId });
     expect(reload.started).toBe(false);
     await settleFoundationRuns();
@@ -93,6 +96,9 @@ describe("product.foundations — Door A (Ideation Studio)", () => {
     expect(roadmap.every((i) => i.specBlockIds.every((id) => ids.has(id)))).toBe(true);
     expect(roadmap.some((i) => i.descriptionMd.includes("**Acceptance criteria**"))).toBe(true);
     expect(view.summary).toMatchObject({ sectionsWritten: seed.specOutline.length, model: { route: "foundations", mode: "mock", costLabel: "Estimate" } });
+    // The in-process run books its model call to the business's usage ledger (L2).
+    const usage = await repos.usage.list(hz.db, a.businessId, { kind: "tokens" });
+    expect(usage.items.filter((u) => (u.details as { kind?: string }).kind === "foundations")).toHaveLength(1);
   });
 
   it("posts one Inbox update from the Product lead with the vision, and writes inbox.item_created", async () => {
@@ -175,7 +181,8 @@ describe("product.foundations — failure and retry", () => {
     const view = await a.caller.product.foundations.get({ businessId: a.businessId });
     expect(view).toMatchObject({ status: "drafting", stale: true });
     const ensured = await a.caller.product.foundations.ensure({ businessId: a.businessId });
-    expect(ensured).toMatchObject({ status: "failed", started: false, error: expect.stringMatching(/interrupted/) });
+    expect(ensured).toMatchObject({ status: "failed", started: false });
+    expect(await a.caller.product.foundations.get({ businessId: a.businessId })).toMatchObject({ error: expect.stringMatching(/interrupted/) });
     const retried = await a.caller.product.foundations.retry({ businessId: a.businessId });
     expect(retried).toMatchObject({ started: true, attempt: 2 });
     await settleFoundationRuns();
@@ -195,7 +202,7 @@ describe("product.foundations — on Temporal", () => {
       const { business } = await caller.idea.commit({ ideaId: idea.id, name: "Climate Weekly", archetype: "content_media", gameMode: "personal" });
       const [one, two] = await Promise.all([caller.product.foundations.ensure({ businessId: business.id }), caller.product.foundations.ensure({ businessId: business.id })]);
       const started = one.started ? one : two;
-      expect(started).toMatchObject({ status: "drafting", runner: "temporal", attempt: 1 });
+      expect(started).toMatchObject({ status: "drafting", attempt: 1 });
       const starts = temporal.starts.filter((s) => s.type === "businessFoundations");
       expect(starts).toEqual([{ type: "businessFoundations", workflowId: `foundations:${business.id}:1`, args: [{ businessId: business.id, attempt: 1 }] }]);
       await settleFoundationRuns();
@@ -258,9 +265,97 @@ describe("product.foundations — Door B (Import)", () => {
     expect(docText(features.content)).toContain(report.roadmapSeeds[0]!.title);
   });
 
-  it("refuses an Import job that belongs to an existing business", async () => {
+  it("refuses an Import job that is unsigned, someone else's, unfinished or another business's own (L1)", async () => {
     const f = await founder("door-b-crafted@test.local");
-    const crafted = encodeJobId({ v: 1, m: "temporal", b: hz.B.businessId, w: "import:x", t: Date.now(), ms: 1, s: [{ k: "github", v: "acme/secret", id: null }] });
-    await expect(f.caller.idea.generate({ prompt: "x", single: true, importJobId: crafted })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const key = importJobKey(hz.deps.env);
+    const link = (importJobId: string) => f.caller.idea.generate({ prompt: "x", single: true, importJobId });
+    const sources = [{ k: "github" as const, v: "acme/secret", id: null }];
+    // Unsigned (the old format: base64url JSON only), and signed with another key.
+    const unsigned = Buffer.from(JSON.stringify({ v: 1, m: "local", u: f.userId, b: null, w: null, t: 0, ms: 1, s: sources })).toString("base64url");
+    await expect(link(unsigned)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(link(encodeJobId("another-secret-0123456789", { v: 1, m: "local", u: f.userId, b: null, w: null, t: 0, ms: 1, s: sources }))).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // Signed here, but started by another account.
+    await expect(link(encodeJobId(key, { v: 1, m: "local", u: hz.A.ownerId, b: null, w: null, t: 0, ms: 1, s: sources }))).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // Signed for this founder, but still running.
+    await expect(link(encodeJobId(key, { v: 1, m: "local", u: f.userId, b: null, w: null, t: Date.now(), ms: 60_000, s: sources }))).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // Signed for this founder, but another business's own import.
+    await expect(link(encodeJobId(key, { v: 1, m: "temporal", u: f.userId, b: hz.B.businessId, w: "import:x", t: 0, ms: 1, s: sources }))).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // A finished job of this founder links.
+    const done = encodeJobId(key, { v: 1, m: "local", u: f.userId, b: null, w: null, t: 0, ms: 1, s: [{ k: "github", v: "acme/ledgerly", id: null }] });
+    const generated = await link(done);
+    expect(importJobIdOf(generated.ideas[0]!.current?.research)).toBe(done);
+  });
+
+  it("commit re-checks the job: a source value import would refuse is never stored", async () => {
+    const f = await founder("door-b-recheck@test.local");
+    const key = importJobKey(hz.deps.env);
+    // Signed with the api's key (as if a bug or an older api had signed it) but carrying a value import refuses.
+    const bad = encodeJobId(key, { v: 1, m: "local", u: f.userId, b: null, w: null, t: 0, ms: 1, s: [{ k: "website", v: "javascript:alert(1)", id: null }] });
+    const generated = await f.caller.idea.generate({ prompt: "x", single: true, importJobId: bad });
+    const result = await f.caller.idea.commit({ ideaId: generated.ideas[0]!.id, name: "Recheck Co", archetype: "b2b_saas", gameMode: "personal" });
+    expect(result.foundations).toMatchObject({ door: "ideation", importSourceIds: [] });
+    expect((await repos.product.listSources(hz.db, result.business.id)).items).toEqual([]);
+  });
+});
+
+describe("product.foundations — only a member with product write starts it (L3)", () => {
+  it("a viewer or a read-only member who opens the business first leaves it pending; the founder's open starts it", async () => {
+    const a = await commitDoorA("viewer-first@test.local");
+    const viewerId = await hz.h.createUser("viewer-first-viewer@test.local");
+    await repos.memberships.add(hz.db, a.businessId, { userId: viewerId, role: "viewer" });
+    const readerId = await hz.h.createUser("viewer-first-reader@test.local");
+    await repos.memberships.add(hz.db, a.businessId, { userId: readerId, role: "member", sectionPermissions: { product: "read" } });
+    for (const userId of [viewerId, readerId]) {
+      expect(await hz.caller({ userId }).product.foundations.ensure({ businessId: a.businessId })).toEqual({ status: "pending", door: "ideation", attempt: 0, startedAt: null, finishedAt: null, started: false });
+    }
+    expect(await repos.foundations.get(hz.db, a.businessId)).toMatchObject({ status: "pending", attempt: 0 });
+    expect(await a.caller.product.foundations.ensure({ businessId: a.businessId })).toMatchObject({ status: "drafting", started: true });
+    await settleFoundationRuns();
+    expect(await hz.caller({ userId: viewerId }).product.foundations.ensure({ businessId: a.businessId })).toMatchObject({ status: "ready", started: false });
+  });
+});
+
+describe("product.foundations — the in-process fallback is bounded (L2)", () => {
+  it("each run is aborted after its time limit and the attempt fails with a readable reason", async () => {
+    const a = await commitDoorA("bounded@test.local");
+    await repos.foundations.claim(hz.db, a.businessId);
+    await repos.foundations.setRunner(hz.db, a.businessId, 1, { runner: "local", workflowId: null });
+    const seen: (AbortSignal | undefined)[] = [];
+    const hanging = {
+      mode: "mock" as const,
+      complete: (req: { signal?: AbortSignal }) => {
+        seen.push(req.signal);
+        return new Promise((_resolve, reject) => req.signal?.addEventListener("abort", () => reject(req.signal!.reason), { once: true }));
+      },
+    } as unknown as ModelClient;
+    await runFoundationsLocally({ db: hz.db, models: hanging, temporal: hz.deps.temporal, log: hz.deps.log }, a.businessId, 1, { timeoutMs: 50 });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.aborted).toBe(true);
+    expect(await repos.foundations.get(hz.db, a.businessId)).toMatchObject({ status: "failed", error: "The drafting took too long and was stopped. Try again." });
+    expect(FOUNDATIONS_LOCAL_TIMEOUT_MS).toBeLessThan(FOUNDATIONS_STALE_MS.local);
+  });
+
+  it("at most a few runs at once per process: the rest wait for a slot, or give up when their time runs out", async () => {
+    const releases = await Promise.all(Array.from({ length: FOUNDATIONS_LOCAL_CONCURRENCY }, () => acquireFoundationsSlot(AbortSignal.timeout(5_000))));
+    expect(foundationsSlots()).toEqual({ active: FOUNDATIONS_LOCAL_CONCURRENCY, waiting: 0 });
+    let got = false;
+    const waiting = acquireFoundationsSlot(AbortSignal.timeout(5_000)).then((release) => {
+      got = true;
+      return release;
+    });
+    const givesUp = acquireFoundationsSlot(AbortSignal.timeout(30));
+    await sleep(5);
+    expect(foundationsSlots().waiting).toBe(2);
+    await expect(givesUp).rejects.toBeTruthy();
+    expect(foundationsSlots().waiting).toBe(1);
+    expect(got).toBe(false);
+    releases[0]!();
+    releases[0]!(); // a second release is a no-op
+    const handed = await waiting;
+    expect(got).toBe(true);
+    expect(foundationsSlots()).toEqual({ active: FOUNDATIONS_LOCAL_CONCURRENCY, waiting: 0 });
+    handed();
+    releases.slice(1).forEach((r) => r());
+    expect(foundationsSlots()).toEqual({ active: 0, waiting: 0 });
   });
 });

@@ -16,7 +16,7 @@ import { repos, type BusinessFoundationsRow, type Db, type DbTx, type Source } f
 import type { ModelClient } from "@foundmill/models";
 import type { FoundationsDoor, FoundationsRunner, FoundationsStatus } from "@foundmill/shared";
 import { writeEventRow } from "./events";
-import { IMPORT_SOURCES, decodeJobId, importStatus, sourceUri, type ImportStatus, type ScoutingReport } from "./import";
+import { IMPORT_SOURCES, decodeJobId, importStatus, localJobAt, sourceUri, validateConfigs, webUri, type ImportStatus, type ScoutingReport } from "./import";
 import type { ApiLogger } from "./log";
 import { WORKFLOWS, workflowIds, type TemporalService } from "./temporal";
 
@@ -78,6 +78,52 @@ export async function settleFoundationRuns(): Promise<void> {
   while (inFlight.size) await Promise.allSettled([...inFlight]);
 }
 
+/**
+ * Bounds on the in-process fallback (security review L2): at most this many drafting runs at once in one api process
+ * (the rest wait for a slot), and each run, waiting included, is aborted after `FOUNDATIONS_LOCAL_TIMEOUT_MS`, which is
+ * shorter than the window after which a local attempt counts as interrupted, so a retry never overlaps a live run.
+ */
+export const FOUNDATIONS_LOCAL_CONCURRENCY = 2;
+export const FOUNDATIONS_LOCAL_TIMEOUT_MS = 8 * 60_000;
+
+let localActive = 0;
+const localWaiters: (() => void)[] = [];
+
+/** Take a drafting slot (or wait for one until `signal` aborts); the returned release is safe to call twice. */
+export async function acquireFoundationsSlot(signal: AbortSignal): Promise<() => void> {
+  if (signal.aborted) throw signal.reason ?? new Error("aborted");
+  if (localActive < FOUNDATIONS_LOCAL_CONCURRENCY) localActive++;
+  else {
+    await new Promise<void>((resolve, reject) => {
+      const go = () => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      };
+      const onAbort = () => {
+        const i = localWaiters.indexOf(go);
+        if (i >= 0) localWaiters.splice(i, 1);
+        reject(signal.reason ?? new Error("aborted"));
+      };
+      localWaiters.push(go);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const next = localWaiters.shift();
+    // The slot passes straight to the next waiter; otherwise it is freed.
+    if (next) next();
+    else localActive--;
+  };
+}
+
+/** Slots in use and runs waiting (tests). */
+export function foundationsSlots(): { active: number; waiting: number } {
+  return { active: localActive, waiting: localWaiters.length };
+}
+
 // --- start / ensure / retry -------------------------------------------------------------------------------------------
 
 export interface StartResult {
@@ -86,11 +132,15 @@ export interface StartResult {
   started: boolean;
 }
 
-/** The first open: claims a pending row exactly once and starts the drafting; otherwise reports where it stands. */
-export async function ensureFoundations(deps: FoundationsDeps, businessId: string, actor: { userId: string }): Promise<StartResult> {
+/**
+ * The first open: claims a pending row exactly once and starts the drafting; otherwise reports where it stands. Only
+ * an actor who `canStart` (product write) claims, fails a stale attempt or starts anything (security review L3).
+ */
+export async function ensureFoundations(deps: FoundationsDeps, businessId: string, actor: { userId: string; canStart: boolean }): Promise<StartResult> {
   const now = (deps.now ?? (() => new Date()))();
   const row = await repos.foundations.get(deps.db, businessId);
   if (!row) return { view: NO_FOUNDATIONS, started: false };
+  if (!actor.canStart) return { view: foundationsView(row), started: false };
   if (isStale(row, now)) {
     const failed = await repos.foundations.fail(deps.db, businessId, row.attempt, "The drafting was interrupted before it finished. Try again.");
     return { view: foundationsView(failed ?? (await repos.foundations.get(deps.db, businessId))), started: false };
@@ -132,29 +182,48 @@ async function startClaimed(deps: FoundationsDeps, row: BusinessFoundationsRow):
  * One drafting attempt in this process: inputs → the foundations route → finalise → apply (one transaction) → the
  * Inbox event. Never throws: a failure marks the attempt failed with a founder-readable reason.
  */
-export async function runFoundationsLocally(deps: FoundationsDeps, businessId: string, attempt: number): Promise<void> {
+export async function runFoundationsLocally(deps: FoundationsDeps, businessId: string, attempt: number, opts: { timeoutMs?: number } = {}): Promise<void> {
+  const signal = AbortSignal.timeout(opts.timeoutMs ?? FOUNDATIONS_LOCAL_TIMEOUT_MS);
+  let release: (() => void) | null = null;
   try {
+    release = await acquireFoundationsSlot(signal);
     const inputs = await repos.foundations.inputs(deps.db, businessId);
     const request = buildFoundationsRequest(inputs);
-    const result = await deps.models.complete({ ...request, scope: `foundations:${businessId}`, attribution: { businessId, agentId: inputs.authorAgentId ?? undefined, kind: "foundations" } });
+    const attribution = { businessId, agentId: inputs.authorAgentId ?? undefined, kind: "foundations" };
+    const result = await deps.models.complete({ ...request, signal, scope: `foundations:${businessId}`, attribution });
+    // Book the call to the business's usage ledger (the orchestrator's client does this through its usage sink).
+    await repos.usage
+      .record(deps.db, businessId, {
+        agentId: inputs.authorAgentId,
+        kind: "tokens",
+        modelKey: result.modelKey,
+        quantity: result.usage.inputTokens + result.usage.outputTokens,
+        unit: "tokens",
+        costMinor: Math.max(0, result.cost.costMinorInt),
+        currency: result.cost.currency,
+        billedTo: "credits",
+        details: { route: result.route, model: result.model, mode: result.mode, kind: "foundations", label: result.cost.label, runner: "local", attempt },
+      })
+      .catch((err: unknown) => deps.log.warn({ businessId, err: (err as Error).message }, "foundations: usage ledger write failed"));
     const draft = finaliseFoundations(result.json, inputs);
     const applied = await repos.foundations.apply(deps.db, businessId, attempt, draft, {
       note: (stats) => foundationsReadyNote(draft, inputs.door, stats),
       model: { route: result.route, model: result.model, mode: result.mode, costMinor: result.cost.costMinorInt, costLabel: "Estimate", repaired: result.repaired, runner: "local" },
+      // The Inbox event is written through the outbox in the same transaction as the item.
+      onInboxItem: (tx, item) =>
+        writeEventRow(tx, {
+          businessId,
+          type: "inbox.item_created",
+          actor: { kind: "agent", id: item.fromAgentId! },
+          payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: result.cost.costMinorInt, currency: "EUR" } },
+        }),
     });
-    if (applied.inboxItem) {
-      const item = applied.inboxItem;
-      await writeEventRow(deps.db, {
-        businessId,
-        type: "inbox.item_created",
-        actor: { kind: "agent", id: item.fromAgentId! },
-        payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: result.cost.costMinorInt, currency: "EUR" } },
-      }).catch((err: unknown) => deps.log.warn({ businessId, err: (err as Error).message }, "foundations: inbox event not written"));
-    }
     deps.log.info({ businessId, attempt, applied: applied.applied, stats: applied.stats }, "foundations drafted");
   } catch (err) {
-    deps.log.warn({ businessId, attempt, err: (err as Error)?.message }, "foundations drafting failed");
+    deps.log.warn({ businessId, attempt, err: (err as Error)?.message, code: (err as { code?: string })?.code }, "foundations drafting failed");
     await repos.foundations.fail(deps.db, businessId, attempt, describeFoundationsFailure(err)).catch((e: unknown) => deps.log.error({ businessId, err: (e as Error).message }, "foundations: could not record the failure"));
+  } finally {
+    release?.();
   }
 }
 
@@ -170,14 +239,16 @@ export function importJobIdOf(research: unknown): string | null {
 }
 
 /**
- * A job id is usable as a link only when it decodes and belongs to the sign-up import (no business yet): a job token
- * naming a business is that business's own import and must never be read on behalf of another one.
+ * A job id is usable as a link only when it was signed here (`key`, security review L1), was started by this account,
+ * belongs to the sign-up import (no business yet: a job naming a business is that business's own import and must never
+ * be read on behalf of another one), and has finished.
  */
-export function linkableImportJob(jobId: string | null | undefined): string | null {
+export function linkableImportJob(key: string, jobId: string | null | undefined, userId: string, now: Date = new Date()): string | null {
   if (!jobId) return null;
   try {
-    const token = decodeJobId(jobId);
-    return token.b === null && token.m === "local" ? jobId : null;
+    const token = decodeJobId(key, jobId);
+    if (token.u !== userId || token.b !== null || token.m !== "local") return null;
+    return localJobAt(token, jobId, now).status === "done" ? jobId : null;
   } catch {
     return null;
   }
@@ -189,11 +260,16 @@ export interface ImportLink {
   report: ScoutingReport | null;
 }
 
-/** Rebuild the Import job's state and report (deterministic in the job token) for the commit to snapshot. */
-export async function resolveImportLink(db: Db, jobId: string | null): Promise<ImportLink | null> {
-  const usable = linkableImportJob(jobId);
+/**
+ * Rebuild the Import job's state and report (deterministic in the job token) for the commit to snapshot. The sources
+ * are validated again, as `import.start` did, so nothing reaches the business's `sources` that import would refuse.
+ */
+export async function resolveImportLink(db: Db, key: string, jobId: string | null, userId: string, now: Date = new Date()): Promise<ImportLink | null> {
+  const usable = linkableImportJob(key, jobId, userId, now);
   if (!usable) return null;
-  const status = await importStatus({ db }, usable);
+  const status = await importStatus({ db, key }, usable, userId, now);
+  if (status.job.status !== "done") return null;
+  if (Object.keys(validateConfigs(status.job.sources.map((s) => ({ key: s.key, value: s.value })))).length) return null;
   return { jobId: usable, status, report: status.report };
 }
 
@@ -213,7 +289,7 @@ export async function seedFoundations(tx: DbTx, businessId: string, input: { ide
     sources.push(
       await repos.product.createSource(tx, businessId, {
         kind: meta.sourceKind,
-        uri: sourceUri(s.key, s.value),
+        uri: webUri(sourceUri(s.key, s.value)),
         title: `${meta.label} import${s.value ? `: ${s.value}` : ""}`.slice(0, 400),
         relevance: { import: { key: s.key, value: s.value, connector: meta.connectorKey, readOnly: true, status: s.status, summary: s.summary, provenance: "Estimate" }, summary: s.summary ?? undefined },
       }),

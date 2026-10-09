@@ -56,6 +56,11 @@ export interface ApplyFoundationsOptions {
   note: ((stats: FoundationsNoteStats) => { subject: string; bodyMd: string }) | null;
   /** Model metadata kept in the summary (route, model id, mode, cost in minor units as an Estimate). */
   model?: Record<string, unknown>;
+  /**
+   * Called inside the transaction right after the Inbox note is created, to write its `inbox.item_created` event
+   * through the outbox (`repos.events.write` on the same `tx`): the item and its event commit or roll back together.
+   */
+  onInboxItem?: (tx: Executor, item: InboxItem) => Promise<unknown>;
 }
 
 export interface ApplyFoundationsResult {
@@ -232,9 +237,11 @@ export const foundationsRepo = {
         const block = blocksNow.get(s.blockId);
         // Removed (archived) since the drafting read it, pinned by a human edit, or already written: left alone.
         const reason = !block ? "removed" : block.pinned ? "pinned" : pmText(block.content).trim() ? "written" : null;
-        const written = reason === null ? await productRepo.writeAgentDraft(tx, businessId, s.blockId, { content: s.content, sources, authoredBy: author }) : null;
+        // The emptiness read above is re-checked inside the UPDATE through the block's version (L5): a block someone
+        // wrote in between has a newer version and is left alone.
+        const written = reason === null ? await productRepo.writeAgentDraft(tx, businessId, s.blockId, { content: s.content, sources, authoredBy: author, expectedVersion: block!.version }) : null;
         if (written) writtenBlockIds.push(written.id);
-        else kept.push({ section: s.section, reason: reason ?? "pinned" });
+        else kept.push({ section: s.section, reason: reason ?? "written" });
       }
 
       // Roadmap items after whatever already sits in each horizon.
@@ -270,6 +277,7 @@ export const foundationsRepo = {
       const inboxItem = note
         ? await inboxRepo.createItem(tx, businessId, { type: "update", from_agent_id: author, subject: note.subject.slice(0, 80), body_md: note.bodyMd, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: null, blocks_continue: false, source_event_ids: [], entity_ids: [] })
         : null;
+      if (inboxItem && options.onInboxItem) await options.onInboxItem(tx, inboxItem);
 
       const summary = {
         sectionsWritten: writtenBlockIds.length,

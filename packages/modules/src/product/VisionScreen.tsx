@@ -7,11 +7,12 @@
  */
 import { useMemo } from "react";
 import { BookOpen, Lock, Map as MapIcon } from "lucide-react";
-import { Chip, Markdown, Panel, StatusPill, formatDate, formatNumber, formatRelative } from "@foundmill/dugout";
+import { Chip, Panel, StatusPill, formatDate, formatNumber, formatRelative } from "@foundmill/dugout";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
 import { FoundationsBanner, VisionPanels, useFoundations } from "./foundations";
-import { pmToText, pmWordCount } from "./prosemirror";
+import { PlainDoc } from "./PlainDoc";
+import { pmWordCount } from "./prosemirror";
 import { computeRoadmapStatus, taskSummary } from "./roadmap-status";
 import { AuthorRef, Fact, PinnedChip, Screen, blockTitle, groupBySection } from "./shared";
 import type { RoadmapResponse, SpecGetResponse } from "./types";
@@ -69,7 +70,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
               <div className="flex flex-col gap-3">
                 {g.blocks.map((b) => (
                   <div key={b.id} className="group relative" data-block={b.id}>
-                    <Markdown variant="reading">{pmToText(b.content)}</Markdown>
+                    <PlainDoc doc={b.content} />
                     <div className="mt-1 flex items-center gap-2 text-small text-secondary">
                       <AuthorRef kind={b.authoredByKind} id={b.authoredBy} />
                       {b.pinned ? <PinnedChip /> : null}
