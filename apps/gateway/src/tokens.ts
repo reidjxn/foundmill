@@ -31,6 +31,11 @@ export const SessionClaims = z.object({
   allowedTools: z.array(ToolRef).max(500).default([]),
   /** The session runs a channel in kit mode (agent prepares, founder submits; BUILD §2.3). */
   kitMode: z.boolean().default(false),
+  /**
+   * The session was minted with an untrusted-recipient seed (files restored from earlier sessions). A replica whose
+   * register has no seed for it (a restart, another replica) treats every recipient as untrusted: it fails closed.
+   */
+  untrustedSeeded: z.boolean().default(false),
 });
 export type SessionClaims = z.infer<typeof SessionClaims>;
 export type SessionClaimsInput = z.input<typeof SessionClaims>;

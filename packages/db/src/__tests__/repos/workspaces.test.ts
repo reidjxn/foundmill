@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../../repos";
 import { isSafeWorkspacePath } from "../../repos/workspaces";
-import { workspaceBlobs } from "../../schema";
+import { agentSessions, workspaceBlobs } from "../../schema";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
 
 let r: RepoHarness;
@@ -74,7 +74,7 @@ describe("workspaces", () => {
   it("carries over files a session never had, keeps the newest saves and sweeps contents nothing uses", async () => {
     const { businessId } = r.A;
     const taskId = r.A.taskIds[0]!;
-    const save = (files: Record<string, string>, opts: { carryOver?: boolean } = {}) => r.svc((tx) => repos.workspaces.save(tx, businessId, { taskId, files: Object.entries(files).map(([path, c]) => ({ path, content: text(c) })), ...opts }, { keepSnapshots: 2 }));
+    const save = (files: Record<string, string>, opts: { carryOver?: boolean } = {}) => r.svc((tx) => repos.workspaces.save(tx, businessId, { taskId, files: Object.entries(files).map(([path, c]) => ({ path, content: text(c) })), ...opts }, { keepSnapshots: 2, keepYoungerThanMs: 0 }));
     await save({ "a.ts": "shared", "old.ts": "only-in-the-first" });
     // A session whose restore failed saves only what it wrote: the earlier files stay and nothing counts as removed.
     const carried = await save({ "b.ts": "b" }, { carryOver: true });
@@ -98,6 +98,27 @@ describe("workspaces", () => {
     expect(refused).toMatchObject({ saved: false, snapshot: null, refused: expect.stringMatching(/limit/) });
     expect(await repos.workspaces.latest(r.db, businessId, taskId)).toBeNull();
     expect(await r.db.select({ id: workspaceBlobs.id }).from(workspaceBlobs).where(and(eq(workspaceBlobs.businessId, businessId), eq(workspaceBlobs.sizeBytes, 4096)))).toHaveLength(0);
+  });
+
+  it("keeps every save of the last day however many there are", async () => {
+    const { businessId } = r.A;
+    const taskId = r.A.taskIds[4]!;
+    for (const n of [1, 2, 3, 4]) await r.svc((tx) => repos.workspaces.save(tx, businessId, { taskId, files: [{ path: "a.ts", content: text(`v${n}`) }] }, { keepSnapshots: 2 }));
+    expect(await repos.workspaces.listSnapshots(r.db, businessId, taskId)).toHaveLength(4);
+  });
+
+  it("a session that started before the task's code was forgotten cannot save it back", async () => {
+    const { businessId, ownerId } = r.A;
+    const taskId = r.A.taskIds[5]!;
+    const [early] = await r.db.insert(agentSessions).values({ businessId, agentId: r.A.agentId, versionId: r.A.agentVersionId, taskId }).returning({ id: agentSessions.id });
+    await r.svc((tx) => repos.workspaces.save(tx, businessId, { taskId, files: [{ path: "leak.txt", content: text("sk_live_restored") }] }));
+    await r.as(ownerId, (tx) => repos.workspaces.forgetTask(tx, businessId, taskId));
+    const back = await r.svc((tx) => repos.workspaces.save(tx, businessId, { taskId, sessionId: early!.id, files: [{ path: "leak.txt", content: text("sk_live_restored") }] }));
+    expect(back).toMatchObject({ saved: false, refused: expect.stringMatching(/forgotten after the session started/) });
+    expect(await repos.workspaces.latest(r.db, businessId, taskId)).toBeNull();
+    // A session that starts after the forget saves its own work.
+    const [late] = await r.db.insert(agentSessions).values({ businessId, agentId: r.A.agentId, versionId: r.A.agentVersionId, taskId }).returning({ id: agentSessions.id });
+    expect(await r.svc((tx) => repos.workspaces.save(tx, businessId, { taskId, sessionId: late!.id, files: [{ path: "fresh.ts", content: text("x") }] }))).toMatchObject({ saved: true });
   });
 
   it("owners and admins forget a task's saved code; members cannot; shared contents stay", async () => {

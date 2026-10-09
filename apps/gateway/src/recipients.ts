@@ -100,13 +100,12 @@ export interface UntrustedRecipientRegistryOptions {
 }
 
 /**
- * Per-session memory of recipients first seen in untrusted content. In-process: an agent session always
- * talks to one gateway replica for its lifetime (the orchestrator pins the MCP URL), and the register is
- * rebuilt from scratch when a session restarts, which errs on the safe side only in that a founder-approved
- * recipient must be approved once more.
+ * Per-session memory of recipients first seen in untrusted content. In-process: what one replica saw is not known to
+ * another, nor after a restart (SEC-6 moves it to Redis). Seeds given at mint are marked, and the session token says
+ * a seed was given (`untrustedSeeded`), so a replica without the seed fails closed instead of forgetting it.
  */
 export class UntrustedRecipientRegistry {
-  private readonly sessions = new Map<string, { values: Set<string>; touchedAt: number; all?: boolean }>();
+  private readonly sessions = new Map<string, { values: Set<string>; touchedAt: number; all?: boolean; seeded?: boolean }>();
   private readonly ttlMs: number;
   private readonly now: () => number;
 
@@ -133,13 +132,23 @@ export class UntrustedRecipientRegistry {
     return added;
   }
 
-  /** Every recipient of this session counts as first seen in untrusted content (a seed too large to list). */
-  markAll(sessionId: string): void {
+  /**
+   * Records the seed a session starts with (recipients in files restored from earlier sessions); `all` marks every
+   * recipient of the session. Returns how many values were new.
+   */
+  seed(sessionId: string, candidates: readonly RecipientCandidate[], all = false): number {
     this.sweep();
     const entry = this.sessions.get(sessionId) ?? { values: new Set<string>(), touchedAt: 0 };
-    entry.all = true;
+    entry.seeded = true;
+    if (all) entry.all = true;
     entry.touchedAt = this.now();
     this.sessions.set(sessionId, entry);
+    return this.record(sessionId, candidates);
+  }
+
+  /** Whether this replica holds the seed the session was minted with. */
+  isSeeded(sessionId: string): boolean {
+    return this.sessions.get(sessionId)?.seeded === true;
   }
 
   has(sessionId: string, candidate: RecipientCandidate): boolean {

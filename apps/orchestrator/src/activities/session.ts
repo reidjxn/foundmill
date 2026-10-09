@@ -596,11 +596,14 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   if (!key.apiKey) return { outcome: "blocked", reason: "no Anthropic key: connect one in Settings or set the platform key", blockedReason: "credential", approvalId: null, summary: "Blocked: no model credential.", providerSessionId: null };
 
   const grants = parseGrants(live.version, live.template);
+  // Everything that can fail without a workspace runs before one exists (no restored code left on disk, no token).
+  const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary });
+  if (!hasClubRulesPrefix(systemPrompt)) throw new Error("house rules missing from the system prompt");
+  const policy = sdkToolPolicyFor(task.kind, mcpToolNames(grants));
   const sdk = await import("@anthropic-ai/claude-agent-sdk");
   // SEC-3: the SDK process lives in a private per-session workspace (cwd, HOME, TMPDIR), with a from-scratch environment
   // (never `process.env`), built-in tools by task kind only, and a path guard on every file-tool call. Deleted in `finally`.
   const cwd = await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
-  const policy = sdkToolPolicyFor(task.kind, mcpToolNames(grants));
   // Code tasks pick up where the last session on the task left off (Development › Code keeps every session's files).
   // Restore comes before the token: what the files mention is untrusted for the gateway from the session's first call.
   let restored: RestoredWorkspace | null = null;
@@ -626,11 +629,6 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     throw err;
   }
   const mcpServers = Object.fromEntries(grants.map((g) => [g.connectorKey, { type: "http" as const, url: deps.gateway.mcpUrl(g.connectorKey), headers: deps.gateway.sessionHeaders(token.token) }]));
-  const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary });
-  if (!hasClubRulesPrefix(systemPrompt)) {
-    await removeSessionWorkspace(cwd).catch(() => undefined);
-    throw new Error("house rules missing from the system prompt");
-  }
 
   const continuing = restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : "";
   const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? `Work on branch ${launch.branch} inside your working directory; it is the only place you can read or write files.` : "Keep every action inside the tools you were given; this task has no file access.", continuing, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");

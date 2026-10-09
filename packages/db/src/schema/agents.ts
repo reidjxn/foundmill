@@ -275,6 +275,8 @@ export const tasks = pgTable(
     currency: currency(),
     startedAt: tstz("started_at"),
     endedAt: tstz("ended_at"),
+    /** When an owner or admin forgot the task's saved code (0013); sessions that started earlier cannot save it again. */
+    codeForgottenAt: tstz("code_forgotten_at"),
     ...timestampsWithArchive(),
   },
   (t) => [

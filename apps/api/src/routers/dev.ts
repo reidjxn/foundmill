@@ -12,7 +12,7 @@ import { NotFoundError, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { replaySession } from "../services/replay";
 import { SIGNALS, WORKFLOWS, workflowIds, type SignalName } from "../services/temporal";
-import { Id, adminProcedure, audit, emit, router, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
+import { Id, adminProcedure, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
 const read = sectionRead("development");
 
@@ -283,7 +283,7 @@ export const devRouter = router({
      * Forget a task's saved code: every saved session of the task and the contents no other task uses. Owners and admins
      * only (RLS allows nothing else); a founder action, never an agent's. The next session on the task starts empty.
      */
-    forget: adminProcedure.input(z.object({ taskId: Id })).mutation(({ ctx, input }) =>
+    forget: sectionAdmin("development").input(z.object({ taskId: Id })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const result = await repos.workspaces.forgetTask(tx, ctx.businessId, input.taskId);
         if (result.snapshots === 0) throw new NotFoundError("saved code", input.taskId);

@@ -48,6 +48,9 @@ create index workspace_snapshots_files_idx on workspace_snapshots using gin (fil
 --> statement-breakpoint
 select fm_tenant_table('workspace_snapshots', array['owner','admin','member'], 'read_only');
 --> statement-breakpoint
+-- When a task's saved code was forgotten: a session that started before then cannot save it again.
+alter table tasks add column code_forgotten_at timestamptz;
+--> statement-breakpoint
 -- A founder action, never an agent's: owners and admins may forget a task's saved code.
 create policy workspace_snapshots_forget on workspace_snapshots for delete using (has_role(business_id, array['owner','admin']));
 --> statement-breakpoint

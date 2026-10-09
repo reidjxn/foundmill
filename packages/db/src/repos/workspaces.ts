@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { ValidationError } from "@foundmill/shared";
 import { and, count, desc, eq, inArray, notExists, sql, sum } from "drizzle-orm";
 import { z } from "zod";
-import { tasks, workspaceBlobs, workspaceSnapshots, type WorkspaceManifestEntry, type WorkspaceSnapshot } from "../schema";
+import { agentSessions, tasks, workspaceBlobs, workspaceSnapshots, type WorkspaceManifestEntry, type WorkspaceSnapshot } from "../schema";
 import { Id, parseInput, type Executor } from "./_shared";
 
 /** Control characters and the bidirectional marks and overrides that make a file name read differently from what it is. */
@@ -33,6 +33,7 @@ export function isSafeWorkspacePath(path: string): boolean {
 /** Contents one business may keep (deduplicated), and saves kept per task. */
 export const WORKSPACE_QUOTA_BYTES = 500 * 1024 * 1024;
 export const WORKSPACE_KEEP_SNAPSHOTS = 20;
+export const WORKSPACE_KEEP_YOUNGER_THAN_MS = 24 * 60 * 60 * 1000;
 
 export const SaveWorkspaceInput = z.object({
   taskId: Id,
@@ -65,6 +66,8 @@ export interface SaveWorkspaceResult {
 export interface SaveWorkspaceOptions {
   quotaBytes?: number;
   keepSnapshots?: number;
+  /** Snapshots younger than this are never pruned (a looping agent cannot push the history out in minutes). */
+  keepYoungerThanMs?: number;
 }
 
 export type WorkspaceSnapshotSummary = Omit<WorkspaceSnapshot, "files">;
@@ -95,6 +98,14 @@ const summaryColumns = {
   createdAt: workspaceSnapshots.createdAt,
   updatedAt: workspaceSnapshots.updatedAt,
 };
+
+/**
+ * Saves, forgets and sweeps of one business run one at a time, so a sweep never deletes contents a concurrent save
+ * found already stored. Transaction-scoped: callers pass a transaction (the orchestrator, `withRls`).
+ */
+async function lockBusiness(db: Executor, businessId: string): Promise<void> {
+  await db.execute(sql`select pg_advisory_xact_lock(hashtext(${`workspaces:${businessId}`}))`);
+}
 
 async function storedBytes(db: Executor, businessId: string): Promise<number> {
   const [row] = await db.select({ n: sum(workspaceBlobs.sizeBytes) }).from(workspaceBlobs).where(eq(workspaceBlobs.businessId, businessId));
@@ -185,6 +196,20 @@ export const workspacesRepo = {
       if (seen.has(file.path)) throw new ValidationError(`workspace path listed twice: ${file.path}`);
       seen.add(file.path);
     }
+    await lockBusiness(db, businessId);
+    // A session that started before the task's code was forgotten may hold the forgotten files (both times are the
+    // database's own clock).
+    if (f.sessionId) {
+      const [row] = await db
+        .select({ forgottenAt: tasks.codeForgottenAt, startedAt: agentSessions.startedAt })
+        .from(tasks)
+        .innerJoin(agentSessions, and(eq(agentSessions.businessId, tasks.businessId), eq(agentSessions.id, f.sessionId)))
+        .where(and(eq(tasks.businessId, businessId), eq(tasks.id, f.taskId)))
+        .limit(1);
+      if (row?.forgottenAt && row.startedAt < row.forgottenAt) {
+        return { snapshot: await workspacesRepo.latest(db, businessId, f.taskId), saved: false, added: 0, changed: 0, removed: 0, refused: "this task's saved code was forgotten after the session started", pruned: 0 };
+      }
+    }
     const previous = await workspacesRepo.latest(db, businessId, f.taskId);
     const entries: Array<WorkspaceManifestEntry & { content?: Uint8Array }> = f.files.map((file) => ({ path: file.path, sha256: sha256(file.content), size: file.content.byteLength, content: file.content }));
     if (f.carryOver) for (const e of previous?.files ?? []) if (!seen.has(e.path)) entries.push({ ...e });
@@ -245,13 +270,17 @@ export const workspacesRepo = {
       .values({ businessId, taskId: f.taskId, sessionId: f.sessionId ?? null, agentId: f.agentId ?? null, branch: f.branch ?? null, files, fileCount: files.length, totalBytes: files.reduce((s, e) => s + e.size, 0), added, changed, removed })
       .returning();
 
-    // Retention: the task keeps its newest snapshots; contents only the pruned ones used are swept.
-    const old = await db
-      .select({ id: workspaceSnapshots.id, files: workspaceSnapshots.files })
-      .from(workspaceSnapshots)
-      .where(and(eq(workspaceSnapshots.businessId, businessId), eq(workspaceSnapshots.taskId, f.taskId)))
-      .orderBy(desc(workspaceSnapshots.createdAt), desc(workspaceSnapshots.id))
-      .offset(keep);
+    // Retention: the task keeps its newest snapshots and everything from the last day (the quota still bounds both);
+    // contents only the pruned ones used are swept.
+    const youngest = Date.now() - (options.keepYoungerThanMs ?? WORKSPACE_KEEP_YOUNGER_THAN_MS);
+    const old = (
+      await db
+        .select({ id: workspaceSnapshots.id, files: workspaceSnapshots.files, createdAt: workspaceSnapshots.createdAt })
+        .from(workspaceSnapshots)
+        .where(and(eq(workspaceSnapshots.businessId, businessId), eq(workspaceSnapshots.taskId, f.taskId)))
+        .orderBy(desc(workspaceSnapshots.createdAt), desc(workspaceSnapshots.id))
+        .offset(keep)
+    ).filter((o) => o.createdAt.getTime() < youngest);
     if (old.length > 0) {
       await db.delete(workspaceSnapshots).where(and(eq(workspaceSnapshots.businessId, businessId), inArray(workspaceSnapshots.id, old.map((o) => o.id))));
       await sweepBlobs(db, businessId, [...new Set(old.flatMap((o) => o.files.map((e) => e.sha256)))]);
@@ -264,11 +293,14 @@ export const workspacesRepo = {
    * admins; RLS refuses anyone else), never an agent's. Returns how many snapshots and contents were deleted.
    */
   async forgetTask(db: Executor, businessId: string, taskId: string): Promise<{ snapshots: number; blobs: number }> {
+    await lockBusiness(db, businessId);
     const gone = await db
       .delete(workspaceSnapshots)
       .where(and(eq(workspaceSnapshots.businessId, businessId), eq(workspaceSnapshots.taskId, taskId)))
       .returning({ id: workspaceSnapshots.id, files: workspaceSnapshots.files });
     if (gone.length === 0) return { snapshots: 0, blobs: 0 };
+    // Sessions already running on the task may hold the forgotten files: they cannot save them back.
+    await db.update(tasks).set({ codeForgottenAt: sql`now()` }).where(and(eq(tasks.businessId, businessId), eq(tasks.id, taskId)));
     const blobs = await sweepBlobs(db, businessId, [...new Set(gone.flatMap((g) => g.files.map((e) => e.sha256)))]);
     return { snapshots: gone.length, blobs };
   },

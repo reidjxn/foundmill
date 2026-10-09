@@ -234,6 +234,15 @@ describe("recipients", () => {
     expect(asDeny(await g.client.call(allToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL } })).policyIds).toEqual(["untrusted-recipient"]);
     expect(g.seen.filter((s) => s.tool === "send_message").length - before).toBe(2);
 
+    // The register is per process: after a restart (or on another replica) the seed is gone, and the token's
+    // untrustedSeeded claim makes that session fail closed, while an unseeded session is unaffected.
+    g.recipients.clear(restored);
+    expect(asDeny(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "hello" } })).policyIds).toEqual(["untrusted-recipient"]);
+    asAllow(await g.client.call(await g.token({ sessionId: fresh }), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL } }));
+    // Tools that contact nobody still work.
+    asAllow(await g.client.call(seededToken, { connector: "test", tool: "note", args: { text: "x" } }));
+    expect(g.seen.filter((s) => s.tool === "send_message").length - before).toBe(3);
+
     const audit = await repos.audit.list(g.db, g.businessId, { action: "gateway.session_token.minted" });
     const seeds = audit.items.map((a) => a.details as { untrustedSeeded?: number; untrustedAll?: boolean }).filter((d) => d.untrustedSeeded !== undefined);
     expect(seeds).toEqual(expect.arrayContaining([expect.objectContaining({ untrustedSeeded: 2, untrustedAll: false }), expect.objectContaining({ untrustedSeeded: 0, untrustedAll: true })]));

@@ -107,13 +107,10 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
       });
       throw new GatewayError(STATE_ERROR_CODES[denial.policyId], denial.reasons[0] ?? denial.policyId, 403, { policyIds: [denial.policyId] });
     }
-    const minted = await mintSessionToken(secret, claims, ttl, now);
-    // Recipients found in what an earlier session left behind are untrusted here from the first call (§9.8 step 4).
-    let seeded = 0;
-    if (untrusted) {
-      if (untrusted.all) deps.recipients.markAll(claims.sessionId);
-      seeded = deps.recipients.record(claims.sessionId, toCandidates(untrusted));
-    }
+    // Recipients found in what an earlier session left behind are untrusted here from the first call (§9.8 step 4); the
+    // token records that a seed exists, so a replica without it fails closed.
+    const seeded = untrusted ? deps.recipients.seed(claims.sessionId, toCandidates(untrusted), untrusted.all) : 0;
+    const minted = await mintSessionToken(secret, { ...claims, untrustedSeeded: claims.untrustedSeeded || !!untrusted }, ttl, now);
     await repos.audit.append(deps.db, claims.businessId, {
       actorKind: "system",
       action: "gateway.session_token.minted",

@@ -280,7 +280,9 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     const candidates = candidatesFromArgs(args, req.context.recipient);
     recipient ??= candidates[0]?.value;
     suppressed = await anySuppressed(deps, session.businessId, candidates);
-    recipientFirstSeenInUntrusted = deps.recipients.firstSeenInUntrusted(session.sessionId, candidates).length > 0;
+    // A seeded session whose seed this replica does not hold (restart, another replica) fails closed.
+    const seedMissing = session.untrustedSeeded && !deps.recipients.isSeeded(session.sessionId);
+    recipientFirstSeenInUntrusted = candidates.length > 0 && (seedMissing || deps.recipients.firstSeenInUntrusted(session.sessionId, candidates).length > 0);
   }
 
   return {

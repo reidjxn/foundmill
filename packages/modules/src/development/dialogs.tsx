@@ -92,7 +92,7 @@ export function ForgetCodeDialog({ open, onOpenChange, taskTitle, pending, error
       <DialogContent size="sm" aria-describedby={`${id}-desc`}>
         <DialogHeader>
           <DialogTitle>Forget saved code</DialogTitle>
-          <DialogDescription id={`${id}-desc`}>Every saved session of “{taskTitle}” is deleted for good, and the next session on the task starts from an empty folder. Use this when the code holds something that must not be kept.</DialogDescription>
+          <DialogDescription id={`${id}-desc`}>Every saved session of “{taskTitle}” is deleted for good. Sessions running on the task now cannot save it back, and the next one starts from an empty folder. A file another task saved with the same contents stays with that task.</DialogDescription>
         </DialogHeader>
         <DialogBody>
           <InlineError error={error} />

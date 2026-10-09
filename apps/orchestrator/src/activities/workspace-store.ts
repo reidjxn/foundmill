@@ -103,7 +103,15 @@ export const STARTUP_FILES: readonly string[] = [
 ];
 
 /** File names that hold credentials wherever they are; `.env.example` and friends are templates and are kept. */
-const SECRET_FILE = /^(\.env(\..+)?|.+\.(pem|key|p12|pfx|jks|keystore)|id_(rsa|dsa|ecdsa|ed25519)|\.npmrc|\.pypirc|\.netrc|\.git-credentials|\.htpasswd|credentials)$/i;
+const SECRET_FILE = /^(\.env(\..+)?|\.envrc|\.dev\.vars|.+\.(pem|key|p12|pfx|jks|keystore|tfvars|tfstate|tfstate\.backup)|id_(rsa|dsa|ecdsa|ed25519)|\.npmrc|\.pypirc|\.netrc|\.git-credentials|\.htpasswd|credentials)$/i;
+/**
+ * Credentials founders paste into code tasks that `LONG_LIVED_VALUE_PATTERNS` leaves alone (it also vets sandbox
+ * environments, where a short-lived JWT is expected): any JWT, Supabase secret keys.
+ */
+const WORKSPACE_SECRET_VALUES: readonly { id: string; value: RegExp }[] = [
+  { id: "value.jwt", value: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g },
+  { id: "value.supabase_secret", value: /\bsb_secret_[A-Za-z0-9_-]{16,}/g },
+];
 const SECRET_TEMPLATE = /^\.env\.(example|sample|template|dist|defaults)$/i;
 /** Restore reads and writes at most this many bytes of contents at a time. */
 export const RESTORE_BATCH_BYTES = 8 * 1024 * 1024;
@@ -127,10 +135,19 @@ export function restorablePath(rel: string): boolean {
 }
 
 /** Text files only: a NUL byte near the start means binary. */
-function asText(content: Uint8Array): string | null {
-  const head = content.subarray(0, 8192);
-  if (head.includes(0)) return null;
-  return new TextDecoder("utf-8").decode(content);
+function isText(content: Uint8Array): boolean {
+  return !content.subarray(0, 8192).includes(0);
+}
+
+/**
+ * Everything readable in a file, for scanning (never for storing): UTF-16 when it starts with a byte-order mark, else
+ * lenient UTF-8. NULs are read twice, as separators (so binary bytes never glue onto an address) and removed (so NULs
+ * interleaved in an address cannot hide it).
+ */
+function scanText(content: Uint8Array): string {
+  const bom = content.length >= 2 && ((content[0] === 0xff && content[1] === 0xfe) || (content[0] === 0xfe && content[1] === 0xff));
+  const text = new TextDecoder(bom ? (content[0] === 0xff ? "utf-16le" : "utf-16be") : "utf-8").decode(content);
+  return text.includes("\u0000") ? `${text.replaceAll("\u0000", " ")}\n${text.replaceAll("\u0000", "")}` : text;
 }
 
 /** Group manifest entries into batches of at most `maxBytes` (a larger file is a batch of its own). */
@@ -175,16 +192,20 @@ export async function restoreWorkspace(db: Db, businessId: string, taskId: strin
       }
       written++;
       bytes += file.content.byteLength;
-      const text = asText(file.content);
-      if (text) {
-        const c = extractCandidateRecipients(text);
-        for (const v of c.emails) found.emails.add(v);
-        for (const v of c.urls) found.urls.add(v);
-        for (const v of c.phones) found.phones.add(v);
-      }
+      collect(found, scanText(file.content));
     }
   }
+  // File names are visible to the agent too (Glob, Read errors): `notes/ops@evil.example.md` counts, with and without
+  // its extension.
+  collect(found, entries.flatMap((e) => [e.path, e.path.replace(/\.[^./]*$/, "")]).join("\n"));
   return { files: written, bytes, savedAt: snapshot.createdAt, recipients: toSeed(found) };
+}
+
+function collect(found: { emails: Set<string>; urls: Set<string>; phones: Set<string> }, text: string): void {
+  const c = extractCandidateRecipients(text);
+  for (const v of c.emails) found.emails.add(v);
+  for (const v of c.urls) found.urls.add(v);
+  for (const v of c.phones) found.phones.add(v);
 }
 
 /** The mint request's seed: every value, or `all` when there are too many or one is too long to send. */
@@ -195,9 +216,10 @@ function toSeed(found: { emails: Set<string>; urls: Set<string>; phones: Set<str
   return { emails: [...found.emails], urls: [...found.urls], phones: [...found.phones], all: false };
 }
 
-/** Mask credential-shaped values and the session's own secrets in a text file; null when there is nothing to mask. */
+/** Mask credential-shaped values and the session's own secrets in text; null when there is nothing to mask. */
 function maskSecrets(text: string, secrets: readonly string[]): string | null {
   let out = redactCredentialValues(text);
+  for (const p of WORKSPACE_SECRET_VALUES) out = out.replace(p.value, `[redacted:${p.id}]`);
   for (const secret of secrets) if (secret.length >= 16) out = out.split(secret).join("[redacted:session-secret]");
   return out === text ? null : out;
 }
@@ -213,14 +235,18 @@ export async function saveWorkspace(db: Db, owner: WorkspaceOwner, cwd: string, 
     if (!isSafeWorkspacePath(f.rel)) leftOut.push({ path: f.rel, reason: "name" });
     else if (isStartupFile(f.rel)) leftOut.push({ path: f.rel, reason: "startup" });
     else if (isSecretFileName(f.rel)) leftOut.push({ path: f.rel, reason: "secret" });
-    else {
-      const text = asText(f.content);
-      const clean = text === null ? null : maskSecrets(text, options.secrets ?? []);
+    else if (!isText(f.content)) {
+      // A binary file cannot be masked without breaking it: one that holds a credential is left out instead.
+      if (maskSecrets(scanText(f.content), options.secrets ?? []) !== null) leftOut.push({ path: f.rel, reason: "secret" });
+      else files.push({ path: f.rel, content: f.content });
+    } else {
+      const clean = maskSecrets(new TextDecoder("utf-8").decode(f.content), options.secrets ?? []);
       if (clean !== null) masked.push(f.rel);
       files.push({ path: f.rel, content: clean === null ? f.content : new TextEncoder().encode(clean) });
     }
   }
-  const result = await repos.workspaces.save(db, owner.businessId, { taskId: owner.taskId, sessionId: owner.sessionId, agentId: owner.agentId, branch: owner.branch, files, carryOver: options.carryOver });
+  // One transaction: the repo serialises the business's saves, forgets and sweeps with a transaction-scoped lock.
+  const result = await db.transaction((tx) => repos.workspaces.save(tx, owner.businessId, { taskId: owner.taskId, sessionId: owner.sessionId, agentId: owner.agentId, branch: owner.branch, files, carryOver: options.carryOver }));
   if (result.refused) return { status: "refused", reason: result.refused, leftOut, masked };
   const bytes = files.reduce((s, f) => s + f.content.byteLength, 0);
   return { status: result.saved ? "saved" : "unchanged", files: files.length, bytes, added: result.added, changed: result.changed, removed: result.removed, leftOut, masked };
