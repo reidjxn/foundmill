@@ -22,6 +22,7 @@ import {
   ComposerOutput,
   CyclePlanOutput,
   DepartmentLeadOutput,
+  FoundationsOutput,
   IdeationOutput,
   LinkerOutput,
   ModerationOutput,
@@ -38,6 +39,7 @@ import { generateCategoriser, generateClassifier } from "./classifier";
 import { generateCoach } from "./coach";
 import { generateCodeReview } from "./codeReview";
 import { generateDepartmentLead } from "./departmentLead";
+import { generateFoundations } from "./foundations";
 import { generateIdeation } from "./ideation";
 import { generateInboxComposer } from "./inboxComposer";
 import { type MockContext, buildMockContext, keywords } from "./inputs";
@@ -69,6 +71,7 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   planner: { route: "planner", description: "Roadmap items → task graph with acceptance criteria, test expectations, file-scope hints and dependencies.", schema: TaskGraphOutput, generate: generatePlanner },
   codeReview: { route: "codeReview", description: "Deterministic review of a unified diff against the platform rules.", schema: CodeReviewOutput, generate: generateCodeReview },
   ideation: { route: "ideation", description: "6–12 concept cards with 10 attributes (1–20), evidence and ≥ 2 citations, seeded by the prompt.", schema: IdeationOutput, generate: generateIdeation },
+  foundations: { route: "foundations", description: "Vision, Tiptap content for every outline section and a Now/Next/Later roadmap from the idea or the Import report; imported issues become roadmap items; figures labelled.", schema: FoundationsOutput, generate: generateFoundations },
   skillGrader: { route: "skillGrader", description: "Rubric grading 0–1 per line; deterministic checks are authoritative.", schema: SkillGradeOutput, generate: generateSkillGrader },
   coach: { route: "coach", description: "Up to 3 instruction diffs for the focus skills; never weakens house rules.", schema: CoachOutput, generate: generateCoach },
   worker: { route: "worker", description: "Generic Sonnet worker: a stepwise plan and artefact list for a task.", schema: WorkerOutput, generate: generateWorker },
@@ -242,6 +245,7 @@ export { synthesizeFromZod, synthesizeFromJsonSchema } from "./synth";
 export { compilePlanRuleBased, detectAmounts, detectChannels, detectHardGates, detectAudience, detectTimeframe, inferTaskKind, type PlanCompilerContext, type HardGate, type DetectedAmount } from "./planCompiler";
 export { generateInboxComposer } from "./inboxComposer";
 export { generateIdeation } from "./ideation";
+export { generateFoundations } from "./foundations";
 export { generateChiefOfStaff, readTasks, scoreTask } from "./chiefOfStaff";
 export { generateDepartmentLead } from "./departmentLead";
 export { generatePlanner } from "./planner";

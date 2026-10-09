@@ -1,0 +1,223 @@
+/**
+ * Mock foundations drafter (BUILD §11.1 first open, §11.5): the vision, content for every outline section in Tiptap
+ * JSON, and a Now / Next / Later roadmap, shaped by the real input (packages/agents `buildFoundationsRequest`):
+ * the business, the outline, the idea and founder profile (Door A), and the Import report with its roadmap seeds
+ * (Door B, read from the `imported` block inside the untrusted wrapper). Deterministic in the input; every figure that
+ * is not in the input carries "Estimate" or "Forecast".
+ */
+import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
+import type { FoundationsOutput, FoundationsRoadmapItem, FoundationsSection, TiptapBlock, TiptapDoc, TiptapParagraph } from "../schemas";
+import { type MockContext, isRecord, keywords, sentenceCase, truncate } from "./inputs";
+
+const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => str(x)).filter((x): x is string => Boolean(x)) : []);
+const records = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isRecord) : []);
+const pick = (r: Record<string, unknown> | undefined, ...keys: string[]): unknown => {
+  if (!r) return undefined;
+  for (const k of keys) if (r[k] !== undefined) return r[k];
+  return undefined;
+};
+
+const text = (t: string): TiptapParagraph => ({ type: "paragraph", content: [{ type: "text", text: t }] });
+const lead = (label: string, t: string): TiptapParagraph => ({ type: "paragraph", content: [{ type: "text", text: `${label} `, marks: [{ type: "bold" }] }, { type: "text", text: t }] });
+const heading = (t: string, level = 3): TiptapBlock => ({ type: "heading", attrs: { level }, content: [{ type: "text", text: t }] });
+const bullets = (items: string[]): TiptapBlock => ({ type: "bulletList", content: items.map((i) => ({ type: "listItem", content: [text(i)] })) });
+const doc = (...content: TiptapBlock[]): TiptapDoc => ({ type: "doc", content });
+
+const NORTH_STAR: Record<Archetype, { metric: string; definition: string; unit: string; range: [number, number] }> = {
+  b2b_saas: { metric: "Weekly active paying teams", definition: "Paying teams with at least one member who completed the core workflow in the last seven days.", unit: "paying teams", range: [20, 60] },
+  consumer_app: { metric: "Weekly activated users", definition: "Users who reached the activation event at least once in the last seven days.", unit: "weekly activated users", range: [500, 3000] },
+  marketplace: { metric: "Completed transactions per week", definition: "Transactions paid by a buyer and confirmed by a seller in the last seven days.", unit: "transactions a week", range: [40, 200] },
+  dtc_physical: { metric: "Repeat orders per month", definition: "Orders from customers who had already ordered at least once, per calendar month.", unit: "repeat orders a month", range: [80, 400] },
+  hardware: { metric: "Units in active use", definition: "Shipped units that reported data in the last seven days.", unit: "units in active use", range: [50, 300] },
+  services: { metric: "Retained clients per month", definition: "Clients billed this month who were also billed last month.", unit: "retained clients", range: [8, 30] },
+  content_media: { metric: "Paying subscribers", definition: "Subscribers on a paid plan at the end of the week.", unit: "paying subscribers", range: [150, 900] },
+};
+
+const DEFAULT_AUDIENCE: Record<Archetype, string> = {
+  b2b_saas: "small teams that run the work by hand today",
+  consumer_app: "people who want a habit to stick",
+  marketplace: "independent providers and the buyers looking for them",
+  dtc_physical: "customers who care about what goes into the product",
+  hardware: "operators who need a reliable measurement",
+  services: "small businesses without an in-house specialist",
+  content_media: "professionals who want a trusted weekly read",
+};
+
+const PRICE: Record<Archetype, string> = {
+  b2b_saas: "€49 per team per month",
+  consumer_app: "€6 per month or €48 a year",
+  marketplace: "a 10% commission on completed transactions",
+  dtc_physical: "€34 per unit, €29 on subscription",
+  hardware: "€249 per unit plus €9 per month for the service",
+  services: "a fixed €1,200 monthly retainer",
+  content_media: "€8 per month or €80 a year",
+};
+
+const BASE_OUTLINE = ["Problem", "Customers", "Value proposition", "Features", "Non-functional requirements", "Data", "Integrations", "Pricing", "Metrics", "Risks"];
+
+interface Brief {
+  name: string;
+  archetype: Archetype;
+  archetypeLabel: string;
+  audience: string;
+  outcome: string;
+  pitch: string;
+  markets: string;
+  constraints: string[];
+  strengths: string[];
+  risks: string[];
+  seeds: { title: string; source: string }[];
+  imported: boolean;
+  missing: string[];
+  exists: string[];
+}
+
+function readBrief(ctx: MockContext): Brief {
+  const business = ctx.getRecord("business");
+  const idea = ctx.getRecord("idea");
+  const founder = ctx.getRecord("founder", "founder_profile");
+  const imported = ctx.getRecord("imported");
+  const report = isRecord(imported?.report) ? imported.report : undefined;
+  const archetypeRaw = str(pick(business, "archetype")) ?? str(pick(idea, "archetype"));
+  const archetype: Archetype = (ARCHETYPES as readonly string[]).includes(archetypeRaw ?? "") ? (archetypeRaw as Archetype) : "b2b_saas";
+  const name = str(pick(business, "name")) ?? str(pick(idea, "title")) ?? str(pick(report, "suggested_name", "suggestedName")) ?? (keywords(ctx.userText, 1)[0] ? sentenceCase(keywords(ctx.userText, 1)[0]!) : "The business");
+  const pitch = str(pick(idea, "pitch")) ?? str(pick(report, "summary")) ?? `${name} is a ${ARCHETYPE_LABELS[archetype]} business.`;
+  const helps = /helps\s+(.+?)\s+(cut|see|stop|get|replace|turn|prove|run|find|keep|save|ship|sell|book|learn|reach)\s+([^.,;]+)/i.exec(pitch);
+  const audience = helps ? helps[1]!.trim() : DEFAULT_AUDIENCE[archetype];
+  const outcome = helps ? `${helps[2]!.toLowerCase()} ${helps[3]!.trim()}` : "get the result they came for with less effort";
+  const markets = strings(pick(founder, "target_markets", "targetMarkets"));
+  const attributes = records(pick(idea, "attributes"))
+    .map((a) => ({ label: str(a.label) ?? str(a.key) ?? "", value: typeof a.value === "number" ? a.value : 10, evidence: str(a.evidence) }))
+    .filter((a) => a.label);
+  const sorted = [...attributes].sort((a, b) => b.value - a.value);
+  const strengths = [...sorted.slice(0, 2).map((a) => `${a.label}: ${a.evidence ?? "scored high on the concept card"}`), ...strings(pick(report, "strengths")).slice(0, 2)];
+  const risks = [...sorted.slice(-2).reverse().map((a) => `${a.label} is the weakest attribute on the concept card${a.evidence ? `: ${a.evidence}` : ""}`), ...strings(pick(report, "weaknesses")).slice(0, 2)];
+  const seeds = records(pick(report, "roadmap_seeds", "roadmapSeeds"))
+    .map((s) => ({ title: str(s.title) ?? "", source: str(s.source) ?? "" }))
+    .filter((s) => s.title);
+  return {
+    name,
+    archetype,
+    archetypeLabel: ARCHETYPE_LABELS[archetype],
+    audience,
+    outcome,
+    pitch,
+    markets: markets.length ? markets.join(", ") : "its first market",
+    constraints: strings(pick(founder, "constraints")),
+    strengths: strengths.length ? strengths : [`A clear ${ARCHETYPE_LABELS[archetype]} model with a short path to a first customer`],
+    risks: risks.length ? risks : ["Distribution: the first channel that reaches customers at an acceptable cost is not proven yet"],
+    seeds,
+    imported: str(ctx.get("door")) === "import" || Boolean(report),
+    missing: strings(pick(report, "what_is_missing", "whatIsMissing")),
+    exists: strings(pick(report, "what_exists", "whatExists")),
+  };
+}
+
+function outlineOf(ctx: MockContext): string[] {
+  const raw = ctx.getArray<unknown>("outline", "sections", "spec_outline");
+  const names = raw.map((r) => (typeof r === "string" ? r : isRecord(r) ? str(r.section) ?? str(r.name) : undefined)).filter((x): x is string => Boolean(x));
+  return names.length ? [...new Set(names)] : BASE_OUTLINE;
+}
+
+const FEATURES = (b: Brief): { title: string; story: string; criteria: string[] }[] => [
+  { title: "Guided first run", story: `As one of ${b.audience}, I want to reach a first result in one session, so that I see the value before I pay.`, criteria: ["A new account reaches the first result without help", "Every step can be resumed after closing the tab"] },
+  { title: "The core workflow", story: `As a returning user, I want ${b.name} to ${b.outcome}, so that I stop doing it by hand.`, criteria: ["The workflow completes end to end with real data", "Errors say what happened and what to do next"] },
+  { title: "Weekly summary", story: "As a customer, I want a short weekly summary of what changed, so that I know the product is working for me.", criteria: ["The summary is sent once a week to every active account", "Each figure in it links to its source"] },
+];
+
+function sectionDoc(section: string, b: Brief): TiptapDoc {
+  const key = section.toLowerCase();
+  const ns = NORTH_STAR[b.archetype];
+  if (key.includes("problem"))
+    return doc(text(`${sentenceCase(b.audience)} cannot ${b.outcome} without slow, manual work today. ${b.pitch}`), bullets([`The job is done by hand or with tools that were not built for it`, `Mistakes are found late, when they are expensive`, ...(b.imported && b.missing.length ? [`From the import: ${b.missing[0]}`] : [])]));
+  if (key.includes("customer"))
+    return doc(lead("Primary segment:", `${b.audience} in ${b.markets}.`), bullets([`Early adopters: the ones who already pay for a workaround`, `Buyer and user are the same person at first`, `Not for: large organisations with their own team for this`]));
+  if (key.includes("value"))
+    return doc(text(`${b.name} helps ${b.audience} ${b.outcome}.`), bullets([...b.strengths.slice(0, 3), "Agents do the repetitive work; the customer keeps every decision"]));
+  if (key.includes("feature"))
+    return doc(
+      text(`The first release is the smallest product that delivers the value proposition end to end.${b.seeds.length ? ` It also absorbs ${b.seeds.length} open issues from the imported backlog.` : ""}`),
+      ...FEATURES(b).flatMap((f) => [heading(f.title), text(f.story), lead("Acceptance criteria:", f.criteria.join("; ") + ".")] as TiptapBlock[]),
+      ...(b.seeds.length ? [heading("From the imported backlog"), bullets(b.seeds.map((s) => `${s.title} (${s.source})`))] : []),
+    );
+  if (key.includes("non-functional") || key.includes("nonfunctional"))
+    return doc(bullets(["Pages answer within one second for a normal account", "Customer data stays in the EU and is encrypted at rest", "Keyboard access and readable contrast on every screen", "Every action an agent takes is logged and reversible where possible"]));
+  if (key === "data" || key.startsWith("data"))
+    return doc(text("The product keeps only what the workflow needs."), bullets(["Accounts, members and their roles", "The records the core workflow creates, with their history", "Usage events for the north-star metric"]));
+  if (key.includes("integration"))
+    return doc(bullets([...(b.imported && b.exists.some((e) => /github/i.test(e)) ? ["GitHub: the existing repository is the starting point for Development"] : []), "Stripe for payments (test mode until the founder approves going live)", "Email for sign-up, receipts and the weekly summary"]));
+  if (key.includes("pric"))
+    return doc(text(`Starting price: ${PRICE[b.archetype]} (Estimate).`), bullets(["One plan at launch; tiers once usage shows where value concentrates", "A free trial long enough to reach the first result", "Annual billing at two months free once retention is proven"]));
+  if (key.includes("metric")) {
+    const target = Math.round((ns.range[0] + ns.range[1]) / 2);
+    return doc(lead("North star:", `${ns.metric}. ${ns.definition}`), bullets([`Target: ${target} ${ns.unit} by the end of the second chapter (Forecast)`, "Activation rate of new accounts in their first week", "Cost per paying customer by channel"]));
+  }
+  if (key.includes("risk")) return doc(bullets(b.risks.slice(0, 4)));
+  if (key.includes("onboarding") || key.includes("activation")) return doc(text("Activation is the first time a new user completes the core workflow."), bullets(["Ask for the minimum at sign-up", "Show progress towards the first result", "Nudge once by email if the user stops halfway"]));
+  if (key.includes("retention")) return doc(bullets(["The weekly summary brings users back", "Saved work makes the second session faster than the first", "Streaks are never used to pressure the user"]));
+  if (key.includes("supply")) return doc(text("Supply is recruited by hand first, then through referrals."), bullets(["Verified profiles before the first listing goes live", "Fair, visible fees"]));
+  if (key.includes("demand")) return doc(text("Demand starts in one city or niche where supply is dense enough."), bullets(["Search that returns a useful result on day one", "Reviews from verified transactions only"]));
+  if (key.includes("matching") || key.includes("trust")) return doc(bullets(["Payment held until both sides confirm", "A dispute route with a clear deadline", "Identity checks for providers"]));
+  if (key.includes("formulation") || key.includes("bom")) return doc(text("The first formulation and bill of materials are agreed with a contract manufacturer."), bullets(["Every component has a supplier quote or is marked Estimate", "Two suppliers for each critical component"]));
+  if (key.includes("manufactur")) return doc(bullets(["Samples before the first production run", "A minimum order quantity the budget can carry", "Quality checks agreed in writing"]));
+  if (key.includes("packag")) return doc(bullets(["Packaging that survives the post", "Labels that meet the rules of every target market"]));
+  if (key.includes("complian")) return doc(bullets(["List the regulations per target market before launch", "Keep test reports and declarations with their dates"]));
+  if (key.includes("fulfil")) return doc(bullets(["One fulfilment partner at launch", "Delivery promise shown at checkout"]));
+  if (key.includes("firmware") || key.includes("app")) return doc(bullets(["Updates over the air with a rollback", "The app works offline and syncs later"]));
+  return doc(text(`What ${b.name} needs for ${section.toLowerCase()} at launch.`), bullets(["Decide the minimum for the first customer", "List the open questions as research tasks"]));
+}
+
+function roadmapOf(b: Brief, outline: string[]): FoundationsRoadmapItem[] {
+  const has = (word: string) => outline.find((s) => s.toLowerCase().includes(word));
+  const features = has("feature") ?? outline[0]!;
+  const metrics = has("metric");
+  const pricing = has("pric");
+  const customers = has("customer");
+  const ns = NORTH_STAR[b.archetype];
+  const [f1, f2, f3] = FEATURES(b);
+  const items: FoundationsRoadmapItem[] = [
+    { title: f1!.title, description: f1!.story, horizon: "now", sections: [features], acceptance_criteria: f1!.criteria, source_ref: null, confidence: 4 },
+    { title: f2!.title, description: f2!.story, horizon: "now", sections: [features], acceptance_criteria: f2!.criteria, source_ref: null, confidence: 3 },
+    { title: `Instrument ${ns.metric.toLowerCase()}`, description: `Record the events behind the north-star metric so progress is measured from day one.`, horizon: "now", sections: metrics ? [metrics] : [], acceptance_criteria: ["The metric is computed daily from real events", "The Home dashboard shows it with its definition"], source_ref: null, confidence: 4 },
+  ];
+  b.seeds.slice(0, 12).forEach((s, i) =>
+    items.push({ title: s.title, description: `Imported from ${s.source}. Confirm the scope before it moves to Now.`, horizon: i < 2 ? "now" : "next", sections: [features], acceptance_criteria: [`The issue's expected behaviour is covered by a test`, `${s.source} can be closed with a link to the change`], source_ref: s.source, confidence: 3 }),
+  );
+  items.push(
+    { title: f3!.title, description: f3!.story, horizon: "next", sections: [features], acceptance_criteria: f3!.criteria, source_ref: null, confidence: 3 },
+    { title: "Pricing experiment", description: `Test ${PRICE[b.archetype]} (Estimate) against one alternative with new sign-ups.`, horizon: "later", sections: pricing ? [pricing] : [], acceptance_criteria: [], source_ref: null, confidence: 2 },
+    { title: "Second customer segment", description: `Decide whether to widen beyond ${b.audience} once the first segment retains.`, horizon: "later", sections: customers ? [customers] : [], acceptance_criteria: [], source_ref: null, confidence: 2 },
+  );
+  return items;
+}
+
+export function generateFoundations(ctx: MockContext): FoundationsOutput {
+  const b = readBrief(ctx);
+  const outline = outlineOf(ctx);
+  const ns = NORTH_STAR[b.archetype];
+  const target = ctx.rng.int(ns.range[0], ns.range[1]);
+  const sections: FoundationsSection[] = outline.map((section) => ({
+    section,
+    content: sectionDoc(section, b),
+    source_refs: [...(b.imported ? ["Import report"] : ["Concept card"]), ...(section.toLowerCase().includes("feature") ? b.seeds.slice(0, 4).map((s) => s.source).filter(Boolean) : [])],
+  }));
+  return {
+    vision: {
+      statement: truncate(`${b.name} exists so that ${b.audience} can ${b.outcome}.`, 600),
+      for_whom: truncate(`${sentenceCase(b.audience)} in ${b.markets}${b.constraints.length ? `, served within the founder's constraints (${b.constraints.slice(0, 2).join("; ")})` : ""}.`, 600),
+      problem: truncate(`${sentenceCase(b.audience)} lose time and money doing this by hand, and the tools they have were built for someone else. ${b.risks[0] ?? ""}`.trim(), 1000),
+      why_now: truncate(`AI agents can now do the repetitive part of the work reliably and cheaply, so a small team can serve this market well.${b.imported && b.exists.length ? ` ${b.name} is not starting from zero: ${b.exists.length} imported sources already describe the product and its customers.` : ""}`, 1000),
+      principles: [
+        { title: "First customer before scale", detail: "Every piece of work in the first chapter must move a real customer closer to paying." },
+        { title: "Agents act, the founder decides", detail: "The team does the work inside clear limits; spending, signing and anything irreversible waits for the founder." },
+        { title: "Every number has a source or a label", detail: "Facts cite where they came from; anything else says Estimate or Forecast." },
+        { title: "Small, measured steps", detail: "Ship the smallest useful change, measure it, then widen." },
+      ],
+      north_star: { metric: ns.metric, definition: ns.definition, target: `${target} ${ns.unit} by the end of the second chapter (Forecast)`, label: "Forecast" },
+    },
+    sections,
+    roadmap: roadmapOf(b, outline),
+    open_questions: [`Which channel reaches ${b.audience} at an acceptable cost?`, "What would make a first customer pay on day one rather than after a trial?"],
+  };
+}

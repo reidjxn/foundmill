@@ -206,6 +206,24 @@ export const ROADMAP_HORIZONS = ["now", "next", "later"] as const;
 export const RoadmapHorizon = z.enum(ROADMAP_HORIZONS);
 export type RoadmapHorizon = (typeof ROADMAP_HORIZONS)[number];
 
+/**
+ * A business's foundations (vision, specification, roadmap; BUILD §11.1, §11.5): pending at commit, drafting from the
+ * first open, then ready or failed (a failed draft can be retried).
+ */
+export const FOUNDATIONS_STATUSES = ["pending", "drafting", "ready", "failed"] as const;
+export const FoundationsStatus = z.enum(FOUNDATIONS_STATUSES);
+export type FoundationsStatus = (typeof FOUNDATIONS_STATUSES)[number];
+
+/** Which door the business came through: the Ideation Studio (Door A) or Import (Door B). */
+export const FOUNDATIONS_DOORS = ["ideation", "import"] as const;
+export const FoundationsDoor = z.enum(FOUNDATIONS_DOORS);
+export type FoundationsDoor = (typeof FOUNDATIONS_DOORS)[number];
+
+/** Where the drafting runs: the orchestrator's `businessFoundations` workflow, or in the api when Temporal is unreachable. */
+export const FOUNDATIONS_RUNNERS = ["temporal", "local"] as const;
+export const FoundationsRunner = z.enum(FOUNDATIONS_RUNNERS);
+export type FoundationsRunner = (typeof FOUNDATIONS_RUNNERS)[number];
+
 export const INTEGRATION_STATUSES = ["connected", "degraded", "expired", "disconnected", "mock"] as const;
 export const IntegrationStatus = z.enum(INTEGRATION_STATUSES);
 export type IntegrationStatus = (typeof INTEGRATION_STATUSES)[number];

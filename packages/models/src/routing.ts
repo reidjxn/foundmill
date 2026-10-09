@@ -18,6 +18,8 @@ export const ROUTES = {
   planner: { model: "opus" },
   codeReview: { model: "opus" },
   ideation: { model: "opus" },
+  // Vision, first specification and first roadmap, drafted once when a new business is first opened (BUILD §11.1, §11.5).
+  foundations: { model: "opus" },
   skillGrader: { model: "opus" },
   coach: { model: "opus" },
   worker: { model: "sonnet" },
