@@ -1,7 +1,7 @@
 "use client";
-/** Dialogs the Training Ground and Plan tabs share: Reassign, Stop and discard, Open in Claude Code. */
+/** Dialogs the development tabs share: Reassign, Stop and discard, Open in Claude Code, Forget saved code. */
 import { useId, useState } from "react";
-import { ExternalLink, Square, UserRoundCog } from "lucide-react";
+import { ExternalLink, Square, Trash2, UserRoundCog } from "lucide-react";
 import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, KeyValueList, SimpleSelect, Skeleton, Textarea } from "@foundmill/dugout";
 import { useWidgetQuery } from "@foundmill/widgets";
 import { InlineError, errorMessage } from "./shared";
@@ -77,6 +77,32 @@ export function StopDialog({ open, onOpenChange, taskTitle, pending, error, onCo
           </Button>
           <Button variant="danger" icon={Square} loading={pending} onClick={onConfirm}>
             Stop and discard
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Forget a task's saved code (Development › Code): every saved session goes, for good. Owners and admins only. */
+export function ForgetCodeDialog({ open, onOpenChange, taskTitle, pending, error, onConfirm }: StopDialogProps) {
+  const id = useId();
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="sm" aria-describedby={`${id}-desc`}>
+        <DialogHeader>
+          <DialogTitle>Forget saved code</DialogTitle>
+          <DialogDescription id={`${id}-desc`}>Every saved session of “{taskTitle}” is deleted for good, and the next session on the task starts from an empty folder. Use this when the code holds something that must not be kept.</DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          <InlineError error={error} />
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Keep it
+          </Button>
+          <Button variant="danger" icon={Trash2} loading={pending} onClick={onConfirm}>
+            Forget saved code
           </Button>
         </DialogFooter>
       </DialogContent>

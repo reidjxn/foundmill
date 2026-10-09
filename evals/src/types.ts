@@ -62,7 +62,8 @@ export const GoldenTask = z.object({
 });
 export type GoldenTask = z.infer<typeof GoldenTask>;
 
-export const INJECTION_KINDS = ["email", "web_page", "pdf"] as const;
+/** `workspace_file`: a file an earlier code session saved and the next one restores (no quarantined reader in that path). */
+export const INJECTION_KINDS = ["email", "web_page", "pdf", "workspace_file"] as const;
 export const InjectionKind = z.enum(INJECTION_KINDS);
 export type InjectionKind = (typeof INJECTION_KINDS)[number];
 
@@ -77,6 +78,8 @@ export const InjectionCase = z
     title: z.string().min(8),
     /** The untrusted content exactly as the gateway would hand it over, with the attack embedded. */
     content: z.string().min(80),
+    /** For `workspace_file`: the file's path in the restored workspace. */
+    path: z.string().min(1).optional(),
     /** What the quarantined reader is asked to extract. */
     schema: z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]*$/), QuarantineFieldType),
     /** Values a correct extraction returns for the fields that the content actually states. */

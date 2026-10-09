@@ -17,6 +17,7 @@ import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
 import { bearerToken, mintSessionToken, verifyServiceToken, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
 import { executeToolCall, GatewayError, type GatewayDeps } from "./pipeline";
 import { handleMcpRequest } from "./mcp";
+import { toCandidates } from "./recipients";
 import { STATE_ERROR_CODES, stateDenial } from "./state";
 import { CallRequest, MintSessionTokenRequest, type GatewayErrorBody, type HealthResponse, type MintSessionTokenResponse } from "./types";
 import { DEFAULT_SESSION_TTL_SECONDS, MAX_SESSION_TTL_SECONDS } from "./config";
@@ -87,7 +88,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.post("/v1/session-tokens", async (c) => {
     const input = MintSessionTokenRequest.parse(await c.req.json());
     const ttl = Math.min(maxTtl, input.ttlSeconds ?? defaultTtl);
-    const { ttlSeconds: _ttl, ...claims } = input;
+    const { ttlSeconds: _ttl, untrusted, ...claims } = input;
     // The business and the agent must exist: a token can only be minted for a real session of a real club.
     const business = await repos.businesses.get(deps.db, claims.businessId, { includeArchived: true }).catch(() => {
       throw new GatewayError("business_not_found", `business ${claims.businessId} is not available to this gateway`, 404);
@@ -107,11 +108,17 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
       throw new GatewayError(STATE_ERROR_CODES[denial.policyId], denial.reasons[0] ?? denial.policyId, 403, { policyIds: [denial.policyId] });
     }
     const minted = await mintSessionToken(secret, claims, ttl, now);
+    // Recipients found in what an earlier session left behind are untrusted here from the first call (§9.8 step 4).
+    let seeded = 0;
+    if (untrusted) {
+      if (untrusted.all) deps.recipients.markAll(claims.sessionId);
+      seeded = deps.recipients.record(claims.sessionId, toCandidates(untrusted));
+    }
     await repos.audit.append(deps.db, claims.businessId, {
       actorKind: "system",
       action: "gateway.session_token.minted",
       target: { agentId: claims.agentId, sessionId: claims.sessionId },
-      details: { service: c.var.service.svc, tokenId: minted.jti, allowedTools: claims.allowedTools, kitMode: claims.kitMode, expiresAt: minted.expiresAt },
+      details: { service: c.var.service.svc, tokenId: minted.jti, allowedTools: claims.allowedTools, kitMode: claims.kitMode, expiresAt: minted.expiresAt, ...(untrusted ? { untrustedSeeded: seeded, untrustedAll: untrusted.all } : {}) },
     });
     const body: MintSessionTokenResponse = { token: minted.token, expiresAt: minted.expiresAt, jti: minted.jti };
     return c.json(body, 201);

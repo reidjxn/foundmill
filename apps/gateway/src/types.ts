@@ -33,8 +33,25 @@ export const CallRequest = z.object({
 export type CallRequestInput = z.input<typeof CallRequest>;
 export type CallRequestParsed = z.infer<typeof CallRequest>;
 
+/** Most recipients a mint request may seed per kind; past it the orchestrator sends `all` instead. */
+export const MAX_SEEDED_RECIPIENTS = 5_000;
+
+/**
+ * Recipients a session must treat as first seen in untrusted content from its first call: what the orchestrator found
+ * in files an earlier session left in the workspace (a restored code task), which may have come from untrusted
+ * content in that session. `all` marks every recipient of the session, for when there are too many to list.
+ */
+export const UntrustedSeed = z.object({
+  emails: z.array(z.string().max(320)).max(MAX_SEEDED_RECIPIENTS).default([]),
+  urls: z.array(z.string().max(2048)).max(MAX_SEEDED_RECIPIENTS).default([]),
+  phones: z.array(z.string().max(40)).max(MAX_SEEDED_RECIPIENTS).default([]),
+  all: z.boolean().default(false),
+});
+export type UntrustedSeed = z.input<typeof UntrustedSeed>;
+
 export const MintSessionTokenRequest = SessionClaims.extend({
   ttlSeconds: z.number().int().positive().optional(),
+  untrusted: UntrustedSeed.optional(),
 });
 export type MintSessionTokenRequest = z.input<typeof MintSessionTokenRequest>;
 

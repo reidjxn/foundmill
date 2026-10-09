@@ -102,6 +102,29 @@ describe("CodeScreen", () => {
     expect(fake.navigations[0]).toBe(`/b/${BUSINESS_ID}/d/development/plan?task=${TASK_INDEX}`);
   });
 
+  it("forgets a task's saved code after confirming, and shows a refusal inline", async () => {
+    const user = userEvent.setup();
+    let refuse = true;
+    const fake = createFakeSource({
+      responses: responses(),
+      onMutate: (path) => {
+        if (path === "dev.code.forget" && refuse) throw new Error("Only owners and admins can do administration");
+        return { snapshots: 2, blobs: 3 };
+      },
+    });
+    renderScreen(fake, <CodeScreen {...props} />);
+    await user.click(await screen.findByRole("button", { name: "Forget" }));
+    const dialog = await screen.findByRole("dialog", { name: "Forget saved code" });
+    expect(within(dialog).getByText(/Usage index for the Ledgerly dashboard/)).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Forget saved code" }));
+    expect(await within(dialog).findByRole("alert")).toBeTruthy();
+    expect(fake.mutations).toEqual([{ path: "dev.code.forget", input: { taskId: TASK_INDEX } }]);
+    refuse = false;
+    await user.click(within(dialog).getByRole("button", { name: "Forget saved code" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Forget saved code" })).toBeNull());
+    expect(fake.refetches["dev.code.list"]).toBe(1);
+  });
+
   it("shows the empty, loading and error states", async () => {
     const empty = renderScreen(createFakeSource({ responses: { ...responses(), "dev.code.list": [] } }), <CodeScreen {...props} />);
     expect(await screen.findByText("No saved code yet")).toBeTruthy();

@@ -2,7 +2,8 @@
 -- workspace_blobs holds each file's content once per business, addressed by its sha256; workspace_snapshots
 -- holds one manifest per saved session ({ path, sha256, size } per file). The orchestrator writes both with the
 -- service role; members of the business read them (Development › Code). A new session on the same task starts
--- from the latest snapshot.
+-- from the latest snapshot. Owners and admins may delete them (forget a task's saved code); nothing else does,
+-- apart from the orchestrator's retention (the newest snapshots per task) and its sweep of unreferenced blobs.
 create table workspace_blobs (
   id uuid primary key default gen_random_uuid(),
   business_id uuid not null references businesses(id) on delete cascade,
@@ -42,7 +43,15 @@ create index workspace_snapshots_session_id_idx on workspace_snapshots (session_
 --> statement-breakpoint
 create index workspace_snapshots_agent_id_idx on workspace_snapshots (agent_id);
 --> statement-breakpoint
+-- Which snapshots still reference a blob (retention and the orphan sweep): files @> [{"sha256": …}].
+create index workspace_snapshots_files_idx on workspace_snapshots using gin (files jsonb_path_ops);
+--> statement-breakpoint
 select fm_tenant_table('workspace_snapshots', array['owner','admin','member'], 'read_only');
+--> statement-breakpoint
+-- A founder action, never an agent's: owners and admins may forget a task's saved code.
+create policy workspace_snapshots_forget on workspace_snapshots for delete using (has_role(business_id, array['owner','admin']));
+--> statement-breakpoint
+create policy workspace_blobs_forget on workspace_blobs for delete using (has_role(business_id, array['owner','admin']));
 --> statement-breakpoint
 -- Development departments created before this migration get the Code tab right after Pull requests, where new ones
 -- get it from MODULE_TABS (or last when Pull requests is gone). Later tabs move one place to make room.

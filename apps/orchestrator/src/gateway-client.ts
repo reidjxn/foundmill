@@ -22,6 +22,8 @@ export interface MintSessionTokenRequest {
   allowedTools: string[];
   kitMode?: boolean;
   ttlSeconds?: number;
+  /** Recipients to treat as first seen in untrusted content from the first call (files restored from earlier sessions). */
+  untrusted?: { emails: string[]; urls: string[]; phones: string[]; all?: boolean };
 }
 
 export interface MintSessionTokenResponse {

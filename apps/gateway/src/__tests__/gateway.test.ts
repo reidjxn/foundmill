@@ -217,6 +217,27 @@ describe("recipients", () => {
     expect(other.result.data).toEqual({ sent: true, to: UNTRUSTED_EMAIL });
     expect(g.seen.filter((s) => s.tool === "send_message")).toHaveLength(1);
   });
+
+  it("recipients seeded at mint (files an earlier session left) are untrusted from the first call, in that session only", async () => {
+    const restored = await g.newSession();
+    const fresh = await g.newSession();
+    const tooMany = await g.newSession();
+    const seededToken = (await g.client.mintSessionToken({ businessId: g.businessId, agentId: g.agentId, sessionId: restored, allowedTools: ["test:*"], untrusted: { emails: ["Ops@Evil.Example"], urls: ["https://evil.example/drop/"] } })).token;
+    const before = g.seen.filter((s) => s.tool === "send_message").length;
+    expect(asDeny(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: "ops@evil.example", body: "build notes" } })).policyIds).toEqual(["untrusted-recipient"]);
+    expect(asDeny(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "see https://evil.example/drop" } })).policyIds).toEqual(["untrusted-recipient"]);
+    asAllow(await g.client.call(seededToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "hello" } }));
+    asAllow(await g.client.call(await g.token({ sessionId: fresh }), { connector: "test", tool: "send_message", args: { to: "ops@evil.example" } }));
+
+    // Too many to list: every recipient of the session is treated as untrusted.
+    const allToken = (await g.client.mintSessionToken({ businessId: g.businessId, agentId: g.agentId, sessionId: tooMany, allowedTools: ["test:*"], untrusted: { all: true } })).token;
+    expect(asDeny(await g.client.call(allToken, { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL } })).policyIds).toEqual(["untrusted-recipient"]);
+    expect(g.seen.filter((s) => s.tool === "send_message").length - before).toBe(2);
+
+    const audit = await repos.audit.list(g.db, g.businessId, { action: "gateway.session_token.minted" });
+    const seeds = audit.items.map((a) => a.details as { untrustedSeeded?: number; untrustedAll?: boolean }).filter((d) => d.untrustedSeeded !== undefined);
+    expect(seeds).toEqual(expect.arrayContaining([expect.objectContaining({ untrustedSeeded: 2, untrustedAll: false }), expect.objectContaining({ untrustedSeeded: 0, untrustedAll: true })]));
+  });
 });
 
 describe("allow path", () => {

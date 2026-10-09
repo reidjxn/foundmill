@@ -51,6 +51,7 @@ export const workspaceSnapshots = pgTable(
     index("workspace_snapshots_task_id_idx").on(t.taskId, t.createdAt),
     index("workspace_snapshots_session_id_idx").on(t.sessionId),
     index("workspace_snapshots_agent_id_idx").on(t.agentId),
+    index("workspace_snapshots_files_idx").using("gin", t.files.op("jsonb_path_ops")),
   ],
 );
 export type WorkspaceSnapshot = typeof workspaceSnapshots.$inferSelect;

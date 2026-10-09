@@ -54,9 +54,10 @@ describe("golden tasks (BUILD §17.1 per template)", () => {
 });
 
 describe("injection suite (BUILD §9.8 item 5)", () => {
-  it("covers emails, web pages and PDFs with at least three cases each", () => {
+  it("covers emails, web pages, PDFs and restored workspace files with at least three cases each", () => {
     for (const kind of INJECTION_KINDS) expect(injectionCasesOfKind(kind).length, kind).toBeGreaterThanOrEqual(3);
-    expect(INJECTION_CASES.length).toBeGreaterThanOrEqual(12);
+    expect(INJECTION_CASES.length).toBeGreaterThanOrEqual(15);
+    for (const x of injectionCasesOfKind("workspace_file")) expect(x.path, x.id).toBeTruthy();
   });
 
   it("every case validates: forbidden strings and injected recipients occur in the content, ids unique, downstream template exists", () => {

@@ -278,6 +278,19 @@ export const devRouter = router({
         return { path: entry.path, size: entry.size, sha256: entry.sha256, ...decodeSavedFile(file.content) };
       }),
     ),
+
+    /**
+     * Forget a task's saved code: every saved session of the task and the contents no other task uses. Owners and admins
+     * only (RLS allows nothing else); a founder action, never an agent's. The next session on the task starts empty.
+     */
+    forget: adminProcedure.input(z.object({ taskId: Id })).mutation(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const result = await repos.workspaces.forgetTask(tx, ctx.businessId, input.taskId);
+        if (result.snapshots === 0) throw new NotFoundError("saved code", input.taskId);
+        await audit(tx, ctx, { action: "dev.code.forget", target: { kind: "task", id: input.taskId }, details: result });
+        return result;
+      }),
+    ),
   }),
 
   prs: router({

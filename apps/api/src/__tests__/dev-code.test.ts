@@ -45,6 +45,26 @@ describe("dev.code", () => {
     await expect(outsider.dev.code.list({ businessId })).rejects.toThrow();
   });
 
+  it("checks the task on an earlier snapshot and gives members a read-only view", async () => {
+    const { businessId, taskId, task2Id, memberId, viewerId } = hz.A;
+    const snapshot = (await repos.workspaces.latest(hz.db, businessId, taskId))!;
+    const member = hz.caller({ userId: memberId });
+    await expect(member.dev.code.files({ businessId, taskId: task2Id, snapshotId: snapshot.id })).rejects.toThrow(/not found/);
+    expect((await hz.caller({ userId: viewerId }).dev.code.files({ businessId, taskId })).snapshot?.id).toBe(snapshot.id);
+    await expect(member.dev.code.forget({ businessId, taskId })).rejects.toThrow(/owner|admin|administration/i);
+    await expect(hz.caller({ userId: viewerId }).dev.code.forget({ businessId, taskId })).rejects.toThrow();
+  });
+
+  it("owners forget a task's saved code, audited; a task with none is not found", async () => {
+    const { businessId, taskId, ownerId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    expect(await owner.dev.code.forget({ businessId, taskId })).toEqual({ snapshots: 2, blobs: 3 });
+    expect(await owner.dev.code.list({ businessId })).toEqual([]);
+    await expect(owner.dev.code.forget({ businessId, taskId })).rejects.toThrow(/not found/);
+    const audit = await repos.audit.list(hz.db, businessId, { action: "dev.code.forget" });
+    expect(audit.items[0]).toMatchObject({ actorKind: "user", actorId: ownerId, target: { kind: "task", id: taskId } });
+  });
+
   it("decodes text up to the limit and calls non-UTF-8 binary", () => {
     expect(decodeSavedFile(text("héllo"))).toEqual({ binary: false, truncated: false, text: "héllo" });
     expect(decodeSavedFile(new Uint8Array([0xff, 0xfe, 0x41]))).toMatchObject({ binary: true });

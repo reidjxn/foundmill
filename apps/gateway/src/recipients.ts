@@ -106,7 +106,7 @@ export interface UntrustedRecipientRegistryOptions {
  * recipient must be approved once more.
  */
 export class UntrustedRecipientRegistry {
-  private readonly sessions = new Map<string, { values: Set<string>; touchedAt: number }>();
+  private readonly sessions = new Map<string, { values: Set<string>; touchedAt: number; all?: boolean }>();
   private readonly ttlMs: number;
   private readonly now: () => number;
 
@@ -133,8 +133,19 @@ export class UntrustedRecipientRegistry {
     return added;
   }
 
+  /** Every recipient of this session counts as first seen in untrusted content (a seed too large to list). */
+  markAll(sessionId: string): void {
+    this.sweep();
+    const entry = this.sessions.get(sessionId) ?? { values: new Set<string>(), touchedAt: 0 };
+    entry.all = true;
+    entry.touchedAt = this.now();
+    this.sessions.set(sessionId, entry);
+  }
+
   has(sessionId: string, candidate: RecipientCandidate): boolean {
-    return this.sessions.get(sessionId)?.values.has(`${candidate.kind}:${candidate.value}`) ?? false;
+    const entry = this.sessions.get(sessionId);
+    if (!entry) return false;
+    return entry.all === true || entry.values.has(`${candidate.kind}:${candidate.value}`);
   }
 
   /** The subset of `candidates` this session first saw inside untrusted content. */

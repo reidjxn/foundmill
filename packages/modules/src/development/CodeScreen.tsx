@@ -5,12 +5,13 @@
  * Left: tasks with saved code. Right: one saved session's files and the selected file in a CodeViewer.
  */
 import { useEffect, useMemo, useState } from "react";
-import { FileCode, FolderGit2, GitBranch, Network, Search } from "lucide-react";
+import { FileCode, FolderGit2, GitBranch, Network, Search, Trash2 } from "lucide-react";
 import { Avatar, Button, Chip, CodeViewer, DataTable, EmptyState, ErrorState, Input, Panel, SimpleSelect, cn, formatBytes, formatDate, formatDateTime, formatNumber, formatRelative, type DataTableColumn, type SelectOption } from "@foundmill/dugout";
 import { departmentForModule, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
+import { ForgetCodeDialog } from "./dialogs";
 import { useDevScreenOptions } from "./options";
-import { Screen, TaskStatusPill, taskHref, toDate, toTileAgent, useAgentIndex, useAgents } from "./shared";
+import { Screen, TaskStatusPill, taskHref, toDate, toTileAgent, useAction, useAgentIndex, useAgents } from "./shared";
 import type { AgentRow, CodeFileResponse, CodeFilesResponse, CodeManifestEntry, CodeSnapshotSummary, CodeTaskRow } from "./types";
 
 /** Body height of both panels, so the task list and the file view line up. */
@@ -159,6 +160,19 @@ export function CodeScreen({ businessId }: ModuleScreenProps) {
   );
 
   const goToPlan = () => navigate(routes.department(businessId, deptSlug ?? "development", "plan"));
+  const action = useAction();
+  const [forgetting, setForgetting] = useState(false);
+  const forget = () => {
+    if (!selectedTask) return;
+    void action.run("dev.code.forget", { taskId: selectedTask.taskId }, {
+      key: "forget",
+      then: () => {
+        setForgetting(false);
+        setTaskId(null);
+        list.refetch();
+      },
+    });
+  };
   const savedAt = snapshot ? toDate(snapshot.createdAt) : null;
   const savedBy = snapshot?.agentId ? agentIndex.get(snapshot.agentId)?.name : undefined;
 
@@ -212,6 +226,9 @@ export function CodeScreen({ businessId }: ModuleScreenProps) {
               <TaskStatusPill status={selectedTask.status} />
               <Button size="sm" variant="ghost" icon={Network} onClick={() => navigate(taskHref(businessId, deptSlug, selectedTask.taskId))}>
                 Show in Plan
+              </Button>
+              <Button size="sm" variant="ghost" icon={Trash2} onClick={() => setForgetting(true)} title="Owners and admins can delete this task's saved code">
+                Forget
               </Button>
             </div>
           ) : null
@@ -268,6 +285,18 @@ export function CodeScreen({ businessId }: ModuleScreenProps) {
           )}
         </div>
       </Panel>
+
+      <ForgetCodeDialog
+        open={forgetting && !!selectedTask}
+        onOpenChange={(o) => {
+          setForgetting(o);
+          if (!o) action.clearError();
+        }}
+        taskTitle={selectedTask?.title ?? ""}
+        pending={action.pending === "forget"}
+        error={forgetting ? action.error : null}
+        onConfirm={forget}
+      />
     </Screen>
   );
 }

@@ -14,7 +14,7 @@
  * A code task's acceptance tests run in the sandbox on a copy of that workspace (./workspace-sync): dependencies install
  * while the npm registry is reachable, with every script off; then the network closes and the agent's code runs offline.
  */
-import { AgentInstructions, buildSystemPrompt, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, ToolGrant, type AgentTemplate } from "@foundmill/agents";
+import { AgentInstructions, buildSystemPrompt, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
 import { repos, type Agent, type AgentVersion, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
@@ -29,7 +29,7 @@ import { emitEvent, systemActor } from "../events";
 import { applySessionEvent, initialProgress, type ProgressState } from "../progress";
 import { LoopDetector } from "./loop";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
-import { restoreWorkspace, saveWorkspace, type RestoredWorkspace } from "./workspace-store";
+import { restoreWorkspace, saveWorkspace, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
 import { syncWorkspaceToSandbox } from "./workspace-sync";
 import type { AgentSessionInput, SessionFinish, SessionLaunch, SessionResult } from "./types";
 
@@ -596,28 +596,43 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   if (!key.apiKey) return { outcome: "blocked", reason: "no Anthropic key: connect one in Settings or set the platform key", blockedReason: "credential", approvalId: null, summary: "Blocked: no model credential.", providerSessionId: null };
 
   const grants = parseGrants(live.version, live.template);
-  const token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, allowedTools: toolRefs(grants), ttlSeconds: SESSION_TOKEN_TTL_SECONDS });
-  const mcpServers = Object.fromEntries(grants.map((g) => [g.connectorKey, { type: "http" as const, url: deps.gateway.mcpUrl(g.connectorKey), headers: deps.gateway.sessionHeaders(token.token) }]));
-  const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary });
-  if (!hasClubRulesPrefix(systemPrompt)) throw new Error("house rules missing from the system prompt");
-
   const sdk = await import("@anthropic-ai/claude-agent-sdk");
   // SEC-3: the SDK process lives in a private per-session workspace (cwd, HOME, TMPDIR), with a from-scratch environment
   // (never `process.env`), built-in tools by task kind only, and a path guard on every file-tool call. Deleted in `finally`.
   const cwd = await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
   const policy = sdkToolPolicyFor(task.kind, mcpToolNames(grants));
   // Code tasks pick up where the last session on the task left off (Development › Code keeps every session's files).
+  // Restore comes before the token: what the files mention is untrusted for the gateway from the session's first call.
   let restored: RestoredWorkspace | null = null;
-  if (policy.fileTools) {
-    try {
-      restored = await restoreWorkspace(deps.db, input.businessId, task.id, cwd);
-      if (restored.files > 0) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Restored ${restored.files} file${restored.files === 1 ? "" : "s"} (${Math.ceil(restored.bytes / 1024)} KB) saved by an earlier session on this task.` });
-    } catch (err) {
-      deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "workspace restore failed");
-      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: "The code saved for this task could not be restored; this session starts from an empty workspace." });
+  let restoreFailed = false;
+  let token: Awaited<ReturnType<typeof deps.gateway.mintSessionToken>>;
+  try {
+    if (policy.fileTools) {
+      try {
+        restored = await restoreWorkspace(deps.db, input.businessId, task.id, cwd);
+        if (restored.files > 0) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Restored ${restored.files} file${restored.files === 1 ? "" : "s"} (${Math.ceil(restored.bytes / 1024)} KB) saved by an earlier session on this task.` });
+      } catch (err) {
+        // Start clean rather than from a partial copy; the save at the end keeps the files this session never had.
+        restoreFailed = true;
+        restored = null;
+        await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
+        deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "workspace restore failed");
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: "The code saved for this task could not be restored; this session starts from an empty workspace, and the saved files are kept." });
+      }
     }
+    token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, allowedTools: toolRefs(grants), ttlSeconds: SESSION_TOKEN_TTL_SECONDS, ...(restored && restored.files > 0 ? { untrusted: restored.recipients } : {}) });
+  } catch (err) {
+    await removeSessionWorkspace(cwd).catch(() => undefined);
+    throw err;
   }
-  const continuing = restored && restored.files > 0 ? `Your working directory already holds this task's code from earlier sessions (${restored.files} file${restored.files === 1 ? "" : "s"}); read it and continue from it rather than starting again.` : "";
+  const mcpServers = Object.fromEntries(grants.map((g) => [g.connectorKey, { type: "http" as const, url: deps.gateway.mcpUrl(g.connectorKey), headers: deps.gateway.sessionHeaders(token.token) }]));
+  const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary });
+  if (!hasClubRulesPrefix(systemPrompt)) {
+    await removeSessionWorkspace(cwd).catch(() => undefined);
+    throw new Error("house rules missing from the system prompt");
+  }
+
+  const continuing = restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : "";
   const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? `Work on branch ${launch.branch} inside your working directory; it is the only place you can read or write files.` : "Keep every action inside the tools you were given; this task has no file access.", continuing, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
 
   const queue = new PromptQueue(input.sessionId);
@@ -680,8 +695,10 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         maxTurns: launch.maxTurns,
         cwd,
         env,
-        // No host settings, CLAUDE.md, hooks or permission rules from the orchestrator's file system.
+        // No host settings, CLAUDE.md, hooks or permission rules from the orchestrator's file system, and no MCP server
+        // but the gateway's (a `.mcp.json` in the workspace is ignored).
         settingSources: [],
+        strictMcpConfig: true,
         permissionMode: "dontAsk",
         permissionPrompts: "none",
         hooks: {
@@ -765,7 +782,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     cancel?.removeEventListener("abort", onCancel);
     queue.close();
     // Keep the code whatever the outcome (done, stopped, failed): the workspace itself is deleted next.
-    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch }, cwd);
+    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed });
     try {
       await removeSessionWorkspace(cwd);
     } catch (err) {
@@ -775,20 +792,35 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
 }
 
 /** Save the session's code to the task and say so in the session stream; a failure to save never fails the session. */
-async function keepWorkspace(deps: OrchestratorDeps, recorder: SessionRecorder, owner: Parameters<typeof saveWorkspace>[1], cwd: string): Promise<void> {
+async function keepWorkspace(deps: OrchestratorDeps, recorder: SessionRecorder, owner: Parameters<typeof saveWorkspace>[1], cwd: string, options: SaveWorkspaceOptions): Promise<void> {
   const at = () => deps.clock.now().toISOString();
   try {
-    const saved = await saveWorkspace(deps.db, owner, cwd);
+    const saved = await saveWorkspace(deps.db, owner, cwd, options);
+    const leftOut = describeLeftOut(saved.leftOut, saved.masked);
     if (saved.status === "refused") {
       await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `This session's code was not saved: ${saved.reason}.` });
     } else if (saved.status === "saved") {
       const delta = [saved.added ? `${saved.added} added` : "", saved.changed ? `${saved.changed} changed` : "", saved.removed ? `${saved.removed} removed` : ""].filter(Boolean).join(", ");
       await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Saved this task's code: ${saved.files} file${saved.files === 1 ? "" : "s"} (${Math.ceil(saved.bytes / 1024)} KB)${delta ? `, ${delta}` : ""}. Development › Code shows it.` });
     }
+    if (leftOut) await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: leftOut });
   } catch (err) {
     deps.log.error({ err: (err as Error).message, sessionId: owner.sessionId }, "workspace save failed");
     await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "error", text: "This session's code could not be saved." });
   }
+}
+
+/** One note line for what a save left out or masked (up to three names per kind), or null when nothing was. */
+export function describeLeftOut(leftOut: readonly LeftOut[], masked: readonly string[]): string | null {
+  const names = (paths: readonly string[]) => `${paths.slice(0, 3).join(", ")}${paths.length > 3 ? ` and ${paths.length - 3} more` : ""}`;
+  const of = (reason: LeftOut["reason"]) => leftOut.filter((l) => l.reason === reason).map((l) => l.path);
+  const parts = [
+    of("secret").length ? `left out files that hold secrets (${names(of("secret"))})` : "",
+    of("startup").length ? `left out start-up settings files (${names(of("startup"))})` : "",
+    of("name").length ? `left out files whose names cannot be stored (${names(of("name"))})` : "",
+    masked.length ? `masked credentials in ${names(masked)}` : "",
+  ].filter(Boolean);
+  return parts.length ? `Not kept with this task's code: ${parts.join("; ")}.` : null;
 }
 
 /**
