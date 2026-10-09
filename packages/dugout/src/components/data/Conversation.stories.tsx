@@ -2,7 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState, type ComponentProps } from "react";
 import { Conversation, type ConversationMessage } from "./Conversation";
 
-const NOW = new Date("2026-10-09T10:00:00Z").getTime();
+// Relative to the clock, so "5 min ago" reads right whenever the story is opened.
+const NOW = Date.now();
 const at = (minutesAgo: number) => new Date(NOW - minutesAgo * 60_000).toISOString();
 
 const MESSAGES: ConversationMessage[] = [

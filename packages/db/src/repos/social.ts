@@ -259,7 +259,7 @@ export const socialRepo = {
    * (LIVE and committed) plus every business the viewer belongs to, in any game mode.
    */
   async lookupPeople(db: Executor, viewerId: string, input: { userIds?: readonly string[]; businessIds?: readonly string[] }): Promise<{ users: PersonCard[]; businesses: BusinessCard[] }> {
-    const v = parseInput(z.object({ userIds: z.array(Id).max(200).default([]), businessIds: z.array(Id).max(200).default([]) }), input, "lookup");
+    const v = parseInput(z.object({ userIds: z.array(Id).max(200).default([]), businessIds: z.array(Id).max(500).default([]) }), input, "lookup");
     const userIds = [...new Set(v.userIds)];
     const businessIds = [...new Set(v.businessIds)];
 

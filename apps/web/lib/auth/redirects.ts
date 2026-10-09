@@ -3,8 +3,8 @@
  *
  * - Unauthenticated → /login?next=<path> for every app route, except `/`, which renders the landing page.
  * - Authenticated on /login → / (the index picks the last business or onboarding).
- * - The founder-profile gate for /b/* (AC-11.1.1) is enforced server-side in app/b/[bid]/layout.tsx, because only the
- *   API knows whether the profile exists; the proxy only knows who is signed in.
+ * - The founder-profile gate for /b/* and the LIVE pages (AC-11.1.1) is enforced server-side in app/b/[bid]/layout.tsx and
+ *   app/(live)/layout.tsx, because only the API knows whether the profile exists; the proxy only knows who is signed in.
  */
 import { NEXT_PARAM } from "./constants";
 
@@ -16,8 +16,11 @@ export function isPublicPath(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));
 }
 
+/** The LIVE pages (BUILD §6.2): signed-in only like every app screen; their layout needs the founder profile and a business. */
+const LIVE_PREFIXES = ["/network", "/communities", "/leaderboards"];
+
 export function isFounderPath(pathname: string): boolean {
-  return pathname === "/" || pathname === "/onboarding" || pathname.startsWith("/new") || pathname.startsWith("/b/");
+  return pathname === "/" || pathname === "/onboarding" || pathname.startsWith("/new") || pathname.startsWith("/b/") || LIVE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
 export type RedirectDecision = { kind: "next" } | { kind: "redirect"; to: string };

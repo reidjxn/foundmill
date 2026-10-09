@@ -22,6 +22,10 @@ export const LEDGERLY_NAME = "Ledgerly";
 export const DEMO_BUSINESS_SLUGS = [NORTHWIND_SLUG, LEDGERLY_SLUG] as const;
 
 export const LEDGERLY_COMMUNITY_SLUG = "fintech-ops-founders";
+/** A public community with no members yet, so the demo founder sees Join on offer. */
+export const BOOTSTRAPPED_COMMUNITY_SLUG = "bootstrapped-founders";
+/** Every community the demo seed creates; a rebuild deletes them all (posts and members cascade). */
+export const SEED_COMMUNITY_SLUGS = [LEDGERLY_COMMUNITY_SLUG, BOOTSTRAPPED_COMMUNITY_SLUG] as const;
 export const LEDGERLY_GITHUB_REPO = "foundmill-demo/ledgerly";
 
 /** Two years of history by default (AC-11.2.1). */

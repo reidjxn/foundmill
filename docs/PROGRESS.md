@@ -150,6 +150,12 @@ Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
   - GitHub App `foundmill` created by the founder, and its five gateway variables set.
 - 2026-10-09 — **`ctx.env` was empty over HTTP.** `@hono/trpc-server` overwrote it with Hono's bindings, crashing Settings › Integrations and sending billing and legal down their live branches in mock mode. The api now mounts tRPC's fetch adapter directly; an HTTP test covers it.
 - 2026-10-09 — **Ideation Studio drafts no longer cut off (founder report).** `idea.generate` used the 4,096-token default, and twelve cards with evidence and citations ran past it ("Output truncated at max_tokens=4096"). It now has a 20,000-token budget and asks for short evidence; a draft that still runs out says so in plain words.
+- 2026-10-09 — **LIVE pages exist (founder report: /network, /communities, /leaderboards were 404).** The sidebar linked to routes that were never built.
+  - Pages: `/network`, `/communities` and `/communities/[id]`, `/leaderboards` and `/leaderboards/[boardId]`, built in `app/(live)/` on the normal shell.
+  - The shell's business is the last-opened one, else the newest; a founder with no business goes to `/new`.
+  - New Dugout `Composer`, `Conversation` and `FeedPost` components; a `live.people.lookup` procedure.
+  - Community visibility is now enforced in the router. It runs on the service connection (no RLS), so before this any signed-in user could read private communities.
+  - Tests: `live.spec.ts`, unit tests, and seed additions (a second community, a reply, a customers-won board).
 - 2026-10-09 — **"Take charge" takes seconds, not 36 (founder report).**
   - `idea.commit` made 722 sequential database round trips: about 50 ms each to Supabase, so the button spun for 36 s.
   - It now hires the whole team in a few statements (`agents.createMany`, `skills.upsertForAgents`, `departments.addMembers`, `screens.upsertMany`, a batched `channels.upsertMany`), giving 73 round trips, about 3–4 s.

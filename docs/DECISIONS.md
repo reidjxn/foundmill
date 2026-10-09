@@ -962,3 +962,19 @@ Staging's api reaches Supabase's pooler with about 50 ms per query, so a request
 - `channels.upsertMany` groups rows by the fields supplied, so an update still changes only those fields.
 
 The per-row repo functions stay for everything else. When a screen does many sequential queries, batch it the same way.
+
+## 2026-10-09 — LIVE pages: where they sit and who sees what
+
+- **Where.** The LIVE pages live outside `/b/[bid]`, in `app/(live)/`. Their shell business is the last-opened business, else the newest; a founder with none goes to `/new`. A Personal business gets a notice on the page, not a redirect.
+- **Access is enforced in the router.** `live.*` runs on the service connection (no RLS), so the router itself enforces community visibility, members-only feeds, public-only joins, and membership for "post as a business".
+- **Names follow profile visibility:**
+
+  | Setting | Who sees the name |
+  | --- | --- |
+  | Public | everyone |
+  | Connections | connections |
+  | Community | connections, plus people in shared communities |
+  | Private | nobody, except someone who has contacted the viewer |
+
+- **Posts.** Community post text renders without images and without entity links. People and businesses on the network are not CRM entities.
+- **Boards** show their one ranked metric. Separate customers-won, MRR and growth columns would need entries to carry more than one metric.

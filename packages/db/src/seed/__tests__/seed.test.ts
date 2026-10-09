@@ -12,7 +12,7 @@ import type { Db } from "../../client";
 import { repos } from "../../repos";
 import * as s from "../../schema";
 import { createTestDb, type TestHarness } from "../../testing/pglite";
-import { LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, NORTHWIND_BUSINESS_ID, seedDemo, type SeedDemoResult } from "../index";
+import { BOOTSTRAPPED_COMMUNITY_SLUG, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, NORTHWIND_BUSINESS_ID, SEED_COMMUNITY_SLUGS, seedDemo, type SeedDemoResult } from "../index";
 
 const TODAY = new Date("2026-10-07T12:00:00.000Z");
 const SEED_OPTS = { today: TODAY, days: 730, volumeScale: 0.3 };
@@ -226,9 +226,14 @@ describe("seedDemo on PGlite", () => {
     expect(summary.byHolder.length).toBeGreaterThanOrEqual(5);
     const community = await repos.social.getCommunityBySlug(db, LEDGERLY_COMMUNITY_SLUG);
     expect(community?.ownerBusinessId).toBe(LEDGERLY_BUSINESS_ID);
+    // Two posts in the feed (one with a reply), and a second public community nobody has joined yet.
+    const feed = await repos.social.listPosts(db, community!.id);
+    expect(feed.items).toHaveLength(2);
+    expect((await repos.social.replyCounts(db, feed.items.map((p) => p.id))).size).toBe(1);
+    expect(await repos.social.getCommunityBySlug(db, BOOTSTRAPPED_COMMUNITY_SLUG)).toMatchObject({ visibility: "public", memberCount: 0, ownerBusinessId: null });
+    // Verified metrics only: Ledgerly is first on both of its boards.
     const positions = await repos.social.positionsForBusiness(db, LEDGERLY_BUSINESS_ID);
-    expect(positions.length).toBe(1);
-    expect(positions[0]!.position).toBe(1);
+    expect(positions.map((p) => [p.board.boardKind, p.position]).sort()).toEqual([["customers_won", 1], ["growth", 1]]);
     expect(await repos.approvals.countPending(db, LEDGERLY_BUSINESS_ID)).toBe(1);
     const backend = (await repos.agents.list(db, LEDGERLY_BUSINESS_ID, { agentType: "backend_engineer" })).items[0]!;
     expect((await repos.agents.listVersions(db, LEDGERLY_BUSINESS_ID, backend.id)).length).toBe(2);
@@ -272,8 +277,10 @@ describe("seedDemo on PGlite", () => {
     const after = await db.select({ id: s.conversions.id, amountMinor: s.conversions.amountMinor }).from(s.conversions).where(eq(s.conversions.businessId, NORTHWIND_BUSINESS_ID)).orderBy(s.conversions.id);
     expect(after).toEqual(before);
     expect(await count(s.agents, LEDGERLY_BUSINESS_ID)).toBe(beforeAgents);
-    const communities = await db.select({ id: s.communities.id }).from(s.communities).where(eq(s.communities.slug, LEDGERLY_COMMUNITY_SLUG));
-    expect(communities).toHaveLength(1);
+    for (const slug of SEED_COMMUNITY_SLUGS) {
+      const communities = await db.select({ id: s.communities.id }).from(s.communities).where(eq(s.communities.slug, slug));
+      expect(communities, slug).toHaveLength(1);
+    }
     const owners = await db.select({ id: s.memberships.id }).from(s.memberships).where(eq(s.memberships.userId, result.owner.userId));
     expect(owners).toHaveLength(2);
   }, 600_000);

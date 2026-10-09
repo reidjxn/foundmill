@@ -81,7 +81,7 @@ export function Composer({ onSubmit, label = "Send", icon = Send, placeholder, r
           {note}
         </div>
         <Keys keys={["Ctrl", "Enter"]} separator="+" className="shrink-0" />
-        <Button variant="primary" size="sm" icon={icon} loading={working} disabled={!canSend && !working} onClick={() => void submit()}>
+        <Button size="sm" icon={icon} loading={working} disabled={!canSend && !working} onClick={() => void submit()}>
           {label}
         </Button>
       </div>

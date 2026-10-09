@@ -85,12 +85,13 @@ export const liveRouter = router({
       await repos.social.leaveCommunity(ctx.db, ctx.userId, input.communityId);
       return { left: true };
     }),
-    /** The feed is for members (posts_select); each top-level post carries its reply count. */
+    /** The feed is for members (posts_select); each post carries its reply count and its author's name (when their profile shows it). */
     posts: protectedProcedure.input(z.object({ communityId: Id, parentPostId: Id.nullable().optional(), limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() })).query(async ({ ctx, input }) => {
       if (!(await repos.social.isMember(ctx.db, ctx.userId, input.communityId))) throw new ForbiddenError("Join the community to read its feed");
       const page = await repos.social.listPosts(ctx.db, input.communityId, { parentPostId: input.parentPostId, limit: input.limit, cursor: input.cursor });
-      const replies = await repos.social.replyCounts(ctx.db, page.items.map((p) => p.id));
-      return { ...page, items: page.items.map((p) => ({ ...p, replyCount: replies.get(p.id) ?? 0 })) };
+      const [replies, { users }] = await Promise.all([repos.social.replyCounts(ctx.db, page.items.map((p) => p.id)), repos.social.lookupPeople(ctx.db, ctx.userId, { userIds: page.items.map((p) => p.authorUserId) })]);
+      const names = new Map(users.map((u) => [u.userId, u.displayName]));
+      return { ...page, items: page.items.map((p) => ({ ...p, replyCount: replies.get(p.id) ?? 0, authorName: names.get(p.authorUserId) ?? null })) };
     }),
     post: protectedProcedure.input(z.object({ communityId: Id, bodyMd: z.string().min(1).max(20_000), parentPostId: Id.nullable().optional(), businessId: Id.nullable().optional() })).mutation(async ({ ctx, input }) => {
       if (!(await repos.social.isMember(ctx.db, ctx.userId, input.communityId))) throw new ValidationError("Join the community before posting");
@@ -101,7 +102,13 @@ export const liveRouter = router({
   leaderboards: router({
     list: protectedProcedure.input(z.object({ period: z.string().optional(), boardKind: z.string().optional() }).optional()).query(({ ctx, input }) => repos.social.listLeaderboards(ctx.db, input ?? {})),
     get: protectedProcedure.input(z.object({ leaderboardId: Id })).query(({ ctx, input }) => repos.social.getLeaderboard(ctx.db, input.leaderboardId)),
-    entries: protectedProcedure.input(z.object({ leaderboardId: Id, limit: z.number().int().min(1).max(500).default(100) })).query(({ ctx, input }) => repos.social.leaderboardEntries(ctx.db, input.leaderboardId, input.limit)),
+    /** A board's entries, each with the business's public card (name, logo inputs) when it is listed; null otherwise. */
+    entries: protectedProcedure.input(z.object({ leaderboardId: Id, limit: z.number().int().min(1).max(500).default(100) })).query(async ({ ctx, input }) => {
+      const rows = await repos.social.leaderboardEntries(ctx.db, input.leaderboardId, input.limit);
+      const { businesses } = await repos.social.lookupPeople(ctx.db, ctx.userId, { businessIds: rows.map((r) => r.businessId) });
+      const cards = new Map(businesses.map((b) => [b.businessId, b]));
+      return rows.map((r) => ({ ...r, businessName: cards.get(r.businessId)?.name ?? null, business: cards.get(r.businessId) ?? null }));
+    }),
     /** This business's positions (verified integration metrics only; AC-11.14.1). */
     positions: businessProcedure.input(z.object({ period: z.string().optional() })).query(({ ctx, input }) => repos.social.positionsForBusiness(ctx.db, ctx.businessId, input.period)),
   }),

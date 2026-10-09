@@ -55,6 +55,10 @@ describe("communities", () => {
     await owner.live.communities.post({ communityId: community.id, bodyMd: "A reply", parentPostId: post.id });
     const feed = await owner.live.communities.posts({ communityId: community.id });
     expect(feed.items.map((p) => [p.id, p.replyCount])).toEqual([[post.id, 1]]);
+    // Authors are named under their profile visibility: this one has no profile, so no name.
+    expect(feed.items[0]!.authorName).toBeNull();
+    await repos.founders.upsert(hz.db, hz.A.ownerId, { displayName: "Olive Owner", visibility: "private" });
+    expect((await owner.live.communities.posts({ communityId: community.id })).items[0]!.authorName).toBe("Olive Owner");
     const replies = await owner.live.communities.posts({ communityId: community.id, parentPostId: post.id });
     expect(replies.items.map((p) => p.bodyMd)).toEqual(["A reply"]);
 
@@ -104,7 +108,11 @@ describe("leaderboards and profile visibility", () => {
     const owner = as(hz.A.ownerId);
     expect((await owner.live.leaderboards.get({ leaderboardId: board.id })).metric).toBe("mrr_growth_pct");
     const entries = await owner.live.leaderboards.entries({ leaderboardId: board.id });
-    expect(entries).toMatchObject([{ businessId: hz.A.businessId, position: 1, movement: 0, form: "WWDLW" }]);
+    expect(entries).toMatchObject([{ businessId: hz.A.businessId, position: 1, movement: 0, form: "WWDLW", businessName: "LIVE-A" }]);
+    expect(entries[0]!.business).toMatchObject({ businessId: hz.A.businessId, kitPrimary: expect.any(String), slug: expect.any(String) });
+    // A business the viewer cannot see (not LIVE and committed, not theirs) is ranked but unnamed.
+    const stranger = await as(hz.B.ownerId).live.leaderboards.entries({ leaderboardId: board.id });
+    expect(stranger[0]).toMatchObject({ businessId: hz.A.businessId, businessName: null, business: null });
     const positions = await owner.live.leaderboards.positions({ businessId: hz.A.businessId });
     expect(positions.map((p) => [p.position, p.board.id])).toEqual([[1, board.id]]);
     await expect(as(hz.B.ownerId).live.leaderboards.positions({ businessId: hz.A.businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
