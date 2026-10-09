@@ -112,15 +112,46 @@ export function toTRPCError(err: unknown): TRPCError {
   if (RLS_RE.test(message) || RLS_RE.test(nested)) {
     return new TRPCError({ code: "FORBIDDEN", message: "Not permitted for this business", cause: cause as Error });
   }
+  // A row that points at something that does not exist (an unknown user, post or business id in the input) is a bad
+  // reference from the caller, not a server fault, and must not echo the failed statement.
+  if (pgErrorCode(cause) === PG_FOREIGN_KEY_VIOLATION) {
+    return new TRPCError({ code: "NOT_FOUND", message: "A record this request refers to does not exist", cause: cause as Error });
+  }
   return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message, cause: cause as Error });
+}
+
+const PG_FOREIGN_KEY_VIOLATION = "23503";
+
+/** The Postgres SQLSTATE of a database error, looking through Drizzle's wrapper (`DrizzleQueryError.cause`). */
+export function pgErrorCode(err: unknown): string | undefined {
+  let e: unknown = err;
+  for (let depth = 0; depth < 4 && e && typeof e === "object"; depth++) {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) return code;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
+/**
+ * What a client may read of an INTERNAL_SERVER_ERROR. Development and test keep the real message (it is how a developer
+ * finds the fault); every other environment gets a generic line and the request id to quote, because the raw text can
+ * carry SQL, table names and values.
+ */
+export function internalErrorMessage(message: string, appEnv: string, requestId: string): string {
+  return appEnv === "development" || appEnv === "test" ? message : `Something went wrong on our side. Quote reference ${requestId} if you contact support.`;
 }
 
 const mapErrors = t.middleware(async ({ next, ctx, path, type }) => {
   const result = await next();
   if (!result.ok) {
     const mapped = toTRPCError(result.error);
-    if (mapped.code === "INTERNAL_SERVER_ERROR") ctx.log.error({ path, type, err: mapped.cause ?? mapped, requestId: ctx.requestId }, "procedure failed");
-    else ctx.log.debug({ path, type, code: mapped.code, requestId: ctx.requestId }, mapped.message);
+    if (mapped.code === "INTERNAL_SERVER_ERROR") {
+      ctx.log.error({ path, type, err: mapped.cause ?? mapped, requestId: ctx.requestId }, "procedure failed");
+      const shown = internalErrorMessage(mapped.message, ctx.env.APP_ENV, ctx.requestId);
+      throw shown === mapped.message ? mapped : new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: shown, cause: mapped.cause });
+    }
+    ctx.log.debug({ path, type, code: mapped.code, requestId: ctx.requestId }, mapped.message);
     throw mapped;
   }
   return result;

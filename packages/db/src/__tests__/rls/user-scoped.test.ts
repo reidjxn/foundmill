@@ -123,6 +123,36 @@ describe("connections, message_threads, messages", () => {
     await expect(h.asUser(outsiderId).run((tx) => tx.insert(s.connections).values({ fromUser: A.ownerId, toUser: outsiderId }))).rejects.toThrow(RLS_DENIED);
     await expect(h.asUser(outsiderId).run((tx) => tx.insert(s.connections).values({ fromUser: outsiderId, toUser: A.ownerId, status: "accepted" }))).rejects.toThrow(RLS_DENIED);
   });
+  it("connections (0018): a block belongs to whoever set it, only the recipient accepts, and nobody starts a request over a block", async () => {
+    const asker = A.adminId;
+    const blocker = B.adminId;
+    const mine = (id: string) => eq(s.connections.id, id);
+    const [c] = await h.asUser(asker).run((tx) => tx.insert(s.connections).values({ fromUser: asker, toUser: blocker }).returning());
+    // The writer must be the one named as blocking, and a request can never be inserted as blocked or accepted.
+    await expect(h.asUser(asker).run((tx) => tx.insert(s.connections).values({ fromUser: asker, toUser: B.memberId, status: "blocked", blockedBy: asker }))).rejects.toThrow(RLS_DENIED);
+    await expect(h.asUser(asker).run((tx) => tx.insert(s.connections).values({ fromUser: asker, toUser: B.memberId, blockedBy: blocker }))).rejects.toThrow();
+    await expect(h.asUser(asker).run((tx) => tx.update(s.connections).set({ status: "blocked", blockedBy: blocker }).where(mine(c!.id)))).rejects.toThrow(RLS_DENIED);
+    // The requester cannot accept their own request; the recipient can.
+    await expect(h.asUser(asker).run((tx) => tx.update(s.connections).set({ status: "accepted" }).where(mine(c!.id)))).rejects.toThrow(RLS_DENIED);
+    expect(await h.asUser(blocker).run((tx) => tx.update(s.connections).set({ status: "accepted" }).where(mine(c!.id)).returning())).toHaveLength(1);
+    // The recipient blocks, naming themselves.
+    const blocked = await h.asUser(blocker).run((tx) => tx.update(s.connections).set({ status: "blocked", blockedBy: blocker }).where(mine(c!.id)).returning());
+    expect(blocked.map((r) => r.blockedBy)).toEqual([blocker]);
+    // The blocked party can still see the row but can change or delete nothing of it.
+    expect(await h.asUser(asker).run((tx) => tx.select().from(s.connections).where(mine(c!.id)))).toHaveLength(1);
+    expect(await h.asUser(asker).run((tx) => tx.update(s.connections).set({ status: "accepted", blockedBy: null }).where(mine(c!.id)).returning())).toHaveLength(0);
+    expect(await h.asUser(asker).run((tx) => tx.update(s.connections).set({ blockedBy: asker }).where(mine(c!.id)).returning())).toHaveLength(0);
+    expect(await h.asUser(asker).run((tx) => tx.delete(s.connections).where(mine(c!.id)).returning())).toHaveLength(0);
+    // Nobody can open a new request between the two while the block stands, from either side.
+    await expect(h.asUser(blocker).run((tx) => tx.insert(s.connections).values({ fromUser: blocker, toUser: asker }))).rejects.toThrow(RLS_DENIED);
+    // A block always names a party, and a row is blocked exactly when it names one.
+    await expect(h.service().run((tx) => tx.update(s.connections).set({ blockedBy: outsiderId }).where(mine(c!.id)))).rejects.toThrow();
+    await expect(h.service().run((tx) => tx.update(s.connections).set({ blockedBy: null }).where(mine(c!.id)))).rejects.toThrow();
+    // Only the blocker lifts it (deletes the row); then a request can start again.
+    expect(await h.asUser(blocker).run((tx) => tx.delete(s.connections).where(mine(c!.id)).returning())).toHaveLength(1);
+    await h.asUser(asker).run((tx) => tx.insert(s.connections).values({ fromUser: asker, toUser: blocker }));
+    expect(await h.service().run((tx) => tx.select().from(s.connections).where(and(eq(s.connections.fromUser, asker), eq(s.connections.toUser, blocker))))).toHaveLength(1);
+  });
   it("messages: only thread participants can read or post", async () => {
     const [thread] = await h.asUser(A.ownerId).run((tx) => tx.insert(s.messageThreads).values({ participantIds: [A.ownerId, B.ownerId] }).returning());
     await h.asUser(B.ownerId).run((tx) => tx.insert(s.messages).values({ threadId: thread!.id, fromUser: B.ownerId, body: "hello" }));

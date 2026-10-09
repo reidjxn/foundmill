@@ -2,20 +2,41 @@
  * live.connections.* / messages.* / communities.* / leaderboards.* / profile.visibility.* (BUILD §11.14, Phase 4
  * skeleton). Human messages are sent by humans only; agents may draft but never call `messages.send`.
  */
-import { repos, type Executor } from "@foundmill/db";
-import { ForbiddenError, NotFoundError, ValidationError, VISIBILITY } from "@foundmill/shared";
+import { MAX_MESSAGE_RECIPIENTS, repos, type Business, type Executor } from "@foundmill/db";
+import { ForbiddenError, NotFoundError, ValidationError, VISIBILITY, WRITE_ROLES } from "@foundmill/shared";
 import { z } from "zod";
-import { Id, businessProcedure, emit, protectedProcedure, router } from "../trpc";
+import { Id, businessProcedure, effectivePermission, emit, protectedProcedure, router, sectionWrite } from "../trpc";
 
 const Page = z.object({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() }).optional();
 
 type Ctx = { db: Executor; userId: string };
 
-/** A business the caller may speak as: they must belong to it. Null when none is named. */
-async function ownBusiness(ctx: Ctx, businessId: string | null | undefined): Promise<string | null> {
+/** True when a business may appear on the network: LIVE, committed and not archived (the SQL `is_public`). */
+function isListed(business: Pick<Business, "gameMode" | "committedAt" | "archivedAt">): boolean {
+  return business.gameMode === "live" && business.committedAt !== null && business.archivedAt === null;
+}
+
+/**
+ * A business the caller may speak as ("posting as Ledgerly"): they must belong to it with a role that writes, hold write
+ * access to its `live` section (viewers and advisors never speak for a business; a restricted member may not either), and
+ * the business must be listed. Null when none is named: the person speaks as themselves.
+ */
+async function speakingAs(ctx: Ctx, businessId: string | null | undefined): Promise<string | null> {
   if (!businessId) return null;
-  if (!(await repos.memberships.get(ctx.db, businessId, ctx.userId))) throw new ForbiddenError("You are not a member of that business");
+  const membership = await repos.memberships.get(ctx.db, businessId, ctx.userId);
+  if (!membership) throw new ForbiddenError("You are not a member of that business");
+  if (!WRITE_ROLES.includes(membership.role) || effectivePermission(membership, "live") !== "write") throw new ForbiddenError("You cannot speak for that business");
+  const business = await repos.businesses.get(ctx.db, businessId, { includeArchived: true });
+  if (!isListed(business)) throw new ValidationError("Only a LIVE, committed business can speak on the network");
   return businessId;
+}
+
+/** Which of these business ids the viewer may be shown: listed businesses, and their own in any mode. Others read as null. */
+async function shownBusinessIds(ctx: Ctx, ids: readonly (string | null)[]): Promise<Set<string>> {
+  const wanted = [...new Set(ids.filter((id): id is string => !!id))];
+  if (!wanted.length) return new Set();
+  const { businesses } = await repos.social.lookupPeople(ctx.db, ctx.userId, { businessIds: wanted });
+  return new Set(businesses.map((b) => b.businessId));
 }
 
 /**
@@ -31,11 +52,14 @@ async function visibleCommunity(ctx: Ctx, communityId: string) {
 export const liveRouter = router({
   connections: router({
     list: protectedProcedure.input(z.object({ status: z.enum(["requested", "accepted", "blocked"]).optional(), direction: z.enum(["incoming", "outgoing"]).optional() }).optional()).query(({ ctx, input }) => repos.social.listConnections(ctx.db, ctx.userId, input ?? {})),
-    request: businessProcedure.input(z.object({ toUserId: Id, message: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
+    /** A LIVE business's writer asks a person to connect. One transaction: the request and its event commit together or not at all. */
+    request: sectionWrite("live").input(z.object({ toUserId: Id, message: z.string().max(1000).optional() })).mutation(async ({ ctx, input }) => {
       if (ctx.business.gameMode !== "live") throw new ValidationError("Connections are a LIVE feature; this business is Personal");
-      const connection = await repos.social.requestConnection(ctx.db, ctx.userId, input.toUserId, input.message ?? null);
-      await ctx.rls((tx) => emit(tx, ctx, { type: "connection.requested", payload: { connectionId: connection.id, fromUserId: ctx.userId, toUserId: input.toUserId, fromBusinessId: ctx.businessId, fromEntityId: null, message: input.message ?? null } }));
-      return connection;
+      return ctx.rls(async (tx) => {
+        const connection = await repos.social.requestConnection(tx, ctx.userId, input.toUserId, input.message ?? null);
+        await emit(tx, ctx, { type: "connection.requested", payload: { connectionId: connection.id, fromUserId: ctx.userId, toUserId: input.toUserId, fromBusinessId: ctx.businessId, fromEntityId: null, message: input.message ?? null } });
+        return connection;
+      });
     }),
     respond: protectedProcedure.input(z.object({ connectionId: Id, status: z.enum(["accepted", "blocked"]) })).mutation(({ ctx, input }) => repos.social.respondConnection(ctx.db, ctx.userId, input.connectionId, input.status)),
     remove: protectedProcedure.input(z.object({ connectionId: Id })).mutation(async ({ ctx, input }) => {
@@ -54,9 +78,12 @@ export const liveRouter = router({
       await repos.social.markThreadRead(ctx.db, ctx.userId, input.threadId);
       return page;
     }),
-    /** Human-to-human only: a signed-in person presses Send (agents may draft, never send). */
-    send: protectedProcedure.input(z.object({ threadId: Id.optional(), toUserIds: z.array(Id).min(1).optional(), subject: z.string().max(200).optional(), body: z.string().min(1).max(20_000) })).mutation(async ({ ctx, input }) => {
-      const threadId = input.threadId ?? (input.toUserIds ? (await repos.social.findOrCreateThread(ctx.db, ctx.userId, [ctx.userId, ...input.toUserIds], input.subject ?? null)).id : null);
+    /**
+     * Human-to-human only: a signed-in person presses Send (agents may draft, never send). A new thread goes to at most
+     * MAX_MESSAGE_RECIPIENTS people who exist, are not blocked either way, and are connections (or already share a thread).
+     */
+    send: protectedProcedure.input(z.object({ threadId: Id.optional(), toUserIds: z.array(Id).min(1).max(MAX_MESSAGE_RECIPIENTS).optional(), subject: z.string().max(200).optional(), body: z.string().min(1).max(20_000) })).mutation(async ({ ctx, input }) => {
+      const threadId = input.threadId ?? (input.toUserIds ? (await repos.social.startThread(ctx.db, ctx.userId, input.toUserIds, input.subject ?? null)).id : null);
       if (!threadId) throw new ValidationError("Give a thread or recipients");
       return repos.social.sendMessage(ctx.db, ctx.userId, threadId, input.body);
     }),
@@ -67,19 +94,26 @@ export const liveRouter = router({
     /** What the caller may see (public ones and their own), each with their role in it (null when not a member). */
     list: protectedProcedure.input(z.object({ visibility: z.enum(VISIBILITY).optional(), limit: z.number().int().min(1).max(200).default(50) }).optional()).query(async ({ ctx, input }) => {
       const rows = await repos.social.listCommunities(ctx.db, { ...input, viewerId: ctx.userId });
-      const roles = await repos.social.memberRoles(ctx.db, ctx.userId, rows.map((c) => c.id));
-      return rows.map((c) => ({ ...c, role: roles.get(c.id) ?? null }));
+      const [roles, shown] = await Promise.all([repos.social.memberRoles(ctx.db, ctx.userId, rows.map((c) => c.id)), shownBusinessIds(ctx, rows.map((c) => c.ownerBusinessId))]);
+      return rows.map((c) => ({ ...c, ownerBusinessId: c.ownerBusinessId && shown.has(c.ownerBusinessId) ? c.ownerBusinessId : null, role: roles.get(c.id) ?? null }));
     }),
     /** The member list is for members only (community_members_select); anyone who may see the community gets the rest. */
     get: protectedProcedure.input(z.object({ communityId: Id })).query(async ({ ctx, input }) => {
       const { community, isMember } = await visibleCommunity(ctx, input.communityId);
       const members = isMember ? await repos.social.listMembers(ctx.db, input.communityId) : [];
-      return { community, members, isMember, role: members.find((m) => m.userId === ctx.userId)?.role ?? null };
+      const shown = await shownBusinessIds(ctx, [community.ownerBusinessId, ...members.map((m) => m.businessId)]);
+      const mask = <T extends string | null>(id: T) => (id && shown.has(id) ? id : null);
+      return {
+        community: { ...community, ownerBusinessId: mask(community.ownerBusinessId) },
+        members: members.map((m) => ({ ...m, businessId: mask(m.businessId) })),
+        isMember,
+        role: members.find((m) => m.userId === ctx.userId)?.role ?? null,
+      };
     }),
     /** Only public communities can be joined; the others are by invitation, so to a non-member they read as missing. */
     join: protectedProcedure.input(z.object({ communityId: Id, businessId: Id.optional() })).mutation(async ({ ctx, input }) => {
       await visibleCommunity(ctx, input.communityId);
-      return repos.social.joinCommunity(ctx.db, ctx.userId, input.communityId, { businessId: await ownBusiness(ctx, input.businessId) });
+      return repos.social.joinCommunity(ctx.db, ctx.userId, input.communityId, { businessId: await speakingAs(ctx, input.businessId) });
     }),
     leave: protectedProcedure.input(z.object({ communityId: Id })).mutation(async ({ ctx, input }) => {
       await repos.social.leaveCommunity(ctx.db, ctx.userId, input.communityId);
@@ -87,15 +121,22 @@ export const liveRouter = router({
     }),
     /** The feed is for members (posts_select); each post carries its reply count and its author's name (when their profile shows it). */
     posts: protectedProcedure.input(z.object({ communityId: Id, parentPostId: Id.nullable().optional(), limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() })).query(async ({ ctx, input }) => {
-      if (!(await repos.social.isMember(ctx.db, ctx.userId, input.communityId))) throw new ForbiddenError("Join the community to read its feed");
+      const { isMember } = await visibleCommunity(ctx, input.communityId);
+      if (!isMember) throw new ForbiddenError("Join the community to read its feed");
       const page = await repos.social.listPosts(ctx.db, input.communityId, { parentPostId: input.parentPostId, limit: input.limit, cursor: input.cursor });
-      const [replies, { users }] = await Promise.all([repos.social.replyCounts(ctx.db, page.items.map((p) => p.id)), repos.social.lookupPeople(ctx.db, ctx.userId, { userIds: page.items.map((p) => p.authorUserId) })]);
+      const [replies, { users }, shown] = await Promise.all([
+        repos.social.replyCounts(ctx.db, page.items.map((p) => p.id)),
+        repos.social.lookupPeople(ctx.db, ctx.userId, { userIds: page.items.map((p) => p.authorUserId) }),
+        shownBusinessIds(ctx, page.items.map((p) => p.businessId)),
+      ]);
       const names = new Map(users.map((u) => [u.userId, u.displayName]));
-      return { ...page, items: page.items.map((p) => ({ ...p, replyCount: replies.get(p.id) ?? 0, authorName: names.get(p.authorUserId) ?? null })) };
+      return { ...page, items: page.items.map((p) => ({ ...p, businessId: p.businessId && shown.has(p.businessId) ? p.businessId : null, replyCount: replies.get(p.id) ?? 0, authorName: names.get(p.authorUserId) ?? null })) };
     }),
+    /** A reply goes under a visible top-level post of this community (the repo says "not found" for anything else). */
     post: protectedProcedure.input(z.object({ communityId: Id, bodyMd: z.string().min(1).max(20_000), parentPostId: Id.nullable().optional(), businessId: Id.nullable().optional() })).mutation(async ({ ctx, input }) => {
-      if (!(await repos.social.isMember(ctx.db, ctx.userId, input.communityId))) throw new ValidationError("Join the community before posting");
-      return repos.social.createPost(ctx.db, { ...input, businessId: await ownBusiness(ctx, input.businessId), authorUserId: ctx.userId });
+      const { isMember } = await visibleCommunity(ctx, input.communityId);
+      if (!isMember) throw new ValidationError("Join the community before posting");
+      return repos.social.createPost(ctx.db, { ...input, businessId: await speakingAs(ctx, input.businessId), authorUserId: ctx.userId });
     }),
   }),
 

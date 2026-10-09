@@ -1,6 +1,9 @@
 /** LIVE social: public profiles, connections, threads/messages, communities/posts, leaderboards, negotiations. */
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../../repos";
+import { MAX_MESSAGE_RECIPIENTS } from "../../repos/social";
+import * as s from "../../schema";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
 
 let r: RepoHarness;
@@ -37,7 +40,39 @@ describe("connections and messages", () => {
     await expect(repos.social.requestConnection(r.db, a, a)).rejects.toThrow(/yourself/);
     const blocked = await repos.social.requestConnection(r.db, a, r.B.memberId);
     await repos.social.respondConnection(r.db, r.B.memberId, blocked.id, "blocked");
-    await expect(repos.social.requestConnection(r.db, a, r.B.memberId)).rejects.toThrow(/blocked/);
+    // The blocked person only learns that the request could not be sent; the blocker is told to unblock first.
+    await expect(repos.social.requestConnection(r.db, a, r.B.memberId)).rejects.toThrow(/could not be sent/);
+    await expect(repos.social.requestConnection(r.db, r.B.memberId, a)).rejects.toThrow(/unblock them/);
+  });
+
+  it("a block belongs to whoever set it: nobody else can answer, accept over or delete it, and it is recorded", async () => {
+    const asker = r.A.adminId;
+    const blocker = r.B.adminId;
+    const c = await repos.social.requestConnection(r.db, asker, blocker, "Hi");
+    expect((await repos.social.respondConnection(r.db, blocker, c.id, "blocked")).blockedBy).toBe(blocker);
+    // The blocked party cannot accept, re-block (which would take the row over) or delete the row.
+    await expect(repos.social.respondConnection(r.db, asker, c.id, "accepted")).rejects.toThrow(/cannot be changed/);
+    await expect(repos.social.respondConnection(r.db, asker, c.id, "blocked")).rejects.toThrow(/cannot be changed/);
+    await expect(repos.social.removeConnection(r.db, asker, c.id)).rejects.toThrow(/cannot be removed/);
+    await expect(repos.social.requestConnection(r.db, asker, blocker)).rejects.toThrow(/could not be sent/);
+    // Not even the blocker can write `accepted` over it; they unblock (delete), and a fresh request starts clean.
+    await expect(repos.social.respondConnection(r.db, blocker, c.id, "accepted")).rejects.toThrow(/Unblock/);
+    expect((await repos.social.respondConnection(r.db, blocker, c.id, "blocked")).id).toBe(c.id); // idempotent
+    expect((await repos.social.listConnections(r.db, asker, { status: "blocked" })).map((x) => x.id)).toContain(c.id);
+    await repos.social.removeConnection(r.db, blocker, c.id);
+    expect((await repos.social.listConnections(r.db, asker)).map((x) => x.id)).not.toContain(c.id);
+    const again = await repos.social.requestConnection(r.db, asker, blocker);
+    expect(again).toMatchObject({ status: "requested", blockedBy: null });
+    // A requester who blocks after the recipient accepted owns the block too.
+    await repos.social.respondConnection(r.db, blocker, again.id, "accepted");
+    expect((await repos.social.respondConnection(r.db, asker, again.id, "blocked")).blockedBy).toBe(asker);
+    await expect(repos.social.removeConnection(r.db, blocker, again.id)).rejects.toThrow(/cannot be removed/);
+    await repos.social.removeConnection(r.db, asker, again.id);
+    // Someone who is not a party removes nothing and learns nothing.
+    const third = await repos.social.requestConnection(r.db, asker, blocker);
+    await repos.social.removeConnection(r.db, r.A.viewerId, third.id);
+    expect((await repos.social.listConnections(r.db, asker)).map((x) => x.id)).toContain(third.id);
+    await repos.social.removeConnection(r.db, asker, third.id);
   });
 
   it("threads are unique per participant set; messages, read receipts and unread counts", async () => {
@@ -59,6 +94,40 @@ describe("connections and messages", () => {
     const threads = await repos.social.listThreads(r.db, a);
     expect(threads.items[0]!.id).toBe(t1.id); // most recent message first
     await expect(repos.social.listMessages(r.db, r.A.memberId, t1.id)).rejects.toThrow(/Not a participant/);
+  });
+
+  it("a Send opens a thread only to people who exist, are not blocked, and are connected or already in a thread with the sender", async () => {
+    const me = r.A.adminId;
+    const friend = r.B.viewerId;
+    const stranger = r.A.memberId;
+    const nobody = "00000000-0000-4000-8000-0000000000f0";
+    await expect(repos.social.startThread(r.db, me, [nobody], "Hi")).rejects.toThrow(/recipient/);
+    await expect(repos.social.startThread(r.db, me, [me])).rejects.toThrow(/other than yourself/);
+    const crowd = Array.from({ length: MAX_MESSAGE_RECIPIENTS + 1 }, (_, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`);
+    await expect(repos.social.startThread(r.db, me, crowd)).rejects.toThrow(/recipients/);
+    // First contact needs a connection.
+    await expect(repos.social.startThread(r.db, me, [stranger])).rejects.toThrow(/connected/);
+    await expect(repos.social.startThread(r.db, me, [friend])).rejects.toThrow(/connected/);
+    const link = await repos.social.requestConnection(r.db, me, friend);
+    await expect(repos.social.startThread(r.db, me, [friend])).rejects.toThrow(/connected/); // a request is not a connection
+    await repos.social.respondConnection(r.db, friend, link.id, "accepted");
+    const thread = await repos.social.startThread(r.db, me, [friend, friend], "Hello");
+    expect(thread.participantIds.sort()).toEqual([me, friend].sort());
+    expect((await repos.social.startThread(r.db, friend, [me])).id).toBe(thread.id);
+    await repos.social.sendMessage(r.db, me, thread.id, "Hi friend");
+    // One of two recipients being a stranger refuses the whole Send.
+    await expect(repos.social.startThread(r.db, me, [friend, stranger])).rejects.toThrow(/connected/);
+    // A conversation the two already share is enough for a later Send (a thread from before the gate, or a group).
+    const legacy = await repos.social.findOrCreateThread(r.db, me, [stranger]);
+    expect((await repos.social.startThread(r.db, me, [stranger])).id).toBe(legacy.id);
+    // A block in either direction ends it, new threads and existing ones alike.
+    await repos.social.respondConnection(r.db, friend, link.id, "blocked");
+    await expect(repos.social.startThread(r.db, me, [friend])).rejects.toThrow(/cannot message/);
+    await expect(repos.social.startThread(r.db, friend, [me])).rejects.toThrow(/cannot message/);
+    await expect(repos.social.sendMessage(r.db, me, thread.id, "Still there?")).rejects.toThrow(/cannot message/);
+    await expect(repos.social.sendMessage(r.db, friend, thread.id, "Hello?")).rejects.toThrow(/cannot message/);
+    expect((await repos.social.blockedWith(r.db, me, [friend, stranger, nobody])).has(friend)).toBe(true);
+    expect((await repos.social.existingUsers(r.db, [me, nobody])).has(nobody)).toBe(false);
   });
 });
 
@@ -171,6 +240,40 @@ describe("people lookup, unread per thread, community visibility", () => {
   });
 });
 
+describe("community membership and replies", () => {
+  it("only a member who left comes back by joining: muted and banned members stay as they are", async () => {
+    const community = await repos.social.createCommunity(r.db, { name: "Moderated", slug: "moderated-room", createdBy: r.A.ownerId });
+    const member = r.B.adminId;
+    await repos.social.joinCommunity(r.db, member, community.id);
+    await r.db.update(s.communityMembers).set({ status: "muted" }).where(and(eq(s.communityMembers.communityId, community.id), eq(s.communityMembers.userId, member)));
+    await expect(repos.social.joinCommunity(r.db, member, community.id)).rejects.toThrow(/muted/);
+    expect(await repos.social.isMember(r.db, member, community.id)).toBe(false);
+    await expect(repos.social.createPost(r.db, { communityId: community.id, authorUserId: member, bodyMd: "Back again" })).rejects.toThrow(/Only members/);
+    await r.db.update(s.communityMembers).set({ status: "banned" }).where(and(eq(s.communityMembers.communityId, community.id), eq(s.communityMembers.userId, member)));
+    await expect(repos.social.joinCommunity(r.db, member, community.id)).rejects.toThrow(/Banned/);
+    // Someone who left rejoins.
+    const other = r.B.memberId;
+    await repos.social.joinCommunity(r.db, other, community.id);
+    await repos.social.leaveCommunity(r.db, other, community.id);
+    expect((await repos.social.joinCommunity(r.db, other, community.id)).status).toBe("active");
+  });
+
+  it("a reply goes under a visible top-level post of the same community; anything else is a missing post", async () => {
+    const here = await repos.social.createCommunity(r.db, { name: "Here", slug: "replies-here", createdBy: r.A.ownerId });
+    const there = await repos.social.createCommunity(r.db, { name: "There", slug: "replies-there", visibility: "private", createdBy: r.A.ownerId });
+    const author = r.A.ownerId;
+    const top = await repos.social.createPost(r.db, { communityId: here.id, authorUserId: author, bodyMd: "Top" });
+    const elsewhere = await repos.social.createPost(r.db, { communityId: there.id, authorUserId: author, bodyMd: "Elsewhere" });
+    const reply = await repos.social.createPost(r.db, { communityId: here.id, authorUserId: author, bodyMd: "Reply", parentPostId: top.id });
+    await expect(repos.social.createPost(r.db, { communityId: here.id, authorUserId: author, bodyMd: "x", parentPostId: elsewhere.id })).rejects.toThrow(/not found/);
+    await expect(repos.social.createPost(r.db, { communityId: here.id, authorUserId: author, bodyMd: "x", parentPostId: "00000000-0000-4000-8000-000000000001" })).rejects.toThrow(/not found/);
+    await expect(repos.social.createPost(r.db, { communityId: here.id, authorUserId: author, bodyMd: "x", parentPostId: reply.id })).rejects.toThrow(/under a post/);
+    await repos.social.setPostStatus(r.db, top.id, "hidden");
+    await expect(repos.social.createPost(r.db, { communityId: here.id, authorUserId: author, bodyMd: "x", parentPostId: top.id })).rejects.toThrow(/not found/);
+    expect((await repos.social.replyCounts(r.db, [elsewhere.id])).size).toBe(0);
+  });
+});
+
 describe("leaderboards", () => {
   it("ranks verified values first, computes movement between rebuilds, and removes a business on LIVE → Personal", async () => {
     const board = await repos.social.upsertLeaderboard(r.db, { boardKind: "mrr_growth", period: "2026-Q4", metric: "mrr_growth_pct", archetype: "b2b_saas" });
@@ -181,11 +284,18 @@ describe("leaderboards", () => {
     ]);
     // Unverified values never enter a board (check constraint in 0012).
     expect(first.map((e) => [e.businessId, e.position, e.verified])).toEqual([[r.A.businessId, 1, true]]);
+    // B is LIVE but not committed: its (verified) number takes no position either.
     const second = await repos.social.setLeaderboardEntries(r.db, board.id, [
       { businessId: r.A.businessId, metricValue: 10 },
       { businessId: r.B.businessId, metricValue: 30, verified: true, form: "WWD" },
     ]);
-    expect(second.map((e) => [e.businessId, e.position, e.movement])).toEqual([
+    expect(second.map((e) => [e.businessId, e.position])).toEqual([[r.A.businessId, 1]]);
+    await repos.businesses.commit(r.db, r.B.businessId, { archetype: "b2b_saas" });
+    const third = await repos.social.setLeaderboardEntries(r.db, board.id, [
+      { businessId: r.A.businessId, metricValue: 10 },
+      { businessId: r.B.businessId, metricValue: 30, verified: true, form: "WWD" },
+    ]);
+    expect(third.map((e) => [e.businessId, e.position, e.movement])).toEqual([
       [r.B.businessId, 1, 0],
       [r.A.businessId, 2, -1],
     ]);
@@ -193,6 +303,34 @@ describe("leaderboards", () => {
     expect((await repos.social.getLeaderboard(r.db, board.id)).computedAt).toBeInstanceOf(Date);
     expect(await repos.social.removeBusinessFromLeaderboards(r.db, r.B.businessId)).toBe(1);
     expect((await repos.social.leaderboardEntries(r.db, board.id)).map((e) => e.businessId)).toEqual([r.A.businessId]);
+  });
+
+  it("serves only listed businesses: a business that is not LIVE, committed and active is hidden even if a row is left over", async () => {
+    const board = await repos.social.upsertLeaderboard(r.db, { boardKind: "visible_only", period: "2026-Q4", metric: "mrr", archetype: "b2b_saas" });
+    await repos.social.setLeaderboardEntries(r.db, board.id, [
+      { businessId: r.A.businessId, metricValue: 5 },
+      { businessId: r.B.businessId, metricValue: 9 },
+    ]);
+    const ids = async () => (await repos.social.leaderboardEntries(r.db, board.id)).map((e) => e.businessId);
+    expect(await ids()).toEqual([r.B.businessId, r.A.businessId]);
+    expect((await repos.social.positionsForBusiness(r.db, r.B.businessId)).map((p) => p.board.id)).toContain(board.id);
+    // LIVE → Personal: the stored row is still there, but is neither served nor counted as a position.
+    await repos.businesses.setGameMode(r.db, r.B.businessId, "personal");
+    expect(await ids()).toEqual([r.A.businessId]);
+    expect(await repos.social.positionsForBusiness(r.db, r.B.businessId)).toEqual([]);
+    expect((await r.db.select().from(s.leaderboardEntries).where(eq(s.leaderboardEntries.leaderboardId, board.id)))).toHaveLength(2);
+    // And the next computation gives a Personal business no position, so nobody below is displaced by a hidden one.
+    const recomputed = await repos.social.setLeaderboardEntries(r.db, board.id, [
+      { businessId: r.A.businessId, metricValue: 5 },
+      { businessId: r.B.businessId, metricValue: 9 },
+    ]);
+    expect(recomputed.map((e) => [e.businessId, e.position])).toEqual([[r.A.businessId, 1]]);
+    await repos.businesses.setGameMode(r.db, r.B.businessId, "live");
+    // Archived businesses are hidden too.
+    await repos.social.setLeaderboardEntries(r.db, board.id, [{ businessId: r.A.businessId, metricValue: 5 }, { businessId: r.B.businessId, metricValue: 9 }]);
+    await repos.businesses.archive(r.db, r.B.businessId);
+    expect(await ids()).toEqual([r.A.businessId]);
+    await r.db.update(s.businesses).set({ archivedAt: null }).where(eq(s.businesses.id, r.B.businessId));
   });
 });
 

@@ -7,15 +7,16 @@
  * business-facing. Personal businesses never appear in `publicProfiles`/`searchPublic`: the `public_profiles`
  * view only selects LIVE businesses (0012), so the visibility rule is enforced in SQL, not here.
  */
-import { ARCHETYPES, DATA_REGIONS, ValidationError, VISIBILITY } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { ARCHETYPES, DATA_REGIONS, ForbiddenError, NotFoundError, ValidationError, VISIBILITY } from "@foundmill/shared";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
 import {
   businesses, communities, communityMembers, CONNECTION_STATUSES, connections, founderProfiles, leaderboardEntries, leaderboards, memberships, messages, messageThreads,
   NEGOTIATION_STATUSES, negotiationThreads, posts, publicProfiles,
   type COMMUNITY_ROLES, type Community, type CommunityMember, type Connection, type Leaderboard, type LeaderboardEntry, type Message, type MessageThread, type NegotiationThread, type Post, type PublicProfile,
 } from "../schema";
-import { Id, JsonObject, numericText, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
+import { Id, JsonObject, numericText, one, PageInput, parseInput, rowsOf, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 
 export const CreateCommunityInput = z.object({
   name: z.string().trim().min(1).max(120),
@@ -70,6 +71,12 @@ export type CreateNegotiationInput = z.input<typeof CreateNegotiationInput>;
 
 const sortPair = (a: string, b: string): [string, string] => (a < b ? [a, b] : [b, a]);
 
+/** One call may write to at most this many people (a thread is a conversation, not a mailing list). */
+export const MAX_MESSAGE_RECIPIENTS = 20;
+
+/** A business that may appear on a board: LIVE, committed and not archived (the SQL `is_public`). */
+const publicBusiness = and(eq(businesses.gameMode, "live"), isNotNull(businesses.committedAt), isNull(businesses.archivedAt));
+
 /** What the viewer may know about another user: `displayName` is null when their profile visibility keeps it back. */
 export interface PersonCard {
   userId: string;
@@ -107,6 +114,10 @@ export const socialRepo = {
   },
 
   // connections (user-scoped) -----------------------------------------------------------------------------------------
+  /**
+   * A new request. Whoever has blocked the other, the answer is no: the blocker is told to unblock first; the blocked
+   * person only learns that the request could not be sent (a block is never announced).
+   */
   async requestConnection(db: Executor, fromUser: string, toUser: string, message?: string | null): Promise<Connection> {
     const v = parseInput(z.object({ fromUser: Id, toUser: Id, message: z.string().max(1000).nullable().optional() }), { fromUser, toUser, message }, "connection request");
     if (v.fromUser === v.toUser) throw new ValidationError("Cannot connect to yourself", { fromUser });
@@ -118,27 +129,48 @@ export const socialRepo = {
         .limit(1);
       const current = existing[0];
       if (current) {
-        if (current.status === "blocked") throw new ValidationError("Connection is blocked", { connectionId: current.id });
+        if (current.status === "blocked") {
+          if (current.blockedBy === v.fromUser) throw new ValidationError("You blocked this person; unblock them to connect again", { connectionId: current.id });
+          throw new ValidationError("This request could not be sent");
+        }
         return current;
       }
       return one(await tx.insert(connections).values({ fromUser: v.fromUser, toUser: v.toUser, message: v.message ?? null }).returning(), "connection");
     });
   },
 
-  /** Only the recipient may accept; either side may block. */
+  /**
+   * Only the recipient may accept; either side may block, and the block records who. A blocked row belongs to its
+   * blocker: nobody else can change it, and `accepted` is never written over a block (unblock, then ask again).
+   */
   async respondConnection(db: Executor, userId: string, connectionId: string, status: "accepted" | "blocked"): Promise<Connection> {
     const s = parseInput(z.enum(["accepted", "blocked"]), status, "connection status");
     return db.transaction(async (tx) => {
       const current = one(await tx.select().from(connections).where(eq(connections.id, connectionId)).limit(1), "connection", connectionId);
       const isParty = current.fromUser === userId || current.toUser === userId;
       if (!isParty) throw new ValidationError("Not a party to this connection", { connectionId });
-      if (s === "accepted" && current.toUser !== userId) throw new ValidationError("Only the recipient can accept", { connectionId });
-      return one(await tx.update(connections).set({ status: s, respondedAt: new Date() }).where(eq(connections.id, connectionId)).returning(), "connection", connectionId);
+      if (current.status === "blocked") {
+        if (current.blockedBy !== userId) throw new ValidationError("This connection cannot be changed", { connectionId });
+        if (s === "blocked") return current;
+        throw new ValidationError("Unblock this person before connecting again", { connectionId });
+      }
+      if (s === "accepted") {
+        if (current.toUser !== userId) throw new ValidationError("Only the recipient can accept", { connectionId });
+        if (current.status === "accepted") return current;
+      }
+      return one(await tx.update(connections).set({ status: s, respondedAt: new Date(), blockedBy: s === "blocked" ? userId : null }).where(eq(connections.id, connectionId)).returning(), "connection", connectionId);
     });
   },
 
+  /** Withdraws a request, ends a connection, or lifts a block; a block can only be lifted by whoever set it. */
   async removeConnection(db: Executor, userId: string, connectionId: string): Promise<void> {
-    await db.delete(connections).where(and(eq(connections.id, connectionId), or(eq(connections.fromUser, userId), eq(connections.toUser, userId))));
+    const rows = await db.select().from(connections).where(eq(connections.id, connectionId)).limit(1);
+    const current = rows[0];
+    if (!current || (current.fromUser !== userId && current.toUser !== userId)) return;
+    if (current.status === "blocked" && current.blockedBy !== userId) throw new ValidationError("This connection cannot be removed", { connectionId });
+    await db
+      .delete(connections)
+      .where(and(eq(connections.id, connectionId), or(eq(connections.fromUser, userId), eq(connections.toUser, userId)), or(sql`${connections.status} <> 'blocked'`, eq(connections.blockedBy, userId))));
   },
 
   async listConnections(db: Executor, userId: string, filter: { status?: (typeof CONNECTION_STATUSES)[number]; direction?: "incoming" | "outgoing" } = {}): Promise<Connection[]> {
@@ -165,7 +197,24 @@ export const socialRepo = {
   },
 
   // messages (user-scoped) --------------------------------------------------------------------------------------------
-  /** The thread between exactly these participants (created if missing). */
+  /** The people among `otherIds` who exist (an auth user). */
+  async existingUsers(db: Executor, ids: readonly string[]): Promise<Set<string>> {
+    if (!ids.length) return new Set();
+    const rows = await db.select({ id: authUsers.id }).from(authUsers).where(inArray(authUsers.id, [...ids]));
+    return new Set(rows.map((r) => r.id));
+  },
+
+  /** Who among `otherIds` has a block with `userId`, whichever of them set it. */
+  async blockedWith(db: Executor, userId: string, otherIds: readonly string[]): Promise<Set<string>> {
+    if (!otherIds.length) return new Set();
+    const rows = await db
+      .select({ fromUser: connections.fromUser, toUser: connections.toUser })
+      .from(connections)
+      .where(and(eq(connections.status, "blocked"), or(and(eq(connections.fromUser, userId), inArray(connections.toUser, [...otherIds])), and(eq(connections.toUser, userId), inArray(connections.fromUser, [...otherIds])))));
+    return new Set(rows.map((r) => (r.fromUser === userId ? r.toUser : r.fromUser)));
+  },
+
+  /** The thread between exactly these participants (created if missing). Low level: no checks on who may write to whom. */
   async findOrCreateThread(db: Executor, userId: string, participantIds: readonly string[], subject?: string | null): Promise<MessageThread> {
     const v = parseInput(z.object({ participantIds: z.array(Id).min(1), subject: z.string().max(200).nullable().optional() }), { participantIds, subject }, "thread");
     const members = [...new Set([userId, ...v.participantIds])].sort();
@@ -177,6 +226,33 @@ export const socialRepo = {
         .limit(1);
       if (existing[0]) return existing[0];
       return one(await tx.insert(messageThreads).values({ participantIds: members, subject: v.subject ?? null }).returning(), "thread");
+    });
+  },
+
+  /**
+   * The thread a person's own Send opens to some recipients (up to MAX_MESSAGE_RECIPIENTS). Every recipient must exist,
+   * nobody may have blocked the other, and first contact needs an accepted connection with each recipient (or a
+   * conversation the two already share), so a stranger's id is not an address.
+   */
+  async startThread(db: Executor, userId: string, recipientIds: readonly string[], subject?: string | null): Promise<MessageThread> {
+    const v = parseInput(z.object({ recipientIds: z.array(Id).min(1).max(MAX_MESSAGE_RECIPIENTS) }), { recipientIds }, "recipients");
+    const others = [...new Set(v.recipientIds)].filter((id) => id !== userId);
+    if (!others.length) throw new ValidationError("Choose someone other than yourself to write to");
+    return db.transaction(async (tx) => {
+      const known = await socialRepo.existingUsers(tx, others);
+      if (others.some((id) => !known.has(id))) throw new NotFoundError("recipient");
+      if ((await socialRepo.blockedWith(tx, userId, others)).size) throw new ForbiddenError("You cannot message this person");
+      const linked = await tx
+        .select({ fromUser: connections.fromUser, toUser: connections.toUser })
+        .from(connections)
+        .where(and(eq(connections.status, "accepted"), or(and(eq(connections.fromUser, userId), inArray(connections.toUser, others)), and(eq(connections.toUser, userId), inArray(connections.fromUser, others)))));
+      const contacts = new Set(linked.map((r) => (r.fromUser === userId ? r.toUser : r.fromUser)));
+      const shared = rowsOf<{ uid: string }>(
+        await tx.execute(sql`select distinct p.uid::text as uid from message_threads t, unnest(t.participant_ids) as p(uid) where t.archived_at is null and t.participant_ids @> array[${userId}::uuid]`),
+      );
+      for (const r of shared) contacts.add(r.uid);
+      if (others.some((id) => !contacts.has(id))) throw new ForbiddenError("You can only start a conversation with someone you are connected to");
+      return socialRepo.findOrCreateThread(tx, userId, others, subject);
     });
   },
 
@@ -201,7 +277,8 @@ export const socialRepo = {
   async sendMessage(db: Executor, userId: string, threadId: string, body: string): Promise<Message> {
     const b = parseInput(z.string().trim().min(1).max(20_000), body, "message body");
     return db.transaction(async (tx) => {
-      await socialRepo.getThread(tx, userId, threadId);
+      const thread = await socialRepo.getThread(tx, userId, threadId);
+      if ((await socialRepo.blockedWith(tx, userId, thread.participantIds.filter((id) => id !== userId))).size) throw new ForbiddenError("You cannot message this person");
       const msg = one(await tx.insert(messages).values({ threadId, fromUser: userId, body: b, readBy: [userId] }).returning(), "message");
       await tx.update(messageThreads).set({ lastMessageAt: msg.createdAt }).where(eq(messageThreads.id, threadId));
       return msg;
@@ -377,6 +454,7 @@ export const socialRepo = {
       const current = existing[0];
       if (current) {
         if (current.status === "banned") throw new ValidationError("Banned from this community", { communityId });
+        if (current.status === "muted") throw new ValidationError("Your membership is muted; a moderator can restore it", { communityId });
         if (current.status === "active") return current;
         const rejoined = one(await tx.update(communityMembers).set({ status: "active", joinedAt: new Date() }).where(eq(communityMembers.id, current.id)).returning(), "community member");
         await tx.update(communities).set({ memberCount: sql`${communities.memberCount} + 1` }).where(eq(communities.id, communityId));
@@ -452,6 +530,12 @@ export const socialRepo = {
   async createPost(db: Executor, input: CreatePostInput): Promise<Post> {
     const v = parseInput(CreatePostInput, input, "post");
     if (!(await socialRepo.isMember(db, v.authorUserId, v.communityId))) throw new ValidationError("Only members can post", { communityId: v.communityId });
+    if (v.parentPostId) {
+      // A reply goes under a visible top-level post of the same community; anything else reads as a missing post.
+      const parent = (await db.select().from(posts).where(eq(posts.id, v.parentPostId)).limit(1))[0];
+      if (!parent || parent.communityId !== v.communityId || parent.status !== "visible" || parent.archivedAt) throw new NotFoundError("post", v.parentPostId);
+      if (parent.parentPostId) throw new ValidationError("Replies go under a post, not under another reply", { parentPostId: v.parentPostId });
+    }
     return one(
       await db.insert(posts).values({ communityId: v.communityId, authorUserId: v.authorUserId, businessId: v.businessId ?? null, parentPostId: v.parentPostId ?? null, bodyMd: v.bodyMd, entityIds: v.entityIds }).returning(),
       "post",
@@ -491,9 +575,10 @@ export const socialRepo = {
   },
 
   /**
-   * Replaces a board's entries: ranks verified values (highest first), computes movement against the previous
-   * positions and stamps computed_at. Unverified values never enter a board (the table's `check (verified)`
-   * enforces BUILD §7.2 "verified only"); they are dropped here so a caller can pass its whole metric set.
+   * Replaces a board's entries: ranks verified values of listed businesses (highest first), computes movement against
+   * the previous positions and stamps computed_at. Unverified values never enter a board (the table's `check (verified)`
+   * enforces BUILD §7.2 "verified only"), and neither do businesses that are not LIVE and committed; both are dropped
+   * here so a caller can pass its whole metric set.
    */
   async setLeaderboardEntries(db: Executor, leaderboardId: string, entries: LeaderboardEntryInput[]): Promise<LeaderboardEntry[]> {
     const parsed = entries.map((e) => parseInput(LeaderboardEntryInput, e, "leaderboard entry"));
@@ -501,8 +586,12 @@ export const socialRepo = {
       await socialRepo.getLeaderboard(tx, leaderboardId);
       const previous = await tx.select({ businessId: leaderboardEntries.businessId, position: leaderboardEntries.position }).from(leaderboardEntries).where(eq(leaderboardEntries.leaderboardId, leaderboardId));
       const prevPos = new Map(previous.map((p) => [p.businessId, p.position]));
+      // Only LIVE, committed, non-archived businesses take a position (the policy `is_public`): a Personal business's
+      // numbers are never ranked, whoever passes them in.
+      const ids = [...new Set(parsed.map((e) => e.businessId))];
+      const listed = new Set(ids.length ? (await tx.select({ id: businesses.id }).from(businesses).where(and(inArray(businesses.id, ids), publicBusiness))).map((b) => b.id) : []);
       const ranked = parsed
-        .filter((e) => e.verified)
+        .filter((e) => e.verified && listed.has(e.businessId))
         .sort((a, b) => b.metricValue - a.metricValue || a.businessId.localeCompare(b.businessId))
         .map((e, i) => ({ ...e, position: i + 1 }));
       await tx.delete(leaderboardEntries).where(eq(leaderboardEntries.leaderboardId, leaderboardId));
@@ -531,8 +620,16 @@ export const socialRepo = {
     return one(await db.select().from(leaderboards).where(eq(leaderboards.id, leaderboardId)).limit(1), "leaderboard", leaderboardId);
   },
 
+  /** A board's entries for businesses that are listed (LIVE, committed, not archived: the `leaderboard_entries_select` policy). */
   async leaderboardEntries(db: Executor, leaderboardId: string, limit = 100): Promise<LeaderboardEntry[]> {
-    return db.select().from(leaderboardEntries).where(eq(leaderboardEntries.leaderboardId, leaderboardId)).orderBy(asc(leaderboardEntries.position)).limit(limit);
+    const rows = await db
+      .select({ entry: leaderboardEntries })
+      .from(leaderboardEntries)
+      .innerJoin(businesses, eq(businesses.id, leaderboardEntries.businessId))
+      .where(and(eq(leaderboardEntries.leaderboardId, leaderboardId), publicBusiness))
+      .orderBy(asc(leaderboardEntries.position))
+      .limit(limit);
+    return rows.map((r) => r.entry);
   },
 
   /** A business's positions across boards (its profile's trophy cabinet strip). */
@@ -541,7 +638,8 @@ export const socialRepo = {
       .select({ entry: leaderboardEntries, board: leaderboards })
       .from(leaderboardEntries)
       .innerJoin(leaderboards, eq(leaderboards.id, leaderboardEntries.leaderboardId))
-      .where(and(eq(leaderboardEntries.businessId, businessId), period ? eq(leaderboards.period, period) : undefined))
+      .innerJoin(businesses, eq(businesses.id, leaderboardEntries.businessId))
+      .where(and(eq(leaderboardEntries.businessId, businessId), publicBusiness, period ? eq(leaderboards.period, period) : undefined))
       .orderBy(desc(leaderboards.period), asc(leaderboards.boardKind));
     return rows.map((r) => ({ ...r.entry, board: r.board }));
   },
