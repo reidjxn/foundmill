@@ -24,6 +24,7 @@ import { inboxRepo } from "./inbox";
 import { integrationsRepo } from "./integrations";
 import { journeysRepo } from "./journeys";
 import { legalRepo } from "./legal";
+import { logosRepo } from "./logos";
 import { membershipsRepo } from "./memberships";
 import { plansRepo } from "./plans";
 import { playbooksRepo } from "./playbooks";
@@ -70,6 +71,7 @@ export const repos = {
   events: eventsRepo,
   social: socialRepo,
   workspaces: workspacesRepo,
+  logos: logosRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -109,3 +111,4 @@ export * from "./tasks";
 export * from "./training";
 export * from "./usage";
 export * from "./workspaces";
+export * from "./logos";

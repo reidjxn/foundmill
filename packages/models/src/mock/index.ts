@@ -24,6 +24,7 @@ import {
   DepartmentLeadOutput,
   IdeationOutput,
   LinkerOutput,
+  LogoDesignOutput,
   ModerationOutput,
   NightlyBatchOutput,
   PlanOutput,
@@ -43,6 +44,7 @@ import { generateInboxComposer } from "./inboxComposer";
 import { type MockContext, buildMockContext, keywords } from "./inputs";
 import { generateJourneyCommentary } from "./journeyCommentary";
 import { generateLinker } from "./linker";
+import { generateLogoDesigner } from "./logoDesigner";
 import { generateModeration } from "./moderation";
 import { generatePlanCompiler } from "./planCompiler";
 import { generatePlanner } from "./planner";
@@ -69,6 +71,7 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   planner: { route: "planner", description: "Roadmap items → task graph with acceptance criteria, test expectations, file-scope hints and dependencies.", schema: TaskGraphOutput, generate: generatePlanner },
   codeReview: { route: "codeReview", description: "Deterministic review of a unified diff against the platform rules.", schema: CodeReviewOutput, generate: generateCodeReview },
   ideation: { route: "ideation", description: "6–12 concept cards with 10 attributes (1–20), evidence and ≥ 2 citations, seeded by the prompt.", schema: IdeationOutput, generate: generateIdeation },
+  logoDesigner: { route: "logoDesigner", description: "N distinct geometric logo marks as SVG on a 100 × 100 tile, in the brand colours; never a shield, badge, star or ball.", schema: LogoDesignOutput, generate: generateLogoDesigner },
   skillGrader: { route: "skillGrader", description: "Rubric grading 0–1 per line; deterministic checks are authoritative.", schema: SkillGradeOutput, generate: generateSkillGrader },
   coach: { route: "coach", description: "Up to 3 instruction diffs for the focus skills; never weakens house rules.", schema: CoachOutput, generate: generateCoach },
   worker: { route: "worker", description: "Generic Sonnet worker: a stepwise plan and artefact list for a task.", schema: WorkerOutput, generate: generateWorker },
@@ -242,6 +245,7 @@ export { synthesizeFromZod, synthesizeFromJsonSchema } from "./synth";
 export { compilePlanRuleBased, detectAmounts, detectChannels, detectHardGates, detectAudience, detectTimeframe, inferTaskKind, type PlanCompilerContext, type HardGate, type DetectedAmount } from "./planCompiler";
 export { generateInboxComposer } from "./inboxComposer";
 export { generateIdeation } from "./ideation";
+export { generateLogoDesigner, MOCK_LOGO_FAMILIES } from "./logoDesigner";
 export { generateChiefOfStaff, readTasks, scoreTask } from "./chiefOfStaff";
 export { generateDepartmentLead } from "./departmentLead";
 export { generatePlanner } from "./planner";

@@ -106,6 +106,13 @@
       "when": 1791375120000,
       "tag": "0015_app_installations",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791547920000,
+      "tag": "0017_business_logos",
+      "breakpoints": true
     }
   ]
 }

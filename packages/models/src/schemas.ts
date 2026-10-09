@@ -143,6 +143,28 @@ export const IdeationOutput = z.object({
 export type IdeationOutput = z.infer<typeof IdeationOutput>;
 
 // ---------------------------------------------------------------------------------------------------------------------
+// Logo designer (business logo marks as SVG; packages/agents prompt `logo_designer`). The SVG is untrusted output: the
+// api passes every mark through the strict sanitiser (@foundmill/shared/logo) before it reaches a browser.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const LOGO_SVG_MAX_CHARS = 12_000;
+
+export const LogoMarkDraft = z.object({
+  /** One to three words naming the idea ("Orbit", "Folded page"). */
+  name: z.string().min(1).max(40),
+  /** What the mark shows and why it fits the business (one sentence). */
+  concept: z.string().min(1).max(240),
+  /** A complete `<svg>` document on a 0 0 100 100 viewBox. */
+  svg: z.string().min(40).max(LOGO_SVG_MAX_CHARS),
+});
+export type LogoMarkDraft = z.infer<typeof LogoMarkDraft>;
+
+export const LogoDesignOutput = z.object({
+  marks: z.array(LogoMarkDraft).min(1).max(8),
+});
+export type LogoDesignOutput = z.infer<typeof LogoDesignOutput>;
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Chief of Staff cycle plan (BUILD §12.4)
 // ---------------------------------------------------------------------------------------------------------------------
 

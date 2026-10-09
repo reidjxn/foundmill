@@ -13,6 +13,7 @@ import { repos, type Business, type Db, type DbTx, type InboxItem } from "@found
 import { writeEventRow } from "./events";
 import { CHANNEL_KEYS, CHANNEL_META, DEFAULT_BUSINESS_MODE, MODULE_TABS, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import { PRESET_LAYOUTS } from "../presets";
+import { checkLogoChoice, toLogoInput, type LogoChoice } from "./logo";
 import { hireMany, type PlannedHire } from "./squad";
 import type { TemporalService } from "./temporal";
 import { WORKFLOWS, workflowIds } from "./temporal";
@@ -24,6 +25,8 @@ export interface CommitIdeaInput {
   archetype: Archetype;
   businessMode?: BusinessMode;
   kit?: { primary: string; secondary: string };
+  /** The chosen logo; checked before the transaction starts, stored inside it (service role, `business_logos`). */
+  logo?: LogoChoice | null;
   currency?: string;
   spendCapMinor?: number | null;
 }
@@ -48,6 +51,8 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   const seed = getArchetypeSeed(input.archetype);
   const businessMode = input.businessMode ?? DEFAULT_BUSINESS_MODE;
   const currency = (input.currency ?? "EUR").toUpperCase();
+  // A logo that does not pass the check fails the commit before anything is created.
+  if (input.logo) checkLogoChoice(input.logo);
 
   const result = await db.transaction(async (tx: DbTx) => {
     const business = await repos.businesses.create(tx, {
@@ -63,6 +68,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     });
     const businessId = business.id;
     await repos.memberships.add(tx, businessId, { userId, role: "owner" });
+    const logo = input.logo ? (await repos.logos.set(tx, businessId, { source: input.logo.source, logo: toLogoInput(input.logo.dataUrl), createdBy: userId })).meta : null;
     await repos.businesses.commit(tx, businessId, { archetype: input.archetype });
     await repos.ideas.commit(tx, userId, input.ideaId, businessId);
 
@@ -208,7 +214,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       actorId: userId,
       action: "idea.commit",
       target: { kind: "business", id: businessId },
-      details: { ideaId: idea.id, archetype: input.archetype, gameMode: input.gameMode, businessMode, departments: departmentIds.length, agents: agentIds.length, spendCapMinor: input.spendCapMinor ?? null },
+      details: { ideaId: idea.id, archetype: input.archetype, gameMode: input.gameMode, businessMode, departments: departmentIds.length, agents: agentIds.length, spendCapMinor: input.spendCapMinor ?? null, logo: logo ? { source: logo.source, mime: logo.mime, sha256: logo.sha256, bytes: logo.bytes } : null },
     });
 
     return { business: { ...business, committedAt: new Date(), archetype: input.archetype }, departmentIds, agentIds, chiefOfStaffId: chief.agent.id, boardItem, taskIds };
