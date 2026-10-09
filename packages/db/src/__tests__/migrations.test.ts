@@ -39,7 +39,7 @@ describe("journal", () => {
       "0013_workspaces",
       "0014_workspace_push",
       "0015_app_installations",
-      "0018_live_hardening", // 0016 and 0017 belong to other branches
+      "0016_live_hardening",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);

@@ -1,4 +1,4 @@
--- 0018 — LIVE hardening (security review of the LIVE pages): record who blocked a connection, and make the connection
+-- 0016 — LIVE hardening (security review of the LIVE pages): record who blocked a connection, and make the connection
 -- policies follow from it. Only the blocker may change or delete a blocked row, `accepted` never lands on a blocked row,
 -- and nobody can start a request to or from someone who is blocked. (The api runs on the service connection, so
 -- repos.social enforces the same rules; these policies are what the Supabase client roles are held to.)

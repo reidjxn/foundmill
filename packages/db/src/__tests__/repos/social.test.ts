@@ -58,7 +58,10 @@ describe("connections and messages", () => {
     // Not even the blocker can write `accepted` over it; they unblock (delete), and a fresh request starts clean.
     await expect(repos.social.respondConnection(r.db, blocker, c.id, "accepted")).rejects.toThrow(/Unblock/);
     expect((await repos.social.respondConnection(r.db, blocker, c.id, "blocked")).id).toBe(c.id); // idempotent
-    expect((await repos.social.listConnections(r.db, asker, { status: "blocked" })).map((x) => x.id)).toContain(c.id);
+    // A block is never announced: only the blocker sees the row in their lists.
+    expect((await repos.social.listConnections(r.db, blocker, { status: "blocked" })).map((x) => x.id)).toContain(c.id);
+    expect((await repos.social.listConnections(r.db, asker)).map((x) => x.id)).not.toContain(c.id);
+    expect(await repos.social.listConnections(r.db, asker, { status: "blocked" })).toEqual([]);
     await repos.social.removeConnection(r.db, blocker, c.id);
     expect((await repos.social.listConnections(r.db, asker)).map((x) => x.id)).not.toContain(c.id);
     const again = await repos.social.requestConnection(r.db, asker, blocker);

@@ -233,6 +233,8 @@ describe("messages and connections", () => {
     expect((await failure(as(attacker).live.connections.respond({ connectionId: c.id, status: "blocked" }))).code).toBe("BAD_REQUEST");
     expect((await failure(as(attacker).live.connections.remove({ connectionId: c.id }))).code).toBe("BAD_REQUEST");
     expect((await as(victim).live.connections.list({ status: "blocked" })).map((r) => [r.id, r.blockedBy])).toEqual([[c.id, victim]]);
+    // The blocked person does not see the row at all: a block is never announced.
+    expect((await as(attacker).live.connections.list()).map((r) => r.id)).not.toContain(c.id);
     // Asking again: refused, and the refusal does not announce the block.
     const again = await failure(as(attacker).live.connections.request({ businessId: hz.B.businessId, toUserId: victim }));
     expect(again.code).not.toBe("OK");

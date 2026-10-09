@@ -182,6 +182,8 @@ export const socialRepo = {
         and(
           f.direction === "incoming" ? eq(connections.toUser, userId) : f.direction === "outgoing" ? eq(connections.fromUser, userId) : or(eq(connections.fromUser, userId), eq(connections.toUser, userId)),
           f.status ? eq(connections.status, f.status) : undefined,
+          // A block is never announced: the person who was blocked does not see the row, only the blocker does.
+          or(sql`${connections.status} <> 'blocked'`, eq(connections.blockedBy, userId)),
         ),
       )
       .orderBy(desc(connections.createdAt));
