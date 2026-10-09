@@ -87,8 +87,16 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
   return items;
 }
 
+/** The LIVE pages sit outside /b/[bid] (BUILD §6.2); each lights its own sidebar item, whichever business is current. */
+const LIVE_ROUTE_ITEMS = [
+  ["/network", SIDEBAR_IDS.network],
+  ["/communities", SIDEBAR_IDS.communities],
+  ["/leaderboards", SIDEBAR_IDS.leaderboards],
+] as const;
+
 /** Which sidebar item is active for a pathname. */
 export function activeSidebarId(pathname: string, businessId: string, departments: readonly SidebarDepartment[]): string | undefined {
+  for (const [prefix, id] of LIVE_ROUTE_ITEMS) if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return id;
   const base = `/b/${businessId}`;
   if (!pathname.startsWith(base)) return undefined;
   const rest = pathname.slice(base.length);
