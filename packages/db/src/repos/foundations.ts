@@ -11,7 +11,7 @@
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { FoundationsDraft, FoundationsInputs, FoundationsNoteStats, FoundationsOutlineEntry, ImportReportSnapshot } from "@foundmill/agents";
-import { FOUNDATIONS_DOORS, FOUNDATIONS_RUNNERS, ROADMAP_HORIZONS, type Archetype, type FoundationsStatus, type RoadmapHorizon } from "@foundmill/shared";
+import { FOUNDATIONS_DOORS, ROADMAP_HORIZONS, type Archetype, type FoundationsRunner, type FoundationsStatus, type RoadmapHorizon } from "@foundmill/shared";
 import { z } from "zod";
 import { businessFoundations, type BusinessFoundationsRow, type InboxItem, type SpecBlock } from "../schema";
 import { agentsRepo } from "./agents";
@@ -97,7 +97,7 @@ export const foundationsRepo = {
   },
 
   /** Record where the claimed attempt runs (Temporal workflow id, or the api's in-process fallback). */
-  async setRunner(db: Executor, businessId: string, attempt: number, runner: { runner: (typeof FOUNDATIONS_RUNNERS)[number]; workflowId: string | null }): Promise<BusinessFoundationsRow | null> {
+  async setRunner(db: Executor, businessId: string, attempt: number, runner: { runner: FoundationsRunner; workflowId: string | null }): Promise<BusinessFoundationsRow | null> {
     const rows = await db
       .update(businessFoundations)
       .set({ runner: runner.runner, workflowId: runner.workflowId })

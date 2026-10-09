@@ -4,6 +4,7 @@
  */
 import type { SessionCommand } from "../control-bus";
 import type { ProgressState } from "../progress";
+import type { FoundationsDraft } from "@foundmill/agents";
 import type { AgentStatus, BusinessMode, ModelKey, PlanActionType, PolicyOutcome, TaskKind, TaskStatus } from "@foundmill/shared";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -404,6 +405,27 @@ export interface ImportSourceResult {
   sourceId: string;
   ok: boolean;
   summary: string;
+}
+
+/** businessFoundations (BUILD §11.1 first open, §11.5): one claimed drafting attempt of a business's foundations. */
+export interface BusinessFoundationsInput {
+  businessId: string;
+  attempt: number;
+}
+
+export interface FoundationsDrafted {
+  /** False when the attempt is no longer the current drafting one (nothing was asked of the model). */
+  current: boolean;
+  draft: FoundationsDraft | null;
+  door: "ideation" | "import";
+  /** Model metadata kept on the row's summary (cost in minor units, an Estimate). */
+  model: Record<string, unknown>;
+}
+
+export interface BusinessFoundationsResult {
+  status: "ready" | "failed" | "skipped";
+  inboxItemId: string | null;
+  error: string | null;
 }
 
 export interface ScheduleInput {

@@ -492,6 +492,22 @@ function roadmapDescription(description: string, criteria: string[], sourceRef: 
   return parts.join("\n\n");
 }
 
+/**
+ * What the founder reads when a drafting attempt fails (shown next to "Try again"). Never the raw error: provider
+ * messages can carry request ids and internal detail; the cause is logged by the caller.
+ */
+export function describeFoundationsFailure(err: unknown): string {
+  const e = err as { name?: string; code?: string; status?: number } | null;
+  if (e?.name === "ModelOutputError" && e.code === "max_tokens") return "The drafting agent ran out of room before it finished. Try again.";
+  if (e?.name === "ModelOutputError") return "The drafting agent's answer could not be read. Try again.";
+  if (e?.name === "ModelRateLimitError" || e?.status === 429 || e?.code === "rate_limited") return "The model was busy. Try again in a minute.";
+  if (e?.code === "auth" || e?.status === 401) return "The model key was refused. Check the Anthropic key in Settings, then try again.";
+  if (e?.code === "unavailable") return "The model service did not answer. Try again in a few minutes.";
+  if (e?.code === "refusal") return "The drafting agent declined to answer. Check the idea and the imported sources, then try again.";
+  if (e?.name === "AbortError" || /timed? ?out/i.test(String((err as Error)?.message ?? ""))) return "The drafting took too long and was stopped. Try again.";
+  return "The drafting did not finish. Try again.";
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // The Inbox note when the foundations are ready
 // ---------------------------------------------------------------------------------------------------------------------

@@ -1,13 +1,38 @@
-/** product.spec.* / product.roadmap.* / product.proposals.* / product.sources.* (BUILD §11.5; AC-11.5.2, AC-11.5.3). */
+/**
+ * product.foundations.* / product.spec.* / product.roadmap.* / product.proposals.* / product.sources.* (BUILD §11.1
+ * first open, §11.5; AC-11.5.2, AC-11.5.3).
+ */
 import { CreateSourceInput, EditSpecBlockInput, UpsertRoadmapItemInput, repos } from "@foundmill/db";
 import { HUNK_DECISIONS, SOURCE_KINDS, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
-import { Id, audit, emit, router, sectionRead, sectionWrite } from "../trpc";
+import { ensureFoundations, foundationsView, isStale, retryFoundations } from "../services/foundations";
+import { Id, audit, businessProcedure, emit, router, sectionRead, sectionWrite } from "../trpc";
 
 const read = sectionRead("product");
 const write = sectionWrite("product");
 
 export const productRouter = router({
+  /**
+   * The business's foundations: the vision, the first specification and the first roadmap, drafted once on the first
+   * open. `ensure` is what the business shell calls on load (any member; idempotent: it claims a pending draft exactly
+   * once and never waits for the drafting); `retry` re-runs a failed one.
+   */
+  foundations: router({
+    get: read.query(async ({ ctx }) => {
+      const row = await ctx.rls((tx) => repos.foundations.get(tx, ctx.businessId));
+      return { ...foundationsView(row), stale: row ? isStale(row, new Date()) : false };
+    }),
+    ensure: businessProcedure.mutation(async ({ ctx }) => {
+      const result = await ensureFoundations({ db: ctx.db, models: ctx.models, temporal: ctx.temporal, log: ctx.log }, ctx.businessId, { userId: ctx.userId });
+      return { ...result.view, started: result.started, stale: false };
+    }),
+    retry: write.mutation(async ({ ctx }) => {
+      const result = await retryFoundations({ db: ctx.db, models: ctx.models, temporal: ctx.temporal, log: ctx.log }, ctx.businessId, { userId: ctx.userId });
+      if (!result.started && result.view.status !== "drafting") throw new ValidationError(result.view.status === "none" ? "This business has no drafting to retry" : `Nothing to retry: the drafting is ${result.view.status}`);
+      return { ...result.view, started: result.started, stale: false };
+    }),
+  }),
+
   spec: router({
     get: read.input(z.object({ section: z.string().max(80).optional() })).query(({ ctx, input }) =>
       ctx.rls(async (tx) => {
