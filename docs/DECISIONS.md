@@ -978,3 +978,12 @@ The per-row repo functions stay for everything else. When a screen does many seq
 
 - **Posts.** Community post text renders without images and without entity links. People and businesses on the network are not CRM entities.
 - **Boards** show their one ranked metric. Separate customers-won, MRR and growth columns would need entries to carry more than one metric.
+
+## 2026-10-09 — LIVE after the security review: blocks, speaking as a business, listed businesses only
+
+- **A block belongs to its blocker.** `connections.blocked_by` records who blocked. Nobody else can change or delete the row, `accepted` is never written over it, and the block is never announced: the blocked person's lists omit the row, and a new request only says it could not be sent.
+- **Rules are repeated in the repo and router.** The router runs on the service connection, so the listing rules the RLS policies state (leaderboards, communities, block ownership) are enforced again there. A business leaves boards when it switches from LIVE to Personal and when it is archived, and reads also filter on listed status.
+- **A person speaks as themselves by default.** Speaking as a business needs a writing role with write access to the live section, on a LIVE, committed business. The ids of unlisted businesses are shown only to their own members.
+- **New threads need a connection.** A new thread needs an accepted connection with each recipient, or an existing shared thread, and a Send reaches at most 20 recipients.
+- **Other people's text is filtered in the renderer.** It renders with entity links and images off (`Markdown entities={false} images={false}`), rather than being pre-filtered.
+- **Error messages.** INTERNAL errors outside development and test return a generic message plus the request id, and foreign-key violations return Not found (globally: tRPC wraps database errors as INTERNAL before the mapper sees them).

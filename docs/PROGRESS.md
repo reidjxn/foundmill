@@ -156,6 +156,14 @@ Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
   - New Dugout `Composer`, `Conversation` and `FeedPost` components; a `live.people.lookup` procedure.
   - Community visibility is now enforced in the router. It runs on the service connection (no RLS), so before this any signed-in user could read private communities.
   - Tests: `live.spec.ts`, unit tests, and seed additions (a second community, a reply, a customers-won board).
+- 2026-10-09 — **LIVE pages: security review closed before shipping.**
+  - Boards serve only listed businesses (LIVE, committed, not archived), and a business leaves them when it goes Personal or is archived.
+  - A block belongs to whoever blocked (`connections.blocked_by`, migration 0016, policies tightened) and is never announced to the blocked person.
+  - Send reaches at most 20 recipients, who must exist, be connected (or share a thread) and not be blocked either way.
+  - Posting as a business needs a writing role with live-section write on a LIVE, committed business; posting defaults to yourself.
+  - Muted members stay muted, replies need a real top-level parent, archived communities read as not found, and other people's text renders without entity links or images (`Markdown entities={false}`).
+  - INTERNAL errors are generic outside development and test, with the request id; foreign-key violations return Not found. A connection request and its event commit together.
+  - Tests: db 1173, api 92 (17 LIVE regression tests), dugout 368, web 277; `live.spec.ts` 6/6.
 - 2026-10-09 — **"Take charge" takes seconds, not 36 (founder report).**
   - `idea.commit` made 722 sequential database round trips: about 50 ms each to Supabase, so the button spun for 36 s.
   - It now hires the whole team in a few statements (`agents.createMany`, `skills.upsertForAgents`, `departments.addMembers`, `screens.upsertMany`, a batched `channels.upsertMany`), giving 73 round trips, about 3–4 s.
