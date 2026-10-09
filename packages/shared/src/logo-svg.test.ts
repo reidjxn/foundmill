@@ -232,11 +232,13 @@ function maskChain(levels: number, fan: number, kind: "mask" | "clipPath"): stri
 
 describe("sanitiseSvg: render cost (use, mask and clip-path chains)", () => {
   it("refuses use chains that expand past the cost cap, however small the file", () => {
-    for (const [levels, fan] of [[3, 10], [5, 10], [9, 10], [33, 3]] as const) {
+    for (const [levels, fan] of [[4, 10], [5, 10], [9, 10], [33, 3]] as const) {
       const svg = referenceBomb(levels, fan);
       expect(svg.length).toBeLessThan(15_000);
       expect(sanitiseSvg(svg), `${levels}x${fan}`).toMatchObject({ ok: false, reason: expect.stringMatching(/repeats its parts too many times/) });
     }
+    // 3x10 is 1,000 copies of one rectangle (the defs that hold the chain are not drawn themselves): under the cap.
+    expect(ok(referenceBomb(3, 10)).renderCost).toBe(3223);
   });
 
   it("keeps a modest amount of reuse and reports its cost", () => {
@@ -262,6 +264,61 @@ describe("sanitiseSvg: render cost (use, mask and clip-path chains)", () => {
     expect(sanitiseSvg(wrap('<g id="a"><rect width="1" height="1"/><use href="#a"/></g>'))).toMatchObject({ ok: false, reason: expect.stringMatching(/loop/) });
     expect(sanitiseSvg(wrap('<defs><g id="b"><use href="#c"/></g><g id="c"><use href="#b"/></g></defs><use href="#b"/><rect width="1" height="1"/>'))).toMatchObject({ ok: false, reason: expect.stringMatching(/loop/) });
     expect(sanitiseSvg(wrap('<defs><linearGradient id="g1" href="#g2"/><linearGradient id="g2" href="#g1"/></defs><rect width="1" height="1" fill="url(#g1)"/>'))).toMatchObject({ ok: false, reason: expect.stringMatching(/loop/) });
+  });
+});
+
+/** The second review's cases (poc-logo/dashbomb.ts, heavypath.ts, falsepos.ts). */
+describe("sanitiseSvg: what a browser has to paint", () => {
+  const DASHED = '<circle cx="50" cy="50" r="1000" fill="none" stroke="#123456" stroke-dasharray=".007"/>';
+
+  it("drops stroke-dasharray and stroke-dashoffset as attributes, style declarations and sheet rules (dashbomb)", () => {
+    const repeated = ok(wrap(DASHED.repeat(100)));
+    expect(repeated.svg).not.toMatch(/dash/);
+    expect(repeated.removedCounts).toEqual({ attribute: 100 });
+    const reused = ok(wrap(`<defs><g id="a">${DASHED.repeat(40)}</g></defs>${'<use href="#a"/>'.repeat(100)}`));
+    expect(reused.svg).not.toMatch(/dash/);
+    const styled = ok(wrap('<style>circle{stroke-dasharray:.007}</style><circle r="40" stroke="#000" stroke-dashoffset="2" style="stroke-dasharray:1 1;stroke-dashoffset:3"/>'));
+    expect(styled.svg).toBe('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512"><circle r="40" stroke="#000"/></svg>');
+    expect(styled.removed).toEqual(expect.arrayContaining(["style:stroke-dasharray", "style:stroke-dashoffset", "attribute:stroke-dashoffset"]));
+  });
+
+  it("weighs long path data and text: 1 per 32 characters of d or points, 1 per character of text", () => {
+    const d = `M0 0${" L1 1".repeat(640)}`; // 3,204 characters
+    expect(ok(wrap(`<path d="${d}"/>`)).renderCost).toBe(1 + 1 + Math.floor(d.length / 32));
+    expect(ok(wrap(`<polygon points="${"1,1 ".repeat(100)}"/>`)).renderCost).toBe(1 + 1 + Math.floor("1,1 ".repeat(100).trim().length / 32));
+    expect(ok(wrap("<text>Acme</text>")).renderCost).toBe(1 + 1 + 4);
+  });
+
+  it("refuses a long path drawn many times through nested use (heavypath: 60 KB x 1,000 used to cost 4,688)", () => {
+    let d = "M0 0";
+    while (d.length < 60_000) d += " L100 100 L0 1 L100 0 L0 100";
+    const path = `<path id="p" d="${d}" fill="none" stroke="#000" stroke-width="3" stroke-linejoin="round"/>`;
+    const chain = `<g id="g1">${'<use href="#p"/>'.repeat(10)}</g><g id="g2">${'<use href="#g1"/>'.repeat(10)}</g><g id="g3">${'<use href="#g2"/>'.repeat(10)}</g>`;
+    expect(sanitiseSvg(wrap(`<defs>${path}${chain}</defs><use href="#g3"/>`))).toMatchObject({ ok: false, reason: expect.stringMatching(/too heavy to draw quickly/) });
+    // The same path drawn once is a normal (if detailed) logo.
+    expect(ok(wrap(`<defs>${path}</defs><use href="#p"/>`)).renderCost).toBeLessThan(2_000);
+  });
+
+  it("still accepts a detailed logo near the size limit that reuses nothing", () => {
+    const paths = Array.from({ length: 40 }, (_, i) => `<path d="M${i} 0${" l1.5 2.5 c1 1 2 2 3 3".repeat(90)}z" fill="#1f6f5f"/>`).join("");
+    const rects = Array.from({ length: 200 }, (_, i) => `<rect x="${i % 100}" y="${Math.floor(i / 100)}" width="1" height="1" fill="#e8c56b"/>`).join("");
+    const r = ok(wrap(`${paths}${rects}<text x="10" y="90">Ledgerly</text>`));
+    expect(r.svg.length).toBeGreaterThan(80 * 1024);
+    expect(r.renderCost).toBeLessThan(5_000);
+  });
+
+  it("counts a gradient reference as 1 and leaves unreferenced defs out (falsepos: 500 gradient rects were refused)", () => {
+    const stops = Array.from({ length: 8 }, (_, i) => `<stop offset="${i / 7}" stop-color="#${(i * 30).toString(16).padStart(2, "0")}3366"/>`).join("");
+    for (const n of [300, 500, 800]) {
+      const rects = Array.from({ length: n }, (_, i) => `<rect x="${i % 100}" y="${Math.floor(i / 100)}" width="1" height="1" fill="url(#g)"/>`).join("");
+      const r = ok(wrap(`<defs><linearGradient id="g">${stops}</linearGradient></defs>${rects}`));
+      expect(r.renderCost).toBe(1 + n * 2);
+    }
+    // Drawn only where referenced: 3,000 shapes kept in defs cost nothing until a use draws them.
+    const parked = `<defs><g id="parked">${'<rect width="1" height="1"/>'.repeat(3000)}</g><clipPath id="c"><rect width="5" height="5"/></clipPath></defs>`;
+    expect(ok(wrap(`${parked}<rect width="9" height="9"/>`)).renderCost).toBe(2);
+    expect(ok(wrap(`${parked}<rect width="9" height="9" clip-path="url(#c)"/>`)).renderCost).toBe(2 + 2);
+    expect(sanitiseSvg(wrap(`${parked}<use href="#parked"/><use href="#parked"/>`))).toMatchObject({ ok: false, reason: expect.stringMatching(/too heavy/) });
   });
 });
 

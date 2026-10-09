@@ -104,6 +104,22 @@ describe("whole documents built from the same shapes stay fast", () => {
     });
   }
 
+  it("style rules that fan out over every element stop at the output budget (poc-logo/cpuprobe2.ts took about 1 s)", () => {
+    const longRgb = `rgb(${"1,".repeat(120)}1)`;
+    const n250 = "1".repeat(250);
+    const decls = [`fill:${longRgb}`, `stroke:${longRgb}`, `color:${longRgb}`, `stop-color:${longRgb}`, `fill-opacity:${n250}`, `stroke-opacity:${n250}`, `opacity:${n250}`, `stroke-width:${n250}`, `stroke-miterlimit:${n250}`, `font-size:${n250}`, `letter-spacing:${n250}`, `font-family:${"a".repeat(120)}`, "width:1", "height:1"].join(";");
+    const rects = '<rect width="1" height="1"/>'.repeat(3990);
+    for (const selectors of ["rect", Array.from({ length: 400 }, () => "rect").join(",")]) {
+      const svg = wrap(`<style>${selectors}{${decls}}</style>${rects}`);
+      const { ms, result } = timed(() => sanitiseSvg(svg));
+      expect(result).toMatchObject({ ok: false, reason: expect.stringMatching(/too complex: more than 96 KB after cleaning/) });
+      expect(ms, `${selectors.length} selector characters took ${ms.toFixed(0)} ms`).toBeLessThan(GRAMMAR_BUDGET_MS);
+    }
+    // An ordinary exported sheet (a few class rules) is unaffected.
+    const exported = wrap(`<style>.cls-1{fill:#1f6f5f}.cls-2{fill:#e8c56b;stroke:#0f1318}</style>${'<rect class="cls-1" width="1" height="1"/><rect class="cls-2" width="2" height="2"/>'.repeat(300)}`);
+    expect(sanitiseSvg(exported).ok).toBe(true);
+  });
+
   it("the reported api payload (570 bytes, used to take seconds) is answered at once through checkLogo", () => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1" transform="${"scale(1)  ".repeat(30)}X"/></svg>`;
     const { ms, result } = timed(() => checkLogo({ mime: "image/svg+xml", svg }));
