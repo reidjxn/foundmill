@@ -2,13 +2,14 @@
  * business_logos (0017): the business's logo, one row per business.
  *
  * `set` is the only write path: it takes either a result `checkLogo` (@foundmill/shared/logo) returned, recognised by
- * `isCheckedLogo`, or raw input that it checks itself, so nothing reaches the table without the magic-byte, dimension
- * and size checks for rasters or the strict sanitiser for SVG, and the sanitiser runs once per request. Callers write with
+ * `isCheckedLogo` (frozen; a look-alike object is refused), or raw input that it checks itself, so nothing reaches the
+ * table without the magic-byte, dimension and size checks for rasters or the strict sanitiser for SVG, and the sanitiser
+ * runs once per request. Callers write with
  * the service role (app roles only read this table); the api checks that the caller is an owner or admin first.
  * `getMeta` leaves the bytes out so `business.get` stays small; `get` returns the image as a `data:` URL.
  */
 import { createHash } from "node:crypto";
-import { LOGO_SOURCES, checkLogo, isCheckedLogo, toLogoDataUrl, type CheckedLogo, type LogoInput, type LogoMime, type LogoSource } from "@foundmill/shared/logo";
+import { LOGO_SOURCES, base64ToBytes, checkLogo, isCheckedLogo, looksLikeCheckedLogo, toLogoDataUrl, type CheckedLogo, type LogoInput, type LogoMime, type LogoSource } from "@foundmill/shared/logo";
 import { ValidationError } from "@foundmill/shared";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -85,22 +86,27 @@ export const logosRepo = {
    */
   async set(db: Executor, businessId: string, input: SetLogoInput): Promise<{ meta: BusinessLogoMeta; checked: CheckedLogo; previous: BusinessLogoMeta | null }> {
     const v = parseInput(SetLogoInput, input, "logo");
-    // A result checkLogo returned is stored as it is (the sanitiser runs once per request); anything else is checked.
+    // A result checkLogo returned is stored as it is (the sanitiser runs once per request); raw input is checked here;
+    // an object shaped like a result that checkLogo did not return is refused outright.
     let logo: CheckedLogo;
     if (isCheckedLogo(input.logo)) logo = input.logo;
+    else if (looksLikeCheckedLogo(input.logo)) throw new ValidationError("The logo was not produced by the logo check: pass the raw image or the result checkLogo returned.");
     else {
       const check = checkLogo(v.logo as LogoInput);
       if (!check.ok) throw new ValidationError(check.reason);
       logo = check.logo;
     }
+    // The checked result is frozen but its byte array cannot be, so the bytes are decoded from the frozen base64.
+    const content = base64ToBytes(logo.base64);
+    if (!content) throw new ValidationError("The logo data is not valid base64.");
     const previous = await logosRepo.getMeta(db, businessId);
-    const values = { source: v.source, mime: logo.mime, content: logo.bytes, sha256: sha256Hex(logo.bytes), width: logo.width, height: logo.height, createdBy: v.createdBy ?? null, updatedAt: new Date() };
+    const values = { source: v.source, mime: logo.mime, content, sha256: sha256Hex(content), width: logo.width, height: logo.height, createdBy: v.createdBy ?? null, updatedAt: new Date() };
     const rows = await db
       .insert(businessLogos)
       .values({ businessId, ...values })
       .onConflictDoUpdate({ target: businessLogos.businessId, set: values })
       .returning(META_COLUMNS);
-    return { meta: toMeta(one(rows, "logo", businessId), logo.bytes.length), checked: logo, previous };
+    return { meta: toMeta(one(rows, "logo", businessId), content.length), checked: logo, previous };
   },
 
   /** Removes the logo (the business falls back to its initials mark). Returns what was removed, or null. */

@@ -59,7 +59,8 @@ export function preparedView(logo: CheckedLogo) {
 
 /** What the sanitiser took out, bounded (counts per kind, at most 20 names of 40 characters): safe for the audit log. */
 export function sanitisedSummary(logo: CheckedLogo): { counts: Record<string, number>; names: string[] } {
-  return { counts: logo.removedCounts, names: logo.removed };
+  // Copies: the checked result is frozen.
+  return { counts: { ...logo.removedCounts }, names: [...logo.removed] };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
