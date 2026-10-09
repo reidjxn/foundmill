@@ -201,5 +201,9 @@ describe("sanitiseSvg: attack cases", () => {
     expect(sanitiseSvg("x".repeat(3 * 1024 * 1024))).toMatchObject({ ok: false });
     expect(sanitiseSvg(wrap("<g>".repeat(60) + "</g>".repeat(60)))).toMatchObject({ ok: false, reason: expect.stringMatching(/nested/) });
     expect(sanitiseSvg(wrap('<rect width="1" height="1"/>', 'viewBox="0 0 100 10"'))).toMatchObject({ ok: false, reason: expect.stringMatching(/too wide/) });
+    // A sheet with thousands of rules is ignored rather than matched against every element.
+    const huge = sanitiseSvg(wrap(`<style>${Array.from({ length: 500 }, (_, i) => `.c${i}{fill:#123456}`).join("")}</style><rect class="c1" width="1" height="1"/>`));
+    expect(huge).toMatchObject({ ok: true, removed: expect.arrayContaining(["style:sheet-too-large"]) });
+    expect(huge.ok && huge.svg).not.toContain("#123456");
   });
 });

@@ -10,7 +10,7 @@ import { bytesToBase64, isLogoDataUrl, sanitiseSvg } from "@foundmill/shared/log
 import { makeJpeg, makePng } from "@foundmill/shared/testing/logo-fixtures";
 import { TRPCError } from "@trpc/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { logoLimiter, takeLogoAllowance } from "../services/logo";
+import { logoLimiter, takeLogoAllowance, takeLogoCheck } from "../services/logo";
 import { SlidingWindowLimiter } from "../services/rate-limit";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -97,6 +97,16 @@ describe("business.logo.* (owner/admin, audited)", () => {
     ];
     for (const dataUrl of bad) expect(await code(owner.business.logo.upload({ businessId, source: "upload", dataUrl }))).toBe("BAD_REQUEST");
     expect((await owner.business.get({ businessId })).logo!.sha256).toBe(sha);
+  });
+
+  it("limits upload checks per user per hour", async () => {
+    const { businessId, ownerId } = hz.B;
+    const owner = hz.caller({ userId: ownerId });
+    for (let i = 0; i < LIMITS.logoChecksPerUserPerHour; i++) takeLogoCheck(ownerId);
+    expect(await code(owner.business.logo.prepare({ businessId, dataUrl: pngUrl(64) }))).toBe("TOO_MANY_REQUESTS");
+    expect(await code(owner.idea.logo.prepare({ dataUrl: pngUrl(64) }))).toBe("TOO_MANY_REQUESTS");
+    // Someone else is unaffected.
+    expect(await code(hz.caller({ userId: hz.B.adminId }).business.logo.prepare({ businessId, dataUrl: pngUrl(64) }))).toBe("OK");
   });
 
   it("prepare checks without storing and returns the cleaned preview with colour suggestions", async () => {

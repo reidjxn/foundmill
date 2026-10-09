@@ -9,13 +9,14 @@
  * - `idea.logo.prepare` / `idea.logo.generate`  the same before commit, for the founder's own idea (rate-limited per
  *   user); the chosen logo then travels with `idea.commit`.
  *
+ * Upload checks (prepare, upload) are limited per user (`LIMITS.logoChecksPerUserPerHour`): the SVG check is CPU work.
  * `business_logos` is read-only to app roles, so writes go through the service role after the role check and the logo
  * check (services/logo.ts), with the audit row in the same transaction.
  */
 import { repos } from "@foundmill/db";
 import { AppError, Archetype } from "@foundmill/shared";
 import { z } from "zod";
-import { BrandColours, checkLogoChoice, generateLogoOptions, logoLimiter, LogoChoice, LogoDataUrl, preparedView, takeLogoAllowance, toLogoInput } from "../services/logo";
+import { BrandColours, checkLogoChoice, generateLogoOptions, logoLimiter, LogoChoice, LogoDataUrl, preparedView, takeLogoAllowance, takeLogoCheck, toLogoInput } from "../services/logo";
 import { adminProcedure, audit, businessProcedure, Id, protectedProcedure, router } from "../trpc";
 
 const Round = z.number().int().min(0).max(10_000).default(0);
@@ -30,9 +31,13 @@ export const businessLogoRouter = router({
   /** `version` is the caller's cache key (`business.get` → `logo.sha256`); the newest logo is always returned. */
   get: businessProcedure.input(z.object({ version: z.string().max(64).optional() })).query(({ ctx }) => ctx.rls((tx) => repos.logos.get(tx, ctx.businessId))),
 
-  prepare: adminProcedure.input(z.object({ dataUrl: LogoDataUrl })).mutation(({ input }) => preparedView(checkLogoChoice({ source: "upload", dataUrl: input.dataUrl }))),
+  prepare: adminProcedure.input(z.object({ dataUrl: LogoDataUrl })).mutation(({ ctx, input }) => {
+    takeLogoCheck(ctx.userId);
+    return preparedView(checkLogoChoice({ source: "upload", dataUrl: input.dataUrl }));
+  }),
 
   upload: adminProcedure.input(LogoChoice).mutation(async ({ ctx, input }) => {
+    takeLogoCheck(ctx.userId);
     const checked = checkLogoChoice(input);
     return ctx.db.transaction(async (tx) => {
       const { meta, previous } = await repos.logos.set(tx, ctx.businessId, { source: input.source, logo: toLogoInput(input.dataUrl), createdBy: ctx.userId });
@@ -76,7 +81,10 @@ export const businessLogoRouter = router({
 
 export const ideaLogoRouter = router({
   /** Check an upload before commit and return what would be stored (the preview shows exactly that). */
-  prepare: protectedProcedure.input(z.object({ dataUrl: LogoDataUrl })).mutation(({ input }) => preparedView(checkLogoChoice({ source: "upload", dataUrl: input.dataUrl }))),
+  prepare: protectedProcedure.input(z.object({ dataUrl: LogoDataUrl })).mutation(({ ctx, input }) => {
+    takeLogoCheck(ctx.userId);
+    return preparedView(checkLogoChoice({ source: "upload", dataUrl: input.dataUrl }));
+  }),
 
   /** Four marks for one of the founder's ideas, from the name on the Commit screen, the idea's pitch and archetype. */
   generate: protectedProcedure

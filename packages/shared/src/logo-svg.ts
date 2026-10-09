@@ -28,6 +28,8 @@ export const SVG_MAX_INPUT_CHARS = 2 * 1024 * 1024;
 export const SVG_MAX_ELEMENTS = 4000;
 export const SVG_MAX_DEPTH = 48;
 export const SVG_MAX_USE = 100;
+/** Style rules read from `<style>` sheets; past this the sheets are ignored (every element is matched against every rule). */
+export const SVG_MAX_STYLE_RULES = 400;
 /** Intrinsic size written on the sanitised root: the longer side, in px. */
 export const SVG_INTRINSIC_PX = 512;
 
@@ -409,6 +411,10 @@ function parseSheet(css: string, removed: Set<string>): SheetRule[] {
       else if (sel) removed.add("style:selector");
     }
   }
+  if (rules.length > SVG_MAX_STYLE_RULES) {
+    removed.add("style:sheet-too-large");
+    return [];
+  }
   return rules.sort((a, b) => a.specificity - b.specificity || a.order - b.order);
 }
 
@@ -596,7 +602,12 @@ export function sanitiseSvg(input: string, options: SvgSanitiseOptions = {}): Sv
   const sheets: string[] = [];
   collectSheets(root, sheets);
   if (sheets.length) removed.add("element:style");
-  const w: Walk = { removed, sheet: sheets.flatMap((s) => parseSheet(s, removed)), ids: new Set(), uses: 0 };
+  let sheet = sheets.flatMap((s) => parseSheet(s, removed));
+  if (sheet.length > SVG_MAX_STYLE_RULES) {
+    removed.add("style:sheet-too-large");
+    sheet = [];
+  }
+  const w: Walk = { removed, sheet, ids: new Set(), uses: 0 };
   const out = sanitiseElement(root, w, 0);
   if (!out) return { ok: false, reason: "Not an SVG." };
   resolveReferences(out, w.ids, removed);

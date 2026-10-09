@@ -24,4 +24,6 @@ export const LIMITS = {
   logoOptionsPerSet: 4,
   logoSetsPerUserPerHour: 10,
   logoSetsPerBusinessPerDay: 24,
+  /** Logo uploads checked (prepare and upload) per signed-in user per hour: the SVG check is CPU work on the api. */
+  logoChecksPerUserPerHour: 60,
 } as const;

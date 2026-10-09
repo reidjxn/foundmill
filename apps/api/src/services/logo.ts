@@ -68,7 +68,14 @@ const DAY = 24 * HOUR;
 export const LOGO_LIMITS = {
   user: { limit: LIMITS.logoSetsPerUserPerHour, windowMs: HOUR },
   business: { limit: LIMITS.logoSetsPerBusinessPerDay, windowMs: DAY },
+  checks: { limit: LIMITS.logoChecksPerUserPerHour, windowMs: HOUR },
 } as const;
+
+/** Spends one upload check (prepare, upload), or throws TOO_MANY_REQUESTS. */
+export function takeLogoCheck(userId: string): void {
+  const r = logoLimiter.takeAll([{ key: `logo:check:${userId}`, rule: LOGO_LIMITS.checks }]);
+  if (!r.ok) throw new RateLimitedError("Logo upload", r.retryAfterMs);
+}
 
 /** Output budget: four marks of at most ~3,000 characters each plus names and concepts, with margin. */
 export const LOGO_MAX_TOKENS = 8_000;
