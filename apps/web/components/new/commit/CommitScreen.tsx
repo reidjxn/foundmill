@@ -1,16 +1,18 @@
 "use client";
 /**
  * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7). Name with suggestions, live domain
- * availability and the USPTO/EUIPO quick screen ("Screen, not legal clearance"), crest and brand colours, game mode
- * LIVE / Personal, archetype cards, business mode (Augmented / Assisted default / Automated) with the default spend
- * cap, the squad the archetype seeds (idea.preview), then "Take charge" → idea.commit → the Board item in the Inbox.
+ * availability and the USPTO/EUIPO quick screen ("Screen, not legal clearance"), the logo (upload a real one or
+ * generate marks; `idea.logo.*`) and brand colours, game mode LIVE / Personal, archetype cards, business mode
+ * (Augmented / Assisted default / Automated) with the default spend cap, the team the archetype seeds (idea.preview),
+ * then "Take charge" → idea.commit (with the chosen logo) → the Board item in the Inbox.
  *
- * `CommitForm` is pure apart from the local domain/trademark screens; `CommitScreen` loads the idea and commits.
+ * `CommitForm` is pure apart from the local domain/trademark screens and the logo calls it is handed (`logoApi`);
+ * `CommitScreen` loads the idea, wires those calls to tRPC and commits.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Check, Globe, Lock, Scale, Sparkles, ThumbsUp } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ARCHETYPE_LABELS, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { Avatar, Button, Chip, ConceptCard, Field, Input, Panel, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, cn, formatMoney, useToast, type Kit } from "@foundmill/dugout";
@@ -19,14 +21,14 @@ import { useTRPC } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
 import { StudioFrame } from "../StudioFrame";
 import { readMeta, toConcept, type IdeaLike } from "../ideate/concepts";
-import { CrestKitEditor } from "./CrestKitEditor";
+import type { GeneratedLogoSet, LogoActions } from "@/components/logo/LogoPicker";
+import { LogoColoursEditor } from "./LogoColoursEditor";
 import {
   ARCHETYPE_CARDS,
   BUSINESS_MODE_CARDS,
   DEFAULT_SPEND_CAP_MINOR,
   GAME_MODE_CARDS,
   commitInput,
-  crestSeedFor,
   domainCandidates,
   initialCommitForm,
   nameSuggestions,
@@ -47,6 +49,12 @@ export interface CommitScreenProps {
 
 type SquadPreview = RouterOutputs["idea"]["preview"];
 
+/** The logo calls the Commit form makes (bound to `idea.logo.*` by CommitScreen; faked in tests). */
+export interface CommitLogoApi {
+  prepare(dataUrl: string): Promise<{ dataUrl: string; colours: string[] }>;
+  generate(input: { name: string; colours: Kit; archetype: Archetype | null; round: number }): Promise<GeneratedLogoSet>;
+}
+
 /** How long after a successful commit the screen waits for the client-side move before loading the Inbox outright. */
 export const COMMIT_NAVIGATION_FALLBACK_MS = 4_000;
 /** Full-page navigation (a seam for tests). */
@@ -60,6 +68,17 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
   const ideaQ = useQuery(trpc.idea.get.queryOptions({ ideaId }));
   const [archetype, setArchetype] = useState<Archetype | null>(null);
   const previewQ = useQuery(trpc.idea.preview.queryOptions({ archetype: archetype ?? "b2b_saas" }, { enabled: archetype !== null, staleTime: 60_000 }));
+  const prepareLogo = useMutation(trpc.idea.logo.prepare.mutationOptions());
+  const generateLogo = useMutation(trpc.idea.logo.generate.mutationOptions());
+  const { mutateAsync: prepareAsync } = prepareLogo;
+  const { mutateAsync: generateAsync } = generateLogo;
+  const logoApi = useMemo<CommitLogoApi>(
+    () => ({
+      prepare: (dataUrl) => prepareAsync({ dataUrl }),
+      generate: ({ name, colours, archetype, round }) => generateAsync({ ideaId, name: name.trim() || "Your business", colours, archetype: archetype ?? undefined, round }),
+    }),
+    [ideaId, prepareAsync, generateAsync],
+  );
   const commit = useMutation(
     trpc.idea.commit.mutationOptions({
       onSuccess: (res) => {
@@ -127,6 +146,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       committing={commit.isPending}
       error={commit.error ? errorMessage(commit.error) : null}
       onCommit={(input) => commit.mutate(input)}
+      logoApi={logoApi}
       back={back}
     />
   );
@@ -145,19 +165,21 @@ export interface CommitFormProps {
   committing?: boolean;
   error?: string | null;
   onCommit: (input: ReturnType<typeof commitInput>) => void;
+  /** Upload checks and logo generation (idea.logo.*). */
+  logoApi: CommitLogoApi;
   back?: ReactNode;
 }
 
 const DEBOUNCE_MS = 350;
 
-export function CommitForm({ idea, viewer, currency, initialName, preview, previewLoading, onArchetypeChange, committing, error, onCommit, back }: CommitFormProps) {
+export function CommitForm({ idea, viewer, currency, initialName, preview, previewLoading, onArchetypeChange, committing, error, onCommit, logoApi, back }: CommitFormProps) {
   const concept = useMemo(() => toConcept(idea), [idea]);
+  // The idea's seed only picks the starting brand colours now; the logo is uploaded or generated.
   const ideaSeed = String(readMeta(idea.current?.research).crest_seed ?? idea.id);
   const [form, setForm] = useState<CommitFormValues>(() => {
-    const base = initialCommitForm({ title: idea.current?.title ?? idea.title, archetype: idea.archetype, crestSeed: ideaSeed }, kitFromSeed(ideaSeed), currency);
+    const base = initialCommitForm({ title: idea.current?.title ?? idea.title, archetype: idea.archetype }, kitFromSeed(ideaSeed), currency);
     return initialName ? { ...base, name: initialName } : base;
   });
-  const [salt, setSalt] = useState(0);
   const [capTouched, setCapTouched] = useState(false);
   const [touched, setTouched] = useState(false);
   const errors = useMemo(() => validateCommitForm(form), [form]);
@@ -182,7 +204,8 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
   const screening = form.name.trim().length > 0 && screened?.name !== form.name.trim();
 
   const suggestions = useMemo(() => nameSuggestions(idea.current?.title ?? idea.title, idea.current?.pitch ?? idea.pitch, idea.archetype), [idea]);
-  const seed = `${crestSeedFor(form.name, ideaSeed)}${salt ? `:${salt}` : ""}`;
+  const generateWith = useCallback((round: number) => logoApi.generate({ name: form.name, colours: form.kit, archetype: form.archetype, round }), [logoApi, form.name, form.kit, form.archetype]);
+  const logoActions = useMemo<LogoActions>(() => ({ prepare: logoApi.prepare, generate: generateWith }), [logoApi, generateWith]);
 
   function chooseMode(mode: BusinessMode) {
     setForm((f) => ({ ...f, businessMode: mode, spendCap: capTouched ? f.spendCap : String(DEFAULT_SPEND_CAP_MINOR[mode] / 100) }));
@@ -202,7 +225,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
     <StudioFrame
       step="commit"
       title={form.name.trim() ? `Commit to ${form.name.trim()}` : "Commit"}
-      lede="Name it, dress it, choose how it is run. Taking charge seeds the departments and the team and starts the first cycle."
+      lede="Name it, give it a logo, choose how it is run. Taking charge seeds the departments and the team and starts the first cycle."
       viewer={viewer}
       actions={
         <>
@@ -276,8 +299,8 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
             </div>
           </Panel>
 
-          <Panel title="Logo and brand colours">
-            <CrestKitEditor name={form.name} seed={seed} kit={form.kit} onKitChange={(kit: Kit) => set("kit", kit)} onShuffle={() => setSalt((s) => s + 1)} error={show("kit")} />
+          <Panel title="Logo and brand colours" data-testid="logo-panel">
+            <LogoColoursEditor name={form.name} kit={form.kit} onKitChange={(kit: Kit) => set("kit", kit)} logo={form.logo} onLogoChange={(logo) => set("logo", logo)} logoActions={logoActions} error={show("kit")} />
           </Panel>
 
           <Panel title="Game mode">
@@ -336,7 +359,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
 
         <aside className="col-span-4">
           <div className="sticky top-6 flex flex-col gap-gutter">
-            <ConceptCard concept={{ ...concept, name: form.name.trim() || concept.name, kit: form.kit, crestSeed: seed }} hideActions className="w-full" />
+            <ConceptCard concept={{ ...concept, name: form.name.trim() || concept.name, kit: form.kit, logoSrc: form.logo?.dataUrl ?? null }} hideActions className="w-full" />
             <Panel title="Day one" loading={previewLoading} empty={!form.archetype ? "Pick an archetype to see who gets hired." : undefined} data-testid="squad-preview">
               {preview ? (
                 <div className="flex flex-col gap-3">

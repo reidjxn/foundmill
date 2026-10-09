@@ -23,11 +23,3 @@ export function formatDateTime(value: Date | string | null | undefined, locale =
   if (Number.isNaN(d.getTime())) return "—";
   return new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(d);
 }
-
-/** Initials for a crest monogram (1–2 letters). */
-export function monogram(name: string): string {
-  const words = name.split(/\s+/).filter(Boolean);
-  if (words.length === 0) return "FM";
-  if (words.length === 1) return words[0]!.slice(0, 2).toUpperCase();
-  return (words[0]![0]! + words[1]![0]!).toUpperCase();
-}

@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { CircleCheck, Hourglass, Landmark, TrendingUp, Trophy, Users } from "lucide-react";
 import { formatMoney } from "../../lib/format";
 import { Avatar, AvatarStack } from "../foundation/Avatar";
+import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import { Button } from "../foundation/Button";
 import { DeptChip, ProvenanceChip } from "../foundation/Chip";
 import { Icon, type IconComponent } from "../foundation/Icon";
@@ -181,7 +182,7 @@ function Shell({ children, sidebar, tabs, rightRail, ...props }: Partial<AppShel
       mode="live"
       businessMode="assisted"
       kit={NORTHWIND_KIT}
-      crest={{ seed: "northwind", monogram: "NW" }}
+      logoSrc={SAMPLE_LOGOS.stack}
       businessName="Northwind Skincare"
       screenTitle="Home"
       nav={{ onBack: () => note("Back"), onForward: () => note("Forward"), canGoForward: false }}
@@ -209,7 +210,7 @@ const baseArgs = {
   mode: "live",
   businessMode: "assisted",
   kit: NORTHWIND_KIT,
-  crest: { seed: "northwind", monogram: "NW" },
+  logoSrc: SAMPLE_LOGOS.stack,
   businessName: "Northwind Skincare",
   screenTitle: "Home",
   sidebar: { items: NORTHWIND_SIDEBAR, activeId: "home", collapsed: false, onCollapsedChange: () => {} },
@@ -262,7 +263,7 @@ export const WithTabsAndBreadcrumbs: Story = {
 };
 export const SecondBrandColours: Story = {
   name: "Other brand colours (Ledgerly)",
-  args: { ...baseArgs, kit: { primary: "#1F6F5F", secondary: "#E8C56B" }, businessName: "Ledgerly", crest: { seed: "ledgerly", monogram: "L" } },
+  args: { ...baseArgs, kit: { primary: "#1F6F5F", secondary: "#E8C56B" }, businessName: "Ledgerly", logoSrc: null },
   render: (args) => <Shell {...args} />,
 };
 export const NeedsLargerWindowAt1279: Story = {

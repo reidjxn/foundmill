@@ -18,7 +18,7 @@ export interface ProfileFact {
 }
 
 export interface ProfileHeaderProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
-  /** A 64 px Avatar or Crest. */
+  /** A 64 px Avatar or BusinessLogo. */
   avatar: ReactNode;
   name: ReactNode;
   /** Kind and role chips (e.g. "Agent", "Distribution lead"). */
@@ -38,7 +38,7 @@ export interface ProfileHeaderProps extends Omit<HTMLAttributes<HTMLElement>, "t
 export const PROFILE_FACTS_MAX = 3;
 
 /**
- * DESIGN §8: 96 px, avatar/crest 64 px, name display-md, role and kind chips, three key facts in label + body pairs,
+ * DESIGN §8: 96 px, avatar/logo 64 px, name display-md, role and kind chips, three key facts in label + body pairs,
  * actions right, model chip (mono, bg-panel-alt) and current/potential stars.
  */
 export const ProfileHeader = forwardRef<HTMLElement, ProfileHeaderProps>(function ProfileHeader(

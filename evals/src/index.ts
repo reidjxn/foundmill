@@ -7,3 +7,4 @@ export * from "./types";
 export * from "./harness";
 export { GOLDEN_TASKS, goldenTasksFor, GOLDEN_FIXTURE_IDS } from "./golden/tasks";
 export { INJECTION_CASES, injectionCasesOfKind } from "./injection/suite";
+export { LOGO_BRIEFS, checkLogoSet, forbiddenShapes, runLogoEval } from "./logo";

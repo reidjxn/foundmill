@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AppShell, sidebarItemForTarget, withSidebarKeys, type AppShellProps } from "./AppShell";
+import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import { kitBarGradient, kitStyle } from "./KitBar";
 import { FIXTURE_TODAY, NORTHWIND_KIT, NORTHWIND_SEGMENTS, NORTHWIND_SIDEBAR, PALETTE_ITEMS } from "./fixtures";
 
@@ -14,7 +15,6 @@ function shellProps(over: Partial<AppShellProps> = {}): AppShellProps {
     mode: "live",
     businessMode: "assisted",
     kit: NORTHWIND_KIT,
-    crest: { seed: "northwind", monogram: "NW" },
     businessName: "Northwind Skincare",
     screenTitle: "Home",
     sidebar: { items: NORTHWIND_SIDEBAR, activeId: "home", collapsed: false, onCollapsedChange: vi.fn() },
@@ -68,6 +68,20 @@ describe("AppShell", () => {
     unmount();
     render(<AppShell {...shellProps({ sidebar: { items: NORTHWIND_SIDEBAR, activeId: "home", collapsed: true, onCollapsedChange: vi.fn(), brand: { href: "/" } } })} />);
     expect(screen.queryByRole("link", { name: "Foundmill" })).toBeNull();
+  });
+
+  it("shows the business logo in the top bar, or the initials mark (never a shield) when there is none", () => {
+    const { unmount } = render(<AppShell {...shellProps({ logoSrc: SAMPLE_LOGOS.stack })} />);
+    const logo = screen.getByTestId("kitbar-logo");
+    expect(logo.getAttribute("data-logo")).toBe("image");
+    expect(logo.querySelector("img")?.getAttribute("src")).toBe(SAMPLE_LOGOS.stack);
+    expect(logo.getAttribute("aria-label")).toBe("Northwind Skincare logo");
+    unmount();
+    render(<AppShell {...shellProps({ logoSrc: null })} />);
+    const mark = screen.getByTestId("kitbar-logo");
+    expect(mark.getAttribute("data-logo")).toBe("initials");
+    expect(mark.querySelector("text")?.textContent).toBe("NS");
+    expect(mark.querySelector("path")).toBeNull();
   });
 
   it("hides the LIVE block and chip in Personal mode", () => {

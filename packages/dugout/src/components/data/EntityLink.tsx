@@ -33,7 +33,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "../foundation/ContextMenu";
-import { Crest } from "../foundation/Crest";
+import { BusinessLogo } from "../foundation/BusinessLogo";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../foundation/HoverCard";
 import { Icon } from "../foundation/Icon";
 import type { EntityDetails, EntityRef, EntityVerb } from "./types";
@@ -109,17 +109,7 @@ export function useEntityLinkContext(): EntityLinkContextValue {
 
 function Portrait({ details }: { details: EntityDetails }) {
   const p = details.portrait;
-  if (p?.type === "crest")
-    return (
-      <Crest
-        seed={p.seed}
-        kitPrimary={p.kitPrimary}
-        kitSecondary={p.kitSecondary}
-        monogram={p.monogram}
-        size={48}
-        title={details.name}
-      />
-    );
+  if (p?.type === "logo") return <BusinessLogo src={p.src} name={details.name} primary={p.primary} monogram={p.monogram} size={48} title={details.name} />;
   if (p?.type === "agent")
     return (
       <Avatar
@@ -138,7 +128,7 @@ export interface EntityCardProps {
   className?: string;
 }
 
-/** The 320 px card: avatar/crest, name, kind/role chips, three facts, actions (DESIGN §8). Also usable inline. */
+/** The 320 px card: avatar/logo, name, kind/role chips, three facts, actions (DESIGN §8). Also usable inline. */
 export function EntityCard({ details, onOpen, className }: EntityCardProps) {
   const KindIcon = ENTITY_KIND_ICONS[details.kind];
   const facts = (details.facts ?? []).slice(0, 3);
@@ -237,7 +227,7 @@ export interface EntityLinkProps extends Omit<
 
 /**
  * Inline entity mention (DESIGN §8): 14 px kind icon, accent-link, no underline at rest, hover card after 300 ms with
- * avatar/crest, name, chips, three facts and actions; click → `onOpen`; right-click → Message / Assign agent /
+ * avatar/logo, name, chips, three facts and actions; click → `onOpen`; right-click → Message / Assign agent /
  * Add to list / Open profile. Keyboard: Tab focuses the link, Enter opens, Shift+F10 or the Menu key opens the verbs.
  */
 export const EntityLink = forwardRef<HTMLAnchorElement, EntityLinkProps>(function EntityLink(

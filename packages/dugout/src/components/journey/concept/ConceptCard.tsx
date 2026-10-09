@@ -1,10 +1,9 @@
 "use client";
 import { Bookmark, BookmarkCheck, GitFork, GitMerge, MessageCircleQuestionMark, Trash } from "lucide-react";
 import { cn } from "../../../lib/cn";
-import { initials } from "../../../lib/format";
 import { Button } from "../../foundation/Button";
 import { Chip } from "../../foundation/Chip";
-import { Crest } from "../../foundation/Crest";
+import { BusinessLogo } from "../../foundation/BusinessLogo";
 import { Icon, type IconComponent } from "../../foundation/Icon";
 import { StarRating } from "../../foundation/StarRating";
 import { Tooltip } from "../../foundation/Tooltip";
@@ -39,7 +38,7 @@ export function conceptOverall(concept: Concept): number {
 }
 
 /**
- * The Ideation Studio's player card (BUILD §11.1, DESIGN §9): crest 48, name display-sm, pitch, current and potential
+ * The Ideation Studio's profile card (BUILD §11.1, DESIGN §9): logo 48 (the initials mark until one is chosen), name display-sm, pitch, current and potential
  * stars, ten attributes as 20-cell bars with evidence on hover, actions Shortlist / Merge / Fork / Ask / Discard.
  */
 export function ConceptCard({ concept, onAction, shortlisted, selected, onToggleSelect, hideActions, className }: ConceptCardProps) {
@@ -53,7 +52,7 @@ export function ConceptCard({ concept, onAction, shortlisted, selected, onToggle
       style={{ ["--kit-primary" as string]: concept.kit.primary, ["--kit-secondary" as string]: concept.kit.secondary }}
     >
       <header className="flex items-start gap-3 border-b border-subtle bg-panel-alt p-panel-pad">
-        <Crest seed={concept.crestSeed} kitPrimary={concept.kit.primary} kitSecondary={concept.kit.secondary} monogram={concept.monogram ?? initials(concept.name)} size={48} title={`${concept.name} logo`} />
+        <BusinessLogo src={concept.logoSrc} name={concept.name} primary={concept.kit.primary} monogram={concept.monogram} size={48} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3 className="t-display-sm truncate">{concept.name}</h3>

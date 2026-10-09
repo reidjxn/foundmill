@@ -45,7 +45,9 @@ describe("concept mapping (AC-11.1.2)", () => {
     expect(c.currentStars).toBe(3);
     expect(c.potentialStars).toBe(4.5);
     expect(c.citations).toBe(2);
-    expect(c.crestSeed).toBe("seed-ledgerly");
+    // The seed picks the starting brand colours; there is no logo before one is chosen on the Commit screen.
+    expect(c.kit).toEqual(kitFromSeed("seed-ledgerly"));
+    expect(c.logoSrc).toBeUndefined();
     expect(c.archetypeLabel).toBe("B2B SaaS");
     expect(isHexColour(c.kit.primary) && isHexColour(c.kit.secondary)).toBe(true);
   });
