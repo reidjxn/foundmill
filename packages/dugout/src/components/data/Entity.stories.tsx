@@ -187,3 +187,15 @@ export const MarkdownNote: Story = {
   args: { entity: { id: ENTITY_IDS.sara, kind: "person", name: "Sara Lindqvist" } },
   render: () => <MarkdownDemo />,
 };
+
+/** Text written by other people (a community post): `images={false}` shows the alt text instead of fetching the image. */
+export const MarkdownWithoutImages: Story = {
+  args: { entity: { id: ENTITY_IDS.sara, kind: "person", name: "Sara Lindqvist" } },
+  render: () => (
+    <div className="surface-panel max-w-md p-4">
+      <Markdown variant="body" images={false}>
+        {"Our funnel after the change: ![funnel chart](https://example.com/funnel.png). **Replies halved**; details in [the write-up](https://example.com/notes)."}
+      </Markdown>
+    </div>
+  ),
+};

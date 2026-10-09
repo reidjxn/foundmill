@@ -17,6 +17,11 @@ export interface MarkdownProps extends Pick<
   className?: string;
   /** Open external links in a new tab (default true). */
   externalLinks?: boolean;
+  /**
+   * Load images (default true). Text written by other people (a community post) passes `false`: an image there would
+   * make the reader's browser fetch from a stranger's server, so it shows its alt text instead.
+   */
+  images?: boolean;
 }
 
 /** Replace string children that carry entity markup with EntityText; leave everything else as is. */
@@ -41,6 +46,7 @@ export function Markdown({
   variant = "reading",
   className,
   externalLinks = true,
+  images = true,
   onResolveAmbiguous,
   onCreateDraft,
   onOpen,
@@ -207,13 +213,16 @@ export function Markdown({
       ) : (
         <input type={type} {...rest} />
       ),
-    img: ({ alt, ...rest }: ComponentPropsWithoutRef<"img">) => (
-      <img
-        alt={alt ?? ""}
-        className="my-2 max-w-full rounded-panel border border-subtle"
-        {...rest}
-      />
-    ),
+    img: ({ alt, ...rest }: ComponentPropsWithoutRef<"img">) =>
+      images ? (
+        <img
+          alt={alt ?? ""}
+          className="my-2 max-w-full rounded-panel border border-subtle"
+          {...rest}
+        />
+      ) : alt ? (
+        <span className="text-secondary">{alt}</span>
+      ) : null,
   };
   return (
     <div

@@ -159,4 +159,18 @@ describe("Markdown", () => {
       .find((li) => li.textContent?.includes("Ledger"));
     expect(listLink?.querySelector("[data-entity-id]")).not.toBeNull();
   });
+
+  it("loads images unless asked not to; without images the alt text stands in and nothing is fetched", () => {
+    const text = "Look: ![the chart](https://stranger.example/pixel.png) done";
+    const { unmount } = render(<Markdown variant="body">{text}</Markdown>);
+    expect(document.querySelector("img")?.getAttribute("src")).toBe("https://stranger.example/pixel.png");
+    unmount();
+    render(
+      <Markdown variant="body" images={false}>
+        {text}
+      </Markdown>,
+    );
+    expect(document.querySelector("img")).toBeNull();
+    expect(screen.getByText("the chart")).toBeTruthy();
+  });
 });

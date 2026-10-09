@@ -8,10 +8,10 @@
  * view only selects LIVE businesses (0012), so the visibility rule is enforced in SQL, not here.
  */
 import { ARCHETYPES, DATA_REGIONS, ValidationError, VISIBILITY } from "@foundmill/shared";
-import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  communities, communityMembers, CONNECTION_STATUSES, connections, leaderboardEntries, leaderboards, messages, messageThreads,
+  businesses, communities, communityMembers, CONNECTION_STATUSES, connections, founderProfiles, leaderboardEntries, leaderboards, memberships, messages, messageThreads,
   NEGOTIATION_STATUSES, negotiationThreads, posts, publicProfiles,
   type COMMUNITY_ROLES, type Community, type CommunityMember, type Connection, type Leaderboard, type LeaderboardEntry, type Message, type MessageThread, type NegotiationThread, type Post, type PublicProfile,
 } from "../schema";
@@ -69,6 +69,23 @@ export const CreateNegotiationInput = z.object({
 export type CreateNegotiationInput = z.input<typeof CreateNegotiationInput>;
 
 const sortPair = (a: string, b: string): [string, string] => (a < b ? [a, b] : [b, a]);
+
+/** What the viewer may know about another user: `displayName` is null when their profile visibility keeps it back. */
+export interface PersonCard {
+  userId: string;
+  displayName: string | null;
+}
+
+/** Public facts about a business (its name and logo inputs). Own businesses are included in any game mode. */
+export interface BusinessCard {
+  businessId: string;
+  name: string;
+  slug: string | null;
+  kitPrimary: string | null;
+  kitSecondary: string | null;
+  archetype: string | null;
+  live: boolean;
+}
 
 export const socialRepo = {
   // public profiles (view over LIVE businesses + founders who opted in) -------------------------------------------------
@@ -223,12 +240,111 @@ export const socialRepo = {
     return Number(rows[0]?.n ?? 0);
   },
 
+  /** Unread messages per thread for one user (thread id → count; threads with none are absent). */
+  async unreadByThread(db: Executor, userId: string): Promise<Map<string, number>> {
+    const rows = await db
+      .select({ threadId: messages.threadId, n: sql<number>`count(*)::int` })
+      .from(messages)
+      .innerJoin(messageThreads, eq(messageThreads.id, messages.threadId))
+      .where(and(sql`${messageThreads.participantIds} @> array[${userId}::uuid]`, sql`not (${messages.readBy} @> array[${userId}::uuid])`))
+      .groupBy(messages.threadId);
+    return new Map(rows.map((r) => [r.threadId, Number(r.n)]));
+  },
+
+  /**
+   * Names for the people and businesses a page is about to show. A user's display name follows their profile
+   * visibility (BUILD §11.14): yourself and Public always; Connections to accepted connections; Community also to
+   * people who share a community with you; Private to nobody. Whoever has written to you (a pending request, a message
+   * in a thread you are in) is named as well, since they chose to make contact. Businesses come from `public_profiles`
+   * (LIVE and committed) plus every business the viewer belongs to, in any game mode.
+   */
+  async lookupPeople(db: Executor, viewerId: string, input: { userIds?: readonly string[]; businessIds?: readonly string[] }): Promise<{ users: PersonCard[]; businesses: BusinessCard[] }> {
+    const v = parseInput(z.object({ userIds: z.array(Id).max(200).default([]), businessIds: z.array(Id).max(200).default([]) }), input, "lookup");
+    const userIds = [...new Set(v.userIds)];
+    const businessIds = [...new Set(v.businessIds)];
+
+    let users: PersonCard[] = [];
+    if (userIds.length) {
+      const profiles = await db
+        .select({ userId: founderProfiles.userId, displayName: founderProfiles.displayName, visibility: founderProfiles.visibility })
+        .from(founderProfiles)
+        .where(and(inArray(founderProfiles.userId, userIds), isNull(founderProfiles.archivedAt)));
+      const others = userIds.filter((id) => id !== viewerId);
+      const accepted = new Set<string>();
+      const contacted = new Set<string>();
+      const coMembers = new Set<string>();
+      if (others.length) {
+        const links = await db
+          .select({ fromUser: connections.fromUser, toUser: connections.toUser, status: connections.status })
+          .from(connections)
+          .where(or(and(eq(connections.fromUser, viewerId), inArray(connections.toUser, others)), and(eq(connections.toUser, viewerId), inArray(connections.fromUser, others))));
+        for (const l of links) {
+          const other = l.fromUser === viewerId ? l.toUser : l.fromUser;
+          if (l.status === "accepted") accepted.add(other);
+          else if (l.status === "requested" && l.toUser === viewerId) contacted.add(other);
+        }
+        const writers = await db
+          .selectDistinct({ userId: messages.fromUser })
+          .from(messages)
+          .innerJoin(messageThreads, eq(messageThreads.id, messages.threadId))
+          .where(and(sql`${messageThreads.participantIds} @> array[${viewerId}::uuid]`, inArray(messages.fromUser, others)));
+        for (const w of writers) contacted.add(w.userId);
+        const mine = db.select({ communityId: communityMembers.communityId }).from(communityMembers).where(and(eq(communityMembers.userId, viewerId), eq(communityMembers.status, "active")));
+        const shared = await db
+          .selectDistinct({ userId: communityMembers.userId })
+          .from(communityMembers)
+          .where(and(inArray(communityMembers.userId, others), eq(communityMembers.status, "active"), inArray(communityMembers.communityId, mine)));
+        for (const s of shared) coMembers.add(s.userId);
+      }
+      const byId = new Map(profiles.map((p) => [p.userId, p]));
+      users = userIds.map((userId) => {
+        const p = byId.get(userId);
+        if (!p) return { userId, displayName: null };
+        const visible =
+          userId === viewerId ||
+          p.visibility === "public" ||
+          contacted.has(userId) ||
+          (p.visibility === "connections" && accepted.has(userId)) ||
+          (p.visibility === "community" && (accepted.has(userId) || coMembers.has(userId)));
+        return { userId, displayName: visible ? p.displayName : null };
+      });
+    }
+
+    const cards = new Map<string, BusinessCard>();
+    if (businessIds.length) {
+      const pub = await db
+        .select({ businessId: publicProfiles.businessId, name: publicProfiles.displayName, slug: publicProfiles.slug, kitPrimary: publicProfiles.kitPrimary, kitSecondary: publicProfiles.kitSecondary, archetype: publicProfiles.archetype })
+        .from(publicProfiles)
+        .where(and(eq(publicProfiles.kind, "business"), inArray(publicProfiles.businessId, businessIds)));
+      for (const b of pub) cards.set(b.businessId, { ...b, live: true });
+      const own = await db
+        .select({ businessId: businesses.id, name: businesses.name, slug: businesses.slug, kitPrimary: businesses.kitPrimary, kitSecondary: businesses.kitSecondary, archetype: businesses.archetype, gameMode: businesses.gameMode })
+        .from(businesses)
+        .innerJoin(memberships, eq(memberships.businessId, businesses.id))
+        .where(and(eq(memberships.userId, viewerId), inArray(businesses.id, businessIds), isNull(businesses.archivedAt)));
+      for (const b of own) cards.set(b.businessId, { businessId: b.businessId, name: b.name, slug: b.slug, kitPrimary: b.kitPrimary, kitSecondary: b.kitSecondary, archetype: b.archetype, live: b.gameMode === "live" });
+    }
+    return { users, businesses: [...cards.values()] };
+  },
+
   // communities -------------------------------------------------------------------------------------------------------
-  async listCommunities(db: Executor, options: { visibility?: (typeof VISIBILITY)[number]; limit?: number } = {}): Promise<Community[]> {
+  /** With `viewerId`, only what that user may see: public communities and the ones they belong to (communities_select). */
+  async listCommunities(db: Executor, options: { visibility?: (typeof VISIBILITY)[number]; limit?: number; viewerId?: string } = {}): Promise<Community[]> {
     return db
       .select()
       .from(communities)
-      .where(and(isNull(communities.archivedAt), options.visibility ? eq(communities.visibility, options.visibility) : undefined))
+      .where(
+        and(
+          isNull(communities.archivedAt),
+          options.visibility ? eq(communities.visibility, options.visibility) : undefined,
+          options.viewerId
+            ? or(
+                eq(communities.visibility, "public"),
+                sql`exists (select 1 from ${communityMembers} cm where cm.community_id = ${communities.id} and cm.user_id = ${options.viewerId}::uuid and cm.status = 'active')`,
+              )
+            : undefined,
+        ),
+      )
       .orderBy(desc(communities.memberCount), asc(communities.name))
       .limit(options.limit ?? 100);
   },
@@ -290,6 +406,27 @@ export const socialRepo = {
   async isMember(db: Executor, userId: string, communityId: string): Promise<boolean> {
     const rows = await db.select({ id: communityMembers.id }).from(communityMembers).where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.userId, userId), eq(communityMembers.status, "active"))).limit(1);
     return rows.length > 0;
+  },
+
+  /** The viewer's active role in each of these communities (communities they are not in are absent). */
+  async memberRoles(db: Executor, userId: string, communityIds: readonly string[]): Promise<Map<string, (typeof COMMUNITY_ROLES)[number]>> {
+    if (!communityIds.length) return new Map();
+    const rows = await db
+      .select({ communityId: communityMembers.communityId, role: communityMembers.role })
+      .from(communityMembers)
+      .where(and(eq(communityMembers.userId, userId), eq(communityMembers.status, "active"), inArray(communityMembers.communityId, [...communityIds])));
+    return new Map(rows.map((r) => [r.communityId, r.role]));
+  },
+
+  /** Visible replies under each of these posts (posts without replies are absent). */
+  async replyCounts(db: Executor, postIds: readonly string[]): Promise<Map<string, number>> {
+    if (!postIds.length) return new Map();
+    const rows = await db
+      .select({ parentPostId: posts.parentPostId, n: sql<number>`count(*)::int` })
+      .from(posts)
+      .where(and(inArray(posts.parentPostId, [...postIds]), isNull(posts.archivedAt), eq(posts.status, "visible")))
+      .groupBy(posts.parentPostId);
+    return new Map(rows.flatMap((r) => (r.parentPostId ? [[r.parentPostId, Number(r.n)] as const] : [])));
   },
 
   async listPosts(db: Executor, communityId: string, options: { parentPostId?: string | null } & PageInput = {}): Promise<Page<Post>> {

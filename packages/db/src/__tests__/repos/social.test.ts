@@ -85,6 +85,92 @@ describe("communities and posts", () => {
   });
 });
 
+describe("people lookup, unread per thread, community visibility", () => {
+  const profile = (displayName: string, visibility: "public" | "connections" | "community" | "private") => ({ displayName, visibility });
+
+  it("names people by their profile visibility, and whoever has written to the viewer", async () => {
+    const viewer = r.A.viewerId; // nobody is connected to this user yet
+    const [pub, conn, comm, priv, stranger] = [r.A.ownerId, r.A.adminId, r.A.memberId, r.B.memberId, r.B.viewerId];
+    await repos.founders.upsert(r.db, pub, profile("Pia Public", "public"));
+    await repos.founders.upsert(r.db, conn, profile("Cal Connection", "connections"));
+    await repos.founders.upsert(r.db, comm, profile("Cora Community", "community"));
+    await repos.founders.upsert(r.db, priv, profile("Pat Private", "private"));
+    await repos.founders.upsert(r.db, viewer, profile("Vic Viewer", "private"));
+    const ids = [pub, conn, comm, priv, stranger, viewer];
+    const names = async () => Object.fromEntries((await repos.social.lookupPeople(r.db, viewer, { userIds: ids })).users.map((u) => [u.userId, u.displayName]));
+
+    // Self and Public are named; everyone else is held back, and a user with no profile has no name.
+    expect(await names()).toEqual({ [pub]: "Pia Public", [conn]: null, [comm]: null, [priv]: null, [stranger]: null, [viewer]: "Vic Viewer" });
+
+    // An accepted connection sees Connections and Community profiles.
+    const link = await repos.social.requestConnection(r.db, viewer, conn);
+    await repos.social.respondConnection(r.db, conn, link.id, "accepted");
+    expect((await names())[conn]).toBe("Cal Connection");
+
+    // A shared community shows Community profiles only.
+    const club = await repos.social.createCommunity(r.db, { name: "Lookup circle", slug: "lookup-circle", createdBy: viewer });
+    await repos.social.joinCommunity(r.db, comm, club.id);
+    expect((await names())[comm]).toBe("Cora Community");
+    await repos.social.joinCommunity(r.db, priv, club.id);
+    expect((await names())[priv]).toBeNull();
+
+    // A pending request to the viewer and a message in a shared thread name the sender, whatever their visibility.
+    const request = await repos.social.requestConnection(r.db, priv, viewer, "Hello");
+    expect(request.status).toBe("requested");
+    expect((await names())[priv]).toBe("Pat Private");
+    const thread = await repos.social.findOrCreateThread(r.db, viewer, [stranger]);
+    expect((await names())[stranger]).toBeNull();
+    await repos.founders.upsert(r.db, stranger, profile("Sam Stranger", "private"));
+    await repos.social.sendMessage(r.db, stranger, thread.id, "Hi");
+    expect((await names())[stranger]).toBe("Sam Stranger");
+    // The same lookup is empty for an empty request and never throws for unknown ids.
+    expect(await repos.social.lookupPeople(r.db, viewer, {})).toEqual({ users: [], businesses: [] });
+    expect((await repos.social.lookupPeople(r.db, viewer, { userIds: ["00000000-0000-0000-0000-0000000000aa"] })).users).toEqual([{ userId: "00000000-0000-0000-0000-0000000000aa", displayName: null }]);
+  });
+
+  it("looks businesses up from public profiles and from the viewer's own memberships, in any game mode", async () => {
+    // A is LIVE and committed (public); B is LIVE but uncommitted, so only B's members get its card.
+    const asA = await repos.social.lookupPeople(r.db, r.A.memberId, { businessIds: [r.A.businessId, r.B.businessId] });
+    expect(asA.businesses.map((b) => [b.businessId, b.name, b.live])).toEqual([[r.A.businessId, "LIVE-A", true]]);
+    expect(asA.businesses[0]).toMatchObject({ kitPrimary: expect.any(String), kitSecondary: expect.any(String), slug: expect.any(String) });
+    const asB = await repos.social.lookupPeople(r.db, r.B.ownerId, { businessIds: [r.A.businessId, r.B.businessId] });
+    expect(asB.businesses.map((b) => b.businessId).sort()).toEqual([r.A.businessId, r.B.businessId].sort());
+    await repos.businesses.setGameMode(r.db, r.B.businessId, "personal");
+    const personal = await repos.social.lookupPeople(r.db, r.B.ownerId, { businessIds: [r.B.businessId] });
+    expect(personal.businesses).toMatchObject([{ businessId: r.B.businessId, live: false }]);
+    await repos.businesses.setGameMode(r.db, r.B.businessId, "live");
+  });
+
+  it("counts unread per thread, lists only what the viewer may see, and counts replies", async () => {
+    const a = r.A.ownerId;
+    const c = r.B.adminId;
+    const thread = await repos.social.findOrCreateThread(r.db, a, [c], "Per-thread unread");
+    await repos.social.sendMessage(r.db, c, thread.id, "one");
+    await repos.social.sendMessage(r.db, c, thread.id, "two");
+    expect((await repos.social.unreadByThread(r.db, a)).get(thread.id)).toBe(2);
+    expect((await repos.social.unreadByThread(r.db, c)).get(thread.id)).toBeUndefined();
+    await repos.social.markThreadRead(r.db, a, thread.id);
+    expect((await repos.social.unreadByThread(r.db, a)).has(thread.id)).toBe(false);
+
+    const open = await repos.social.createCommunity(r.db, { name: "Open room", slug: "open-room", createdBy: a });
+    const closed = await repos.social.createCommunity(r.db, { name: "Closed room", slug: "closed-room", visibility: "private", createdBy: a });
+    const seen = async (viewerId: string) => (await repos.social.listCommunities(r.db, { viewerId })).map((x) => x.id);
+    expect(await seen(c)).toContain(open.id);
+    expect(await seen(c)).not.toContain(closed.id);
+    expect(await seen(a)).toEqual(expect.arrayContaining([open.id, closed.id]));
+    expect((await repos.social.listCommunities(r.db, {})).map((x) => x.id)).toContain(closed.id); // no viewer, no filter (server jobs)
+    expect([...(await repos.social.memberRoles(r.db, a, [open.id, closed.id])).entries()].sort()).toEqual([[open.id, "owner"], [closed.id, "owner"]].sort());
+    expect((await repos.social.memberRoles(r.db, c, [open.id])).size).toBe(0);
+
+    const post = await repos.social.createPost(r.db, { communityId: open.id, authorUserId: a, bodyMd: "Top" });
+    await repos.social.createPost(r.db, { communityId: open.id, authorUserId: a, bodyMd: "Reply 1", parentPostId: post.id });
+    const hidden = await repos.social.createPost(r.db, { communityId: open.id, authorUserId: a, bodyMd: "Reply 2", parentPostId: post.id });
+    await repos.social.setPostStatus(r.db, hidden.id, "hidden");
+    expect([...(await repos.social.replyCounts(r.db, [post.id])).entries()]).toEqual([[post.id, 1]]);
+    expect((await repos.social.replyCounts(r.db, [])).size).toBe(0);
+  });
+});
+
 describe("leaderboards", () => {
   it("ranks verified values first, computes movement between rebuilds, and removes a business on LIVE → Personal", async () => {
     const board = await repos.social.upsertLeaderboard(r.db, { boardKind: "mrr_growth", period: "2026-Q4", metric: "mrr_growth_pct", archetype: "b2b_saas" });

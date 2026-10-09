@@ -2,12 +2,31 @@
  * live.connections.* / messages.* / communities.* / leaderboards.* / profile.visibility.* (BUILD §11.14, Phase 4
  * skeleton). Human messages are sent by humans only; agents may draft but never call `messages.send`.
  */
-import { repos } from "@foundmill/db";
-import { ValidationError, VISIBILITY } from "@foundmill/shared";
+import { repos, type Executor } from "@foundmill/db";
+import { ForbiddenError, NotFoundError, ValidationError, VISIBILITY } from "@foundmill/shared";
 import { z } from "zod";
 import { Id, businessProcedure, emit, protectedProcedure, router } from "../trpc";
 
 const Page = z.object({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() }).optional();
+
+type Ctx = { db: Executor; userId: string };
+
+/** A business the caller may speak as: they must belong to it. Null when none is named. */
+async function ownBusiness(ctx: Ctx, businessId: string | null | undefined): Promise<string | null> {
+  if (!businessId) return null;
+  if (!(await repos.memberships.get(ctx.db, businessId, ctx.userId))) throw new ForbiddenError("You are not a member of that business");
+  return businessId;
+}
+
+/**
+ * The community, if the caller may see it: public ones, and any they belong to (the `communities_select` policy; this
+ * router runs on the service connection, so the rule is applied here). A hidden community reads as missing.
+ */
+async function visibleCommunity(ctx: Ctx, communityId: string) {
+  const [community, isMember] = await Promise.all([repos.social.getCommunity(ctx.db, communityId), repos.social.isMember(ctx.db, ctx.userId, communityId)]);
+  if (community.archivedAt || (community.visibility !== "public" && !isMember)) throw new NotFoundError("community", communityId);
+  return { community, isMember };
+}
 
 export const liveRouter = router({
   connections: router({
@@ -26,7 +45,10 @@ export const liveRouter = router({
   }),
 
   messages: router({
-    threads: protectedProcedure.input(Page).query(({ ctx, input }) => repos.social.listThreads(ctx.db, ctx.userId, input ?? {})),
+    threads: protectedProcedure.input(Page).query(async ({ ctx, input }) => {
+      const [page, unread] = await Promise.all([repos.social.listThreads(ctx.db, ctx.userId, input ?? {}), repos.social.unreadByThread(ctx.db, ctx.userId)]);
+      return { ...page, items: page.items.map((t) => ({ ...t, unread: unread.get(t.id) ?? 0 })) };
+    }),
     list: protectedProcedure.input(z.object({ threadId: Id, limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() })).query(async ({ ctx, input }) => {
       const page = await repos.social.listMessages(ctx.db, ctx.userId, input.threadId, { limit: input.limit, cursor: input.cursor });
       await repos.social.markThreadRead(ctx.db, ctx.userId, input.threadId);
@@ -42,28 +64,51 @@ export const liveRouter = router({
   }),
 
   communities: router({
-    list: protectedProcedure.input(z.object({ visibility: z.enum(VISIBILITY).optional(), limit: z.number().int().min(1).max(200).default(50) }).optional()).query(({ ctx, input }) => repos.social.listCommunities(ctx.db, input ?? {})),
-    get: protectedProcedure.input(z.object({ communityId: Id })).query(async ({ ctx, input }) => {
-      const [community, members, isMember] = await Promise.all([repos.social.getCommunity(ctx.db, input.communityId), repos.social.listMembers(ctx.db, input.communityId), repos.social.isMember(ctx.db, ctx.userId, input.communityId)]);
-      return { community, members, isMember };
+    /** What the caller may see (public ones and their own), each with their role in it (null when not a member). */
+    list: protectedProcedure.input(z.object({ visibility: z.enum(VISIBILITY).optional(), limit: z.number().int().min(1).max(200).default(50) }).optional()).query(async ({ ctx, input }) => {
+      const rows = await repos.social.listCommunities(ctx.db, { ...input, viewerId: ctx.userId });
+      const roles = await repos.social.memberRoles(ctx.db, ctx.userId, rows.map((c) => c.id));
+      return rows.map((c) => ({ ...c, role: roles.get(c.id) ?? null }));
     }),
-    join: protectedProcedure.input(z.object({ communityId: Id, businessId: Id.optional() })).mutation(({ ctx, input }) => repos.social.joinCommunity(ctx.db, ctx.userId, input.communityId, { businessId: input.businessId ?? null })),
+    /** The member list is for members only (community_members_select); anyone who may see the community gets the rest. */
+    get: protectedProcedure.input(z.object({ communityId: Id })).query(async ({ ctx, input }) => {
+      const { community, isMember } = await visibleCommunity(ctx, input.communityId);
+      const members = isMember ? await repos.social.listMembers(ctx.db, input.communityId) : [];
+      return { community, members, isMember, role: members.find((m) => m.userId === ctx.userId)?.role ?? null };
+    }),
+    /** Only public communities can be joined; the others are by invitation, so to a non-member they read as missing. */
+    join: protectedProcedure.input(z.object({ communityId: Id, businessId: Id.optional() })).mutation(async ({ ctx, input }) => {
+      await visibleCommunity(ctx, input.communityId);
+      return repos.social.joinCommunity(ctx.db, ctx.userId, input.communityId, { businessId: await ownBusiness(ctx, input.businessId) });
+    }),
     leave: protectedProcedure.input(z.object({ communityId: Id })).mutation(async ({ ctx, input }) => {
       await repos.social.leaveCommunity(ctx.db, ctx.userId, input.communityId);
       return { left: true };
     }),
-    posts: protectedProcedure.input(z.object({ communityId: Id, parentPostId: Id.nullable().optional(), limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() })).query(({ ctx, input }) => repos.social.listPosts(ctx.db, input.communityId, { parentPostId: input.parentPostId, limit: input.limit, cursor: input.cursor })),
+    /** The feed is for members (posts_select); each top-level post carries its reply count. */
+    posts: protectedProcedure.input(z.object({ communityId: Id, parentPostId: Id.nullable().optional(), limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() })).query(async ({ ctx, input }) => {
+      if (!(await repos.social.isMember(ctx.db, ctx.userId, input.communityId))) throw new ForbiddenError("Join the community to read its feed");
+      const page = await repos.social.listPosts(ctx.db, input.communityId, { parentPostId: input.parentPostId, limit: input.limit, cursor: input.cursor });
+      const replies = await repos.social.replyCounts(ctx.db, page.items.map((p) => p.id));
+      return { ...page, items: page.items.map((p) => ({ ...p, replyCount: replies.get(p.id) ?? 0 })) };
+    }),
     post: protectedProcedure.input(z.object({ communityId: Id, bodyMd: z.string().min(1).max(20_000), parentPostId: Id.nullable().optional(), businessId: Id.nullable().optional() })).mutation(async ({ ctx, input }) => {
       if (!(await repos.social.isMember(ctx.db, ctx.userId, input.communityId))) throw new ValidationError("Join the community before posting");
-      return repos.social.createPost(ctx.db, { ...input, authorUserId: ctx.userId });
+      return repos.social.createPost(ctx.db, { ...input, businessId: await ownBusiness(ctx, input.businessId), authorUserId: ctx.userId });
     }),
   }),
 
   leaderboards: router({
     list: protectedProcedure.input(z.object({ period: z.string().optional(), boardKind: z.string().optional() }).optional()).query(({ ctx, input }) => repos.social.listLeaderboards(ctx.db, input ?? {})),
+    get: protectedProcedure.input(z.object({ leaderboardId: Id })).query(({ ctx, input }) => repos.social.getLeaderboard(ctx.db, input.leaderboardId)),
     entries: protectedProcedure.input(z.object({ leaderboardId: Id, limit: z.number().int().min(1).max(500).default(100) })).query(({ ctx, input }) => repos.social.leaderboardEntries(ctx.db, input.leaderboardId, input.limit)),
     /** This business's positions (verified integration metrics only; AC-11.14.1). */
     positions: businessProcedure.input(z.object({ period: z.string().optional() })).query(({ ctx, input }) => repos.social.positionsForBusiness(ctx.db, ctx.businessId, input.period)),
+  }),
+
+  people: router({
+    /** Display names and logos for ids a page shows (people follow their profile visibility; see repos.social.lookupPeople). */
+    lookup: protectedProcedure.input(z.object({ userIds: z.array(Id).max(200).default([]), businessIds: z.array(Id).max(200).default([]) })).query(({ ctx, input }) => repos.social.lookupPeople(ctx.db, ctx.userId, input)),
   }),
 
   profile: router({
