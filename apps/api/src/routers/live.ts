@@ -11,6 +11,9 @@ const Page = z.object({ limit: z.number().int().min(1).max(200).default(50), cur
 
 type Ctx = { db: Executor; userId: string };
 
+/** Ids per `lookupPeople` call (its limit for business ids). */
+const LOOKUP_CHUNK = 500;
+
 /** True when a business may appear on the network: LIVE, committed and not archived (the SQL `is_public`). */
 function isListed(business: Pick<Business, "gameMode" | "committedAt" | "archivedAt">): boolean {
   return business.gameMode === "live" && business.committedAt !== null && business.archivedAt === null;
@@ -34,9 +37,13 @@ async function speakingAs(ctx: Ctx, businessId: string | null | undefined): Prom
 /** Which of these business ids the viewer may be shown: listed businesses, and their own in any mode. Others read as null. */
 async function shownBusinessIds(ctx: Ctx, ids: readonly (string | null)[]): Promise<Set<string>> {
   const wanted = [...new Set(ids.filter((id): id is string => !!id))];
-  if (!wanted.length) return new Set();
-  const { businesses } = await repos.social.lookupPeople(ctx.db, ctx.userId, { businessIds: wanted });
-  return new Set(businesses.map((b) => b.businessId));
+  const shown = new Set<string>();
+  // The lookup takes at most 500 ids a call; a page or member list is capped well below that, but never trust it to stay so.
+  for (let i = 0; i < wanted.length; i += LOOKUP_CHUNK) {
+    const { businesses } = await repos.social.lookupPeople(ctx.db, ctx.userId, { businessIds: wanted.slice(i, i + LOOKUP_CHUNK) });
+    for (const b of businesses) shown.add(b.businessId);
+  }
+  return shown;
 }
 
 /**

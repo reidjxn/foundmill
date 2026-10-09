@@ -163,7 +163,10 @@ Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
   - Posting as a business needs a writing role with live-section write on a LIVE, committed business; posting defaults to yourself.
   - Muted members stay muted, replies need a real top-level parent, archived communities read as not found, and other people's text renders without entity links or images (`Markdown entities={false}`).
   - INTERNAL errors are generic outside development and test, with the request id; foreign-key violations return Not found. A connection request and its event commit together.
-  - Tests: db 1173, api 92 (17 LIVE regression tests), dugout 368, web 277; `live.spec.ts` 6/6.
+  - A second review closed the direct-database path (Supabase's Data API with a user's own token): in 0016 a connection can never change parties (trigger plus column grants) and a block is lifted only by deleting it; one row per pair (unique least/greatest index); `connection_is_blocked` answers only a party to the pair and is not callable by anon; the blocked person's select returns nothing; client roles are read-only on threads, messages, communities, members and posts.
+  - The api: `respondConnection` and `requestConnection` are race-safe (status-conditioned update, 23505 handled); blocked and not connected share one message; archived threads are closed; foreign-key violations map to Not found (missing reference) or Conflict (in use); INTERNAL errors are redacted in the tRPC `errorFormatter`; `x-request-id` is accepted only as `[A-Za-z0-9-]{8,64}`.
+  - Deferred: rate limiting `people.lookup` until a shared limiter exists.
+  - Tests: db 1183, api 100, dugout 368, web 277; `live.spec.ts` 6/6.
 - 2026-10-09 — **"Take charge" takes seconds, not 36 (founder report).**
   - `idea.commit` made 722 sequential database round trips: about 50 ms each to Supabase, so the button spun for 36 s.
   - It now hires the whole team in a few statements (`agents.createMany`, `skills.upsertForAgents`, `departments.addMembers`, `screens.upsertMany`, a batched `channels.upsertMany`), giving 73 round trips, about 3–4 s.

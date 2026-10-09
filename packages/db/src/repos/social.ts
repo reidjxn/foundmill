@@ -7,7 +7,7 @@
  * business-facing. Personal businesses never appear in `publicProfiles`/`searchPublic`: the `public_profiles`
  * view only selects LIVE businesses (0012), so the visibility rule is enforced in SQL, not here.
  */
-import { ARCHETYPES, DATA_REGIONS, ForbiddenError, NotFoundError, ValidationError, VISIBILITY } from "@foundmill/shared";
+import { AppError, ARCHETYPES, DATA_REGIONS, ForbiddenError, NotFoundError, ValidationError, VISIBILITY } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { authUsers } from "drizzle-orm/supabase";
 import { z } from "zod";
@@ -16,7 +16,7 @@ import {
   NEGOTIATION_STATUSES, negotiationThreads, posts, publicProfiles,
   type COMMUNITY_ROLES, type Community, type CommunityMember, type Connection, type Leaderboard, type LeaderboardEntry, type Message, type MessageThread, type NegotiationThread, type Post, type PublicProfile,
 } from "../schema";
-import { Id, JsonObject, numericText, one, PageInput, parseInput, rowsOf, timeKeyset, toPage, type Executor, type Page } from "./_shared";
+import { Id, JsonObject, numericText, one, PageInput, parseInput, rowsOf, sqlState, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 
 export const CreateCommunityInput = z.object({
   name: z.string().trim().min(1).max(120),
@@ -71,6 +71,9 @@ export type CreateNegotiationInput = z.input<typeof CreateNegotiationInput>;
 
 const sortPair = (a: string, b: string): [string, string] => (a < b ? [a, b] : [b, a]);
 
+/** What a sender is told when a Send cannot go: not connected and blocked read the same, so a block is never announced. */
+const CANNOT_MESSAGE = "You cannot message this person";
+
 /** One call may write to at most this many people (a thread is a conversation, not a mailing list). */
 export const MAX_MESSAGE_RECIPIENTS = 20;
 
@@ -116,27 +119,39 @@ export const socialRepo = {
   // connections (user-scoped) -----------------------------------------------------------------------------------------
   /**
    * A new request. Whoever has blocked the other, the answer is no: the blocker is told to unblock first; the blocked
-   * person only learns that the request could not be sent (a block is never announced).
+   * person only learns that the request could not be sent (a block is never announced). One row exists per pair of
+   * people, whichever of them asked: asking someone who already asked you (or is connected to you) returns that row. Two
+   * requests racing for the same pair meet the unique index (23505) and get the winner's answer.
    */
   async requestConnection(db: Executor, fromUser: string, toUser: string, message?: string | null): Promise<Connection> {
     const v = parseInput(z.object({ fromUser: Id, toUser: Id, message: z.string().max(1000).nullable().optional() }), { fromUser, toUser, message }, "connection request");
     if (v.fromUser === v.toUser) throw new ValidationError("Cannot connect to yourself", { fromUser });
-    return db.transaction(async (tx) => {
+    const answerFor = async (tx: Executor): Promise<Connection | null> => {
       const existing = await tx
         .select()
         .from(connections)
         .where(or(and(eq(connections.fromUser, v.fromUser), eq(connections.toUser, v.toUser)), and(eq(connections.fromUser, v.toUser), eq(connections.toUser, v.fromUser))))
+        .orderBy(sql`case ${connections.status} when 'blocked' then 0 when 'accepted' then 1 else 2 end`, desc(connections.createdAt))
         .limit(1);
       const current = existing[0];
-      if (current) {
-        if (current.status === "blocked") {
-          if (current.blockedBy === v.fromUser) throw new ValidationError("You blocked this person; unblock them to connect again", { connectionId: current.id });
-          throw new ValidationError("This request could not be sent");
-        }
-        return current;
+      if (current?.status === "blocked") {
+        if (current.blockedBy === v.fromUser) throw new ValidationError("You blocked this person; unblock them to connect again", { connectionId: current.id });
+        throw new ValidationError("This request could not be sent");
       }
-      return one(await tx.insert(connections).values({ fromUser: v.fromUser, toUser: v.toUser, message: v.message ?? null }).returning(), "connection");
-    });
+      if (current) return current;
+      // Under row-level security the blocked person cannot see the block's row; the policy function can.
+      const blocked = rowsOf<{ blocked: boolean }>(await tx.execute(sql`select connection_is_blocked(${v.fromUser}::uuid, ${v.toUser}::uuid) as blocked`));
+      if (blocked[0]?.blocked) throw new ValidationError("This request could not be sent");
+      return null;
+    };
+    try {
+      return await db.transaction(async (tx) => (await answerFor(tx)) ?? one(await tx.insert(connections).values({ fromUser: v.fromUser, toUser: v.toUser, message: v.message ?? null }).returning(), "connection"));
+    } catch (err) {
+      if (sqlState(err) !== "23505") throw err;
+      const winner = await db.transaction((tx) => answerFor(tx));
+      if (winner) return winner;
+      throw new AppError("conflict", "This request clashed with another; try again", 409);
+    }
   },
 
   /**
@@ -158,7 +173,15 @@ export const socialRepo = {
         if (current.toUser !== userId) throw new ValidationError("Only the recipient can accept", { connectionId });
         if (current.status === "accepted") return current;
       }
-      return one(await tx.update(connections).set({ status: s, respondedAt: new Date(), blockedBy: s === "blocked" ? userId : null }).where(eq(connections.id, connectionId)).returning(), "connection", connectionId);
+      // Matches the status that was read: if the row moved in between (the other side answered or blocked), nothing is
+      // written over it and the caller is told to look again.
+      const rows = await tx
+        .update(connections)
+        .set({ status: s, respondedAt: new Date(), blockedBy: s === "blocked" ? userId : null })
+        .where(and(eq(connections.id, connectionId), eq(connections.status, current.status)))
+        .returning();
+      if (!rows[0]) throw new AppError("conflict", "This connection changed while you were answering; look again", 409, { connectionId });
+      return rows[0];
     });
   },
 
@@ -232,9 +255,9 @@ export const socialRepo = {
   },
 
   /**
-   * The thread a person's own Send opens to some recipients (up to MAX_MESSAGE_RECIPIENTS). Every recipient must exist,
-   * nobody may have blocked the other, and first contact needs an accepted connection with each recipient (or a
-   * conversation the two already share), so a stranger's id is not an address.
+   * The thread a person's own Send opens to some recipients (up to MAX_MESSAGE_RECIPIENTS). Every recipient must exist
+   * and be a connection (an accepted request), and nobody may have blocked the other; the last two read the same to the
+   * sender, so a block is never announced. A stranger's id is not an address, and neither is a fellow member's of a group.
    */
   async startThread(db: Executor, userId: string, recipientIds: readonly string[], subject?: string | null): Promise<MessageThread> {
     const v = parseInput(z.object({ recipientIds: z.array(Id).min(1).max(MAX_MESSAGE_RECIPIENTS) }), { recipientIds }, "recipients");
@@ -243,17 +266,13 @@ export const socialRepo = {
     return db.transaction(async (tx) => {
       const known = await socialRepo.existingUsers(tx, others);
       if (others.some((id) => !known.has(id))) throw new NotFoundError("recipient");
-      if ((await socialRepo.blockedWith(tx, userId, others)).size) throw new ForbiddenError("You cannot message this person");
+      const blocked = await socialRepo.blockedWith(tx, userId, others);
       const linked = await tx
         .select({ fromUser: connections.fromUser, toUser: connections.toUser })
         .from(connections)
         .where(and(eq(connections.status, "accepted"), or(and(eq(connections.fromUser, userId), inArray(connections.toUser, others)), and(eq(connections.toUser, userId), inArray(connections.fromUser, others)))));
       const contacts = new Set(linked.map((r) => (r.fromUser === userId ? r.toUser : r.fromUser)));
-      const shared = rowsOf<{ uid: string }>(
-        await tx.execute(sql`select distinct p.uid::text as uid from message_threads t, unnest(t.participant_ids) as p(uid) where t.archived_at is null and t.participant_ids @> array[${userId}::uuid]`),
-      );
-      for (const r of shared) contacts.add(r.uid);
-      if (others.some((id) => !contacts.has(id))) throw new ForbiddenError("You can only start a conversation with someone you are connected to");
+      if (others.some((id) => blocked.has(id) || !contacts.has(id))) throw new ForbiddenError(CANNOT_MESSAGE);
       return socialRepo.findOrCreateThread(tx, userId, others, subject);
     });
   },
@@ -280,7 +299,8 @@ export const socialRepo = {
     const b = parseInput(z.string().trim().min(1).max(20_000), body, "message body");
     return db.transaction(async (tx) => {
       const thread = await socialRepo.getThread(tx, userId, threadId);
-      if ((await socialRepo.blockedWith(tx, userId, thread.participantIds.filter((id) => id !== userId))).size) throw new ForbiddenError("You cannot message this person");
+      if (thread.archivedAt) throw new ValidationError("This conversation is closed", { threadId });
+      if ((await socialRepo.blockedWith(tx, userId, thread.participantIds.filter((id) => id !== userId))).size) throw new ForbiddenError(CANNOT_MESSAGE);
       const msg = one(await tx.insert(messages).values({ threadId, fromUser: userId, body: b, readBy: [userId] }).returning(), "message");
       await tx.update(messageThreads).set({ lastMessageAt: msg.createdAt }).where(eq(messageThreads.id, threadId));
       return msg;
@@ -479,8 +499,9 @@ export const socialRepo = {
     });
   },
 
-  async listMembers(db: Executor, communityId: string): Promise<CommunityMember[]> {
-    return db.select().from(communityMembers).where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.status, "active"))).orderBy(asc(communityMembers.joinedAt));
+  /** Active members, longest-standing first, up to `limit` (a community can be large; its `member_count` has the total). */
+  async listMembers(db: Executor, communityId: string, limit = 200): Promise<CommunityMember[]> {
+    return db.select().from(communityMembers).where(and(eq(communityMembers.communityId, communityId), eq(communityMembers.status, "active"))).orderBy(asc(communityMembers.joinedAt)).limit(limit);
   },
 
   async isMember(db: Executor, userId: string, communityId: string): Promise<boolean> {

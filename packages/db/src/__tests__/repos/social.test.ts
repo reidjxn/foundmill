@@ -109,23 +109,32 @@ describe("connections and messages", () => {
     const crowd = Array.from({ length: MAX_MESSAGE_RECIPIENTS + 1 }, (_, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`);
     await expect(repos.social.startThread(r.db, me, crowd)).rejects.toThrow(/recipients/);
     // First contact needs a connection.
-    await expect(repos.social.startThread(r.db, me, [stranger])).rejects.toThrow(/connected/);
-    await expect(repos.social.startThread(r.db, me, [friend])).rejects.toThrow(/connected/);
+    await expect(repos.social.startThread(r.db, me, [stranger])).rejects.toThrow(/cannot message/);
+    await expect(repos.social.startThread(r.db, me, [friend])).rejects.toThrow(/cannot message/);
     const link = await repos.social.requestConnection(r.db, me, friend);
-    await expect(repos.social.startThread(r.db, me, [friend])).rejects.toThrow(/connected/); // a request is not a connection
+    await expect(repos.social.startThread(r.db, me, [friend])).rejects.toThrow(/cannot message/); // a request is not a connection
     await repos.social.respondConnection(r.db, friend, link.id, "accepted");
     const thread = await repos.social.startThread(r.db, me, [friend, friend], "Hello");
     expect(thread.participantIds.sort()).toEqual([me, friend].sort());
     expect((await repos.social.startThread(r.db, friend, [me])).id).toBe(thread.id);
     await repos.social.sendMessage(r.db, me, thread.id, "Hi friend");
     // One of two recipients being a stranger refuses the whole Send.
-    await expect(repos.social.startThread(r.db, me, [friend, stranger])).rejects.toThrow(/connected/);
-    // A conversation the two already share is enough for a later Send (a thread from before the gate, or a group).
+    await expect(repos.social.startThread(r.db, me, [friend, stranger])).rejects.toThrow(/cannot message/);
+    // Sharing a thread is not a connection: a thread from before the gate (or a group) does not open a new Send, though
+    // people already in it keep writing there by thread id.
     const legacy = await repos.social.findOrCreateThread(r.db, me, [stranger]);
-    expect((await repos.social.startThread(r.db, me, [stranger])).id).toBe(legacy.id);
-    // A block in either direction ends it, new threads and existing ones alike.
+    await expect(repos.social.startThread(r.db, me, [stranger])).rejects.toThrow(/cannot message/);
+    await expect(repos.social.sendMessage(r.db, me, legacy.id, "still here")).resolves.toMatchObject({ threadId: legacy.id });
+    // Two people in a group the sender made are not connected to each other because of it.
+    const group = await repos.social.findOrCreateThread(r.db, friend, [stranger, me]);
+    await expect(repos.social.startThread(r.db, stranger, [friend])).rejects.toThrow(/cannot message/);
+    expect(group.participantIds).toHaveLength(3);
+    // A block in either direction ends it, new threads and existing ones alike, and reads the same as not being connected.
     await repos.social.respondConnection(r.db, friend, link.id, "blocked");
-    await expect(repos.social.startThread(r.db, me, [friend])).rejects.toThrow(/cannot message/);
+    const blockedMessage = await repos.social.startThread(r.db, me, [friend]).catch((e: Error) => e.message);
+    const strangerMessage = await repos.social.startThread(r.db, me, [stranger]).catch((e: Error) => e.message);
+    expect(blockedMessage).toBe(strangerMessage);
+    await expect(repos.social.sendMessage(r.db, me, thread.id, "Still there?")).rejects.toThrow(strangerMessage as string);
     await expect(repos.social.startThread(r.db, friend, [me])).rejects.toThrow(/cannot message/);
     await expect(repos.social.sendMessage(r.db, me, thread.id, "Still there?")).rejects.toThrow(/cannot message/);
     await expect(repos.social.sendMessage(r.db, friend, thread.id, "Hello?")).rejects.toThrow(/cannot message/);
@@ -154,6 +163,88 @@ describe("communities and posts", () => {
     expect(await repos.social.isMember(r.db, r.B.ownerId, community.id)).toBe(false);
     expect((await repos.social.getCommunityBySlug(r.db, "dtc-founders"))?.id).toBe(community.id);
     expect((await repos.social.listCommunities(r.db, { visibility: "public" })).map((c) => c.id)).toContain(community.id);
+  });
+});
+
+describe("one row per pair, races, and closed threads", () => {
+  it("asking someone who already asked you (or is connected to you) returns that row; the pair key refuses a second row", async () => {
+    const a = r.B.adminId;
+    const b = r.A.memberId;
+    const first = await repos.social.requestConnection(r.db, a, b, "First");
+    const reverse = await repos.social.requestConnection(r.db, b, a, "Second");
+    expect(reverse.id).toBe(first.id);
+    expect(await repos.social.listConnections(r.db, a)).toHaveLength(1);
+    await expect(r.db.insert(s.connections).values({ fromUser: b, toUser: a })).rejects.toThrow();
+    await repos.social.respondConnection(r.db, b, first.id, "accepted");
+    expect((await repos.social.requestConnection(r.db, a, b)).id).toBe(first.id);
+    expect((await repos.social.requestConnection(r.db, b, a)).id).toBe(first.id);
+  });
+
+  /** A stand-in for the database whose reads and writes are scripted, to meet races that one connection cannot produce. */
+  function scripted(opts: { rows: unknown[][]; insertError?: unknown; updated?: unknown[]; failFirstTransaction?: unknown }) {
+    const reads = [...opts.rows];
+    const chain = (): Record<string, unknown> => {
+      const c: Record<string, unknown> = {};
+      for (const k of ["from", "where", "orderBy", "innerJoin"]) c[k] = () => c;
+      c.limit = async () => reads.shift() ?? [];
+      return c;
+    };
+    let transactions = 0;
+    const tx = {
+      select: () => chain(),
+      execute: async () => ({ rows: [{ blocked: false }] }),
+      insert: () => ({ values: () => ({ returning: async () => { throw opts.insertError; } }) }),
+      update: () => ({ set: () => ({ where: () => ({ returning: async () => opts.updated ?? [] }) }) }),
+    };
+    return {
+      transaction: async (fn: (t: typeof tx) => Promise<unknown>) => {
+        transactions++;
+        if (transactions === 1 && opts.failFirstTransaction) throw opts.failFirstTransaction;
+        return fn(tx);
+      },
+    } as never;
+  }
+  const row = (over: Record<string, unknown>) => ({ id: "c1", fromUser: r.A.ownerId, toUser: r.B.ownerId, status: "requested", blockedBy: null, createdAt: new Date(), ...over });
+  const uniqueViolation = Object.assign(new Error("Failed query"), { cause: Object.assign(new Error("duplicate key value violates unique constraint"), { code: "23505" }) });
+
+  it("a request that loses a race for the same pair gets the winner's row, or the same refusal a block gives, never a raw database error", async () => {
+    const A = r.A.ownerId;
+    const B = r.B.ownerId;
+    // The insert hit the pair key (23505) after the lookup saw nothing: the winner's row is returned.
+    const winner = row({ id: "winner", fromUser: B, toUser: A });
+    await expect(repos.social.requestConnection(scripted({ rows: [[], [winner]], insertError: uniqueViolation }), A, B)).resolves.toMatchObject({ id: "winner" });
+    // The winner turned out to be a block by the other side: the same answer as any request over a block.
+    const blocked = row({ id: "b", fromUser: B, toUser: A, status: "blocked", blockedBy: B });
+    await expect(repos.social.requestConnection(scripted({ rows: [[], [blocked]], insertError: uniqueViolation }), A, B)).rejects.toThrow(/could not be sent/);
+    // Nothing there on the second look either: a conflict to retry, not a 500.
+    await expect(repos.social.requestConnection(scripted({ rows: [[], []], insertError: uniqueViolation }), A, B)).rejects.toMatchObject({ code: "conflict", status: 409 });
+    // Any other database error is not swallowed.
+    await expect(repos.social.requestConnection(scripted({ rows: [[]], insertError: new Error("disk full") }), A, B)).rejects.toThrow(/disk full/);
+  });
+
+  it("an answer that finds the row changed under it writes nothing and says so", async () => {
+    const asked = row({ id: "c9", fromUser: r.A.ownerId, toUser: r.B.ownerId, status: "requested" });
+    // The UPDATE matched no row (it carries the status that was read): the other side answered in between.
+    await expect(repos.social.respondConnection(scripted({ rows: [[asked]], updated: [] }), r.B.ownerId, "c9", "accepted")).rejects.toMatchObject({ code: "conflict", status: 409 });
+    await expect(repos.social.respondConnection(scripted({ rows: [[asked]], updated: [{ ...asked, status: "accepted" }] }), r.B.ownerId, "c9", "accepted")).resolves.toMatchObject({ status: "accepted" });
+  });
+
+  it("a closed (archived) thread takes no more messages", async () => {
+    const a = r.A.ownerId;
+    const b = r.B.ownerId;
+    const thread = await repos.social.findOrCreateThread(r.db, a, [b], "Closing");
+    await repos.social.sendMessage(r.db, a, thread.id, "Before");
+    await r.db.update(s.messageThreads).set({ archivedAt: new Date() }).where(eq(s.messageThreads.id, thread.id));
+    await expect(repos.social.sendMessage(r.db, a, thread.id, "After")).rejects.toThrow(/closed/);
+    await r.db.update(s.messageThreads).set({ archivedAt: null }).where(eq(s.messageThreads.id, thread.id));
+  });
+
+  it("the member list is capped (a community's member_count has the total)", async () => {
+    const community = await repos.social.createCommunity(r.db, { name: "Crowd", slug: "crowd-room", createdBy: r.A.ownerId });
+    for (const u of [r.A.adminId, r.A.memberId, r.B.ownerId]) await repos.social.joinCommunity(r.db, u, community.id);
+    expect(await repos.social.listMembers(r.db, community.id)).toHaveLength(4);
+    expect(await repos.social.listMembers(r.db, community.id, 2)).toHaveLength(2);
+    expect((await repos.social.getCommunity(r.db, community.id)).memberCount).toBe(4);
   });
 });
 

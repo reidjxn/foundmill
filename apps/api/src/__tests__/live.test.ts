@@ -188,6 +188,17 @@ describe("communities", () => {
     expect((await failure(attacker.live.communities.post({ communityId: pub.id, bodyMd: "late", parentPostId: top.id }))).code).toBe("NOT_FOUND");
   });
 
+  it("a community with hundreds of members still loads: the member list is capped and the count is the total", async () => {
+    const community = await repos.social.createCommunity(hz.db, { name: "Big room", slug: "live-big-room", createdBy: hz.A.ownerId, ownerBusinessId: hz.A.businessId });
+    const crowd = await Promise.all(Array.from({ length: 204 }, (_, i) => hz.h.createUser(`crowd-${i}@live.test`)));
+    await hz.db.insert(communityMembers).values(crowd.map((userId) => ({ communityId: community.id, userId, businessId: hz.A.businessId })));
+    await hz.db.update(communities).set({ memberCount: 205 }).where(eq(communities.id, community.id));
+    const seen = await as(hz.A.ownerId).live.communities.get({ communityId: community.id });
+    expect(seen.members).toHaveLength(200);
+    expect(seen.community.memberCount).toBe(205);
+    expect(seen.isMember).toBe(true);
+  });
+
   it("L5: an archived community cannot be read, posted in or joined", async () => {
     const community = await repos.social.createCommunity(hz.db, { name: "Old room", slug: "live-old-room", createdBy: hz.A.ownerId });
     const owner = as(hz.A.ownerId);
@@ -280,6 +291,11 @@ describe("messages and connections", () => {
     expect((await failure(sender.live.messages.send({ threadId: sent.threadId, body: "still there?" }))).code).toBe("FORBIDDEN");
     expect((await failure(as(friend).live.messages.send({ threadId: sent.threadId, body: "go away" }))).code).toBe("FORBIDDEN");
     expect((await failure(sender.live.messages.send({ toUserIds: [friend], body: "again" }))).code).toBe("FORBIDDEN");
+    // A block is never announced: it reads exactly like not being connected, on a new thread and on an existing one.
+    const strangerSend = await failure(sender.live.messages.send({ toUserIds: [stranger], body: "cold" }));
+    const blockedSend = await failure(sender.live.messages.send({ toUserIds: [friend], body: "again" }));
+    expect(blockedSend.message).toBe(strangerSend.message);
+    expect((await failure(sender.live.messages.send({ threadId: sent.threadId, body: "still there?" }))).message).toBe(strangerSend.message);
     expect((await failure(as(friend).live.messages.send({ toUserIds: [hz.B.ownerId], body: "again" }))).code).toBe("FORBIDDEN");
     // The thread and what was said before the block stay readable.
     expect((await as(friend).live.messages.list({ threadId: sent.threadId })).items.map((m) => m.body)).toEqual(["hello friend"]);

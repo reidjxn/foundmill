@@ -35,12 +35,20 @@ export interface BusinessContext extends Context {
 
 const t = initTRPC.context<Context>().create({
   transformer: superjson,
-  errorFormatter({ shape, error }) {
+  // The last stop before the wire, so it also covers errors raised before a procedure runs (createContext, input
+  // parsing) that never pass through `mapErrors`: an INTERNAL error reads as a generic line with the request id outside
+  // development and test, and carries no stack. Without a context the environment comes from the process, failing closed.
+  errorFormatter({ shape, error, ctx }) {
     const cause = error.cause;
+    const appEnv = ctx?.env?.APP_ENV ?? process.env.APP_ENV ?? (process.env.NODE_ENV === "production" ? "production" : "development");
+    const internal = error.code === "INTERNAL_SERVER_ERROR";
+    const hide = internal && !(appEnv === "development" || appEnv === "test");
     return {
       ...shape,
+      message: internal ? internalErrorMessage(shape.message, appEnv, ctx?.requestId) : shape.message,
       data: {
         ...shape.data,
+        ...(hide ? { stack: undefined } : {}),
         appCode: cause instanceof AppError ? cause.code : undefined,
         details: cause instanceof AppError ? cause.details : cause instanceof ZodError ? cause.issues : undefined,
       },
@@ -106,11 +114,15 @@ export function toTRPCError(err: unknown): TRPCError {
   if (cause instanceof ZodError) {
     return new TRPCError({ code: "BAD_REQUEST", message: cause.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "), cause });
   }
-  // A row that points at something that does not exist (an unknown user, post or business id in the input) is a bad
-  // reference from the caller, not a server fault, and must not echo the failed statement. tRPC has already wrapped a
-  // thrown database error as INTERNAL_SERVER_ERROR by the time it gets here; a code we set on purpose is left alone.
-  if (pgErrorCode(cause) === PG_FOREIGN_KEY_VIOLATION && (!(err instanceof TRPCError) || err.code === "INTERNAL_SERVER_ERROR")) {
-    return new TRPCError({ code: "NOT_FOUND", message: "A record this request refers to does not exist", cause: cause as Error });
+  // A foreign-key violation is the caller's doing, not a server fault, and must not echo the failed statement. tRPC has
+  // already wrapped a thrown database error as INTERNAL_SERVER_ERROR by the time it gets here; a code we set on purpose
+  // is left alone. Writing a row that points at something that does not exist is "not found"; deleting something that
+  // other rows still point at is a conflict.
+  const fk = (!(err instanceof TRPCError) || err.code === "INTERNAL_SERVER_ERROR") ? foreignKeyViolation(cause) : undefined;
+  if (fk) {
+    return fk.kind === "reference"
+      ? new TRPCError({ code: "NOT_FOUND", message: "A record this request refers to does not exist", cause: cause as Error })
+      : new TRPCError({ code: "CONFLICT", message: "This record is still in use by something else", cause: cause as Error });
   }
   if (err instanceof TRPCError) return err;
   const message = (cause as { message?: string })?.message ?? String(cause);
@@ -122,6 +134,24 @@ export function toTRPCError(err: unknown): TRPCError {
 }
 
 const PG_FOREIGN_KEY_VIOLATION = "23503";
+
+/**
+ * A foreign-key violation, if `err` is one: "reference" when a write names a row that does not exist (Postgres says
+ * "insert or update on table …"), "in_use" when a delete or update is blocked by rows that point at it, with the
+ * constraint's name for the log.
+ */
+export function foreignKeyViolation(err: unknown): { kind: "reference" | "in_use"; constraint: string | undefined } | undefined {
+  let e: unknown = err;
+  for (let depth = 0; depth < 4 && e && typeof e === "object"; depth++) {
+    if ((e as { code?: unknown }).code === PG_FOREIGN_KEY_VIOLATION) {
+      const message = String((e as { message?: unknown }).message ?? "");
+      const named = (e as { constraint?: unknown }).constraint;
+      return { kind: /^insert or update on table/i.test(message) ? "reference" : "in_use", constraint: typeof named === "string" ? named : /constraint "([^"]+)"/.exec(message)?.[1] };
+    }
+    e = (e as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
 
 /** The Postgres SQLSTATE of a database error, looking through Drizzle's wrapper (`DrizzleQueryError.cause`). */
 export function pgErrorCode(err: unknown): string | undefined {
@@ -139,14 +169,17 @@ export function pgErrorCode(err: unknown): string | undefined {
  * finds the fault); every other environment gets a generic line and the request id to quote, because the raw text can
  * carry SQL, table names and values.
  */
-export function internalErrorMessage(message: string, appEnv: string, requestId: string): string {
-  return appEnv === "development" || appEnv === "test" ? message : `Something went wrong on our side. Quote reference ${requestId} if you contact support.`;
+export function internalErrorMessage(message: string, appEnv: string, requestId?: string): string {
+  if (appEnv === "development" || appEnv === "test") return message;
+  return requestId ? `Something went wrong on our side. Quote reference ${requestId} if you contact support.` : "Something went wrong on our side.";
 }
 
 const mapErrors = t.middleware(async ({ next, ctx, path, type }) => {
   const result = await next();
   if (!result.ok) {
     const mapped = toTRPCError(result.error);
+    const fk = foreignKeyViolation(mapped.cause);
+    if (fk && mapped.code !== "INTERNAL_SERVER_ERROR") ctx.log.warn({ path, type, code: mapped.code, constraint: fk.constraint, kind: fk.kind, requestId: ctx.requestId }, "foreign key violation");
     if (mapped.code === "INTERNAL_SERVER_ERROR") {
       ctx.log.error({ path, type, err: mapped.cause ?? mapped, requestId: ctx.requestId }, "procedure failed");
       const shown = internalErrorMessage(mapped.message, ctx.env.APP_ENV, ctx.requestId);
