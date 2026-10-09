@@ -16,8 +16,7 @@ import { Check, Eraser, Palette, RefreshCw, Sparkles, Upload } from "lucide-reac
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { BusinessLogo, Button, Chip, ProvenanceChip, StatusPill, cn, type Kit } from "@foundmill/dugout";
 import { errorMessage } from "@/lib/trpc";
-import { LOGO_FILE_ACCEPT, LOGO_FILE_HINT, formatCostEstimate, readLogoFile, suggestKit, type LogoDraft } from "@/lib/logo";
-import { normaliseHex } from "@/components/new/commit/naming";
+import { LOGO_FILE_ACCEPT, LOGO_FILE_HINT, formatCostEstimate, readLogoFile, sameKit, suggestKit, type LogoDraft } from "@/lib/logo";
 
 export interface GeneratedLogoOption {
   id: string;
@@ -58,7 +57,11 @@ export interface LogoPickerProps {
   className?: string;
 }
 
-const sameKit = (a: Kit, b: Kit) => normaliseHex(a.primary) === normaliseHex(b.primary) && normaliseHex(a.secondary) === normaliseHex(b.secondary);
+/** One line on the logo in use; a stored logo loaded from the server has no label. */
+function describe(value: LogoDraft): string {
+  if (value.source === "generated") return value.label ? `Generated mark: ${value.label}.` : "Using a generated mark.";
+  return value.label ? `Uploaded: ${value.label}.` : "Using an uploaded logo.";
+}
 
 export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, disabled, saving, className }: LogoPickerProps) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -169,7 +172,7 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
             </p>
           )
         ) : (
-          <p className="text-small text-secondary">{value ? (value.source === "generated" ? `Generated mark: ${value.label}.` : `Uploaded: ${value.label}.`) : `No logo yet: the initials mark stands in. ${LOGO_FILE_HINT}`}</p>
+          <p className="text-small text-secondary">{value ? describe(value) : `No logo yet: the initials mark stands in. ${LOGO_FILE_HINT}`}</p>
         )}
 
         {set ? (

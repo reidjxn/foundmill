@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkLogoFile, dataUrlBytes, formatCostEstimate, kitFromColours, LogoFileError } from "../logo";
+import { checkLogoFile, dataUrlBytes, formatCostEstimate, kitFromColours, LogoFileError, sameKit } from "../logo";
 
 describe("lib/logo", () => {
   it("measures the bytes a base64 data URL carries", () => {
@@ -21,11 +21,18 @@ describe("lib/logo", () => {
     expect(kitFromColours(["#1f6f5f", "#e8c56b"])).toEqual({ primary: "#1f6f5f", secondary: "#e8c56b" });
     expect(kitFromColours(["#ffffff", "#0f1318", "#2b6cb0", "#f5b841"])).toEqual({ primary: "#2b6cb0", secondary: "#f5b841" });
     expect(kitFromColours(["#ffffff", "#000000", "#808080"])).toBeNull();
+    // A pale tile is not the brand, however much of the mark it covers.
+    expect(kitFromColours(["#f9def7", "#1d7c56"])?.primary).toBe("#1d7c56");
     expect(kitFromColours([])).toBeNull();
     // One colour: a partner is derived.
     const one = kitFromColours(["#7a3b8f"]);
     expect(one?.primary).toBe("#7a3b8f");
     expect(one?.secondary).toMatch(/^#[0-9a-f]{6}$/);
+  });
+
+  it("treats colours a few steps apart as the same kit (no suggestion for anti-aliasing noise)", () => {
+    expect(sameKit({ primary: "#2f6f5e", secondary: "#f2c94c" }, { primary: "#2e6d5c", secondary: "#F2C94C" })).toBe(true);
+    expect(sameKit({ primary: "#2f6f5e", secondary: "#f2c94c" }, { primary: "#0e766e", secondary: "#f59e0a" })).toBe(false);
   });
 
   it("formats a cost Estimate in US dollars", () => {

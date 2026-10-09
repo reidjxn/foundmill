@@ -10,7 +10,7 @@
  *   a raster (canvas), through the Commit screen's `extractPalette`.
  */
 import { LOGO_MAX_BYTES, LOGO_NORMALISED_PX, LOGO_UPLOAD_MAX_BYTES } from "@foundmill/shared/logo";
-import type { Kit } from "@foundmill/dugout";
+import { hexToRgb, rgbToHsl, type Kit } from "@foundmill/dugout";
 import { extractPalette, normaliseHex } from "@/components/new/commit/naming";
 
 export const LOGO_FILE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"] as const;
@@ -128,12 +128,19 @@ export async function readPixels(src: string): Promise<Uint8ClampedArray | null>
   }
 }
 
+/** A colour that can carry a brand: saturated enough, neither near-black nor a pale tint (tiles are often tints). */
+function brandable(hex: string): boolean {
+  const { s, l } = rgbToHsl(hexToRgb(hex));
+  return s >= 0.25 && l >= 0.12 && l <= 0.8;
+}
+
 /**
  * Two brand colours from hex colours ranked by use (an SVG's fills): the first saturated colour is the primary, the
- * next one far enough in hue the secondary. Null when the logo has no usable colour (black, white and greys only).
+ * next one far enough in hue the secondary (or a derived partner). Pale tints, greys, black and white are left out,
+ * so a mark's background tile does not become the brand. Null when nothing usable is left.
  */
 export function kitFromColours(colours: readonly string[]): Kit | null {
-  const valid = colours.map((c) => normaliseHex(c)).filter((c): c is string => c !== null);
+  const valid = colours.map((c) => normaliseHex(c)).filter((c): c is string => c !== null && brandable(c));
   if (!valid.length) return null;
   // Weighted pixels in rank order, so extractPalette's ranking follows the SVG's.
   const pixels: number[] = [];
@@ -152,6 +159,19 @@ export async function suggestKit(draft: Pick<LogoDraft, "dataUrl" | "colours">):
   if (fromColours) return fromColours;
   const pixels = await readPixels(draft.dataUrl);
   return pixels ? extractPalette(pixels, { sampleEvery: 2 }) : null;
+}
+
+/** Two kits that read the same (each channel within `tolerance` of 255): no point suggesting one for the other. */
+export function sameKit(a: Kit, b: Kit, tolerance = 12): boolean {
+  const near = (x: string, y: string) => {
+    const p = normaliseHex(x);
+    const q = normaliseHex(y);
+    if (!p || !q) return p === q;
+    const [r1, g1, b1] = [1, 3, 5].map((i) => parseInt(p.slice(i, i + 2), 16));
+    const [r2, g2, b2] = [1, 3, 5].map((i) => parseInt(q.slice(i, i + 2), 16));
+    return Math.abs(r1! - r2!) <= tolerance && Math.abs(g1! - g2!) <= tolerance && Math.abs(b1! - b2!) <= tolerance;
+  };
+  return near(a.primary, b.primary) && near(a.secondary, b.secondary);
 }
 
 /** "US$0.07" for an Estimate in minor units. */

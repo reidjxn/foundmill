@@ -45,7 +45,7 @@ export function BusinessTab() {
   // --- the logo: saved at once (business.logo.*) ----------------------------------------------------------------------
   const meta = data.logo;
   const logoSrc = useBusinessLogoSrc(businessId, meta);
-  const current = useMemo<LogoDraft | null>(() => (meta && logoSrc ? { source: meta.source, dataUrl: logoSrc, colours: [], label: meta.source === "generated" ? "a generated mark" : "an uploaded logo" } : null), [meta, logoSrc]);
+  const current = useMemo<LogoDraft | null>(() => (meta && logoSrc ? { source: meta.source, dataUrl: logoSrc, colours: [], label: "" } : null), [meta, logoSrc]);
   const [pending, setPending] = useState<LogoDraft | null | undefined>(undefined);
   const prepare = useMutation(trpc.business.logo.prepare.mutationOptions());
   const generate = useMutation(trpc.business.logo.generate.mutationOptions());
