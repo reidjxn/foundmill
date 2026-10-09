@@ -14,6 +14,11 @@ export interface LiveMockOptions {
   advanceChance?: number;
   running?: boolean;
   seed?: string;
+  /**
+   * Fraction (0–1) of each script already applied when the replay starts or resets, so the tiles open mid-session
+   * (terminal lines, plan progress) instead of empty. Default 0.
+   */
+  prefill?: number;
 }
 
 export interface LiveMockState {
@@ -25,26 +30,40 @@ export interface LiveMockState {
   reset: () => void;
 }
 
+/** How many events of a script `prefill` applies up front. Exported for tests. */
+export function prefillCount(events: number, prefill: number | undefined): number {
+  if (!prefill || !Number.isFinite(prefill) || prefill <= 0) return 0;
+  return Math.floor(events * Math.min(1, prefill));
+}
+
 /**
  * Drives `n` mock sessions from their recorded scripts with a `setInterval`, for stories and the dev-only Simulate
  * panel (AC-11.6.1 rehearsal: 16 tiles streaming). Deterministic for a given seed.
  */
 export function useLiveMockSessions(n: number, opts: LiveMockOptions = {}): LiveMockState {
-  const { intervalMs = 400, advanceChance = 0.55, running = true, seed = "live" } = opts;
+  const { intervalMs = 400, advanceChance = 0.55, running = true, seed = "live", prefill = 0 } = opts;
   const startClock = useMemo(() => opts.startClock ?? new Date("2026-10-07T09:30:00Z"), [opts.startClock]);
   const scripts = useMemo(() => mockSessions(n, startClock), [n, startClock]);
   const cursors = useRef<number[]>([]);
   const rng = useRef(createRng(seed));
-  const build = useCallback(() => scripts.map(({ seed: s }) => emptySession(s)), [scripts]);
+  const build = useCallback(
+    () =>
+      scripts.map(({ seed: s, events }) => {
+        let session = emptySession(s);
+        for (const e of events.slice(0, prefillCount(events.length, prefill))) session = applySessionEvent(session, e);
+        return session;
+      }),
+    [scripts, prefill],
+  );
   const [sessions, setSessions] = useState<AgentTileSession[]>(build);
   const [now, setNow] = useState(startClock);
 
   const reset = useCallback(() => {
-    cursors.current = scripts.map(() => 0);
+    cursors.current = scripts.map(({ events }) => prefillCount(events.length, prefill));
     rng.current = createRng(seed);
     setSessions(build());
     setNow(startClock);
-  }, [scripts, seed, build, startClock]);
+  }, [scripts, seed, build, startClock, prefill]);
 
   useEffect(() => {
     reset();

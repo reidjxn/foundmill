@@ -148,6 +148,8 @@
   --animate-fade-out: dugout-fade-out var(--dur-panel) var(--ease);
   --animate-signal: dugout-signal 1.8s linear infinite;
   --animate-orbit: dugout-orbit 24s linear infinite;
+  --animate-marquee: dugout-marquee 80s linear infinite;
+  --animate-progress: dugout-progress 6s linear 1 both;
 
   @keyframes dugout-shimmer {
     0% {
@@ -203,6 +205,24 @@
   @keyframes dugout-orbit {
     to {
       transform: rotate(360deg);
+    }
+  }
+  /* Landing ticker: the track holds its items twice, so moving it by half loops seamlessly. */
+  @keyframes dugout-marquee {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+  /* A one-shot fill from left to right (an auto-advancing tab's timer); set animation-duration to the interval. */
+  @keyframes dugout-progress {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
     }
   }
   @keyframes dugout-fade-out {
@@ -336,6 +356,13 @@
   line-height: var(--lh-display-hero);
   letter-spacing: -0.015em;
 }
+/* Landing headlines: the lit words, white lifting into the link blue (no new colour, no glow). */
+@utility landing-lit {
+  background-image: linear-gradient(180deg, var(--text-primary) 10%, color-mix(in oklab, var(--accent-link) 85%, var(--text-primary)) 95%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 @utility t-display-xl {
   font-family: var(--font-display);
   font-weight: var(--fw-display);
@@ -464,4 +491,26 @@
 /* Disabled text: text-secondary at 50 % */
 @utility text-disabled {
   color: color-mix(in oklab, var(--text-secondary) 50%, transparent);
+}
+
+/* Landing page (signed-out `/`): a block rises in once as it first enters the window. `Reveal` in apps/web sets
+   data-reveal="pending" only on blocks that start below the fold and never under reduced motion, so the page reads
+   the same without script and nothing above the fold ever hides. */
+[data-reveal="pending"] {
+  opacity: 0;
+  transform: translateY(24px);
+}
+[data-reveal="shown"] {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--dur-reveal) var(--ease),
+    transform var(--dur-reveal) var(--ease);
+}
+/* A printed or saved page shows every block, whether or not it was scrolled to. */
+@media print {
+  [data-reveal="pending"] {
+    opacity: 1;
+    transform: none;
+  }
 }

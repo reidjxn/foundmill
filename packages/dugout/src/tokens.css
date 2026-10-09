@@ -81,9 +81,9 @@
 
   /* Type scale (DESIGN §4): size / line-height / tracking */
   --fs-display-xl: 40px;
-  --fs-display-hero: 64px; /* signed-out landing hero only */
+  --fs-display-hero: 80px; /* signed-out landing headlines only */
   --lh-display-xl: 44px;
-  --lh-display-hero: 64px;
+  --lh-display-hero: 80px;
   --fs-display-lg: 28px;
   --lh-display-lg: 32px;
   --fs-display-md: 20px;
@@ -116,6 +116,7 @@
   --dur-view: 320ms;
   --dur-pulse: 600ms;
   --dur-ribbon: 1200ms;
+  --dur-reveal: 720ms; /* signed-out landing: blocks rising in as they enter the window */
   --dur-shimmer: 1600ms;
   --delay-hover-card: 300ms;
 
