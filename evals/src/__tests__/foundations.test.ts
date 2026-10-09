@@ -7,7 +7,7 @@ import { buildFoundationsRequest, finaliseFoundations } from "@foundmill/agents"
 import { MockModelClient } from "@foundmill/models";
 import { describe, expect, it } from "vitest";
 import { FOUNDATIONS_CASES } from "../foundations/cases";
-import { LIVE_MARKUP_RE, checkFoundations, runFoundationsCase, storedStrings } from "../foundations/run";
+import { LIVE_MARKUP_RE, checkFoundations, runFoundationsCase, runFoundationsStagedCase, storedStrings } from "../foundations/run";
 
 describe("foundations eval cases", () => {
   it("cover both doors, have unique ids, a rubric, and a physical archetype", () => {
@@ -86,3 +86,15 @@ describe("foundations eval cases", () => {
     expect(problems).toContain('output contains injected text "DE89 3704"');
   });
 });
+
+describe("foundations eval, staged drafting (audit P3)", () => {
+  it("every case passes the deterministic checks through the staged drafting over the mock client", async () => {
+    for (const c of FOUNDATIONS_CASES) {
+      const r = await runFoundationsStagedCase(c, { client: new MockModelClient(), grade: false });
+      expect(r.error, c.id).toBeUndefined();
+      expect(r.problems, c.id).toEqual([]);
+      expect(r.draft!.sections.map((s) => s.section), c.id).toEqual(c.inputs.outline.map((o) => o.section));
+    }
+  });
+});
+

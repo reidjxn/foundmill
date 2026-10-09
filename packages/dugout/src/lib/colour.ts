@@ -166,6 +166,122 @@ export function kitOnPrimary(kitPrimaryHex: string): string {
   return kitOnPrimaryDetail(kitPrimaryHex).colour;
 }
 
+/* ---------- WCAG 2 contrast (the AA floor of DESIGN §5: text-3 must reach 4.5 : 1 on every surface it sits on) ---------- */
+
+/** WCAG 2 relative luminance of a hex colour (sRGB, piecewise transfer). */
+export function relativeLuminance(hex: string): number {
+  const { r, g, b } = hexToRgb(hex);
+  const lin = (c: number) => {
+    const v = c / 255;
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+/** WCAG 2 contrast ratio between two hex colours, 1–21 (order does not matter). */
+export function contrastRatio(aHex: string, bHex: string): number {
+  const a = relativeLuminance(aHex);
+  const b = relativeLuminance(bHex);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
+
+/* ---------- OKLCH (perceptual lightness, chroma, hue) for the brand ramp ---------- */
+
+export interface Oklch {
+  /** Perceptual lightness 0–1. */
+  l: number;
+  /** Chroma, 0 for greys; about 0.37 at most inside sRGB. */
+  c: number;
+  /** Hue in degrees 0–360. */
+  h: number;
+}
+
+const srgbToLinear = (c: number) => {
+  const v = c / 255;
+  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+};
+const linearToSrgb = (v: number) => (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055) * 255;
+
+/** Hex → OKLCH (Björn Ottosson's OKLab, polar form). */
+export function hexToOklch(hex: string): Oklch {
+  const { r, g, b } = hexToRgb(hex);
+  const [lr, lg, lb] = [srgbToLinear(r), srgbToLinear(g), srgbToLinear(b)];
+  const l = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
+  const m = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
+  const s = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
+  const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+  const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+  const B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  const c = Math.hypot(A, B);
+  return { l: L, c, h: c < 1e-6 ? 0 : (Math.atan2(B, A) * 180) / Math.PI + (B < 0 ? 360 : 0) };
+}
+
+function oklchToLinear({ l: L, c, h }: Oklch): [number, number, number] {
+  const A = c * Math.cos((h * Math.PI) / 180);
+  const B = c * Math.sin((h * Math.PI) / 180);
+  const l = Math.pow(L + 0.3963377774 * A + 0.2158037573 * B, 3);
+  const m = Math.pow(L - 0.1055613458 * A - 0.0638541728 * B, 3);
+  const s = Math.pow(L - 0.0894841775 * A - 1.291485548 * B, 3);
+  return [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
+  ];
+}
+
+const inGamut = (rgb: [number, number, number]) => rgb.every((v) => v >= -1e-4 && v <= 1 + 1e-4);
+
+/** OKLCH → hex. Out-of-gamut colours keep their lightness and hue and lose chroma until they fit sRGB (CSS Color 4 style). */
+export function oklchToHex(colour: Oklch): string {
+  const l = Math.min(1, Math.max(0, colour.l));
+  let rgb = oklchToLinear({ ...colour, l });
+  if (!inGamut(rgb)) {
+    let lo = 0;
+    let hi = Math.max(0, colour.c);
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2;
+      if (inGamut(oklchToLinear({ l, c: mid, h: colour.h }))) lo = mid;
+      else hi = mid;
+    }
+    rgb = oklchToLinear({ l, c: lo, h: colour.h });
+  }
+  const [r, g, b] = rgb.map((v) => linearToSrgb(Math.min(1, Math.max(0, v)))) as [number, number, number];
+  return rgbToHex({ r, g, b });
+}
+
+/** The brand ramp a business's primary colour lights the product with (DESIGN §5, DIRECTION #11). */
+export interface KitRamp {
+  /** The brand lifted towards text-1: lines, edges, the Today line, the active sidebar icon, carets. */
+  lift: string;
+  /** Active edges and lit corners. */
+  hi: string;
+  /** The gradient's low stop: the bottom of primary buttons, pressed brand. */
+  lo: string;
+  /** The deepest brand tone: wells and the slab's dark end. */
+  deep: string;
+  /** The glow colour: brand light cast on the canvas (aura behind the logo, Continue and Generate halos). */
+  aura: string;
+}
+
+/**
+ * Derive the brand ramp from the business's primary colour in OKLCH, so any brand colour lights correctly on the
+ * dark canvas: lightness is set per stop (lift sits at OKLCH L 0.79–0.9, so even a navy or black brand reads on the
+ * canvas and a pale brand stays pale), hue is kept, and chroma scales with the brand's own saturation (a grey brand
+ * stays grey) before gamut mapping.
+ * Pure and server-safe; `kitStyle` writes the result as `--kit-lift`, `--kit-hi`, `--kit-lo`, `--kit-deep`, `--kit-aura`.
+ */
+export function kitRamp(primaryHex: string): KitRamp {
+  const { l, c, h } = hexToOklch(primaryHex);
+  const stop = (lightness: number, chroma: number) => oklchToHex({ l: lightness, c: Math.min(chroma, 0.2), h });
+  return {
+    lift: stop(Math.min(0.9, Math.max(0.79, l + 0.2)), c * 1.2),
+    hi: stop(Math.min(0.86, Math.max(0.7, l + 0.08)), c * 1.2),
+    lo: stop(Math.min(0.42, l * 0.82), c * 0.8),
+    deep: stop(Math.min(0.32, l * 0.62), c * 0.56),
+    aura: stop(Math.min(0.8, Math.max(0.64, l + 0.06)), Math.max(c * 1.3, c > 0.02 ? 0.12 : c)),
+  };
+}
+
 /** `var(--dept-n)` for a department colour token. */
 export function deptColourVar(token: DeptColourToken): string {
   return `var(--${token})`;

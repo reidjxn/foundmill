@@ -7,23 +7,23 @@ import { Icon } from "./Icon";
 
 export type CheckboxProps = ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>;
 
-/** 16 px box. `checked="indeterminate"` renders a dash. Space toggles. */
+/**
+ * 16 px box (DESIGN §8): a well with a visible 1.5 px ring at rest; checked is the accent with an ink mark and a soft
+ * glow, so shape and colour both carry the state. `checked="indeterminate"` renders a dash. Space toggles.
+ */
 export const Checkbox = forwardRef<ElementRef<typeof CheckboxPrimitive.Root>, CheckboxProps>(function Checkbox({ className, ...props }, ref) {
   return (
     <CheckboxPrimitive.Root
       ref={ref}
       className={cn(
-        "peer inline-flex size-4 shrink-0 items-center justify-center rounded-chip border border-subtle bg-panel-alt",
-        "transition-colors duration-micro ease-dugout hover:border-secondary/60",
-        "data-[state=checked]:border-transparent data-[state=checked]:bg-kit-primary data-[state=checked]:text-kit-on-primary",
-        "data-[state=indeterminate]:border-transparent data-[state=indeterminate]:bg-kit-primary data-[state=indeterminate]:text-kit-on-primary",
+        "check-box peer inline-grid size-check shrink-0 place-items-center rounded-xs",
         "disabled:cursor-not-allowed disabled:opacity-50",
         className,
       )}
       {...props}
     >
-      <CheckboxPrimitive.Indicator className="inline-flex">
-        {props.checked === "indeterminate" ? <Icon icon={Minus} size={12} strokeWidth={2.5} /> : <Icon icon={Check} size={12} strokeWidth={2.5} />}
+      <CheckboxPrimitive.Indicator className="inline-flex animate-pop">
+        {props.checked === "indeterminate" ? <Icon icon={Minus} size={12} strokeWidth={2.75} /> : <Icon icon={Check} size={12} strokeWidth={2.75} />}
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
   );

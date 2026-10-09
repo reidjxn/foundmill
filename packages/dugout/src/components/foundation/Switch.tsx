@@ -7,29 +7,19 @@ export interface SwitchProps extends ComponentPropsWithoutRef<typeof SwitchPrimi
   size?: "sm" | "md";
 }
 
-/** 28×16 (sm) or 36×20 (md) track; on = kit-primary. Space toggles; label it with <Label htmlFor>. */
+/**
+ * 28×16 (sm) or 36×20 (md) track (DESIGN §8): a well when off, the accent with a glow when on; the pearl thumb springs
+ * across. Space toggles; label it with <Label htmlFor>.
+ */
 export const Switch = forwardRef<ElementRef<typeof SwitchPrimitive.Root>, SwitchProps>(function Switch({ className, size = "md", ...props }, ref) {
-  const sm = size === "sm";
   return (
     <SwitchPrimitive.Root
       ref={ref}
-      className={cn(
-        "peer inline-flex shrink-0 cursor-pointer items-center rounded-full border border-subtle bg-panel-alt p-0.5",
-        "transition-colors duration-micro ease-dugout",
-        "data-[state=checked]:border-transparent data-[state=checked]:bg-kit-primary",
-        "disabled:cursor-not-allowed disabled:opacity-50",
-        sm ? "h-4 w-7" : "h-5 w-9",
-        className,
-      )}
+      data-size={size}
+      className={cn("switch-track peer inline-flex shrink-0 cursor-pointer items-center", "disabled:cursor-not-allowed disabled:opacity-50", className)}
       {...props}
     >
-      <SwitchPrimitive.Thumb
-        className={cn(
-          "pointer-events-none block rounded-full bg-secondary shadow-sm transition-transform duration-micro ease-dugout",
-          "data-[state=checked]:bg-kit-on-primary",
-          sm ? "size-2.5 data-[state=checked]:translate-x-3" : "size-3.5 data-[state=checked]:translate-x-4",
-        )}
-      />
+      <SwitchPrimitive.Thumb className="switch-thumb" />
     </SwitchPrimitive.Root>
   );
 });

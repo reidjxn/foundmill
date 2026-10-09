@@ -4,3 +4,4 @@ export * from "./rating";
 export * from "./colour";
 export * from "./seed";
 export * from "./reducedMotion";
+export * from "./motion";

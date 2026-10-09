@@ -7,7 +7,8 @@
 //  2. VOCAB — football-only words never reach anything a user can read (CLAUDE.md "Product vocabulary",
 //     docs/DECISIONS.md 2026-10-07 "Vocabulary: no football terms that cannot also be said of AI agents").
 //     Scope: string literals, template literals and JSX text in apps/web, packages/dugout, packages/widgets,
-//     packages/modules, packages/agents/src/{prompts,templates}, apps/composer, packages/journey (plus .md/.mdx there), and the prose
+//     packages/modules, packages/agents/src/{prompts,templates}, apps/composer, packages/journey, packages/models (its mock
+//     completions are what the founder reads in mock mode) (plus .md/.mdx there), and the prose
 //     of docs/DESIGN.md and docs/ARCHITECTURE.md. Identifiers are not scanned: import paths, object keys, enum
 //     members, literal types, CSS custom properties, class-name strings, data-* / className / id / href attributes,
 //     console/log arguments, and any single token that looks like an identifier (snake_case, kebab-case, camelCase,
@@ -99,6 +100,8 @@ const VOCAB_CODE_ROOTS = [
   "packages/agents/src/templates",
   "apps/composer",
   "packages/journey",
+  // Mock completions reach the founder on the MODEL_MODE=mock golden path (Inbox notes, Customer Update lines, replies).
+  "packages/models",
 ];
 const VOCAB_DOC_FILES = ["docs/DESIGN.md", "docs/ARCHITECTURE.md"];
 // Developer-facing or historical documents that quote the old words on purpose.

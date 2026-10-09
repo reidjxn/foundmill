@@ -26,8 +26,8 @@ export const businessRouter = router({
   logo: businessLogoRouter,
 
   get: businessProcedure.query(async ({ ctx }) => {
-    const [holiday, blocking, departments, agents, deletion, logo] = await ctx.rls(async (tx) =>
-      Promise.all([repos.holidays.current(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.departments.list(tx, ctx.businessId), repos.agents.countByStatus(tx, ctx.businessId), deletionState({ db: tx, businessId: ctx.businessId }), repos.logos.getMeta(tx, ctx.businessId)]),
+    const [holiday, blocking, departments, agents, deletion, logo, foundations] = await ctx.rls(async (tx) =>
+      Promise.all([repos.holidays.current(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.departments.list(tx, ctx.businessId), repos.agents.countByStatus(tx, ctx.businessId), deletionState({ db: tx, businessId: ctx.businessId }), repos.logos.getMeta(tx, ctx.businessId), repos.foundations.get(tx, ctx.businessId)]),
     );
     return {
       business: ctx.business,
@@ -46,6 +46,11 @@ export const businessRouter = router({
       kit: { primary: ctx.business.kitPrimary, secondary: ctx.business.kitSecondary },
       brandColours: { primary: ctx.business.kitPrimary, secondary: ctx.business.kitSecondary },
       deletion: deletion.status === "scheduled" ? deletion : null,
+      /**
+       * Where the first-open drafting of the vision, specification and roadmap stands (`none`: this business has none).
+       * The shell calls `product.foundations.ensure` only while it is pending or drafting, not on every open.
+       */
+      foundationsStatus: foundations?.status ?? ("none" as const),
     };
   }),
 

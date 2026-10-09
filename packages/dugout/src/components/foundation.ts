@@ -1,16 +1,20 @@
 // Foundation primitives (stage 1). Heavier components live in shell/data/journey/agents.
 export * from "./foundation/Icon";
 export * from "./foundation/Spinner";
+export * from "./foundation/FitText";
 export * from "./foundation/Button";
 export * from "./foundation/IconButton";
 export * from "./foundation/Label";
 export * from "./foundation/Input";
+export * from "./foundation/MoneyInput";
 export * from "./foundation/Textarea";
 export * from "./foundation/Select";
 export * from "./foundation/Switch";
 export * from "./foundation/Checkbox";
 export * from "./foundation/RadioGroup";
 export * from "./foundation/Slider";
+export * from "./foundation/SkillSlider";
+export * from "./foundation/SegmentedControl";
 export * from "./foundation/Chip";
 export * from "./foundation/Kbd";
 export * from "./foundation/Tooltip";
@@ -18,6 +22,8 @@ export * from "./foundation/HoverCard";
 export * from "./foundation/Dialog";
 export * from "./foundation/DropdownMenu";
 export * from "./foundation/ContextMenu";
+// Menu classes (server-safe strings): triggerChevronClass turns a trigger's chevron while its menu is open.
+export { menuItemClass, menuSubChevronClass, triggerChevronClass } from "./foundation/menuStyles";
 export * from "./foundation/Popover";
 export * from "./foundation/ScrollArea";
 export * from "./foundation/Separator";

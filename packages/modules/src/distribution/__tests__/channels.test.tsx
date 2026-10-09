@@ -6,7 +6,8 @@ import { ChannelsScreen } from "../ChannelsScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
 import { BID, CHANNEL, dataResponses, emptyResponses, recommendResponse } from "./fixtures";
 
-const props = { businessId: BID, departmentId: "d1" };
+// The Strategist re-scores right after a toggle here; rescore.test.tsx covers the two-second wait.
+const props = { businessId: BID, departmentId: "d1", rescoreDelayMs: 0 };
 const onMutate = (path: string) => (path === "distribution.recommend" ? recommendResponse : {});
 
 describe("ChannelsScreen", () => {

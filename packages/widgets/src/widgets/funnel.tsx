@@ -6,7 +6,7 @@
 import { useMemo } from "react";
 import { z } from "zod";
 import { Filter } from "lucide-react";
-import { CHANNEL_KEYS, CHANNEL_META } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META } from "@foundmill/shared/constants";
 import { FunnelChart, formatNumber, type FunnelStage } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";

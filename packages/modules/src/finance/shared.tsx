@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
 import type { Money } from "@foundmill/shared";
 import { PageGrid, cn, formatMoney } from "@foundmill/dugout";
-import { useWidgetData } from "@foundmill/widgets";
+import { useWidgetData } from "@foundmill/widgets/data";
 
 /* ---------- Options (host or tests) ---------- */
 

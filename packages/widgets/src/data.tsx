@@ -32,6 +32,11 @@ export type WidgetDataSource = {
   gameMode?: GameMode;
   /** Business currency for money the API returns without one. Default "EUR". */
   currency?: string;
+  /**
+   * Whether the host's event stream is connected (a hook, called in render). While it is, the host refetches what each
+   * event changes, so a screen can poll slowly or not at all; hosts without a stream leave it out and screens poll.
+   */
+  useStreamOpen?: () => boolean;
 };
 
 const Ctx = createContext<WidgetDataSource | null>(null);
@@ -48,6 +53,14 @@ export function useWidgetData(): WidgetDataSource {
 
 export function useWidgetQuery<T = unknown>(path: string, input?: Record<string, unknown>, opts?: QueryOptions): QueryState<T> {
   return useWidgetData().useQuery<T>(path, input, opts);
+}
+
+const noStream = () => false;
+
+/** True while the host's event stream is connected (`WidgetDataSource.useStreamOpen`); false for hosts without one. */
+export function useHostStreamOpen(): boolean {
+  const useOpen = useWidgetData().useStreamOpen ?? noStream;
+  return useOpen();
 }
 
 /** Apply the business glossary to a noun (falls back to the default). */

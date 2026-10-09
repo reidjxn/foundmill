@@ -4,11 +4,16 @@
  * Continue, search), so this layout picks the current one: the business the founder last opened (the cookie the business
  * layout sets), else their newest. A founder without a business is sent to /new. Signed-out visitors never get here:
  * proxy.ts sends them to /login (these paths are not public).
+ *
+ * The business the cookie names is loaded while the profile loads (lib/shell-data.server.ts) and used only if the
+ * profile confirms it is one of the founder's; otherwise the picked business is loaded after.
  */
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { pickCurrentBusiness } from "@/lib/auth/current-business";
 import { getLastBusinessId } from "@/lib/auth/server";
+import { Prefetched } from "@/lib/hydrate.server";
+import { startBusinessShell } from "@/lib/shell-data.server";
 import { errorMessage } from "@/lib/trpc";
 import { serverApi } from "@/lib/trpc-server";
 import { LiveViewerProvider } from "@/components/live/viewer";
@@ -22,6 +27,9 @@ export default async function LiveLayout({ children }: { children: ReactNode }) 
   if (!server) redirect("/login");
   const { api } = server;
 
+  const lastBusinessId = await getLastBusinessId();
+  const likely = lastBusinessId ? startBusinessShell(server, lastBusinessId) : null;
+
   let profile;
   try {
     profile = await api.founder.profile.get.query();
@@ -32,15 +40,18 @@ export default async function LiveLayout({ children }: { children: ReactNode }) 
   const founder = profile.profile;
   if (!founder) redirect("/onboarding");
 
-  const current = pickCurrentBusiness(await getLastBusinessId(), profile.businesses);
+  const current = pickCurrentBusiness(lastBusinessId, profile.businesses);
   if (!current) redirect("/new");
+  const shell = likely && likely.businessId === current.id ? likely : startBusinessShell(server, current.id);
 
   try {
-    const [business, departments] = await Promise.all([api.business.get.query({ businessId: current.id }), api.department.list.query({ businessId: current.id, includeHidden: true })]);
+    const [business, departments] = await shell.data;
     return (
-      <BusinessShell businessId={current.id} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId }}>
-        <LiveViewerProvider value={{ userId: founder.userId, displayName: founder.displayName }}>{children}</LiveViewerProvider>
-      </BusinessShell>
+      <Prefetched queryClient={shell.prefetch()}>
+        <BusinessShell businessId={current.id} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId }}>
+          <LiveViewerProvider value={{ userId: founder.userId, displayName: founder.displayName }}>{children}</LiveViewerProvider>
+        </BusinessShell>
+      </Prefetched>
     );
   } catch (err) {
     return <UnreachablePage message={errorMessage(err, "The API did not answer.")} />;

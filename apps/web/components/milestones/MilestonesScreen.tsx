@@ -9,7 +9,7 @@ import { Copy, Flag, Gem, Rocket, Trophy } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, Timeline, TrophyCabinet, useToast, type TimelineEvent, type TrophyCard } from "@foundmill/dugout";
-import { routes } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";

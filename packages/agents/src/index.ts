@@ -12,9 +12,14 @@ export * from "./calibration";
 export * from "./club-rules";
 export * from "./archetypes";
 export * from "./foundations";
+export * from "./foundations-staged";
+export * from "./ideation";
 export * from "./registry";
 export * from "./templates";
 export * from "./skills";
+export * from "./voice";
+export * from "./nudges";
+export * from "./conversation";
 export * as prompts from "./prompts";
 export {
   type PromptTemplate,

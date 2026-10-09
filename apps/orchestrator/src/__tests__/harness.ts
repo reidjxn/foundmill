@@ -10,7 +10,7 @@ import { repos, type Db } from "@foundmill/db";
 import { MemoryRedis } from "@foundmill/events";
 import { createModelClient } from "@foundmill/models";
 import { MockSandboxProvider, RECORDINGS, type MockSandboxOptions } from "@foundmill/sandbox";
-import { createLogger } from "@foundmill/shared";
+import { createLogger } from "@foundmill/shared/logger";
 import { FakeClock } from "../clock";
 import { createOfflineComposerClient } from "../composer-client";
 import { MemoryControlBus } from "../control-bus";

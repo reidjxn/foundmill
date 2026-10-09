@@ -15,7 +15,7 @@
 import { z } from "zod";
 import { APP_NAME } from "@foundmill/config";
 import { ARCHETYPE_LABELS, type Archetype, ENTITY_MARKUP_RE, type FoundationsDoor, ROADMAP_HORIZONS, type RoadmapHorizon } from "@foundmill/shared";
-import { FoundationsOutput, IDEA_ATTRIBUTE_LABELS, type FigureLabel, type IdeaAttributeKey, type TiptapBlock, type TiptapDoc, type TiptapParagraph, type TiptapText } from "@foundmill/models/schemas";
+import { FoundationsOutput, type FoundationsRoadmapItem, type FoundationsSection, type FoundationsVision, IDEA_ATTRIBUTE_LABELS, type FigureLabel, type IdeaAttributeKey, type TiptapBlock, type TiptapDoc, type TiptapParagraph, type TiptapText } from "@foundmill/models/schemas";
 import { buildSystemPrompt } from "./club-rules";
 import { foundationsPrompt } from "./prompts/foundations";
 import { getTemplate } from "./registry";
@@ -148,22 +148,32 @@ export interface FoundationsRequest {
   maxTokens: number;
 }
 
-/** The complete request: house rules + Product lead instructions as system, the prompt and the inputs as the user turn. */
-export function buildFoundationsRequest(inputs: FoundationsInputs): FoundationsRequest {
-  const template = getTemplate(FOUNDATIONS_TEMPLATE_KEY);
-  const system = buildSystemPrompt({ businessName: inputs.businessName, appName: APP_NAME, template });
-  const archetypeLabel = inputs.archetype ? ARCHETYPE_LABELS[inputs.archetype] : "new";
-  const prompt = foundationsPrompt.render({
+/** The system prompt every foundations call starts with: the house rules and the Product lead's instructions. */
+export function foundationsSystem(inputs: Pick<FoundationsInputs, "businessName">): string {
+  return buildSystemPrompt({ businessName: inputs.businessName, appName: APP_NAME, template: getTemplate(FOUNDATIONS_TEMPLATE_KEY) });
+}
+
+/** The variables the foundations prompts share (business, archetype, door, outline). */
+export function foundationsPromptVariables(inputs: FoundationsInputs) {
+  return {
     business_name: inputs.businessName,
-    archetype_label: archetypeLabel,
+    archetype_label: inputs.archetype ? ARCHETYPE_LABELS[inputs.archetype] : "new",
     door_description: DOOR_DESCRIPTION[inputs.door],
     sections: inputs.outline.map((o) => o.section),
-  });
+  };
+}
+
+const labelOf = (a: FoundationsIdea["attributes"][number]) => (a.label && a.label !== a.key ? a.label : attributeLabel(a.key));
+
+/**
+ * The trusted inputs as a fenced JSON block: what the founder chose or typed and what the app computed. Model-written
+ * text (the idea card's title, summary and evidence, and what agents or the team already wrote in the outline) travels
+ * as untrusted data (`foundationsUntrustedBlocks`).
+ */
+export function foundationsTrustedBlock(inputs: FoundationsInputs): string {
   const idea = inputs.idea;
   const founder = inputs.founder;
-  const labelOf = (a: FoundationsIdea["attributes"][number]) => (a.label && a.label !== a.key ? a.label : attributeLabel(a.key));
-  // Trusted: what the founder chose or typed and what the app computed. Model-written text (the idea card's title,
-  // summary and evidence, and what agents or the team already wrote in the outline) travels as untrusted data below.
+  const archetypeLabel = inputs.archetype ? ARCHETYPE_LABELS[inputs.archetype] : "new";
   const trusted = {
     business: { name: inputs.businessName, archetype: inputs.archetype, archetype_label: archetypeLabel, currency: inputs.currency },
     door: inputs.door,
@@ -189,7 +199,13 @@ export function buildFoundationsRequest(inputs: FoundationsInputs): FoundationsR
         }
       : null,
   };
-  const parts = [prompt, "```json\n" + inertJson(trusted) + "\n```"];
+  return "```json\n" + inertJson(trusted) + "\n```";
+}
+
+/** Everything model-written, researched or imported, each inside its own <untrusted_content> block (BUILD §9.8). */
+export function foundationsUntrustedBlocks(inputs: FoundationsInputs): string[] {
+  const idea = inputs.idea;
+  const parts: string[] = [];
   if (idea) parts.push(untrustedBlock("idea", { idea_text: { title: idea.title, pitch: idea.pitch, evidence: idea.attributes.filter((a) => a.evidence).map((a) => ({ key: a.key, label: labelOf(a), evidence: a.evidence })) } }));
   const written = inputs.outline.filter((o) => o.currentText);
   if (written.length) parts.push(untrustedBlock("outline", { outline_text: written.map((o) => ({ section: o.section, pinned: o.pinned, text: o.currentText!.slice(0, 2000) })) }));
@@ -216,7 +232,17 @@ export function buildFoundationsRequest(inputs: FoundationsInputs): FoundationsR
       }),
     );
   }
-  return { route: FOUNDATIONS_ROUTE, system: [system], messages: [{ role: "user", content: parts.join("\n\n") }], schema: FoundationsOutput, maxTokens: FOUNDATIONS_MAX_TOKENS };
+  return parts;
+}
+
+/**
+ * The single-call request (the evals and the reference for the staged drafting in ./foundations-staged.ts): house rules
+ * + Product lead instructions as system, the prompt and the inputs as the user turn.
+ */
+export function buildFoundationsRequest(inputs: FoundationsInputs): FoundationsRequest {
+  const prompt = foundationsPrompt.render(foundationsPromptVariables(inputs));
+  const parts = [prompt, foundationsTrustedBlock(inputs), ...foundationsUntrustedBlocks(inputs)];
+  return { route: FOUNDATIONS_ROUTE, system: [foundationsSystem(inputs)], messages: [{ role: "user", content: parts.join("\n\n") }], schema: FoundationsOutput, maxTokens: FOUNDATIONS_MAX_TOKENS };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -502,7 +528,8 @@ export interface FoundationsDraft {
   };
 }
 
-const normKey = (s: string) =>
+/** Comparison key for section names and roadmap titles (case, punctuation and spacing ignored). */
+export const normKey = (s: string) =>
   s
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
@@ -521,19 +548,20 @@ export function knownNumbers(inputs: FoundationsInputs): Set<string> {
 
 const MAX_ROADMAP_ITEMS = 40;
 
-/** Turn a validated model answer into what the drafting writes. Pure and deterministic. */
-export function finaliseFoundations(output: z.output<typeof FoundationsOutput>, inputs: FoundationsInputs): FoundationsDraft {
-  const known = knownNumbers(inputs);
-  let labelledFigures = 0;
-  // Every model string is made plain text first (M1), then figures are labelled.
+/** Model text made plain (M1), then its figures labelled; counts what it labelled. */
+function labeller(known: ReadonlySet<string>) {
+  let count = 0;
   const label = (text: string) => {
     const r = labelFigures(plainLine(text), known);
-    if (r.labelled) labelledFigures++;
+    if (r.labelled) count++;
     return r.text;
   };
+  return { label, labelled: () => count };
+}
 
-  // Vision.
-  const v = output.vision;
+/** The model's vision as stored: plain text, figures labelled, the north-star target carrying its label. */
+export function finaliseVision(v: FoundationsVision, known: ReadonlySet<string>): { vision: FoundationsVisionRecord; labelled: number } {
+  const { label, labelled } = labeller(known);
   const target = plainLine(v.north_star.target);
   const vision: FoundationsVisionRecord = {
     statement: label(v.statement),
@@ -543,27 +571,27 @@ export function finaliseFoundations(output: z.output<typeof FoundationsOutput>, 
     principles: v.principles.map((p) => ({ title: plainLine(p.title), detail: label(p.detail) })),
     northStar: { metric: plainLine(v.north_star.metric), definition: plainLine(v.north_star.definition), target: LABEL_RE.test(target) || !/\d/.test(target) ? target : `${target.replace(/[.\s]+$/, "")} (${v.north_star.label})`, label: v.north_star.label },
   };
-  if (vision.northStar.target !== target) labelledFigures++;
+  return { vision, labelled: labelled() + (vision.northStar.target !== target ? 1 : 0) };
+}
 
-  // Sections: one per outline entry, in outline order.
-  const outlineKeys = new Set(inputs.outline.map((o) => normKey(o.section)));
-  const bySection = new Map<string, (typeof output.sections)[number]>();
-  for (const s of output.sections) if (!bySection.has(normKey(s.section))) bySection.set(normKey(s.section), s);
-  const missingSections: string[] = [];
-  const sections: FoundationsSectionDraft[] = inputs.outline.map((o) => {
-    const found = bySection.get(normKey(o.section));
-    if (!found) {
-      missingSections.push(o.section);
-      return { section: o.section, blockId: o.blockId, content: { type: "doc", content: [paragraph(`Not drafted yet: the inputs did not say enough about ${o.section.toLowerCase()}. It is listed in the open questions.`)] }, sourceRefs: [], drafted: false };
-    }
-    const fin = finaliseDoc(found.content, known, o.section);
-    labelledFigures += fin.labelled;
-    return { section: o.section, blockId: o.blockId, content: fin.doc, sourceRefs: [...new Set(found.source_refs.map((r) => plainLine(r).slice(0, 300)).filter(Boolean))].slice(0, 16), drafted: true };
-  });
-  const ignoredSections = output.sections.map((s) => s.section).filter((s) => !outlineKeys.has(normKey(s))).map((s) => plainLine(s).slice(0, 200));
+/** One model section as stored in its block: a normalised document opening with a heading, plain source references. */
+export function finaliseSection(found: Pick<FoundationsSection, "content" | "source_refs">, section: string, known: ReadonlySet<string>): { content: TiptapDoc; sourceRefs: string[]; labelled: number } {
+  const fin = finaliseDoc(found.content, known, section);
+  return { content: fin.doc, sourceRefs: [...new Set(found.source_refs.map((r) => plainLine(r).slice(0, 300)).filter(Boolean))].slice(0, 16), labelled: fin.labelled };
+}
 
-  // Roadmap: dedupe, link sections to blocks, keep the model's order per horizon, make sure every import seed is on it.
-  // Seeds come from imported content (untrusted), so they are made plain like the model's text.
+/** The placeholder written for an outline section the drafting left out (the block stays empty; it becomes an open question). */
+export function missingSectionDraft(o: Pick<FoundationsOutlineEntry, "section" | "blockId">): FoundationsSectionDraft {
+  return { section: o.section, blockId: o.blockId, content: { type: "doc", content: [paragraph(`Not drafted yet: the inputs did not say enough about ${o.section.toLowerCase()}. It is listed in the open questions.`)] }, sourceRefs: [], drafted: false };
+}
+
+/**
+ * The roadmap as written: deduped, sections linked to their blocks, the model's order kept per horizon, every import
+ * seed on it (seeds come from imported content, untrusted, so they are made plain like the model's text), at most 40
+ * items and at least one in Now.
+ */
+export function finaliseRoadmap(raw: readonly FoundationsRoadmapItem[], inputs: FoundationsInputs, known: ReadonlySet<string> = knownNumbers(inputs)): { roadmap: FoundationsRoadmapDraft[]; addedSeeds: string[]; labelled: number } {
+  const { label, labelled } = labeller(known);
   const blockFor = new Map(inputs.outline.filter((o) => o.blockId).map((o) => [normKey(o.section), o.blockId!] as const));
   const featuresBlock = inputs.outline.find((o) => /feature/i.test(o.section))?.blockId ?? null;
   const seeds = (importReportOf(inputs)?.roadmapSeeds ?? []).map((s) => ({ title: plainLine(s.title), source: plainLine(s.source) })).filter((s) => s.title);
@@ -573,7 +601,7 @@ export function finaliseFoundations(output: z.output<typeof FoundationsOutput>, 
     const t = normKey(title);
     return seeds.find((s) => (ref && s.source && normKey(ref) === normKey(s.source)) || normKey(s.title) === t || (t.length > 6 && normKey(s.title).includes(t)) || (normKey(s.title).length > 6 && t.includes(normKey(s.title))));
   };
-  for (const r of output.roadmap) {
+  for (const r of raw) {
     const title = plainLine(r.title);
     const key = normKey(title);
     if (!key || seen.has(key)) continue;
@@ -605,10 +633,41 @@ export function finaliseFoundations(output: z.output<typeof FoundationsOutput>, 
   const capped = items.slice(0, MAX_ROADMAP_ITEMS);
   if (capped.length && !capped.some((i) => i.horizon === "now")) capped[0] = { ...capped[0]!, horizon: "now" };
   const counters: Record<RoadmapHorizon, number> = { now: 0, next: 0, later: 0 };
-  const roadmap = capped.map((i) => ({ ...i, position: counters[i.horizon]++ }));
+  return { roadmap: capped.map((i) => ({ ...i, position: counters[i.horizon]++ })), addedSeeds, labelled: labelled() };
+}
 
-  const openQuestions = [...output.open_questions.map((q) => plainLine(q)).filter(Boolean), ...missingSections.map((s) => `What should the ${s.toLowerCase()} section say?`)].slice(0, 10);
-  return { vision, sections, roadmap, openQuestions, notes: { missingSections, ignoredSections, addedSeeds, labelledFigures } };
+/** The founder's open questions: the model's, then one per section left out; at most ten, plain text. */
+export function finaliseOpenQuestions(raw: readonly string[], missingSections: readonly string[]): string[] {
+  return [...raw.map((q) => plainLine(q)).filter(Boolean), ...missingSections.map((s) => `What should the ${s.toLowerCase()} section say?`)].slice(0, 10);
+}
+
+/** Turn a validated model answer into what the drafting writes. Pure and deterministic. */
+export function finaliseFoundations(output: z.output<typeof FoundationsOutput>, inputs: FoundationsInputs): FoundationsDraft {
+  const known = knownNumbers(inputs);
+  const v = finaliseVision(output.vision, known);
+  let labelledFigures = v.labelled;
+
+  // Sections: one per outline entry, in outline order.
+  const outlineKeys = new Set(inputs.outline.map((o) => normKey(o.section)));
+  const bySection = new Map<string, (typeof output.sections)[number]>();
+  for (const s of output.sections) if (!bySection.has(normKey(s.section))) bySection.set(normKey(s.section), s);
+  const missingSections: string[] = [];
+  const sections: FoundationsSectionDraft[] = inputs.outline.map((o) => {
+    const found = bySection.get(normKey(o.section));
+    if (!found) {
+      missingSections.push(o.section);
+      return missingSectionDraft(o);
+    }
+    const fin = finaliseSection(found, o.section, known);
+    labelledFigures += fin.labelled;
+    return { section: o.section, blockId: o.blockId, content: fin.content, sourceRefs: fin.sourceRefs, drafted: true };
+  });
+  const ignoredSections = output.sections.map((s) => s.section).filter((s) => !outlineKeys.has(normKey(s))).map((s) => plainLine(s).slice(0, 200));
+
+  const r = finaliseRoadmap(output.roadmap, inputs, known);
+  labelledFigures += r.labelled;
+  const openQuestions = finaliseOpenQuestions(output.open_questions, missingSections);
+  return { vision: v.vision, sections, roadmap: r.roadmap, openQuestions, notes: { missingSections, ignoredSections, addedSeeds: r.addedSeeds, labelledFigures } };
 }
 
 function roadmapDescription(description: string, criteria: string[], sourceRef: string | null): string {

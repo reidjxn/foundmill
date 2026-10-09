@@ -4,8 +4,8 @@ import { act, fireEvent, screen, within } from "@testing-library/react";
 import { RoadmapScreen } from "../RoadmapScreen";
 import { SpecificationScreen } from "../SpecificationScreen";
 import { VisionScreen } from "../VisionScreen";
-import { FOUNDATIONS_INTERRUPTED, FOUNDATIONS_POLL_MS, foundationsBasis, foundationsSummary } from "../foundations";
-import type { FoundationsResponse } from "../types";
+import { FOUNDATIONS_INTERRUPTED, FOUNDATIONS_POLL_MS, FOUNDATIONS_STREAM_POLL_MS, foundationsBasis, foundationsProgressLine, foundationsSummary } from "../foundations";
+import type { FoundationsProgress, FoundationsResponse } from "../types";
 import { createFakeSource, renderScreen } from "./fake-source";
 import { BID, dataResponses } from "./fixtures";
 
@@ -124,3 +124,115 @@ describe("foundations on the Product tabs", () => {
     expect(foundationsSummary({ summary: {} })).toBeNull();
   });
 });
+
+/* ---------- The document writing itself (audit P3) ---------- */
+
+const pdoc = (title: string, text: string) => ({ type: "doc", content: [{ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: title }] }, { type: "paragraph", content: [{ type: "text", text }] }] });
+const SECTIONS = ["Problem", "Customers", "Value proposition", "Features", "Pricing"];
+function progress(done: number, roadmap: { written: number; done?: boolean } = { written: 0 }): FoundationsProgress {
+  const planned = [
+    { title: "Guided first run", horizon: "now" as const },
+    { title: "The core workflow", horizon: "now" as const },
+    { title: "Pricing experiment", horizon: "later" as const },
+  ];
+  return {
+    stage: done < SECTIONS.length ? "specification" : roadmap.done ? "finishing" : "roadmap",
+    author: { agentId: "a0000000-0000-4000-8000-000000000001", name: "Mira", role: "Product lead" },
+    sections: SECTIONS.map((section, i) => ({ section, title: i < done ? `About ${section.toLowerCase()}` : null, thesis: `Why ${section.toLowerCase()} matters.`, done: i < done, content: i < done ? pdoc(`About ${section.toLowerCase()}`, `Drafted text for ${section}.`) : null })),
+    sectionsDone: done,
+    sectionsTotal: SECTIONS.length,
+    roadmap: planned.map((r, i) => ({ ...r, written: i < roadmap.written })),
+    roadmapWritten: roadmap.written,
+    roadmapDone: roadmap.done ?? false,
+  };
+}
+const drafting = (p: FoundationsProgress | null, vision = ready.vision): FoundationsResponse => ({ ...base, vision, progress: p });
+
+describe("foundations while they are drafting (audit P3)", () => {
+  it("Vision: the vision shows as soon as it is written; the panel says who writes what and how far it is", () => {
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "product.foundations.get": drafting(progress(0)), "department.list": [] } });
+    renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);
+    const status = screen.getByTestId("foundations-status");
+    expect(status.getAttribute("data-foundations-state")).toBe("drafting");
+    expect(status.getAttribute("data-foundations-stage")).toBe("specification");
+    expect(within(status).getByRole("status").textContent).toBe("Mira, Product lead, is writing the specification.");
+    expect(within(status).getByRole("link", { name: "Mira" })).toBeTruthy();
+    expect(within(status).getByText("0 of 5 sections · 0 of 3 roadmap items")).toBeTruthy();
+    // The whole vision is on the tab already, while the sections are being written.
+    expect(within(screen.getByTestId("vision-record")).getByText(ready.vision!.statement)).toBeTruthy();
+    const list = within(status).getByRole("list", { name: "Specification sections" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(5);
+    expect(within(list).getByText("Why problem matters.")).toBeTruthy();
+
+    // Sections appear as they are stored, and the narrative reads them while its blocks are still empty.
+    act(() => fake.setResponse("product.foundations.get", drafting(progress(2))));
+    expect(within(status).getByText("2 of 5 sections · 0 of 3 roadmap items")).toBeTruthy();
+    expect(status.querySelectorAll('[data-done="true"]')).toHaveLength(2);
+    expect(within(list).getByText("About problem")).toBeTruthy();
+  });
+
+  it("Vision: a narrative block still empty reads the drafted section, marked Drafting", () => {
+    const spec = dataResponses["product.spec.get"] as { blocks: { section: string; content: unknown }[] };
+    const empty = { ...spec, blocks: spec.blocks.map((b) => (b.section === "Problem" ? { ...b, content: { type: "doc", content: [] } } : b)) };
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "product.spec.get": empty, "product.foundations.get": drafting(progress(1)), "department.list": [] } });
+    const { container } = renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);
+    const narrative = container.querySelector("[data-vision-narrative]")!;
+    const block = narrative.querySelector('[data-drafting="true"]')!;
+    expect(block).toBeTruthy();
+    expect(block.textContent).toContain("Drafted text for Problem.");
+    expect(within(block as HTMLElement).getByText("Drafting")).toBeTruthy();
+  });
+
+  it("Specification: each written section's text appears under its title; Roadmap: the items as they arrive", () => {
+    const spec = createFakeSource({ businessId: BID, responses: { ...dataResponses, "product.foundations.get": drafting(progress(3)) } });
+    renderScreen(spec, <SpecificationScreen businessId={BID} departmentId="d1" />);
+    const status = screen.getByTestId("foundations-status");
+    expect(within(status).getByText("Drafted text for Value proposition.")).toBeTruthy();
+    expect(within(status).queryByText("Drafted text for Features.")).toBeNull();
+    // The vision statement is the Vision tab's and Home's, not the Specification tab's.
+    expect(status.querySelector("[data-vision-statement]")).toBeNull();
+  });
+
+  it("Roadmap: written items first, planned titles until they are written; the line counts them", () => {
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "product.foundations.get": drafting(progress(5, { written: 2 })) } });
+    renderScreen(fake, <RoadmapScreen businessId={BID} departmentId="d1" />);
+    const status = screen.getByTestId("foundations-status");
+    expect(status.getAttribute("data-foundations-stage")).toBe("roadmap");
+    expect(within(status).getByRole("status").textContent).toBe("Mira, Product lead, is writing the roadmap.");
+    const items = within(status).getByRole("list", { name: "Roadmap items" });
+    expect(items.querySelectorAll('[data-roadmap-draft="written"]')).toHaveLength(2);
+    expect(items.querySelectorAll('[data-roadmap-draft="planned"]')).toHaveLength(1);
+    expect(within(items).getByText("Pricing experiment")).toBeTruthy();
+    expect(within(items).getAllByText("Now")).toHaveLength(2);
+    expect(within(status).getByText("5 of 5 sections · 2 of 3 roadmap items")).toBeTruthy();
+  });
+
+  it("before anything is written it is the plain drafting status; once ready the panel goes", () => {
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "product.foundations.get": drafting(null, null), "department.list": [] } });
+    renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);
+    expect(within(screen.getByTestId("foundations-status")).getByText("Drafting your vision, specification and roadmap…")).toBeTruthy();
+    act(() => fake.setResponse("product.foundations.get", drafting(progress(1))));
+    expect(screen.getByTestId("foundations-status").getAttribute("data-foundations-stage")).toBe("specification");
+    act(() => fake.setResponse("product.foundations.get", ready));
+    expect(screen.queryByTestId("foundations-status")).toBeNull();
+    expect(screen.getByTestId("vision-record")).toBeTruthy();
+  });
+
+  it("polls every second without a stream connection, and only as a safety net with one", () => {
+    const off = createFakeSource({ businessId: BID, responses: { ...dataResponses, "product.foundations.get": drafting(progress(1)) }, streamOpen: false });
+    const a = renderScreen(off, <RoadmapScreen businessId={BID} departmentId="d1" />);
+    expect(off.intervals["product.foundations.get"]).toBe(FOUNDATIONS_POLL_MS);
+    expect(FOUNDATIONS_POLL_MS).toBe(1_000);
+    a.unmount();
+    const on = createFakeSource({ businessId: BID, responses: { ...dataResponses, "product.foundations.get": drafting(progress(1)) }, streamOpen: true });
+    renderScreen(on, <RoadmapScreen businessId={BID} departmentId="d1" />);
+    expect(on.intervals["product.foundations.get"]).toBe(FOUNDATIONS_STREAM_POLL_MS);
+  });
+
+  it("the progress line", () => {
+    expect(foundationsProgressLine(progress(4))).toBe("4 of 5 sections · 0 of 3 roadmap items");
+    expect(foundationsProgressLine(progress(5, { written: 7, done: true }))).toBe("5 of 5 sections · 7 roadmap items");
+    expect(foundationsProgressLine({ ...progress(1), sectionsTotal: 1, sectionsDone: 1, roadmap: [] })).toBe("1 of 1 section");
+  });
+});
+

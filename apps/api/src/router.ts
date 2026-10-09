@@ -21,7 +21,8 @@ import { legalRouter } from "./routers/legal";
 import { liveRouter } from "./routers/live";
 import { productRouter } from "./routers/product";
 import { teamRouter } from "./routers/team";
-import { createCallerFactory, publicProcedure, router } from "./trpc";
+import { conversationRouter } from "./routers/conversation";
+import { createCallerFactory, mergeRouters, publicProcedure, router } from "./trpc";
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({ ok: true })),
@@ -41,7 +42,8 @@ export const appRouter = router({
   distribution: distributionRouter,
   finance: financeRouter,
   team: teamRouter,
-  agent: agentRouter,
+  // agent.conversation.* (the agent's desk) sits beside agent.profile/training/model/autonomy/negotiation.
+  agent: mergeRouters(agentRouter, router({ conversation: conversationRouter })),
   legal: legalRouter,
   crm: crmRouter,
   integrations: integrationsRouter,

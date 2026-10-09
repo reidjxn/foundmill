@@ -13,7 +13,8 @@
  * `/v1/call` and `/mcp/:connector` both run this function; nothing reaches a vendor any other way.
  */
 import { createHash } from "node:crypto";
-import { AppError, BUSINESS_MODES, NotFoundError, type BusinessMode, type Vault } from "@foundmill/shared";
+import { AppError, BUSINESS_MODES, NotFoundError, type BusinessMode } from "@foundmill/shared";
+import type { Vault } from "@foundmill/shared/crypto";
 import { codeRepositoryOf, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
 import { evaluate, getPolicyEngine, type AgentAutonomy, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
 import {

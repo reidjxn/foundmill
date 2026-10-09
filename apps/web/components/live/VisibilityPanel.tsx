@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Eye } from "lucide-react";
 import { Panel, RadioGroup, RadioOption, useToast } from "@foundmill/dugout";
-import { VISIBILITY, type Visibility } from "@foundmill/shared";
+import { VISIBILITY, type Visibility } from "@foundmill/shared/constants";
 import { VISIBILITY_OPTIONS, visibilityLabel } from "@/lib/live";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";

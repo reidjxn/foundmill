@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { FOUNDATIONS_CASES } from "../foundations/cases";
-import { FOUNDATIONS_PASS_THRESHOLD, runFoundationsCase } from "../foundations/run";
+import { FOUNDATIONS_PASS_THRESHOLD, runFoundationsCase, runFoundationsStagedCase } from "../foundations/run";
 import { createEvalClient, isLiveEvalEnabled, runAll } from "../harness";
 
 const live = isLiveEvalEnabled();
@@ -29,4 +29,20 @@ describe.skipIf(!live)("foundations drafting (live)", () => {
     },
     20 * 60 * 1000,
   );
+
+  it(
+    "the staged drafting the product runs (plan, parallel sections, roadmap) meets the same bar",
+    async () => {
+      const results = await runAll(cases, 2, (c) => runFoundationsStagedCase(c, { client: client! }));
+      for (const r of results) {
+        if (!r.passed) console.warn(`[eval] staged ${r.caseId} score ${r.score.toFixed(2)} < ${FOUNDATIONS_PASS_THRESHOLD}${r.error ? ` (${r.error})` : ""}\n${r.problems.join("\n")}\n${JSON.stringify(r.grader?.lines ?? [], null, 2)}`);
+      }
+      const cost = results.reduce((s, r) => s + r.costMinor, 0);
+      const slowest = Math.max(...results.map((r) => r.durationMs));
+      console.warn(`[eval] foundations staged: ${results.filter((r) => r.passed).length}/${results.length} passed, cost ${cost} minor (Estimate), slowest ${slowest} ms`);
+      expect(results.filter((r) => !r.passed).map((r) => r.caseId)).toEqual([]);
+    },
+    20 * 60 * 1000,
+  );
 });
+

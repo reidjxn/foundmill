@@ -118,17 +118,3 @@ export function totalSteps(job: ImportJob): number {
 export function doneSteps(job: ImportJob): number {
   return job.sources.reduce((n, s) => n + s.steps.filter((st) => st.status === "done").length, 0);
 }
-
-/** The brief the Ideation agent gets so the imported business becomes a concept card the Commit screen can take. */
-export function reportToPrompt(report: ScoutingReport): string {
-  const lines = [
-    `Existing business import: ${report.suggestedName}.`,
-    `What exists: ${report.whatExists.join("; ")}.`,
-    `Strengths: ${report.strengths.join("; ")}.`,
-    `Weaknesses: ${report.weaknesses.join("; ")}.`,
-    `Missing: ${report.whatIsMissing.join("; ")}.`,
-    report.roadmapSeeds.length ? `Roadmap seeds: ${report.roadmapSeeds.map((s) => s.title).join("; ")}.` : "",
-    "Produce one concept card that describes this business as it is, not a new idea.",
-  ];
-  return lines.filter(Boolean).join("\n").slice(0, 3900);
-}

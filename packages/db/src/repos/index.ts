@@ -38,6 +38,7 @@ import { tasksRepo } from "./tasks";
 import { trainingRepo } from "./training";
 import { usageRepo } from "./usage";
 import { workspacesRepo } from "./workspaces";
+import { conversationsRepo } from "./conversations";
 
 export const repos = {
   businesses: businessesRepo,
@@ -74,6 +75,7 @@ export const repos = {
   workspaces: workspacesRepo,
   logos: logosRepo,
   foundations: foundationsRepo,
+  conversations: conversationsRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -115,3 +117,4 @@ export * from "./training";
 export * from "./usage";
 export * from "./workspaces";
 export * from "./logos";
+export * from "./conversations";

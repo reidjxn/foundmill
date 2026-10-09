@@ -4,16 +4,26 @@ import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { Icon } from "./Icon";
+import { menuContentClass, menuItemClass, menuLabelClass, menuSeparatorClass } from "./menuStyles";
 
 export const Select = SelectPrimitive.Root;
 export const SelectGroup = SelectPrimitive.Group;
 export const SelectValue = SelectPrimitive.Value;
 
 export interface SelectTriggerProps extends ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger> {
-  controlSize?: "sm" | "md";
+  /** Height: sm 28, md 32 (default), lg 36, xl 46 (forms: a code chip and the name, Inter 500 13.5). */
+  controlSize?: "sm" | "md" | "lg" | "xl";
   invalid?: boolean;
 }
 
+const TRIGGER_SIZE: Record<NonNullable<SelectTriggerProps["controlSize"]>, string> = {
+  sm: "h-control-sm pl-2.5 pr-2",
+  md: "h-control-md pl-2.5 pr-2",
+  lg: "h-field pl-3 pr-2.5",
+  xl: "h-field-lg rounded-track pl-3 pr-3 text-chat font-medium",
+};
+
+/** The trigger is a field (the well, DESIGN §8); its chevron turns over while the list is open. */
 export const SelectTrigger = forwardRef<ElementRef<typeof SelectPrimitive.Trigger>, SelectTriggerProps>(function SelectTrigger(
   { className, children, controlSize = "md", invalid, ...props },
   ref,
@@ -22,19 +32,19 @@ export const SelectTrigger = forwardRef<ElementRef<typeof SelectPrimitive.Trigge
     <SelectPrimitive.Trigger
       ref={ref}
       aria-invalid={invalid || undefined}
+      data-size={controlSize}
       className={cn(
-        "flex w-full items-center justify-between gap-2 rounded-panel border border-subtle bg-panel-alt pl-2 pr-1.5 text-body text-primary",
-        "transition-colors duration-micro ease-dugout hover:border-secondary/50 focus-visible:border-link focus-visible:outline-none",
-        "data-[placeholder]:text-secondary disabled:cursor-not-allowed disabled:opacity-50",
-        "aria-invalid:border-status-bad [&>span]:truncate",
-        controlSize === "sm" ? "h-control-sm" : "h-control-md",
+        "group field-well flex w-full min-w-0 items-center justify-between gap-2 rounded-sm text-body text-primary",
+        "focus-visible:outline-none data-[placeholder]:text-tertiary disabled:cursor-not-allowed disabled:opacity-50",
+        "[&>span]:min-w-0 [&>span]:truncate",
+        TRIGGER_SIZE[controlSize],
         className,
       )}
       {...props}
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <Icon icon={ChevronDown} size="inline" className="text-secondary" />
+        <Icon icon={ChevronDown} size="inline" className="text-tertiary transition-transform duration-overlay ease-out group-data-[state=open]:rotate-180" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   );
@@ -49,18 +59,18 @@ export const SelectContent = forwardRef<ElementRef<typeof SelectPrimitive.Conten
           position={position}
           sideOffset={sideOffset}
           className={cn(
-            "surface-overlay z-50 max-h-(--radix-select-content-available-height) min-w-32 overflow-hidden p-1",
+            menuContentClass,
+            "max-h-(--radix-select-content-available-height) min-w-32",
             position === "popper" && "w-full min-w-(--radix-select-trigger-width)",
-            "data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out",
             className,
           )}
           {...props}
         >
-          <SelectPrimitive.ScrollUpButton className="flex h-5 items-center justify-center text-secondary">
+          <SelectPrimitive.ScrollUpButton className="flex h-badge items-center justify-center text-tertiary">
             <Icon icon={ChevronUp} size="inline" />
           </SelectPrimitive.ScrollUpButton>
           <SelectPrimitive.Viewport className="p-0">{children}</SelectPrimitive.Viewport>
-          <SelectPrimitive.ScrollDownButton className="flex h-5 items-center justify-center text-secondary">
+          <SelectPrimitive.ScrollDownButton className="flex h-badge items-center justify-center text-tertiary">
             <Icon icon={ChevronDown} size="inline" />
           </SelectPrimitive.ScrollDownButton>
         </SelectPrimitive.Content>
@@ -71,7 +81,7 @@ export const SelectContent = forwardRef<ElementRef<typeof SelectPrimitive.Conten
 
 export const SelectLabel = forwardRef<ElementRef<typeof SelectPrimitive.Label>, ComponentPropsWithoutRef<typeof SelectPrimitive.Label>>(
   function SelectLabel({ className, ...props }, ref) {
-    return <SelectPrimitive.Label ref={ref} className={cn("t-label px-2 pb-1 pt-1.5", className)} {...props} />;
+    return <SelectPrimitive.Label ref={ref} className={cn(menuLabelClass, className)} {...props} />;
   },
 );
 
@@ -80,15 +90,11 @@ export const SelectItem = forwardRef<ElementRef<typeof SelectPrimitive.Item>, Co
     return (
       <SelectPrimitive.Item
         ref={ref}
-        className={cn(
-          "relative flex h-row-compact w-full cursor-default select-none items-center rounded-chip pl-2 pr-7 text-body text-primary outline-none",
-          "data-highlighted:bg-white/4 data-[state=checked]:text-primary data-disabled:pointer-events-none data-disabled:opacity-50",
-          className,
-        )}
+        className={cn(menuItemClass, "w-full pr-8 data-[state=checked]:font-medium", className)}
         {...props}
       >
         <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
-        <SelectPrimitive.ItemIndicator className="absolute right-2 inline-flex text-link">
+        <SelectPrimitive.ItemIndicator className="absolute right-2.5 inline-flex text-accent">
           <Icon icon={Check} size="inline" />
         </SelectPrimitive.ItemIndicator>
       </SelectPrimitive.Item>
@@ -98,16 +104,37 @@ export const SelectItem = forwardRef<ElementRef<typeof SelectPrimitive.Item>, Co
 
 export const SelectSeparator = forwardRef<ElementRef<typeof SelectPrimitive.Separator>, ComponentPropsWithoutRef<typeof SelectPrimitive.Separator>>(
   function SelectSeparator({ className, ...props }, ref) {
-    return <SelectPrimitive.Separator ref={ref} className={cn("-mx-1 my-1 h-px bg-subtle", className)} {...props} />;
+    return <SelectPrimitive.Separator ref={ref} className={cn(menuSeparatorClass, className)} {...props} />;
   },
 );
 
 export interface SelectOption {
   value: string;
   label: ReactNode;
+  /** A short code shown on a chip before the label, in the list and in the field ("GBP" · Pound sterling). */
+  code?: string;
   disabled?: boolean;
   /** Text used for typeahead when label is not a string. */
   textValue?: string;
+}
+
+/** An ISO code or short id on a plate, before an option's name (the currency select). */
+export function SelectCode({ children, className }: { children: ReactNode; className?: string }) {
+  return <span className={cn("code-chip", className)}>{children}</span>;
+}
+
+/**
+ * An option's content: the code chip (if any) and the label, inline, so a squeezed trigger ends the name with an
+ * ellipsis instead of cutting it.
+ */
+export function SelectOptionLabel({ code, children }: { code?: string; children: ReactNode }) {
+  if (!code) return <>{children}</>;
+  return (
+    <>
+      <SelectCode className="mr-2 align-middle">{code}</SelectCode>
+      {children}
+    </>
+  );
 }
 
 export interface SimpleSelectProps {
@@ -118,7 +145,7 @@ export interface SimpleSelectProps {
   placeholder?: string;
   disabled?: boolean;
   invalid?: boolean;
-  controlSize?: "sm" | "md";
+  controlSize?: SelectTriggerProps["controlSize"];
   id?: string;
   name?: string;
   required?: boolean;
@@ -153,8 +180,8 @@ export function SimpleSelect({
       </SelectTrigger>
       <SelectContent className={contentClassName}>
         {options.map((o) => (
-          <SelectItem key={o.value} value={o.value} disabled={o.disabled} textValue={o.textValue}>
-            {o.label}
+          <SelectItem key={o.value} value={o.value} disabled={o.disabled} textValue={o.textValue ?? (o.code && typeof o.label === "string" ? `${o.code} ${o.label}` : undefined)}>
+            <SelectOptionLabel code={o.code}>{o.label}</SelectOptionLabel>
           </SelectItem>
         ))}
       </SelectContent>

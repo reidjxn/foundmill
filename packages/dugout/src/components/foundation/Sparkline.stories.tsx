@@ -8,7 +8,7 @@ const series = Array.from({ length: 24 }, (_, i) => 40 + i * 1.5 + rng.range(-8,
 const meta = {
   title: "Foundation/Sparkline",
   component: Sparkline,
-  args: { data: series, className: "text-kit-primary" },
+  args: { data: series, className: "text-kit-lift" },
 } satisfies Meta<typeof Sparkline>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -21,11 +21,13 @@ export const InATile: Story = {
   render: () => (
     <div className="surface-panel flex w-56 items-end justify-between p-3">
       <div className="flex flex-col">
-        <span className="t-label">Revenue</span>
-        <span className="t-display-lg tabular-nums">€12,480</span>
+        <span className="t-data">Revenue</span>
+        <span className="t-display-lg">
+          <span className="t-currency">€</span>12,480
+        </span>
         <span className="text-small text-status-good">▲ 8.2%</span>
       </div>
-      <Sparkline data={series} fill dot className="text-kit-primary" width={48} height={16} label="Revenue, 24 weeks, rising" />
+      <Sparkline data={series} fill dot className="text-kit-lift" width={48} height={16} label="Revenue, 24 weeks, rising" />
     </div>
   ),
 };

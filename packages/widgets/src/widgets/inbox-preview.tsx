@@ -55,7 +55,7 @@ function InboxPreviewWidget({ settings }: WidgetProps<InboxPreviewSettings>) {
       flush
       empty={inbox.data && items.length === 0 ? { icon: Inbox, text: "Notes from your team land here after each cycle. Press Continue to start one.", action: { label: "Open inbox", onClick: () => navigate(routes.inbox(businessId)) } } : null}
       actions={
-        <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={() => navigate(routes.inbox(businessId))}>
+        <Button size="sm" variant="ghost" className="px-1.5" onClick={() => navigate(routes.inbox(businessId))}>
           Open
         </Button>
       }

@@ -30,7 +30,9 @@ import {
   type TileGridItem,
 } from "@foundmill/dugout";
 import type { PlanTier } from "@foundmill/shared";
-import { departmentForModule, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { OpenInClaudeCodeDialog, ReassignDialog, StopDialog } from "./dialogs";
 import { useDevScreenOptions } from "./options";

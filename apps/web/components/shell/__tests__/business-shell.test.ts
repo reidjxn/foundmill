@@ -1,6 +1,8 @@
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 import { EMPTY_CYCLE, cycleFromSnapshot } from "@/lib/cycle";
-import { cycleReducer, describeContinue } from "../BusinessShell";
+import { trpcPathPrefix, trpcQueryKey } from "@/lib/trpc";
+import { INVALIDATE_ON_EVENT, cycleReducer, describeContinue } from "../BusinessShell";
 
 type ContinueResult = Parameters<typeof describeContinue>[0];
 
@@ -47,3 +49,17 @@ describe("shell cycle reducer", () => {
     expect(done).toMatchObject({ running: false, paused: false, completedCount: 4 });
   });
 });
+
+describe("foundations progress on the stream (audit P3)", () => {
+  it("foundations.progressed refetches the foundations query only, which the dotted prefix reaches", async () => {
+    expect(INVALIDATE_ON_EVENT["foundations.progressed"]).toEqual(["product.foundations"]);
+    const qc = new QueryClient();
+    const BID = "00000000-0000-4000-8000-000000000001";
+    qc.setQueryData(trpcQueryKey("product.foundations.get", { businessId: BID }) as unknown[], { status: "drafting" });
+    qc.setQueryData(trpcQueryKey("product.spec.get", { businessId: BID }) as unknown[], { blocks: [] });
+    await qc.invalidateQueries({ queryKey: trpcPathPrefix(INVALIDATE_ON_EVENT["foundations.progressed"]![0]!) as unknown[] });
+    expect(qc.getQueryState(trpcQueryKey("product.foundations.get", { businessId: BID }) as unknown[])?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(trpcQueryKey("product.spec.get", { businessId: BID }) as unknown[])?.isInvalidated).toBe(false);
+  });
+});
+

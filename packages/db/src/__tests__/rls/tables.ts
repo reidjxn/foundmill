@@ -140,6 +140,9 @@ export const TENANT_TABLES: TenantTableSpec[] = [
     if (!eventId) throw new Error("outbox sample: out of fixture events");
     return { eventId };
   }),
+  // 0020 founder ↔ agent conversations (the Inbox's access model: members write, viewers read)
+  spec("agent_threads", s.agentThreads, "member", (f) => ({ agentId: f.agentId, subjectKind: "task", subjectId: crypto.randomUUID() })),
+  spec("agent_messages", s.agentMessages, "member", (f) => ({ threadId: f.agentThreadId, authorKind: "agent", agentId: f.agentId, bubbles: [uniq("bubble")] })),
 ];
 
 /** Keeps the catalogue honest: every spec must name the table its Drizzle object points at. */

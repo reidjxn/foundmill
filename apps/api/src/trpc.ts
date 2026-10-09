@@ -78,6 +78,9 @@ const CODE_BY_APP_CODE: Record<string, TRPC_ERROR_CODE_KEY> = {
   invalid_record: "INTERNAL_SERVER_ERROR",
   decrypt_failed: "INTERNAL_SERVER_ERROR",
   kms_failed: "SERVICE_UNAVAILABLE",
+  // The Ideation agent's plain-language failures (services/ideation.ts): shown to the founder, never hidden as internal.
+  ideation_too_long: "BAD_GATEWAY",
+  ideation_incomplete: "BAD_GATEWAY",
 };
 
 const codeForStatus = (status: number): TRPC_ERROR_CODE_KEY => {
@@ -200,11 +203,49 @@ export const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
   return next({ ctx: { ...ctx, userId: ctx.userId } });
 });
 
+/** What `businessProcedure` learns about one user and one business: the membership, and the business or why it failed. */
+export interface BusinessAccess {
+  membership: Membership | null;
+  business: { ok: true; value: Business } | { ok: false; error: unknown };
+}
+
+/**
+ * The membership and the business, looked up in parallel. With a request memo (`ctx.accessMemo`, a fresh map per HTTP
+ * request) the lookup runs once per user and business for the whole batch; without one (in-process caller, tests) it
+ * runs on every call. A failed lookup is dropped from the memo so it is never reused.
+ */
+export function loadBusinessAccess(ctx: Pick<Context, "db" | "accessMemo">, userId: string, businessId: string): Promise<BusinessAccess> {
+  const run = async (): Promise<BusinessAccess> => {
+    const [membership, business] = await Promise.all([
+      repos.memberships.get(ctx.db, businessId, userId),
+      repos.businesses.get(ctx.db, businessId).then(
+        (value) => ({ ok: true as const, value }),
+        (error: unknown) => ({ ok: false as const, error }),
+      ),
+    ]);
+    return { membership, business };
+  };
+  const memo = ctx.accessMemo;
+  if (!memo) return run();
+  const key = `${userId}\u0000${businessId}`;
+  const cached = memo.get(key);
+  if (cached) return cached;
+  const pending = run();
+  memo.set(key, pending);
+  pending.catch(() => {
+    if (memo.get(key) === pending) memo.delete(key);
+  });
+  return pending;
+}
+
 /** Procedures whose input carries `businessId`: membership asserted, RLS runner attached. */
 export const businessProcedure = protectedProcedure.input(BusinessInput).use(async ({ ctx, input, next }) => {
-  const membership = await repos.memberships.get(ctx.db, input.businessId, ctx.userId);
+  const access = await loadBusinessAccess(ctx, ctx.userId, input.businessId);
+  // Membership first: a non-member learns nothing about the business, not even whether it exists.
+  const membership = access.membership;
   if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this business" });
-  const business = await repos.businesses.get(ctx.db, input.businessId);
+  if (!access.business.ok) throw access.business.error;
+  const business = access.business.value;
   const rls: RlsRunner = (fn) => withRls(ctx.db, { userId: ctx.userId, claims: ctx.email ? { email: ctx.email } : undefined }, fn);
   const bctx: BusinessContext = { ...ctx, businessId: input.businessId, business, membership, role: membership.role, rls };
   return next({ ctx: bctx });

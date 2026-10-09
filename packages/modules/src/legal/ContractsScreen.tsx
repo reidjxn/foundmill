@@ -7,7 +7,8 @@
 import { useId, useMemo, useState } from "react";
 import { ArrowRight, Ban, CheckCircle2, ExternalLink, FileSignature, FileText, Plus, UserRound } from "lucide-react";
 import { Button, Chip, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, Panel, SimpleSelect, formatDate, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
-import { routes, useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { CONTRACT_NEXT, CONTRACT_STATUS_WORD, isExternalHref, readObligations, type Obligation } from "./legal-data";
 import { CONTRACT_PILL, FounderLinkOut, FounderOnlyChip, InlineError, Pill, Screen, fmtMoney, humanise, useAction, useCurrency, useNow } from "./shared";

@@ -2,7 +2,7 @@
  * Distribution module screens (BUILD §6.3, §11.7): one ModuleScreen per tab in MODULE_TABS.distribution, registered on
  * import. Formation · Channels · Leads · Campaigns · Creative · Attribution.
  */
-import { MODULE_TABS } from "@foundmill/shared";
+import { MODULE_TABS } from "@foundmill/shared/constants";
 import { registerModule, type ModuleScreen } from "../registry";
 import { AttributionScreen } from "./AttributionScreen";
 import { CampaignsScreen } from "./CampaignsScreen";

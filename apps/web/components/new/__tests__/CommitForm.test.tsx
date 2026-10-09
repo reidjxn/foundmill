@@ -123,7 +123,8 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     await act(async () => {
       fireEvent.click(screen.getByTestId("logo-generate"));
     });
-    expect(logoApi.generate).toHaveBeenCalledWith({ name: "Ledgerly", colours: expect.objectContaining({ primary: expect.any(String) }), archetype: "b2b_saas", round: 0 });
+    // The set streams: the form hands the picker's progress callback and stop signal through.
+    expect(logoApi.generate).toHaveBeenCalledWith({ name: "Ledgerly", colours: expect.objectContaining({ primary: expect.any(String) }), archetype: "b2b_saas", round: 0 }, expect.any(Function), expect.any(AbortSignal));
     const options = screen.getAllByTestId("logo-option");
     expect(options).toHaveLength(4);
     expect(options[0]!.querySelector("img")?.getAttribute("src")).toBe(OPTIONS[0]!.dataUrl);
@@ -150,7 +151,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     await act(async () => {
       fireEvent.click(screen.getByTestId("logo-regenerate"));
     });
-    expect(logoApi.generate).toHaveBeenLastCalledWith(expect.objectContaining({ round: 1, colours: expect.objectContaining({ primary: "#14532d" }) }));
+    expect(logoApi.generate).toHaveBeenLastCalledWith(expect.objectContaining({ round: 1, colours: expect.objectContaining({ primary: "#14532d" }) }), expect.any(Function), expect.any(AbortSignal));
 
     await act(async () => {
       fireEvent.click(screen.getByTestId("take-charge-bottom"));

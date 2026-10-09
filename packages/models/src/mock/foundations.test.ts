@@ -46,6 +46,19 @@ describe("foundations mock (BUILD §11.1 first open, §11.5)", () => {
     expect(JSON.stringify(r.json.sections.find((s) => s.section === "Features"))).toContain("acme/ledgerly issue #42");
   });
 
+  it("a staged section call writes only the sections it names in write_sections (audit P3)", async () => {
+    const SectionsOnly = FoundationsOutput.pick({ sections: true });
+    const content = [
+      "Write these sections.",
+      "```json\n" + JSON.stringify({ business: { name: "Stallwise", archetype: "marketplace" }, door: "ideation", outline: OUTLINE.map((section) => ({ section, pinned: false })) }) + "\n```",
+      "```json\n" + JSON.stringify({ write_sections: ["Pricing", "Risks"] }) + "\n```",
+    ].join("\n\n");
+    const r = await client.complete({ route: "foundations", schema: SectionsOnly, messages: [{ role: "user", content }] });
+    expect(r.repaired).toBe(false);
+    expect(r.json.sections.map((s) => s.section)).toEqual(["Pricing", "Risks"]);
+    expect(JSON.stringify(r.json.sections[0])).toMatch(/\(Estimate\)/);
+  });
+
   it("is deterministic and copes with a prose-only prompt", async () => {
     const req = { route: "foundations" as const, schema: FoundationsOutput, messages: promptWith({ business: { name: "Ledgerly" }, outline: ["Problem"] }) };
     expect((await client.complete(req)).text).toBe((await client.complete(req)).text);

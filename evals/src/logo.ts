@@ -7,6 +7,7 @@
  *      corners, pointed bottom centre, taller than wide) or a ball pattern (a circle with three or more pentagons or
  *      hexagons).
  * `runLogoEval` drives the real prompt through a model client (live in `pnpm evals`; the unit suite feeds it the mock).
+ * `runLogoMarksEval` drives the path the api uses: four parallel `logo_mark` calls, one per direction.
  */
 import { prompts } from "@foundmill/agents";
 import { LogoDesignOutput, type ModelClient } from "@foundmill/models";
@@ -189,6 +190,22 @@ export interface LogoEvalResult {
   check: LogoSetCheck;
   costMinor: number;
   error?: string;
+}
+
+/**
+ * Runs one brief the way the api does (audit P6): one `logo_mark` call per direction, all at once, then checks the four
+ * marks as one set (count, distinct, valid, no forbidden shape). Never throws; a failed call counts as a missing mark.
+ */
+export async function runLogoMarksEval(brief: LogoBrief, client: ModelClient): Promise<LogoEvalResult> {
+  const directions = prompts.logoDirectionsFor(brief.count);
+  const base = { business_name: brief.business_name, pitch: brief.pitch, archetype: brief.archetype, brand_colours: { primary: brief.primary, secondary: brief.secondary }, round: 0 };
+  const settled = await Promise.allSettled(
+    directions.map((direction) => client.complete({ ...prompts.buildLogoMarkRequest(base, direction), schema: LogoDesignOutput, scope: `eval:logo:${brief.id}:${direction.key}` })),
+  );
+  const marks = settled.flatMap((s) => (s.status === "fulfilled" ? s.value.json.marks.slice(0, 1) : []));
+  const errors = settled.flatMap((s, i) => (s.status === "rejected" ? [`${directions[i]!.label}: ${s.reason instanceof Error ? s.reason.message : String(s.reason)}`] : []));
+  const costMinor = settled.reduce((n, s) => n + (s.status === "fulfilled" ? s.value.cost.costMinorInt : 0), 0);
+  return { briefId: brief.id, check: checkLogoSet({ marks }, brief.count), costMinor, ...(errors.length ? { error: errors.join("; ") } : {}) };
 }
 
 /** Runs one brief through the real prompt and checks the set. Never throws. */

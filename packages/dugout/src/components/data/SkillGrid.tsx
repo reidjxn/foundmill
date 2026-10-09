@@ -1,7 +1,7 @@
 "use client";
 import { useMemo } from "react";
 import { Crosshair, Minus, TrendingDown, TrendingUp } from "lucide-react";
-import { SKILL_GROUPS, type SkillGroup } from "@foundmill/shared";
+import { SKILL_GROUPS, type SkillGroup } from "@foundmill/shared/constants";
 import { cn } from "../../lib/cn";
 import { formatNumber } from "../../lib/format";
 import { Chip } from "../foundation/Chip";

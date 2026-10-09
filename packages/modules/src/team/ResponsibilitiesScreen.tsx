@@ -7,8 +7,10 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { ArrowLeftRight, Lock, ScrollText, Undo2 } from "lucide-react";
 import { Avatar, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, MiniTable, Panel, RadioGroup, RadioOption, SimpleSelect, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
-import { DECISION_TYPES, type DecisionType } from "@foundmill/shared";
-import { useDepartments, useWidgetData, useWidgetQuery, type DepartmentRow } from "@foundmill/widgets";
+import { DECISION_TYPES, type DecisionType } from "@foundmill/shared/constants";
+import { useDepartments } from "@foundmill/widgets/shared/departments";
+import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import type { ModuleScreenProps } from "../registry";
 import { AGENT_GATED_DECISIONS, DECISION_DESCRIPTIONS, DECISION_LABELS, InlineError, Screen, agentDept, agentEntity, agentHref, memberEntity, memberName, readMe, useAction, useAgents, useHumans, useMe, type Me } from "./shared";
 import type { AgentRow, HandlerKind, MembershipRow, ResponsibilitiesResponse, ResponsibilityHandler } from "./types";

@@ -17,16 +17,20 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { AppShell, EntityLinkProvider, ShellLinkProvider, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
 import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
-import { readWidgetEvent, routes, type WidgetEvent } from "@foundmill/widgets";
+import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { LAST_BUSINESS_COOKIE, SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
 import { computeContinueState, respondHref, unviewedWin } from "@/lib/continue-state";
 import { CYCLE_EVENT_TYPES, cycleFromSnapshot, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus, EMPTY_CYCLE } from "@/lib/cycle";
 import { publicEnv } from "@/lib/env";
+import { streamAwareStaleTime } from "@/lib/query-client";
+import { shellQueryInputs } from "@/lib/shell-queries";
 import { useBusinessLogoSrc } from "@/components/logo/useBusinessLogo";
 import { KeyboardRegistryProvider, createKeyboardRegistry, useRegisteredShortcuts } from "@/lib/keys";
 import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } from "@/lib/search";
 import { SIDEBAR_BRAND, activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
 import { useStreamSubscription } from "@/lib/stream-client";
+import { pollUnlessStreaming, useStreamOpen } from "@/lib/stream-status";
 import { getBrowserAccessToken } from "@/lib/supabase/client";
 import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -34,7 +38,7 @@ import { WidgetDataHost } from "@/lib/widget-data";
 import { SpecUserProvider } from "@/components/spec/spec-user";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { ShellChromeProvider, useShellChromeValue } from "./chrome";
-import { renderNextShellLink } from "./NextShellLink";
+import { isShellLinkClick, renderNextShellLink } from "./NextShellLink";
 
 export interface BusinessShellProps {
   businessId: string;
@@ -44,10 +48,21 @@ export interface BusinessShellProps {
   children: ReactNode;
 }
 
-const INBOX_PAGE = 50;
 const SEARCH_DEBOUNCE_MS = 150;
-/** `cycle.status` is refetched on cycle events; this is the safety net while nothing streams. */
-const CYCLE_POLL_MS = 30_000;
+/**
+ * `inbox.list` and `cycle.status` are refetched on the events that change them; polling is the safety net while the
+ * event stream is not connected, and stops while it is.
+ */
+const POLL_WITHOUT_STREAM_MS = 30_000;
+/** Freshness of the shell's stream-kept queries: minutes while the stream is connected, these values while it is not. */
+const INBOX_STALE = streamAwareStaleTime(10_000);
+const FINANCE_STALE = streamAwareStaleTime(60_000);
+const CYCLE_STALE = streamAwareStaleTime(10_000);
+
+/** Foundations states in which `product.foundations.ensure` still has work: claim a pending draft, or close a stale one. */
+export function foundationsNeedEnsure(status: string | undefined): boolean {
+  return status === undefined || status === "pending" || status === "drafting";
+}
 
 /**
  * The collaborative spec editor (Tiptap 3 + Yjs + Hocuspocus) loads on demand: only the Specification tab needs it,
@@ -55,8 +70,8 @@ const CYCLE_POLL_MS = 30_000;
  */
 const SpecEditor = dynamic(() => import("@/components/spec/SpecEditor").then((m) => m.SpecEditor), { ssr: false });
 
-/** Events after which the shell refetches a router's queries. */
-const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
+/** Events after which the shell refetches a router's queries (or one procedure group's, as a dotted path). */
+export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   "inbox.item_created": ["inbox"],
   "decision.made": ["inbox", "plan"],
   "customer.converted": ["inbox", "journey", "finance"],
@@ -70,6 +85,10 @@ const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   "runway.threshold_crossed": ["finance", "inbox"],
   "approval.requested": ["inbox"],
   "credential.expiring": ["integrations", "inbox"],
+  // Each part of the first-open drafting as it is stored, and the apply (audit P3): the vision, sections and roadmap
+  // items appear on Home and the Product tabs as they land. Only the foundations query: the tabs reload their own data
+  // when the drafting turns ready.
+  "foundations.progressed": ["product.foundations"],
 };
 
 function readCollapsed(businessId: string): boolean {
@@ -128,16 +147,22 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const shortcuts = useRegisteredShortcuts();
 
   // --- data ---------------------------------------------------------------------------------------------------
+  // The layout starts inbox, finance and cycle on the server and hands them over under these same keys
+  // (lib/shell-data.server.ts); business and departments arrive as initial data.
+  const inputs = useMemo(() => shellQueryInputs(businessId), [businessId]);
+  const streamOpen = useStreamOpen();
   const businessQ = useQuery(trpc.business.get.queryOptions({ businessId }, { initialData: initialBusiness, staleTime: 30_000 }));
-  const departmentsQ = useQuery(trpc.department.list.queryOptions({ businessId, includeHidden: true, includeArchived: false }, { initialData: initialDepartments, staleTime: 30_000 }));
-  const inboxQ = useQuery(trpc.inbox.list.queryOptions({ businessId, limit: INBOX_PAGE }, { staleTime: 10_000, refetchInterval: 30_000 }));
-  const financeQ = useQuery(trpc.finance.overview.queryOptions({ businessId }, { staleTime: 60_000, retry: false }));
-  const cycleQ = useQuery(trpc.cycle.status.queryOptions({ businessId }, { staleTime: 10_000, refetchInterval: CYCLE_POLL_MS, retry: false }));
+  const departmentsQ = useQuery(trpc.department.list.queryOptions(inputs.departments, { initialData: initialDepartments, staleTime: 30_000 }));
+  const inboxQ = useQuery(trpc.inbox.list.queryOptions(inputs.inbox, { staleTime: INBOX_STALE, refetchInterval: pollUnlessStreaming(streamOpen, POLL_WITHOUT_STREAM_MS) }));
+  const financeQ = useQuery(trpc.finance.overview.queryOptions(inputs.finance, { staleTime: FINANCE_STALE, retry: false }));
+  const cycleQ = useQuery(trpc.cycle.status.queryOptions(inputs.cycle, { staleTime: CYCLE_STALE, refetchInterval: pollUnlessStreaming(streamOpen, POLL_WITHOUT_STREAM_MS), retry: false }));
 
   // --- foundations: the first open drafts the vision, specification and roadmap (BUILD §11.1, §11.5) ---------------
   // `product.foundations.ensure` is idempotent on the server (it claims a pending draft exactly once, so two tabs or a
-  // reload never start it twice); this keeps it to one call per business per mount. It never blocks the page: the
-  // drafting runs in the background and Home and the Product tabs poll `product.foundations.get`.
+  // reload never start it twice); this keeps it to one call per business per mount, and only while there is something
+  // to start or to close (`business.get` carries the status: pending or drafting). Once the foundations are ready (or
+  // failed, or the business has none) opening the business makes no call. It never blocks the page: the drafting runs
+  // in the background and Home and the Product tabs poll `product.foundations.get`.
   const ensureFoundations = useMutation(
     trpc.product.foundations.ensure.mutationOptions({
       retry: 2,
@@ -148,11 +173,12 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   );
   const ensureFor = ensureFoundations.mutate;
   const ensuredBusiness = useRef<string | null>(null);
+  const foundationsStatus = (businessQ.data ?? initialBusiness).foundationsStatus;
   useEffect(() => {
     if (ensuredBusiness.current === businessId) return;
     ensuredBusiness.current = businessId;
-    ensureFor({ businessId });
-  }, [businessId, ensureFor]);
+    if (foundationsNeedEnsure(foundationsStatus)) ensureFor({ businessId });
+  }, [businessId, ensureFor, foundationsStatus]);
 
   const data = businessQ.data ?? initialBusiness;
   const departments = departmentsQ.data ?? initialDepartments;
@@ -203,9 +229,11 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     [businessId, departments, inboxQ.data?.counts, inboxQ.data?.items, live],
   );
   const activeId = useMemo(() => activeSidebarId(pathname, businessId, departments), [pathname, businessId, departments]);
+  // Sidebar links navigate by themselves (next/link); this pushes only for keyboard chords, the logo button and items
+  // without a link, so one click is one navigation.
   const onNavigate = useCallback(
     (item: SidebarItem) => {
-      if (item.href) router.push(item.href);
+      if (item.href && !isShellLinkClick()) router.push(item.href);
     },
     [router],
   );

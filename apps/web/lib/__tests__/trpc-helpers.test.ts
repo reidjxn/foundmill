@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TRPCClientError } from "@trpc/client";
-import { apiTrpcUrl, errorMessage, resolveBearer, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
+import { apiTrpcUrl, createApiLinks, createUntypedApiClient, errorMessage, isStreamingOperation, resolveBearer, STREAMING_PROCEDURES, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
 import { routersToInvalidate, withBusiness } from "../widget-data";
 
 describe("trpc helpers", () => {
@@ -37,5 +37,31 @@ describe("trpc helpers", () => {
 
   it("derives the tRPC url", () => {
     expect(apiTrpcUrl("https://api.foundmill.com/")).toBe("https://api.foundmill.com/trpc");
+  });
+
+  it("sends streaming procedures over the streaming link and everything else over the batch link", () => {
+    expect(STREAMING_PROCEDURES.has("idea.draft")).toBe(true);
+    expect(isStreamingOperation({ path: "idea.draft" })).toBe(true);
+    expect(isStreamingOperation({ path: "idea.generate" })).toBe(false);
+    // The logo picker streams each mark as it passes the check (audit P6); `generate` stays a plain answer.
+    expect(isStreamingOperation({ path: "idea.logo.stream" })).toBe(true);
+    expect(isStreamingOperation({ path: "business.logo.stream" })).toBe(true);
+    expect(isStreamingOperation({ path: "business.logo.generate" })).toBe(false);
+    expect(isStreamingOperation({ path: "inbox.list" })).toBe(false);
+    expect(createApiLinks({ getToken: () => null })).toHaveLength(1);
+  });
+
+  it("sends each stream in its own request, so Stop aborts exactly that stream on the API", async () => {
+    const urls: string[] = [];
+    const fetchSpy = (async (input: RequestInfo | URL) => {
+      urls.push(String(input));
+      return new Response("{}", { status: 500, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const client = createUntypedApiClient({ getToken: () => "jwt", url: "http://api.test/trpc", fetch: fetchSpy });
+    await Promise.allSettled([client.mutation("idea.draft", { prompt: "a" }), client.mutation("idea.logo.stream", { ideaId: "x" }), client.query("inbox.list", { businessId: "b" }), client.query("cycle.status", { businessId: "b" })]);
+    const paths = urls.map((u) => new URL(u).pathname.replace("/trpc/", ""));
+    expect(paths.filter((p) => p.includes("idea.draft") || p.includes("idea.logo.stream")).sort()).toEqual(["idea.draft", "idea.logo.stream"]);
+    // Plain queries still share one batch.
+    expect(paths).toContain("inbox.list,cycle.status");
   });
 });

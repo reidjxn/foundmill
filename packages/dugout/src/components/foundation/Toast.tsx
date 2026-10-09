@@ -1,8 +1,9 @@
 "use client";
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import * as ToastPrimitive from "@radix-ui/react-toast";
 import { Circle, CircleCheck, CircleX, Info, TriangleAlert, X } from "lucide-react";
 import { cn } from "../../lib/cn";
+import { Button } from "./Button";
 import { Icon, type IconComponent } from "./Icon";
 
 export type ToastTone = "neutral" | "good" | "warn" | "bad" | "info";
@@ -25,6 +26,8 @@ export interface ToastOptions {
   type?: "foreground" | "background";
   /** Reuse an id to update an existing toast in place. */
   id?: string;
+  /** Override the tone's icon in the tile. */
+  icon?: IconComponent;
 }
 
 export interface ToastRecord extends ToastOptions {
@@ -48,28 +51,53 @@ export function useToast(): ToastApi {
   return ctx;
 }
 
-const TONE: Record<ToastTone, { icon: IconComponent; className: string }> = {
-  neutral: { icon: Circle, className: "text-secondary" },
-  good: { icon: CircleCheck, className: "text-status-good" },
-  warn: { icon: TriangleAlert, className: "text-status-warn" },
-  bad: { icon: CircleX, className: "text-status-bad" },
-  info: { icon: Info, className: "text-status-info" },
+/** Each tone's icon and the class that sets its light (`--tone`) for the tile and the timer. */
+export const TOAST_TONES: Record<ToastTone, { icon: IconComponent; tone: string }> = {
+  neutral: { icon: Circle, tone: "tone-secondary" },
+  good: { icon: CircleCheck, tone: "tone-status-good" },
+  warn: { icon: TriangleAlert, tone: "tone-status-warn" },
+  bad: { icon: CircleX, tone: "tone-status-bad" },
+  info: { icon: Info, tone: "tone-status-info" },
 };
+
+/** Where the stack sits. Bottom left of the content column (the default) never covers a primary action. */
+export type ToastPosition = "bottom-left" | "bottom-right" | "top-right";
+
+/** At most this many toasts show in the stack; older ones wait hidden behind until a newer one leaves. */
+export const TOAST_VISIBLE = 3;
+/** Pixel gap between toasts when the stack fans out (tokens.css --toast-gap). */
+export const TOAST_GAP = 8;
+
+/**
+ * Stack geometry: for each toast (oldest first, as stored) its depth from the front (0 = newest) and how far it moves
+ * when the stack fans out, the sum of the newer toasts' heights plus gaps. Pure, for the component and its tests.
+ */
+export function toastStack(ids: readonly string[], heights: Readonly<Record<string, number>>, gap = TOAST_GAP): Record<string, { index: number; offset: number }> {
+  const out: Record<string, { index: number; offset: number }> = {};
+  let offset = 0;
+  for (let i = ids.length - 1, index = 0; i >= 0; i--, index++) {
+    const id = ids[i]!;
+    out[id] = { index, offset };
+    offset += (heights[id] ?? 0) + gap;
+  }
+  return out;
+}
 
 export interface ToastProviderProps {
   children: ReactNode;
   duration?: number;
-  /** Where toasts stack. Default bottom-right. */
-  position?: "bottom-right" | "top-right";
+  /** Where toasts stack. Default bottom-left, beside the sidebar, where no primary action lives. */
+  position?: ToastPosition;
   /** Render the viewport here (default). Set false to place <Toaster /> yourself. */
   renderViewport?: boolean;
-  /** Keep at most this many visible. */
+  /** Keep at most this many open; the oldest close first. */
   max?: number;
 }
 
 /** State + Radix provider. Put one at the app root; call useToast().toast({...}) anywhere below. */
-export function ToastProvider({ children, duration = 5000, position = "bottom-right", renderViewport = true, max = 4 }: ToastProviderProps) {
+export function ToastProvider({ children, duration = 5000, position = "bottom-left", renderViewport = true, max = 4 }: ToastProviderProps) {
   const [toasts, setToasts] = useState<ToastRecord[]>([]);
+  const [heights, setHeights] = useState<Record<string, number>>({});
   const seq = useRef(0);
 
   const dismiss = useCallback((id: string) => {
@@ -99,16 +127,40 @@ export function ToastProvider({ children, duration = 5000, position = "bottom-ri
     [max],
   );
 
-  const remove = useCallback((id: string) => setToasts((prev) => prev.filter((t) => t.id !== id)), []);
+  const remove = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+    setHeights((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
+  const measure = useCallback((id: string, height: number) => {
+    setHeights((prev) => (prev[id] === height ? prev : { ...prev, [id]: height }));
+  }, []);
 
   const api = useMemo<ToastApi>(() => ({ toast, dismiss, dismissAll, toasts }), [toast, dismiss, dismissAll, toasts]);
+  const stack = useMemo(() => toastStack(toasts.map((t) => t.id), heights), [toasts, heights]);
+  const frontHeight = toasts.length ? heights[toasts[toasts.length - 1]!.id] : undefined;
 
   return (
     <ToastContext.Provider value={api}>
-      <ToastPrimitive.Provider duration={duration} swipeDirection="right" label="Notification">
+      <ToastPrimitive.Provider duration={duration} swipeDirection={position === "bottom-left" ? "left" : "right"} label="Notification">
         {children}
         {toasts.map((t) => (
-          <Toast key={t.id} record={t} onOpenChange={(open) => (open ? undefined : dismiss(t.id))} onRemoved={() => remove(t.id)} />
+          <Toast
+            key={t.id}
+            record={t}
+            index={stack[t.id]?.index ?? 0}
+            offset={stack[t.id]?.offset ?? 0}
+            duration={t.duration ?? duration}
+            frontHeight={frontHeight}
+            onOpenChange={(open) => (open ? undefined : dismiss(t.id))}
+            onRemoved={() => remove(t.id)}
+            onMeasure={(h) => measure(t.id, h)}
+          />
         ))}
         {renderViewport ? <Toaster position={position} /> : null}
       </ToastPrimitive.Provider>
@@ -117,31 +169,62 @@ export function ToastProvider({ children, duration = 5000, position = "bottom-ri
 }
 
 export interface ToasterProps {
-  position?: "bottom-right" | "top-right";
+  position?: ToastPosition;
   className?: string;
 }
 
-/** The viewport: a fixed stack, 360 px wide. F8 focuses it (Radix default hotkey). */
-export function Toaster({ position = "bottom-right", className }: ToasterProps) {
-  return (
-    <ToastPrimitive.Viewport
-      className={cn(
-        "fixed z-50 flex w-90 max-w-[calc(100vw-2rem)] flex-col gap-2 p-4 outline-none",
-        position === "bottom-right" ? "bottom-0 right-0" : "right-0 top-0",
-        className,
-      )}
-    />
-  );
+/**
+ * The viewport: a fixed stack 340 px wide, bottom left of the content column by default (clear of the sidebar, the
+ * DecisionBar, Continue and dialog footers). The newest toast is in front; hovering or focusing the stack fans the
+ * others out. F8 focuses it (Radix default hotkey).
+ */
+export function Toaster({ position = "bottom-left", className }: ToasterProps) {
+  return <ToastPrimitive.Viewport data-dugout-toasts="" data-position={position} className={cn("toast-viewport", className)} />;
 }
 
 interface ToastProps {
   record: ToastRecord;
+  index: number;
+  offset: number;
+  duration: number;
+  /** The newest toast's height: older toasts are cut to it while the stack is collapsed. */
+  frontHeight?: number;
   onOpenChange: (open: boolean) => void;
   onRemoved: () => void;
+  onMeasure: (height: number) => void;
 }
 
-function Toast({ record, onOpenChange, onRemoved }: ToastProps) {
-  const tone = TONE[record.tone ?? "neutral"];
+function Toast({ record, index, offset, duration, frontHeight, onOpenChange, onRemoved, onMeasure }: ToastProps) {
+  const tone = TOAST_TONES[record.tone ?? "neutral"];
+  const [paused, setPaused] = useState(false);
+  const body = useRef<HTMLDivElement>(null);
+  const timed = Number.isFinite(duration) && duration > 0;
+
+  // The stack needs each toast's natural height to fan out without overlaps.
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (!el) return;
+    // The content's height plus the toast's own borders (the toast itself is cut to the front's height when collapsed).
+    const report = () => {
+      const li = el.parentElement;
+      onMeasure(el.offsetHeight + (li ? li.offsetHeight - li.clientHeight : 0));
+    };
+    report();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(report);
+    ro.observe(el);
+    return () => ro.disconnect();
+    // onMeasure is a fresh closure each render; the element is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const style = {
+    "--toast-index": index,
+    "--toast-offset": `${offset}px`,
+    "--toast-duration": `${duration}ms`,
+    ...(frontHeight ? { "--toast-front-h": `${frontHeight}px` } : null),
+  } as CSSProperties;
+
   return (
     <ToastPrimitive.Root
       open={record.open}
@@ -149,37 +232,41 @@ function Toast({ record, onOpenChange, onRemoved }: ToastProps) {
       duration={record.duration}
       type={record.type ?? "foreground"}
       data-tone={record.tone ?? "neutral"}
-      onAnimationEnd={() => {
-        if (!record.open) onRemoved();
+      data-front={index === 0 || undefined}
+      data-depth={index >= TOAST_VISIBLE ? "far" : undefined}
+      data-paused={paused || undefined}
+      onPause={() => setPaused(true)}
+      onResume={() => setPaused(false)}
+      onAnimationEnd={(e) => {
+        // Only the toast's own exit counts: the timer bar's animation bubbles up too.
+        if (e.target === e.currentTarget && !record.open) onRemoved();
       }}
-      className={cn(
-        "surface-overlay relative flex items-start gap-2 p-3 pr-8 text-body text-primary",
-        "data-[state=open]:animate-rise-in data-[state=closed]:animate-fade-out",
-        "data-[swipe=move]:translate-x-(--radix-toast-swipe-move-x) data-[swipe=cancel]:translate-x-0 data-[swipe=end]:animate-fade-out",
-      )}
+      style={style}
+      className={cn("toast surface-popover text-body text-primary", tone.tone)}
     >
-      <Icon icon={tone.icon} className={cn("mt-0.5", tone.className)} />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <ToastPrimitive.Title className="t-body-strong">{record.title}</ToastPrimitive.Title>
-        {record.description ? <ToastPrimitive.Description className="text-small text-secondary">{record.description}</ToastPrimitive.Description> : null}
-        {record.action ? (
-          <ToastPrimitive.Action altText={record.action.altText ?? record.action.label} asChild>
-            <button
-              type="button"
-              onClick={record.action.onClick}
-              className="mt-1 self-start font-display font-semibold text-small uppercase tracking-tab text-link hover:underline"
-            >
-              {record.action.label}
-            </button>
-          </ToastPrimitive.Action>
-        ) : null}
+      <div ref={body} className="flex items-start gap-3 p-3 pr-10">
+        <span className="toast-tile" aria-hidden>
+          <Icon icon={record.icon ?? tone.icon} />
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5 pt-0.5">
+          <ToastPrimitive.Title className="t-body-strong text-pretty">{record.title}</ToastPrimitive.Title>
+          {record.description ? <ToastPrimitive.Description className="text-small text-pretty text-secondary">{record.description}</ToastPrimitive.Description> : null}
+          {record.action ? (
+            <ToastPrimitive.Action altText={record.action.altText ?? record.action.label} asChild>
+              <Button size="sm" onClick={record.action.onClick} className="mt-1.5 self-start">
+                {record.action.label}
+              </Button>
+            </ToastPrimitive.Action>
+          ) : null}
+        </div>
       </div>
       <ToastPrimitive.Close
         aria-label="Dismiss"
-        className="absolute right-2 top-2 inline-flex size-5 items-center justify-center rounded-chip text-secondary hover:bg-white/6 hover:text-primary"
+        className="absolute right-2 top-2 inline-flex size-control-xs items-center justify-center rounded-sm text-tertiary transition-colors duration-hover ease-out hover:bg-white/8 hover:text-primary focus-ring"
       >
-        <Icon icon={X} size={12} />
+        <Icon icon={X} size="inline" />
       </ToastPrimitive.Close>
+      {timed && record.open ? <span aria-hidden className="toast-timer" data-toast-timer="" /> : null}
     </ToastPrimitive.Root>
   );
 }

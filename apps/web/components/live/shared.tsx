@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Lock } from "lucide-react";
 import { useMemo } from "react";
 import { Avatar, BusinessLogo as LogoSquare, StatusPill, cn } from "@foundmill/dugout";
-import { routes } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { UNNAMED_PERSON } from "@/lib/live";
 import { useTRPC } from "@/lib/trpc-react";
 import type { RouterOutputs } from "@/lib/trpc";

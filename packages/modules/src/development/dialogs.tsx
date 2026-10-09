@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { ExternalLink, FolderGit2, Settings2, Square, Trash2, UserRoundCog } from "lucide-react";
 import { Button, Checkbox, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, SimpleSelect, Skeleton, Textarea } from "@foundmill/dugout";
-import { useWidgetQuery } from "@foundmill/widgets";
+import { useWidgetQuery } from "@foundmill/widgets/data";
 import { InlineError, errorMessage } from "./shared";
 import type { AgentRow, OpenInClaudeCodeResponse } from "./types";
 

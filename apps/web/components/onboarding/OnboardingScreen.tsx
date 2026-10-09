@@ -13,7 +13,7 @@ import { ArrowRight, Check, Plus, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { APP_NAME } from "@foundmill/config";
-import { Button, Chip, Field, Input, Kbd, Panel, RadioGroup, RadioGroupItem, RatingBar, SimpleSelect, Slider, StatusPill, cn, ratingBandLabel, ratingClass, useToast } from "@foundmill/dugout";
+import { Button, Chip, Field, Input, Kbd, MoneyInput, Panel, RadioCard, RadioGroup, RatingBandPill, SimpleSelect, SkillSlider, StatusPill, cn, ratingClass, useToast } from "@foundmill/dugout";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { StudioFrame } from "@/components/new/StudioFrame";
@@ -174,15 +174,15 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
                   <div key={key} className="grid grid-cols-[160px_1fr_56px_220px] items-center gap-4" data-skill={key}>
                     <div className="min-w-0">
                       <div className="text-body-strong">{SKILL_LABELS[key].label}</div>
-                      <div className="truncate text-small text-secondary">{SKILL_LABELS[key].hint}</div>
+                      <div className="text-small text-tertiary">{SKILL_LABELS[key].hint}</div>
                     </div>
-                    <Slider value={[value]} min={1} max={20} step={1} onValueChange={([v]) => set("skills", { ...form.skills, [key]: v ?? value })} thumbLabels={[`${SKILL_LABELS[key].label} rating`]} aria-label={`${SKILL_LABELS[key].label} rating`} />
-                    <div className={cn("t-display-sm text-right tabular-nums", ratingClass(value))} aria-live="polite" data-skill-value={key}>
+                    {/* One control (DESIGN §8 skill input): the 20 cells are the slider's track. */}
+                    <SkillSlider value={value} min={1} max={20} onValueChange={(v) => set("skills", { ...form.skills, [key]: v })} aria-label={`${SKILL_LABELS[key].label} rating`} />
+                    <div className={cn("t-display-md text-right tabular-nums", ratingClass(value))} aria-live="polite" data-skill-value={key}>
                       {value}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <RatingBar value={value} name={SKILL_LABELS[key].label} className="flex-1" />
-                      <span className="w-16 text-small text-secondary">{ratingBandLabel(value)}</span>
+                    <div className="flex items-center">
+                      <RatingBandPill value={value} />
                     </div>
                   </div>
                 );
@@ -198,12 +198,12 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
                 ))}
               </RadioGroup>
             </Field>
-            <div className="grid grid-cols-[1fr_160px] gap-gutter">
-              <Field htmlFor="profile-budget" label="Budget you can commit" hint="Your own money for the first year, before any revenue. Leave empty if none. Accepts 25k." error={show("budget")}>
-                <Input id="profile-budget" numeric inputMode="decimal" value={form.budget} onChange={(e) => set("budget", e.target.value)} placeholder="25000" invalid={Boolean(show("budget"))} suffix={form.currency} />
+            <div className="grid grid-cols-4 gap-gutter">
+              <Field htmlFor="profile-budget" label="Budget you can commit" hint="Your own money for the first year, before any revenue. Leave empty if none. Accepts 25k." error={show("budget")} className="col-span-3">
+                <MoneyInput id="profile-budget" value={form.budget} onChange={(e) => set("budget", e.target.value)} placeholder="25000" invalid={Boolean(show("budget"))} currency={form.currency} />
               </Field>
               <Field htmlFor="profile-currency" label="Currency" error={show("currency")}>
-                <SimpleSelect id="profile-currency" value={form.currency} onValueChange={(v) => set("currency", v)} options={CURRENCIES.map((c) => ({ value: c, label: c }))} aria-label="Currency" />
+                <SimpleSelect id="profile-currency" controlSize="xl" value={form.currency} onValueChange={(v) => set("currency", v)} options={CURRENCIES.map((c) => ({ value: c, code: c, label: currencyName(c), textValue: c }))} aria-label="Currency" />
               </Field>
             </div>
           </Section>
@@ -266,18 +266,18 @@ function Section({ id, title, hint, children }: { id: ProfileSectionId; title: s
   );
 }
 
-/** A radio option drawn as a selectable card: panel-alt, hairline, 3 px kit edge when selected (DESIGN §8 sidebar). */
+/** A radio option drawn as a selectable card (DESIGN §8 radio cards): the whole card is the radio. */
 export function OptionCard({ id, value, label, description, selected }: { id: string; value: string; label: string; description?: string; selected: boolean }) {
-  return (
-    <div className={cn("relative flex items-start gap-2 rounded-panel border border-subtle bg-panel-alt p-3 transition-colors duration-micro ease-dugout hover:border-secondary/50", selected && "border-link")} data-option={value} data-selected={selected || undefined}>
-      {selected ? <span aria-hidden className="absolute inset-y-0 left-0 w-0.75 rounded-l-panel bg-kit-primary" /> : null}
-      <RadioGroupItem id={id} value={value} className="mt-0.5" />
-      <label htmlFor={id} className="flex cursor-pointer flex-col text-body text-primary">
-        <span className="text-body-strong">{label}</span>
-        {description ? <span className="text-small text-secondary">{description}</span> : null}
-      </label>
-    </div>
-  );
+  return <RadioCard id={id} value={value} label={label} description={description} data-option={value} data-selected={selected || undefined} />;
+}
+
+/** "GBP" → "British Pound" for the currency select (the code sits on its own chip before the name). */
+function currencyName(code: string): string {
+  try {
+    return new Intl.DisplayNames(["en-GB"], { type: "currency" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
 }
 
 function CountryInput({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) {
@@ -336,7 +336,7 @@ export function ChipField({ id, label, hint, error, required, values, suggestion
           </div>
         ) : null}
         {/* The trailing slot is always rendered: Dugout's Input changes its DOM shape when `trailing` appears, which would remount the field mid-word. */}
-        <Input id={id} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} onBlur={commit} placeholder={placeholder} invalid={Boolean(error)} trailing={draft ? <Button type="button" size="sm" variant="ghost" icon={Plus} onClick={commit} aria-label={`Add ${draft}`} className="h-6 px-1" /> : <Kbd>↵</Kbd>} />
+        <Input id={id} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} onBlur={commit} placeholder={placeholder} invalid={Boolean(error)} trailing={draft ? <Button type="button" size="sm" variant="ghost" icon={Plus} onClick={commit} aria-label={`Add ${draft}`} className="px-1" /> : <Kbd>↵</Kbd>} />
         {remaining.length > 0 ? (
           <div className="flex flex-wrap gap-1.5" aria-label={`${label} suggestions`}>
             {remaining.map((s) => (

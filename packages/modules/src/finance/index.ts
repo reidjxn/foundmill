@@ -3,7 +3,7 @@
  * Overview · Profit and loss · Cash · Runway · Wage bill · Cap table. Read-only for money movement: no screen here
  * can initiate a payment.
  */
-import { MODULE_TABS } from "@foundmill/shared";
+import { MODULE_TABS } from "@foundmill/shared/constants";
 import { registerModule, type ModuleScreen } from "../registry";
 import { CapTableScreen } from "./CapTableScreen";
 import { CashScreen } from "./CashScreen";

@@ -6,6 +6,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./env": "./src/env.tsx",
+    "./registry": "./src/registry.ts",
+    "./lazy": "./src/lazy.ts",
+    "./product/foundations": "./src/product/foundations.tsx",
     "./*.css": "./src/*.css",
     "./*": "./src/*.ts"
   },

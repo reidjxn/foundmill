@@ -22,8 +22,9 @@ import {
   type RowAction,
   type SavedView,
 } from "@foundmill/dugout";
-import { ASSET_KINDS, CAMPAIGN_STATUSES, type CampaignStatus } from "@foundmill/shared";
-import { routes, useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { ASSET_KINDS, CAMPAIGN_STATUSES, type CampaignStatus } from "@foundmill/shared/constants";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { APPROVAL_WORDS, CAMPAIGN_STATUS_WORDS, assetCounts, canTransition } from "./channel-data";
 import { InlineError, Screen, channelLabel, searchParam, useAction } from "./shared";

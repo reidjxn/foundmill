@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { applySessionEvent, eventsUntil, type AgentSessionEvent, type AgentTileSession, type SessionSeed } from "@foundmill/dugout";
-import { useWidgetData } from "@foundmill/widgets";
+import { useWidgetData } from "@foundmill/widgets/data";
 import { SessionThrottle, baseSession, isPlaceholderSessionId, readSessionEvent } from "./session-store";
 import type { SessionRow, TaskRow } from "./types";
 

@@ -6,7 +6,7 @@
  * from the archetype prior, and `xcSeries` → the cumulative curve shown in the Match Day rails. Everything is
  * deterministic (no random initialisation, fixed epochs).
  */
-import { CHANNEL_KEYS, type Archetype, type ChannelKey } from "@foundmill/shared";
+import { CHANNEL_KEYS, type Archetype, type ChannelKey } from "@foundmill/shared/constants";
 import { LIMITS } from "@foundmill/config";
 import { OFFLINE_CHANNELS } from "./attribution";
 import { compareByTimeThenId, hoursBetween } from "./time";

@@ -4,6 +4,7 @@
  * sends the literal "dev" token, which apps/api and apps/stream map to DEV_AUTH_USER_ID.
  */
 import { cookies } from "next/headers";
+import { cache } from "react";
 import { DEV_AUTH_COOKIE, DEV_BEARER_TOKEN, LAST_BUSINESS_COOKIE } from "./constants";
 import { isDevLike } from "@/lib/env";
 import { getServerSession } from "@/lib/supabase/server";
@@ -16,7 +17,11 @@ export interface ServerAuth {
   via: "supabase" | "dev";
 }
 
-export async function getServerAuth(): Promise<ServerAuth | null> {
+/**
+ * Who is signed in for this request. Wrapped in React `cache()` so a layout, its `generateMetadata` and the page verify
+ * the session with Supabase once per request (the cache never outlives the request).
+ */
+export const getServerAuth = cache(async (): Promise<ServerAuth | null> => {
   const session = await getServerSession();
   if (session) return { token: session.accessToken, userId: session.userId, email: session.email, via: "supabase" };
   if (isDevLike()) {
@@ -24,7 +29,7 @@ export async function getServerAuth(): Promise<ServerAuth | null> {
     if (store.get(DEV_AUTH_COOKIE)?.value === "1") return { token: DEV_BEARER_TOKEN, userId: null, email: null, via: "dev" };
   }
   return null;
-}
+});
 
 /** The business the founder last opened (set by the /b/[bid] layout). */
 export async function getLastBusinessId(): Promise<string | null> {

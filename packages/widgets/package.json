@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./data": "./src/data.tsx",
     "./testing": "./src/testing.tsx",
     "./*.css": "./src/*.css",
     "./*": "./src/*.ts"

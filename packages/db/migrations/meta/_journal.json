@@ -127,6 +127,20 @@
       "when": 1791634320000,
       "tag": "0018_business_foundations",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791720720000,
+      "tag": "0019_foundations_progress",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791807120000,
+      "tag": "0020_agent_conversations",
+      "breakpoints": true
     }
   ]
 }

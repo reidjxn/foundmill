@@ -115,6 +115,35 @@ describe("event catalogue", () => {
     expect(isEventType(42)).toBe(false);
   });
 
+  it("foundations.progressed: a step of a drafting attempt with its counts, internal and pushed to open tabs (audit P3)", () => {
+    const decl = EVENTS["foundations.progressed"];
+    expect(decl.narratable).toBe(false);
+    expect(decl.consumers).toContain("stream");
+    const vision = parsePayload("foundations.progressed", { attempt: 2, step: "vision", sectionsDone: 0, sectionsTotal: 11, roadmapItems: 0, visionReady: true });
+    expect(vision).toEqual({ attempt: 2, step: "vision", section: null, sectionsDone: 0, sectionsTotal: 11, roadmapItems: 0, visionReady: true });
+    expect(parsePayload("foundations.progressed", EVENT_FIXTURES["foundations.progressed"]).section).toBe("Pricing");
+    const bad = (patch: Record<string, unknown>) => () => parsePayload("foundations.progressed", { ...EVENT_FIXTURES["foundations.progressed"], ...patch });
+    expect(bad({ attempt: 0 })).toThrow(ValidationError);
+    expect(bad({ step: "finished" })).toThrow(ValidationError);
+    expect(bad({ sectionsDone: -1 })).toThrow(ValidationError);
+    expect(bad({ section: "" })).toThrow(ValidationError);
+    expect(bad({ visionReady: "yes" })).toThrow(ValidationError);
+  });
+
+  it("conversation.message_posted: a desk message for stream and metrics, never narrated (audit-conversation §4)", () => {
+    const decl = EVENTS["conversation.message_posted"];
+    expect(decl.narratable).toBe(false);
+    expect([...decl.consumers].sort()).toEqual(["metrics", "stream"]);
+    const founder = parsePayload("conversation.message_posted", { ...EVENT_FIXTURES["conversation.message_posted"], author: "founder", quickReplyIds: undefined, chosenQuickReplyId: "why_that_one" });
+    expect(founder).toMatchObject({ author: "founder", quickReplyIds: [], chosenQuickReplyId: "why_that_one", handOff: false });
+    const bad = (patch: Record<string, unknown>) => () => parsePayload("conversation.message_posted", { ...EVENT_FIXTURES["conversation.message_posted"], ...patch });
+    expect(bad({ preview: "x".repeat(141) })).toThrow(ValidationError);
+    expect(bad({ subjectKind: "concept" })).toThrow(ValidationError);
+    expect(bad({ author: "system" })).toThrow(ValidationError);
+    expect(bad({ quickReplyIds: ["a", "b", "c", "d", "e"] })).toThrow(ValidationError);
+    expect(bad({ quickReplyIds: ["Not An Id"] })).toThrow(ValidationError);
+  });
+
   it("declareEvent refuses a type outside EVENT_TYPES at runtime", () => {
     expect(() =>
       declareEvent("made.up" as never, z.object({}), { doc: "x", consumers: ["metrics"] }),

@@ -4,7 +4,7 @@
  */
 import { MockModelClient } from "@foundmill/models";
 import { describe, expect, it } from "vitest";
-import { checkLogoSet, forbiddenShapes, isShield, isStar, LOGO_BRIEFS, pathVertices, runLogoEval } from "../logo";
+import { checkLogoSet, forbiddenShapes, isShield, isStar, LOGO_BRIEFS, pathVertices, runLogoEval, runLogoMarksEval } from "../logo";
 
 const svg = (body: string) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${body}</svg>`;
 const tile = '<rect width="100" height="100" rx="22" fill="#1f6f5f"/>';
@@ -27,6 +27,16 @@ describe("logo eval checker", () => {
       expect(r.check.problems, brief.id).toEqual([]);
       expect(r.check).toMatchObject({ passed: true, count: brief.count, distinct: true });
       expect(r.check.marks.every((m) => m.valid && m.removed.length === 0)).toBe(true);
+    }
+  });
+
+  it("passes the four parallel single-mark calls (the api's path) for every brief", async () => {
+    const client = new MockModelClient();
+    for (const brief of LOGO_BRIEFS) {
+      const r = await runLogoMarksEval(brief, client);
+      expect(r.error).toBeUndefined();
+      expect(r.check.problems, brief.id).toEqual([]);
+      expect(r.check).toMatchObject({ passed: true, count: brief.count, distinct: true });
     }
   });
 

@@ -3,6 +3,7 @@
  * Account-scoped until commit: functions take `userId` first and filter on owner_user_id. `commit` stamps the
  * business id on the idea and every version/comparison so they become business-scoped history.
  */
+import { randomUUID } from "node:crypto";
 import { ARCHETYPES, ValidationError } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -90,6 +91,45 @@ export const ideasRepo = {
       );
       const updated = one(await tx.update(ideas).set({ currentVersionId: version.id }).where(eq(ideas.id, idea.id)).returning(), "idea");
       return { ...updated, current: version };
+    });
+  },
+
+  /**
+   * Several ideas, each with its first version, in one transaction of three statements however many there are: the
+   * ideas, their versions, then one update pointing each idea at its version (the two tables reference each other, so
+   * the link is written last). The Ideation Studio writes a drafted set this way (DECISIONS 2026-10-09 "Commit writes
+   * the team in batches" is the precedent). Results come back in the order given.
+   */
+  async createMany(db: Executor, userId: string, inputs: readonly CreateIdeaInput[]): Promise<IdeaWithVersion[]> {
+    if (inputs.length === 0) return [];
+    const list = inputs.map((input) => ({ ...parseInput(CreateIdeaInput, input, "idea"), id: randomUUID() }));
+    return db.transaction(async (tx) => {
+      await tx.insert(ideas).values(list.map((v) => ({ id: v.id, ownerUserId: userId, title: v.title, pitch: v.pitch, archetype: v.archetype ?? null })));
+      const versions = await tx
+        .insert(ideaVersions)
+        .values(
+          list.map((v) => ({
+            ideaId: v.id,
+            ownerUserId: userId,
+            version: 1,
+            title: v.title,
+            pitch: v.pitch,
+            attributes: v.attributes,
+            starsCurrent: numericText(v.starsCurrent) ?? "0",
+            starsPotential: numericText(v.starsPotential) ?? "0",
+            research: v.research,
+            action: v.action,
+          })),
+        )
+        .returning();
+      const linked = await tx
+        .update(ideas)
+        .set({ currentVersionId: sql`(select ${ideaVersions.id} from ${ideaVersions} where ${ideaVersions.ideaId} = ${ideas.id} and ${ideaVersions.version} = 1)` })
+        .where(and(eq(ideas.ownerUserId, userId), inArray(ideas.id, list.map((v) => v.id))))
+        .returning();
+      const ideaById = new Map(linked.map((i) => [i.id, i] as const));
+      const versionByIdea = new Map(versions.map((v) => [v.ideaId, v] as const));
+      return list.map((v) => ({ ...one([ideaById.get(v.id)].filter((i): i is Idea => i !== undefined), "idea", v.id), current: versionByIdea.get(v.id) ?? null }));
     });
   },
 

@@ -9,8 +9,9 @@ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-quer
 import { useRouter } from "next/navigation";
 import { useMemo, type ReactNode } from "react";
 import type { GameMode } from "@foundmill/shared";
-import { WidgetDataProvider, type QueryOptions, type QueryState, type WidgetDataSource } from "@foundmill/widgets";
+import { WidgetDataProvider, type QueryOptions, type QueryState, type WidgetDataSource } from "@foundmill/widgets/data";
 import { getStreamClient } from "@/lib/stream-client";
+import { useStreamOpen } from "@/lib/stream-status";
 import { trpcPathPrefix, trpcQueryKey, type UntypedApiClient } from "@/lib/trpc";
 import { useUntypedApi } from "@/components/providers/AppProviders";
 
@@ -67,6 +68,8 @@ export function createWidgetSource(opts: WidgetSourceOptions): WidgetDataSource 
     currency: opts.currency,
     navigate: opts.navigate,
     subscribe: opts.subscribe ?? ((channel, handler) => getStreamClient().subscribe(channel, handler)),
+    // While the tab's stream is connected the shell refetches on events (INVALIDATE_ON_EVENT); screens poll otherwise.
+    useStreamOpen,
     // This member is a hook by contract (widgets call it in render).
     useQuery: <T,>(path: string, input: Record<string, unknown> | undefined, qo?: QueryOptions): QueryState<T> => {
       const full = withBusiness(businessId, input);

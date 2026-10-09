@@ -75,7 +75,7 @@ function LeagueTableWidget({ settings }: WidgetProps<LeagueTableSettings>) {
       queries={board ? [boards, entries] : [boards]}
       flush
       empty={boards.data && !board ? { icon: ListOrdered, text: "No leaderboard is open this period." } : entries.data && rows.length === 0 ? { icon: ListOrdered, text: "No verified businesses on this board yet. Connect Stripe or Shopify to be ranked." } : null}
-      actions={board ? <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={() => navigate(routes.leaderboard(board.id))}>Open</Button> : null}
+      actions={board ? <Button size="sm" variant="ghost" className="px-1.5" onClick={() => navigate(routes.leaderboard(board.id))}>Open</Button> : null}
       footer={<span>{board ? `${board.period}${board.division ? ` · ${board.division}` : ""}` : "LIVE"} · {mine ? `You are #${mine.position}` : "Not ranked yet"} · verified metrics only</span>}
     >
       <MiniTable columns={columns} rows={rows} getRowKey={(r) => r.businessId} highlight={(r) => r.businessId === businessId} onRowClick={() => board && navigate(routes.leaderboard(board.id))} aria-label="Leaderboard" emptyText="No entries." />

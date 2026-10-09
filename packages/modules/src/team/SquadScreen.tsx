@@ -8,8 +8,10 @@
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, Cpu, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
 import { Avatar, Button, DataTable, EntityLink, MODEL_LABELS, Panel, SQUAD_VIEWS, formatRelative, squadColumns, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
-import { AGENT_STATUSES } from "@foundmill/shared";
-import { departmentForModule, routes, useDepartments, useWidgetData } from "@foundmill/widgets";
+import { AGENT_STATUSES } from "@foundmill/shared/constants";
+import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useWidgetData } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { CloneDialog, LoanDialog, ReleaseDialog } from "./dialogs";
 import { ModelChangeDialog, describeModelSet } from "./ModelChangeDialog";

@@ -7,7 +7,9 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, CalendarClock, ExternalLink, Landmark, Search, ShieldCheck, Tag } from "lucide-react";
 import { Chip, DataTable, EntityLink, Input, Panel, StatusPill, cn, formatDate, formatRelative, type ChipTone, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
-import { daysUntil, routes, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { daysUntil } from "@foundmill/widgets/shared/time";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { PNL_CATEGORY_OPTIONS, chartEntry, monthStart, sectionOf, type PnlSection } from "./metrics";
 import { RecategoriseDialog } from "./RecategoriseDialog";

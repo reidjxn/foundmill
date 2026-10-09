@@ -162,4 +162,55 @@ describe("foundations", () => {
     expect(res.applied).toBe(true);
     expect(seen).toEqual([res.inboxItem!.id]);
   });
+
+  it("progress (0019): written for the current attempt only, sections merged atomically, the event in the same transaction, kept by a retry, cleared by apply", async () => {
+    const businessId = r.B.businessId;
+    // B's foundations are ready from the test above: draft them again to have a current drafting attempt.
+    const row = await r.svc((tx) => repos.foundations.claim(tx, businessId, ["ready"]));
+    const attempt = row!.attempt;
+    const section = (name: string) => ({ section: name, content: doc(`Drafted ${name}.`), sourceRefs: [], labelled: 0 });
+    const base = { v: 1 as const, outline: ["Problem", "Features", "Pricing", "Risks"], author: null, vision: null, visionLabelled: 0, theses: [], planned: [], planDone: false, sections: {}, roadmap: [], openQuestions: [], roadmapDone: false };
+    const started = await r.svc((tx) => repos.foundations.writeProgress(tx, businessId, attempt, { replace: base }));
+    expect(started).toMatchObject({ v: 1, outline: base.outline, sections: {} });
+    // Another attempt writes nothing.
+    expect(await r.svc((tx) => repos.foundations.writeProgress(tx, businessId, attempt + 1, { set: { openQuestions: ["stale"] } }))).toBeNull();
+
+    // Parallel batches: every section lands, none overwrites another; a top-level set leaves the sections alone.
+    const events: string[] = [];
+    await Promise.all([
+      ...["Problem", "Features", "Pricing", "Risks"].map((name) => r.svc((tx) => repos.foundations.writeProgress(tx, businessId, attempt, { section: section(name) }, { onWritten: async (_tx, p) => void events.push(`${name}:${Object.keys(p.sections as object).length}`) }))),
+      r.svc((tx) => repos.foundations.writeProgress(tx, businessId, attempt, { set: { roadmap: [], roadmapDone: false, openQuestions: ["Who signs?"] } })),
+    ]);
+    const stored = (await repos.foundations.get(r.db, businessId))!.progress as { sections: Record<string, unknown>; openQuestions: string[] };
+    expect(Object.keys(stored.sections).sort()).toEqual(["Features", "Pricing", "Problem", "Risks"]);
+    expect(stored.sections.Pricing).toEqual(section("Pricing"));
+    expect(stored.openQuestions).toEqual(["Who signs?"]);
+    expect(events).toHaveLength(4);
+
+    // The event hook runs inside the write: when it fails, the progress is not stored.
+    await expect(r.svc((tx) => repos.foundations.writeProgress(tx, businessId, attempt, { set: { openQuestions: ["lost"] } }, { onWritten: async () => { throw new Error("outbox unavailable"); } }))).rejects.toThrow("outbox unavailable");
+    expect(((await repos.foundations.get(r.db, businessId))!.progress as { openQuestions: string[] }).openQuestions).toEqual(["Who signs?"]);
+
+    // A failed attempt keeps its progress for the retry, which can still write it.
+    await r.svc((tx) => repos.foundations.fail(tx, businessId, attempt, "model timed out"));
+    const retried = await r.svc((tx) => repos.foundations.claim(tx, businessId, ["failed"]));
+    expect(retried!.progress).toMatchObject({ sections: { Problem: section("Problem") } });
+    expect(await r.svc((tx) => repos.foundations.writeProgress(tx, businessId, retried!.attempt, { set: { roadmapDone: true } }))).toMatchObject({ roadmapDone: true });
+
+    // Ready: the progress is in the blocks, the roadmap and the vision now; the row no longer carries it.
+    const inputs = await repos.foundations.inputs(r.db, businessId);
+    const ids = Object.fromEntries(inputs.outline.map((o) => [o.section, o.blockId!]));
+    const applied = await r.svc((tx) => repos.foundations.apply(tx, businessId, retried!.attempt, draftFor(ids), { note: null }));
+    expect(applied.applied).toBe(true);
+    expect(applied.row).toMatchObject({ status: "ready", progress: null });
+  });
+
+  it("author: the drafting agent's name and role for the screens; null for no agent or another business's agent", async () => {
+    const { businessId } = r.A;
+    const inputs = await repos.foundations.inputs(r.db, businessId);
+    const author = await repos.foundations.author(r.db, businessId, inputs.authorAgentId);
+    expect(author).toMatchObject({ agentId: inputs.authorAgentId, name: expect.any(String) });
+    expect(await repos.foundations.author(r.db, businessId, null)).toBeNull();
+    expect(await repos.foundations.author(r.db, r.B.businessId, inputs.authorAgentId)).toBeNull();
+  });
 });

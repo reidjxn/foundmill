@@ -1,15 +1,17 @@
 /**
  * inbox.decide (BUILD §11.3 "Decision → execution", AC-11.3.4, AC-11.3.5).
  *
- * option click or free text → plan compile → policy per action → inside policy: write plan + plan_actions and execute
+ * option click (rule engine, in-process) or free text (plan compiler, Opus) → plan → policy per action → inside policy:
+ * write plan + plan_actions and execute
  * / outside: return `{ requiresConfirmation: true, plan }` → item marked answered (releases Continue) →
  * `decision.made` through the outbox → follow-up Update item with links to the artefacts.
  */
+import { classifyFounderText } from "@foundmill/agents";
 import { repos, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
 import { ValidationError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
-import { compilePlan, dispatchPlan, evaluatePlan, executePlanActions, requiresConfirmation, type ActionEvaluation, type PlanContext } from "./plans";
+import { compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, requiresConfirmation, type ActionEvaluation, type PlanContext } from "./plans";
 
 export interface DecideItemInput {
   itemId: string;
@@ -45,15 +47,27 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   const chosenOption = input.chosenOption?.trim() || null;
   const freeText = input.freeText?.trim() || null;
   if (!chosenOption && !freeText) throw new ValidationError("Choose an option or write what should happen");
+  // Only an instruction decides an item from free text (audit-conversation P0). A question, a greeting, "thanks" or
+  // "not now" names nothing to do: the plan compiler could only turn it into `reply_only` and the item would be used up
+  // with nothing done. The Inbox sends free text through `agent.conversation.inboxReply`, which answers it at the
+  // agent's desk instead.
+  const intent = !chosenOption && freeText ? classifyFounderText(freeText) : null;
+  if (intent === "question" || intent === "greeting") {
+    throw new ValidationError("That reads as a question, so nothing was decided. Ask the agent in the conversation instead.", { route: "conversation", itemId: input.itemId });
+  }
+  if (intent === "acknowledge" || intent === "decline") {
+    throw new ValidationError("That doesn't say what should happen, so nothing was decided. Pick an option, or say what you want done.", { route: "conversation", itemId: input.itemId });
+  }
 
   const item = await ctx.rls((tx) => repos.inbox.get(tx, ctx.businessId, input.itemId));
   const options = ((item.decision as { options?: ItemOption[] } | null)?.options ?? []) as ItemOption[];
   const option = chosenOption ? options.find((o) => o.id === chosenOption) : undefined;
   if (chosenOption && !option) throw new ValidationError("chosenOption is not one of the item's options", { chosenOption, options: options.map((o) => o.id) });
 
-  const text = freeText ?? `${option!.label}. ${option!.consequence ?? ""}`.trim();
   const planCtx = await planContextFor(ctx);
-  const compiled = await compilePlan(ctx.models, text, planCtx);
+  // Only free text goes to the plan compiler model (BUILD §11.3); an option click compiles in-process, so the founder
+  // never waits on a model call for a pre-written answer.
+  const compiled = freeText ? await compilePlan(ctx.models, freeText, planCtx) : compileOptionPlan(option!, item, planCtx);
   const evaluations = evaluatePlan(compiled.actions, planCtx);
   const confirm = requiresConfirmation(evaluations);
 
@@ -155,7 +169,7 @@ function describeAction(type: string, p: Record<string, unknown>): string {
     case "request_human_action":
       return `Founder action: ${s("request") || s("original_text")}`;
     case "reply_only":
-      return `Question: ${s("question")}`;
+      return s("question") ? `Question: ${s("question")}` : s("acknowledgement") || "No action";
     default:
       return type.replace(/_/g, " ");
   }

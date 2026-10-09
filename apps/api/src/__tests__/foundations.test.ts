@@ -6,9 +6,9 @@
  */
 import { getArchetypeSeed } from "@foundmill/agents";
 import { businessFoundations, repos } from "@foundmill/db";
-import { MockModelClient, ModelUnavailableError, type ModelClient } from "@foundmill/models";
+import { MockModelClient, ModelUnavailableError, type ModelClient, type StreamStructuredRequest } from "@foundmill/models";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from "vitest";
 import { encodeJobId, importJobKey } from "../services/import";
 import { FOUNDATIONS_LOCAL_CONCURRENCY, FOUNDATIONS_LOCAL_TIMEOUT_MS, FOUNDATIONS_STALE_MS, acquireFoundationsSlot, foundationsSlots, importJobIdOf, runFoundationsLocally, settleFoundationRuns } from "../services/foundations";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
@@ -359,3 +359,139 @@ describe("product.foundations — the in-process fallback is bounded (L2)", () =
     expect(foundationsSlots()).toEqual({ active: 0, waiting: 0 });
   });
 });
+
+/** The sections a staged section call asked for (its `write_sections` block); null for the plan, the roadmap and other routes. */
+function writeSections(req: { messages: readonly { content: string }[] }): string[] | null {
+  const m = /\{"write_sections":(\[[^\]]*\])\}/.exec(req.messages[req.messages.length - 1]?.content ?? "");
+  return m ? (JSON.parse(m[1]!) as string[]) : null;
+}
+
+/** The mock client, with section calls that can wait on a gate or fail; records every streamed call. */
+function stagedClient(opts: { gate?: Promise<void>; fail?: (sections: string[]) => Error | null } = {}) {
+  const mock = new MockModelClient();
+  const calls: { route: string; sections: string[] | null }[] = [];
+  const client: ModelClient = {
+    mode: "mock",
+    complete: mock.complete.bind(mock) as ModelClient["complete"],
+    async streamStructured<T, E>(req: StreamStructuredRequest<T, E>) {
+      const sections = req.route === "foundations" ? writeSections(req) : null;
+      if (req.route === "foundations" || req.route === "foundationsSkeleton") calls.push({ route: req.route, sections });
+      if (sections && opts.gate) await opts.gate;
+      const err = sections ? (opts.fail?.(sections) ?? null) : null;
+      if (err) throw err;
+      return mock.streamStructured(req);
+    },
+  };
+  return { client, calls };
+}
+
+/** Runs with another models client; callers made inside `run` (`hz.caller`) use it (a caller keeps the client it was made with). */
+async function withModels<T>(client: ModelClient, run: () => Promise<T>): Promise<T> {
+  const working = hz.deps.models;
+  hz.deps.models = client;
+  try {
+    return await run();
+  } finally {
+    hz.deps.models = working;
+  }
+}
+
+describe("product.foundations — staged drafting (audit P3)", () => {
+  it("the vision is readable while the sections are still being written; each part is stored with a foundations.progressed event; ready clears the progress", async () => {
+    const a = await commitDoorA("staged@test.local");
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    const { client, calls } = stagedClient({ gate });
+    await withModels(client, async () => {
+      const caller = hz.caller({ userId: a.userId });
+      await caller.product.foundations.ensure({ businessId: a.businessId });
+      // The plan has landed; the section batches wait at the gate (opened whatever happens, so no run is left waiting).
+      onTestFinished(() => open());
+      await vi.waitFor(async () => expect((await caller.product.foundations.get({ businessId: a.businessId })).progress?.stage).toBe("specification"), { timeout: 10_000 });
+      const drafting = await caller.product.foundations.get({ businessId: a.businessId });
+      expect(drafting.status).toBe("drafting");
+      expect(drafting.vision).toMatchObject({ statement: expect.stringContaining("Ledgerly Found"), northStar: { target: expect.stringMatching(/\((Forecast|Estimate)\)/) } });
+      const seed = getArchetypeSeed("b2b_saas");
+      expect(drafting.progress).toMatchObject({ stage: "specification", sectionsDone: 0, sectionsTotal: seed.specOutline.length });
+      expect(drafting.progress!.sections.map((s) => s.section)).toEqual(expect.arrayContaining([...seed.specOutline]));
+      expect(drafting.progress!.sections.every((s) => !s.done && s.content === null)).toBe(true);
+      expect(drafting.progress!.sections.some((s) => s.thesis)).toBe(true);
+      expect(drafting.progress!.author).toMatchObject({ agentId: expect.any(String), name: expect.any(String) });
+      // Nothing is applied while drafting: the blocks are still empty.
+      const blocks = await repos.product.listBlocks(hz.db, a.businessId);
+      expect(blocks.every((b) => JSON.stringify(b.content) === '{"type":"doc","content":[]}')).toBe(true);
+      open();
+      await settleFoundationRuns();
+    });
+    const ready = await a.caller.product.foundations.get({ businessId: a.businessId });
+    expect(ready).toMatchObject({ status: "ready", progress: null, summary: { model: { route: "foundations", staged: true } } });
+    expect((await repos.foundations.get(hz.db, a.businessId))!.progress).toBeNull();
+    // One plan; the sections in batches; one roadmap call.
+    expect(calls.filter((c) => c.route === "foundationsSkeleton")).toHaveLength(1);
+    const batches = calls.filter((c) => c.sections);
+    expect(batches.every((c) => c.sections!.length <= 3)).toBe(true);
+    expect(batches.flatMap((c) => c.sections!).sort()).toEqual([...(await repos.product.listBlocks(hz.db, a.businessId)).map((b) => b.section)].sort());
+    expect(calls.filter((c) => c.route === "foundations" && !c.sections)).toHaveLength(1);
+
+    const events = (await repos.events.list(hz.db, a.businessId, { type: "foundations.progressed", limit: 200 })).items;
+    const steps = events.map((e) => (e.payload as { step: string }).step);
+    for (const step of ["started", "vision", "plan", "section", "roadmap", "ready"]) expect(steps, step).toContain(step);
+    expect(steps.filter((x) => x === "section")).toHaveLength(getArchetypeSeed("b2b_saas").specOutline.length);
+    expect(events.every((e) => (e.payload as { attempt: number }).attempt === 1)).toBe(true);
+  });
+
+  it("a failed section batch is retried section by section, and the drafting still finishes", async () => {
+    const a = await commitDoorA("staged-retry@test.local");
+    let failures = 0;
+    const { client, calls } = stagedClient({
+      fail: (sections) => {
+        if (sections.length > 1 && sections.includes("Pricing")) {
+          failures++;
+          return new ModelUnavailableError("upstream 529 overloaded");
+        }
+        return null;
+      },
+    });
+    await withModels(client, async () => {
+      const caller = hz.caller({ userId: a.userId });
+      await caller.product.foundations.ensure({ businessId: a.businessId });
+      await settleFoundationRuns();
+    });
+    expect(failures).toBe(1);
+    const pricingBatch = calls.find((c) => c.sections && c.sections.length > 1 && c.sections.includes("Pricing"))!.sections!;
+    for (const name of pricingBatch) expect(calls.filter((c) => c.sections?.length === 1 && c.sections[0] === name), name).toHaveLength(1);
+    const view = await a.caller.product.foundations.get({ businessId: a.businessId });
+    expect(view.status).toBe("ready");
+    const blocks = await repos.product.listBlocks(hz.db, a.businessId);
+    expect(blocks.every((b) => b.authoredByKind === "agent")).toBe(true);
+    expect(docText(blocks.find((b) => b.section === "Pricing")!.content)).toMatch(/\(Estimate\)/);
+  });
+
+  it("a section that keeps failing fails the attempt but keeps what was drafted; Try again drafts only what is missing", async () => {
+    const a = await commitDoorA("staged-resume@test.local");
+    const broken = stagedClient({ fail: (sections) => (sections.includes("Pricing") ? new ModelUnavailableError("upstream 529 overloaded") : null) });
+    await withModels(broken.client, async () => {
+      const caller = hz.caller({ userId: a.userId });
+      await caller.product.foundations.ensure({ businessId: a.businessId });
+      await settleFoundationRuns();
+    });
+    const failed = await a.caller.product.foundations.get({ businessId: a.businessId });
+    expect(failed).toMatchObject({ status: "failed", error: "The model service did not answer. Try again in a few minutes." });
+    // What was drafted is kept and shown: the vision and every section but the failing one.
+    expect(failed.vision).not.toBeNull();
+    expect(failed.progress!.sections.find((s) => s.section === "Pricing")).toMatchObject({ done: false });
+    expect(failed.progress!.sectionsDone).toBeGreaterThan(0);
+
+    const working = stagedClient();
+    await withModels(working.client, async () => {
+      const caller = hz.caller({ userId: a.userId });
+      expect(await caller.product.foundations.retry({ businessId: a.businessId })).toMatchObject({ started: true, attempt: 2 });
+      await settleFoundationRuns();
+    });
+    expect(working.calls.filter((c) => c.route === "foundationsSkeleton")).toHaveLength(0);
+    expect(working.calls.filter((c) => c.sections).flatMap((c) => c.sections!)).toEqual(["Pricing"]);
+    expect(await a.caller.product.foundations.get({ businessId: a.businessId })).toMatchObject({ status: "ready", attempt: 2, progress: null });
+    expect(docText((await repos.product.listBlocks(hz.db, a.businessId)).find((b) => b.section === "Pricing")!.content).length).toBeGreaterThan(20);
+  });
+});
+

@@ -9,8 +9,9 @@
 import { useId, useMemo, useState } from "react";
 import { Check, CheckCircle2, Circle, CircleDashed, Compass, Landmark, MonitorPlay, Play, Send, UserRound, XCircle } from "lucide-react";
 import { Button, Chip, Field, Input, Panel, ProvenanceChip, RadioGroup, RadioOption, SimpleSelect, StarRating, Timeline, cn, formatDate, type IconComponent, type TimelineEvent } from "@foundmill/dugout";
-import { INCORPORATION_ROUTES, type IncorporationRoute } from "@foundmill/shared";
-import { routes, useWidgetData } from "@foundmill/widgets";
+import { INCORPORATION_ROUTES, type IncorporationRoute } from "@foundmill/shared/constants";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useWidgetData } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { ROUTE_META, ROUTE_ORDER, founderCanTakeOver, readSteps, routeForJurisdiction, stepRows, type StepRow } from "./legal-data";
 import { FounderLinkOut, FounderOnlyChip, INCORPORATION_PILL, InformationNotice, InlineError, Pill, Screen, fmtMoney, humanise, useAction, useCurrency, useLegalStatus, useNow } from "./shared";

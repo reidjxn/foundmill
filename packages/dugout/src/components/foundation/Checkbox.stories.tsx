@@ -23,7 +23,7 @@ function Group() {
     <div className="flex w-64 flex-col gap-2 text-body">
       <label className="flex items-center gap-2">
         <Checkbox checked={all} onCheckedChange={(c) => setRows(rows.map(() => c === true))} aria-label="Select all" />
-        <span className="t-label normal-case tracking-normal">Select all</span>
+        <span className="t-label">Select all</span>
       </label>
       {["Pricing page rewrite", "SEO comparison article", "Bank feed connector"].map((t, i) => (
         <label key={t} className="flex items-center gap-2 pl-4">

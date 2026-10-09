@@ -8,7 +8,8 @@
  */
 import { serve } from "@hono/node-server";
 import { closeDb, createServiceDb } from "@foundmill/db";
-import { createLogger, loadEnv, servicePort } from "@foundmill/shared";
+import { loadEnv, servicePort } from "@foundmill/shared";
+import { createLogger } from "@foundmill/shared/logger";
 import { createApp } from "./app";
 import { prepareDb } from "./db-boot";
 

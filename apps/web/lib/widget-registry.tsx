@@ -5,10 +5,9 @@
  * simple (boolean, number, string, enum); anything else keeps the widget's own SettingsComponent or no dialog.
  */
 import { createElement } from "react";
-import { icons, type LucideIcon } from "lucide-react";
 import type { WidgetRegistryEntry, WidgetSettingField } from "@foundmill/dugout";
 import { listWidgets, parseWidgetSettings, type AnyWidgetDefinition, type WidgetSurface } from "@foundmill/widgets";
-import { pascalCase } from "./icons";
+import { lookupIcon } from "./icons";
 
 interface ZodLikeField {
   _zod?: { def?: { type?: string; innerType?: ZodLikeField; entries?: Record<string, string>; defaultValue?: unknown } };
@@ -51,7 +50,7 @@ export function settingsFieldsFromSchema(schema: unknown): WidgetSettingField[] 
 
 export function toGridEntry(def: AnyWidgetDefinition, businessId: string): WidgetRegistryEntry {
   const s = def.defaultSize;
-  const Icon = (icons[pascalCase(def.icon) as keyof typeof icons] as LucideIcon | undefined) ?? undefined;
+  const Icon = lookupIcon(def.icon);
   return {
     key: def.key,
     title: def.title,

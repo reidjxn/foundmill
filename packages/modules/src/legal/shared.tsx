@@ -7,7 +7,7 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
 import { ExternalLink, Info, ShieldCheck } from "lucide-react";
 import { Button, Chip, PageGrid, StatusPill, cn, formatMoney, type ButtonProps, type StatusTone } from "@foundmill/dugout";
-import { useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets";
+import { useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets/data";
 import type { CalendarStatus } from "./legal-data";
 import type { ContractStatus, IncorporationStatus, IncorporationStatusResponse, LegalEntityStatus } from "./types";
 

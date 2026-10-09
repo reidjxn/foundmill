@@ -12,6 +12,7 @@ import {
   menuLabelClass,
   menuSeparatorClass,
   menuShortcutClass,
+  menuSubChevronClass,
   menuSubTriggerClass,
 } from "./menuStyles";
 
@@ -23,7 +24,7 @@ export const DropdownMenuSub = Menu.Sub;
 export const DropdownMenuRadioGroup = Menu.RadioGroup;
 
 export const DropdownMenuContent = forwardRef<ElementRef<typeof Menu.Content>, ComponentPropsWithoutRef<typeof Menu.Content>>(function DropdownMenuContent(
-  { className, sideOffset = 4, align = "start", collisionPadding = 8, ...props },
+  { className, sideOffset = 6, align = "start", collisionPadding = 8, ...props },
   ref,
 ) {
   return (
@@ -34,10 +35,10 @@ export const DropdownMenuContent = forwardRef<ElementRef<typeof Menu.Content>, C
 });
 
 export const DropdownMenuSubContent = forwardRef<ElementRef<typeof Menu.SubContent>, ComponentPropsWithoutRef<typeof Menu.SubContent>>(
-  function DropdownMenuSubContent({ className, sideOffset = 2, ...props }, ref) {
+  function DropdownMenuSubContent({ className, sideOffset = 4, alignOffset = -6, ...props }, ref) {
     return (
       <Menu.Portal>
-        <Menu.SubContent ref={ref} sideOffset={sideOffset} className={cn(menuContentClass, className)} {...props} />
+        <Menu.SubContent ref={ref} sideOffset={sideOffset} alignOffset={alignOffset} className={cn(menuContentClass, className)} {...props} />
       </Menu.Portal>
     );
   },
@@ -52,7 +53,7 @@ export const DropdownMenuItem = forwardRef<ElementRef<typeof Menu.Item>, Dropdow
   { className, variant = "default", inset, ...props },
   ref,
 ) {
-  return <Menu.Item ref={ref} data-variant={variant} className={cn(menuItemClass, inset && "pl-7", className)} {...props} />;
+  return <Menu.Item ref={ref} data-variant={variant} className={cn(menuItemClass, inset && "pl-8", className)} {...props} />;
 });
 
 export const DropdownMenuCheckboxItem = forwardRef<ElementRef<typeof Menu.CheckboxItem>, ComponentPropsWithoutRef<typeof Menu.CheckboxItem>>(
@@ -60,7 +61,7 @@ export const DropdownMenuCheckboxItem = forwardRef<ElementRef<typeof Menu.Checkb
     return (
       <Menu.CheckboxItem ref={ref} className={cn(menuCheckItemClass, className)} {...props}>
         <Menu.ItemIndicator className={menuIndicatorClass}>
-          <Icon icon={Check} size={12} strokeWidth={2.25} />
+          <Icon icon={Check} size="inline" strokeWidth={2.25} />
         </Menu.ItemIndicator>
         {children}
       </Menu.CheckboxItem>
@@ -73,7 +74,7 @@ export const DropdownMenuRadioItem = forwardRef<ElementRef<typeof Menu.RadioItem
     return (
       <Menu.RadioItem ref={ref} className={cn(menuCheckItemClass, className)} {...props}>
         <Menu.ItemIndicator className={menuIndicatorClass}>
-          <Icon icon={Circle} size={8} fill="currentColor" />
+          <Icon icon={Circle} size={7} fill="currentColor" />
         </Menu.ItemIndicator>
         {children}
       </Menu.RadioItem>
@@ -84,9 +85,9 @@ export const DropdownMenuRadioItem = forwardRef<ElementRef<typeof Menu.RadioItem
 export const DropdownMenuSubTrigger = forwardRef<ElementRef<typeof Menu.SubTrigger>, ComponentPropsWithoutRef<typeof Menu.SubTrigger> & { inset?: boolean }>(
   function DropdownMenuSubTrigger({ className, inset, children, ...props }, ref) {
     return (
-      <Menu.SubTrigger ref={ref} className={cn(menuSubTriggerClass, inset && "pl-7", className)} {...props}>
+      <Menu.SubTrigger ref={ref} className={cn(menuSubTriggerClass, inset && "pl-8", className)} {...props}>
         {children}
-        <Icon icon={ChevronRight} size="inline" className="ml-auto text-secondary" />
+        <Icon icon={ChevronRight} size="inline" className={menuSubChevronClass} />
       </Menu.SubTrigger>
     );
   },

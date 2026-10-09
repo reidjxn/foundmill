@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { Cpu } from "lucide-react";
 import { ApplyScopeDialog, Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, MODEL_LABELS, ModelPicker, SkeletonText, type ApplyScope, type ModelOption } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
-import { useWidgetQuery } from "@foundmill/widgets";
+import { useWidgetQuery } from "@foundmill/widgets/data";
 import { InlineError, agentTypeNoun, errorMessage, useAction } from "./shared";
 import type { AgentRow, ModelCompareResponse, ModelSetResponse } from "./types";
 

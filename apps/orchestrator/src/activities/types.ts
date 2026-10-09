@@ -4,7 +4,6 @@
  */
 import type { SessionCommand } from "../control-bus";
 import type { ProgressState } from "../progress";
-import type { FoundationsDraft } from "@foundmill/agents";
 import type { AgentStatus, BusinessMode, ModelKey, PlanActionType, PolicyOutcome, TaskKind, TaskStatus } from "@foundmill/shared";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -413,13 +412,31 @@ export interface BusinessFoundationsInput {
   attempt: number;
 }
 
-export interface FoundationsDrafted {
+/** What a drafting step's model calls cost (summed by the workflow into the summary's model metadata; an Estimate). */
+export interface FoundationsStepUsage {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  costMinor: number;
+  model: string | null;
+  mode: "mock" | "live" | null;
+  repaired: boolean;
+}
+
+/** Step 1 (the plan) done: the section batches still to write. */
+export interface FoundationsPlanned {
   /** False when the attempt is no longer the current drafting one (nothing was asked of the model). */
   current: boolean;
-  draft: FoundationsDraft | null;
   door: "ideation" | "import";
-  /** Model metadata kept on the row's summary (cost in minor units, an Estimate). */
-  model: Record<string, unknown>;
+  /** Outline sections still to write, in batches (one `draftFoundationsSections` activity each). */
+  chunks: string[][];
+  usage: FoundationsStepUsage;
+}
+
+/** Step 2 (a batch of sections) or step 3 (the roadmap) done. */
+export interface FoundationsStepDone {
+  current: boolean;
+  usage: FoundationsStepUsage;
 }
 
 export interface BusinessFoundationsResult {

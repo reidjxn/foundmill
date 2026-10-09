@@ -7,8 +7,10 @@
 import { useCallback, useMemo, useState } from "react";
 import { ExternalLink, Trophy } from "lucide-react";
 import { Button, Chip, DataTable, FunnelChart, KeyValueList, Panel, ProvenanceChip, StatusPill, formatDate, formatMoney, formatNumber, formatPercent, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
-import { CHANNEL_LINES, type ChannelKey, type MatchdayLevel } from "@foundmill/shared";
-import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { CHANNEL_LINES, type ChannelKey, type MatchdayLevel } from "@foundmill/shared/constants";
+import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { MODEL_LABELS, attributionRows, buildChannelViews, funnelStages, isPartialJourney, modelInUse, type AttributionRow } from "./channel-data";
 import { LINE_LABELS, Screen, channelLabel, toDate, useAction } from "./shared";

@@ -3,24 +3,30 @@
  * A department tab (BUILD §6.1, §11.13): loads `screen.get`, shows the department's tabs in the TabBar and renders
  * either a module full-screen widget (`module:<key>/<tab>` through @foundmill/modules `getModuleScreen`) or a
  * WidgetGrid of gallery widgets (@foundmill/widgets) with Edit mode on `E`, persisted through `screen.update`.
+ * Module packs load on demand (`useModulePacks`): only the current tab's module gates the screen, and the department's
+ * other modules are fetched alongside, so a department tab never downloads the other departments' screens. A widget
+ * layout (WidgetScreen: the gallery widgets and the grid) is its own chunk too, loaded only by tabs that have one.
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LayoutGrid, Pencil } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, EmptyState, Kbd, Panel, WidgetGrid, useToast, type TabItem, type WidgetLayout } from "@foundmill/dugout";
-import { getModuleScreen, type ModuleScreen } from "@foundmill/modules";
+import { useMemo, useState } from "react";
+import { Button, EmptyState, Kbd, Panel, useToast, type TabItem } from "@foundmill/dugout";
+import { useModulePacks } from "@foundmill/modules/lazy";
+import { getModuleScreen, type ModuleScreen } from "@foundmill/modules/registry";
 import type { ModuleKey } from "@foundmill/shared";
-import { MODULE_KEYS } from "@foundmill/shared";
-import { fromGridLayout, prepareLayout, routes, toGridLayout, toScreenLayout } from "@foundmill/widgets";
+import { MODULE_KEYS } from "@foundmill/shared/constants";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { usePageShortcuts } from "@/lib/keys";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { gridRegistry } from "@/lib/widget-registry";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
+
+const WidgetScreen = dynamic(() => import("./WidgetScreen").then((m) => m.WidgetScreen), { loading: () => <ScreenSkeleton /> });
 
 export interface DepartmentScreenProps {
   deptSlug: string;
@@ -38,12 +44,20 @@ export function parseModuleWidgetKey(key: string): { moduleKey: ModuleKey; tabSl
   return { moduleKey: moduleKey as ModuleKey, tabSlug };
 }
 
-/** A layout whose only widget is a module screen renders that module full-screen. */
+/** The module a layout would render full-screen (its only widget is `module:<key>/<tab>`), or null. */
+export function moduleKeyFor(layout: { widgets: readonly { key: string }[] } | null | undefined): ModuleKey | null {
+  if (!layout || layout.widgets.length !== 1) return null;
+  return parseModuleWidgetKey(layout.widgets[0]!.key)?.moduleKey ?? null;
+}
+
+/** A layout whose only widget is a module screen renders that module full-screen (once its pack has loaded). */
 export function moduleScreenFor(layout: { widgets: readonly { key: string }[] } | null | undefined): ModuleScreen | null {
   if (!layout || layout.widgets.length !== 1) return null;
   const parsed = parseModuleWidgetKey(layout.widgets[0]!.key);
   return parsed ? (getModuleScreen(parsed.moduleKey, parsed.tabSlug) ?? null) : null;
 }
+
+const isModuleKey = (key: string): key is ModuleKey => (MODULE_KEYS as readonly string[]).includes(key);
 
 export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScreenProps) {
   const { businessId, departmentBySlug, data } = useBusiness();
@@ -56,7 +70,15 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
 
   const screenQ = useQuery(trpc.screen.get.queryOptions({ businessId, departmentId: department?.id ?? businessId, tabSlug }, { enabled: Boolean(department), staleTime: 30_000 }));
   const screenRow = screenQ.data?.screen ?? null;
-  const moduleScreen = useMemo(() => moduleScreenFor(screenRow?.layout as { widgets: { key: string }[] } | undefined), [screenRow?.layout]);
+  const layoutForModule = screenRow?.layout as { widgets: { key: string }[] } | undefined;
+  // The current tab's module pack gates the screen; the department's other modules load alongside (also while
+  // `screen.get` is in flight, so the chunk and the data arrive together).
+  const tabModule = moduleKeyFor(layoutForModule);
+  const neededPacks = useMemo(() => (tabModule ? [tabModule] : []), [tabModule]);
+  const departmentPacks = useMemo(() => (department?.moduleKeys ?? []).filter(isModuleKey), [department?.moduleKeys]);
+  const packs = useModulePacks(neededPacks, departmentPacks);
+  const modulePending = Boolean(tabModule) && !packs.ready;
+  const moduleScreen = useMemo(() => (packs.ready ? moduleScreenFor(layoutForModule) : null), [layoutForModule, packs.ready]);
 
   // Tabs for the shell's TabBar, with the module screen's sub-views in the caret menu.
   const tabs = useMemo<TabItem[]>(() => {
@@ -72,7 +94,7 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
 
   // --- Edit mode (E) for widget layouts ---------------------------------------------------------------------------
   const [editing, setEditing] = useState(false);
-  const editable = Boolean(screenRow) && !moduleScreen;
+  const editable = Boolean(screenRow) && !moduleScreen && !modulePending;
   usePageShortcuts({ onEditLayout: editable ? () => setEditing((e) => !e) : undefined, onEscape: editing ? () => setEditing(false) : undefined });
 
   useShellChrome(
@@ -108,6 +130,10 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
     );
   }
 
+  if (modulePending) {
+    return packs.error ? <ErrorPanel title={department.name} message="This screen did not load. Check your connection and try again." onRetry={packs.retry} /> : <ScreenSkeleton />;
+  }
+
   if (moduleScreen) {
     const Component = moduleScreen.Component;
     return (
@@ -137,63 +163,5 @@ function EditToggle({ editing, onToggle }: { editing: boolean; onToggle: () => v
       {editing ? "Done" : "Edit"}
       <Kbd>E</Kbd>
     </Button>
-  );
-}
-
-interface WidgetScreenProps {
-  businessId: string;
-  screenId: string;
-  rawLayout: unknown;
-  live: boolean;
-  editing: boolean;
-  onEditingChange: (editing: boolean) => void;
-  onSaved: () => void;
-  onError: (message: string) => void;
-}
-
-function WidgetScreen({ businessId, screenId, rawLayout, live, editing, onEditingChange, onSaved, onError }: WidgetScreenProps) {
-  const trpc = useTRPC();
-  const registry = useMemo(() => gridRegistry("department", businessId, live), [businessId, live]);
-  const prepared = useMemo(() => prepareLayout(rawLayout, { live }), [rawLayout, live]);
-  const [layout, setLayout] = useState<WidgetLayout>(() => toGridLayout(prepared.layout));
-  useEffect(() => setLayout(toGridLayout(prepared.layout)), [prepared.layout]);
-
-  const update = useMutation(trpc.screen.update.mutationOptions({ onSuccess: onSaved, onError: (err) => onError(errorMessage(err)) }));
-  const pending = useRef<WidgetLayout | null>(null);
-  const timer = useRef<number | null>(null);
-  const persist = useCallback(
-    (next: WidgetLayout) => {
-      setLayout(next);
-      pending.current = next;
-      if (timer.current !== null) window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => {
-        timer.current = null;
-        if (!pending.current) return;
-        update.mutate({ businessId, screenId, layout: toScreenLayout(fromGridLayout(pending.current)) });
-        pending.current = null;
-      }, 400);
-    },
-    [businessId, screenId, update],
-  );
-  useEffect(() => () => {
-    if (timer.current !== null) window.clearTimeout(timer.current);
-  }, []);
-
-  if (layout.length === 0 && !editing) {
-    return (
-      <div className="p-gutter">
-        <Panel title="Empty screen" span={12}>
-          <EmptyState icon={LayoutGrid} title="Nothing on this tab yet" action={{ label: "Add widgets", icon: Pencil, onClick: () => onEditingChange(true) }}>
-            Press E or Edit to add widgets from the gallery; the layout saves as you go.
-          </EmptyState>
-        </Panel>
-      </div>
-    );
-  }
-
-  return (
-    <div className="p-gutter" data-testid="widget-screen">
-      <WidgetGrid layout={layout} registry={registry} onChange={persist} editing={editing} onEditingChange={onEditingChange} hideToolbar={!editing} defaultLayout={toGridLayout(prepared.layout)} aria-label="Screen widgets" />
-    </div>
   );
 }

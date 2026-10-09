@@ -1,25 +1,31 @@
 "use client";
 /**
  * /new/ideate — the Ideation Studio (BUILD §11.1 Door A; AC-11.1.2, AC-11.1.3). Prompt box ("surprise me within my
- * constraints" when empty) → idea.generate → 6–12 ConceptCards (Dugout profile cards: the initials mark until a logo is chosen at Commit, stars, ten AttributeBars
- * with evidence hover, citation count). Actions: Shortlist (local), Merge / Fork / Ask (idea.*, each a new version),
- * Discard (idea.discard; reversible from the tray). Select 2–4 cards → Compare. History opens every version.
+ * constraints" when empty) → idea.draft, streamed (audit P2): the concepts are named as the slate arrives and each card
+ * fills its place the moment it is saved, with who is drafting, a live progress line, the elapsed time and a Stop button;
+ * existing cards stay visible (dimmed) meanwhile. Cards are 6–12 ConceptCards (Dugout profile cards: the initials mark
+ * until a logo is chosen at Commit, stars, ten AttributeBars with evidence hover, citation count). Actions: Shortlist
+ * (local), Merge / Fork / Ask (idea.*, each a new version), Discard (idea.discard; reversible from the tray). Select 2–4
+ * cards → Compare. History opens every version. ⌘/Ctrl+Enter drafts from anywhere on the page.
  *
  * Ideation is private: no business exists yet, so there is no kit bar and nothing reaches LIVE.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Bookmark, Columns3, History, RotateCcw, Sparkles, Trash2, Wand2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
 import { Button, Chip, BusinessLogo, ConceptCard, EmptyState, IconButton, Kbd, Panel, SimpleSelect, Skeleton, SkeletonText, StatusPill, Textarea, Tooltip, cn, useToast, type ConceptAction } from "@foundmill/dugout";
 import { useKeyboardMap } from "@/lib/keys";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
-import { useTRPC } from "@/lib/trpc-react";
+import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
 import { StudioFrame } from "../StudioFrame";
 import { COMPARE_MAX, COMPARE_MIN, buildDeck, commitHref, compareHref, costLabel, discardLocally, lineageOf, orderDeck, restoreLocally, toConcept, toggleSelection, type IdeaLike } from "./concepts";
 import { AskDialog, ForkDialog, HistoryDialog, MergeDialog } from "./dialogs";
+import { DraftStatus, DraftingCard } from "./DraftStatus";
+import { formatElapsed, gridEntries, prependIdea } from "./draft-run";
+import { useDraftRun } from "./use-draft-run";
 import { useStudioState } from "./use-studio-state";
 
 export interface IdeationStudioProps {
@@ -30,6 +36,8 @@ export interface IdeationStudioProps {
 }
 
 const SURPRISE = "surprise me within my constraints";
+
+type DraftInput = { prompt: string; archetypeHint?: Archetype };
 const ARCHETYPE_OPTIONS = [{ value: "any", label: "Any archetype" }, ...ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))];
 
 type DialogKind = "ask" | "fork" | "merge" | "history" | null;
@@ -64,16 +72,21 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
   const active = useMemo(() => deck.find((i) => i.id === activeId) ?? null, [deck, activeId]);
   const invalidateIdeas = () => queryClient.invalidateQueries({ queryKey: trpcPathPrefix("idea") as unknown[] });
 
-  const generate = useMutation(
-    trpc.idea.generate.mutationOptions({
-      onSuccess: async (res) => {
-        await invalidateIdeas();
-        toast({ title: `${res.ideas.length} concepts drafted`, description: `Model cost ${costLabel(res.costMinor)} · ${res.costLabel}${res.mode === "mock" ? " · mock mode" : ""}`, tone: "good" });
-        gridRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      },
-      onError: (err) => toast({ title: "Nothing drafted", description: errorMessage(err), tone: "bad" }),
-    }),
-  );
+  const client = useTRPCClient();
+  const listKey = trpc.idea.list.queryKey({ limit: 100 });
+  const draft = useDraftRun((input: DraftInput, signal) => client.idea.draft.mutate(input, { signal }), {
+    // Each saved card goes straight into the deck's cache: no refetch of the whole list.
+    onIdea: (idea) => queryClient.setQueryData(listKey, (old) => prependIdea(old, idea)),
+    onDone: (event) => toast({ title: `${event.ideas.length} concepts drafted`, description: `In ${formatElapsed(event.elapsedMs)} · model cost ${costLabel(event.costMinor)} · ${event.costLabel}${event.mode === "mock" ? " · mock mode" : ""}`, tone: "good" }),
+    onError: (err) => toast({ title: "Draft stopped early", description: errorMessage(err), tone: "bad" }),
+    onStop: () => {
+      // A card saved in the last instant may not have reached the stream: read the deck once more.
+      void queryClient.invalidateQueries({ queryKey: listKey });
+      toast({ title: "Draft stopped", description: "Concepts already drafted stay in your deck.", tone: "neutral" });
+    },
+  });
+  const { run, running } = draft;
+
   const merge = useMutation(
     trpc.idea.merge.mutationOptions({
       onSuccess: async (merged) => {
@@ -105,13 +118,30 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
 
   const historyQ = useQuery(trpc.idea.get.queryOptions({ ideaId: activeId ?? "" }, { enabled: dialog === "history" && Boolean(activeId) }));
 
-  function runGenerate(e?: FormEvent) {
+  async function runGenerate(e?: FormEvent) {
     e?.preventDefault();
-    if (generate.isPending) return;
+    if (running) return;
     const p = prompt.trim();
     updateStudio((s) => ({ ...s, lastPrompt: p }));
-    generate.mutate({ prompt: p, archetypeHint: archetypeHint === "any" ? undefined : (archetypeHint as Archetype) });
+    await draft.start({ prompt: p, archetypeHint: archetypeHint === "any" ? undefined : (archetypeHint as Archetype) });
   }
+
+  // ⌘/Ctrl+Enter drafts from anywhere on the page (dialogs keep their own keys).
+  const generateRef = useRef(runGenerate);
+  generateRef.current = runGenerate;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey) || dialog !== null) return;
+      e.preventDefault();
+      void generateRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dialog]);
+  const [modKey, setModKey] = useState("Ctrl");
+  useEffect(() => {
+    if (/Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent)) setModKey("⌘");
+  }, []);
 
   function onAction(action: ConceptAction, id: string) {
     const idea = deck.find((i) => i.id === id);
@@ -171,8 +201,16 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
     onContinue: goCompare,
   });
 
-  const busy = generate.isPending;
-  const showHero = !ideasQ.isLoading && deck.length === 0 && !busy;
+  // Stable handlers, so a streamed card (or a ticking timer) re-renders only what changed, not every card in the deck.
+  const latestHandlers = useRef({ onAction, openHistory });
+  latestHandlers.current = { onAction, openHistory };
+  const stableOnAction = useCallback((action: ConceptAction, id: string) => latestHandlers.current.onAction(action, id), []);
+  const stableOpenHistory = useCallback((id: string) => latestHandlers.current.openHistory(id), []);
+  const toggleSelect = useCallback((id: string) => setSelection((sel) => toggleSelection(sel, id)), []);
+
+  const busy = running;
+  const showHero = !ideasQ.isLoading && deck.length === 0 && !run;
+  const entries = useMemo(() => gridEntries(deck, run), [deck, run]);
 
   return (
     <StudioFrame
@@ -219,20 +257,26 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
                 {constraints.length > 4 ? <Chip>+{constraints.length - 4}</Chip> : null}
               </div>
             ) : null}
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex items-center gap-3">
               <span className="text-small text-secondary tabular-nums">{prompt.length}/4000</span>
-              <Button type="submit" variant="primary" icon={prompt.trim() ? Sparkles : Wand2} loading={busy} data-testid="generate-button">
-                {prompt.trim() ? "Draft concepts" : "Surprise me within my constraints"}
+              <span className="flex items-center gap-1 text-small text-secondary" aria-hidden>
+                <Kbd>{modKey}</Kbd>
+                <Kbd>Enter</Kbd>
+              </span>
+              <Button type="submit" variant="primary" size="lg" className="normal-case tracking-normal text-body" icon={prompt.trim() ? Sparkles : Wand2} loading={busy} aria-keyshortcuts="Meta+Enter Control+Enter" data-testid="generate-button">
+                {prompt.trim() ? "Draft concepts" : "Surprise me"}
               </Button>
             </div>
           </div>
-          {generate.error ? (
+          {run && run.status === "failed" ? (
             <StatusPill tone="bad" role="alert">
-              {errorMessage(generate.error)}
+              {run.error}
             </StatusPill>
           ) : null}
         </div>
       </form>
+
+      {run ? <DraftStatus run={run} onStop={draft.stop} /> : null}
 
       {trayOpen && studio.discarded.length > 0 ? (
         <Panel title={`Discarded · ${studio.discarded.length}`} className="mb-gutter" data-testid="discard-tray" actions={<IconButton icon={X} label="Close tray" size="sm" variant="ghost" onClick={() => setTrayOpen(false)} />}>
@@ -280,27 +324,14 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
                 </span>
               </div>
             ) : null}
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-gutter" data-testid="concept-grid" data-count={deck.length}>
-              {busy ? Array.from({ length: 6 }, (_, i) => <CardSkeleton key={`gen-${i}`} />) : null}
-              {deck.map((idea) => {
-                const concept = toConcept(idea);
-                const selected = selection.includes(idea.id);
-                return (
-                  <div key={idea.id} className="relative" id={`concept-${idea.id}`}>
-                    <ConceptCard concept={concept} className="w-full" shortlisted={studio.shortlist.includes(idea.id)} selected={selected} onToggleSelect={(id) => setSelection((sel) => toggleSelection(sel, id))} onAction={onAction} />
-                    <div className="mt-1.5 flex items-center gap-1.5">
-                      <Tooltip content="Every version of this card">
-                        <Button size="sm" variant="ghost" icon={History} onClick={() => openHistory(idea.id)} data-testid="history-button">
-                          History{concept.version && concept.version > 1 ? ` · v${concept.version}` : ""}
-                        </Button>
-                      </Tooltip>
-                      <LinkButton size="sm" variant="default" iconRight={ArrowRight} className="ml-auto" href={commitHref(idea.id)} data-testid="commit-link">
-                        Commit
-                      </LinkButton>
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-gutter" data-testid="concept-grid" data-count={deck.length} aria-busy={busy || undefined}>
+              {entries.map((entry) =>
+                entry.kind === "placeholder" ? (
+                  <DraftingCard key={`slot-${entry.slot.index}`} slot={entry.slot} />
+                ) : (
+                  <DeckCard key={entry.idea.id} idea={entry.idea} fresh={entry.fresh} dimmed={busy && !entry.fresh} selected={selection.includes(entry.idea.id)} shortlisted={studio.shortlist.includes(entry.idea.id)} onToggleSelect={toggleSelect} onAction={stableOnAction} onOpenHistory={stableOpenHistory} />
+                ),
+              )}
             </div>
             {showHero ? (
               <EmptyState icon={Sparkles} title="No concepts yet" className="mt-gutter">
@@ -373,6 +404,39 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
     </StudioFrame>
   );
 }
+
+interface DeckCardProps {
+  idea: IdeaLike;
+  /** Drafted in the current run (pinned first, never dimmed). */
+  fresh: boolean;
+  /** An older card while a draft runs: stays in place, dimmed. */
+  dimmed: boolean;
+  selected: boolean;
+  shortlisted: boolean;
+  onToggleSelect: (id: string) => void;
+  onAction: (action: ConceptAction, id: string) => void;
+  onOpenHistory: (id: string) => void;
+}
+
+/** One card of the deck. Memoised: the brand colours and ten attribute bars are only recomputed when the idea changes. */
+const DeckCard = memo(function DeckCard({ idea, fresh, dimmed, selected, shortlisted, onToggleSelect, onAction, onOpenHistory }: DeckCardProps) {
+  const concept = useMemo(() => toConcept(idea), [idea]);
+  return (
+    <div className={cn("relative transition-opacity duration-micro", dimmed && "opacity-60")} id={`concept-${idea.id}`} data-fresh={fresh || undefined}>
+      <ConceptCard concept={concept} className="w-full" shortlisted={shortlisted} selected={selected} onToggleSelect={onToggleSelect} onAction={onAction} />
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <Tooltip content="Every version of this card">
+          <Button size="sm" variant="ghost" icon={History} onClick={() => onOpenHistory(idea.id)} data-testid="history-button">
+            History{concept.version && concept.version > 1 ? ` · v${concept.version}` : ""}
+          </Button>
+        </Tooltip>
+        <LinkButton size="sm" variant="default" iconRight={ArrowRight} className="ml-auto" href={commitHref(idea.id)} data-testid="commit-link">
+          Commit
+        </LinkButton>
+      </div>
+    </div>
+  );
+});
 
 function CardSkeleton() {
   return (

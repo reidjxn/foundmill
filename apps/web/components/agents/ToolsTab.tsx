@@ -10,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, CircleDollarSign, Plug, Send, ShieldAlert, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button, Checkbox, Chip, Icon, Panel, StatusPill, Tooltip, useToast } from "@foundmill/dugout";
-import { routes } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";

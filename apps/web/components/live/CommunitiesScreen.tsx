@@ -9,7 +9,7 @@ import { Check, DoorOpen, LogIn, LogOut, UsersRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Button, Chip, DataTable, Panel, StatusPill, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
-import { routes } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useShellChrome } from "@/components/shell/chrome";

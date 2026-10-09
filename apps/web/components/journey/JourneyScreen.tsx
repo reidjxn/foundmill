@@ -11,7 +11,7 @@ import { ArrowLeft, Route, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Chip, EmptyState, JourneyStage, Panel, type ReplaySpeed } from "@foundmill/dugout";
-import { routes } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage, trpcErrorCode, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";

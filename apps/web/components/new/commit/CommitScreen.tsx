@@ -17,11 +17,12 @@ import { ARCHETYPE_LABELS, type Archetype, type BusinessMode, type GameMode } fr
 import { routes } from "@foundmill/widgets/shared/routes";
 import { Avatar, Button, Chip, ConceptCard, Field, Input, Panel, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, cn, formatMoney, useToast, type Kit } from "@foundmill/dugout";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
-import { useTRPC } from "@/lib/trpc-react";
+import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
 import { StudioFrame } from "../StudioFrame";
 import { readMeta, toConcept, type IdeaLike } from "../ideate/concepts";
-import type { GeneratedLogoSet, LogoActions } from "@/components/logo/LogoPicker";
+import type { GeneratedLogoSet, LogoActions, LogoProgress } from "@/components/logo/LogoPicker";
+import { readLogoStream } from "@/components/logo/logo-stream";
 import { LogoColoursEditor } from "./LogoColoursEditor";
 import {
   ARCHETYPE_CARDS,
@@ -52,7 +53,8 @@ type SquadPreview = RouterOutputs["idea"]["preview"];
 /** The logo calls the Commit form makes (bound to `idea.logo.*` by CommitScreen; faked in tests). */
 export interface CommitLogoApi {
   prepare(dataUrl: string): Promise<{ dataUrl: string; colours: string[] }>;
-  generate(input: { name: string; colours: Kit; archetype: Archetype | null; round: number }): Promise<GeneratedLogoSet>;
+  /** A set, streamed (`idea.logo.stream`): `onProgress` gets each mark as it passes the server's check. */
+  generate(input: { name: string; colours: Kit; archetype: Archetype | null; round: number }, onProgress?: (progress: LogoProgress) => void, signal?: AbortSignal): Promise<GeneratedLogoSet>;
 }
 
 /** How long after a successful commit the screen waits for the client-side move before loading the Inbox outright. */
@@ -68,16 +70,17 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
   const ideaQ = useQuery(trpc.idea.get.queryOptions({ ideaId }));
   const [archetype, setArchetype] = useState<Archetype | null>(null);
   const previewQ = useQuery(trpc.idea.preview.queryOptions({ archetype: archetype ?? "b2b_saas" }, { enabled: archetype !== null, staleTime: 60_000 }));
+  const client = useTRPCClient();
   const prepareLogo = useMutation(trpc.idea.logo.prepare.mutationOptions());
-  const generateLogo = useMutation(trpc.idea.logo.generate.mutationOptions());
   const { mutateAsync: prepareAsync } = prepareLogo;
-  const { mutateAsync: generateAsync } = generateLogo;
   const logoApi = useMemo<CommitLogoApi>(
     () => ({
       prepare: (dataUrl) => prepareAsync({ dataUrl }),
-      generate: ({ name, colours, archetype, round }) => generateAsync({ ideaId, name: name.trim() || "Your business", colours, archetype: archetype ?? undefined, round }),
+      // Streamed: the four marks are drawn in parallel and each shows the moment it passes the check (audit P6).
+      generate: async ({ name, colours, archetype, round }, onProgress, signal) =>
+        readLogoStream(await client.idea.logo.stream.mutate({ ideaId, name: name.trim() || "Your business", colours, archetype: archetype ?? undefined, round }, { signal }), onProgress),
     }),
-    [ideaId, prepareAsync, generateAsync],
+    [ideaId, prepareAsync, client],
   );
   const commit = useMutation(
     trpc.idea.commit.mutationOptions({
@@ -204,7 +207,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
   const screening = form.name.trim().length > 0 && screened?.name !== form.name.trim();
 
   const suggestions = useMemo(() => nameSuggestions(idea.current?.title ?? idea.title, idea.current?.pitch ?? idea.pitch, idea.archetype), [idea]);
-  const generateWith = useCallback((round: number) => logoApi.generate({ name: form.name, colours: form.kit, archetype: form.archetype, round }), [logoApi, form.name, form.kit, form.archetype]);
+  const generateWith = useCallback<LogoActions["generate"]>((round, onProgress, signal) => logoApi.generate({ name: form.name, colours: form.kit, archetype: form.archetype, round }, onProgress, signal), [logoApi, form.name, form.kit, form.archetype]);
   const logoActions = useMemo<LogoActions>(() => ({ prepare: logoApi.prepare, generate: generateWith }), [logoApi, generateWith]);
 
   function chooseMode(mode: BusinessMode) {

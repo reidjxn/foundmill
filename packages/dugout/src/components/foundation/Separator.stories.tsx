@@ -10,10 +10,23 @@ export const Horizontal: Story = {
     <div className="w-64 text-body">
       <p>Home</p>
       <Separator className="my-2" />
-      <p className="t-label">Live</p>
+      <p className="t-data">Live</p>
       <p>Network</p>
       <Separator className="my-2" faint />
       <p>Communities</p>
+    </div>
+  ),
+};
+/** Hairlines fade out towards their end ("end", the default), at both ends, or not at all ("none", tables). */
+export const Fades: Story = {
+  render: () => (
+    <div className="surface-panel flex w-96 flex-col gap-4 p-4 text-small text-tertiary">
+      <span>fade="end"</span>
+      <Separator />
+      <span>fade="both"</span>
+      <Separator fade="both" />
+      <span>fade="none"</span>
+      <Separator fade="none" />
     </div>
   ),
 };
@@ -21,9 +34,9 @@ export const Vertical: Story = {
   render: () => (
     <div className="flex h-5 items-center gap-3 text-small text-secondary">
       <span>12.4K tokens</span>
-      <Separator orientation="vertical" />
+      <Separator orientation="vertical" fade="both" />
       <span>$0.19</span>
-      <Separator orientation="vertical" />
+      <Separator orientation="vertical" fade="both" />
       <span>ETA 4 min</span>
     </div>
   ),

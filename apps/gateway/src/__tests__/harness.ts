@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import { repos, type Db } from "@foundmill/db";
-import { generateMasterKey, LocalVault } from "@foundmill/shared";
+import { generateMasterKey, LocalVault } from "@foundmill/shared/crypto";
 import { buildLiveConnector, buildMockConnector, createRegistry, defineTool, mockHealth, mockIntegrationRecord, type Connector, type ConnectorRegistry, type IntegrationRecord, type ToolContext } from "@foundmill/connectors";
 import { createGatewayApp } from "../app";
 import { createGatewayClient, type GatewayClient } from "../client";

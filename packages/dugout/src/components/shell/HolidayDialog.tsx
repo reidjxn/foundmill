@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useId, useMemo, useState } from "react";
 import { TreePalm } from "lucide-react";
-import { DECISION_TYPES, type DecisionType, type Money } from "@foundmill/shared";
+import type { Money } from "@foundmill/shared";
+import { DECISION_TYPES, type DecisionType } from "@foundmill/shared/constants";
 import { formatDate } from "../../lib/format";
 import { Button } from "../foundation/Button";
 import { Checkbox } from "../foundation/Checkbox";

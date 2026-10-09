@@ -3,7 +3,8 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { PageGrid, StatusPill, TASK_STATUS_META, cn, type TileAgent } from "@foundmill/dugout";
 import type { DeptColourToken, TaskStatus } from "@foundmill/shared";
-import { routes, useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets/data";
 import type { AgentRow, AgentsListResponse, TaskRow } from "./types";
 
 /* ---------- Layout ---------- */

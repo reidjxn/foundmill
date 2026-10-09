@@ -25,9 +25,9 @@ export interface BusinessLogoProps extends Omit<HTMLAttributes<HTMLSpanElement>,
   title?: string;
 }
 
-/** Corner radius of the logo square: a fifth of its side, never under 3 px (DESIGN §8 "Logo"). */
+/** Corner radius of the logo tile: 22 % of its side (7 px at 32, the top bar's tile), never under 3 px (DESIGN §8 "Logo"). */
 export function logoRadius(size: number): number {
-  return Math.max(3, Math.round(size * 0.2));
+  return Math.max(3, Math.round(size * 0.22));
 }
 
 /** The fallback letters: the name's initials (1–2), or "·" for an empty name. */
@@ -38,9 +38,10 @@ export function logoInitials(name: string, monogram?: string): string {
 
 /**
  * The business's logo (DESIGN §8 "Logo"). With a stored logo it is an `<img>` of the data URL on a white tile, clipped
- * to the logo square; without one it is the neutral mark: a rounded square in the brand's primary colour with the
- * business's initials in the computed on-primary colour (APCA Lc ≥ 75). Never a shield. A 1 px inset hairline keeps it
- * apart from a surface of the same colour (the top bar). Pure, so Server Components can render it.
+ * to the logo square; without one it is the neutral mark: a lit tile in the brand's primary colour (a soft white gloss
+ * at the top falling to a shade at the foot) with the business's initials in the computed on-primary colour (APCA
+ * Lc ≥ 75). Never a shield. An inner ring (a 15 % white hairline and a 22 % top light) keeps it apart from a surface of
+ * the same colour (the top bar). Pure, so Server Components can render it.
  */
 export function BusinessLogo({ src, name, primary, monogram, size = 32, title, className, style, ...rest }: BusinessLogoProps) {
   const label = title ?? `${name || "Business"} logo`;
@@ -64,24 +65,27 @@ export function BusinessLogo({ src, name, primary, monogram, size = 32, title, c
       {image ? (
         <img src={image} alt="" width={size} height={size} draggable={false} className="block size-full object-contain" />
       ) : (
-        <svg viewBox="0 0 96 96" width={size} height={size} aria-hidden className="block">
-          <rect width="96" height="96" fill={fill} />
-          <text
-            x="48"
-            y="49"
-            textAnchor="middle"
-            dominantBaseline="central"
-            fontFamily="var(--font-display), 'Barlow Semi Condensed', system-ui, sans-serif"
-            fontWeight={600}
-            fontSize={letters.length > 1 ? 40 : 48}
-            letterSpacing="-0.5"
-            fill={ink}
-          >
-            {letters}
-          </text>
-        </svg>
+        <>
+          <svg viewBox="0 0 96 96" width={size} height={size} aria-hidden className="block">
+            <rect width="96" height="96" fill={fill} />
+            <text
+              x="48"
+              y="49"
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontFamily="var(--font-display), 'Barlow Semi Condensed', system-ui, sans-serif"
+              fontWeight={600}
+              fontSize={letters.length > 1 ? 40 : 48}
+              letterSpacing="-0.5"
+              fill={ink}
+            >
+              {letters}
+            </text>
+          </svg>
+          <span aria-hidden className="logo-gloss" data-logo-gloss="" />
+        </>
       )}
-      <span aria-hidden className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/15" style={{ borderRadius: radius }} />
+      <span aria-hidden className="logo-ring" data-logo-ring="" />
     </span>
   );
 }

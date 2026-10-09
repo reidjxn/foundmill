@@ -9,11 +9,11 @@ import { z } from "zod";
 import { Trophy } from "lucide-react";
 import { TROPHIES, type TrophyDefinition } from "@foundmill/journey";
 import { TrophyCabinet, formatMoney, type TrophyCard } from "@foundmill/dugout";
-import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
+import { useBusinessEvents, useWidgetData } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
+import { useRecentRibbon } from "../shared/ribbon";
 import { routes } from "../shared/routes";
-import { addDays, dayKey } from "../shared/time";
 import type { RibbonResponse } from "../shared/types";
 
 export const TrophyCabinetSettings = z.object({
@@ -64,8 +64,8 @@ export function trophyCards(milestones: RibbonResponse["milestones"] | undefined
 
 function TrophyCabinetWidget({ settings }: WidgetProps<TrophyCabinetSettings>) {
   const { businessId, navigate, gameMode = "personal", currency = "EUR" } = useWidgetData();
-  const today = dayKey();
-  const ribbon = useWidgetQuery<RibbonResponse>("journey.ribbon", { from: addDays(today, -7), to: today });
+  // Milestones are not limited to the day range, so the recent ribbon Home already shares carries all of them.
+  const ribbon = useRecentRibbon();
   useBusinessEvents(() => ribbon.refetch(), ["customer.converted", "payment.received", "contract.signed"]);
   const cards = useMemo(() => {
     const all = trophyCards(ribbon.data?.milestones, currency, gameMode === "live");

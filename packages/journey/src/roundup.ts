@@ -3,7 +3,8 @@
  * full Match Day roll into a daily results table.
  */
 import { quantile } from "d3-array";
-import { CONVERSION_KINDS, formatMoney, type ChannelKey, type ConversionKind, type MatchdayLevel } from "@foundmill/shared";
+import { formatMoney } from "@foundmill/shared";
+import { CONVERSION_KINDS, type ChannelKey, type ConversionKind, type MatchdayLevel } from "@foundmill/shared/constants";
 import { matchdayLevelFor, shouldPlayFullMatchDay } from "./builder";
 import { compareByTimeThenId, dayKeyUtc } from "./time";
 import type { Conversion, DayKey, Journey } from "./types";

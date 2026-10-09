@@ -7,7 +7,7 @@
 import { useEffect, useId, useState } from "react";
 import { ArrowLeftRight, Copy, UserRoundMinus, UserRoundPlus } from "lucide-react";
 import { Button, Checkbox, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, ProvenanceChip, SimpleSelect, formatMoney } from "@foundmill/dugout";
-import type { DepartmentRow } from "@foundmill/widgets";
+import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import { FAMILY_LABELS, InlineError, isChiefOfStaff, useAction } from "./shared";
 import type { AgentRow, TemplateRow } from "./types";
 

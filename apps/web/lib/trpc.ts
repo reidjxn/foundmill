@@ -6,8 +6,12 @@
  *
  * `createApiClient` builds the vanilla client (also used on the server with a server-side token); the untyped
  * client powers the dotted-path `WidgetDataSource` for @foundmill/widgets and @foundmill/modules.
+ *
+ * Transport: a `splitLink`. Procedures that stream their answer (an async generator on the API, `STREAMING_PROCEDURES`)
+ * go over `httpBatchStreamLink`, so each result reaches the browser the moment the API yields it; everything else stays
+ * on `httpBatchLink` (one JSON answer per batch, gzip-compressed by the API, read by the server-rendered layouts).
  */
-import { createTRPCClient, createTRPCUntypedClient, httpBatchLink, TRPCClientError, type TRPCLink } from "@trpc/client";
+import { createTRPCClient, createTRPCUntypedClient, httpBatchLink, httpBatchStreamLink, splitLink, TRPCClientError, type TRPCLink } from "@trpc/client";
 import superjson from "superjson";
 import type { AppRouter } from "@foundmill/api/router";
 import { DEV_BEARER_TOKEN } from "@/lib/auth/constants";
@@ -30,18 +34,30 @@ export async function resolveBearer(getToken: TokenGetter): Promise<string | nul
   return isDevLike() ? DEV_BEARER_TOKEN : null;
 }
 
+/**
+ * Procedures whose answer is a stream (`AsyncIterable`): they must go over `httpBatchStreamLink` (the API refuses a
+ * stream on a plain batch). Add a procedure here when it becomes an async generator on the API.
+ */
+export const STREAMING_PROCEDURES: ReadonlySet<string> = new Set(["idea.draft", "idea.logo.stream", "business.logo.stream"]);
+
+/** True for an operation that must use the streaming link. */
+export function isStreamingOperation(op: { path: string }): boolean {
+  return STREAMING_PROCEDURES.has(op.path);
+}
+
 export function createApiLinks(opts: { getToken: TokenGetter; url?: string; fetch?: typeof fetch }): TRPCLink<AppRouter>[] {
-  return [
-    httpBatchLink({
-      url: opts.url ?? apiTrpcUrl(),
-      transformer: superjson,
-      fetch: opts.fetch,
-      headers: async () => {
-        const bearer = await resolveBearer(opts.getToken);
-        return bearer ? { authorization: `Bearer ${bearer}` } : {};
-      },
-    }),
-  ];
+  const common = {
+    url: opts.url ?? apiTrpcUrl(),
+    transformer: superjson,
+    fetch: opts.fetch,
+    headers: async () => {
+      const bearer = await resolveBearer(opts.getToken);
+      return bearer ? { authorization: `Bearer ${bearer}` } : {};
+    },
+  };
+  // One stream per request (`maxItems: 1`): a batched request is only aborted once every operation in it is, so Stop on
+  // a draft that shared a request with another stream would leave the API drafting.
+  return [splitLink({ condition: isStreamingOperation, true: httpBatchStreamLink({ ...common, maxItems: 1 }), false: httpBatchLink(common) })];
 }
 
 export function createApiClient(opts: { getToken: TokenGetter; url?: string; fetch?: typeof fetch }) {

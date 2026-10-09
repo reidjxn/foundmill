@@ -61,7 +61,7 @@ export function generateChiefOfStaff(ctx: MockContext): CyclePlanOutput {
   const capacitySessions = capacityRec && typeof capacityRec.max_sessions === "number" ? capacityRec.max_sessions : ctx.getNumber("capacity");
   const budgetRemaining = ctx.getNumber("budget_remaining_minor", "budget_remaining", "budget_minor");
   const approvalsWaiting = ctx.getArray<unknown>("approvals_waiting", "pending_approvals", "approvals");
-  const businessName = ctx.getString("business_name", "business.name") ?? "the club";
+  const businessName = ctx.getString("business_name", "business.name") ?? "the business";
   const mode = ctx.getString("business_mode", "mode") ?? "assisted";
 
   const limit = Math.max(0, Math.min(maxAgents, capacitySessions ?? Number.POSITIVE_INFINITY, budgetRemaining === 0 ? 0 : Number.POSITIVE_INFINITY));

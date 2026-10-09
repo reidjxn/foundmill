@@ -135,7 +135,7 @@ describe("coach (BUILD §12.6, AC-11.10.4)", () => {
 });
 
 describe("journey commentary (BUILD §11.4)", () => {
-  it("writes one line per touch, ends on the goal and links only manifest ids", async () => {
+  it("writes one line per touch, ends on the win moment and links only manifest ids", async () => {
     const r = await client.complete({
       route: "journeyCommentary",
       messages: promptWith({ customer: { id: ORG_ALDER }, conversion_kind: "payment", touches: [{ channel_key: "seo", kind: "visit" }, { channel_key: "email_automation", kind: "open", campaign: "Welcome series" }, { channel_key: "paid_ads", kind: "click", agent_id: AGENTS[0]!.id }], manifest: MANIFEST }),
@@ -145,7 +145,7 @@ describe("journey commentary (BUILD §11.4)", () => {
     expect(r.json.lines.map((l) => l.touch_index)).toEqual([0, 1, 2]);
     expect(r.json.lines[0]!.tone).toBe("build_up");
     expect(r.json.lines[2]!.tone).toBe("goal");
-    expect(r.json.lines[2]!.text).toMatch(/GOAL/);
+    expect(r.json.lines[2]!.text).toMatch(/^Win moment: /);
     expect(r.json.headline).toMatch(/Alder & Finch/);
     const ids = new Set(MANIFEST.map((m) => m.id));
     for (const l of r.json.lines) for (const m of l.text.matchAll(ENTITY_MARKUP_RE)) expect(ids.has(m[1] as string)).toBe(true);

@@ -9,7 +9,7 @@ import { Copy, Home, Trophy } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Chip, DataTable, DeltaBadge, FormCells, Panel, StatusStrip, formatRelative, useToast, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
-import { routes } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { boardKindLabel, boardScope, boardTitle, describeMetric, formResults, formatMetricValue, periodLabel, positionLabel } from "@/lib/live";
 import { errorMessage, trpcErrorCode } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";

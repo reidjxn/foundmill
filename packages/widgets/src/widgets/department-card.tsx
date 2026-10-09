@@ -8,12 +8,13 @@ import { useMemo, useState } from "react";
 import { z } from "zod";
 import { LayoutGrid } from "lucide-react";
 import type { AgentStatus, EntityKind, ModuleKey } from "@foundmill/shared";
-import { MODULE_KEYS } from "@foundmill/shared";
+import { MODULE_KEYS } from "@foundmill/shared/constants";
 import { DepartmentCard, formatMoney, formatNumber, type DepartmentCardData, type DepartmentMetric, type HealthTone, type SquadMember } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { primaryModule, resolveDepartment, useDepartments } from "../shared/departments";
 import { WidgetFrame } from "../shared/frame";
+import { departmentRows, useRecentRibbon } from "../shared/ribbon";
 import { routes } from "../shared/routes";
 import { addDays, dailySeries, dayKey, daysUntil, lastDays, sumInRange } from "../shared/time";
 import type { ChannelsListResponse, ComplianceResponse, DepartmentRow, FinanceOverview, Page, RibbonResponse, RoadmapListResponse, TaskRow } from "../shared/types";
@@ -165,7 +166,9 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
   const enabled = !!dept;
   const metricKey = metricKeyFor(settings, dept);
 
-  const rows = useWidgetQuery<RibbonResponse>("journey.ribbon", { from: addDays(today, -13), to: today, departmentId: dept?.id }, { enabled });
+  // The business-wide recent ribbon every card shares (one request for all of them), this department's rows picked here.
+  const ribbon = useRecentRibbon({ enabled });
+  const rows = useMemo(() => (dept ? departmentRows(ribbon.data, dept.id) : []), [ribbon.data, dept]);
   const tasks = useWidgetQuery<Page<TaskRow>>("dev.tasks.list", { departmentId: dept?.id, status: [...ACTIVE_TASK_STATUSES, ...NEXT_TASK_STATUSES], limit: 50 }, { enabled });
   const roadmap = useWidgetQuery<RoadmapListResponse>("product.roadmap.list", {}, { enabled: enabled && metricKey === "roadmap_on_track" });
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {}, { enabled: enabled && metricKey === "blended_cpa" });
@@ -186,7 +189,7 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
       return;
     }
     tasks.refetch();
-    if (event.type === "task.completed" || event.type === "cycle.completed") rows.refetch();
+    if (event.type === "task.completed" || event.type === "cycle.completed") ribbon.refetch();
   }, TASK_EVENTS);
 
   const taskItems = useMemo(() => tasks.data?.items ?? [], [tasks.data]);
@@ -205,10 +208,10 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
       healthWord: word,
       squad,
       now: nowLines(taskItems, squad),
-      metric: headlineMetric({ key: metricKey, rows: rows.data?.rows ?? [], days: lastDays(14, today), squad, roadmap: roadmap.data, channels: channels.data, finance: finance.data, compliance: compliance.data, currency, today }),
+      metric: headlineMetric({ key: metricKey, rows, days: lastDays(14, today), squad, roadmap: roadmap.data, channels: channels.data, finance: finance.data, compliance: compliance.data, currency, today }),
       nextUp: next ? next.title : "Nothing queued. Continue plans the next cycle.",
     };
-  }, [dept, overrides, taskItems, metricKey, rows.data, roadmap.data, channels.data, finance.data, compliance.data, currency, today]);
+  }, [dept, overrides, taskItems, metricKey, rows, roadmap.data, channels.data, finance.data, compliance.data, currency, today]);
 
   const entityKinds = useMemo(() => Object.fromEntries([...squadIds].map((id) => [id, "agent" as EntityKind])), [squadIds]);
   const openEntity = (id: string) => navigate(squadIds.has(id) ? routes.agent(businessId, id) : routes.crm(businessId, id));
@@ -226,7 +229,7 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
       />
     );
   }
-  const dependent: QueryState<unknown>[] = enabled ? [departments, rows, tasks] : [departments];
+  const dependent: QueryState<unknown>[] = enabled ? [departments, ribbon, tasks] : [departments];
   return (
     <WidgetFrame
       title={dept ? dept.name : "Department"}

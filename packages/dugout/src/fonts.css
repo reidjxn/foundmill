@@ -1,5 +1,8 @@
-/* Self-hosted fonts (BUILD §2.4, §5.1; docs/DECISIONS.md "Fonts"). No runtime font CDN. */
+/* Self-hosted fonts (BUILD §2.4, §5.1; docs/DECISIONS.md "Fonts"). No runtime font CDN.
+   Inter 400 (body), 500 (actions, labels, strong), 600 (panel titles, badges, Continue);
+   Barlow Semi Condensed 600 (figures, titles, data labels); JetBrains Mono variable (mono at 450, micro at 500). */
 @import "@fontsource/inter/400.css";
 @import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
 @import "@fontsource/barlow-semi-condensed/600.css";
 @import "@fontsource-variable/jetbrains-mono/index.css";

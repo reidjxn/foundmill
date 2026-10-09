@@ -4,7 +4,8 @@ import { LONG, openStudio, signIn } from "./helpers";
 /**
  * /new, /new/ideate, /new/compare — Door A (BUILD §11.1; AC-11.1.2, AC-11.1.3, AC-11.1.4). MODEL_MODE=mock returns
  * deterministic concept cards; the deck persists on the api (idea.list) across runs, so every test reads the loaded
- * deck before it counts. Stack and commands: e2e/README.md.
+ * deck before it counts. Drafts stream (idea.draft over httpBatchStreamLink, audit P2): cards arrive one by one at the
+ * top of the deck while the draft status says who is drafting. Stack and commands: e2e/README.md.
  */
 const gridOf = (page: Page) => page.getByTestId("concept-grid");
 const cardsOf = (page: Page) => gridOf(page).locator("[data-concept]");
@@ -40,12 +41,19 @@ test.describe("ideation studio", () => {
     const cards = cardsOf(page);
     const before = await cards.count();
     const generate = page.getByTestId("generate-button");
-    await expect(generate).toHaveText(/Surprise me within my constraints/);
+    await expect(generate).toHaveText("Surprise me");
     await generate.click();
-    // The new cards sort to the top of the deck (newest version first) once idea.generate answers.
+    // The cards stream in at the top of the deck as each is saved; the status line names who drafted them.
+    const status = page.getByTestId("draft-status");
+    await expect(status).toBeVisible({ timeout: LONG });
+    await expect(status).toHaveAttribute("data-status", "done", { timeout: LONG });
+    await expect(page.getByTestId("draft-progress")).toHaveText(/^\d+ concepts drafted/);
+    await expect(page.getByTestId("draft-elapsed")).toHaveText(/^\d+:\d\d$/);
+    await expect(page.getByTestId("drafting-card")).toHaveCount(0);
     await expect.poll(() => cards.count(), { timeout: LONG }).toBeGreaterThanOrEqual(before + 6);
     const added = (await cards.count()) - before;
     expect(added).toBeLessThanOrEqual(12);
+    expect(Number((await page.getByTestId("draft-progress").innerText()).match(/^(\d+)/)?.[1])).toBe(added);
     await expect(gridOf(page)).toHaveAttribute("data-count", String(before + added));
     const first = cards.first();
     await expect(first.getByRole("meter")).toHaveCount(10);
@@ -53,6 +61,39 @@ test.describe("ideation studio", () => {
     await expect(citations).toBeVisible();
     expect(Number((await citations.innerText()).match(/(\d+) citations/)?.[1])).toBeGreaterThanOrEqual(2);
     await first.getByRole("meter").first().hover();
+  });
+
+  test("⌘/Ctrl+Enter drafts from the brief", async ({ page }) => {
+    const cards = cardsOf(page);
+    const before = await cards.count();
+    const brief = page.getByRole("textbox", { name: "Brief" });
+    await brief.fill("bookkeeping for freelancers in the EU");
+    await expect(page.getByTestId("generate-button")).toHaveText("Draft concepts");
+    await brief.press("ControlOrMeta+Enter");
+    await expect(page.getByTestId("draft-status")).toHaveAttribute("data-status", "done", { timeout: LONG });
+    await expect.poll(() => cards.count(), { timeout: LONG }).toBeGreaterThanOrEqual(before + 6);
+  });
+
+  test("Stop ends a draft that is still running and says so", async ({ page }) => {
+    // Hold the draft request so the draft is still running when Stop is pressed; nothing reaches the api.
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route("**/trpc/idea.draft**", async (route) => {
+      await held;
+      await route.abort().catch(() => undefined);
+    });
+    await page.getByTestId("generate-button").click();
+    const status = page.getByTestId("draft-status");
+    await expect(status).toHaveAttribute("data-status", "running");
+    await expect(page.getByTestId("draft-progress")).toHaveText("Ideation agent is reading your brief");
+    await expect(page.getByTestId("generate-button")).toBeDisabled();
+    await expect(page.getByTestId("draft-elapsed")).toHaveText(/^0:0[1-9]$/, { timeout: 10_000 });
+    await page.getByTestId("stop-button").click();
+    await expect(status).toHaveAttribute("data-status", "stopped");
+    await expect(page.getByTestId("draft-progress")).toHaveText("Stopped before any concept was finished");
+    await expect(page.getByTestId("stop-button")).toHaveCount(0);
+    await expect(page.getByTestId("generate-button")).toBeEnabled();
+    release();
   });
 
   test("AC-11.1.3: fork creates a new version, history is navigable, discard is reversible", async ({ page }) => {

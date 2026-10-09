@@ -7,12 +7,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Field, Input, SimpleSelect, type Kit } from "@foundmill/dugout";
-import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
+import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared/constants";
 import { LogoPicker, type LogoActions } from "@/components/logo/LogoPicker";
+import { readLogoStream } from "@/components/logo/logo-stream";
 import { useBusinessLogoSrc } from "@/components/logo/useBusinessLogo";
 import type { LogoDraft } from "@/lib/logo";
 import type { RouterOutputs } from "@/lib/trpc";
-import { useTRPC } from "@/lib/trpc-react";
+import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, FormRow, Hint, SaveBar, SettingsSection, useSettingsToast } from "./shared";
@@ -22,6 +23,7 @@ const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 export function BusinessTab() {
   const { businessId, data } = useBusiness();
   const trpc = useTRPC();
+  const client = useTRPCClient();
   const queryClient = useQueryClient();
   const invalidate = useInvalidateRouters();
   const t = useSettingsToast();
@@ -48,20 +50,19 @@ export function BusinessTab() {
   const current = useMemo<LogoDraft | null>(() => (meta && logoSrc ? { source: meta.source, dataUrl: logoSrc, colours: [], label: "" } : null), [meta, logoSrc]);
   const [pending, setPending] = useState<LogoDraft | null | undefined>(undefined);
   const prepare = useMutation(trpc.business.logo.prepare.mutationOptions());
-  const generate = useMutation(trpc.business.logo.generate.mutationOptions());
   const upload = useMutation(trpc.business.logo.upload.mutationOptions());
   const remove = useMutation(trpc.business.logo.remove.mutationOptions());
   const { mutateAsync: prepareAsync } = prepare;
-  const { mutateAsync: generateAsync } = generate;
   const kit: Kit = { primary: HEX_RE.test(primary) ? primary : b.kitPrimary, secondary: HEX_RE.test(secondary) ? secondary : b.kitSecondary };
   const actions = useMemo<LogoActions>(
     () => ({
       prepare: (dataUrl) => prepareAsync({ businessId, dataUrl }),
-      generate: (round) => generateAsync({ businessId, colours: kit, round }),
+      // Streamed: each mark shows the moment it passes the server's check (audit P6).
+      generate: async (round, onProgress, signal) => readLogoStream(await client.business.logo.stream.mutate({ businessId, colours: kit, round }, { signal }), onProgress),
     }),
     // The colours a new set uses are the ones on screen, saved or not.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [businessId, prepareAsync, generateAsync, kit.primary, kit.secondary],
+    [businessId, prepareAsync, client, kit.primary, kit.secondary],
   );
 
   async function saveLogo(draft: LogoDraft | null) {

@@ -8,7 +8,7 @@
 import { useId, useMemo, useState } from "react";
 import { Code2, ExternalLink, Globe, RefreshCw, ScanSearch, Stamp, Trash2 } from "lucide-react";
 import { Button, Chip, DataTable, Field, Input, KeyValueList, Panel, StarRating, StatusPill, formatDate, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
-import { useWidgetQuery } from "@foundmill/widgets";
+import { useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { DISTINCTIVENESS_WORD, screenTrademark, type TrademarkScreen } from "./legal-data";
 import { InformationNotice, Screen, humanise, useLegalStatus, useNow, useOpenExternal } from "./shared";

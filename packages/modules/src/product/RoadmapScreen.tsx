@@ -92,7 +92,7 @@ export function RoadmapScreen({ businessId, subView }: ModuleScreenProps) {
 
   return (
     <Screen name="product/roadmap">
-      <FoundationsBanner foundations={foundations} />
+      <FoundationsBanner foundations={foundations} detail={{ roadmap: true }} />
       <Panel
         title="Roadmap"
         span={12}

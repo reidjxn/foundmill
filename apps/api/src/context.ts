@@ -7,7 +7,8 @@
  */
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import type { Context as HonoContext } from "hono";
-import { createVault, loadEnv, type Env, type Vault } from "@foundmill/shared";
+import { loadEnv, type Env } from "@foundmill/shared";
+import { createVault, type Vault } from "@foundmill/shared/crypto";
 import type { Db } from "@foundmill/db";
 import { createDb } from "@foundmill/db";
 import type { StreamRedis } from "@foundmill/events";
@@ -23,6 +24,7 @@ import { createApiGatewayClient, type ApiGatewayClient } from "./services/gatewa
 import { createIngestClient, type IngestClient } from "./services/simulate";
 import { createTemporalService, type TemporalService } from "./services/temporal";
 import { createLog, type ApiLogger } from "./services/log";
+import type { BusinessAccess } from "./trpc";
 
 export interface ApiDeps {
   env: Env;
@@ -57,6 +59,13 @@ export interface Context extends ApiDeps {
   /** When the signed-in user last authenticated (token `amr`/`iat`); null when anonymous or unknown. */
   authenticatedAt: Date | null;
   requestId: string;
+  /**
+   * The membership and business lookups `businessProcedure` made in this HTTP request (trpc.ts), keyed by user and
+   * business, so a batch of procedures for one business checks membership once. A new, empty map for every request
+   * (`createContextFactory`), never shared between requests; absent for the in-process caller and tests, which look
+   * up on every call.
+   */
+  accessMemo?: Map<string, Promise<BusinessAccess>>;
 }
 
 /** A signed-in user for the in-process caller and tests. */
@@ -146,7 +155,7 @@ export function createContextFactory(deps: ApiDeps) {
     const authorization = opts.req.headers.get("authorization");
     const user = await deps.auth.resolve(authorization);
     const requestId = c?.get("requestId") ?? requestIdFrom(opts.req.headers.get("x-request-id"));
-    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, requestId };
+    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, requestId, accessMemo: new Map() };
   };
 }
 

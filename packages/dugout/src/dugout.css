@@ -3,9 +3,24 @@
  * Import order for an app: fonts.css, then this file (which imports tokens.css).
  * Every colour comes from tokens.css; the default Tailwind palette is removed so
  * `bg-red-500` and friends do not exist. Use the token utilities below.
+ *
+ * Server components: every effect here is CSS (keyframes, @property, pseudo-elements), so Chip, StatusPill, Panel and
+ * the other server-safe components can use them without becoming client components. Every loop stops under
+ * prefers-reduced-motion and leaves a legible static frame.
  */
 @import "tailwindcss";
 @import "./tokens.css";
+/* Overlays, people and states: surface-popover, overlay-motion, toasts, avatar rings and presence, icon-halo,
+   skeleton-bar, scroll-rail, the logo tile's light. */
+@import "./overlays.css";
+/* Controls: buttons and the generate control, chips and pills, fields, toggles, sliders, the segmented track, key caps,
+   FitText (foundation/*). */
+@import "./controls.css";
+/* Shell: the rail and its items, the brand slab and its glass chips, Continue's states, the processing strip, the tab
+   bar, panel headers, the DecisionBar and the command palette (shell/*). */
+@import "./shell.css";
+/* Views: metric strips, tables, charts, the ribbon, live tiles, boards (components/data, journey, agents). */
+@import "./views.css";
 
 /* Components in this package and in the packages built on top of it. Paths are relative to this file. */
 @source "./components";
@@ -20,23 +35,38 @@
   --breakpoint-wide: 1440px;
 }
 
-/* Map tokens to utilities. `inline` so the utilities read the live variable (kit colours are swapped per business). */
+/* Map tokens to utilities. `inline` so the utilities read the live variable (brand colours are swapped per business). */
 @theme inline {
-  /* Surfaces → bg-base, bg-panel, bg-panel-alt, bg-ink */
+  /* Surfaces → bg-canvas, bg-rail, bg-surface-1 … bg-surface-4, bg-ink; aliases bg-base, bg-panel, bg-panel-alt */
+  --color-canvas: var(--canvas);
+  --color-rail: var(--rail);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-surface-4: var(--surface-4);
   --color-base: var(--bg-base);
   --color-panel: var(--bg-panel);
   --color-panel-alt: var(--bg-panel-alt);
   --color-ink: var(--bg-ink);
   --color-white: var(--white);
+  --color-black: var(--black);
 
-  /* Text → text-primary, text-secondary */
+  /* Text → text-primary (text-1), text-secondary (text-2), text-tertiary (text-3), text-disabled (text-4), text-prose */
   --color-primary: var(--text-primary);
   --color-secondary: var(--text-secondary);
+  --color-tertiary: var(--text-3);
+  --color-disabled: var(--text-4);
+  --color-prose: var(--reading);
 
-  /* Hairline → border-subtle, divide-subtle, bg-subtle */
+  /* Lines → border-line-faint, border-line, border-line-strong, border-edge-hi; alias border-subtle / divide-subtle */
+  --color-line-faint: var(--line-faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-edge-hi: var(--edge-hi);
   --color-subtle: var(--line-subtle);
 
-  /* Links → text-link / text-accent-link */
+  /* Accent and links → text-accent, ring-accent, outline-accent; text-link / text-accent-link */
+  --color-accent: var(--accent);
   --color-link: var(--accent-link);
   --color-accent-link: var(--accent-link);
 
@@ -52,12 +82,17 @@
   --color-rating-3: var(--rating-3);
   --color-rating-4: var(--rating-4);
 
-  /* Kit → bg-kit-primary, text-kit-on-primary, border-kit-secondary */
+  /* Brand → bg-kit-primary, text-kit-on-primary, border-kit-secondary, text-kit-lift, bg-kit-lo, shadow-glow-kit … */
   --color-kit-primary: var(--kit-primary);
   --color-kit-secondary: var(--kit-secondary);
   --color-kit-on-primary: var(--kit-on-primary);
+  --color-kit-lift: var(--kit-lift);
+  --color-kit-hi: var(--kit-hi);
+  --color-kit-lo: var(--kit-lo);
+  --color-kit-deep: var(--kit-deep);
+  --color-kit-aura: var(--kit-aura);
 
-  /* Departments → bg-dept-1 … bg-dept-8 */
+  /* Departments → bg-dept-1 … bg-dept-8 (and tone-dept-1 … to set --tone) */
   --color-dept-1: var(--dept-1);
   --color-dept-2: var(--dept-2);
   --color-dept-3: var(--dept-3);
@@ -72,6 +107,8 @@
   --color-gold-deep: var(--gold-deep);
 
   /* Type scale → text-display-xl … text-mono (font-size + line-height; colour stays separate) */
+  --text-display-hero: var(--fs-display-hero);
+  --text-display-hero--line-height: var(--lh-display-hero);
   --text-display-xl: var(--fs-display-xl);
   --text-display-xl--line-height: var(--lh-display-xl);
   --text-display-lg: var(--fs-display-lg);
@@ -80,24 +117,38 @@
   --text-display-md--line-height: var(--lh-display-md);
   --text-display-sm: var(--fs-display-sm);
   --text-display-sm--line-height: var(--lh-display-sm);
+  --text-title: var(--fs-title);
+  --text-title--line-height: var(--lh-title);
+  --text-action: var(--fs-action);
+  --text-action--line-height: var(--lh-action);
+  --text-action-sm: var(--fs-action-sm);
+  --text-action-sm--line-height: var(--lh-action);
   --text-tab: var(--fs-tab);
   --text-tab--line-height: var(--lh-tab);
   --text-label: var(--fs-label);
   --text-label--line-height: var(--lh-label);
+  --text-data: var(--fs-data);
+  --text-data--line-height: var(--lh-data);
   --text-body: var(--fs-body);
   --text-body--line-height: var(--lh-body);
   --text-reading: var(--fs-reading);
   --text-reading--line-height: var(--lh-reading);
+  --text-chat: var(--fs-chat);
+  --text-chat--line-height: var(--lh-chat);
   --text-small: var(--fs-small);
   --text-small--line-height: var(--lh-small);
   --text-mono: var(--fs-mono);
   --text-mono--line-height: var(--lh-mono);
+  --text-micro: var(--fs-micro);
+  --text-micro--line-height: var(--lh-micro);
   --tracking-tab: var(--ls-tab);
   --tracking-label: var(--ls-label);
+  --tracking-data: var(--ls-data);
 
   /* Overlay backdrop → bg-backdrop, backdrop-blur-dialog */
   --color-backdrop: var(--backdrop);
   --blur-dialog: var(--backdrop-blur);
+  --blur-glass: var(--glass-blur);
 
   /* Fonts → font-display, font-body, font-mono */
   --font-display: var(--font-display);
@@ -105,16 +156,26 @@
   --font-mono: var(--font-mono);
   --font-sans: var(--font-body);
 
-  /* Radii → rounded-panel, rounded-chip */
+  /* Radii → rounded-xs 3, rounded-sm 6, rounded-md 10, rounded-lg 14, rounded-pill; aliases rounded-panel (6), rounded-chip (3) */
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-pill: var(--r-pill);
   --radius-panel: var(--radius-panel);
   --radius-chip: var(--radius-chip);
 
-  /* Sizes → h-row-compact, h-row-comfortable, h-control-sm, h-control-md, h-chip, w-sidebar, w-rail … */
+  /* Sizes → h-control-xs … h-control-xl, h-field, h-field-lg, size-badge, h-chip, h-row-compact, w-sidebar, w-rail … */
   --spacing-row-compact: var(--row-compact);
   --spacing-row-comfortable: var(--row-comfortable);
+  --spacing-control-xs: var(--control-xs);
   --spacing-control-sm: var(--control-sm);
   --spacing-control-md: var(--control-md);
   --spacing-control-lg: var(--control-lg);
+  --spacing-control-xl: var(--control-xl);
+  --spacing-field: var(--field);
+  --spacing-field-lg: var(--field-lg);
+  --spacing-badge: var(--badge-size);
   --spacing-chip: var(--chip-height);
   --spacing-sidebar: var(--sidebar-width);
   --spacing-sidebar-collapsed: var(--sidebar-width-collapsed);
@@ -130,16 +191,35 @@
   --spacing-icon-inline: var(--icon-size-inline);
   --spacing-icon-empty: var(--icon-size-empty);
 
-  /* Motion → ease-dugout, duration-micro … */
+  /* Motion → ease-out, ease-spring, ease-inout (ease-dugout = ease-out) */
   --ease-dugout: var(--ease);
-  --default-transition-timing-function: var(--ease);
-  --default-transition-duration: var(--dur-micro);
+  --ease-out: var(--ease-out);
+  --ease-spring: var(--ease-spring);
+  --ease-inout: var(--ease-inout);
+  --default-transition-timing-function: var(--ease-out);
+  --default-transition-duration: var(--dur-hover);
 
-  /* Depth → shadow-overlay, shadow-inner-highlight */
+  /* Depth → shadow-elev-0 … shadow-elev-3, shadow-ring, shadow-glow-*; inset-shadow-rim; aliases shadow-overlay,
+     shadow-inner-highlight. Glows are light from a source: dots, badges, Today, active edges, Generate, Continue. */
+  --shadow-elev-0: var(--elev-0);
+  --shadow-elev-1: var(--elev-1);
+  --shadow-elev-2: var(--elev-2);
+  --shadow-elev-3: var(--elev-3);
+  --shadow-ring: var(--ring);
+  --shadow-glow-good: var(--glow-good);
+  --shadow-glow-warn: var(--glow-warn);
+  --shadow-glow-bad: var(--glow-bad);
+  --shadow-glow-info: var(--glow-info);
+  --shadow-glow-accent: var(--glow-accent);
+  --shadow-glow-gold: var(--glow-gold);
+  --shadow-glow-kit: 0 0 0 4px color-mix(in oklab, var(--kit-aura) 22%, transparent), 0 6px 22px -6px color-mix(in oklab, var(--kit-aura) 75%, transparent);
+  --shadow-glow-tone: 0 0 10px -1px color-mix(in oklab, var(--tone, var(--accent)) 70%, transparent);
   --shadow-overlay: var(--shadow-overlay);
   --shadow-inner-highlight: var(--inner-highlight);
+  --inset-shadow-rim: inset 0 1px 0 var(--rim-light);
 
-  /* Animations → animate-shimmer, animate-sweep, animate-ring-pulse, animate-spin-slow */
+  /* Animations → animate-shimmer, animate-sweep, animate-ring-pulse, animate-breathe, animate-typing, animate-caret,
+     animate-landed, animate-pop, animate-overlay-in, animate-fan, animate-head, animate-draw … */
   --animate-shimmer: dugout-shimmer var(--dur-shimmer) linear infinite;
   --animate-sweep: dugout-sweep var(--dur-shimmer) var(--ease) infinite;
   --animate-ring-pulse: dugout-ring-pulse var(--dur-pulse) var(--ease) 1;
@@ -150,6 +230,16 @@
   --animate-orbit: dugout-orbit 24s linear infinite;
   --animate-marquee: dugout-marquee 80s linear infinite;
   --animate-progress: dugout-progress 6s linear 1 both;
+  --animate-breathe: dugout-breathe var(--dur-breathe) var(--ease-out) infinite;
+  --animate-typing: dugout-typing var(--typing-loop) var(--ease-inout) infinite;
+  --animate-caret: dugout-caret var(--caret-blink) step-end infinite;
+  --animate-landed: dugout-landed var(--dur-view) var(--ease-out) backwards;
+  --animate-pop: dugout-pop var(--dur-slide) var(--ease-spring) backwards;
+  --animate-overlay-in: dugout-overlay-in var(--dur-overlay) var(--ease-out);
+  --animate-overlay-out: dugout-overlay-out var(--dur-hover) var(--ease-out) forwards;
+  --animate-fan: dugout-orbit var(--dur-fan) linear infinite;
+  --animate-head: dugout-head var(--dur-shimmer) linear infinite;
+  --animate-draw: dugout-draw var(--dur-draw) var(--ease-out) backwards;
 
   @keyframes dugout-shimmer {
     0% {
@@ -167,12 +257,13 @@
       transform: translateX(100%);
     }
   }
+  /* One ring in the element's own tone (--tone), falling back to the brand: a red pill pulses red, never brand. */
   @keyframes dugout-ring-pulse {
     0% {
-      box-shadow: 0 0 0 0 color-mix(in oklab, var(--kit-primary) 60%, transparent);
+      box-shadow: 0 0 0 0 color-mix(in oklab, var(--tone, var(--kit-primary)) 60%, transparent);
     }
     100% {
-      box-shadow: 0 0 0 12px color-mix(in oklab, var(--kit-primary) 0%, transparent);
+      box-shadow: 0 0 0 12px color-mix(in oklab, var(--tone, var(--kit-primary)) 0%, transparent);
     }
   }
   @keyframes dugout-rise-in {
@@ -235,7 +326,175 @@
   }
 }
 
-/* Duration utilities for the named token durations → duration-micro, duration-panel, duration-view, duration-ribbon */
+/* ---------- Keyframes used by the utilities below (top level, so they ship whether or not an animate-* class is used) ---------- */
+/* Presence: the ring breathes outwards and fades. */
+@keyframes dugout-breathe {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+/* Typing dots: each dot hops 3 px and brightens; the three start --typing-stagger apart. */
+@keyframes dugout-typing {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+@keyframes dugout-caret {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
+/* A card that has just landed rises 8 px and fades in; its edge flashes kit-lift and settles. */
+@keyframes dugout-landed {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes dugout-landed-edge {
+  0%,
+  25% {
+    outline-color: color-mix(in oklab, var(--kit-lift) 85%, transparent);
+  }
+  100% {
+    outline-color: transparent;
+  }
+}
+@keyframes dugout-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* Overlays scale from their origin (set origin-(--radix-…-transform-origin) on Radix content). */
+@keyframes dugout-overlay-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes dugout-overlay-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+/* A light band crossing a skeleton bar (300 % wide background, left to right). */
+@keyframes dugout-shimmer-band {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
+/* A bright head travelling along a running processing segment (or any bar), left to right. */
+@keyframes dugout-head {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+/* The journey line drawing in: animate stroke-dashoffset from the path length (set --draw-length) to 0. */
+@keyframes dugout-draw {
+  from {
+    stroke-dashoffset: var(--draw-length, 1000);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes dugout-sheen {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(120%);
+  }
+}
+@keyframes dugout-orbit-edge {
+  to {
+    --orbit-angle: 360deg;
+  }
+}
+
+/* Registered properties: the orbit's angle animates smoothly; the panel slots never inherit into nested panels. */
+@property --orbit-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+@property --panel-glow {
+  syntax: "*";
+  inherits: false;
+}
+@property --panel-edge {
+  syntax: "*";
+  inherits: false;
+}
+
+/* Duration utilities for the named token durations → duration-press, duration-hover, duration-overlay, duration-slide,
+   duration-view, duration-pulse, duration-draw, duration-shimmer, duration-breathe; aliases duration-micro (= hover),
+   duration-hover-card and duration-panel (= overlay), duration-ribbon (= draw). */
+@utility duration-press {
+  transition-duration: var(--dur-press);
+}
+@utility duration-hover {
+  transition-duration: var(--dur-hover);
+}
+@utility duration-overlay {
+  transition-duration: var(--dur-overlay);
+}
+@utility duration-slide {
+  transition-duration: var(--dur-slide);
+}
+@utility duration-pulse {
+  transition-duration: var(--dur-pulse);
+}
+@utility duration-draw {
+  transition-duration: var(--dur-draw);
+}
+@utility duration-shimmer {
+  transition-duration: var(--dur-shimmer);
+}
+@utility duration-breathe {
+  transition-duration: var(--dur-breathe);
+}
 @utility duration-micro {
   transition-duration: var(--dur-micro);
 }
@@ -256,8 +515,8 @@
 @layer base {
   html {
     color-scheme: dark;
-    background: var(--bg-base);
-    color: var(--text-primary);
+    background-color: var(--canvas);
+    color: var(--text-1);
     font-family: var(--font-body);
     font-size: var(--fs-body);
     line-height: var(--lh-body);
@@ -266,25 +525,30 @@
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     font-feature-settings: "cv11", "ss01";
+    /* No tabular figures here: prose keeps proportional figures and punctuation; numbers opt in with `tabular`. */
   }
+  /* The canvas, with a faint light under the top bar as if the brand slab lights the room. Pages inside the app shell
+     paint the business's own light with `canvas-lit`; frames without a business show Foundmill steel here. */
   body {
     min-height: 100%;
-    background: var(--bg-base);
-    color: var(--text-primary);
+    background:
+      radial-gradient(1200px 420px at 50% -120px, color-mix(in oklab, var(--kit-lift) 7%, transparent), transparent 70%) no-repeat,
+      var(--canvas);
+    color: var(--text-1);
     overflow-x: hidden;
   }
   ::selection {
-    background: color-mix(in oklab, var(--accent-link) 35%, transparent);
-    color: var(--text-primary);
+    background: color-mix(in oklab, var(--accent) 32%, transparent);
+    color: var(--text-1);
   }
   ::placeholder {
-    color: var(--text-secondary);
+    color: var(--text-3);
     opacity: 1;
   }
-  /* Scrollbars: 6 px, thumb hairline, track transparent (DESIGN §3) */
+  /* Scrollbars: 6 px, a strong hairline thumb on a transparent track */
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--line-subtle) transparent;
+    scrollbar-color: var(--line-strong) transparent;
   }
   *::-webkit-scrollbar {
     width: 6px;
@@ -294,27 +558,33 @@
     background: transparent;
   }
   *::-webkit-scrollbar-thumb {
-    background: var(--line-subtle);
-    border-radius: 3px;
+    background: var(--line-strong);
+    border-radius: var(--r-sm);
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--text-4);
   }
   *::-webkit-scrollbar-corner {
     background: transparent;
   }
-  /* Focus: 2 px accent outline, 1 px offset, keyboard only */
+  /* Focus: keyboard only, an accent outline 2 px out that follows the element's radius. Components that want the
+     haloed ring (fields, cards) use `focus-ring` / `focus-within-ring`. */
   :focus {
     outline: none;
   }
   :focus-visible {
     outline: var(--focus-ring);
+    outline-color: color-mix(in oklab, var(--accent) 80%, transparent);
     outline-offset: var(--focus-offset);
   }
   a {
-    color: var(--accent-link);
+    color: var(--accent);
     text-decoration: none;
   }
   a:hover {
     text-decoration: underline;
-    text-underline-offset: 2px;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.24em;
   }
   button,
   input,
@@ -332,7 +602,7 @@
     line-height: var(--lh-mono);
   }
   hr {
-    border-color: var(--line-subtle);
+    border-color: var(--line);
   }
   /* Reduced motion: every animation becomes an instant state change with identical information (DESIGN §2) */
   @media (prefers-reduced-motion: reduce) {
@@ -341,13 +611,17 @@
     *::after {
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
+      animation-delay: 0s !important; /* staggered reveals (landed, stagger-N) appear at once instead of waiting hidden */
       transition-duration: 0.01ms !important;
+      transition-delay: 0s !important;
       scroll-behavior: auto !important;
     }
   }
 }
 
-/* ---------- Typography utilities (DESIGN §4) ---------- */
+/* ---------- Typography utilities (DESIGN §4) ----------
+   Case rules: sentence case for every action, tab, sidebar item, panel title, form label and pill. Caps only for data
+   labels, through `t-data`, never by typing. Barlow is for figures and titles; Inter for everything you read or press. */
 /* Landing hero only (signed-out page): the one place type goes above display-xl. */
 @utility t-display-hero {
   font-family: var(--font-display);
@@ -358,24 +632,35 @@
 }
 /* Landing headlines: the lit words, white lifting into the link blue (no new colour, no glow). */
 @utility landing-lit {
-  background-image: linear-gradient(180deg, var(--text-primary) 10%, color-mix(in oklab, var(--accent-link) 85%, var(--text-primary)) 95%);
+  background-image: linear-gradient(180deg, var(--text-1) 10%, color-mix(in oklab, var(--accent) 85%, var(--text-1)) 95%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+/* The one hero figure per screen (the Journey headline): Barlow 54. */
+@utility t-figure-hero {
+  font-family: var(--font-display);
+  font-weight: var(--fw-display);
+  font-size: var(--fs-figure-hero);
+  line-height: var(--lh-figure-hero);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }
 @utility t-display-xl {
   font-family: var(--font-display);
   font-weight: var(--fw-display);
   font-size: var(--fs-display-xl);
   line-height: var(--lh-display-xl);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.005em;
   font-variant-numeric: tabular-nums;
 }
+/* Tile figures. */
 @utility t-display-lg {
   font-family: var(--font-display);
   font-weight: var(--fw-display);
   font-size: var(--fs-display-lg);
   line-height: var(--lh-display-lg);
+  letter-spacing: -0.005em;
   font-variant-numeric: tabular-nums;
 }
 @utility t-display-md {
@@ -383,38 +668,71 @@
   font-weight: var(--fw-display);
   font-size: var(--fs-display-md);
   line-height: var(--lh-display-md);
+  text-wrap: balance;
 }
 @utility t-display-sm {
   font-family: var(--font-display);
   font-weight: var(--fw-display);
   font-size: var(--fs-display-sm);
   line-height: var(--lh-display-sm);
+  letter-spacing: 0.005em;
 }
+/* Panel titles: Inter 600, sentence case. */
+@utility t-title {
+  font-family: var(--font-body);
+  font-weight: var(--fw-title);
+  font-size: var(--fs-title);
+  line-height: var(--lh-title);
+  letter-spacing: -0.003em;
+}
+/* Actions: buttons, tabs, sidebar items, quick replies, segmented options. Inter 500, sentence case. */
+@utility t-action {
+  font-family: var(--font-body);
+  font-weight: var(--fw-body-strong);
+  font-size: var(--fs-action);
+  line-height: var(--lh-action);
+  letter-spacing: 0;
+}
+@utility t-action-sm {
+  font-family: var(--font-body);
+  font-weight: var(--fw-body-strong);
+  font-size: var(--fs-action-sm);
+  line-height: var(--lh-action);
+  letter-spacing: 0;
+}
+/* Original names, now sentence-case Inter: t-tab = t-action, t-tab-sm = t-action-sm. */
 @utility t-tab {
-  font-family: var(--font-display);
-  font-weight: var(--fw-display);
+  font-family: var(--font-body);
+  font-weight: var(--fw-body-strong);
   font-size: var(--fs-tab);
   line-height: var(--lh-tab);
   letter-spacing: var(--ls-tab);
-  text-transform: uppercase;
 }
 @utility t-tab-sm {
-  /* button labels: tab style at 12 px (DESIGN §6) */
-  font-family: var(--font-display);
-  font-weight: var(--fw-display);
-  font-size: var(--fs-small);
-  line-height: var(--lh-small);
+  font-family: var(--font-body);
+  font-weight: var(--fw-body-strong);
+  font-size: var(--fs-action-sm);
+  line-height: var(--lh-action);
   letter-spacing: var(--ls-tab);
-  text-transform: uppercase;
 }
+/* Labels: form labels, table headers, chips, captions. Inter 500 12, sentence case, text-2. */
 @utility t-label {
-  font-family: var(--font-display);
-  font-weight: var(--fw-display);
+  font-family: var(--font-body);
+  font-weight: var(--fw-body-strong);
   font-size: var(--fs-label);
   line-height: var(--lh-label);
   letter-spacing: var(--ls-label);
+  color: var(--text-2);
+}
+/* Data labels, the only caps in the product: tile captions, column heads, "Last 7 days", "Your call", Estimate. */
+@utility t-data {
+  font-family: var(--font-display);
+  font-weight: var(--fw-display);
+  font-size: var(--fs-data);
+  line-height: var(--lh-data);
+  letter-spacing: var(--ls-data);
   text-transform: uppercase;
-  color: var(--text-secondary);
+  color: var(--text-3);
 }
 @utility t-body {
   font-family: var(--font-body);
@@ -428,12 +746,24 @@
   font-size: var(--fs-body);
   line-height: var(--lh-body);
 }
+/* The note body: 15/24 within the 640 px measure, in the softer reading colour. */
 @utility t-reading {
   font-family: var(--font-body);
   font-weight: var(--fw-body);
   font-size: var(--fs-reading);
   line-height: var(--lh-reading);
+  letter-spacing: var(--ls-reading);
   max-width: var(--reading-measure);
+  text-wrap: pretty;
+  color: var(--reading);
+}
+/* Conversation bubbles. */
+@utility t-chat {
+  font-family: var(--font-body);
+  font-weight: var(--fw-body);
+  font-size: var(--fs-chat);
+  line-height: var(--lh-chat);
+  text-wrap: pretty;
 }
 @utility t-small {
   font-family: var(--font-body);
@@ -441,26 +771,62 @@
   font-size: var(--fs-small);
   line-height: var(--lh-small);
 }
+/* Timestamps, tokens, provenance, counts in headers, ids, logs. */
 @utility t-mono {
   font-family: var(--font-mono);
-  font-weight: var(--fw-body);
+  font-weight: var(--fw-mono);
   font-size: var(--fs-mono);
   line-height: var(--lh-mono);
   font-variant-numeric: tabular-nums;
 }
+/* Axis ticks, kbd. */
+@utility t-micro {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-body-strong);
+  font-size: var(--fs-micro);
+  line-height: var(--lh-micro);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+/* Figure micro-typography: £72K → <span class="t-currency">£</span>72<span class="t-unit">K</span>. */
+@utility t-currency {
+  font-size: 0.66em;
+  color: var(--text-3);
+  vertical-align: 0.3em;
+  margin-right: 0.06em;
+  font-weight: inherit;
+}
+@utility t-decimals {
+  font-size: 0.66em;
+  color: var(--text-2);
+}
+@utility t-unit {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-body-strong);
+  font-size: 0.62em;
+  line-height: 1;
+  letter-spacing: 0;
+  color: var(--text-3);
+  margin-left: 0.18em;
+}
 
-/* `tabular-nums` is a built-in Tailwind utility; `tabular` is the short Dugout alias used in tables. */
-/* Entity mentions and in-text links (founder, 2026-10-09): the text's own colour, always underlined, no kind icon.
-   The underline sits at 45 % of the text colour and comes to full strength on hover or keyboard focus. */
+/* `tabular-nums` is a built-in Tailwind utility; `tabular` is the short Dugout alias. Put it on numbers (figures,
+   tables, counters, meters, timestamps), never on body text. */
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Entity mentions and in-text links (founder, 2026-10-09): the text's own colour, always underlined (1 px at 40 % of
+   the text colour, offset 0.24em), no kind icon, inline so long names wrap. Full strength on hover or keyboard focus. */
 @utility entity-link {
   color: inherit;
   text-decoration-line: underline;
   text-decoration-thickness: 1px;
-  text-underline-offset: 0.22em;
-  text-decoration-color: color-mix(in oklab, currentColor 45%, transparent);
+  text-underline-offset: 0.24em;
+  text-decoration-color: color-mix(in oklab, currentColor 40%, transparent);
   text-decoration-skip-ink: auto;
   border-radius: 2px;
-  transition: text-decoration-color var(--dur-micro) var(--ease);
+  transition: text-decoration-color var(--dur-hover) var(--ease-out);
   &:hover,
   &:focus-visible {
     color: inherit;
@@ -468,48 +834,343 @@
     text-decoration-color: currentColor;
   }
 }
-
-@utility tabular {
-  font-variant-numeric: tabular-nums;
+/* An unverified mention: dotted, so it never reads as a verified link. */
+@utility entity-link-dotted {
+  text-decoration-style: dotted;
 }
 
-/* Panel surface (DESIGN §3): bg-panel, hairline, 4 px radius, inner highlight, no drop shadow */
+/* ---------- Surfaces ---------- */
+/* Panel: surface-1, r-md, a 1 px gradient edge that catches light at the top left and bottom right, a faint top light,
+   elev-1. The edge is painted in the border box behind a transparent border, so a caller's border colour
+   (`border-gold/40`, `hover:border-link`) still replaces it and nothing is positioned. Modifiers: glow-dept / glow-brand
+   (inner light from the lit corner), edge-tint (colour in the lit corner). */
 @utility surface-panel {
-  background: var(--bg-panel);
-  border: 1px solid var(--line-subtle);
-  border-radius: var(--radius-panel);
-  box-shadow: var(--inner-highlight);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background-color: var(--surface-1);
+  background-image:
+    var(--panel-glow, linear-gradient(transparent, transparent)),
+    linear-gradient(180deg, var(--top-light), transparent 120px),
+    linear-gradient(var(--surface-1), var(--surface-1)),
+    var(--panel-edge, var(--edge-gradient));
+  background-origin: border-box;
+  background-clip: padding-box, padding-box, padding-box, border-box;
+  box-shadow: var(--elev-1);
 }
-
-/* Overlay surface (menus, hover cards, dialogs): raised, hairline, overlay shadow */
+/* Raised controls: secondary buttons, quick replies, segmented plates. */
+@utility surface-raised {
+  background-color: var(--surface-2);
+  background-image: linear-gradient(180deg, color-mix(in oklab, var(--white) 5.5%, transparent), color-mix(in oklab, var(--white) 2%, transparent));
+  box-shadow:
+    inset 0 0 0 1px var(--line-strong),
+    inset 0 1px 0 var(--rim-light),
+    0 1px 2px color-mix(in oklab, var(--black) 40%, transparent);
+}
+/* Input wells: the wrapper is the field (black at 30 % over the panel, a strong hairline, an inset shadow). */
+@utility surface-well {
+  background-color: var(--well);
+  box-shadow:
+    inset 0 0 0 1px var(--line-strong),
+    var(--well-inset);
+}
+/* Overlays (menus, hover cards, popovers, tooltips, toasts): glass over a blur, a strong hairline, elev-2. */
 @utility surface-overlay {
-  background: var(--bg-panel-alt);
-  border: 1px solid var(--line-subtle);
-  border-radius: var(--radius-panel);
-  box-shadow: var(--shadow-overlay);
+  background-color: var(--glass);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--elev-2);
+}
+/* Dialogs and the command palette: the same glass, deeper, r-lg, elev-3. */
+@utility surface-dialog {
+  background-color: var(--glass);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--elev-3);
+}
+/* Glass on the brand slab (top-bar chips, search): darkened, blurred, a hairline with a lit top. */
+@utility glass {
+  background-color: var(--glass-dark);
+  backdrop-filter: blur(14px) saturate(120%);
+  box-shadow:
+    inset 0 0 0 1px var(--glass-ring),
+    inset 0 1px 0 var(--glass-top);
+}
+/* The canvas with the business's light under the top bar (the shell's main column). */
+@utility canvas-lit {
+  background:
+    radial-gradient(1100px 380px at 32% -60px, color-mix(in oklab, var(--kit-aura) 11%, transparent), transparent 70%) no-repeat,
+    var(--canvas);
+}
+/* A 1 px inner top highlight on a raised thing (composes with shadow-* and ring-*). */
+@utility rim {
+  --tw-inset-shadow: inset 0 1px 0 var(--rim-light);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow, 0 0 transparent), var(--tw-ring-offset-shadow, 0 0 transparent), var(--tw-ring-shadow, 0 0 transparent), var(--tw-shadow, 0 0 transparent);
 }
 
-/* Shimmer for skeletons and the processing strip: bg-panel-alt with a travelling 1.6 s gradient */
-@utility shimmer {
-  background-color: var(--bg-panel-alt);
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in oklab, var(--white) 4%, transparent) 50%,
-    transparent 100%
+/* ---------- Edges and light ---------- */
+/* `tone-<colour>` sets --tone, the colour every tinted effect below reads (tone-dept-3, tone-status-bad, tone-kit-lift…). */
+@utility tone-* {
+  --tone: --value(--color-*);
+}
+/* A gradient 1 px edge for any borderless element (cards, tiles, controls): a masked ring in ::before. On a
+   surface-panel do not add it: the panel already has its edge. */
+@utility edge {
+  position: relative;
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    pointer-events: none;
+    background: var(--edge-gradient);
+    mask-image: linear-gradient(var(--white) 0 0), linear-gradient(var(--white) 0 0);
+    mask-clip: content-box, border-box;
+    mask-composite: exclude;
+  }
+}
+/* The lit corner takes the colour of --tone (default kit-lift). Works on `edge` and on `surface-panel`. */
+@utility edge-tint {
+  --panel-edge: linear-gradient(
+    145deg,
+    color-mix(in oklab, var(--tone, var(--kit-lift)) 80%, var(--white)) 0%,
+    color-mix(in oklab, var(--tone, var(--kit-lift)) 24%, transparent) 12%,
+    color-mix(in oklab, var(--white) 5%, transparent) 30%,
+    color-mix(in oklab, var(--white) 3.5%, transparent) 55%,
+    color-mix(in oklab, var(--white) 6%, transparent) 84%,
+    color-mix(in oklab, var(--white) 14%, transparent) 100%
   );
-  background-size: 200% 100%;
-  animation: dugout-shimmer var(--dur-shimmer) linear infinite;
+  &::before {
+    background: linear-gradient(
+      145deg,
+      color-mix(in oklab, var(--tone, var(--kit-lift)) 80%, var(--white)) 0%,
+      color-mix(in oklab, var(--tone, var(--kit-lift)) 24%, transparent) 12%,
+      color-mix(in oklab, var(--white) 5%, transparent) 30%,
+      color-mix(in oklab, var(--white) 3.5%, transparent) 55%,
+      color-mix(in oklab, var(--white) 6%, transparent) 84%,
+      color-mix(in oklab, var(--white) 14%, transparent) 100%
+    );
+  }
+}
+/* Department light inside a surface-panel: a radial of --tone at 13 % from the lit corner (90 % × 140 px). Department
+   cards, the note's metric strip, the agent thread, concept cards. */
+@utility glow-dept {
+  --panel-glow: radial-gradient(90% 140px at 0% 0%, color-mix(in oklab, var(--tone, var(--kit-aura)) 13%, transparent), transparent 70%);
+}
+/* Brand light inside a surface-panel: the Journey and the brief. */
+@utility glow-brand {
+  --panel-glow: radial-gradient(90% 160px at 0% 0%, color-mix(in oklab, var(--kit-aura) 12%, transparent), transparent 70%);
+}
+/* A fixed specular streak (the top bar's glass). */
+@utility specular {
+  background-image: linear-gradient(104deg, transparent 18%, color-mix(in oklab, var(--white) 7%, transparent) 26%, transparent 34%);
+}
+/* A sheen that crosses once on hover (the generate control). */
+@utility sheen {
+  position: relative;
+  overflow: hidden;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(104deg, transparent 30%, color-mix(in oklab, var(--white) 26%, transparent) 50%, transparent 70%);
+    transform: translateX(-120%);
+  }
+  &:hover::after {
+    animation: dugout-sheen var(--dur-sheen) var(--ease-out) 1;
+  }
+}
+/* A light arc orbiting a 1.5 px conic border, one turn per --dur-breathe (Generate and Continue while running).
+   Reduced motion: the arc rests at the top. */
+@utility orbit {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.5px;
+    pointer-events: none;
+    background: conic-gradient(
+      from var(--orbit-angle),
+      transparent 0deg,
+      transparent 230deg,
+      color-mix(in oklab, var(--tone, var(--kit-lift)) 60%, transparent) 300deg,
+      color-mix(in oklab, var(--tone, var(--kit-lift)) 70%, var(--white)) 340deg,
+      transparent 360deg
+    );
+    mask-image: linear-gradient(var(--white) 0 0), linear-gradient(var(--white) 0 0);
+    mask-clip: content-box, border-box;
+    mask-composite: exclude;
+    animation: dugout-orbit-edge var(--dur-breathe) linear infinite;
+  }
+}
+/* Skeleton bars: surface-2 with a 100° light band every 1600 ms; bars in a group start --stagger-step apart when each
+   sets its index (`stagger-1`, `stagger-2` … or style --i). Reduced motion: a flat surface-2 bar. */
+@utility shimmer {
+  background-color: var(--surface-2);
+  background-image: linear-gradient(
+    100deg,
+    transparent 20%,
+    color-mix(in oklab, var(--white) 5%, transparent) 35%,
+    transparent 50%
+  );
+  background-size: 300% 100%;
+  background-position: 0% 0;
+  animation: dugout-shimmer-band var(--dur-shimmer) linear infinite;
+  animation-delay: calc(var(--i, 0) * var(--stagger-step));
+}
+/* Sets the stagger index --i (shimmer bars, quick replies, landed cards): stagger-0 … stagger-12. */
+@utility stagger-* {
+  --i: --value(integer);
+}
+/* Live presence: a ring that breathes outwards from an avatar (scale 1 → 1.35, fading) in --tone (default good).
+   Reduced motion: no ring; the static status ring and the words carry the state. */
+@utility presence-breathe {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: var(--r-pill);
+    box-shadow: 0 0 0 1.5px var(--tone, var(--status-good));
+    opacity: 0;
+    pointer-events: none;
+    animation: dugout-breathe var(--dur-breathe) var(--ease-out) infinite;
+  }
+}
+/* Typing dots: put three empty spans inside. They hop in turn in --tone (default text-2). */
+@utility typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  & > * {
+    width: 4px;
+    height: 4px;
+    border-radius: var(--r-pill);
+    background: var(--tone, var(--text-2));
+    animation: dugout-typing var(--typing-loop) var(--ease-inout) infinite;
+  }
+  & > :nth-child(2) {
+    animation-delay: var(--typing-stagger);
+  }
+  & > :nth-child(3) {
+    animation-delay: calc(var(--typing-stagger) * 2);
+  }
+}
+/* The caret at the end of streaming text, in --tone (the agent's department colour; default accent). Blinks only while
+   the class is present: remove it when the stream closes. Reduced motion: a solid caret. */
+@utility stream-caret {
+  &::after {
+    content: "";
+    display: inline-block;
+    width: 1.5px;
+    height: 1.05em;
+    margin-left: 1px;
+    vertical-align: -0.15em;
+    background: var(--tone, var(--accent));
+    box-shadow: 0 0 6px var(--tone, var(--accent));
+    animation: dugout-caret var(--caret-blink) step-end infinite;
+  }
+}
+/* A card that has just landed: rises 8 px and fades in (320 ms), its edge flashes kit-lift and settles over 1200 ms.
+   Stagger with stagger-N. Nothing stays applied once it ends, so focus outlines are untouched. */
+@utility landed {
+  outline: 1px solid transparent;
+  outline-offset: -1px;
+  animation:
+    dugout-landed var(--dur-view) var(--ease-out) backwards,
+    dugout-landed-edge var(--dur-draw) var(--ease-out) backwards;
+  animation-delay: calc(var(--i, 0) * var(--reply-stagger));
+}
+/* Sliding indicators. The tab underline: an absolutely placed 2 px lit bar; the component sets --indicator-x and
+   --indicator-w from the active tab and the bar slides (260 ms inout). */
+@utility slide-indicator {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: var(--indicator-w, 0px);
+  transform: translateX(var(--indicator-x, 0px));
+  border-radius: 2px 2px 0 0;
+  background: var(--text-1);
+  box-shadow:
+    0 0 10px color-mix(in oklab, var(--white) 45%, transparent),
+    0 -2px 12px color-mix(in oklab, var(--white) 12%, transparent);
+  transition:
+    transform var(--dur-slide) var(--ease-inout),
+    width var(--dur-slide) var(--ease-inout);
+  pointer-events: none;
+}
+/* The segmented control's active plate, sliding the same way (set --indicator-x / --indicator-w). */
+@utility slide-plate {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  width: var(--indicator-w, 0px);
+  transform: translateX(var(--indicator-x, 0px));
+  border-radius: var(--r-sm);
+  background-color: var(--surface-3);
+  background-image: linear-gradient(180deg, color-mix(in oklab, var(--white) 8%, transparent), color-mix(in oklab, var(--white) 3%, transparent));
+  box-shadow:
+    inset 0 0 0 1px var(--line-strong),
+    inset 0 1px 0 color-mix(in oklab, var(--white) 8%, transparent),
+    0 2px 6px color-mix(in oklab, var(--black) 40%, transparent);
+  transition:
+    transform var(--dur-slide) var(--ease-inout),
+    width var(--dur-slide) var(--ease-inout);
+  pointer-events: none;
+}
+/* Tactile press: 1 px down and .985 on press (90 ms), springing back on release; hover colours ease out. */
+@utility pressable {
+  transition:
+    color var(--dur-hover) var(--ease-out),
+    background-color var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out),
+    opacity var(--dur-hover) var(--ease-out),
+    filter var(--dur-hover) var(--ease-out),
+    translate 220ms var(--ease-spring),
+    scale 220ms var(--ease-spring);
+  &:active:not(:disabled, [aria-disabled="true"]) {
+    translate: 0 1px;
+    scale: 0.985;
+    transition-duration: var(--dur-press);
+  }
+}
+/* The SPEC focus ring (1 px accent + 4 px halo) on keyboard focus, in place of the outline. */
+@utility focus-ring {
+  &:focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+  }
+}
+/* Fields: the wrapper lights when anything inside has focus. */
+@utility focus-within-ring {
+  &:focus-within {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--accent) 70%, transparent),
+      0 0 0 4px color-mix(in oklab, var(--accent) 14%, transparent),
+      var(--well-inset);
+  }
+}
+/* A header rule that fades out to the right (panel headers, sidebar groups). */
+@utility rule-fade {
+  border-bottom: 1px solid transparent;
+  border-image: linear-gradient(90deg, var(--line), var(--line) 60%, transparent) 1;
+}
+/* "Not measured": a dashed edge always means forecast, estimate or planned. */
+@utility dashed-edge {
+  border: 1px dashed color-mix(in oklab, var(--white) 22%, transparent);
 }
 
-/* Hairline row divider at 50 % (table rows) */
+/* Hairline row divider (table rows) */
 @utility hairline-50 {
-  border-color: color-mix(in oklab, var(--line-subtle) 50%, transparent);
-}
-
-/* Disabled text: text-secondary at 50 % */
-@utility text-disabled {
-  color: color-mix(in oklab, var(--text-secondary) 50%, transparent);
+  border-color: var(--line-faint);
 }
 
 /* Landing page (signed-out `/`): a block rises in once as it first enters the window. `Reveal` in apps/web sets

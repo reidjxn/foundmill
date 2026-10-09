@@ -143,6 +143,25 @@ export const IdeationOutput = z.object({
 });
 export type IdeationOutput = z.infer<typeof IdeationOutput>;
 
+/**
+ * Ideation slate (route `ideationSlate`, audit P2): the names and angles of the set, drafted first in a short call so
+ * the cards can then be written in parallel (one `ideation` call per card). Same 6–12 as the cards (AC-11.1.2).
+ */
+export const IdeationSlateItem = z.object({
+  /** Carried into the card call and kept as the card's id. */
+  id: z.string().min(1),
+  name: z.string().min(1).max(60),
+  archetype: Archetype,
+  /** One sentence: who it serves and how it wins. */
+  angle: z.string().min(1).max(240),
+});
+export type IdeationSlateItem = z.infer<typeof IdeationSlateItem>;
+
+export const IdeationSlateOutput = z.object({
+  slate: z.array(IdeationSlateItem).min(6).max(12),
+});
+export type IdeationSlateOutput = z.infer<typeof IdeationSlateOutput>;
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Logo designer (business logo marks as SVG; packages/agents prompt `logo_designer`). The SVG is untrusted output: the
 // api passes every mark through the strict sanitiser (@foundmill/shared/logo) before it reaches a browser.
@@ -516,3 +535,31 @@ export const FoundationsOutput = z.object({
   open_questions: z.array(z.string().min(1).max(400)).max(10),
 });
 export type FoundationsOutput = z.infer<typeof FoundationsOutput>;
+
+/**
+ * Foundations skeleton (route `foundationsSkeleton`, audit P3): the full vision, one thesis per outline section and the
+ * roadmap's titles, drafted first so the vision shows within seconds and the sections can be written in parallel.
+ */
+export const FoundationsSkeletonSection = z.object({
+  /** One of the outline sections, spelled as given. */
+  section: z.string().min(1).max(120),
+  /** The one sentence the section will argue. */
+  thesis: z.string().min(1).max(400),
+});
+export type FoundationsSkeletonSection = z.infer<typeof FoundationsSkeletonSection>;
+
+export const FoundationsSkeletonRoadmapItem = z.object({
+  title: z.string().min(1).max(200),
+  horizon: RoadmapHorizon,
+});
+export type FoundationsSkeletonRoadmapItem = z.infer<typeof FoundationsSkeletonRoadmapItem>;
+
+export const FoundationsSkeletonOutput = z.object({
+  vision: FoundationsVision,
+  sections: z.array(FoundationsSkeletonSection).min(1).max(30),
+  roadmap: z.array(FoundationsSkeletonRoadmapItem).min(3).max(40),
+});
+export type FoundationsSkeletonOutput = z.infer<typeof FoundationsSkeletonOutput>;
+
+// Founder ↔ agent conversation (route `conversation`): QuickReply, AgentReplyOutput and their limits.
+export * from "./conversation-schema";

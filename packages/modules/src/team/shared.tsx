@@ -6,8 +6,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CircleAlert } from "lucide-react";
 import { PageGrid, StatusPill, agentStatusTone, cn, formatRelative, type EntityDetails, type SquadRow } from "@foundmill/dugout";
-import { MODULE_KEYS, type AgentStatus, type DecisionType, type DeptColourToken, type MembershipRole } from "@foundmill/shared";
-import { routes, useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState, type WidgetEvent } from "@foundmill/widgets";
+import { MODULE_KEYS, type AgentStatus, type DecisionType, type DeptColourToken, type MembershipRole } from "@foundmill/shared/constants";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState, type WidgetEvent } from "@foundmill/widgets/data";
 import type { AgentHealthChangedPayload, AgentRow, AgentsListResponse, FounderProfileResponse, MembershipRow, TemplateRow } from "./types";
 
 /* ---------- Options the host or a test may override ---------- */

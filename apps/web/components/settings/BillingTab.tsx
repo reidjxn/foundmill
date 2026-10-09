@@ -8,7 +8,7 @@ import { Coins } from "lucide-react";
 import { useState } from "react";
 import { PRICE_TBA_LABEL, TIERS, type TierKey } from "@foundmill/config";
 import { Button, Chip, KeyValueList, MiniTable, ProvenanceChip, SimpleSelect } from "@foundmill/dugout";
-import { PLAN_TIERS } from "@foundmill/shared";
+import { PLAN_TIERS } from "@foundmill/shared/constants";
 import { formatMoney } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";

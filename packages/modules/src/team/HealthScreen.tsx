@@ -7,8 +7,10 @@
 import { useMemo } from "react";
 import { Activity, ExternalLink, HeartPulse, UserRoundPlus } from "lucide-react";
 import { Avatar, Button, Chip, EntityLink, Panel, StatusStrip, cn, formatPercent, formatRelative, healthSummary, type HealthDetails, type MetricTileProps } from "@foundmill/dugout";
-import { AGENT_STATUSES, type AgentStatus } from "@foundmill/shared";
-import { departmentForModule, routes, useDepartments, useWidgetData } from "@foundmill/widgets";
+import { AGENT_STATUSES, type AgentStatus } from "@foundmill/shared/constants";
+import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useWidgetData } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { AgentStatusWordPill, STATUS_DESCRIPTION, STATUS_ORDER, STATUS_WORD, Screen, agentDept, agentEntity, agentHref, taskHref, toIso, useAgents, useLiveAgentStatus, useNow, useTeamOptions, withLiveStatus } from "./shared";
 import type { AgentRow } from "./types";

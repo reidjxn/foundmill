@@ -22,7 +22,7 @@ export interface FakeSource {
   intervals: Record<string, number | undefined>;
 }
 
-export function createFakeSource(opts: { businessId?: string; responses?: Record<string, FakeResponse>; missing?: "loading" | "empty"; onMutate?: (path: string, input: Record<string, unknown>) => unknown } = {}): FakeSource {
+export function createFakeSource(opts: { businessId?: string; responses?: Record<string, FakeResponse>; missing?: "loading" | "empty"; onMutate?: (path: string, input: Record<string, unknown>) => unknown; /** A host whose event stream is connected (`useStreamOpen`); omitted: a host without one. */ streamOpen?: boolean } = {}): FakeSource {
   const businessId = opts.businessId ?? "00000000-0000-4000-8000-000000000001";
   const responses = new Map<string, FakeResponse>(Object.entries(opts.responses ?? {}));
   const listeners = new Set<() => void>();
@@ -86,6 +86,7 @@ export function createFakeSource(opts: { businessId?: string; responses?: Record
     navigate(href) {
       navigations.push(href);
     },
+    ...(opts.streamOpen !== undefined ? { useStreamOpen: () => opts.streamOpen! } : {}),
     subscribe(channel, handler) {
       const set = handlers.get(channel) ?? new Set();
       set.add(handler);

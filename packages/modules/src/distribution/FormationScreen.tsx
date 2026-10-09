@@ -1,28 +1,34 @@
 "use client";
 /**
  * Distribution › Formation (BUILD §11.7): the Board fed by `distribution.channels.list`. Drag or Enter moves a channel
- * on or off → `distribution.channels.enable/disable`, then the Strategist re-scores through `distribution.recommend`
- * (AC-11.7.2). Click or O opens the channel profile drawer (agents, budget, rules, results, pause).
+ * on or off → `distribution.channels.enable/disable`; the Board shows local scores at once and the Strategist re-scores
+ * through `distribution.recommend` two seconds after the last toggle (AC-11.7.2; rescore.ts). Click or O opens the
+ * channel profile drawer (agents, budget, rules, results, pause).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw, Sparkles } from "lucide-react";
 import { Button, Chip, FormationBoard, GridCell, Panel, ProvenanceChip, formatMoney } from "@foundmill/dugout";
 import type { ChannelKey } from "@foundmill/shared";
-import { addDays, dayKey, moduleHref, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { addDays, dayKey } from "@foundmill/widgets/shared/time";
+import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
+import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { ChannelProfileDrawer } from "./ChannelProfileDrawer";
 import { buildChannelViews, toChannelToken, totalBudget, type ChannelView } from "./channel-data";
 import { InlineError, Screen, searchParam, useAction } from "./shared";
+import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
 import type { AgentRow, CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, RecommendResponse, RecommendationRow } from "./types";
 
 export interface FormationScreenProps extends ModuleScreenProps {
   /** Recommended tokens walk onto the Board after mount (default true; tests pass false). */
   animateEntrance?: boolean;
+  /** Wait after the last toggle before the Strategist re-scores (default `RESCORE_DEBOUNCE_MS`). */
+  rescoreDelayMs?: number;
 }
 
 export const METRICS_WINDOW_DAYS = 35;
 
-export function FormationScreen({ businessId, departmentId, animateEntrance = true }: FormationScreenProps) {
+export function FormationScreen({ businessId, departmentId, animateEntrance = true, rescoreDelayMs = RESCORE_DEBOUNCE_MS }: FormationScreenProps) {
   const { navigate, currency } = useWidgetData();
   const today = dayKey();
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
@@ -46,10 +52,13 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
     setOverrides({});
   }, [channels.data]);
 
+  // Toggled since the Strategist last scored: the Board shows local scores until its re-score lands.
+  const [provisional, setProvisional] = useState(false);
   const views = useMemo<ChannelView[]>(() => {
     const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency: currency ?? "EUR", today });
-    return built.map((v) => (overrides[v.channelKey] === undefined ? v : { ...v, enabled: overrides[v.channelKey]! }));
-  }, [channels.data, campaigns.data, metrics.data, recommendation, currency, today, overrides]);
+    const toggled = built.map((v) => (overrides[v.channelKey] === undefined ? v : { ...v, enabled: overrides[v.channelKey]! }));
+    return provisional ? localScores(toggled) : toggled;
+  }, [channels.data, campaigns.data, metrics.data, recommendation, currency, today, overrides, provisional]);
 
   const budget = useMemo(() => totalBudget(views), [views]);
   const tokens = useMemo(() => views.map((v) => toChannelToken(v, { agents: agents.data, totalBudgetMinor: budget, departmentId })), [views, agents.data, budget, departmentId]);
@@ -66,20 +75,29 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
       channels.refetch();
     } finally {
       setRescoring(false);
+      setProvisional(false);
     }
   }, [action, channels]);
+  // One re-score after a run of toggles, not one per toggle (audit P7; revisits DECISIONS 2026-10-07).
+  const rescoreSoon = useDebouncedRun(rescore, rescoreDelayMs);
+  const rescoreNow = useCallback(() => {
+    rescoreSoon.cancel();
+    void rescore();
+  }, [rescoreSoon, rescore]);
 
   const onToggle = useCallback(
     async (key: ChannelKey, enabled: boolean) => {
       setOverrides((o) => ({ ...o, [key]: enabled }));
+      setProvisional(true);
       const ok = await action.run(enabled ? "distribution.channels.enable" : "distribution.channels.disable", { channelKey: key }, { key: `toggle:${key}` });
       if (ok === undefined) {
         setOverrides((o) => ({ ...o, [key]: !enabled }));
         return;
       }
-      await rescore();
+      // Counted from the last toggle that landed, so the Strategist always scores the Board as it now is.
+      rescoreSoon.schedule();
     },
-    [action, rescore],
+    [action, rescoreSoon],
   );
 
   const onPause = useCallback(
@@ -112,7 +130,12 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
               <Chip tone="neutral">
                 {starters} of 15 running
               </Chip>
-              <Button size="sm" variant="ghost" icon={rescoring ? RefreshCw : Sparkles} loading={rescoring} onClick={rescore}>
+              {rescoreSoon.pending ? (
+                <Chip tone="neutral" data-testid="rescore-pending">
+                  Local scores · re-scoring shortly
+                </Chip>
+              ) : null}
+              <Button size="sm" variant="ghost" icon={rescoring ? RefreshCw : Sparkles} loading={rescoring} onClick={rescoreNow}>
                 {scored === 0 ? "Get recommendation" : "Re-score"}
               </Button>
             </>

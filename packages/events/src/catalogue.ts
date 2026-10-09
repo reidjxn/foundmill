@@ -19,6 +19,8 @@ import {
   Archetype,
   BusinessMode,
   ChannelKey,
+  ConversationAuthorKind,
+  ConversationSubjectKind,
   ConversionKind,
   DecisionType,
   EVENT_TYPES,
@@ -1041,6 +1043,64 @@ const decisionMade = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Foundations (BUILD §11.1 first open, §11.5)
+// ---------------------------------------------------------------------------------------------------
+
+/** What a foundations drafting run just stored (audit P3: the vision first, then sections and roadmap items as they land). */
+export const FOUNDATIONS_PROGRESS_STEPS = ["started", "vision", "plan", "section", "roadmap", "ready"] as const;
+
+const foundationsProgressed = declareEvent(
+  "foundations.progressed",
+  z.object({
+    /** The drafting attempt that stored it (a newer attempt's progress supersedes it). */
+    attempt: z.number().int().positive(),
+    step: z.enum(FOUNDATIONS_PROGRESS_STEPS),
+    /** The outline section just stored (step `section`); null otherwise. */
+    section: z.string().min(1).max(200).nullable().default(null),
+    sectionsDone: Count,
+    sectionsTotal: Count,
+    /** Roadmap items written so far (the skeleton's planned items are not counted). */
+    roadmapItems: Count,
+    /** The vision is stored and readable (`product.foundations.get` returns it while drafting). */
+    visionReady: z.boolean(),
+  }),
+  {
+    doc: "A business's first-open drafting stored more of its foundations: a fresh start, the vision, the plan (one thesis per section and the roadmap titles), one specification section, roadmap items, or (`ready`) the apply that wrote it all. apps/stream pushes it so open tabs refetch `product.foundations.get`; the vision shows within seconds and the rest fills in. Never narrated (the Product lead posts one note when the drafting is ready).",
+    consumers: ["stream"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
+// Founder ↔ agent conversations (audit-conversation §4)
+// ---------------------------------------------------------------------------------------------------
+
+const conversationMessagePosted = declareEvent(
+  "conversation.message_posted",
+  z.object({
+    threadId: Id,
+    messageId: Id,
+    agentId: Id,
+    subjectKind: ConversationSubjectKind,
+    subjectId: Id,
+    author: ConversationAuthorKind,
+    /** The start of the message as plain text (mentions reduced to names), for stream toasts and metrics. */
+    preview: z.string().max(140),
+    /** The quick replies an agent message offers (empty for a founder message). */
+    quickReplyIds: z.array(z.string().regex(/^[a-z0-9_-]{1,24}$/)).max(4).default([]),
+    /** The founder message pressed this quick reply (null when typed, always null for an agent message). */
+    chosenQuickReplyId: z.string().regex(/^[a-z0-9_-]{1,24}$/).nullable().default(null),
+    /** The agent message carries a hand-off (work the founder asked for; it runs only as a confirmed plan). */
+    handOff: z.boolean(),
+  }),
+  {
+    doc: "A founder or agent message was posted at an agent's desk (one thread per agent and subject). apps/stream pushes it so another open tab shows the reply; metrics counts conversations and quick-reply use. Never narrated: a chat is not an Inbox note, and a hand-off becomes a decision only when its plan runs (decision.made).",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
 
@@ -1086,6 +1146,8 @@ export const EVENTS = {
   "cycle.completed": cycleCompleted,
   "inbox.item_created": inboxItemCreated,
   "decision.made": decisionMade,
+  "foundations.progressed": foundationsProgressed,
+  "conversation.message_posted": conversationMessagePosted,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
 
 export type EventsRegistry = typeof EVENTS;

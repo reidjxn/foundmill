@@ -7,7 +7,8 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Bot, GraduationCap, UserRound, Users } from "lucide-react";
 import { AgentStatusPill, Chip, DataTable, DeptChip, EntityLink, MiniTable, Panel, StatusPill, StatusStrip, SimpleSelect, formatCompact, formatDate, formatNumber, formatPercent, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
-import { routes, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { capUsedPct, formatMonth, monthKey, monthStart, outputPerHundred, sectionOf, trailingMonths } from "./metrics";
 import { Screen, fmtMoney, toDate, useCurrency, useNow } from "./shared";

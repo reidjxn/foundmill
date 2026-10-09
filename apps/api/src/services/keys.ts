@@ -5,7 +5,8 @@
  */
 import { mockIntegrationRecord, type Connector, type ToolContext } from "@foundmill/connectors";
 import { repos, type Executor } from "@foundmill/db";
-import { AppError, ValidationError, buildAad, encryptJson, redactSecret } from "@foundmill/shared";
+import { AppError, ValidationError } from "@foundmill/shared";
+import { buildAad, encryptJson, redactSecret } from "@foundmill/shared/crypto";
 import type { BusinessContext } from "../trpc";
 import { audit } from "../trpc";
 

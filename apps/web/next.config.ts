@@ -36,6 +36,12 @@ const nextConfig: NextConfig = {
   ],
   // Typecheck and lint run as separate pnpm scripts (pnpm --filter @foundmill/web typecheck | lint).
   typescript: { ignoreBuildErrors: true },
+  experimental: {
+    // Client router cache for dynamic pages (default 0 s): going back to a screen within 5 minutes reuses its page
+    // segment instead of asking the server again. The pages are thin client screens; their data lives in TanStack
+    // Query, which keeps it fresh on its own schedule (lib/query-client.ts).
+    staleTimes: { dynamic: 300 },
+  },
 };
 
 export default nextConfig;

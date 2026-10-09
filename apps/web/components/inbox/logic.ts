@@ -5,7 +5,7 @@
  */
 import type { DecisionAnswer, DecisionOption, MetricTileProps, TabItem } from "@foundmill/dugout";
 import type { InboxItemType, InboxState, Money } from "@foundmill/shared";
-import { routes } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
 
 // --- tabs --------------------------------------------------------------------------------------------------------------
 

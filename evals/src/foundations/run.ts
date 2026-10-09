@@ -4,8 +4,9 @@
  * the case's rubric (BUILD §12.5). The checks look at what the model wrote itself: a section the normaliser had to fill,
  * an import seed it had to add or a figure it had to label counts against the model.
  */
-import { buildFoundationsRequest, docText, finaliseFoundations, foundationsReadyNote, prompts, type FoundationsDraft } from "@foundmill/agents";
-import { type ModelClient, SkillGradeOutput } from "@foundmill/models";
+import { assembleFoundationsDraft, buildFoundationsRequest, docText, finaliseFoundations, foundationsReadyNote, memoryProgressStore, prompts, type FoundationsDraft } from "@foundmill/agents";
+import { draftFoundationsStaged } from "@foundmill/agents/foundations-steps";
+import { type ModelClient, SkillGradeOutput, type StreamStructuredRequest } from "@foundmill/models";
 import { weightedScore } from "../harness";
 import type { FoundationsCase } from "./cases";
 
@@ -104,3 +105,56 @@ export async function runFoundationsCase(c: FoundationsCase, opts: { client: Mod
     return { caseId: c.id, passed: false, score: 0, problems: [], draft: null, costMinor: 0, durationMs: Date.now() - started, grader: null, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/** A client that keeps every model answer's text (the staged drafting makes several calls; the checks read them all). */
+export function recordingClient(client: ModelClient): { client: ModelClient; texts: string[] } {
+  const texts: string[] = [];
+  const recorded: ModelClient = {
+    mode: client.mode,
+    complete: (async (req: Parameters<ModelClient["complete"]>[0]) => {
+      const res = await client.complete(req as never);
+      texts.push(res.text);
+      return res;
+    }) as ModelClient["complete"],
+    ...(client.streamStructured
+      ? {
+          async streamStructured<T, E>(req: StreamStructuredRequest<T, E>) {
+            const res = await client.streamStructured!(req);
+            texts.push(res.text);
+            return res;
+          },
+        }
+      : {}),
+  };
+  return { client: recorded, texts };
+}
+
+/**
+ * One case through the staged drafting the product runs (audit P3: the plan, then the sections in parallel batches and
+ * the roadmap, assembled from what each step stored), with the same deterministic checks and grader as the single call.
+ * Never throws; errors land in `error`.
+ */
+export async function runFoundationsStagedCase(c: FoundationsCase, opts: { client: ModelClient; grade?: boolean }): Promise<FoundationsCaseResult> {
+  const started = Date.now();
+  try {
+    const { client, texts } = recordingClient(opts.client);
+    const store = memoryProgressStore();
+    const { usage } = await draftFoundationsStaged({ models: client, inputs: c.inputs, store, scope: `eval:${c.id}:staged` }, { stored: null, author: null });
+    const draft = assembleFoundationsDraft(store.progress!, c.inputs);
+    const rawText = texts.join("\n\n");
+    const problems = checkFoundations(c, draft, rawText);
+    let costMinor = usage.costMinor;
+    let grader: FoundationsCaseResult["grader"] = null;
+    let score = problems.length ? 0 : 1;
+    if (opts.grade !== false) {
+      const graded = await opts.client.complete({ route: "skillGrader", system: prompts.skillGraderPrompt.render({}), messages: [{ role: "user", content: graderMessage(c, rawText, problems) }], schema: SkillGradeOutput, scope: `eval:${c.id}:grader` });
+      costMinor += graded.cost.costMinorInt;
+      grader = graded.json;
+      score = problems.length ? 0 : Math.min(graded.json.score, weightedScore(graded.json.lines, graded.json.score));
+    }
+    return { caseId: c.id, passed: problems.length === 0 && score >= FOUNDATIONS_PASS_THRESHOLD, score, problems, draft, costMinor, durationMs: Date.now() - started, grader };
+  } catch (err) {
+    return { caseId: c.id, passed: false, score: 0, problems: [], draft: null, costMinor: 0, durationMs: Date.now() - started, grader: null, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+

@@ -14,9 +14,17 @@ export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonEle
   loading?: boolean;
   /** Show the label as a tooltip on hover/focus (default true). */
   tooltip?: boolean;
-  /** Pressed state for toggle buttons. */
+  /** Pressed state for toggle buttons: aria-pressed plus the active-toggle look (a tinted ring and a soft glow). */
   pressed?: boolean;
 }
+
+/** A square button: the same variants and press as Button, the side equal to the height (28/32/40/48). */
+const SQUARE: Record<ButtonSize, string> = {
+  sm: "w-control-sm",
+  md: "w-control-md",
+  lg: "w-control-lg",
+  xl: "w-control-xl",
+};
 
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
   { icon, label, variant = "ghost", size = "md", loading = false, tooltip = true, pressed, className, disabled, type, ...rest },
@@ -31,13 +39,8 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       aria-busy={loading || undefined}
       disabled={disabled || loading}
       data-variant={variant}
-      className={cn(
-        buttonVariants({ variant, size }),
-        "px-0",
-        size === "sm" ? "w-control-sm" : "w-control-md",
-        pressed && "bg-panel-alt text-primary",
-        className,
-      )}
+      data-active={pressed || undefined}
+      className={cn(buttonVariants({ variant, size }), "shrink-0 px-0", SQUARE[size], className)}
       {...rest}
     >
       <Icon icon={loading ? LoaderCircle : icon} size={size === "sm" ? "inline" : "default"} className={loading ? "animate-spin" : undefined} />

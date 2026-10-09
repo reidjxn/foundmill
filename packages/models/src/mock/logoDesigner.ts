@@ -3,7 +3,8 @@
  * work without a key. Reads the brief the api sends (`business_name`, `pitch`, `archetype`, `brand_colours`, `count`,
  * `round`) and draws `count` marks from eight families (a dot-matrix initial, an orbit, stacked bars, a fold, an arch,
  * a split disc, waves, a corner composition), chosen by the input hash so "Generate again" (a new `round`) gives a
- * different set. Every mark sits on a background tile in a 100 × 100 viewBox and uses the brand colours plus one
+ * different set. A brief with a `direction` (the api's single-mark calls) draws one mark from that direction's
+ * families (`MOCK_LOGO_DIRECTION_FAMILIES`). Every mark sits on a background tile in a 100 × 100 viewBox and uses the brand colours plus one
  * neutral; none is a shield, badge, star or ball. The output already passes the api's sanitiser unchanged.
  */
 import type { LogoDesignOutput, LogoMarkDraft } from "../schemas";
@@ -161,6 +162,17 @@ const FAMILIES: Family[] = [
 
 export const MOCK_LOGO_FAMILIES = FAMILIES.map((f) => f.key);
 
+/**
+ * The families each direction of a single-mark call draws from (packages/agents `LOGO_DIRECTIONS`: the api draws a set as
+ * four parallel calls, one per direction). Disjoint, so the four marks of a set always differ.
+ */
+export const MOCK_LOGO_DIRECTION_FAMILIES: Readonly<Record<string, readonly string[]>> = {
+  monogram: ["matrix"],
+  geometric: ["orbit", "corner"],
+  negative_space: ["arch", "split"],
+  abstract: ["wave", "fold", "stack"],
+};
+
 function initialOf(name: string): string {
   const letter = name
     .normalize("NFKD")
@@ -177,8 +189,11 @@ export function generateLogoDesigner(ctx: MockContext): LogoDesignOutput {
   // Two colours too close to read as two: lift the second towards white so the marks keep their contrast.
   const secondary = Math.abs(luminance(primary) - luminance(secondaryRaw)) < 0.08 ? mix(secondaryRaw, "#ffffff", 0.55) : secondaryRaw;
   const palette: Palette = { primary, secondary, onPrimary: on(primary) };
-  const count = Math.max(1, Math.min(8, Math.round(ctx.getNumber("count", "marks", "options") ?? 4)));
-  const families = ctx.rng.sample(FAMILIES, count);
+  const direction = ctx.getString("direction");
+  const directed = direction ? MOCK_LOGO_DIRECTION_FAMILIES[direction] : undefined;
+  // A single-mark call in a direction draws one mark from that direction's families; a set call samples any families.
+  const count = directed ? 1 : Math.max(1, Math.min(8, Math.round(ctx.getNumber("count", "marks", "options") ?? 4)));
+  const families = directed ? [ctx.rng.pick(FAMILIES.filter((f) => directed.includes(f.key)))] : ctx.rng.sample(FAMILIES, count);
   const initial = initialOf(name);
   const marks: LogoMarkDraft[] = families.map((f) => ({ name: f.name, concept: f.concept(name), svg: f.draw(palette, ctx.rng, initial) }));
   return { marks };

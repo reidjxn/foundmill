@@ -5,8 +5,8 @@
  */
 import { LIMITS } from "@foundmill/config";
 import type { ChannelTokenData, FormCell } from "@foundmill/dugout";
-import { CHANNEL_KEYS, CHANNEL_META, type ApprovalState, type CampaignStatus, type ChannelKey, type ChannelLine } from "@foundmill/shared";
-import { weekKey } from "@foundmill/widgets";
+import { CHANNEL_KEYS, CHANNEL_META, type ApprovalState, type CampaignStatus, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
+import { weekKey } from "@foundmill/widgets/shared/time";
 import type { AgentRow, AssetRow, BlendedSummary, CampaignRow, ChannelMetricRow, ChannelRow, ChannelSummaryRow, JourneyRow, RecommendationRow } from "./types";
 
 /* ---------- Roster ---------- */

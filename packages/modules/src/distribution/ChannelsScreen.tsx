@@ -29,11 +29,14 @@ import {
   type RowAction,
   type SavedView,
 } from "@foundmill/dugout";
-import { CHANNEL_LINES, type ChannelKey } from "@foundmill/shared";
-import { addDays, dayKey, moduleHref, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { CHANNEL_LINES, type ChannelKey } from "@foundmill/shared/constants";
+import { addDays, dayKey } from "@foundmill/widgets/shared/time";
+import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
+import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { buildChannelViews, channelStatus, type ChannelView } from "./channel-data";
 import { METRICS_WINDOW_DAYS } from "./FormationScreen";
+import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
 import { InlineError, LINE_LABELS, OFFLINE_TRACKING_LABEL, Screen, searchParam, useAction } from "./shared";
 import type { CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, RecommendResponse, RecommendationRow } from "./types";
 
@@ -131,7 +134,12 @@ export function channelColumns(): DataTableColumn<ChannelView>[] {
   ];
 }
 
-export function ChannelsScreen({ businessId }: ModuleScreenProps) {
+export interface ChannelsScreenProps extends ModuleScreenProps {
+  /** Wait after the last toggle before the Strategist re-scores (default `RESCORE_DEBOUNCE_MS`). */
+  rescoreDelayMs?: number;
+}
+
+export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_MS }: ChannelsScreenProps) {
   const { navigate, currency } = useWidgetData();
   const today = dayKey();
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
@@ -145,21 +153,40 @@ export function ChannelsScreen({ businessId }: ModuleScreenProps) {
   const [budgetFor, setBudgetFor] = useState<ChannelView | null>(null);
   useBusinessEvents(() => channels.refetch(), ["campaign.launched", "channel.threshold_breached"]);
 
-  const rows = useMemo(() => buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency: currency ?? "EUR", today }), [channels.data, campaigns.data, metrics.data, recommendation, currency, today]);
+  // Toggled since the Strategist last scored: local scores until its re-score lands (rescore.ts).
+  const [provisional, setProvisional] = useState(false);
+  const rows = useMemo(() => {
+    const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency: currency ?? "EUR", today });
+    return provisional ? localScores(built) : built;
+  }, [channels.data, campaigns.data, metrics.data, recommendation, currency, today, provisional]);
   const columns = useMemo(() => channelColumns(), []);
 
   const rescore = useCallback(async () => {
-    const result = await action.run<RecommendResponse>("distribution.recommend", {}, { key: "recommend" });
-    if (result?.recommendation) setRecommendation(result.recommendation);
-    channels.refetch();
+    try {
+      const result = await action.run<RecommendResponse>("distribution.recommend", {}, { key: "recommend" });
+      if (result?.recommendation) setRecommendation(result.recommendation);
+      channels.refetch();
+    } finally {
+      setProvisional(false);
+    }
   }, [action, channels]);
+  // One re-score after a run of toggles, not one per toggle (audit P7; revisits DECISIONS 2026-10-07).
+  const rescoreSoon = useDebouncedRun(rescore, rescoreDelayMs);
+  const rescoreNow = useCallback(() => {
+    rescoreSoon.cancel();
+    void rescore();
+  }, [rescoreSoon, rescore]);
 
   const toggle = useCallback(
     async (row: ChannelView, enabled: boolean) => {
       const ok = await action.run(enabled ? "distribution.channels.enable" : "distribution.channels.disable", { channelKey: row.channelKey }, { key: `toggle:${row.channelKey}` });
-      if (ok !== undefined) await rescore();
+      if (ok === undefined) return;
+      // The row moves at once; the Strategist re-scores two seconds after the last toggle.
+      setProvisional(true);
+      channels.refetch();
+      rescoreSoon.schedule();
     },
-    [action, rescore],
+    [action, channels, rescoreSoon],
   );
 
   const pause = useCallback(
@@ -201,9 +228,16 @@ export function ChannelsScreen({ businessId }: ModuleScreenProps) {
         error={channels.error ? channels.error.message : undefined}
         onRetry={channels.refetch}
         actions={
-          <Button size="sm" variant="ghost" loading={action.pending === "recommend"} onClick={rescore}>
-            {scored === 0 ? "Get recommendation" : "Re-score"}
-          </Button>
+          <>
+            {rescoreSoon.pending ? (
+              <Chip tone="neutral" data-testid="rescore-pending">
+                Local scores · re-scoring shortly
+              </Chip>
+            ) : null}
+            <Button size="sm" variant="ghost" loading={action.pending === "recommend"} onClick={rescoreNow}>
+              {scored === 0 ? "Get recommendation" : "Re-score"}
+            </Button>
+          </>
         }
         footer={
           <span className="tabular-nums">
@@ -226,7 +260,7 @@ export function ChannelsScreen({ businessId }: ModuleScreenProps) {
           rowClassName={(r) => (r.channelKey === highlight ? "bg-white/4" : undefined)}
           height={520}
           exportFileName="channels"
-          empty={{ title: "No channels scored yet", children: "Ask the Distribution Strategist for a recommendation; every channel then appears here with its fit, potential and cost range.", action: { label: "Get recommendation", onClick: rescore } }}
+          empty={{ title: "No channels scored yet", children: "Ask the Distribution Strategist for a recommendation; every channel then appears here with its fit, potential and cost range.", action: { label: "Get recommendation", onClick: rescoreNow } }}
         />
       </Panel>
       <BudgetDialog row={budgetFor} action={action} onClose={() => setBudgetFor(null)} onSaved={() => channels.refetch()} />

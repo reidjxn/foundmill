@@ -4,7 +4,7 @@
  * The regex is the shared `ENTITY_MARKUP_RE` so every package agrees on what a mention looks like. It is a global
  * regex, so each call here works on a fresh copy and never leaks `lastIndex` state between callers.
  */
-import { ENTITY_MARKUP_RE } from "@foundmill/shared";
+import { ENTITY_MARKUP_RE } from "@foundmill/shared/constants";
 import { normalizeName } from "./manifest";
 import type {
   DisplayMismatch,

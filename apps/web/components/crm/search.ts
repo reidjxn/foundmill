@@ -5,7 +5,7 @@
  * when the box is empty the list falls back to role listings filtered client-side by the same chips.
  */
 import { newFilterChipId, parseSearchQuery, type FilterChipValue, type FilterField } from "@foundmill/dugout";
-import { ENTITY_KINDS, type EntityKind } from "@foundmill/shared";
+import { ENTITY_KINDS, type EntityKind } from "@foundmill/shared/constants";
 
 export const CRM_FILTER_FIELDS = ["kind", "role", "stage", "owner", "department"] as const;
 export type CrmFilterField = (typeof CRM_FILTER_FIELDS)[number];

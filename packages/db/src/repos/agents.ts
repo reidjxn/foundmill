@@ -93,6 +93,9 @@ export const UpsertMetricInput = z.object({
 });
 export type UpsertMetricInput = z.input<typeof UpsertMetricInput>;
 
+/** What department.list shows of an agent: the lead and the team strip. */
+export type AgentRosterRow = Pick<Agent, "id" | "name" | "role" | "status" | "modelKey" | "avatarSeed" | "departmentIds">;
+
 const scoped = (businessId: string, agentId: string) => and(eq(agents.businessId, businessId), eq(agents.id, agentId));
 
 export const agentsRepo = {
@@ -116,6 +119,21 @@ export const agentsRepo = {
       .orderBy(...ks.orderBy)
       .limit(f.limit + 1);
     return toPage(rows, f, ks);
+  },
+
+  /**
+   * The live agents with only the columns a department's lead and team strip show (department.list), in `list`
+   * order (oldest first). One projected query instead of whole agent rows.
+   */
+  async listRoster(db: Executor, businessId: string, options: { limit?: number } = {}): Promise<AgentRosterRow[]> {
+    const limit = Math.min(Math.max(Math.trunc(options.limit ?? 500), 1), 1000);
+    const ks = timeKeyset<Agent>(agents.createdAt, agents.id, (r) => ({ at: r.createdAt, id: r.id }), "asc");
+    return db
+      .select({ id: agents.id, name: agents.name, role: agents.role, status: agents.status, modelKey: agents.modelKey, avatarSeed: agents.avatarSeed, departmentIds: agents.departmentIds })
+      .from(agents)
+      .where(and(eq(agents.businessId, businessId), isNull(agents.archivedAt)))
+      .orderBy(...ks.orderBy)
+      .limit(limit);
   },
 
   async get(db: Executor, businessId: string, agentId: string): Promise<Agent> {

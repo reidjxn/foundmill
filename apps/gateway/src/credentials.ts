@@ -7,7 +7,8 @@
  * and rotates in the same transaction (DECISIONS "packages/db repositories").
  */
 import { z } from "zod";
-import { buildAad, CONNECTOR_AUTH_KINDS, decryptJson, encryptJson, VaultError, type Vault } from "@foundmill/shared";
+import { CONNECTOR_AUTH_KINDS } from "@foundmill/shared";
+import { buildAad, decryptJson, encryptJson, VaultError, type Vault } from "@foundmill/shared/crypto";
 import { repos, type Db, type Integration } from "@foundmill/db";
 import type { DecryptedCredential, IntegrationRecord } from "@foundmill/connectors";
 

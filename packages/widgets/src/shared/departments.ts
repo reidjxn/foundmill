@@ -1,14 +1,24 @@
 "use client";
 /** Department lookups shared by the department card, squad pulse, status strip and navigation helpers. */
+import { useMemo } from "react";
 import type { ModuleKey } from "@foundmill/shared";
-import { MODULE_KEYS } from "@foundmill/shared";
+import { MODULE_KEYS } from "@foundmill/shared/constants";
 import type { RibbonDepartment } from "@foundmill/dugout";
 import { useWidgetData, useWidgetQuery, type QueryState } from "../data";
 import { routes } from "./routes";
 import type { DepartmentRow } from "./types";
 
+/**
+ * The `department.list` input the business shell holds (sidebar, hidden departments included). Widgets read the same
+ * query so the shell's copy serves them from the cache instead of a second request.
+ */
+export const SHELL_DEPARTMENTS_INPUT = { includeHidden: true, includeArchived: false } as const;
+
+/** Departments that are not hidden, in the order the API returns them (the shell's list with hidden ones filtered out). */
 export function useDepartments(opts?: { enabled?: boolean }): QueryState<DepartmentRow[]> {
-  return useWidgetQuery<DepartmentRow[]>("department.list", { includeHidden: false, includeArchived: false }, opts);
+  const q = useWidgetQuery<DepartmentRow[]>("department.list", SHELL_DEPARTMENTS_INPUT, opts);
+  const data = useMemo(() => q.data?.filter((d) => !d.hidden), [q.data]);
+  return { ...q, data };
 }
 
 /** Visible departments in the founder's order. */

@@ -3,15 +3,20 @@
  * Ideation is account-scoped and private (no business yet); every action creates an `idea_version` (AC-11.1.3).
  */
 import { repos, type IdeaWithVersion } from "@foundmill/db";
-import { ConceptCard, IdeationOutput, ModelOutputError } from "@foundmill/models";
-import { AppError, ARCHETYPES, Archetype, BUSINESS_MODES, GAME_MODES, ValidationError } from "@foundmill/shared";
+import { ARCHETYPES, Archetype, BUSINESS_MODES, GAME_MODES, ValidationError } from "@foundmill/shared";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { commitIdea, squadPreview } from "../services/commit";
 import { linkableImportJob } from "../services/foundations";
+import { draftEventStream, draftIdeas, isMeta, readMeta, withMeta, type DraftEvent } from "../services/ideation";
 import { importJobKey } from "../services/import";
 import { LogoChoice, takeLogoCheck } from "../services/logo";
 import { ideaLogoRouter } from "./logo";
-import { Id, protectedProcedure, router } from "../trpc";
+import type { Context } from "../context";
+import { Id, internalErrorMessage, protectedProcedure, router, toTRPCError } from "../trpc";
+
+export { readMeta, withMeta } from "../services/ideation";
+export type { DraftEvent } from "../services/ideation";
 
 const Hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
@@ -21,26 +26,7 @@ const Answer = z.object({ answer_md: z.string().min(1), attribute_adjustments: z
 type AttrMap = Record<string, { value: number; evidence?: string }>;
 type Research = { citations: unknown[] };
 
-/**
- * `idea_versions.research` is `{ citations: unknown[] }` (packages/db strips other keys), so version metadata
- * (crest seed, merge/fork lineage, Q&A) travels as one tagged citation entry.
- */
-const META_KIND = "foundmill:meta";
-const isMeta = (c: unknown): c is Record<string, unknown> => Boolean(c) && typeof c === "object" && (c as { kind?: unknown }).kind === META_KIND;
-export function readMeta(research: unknown): Record<string, unknown> {
-  const citations = (research as Research | undefined)?.citations ?? [];
-  const found = citations.find(isMeta);
-  return found ? { ...found } : {};
-}
-export function withMeta(research: unknown, meta: Record<string, unknown>): Research {
-  const citations = ((research as Research | undefined)?.citations ?? []).filter((c) => !isMeta(c));
-  return { citations: [...citations, { ...readMeta(research), ...meta, kind: META_KIND }] };
-}
 const num = (v: unknown): number => (typeof v === "number" ? v : Number(v ?? 0) || 0);
-
-function attributesOf(card: ConceptCard): AttrMap {
-  return Object.fromEntries(card.attributes.map((a) => [a.key, { value: a.value, evidence: a.evidence }]));
-}
 
 function mergeAttributes(sources: IdeaWithVersion[]): AttrMap {
   const out: AttrMap = {};
@@ -53,19 +39,20 @@ function mergeAttributes(sources: IdeaWithVersion[]): AttrMap {
   return out;
 }
 
-async function founderBrief(ctx: { db: Parameters<typeof repos.founders.get>[0]; userId: string }) {
-  const profile = await repos.founders.get(ctx.db, ctx.userId);
-  return profile
-    ? { experience: profile.experience, skills: profile.skills, time_commitment: profile.timeCommitment, budget_minor: profile.budgetMinor, citizenship: profile.citizenship, residence: profile.residence, target_markets: profile.targetMarkets, constraints: profile.constraints, risk_appetite: profile.riskAppetite }
-    : null;
-}
+export { IDEATION_CARD_MAX_TOKENS, IDEATION_SLATE_MAX_TOKENS } from "@foundmill/agents";
+/** Output budget for Import's single card (one card call, like each card of a set). */
+export { IDEATION_CARD_MAX_TOKENS as SINGLE_CONCEPT_MAX_TOKENS } from "@foundmill/agents";
 
-/** Output budget for drafting concept cards: room for twelve full cards (about 1,000 tokens each) with margin. */
-export const IDEATION_MAX_TOKENS = 20_000;
-/** Output budget for a single card (Import). */
-export const SINGLE_CONCEPT_MAX_TOKENS = 4_000;
-/** One card: what Import needs to open Commit. The mock drafts a full set, so more than one is accepted and cut to one. */
-const SingleConcept = z.object({ concepts: z.array(ConceptCard).min(1).max(12) });
+const GenerateInput = z.object({ prompt: z.string().max(4000).default(""), archetypeHint: Archetype.optional(), single: z.boolean().default(false), importJobId: z.string().min(8).max(8192).optional() });
+type GenerateInput = z.infer<typeof GenerateInput>;
+
+/** The Import job a draft may record (Import's "Continue to Commit"), verified; null when none was given. */
+function importJobOf(ctx: Pick<Context, "env">, userId: string, input: GenerateInput): string | null {
+  if (!input.importJobId) return null;
+  const importJobId = linkableImportJob(importJobKey(ctx.env), input.importJobId, userId);
+  if (!importJobId) throw new ValidationError("That import job cannot be linked to a new business");
+  return importJobId;
+}
 
 export const ideaRouter = router({
   /** Logo before commit: check an upload, or generate marks for the idea (the choice travels with `commit`). */
@@ -80,44 +67,32 @@ export const ideaRouter = router({
   }),
 
   /**
-   * Prompt (or empty = "surprise me within my constraints") → 6–12 concept cards (AC-11.1.2). `importJobId` is Import's
-   * "Continue to Commit": the job the single card describes, recorded on the idea so commit links the business to it.
+   * Prompt (or empty = "surprise me within my constraints") → 6–12 concept cards (AC-11.1.2), answered when the whole set
+   * is saved. `importJobId` is Import's "Continue to Commit": the job the single card describes, recorded on the idea so
+   * commit links the business to it. The Studio uses `draft` instead, which streams the same draft card by card.
    */
-  generate: protectedProcedure.input(z.object({ prompt: z.string().max(4000).default(""), archetypeHint: Archetype.optional(), single: z.boolean().default(false), importJobId: z.string().min(8).max(8192).optional() })).mutation(async ({ ctx, input }) => {
-    const importJobId = input.importJobId ? linkableImportJob(importJobKey(ctx.env), input.importJobId, ctx.userId) : null;
-    if (input.importJobId && !importJobId) throw new ValidationError("That import job cannot be linked to a new business");
-    const founder = await founderBrief(ctx);
-    // `single`: one card for a business that already exists (Import's "Continue to Commit"), a fraction of the wait.
-    const result = await ctx.models
-      .complete({
-        route: "ideation",
-        schema: input.single ? SingleConcept : IdeationOutput,
-        // Twelve cards of ten scored attributes with evidence and citations run past the client's 4,096-token default.
-        maxTokens: input.single ? SINGLE_CONCEPT_MAX_TOKENS : IDEATION_MAX_TOKENS,
-        system: `You are the Ideation agent. ${input.single ? "Draft exactly one concept card (in a concepts array of one) describing the business in the brief as it stands, with" : "Draft 6-12 concept cards with"} 10 attributes (1-20) with evidence and at least 2 citations each, grounded in the founder's constraints. Keep it tight: a pitch of at most 40 words, each attribute's evidence at most 25 words, each citation note at most 15 words.`,
-        messages: [{ role: "user", content: "```json\n" + JSON.stringify({ prompt: input.prompt || "surprise me within my constraints", archetype_hint: input.archetypeHint ?? null, founder }) + "\n```" }],
-        attribution: { kind: "ideation" },
-      })
-      .catch((err: unknown) => {
-        if (err instanceof ModelOutputError && err.code === "max_tokens") throw new AppError("ideation_too_long", "The Ideation agent ran out of room before finishing the concepts. Try again, or narrow the brief.", 502);
-        throw err;
-      });
-    const ideas: IdeaWithVersion[] = [];
-    for (const card of input.single ? result.json.concepts.slice(0, 1) : result.json.concepts) {
-      ideas.push(
-        await repos.ideas.create(ctx.db, ctx.userId, {
-          title: card.name,
-          pitch: card.pitch,
-          archetype: card.archetype,
-          attributes: attributesOf(card),
-          starsCurrent: card.stars_current,
-          starsPotential: card.stars_potential,
-          research: withMeta({ citations: card.citations }, { crest_seed: card.crest_seed, ...(importJobId ? { import_job_id: importJobId } : {}) }),
-          action: "generated",
-        }),
-      );
+  generate: protectedProcedure.input(GenerateInput).mutation(async ({ ctx, input, signal }) => {
+    const importJobId = importJobOf(ctx, ctx.userId, input);
+    const result = await draftIdeas({ db: ctx.db, models: ctx.models, userId: ctx.userId, log: ctx.log }, { ...input, importJobId }, { signal });
+    return { ideas: result.ideas, costMinor: result.costMinor, costLabel: result.costLabel, mode: result.mode };
+  }),
+
+  /**
+   * The Studio's draft, streamed (tRPC async generator over `httpBatchStreamLink`): who is drafting, each concept's name
+   * as the slate arrives, then each card the moment it is saved, then `done`. Stopping the stream (the founder's Stop,
+   * or a closed tab) aborts the model calls; cards already saved stay in the deck.
+   */
+  draft: protectedProcedure.input(GenerateInput).mutation(async function* ({ ctx, input, signal }): AsyncGenerator<DraftEvent, void, undefined> {
+    try {
+      const importJobId = importJobOf(ctx, ctx.userId, input);
+      yield* draftEventStream((emit, abort) => draftIdeas({ db: ctx.db, models: ctx.models, userId: ctx.userId, log: ctx.log }, { ...input, importJobId }, { signal: abort, emit }), signal);
+    } catch (err) {
+      // Errors thrown mid-stream skip the error-mapping middleware: map them the same way here.
+      const mapped = toTRPCError(err);
+      if (mapped.code !== "INTERNAL_SERVER_ERROR") throw mapped;
+      ctx.log.error({ path: "idea.draft", err: mapped.cause ?? mapped, requestId: ctx.requestId }, "procedure failed");
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: internalErrorMessage(mapped.message, ctx.env.APP_ENV, ctx.requestId), cause: mapped.cause });
     }
-    return { ideas, costMinor: result.cost.costMinorInt, costLabel: "Estimate" as const, mode: result.mode };
   }),
 
   /** Compare 2–4 cards: side-by-side attributes + agent verdict (AC-11.1.4). */

@@ -8,7 +8,8 @@
 import { serve } from "@hono/node-server";
 import { createServiceDb, closeDb } from "@foundmill/db";
 import { createModelClient, effectiveModelMode } from "@foundmill/models";
-import { createLogger, loadEnv, servicePort } from "@foundmill/shared";
+import { loadEnv, servicePort } from "@foundmill/shared";
+import { createLogger } from "@foundmill/shared/logger";
 import { createApp } from "./app";
 import { prepareDb } from "./db-boot";
 import { createComposerService } from "./service";

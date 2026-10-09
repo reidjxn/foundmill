@@ -8,7 +8,8 @@
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, ExternalLink, Sparkles, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
 import { Avatar, Button, Chip, DataTable, EntityLink, ModelChip, Panel, ProvenanceChip, Textarea, formatMoney, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
-import { useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { useDepartments } from "@foundmill/widgets/shared/departments";
+import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { CloneDialog, HireDialog, LoanDialog, ReleaseDialog } from "./dialogs";
 import { AgentStatusWordPill, FAMILY_LABELS, Screen, agentDept, agentEntity, agentHref, suggestTemplates, useAgents, useNow } from "./shared";

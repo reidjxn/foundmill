@@ -25,7 +25,19 @@ describe("BusinessLogo", () => {
     const text = logo.querySelector("text")!;
     expect(text.textContent).toBe("NS");
     expect(text.getAttribute("fill")).toBe("#FFFFFF");
-    expect(logo.style.borderRadius).toBe("19px");
+    expect(logo.style.borderRadius).toBe("21px");
+    // A lit tile, not a flat swatch: the gloss over the brand, then the inner ring on top.
+    expect(logo.querySelector("[data-logo-gloss]")?.className).toContain("logo-gloss");
+    expect(logo.lastElementChild?.className).toContain("logo-ring");
+  });
+
+  it("keeps an uploaded logo on its white tile, with the inner ring and no gloss", () => {
+    render(<BusinessLogo src={SAMPLE_LOGOS.orbit} name="Ledgerly" primary="#1f6f5f" size={32} />);
+    const logo = screen.getByRole("img", { name: "Ledgerly logo" });
+    expect(logo.className).toContain("bg-white");
+    expect(logo.querySelector("[data-logo-gloss]")).toBeNull();
+    expect(logo.querySelector("[data-logo-ring]")).not.toBeNull();
+    expect(logo.style.borderRadius).toBe("7px");
   });
 
   it("picks near-black letters on a light primary and honours a monogram", () => {
@@ -51,7 +63,8 @@ describe("BusinessLogo", () => {
   });
 
   it("radius and initials helpers", () => {
-    expect([20, 32, 96].map(logoRadius)).toEqual([4, 6, 19]);
+    // 22 % of the side: 7 px at 32, the top bar's tile.
+    expect([20, 24, 32, 48, 64, 96].map(logoRadius)).toEqual([4, 5, 7, 11, 14, 21]);
     expect(logoRadius(10)).toBe(3);
     expect(logoInitials("")).toBe("·");
     expect(logoInitials("ledgerly")).toBe("LE");

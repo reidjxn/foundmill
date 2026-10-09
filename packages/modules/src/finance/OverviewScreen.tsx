@@ -7,7 +7,8 @@
 import { useMemo } from "react";
 import { AlertTriangle, Inbox, Landmark } from "lucide-react";
 import { BarChart, Button, EmptyState, ErrorState, LineChart, MetricTile, Panel, StatusPill, type LineSeries, type MetricTileProps, type MetricProvenance } from "@foundmill/dugout";
-import { routes, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import {
   METRIC_DEFINITIONS,

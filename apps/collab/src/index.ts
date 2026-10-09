@@ -6,7 +6,8 @@
  * fallback → graceful shutdown flushes pending stores before closing.
  */
 import { closeDb, createServiceDb } from "@foundmill/db";
-import { createLogger, loadEnv, servicePort } from "@foundmill/shared";
+import { loadEnv, servicePort } from "@foundmill/shared";
+import { createLogger } from "@foundmill/shared/logger";
 import { createCollabAuthenticator } from "./auth";
 import { prepareDb } from "./db-boot";
 import { createCollabServer } from "./server";

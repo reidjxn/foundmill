@@ -5,7 +5,8 @@
  */
 import type { HealthResult, IntegrationRecord } from "@foundmill/connectors";
 import { repos, type Executor } from "@foundmill/db";
-import { AppError, buildAad, connectorMode, encryptJson, redactSecret } from "@foundmill/shared";
+import { AppError, connectorMode } from "@foundmill/shared";
+import { buildAad, encryptJson, redactSecret } from "@foundmill/shared/crypto";
 import { z } from "zod";
 import { signInstallState, verifyInstallState } from "../services/install-state";
 import { revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey } from "../services/keys";

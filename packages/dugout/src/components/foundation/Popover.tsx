@@ -8,8 +8,9 @@ export const PopoverTrigger = PopoverPrimitive.Trigger;
 export const PopoverAnchor = PopoverPrimitive.Anchor;
 export const PopoverClose = PopoverPrimitive.Close;
 
+/** Glass on r-lg with elev-2; scales .98 → 1 from its trigger as it fades in (200 ms). */
 export const PopoverContent = forwardRef<ElementRef<typeof PopoverPrimitive.Content>, ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>>(
-  function PopoverContent({ className, align = "start", sideOffset = 6, collisionPadding = 8, ...props }, ref) {
+  function PopoverContent({ className, align = "start", sideOffset = 8, collisionPadding = 8, ...props }, ref) {
     return (
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
@@ -18,8 +19,7 @@ export const PopoverContent = forwardRef<ElementRef<typeof PopoverPrimitive.Cont
           sideOffset={sideOffset}
           collisionPadding={collisionPadding}
           className={cn(
-            "surface-overlay z-50 w-72 p-3 text-body text-primary outline-none",
-            "data-[state=open]:animate-rise-in data-[state=closed]:animate-fade-out",
+            "surface-popover overlay-motion z-50 w-72 p-3 text-body text-primary outline-none",
             className,
           )}
           {...props}

@@ -8,7 +8,7 @@
 import { useMemo, useState } from "react";
 import { Check, ShieldAlert, ShieldCheck, ShieldOff } from "lucide-react";
 import { Checkbox, Chip, KeyValueList, Label, Panel, StatusPill, Switch, cn, type StatusTone } from "@foundmill/dugout";
-import { useWidgetQuery } from "@foundmill/widgets";
+import { useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { SECTOR_GATES, SECTOR_KEYS, detectSectors, gateState, type GateState, type SectorKey } from "./legal-data";
 import { FounderOnlyChip, InformationNotice, Screen, humanise } from "./shared";

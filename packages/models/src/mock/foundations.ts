@@ -119,7 +119,13 @@ function readBrief(ctx: MockContext): Brief {
   };
 }
 
+/**
+ * The outline sections to write. A staged section call (packages/agents `buildFoundationsSectionsRequest`, audit P3)
+ * names the few it wants in `write_sections`; the single call and the roadmap call read the whole outline.
+ */
 function outlineOf(ctx: MockContext): string[] {
+  const wanted = strings(ctx.get("write_sections"));
+  if (wanted.length) return [...new Set(wanted)];
   const raw = ctx.getArray<unknown>("outline", "sections", "spec_outline");
   const names = raw.map((r) => (typeof r === "string" ? r : isRecord(r) ? str(r.section) ?? str(r.name) : undefined)).filter((x): x is string => Boolean(x));
   return names.length ? [...new Set(names)] : BASE_OUTLINE;

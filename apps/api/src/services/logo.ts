@@ -6,13 +6,16 @@
  *   or a generated mark it was given) and where it came from. `toLogoInput` decodes it; `checkLogo`
  *   (@foundmill/shared/logo) is the gate: magic bytes, header dimensions and size for rasters, the strict sanitiser for
  *   SVG. Nothing a client sends is stored or echoed without passing it.
- * - `generateLogoOptions` asks the logo designer (Opus, `logoDesigner` route, `logo_designer` prompt) for N marks and
- *   sanitises each before it leaves the api; a mark the sanitiser cannot keep whole is dropped. Every call is metered and
- *   its cost is reported as an Estimate. `logoLimiter` bounds calls per signed-in user and per business.
+ * - `generateLogoOptions` asks the logo designer (Opus, `logoDesigner` route, `logo_mark` prompt) for one mark per
+ *   direction (monogram, geometric, negative space, abstract), all at once, and checks each mark the moment its call
+ *   ends; a mark the sanitiser cannot keep whole is dropped. `onOption` hands each mark over as it passes, which the
+ *   streamed procedures (`idea.logo.stream`, `business.logo.stream`) turn into `LogoEvent`s for the picker. Every call is
+ *   metered and the set's cost is reported as an Estimate. `logoLimiter` bounds sets per signed-in user and per
+ *   business: one set per request, however many calls it takes.
  */
 import { prompts } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
-import { LogoDesignOutput, ModelOutputError, type ModelClient, type ModelKey, type UsageAttribution } from "@foundmill/models";
+import { LogoDesignOutput, ModelAbortedError, ModelOutputError, resolveModel, type CompleteResultWithJson, type ModelClient, type ModelKey, type UsageAttribution } from "@foundmill/models";
 import { AppError, ARCHETYPE_LABELS, ValidationError, type Archetype } from "@foundmill/shared";
 import { base64ToBytes, checkLogo, LOGO_SOURCES, SVG_MAX_INPUT_CHARS, utf8Decode, type CheckedLogo, type LogoInput } from "@foundmill/shared/logo";
 import { createHash } from "node:crypto";
@@ -83,9 +86,6 @@ export function takeLogoCheck(userId: string): void {
   if (!r.ok) throw new RateLimitedError("Logo upload", r.retryAfterMs);
 }
 
-/** Output budget: four marks of at most ~3,000 characters each plus names and concepts, with margin. */
-export const LOGO_MAX_TOKENS = 8_000;
-
 export interface LogoBrief {
   businessName: string;
   pitch: string;
@@ -109,8 +109,10 @@ export interface LogoOption {
 
 export interface LogoSet {
   options: LogoOption[];
-  /** Marks the model returned that the sanitiser could not keep. */
+  /** Marks the model returned that the sanitiser could not keep (or that repeated another mark of the set). */
   dropped: number;
+  /** Mark calls that failed outright (the rest of the set is unaffected). */
+  failed: number;
   cost: { amountMinor: number; currency: string; label: "Estimate" };
   mode: "mock" | "live";
   /** Sets left in the tightest window after this one. */
@@ -132,44 +134,125 @@ export function takeLogoAllowance(scope: { userId: string; businessId?: string }
   return { keys: entries.map((e) => e.key), remaining: r.remaining };
 }
 
-export async function generateLogoOptions(models: ModelClient, brief: LogoBrief, opts: { scope: string; attribution: UsageAttribution }): Promise<{ set: Omit<LogoSet, "remaining">; usage: LogoSetUsage }> {
-  const count = brief.count ?? LIMITS.logoOptionsPerSet;
+/** What the mark calls of one set have used so far, filled in as each call ends (so a stopped set is metered too). */
+export interface LogoSpend {
+  calls: number;
+  tokens: number;
+  costMicroMinor: number;
+  currency: string;
+  modelKey: ModelKey | null;
+  model: string | null;
+}
+
+export const emptyLogoSpend = (): LogoSpend => ({ calls: 0, tokens: 0, costMicroMinor: 0, currency: "USD", modelKey: null, model: null });
+
+/** A mark slot: one direction of the set (what the picker labels the slot with while the mark is drawn). */
+export interface LogoSlot {
+  index: number;
+  direction: prompts.LogoDirectionKey;
+  label: string;
+}
+
+/** What a streamed set reports (`idea.logo.stream` / `business.logo.stream`). */
+export type LogoEvent =
+  /** The set began: one slot per direction, drawn at the same time. */
+  | { type: "started"; total: number; slots: LogoSlot[]; mode: "mock" | "live" }
+  /** A mark passed the check: show it in its slot now. */
+  | { type: "option"; index: number; option: LogoOption }
+  /** A slot ended without a usable mark (the call failed, or the check refused the mark). */
+  | { type: "failed"; index: number; message: string }
+  /** The set is complete (the same answer as `generate`). */
+  | { type: "done"; set: LogoSet };
+
+export interface GenerateLogoOptions {
+  scope: string;
+  attribution: UsageAttribution;
+  signal?: AbortSignal;
+  /** Each mark the moment it passes the check, with its slot. Awaited, and never called concurrently. */
+  onOption?: (option: LogoOption, slot: LogoSlot) => void | Promise<void>;
+  /** A slot that ended without a usable mark. */
+  onFailed?: (slot: LogoSlot, message: string) => void;
+  /** Filled in as calls end (pass your own to meter a set that was stopped part way). */
+  spend?: LogoSpend;
+}
+
+/** The slots of a set of `count` marks (monogram, geometric, negative space, abstract; repeated past four). */
+export function logoSlots(count: number = LIMITS.logoOptionsPerSet): LogoSlot[] {
+  return prompts.logoDirectionsFor(count).map((d, index) => ({ index, direction: d.key, label: d.label }));
+}
+
+const SLOT_FAILED = "The logo designer could not draw this one. The others are unaffected.";
+const SLOT_REFUSED = "This mark did not pass the safety check, so it is not shown.";
+
+/**
+ * Draws a set as parallel single-mark calls, one per direction (audit P6): the first mark is ready when the fastest
+ * call ends instead of when all four are written in one reply. Each mark is checked (`checkLogo`, the same gate as an
+ * upload) the moment its call ends and handed to `onOption`; a call that fails or a mark the check refuses loses only
+ * its own slot. Fails only when no slot produced a usable mark: `logo_generation_failed` (502) once tokens were spent,
+ * otherwise the model error itself (unavailable, rate limited), so the caller can give the allowance back.
+ */
+export async function generateLogoOptions(models: ModelClient, brief: LogoBrief, opts: GenerateLogoOptions): Promise<{ set: Omit<LogoSet, "remaining">; usage: LogoSetUsage }> {
+  const slots = logoSlots(brief.count ?? LIMITS.logoOptionsPerSet);
   const archetype = brief.archetype ? ARCHETYPE_LABELS[brief.archetype] : "new";
   const pitch = brief.pitch.trim().slice(0, 600) || `A ${archetype} business called ${brief.businessName}.`;
-  // Instructions only in the system prompt; the founder's brief goes in the user message as data.
-  const system = prompts.logoDesignerPrompt.render({ count });
-  const userBrief: prompts.LogoDesignerBrief = { business_name: brief.businessName.slice(0, 120), pitch, archetype, brand_colours: brief.colours, count, round: brief.round };
-  const result = await models
-    .complete({
-      route: "logoDesigner",
-      system,
-      // The brief, as data (the prompt says so); `round` varies the set.
-      messages: [{ role: "user", content: "```json\n" + JSON.stringify(userBrief) + "\n```" }],
-      schema: LogoDesignOutput,
-      maxTokens: LOGO_MAX_TOKENS,
-      scope: opts.scope,
-      attribution: opts.attribution,
-    })
-    .catch((err: unknown) => {
-      if (err instanceof ModelOutputError) throw new AppError("logo_generation_failed", "The logo designer did not return usable marks. Try again.", 502);
-      throw err;
-    });
-
-  const options: LogoOption[] = [];
+  // Instructions (and the slot's direction) only in the system prompt; the founder's brief goes in the user message as data.
+  const base = { business_name: brief.businessName.slice(0, 120), pitch, archetype, brand_colours: brief.colours, round: brief.round };
+  const spend = opts.spend ?? emptyLogoSpend();
+  const bySlot: (LogoOption | undefined)[] = [];
   const seen = new Set<string>();
-  for (const mark of result.json.marks) {
-    const checked = checkLogo({ mime: "image/svg+xml", svg: mark.svg });
-    if (!checked.ok) continue;
-    const id = createHash("sha256").update(checked.logo.bytes).digest("hex").slice(0, 16);
-    if (seen.has(id)) continue;
+  const errors: unknown[] = [];
+  let dropped = 0;
+  let mode = models.mode;
+  // Marks are handed over one at a time, in the order they pass the check.
+  let handing: Promise<void> = Promise.resolve();
+
+  const drawSlot = async (slot: LogoSlot): Promise<void> => {
+    const direction = prompts.logoDirection(slot.direction);
+    let result: CompleteResultWithJson<LogoDesignOutput>;
+    try {
+      result = await models.complete({ ...prompts.buildLogoMarkRequest(base, direction), schema: LogoDesignOutput, scope: opts.scope, attribution: opts.attribution, signal: opts.signal });
+    } catch (err) {
+      errors.push(err);
+      if (!opts.signal?.aborted) opts.onFailed?.(slot, SLOT_FAILED);
+      return;
+    }
+    const u = result.usage;
+    spend.calls++;
+    spend.tokens += u.inputTokens + u.outputTokens + u.cacheCreationInputTokens + u.cacheReadInputTokens;
+    spend.costMicroMinor += result.cost.costMicroMinor;
+    spend.currency = result.cost.currency;
+    spend.modelKey = result.modelKey;
+    spend.model = result.model;
+    mode = result.mode;
+    const mark = result.json.marks[0];
+    const checked = mark ? checkLogo({ mime: "image/svg+xml", svg: mark.svg }) : null;
+    const id = checked?.ok ? createHash("sha256").update(checked.logo.bytes).digest("hex").slice(0, 16) : null;
+    if (!mark || !checked?.ok || !id || seen.has(id)) {
+      dropped++;
+      opts.onFailed?.(slot, SLOT_REFUSED);
+      return;
+    }
     seen.add(id);
-    options.push({ id, name: mark.name.slice(0, 40), concept: mark.concept.slice(0, 240), dataUrl: checked.logo.dataUrl, colours: checked.logo.colours.slice(0, 4) });
-    if (options.length === count) break;
+    const option: LogoOption = { id, name: mark.name.slice(0, 40), concept: mark.concept.slice(0, 240), dataUrl: checked.logo.dataUrl, colours: checked.logo.colours.slice(0, 4) };
+    bySlot[slot.index] = option;
+    const hand = handing.then(() => opts.onOption?.(option, slot));
+    handing = hand.catch(() => undefined);
+    await hand;
+  };
+
+  await Promise.all(slots.map(drawSlot));
+  if (opts.signal?.aborted) throw new ModelAbortedError();
+
+  const options = bySlot.filter((o): o is LogoOption => Boolean(o));
+  if (options.length === 0) {
+    const spent = spend.calls > 0 || errors.some((e) => e instanceof ModelOutputError);
+    // Nothing was spent (the model was unavailable or rate limited): pass the error on, so the allowance is given back.
+    if (!spent && errors.length > 0) throw errors[0];
+    throw new AppError("logo_generation_failed", spend.calls > 0 ? "None of the generated marks could be used. Try again." : "The logo designer did not return usable marks. Try again.", 502);
   }
-  if (options.length === 0) throw new AppError("logo_generation_failed", "None of the generated marks could be used. Try again.", 502);
-  const u = result.usage;
+  const fallback = resolveModel("logoDesigner");
   return {
-    set: { options, dropped: result.json.marks.length - options.length, cost: { amountMinor: result.cost.costMinorInt, currency: result.cost.currency, label: "Estimate" }, mode: result.mode },
-    usage: { tokens: u.inputTokens + u.outputTokens + u.cacheCreationInputTokens + u.cacheReadInputTokens, modelKey: result.modelKey, model: result.model },
+    set: { options, dropped, failed: errors.length, cost: { amountMinor: Math.round(spend.costMicroMinor / 1_000_000), currency: spend.currency, label: "Estimate" }, mode },
+    usage: { tokens: spend.tokens, modelKey: spend.modelKey ?? fallback.modelKey, model: spend.model ?? fallback.modelId },
   };
 }

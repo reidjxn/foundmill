@@ -12,6 +12,7 @@ import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { moduleHref, orderedDepartments, useDepartments } from "../shared/departments";
 import { WidgetFrame } from "../shared/frame";
+import { useRecentRibbon } from "../shared/ribbon";
 import { routes } from "../shared/routes";
 import { addDays, dailySeries, dayKey, lastDays, monthKey, sumInRange } from "../shared/time";
 import type { DepartmentRow, FinanceOverview, LeaderboardPositionRow, RibbonResponse } from "../shared/types";
@@ -84,7 +85,8 @@ function StatusStripWidget({ settings }: WidgetProps<StatusStripSettings>) {
   const today = dayKey();
   const live = gameMode === "live" && settings.showLeague;
   const finance = useWidgetQuery<FinanceOverview>("finance.overview", {});
-  const ribbon = useWidgetQuery<RibbonResponse>("journey.ribbon", { from: addDays(today, -13), to: today });
+  // The recent ribbon Home shares with the department cards (the strip reads its last 14 days).
+  const ribbon = useRecentRibbon();
   const departments = useDepartments();
   const positions = useWidgetQuery<LeaderboardPositionRow[]>("live.leaderboards.positions", {}, { enabled: live });
   useBusinessEvents(() => {

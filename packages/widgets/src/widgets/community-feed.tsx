@@ -64,7 +64,7 @@ function CommunityFeedWidget({ settings }: WidgetProps<CommunityFeedSettings>) {
       data-widget="community_feed"
       queries={community ? [communities, posts] : [communities]}
       empty={communities.data && !community ? { icon: Users, text: "Join a community to see its posts here.", action: { label: "Browse communities", onClick: () => navigate("/communities") } } : posts.data && events.length === 0 ? { icon: MessageCircle, text: "No posts yet. Be the first to say hello." } : null}
-      actions={community ? <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={() => navigate(routes.community(community.id))}>Open</Button> : null}
+      actions={community ? <Button size="sm" variant="ghost" className="px-1.5" onClick={() => navigate(routes.community(community.id))}>Open</Button> : null}
       footer={community?.memberCount ? <span>{community.memberCount} members</span> : undefined}
     >
       <Timeline events={events} order="desc" emptyText="No posts." />

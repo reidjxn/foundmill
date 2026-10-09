@@ -84,8 +84,5 @@ export function ghostedMilestones(currency: string): TrophyCard[] {
   return TROPHIES.map((t) => ({ key: t.key, label: t.label(currency), description: describeTrophy(t, currency), achievedAt: null, currency }));
 }
 
-/** Which dashboard the route shows: the one in the URL, else the founder's active one, else the first. */
-export function pickDashboardId(routeId: string | undefined, list: readonly DashboardSummary[]): string | undefined {
-  if (routeId) return routeId;
-  return list.find((d) => d.isActive)?.id ?? list[0]?.id;
-}
+/** Which dashboard the route shows (server-safe, shared with the Home page's server prefetch). */
+export { pickDashboardId } from "./pick-dashboard";

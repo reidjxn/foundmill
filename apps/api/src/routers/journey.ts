@@ -25,16 +25,24 @@ export const journeyRouter = router({
 
   markViewed: businessProcedure.input(z.object({ journeyId: Id })).mutation(({ ctx, input }) => ctx.rls((tx) => repos.journeys.markViewed(tx, ctx.businessId, input.journeyId))),
 
-  /** Ribbon data: per-department daily rows, conversions, milestones and chapters for a day range. */
-  ribbon: businessProcedure.input(z.object({ from: DayKey.optional(), to: DayKey.optional(), departmentId: Id.optional() })).query(({ ctx, input }) =>
+  /**
+   * Ribbon data: per-department daily rows, conversions, milestones and chapters for a day range. `slim` leaves out the
+   * per-conversion detail (`conversions` is empty) for readers that only need the daily rows, the milestones and how
+   * many conversions there were (`conversionCount`): the Home status strip, department cards and day-one check share
+   * one slim query.
+   */
+  ribbon: businessProcedure.input(z.object({ from: DayKey.optional(), to: DayKey.optional(), departmentId: Id.optional(), slim: z.boolean().optional() })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const from = input.from ?? new Date(Date.now() - 365 * 86_400_000).toISOString().slice(0, 10);
       const to = input.to ?? new Date().toISOString().slice(0, 10);
-      const [rows, conversions, milestones] = await Promise.all([
+      const range = { from: new Date(from), to: new Date(`${to}T23:59:59.999Z`) };
+      const [rows, conversions, milestones, counts] = await Promise.all([
         repos.journeys.dailyRange(tx, ctx.businessId, { from, to, departmentId: input.departmentId }),
-        repos.journeys.listConversions(tx, ctx.businessId, { from: new Date(from), to: new Date(`${to}T23:59:59.999Z`), limit: 500 }),
+        input.slim ? Promise.resolve({ items: [] }) : repos.journeys.listConversions(tx, ctx.businessId, { ...range, limit: 500 }),
         repos.journeys.listMilestones(tx, ctx.businessId, {}),
+        repos.journeys.countConversions(tx, ctx.businessId, range),
       ]);
+      const conversionCount = Object.values(counts).reduce((n, c) => n + c, 0);
       const firstDay = (ctx.business.committedAt ?? ctx.business.createdAt).toISOString().slice(0, 10);
       const chapters = buildChapters({ startDay: firstDay, today: to, horizonQuarters: 2 });
       // `kickoff` is the wave-2 key the Ribbon reads; `firstDay` is the vocabulary-rule name.
@@ -42,8 +50,8 @@ export const journeyRouter = router({
       // The matview keys the business-wide row by the nil uuid and returns numeric/bigint columns as strings; the
       // Ribbon and the revenue widgets read `departmentId: null` and numbers.
       const dailyRows = rows.map((r) => ({ ...r, departmentId: r.departmentId === NO_DEPARTMENT_ID ? null : r.departmentId, agentHours: Number(r.agentHours), spendMinor: Number(r.spendMinor), revenueMinor: Number(r.revenueMinor) }));
-      const labelled = await repos.journeys.labelConversions(tx, ctx.businessId, conversions.items);
-      return { rows: dailyRows, conversions: labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const };
+      const labelled = conversions.items.length ? await repos.journeys.labelConversions(tx, ctx.businessId, conversions.items) : [];
+      return { rows: dailyRows, conversions: labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })), conversionCount, milestones: milestones.map((m) => ({ ...m, achievedAt: m.achievedAt.toISOString() })), chapters, kickoff: firstDay, firstDay, today: to, forecastLabel: "Forecast" as const };
     }),
   ),
 

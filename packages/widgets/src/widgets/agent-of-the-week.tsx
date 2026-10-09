@@ -7,7 +7,7 @@ import { useMemo } from "react";
 import { z } from "zod";
 import { Award } from "lucide-react";
 import type { ModelKey } from "@foundmill/shared";
-import { MODEL_KEYS } from "@foundmill/shared";
+import { MODEL_KEYS } from "@foundmill/shared/constants";
 import { Avatar, Button, DeptChip, FormCells, KeyValueList, ModelChip, RatingCell, StarRating, formScore, formatMoney, type FormResult } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";

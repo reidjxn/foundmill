@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, Pause, Play, RotateCcw, Star, Trophy, VolumeX } from "lucide-react";
-import { CHANNEL_META, type ChannelKey, type EntityKind, type MatchdayLevel } from "@foundmill/shared";
+import { CHANNEL_META, type ChannelKey, type EntityKind, type MatchdayLevel } from "@foundmill/shared/constants";
 import { cn } from "../../../lib/cn";
 import { formatDate, formatDateTime, formatDuration, formatMoney, formatNumber, formatOrdinal, formatPercent } from "../../../lib/format";
 import { ratingClass } from "../../../lib/rating";
@@ -588,7 +588,7 @@ export function JourneyStage({ journey, touches, customer, agents, kit, speed: s
       </ol>
       <div role="group" aria-label="Speed" className="flex items-center gap-0.5 rounded-panel bg-panel-alt p-0.5">
         {REPLAY_SPEEDS.map((s) => (
-          <Button key={s} size="sm" variant="ghost" aria-pressed={speed === s} className={cn("h-6 px-2", speed === s && "bg-panel text-primary")} onClick={() => changeSpeed(s)} data-speed={s}>
+          <Button key={s} size="sm" variant="ghost" aria-pressed={speed === s} className={cn("px-2", speed === s && "bg-panel text-primary")} onClick={() => changeSpeed(s)} data-speed={s}>
             {REPLAY_SPEED_LABELS[s]}
           </Button>
         ))}

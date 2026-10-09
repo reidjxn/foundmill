@@ -2,8 +2,8 @@
 /** Helpers shared by the distribution screens: layout, mutations with pending/error state, vocabulary, formatting. */
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { PageGrid, cn } from "@foundmill/dugout";
-import { CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared";
-import { useWidgetData } from "@foundmill/widgets";
+import { CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
+import { useWidgetData } from "@foundmill/widgets/data";
 
 /* ---------- Vocabulary (CLAUDE.md: channel lines read Acquisition / Engagement / Organic / Offline) ---------- */
 

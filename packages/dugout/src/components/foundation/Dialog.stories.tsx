@@ -6,7 +6,14 @@ import { Dialog, DialogBody, DialogClose, DialogContent, DialogDescription, Dial
 const meta = {
   title: "Foundation/Dialog",
   component: Dialog,
-  parameters: { docs: { description: { component: "Backdrop rgba(15,19,24,0.72) with a 2 px blur; content on bg-panel-alt with the overlay shadow. Esc closes; focus is trapped." } } },
+  parameters: {
+    docs: {
+      description: {
+        component:
+          "Glass on a 14 px radius with elev-3 over the canvas at 66 % and a 6 px blur; it scales .98 → 1 from its centre as it fades in. The header keeps a long title clear of the close button; the footer is a darker strip under a hairline. Esc closes; focus is trapped.",
+      },
+    },
+  },
 } satisfies Meta<typeof Dialog>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -59,5 +66,33 @@ export const Sizes: Story = {
         </Dialog>
       ))}
     </div>
+  ),
+};
+
+/** A long title wraps beside the close button, never under it. */
+export const LongTitle: Story = {
+  render: () => (
+    <Dialog defaultOpen>
+      <DialogTrigger asChild>
+        <Button>Open</Button>
+      </DialogTrigger>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>Delete the Northwind Skincare retail partnership pipeline and its 14 saved views?</DialogTitle>
+          <DialogDescription>Nothing is deleted until the scheduled job runs; the audit log records the request.</DialogDescription>
+        </DialogHeader>
+        <DialogBody>
+          <p className="text-secondary">You can cancel the request from Settings › Data until then.</p>
+        </DialogBody>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="ghost">Cancel</Button>
+          </DialogClose>
+          <DialogClose asChild>
+            <Button variant="danger">Request deletion</Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   ),
 };

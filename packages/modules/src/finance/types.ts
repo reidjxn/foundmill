@@ -4,7 +4,7 @@
  * only on wave-1 packages. Dates arrive as ISO strings on the wire; money is in minor units.
  */
 import type { SecurityKind } from "@foundmill/shared";
-import type { ChannelsListResponse, FinanceOverview, ForecastRecord, Page, TaskRow, TeamAgentRow } from "@foundmill/widgets";
+import type { ChannelsListResponse, FinanceOverview, ForecastRecord, Page, TaskRow, TeamAgentRow } from "@foundmill/widgets/shared/types";
 
 export type { ChannelsListResponse, FinanceOverview, ForecastRecord, Page, TaskRow, TeamAgentRow };
 

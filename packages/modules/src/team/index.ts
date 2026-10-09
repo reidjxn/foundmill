@@ -3,7 +3,7 @@
  * Squad · Staff · Responsibilities · Health · Hierarchy · Recruitment. Data only through @foundmill/widgets
  * (team.*, agent.model.*, department.list, founder.profile.get); UI only through @foundmill/dugout.
  */
-import { MODULE_TABS } from "@foundmill/shared";
+import { MODULE_TABS } from "@foundmill/shared/constants";
 import { registerModule, type ModuleScreen } from "../registry";
 import { HealthScreen } from "./HealthScreen";
 import { HierarchyScreen } from "./HierarchyScreen";

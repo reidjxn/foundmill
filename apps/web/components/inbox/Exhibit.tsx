@@ -9,7 +9,7 @@ import { Bot, ImageOff } from "lucide-react";
 import { useMemo } from "react";
 import { AgentStatusPill, Avatar, BarChart, Chip, DiffView, EmptyState, EntityCard, FunnelChart, LineChart, MiniTable, Panel, ProgressRing, formatMoney, formatNumber, type EntityDetails, type MiniTableColumn } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
-import { routes } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { EXHIBIT_TITLES, UUID_RE, barColumn, chartShape, isNamedQueryId, labelColumn, readExhibit, sourceFor, transform, type ExhibitData } from "./exhibits";

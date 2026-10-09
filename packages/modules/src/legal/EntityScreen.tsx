@@ -8,7 +8,8 @@
 import { useId, useMemo, useState } from "react";
 import { Building2, Download, ExternalLink, Landmark, Search, Users } from "lucide-react";
 import { Button, Chip, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, Panel, SimpleSelect, Timeline, formatDate, type DataTableColumn, type RowAction, type SavedView, type TimelineEvent } from "@foundmill/dugout";
-import { routes, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { INCORPORATION_STATUS_WORD, ROUTE_META, formatAddress, officerRows, readSteps, type OfficerRow } from "./legal-data";
 import { ENTITY_STATUS_PILL, Fact, InlineError, Pill, Screen, fmtMoney, humanise, useAction, useCurrency, useLegalStatus, useNow } from "./shared";

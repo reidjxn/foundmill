@@ -10,7 +10,7 @@ import { Dumbbell } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Avatar, Button, Chip, EntityLink, HealthBadge, ModelChip, ProfileHeader, formatMoney, type ProfileChip, type ProfileFact, type TabItem } from "@foundmill/dugout";
-import { routes } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";

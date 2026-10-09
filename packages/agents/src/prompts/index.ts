@@ -9,7 +9,7 @@ import { coachPrompt } from "./coach";
 import { quarantinedReaderPrompt } from "./quarantined-reader";
 import { journeyCommentaryPrompt } from "./journey-commentary";
 import { ideationPrompt } from "./ideation";
-import { logoDesignerPrompt } from "./logo-designer";
+import { logoDesignerPrompt, logoMarkPrompt } from "./logo-designer";
 import { researchPrompt } from "./research";
 import { distributionStrategistPrompt } from "./distribution-strategist";
 import { jurisdictionRecommenderPrompt } from "./jurisdiction-recommender";
@@ -20,7 +20,8 @@ import { entitySweepPrompt } from "./entity-sweep";
 import { chapterTitlePrompt } from "./chapter-title";
 import { agentBuilderPrompt } from "./agent-builder";
 import { customSkillTestsPrompt } from "./custom-skill-tests";
-import { foundationsPrompt } from "./foundations";
+import { foundationsBriefPrompt, foundationsPrompt, foundationsRoadmapPrompt, foundationsSectionsPrompt, foundationsSkeletonPrompt } from "./foundations";
+import { agentConversationPrompt } from "./agent-conversation";
 
 export * from "./template";
 export * from "./club-rules";
@@ -44,6 +45,7 @@ export * from "./chapter-title";
 export * from "./agent-builder";
 export * from "./custom-skill-tests";
 export * from "./foundations";
+export * from "./agent-conversation";
 
 export const PROMPT_LIST = [
   clubRulesPrompt,
@@ -56,6 +58,7 @@ export const PROMPT_LIST = [
   journeyCommentaryPrompt,
   ideationPrompt,
   logoDesignerPrompt,
+  logoMarkPrompt,
   researchPrompt,
   distributionStrategistPrompt,
   jurisdictionRecommenderPrompt,
@@ -68,6 +71,11 @@ export const PROMPT_LIST = [
   agentBuilderPrompt,
   customSkillTestsPrompt,
   foundationsPrompt,
+  foundationsBriefPrompt,
+  foundationsSkeletonPrompt,
+  foundationsSectionsPrompt,
+  foundationsRoadmapPrompt,
+  agentConversationPrompt,
 ] as const;
 
 export type PromptKey = (typeof PROMPT_LIST)[number]["key"];

@@ -7,8 +7,11 @@ import { LIMITS } from "@foundmill/config";
 import { type AgentLayer, type ModelKey } from "@foundmill/shared";
 import { AgentTemplate, ROUTE_DEFAULT_MODEL, type Autonomy, type TemplateFamily } from "../types";
 import { deriveTraits } from "../traits";
+import { deriveVoice } from "../voice";
 
-export type TemplateInit = Omit<AgentTemplate, "layer" | "modelKey" | "traits" | "baselineRating" | "wageCapMinor"> & {
+export type TemplateInit = Omit<AgentTemplate, "layer" | "modelKey" | "traits" | "baselineRating" | "wageCapMinor" | "voice"> & {
+  /** Defaults to `deriveVoice` from the family and tone. */
+  voice?: AgentTemplate["voice"];
   modelKey?: ModelKey;
   traits?: string[];
   baselineRating?: number;
@@ -130,6 +133,7 @@ export function defineTemplate(init: TemplateInit): AgentTemplate {
     traits: traits.slice(0, 8),
     baselineRating: init.baselineRating ?? BASELINE_RATING_FOR_FAMILY[init.family],
     wageCapMinor: init.wageCapMinor ?? WAGE_CAP_FOR_FAMILY[init.family],
+    voice: init.voice ?? deriveVoice({ family: init.family, tone: init.instructions.tone }),
   };
   const parsed = AgentTemplate.safeParse(candidate);
   if (!parsed.success) {

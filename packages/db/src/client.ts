@@ -93,11 +93,11 @@ export async function withRls<T>(db: Db, ctx: RlsContext, fn: (tx: DbTx) => Prom
   if (role !== "anon" && !UUID_RE.test(ctx.userId)) throw new Error("withRls: userId must be a UUID");
   const claims = JSON.stringify({ ...(ctx.claims ?? {}), sub: role === "anon" ? undefined : ctx.userId, role });
   return db.transaction(async (tx) => {
-    // Infrastructure, not a data query: these two statements are what makes RLS apply to everything fn(tx) runs.
-    // eslint-disable-next-line fm/no-raw-db -- role switch for this transaction (ARCHITECTURE §4)
-    await tx.execute(sql.raw(`set local role ${role}`));
-    // eslint-disable-next-line fm/no-raw-db -- JWT claims for auth.uid(); bound parameter, never interpolated
-    await tx.execute(sql`select set_config('request.jwt.claims', ${claims}, true)`);
+    // Infrastructure, not a data query: this statement is what makes RLS apply to everything fn(tx) runs. One round
+    // trip sets both: `set_config('role', …, true)` is `set local role` (the same privilege check, transaction-local),
+    // and the claims for auth.uid(). Both values are bound parameters, never interpolated.
+    // eslint-disable-next-line fm/no-raw-db -- role switch and JWT claims for this transaction (ARCHITECTURE §4)
+    await tx.execute(sql`select set_config('role', ${role}, true), set_config('request.jwt.claims', ${claims}, true)`);
     return fn(tx);
   });
 }

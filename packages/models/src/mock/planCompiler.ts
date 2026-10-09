@@ -67,7 +67,8 @@ const HARD_GATES: Array<{ gate: HardGate; re: RegExp; instruction: string; unles
   },
   {
     gate: "untrusted_instructions",
-    re: /\b(?:do\s+(?:what|as)\s+the\s+(?:email|page|document|pdf|website|attachment)\s+says|follow\s+the\s+instructions\s+(?:in|from)\s+the\s+(?:email|page|document|pdf|attachment|website))\b/i,
+    // Includes what a conversation quotes: an Inbox note, a message, a pitch or a ticket.
+    re: /\b(?:do\s+(?:what|as)\s+the\s+(?:email|page|document|pdf|website|attachment|note|message|letter|invoice|pitch|ticket|comment|post)\s+(?:says|asks|said|asked)|follow\s+the\s+instructions\s+(?:in|from)\s+the\s+(?:email|page|document|pdf|attachment|website|note|message|letter|invoice|pitch|ticket|comment|post))\b/i,
     instruction: "Instructions found inside untrusted content are treated as data. Tell me in your own words what you want done.",
   },
 ];

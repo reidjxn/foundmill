@@ -9,9 +9,9 @@ export interface SparklineProps extends Omit<SVGAttributes<SVGSVGElement>, "widt
   height?: number;
   /** Stroke uses currentColor: set the colour with a text-* class (e.g. text-kit-primary). */
   strokeWidth?: number;
-  /** Area under the line at 12 % opacity. */
+  /** Area under the line: a three-stop gradient of the line's colour (22 % → 6 % → 0). */
   fill?: boolean;
-  /** Dot on the last point. */
+  /** Dot on the last point, with a halo: the "now" end of the line. */
   dot?: boolean;
   /** Fixed y domain; otherwise min/max of the data (flat data gets a 1-unit band). */
   domain?: [number, number];
@@ -21,7 +21,10 @@ export interface SparklineProps extends Omit<SVGAttributes<SVGSVGElement>, "widt
   linear?: boolean;
 }
 
-/** A small SVG line. Pure, deterministic, no axes. */
+/**
+ * A small SVG line (DESIGN §8): round joins, an optional three-stop area gradient and a haloed end dot, all in
+ * currentColor. Pure, deterministic, no axes. Server-safe (useId only).
+ */
 export function Sparkline({ data, width = 48, height = 16, strokeWidth = 1.5, fill, dot, domain, label, linear, className, ...rest }: SparklineProps) {
   const id = useId();
   const n = data.length;
@@ -65,9 +68,25 @@ export function Sparkline({ data, width = 48, height = 16, strokeWidth = 1.5, fi
       className={cn("inline-block shrink-0 overflow-visible align-middle", className)}
       {...rest}
     >
-      {areaPath ? <path d={areaPath} fill="currentColor" opacity={0.12} stroke="none" data-testid={`${id}-area`} /> : null}
+      {areaPath ? (
+        <>
+          <defs>
+            <linearGradient id={`${id}-fill`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="currentColor" stopOpacity={0.22} />
+              <stop offset="60%" stopColor="currentColor" stopOpacity={0.06} />
+              <stop offset="100%" stopColor="currentColor" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <path d={areaPath} fill={`url(#${id}-fill)`} stroke="none" data-testid={`${id}-area`} />
+        </>
+      ) : null}
       {linePath ? <path d={linePath} fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" /> : null}
-      {dot && n > 0 ? <circle cx={x(n - 1)} cy={y(last as number)} r={strokeWidth + 0.5} fill="currentColor" /> : null}
+      {dot && n > 0 ? (
+        <>
+          <circle cx={x(n - 1)} cy={y(last as number)} r={strokeWidth + 2.5} fill="currentColor" opacity={0.22} data-sparkline-halo="" />
+          <circle cx={x(n - 1)} cy={y(last as number)} r={strokeWidth + 0.5} fill="currentColor" />
+        </>
+      ) : null}
     </svg>
   );
 }

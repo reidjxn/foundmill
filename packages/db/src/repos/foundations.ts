@@ -6,14 +6,15 @@
  * once: the update is conditional on the status, so two tabs or a reload never claim twice) → the drafting run reads
  * `inputs`, asks the model and calls `apply` (drafting → ready, in one transaction with every write) or `fail`
  * (drafting → failed). A failed row is claimed again by a retry. `apply` and `fail` only act for the attempt that is
- * current, so a slow run of an earlier attempt can never overwrite a newer one. Service-written (read-only policy):
+ * current, so a slow run of an earlier attempt can never overwrite a newer one. While drafting, `writeProgress` stores
+ * each part as it lands (0019; kept across attempts so a retry resumes, cleared by `apply`). Service-written (read-only policy):
  * the api writes it after its membership check, the orchestrator through its service role.
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
-import type { FoundationsDraft, FoundationsInputs, FoundationsNoteStats, FoundationsOutlineEntry, ImportReportSnapshot } from "@foundmill/agents";
+import type { FoundationsDraft, FoundationsInputs, FoundationsNoteStats, FoundationsOutlineEntry, FoundationsProgressAuthor, FoundationsProgressPatch, ImportReportSnapshot } from "@foundmill/agents";
 import { FOUNDATIONS_DOORS, ROADMAP_HORIZONS, type Archetype, type FoundationsRunner, type FoundationsStatus, type RoadmapHorizon } from "@foundmill/shared";
 import { z } from "zod";
-import { businessFoundations, type BusinessFoundationsRow, type InboxItem, type SpecBlock } from "../schema";
+import { agents, businessFoundations, type BusinessFoundationsRow, type InboxItem, type SpecBlock } from "../schema";
 import { agentsRepo } from "./agents";
 import { auditRepo } from "./audit";
 import { businessesRepo } from "./businesses";
@@ -61,6 +62,8 @@ export interface ApplyFoundationsOptions {
    * through the outbox (`repos.events.write` on the same `tx`): the item and its event commit or roll back together.
    */
   onInboxItem?: (tx: Executor, item: InboxItem) => Promise<unknown>;
+  /** Called inside the transaction once everything is written (the `foundations.progressed` "ready" event, outbox). */
+  onApplied?: (tx: Executor, stats: FoundationsNoteStats) => Promise<unknown>;
 }
 
 export interface ApplyFoundationsResult {
@@ -109,6 +112,42 @@ export const foundationsRepo = {
       .where(and(eq(businessFoundations.businessId, businessId), eq(businessFoundations.attempt, attempt), eq(businessFoundations.status, "drafting")))
       .returning();
     return rows[0] ?? null;
+  },
+
+  /**
+   * Store what the drafting produced so far (audit P3), for the current drafting attempt only and atomically: `replace`
+   * starts over, `set` replaces top-level keys, `section` merges one section into `sections` on its own, so parallel
+   * batches (separate api calls or orchestrator activities) never overwrite each other. `onWritten` runs in the same
+   * transaction with the stored progress (the `foundations.progressed` event goes through the outbox with it). Returns
+   * the stored progress, or null when the attempt is no longer the current drafting one (nothing is written).
+   */
+  async writeProgress(db: Executor, businessId: string, attempt: number, patch: FoundationsProgressPatch, options: { onWritten?: (tx: Executor, progress: Record<string, unknown>) => Promise<unknown> } = {}): Promise<Record<string, unknown> | null> {
+    const t = businessFoundations;
+    const current = sql`coalesce(${t.progress}, '{}'::jsonb)`;
+    const value =
+      "replace" in patch
+        ? sql`${JSON.stringify(patch.replace)}::jsonb`
+        : "set" in patch
+          ? sql`${current} || ${JSON.stringify(patch.set)}::jsonb`
+          : sql`jsonb_set(${current}, '{sections}', coalesce(${t.progress} -> 'sections', '{}'::jsonb) || jsonb_build_object(${patch.section.section}::text, ${JSON.stringify(patch.section)}::jsonb))`;
+    return db.transaction(async (tx) => {
+      const rows = await tx
+        .update(t)
+        .set({ progress: value })
+        .where(and(eq(t.businessId, businessId), eq(t.attempt, attempt), eq(t.status, "drafting")))
+        .returning({ progress: t.progress });
+      const progress = rows[0]?.progress ?? null;
+      if (progress && options.onWritten) await options.onWritten(tx, progress);
+      return progress;
+    });
+  },
+
+  /** The drafting's author as the screens name it ("Mira, Product lead, is writing the vision"); null when unknown. */
+  async author(db: Executor, businessId: string, agentId: string | null): Promise<FoundationsProgressAuthor | null> {
+    if (!agentId) return null;
+    const rows = await db.select({ id: agents.id, name: agents.name, role: agents.role }).from(agents).where(and(eq(agents.businessId, businessId), eq(agents.id, agentId))).limit(1);
+    const a = rows[0];
+    return a ? { agentId: a.id, name: a.name || null, role: a.role || null } : null;
   },
 
   /** drafting → failed for the current attempt (a later retry claims it again). */
@@ -292,9 +331,11 @@ export const foundationsRepo = {
       };
       const ready = await tx
         .update(businessFoundations)
-        .set({ status: "ready", vision: { ...draft.vision }, summary, error: null, finishedAt: new Date() })
+        // The progress the drafting stored is now in the blocks, the roadmap and `vision`: cleared with the same write.
+        .set({ status: "ready", vision: { ...draft.vision }, summary, progress: null, error: null, finishedAt: new Date() })
         .where(and(eq(businessFoundations.businessId, businessId), eq(businessFoundations.id, current.id)))
         .returning();
+      if (options.onApplied) await options.onApplied(tx, stats);
       await auditRepo.append(tx, businessId, {
         actorKind: author ? "agent" : "system",
         actorId: author ?? undefined,

@@ -7,6 +7,12 @@ const Env = z.object({
   /** Connectors that run live while INTEGRATIONS_MODE is mock, comma-separated (e.g. "github"). */
   LIVE_CONNECTORS: z.string().default(""),
   MODEL_MODE: z.enum(["mock", "live"]).default("mock"),
+  /** packages/models: honour `speed: "fast"` on the routes that ask for it (Opus fast mode, beta, 2× price). Off unless "1" or "true". */
+  MODEL_FAST_MODE: z.string().optional().transform((v) => v === "1" || v?.trim().toLowerCase() === "true"),
+  /** Mock model client only: simulated wait before the first token / first streamed element, in ms (0 = instant, the default). */
+  MOCK_MODEL_LATENCY_MS: z.coerce.number().int().min(0).max(600_000).catch(0).default(0),
+  /** Mock model client only: simulated writing time per streamed element, in ms (0 = instant, the default). */
+  MOCK_MODEL_STREAM_MS: z.coerce.number().int().min(0).max(600_000).catch(0).default(0),
   APP_URL: z.string().default("http://localhost:3000"),
   DATA_REGION: z.enum(["eu", "us"]).default("eu"),
   LOG_LEVEL: z.string().default("info"),

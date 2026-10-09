@@ -1,0 +1,194 @@
+/*
+ * Views: the data, journey and agent components (components/data, components/journey, components/agents).
+ * Imported by dugout.css after controls.css. Tokens only: every colour is a var() from tokens.css, mixed here.
+ * Server-safe components use these too, so every effect is CSS; every loop stops under prefers-reduced-motion
+ * (dugout.css base layer) and leaves a legible static frame.
+ */
+
+/* ---------- Metric tiles and strips ---------- */
+/* A vertical hairline between tiles in a strip, fading out at both ends (the strip's dividers). */
+@utility strip-divider {
+  position: relative;
+  &::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 12px;
+    bottom: 12px;
+    width: 1px;
+    pointer-events: none;
+    background: linear-gradient(180deg, transparent, var(--line) 22%, var(--line) 78%, transparent);
+  }
+}
+/* The "now" dot at the end of a sparkline: currentColor with a halo and a soft glow from the source. */
+@utility spark-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: currentColor;
+  box-shadow:
+    0 0 0 2.5px color-mix(in oklab, currentColor 24%, transparent),
+    0 0 8px color-mix(in oklab, currentColor 70%, transparent);
+}
+
+/* ---------- Tables ---------- */
+/* The sticky header of a data table: the panel colour under a blur, with a hairline. */
+@utility table-head {
+  background-color: color-mix(in oklab, var(--surface-1) 92%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+/* A selected row: an accent plate with a lit left edge (shape and colour both carry the state). */
+@utility row-selected {
+  background-color: color-mix(in oklab, var(--accent) 9%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+/* A scroll cue: a shadow that fades in at an edge with more content behind it (set data-more-left / data-more-right). */
+@utility scroll-cues {
+  position: relative;
+  &[data-more-right]::after,
+  &[data-more-left]::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 28px;
+    pointer-events: none;
+    z-index: 5;
+  }
+  &[data-more-right]::after {
+    right: 0;
+    background: linear-gradient(270deg, color-mix(in oklab, var(--canvas) 85%, transparent), transparent);
+  }
+  &[data-more-left]::before {
+    left: 0;
+    background: linear-gradient(90deg, color-mix(in oklab, var(--canvas) 85%, transparent), transparent);
+  }
+}
+
+/* ---------- Charts ---------- */
+/* Axis ticks and chart labels: JetBrains Mono 11 in text-3 (nothing smaller). */
+@utility chart-tick {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-body-strong);
+  fill: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+/* A pin chip on a chart (a release, a milestone, a planned launch): a glass plate with a hairline. Dashed = planned. */
+@utility pin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: var(--control-xs);
+  padding-inline: 7px 9px;
+  border-radius: var(--r-sm);
+  background-color: color-mix(in oklab, var(--surface-2) 88%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow:
+    inset 0 0 0 1px var(--line-strong),
+    inset 0 1px 0 var(--rim-light),
+    0 4px 12px -4px color-mix(in oklab, var(--black) 70%, transparent);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  line-height: var(--lh-small);
+  font-weight: var(--fw-body-strong);
+  color: var(--text-1);
+  white-space: nowrap;
+  &[data-kind="milestone"] {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--gold) 55%, transparent),
+      inset 0 1px 0 var(--rim-light),
+      0 0 14px -4px color-mix(in oklab, var(--gold) 55%, transparent);
+    color: var(--text-1);
+  }
+  &[data-kind="planned"] {
+    background-color: color-mix(in oklab, var(--surface-1) 70%, transparent);
+    box-shadow: none;
+    border: 1px dashed color-mix(in oklab, var(--white) 26%, transparent);
+    color: var(--text-2);
+  }
+}
+/* The Today tag on a time chart: a pill in the brand's lift with a soft glow. */
+@utility today-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--control-xs);
+  padding-inline: 8px;
+  border-radius: var(--r-pill);
+  background-color: color-mix(in oklab, var(--kit-lift) 18%, var(--surface-1));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--kit-lift) 55%, transparent),
+    0 0 16px -2px color-mix(in oklab, var(--kit-lift) 45%, transparent);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  line-height: var(--lh-small);
+  font-weight: var(--fw-body-strong);
+  color: var(--text-1);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Live session tiles ---------- */
+/* The focused tile: its edge lifts to the brand light with a soft halo. */
+@utility tile-focused {
+  border-color: color-mix(in oklab, var(--kit-lift) 45%, transparent);
+  box-shadow:
+    var(--elev-1),
+    0 0 0 1px color-mix(in oklab, var(--kit-lift) 18%, transparent),
+    0 0 24px -8px color-mix(in oklab, var(--kit-lift) 45%, transparent);
+}
+/* The selected view tab inside the tile's segmented well: the raised plate. */
+@utility tile-tab-on {
+  background-color: var(--surface-3);
+  background-image: linear-gradient(180deg, color-mix(in oklab, var(--white) 8%, transparent), color-mix(in oklab, var(--white) 3%, transparent));
+  box-shadow:
+    inset 0 0 0 1px var(--line-strong),
+    inset 0 1px 0 color-mix(in oklab, var(--white) 8%, transparent);
+}
+/* The terminal's well: ink with a soft inner shadow under the header. */
+@utility terminal-well {
+  background-color: var(--ink);
+  box-shadow: inset 0 8px 16px -12px color-mix(in oklab, var(--black) 90%, transparent);
+}
+/* A prompt line's caret while a terminal waits for its first output (blinks; solid under reduced motion). */
+@utility prompt-caret {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  vertical-align: -2px;
+  background: var(--tone, var(--kit-lift));
+  box-shadow: 0 0 8px color-mix(in oklab, var(--tone, var(--kit-lift)) 70%, transparent);
+  animation: dugout-caret var(--caret-blink) step-end infinite;
+}
+
+/* ---------- Diffs ---------- */
+/* A changed line's lit left edge (added, removed, changed): shape as well as colour. */
+@utility diff-edge-add {
+  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--status-good) 70%, transparent);
+}
+@utility diff-edge-del {
+  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--status-bad) 70%, transparent);
+}
+@utility diff-edge-change {
+  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--status-warn) 70%, transparent);
+}
+/* The side a line does not exist on: a faint 45° hatch, so the gap reads as absent rather than blank. */
+@utility diff-absent {
+  background-image: repeating-linear-gradient(135deg, color-mix(in oklab, var(--white) 3%, transparent) 0 1px, transparent 1px 7px);
+}
+
+/* ---------- Rating cells (20-cell bars: skills, attributes, form) ---------- */
+/* A lit cell: the ramp colour (set --tone with tone-rating-N) with a faint glow and a lit top edge. */
+@utility cell-lit {
+  background-color: var(--tone, var(--text-2));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--white) 28%, transparent),
+    0 0 6px -1px color-mix(in oklab, var(--tone, var(--text-2)) 60%, transparent);
+}
+/* An empty cell: a faint plate with a hairline, so the 20 slots read even when few are lit. */
+@utility cell-empty {
+  background-color: color-mix(in oklab, var(--white) 6%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--white) 3%, transparent);
+}

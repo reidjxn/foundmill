@@ -31,19 +31,19 @@ function StarGlyph({ fill, outlined, size }: { fill: Fill; outlined: boolean; si
   if (fill === "half") {
     return (
       <span className="relative inline-block" style={{ width: size, height: size }}>
-        <Star {...common} className={cn("absolute inset-0", outlined ? "text-gold" : "text-subtle")} fill="none" />
+        <Star {...common} className={cn("absolute inset-0", outlined ? "text-gold" : "text-line-strong")} fill="none" />
         <span className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: size / 2 }}>
           <Star {...common} className="text-gold" fill="currentColor" />
         </span>
       </span>
     );
   }
-  return <Star {...common} className={outlined ? "text-gold" : "text-subtle"} fill="none" />;
+  return <Star {...common} className={outlined ? "text-gold" : "text-line-strong"} fill="none" />;
 }
 
 /**
- * 0–5 stars with halves (BUILD §5.4). Current stars are solid gold, potential stars are outlined gold,
- * empties are hairline-coloured outlines (DESIGN §8).
+ * 0–5 stars with halves (BUILD §5.4). Current stars are solid gold, potential stars are outlined gold, empties are
+ * strong-hairline outlines; the value in mono text-3 ("3.5 → 4.5") so colour is never the only signal (DESIGN §8).
  */
 export function StarRating({ value, potential, size = 12, label = "Rating", showValue, className, ...rest }: StarRatingProps) {
   const current = fills(value);
@@ -56,9 +56,9 @@ export function StarRating({ value, potential, size = 12, label = "Rating", show
         return <StarGlyph key={i} fill={f} outlined={outlined} size={size} />;
       })}
       {showValue ? (
-        <span className="ml-1 font-mono text-mono tabular-nums text-secondary" aria-hidden>
+        <span className="ml-1.5 font-mono text-mono tabular-nums text-tertiary" aria-hidden>
           {value}
-          {potential !== undefined ? `/${potential}` : ""}
+          {potential !== undefined ? ` → ${potential}` : ""}
         </span>
       ) : null}
     </span>

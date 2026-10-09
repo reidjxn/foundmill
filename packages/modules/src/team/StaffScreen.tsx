@@ -7,8 +7,8 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { ExternalLink, ShieldCheck, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
 import { Avatar, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, Input, Panel, SimpleSelect, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
-import { MEMBERSHIP_ROLES, type MembershipRole } from "@foundmill/shared";
-import { useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { MEMBERSHIP_ROLES, type MembershipRole } from "@foundmill/shared/constants";
+import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { DECISION_LABELS, InlineError, ROLE_LABELS, STAFF_SECTIONS, Screen, memberEntity, memberName, permissionSummary, readMe, sectionLabel, useAction, useHumans, useMe, useNow, type Me } from "./shared";
 import type { MembershipRow, ResponsibilitiesResponse, SectionPermission } from "./types";

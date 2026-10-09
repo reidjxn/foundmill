@@ -1038,3 +1038,36 @@ The founder asked for a software example instead of the skincare brand, so the p
 - **Ledgerly** (the second seeded demo business) was ruled out for the public page: several real companies use the name, one of them selling month-end close software. Renaming the seeded demo is worth doing separately.
 - **Logos:** the six generated marks from `main` are redrawn for Tutorlane by the same mock logo designer, in the brand picker's own colours (`exampleKits()`), so the first is Tutorlane's teal and gold.
 
+
+## 2026-10-09 — Generation streams; first drafts run at low effort; fast mode is opt-in (founder: speed first)
+
+- **Streaming over all-or-nothing JSON.** Every founder-facing generator (ideation, foundations, logos) streams elements as they complete and saves them as they land; a delivered element is never replaced by a retry or repair.
+- **Effort, not model.** Ideation, the ideation slate, foundations, the foundations plan and the logo designer stay on Opus at `effort: "low"` (Opus 5.5 always thinks; effort is the only depth control). No route moved to Sonnet: model choice is the founder's call (BUILD §10.1). Planner, plan compiler, inbox composer, coach and Chief of Staff keep their defaults.
+- **Fast mode is wired but off.** Those routes ask for fast mode only when `MODEL_FAST_MODE=1`: up to 2.5× output speed at 2× the price on the founder's own key. Turning it on is the founder's decision.
+- **Fan-out books estimates.** The limiter reserves `reserveTokens` per call instead of `max_tokens`, so a 12-card fan-out does not exhaust the output-token bucket on reservations.
+- **Foundations keep the first-open trigger** (2026-10-09 founder decision) and get faster inside it: plan → parallel sections + roadmap → one atomic apply. Deploy note: the foundations Temporal activities changed without `patched()`; drain foundations workflows before deploying the orchestrator.
+- **6–12 concepts on failure.** A draft that ends with fewer than 6 saved cards reports `ideation_incomplete` and keeps the finished cards; the founder can draft again. Recorded as a tension with AC-11.1.2's 6–12 for a later call.
+- **Inbox options do not wait on a model.** A pre-written option uses the rule-based compiler or a plan pre-compiled when the item was written; Opus `planCompiler` stays for free text (BUILD §11.3). Channel re-scoring is debounced (revisits 2026-10-07 "Re-score after every toggle").
+
+## 2026-10-09 — Pages ship only what they use (founder: speed first)
+
+- `@foundmill/shared/crypto` and `/logger` are subpath exports; vault and logging code never reaches a browser bundle. Client code imports zod-free constants from `@foundmill/shared/constants`.
+- `packages/dugout`, `shared` and `config` declare their side effects; widgets and modules expose helper subpaths so importing `routes` never registers every widget; department module packs load per department.
+- Shell queries are prefetched on the server and handed over through `PrefetchBoundary`, which keeps them pending until hydration commits (TanStack's boundary alone caused React #418 on every page). Shell links prefetch on intent. `staleTimes.dynamic` is 5 minutes (a removed member may see a cached screen for that long; the API still refuses their calls).
+- `withRls` sets role and claims in one statement (`set_config('role', …, true)`, the documented equivalent of `set local role`, as PostgREST does); the RLS suite on PGlite (real Postgres) covers it.
+
+## 2026-10-09 — Founder ↔ agent conversations (founder request)
+
+- **Free text in the Inbox no longer always answers the item** (supersedes the 2026-10-07 rule that any free text marks the item answered): a question goes to the agent's conversation and the decision stays open; an instruction still compiles to a plan and decides.
+- **The founder may talk with any agent.** BUILD's "no free-form agent chat" is about agents coordinating with each other; they still coordinate only through the task board.
+- **Human, never claiming to be human.** Voice, presence, current work, reactions and read receipts make agents feel like colleagues; portraits stay procedural, and an agent asked whether it is a person says it is an AI agent.
+- **Always 2–4 quick replies.** The server pads or trims every reply; hard-gated actions only ever appear as hand-offs that go through the plan compiler, policy and the founder's confirmation.
+- **Route.** `conversation` on Opus at low effort with a small output cap and a cached system prompt (house rules first). Starters are deterministic (no model call).
+
+## 2026-10-09 — The 2027 art direction: "Mission control 2027" (founder request)
+
+- Chosen from three rendered directions by three judges (UI 8.1, UX 8.1, founder + VC 8.2), with grafts: Night studio's presence column, two-line decision options and wrapping inbox subjects; Luminous's AA text ramp and per-business brand ramp. The mocks were working files; DESIGN.md §1–§8 is the record.
+- Supersedes DESIGN.md rules: depth now comes from a luminance ladder plus a soft elevation ramp and light-catching edges (§1, §3); every control is sentence case, caps only for data labels (§4, §10); entity links carry no icon, keep the text colour and are underlined (§5, §8, founder); Inter 600 joins the self-hosted weights (Fonts decision 2026-10-05).
+- Kept: structure, regions and sizes, dark only, desktop only, Lucide, tokens only, the vector wordmark (founder 2026-10-09), department colours, the rating ramp, gold's reserved use, brand-colour restraint.
+- Generate is the only light slab in the product; primary actions use the brand gradient. No "AI purple": a drafting card takes its agent's department colour.
+- `cn()` now knows the design tokens, so a caller's `h-*` or `text-*` class wins over a component's default instead of being dropped or losing by CSS order; 30 call sites that relied on the old behaviour were adjusted.

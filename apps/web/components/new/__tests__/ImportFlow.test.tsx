@@ -2,7 +2,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@foundmill/dugout";
-import { ImportFlow, type ImportRunner } from "../import/ImportScreen";
+import { DEFAULT_POLL_MS, ImportFlow, type ImportRunner } from "../import/ImportScreen";
 import type { ImportJob, ImportStatus, ScoutingReport, SourceConfig } from "../import/import-job";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
@@ -74,10 +74,10 @@ function fakeRunner(): ImportRunner & { starts: unknown[]; polls: number } {
   return r;
 }
 
-function renderFlow(runner: ImportRunner, onContinue = vi.fn()) {
+function renderFlow(runner: ImportRunner, onContinue = vi.fn(), onReport = vi.fn()) {
   render(
     <TooltipProvider>
-      <ImportFlow viewer={{ email: null }} runner={runner} onContinue={onContinue} pollMs={0} />
+      <ImportFlow viewer={{ email: null }} runner={runner} onContinue={onContinue} onReport={onReport} pollMs={0} />
     </TooltipProvider>,
   );
   return onContinue;
@@ -123,6 +123,27 @@ describe("ImportFlow (BUILD §11.1 Door B, AC-11.1.5)", () => {
     // The finished job travels on, so commit can link the business to this import.
     expect(job.status).toBe("done");
     expect(job.id).toBeTruthy();
+  });
+
+  it("asks for the concept card once, the moment the report is on screen (audit P7: Continue does not wait on the model)", async () => {
+    const runner = fakeRunner();
+    const onReport = vi.fn();
+    const onContinue = renderFlow(runner, vi.fn(), onReport);
+    fireEvent.click(screen.getByLabelText("Import from Stripe"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("start-import"));
+    });
+    await waitFor(() => expect(screen.getByTestId("scouting-report")).toBeTruthy());
+    expect(onReport).toHaveBeenCalledTimes(1);
+    const [job, reportArg] = onReport.mock.calls[0]! as [{ id: string; status: string }, ScoutingReport];
+    expect(job).toMatchObject({ id: "job-1", status: "done" });
+    expect(reportArg.suggestedName).toBe("Ledgerly");
+    // Before Continue: the card is only being drafted, nothing is continued yet.
+    expect(onContinue).not.toHaveBeenCalled();
+  });
+
+  it("polls about once per API step by default", () => {
+    expect(DEFAULT_POLL_MS).toBeLessThanOrEqual(200);
   });
 
   it("shows the running job while polling and lets the founder cancel back to the picker", async () => {

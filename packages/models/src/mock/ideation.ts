@@ -61,59 +61,110 @@ const MECHANISMS = [
   "a paid newsletter plus a members' community",
 ];
 
-export function generateIdeation(ctx: MockContext): IdeationOutput {
-  const { rng } = ctx;
+/** What a per-card request (or the slate it came from) fixes about a card; the rest is drafted from the seed. */
+export interface MockCardSpec {
+  id?: string;
+  name?: string;
+  archetype?: Archetype;
+  /** One-line angle from the slate; becomes the pitch. */
+  angle?: string;
+}
+
+interface DraftInputs {
+  prompt: string;
+  kws: string[];
+  constraints: string[];
+  skills: Record<string, unknown> | undefined;
+  hinted: Archetype[];
+}
+
+function draftInputs(ctx: MockContext): DraftInputs {
   const prompt = ctx.getString("prompt", "concept", "brief", "idea") ?? ctx.lastUser;
   const founder = ctx.getRecord("founder", "founder_profile", "profile");
-  const kws = keywords(prompt, 8);
-  const constraints = founder && Array.isArray(founder.constraints) ? founder.constraints.filter((c): c is string => typeof c === "string") : [];
-  const skills = founder && isRecord(founder.skills) ? founder.skills : undefined;
-  const count = rng.int(6, 12);
-  const hinted = ARCHETYPE_HINTS.filter(([, re]) => re.test(prompt)).map(([a]) => a);
+  return {
+    prompt,
+    kws: keywords(prompt, 8),
+    constraints: founder && Array.isArray(founder.constraints) ? founder.constraints.filter((c): c is string => typeof c === "string") : [],
+    skills: founder && isRecord(founder.skills) ? founder.skills : undefined,
+    hinted: ARCHETYPE_HINTS.filter(([, re]) => re.test(prompt)).map(([a]) => a),
+  };
+}
+
+/** One card. Without a spec this consumes the seed exactly as the full-set generator always has (fixtures stay stable). */
+function draftCard(ctx: MockContext, i: number, inputs: DraftInputs, usedNames: Set<string>, spec: MockCardSpec = {}): ConceptCard {
+  const { rng } = ctx;
+  const { prompt, kws, constraints, skills, hinted } = inputs;
+  const archetype: Archetype = spec.archetype ?? (hinted.length > 0 && rng.chance(0.65) ? rng.pick(hinted) : rng.pick(ARCHETYPES));
+  const keyword = kws.length > 0 ? (kws[i % kws.length] as string) : undefined;
+  const name = spec.name ?? uniqueName(rng, keyword, usedNames);
+  const audience = rng.pick(AUDIENCES[archetype]);
+  const outcome = rng.pick(OUTCOMES);
+  const mechanism = rng.pick(MECHANISMS);
+  const pitch = spec.angle ?? `${name} helps ${audience} ${outcome} through ${mechanism}${keyword ? `, built around ${keyword}` : ""}.`;
+
+  const attributes = IDEA_ATTRIBUTE_KEYS.map((key) => {
+    let value = BASELINE[archetype][key] + rng.int(-3, 3);
+    if (key === "founder_fit" && skills) value = Math.round((value + founderFit(skills, archetype)) / 2);
+    if (key === "regulatory_load" && /\b(medical|health|finance|fintech|crypto|children|alcohol|insurance)\b/i.test(prompt)) value -= 4;
+    if (key === "capital_intensity" && constraints.some((c) => /bootstrap|no funding|small budget|low budget/i.test(c)) && archetype === "hardware") value -= 2;
+    value = Math.max(1, Math.min(20, value));
+    return { key, value, evidence: evidenceFor(key, value, archetype, keyword, rng) };
+  });
+  const mean = attributes.reduce((acc, a) => acc + a.value, 0) / attributes.length;
+  const starsCurrent = Math.max(1, Math.min(5, Math.round(mean / 4)));
+  const starsPotential = Math.max(starsCurrent, Math.min(5, starsCurrent + rng.int(0, 2)));
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const citationCount = rng.int(2, 3);
+  const citations = Array.from({ length: citationCount }, (_, c) => ({
+    title: c === 0 ? `Market note: ${keyword ?? ARCHETYPE_LABELS[archetype].toLowerCase()} (${ARCHETYPE_LABELS[archetype]})` : c === 1 ? `Pricing comparables for ${audience}` : `Competitor scan: ${name}`,
+    url: `https://research.mock.invalid/${slug}/${c + 1}`,
+    note: "Mock citation — replace with Research agent output in live mode. Labelled estimate.",
+  }));
+
+  return {
+    id: spec.id ?? uuidFromSeed(`${ctx.hash}:concept:${i}`),
+    name,
+    pitch,
+    archetype,
+    stars_current: starsCurrent,
+    stars_potential: starsPotential,
+    attributes,
+    citations,
+    crest_seed: `${slug}-${ctx.hash.slice(0, 6)}`,
+  };
+}
+
+/** The card a per-card request names (`concept: {id, name, archetype, angle}`), if any. */
+function cardSpec(ctx: MockContext): MockCardSpec {
+  const concept = ctx.getRecord("concept", "slate_item");
+  if (!concept) return {};
+  const str = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined);
+  const archetype = typeof concept.archetype === "string" && (ARCHETYPES as readonly string[]).includes(concept.archetype) ? (concept.archetype as Archetype) : undefined;
+  return { id: str(concept.id, 120), name: str(concept.name, 60), archetype, angle: str(concept.angle, 400) };
+}
+
+/** A full set of 6–12 cards (`{ concepts: [...] }`), seeded by the prompt. */
+export function generateIdeation(ctx: MockContext): IdeationOutput {
+  const inputs = draftInputs(ctx);
+  const count = ctx.rng.int(6, 12);
   const usedNames = new Set<string>();
-
   const concepts: ConceptCard[] = [];
-  for (let i = 0; i < count; i++) {
-    const archetype: Archetype = hinted.length > 0 && rng.chance(0.65) ? rng.pick(hinted) : rng.pick(ARCHETYPES);
-    const keyword = kws.length > 0 ? (kws[i % kws.length] as string) : undefined;
-    const name = uniqueName(rng, keyword, usedNames);
-    const audience = rng.pick(AUDIENCES[archetype]);
-    const outcome = rng.pick(OUTCOMES);
-    const mechanism = rng.pick(MECHANISMS);
-    const pitch = `${name} helps ${audience} ${outcome} through ${mechanism}${keyword ? `, built around ${keyword}` : ""}.`;
-
-    const attributes = IDEA_ATTRIBUTE_KEYS.map((key) => {
-      let value = BASELINE[archetype][key] + rng.int(-3, 3);
-      if (key === "founder_fit" && skills) value = Math.round((value + founderFit(skills, archetype)) / 2);
-      if (key === "regulatory_load" && /\b(medical|health|finance|fintech|crypto|children|alcohol|insurance)\b/i.test(prompt)) value -= 4;
-      if (key === "capital_intensity" && constraints.some((c) => /bootstrap|no funding|small budget|low budget/i.test(c)) && archetype === "hardware") value -= 2;
-      value = Math.max(1, Math.min(20, value));
-      return { key, value, evidence: evidenceFor(key, value, archetype, keyword, rng) };
-    });
-    const mean = attributes.reduce((acc, a) => acc + a.value, 0) / attributes.length;
-    const starsCurrent = Math.max(1, Math.min(5, Math.round(mean / 4)));
-    const starsPotential = Math.max(starsCurrent, Math.min(5, starsCurrent + rng.int(0, 2)));
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const citationCount = rng.int(2, 3);
-    const citations = Array.from({ length: citationCount }, (_, c) => ({
-      title: c === 0 ? `Market note: ${keyword ?? ARCHETYPE_LABELS[archetype].toLowerCase()} (${ARCHETYPE_LABELS[archetype]})` : c === 1 ? `Pricing comparables for ${audience}` : `Competitor scan: ${name}`,
-      url: `https://research.mock.invalid/${slug}/${c + 1}`,
-      note: "Mock citation — replace with Research agent output in live mode. Labelled estimate.",
-    }));
-
-    concepts.push({
-      id: uuidFromSeed(`${ctx.hash}:concept:${i}`),
-      name,
-      pitch,
-      archetype,
-      stars_current: starsCurrent,
-      stars_potential: starsPotential,
-      attributes,
-      citations,
-      crest_seed: `${slug}-${ctx.hash.slice(0, 6)}`,
-    });
-  }
+  for (let i = 0; i < count; i++) concepts.push(draftCard(ctx, i, inputs, usedNames));
   return { concepts };
+}
+
+/**
+ * One card (audit P2: a card of the slate's fan-out, or Import's single card). A request naming a slate item
+ * (`concept: {id, name, archetype, angle}`) keeps its id, name, archetype and angle; without one the card is drafted
+ * from the prompt.
+ */
+export function generateConceptCard(ctx: MockContext): ConceptCard {
+  return draftCard(ctx, 0, draftInputs(ctx), new Set<string>(), cardSpec(ctx));
+}
+
+/** The `ideation` route: one card when the caller's schema is a single card (it has `attributes`), else a full set. */
+export function generateIdeationRoute(ctx: MockContext): IdeationOutput | ConceptCard {
+  return ctx.schemaKeys.includes("attributes") && !ctx.schemaKeys.includes("concepts") ? generateConceptCard(ctx) : generateIdeation(ctx);
 }
 
 function uniqueName(rng: MockContext["rng"], keyword: string | undefined, used: Set<string>): string {

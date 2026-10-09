@@ -2,12 +2,18 @@
  * import.start / import.status / import.sources — Door B (BUILD §11.1, AC-11.1.5). Account-scoped: the import runs
  * before a business exists; with `businessId` (member required) the sources are stored on the business and the
  * orchestrator's `importBusiness` workflow runs when Temporal is reachable.
+ *
+ * import.prepareConcept / import.continue — "Continue to Commit" without the wait (audit P7): the Import screen asks
+ * for the concept card as soon as the report is on screen; Continue saves the card drafted ahead (services/import-concept.ts).
  */
 import { repos } from "@foundmill/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { IMPORT_SOURCES, IMPORT_SOURCE_KEYS, SourceConfig, importJobKey, importStatus, startImport } from "../services/import";
+import { continueImport, prepareImportConcept } from "../services/import-concept";
 import { Id, protectedProcedure, router } from "../trpc";
+
+const JobInput = z.object({ jobId: z.string().min(8).max(8192) });
 
 export const importRouter = router({
   /** The catalogue the picker renders (labels, which input each source needs, which connector reads it). */
@@ -25,7 +31,7 @@ export const importRouter = router({
     return result;
   }),
 
-  status: protectedProcedure.input(z.object({ jobId: z.string().min(8).max(8192) })).query(async ({ ctx, input }) => {
+  status: protectedProcedure.input(JobInput).query(async ({ ctx, input }) => {
     const result = await importStatus({ db: ctx.db, key: importJobKey(ctx.env) }, input.jobId, ctx.userId);
     if (result.job.businessId) {
       const membership = await repos.memberships.get(ctx.db, result.job.businessId, ctx.userId);
@@ -33,4 +39,13 @@ export const importRouter = router({
     }
     return result;
   }),
+
+  /**
+   * Drafts the concept card for a finished sign-up import while the founder reads the report (held in memory, never
+   * saved until `continue`). Idempotent per job; answers at once with "drafting" or "ready".
+   */
+  prepareConcept: protectedProcedure.input(JobInput).mutation(({ ctx, input }) => prepareImportConcept({ db: ctx.db, models: ctx.models, key: importJobKey(ctx.env) }, input.jobId, ctx.userId)),
+
+  /** "Continue to Commit": the card drafted ahead (or drafted now), saved as the founder's idea and linked to the import. */
+  continue: protectedProcedure.input(JobInput).mutation(({ ctx, input }) => continueImport({ db: ctx.db, models: ctx.models, key: importJobKey(ctx.env) }, input.jobId, ctx.userId)),
 });

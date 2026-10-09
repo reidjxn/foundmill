@@ -4,7 +4,7 @@
  * speak as a business, and how a board and its metric read and how the form string becomes cells.
  */
 import { APP_NAME } from "@foundmill/config";
-import { ARCHETYPE_LABELS, WRITE_ROLES, type Archetype, type Visibility } from "@foundmill/shared";
+import { ARCHETYPE_LABELS, WRITE_ROLES, type Archetype, type Visibility } from "@foundmill/shared/constants";
 import type { FormResult } from "@foundmill/dugout";
 
 // ---------------------------------------------------------------------------------------------------------------------

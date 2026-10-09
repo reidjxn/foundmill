@@ -7,8 +7,9 @@
 import { useCallback, useMemo, useState } from "react";
 import { Check, ExternalLink, FileText, Film, Image, Mail, Mailbox, Newspaper, ScrollText, Share2, X } from "lucide-react";
 import { Button, Chip, EntityLink, Icon, Panel, StatusPill, cn, formatRelative, type IconComponent } from "@foundmill/dugout";
-import { APPROVAL_STATES, ASSET_KINDS, type ApprovalState, type AssetKind } from "@foundmill/shared";
-import { routes, useBusinessEvents, useWidgetQuery } from "@foundmill/widgets";
+import { APPROVAL_STATES, ASSET_KINDS, type ApprovalState, type AssetKind } from "@foundmill/shared/constants";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useBusinessEvents, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { APPROVAL_WORDS } from "./channel-data";
 import { InlineError, Screen, searchParam, useAction } from "./shared";

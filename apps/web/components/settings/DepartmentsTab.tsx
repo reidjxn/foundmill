@@ -7,7 +7,7 @@ import { useMutation } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Check, GitMerge, Pencil, RotateCcw, Scissors, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { Button, Checkbox, Chip, DeptChip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, Label, SimpleSelect, Switch, departmentLetters } from "@foundmill/dugout";
-import { MODULE_KEYS, type ModuleKey } from "@foundmill/shared";
+import { MODULE_KEYS, type ModuleKey } from "@foundmill/shared/constants";
 import { useTRPC } from "@/lib/trpc-react";
 import { orderedVisibleDepartments } from "@/lib/sidebar";
 import { useBusiness, type DepartmentRow } from "@/components/shell/business-context";

@@ -1,4 +1,4 @@
-/** 0018 — business foundations: the vision, first specification and first roadmap drafted on the first open. */
+/** 0018 — business foundations: the vision, first specification and first roadmap drafted on the first open (0019: progress). */
 import { FOUNDATIONS_DOORS, FOUNDATIONS_RUNNERS, FOUNDATIONS_STATUSES } from "@foundmill/shared";
 import { index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { emptyObject, id, timestamps, tstz } from "./_common";
@@ -20,6 +20,8 @@ export const businessFoundations = pgTable(
     workflowId: text("workflow_id"),
     vision: jsonb("vision").$type<Record<string, unknown>>(),
     summary: jsonb("summary").$type<Record<string, unknown>>().notNull().default(emptyObject),
+    /** 0019: what the drafting has stored so far (packages/agents `FoundationsProgress`); cleared when it turns ready. */
+    progress: jsonb("progress").$type<Record<string, unknown>>(),
     error: text("error"),
     startedAt: tstz("started_at"),
     finishedAt: tstz("finished_at"),

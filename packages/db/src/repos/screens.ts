@@ -25,7 +25,19 @@ export const UpsertScreenInput = z.object({
 });
 export type UpsertScreenInput = z.input<typeof UpsertScreenInput>;
 
+/** A tab without its layout: what the sidebar and the tab bar need (department.list). */
+export type ScreenTab = Pick<ScreenDefinition, "id" | "departmentId" | "tabSlug" | "title" | "position">;
+
 export const screensRepo = {
+  /** Every live tab of the business in one projected query (no layouts), in `list` order within a department. */
+  async listTabs(db: Executor, businessId: string): Promise<ScreenTab[]> {
+    return db
+      .select({ id: screenDefinitions.id, departmentId: screenDefinitions.departmentId, tabSlug: screenDefinitions.tabSlug, title: screenDefinitions.title, position: screenDefinitions.position })
+      .from(screenDefinitions)
+      .where(and(eq(screenDefinitions.businessId, businessId), isNull(screenDefinitions.archivedAt)))
+      .orderBy(asc(screenDefinitions.position), asc(screenDefinitions.createdAt));
+  },
+
   async list(db: Executor, businessId: string, departmentId: string): Promise<ScreenDefinition[]> {
     return db
       .select()

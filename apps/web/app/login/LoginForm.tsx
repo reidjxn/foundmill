@@ -5,7 +5,7 @@
  */
 import { Mail, Send, Wrench } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { APP_NAME } from "@foundmill/config";
 import { Button, Field, Input, StatusPill } from "@foundmill/dugout";
 import { NEXT_PARAM } from "@/lib/auth/constants";
@@ -23,10 +23,14 @@ export function LoginForm() {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const supabaseReady = hasSupabase();
   const devBypass = isDevLike();
+  // The Supabase client loads on demand; start it once the form is on screen so sending the link never waits for it.
+  useEffect(() => {
+    if (supabaseReady) void createClient().catch(() => undefined);
+  }, [supabaseReady]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const supabase = createClient();
+    const supabase = await createClient();
     if (!supabase) {
       setPhase({ kind: "error", message: "Sign-in is not configured for this environment." });
       return;

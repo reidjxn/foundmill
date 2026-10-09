@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCompact, formatDate, formatDelta, formatDuration, formatMoney, formatMoneyDelta, formatNumber, formatOrdinal, formatPercent, formatRelative, initials, truncate } from "./format";
+import { currencySymbol, formatCompact, formatDate, formatDelta, formatDuration, formatMoney, formatMoneyDelta, formatMoneyInput, formatNumber, formatOrdinal, formatPercent, formatRelative, initials, truncate } from "./format";
 
 describe("formatNumber", () => {
   it("groups thousands and caps decimals at 2", () => {
@@ -87,5 +87,39 @@ describe("misc", () => {
   it("truncates", () => {
     expect(truncate("Founder Manager", 8)).toBe("Founder…");
     expect(truncate("short", 8)).toBe("short");
+  });
+});
+
+describe("formatMoneyInput (MoneyInput at rest)", () => {
+  it("groups plain amounts and keeps the decimals as typed", () => {
+    expect(formatMoneyInput("60000")).toBe("60,000");
+    expect(formatMoneyInput("1250000000")).toBe("1,250,000,000");
+    expect(formatMoneyInput("1234.50")).toBe("1,234.50");
+    expect(formatMoneyInput("60,000")).toBe("60,000");
+    expect(formatMoneyInput(" 7 500 ")).toBe("7,500");
+  });
+  it("expands the shorthand callers already parse", () => {
+    expect(formatMoneyInput("25k")).toBe("25,000");
+    expect(formatMoneyInput("1.2m")).toBe("1,200,000");
+    expect(formatMoneyInput("2.5K")).toBe("2,500");
+  });
+  it("leaves anything else alone", () => {
+    expect(formatMoneyInput("")).toBe("");
+    expect(formatMoneyInput("about 5k")).toBe("about 5k");
+    expect(formatMoneyInput("12/3")).toBe("12/3");
+  });
+  it("follows the locale's separators", () => {
+    expect(formatMoneyInput("60000", "de-DE")).toBe("60.000");
+  });
+});
+
+describe("currencySymbol", () => {
+  it("finds the narrow symbol, or nothing when the locale only has the code", () => {
+    expect(currencySymbol("GBP")).toBe("£");
+    expect(currencySymbol("eur")).toBe("€");
+    expect(currencySymbol("USD")).toBe("$");
+    expect(currencySymbol("CHF")).toBeUndefined();
+    expect(currencySymbol("NOPE")).toBeUndefined();
+    expect(currencySymbol(undefined)).toBeUndefined();
   });
 });

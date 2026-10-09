@@ -14,15 +14,25 @@ import { Id, adminProcedure, audit, businessProcedure, router, writeProcedure } 
 export const departmentRouter = router({
   list: businessProcedure.input(z.object({ includeHidden: z.boolean().default(false), includeArchived: z.boolean().default(false) })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const departments = await repos.departments.list(tx, ctx.businessId, input ?? {});
-      const agents = await repos.agents.list(tx, ctx.businessId, { limit: 500 });
-      const screens = await Promise.all(departments.map((d) => repos.screens.list(tx, ctx.businessId, d.id)));
-      return departments.map((d, i) => ({
-        ...d,
-        lead: agents.items.find((a) => a.id === d.leadAgentId) ?? null,
-        squad: agents.items.filter((a) => a.departmentIds.includes(d.id)).map((a) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed })),
-        tabs: (screens[i] ?? []).map((s) => ({ id: s.id, slug: s.tabSlug, title: s.title, position: s.position })),
-      }));
+      // Three projected queries, whatever the number of departments: the departments, the agents' lead and team-strip
+      // columns, and every tab of the business without its layout.
+      const [departments, roster, tabs] = await Promise.all([repos.departments.list(tx, ctx.businessId, input ?? {}), repos.agents.listRoster(tx, ctx.businessId, { limit: 500 }), repos.screens.listTabs(tx, ctx.businessId)]);
+      const tabsByDepartment = new Map<string, { id: string; slug: string; title: string; position: number }[]>();
+      for (const s of tabs) {
+        const list = tabsByDepartment.get(s.departmentId) ?? [];
+        list.push({ id: s.id, slug: s.tabSlug, title: s.title, position: s.position });
+        tabsByDepartment.set(s.departmentId, list);
+      }
+      const member = (a: (typeof roster)[number]) => ({ id: a.id, name: a.name, role: a.role, status: a.status, modelKey: a.modelKey, avatarSeed: a.avatarSeed });
+      return departments.map((d) => {
+        const lead = roster.find((a) => a.id === d.leadAgentId);
+        return {
+          ...d,
+          lead: lead ? member(lead) : null,
+          squad: roster.filter((a) => a.departmentIds.includes(d.id)).map(member),
+          tabs: tabsByDepartment.get(d.id) ?? [],
+        };
+      });
     }),
   ),
 

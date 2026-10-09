@@ -9,6 +9,7 @@ export const TooltipRoot = TooltipPrimitive.Root;
 export const TooltipTrigger = TooltipPrimitive.Trigger;
 export const TooltipPortal = TooltipPrimitive.Portal;
 
+/** A label, not a surface: the overlay glass on a 10 px radius, scaling from its trigger as it fades in. */
 export const TooltipContent = forwardRef<ElementRef<typeof TooltipPrimitive.Content>, ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>>(
   function TooltipContent({ className, sideOffset = 6, ...props }, ref) {
     return (
@@ -17,8 +18,7 @@ export const TooltipContent = forwardRef<ElementRef<typeof TooltipPrimitive.Cont
           ref={ref}
           sideOffset={sideOffset}
           className={cn(
-            "surface-overlay z-50 max-w-72 px-2 py-1 text-small text-primary",
-            "data-[state=delayed-open]:animate-fade-in data-[state=closed]:animate-fade-out",
+            "surface-overlay overlay-motion z-50 max-w-72 px-2.5 py-1.5 text-small text-primary text-pretty",
             className,
           )}
           {...props}

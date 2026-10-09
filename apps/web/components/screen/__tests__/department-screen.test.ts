@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import "@foundmill/modules";
-import { moduleScreenFor, parseModuleWidgetKey } from "../DepartmentScreen";
+import { moduleKeyFor, moduleScreenFor, parseModuleWidgetKey } from "../DepartmentScreen";
 
 describe("department screen layouts", () => {
   it("parses module widget keys", () => {
@@ -16,5 +16,13 @@ describe("department screen layouts", () => {
     expect(moduleScreenFor({ widgets: [{ key: "module:finance/overview" }, { key: "status_strip" }] })).toBeNull();
     expect(moduleScreenFor({ widgets: [{ key: "module:finance/not-a-tab" }] })).toBeNull();
     expect(moduleScreenFor(null)).toBeNull();
+  });
+
+  it("names the module pack a layout needs before that pack has loaded", () => {
+    expect(moduleKeyFor({ widgets: [{ key: "module:legal/entity" }] })).toBe("legal");
+    expect(moduleKeyFor({ widgets: [{ key: "module:finance/not-a-tab" }] })).toBe("finance");
+    expect(moduleKeyFor({ widgets: [{ key: "module:finance/overview" }, { key: "status_strip" }] })).toBeNull();
+    expect(moduleKeyFor({ widgets: [{ key: "journey_ribbon" }] })).toBeNull();
+    expect(moduleKeyFor(undefined)).toBeNull();
   });
 });

@@ -8,10 +8,28 @@
  * - The first open (`product.foundations.ensure`, called by the business shell) claims the row exactly once and starts
  *   the orchestrator's `businessFoundations` workflow (`foundations:{businessId}:{attempt}`). When Temporal does not
  *   answer, the same drafting runs here in the background (`runner: local`), never inside the request.
- * - A failed attempt is retried by `product.foundations.retry`. An attempt that never finished (a restarted process, a
- *   lost worker) is failed after `FOUNDATIONS_STALE_MS`, so the founder gets the retry instead of a spinner forever.
+ * - The drafting is staged (audit P3, packages/agents foundations-staged / foundations-steps): a short plan whose vision
+ *   is stored as soon as it has streamed, then the specification sections in parallel batches and the roadmap. Each
+ *   part is stored on the row as it lands (`progress`, with a `foundations.progressed` event through the outbox), so
+ *   `get` shows the vision within seconds and the sections and roadmap items as they arrive; the final apply stays one
+ *   transaction.
+ * - A failed attempt is retried by `product.foundations.retry`, which resumes from the stored progress. An attempt that
+ *   never finished (a restarted process, a lost worker) is failed after `FOUNDATIONS_STALE_MS`, so the founder gets the
+ *   retry instead of a spinner forever.
  */
-import { buildFoundationsRequest, describeFoundationsFailure, finaliseFoundations, foundationsReadyNote, type FoundationsVisionRecord } from "@foundmill/agents";
+import {
+  assembleFoundationsDraft,
+  describeFoundationsFailure,
+  foundationsProgressView,
+  foundationsReadyNote,
+  progressEventPayload,
+  readFoundationsProgress,
+  readyEventPayload,
+  type FoundationsProgressStore,
+  type FoundationsProgressView,
+  type FoundationsVisionRecord,
+} from "@foundmill/agents";
+import { FoundationsSupersededError, draftFoundationsStaged } from "@foundmill/agents/foundations-steps";
 import { repos, type BusinessFoundationsRow, type Db, type DbTx, type Source } from "@foundmill/db";
 import type { ModelClient } from "@foundmill/models";
 import type { FoundationsDoor, FoundationsRunner, FoundationsStatus } from "@foundmill/shared";
@@ -40,16 +58,20 @@ export interface FoundationsView {
   startedAt: Date | null;
   finishedAt: Date | null;
   error: string | null;
+  /** The vision once ready, and while drafting as soon as the plan has streamed it (audit P3). */
   vision: FoundationsVisionRecord | null;
+  /** While drafting (or after a failed attempt): what has been stored so far, display-safe; null otherwise. */
+  progress: FoundationsProgressView | null;
   summary: Record<string, unknown>;
   /** Door B: the business is linked to the Import job it came from. */
   importLinked: boolean;
 }
 
-export const NO_FOUNDATIONS: FoundationsView = { status: "none", door: null, attempt: 0, runner: null, startedAt: null, finishedAt: null, error: null, vision: null, summary: {}, importLinked: false };
+export const NO_FOUNDATIONS: FoundationsView = { status: "none", door: null, attempt: 0, runner: null, startedAt: null, finishedAt: null, error: null, vision: null, progress: null, summary: {}, importLinked: false };
 
 export function foundationsView(row: BusinessFoundationsRow | null): FoundationsView {
   if (!row) return NO_FOUNDATIONS;
+  const progress = row.status === "drafting" || row.status === "failed" ? readFoundationsProgress(row.progress) : null;
   return {
     status: row.status,
     door: row.door,
@@ -58,7 +80,8 @@ export function foundationsView(row: BusinessFoundationsRow | null): Foundations
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
     error: row.error,
-    vision: row.status === "ready" ? ((row.vision ?? null) as FoundationsVisionRecord | null) : null,
+    vision: row.status === "ready" ? ((row.vision ?? null) as FoundationsVisionRecord | null) : (progress?.vision ?? null),
+    progress: progress ? foundationsProgressView(progress) : null,
     summary: row.summary ?? {},
     importLinked: Boolean(row.importJobId),
   };
@@ -179,8 +202,28 @@ async function startClaimed(deps: FoundationsDeps, row: BusinessFoundationsRow):
 }
 
 /**
- * One drafting attempt in this process: inputs → the foundations route → finalise → apply (one transaction) → the
- * Inbox event. Never throws: a failure marks the attempt failed with a founder-readable reason.
+ * Where the in-process run stores its progress: `repos.foundations.writeProgress` for this attempt, with the
+ * `foundations.progressed` event written through the outbox in the same transaction (open tabs refetch on it).
+ */
+export function foundationsProgressStore(db: Db, businessId: string, attempt: number, authorAgentId: string | null): FoundationsProgressStore {
+  return {
+    async save(patch, step, section = null) {
+      const stored = await repos.foundations.writeProgress(db, businessId, attempt, patch, {
+        onWritten: (tx, raw) => {
+          const progress = readFoundationsProgress(raw);
+          if (!progress) throw new Error("foundations: the stored progress does not read back");
+          return writeEventRow(tx, { businessId, type: "foundations.progressed", actor: authorAgentId ? { kind: "agent", id: authorAgentId } : { kind: "system", id: "api" }, payload: progressEventPayload(attempt, step, progress, section) });
+        },
+      });
+      return stored ? readFoundationsProgress(stored) : null;
+    },
+  };
+}
+
+/**
+ * One drafting attempt in this process: inputs → the staged drafting (the plan, then the sections and the roadmap at
+ * once, each part stored as it lands) → assemble → apply (one transaction) → the Inbox event. Resumes from the progress
+ * an earlier attempt stored. Never throws: a failure marks the attempt failed with a founder-readable reason.
  */
 export async function runFoundationsLocally(deps: FoundationsDeps, businessId: string, attempt: number, opts: { timeoutMs?: number } = {}): Promise<void> {
   const signal = AbortSignal.timeout(opts.timeoutMs ?? FOUNDATIONS_LOCAL_TIMEOUT_MS);
@@ -188,38 +231,47 @@ export async function runFoundationsLocally(deps: FoundationsDeps, businessId: s
   try {
     release = await acquireFoundationsSlot(signal);
     const inputs = await repos.foundations.inputs(deps.db, businessId);
-    const request = buildFoundationsRequest(inputs);
+    const [row, author] = await Promise.all([repos.foundations.get(deps.db, businessId), repos.foundations.author(deps.db, businessId, inputs.authorAgentId)]);
     const attribution = { businessId, agentId: inputs.authorAgentId ?? undefined, kind: "foundations" };
-    const result = await deps.models.complete({ ...request, signal, scope: `foundations:${businessId}`, attribution });
-    // Book the call to the business's usage ledger (the orchestrator's client does this through its usage sink).
+    const store = foundationsProgressStore(deps.db, businessId, attempt, inputs.authorAgentId);
+    const { usage } = await draftFoundationsStaged({ models: deps.models, inputs, store, signal, scope: `foundations:${businessId}`, attribution, log: deps.log }, { stored: readFoundationsProgress(row?.progress), author });
+    // Book the calls to the business's usage ledger (the orchestrator's client does this through its usage sink).
     await repos.usage
       .record(deps.db, businessId, {
         agentId: inputs.authorAgentId,
         kind: "tokens",
-        modelKey: result.modelKey,
-        quantity: result.usage.inputTokens + result.usage.outputTokens,
+        modelKey: usage.modelKey,
+        quantity: usage.inputTokens + usage.outputTokens,
         unit: "tokens",
-        costMinor: Math.max(0, result.cost.costMinorInt),
-        currency: result.cost.currency,
+        costMinor: usage.costMinor,
+        currency: "EUR",
         billedTo: "credits",
-        details: { route: result.route, model: result.model, mode: result.mode, kind: "foundations", label: result.cost.label, runner: "local", attempt },
+        details: { route: "foundations", model: usage.model, mode: usage.mode, kind: "foundations", label: "Estimate", runner: "local", attempt, staged: true, calls: usage.calls },
       })
       .catch((err: unknown) => deps.log.warn({ businessId, err: (err as Error).message }, "foundations: usage ledger write failed"));
-    const draft = finaliseFoundations(result.json, inputs);
+    const progress = readFoundationsProgress((await repos.foundations.get(deps.db, businessId))?.progress);
+    if (!progress) throw new FoundationsSupersededError();
+    const draft = assembleFoundationsDraft(progress, inputs);
     const applied = await repos.foundations.apply(deps.db, businessId, attempt, draft, {
       note: (stats) => foundationsReadyNote(draft, inputs.door, stats),
-      model: { route: result.route, model: result.model, mode: result.mode, costMinor: result.cost.costMinorInt, costLabel: "Estimate", repaired: result.repaired, runner: "local" },
+      model: { route: "foundations", model: usage.model, mode: usage.mode, costMinor: usage.costMinor, costLabel: "Estimate", repaired: usage.repaired, runner: "local", staged: true, calls: usage.calls },
       // The Inbox event is written through the outbox in the same transaction as the item.
       onInboxItem: (tx, item) =>
         writeEventRow(tx, {
           businessId,
           type: "inbox.item_created",
           actor: { kind: "agent", id: item.fromAgentId! },
-          payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: result.cost.costMinorInt, currency: "EUR" } },
+          payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: usage.costMinor, currency: "EUR" } },
         }),
+      // Open tabs refetch on it and turn ready at once (the last progress event came before the apply).
+      onApplied: (tx) => writeEventRow(tx, { businessId, type: "foundations.progressed", actor: inputs.authorAgentId ? { kind: "agent", id: inputs.authorAgentId } : { kind: "system", id: "api" }, payload: readyEventPayload(attempt, draft) }),
     });
-    deps.log.info({ businessId, attempt, applied: applied.applied, stats: applied.stats }, "foundations drafted");
+    deps.log.info({ businessId, attempt, applied: applied.applied, stats: applied.stats, calls: usage.calls }, "foundations drafted");
   } catch (err) {
+    if (err instanceof FoundationsSupersededError) {
+      deps.log.info({ businessId, attempt }, "foundations: the attempt was superseded; stopping");
+      return;
+    }
     deps.log.warn({ businessId, attempt, err: (err as Error)?.message, code: (err as { code?: string })?.code }, "foundations drafting failed");
     await repos.foundations.fail(deps.db, businessId, attempt, describeFoundationsFailure(err)).catch((e: unknown) => deps.log.error({ businessId, err: (e as Error).message }, "foundations: could not record the failure"));
   } finally {

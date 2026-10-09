@@ -36,8 +36,10 @@ export const ROUTE_KEYS = [
   "planner",
   "codeReview",
   "ideation",
+  "ideationSlate",
   "logoDesigner",
   "foundations",
+  "foundationsSkeleton",
   "skillGrader",
   "coach",
   "worker",
@@ -48,6 +50,7 @@ export const ROUTE_KEYS = [
   "categoriser",
   "quarantinedReader",
   "moderation",
+  "conversation",
 ] as const;
 export const RouteKey = z.enum(ROUTE_KEYS);
 export type RouteKey = (typeof ROUTE_KEYS)[number];
@@ -66,8 +69,10 @@ export const ROUTE_DEFAULT_MODEL: Record<RouteKey, ModelKey> = {
   planner: "opus",
   codeReview: "opus",
   ideation: "opus",
+  ideationSlate: "opus",
   logoDesigner: "opus",
   foundations: "opus",
+  foundationsSkeleton: "opus",
   skillGrader: "opus",
   coach: "opus",
   worker: "sonnet",
@@ -78,6 +83,7 @@ export const ROUTE_DEFAULT_MODEL: Record<RouteKey, ModelKey> = {
   categoriser: "haiku",
   quarantinedReader: "haiku",
   moderation: "haiku",
+  conversation: "opus",
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -160,6 +166,19 @@ export type TemplateFamily = (typeof TEMPLATE_FAMILIES)[number];
 /** A trait is a short label derived from the instructions ("Writes tests first"). */
 export const Trait = z.string().min(3).max(48);
 
+/**
+ * How an agent sounds in a conversation, without a model call (audit-conversation §3 "voice kit"): the greeting at the
+ * top of an empty thread, the typing line while a reply is in flight ("Checking the branch…"), and the acknowledgements
+ * used for nudges and quick confirmations. Derived from the template's family and tone (`deriveVoice`); never a claim to
+ * be human.
+ */
+export const AgentVoice = z.object({
+  greeting: z.string().min(2).max(80),
+  thinking: z.array(z.string().min(2).max(60)).min(2).max(4),
+  ack: z.array(z.string().min(2).max(80)).min(2).max(4),
+});
+export type AgentVoice = z.infer<typeof AgentVoice>;
+
 export const AgentTemplate = z
   .object({
     key: SnakeKey,
@@ -195,6 +214,8 @@ export const AgentTemplate = z
     wageCapMinor: z.number().int().nonnegative(),
     /** Capabilities this template never has, surfaced on the profile as "Never does". */
     neverDoes: z.array(z.string().min(1)).min(1),
+    /** Greeting, typing lines and acknowledgements in the agent's own voice (derived from family and tone). */
+    voice: AgentVoice,
   })
   .superRefine((t, ctx) => {
     if (t.family === "channel" && !t.channelKey) {

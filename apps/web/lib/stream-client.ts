@@ -7,6 +7,7 @@ import { useEffect, useRef } from "react";
 import { DEV_BEARER_TOKEN } from "@/lib/auth/constants";
 import { isDevLike, publicEnv } from "@/lib/env";
 import { createStreamClient, type StreamClient, type StreamHandler } from "@/lib/stream";
+import { setStreamStatus } from "@/lib/stream-status";
 import { getBrowserAccessToken } from "@/lib/supabase/client";
 
 let client: StreamClient | null = null;
@@ -19,6 +20,8 @@ export function getStreamClient(): StreamClient {
     onError: (err) => {
       if (err.code !== "unavailable") console.warn("[stream]", err.code, err.message, err.ch ?? "");
     },
+    // Connected or not decides whether the shell polls (lib/stream-status.ts).
+    onStatus: (status) => setStreamStatus(status),
   });
   return client;
 }
@@ -26,6 +29,7 @@ export function getStreamClient(): StreamClient {
 /** Test hook: replace the singleton. */
 export function setStreamClient(next: StreamClient | null): void {
   client = next;
+  setStreamStatus(next?.state ?? "idle");
 }
 
 /**

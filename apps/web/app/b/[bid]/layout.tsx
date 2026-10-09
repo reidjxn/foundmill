@@ -2,11 +2,17 @@
  * The business layout (docs/ARCHITECTURE.md §14): loads the founder profile (AC-11.1.1 gate), the business and its
  * departments on the server, then renders the Dugout AppShell through <BusinessShell> (client) with everything
  * the surfaces below need: WidgetDataProvider, keyboard map, universal search, Continue state, stream.
+ *
+ * The profile, the business and the departments are asked in parallel; then the shell's first-screen queries (inbox,
+ * finance, cycle) start and reach the browser with the page (lib/shell-data.server.ts). `generateMetadata` shares this
+ * request's `business.get` (lib/trpc-server.ts `serverBusiness`).
  */
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
-import { serverApi } from "@/lib/trpc-server";
+import { Prefetched } from "@/lib/hydrate.server";
+import { startBusinessShell } from "@/lib/shell-data.server";
+import { serverApi, serverBusiness } from "@/lib/trpc-server";
 import { errorMessage, trpcErrorCode } from "@/lib/trpc";
 import { BusinessShell } from "@/components/shell/BusinessShell";
 import { UnreachablePage } from "@/components/shell/UnreachablePage";
@@ -19,10 +25,10 @@ type Params = Promise<{ bid: string }>;
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const { bid } = await params;
-  const server = await serverApi();
-  if (!server || !UUID_RE.test(bid)) return {};
+  if (!UUID_RE.test(bid)) return {};
   try {
-    const data = await server.api.business.get.query({ businessId: bid });
+    const data = await serverBusiness(bid);
+    if (!data) return {};
     return { title: { default: data.business.name, template: `%s · ${data.business.name}` } };
   } catch {
     return {};
@@ -36,6 +42,9 @@ export default async function BusinessLayout({ params, children }: { params: Par
   if (!server) redirect(`/login?next=${encodeURIComponent(`/b/${bid}/home`)}`);
   const { api } = server;
 
+  // One round of requests: the profile gate, the business and its departments (the shell's first-screen queries follow
+  // once these are in, see lib/shell-data.server.ts).
+  const shell = startBusinessShell(server, bid);
   let profile;
   try {
     profile = await api.founder.profile.get.query();
@@ -46,11 +55,13 @@ export default async function BusinessLayout({ params, children }: { params: Par
   if (!profile.complete) redirect("/onboarding");
 
   try {
-    const [business, departments] = await Promise.all([api.business.get.query({ businessId: bid }), api.department.list.query({ businessId: bid, includeHidden: true })]);
+    const [business, departments] = await shell.data;
     return (
-      <BusinessShell businessId={bid} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId }}>
-        {children}
-      </BusinessShell>
+      <Prefetched queryClient={shell.prefetch()}>
+        <BusinessShell businessId={bid} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId }}>
+          {children}
+        </BusinessShell>
+      </Prefetched>
     );
   } catch (err) {
     const code = trpcErrorCode(err);

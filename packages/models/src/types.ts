@@ -21,6 +21,9 @@ export interface ChatMessage {
 /** Effort hint for the live client (`output_config.effort`). Ignored in mock mode. */
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
+/** Inference speed of a live call. `fast` is Opus fast mode (beta, 2× price), only when MODEL_FAST_MODE is on. */
+export type Speed = "standard" | "fast";
+
 /** Where a call's cost should be booked. All fields optional; forwarded verbatim to `onUsage`. */
 export interface UsageAttribution {
   businessId?: string;
@@ -55,8 +58,15 @@ export interface CompleteRequest<T = unknown> {
    */
   scope?: string;
   attribution?: UsageAttribution;
+  /** Overrides the route's effort from `ROUTES` (routing.ts) for this call. Dropped on models without effort (Haiku 4.5). */
   effort?: Effort;
   signal?: AbortSignal;
+  /**
+   * Output tokens booked against the local rate limiter for this call (default: `maxTokens`). Fan-out calls set an
+   * estimate of what they will really write, so twelve parallel calls do not reserve twelve times the cap. Clamped to
+   * `[1, maxTokens]`; the API's own `max_tokens` is unchanged.
+   */
+  reserveTokens?: number;
 }
 
 export type StopReason =
@@ -96,6 +106,10 @@ export interface CompleteResult<T = unknown> {
   repaired: boolean;
   /** Routing warning (e.g. a locked route ignored an override). */
   warning?: string;
+  /** Effort sent with the call (route default or the request's), when any. */
+  effort?: Effort;
+  /** Speed the call ran at (live only; `fast` when Opus fast mode served it). */
+  speed?: Speed;
 }
 
 export interface UsageEvent {
@@ -110,8 +124,12 @@ export interface UsageEvent {
   durationMs: number;
   occurredAt: string;
   requestId?: string;
-  /** Which call within one `complete()` this was: 0 = first, 1 = repair retry. */
+  /** Which call within one `complete()` / `streamStructured()` this was: 0 = first, then retries and repairs. */
   attempt: number;
+  /** True for a `streamStructured()` stream (an interrupted stream reports what it had used, as an estimate). */
+  streamed?: boolean;
+  /** `fast` when Opus fast mode served the call (metered at the fast-mode price). */
+  speed?: Speed;
 }
 
 export type UsageSink = (event: UsageEvent) => void | Promise<void>;
@@ -131,6 +149,88 @@ export interface ModelClient {
   readonly mode: ModelMode;
   complete<T>(req: CompleteRequest<T> & { schema: z.ZodType<T> }): Promise<CompleteResultWithJson<T>>;
   complete(req: CompleteRequest<unknown> & { schema?: undefined }): Promise<CompleteResult<unknown>>;
+  /**
+   * Streamed structured output: delivers each element of one array (`elementPath`) as soon as it is complete and valid.
+   * Both built-in clients implement it; it is optional here so hand-written test doubles stay valid. Call it through
+   * the `streamStructured(client, req)` helper, which falls back to `complete()` for a client without it.
+   */
+  streamStructured?<T, E>(req: StreamStructuredRequest<T, E>): Promise<StreamStructuredResult<T, E>>;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Streaming structured output (audit P1)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** One element of the streamed array, validated against `elementSchema`. */
+export interface StreamedElement<E> {
+  /** Position in the final array. */
+  index: number;
+  value: E;
+  /** The request's `elementPath`, e.g. "concepts". */
+  path: string;
+  /** True when the element came from a later call (an element repair, a resumed or repaired stream), not the first stream. */
+  repaired: boolean;
+  /** Milliseconds since the call started. */
+  elapsedMs: number;
+}
+
+/**
+ * `waiting`: connected, the model is thinking, no JSON yet. `streaming`: JSON is arriving. `retrying`: the stream broke
+ * and is being restarted or resumed. `repairing`: failed elements or the whole document are being repaired. `done`.
+ */
+export type StreamPhase = "waiting" | "streaming" | "retrying" | "repairing" | "done";
+
+export interface StreamProgress {
+  route: RouteKey;
+  phase: StreamPhase;
+  /** Model call within this request (0 = the first stream). */
+  call: number;
+  /** Characters of JSON received in the current call. */
+  chars: number;
+  /** Valid elements delivered to `onElement` so far. */
+  elementsEmitted: number;
+  /** Elements of the current call that completed but failed `elementSchema` (repaired after the stream ends). */
+  elementsFailed: number;
+  /** Index of the element being written now, or null (before the array, between elements, after it). */
+  writingIndex: number | null;
+  elapsedMs: number;
+  /**
+   * Best-effort parse of the current call's document (completed members only), as of when it is called: call it inside
+   * `onPartial` to see the document at that moment. Computed on demand (one `JSON.parse` of the text so far).
+   */
+  snapshot(): unknown;
+}
+
+export interface StreamStructuredRequest<T, E> extends Omit<CompleteRequest<T>, "schema"> {
+  /** Schema of the whole document; the final result is validated against it (with repairs) exactly like `complete()`. */
+  schema: z.ZodType<T>;
+  /** Dotted key path of the array whose elements stream out: "concepts", "sections", "marks", "roadmap.items". */
+  elementPath: string;
+  /** Schema of one element of that array. Element repair needs it to be an object schema. */
+  elementSchema: z.ZodType<E>;
+  /**
+   * Called once per final element, awaited, never concurrently. Elements arrive in index order while the stream runs;
+   * elements that needed a repair arrive after it. Every element delivered is in the final `json` at its index; every
+   * element of the final array is delivered exactly once. A throw aborts the model call and rejects with that error.
+   */
+  onElement?: (element: StreamedElement<E>) => void | Promise<void>;
+  /** Progress for the UI ("Writing card 4 of 12"). Throttled while text streams; phase changes and elements always report. */
+  onPartial?: (progress: StreamProgress) => void;
+  /** Minimum ms between two `onPartial` calls while text streams (default 200). */
+  partialThrottleMs?: number;
+}
+
+export interface StreamStructuredResult<T, E> extends CompleteResultWithJson<T> {
+  elementPath: string;
+  /** The final array's elements in order, each validated against `elementSchema`. */
+  elements: E[];
+  /** Indices whose final value came from a later call (element repair, resumed or repaired stream). */
+  repairedElements: number[];
+  /** Milliseconds from the start to the first JSON character and to the first delivered element. */
+  firstTextMs?: number;
+  firstElementMs?: number;
+  /** Model calls made (streams plus element repairs). */
+  calls: number;
 }
 
 /** Result of validating a bring-your-own key (BUILD §10.2 step 1). */

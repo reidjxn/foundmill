@@ -7,7 +7,9 @@
 import { useCallback, useMemo, useState } from "react";
 import { FlaskConical } from "lucide-react";
 import { Chip, Panel, ShoutMenu, SpecialistTile, TileGrid, type AgentTileSession, type TileControls, type TileGridItem } from "@foundmill/dugout";
-import { departmentForModule, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { OpenInClaudeCodeDialog, ReassignDialog, StopDialog } from "./dialogs";
 import { useDevScreenOptions } from "./options";

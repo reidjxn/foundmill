@@ -7,6 +7,7 @@ export * from "./presets";
 export * from "./shared/routes";
 export * from "./shared/frame";
 export * from "./shared/departments";
+export * from "./shared/ribbon";
 export * from "./shared/time";
 export type * from "./shared/types";
 // Built-in widgets register themselves when this module is imported.

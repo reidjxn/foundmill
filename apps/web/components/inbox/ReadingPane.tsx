@@ -37,7 +37,7 @@ import {
   type DecisionOption,
 } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
-import { routes } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { usePageShortcuts } from "@/lib/keys";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";

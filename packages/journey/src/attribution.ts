@@ -8,7 +8,7 @@
  *   (docs/DECISIONS.md "Data-driven attribution: Markov removal effect").
  * - `filterTouchesForConsent` keeps first-party touches only without consent and flags a partial journey.
  */
-import { CHANNEL_KEYS, CHANNEL_META, type ChannelKey } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, type ChannelKey } from "@foundmill/shared/constants";
 import { LIMITS } from "@foundmill/config";
 import {
   ClickIds, CLICK_ID_KEYS, TouchSource, Utm,

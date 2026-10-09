@@ -1,9 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { EntityLink, EntityLinkProvider } from "./EntityLink";
 import { EntityText } from "./EntityText";
-import { Markdown } from "./Markdown";
+import { Markdown, preloadMarkdown } from "./Markdown";
 import type { EntityRenderNode } from "./entityMarkup";
 import { ENTITY_IDS, NOTE_MARKDOWN, NOTE_WITH_MARKUP, resolveFixtureEntity } from "./fixtures";
 
@@ -138,6 +138,9 @@ describe("EntityText", () => {
 });
 
 describe("Markdown", () => {
+  // The parser is its own chunk; these tests are about what it renders once in.
+  beforeAll(() => preloadMarkdown());
+
   it("renders GFM with entity links inside paragraphs, lists and strong text, and skips raw HTML", () => {
     render(
       <EntityLinkProvider value={{ resolve: resolveFixtureEntity }}>

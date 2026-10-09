@@ -35,6 +35,13 @@ const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
   planner: { roadmap_items: [{ id: "r1", title: "Retail partner portal", description: "A page where retail partners place orders and see invoices" }, { id: "r2", title: "Stripe payment webhooks", description: "Record invoice.paid events" }] },
   codeReview: { diff: "diff --git a/apps/api/src/routers/orders.ts b/apps/api/src/routers/orders.ts\n--- a/apps/api/src/routers/orders.ts\n+++ b/apps/api/src/routers/orders.ts\n@@ -1,3 +1,6 @@\n+const rows = await db.select().from(orders);\n+console.log(rows);\n+const key = process.env.STRIPE_KEY;\n" },
   ideation: { prompt: "A skincare brand for people with eczema who want fragrance-free products", founder: { skills: { engineering: 8, sales: 14, design: 12, finance: 9, domain: 16 }, constraints: ["bootstrapped"] } },
+  ideationSlate: { prompt: "A skincare brand for people with eczema who want fragrance-free products", founder: { constraints: ["bootstrapped"] } },
+  foundationsSkeleton: {
+    business: { name: "Ledgerly", archetype: "b2b_saas", currency: "EUR" },
+    door: "ideation",
+    outline: [{ section: "Problem" }, { section: "Customers" }, { section: "Pricing" }],
+    idea: { title: "Ledgerly", pitch: "Ledgerly helps independent accountants cut a weekly chore to minutes through a narrow workflow." },
+  },
   logoDesigner: { business_name: "Northwind Skincare", pitch: "Fragrance-free skincare for sensitive skin.", archetype: "DTC physical product", brand_colours: { primary: "#1b4fd8", secondary: "#f5c400" }, count: 4, round: 0 },
   foundations: {
     business: { name: "Ledgerly", archetype: "b2b_saas", currency: "EUR" },
@@ -58,6 +65,14 @@ const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
   categoriser: { transactions: [{ id: "tx1", description: "AWS EMEA", amount_minor: -12050 }, { id: "tx2", description: "STRIPE PAYOUT", amount_minor: 48900 }, { id: "tx3", description: "Google Ads", amount_minor: -30000 }] },
   quarantinedReader: { fields: ["price", "moq", "lead_time_days"], content: "Unit price: €4.20 per unit. MOQ 500 units. Lead time 21 days." },
   moderation: { kind: "email", text: "Subject: Welcome\n\nThanks for joining Northwind. Sent by the team at Northwind Skincare Ltd. Unsubscribe any time." },
+  conversation: {
+    agent: { id: "agent-cos", name: "Chief of Staff", role: "Chief of Staff", voice: { greeting: "I'm here. What do you need?", thinking: ["Checking the plan…"], ack: ["Got it."] } },
+    current_work: { task: { id: "t1", title: "Fix checkout bug", status: "running", phase: "implementing", progress_pct: 45 }, status: "healthy", presence: "working" },
+    subject: { kind: "agent", id: "agent-cos", title: "Chief of Staff" },
+    thread: [],
+    manifest: MANIFEST,
+    founder_message: { text: "How's the checkout fix going?", quick_reply: null },
+  },
 };
 
 describe("MockModelClient", () => {

@@ -22,9 +22,9 @@ const meta = { title: "Foundation/DropdownMenu", component: DropdownMenu } satis
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const PanelCaretMenu: Story = {
-  render: () => (
-    <DropdownMenu>
+function PanelMenu({ open }: { open?: boolean }) {
+  return (
+    <DropdownMenu defaultOpen={open}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="sm" iconRight={ChevronDown}>
           Panel
@@ -63,5 +63,9 @@ export const PanelCaretMenu: Story = {
         <DropdownMenuItem variant="danger">Remove from screen</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  ),
-};
+  );
+}
+
+/** Glass on r-lg, 32 px items with an 8 % highlight; the trigger's chevron turns over while the menu is open. */
+export const PanelCaretMenu: Story = { render: () => <PanelMenu /> };
+export const Open: Story = { render: () => <PanelMenu open /> };

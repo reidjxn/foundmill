@@ -1,6 +1,6 @@
 // development module screens (BUILD §6.3, §11.6): Live sessions · Plan · Pull requests · Code · Environments · Specialists.
 // Tab slugs and titles come from MODULE_TABS in @foundmill/shared; one file per screen in this folder.
-import { MODULE_TABS } from "@foundmill/shared";
+import { MODULE_TABS } from "@foundmill/shared/constants";
 import { registerModule, type ModuleScreen } from "../registry";
 import { CodeScreen } from "./CodeScreen";
 import { EnvironmentsScreen } from "./EnvironmentsScreen";

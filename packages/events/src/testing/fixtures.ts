@@ -421,6 +421,27 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     planActionCount: 2,
     hardGateActions: 0,
   },
+  "foundations.progressed": {
+    attempt: 1,
+    step: "section",
+    section: "Pricing",
+    sectionsDone: 4,
+    sectionsTotal: 10,
+    roadmapItems: 0,
+    visionReady: true,
+  },
+  "conversation.message_posted": {
+    threadId: fixtureId("t"),
+    messageId: fixtureId("m"),
+    agentId: fixtureId("a"),
+    subjectKind: "inbox_item",
+    subjectId: fixtureId("i"),
+    author: "agent",
+    preview: "I'd go with outbound to a narrow ICP.",
+    quickReplyIds: ["go_with", "whats_the_risk"],
+    chosenQuickReplyId: null,
+    handOff: false,
+  },
 };
 
 /** A valid `WriteEventInput` for the given type, with the fixture payload and envelope. */

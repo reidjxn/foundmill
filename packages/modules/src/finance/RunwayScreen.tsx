@@ -7,7 +7,8 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import { AlertTriangle, Inbox, Save, TrendingUp, Undo2 } from "lucide-react";
 import { Button, Chip, Field, Input, KeyValueList, LineChart, Panel, ProvenanceChip, StatusPill, type LineSeries, type SeriesTone } from "@foundmill/dugout";
-import { routes, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { FORECAST_SCENARIOS, type FinanceOverview, type ForecastDrivers, type ForecastRow, type ForecastScenario, type PnlResponse } from "./types";
 import { RUNWAY_BLOCK_MONTHS, formatMonth, monthKey, monthStart, pnlTotals, projectForecast, readDrivers, runwayTone, runwayWarnings, runwayWord, seedDrivers } from "./metrics";

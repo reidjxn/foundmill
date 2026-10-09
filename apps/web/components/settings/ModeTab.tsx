@@ -7,7 +7,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Palmtree, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { BUSINESS_MODE_INFO, Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, HolidayDialog, KeyValueList, RadioGroup, RadioOption, StatusPill, type HolidaySettings } from "@foundmill/dugout";
-import { BUSINESS_MODES, type BusinessMode, type GameMode } from "@foundmill/shared";
+import { BUSINESS_MODES, type BusinessMode, type GameMode } from "@foundmill/shared/constants";
 import { formatDate } from "@/lib/format";
 import { toStartHolidayInput } from "@/lib/holiday";
 import { useTRPC } from "@/lib/trpc-react";

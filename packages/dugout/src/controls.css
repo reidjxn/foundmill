@@ -1,0 +1,955 @@
+/*
+ * Dugout controls (DESIGN §6–§8): buttons and the generate control, chips, pills and the Estimate chip, fields,
+ * checkboxes, radios and radio cards, switches, sliders and the skill slider, the segmented track, key caps and FitText.
+ * Imported by dugout.css. Colours come from tokens.css; brand values (--kit-*) are composed here at the use site, so a
+ * business's own colour lights every control.
+ *
+ * Every effect is CSS (pseudo-elements, keyframes from dugout.css), so the server-safe components (Chip, StatusPill,
+ * Kbd) can use them. Under prefers-reduced-motion the global rule in dugout.css stops every loop on a legible frame.
+ *
+ * State is read from attributes the components set (data-state from Radix, data-active, data-running, aria-pressed,
+ * data-invalid, data-tone), so a state style always outranks the variant's resting style whatever order Tailwind emits
+ * the utilities in.
+ */
+
+/* Token → utility mappings for the control sizes: px-chip-x, px-btn-md, size-check, w-switch-md-w, size-gen-core,
+   rounded-track, rounded-gen, text-money … (kept in step with lib/cn.ts so tailwind-merge resolves conflicts). */
+@theme inline {
+  --spacing-chip-x: var(--pad-chip);
+  --spacing-btn-sm: var(--pad-control-sm);
+  --spacing-btn-md: var(--pad-control-md);
+  --spacing-btn-lg: var(--pad-control-lg);
+  --spacing-check: var(--check-size);
+  --spacing-switch-sm-w: var(--switch-sm-w);
+  --spacing-switch-sm-h: var(--switch-sm-h);
+  --spacing-switch-md-w: var(--switch-md-w);
+  --spacing-switch-md-h: var(--switch-md-h);
+  --spacing-slider-track: var(--slider-track);
+  --spacing-slider-thumb: var(--slider-thumb);
+  --spacing-skill-thumb: var(--skill-thumb);
+  --spacing-gen-core: var(--gen-core);
+  --spacing-gen-core-sm: var(--gen-core-sm);
+  --spacing-gen-core-md: var(--gen-core-md);
+  --spacing-gen-core-lg: var(--gen-core-lg);
+  --radius-track: var(--r-track);
+  --radius-gen: var(--r-gen);
+  --text-money: var(--fs-money);
+  --text-money--line-height: var(--lh-money);
+  --text-money-symbol: var(--fs-money-symbol);
+  --text-money-symbol--line-height: var(--lh-money);
+}
+
+/* =========================================================================================================
+   Buttons (DESIGN §8): sentence case, Inter 500, tactile (`pressable`), the icon before the label.
+   ========================================================================================================= */
+
+/* Primary: the brand gradient (20 % lighter at the top), an inner top highlight and a brand glow below. */
+@utility btn-primary {
+  background-color: var(--kit-primary);
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--kit-primary) 80%, var(--white)) 0%,
+    var(--kit-primary) 55%,
+    color-mix(in oklab, var(--kit-primary) 86%, var(--black)) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--white) 22%, transparent),
+    inset 0 0 0 1px color-mix(in oklab, var(--white) 8%, transparent),
+    0 1px 2px color-mix(in oklab, var(--black) 50%, transparent),
+    0 6px 18px -6px color-mix(in oklab, var(--kit-aura) 75%, transparent);
+  &:hover {
+    filter: brightness(1.07);
+  }
+  &:active {
+    filter: brightness(0.96);
+  }
+}
+
+/* Secondary (the default): surface 2, a 5.5 % → 2 % white sheen, a strong hairline ring and a rim. */
+@utility btn-secondary {
+  background-color: var(--surface-2);
+  background-image: linear-gradient(180deg, color-mix(in oklab, var(--white) 5.5%, transparent), color-mix(in oklab, var(--white) 2%, transparent));
+  box-shadow:
+    inset 0 0 0 1px var(--line-strong),
+    inset 0 1px 0 var(--rim-light),
+    0 1px 2px color-mix(in oklab, var(--black) 40%, transparent);
+  &:hover {
+    background-color: var(--surface-3);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--white) 19%, transparent),
+      inset 0 1px 0 var(--rim-light),
+      0 1px 2px color-mix(in oklab, var(--black) 40%, transparent);
+  }
+  &:active {
+    background-color: var(--surface-4);
+  }
+  /* Active toggle: a tinted ring and a soft glow in the context colour (--tone; default the accent). */
+  &[data-active] {
+    background-color: var(--surface-3);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--tone, var(--accent)) 55%, transparent),
+      inset 0 1px 0 var(--rim-light),
+      0 0 14px -4px color-mix(in oklab, var(--tone, var(--accent)) 55%, transparent);
+  }
+}
+
+/* Ghost: text-2; hover adds a 5 % plate (the colour moves to text-1 through the component's classes). */
+@utility btn-ghost {
+  background-color: transparent;
+  &:hover {
+    background-color: color-mix(in oklab, var(--white) 5%, transparent);
+  }
+  &:active {
+    background-color: color-mix(in oklab, var(--white) 8%, transparent);
+  }
+  &[data-active] {
+    color: var(--text-1);
+    background-color: color-mix(in oklab, var(--tone, var(--accent)) 10%, transparent);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--tone, var(--accent)) 45%, transparent),
+      0 0 12px -4px color-mix(in oklab, var(--tone, var(--accent)) 50%, transparent);
+  }
+}
+
+/* Danger: a bright red gradient with near-black text (the blocked Continue, destructive confirmations). */
+@utility btn-danger {
+  background-color: var(--status-bad);
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--status-bad) 80%, var(--white)) 0%,
+    var(--status-bad) 62%,
+    color-mix(in oklab, var(--status-bad) 92%, var(--black)) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--white) 30%, transparent),
+    0 1px 2px color-mix(in oklab, var(--black) 50%, transparent),
+    0 6px 18px -6px color-mix(in oklab, var(--status-bad) 70%, transparent);
+  &:hover {
+    filter: brightness(1.06);
+  }
+}
+
+/* Gold: Customer Updates and milestones only. */
+@utility btn-gold {
+  background-color: var(--gold);
+  background-image: linear-gradient(180deg, color-mix(in oklab, var(--gold) 82%, var(--white)) 0%, var(--gold) 55%, var(--gold-deep) 100%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--white) 35%, transparent),
+    0 1px 2px color-mix(in oklab, var(--black) 50%, transparent),
+    0 6px 18px -6px color-mix(in oklab, var(--gold) 60%, transparent);
+  &:hover {
+    filter: brightness(1.05);
+  }
+}
+
+/* Tinted: the brand-tinted secondary (the likeliest quick reply, "More like this"). */
+@utility btn-tinted {
+  background-color: var(--surface-2);
+  background-image: linear-gradient(180deg, color-mix(in oklab, var(--kit-lift) 20%, transparent), color-mix(in oklab, var(--kit-primary) 15%, transparent));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--kit-lift) 45%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--white) 8%, transparent),
+    0 4px 14px -6px color-mix(in oklab, var(--kit-lift) 60%, transparent);
+  &:hover {
+    background-image: linear-gradient(180deg, color-mix(in oklab, var(--kit-lift) 28%, transparent), color-mix(in oklab, var(--kit-primary) 22%, transparent));
+  }
+}
+
+/* An inline caps tag inside a button ("Approve · Recommended"). */
+@utility btn-tag {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 3px 5px;
+  border-radius: var(--r-xs);
+  font-family: var(--font-display);
+  font-weight: var(--fw-display);
+  font-size: var(--fs-data);
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: color-mix(in oklab, currentColor 82%, transparent);
+  background-color: color-mix(in oklab, var(--black) 18%, transparent);
+}
+
+/* The consequence line under a two-line option's label ("Stock-out risk in Nov"), in the button's own colour, dimmed. */
+@utility btn-desc {
+  font-family: var(--font-body);
+  font-weight: var(--fw-body);
+  font-size: var(--fs-small);
+  line-height: var(--lh-small);
+  color: color-mix(in oklab, currentColor 76%, transparent);
+  text-wrap: pretty;
+}
+
+/* =========================================================================================================
+   Generate (the signature control; DESIGN §7). The only light slab in the product. At rest: a light slab, the brand
+   core tile with the Fan glyph and a brand halo; a sheen crosses once on hover. Running ([data-running]): a dark slab, a
+   light arc orbiting the edge (`orbit`), the fan turning (`animate-fan`), a fill and a bottom rail tracking real
+   progress (--gen-progress 0–1), a count chip.
+   ========================================================================================================= */
+@utility gen-slab {
+  overflow: hidden;
+  isolation: isolate;
+  color: var(--slab-ink);
+  background-color: var(--slab-lo);
+  background-image: linear-gradient(180deg, var(--slab-hi), var(--slab-lo));
+  box-shadow:
+    inset 0 1px 0 var(--white),
+    inset 0 -2px 0 color-mix(in oklab, var(--black) 12%, transparent),
+    0 0 0 3px color-mix(in oklab, var(--kit-lift) 22%, transparent),
+    0 10px 28px -10px color-mix(in oklab, var(--kit-lift) 70%, transparent);
+  &:hover {
+    box-shadow:
+      inset 0 1px 0 var(--white),
+      inset 0 -2px 0 color-mix(in oklab, var(--black) 12%, transparent),
+      0 0 0 5px color-mix(in oklab, var(--kit-lift) 24%, transparent),
+      0 14px 34px -10px color-mix(in oklab, var(--kit-lift) 80%, transparent);
+  }
+  &[data-running] {
+    color: var(--text-1);
+    background-color: var(--slab-run);
+    background-image: linear-gradient(180deg, color-mix(in oklab, var(--white) 7%, transparent), color-mix(in oklab, var(--white) 1%, transparent));
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--kit-lift) 14%, transparent),
+      inset 0 1px 0 color-mix(in oklab, var(--white) 8%, transparent),
+      0 0 0 4px color-mix(in oklab, var(--kit-lift) 10%, transparent),
+      0 12px 32px -12px color-mix(in oklab, var(--kit-lift) 60%, transparent);
+  }
+  /* At rest the count chip and the key hint sit on the light slab. */
+  &:not([data-running]) .gen-count {
+    color: var(--slab-ink);
+    background-color: color-mix(in oklab, var(--black) 7%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--black) 12%, transparent);
+  }
+  /* No progress known: the rail's head travels instead of filling. */
+  &[data-indeterminate] .gen-rail::before {
+    width: 100%;
+    background: linear-gradient(90deg, transparent, var(--kit-lift), transparent) no-repeat;
+    background-size: 40% 100%;
+    animation: dugout-head var(--dur-shimmer) linear infinite;
+  }
+}
+/* The brand core tile holding the Fan glyph. Size with size-gen-core(-sm|-md|-lg). */
+@utility gen-core {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 28%;
+  color: var(--kit-on-primary);
+  background: radial-gradient(
+    circle at 38% 28%,
+    color-mix(in oklab, var(--kit-primary) 60%, var(--white)),
+    var(--kit-primary) 55%,
+    color-mix(in oklab, var(--kit-primary) 62%, var(--black))
+  );
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--white) 25%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--white) 35%, transparent),
+    0 0 14px color-mix(in oklab, var(--kit-lift) 50%, transparent);
+}
+/* Label and count sit above the fill. */
+@utility gen-label {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+@utility gen-fill {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: calc(var(--gen-progress, 0) * 100%);
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--kit-lift) 3%, transparent),
+    color-mix(in oklab, var(--kit-lift) 16%, transparent) 85%,
+    transparent
+  );
+  transition: width var(--dur-overlay) linear;
+  pointer-events: none;
+}
+@utility gen-rail {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 4px;
+  z-index: 1;
+  height: 2px;
+  border-radius: 2px;
+  overflow: hidden;
+  background-color: color-mix(in oklab, var(--white) 8%, transparent);
+  pointer-events: none;
+  &::before {
+    content: "";
+    display: block;
+    height: 100%;
+    width: calc(var(--gen-progress, 0) * 100%);
+    border-radius: inherit;
+    background: linear-gradient(90deg, color-mix(in oklab, var(--kit-lift) 50%, transparent), color-mix(in oklab, var(--kit-lift) 40%, var(--white)));
+    box-shadow: 0 0 8px color-mix(in oklab, var(--kit-lift) 90%, transparent);
+    transition: width var(--dur-overlay) linear;
+  }
+}
+/* The count chip: "2 of 12", mono, tabular. */
+@utility gen-count {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  padding: 4px 7px;
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-weight: var(--fw-body-strong);
+  font-size: var(--fs-mono);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-1);
+  background-color: color-mix(in oklab, var(--white) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--white) 8%, transparent);
+}
+/* The key hint on the light slab ("⌘↵"). */
+@utility gen-kbd {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  padding: 4px 6px;
+  border-radius: var(--r-xs);
+  font-family: var(--font-mono);
+  font-weight: var(--fw-body-strong);
+  font-size: var(--fs-micro);
+  line-height: 1;
+  color: color-mix(in oklab, var(--slab-ink) 72%, transparent);
+  background-color: color-mix(in oklab, var(--black) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--black) 12%, transparent);
+}
+
+/* =========================================================================================================
+   Chips, pills, badges, the Estimate chip (DESIGN §8)
+   ========================================================================================================= */
+/* Neutral chips: a 3.5 % plate with a hairline ring. Selected (an interactive chip pressed): the accent. */
+@utility chip-plate {
+  background-color: color-mix(in oklab, var(--white) 3.5%, transparent);
+  border-color: var(--line);
+  &[aria-pressed="true"] {
+    color: var(--text-1);
+    background-color: color-mix(in oklab, var(--accent) 12%, transparent);
+    border-color: color-mix(in oklab, var(--accent) 45%, transparent);
+  }
+}
+/* Tinted chips and status pills: the tone's 12 % fill and 30 % ring (set the tone with tone-*). */
+@utility chip-tone {
+  background-color: color-mix(in oklab, var(--tone, var(--text-2)) 12%, transparent);
+  border-color: color-mix(in oklab, var(--tone, var(--text-2)) 30%, transparent);
+  &[aria-pressed="true"] {
+    background-color: color-mix(in oklab, var(--tone, var(--text-2)) 22%, transparent);
+    border-color: color-mix(in oklab, var(--tone, var(--text-2)) 60%, transparent);
+  }
+}
+/* A 6 px dot in --tone with its glow (department chips, rating words). */
+@utility chip-dot {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background-color: var(--tone, currentColor);
+  box-shadow: 0 0 8px color-mix(in oklab, var(--tone, currentColor) 70%, transparent);
+}
+/* "Not measured": 18 px, a dashed 1 px edge at 22 %, the word in full in the data style. */
+@utility est-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 4px;
+  height: var(--badge-size);
+  padding-inline: 6px;
+  border: 1px dashed color-mix(in oklab, var(--white) 22%, transparent);
+  border-radius: var(--r-xs);
+  font-family: var(--font-display);
+  font-weight: var(--fw-display);
+  font-size: var(--fs-data);
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  vertical-align: 0.12em;
+  color: var(--text-2);
+}
+/* An ISO code or short id on a plate (the currency select's code chip). */
+@utility code-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 4px 6px;
+  border-radius: var(--r-xs);
+  font-family: var(--font-mono);
+  font-weight: var(--fw-display);
+  font-size: var(--fs-mono);
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--text-1);
+  background-color: color-mix(in oklab, var(--white) 7%, transparent);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* =========================================================================================================
+   Fields (DESIGN §8): the wrapper is the field. Black at 30 % over the panel, a strong hairline ring, an inset shadow;
+   :focus-within lights the whole field (accent ring + 4 px halo) with an accent caret. Warning and invalid tones
+   recolour the ring.
+   ========================================================================================================= */
+@utility field-well {
+  background-color: var(--well);
+  caret-color: var(--accent);
+  box-shadow:
+    inset 0 0 0 1px var(--line-strong),
+    var(--well-inset);
+  transition:
+    box-shadow var(--dur-hover) var(--ease-out),
+    background-color var(--dur-hover) var(--ease-out);
+  &:hover {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--white) 19%, transparent),
+      var(--well-inset);
+  }
+  &:focus-within {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--accent) 70%, transparent),
+      0 0 0 4px color-mix(in oklab, var(--accent) 14%, transparent),
+      var(--well-inset);
+  }
+  &[data-tone="warn"] {
+    caret-color: var(--status-warn);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--status-warn) 65%, transparent),
+      var(--well-inset);
+  }
+  &[data-tone="warn"]:focus-within {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--status-warn) 80%, transparent),
+      0 0 0 4px color-mix(in oklab, var(--status-warn) 14%, transparent),
+      var(--well-inset);
+  }
+  &[data-invalid],
+  &[aria-invalid="true"] {
+    caret-color: var(--status-bad);
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--status-bad) 70%, transparent),
+      var(--well-inset);
+  }
+  &[data-invalid]:focus-within,
+  &[aria-invalid="true"]:focus-within {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--status-bad) 85%, transparent),
+      0 0 0 4px color-mix(in oklab, var(--status-bad) 14%, transparent),
+      var(--well-inset);
+  }
+  &[data-disabled]:hover,
+  &:disabled:hover {
+    box-shadow:
+      inset 0 0 0 1px var(--line-strong),
+      var(--well-inset);
+  }
+}
+/* A suffix as its own segment behind a hairline (MoneyInput's ISO code). */
+@utility field-affix {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: none;
+  gap: 6px;
+  padding-inline: var(--pad-control-md);
+  font-family: var(--font-mono);
+  font-weight: var(--fw-body-strong);
+  font-size: var(--fs-mono);
+  line-height: 1;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  color: var(--text-1);
+  background-color: color-mix(in oklab, var(--white) 3.5%, transparent);
+  box-shadow: inset 1px 0 0 var(--line-strong);
+}
+
+/* =========================================================================================================
+   Checkbox, radio, radio card (DESIGN §8): visible 1.5 px rings at rest; selected is the accent, filled, with an ink
+   mark and a glow, so shape and colour both carry the state.
+   ========================================================================================================= */
+@utility check-box {
+  color: var(--ink);
+  background-color: var(--well);
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--white) 24%, transparent);
+  transition:
+    background-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out);
+  &:hover {
+    box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--white) 36%, transparent);
+  }
+  &[data-state="checked"],
+  &[data-state="indeterminate"] {
+    background-color: var(--accent);
+    background-image: linear-gradient(180deg, color-mix(in oklab, var(--accent) 78%, var(--white)), var(--accent));
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, var(--white) 35%, transparent),
+      0 0 10px -2px color-mix(in oklab, var(--accent) 70%, transparent);
+  }
+}
+@utility radio-dot {
+  background-color: var(--well);
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--white) 24%, transparent);
+  transition:
+    background-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out);
+  &:hover,
+  :hover > & {
+    box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--white) 36%, transparent);
+  }
+  &[data-state="checked"],
+  [data-state="checked"] > & {
+    background-color: var(--accent);
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, var(--white) 35%, transparent),
+      0 0 10px color-mix(in oklab, var(--accent) 65%, transparent);
+  }
+}
+/* The ink centre of a checked radio. */
+@utility radio-centre {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background-color: var(--ink);
+}
+/* The whole card is the target. Selected: an accent 10 % → 4 % fill, a 55 % ring, a 3 px halo and a glow. */
+@utility radio-card {
+  background-color: color-mix(in oklab, var(--white) 2%, transparent);
+  box-shadow:
+    inset 0 0 0 1px var(--line),
+    inset 0 1px 0 color-mix(in oklab, var(--white) 3%, transparent);
+  transition:
+    background-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out);
+  &:hover {
+    background-color: color-mix(in oklab, var(--white) 3.5%, transparent);
+    box-shadow:
+      inset 0 0 0 1px var(--line-strong),
+      inset 0 1px 0 color-mix(in oklab, var(--white) 4%, transparent);
+  }
+  &[data-state="checked"] {
+    background-image: linear-gradient(180deg, color-mix(in oklab, var(--accent) 10%, transparent), color-mix(in oklab, var(--accent) 4%, transparent));
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--accent) 55%, transparent),
+      0 0 0 3px color-mix(in oklab, var(--accent) 10%, transparent),
+      0 8px 24px -12px color-mix(in oklab, var(--accent) 60%, transparent);
+  }
+  &[data-disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+/* =========================================================================================================
+   Switch: sm 28 × 16, md 36 × 20 (data-size); a well when off, the accent when on; a pearl thumb that springs across.
+   ========================================================================================================= */
+@utility switch-track {
+  --switch-travel: calc(var(--switch-md-w) - var(--switch-md-h));
+  width: var(--switch-md-w);
+  height: var(--switch-md-h);
+  padding: 2px;
+  border-radius: var(--r-pill);
+  background-color: var(--well);
+  box-shadow:
+    inset 0 0 0 1px var(--line-strong),
+    var(--well-inset);
+  transition:
+    background-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out);
+  &[data-size="sm"] {
+    --switch-travel: calc(var(--switch-sm-w) - var(--switch-sm-h));
+    width: var(--switch-sm-w);
+    height: var(--switch-sm-h);
+  }
+  &:hover {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--white) 22%, transparent),
+      var(--well-inset);
+  }
+  &[data-state="checked"] {
+    background-color: var(--accent);
+    background-image: linear-gradient(180deg, color-mix(in oklab, var(--accent) 80%, var(--white)), var(--accent));
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, var(--white) 30%, transparent),
+      0 0 12px -3px color-mix(in oklab, var(--accent) 70%, transparent);
+  }
+}
+@utility switch-thumb {
+  display: block;
+  height: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--r-pill);
+  background: radial-gradient(circle at 40% 30%, var(--pearl-hi), var(--pearl-lo));
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--black) 30%, transparent),
+    0 1px 3px color-mix(in oklab, var(--black) 55%, transparent);
+  transition: transform var(--dur-slide) var(--ease-spring);
+  pointer-events: none;
+  &[data-state="checked"] {
+    transform: translateX(var(--switch-travel));
+  }
+}
+
+/* =========================================================================================================
+   Slider: a 4 px well track, the range in --tone, a 16 px pearl thumb with a tone halo that springs on hover and drag.
+   ========================================================================================================= */
+@utility slider-track {
+  position: relative;
+  flex-grow: 1;
+  width: 100%;
+  height: var(--slider-track);
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  background-color: var(--well);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+@utility slider-range {
+  position: absolute;
+  height: 100%;
+  border-radius: inherit;
+  background-image: linear-gradient(90deg, color-mix(in oklab, var(--tone, var(--kit-lift)) 65%, transparent), var(--tone, var(--kit-lift)));
+}
+@utility slider-thumb {
+  display: block;
+  width: var(--slider-thumb);
+  height: var(--slider-thumb);
+  border-radius: var(--r-pill);
+  background: radial-gradient(circle at 40% 30%, var(--pearl-hi), var(--pearl-lo));
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--black) 40%, transparent),
+    0 2px 6px color-mix(in oklab, var(--black) 55%, transparent),
+    0 0 0 3px color-mix(in oklab, var(--tone, var(--kit-lift)) 30%, transparent);
+  transition:
+    scale var(--dur-slide) var(--ease-spring),
+    box-shadow var(--dur-hover) var(--ease-out);
+  &:hover,
+  &:active {
+    scale: 1.12;
+  }
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--black) 40%, transparent),
+      0 2px 6px color-mix(in oklab, var(--black) 55%, transparent),
+      0 0 0 3px var(--surface-1),
+      0 0 0 5px color-mix(in oklab, var(--accent) 85%, transparent),
+      0 0 16px color-mix(in oklab, var(--accent) 50%, transparent);
+  }
+}
+
+/* =========================================================================================================
+   Skill slider (DESIGN §8): the 20 cells are the track. Cells 9 px, 3 px gaps, lit in the ramp colour (--tone) with a
+   faint glow; an 18 px pearl thumb with a ramp-tinted halo springs to the centre of the current cell. The thumb's centre
+   for cell i of N, on a track W wide with gap g, is W·(2i−1)/2N + g·(2i−N−1)/2N (--skill-pos = i, --skill-count = N).
+   ========================================================================================================= */
+@utility skill-slider {
+  position: relative;
+  display: block;
+  height: 36px;
+  padding-top: 6px;
+  touch-action: none;
+  user-select: none;
+  cursor: pointer;
+  &:focus-visible {
+    outline: none;
+  }
+  &[aria-disabled="true"] {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+@utility skill-cells {
+  display: grid;
+  grid-template-columns: repeat(var(--skill-count, 20), minmax(0, 1fr));
+  gap: var(--skill-gap);
+  height: var(--skill-cell-h);
+  margin-top: 1px;
+}
+@utility skill-cell {
+  border-radius: 2px;
+  background-color: color-mix(in oklab, var(--white) 6%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--white) 2%, transparent);
+  transition:
+    background-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out);
+  &[data-on] {
+    background-color: var(--tone, var(--kit-lift));
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklab, var(--white) 28%, transparent),
+      0 0 5px -2px var(--tone, var(--kit-lift));
+  }
+}
+@utility skill-thumb {
+  position: absolute;
+  top: 2px;
+  left: calc(
+    (2 * var(--skill-pos, 1) - 1) / (2 * var(--skill-count, 20)) * 100% + (2 * var(--skill-pos, 1) - var(--skill-count, 20) - 1) /
+      (2 * var(--skill-count, 20)) * var(--skill-gap)
+  );
+  width: var(--skill-thumb);
+  height: var(--skill-thumb);
+  margin-left: calc(var(--skill-thumb) / -2);
+  border-radius: var(--r-pill);
+  background: radial-gradient(circle at 40% 30%, var(--pearl-hi), var(--pearl-lo));
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--black) 40%, transparent),
+    0 2px 6px color-mix(in oklab, var(--black) 60%, transparent),
+    0 0 0 3px color-mix(in oklab, var(--tone, var(--kit-lift)) 30%, transparent);
+  transition:
+    left var(--dur-slide) var(--ease-spring),
+    box-shadow var(--dur-hover) var(--ease-out);
+  pointer-events: none;
+  .skill-slider:focus-visible > & {
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--black) 40%, transparent),
+      0 2px 6px color-mix(in oklab, var(--black) 60%, transparent),
+      0 0 0 3px var(--surface-1),
+      0 0 0 5px color-mix(in oklab, var(--accent) 85%, transparent),
+      0 0 16px color-mix(in oklab, var(--accent) 50%, transparent);
+  }
+  [data-dragging] > & {
+    transition-duration: var(--dur-press);
+  }
+}
+/* Mono ticks under the cells, centred on their cell (--tick = the cell's position). */
+@utility skill-ticks {
+  position: absolute;
+  inset-inline: 0;
+  top: 23px;
+  height: 11px;
+  pointer-events: none;
+  & > * {
+    position: absolute;
+    left: calc(
+      (2 * var(--tick, 1) - 1) / (2 * var(--skill-count, 20)) * 100% + (2 * var(--tick, 1) - var(--skill-count, 20) - 1) / (2 * var(--skill-count, 20)) *
+        var(--skill-gap)
+    );
+    transform: translateX(-50%);
+    font-family: var(--font-mono);
+    font-weight: var(--fw-body-strong);
+    font-size: var(--fs-micro);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-3);
+  }
+}
+/* "← → to adjust", over the thumb while the slider has keyboard focus. */
+@utility skill-hint {
+  position: absolute;
+  bottom: calc(100% - 2px);
+  left: calc(
+    (2 * var(--skill-pos, 1) - 1) / (2 * var(--skill-count, 20)) * 100% + (2 * var(--skill-pos, 1) - var(--skill-count, 20) - 1) / (2 * var(--skill-count, 20)) *
+      var(--skill-gap)
+  );
+  transform: translateX(-50%);
+  padding: 3px 7px;
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  line-height: var(--lh-small);
+  color: var(--text-2);
+  background-color: var(--glass);
+  box-shadow: var(--elev-2);
+  opacity: 0;
+  translate: 0 2px;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-hover) var(--ease-out),
+    translate var(--dur-hover) var(--ease-out),
+    left var(--dur-slide) var(--ease-spring);
+  .skill-slider:focus-visible > & {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+/* =========================================================================================================
+   Segmented control: a 28 px well; the active plate (`slide-plate`, dugout.css) slides between options. Until the
+   plate is measured ([data-ready] absent: server render, first paint) the pressed option draws the plate itself.
+   ========================================================================================================= */
+@utility seg-track {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-track);
+  background-color: color-mix(in oklab, var(--black) 28%, transparent);
+  box-shadow:
+    inset 0 0 0 1px var(--line),
+    inset 0 1px 2px color-mix(in oklab, var(--black) 35%, transparent);
+  &[data-instant] > * {
+    transition: none;
+  }
+}
+@utility seg-item {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding-inline: var(--pad-control-sm);
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+  color: var(--text-3);
+  transition: color var(--dur-hover) var(--ease-out);
+  &:hover {
+    color: var(--text-1);
+  }
+  &[aria-pressed="true"] {
+    color: var(--text-1);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .seg-track:not([data-ready]) > &[aria-pressed="true"] {
+    background-color: var(--surface-3);
+    background-image: linear-gradient(180deg, color-mix(in oklab, var(--white) 8%, transparent), color-mix(in oklab, var(--white) 3%, transparent));
+    box-shadow:
+      inset 0 0 0 1px var(--line-strong),
+      inset 0 1px 0 color-mix(in oklab, var(--white) 8%, transparent);
+  }
+}
+
+/* =========================================================================================================
+   Key caps: 18 px (20 with data-size="md"), mono 11, a strong hairline with a lit bottom edge.
+   ========================================================================================================= */
+@utility kbd-cap {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  min-width: var(--badge-size);
+  height: var(--badge-size);
+  padding-inline: 4px;
+  border-radius: var(--r-xs);
+  font-family: var(--font-mono);
+  font-weight: var(--fw-body-strong);
+  font-size: var(--fs-micro);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  background-color: color-mix(in oklab, var(--white) 4%, transparent);
+  box-shadow:
+    inset 0 0 0 1px var(--line-strong),
+    inset 0 -1px 0 color-mix(in oklab, var(--white) 6%, transparent);
+  &[data-size="md"] {
+    min-width: var(--icon-size-empty);
+    height: var(--icon-size-empty);
+  }
+}
+
+/* =========================================================================================================
+   ProgressRing and Sparkline
+   ========================================================================================================= */
+/* The arc eases to each new value. */
+@utility progress-arc {
+  transition: stroke-dasharray var(--dur-overlay) var(--ease-out);
+}
+/* A running process is a light source: a soft glow in the ring's colour. */
+@utility progress-glow {
+  filter: drop-shadow(0 0 3px color-mix(in oklab, currentColor 60%, transparent));
+}
+
+/* =========================================================================================================
+   Separator: a hairline that fades out towards its end (or both ends); never a hard full-width rule.
+   ========================================================================================================= */
+@utility hairline-fade {
+  background-color: transparent;
+  background-image: linear-gradient(90deg, var(--line), var(--line) 60%, transparent);
+  &[data-orientation="vertical"] {
+    background-image: linear-gradient(180deg, var(--line), var(--line) 60%, transparent);
+  }
+}
+@utility hairline-fade-both {
+  background-color: transparent;
+  background-image: linear-gradient(90deg, transparent, var(--line) 18%, var(--line) 82%, transparent);
+  &[data-orientation="vertical"] {
+    background-image: linear-gradient(180deg, transparent, var(--line) 18%, var(--line) 82%, transparent);
+  }
+}
+
+/* =========================================================================================================
+   FitText (foundation/FitText.tsx): a hidden ghost copy at the base size gives the box its intrinsic width, so fitting
+   never changes layout; the visible text scales by --fit (written by one shared ResizeObserver), then truncates.
+   ========================================================================================================= */
+@utility fit-box {
+  display: inline-grid;
+  grid-template-columns: minmax(0, auto);
+  min-width: 0;
+  max-width: 100%;
+  & > * {
+    grid-area: 1 / 1;
+  }
+}
+/* The ghost: the text at its base size (from data-text, so it never duplicates the DOM text), holding the box's width
+   and, for one line, its height. */
+@utility fit-ghost {
+  visibility: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  &[data-text]::before {
+    content: attr(data-text);
+  }
+  &[data-flat] {
+    height: 0;
+    overflow: hidden;
+  }
+}
+/* The visible text: one line with an ellipsis as the last resort (truncate="end"), scaled by --fit. */
+@utility fit-text {
+  align-self: center;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: calc(1em * var(--fit, 1));
+  &[data-lines="2"] {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+    text-wrap: balance;
+  }
+  &[data-truncate="false"] {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  /* A middle-truncated or fallback copy is showing: keep the full text for screen readers only. */
+  [data-fit-alt] > & {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+/* The middle-truncated ("inv_…_2041") or fallback ("£1.2m") copy, written by FitText; hidden until it is needed. */
+@utility fit-alt {
+  display: none;
+  align-self: center;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: calc(1em * var(--fit, 1));
+  [data-fit-alt] > & {
+    display: block;
+  }
+  [data-truncate="false"] ~ & {
+    overflow: visible;
+  }
+}

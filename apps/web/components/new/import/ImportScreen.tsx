@@ -3,11 +3,13 @@
  * /new/import — Door B (BUILD §11.1, AC-11.1.5). Three phases in one screen: pick sources (GitHub repo, Drive,
  * Notion/Linear/Jira, website URL, Stripe/Shopify, bank, registry; every one read-only), watch the import job run
  * step by step, read the Scouting report (what exists, what is missing, strengths, weaknesses, first decisions,
- * roadmap seeds, "nothing pushed"). "Continue to Commit" turns the report into a concept card through idea.generate
- * and opens the Commit screen with the suggested name.
+ * roadmap seeds, "nothing pushed"). "Continue to Commit" saves the concept card describing the business and opens the
+ * Commit screen with the suggested name.
  *
  * The job runs on the API: `import.start` returns the job, `import.status` is polled until it is done and carries the
- * report. `ImportFlow` is pure over an `ImportRunner` so it is tested with a fake runner and no tRPC.
+ * report. The moment the report is on screen the card is drafted ahead (`import.prepareConcept`, held on the API and
+ * not saved), so "Continue to Commit" (`import.continue`) saves it without waiting on the model (audit P7).
+ * `ImportFlow` is pure over an `ImportRunner` so it is tested with a fake runner and no tRPC.
  */
 import { useMutation } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, Check, CircleDashed, FileSearch, GitBranch, Lock, Play, ShieldCheck, ThumbsUp, X } from "lucide-react";
@@ -20,7 +22,7 @@ import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
 import { IMPORT_STEPS, StudioFrame } from "../StudioFrame";
 import { commitHref } from "../ideate/concepts";
-import { IMPORT_SOURCES, IMPORT_SOURCE_GROUPS, doneSteps, normaliseSourceValue, reportToPrompt, sourceByKey, totalSteps, validateConfigs, type ImportJob, type ImportSourceKey, type ImportStartInput, type ImportStatus, type ScoutingReport, type SourceConfig, type StepStatus } from "./import-job";
+import { IMPORT_SOURCES, IMPORT_SOURCE_GROUPS, doneSteps, normaliseSourceValue, sourceByKey, totalSteps, validateConfigs, type ImportJob, type ImportSourceKey, type ImportStartInput, type ImportStatus, type ScoutingReport, type SourceConfig, type StepStatus } from "./import-job";
 
 export interface ImportScreenProps {
   viewer: { email: string | null };
@@ -34,7 +36,8 @@ export interface ImportRunner {
 
 /** Local-job step length the API applies under reduced motion (the whole job finishes within one poll). */
 export const REDUCED_MOTION_STEP_MS = 1;
-export const DEFAULT_POLL_MS = 400;
+/** Polls about once a step (the API's local steps take 120 ms), so the progress reads smoothly and the report shows at once. */
+export const DEFAULT_POLL_MS = 150;
 
 export function ImportScreen({ viewer }: ImportScreenProps) {
   const trpc = useTRPC();
@@ -42,8 +45,8 @@ export function ImportScreen({ viewer }: ImportScreenProps) {
   const router = useRouter();
   const { toast } = useToast();
   const runner = useMemo<ImportRunner>(() => ({ start: (input) => client.import.start.mutate(input), status: (jobId) => client.import.status.query({ jobId }) }), [client]);
-  const generate = useMutation(
-    trpc.idea.generate.mutationOptions({
+  const continueImport = useMutation(
+    trpc.import.continue.mutationOptions({
       onError: (err) => toast({ title: "Could not prepare the Commit screen", description: errorMessage(err), tone: "bad" }),
     }),
   );
@@ -51,21 +54,14 @@ export function ImportScreen({ viewer }: ImportScreenProps) {
     <ImportFlow
       viewer={viewer}
       runner={runner}
-      continuing={generate.isPending}
+      continuing={continueImport.isPending}
+      // Best effort: Continue drafts the card itself when the draft ahead is missing or failed.
+      onReport={(job) => void client.import.prepareConcept.mutate({ jobId: job.id }).catch(() => undefined)}
       onContinue={(report, _configs, job) =>
-        generate.mutate(
-          // The job id rides on the drafted idea so commit links the business to this import (its report and sources).
-          { prompt: reportToPrompt(report), archetypeHint: report.archetypeHint, single: true, importJobId: job.id },
-          {
-            onSuccess: (res) => {
-              const first = res.ideas[0];
-              if (!first) {
-                toast({ title: "No concept came back", description: "Try again or start from the Ideation Studio.", tone: "warn" });
-                return;
-              }
-              router.push(`${commitHref(first.id)}?name=${encodeURIComponent(report.suggestedName)}&from=import`);
-            },
-          },
+        continueImport.mutate(
+          // The job id rides on the saved idea so commit links the business to this import (its report and sources).
+          { jobId: job.id },
+          { onSuccess: (res) => router.push(`${commitHref(res.idea.id)}?name=${encodeURIComponent(report.suggestedName)}&from=import`) },
         )
       }
     />
@@ -79,6 +75,8 @@ export interface ImportFlowProps {
   runner: ImportRunner;
   /** Continue to Commit with the report; `job` is the Import job the business will be linked to at commit. */
   onContinue: (report: ScoutingReport, configs: SourceConfig[], job: ImportJob) => void;
+  /** The report is on screen (once per finished job): the screen drafts the concept card ahead of Continue. */
+  onReport?: (job: ImportJob, report: ScoutingReport) => void;
   continuing?: boolean;
   /** Milliseconds between `import.status` polls (tests pass 0). */
   pollMs?: number;
@@ -86,7 +84,7 @@ export interface ImportFlowProps {
 
 type Phase = { kind: "pick"; error?: string } | { kind: "starting" } | { kind: "running"; job: ImportJob } | { kind: "report"; job: ImportJob; report: ScoutingReport } | { kind: "failed"; job: ImportJob | null; message: string };
 
-export function ImportFlow({ viewer, runner, onContinue, continuing, pollMs = DEFAULT_POLL_MS }: ImportFlowProps) {
+export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, pollMs = DEFAULT_POLL_MS }: ImportFlowProps) {
   const reduced = usePrefersReducedMotion();
   const [chosen, setChosen] = useState<Map<ImportSourceKey, string>>(() => new Map());
   const [touched, setTouched] = useState(false);
@@ -122,8 +120,10 @@ export function ImportFlow({ viewer, runner, onContinue, continuing, pollMs = DE
   function apply(status: ImportStatus, id: number) {
     if (id !== run.current) return;
     if (status.job.status === "failed") setPhase({ kind: "failed", job: status.job, message: "The import did not finish; every source reported a failure." });
-    else if (status.job.status === "done" && status.report) setPhase({ kind: "report", job: status.job, report: status.report });
-    else {
+    else if (status.job.status === "done" && status.report) {
+      setPhase({ kind: "report", job: status.job, report: status.report });
+      onReport?.(status.job, status.report);
+    } else {
       setPhase({ kind: "running", job: status.job });
       timer.current = setTimeout(() => {
         runner

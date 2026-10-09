@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 import { Code2, Compass, GraduationCap, Megaphone, Pause, Play, Scale, Users, Wallet, type LucideIcon } from "lucide-react";
 import { Avatar, Button, Chip, DeptChip, Icon, SkillGrid, StarRating, StatusPill, TraitChips, cn, usePrefersReducedMotion } from "@foundmill/dugout";
-import { MODULE_TABS, type ModuleKey } from "@foundmill/shared";
+import { MODULE_TABS, type ModuleKey } from "@foundmill/shared/constants";
 import { EXAMPLE_BUSINESS, LEADS, type ExampleLead } from "./example";
 import { Glass, Reveal, Section, SectionHeading, useSeen } from "./parts";
 

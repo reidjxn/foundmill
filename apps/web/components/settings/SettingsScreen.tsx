@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Briefcase, Building2, CreditCard, KeyRound, LayoutList, Plug, SlidersHorizontal, SpellCheck, Users, type LucideIcon } from "lucide-react";
 import { useCallback, type ReactNode } from "react";
 import { Icon, ShellLink } from "@foundmill/dugout";
-import { routes } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { SETTINGS_TABS, type SettingsTabSlug } from "@/lib/search";
 import { trpcPathPrefix } from "@/lib/trpc";
 import { useBusiness } from "@/components/shell/business-context";

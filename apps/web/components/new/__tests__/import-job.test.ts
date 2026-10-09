@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { IMPORT_SOURCES, IMPORT_SOURCE_GROUPS, doneSteps, normaliseSourceValue, reportToPrompt, sourceByKey, totalSteps, validateConfigs, validateSourceValue, type ImportJob, type ScoutingReport } from "../import/import-job";
+import { IMPORT_SOURCES, IMPORT_SOURCE_GROUPS, doneSteps, normaliseSourceValue, sourceByKey, totalSteps, validateConfigs, validateSourceValue, type ImportJob } from "../import/import-job";
 
 const github = sourceByKey("github")!;
 const website = sourceByKey("website")!;
@@ -26,31 +26,7 @@ describe("import sources (BUILD §11.1 Door B)", () => {
   });
 });
 
-describe("Ideation brief from the Import report (AC-11.1.5)", () => {
-  const report: ScoutingReport = {
-    title: "Import report: Ledgerly",
-    suggestedName: "Ledgerly",
-    archetypeHint: "b2b_saas",
-    summary: "Ledgerly: 2 sources imported.",
-    whatExists: ["GitHub (acme/ledgerly): 212 files read, nothing pushed", "Stripe: 120 customers, 14 months of revenue"],
-    whatIsMissing: ["No bank connection: runway stays an estimate until one is added."],
-    strengths: ["A working codebase with a test suite."],
-    weaknesses: ["No deployment pipeline was found; releases look manual."],
-    firstDecisions: [{ id: "spec", label: "Rebuild the Specification from the imported sources", recommended: true, consequence: "The Product lead drafts the spec.", reversible: true }],
-    roadmapSeeds: [{ title: "Onboarding drop-off after sign-up", source: "acme/ledgerly issue #12" }],
-    neverPushed: true,
-    provenance: "Estimate",
-  };
-
-  it("turns the report into a bounded brief for the Ideation agent", () => {
-    const prompt = reportToPrompt(report);
-    expect(prompt).toMatch(/^Existing business import: Ledgerly\./);
-    expect(prompt).toMatch(/Roadmap seeds: Onboarding drop-off after sign-up\./);
-    expect(prompt).toMatch(/describes this business as it is/);
-    expect(reportToPrompt({ ...report, roadmapSeeds: [] })).not.toMatch(/Roadmap seeds/);
-    expect(reportToPrompt({ ...report, whatExists: Array.from({ length: 200 }, (_, i) => `Source ${i}: ${"x".repeat(60)}`) }).length).toBeLessThanOrEqual(3900);
-  });
-
+describe("Import job progress (AC-11.1.5)", () => {
   it("counts steps over the API's job shape", () => {
     const job: ImportJob = {
       id: "j",

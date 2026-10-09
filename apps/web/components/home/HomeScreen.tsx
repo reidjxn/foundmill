@@ -36,8 +36,9 @@ import {
   type WidgetLayout,
   type WidgetPreset,
 } from "@foundmill/dugout";
-import { FoundationsBanner, useFoundations } from "@foundmill/modules";
+import { FoundationsBanner, useFoundations } from "@foundmill/modules/product/foundations";
 import { DASHBOARD_PRESET_LIST, fromGridLayout, prepareLayout, routes, toGridLayout, toScreenLayout, type DashboardPresetId } from "@foundmill/widgets";
+import { recentRibbonInput } from "@foundmill/widgets/shared/ribbon";
 import { usePageShortcuts } from "@/lib/keys";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -51,7 +52,6 @@ import { dashboardTabs, editedElsewhere, ghostedMilestones, gridPresets, isDayOn
 type DashboardRow = RouterOutputs["dashboard"]["get"];
 
 const SAVE_DEBOUNCE_MS = 400;
-const DAY_MS = 86_400_000;
 
 export interface HomeScreenProps {
   dashboardId?: string;
@@ -343,24 +343,24 @@ function DashboardGrid({ businessId, row, live, editable, editing, onEditingChan
 /* ---------- Foundations ---------- */
 
 /**
- * The vision, specification and roadmap a new business drafts on its first open (BUILD §11.1, §11.5): drafting, failed
- * with Try again, or just ready with the way to the Vision tab. Nothing once they are settled, or for a business that
- * has none (committed before foundations existed, or seeded). Ready brings the Product lead's note to the Inbox.
+ * The vision, specification and roadmap a new business drafts on its first open (BUILD §11.1, §11.5): drafting (the
+ * vision, the sections and the roadmap items as they are written, audit P3), failed with Try again, or just ready with
+ * the way to the Vision tab. Nothing once they are settled, or for a business that has none (committed before
+ * foundations existed, or seeded). Ready brings the Product lead's note to the Inbox.
  */
 function HomeFoundations() {
   const queryClient = useQueryClient();
   const foundations = useFoundations(() => void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("inbox") as unknown[] }));
-  return <FoundationsBanner foundations={foundations} showReady />;
+  return <FoundationsBanner foundations={foundations} showReady detail={{ vision: true, roadmap: true }} />;
 }
 
 /* ---------- Day one ---------- */
 
 function DayOne({ businessId, currency }: { businessId: string; currency: string }) {
   const trpc = useTRPC();
-  const today = new Date().toISOString().slice(0, 10);
-  const from = new Date(Date.now() - 30 * DAY_MS).toISOString().slice(0, 10);
-  const ribbon = useQuery(trpc.journey.ribbon.queryOptions({ businessId, from, to: today }, { staleTime: 60_000, retry: false }));
-  const dayOne = ribbon.data ? isDayOne({ conversions: ribbon.data.conversions.length, milestones: ribbon.data.milestones.length }) : false;
+  // The last 30 days, slim: the same query as the status strip and the department cards (one request for all of them).
+  const ribbon = useQuery(trpc.journey.ribbon.queryOptions({ businessId, ...recentRibbonInput() }, { staleTime: 60_000, retry: false }));
+  const dayOne = ribbon.data ? isDayOne({ conversions: ribbon.data.conversionCount, milestones: ribbon.data.milestones.length }) : false;
   const cards = useMemo(() => ghostedMilestones(currency), [currency]);
   if (!dayOne) return null;
   return (

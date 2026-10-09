@@ -1,5 +1,5 @@
 /** legal, integrations + webhooks, credentials (ciphertext only), policies, approvals, audit chain, events + outbox. */
-import { buildAad, generateMasterKey, LocalVault } from "@foundmill/shared";
+import { buildAad, generateMasterKey, LocalVault } from "@foundmill/shared/crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../../repos";

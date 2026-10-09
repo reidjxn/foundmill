@@ -7,7 +7,7 @@
  * it uses the shared `ENTITY_MARKUP_RE` so both sides agree on what a mention looks like, and it never validates ids
  * (that is the linker's job before text is stored).
  */
-import { ENTITY_MARKUP_RE, type EntityKind } from "@foundmill/shared";
+import { ENTITY_MARKUP_RE, type EntityKind } from "@foundmill/shared/constants";
 
 export interface EntityTextNode {
   type: "text";

@@ -38,6 +38,15 @@ export const MODEL_PRICING: Record<ModelId, ModelPrice> = {
   [MODELS.haiku]: { displayName: "Claude Haiku 4.5", inputPerMTok: 1, outputPerMTok: 5, cacheWritePerMTok: 1.25, cacheReadPerMTok: 0.1 },
 };
 
+/**
+ * Opus fast mode (beta, `speed: "fast"`): 2× the standard price on every component ($8 / $40 per MTok for Opus 5.5,
+ * Anthropic's published fast-mode price on 2026-10-09; cache components assumed 2× as well). Models without fast mode
+ * are absent.
+ */
+export const FAST_MODE_PRICING: Partial<Record<ModelId, ModelPrice>> = {
+  [MODELS.opus]: { displayName: "Claude Opus 5.5 (fast mode)", inputPerMTok: 8, outputPerMTok: 40, cacheWritePerMTok: 10, cacheReadPerMTok: 0.4 },
+};
+
 export interface MeterBreakdown {
   input: number;
   output: number;
@@ -60,11 +69,15 @@ export interface MeterResult {
   label: typeof PRICING_LABEL;
   pricingAsOf: string;
   batch: boolean;
+  /** Present (true) when the call ran in Opus fast mode and was metered at the fast-mode price. */
+  fast?: true;
 }
 
 export interface MeterOptions {
   /** Apply the Message Batches discount. Only when the call really went through the Batches API. */
   batch?: boolean;
+  /** `fast` meters at FAST_MODE_PRICING (falls back to the standard price for a model without fast mode). */
+  speed?: "standard" | "fast";
 }
 
 /** USD per million tokens → integer micro-cents per token. ($4/MTok = 400 cents/MTok = 400 micro-cents per token.) */
@@ -78,7 +91,8 @@ export function priceFor(modelId: ModelId): ModelPrice {
 
 /** Cost of a completion in minor units (labelled estimate). */
 export function meter(usage: TokenUsage, modelId: ModelId, opts: MeterOptions = {}): MeterResult {
-  const price = priceFor(modelId);
+  const fastPrice = opts.speed === "fast" ? FAST_MODE_PRICING[modelId] : undefined;
+  const price = fastPrice ?? priceFor(modelId);
   const batch = opts.batch === true;
   const factor = batch ? BATCH_DISCOUNT : 1;
   const nonNeg = (n: number) => (Number.isFinite(n) && n > 0 ? Math.floor(n) : 0);
@@ -101,6 +115,7 @@ export function meter(usage: TokenUsage, modelId: ModelId, opts: MeterOptions = 
     label: PRICING_LABEL,
     pricingAsOf: PRICING_AS_OF,
     batch,
+    ...(fastPrice ? { fast: true as const } : {}),
   };
 }
 
@@ -121,6 +136,7 @@ export function sumMeters(results: readonly MeterResult[], modelId: ModelId): Me
     label: PRICING_LABEL,
     pricingAsOf: PRICING_AS_OF,
     batch: results.length > 0 && results.every((r) => r.batch),
+    ...(results.some((r) => r.fast) ? { fast: true as const } : {}),
   };
 }
 

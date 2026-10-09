@@ -3,7 +3,7 @@
  * Entity · Incorporate · Compliance · Contracts · IP · Policies · Regulatory. Nothing here files, signs, pays or
  * accepts terms: those are founder clicks on the vendor's own page (AC-11.11.4).
  */
-import { MODULE_TABS } from "@foundmill/shared";
+import { MODULE_TABS } from "@foundmill/shared/constants";
 import { registerModule, type ModuleScreen } from "../registry";
 import { COMPLIANCE_SUB_VIEWS, ComplianceScreen } from "./ComplianceScreen";
 import { ContractsScreen } from "./ContractsScreen";

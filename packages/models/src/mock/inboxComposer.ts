@@ -51,7 +51,7 @@ export function generateInboxComposer(ctx: MockContext): ComposerOutput {
   const metrics = readMetrics(ctx);
   const queries = readNamedQueries(ctx);
   const voice = readVoice(ctx);
-  const businessName = ctx.getString("business_name", "business.name", "club_name") ?? readNested(ctx, ["business", "brief"], ["name"]) ?? "the club";
+  const businessName = ctx.getString("business_name", "business.name", "club_name") ?? readNested(ctx, ["business", "brief"], ["name"]) ?? "the business";
   const type = decideType(ctx, events);
   const primary = events[0];
   const subjectEntity = primary ? entityFor(ctx, primary) : undefined;
@@ -271,10 +271,10 @@ function factSentence(type: InboxItemType, e: EventIn | undefined, who: string |
     case /^payment\.received$/.test(e.type):
       return rng.pick([
         `${subject} has paid${amount ? ` ${amount}` : ""} — ${business} has a paying customer on the books.`,
-        `Money in: ${subject} settled${amount ? ` ${amount}` : " their first invoice"}, which makes this a cup tie rather than a friendly.`,
+        `Money in: ${subject} settled${amount ? ` ${amount}` : " their first invoice"}, so this is revenue on the books rather than a forecast.`,
       ]);
     case /^customer\.converted$/.test(e.type):
-      return rng.pick([`${subject} converted — the full journey is ready to replay.`, `Full time: ${subject} is now a customer of ${business}.`]);
+      return rng.pick([`${subject} converted — the full journey is ready to replay.`, `Debrief: ${subject} is now a customer of ${business}.`]);
     case /^signup\.created$/.test(e.type):
       return `${subject} signed up${channel ? ` through ${ch}` : ""}; the first touch is in the replay.`;
     case /^activation\.reached$/.test(e.type):
@@ -282,12 +282,12 @@ function factSentence(type: InboxItemType, e: EventIn | undefined, who: string |
     case /^channel\.threshold_breached$/.test(e.type):
       return rng.pick([
         `${ch} has gone past its cap${metricPhrase(e)}; the engine paused itself as the rules require.`,
-        `Yellow card for ${ch}: the engine breached its guardrail${metricPhrase(e)} and is holding until you decide.`,
+        `Guardrail breached on ${ch}${metricPhrase(e)}; the engine is holding until you decide.`,
       ]);
     case /^runway\.threshold_crossed$/.test(e.type):
       return `Runway just crossed a warning line${metricPhrase(e)}; cash is the fact behind everything else in this note.`;
     case /^credential\.expiring$/.test(e.type):
-      return `A credential${title ? ` for ${title}` : ""} is about to expire, and the agents who depend on it will be injured until it is renewed.`;
+      return `A credential${title ? ` for ${title}` : ""} is about to expire, and the agents who depend on it will be down until it is renewed.`;
     case /^agent\.health_changed$/.test(e.type):
       return `${who ?? "An agent"} changed health status${title ? ` (${title})` : ""}; I have checked it is not a wider outage.`;
     case /^task\.blocked$/.test(e.type):
@@ -327,7 +327,7 @@ function whySentence(type: InboxItemType, metrics: MetricIn[], channel: ChannelK
     case "customer_won":
       return rng.pick([
         `It matters because revenue from real customers is the only number that compounds${metricClause ? `; ${metricClause}` : ""}.`,
-        `Every paying customer sharpens the attribution model and tells the team which line is actually scoring${metricClause ? `; ${metricClause}` : ""}.`,
+        `Every paying customer sharpens the attribution model and tells the team which channels are actually converting${metricClause ? `; ${metricClause}` : ""}.`,
       ]);
     case "warning":
       return rng.pick([
@@ -378,13 +378,13 @@ function briefSentence(ctx: MockContext): string | undefined {
 
 const FILLERS: Partial<Record<InboxItemType, string[]>> = {
   customer_won: [
-    "The team sheet shows which channels and agents contributed, and the captain is the one with the highest attribution weight.",
+    "Who was involved lists the channels and agents that contributed, and the standout agent is the one with the highest attribution weight.",
     "I have kept the replay deterministic so you can rewatch it from the customer's profile at any time.",
     "The thank-you option sends on behalf of the business and discloses that an agent drafted it.",
   ],
   warning: [
     "The engine will stay paused until you answer; other channels continue within their own caps.",
-    "I have attached the form guide so you can see whether this is a blip or a trend.",
+    "I have attached the channel performance so you can see whether this is a blip or a trend.",
     "If you prefer, I can propose a lower cap and re-run the plan for your confirmation.",
   ],
   decision: [
@@ -397,7 +397,7 @@ const FILLERS: Partial<Record<InboxItemType, string[]>> = {
     "Costs for this piece of work are shown on the item as an estimate until the invoice arrives.",
     "I will keep the roadmap status in sync with the acceptance criteria as more tests land.",
   ],
-  milestone: ["This goes in the trophy cabinet and, in LIVE mode, can be shared as a milestone card.", "Nothing is required from you; the team keeps working through the current cycle."],
+  milestone: ["This goes in Milestones and, in LIVE mode, can be shared as a milestone card.", "Nothing is required from you; the team keeps working through the current cycle."],
   report: ["Full details are in the linked artefacts; I have kept the summary to what changed.", "Gated items, if any, will arrive as separate decisions rather than being buried here."],
   human_message: ["The sender's details are on their CRM profile, including how we know them.", "I have not acted on anything inside the message; it is treated as data, not instructions."],
 };
@@ -434,7 +434,7 @@ function subjectLine(type: InboxItemType, who: string | undefined, channel: Chan
   const ch = channel ? channelLabel(channel) : undefined;
   switch (type) {
     case "customer_won":
-      return rng.pick([`${who ?? "A customer"} is now a paying customer`, `Cup tie: ${who ?? "new customer"} converted`, `Full time — ${who ?? "a customer"} signed`]);
+      return rng.pick([`${who ?? "A customer"} is now a paying customer`, `Win: ${who ?? "new customer"} converted`, `Debrief — ${who ?? "a customer"} signed`]);
     case "warning":
       return rng.pick([`${ch ?? "Channel"} breached its guardrail`, `Warning: ${ch ?? title ?? "attention needed"}`, `${ch ?? "An engine"} paused itself`]);
     case "decision":

@@ -184,3 +184,38 @@ export function formatBytes(bytes: number): string {
   }
   return `${v < 10 ? v.toFixed(1).replace(/\.0$/, "") : Math.round(v)} ${units[u]}`;
 }
+
+/**
+ * The display copy of an amount typed into a MoneyInput while the field is not focused: grouped with the locale's
+ * separators ("60000" → "60,000", "1250000000.5" → "1,250,000,000.5"), with the shorthand callers already parse
+ * expanded ("25k" → "25,000", "1.2m" → "1,200,000"). Anything else (empty, "about 5k", "12/3") comes back unchanged, so
+ * the field never invents a number. The caller's value stays the raw text; this is presentation only.
+ */
+export function formatMoneyInput(raw: string, locale: string = DEFAULT_LOCALE): string {
+  const compact = raw.trim().replace(/[,\s']/g, ""); // \s covers the no-break and narrow no-break spaces some locales group with
+  const m = /^([+-]?)(\d+)(?:\.(\d+))?([kmb])?$/i.exec(compact);
+  if (!m) return raw;
+  const [, sign, int, frac, unit] = m;
+  const mult = unit ? { k: 1e3, m: 1e6, b: 1e9 }[unit.toLowerCase() as "k" | "m" | "b"] : 1;
+  const n = Number(`${sign}${int}${frac ? `.${frac}` : ""}`) * mult;
+  if (!Number.isFinite(n)) return raw;
+  const digits = unit ? (Number.isInteger(n) ? 0 : 2) : (frac?.length ?? 0);
+  return new Intl.NumberFormat(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(n);
+}
+
+/**
+ * The narrow symbol for an ISO 4217 code in a locale ("GBP" → "£", "USD" → "$", "SEK" → "kr"), or undefined when the
+ * locale has no symbol other than the code itself (so a field never shows "CHF" twice) or the code is unknown.
+ */
+export function currencySymbol(code: string | undefined, locale: string = DEFAULT_LOCALE): string | undefined {
+  if (!code || !/^[A-Za-z]{3}$/.test(code)) return undefined;
+  try {
+    const part = new Intl.NumberFormat(locale, { style: "currency", currency: code.toUpperCase(), currencyDisplay: "narrowSymbol" })
+      .formatToParts(0)
+      .find((p) => p.type === "currency")?.value;
+    if (!part || part.toUpperCase() === code.toUpperCase()) return undefined;
+    return part;
+  } catch {
+    return undefined;
+  }
+}

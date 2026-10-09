@@ -10,7 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Play, ScrollText } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AGENT_SESSION_EVENT_KINDS, AgentTile, Chip, DataTable, EmptyState, ModelChip, Panel, SessionScrubber, StatusPill, eventsUntil, formatDateTime, formatDuration, formatMoney, formatTokens, reduceSessionEvents, type AgentSessionEvent, type DataTableColumn, type SavedView, type ScrubberSpeed, type SessionSeed } from "@foundmill/dugout";
-import { routes } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { useStreamSubscription } from "@/lib/stream-client";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";

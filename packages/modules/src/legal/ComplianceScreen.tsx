@@ -8,7 +8,8 @@
 import { useMemo, useState } from "react";
 import { CalendarDays, CalendarRange, Inbox, List, Repeat } from "lucide-react";
 import { Button, Chip, DataTable, Panel, StatusStrip, cn, formatDate, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
-import { routes, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { DUE_WINDOW_DAYS, calendarMonths, calendarRows, daysToNextDeadline, type CalendarRow } from "./legal-data";
 import { CALENDAR_PILL, Pill, Screen, humanise, useNow } from "./shared";

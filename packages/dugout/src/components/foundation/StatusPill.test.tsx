@@ -9,7 +9,40 @@ describe("StatusPill", () => {
     expect(pill.getAttribute("data-tone")).toBe("good");
     expect(pill.querySelector("svg")).not.toBeNull();
     expect(pill.className).toContain("text-status-good");
-    expect(pill.className).toContain("bg-status-good/12");
+    // The tone's 12 % fill and 30 % ring (controls.css chip-tone) read --tone, set by tone-status-good.
+    expect(pill.className).toContain("chip-tone");
+    expect(pill.className).toContain("tone-status-good");
+    expect(pill.className).toContain("border");
+  });
+  it("is a 22 px, fully round, sentence-case pill that wraps instead of truncating", () => {
+    render(<StatusPill tone="warn">Waiting on the supplier's carton proof</StatusPill>);
+    const pill = screen.getByText("Waiting on the supplier's carton proof").closest("span[data-tone]") as HTMLElement;
+    expect(pill.className).toContain("min-h-chip");
+    expect(pill.className).toContain("rounded-pill");
+    expect(pill.className).not.toMatch(/\buppercase\b|\btruncate\b/);
+    expect(screen.getByText("Waiting on the supplier's carton proof").className).toContain("break-words");
+  });
+  it("pulses in its own tone, never the brand", () => {
+    render(
+      <StatusPill tone="bad" pulse>
+        Respond
+      </StatusPill>,
+    );
+    const pill = screen.getByText("Respond").closest("span[data-tone]") as HTMLElement;
+    expect(pill.className).toContain("animate-ring-pulse");
+    expect(pill.className).toContain("tone-status-bad");
+    expect(pill.getAttribute("data-pulse")).toBe("true");
+  });
+  it("fits a tight cell with fit, and keeps a caller's fixed height", () => {
+    render(
+      <StatusPill tone="info" fit className="h-badge">
+        Scheduled
+      </StatusPill>,
+    );
+    const pill = document.querySelector("span[data-tone]") as HTMLElement;
+    expect(pill.querySelector("[data-fit-box]")).not.toBeNull();
+    expect(pill.className).toContain("h-badge");
+    expect(pill.className).not.toContain("min-h-chip");
   });
   it("falls back to a generic word per tone", () => {
     render(<StatusPill tone="bad" />);
@@ -19,6 +52,7 @@ describe("StatusPill", () => {
     render(<StatusPill tone="neutral">Idle</StatusPill>);
     const pill = screen.getByText("Idle").closest("span[data-tone]") as HTMLElement;
     expect(pill.className).toContain("text-secondary");
+    expect(pill.className).toContain("tone-secondary");
   });
   it("maps every agent status", () => {
     expect(agentStatusTone("healthy").tone).toBe("good");

@@ -8,7 +8,8 @@
  */
 import { z } from "zod";
 import { repos, type Db } from "@foundmill/db";
-import { buildAad, decryptJson, NotFoundError, VaultError, type Vault } from "@foundmill/shared";
+import { NotFoundError } from "@foundmill/shared";
+import { buildAad, decryptJson, VaultError, type Vault } from "@foundmill/shared/crypto";
 import type { IngestLogger } from "./types";
 
 /** Same shape the gateway seals (`DecryptedCredential`); only `secret` is read here. */

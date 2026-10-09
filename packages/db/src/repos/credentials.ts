@@ -8,7 +8,8 @@
  * function here only works on a service-role connection; metadata reads (`listMetadata`, `expiring`)
  * omit the ciphertext columns so the credential-expiry scan never carries secrets around.
  */
-import { encryptedRecordFromBytes, encryptedRecordToBytes, EncryptedRecordSchema, ValidationError, type EncryptedRecord } from "@foundmill/shared";
+import { ValidationError } from "@foundmill/shared";
+import { encryptedRecordFromBytes, encryptedRecordToBytes, EncryptedRecordSchema, type EncryptedRecord } from "@foundmill/shared/crypto";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { credentials, integrations, type Credential } from "../schema";

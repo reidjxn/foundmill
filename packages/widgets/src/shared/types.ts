@@ -39,6 +39,8 @@ export interface RibbonResponse {
   rows: JourneyDailyRow[];
   /** Named by the API (`entityName`) with the Customer Update id (`journeyId`) when there is one. */
   conversions: (Conversion & { occurredAt: Iso; entityName?: string | null; journeyId?: string | null })[];
+  /** Conversions in the range (also when `slim` leaves `conversions` empty). */
+  conversionCount?: number;
   milestones: (Milestone & { achievedAt: Iso; kind: MilestoneKind })[];
   chapters: Chapter[];
   /** First day of the business (the API also returns it as `firstDay`). */

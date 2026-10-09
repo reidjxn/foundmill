@@ -8,7 +8,10 @@
 import { useMemo, useState } from "react";
 import { ExternalLink, Network, UserRoundPlus } from "lucide-react";
 import { Avatar, Button, Chip, EntityLink, HierarchyChart, KeyValueList, ModelChip, Panel, ProvenanceChip, Switch, formatMoney, type HierarchyKind, type HierarchyNode } from "@foundmill/dugout";
-import { departmentForModule, routes, useDepartments, useWidgetData, type DepartmentRow } from "@foundmill/widgets";
+import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useWidgetData } from "@foundmill/widgets/data";
+import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import type { ModuleScreenProps } from "../registry";
 import { AgentStatusWordPill, ROLE_LABELS, Screen, agentDept, agentEntity, agentHref, isChiefOfStaff, memberEntity, memberName, readMe, useAgents, useHumans, useLiveAgentStatus, useMe, useNow, useTeamOptions, withLiveStatus, type Me } from "./shared";
 import type { AgentRow, MembershipRow } from "./types";

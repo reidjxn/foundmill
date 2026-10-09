@@ -3,7 +3,8 @@
  * Product › Vision (BUILD §6.3, §11.5): the business's vision (drafted on the first open with the specification and
  * the roadmap: statement, who it is for, the problem, why now, principles, the north-star metric), the narrative
  * sections of the spec read as one page, the pinned (human-edited) blocks, the spec at a glance and what the team is
- * building now. While the foundations are drafting the tab says so and fills in when they are ready.
+ * building now. While the foundations are drafting the tab shows the vision as soon as it is written, the narrative
+ * sections as they land (marked Drafting) and fills in the rest when they are ready.
  */
 import { useMemo } from "react";
 import { BookOpen, Lock, Map as MapIcon } from "lucide-react";
@@ -30,7 +31,10 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
     spec.refetch();
     roadmap.refetch();
   });
-  const vision = foundations.data?.status === "ready" ? foundations.data.vision : null;
+  // The vision shows as soon as the drafting has written it (within seconds of the first open), before the rest.
+  const vision = foundations.data && foundations.data.status !== "none" ? foundations.data.vision : null;
+  // While drafting, a narrative section's empty block reads what has been written for it so far.
+  const drafted = useMemo(() => new Map((foundations.data?.progress?.sections ?? []).filter((s) => s.done && s.content).map((s) => [s.section.toLowerCase(), s.content!] as const)), [foundations.data?.progress]);
 
   const groups = useMemo(() => groupBySection(spec.data?.blocks ?? []), [spec.data]);
   const narrative = groups.filter((g) => (NARRATIVE_SECTIONS as readonly string[]).includes(g.section.toLowerCase()));
@@ -68,18 +72,22 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
                 {g.section}
               </h3>
               <div className="flex flex-col gap-3">
-                {g.blocks.map((b) => (
-                  <div key={b.id} className="group relative" data-block={b.id}>
-                    <PlainDoc doc={b.content} />
-                    <div className="mt-1 flex items-center gap-2 text-small text-secondary">
-                      <AuthorRef kind={b.authoredByKind} id={b.authoredBy} />
-                      {b.pinned ? <PinnedChip /> : null}
-                      <button type="button" className="text-link opacity-0 transition-opacity duration-micro hover:underline focus-visible:opacity-100 group-hover:opacity-100" onClick={() => openBlock(b.id)}>
-                        Edit in Specification
-                      </button>
+                {g.blocks.map((b, i) => {
+                  const draft = i === 0 && pmWordCount(b.content) === 0 ? drafted.get(g.section.toLowerCase()) : undefined;
+                  return (
+                    <div key={b.id} className="group relative" data-block={b.id} data-drafting={draft ? "true" : undefined}>
+                      <PlainDoc doc={draft ?? b.content} />
+                      <div className="mt-1 flex items-center gap-2 text-small text-secondary">
+                        {draft ? <Chip tone="info">Drafting</Chip> : null}
+                        <AuthorRef kind={b.authoredByKind} id={b.authoredBy} />
+                        {b.pinned ? <PinnedChip /> : null}
+                        <button type="button" className="text-link opacity-0 transition-opacity duration-micro hover:underline focus-visible:opacity-100 group-hover:opacity-100" onClick={() => openBlock(b.id)}>
+                          Edit in Specification
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
           ))}

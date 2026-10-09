@@ -8,7 +8,7 @@ export interface ScrollAreaProps extends ComponentPropsWithoutRef<typeof ScrollA
   viewportClassName?: string;
 }
 
-/** Radix scroll area with Dugout's 6 px scrollbars (thumb hairline, track transparent). */
+/** Radix scroll area with Dugout's 6 px rails: they fade in on hover or scroll; the thumb brightens under the pointer. */
 export const ScrollArea = forwardRef<ElementRef<typeof ScrollAreaPrimitive.Root>, ScrollAreaProps>(function ScrollArea(
   { className, children, orientation = "vertical", viewportClassName, type = "hover", ...props },
   ref,
@@ -26,17 +26,8 @@ export const ScrollArea = forwardRef<ElementRef<typeof ScrollAreaPrimitive.Root>
 export const ScrollBar = forwardRef<ElementRef<typeof ScrollAreaPrimitive.Scrollbar>, ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Scrollbar>>(
   function ScrollBar({ className, orientation = "vertical", ...props }, ref) {
     return (
-      <ScrollAreaPrimitive.Scrollbar
-        ref={ref}
-        orientation={orientation}
-        className={cn(
-          "flex touch-none select-none transition-opacity duration-micro ease-dugout",
-          orientation === "vertical" ? "h-full w-1.5" : "h-1.5 flex-col",
-          className,
-        )}
-        {...props}
-      >
-        <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-full bg-subtle" />
+      <ScrollAreaPrimitive.Scrollbar ref={ref} orientation={orientation} className={cn("scroll-rail", className)} {...props}>
+        <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-pill bg-white/14 transition-colors duration-hover ease-out hover:bg-white/26 active:bg-white/32" />
       </ScrollAreaPrimitive.Scrollbar>
     );
   },

@@ -22,7 +22,7 @@ describe("journal", () => {
   it("is readable by drizzle's own migrator and by our reader, in the same order", () => {
     const theirs = readMigrationFiles({ migrationsFolder: MIGRATIONS_DIR });
     const ours = readMigrations();
-    expect(theirs).toHaveLength(18);
+    expect(theirs).toHaveLength(20);
     expect(ours.map((m) => m.tag)).toEqual(readJournal().entries.map((e) => e.tag));
     expect(theirs.map((m) => m.folderMillis)).toEqual(ours.map((m) => m.when));
     expect(ours.map((m) => m.tag)).toEqual([
@@ -44,6 +44,8 @@ describe("journal", () => {
       "0016_live_hardening",
       "0017_business_logos",
       "0018_business_foundations",
+      "0019_foundations_progress",
+      "0020_agent_conversations",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);

@@ -185,7 +185,12 @@ export function stepsFor(key: ImportSourceKey, value: string): string[] {
   }
 }
 
-export const DEFAULT_STEP_MS = 400;
+/**
+ * Step length of the local (no-Temporal) job. Its steps are simulated, so they only need to be readable as they pass:
+ * 120 ms keeps a three-source import to about a second and a half instead of five (audit P7). Temporal jobs follow
+ * the real `sources` rows and are unaffected.
+ */
+export const DEFAULT_STEP_MS = 120;
 
 /**
  * The job id is the job: `<base64url(JSON token)>.<base64url(HMAC-SHA256)>`, keyed by SESSION_TOKEN_SECRET under its own

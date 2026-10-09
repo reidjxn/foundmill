@@ -21,9 +21,14 @@ import {
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const tokens = readFileSync(join(root, "packages/dugout/src/tokens.css"), "utf8");
-const token = (name: string): string => {
-  const m = tokens.match(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{3,8})`));
+// A token is a hex literal or an alias of another token (`--bg-ink: var(--ink)`); follow aliases to the literal.
+const token = (name: string, depth = 0): string => {
+  const m = tokens.match(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{3,8}|var\\((--[a-z0-9-]+)\\))`));
   if (!m) throw new Error(`token ${name} not found in tokens.css`);
+  if (m[2]) {
+    if (depth > 8) throw new Error(`token ${name} aliases too deeply`);
+    return token(m[2], depth + 1);
+  }
   return m[1]!.toLowerCase();
 };
 

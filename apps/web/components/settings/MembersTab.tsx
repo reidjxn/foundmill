@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { UserPlus, UserX } from "lucide-react";
 import { useState } from "react";
 import { Avatar, Button, Chip, Field, IconButton, Input, SimpleSelect } from "@foundmill/dugout";
-import { MEMBERSHIP_ROLES, type MembershipRole } from "@foundmill/shared";
+import { MEMBERSHIP_ROLES, type MembershipRole } from "@foundmill/shared/constants";
 import { formatDate } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";

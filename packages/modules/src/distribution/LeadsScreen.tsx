@@ -28,7 +28,8 @@ import {
   type RowAction,
   type SavedView,
 } from "@foundmill/dugout";
-import { routes, useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { LAWFUL_BASES, lawfulBasisLabel, suppressionOf } from "./channel-data";
 import { InlineError, Screen, useAction } from "./shared";

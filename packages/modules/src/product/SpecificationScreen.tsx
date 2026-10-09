@@ -362,7 +362,7 @@ export function SpecificationScreen({ businessId }: ModuleScreenProps) {
 
   return (
     <Screen name="product/specification">
-      <FoundationsBanner foundations={foundations} />
+      <FoundationsBanner foundations={foundations} detail={{ sectionText: true }} />
       <Panel
         title="Outline"
         span={3}

@@ -1,9 +1,41 @@
-import { Children, isValidElement, type ComponentPropsWithoutRef, type ReactNode } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { Children, isValidElement, lazy, Suspense, type ComponentPropsWithoutRef, type ReactNode } from "react";
+import type { Components } from "react-markdown";
 import { cn } from "../../lib/cn";
 import { EntityText, type EntityTextProps } from "./EntityText";
-import { hasEntityMarkup } from "./entityMarkup";
+import { entityNodesToPlain, hasEntityMarkup, parseEntityText } from "./entityMarkup";
+import type MarkdownEngineType from "./MarkdownEngine";
+
+/*
+ * The parser (react-markdown + remark-gfm) is its own chunk: pages that can show Markdown do not carry it in their
+ * first load. The browser starts fetching it as soon as this module runs, so it is normally in before any Markdown
+ * renders (page data arrives after hydration); until then the text shows plain. Server rendering waits for it.
+ */
+let engine: typeof MarkdownEngineType | null = null;
+let engineLoad: Promise<unknown> | null = null;
+
+/** Load the Markdown parser now (tests, or a page about to show Markdown). Resolves when `Markdown` renders formatted. */
+export function preloadMarkdown(): Promise<void> {
+  engineLoad ??= import("./MarkdownEngine").then(
+    (m) => {
+      engine = m.default;
+      return m;
+    },
+    (err: unknown) => {
+      engineLoad = null;
+      throw err;
+    },
+  );
+  return engineLoad.then(() => undefined);
+}
+
+const LazyEngine = lazy(() => preloadMarkdown().then(() => ({ default: engine! })));
+
+if (typeof window !== "undefined") void preloadMarkdown().catch(() => undefined);
+
+/** Shown only while the parser loads: the text, plain (entity mentions by name when they would be linked). */
+function PlainFallback({ text, entities }: { text: string; entities: boolean }) {
+  return <p className="my-0 whitespace-pre-wrap">{entities ? entityNodesToPlain(parseEntityText(text)) : text}</p>;
+}
 
 export interface MarkdownProps extends Pick<
   EntityTextProps,
@@ -228,14 +260,16 @@ export function Markdown({
         <span className="text-secondary">{alt}</span>
       ) : null,
   };
+  // Once loaded, the parser renders at once (no Suspense round); before that, LazyEngine suspends to the fallback.
+  const Engine = engine ?? LazyEngine;
   return (
     <div
       className={cn(variant === "reading" ? "t-reading" : "t-body", "text-primary", className)}
       data-markdown
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} skipHtml>
-        {children}
-      </ReactMarkdown>
+      <Suspense fallback={<PlainFallback text={children} entities={entities} />}>
+        <Engine components={components}>{children}</Engine>
+      </Suspense>
     </div>
   );
 }

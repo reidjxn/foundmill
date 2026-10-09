@@ -8,7 +8,8 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, BookOpen, Landmark, ListFilter, Receipt, Tag } from "lucide-react";
 import { Button, Chip, DataTable, EntityLink, MiniTable, Panel, SimpleSelect, StatusPill, cn, formatDate, formatPercent, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
-import { routes, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { buildPnl, chartEntry, formatMonth, ledgerPnlRows, monthStart, pnlTotals, type PnlRow } from "./metrics";
 import { RecategoriseDialog } from "./RecategoriseDialog";

@@ -6,6 +6,8 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
+/** 20 px, as in quick replies (a digit before the reply). */
+export const Medium: Story = { args: { size: "md", children: "1" } };
 export const KeyboardMap: Story = {
   render: () => (
     <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-body">

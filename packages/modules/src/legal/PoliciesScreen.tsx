@@ -10,7 +10,9 @@
 import { useMemo, useState } from "react";
 import { Cookie, FileDiff, FileText, RefreshCw, Scale, ShieldCheck } from "lucide-react";
 import { Button, Chip, DiffView, Markdown, MiniTable, Panel, applyDecisions, buildHunks, diffLines, summariseDiff, type HunkDecisionState, type HunkDecisions, type IconComponent } from "@foundmill/dugout";
-import { moduleHref, routes, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
+import { routes } from "@foundmill/widgets/shared/routes";
+import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import { pmTitle, pmToText, textToPm } from "../product/prosemirror";
 import type { SpecGetResponse } from "../product/types";
 import type { ModuleScreenProps } from "../registry";

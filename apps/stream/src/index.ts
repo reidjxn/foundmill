@@ -8,7 +8,8 @@
  * SIGTERM/SIGINT. The browser client lives in `./client` (`@foundmill/stream/client`) and pulls in none of this.
  */
 import { createServiceDb, closeDb } from "@foundmill/db";
-import { createLogger, loadEnv, servicePort } from "@foundmill/shared";
+import { loadEnv, servicePort } from "@foundmill/shared";
+import { createLogger } from "@foundmill/shared/logger";
 import { createTokenVerifier } from "./auth";
 import { createCachedAuthorizer, createRepoAuthorizer } from "./authorize";
 import { prepareDb } from "./db-boot";

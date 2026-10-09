@@ -1,6 +1,6 @@
 /**
- * Mock journey commentary (BUILD §11.4 Match Day): one line per touch in the voice of a match commentator, entities
- * linked with manifest ids only.
+ * Mock journey narration (BUILD §11.4 Customer Update): one line per touch, narrated plainly, entities linked with manifest
+ * ids only.
  */
 import { CHANNEL_KEYS, CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared";
 import type { CommentaryOutput } from "../schemas";
@@ -15,10 +15,10 @@ interface TouchIn {
 }
 
 const LINE_PHRASES: Record<ChannelLine, string[]> = {
-  attack: ["{channel} goes direct — a sharp ball into the box and {customer} is looking", "Straight down the middle from {channel}; {customer} takes the first touch", "{channel} presses high and wins the ball; {customer} clicks through"],
-  midfield: ["{channel} keeps possession, patient build-up, {customer} replies", "A neat one-two through {channel}; {customer} opens the message", "{channel} switches play and {customer} comes back for another look"],
-  defence: ["Started from the back: {channel} brings {customer} in through organic search", "{channel} holds its shape; {customer} finds the page on their own terms", "Patient from {channel}; a long read, then {customer} moves forward"],
-  wings: ["Out wide on {channel}: a code scanned and {customer} is in the building", "Cross from the wing via {channel}; {customer} arrives at the vanity URL", "{channel} delivers from the touchline and {customer} controls it"],
+  attack: ["{channel} reaches {customer} directly and gets a look", "A direct touch from {channel}; {customer} takes notice", "{channel} puts the offer in front of {customer}, who clicks through"],
+  midfield: ["{channel} keeps the conversation going and {customer} replies", "A follow-up through {channel}; {customer} opens the message", "{channel} tries a new angle and {customer} comes back for another look"],
+  defence: ["{customer} arrives through {channel} on their own", "{channel} is there when {customer} searches; they find the page on their own terms", "A long read from {channel}, then {customer} moves forward"],
+  wings: ["Offline on {channel}: a code scanned and {customer} is in", "Via {channel}, {customer} arrives at the vanity URL", "{channel} gets {customer} to the site from the real world"],
 };
 
 const SETBACK = /\b(bounce|unsubscribe|abandon|drop|churn|complaint|spam)\b/i;
@@ -39,8 +39,8 @@ export function generateJourneyCommentary(ctx: MockContext): CommentaryOutput {
       return { touch_index: t.index, text: `Setback: ${t.kind.replace(/_/g, " ")} on ${channelLabel}; ${customerText} drifts away for now.${agentText}`, tone: "setback" as const };
     }
     if (isLast && touches.length > 0) {
-      const goal = conversion === "signup" ? "signs up — a friendly won" : conversion === "activation" ? "reaches activation — league points on the board" : "pays — the cup tie is won";
-      return { touch_index: t.index, text: `GOAL! ${customerText} ${goal}, finished from ${channelLabel}${t.campaign ? ` ("${t.campaign}")` : ""}.${agentText}`, tone: "goal" as const };
+      const goal = conversion === "signup" ? "signs up" : conversion === "activation" ? "reaches activation" : "pays — a win";
+      return { touch_index: t.index, text: `Win moment: ${customerText} ${goal}, from ${channelLabel}${t.campaign ? ` ("${t.campaign}")` : ""}.${agentText}`, tone: "goal" as const };
     }
     const tone = i === 0 ? ("build_up" as const) : ctx.rng.chance(0.4) ? ("chance" as const) : ("build_up" as const);
     const phrase = ctx.rng.pick(LINE_PHRASES[line]).replace("{channel}", channelLabel).replace("{customer}", customerText);
@@ -48,7 +48,7 @@ export function generateJourneyCommentary(ctx: MockContext): CommentaryOutput {
   });
 
   if (lines.length === 0) {
-    lines.push({ touch_index: 0, text: `Kick-off: no recorded touches before ${customerText} converted; a direct arrival, so attribution is partial.`, tone: "neutral" });
+    lines.push({ touch_index: 0, text: `First touch: no recorded touches before ${customerText} converted; a direct arrival, so attribution is partial.`, tone: "neutral" });
   }
 
   const touchCount = touches.length;

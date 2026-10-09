@@ -53,6 +53,28 @@ export interface FoundationsVision {
   principles: { title: string; detail: string }[];
   northStar: { metric: string; definition: string; target: string; label: "Estimate" | "Forecast" };
 }
+/** What the drafting has stored so far (apps/api `FoundationsView.progress`, packages/agents `FoundationsProgressView`). */
+export type FoundationsStage = "vision" | "specification" | "roadmap" | "finishing";
+export interface FoundationsProgressSection {
+  section: string;
+  /** The section's heading once it is written. */
+  title: string | null;
+  /** The one sentence the plan says it will argue. */
+  thesis: string | null;
+  done: boolean;
+  /** The written section (plain text Tiptap JSON) once stored. */
+  content: PmDoc | null;
+}
+export interface FoundationsProgress {
+  stage: FoundationsStage;
+  author: { agentId: string | null; name: string | null; role: string | null } | null;
+  sections: FoundationsProgressSection[];
+  sectionsDone: number;
+  sectionsTotal: number;
+  roadmap: { title: string; horizon: RoadmapHorizon; written: boolean }[];
+  roadmapWritten: number;
+  roadmapDone: boolean;
+}
 export interface FoundationsResponse {
   status: FoundationsStatusKey;
   door: "ideation" | "import" | null;
@@ -61,7 +83,10 @@ export interface FoundationsResponse {
   startedAt: DateLike | null;
   finishedAt: DateLike | null;
   error: string | null;
+  /** Once ready, and while drafting as soon as the plan has streamed it. */
   vision: FoundationsVision | null;
+  /** While drafting (or after a failed attempt): what has been written so far. */
+  progress?: FoundationsProgress | null;
   summary: {
     sectionsWritten?: number;
     sectionsTotal?: number;

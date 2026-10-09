@@ -11,7 +11,17 @@
  *   the caller (`req.scope`) through `RateLimiter`. The SDK's own retries are disabled (`maxRetries: 0`) so this module
  *   owns the policy: 429 → scoped backoff, 5xx/529/connection → short exponential backoff, 4xx → typed error.
  * - Sampling parameters are rejected (400) by Opus 5.5 and Sonnet 5.5; `temperature` is only sent to Haiku.
- * - `effort` is passed through `output_config.effort` when given; otherwise the API default applies.
+ * - `effort` goes in `output_config.effort`: the request's own, else the route's from `ROUTES` (routing.ts), else the
+ *   API default. Never sent to a model without the parameter (Haiku 4.5).
+ * - Fast mode (Opus, beta): a route with `speed: "fast"` runs through `client.beta.messages` with the
+ *   `fast-mode-2026-02-01` beta and top-level `speed: "fast"`, only when `fastMode` (MODEL_FAST_MODE) is on. Fast mode
+ *   has its own rate-limit pool, so it gets its own limiter bucket; a 429 or a refusal of the beta falls back to
+ *   standard speed at once instead of backing off. Usage is metered at the fast-mode price when the response says
+ *   `usage.speed: "fast"`.
+ * - Streaming (`streamStructured`): `messages.stream()` (or the beta stream in fast mode); the text deltas feed the
+ *   incremental scanner in ./structured-stream.ts. The connection phase gets the same retry policy as `complete()`;
+ *   a stream that breaks after connecting is restarted or resumed there.
+ * - The limiter books `reserveTokens` (default `max_tokens`) output tokens per call.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
@@ -23,8 +33,26 @@ import { parseJsonLoose } from "./json";
 import { MockModelClient, type MockModelClientOptions } from "./mock";
 import { type MeterResult, ZERO_USAGE, addUsage, estimateTokens, meter, sumMeters } from "./pricing";
 import { RateLimiter, backoffWithJitter, parseRateLimitHeaders } from "./rate-limit";
-import { MODELS, resolveModel } from "./routing";
-import type { ChatMessage, CompleteRequest, CompleteResult, CompleteResultWithJson, KeyValidation, ModelClient, ModelLogger, ModelMode, StopReason, TokenUsage, UsageEvent, UsageSink } from "./types";
+import { FAST_MODE_BETA, MODELS, MODEL_CAPABILITIES, type RouteResolution, resolveModel } from "./routing";
+import { type StreamCallArgs, type StreamCallResult, StreamInterruptedError, runStructuredStream } from "./structured-stream";
+import type {
+  ChatMessage,
+  CompleteRequest,
+  CompleteResult,
+  CompleteResultWithJson,
+  Effort,
+  KeyValidation,
+  ModelClient,
+  ModelLogger,
+  ModelMode,
+  Speed,
+  StopReason,
+  StreamStructuredRequest,
+  StreamStructuredResult,
+  TokenUsage,
+  UsageEvent,
+  UsageSink,
+} from "./types";
 
 export const DEFAULT_MAX_TOKENS = 4096;
 export const DEFAULT_MAX_ATTEMPTS = 4;
@@ -47,6 +75,11 @@ export interface LiveModelClientOptions {
   defaultMaxTokens?: number;
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
+  /**
+   * Honour `speed: "fast"` on the routes that declare it (Opus fast mode: beta, Claude API only, 2× price). Off by
+   * default; `createModelClient` reads MODEL_FAST_MODE.
+   */
+  fastMode?: boolean;
 }
 
 export interface CreateModelClientOptions extends Partial<Omit<LiveModelClientOptions, "apiKey">> {
@@ -76,9 +109,53 @@ export function effectiveModelMode(mode: ModelMode, apiKey: string | undefined, 
 
 export function createModelClient(opts: CreateModelClientOptions = {}): ModelClient {
   const mode: ModelMode = opts.mode ?? loadEnv().MODEL_MODE;
-  if (mode === "mock") return new MockModelClient({ ...opts.mock, onUsage: opts.onUsage, logger: opts.logger });
+  // The tuning knobs below are optional: an environment that does not parse leaves them at their defaults.
+  const env = (() => {
+    try {
+      return loadEnv();
+    } catch {
+      return undefined;
+    }
+  })();
+  if (mode === "mock") {
+    // Simulated latency is a dev knob (MOCK_MODEL_LATENCY_MS / MOCK_MODEL_STREAM_MS); both default to 0.
+    const latencyMs = opts.mock?.latencyMs ?? env?.MOCK_MODEL_LATENCY_MS ?? 0;
+    const streamElementMs = opts.mock?.streamElementMs ?? env?.MOCK_MODEL_STREAM_MS ?? 0;
+    return new MockModelClient({ ...opts.mock, latencyMs, streamElementMs, onUsage: opts.onUsage, logger: opts.logger });
+  }
   if (!opts.apiKey) throw new ModelRequestError("createModelClient: apiKey is required in live mode", undefined, "missing_api_key");
-  return new LiveModelClient({ ...opts, apiKey: opts.apiKey });
+  return new LiveModelClient({ ...opts, apiKey: opts.apiKey, fastMode: opts.fastMode ?? env?.MODEL_FAST_MODE ?? false });
+}
+
+/** The request fields that shape the API call (shared by `complete` and `streamStructured`). */
+type PlanInput = Pick<CompleteRequest<unknown>, "route" | "modelOverride" | "maxTokens" | "reserveTokens" | "system" | "cacheSystem" | "effort" | "temperature"> & { schema?: z.ZodType };
+/** The request fields the retry policy and metering read. */
+type CallContext = Pick<CompleteRequest<unknown>, "route" | "signal" | "scope" | "attribution">;
+
+/** Everything one request resolves to before the first API call. */
+interface CallPlan {
+  resolution: RouteResolution;
+  maxTokens: number;
+  /** Output tokens booked against the limiter per API call. */
+  reserve: number;
+  effort?: Effort;
+  /** Fast mode requested for this call (route asks, model has it, client allows it). */
+  fast: boolean;
+  base: Omit<Anthropic.MessageCreateParamsNonStreaming, "messages">;
+}
+
+/** Mutable per-call state shared by the retry loop: fast mode can be switched off after a 429 or a refused beta. */
+interface AttemptState {
+  fast: boolean;
+  transient: number;
+}
+
+/** The streaming surface used here; `MessageStream` and `BetaMessageStream` both have it. */
+interface StreamHandle extends AsyncIterable<{ type: string; delta?: { type: string; text?: string } }> {
+  withResponse(): Promise<{ response: Response; request_id: string | null | undefined }>;
+  finalMessage(): Promise<{ content: readonly { type: string; text?: string }[]; stop_reason: string | null; usage: Anthropic.Usage & { speed?: string | null }; stop_details?: unknown }>;
+  readonly currentMessage: { usage: Anthropic.Usage } | undefined;
+  abort(): void;
 }
 
 export class LiveModelClient implements ModelClient {
@@ -107,43 +184,29 @@ export class LiveModelClient implements ModelClient {
   complete(req: CompleteRequest<unknown> & { schema?: undefined }): Promise<CompleteResult<unknown>>;
   async complete<T = unknown>(req: CompleteRequest<T>): Promise<CompleteResult<T>> {
     const started = Date.now();
-    const resolution = resolveModel(req.route, req.modelOverride);
-    if (resolution.warning) this.opts.logger?.warn({ route: req.route, override: req.modelOverride }, resolution.warning);
+    const plan = this.plan(req);
+    const { resolution, maxTokens } = plan;
     const scope = req.scope ?? "default";
-    const maxTokens = req.maxTokens ?? this.opts.defaultMaxTokens ?? DEFAULT_MAX_TOKENS;
-
-    const system = buildSystem(req.system, req.cacheSystem === true);
     let messages: Anthropic.MessageParam[] = req.messages.map(toParam);
-    const base: Omit<Anthropic.MessageCreateParamsNonStreaming, "messages"> = {
-      model: resolution.modelId,
-      max_tokens: maxTokens,
-      ...(system ? { system } : {}),
-    };
-    const outputConfig: Anthropic.OutputConfig = {};
-    if (req.schema) outputConfig.format = zodOutputFormat(req.schema);
-    if (req.effort) outputConfig.effort = req.effort;
-    if (outputConfig.format || outputConfig.effort) base.output_config = outputConfig;
-    if (req.temperature !== undefined) {
-      if (resolution.modelKey === "haiku") base.temperature = req.temperature;
-      else this.opts.logger?.debug({ route: req.route, model: resolution.modelId }, "temperature dropped: this model rejects sampling parameters");
-    }
 
     let totalUsage: TokenUsage = ZERO_USAGE;
     const meters: MeterResult[] = [];
     let repaired = false;
+    let speedUsed: Speed | undefined;
 
     for (let call = 0; call < 2; call++) {
-      const { message, requestId } = await this.send({ ...base, messages }, req, scope, call);
+      const { message, requestId, speed } = await this.send({ ...plan.base, messages }, req, scope, call, plan);
+      if (speed === "fast") speedUsed = "fast";
       const usage = toUsage(message.usage);
       totalUsage = addUsage(totalUsage, usage);
-      const cost = meter(usage, resolution.modelId);
+      const cost = meter(usage, resolution.modelId, { speed });
       meters.push(cost);
       const durationMs = Date.now() - started;
-      await this.emit({ route: req.route, model: resolution.modelId, modelKey: resolution.modelKey, mode: "live", usage, cost, scope: req.scope, attribution: req.attribution, durationMs, occurredAt: new Date().toISOString(), requestId, attempt: call });
+      await this.emit({ route: req.route, model: resolution.modelId, modelKey: resolution.modelKey, mode: "live", usage, cost, scope: req.scope, attribution: req.attribution, durationMs, occurredAt: new Date().toISOString(), requestId, attempt: call, ...(speed === "fast" ? { speed } : {}) });
 
       const text = message.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("");
       const stopReason = (message.stop_reason ?? "end_turn") as StopReason;
-      const common = { text, usage: totalUsage, model: resolution.modelId, modelKey: resolution.modelKey, route: req.route, stopReason, cost: sumMeters(meters, resolution.modelId), mode: "live" as const, requestId, durationMs: Date.now() - started, repaired, warning: resolution.warning };
+      const common = { text, usage: totalUsage, model: resolution.modelId, modelKey: resolution.modelKey, route: req.route, stopReason, cost: sumMeters(meters, resolution.modelId), mode: "live" as const, requestId, durationMs: Date.now() - started, repaired, warning: resolution.warning, ...(plan.effort ? { effort: plan.effort } : {}), ...(speedUsed ? { speed: speedUsed } : {}) };
 
       if (!req.schema) return { ...common };
 
@@ -172,47 +235,198 @@ export class LiveModelClient implements ModelClient {
     throw new ModelOutputError(`Unreachable: repair loop exhausted for route "${req.route}"`);
   }
 
+  /**
+   * Streamed structured output (see `StreamStructuredRequest` in ./types.ts): each element of `elementPath` is validated
+   * and delivered as soon as it is complete; the whole document is validated at the end with the same repair policy as
+   * `complete()`, repairing only the failed elements where it can.
+   */
+  async streamStructured<T, E>(req: StreamStructuredRequest<T, E>): Promise<StreamStructuredResult<T, E>> {
+    const plan = this.plan(req);
+    const scope = req.scope ?? "default";
+    return runStructuredStream(req, {
+      mode: "live",
+      modelId: plan.resolution.modelId,
+      modelKey: plan.resolution.modelKey,
+      warning: plan.resolution.warning,
+      effort: plan.effort,
+      maxTokens: plan.maxTokens,
+      logger: this.opts.logger,
+      streamCall: (args) => this.streamCall(args, req, scope, plan),
+      complete: (r) => this.complete(r),
+    });
+  }
+
+  /** Model, max_tokens, reservation, effort, speed and the request body shared by every call of one request. */
+  private plan(req: PlanInput): CallPlan {
+    const resolution = resolveModel(req.route, req.modelOverride);
+    if (resolution.warning) this.opts.logger?.warn({ route: req.route, override: req.modelOverride }, resolution.warning);
+    const maxTokens = req.maxTokens ?? this.opts.defaultMaxTokens ?? DEFAULT_MAX_TOKENS;
+    const reserve = Math.max(1, Math.min(maxTokens, Math.round(req.reserveTokens ?? maxTokens)));
+    const system = buildSystem(req.system, req.cacheSystem === true);
+    const base: Omit<Anthropic.MessageCreateParamsNonStreaming, "messages"> = {
+      model: resolution.modelId,
+      max_tokens: maxTokens,
+      ...(system ? { system } : {}),
+    };
+    const caps = MODEL_CAPABILITIES[resolution.modelKey];
+    const wanted = req.effort ?? resolution.effort;
+    const effort = wanted && caps.effort ? wanted : undefined;
+    if (wanted && !effort) this.opts.logger?.debug({ route: req.route, model: resolution.modelId }, "effort dropped: this model has no effort parameter");
+    const outputConfig: Anthropic.OutputConfig = {};
+    if (req.schema) {
+      // Send the JSON schema only. `zodOutputFormat` also carries a `parse` function, and the SDK's MessageStream runs it
+      // at message_stop and errors the stream when the output fails the schema: a streamed document with one bad element
+      // (or truncated at max_tokens) would then look like a broken connection and be regenerated, instead of reaching
+      // the element repair here. Validation and repair are this module's job (see the header).
+      const { type, schema } = zodOutputFormat(req.schema);
+      outputConfig.format = { type, schema };
+    }
+    if (effort) outputConfig.effort = effort;
+    if (outputConfig.format || outputConfig.effort) base.output_config = outputConfig;
+    if (req.temperature !== undefined) {
+      if (resolution.modelKey === "haiku") base.temperature = req.temperature;
+      else this.opts.logger?.debug({ route: req.route, model: resolution.modelId }, "temperature dropped: this model rejects sampling parameters");
+    }
+    const fast = resolution.speed === "fast" && this.opts.fastMode === true;
+    return { resolution, maxTokens, reserve, effort, fast, base };
+  }
+
+  /** Limiter bucket: fast mode draws on its own rate-limit pool. */
+  private bucket(fast: boolean): string {
+    return fast ? `${this.rateLimitKey}:fast` : this.rateLimitKey;
+  }
+
   /** One API call with rate-limit reservation and the retry policy. */
-  private async send(params: Anthropic.MessageCreateParamsNonStreaming, req: CompleteRequest, scope: string, call: number): Promise<{ message: Anthropic.Message; requestId?: string }> {
+  private async send(params: Anthropic.MessageCreateParamsNonStreaming, req: CallContext, scope: string, call: number, plan: CallPlan): Promise<{ message: Anthropic.Message & { usage: { speed?: string | null } }; requestId?: string; speed?: Speed }> {
     const maxAttempts = this.opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
     const estimatedInput = estimateTokens(JSON.stringify(params.messages) + JSON.stringify(params.system ?? ""));
-    let transientAttempt = 0;
+    const state: AttemptState = { fast: plan.fast, transient: 0 };
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (req.signal?.aborted) throw new ModelAbortedError();
-      await this.rateLimiter.acquire(this.rateLimitKey, { requests: 1, inputTokens: estimatedInput, outputTokens: params.max_tokens }, scope);
+      const fast = state.fast;
+      await this.rateLimiter.acquire(this.bucket(fast), { requests: 1, inputTokens: estimatedInput, outputTokens: plan.reserve }, scope);
       try {
-        const { data, response, request_id } = await this.anthropic.messages.create(params, { signal: req.signal }).withResponse();
-        this.rateLimiter.observe(this.rateLimitKey, response.headers);
+        const { data, response, request_id } = fast
+          ? await this.anthropic.beta.messages.create({ ...params, speed: "fast", betas: [FAST_MODE_BETA] } as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, { signal: req.signal }).withResponse()
+          : await this.anthropic.messages.create(params, { signal: req.signal }).withResponse();
+        this.rateLimiter.observe(this.bucket(fast), response.headers);
         this.rateLimiter.clearPenalty(scope);
-        return { message: data, requestId: request_id ?? undefined };
+        const message = data as Anthropic.Message & { usage: { speed?: string | null } };
+        return { message, requestId: request_id ?? undefined, speed: speedOf(message.usage, fast) };
       } catch (error) {
-        if (req.signal?.aborted || error instanceof Anthropic.APIUserAbortError) throw new ModelAbortedError();
-        if (error instanceof Anthropic.RateLimitError) {
-          const parsed = parseRateLimitHeaders(error.headers);
-          this.rateLimiter.observe(this.rateLimitKey, parsed);
-          const wait = this.rateLimiter.reportRateLimited(scope, { retryAfterMs: parsed.retryAfterMs });
-          this.opts.logger?.warn({ route: req.route, scope, attempt, wait, requestId: error.requestID }, "429 from Anthropic; backing off this scope only");
-          if (attempt + 1 >= maxAttempts) throw new ModelRateLimitError(`Rate limited after ${maxAttempts} attempts for route "${req.route}"`, scope, wait, { requestId: error.requestID, call });
-          await this.sleep(wait);
-          continue;
-        }
-        if (error instanceof Anthropic.APIConnectionError || (error instanceof Anthropic.APIError && typeof error.status === "number" && error.status >= 500)) {
-          transientAttempt++;
-          if (attempt + 1 >= maxAttempts) {
-            throw new ModelUnavailableError(`Anthropic unavailable after ${maxAttempts} attempts for route "${req.route}": ${error.message}`, { status: error instanceof Anthropic.APIError ? error.status : undefined });
-          }
-          const wait = backoffWithJitter(transientAttempt - 1, { baseMs: 500, maxMs: 8000, random: this.opts.random });
-          this.opts.logger?.warn({ route: req.route, attempt, wait, status: error instanceof Anthropic.APIError ? error.status : "connection" }, "transient Anthropic failure; retrying");
-          await this.sleep(wait);
-          continue;
-        }
-        if (error instanceof Anthropic.APIError) {
-          throw new ModelRequestError(`Anthropic request failed (${error.status ?? "?"}): ${error.message}`, error.status, error.type ?? null, { requestId: error.requestID });
-        }
-        throw error;
+        await this.handleAttemptError(error, req, scope, attempt, maxAttempts, call, state);
       }
     }
     throw new ModelUnavailableError(`No attempts left for route "${req.route}"`);
+  }
+
+  /** Open a stream with the same reservation and connection-phase retry policy as `send`. */
+  private async openStream(params: Anthropic.MessageCreateParamsNonStreaming, req: CallContext, scope: string, call: number, plan: CallPlan): Promise<{ stream: StreamHandle; requestId?: string; fast: boolean }> {
+    const maxAttempts = this.opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    const estimatedInput = estimateTokens(JSON.stringify(params.messages) + JSON.stringify(params.system ?? ""));
+    const state: AttemptState = { fast: plan.fast, transient: 0 };
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (req.signal?.aborted) throw new ModelAbortedError();
+      const fast = state.fast;
+      await this.rateLimiter.acquire(this.bucket(fast), { requests: 1, inputTokens: estimatedInput, outputTokens: plan.reserve }, scope);
+      const stream = (
+        fast
+          ? this.anthropic.beta.messages.stream({ ...params, speed: "fast", betas: [FAST_MODE_BETA] } as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, { signal: req.signal })
+          : this.anthropic.messages.stream(params, { signal: req.signal })
+      ) as unknown as StreamHandle;
+      try {
+        const { response, request_id } = await stream.withResponse();
+        this.rateLimiter.observe(this.bucket(fast), response.headers);
+        this.rateLimiter.clearPenalty(scope);
+        return { stream, requestId: request_id ?? undefined, fast };
+      } catch (error) {
+        await this.handleAttemptError(error, req, scope, attempt, maxAttempts, call, state);
+      }
+    }
+    throw new ModelUnavailableError(`No attempts left for route "${req.route}"`);
+  }
+
+  /** One stream for `runStructuredStream`: text deltas go to `args.onText`; usage is metered per stream. */
+  private async streamCall(args: StreamCallArgs, req: CallContext, scope: string, plan: CallPlan): Promise<StreamCallResult> {
+    const started = Date.now();
+    const params: Anthropic.MessageCreateParamsNonStreaming = { ...plan.base, messages: args.messages.map(toParam) };
+    const { stream, requestId, fast } = await this.openStream(params, req, scope, args.call, plan);
+    const { resolution } = plan;
+    const emitUsage = async (usage: TokenUsage, speed: Speed | undefined) => {
+      const cost = meter(usage, resolution.modelId, { speed });
+      await this.emit({ route: req.route, model: resolution.modelId, modelKey: resolution.modelKey, mode: "live", usage, cost, scope: req.scope, attribution: req.attribution, durationMs: Date.now() - started, occurredAt: new Date().toISOString(), requestId, attempt: args.call, streamed: true, ...(speed === "fast" ? { speed } : {}) });
+      return cost;
+    };
+    let text = "";
+    let callbackFailed = false;
+    try {
+      for await (const event of stream) {
+        if (event.type !== "content_block_delta" || event.delta?.type !== "text_delta" || typeof event.delta.text !== "string") continue;
+        text += event.delta.text;
+        try {
+          await args.onText(event.delta.text);
+        } catch (error) {
+          callbackFailed = true;
+          throw error;
+        }
+      }
+      const message = await stream.finalMessage();
+      const usage = toUsage(message.usage);
+      const speed = speedOf(message.usage, fast);
+      const cost = await emitUsage(usage, speed);
+      const finalText = message.content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
+      return { text: finalText || text, stopReason: (message.stop_reason ?? "end_turn") as StopReason, usage, cost, requestId, stopDetails: message.stop_details, ...(speed === "fast" ? { speed } : {}) };
+    } catch (error) {
+      stream.abort();
+      // An interrupted stream is still billed for what it used: book the input and the output so far (Estimate).
+      const snapshot = stream.currentMessage?.usage;
+      let partial: { usage: TokenUsage; cost: MeterResult } | undefined;
+      if (snapshot) {
+        const usage = { ...toUsage(snapshot), outputTokens: Math.max(snapshot.output_tokens ?? 0, estimateTokens(text)) };
+        partial = { usage, cost: await emitUsage(usage, fast ? "fast" : undefined) };
+      }
+      if (callbackFailed) throw error;
+      if (req.signal?.aborted || error instanceof Anthropic.APIUserAbortError) throw new ModelAbortedError();
+      if (error instanceof Anthropic.APIError && typeof error.status === "number" && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429) {
+        throw new ModelRequestError(`Anthropic request failed (${error.status}): ${error.message}`, error.status, error.type ?? null, { requestId: error.requestID });
+      }
+      throw new StreamInterruptedError(`stream interrupted after ${text.length} characters: ${error instanceof Error ? error.message : String(error)}`, text, partial?.usage, partial?.cost, error);
+    }
+  }
+
+  /** The retry policy for one failed attempt: sleeps and returns to retry, or throws the typed error. */
+  private async handleAttemptError(error: unknown, req: CallContext, scope: string, attempt: number, maxAttempts: number, call: number, state: AttemptState): Promise<void> {
+    if (req.signal?.aborted || error instanceof Anthropic.APIUserAbortError) throw new ModelAbortedError();
+    const last = attempt + 1 >= maxAttempts;
+    if (state.fast && !last && error instanceof Anthropic.APIError && (error instanceof Anthropic.RateLimitError || error.status === 400 || error.status === 403 || error.status === 404)) {
+      // Fast mode's own pool is exhausted, or the beta is not enabled for this key: standard speed now beats waiting.
+      state.fast = false;
+      this.opts.logger?.warn({ route: req.route, status: error.status, requestId: error.requestID }, "fast mode unavailable; retrying at standard speed");
+      return;
+    }
+    if (error instanceof Anthropic.RateLimitError) {
+      const parsed = parseRateLimitHeaders(error.headers);
+      this.rateLimiter.observe(this.bucket(state.fast), parsed);
+      const wait = this.rateLimiter.reportRateLimited(scope, { retryAfterMs: parsed.retryAfterMs });
+      this.opts.logger?.warn({ route: req.route, scope, attempt, wait, requestId: error.requestID }, "429 from Anthropic; backing off this scope only");
+      if (last) throw new ModelRateLimitError(`Rate limited after ${maxAttempts} attempts for route "${req.route}"`, scope, wait, { requestId: error.requestID, call });
+      await this.sleep(wait);
+      return;
+    }
+    if (error instanceof Anthropic.APIConnectionError || (error instanceof Anthropic.APIError && typeof error.status === "number" && error.status >= 500)) {
+      state.transient++;
+      if (last) {
+        throw new ModelUnavailableError(`Anthropic unavailable after ${maxAttempts} attempts for route "${req.route}": ${error.message}`, { status: error instanceof Anthropic.APIError ? error.status : undefined });
+      }
+      const wait = backoffWithJitter(state.transient - 1, { baseMs: 500, maxMs: 8000, random: this.opts.random });
+      this.opts.logger?.warn({ route: req.route, attempt, wait, status: error instanceof Anthropic.APIError ? error.status : "connection" }, "transient Anthropic failure; retrying");
+      await this.sleep(wait);
+      return;
+    }
+    if (error instanceof Anthropic.APIError) {
+      throw new ModelRequestError(`Anthropic request failed (${error.status ?? "?"}): ${error.message}`, error.status, error.type ?? null, { requestId: error.requestID });
+    }
+    throw error;
   }
 
   /** BUILD §10.2 step 1: minimal call that proves the key works and reads the rate-limit headers. */
@@ -267,7 +481,15 @@ function buildSystem(system: CompleteRequest["system"], cache: boolean): Anthrop
 
 const toParam = (m: ChatMessage): Anthropic.MessageParam => ({ role: m.role, content: m.content });
 
-function toUsage(u: Anthropic.Usage): TokenUsage {
+/** The speed that served a call: the response's `usage.speed` when present, else what was requested. */
+function speedOf(usage: { speed?: string | null } | undefined, requestedFast: boolean): Speed | undefined {
+  const reported = usage?.speed;
+  if (reported === "fast") return "fast";
+  if (reported === "standard") return undefined;
+  return requestedFast ? "fast" : undefined;
+}
+
+function toUsage(u: Pick<Anthropic.Usage, "input_tokens" | "output_tokens" | "cache_creation_input_tokens" | "cache_read_input_tokens">): TokenUsage {
   return {
     inputTokens: u.input_tokens,
     outputTokens: u.output_tokens,

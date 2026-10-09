@@ -8,10 +8,10 @@
  * schema.
  */
 import { z } from "zod";
-import { ModelOutputError } from "../errors";
+import { ModelAbortedError, ModelOutputError } from "../errors";
 import { seededRng, stableHash } from "../hash";
 import { parseJsonLoose } from "../json";
-import { addUsage, estimateTokens, meter, sumMeters } from "../pricing";
+import { type MeterResult, addUsage, estimateTokens, meter, sumMeters } from "../pricing";
 import { MODELS, type ModelId, type ModelKey, ROUTES, type RouteKey, resolveModel } from "../routing";
 import {
   CategoriserOutput,
@@ -23,7 +23,9 @@ import {
   CyclePlanOutput,
   DepartmentLeadOutput,
   FoundationsOutput,
+  FoundationsSkeletonOutput,
   IdeationOutput,
+  IdeationSlateOutput,
   LinkerOutput,
   LogoDesignOutput,
   ModerationOutput,
@@ -33,15 +35,19 @@ import {
   SkillGradeOutput,
   TaskGraphOutput,
   WorkerOutput,
+  AgentReplyOutput,
 } from "../schemas";
-import type { CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelLogger, TokenUsage, UsageEvent, UsageSink } from "../types";
+import { JsonElementScanner } from "../stream-json";
+import { type StreamCallArgs, type StreamCallResult, runStructuredStream } from "../structured-stream";
+import type { CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelLogger, StreamStructuredRequest, StreamStructuredResult, TokenUsage, UsageEvent, UsageSink } from "../types";
 import { generateChiefOfStaff } from "./chiefOfStaff";
 import { generateCategoriser, generateClassifier } from "./classifier";
 import { generateCoach } from "./coach";
 import { generateCodeReview } from "./codeReview";
 import { generateDepartmentLead } from "./departmentLead";
+import { generateFoundationsSkeleton, generateIdeationSlate } from "./drafts";
 import { generateFoundations } from "./foundations";
-import { generateIdeation } from "./ideation";
+import { generateIdeationRoute } from "./ideation";
 import { generateInboxComposer } from "./inboxComposer";
 import { type MockContext, buildMockContext, keywords } from "./inputs";
 import { generateJourneyCommentary } from "./journeyCommentary";
@@ -54,6 +60,7 @@ import { generateQuarantinedReader } from "./quarantinedReader";
 import { generateSkillGrader } from "./skillGrader";
 import { synthesizeFromZod } from "./synth";
 import { generateNightlyBatch, generateWorker } from "./worker";
+import { generateConversation } from "./conversation";
 
 export type MockGenerator = (ctx: MockContext) => unknown;
 
@@ -72,19 +79,22 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   departmentLead: { route: "departmentLead", description: "Department task assignments, blockers and a short report.", schema: DepartmentLeadOutput, generate: generateDepartmentLead },
   planner: { route: "planner", description: "Roadmap items → task graph with acceptance criteria, test expectations, file-scope hints and dependencies.", schema: TaskGraphOutput, generate: generatePlanner },
   codeReview: { route: "codeReview", description: "Deterministic review of a unified diff against the platform rules.", schema: CodeReviewOutput, generate: generateCodeReview },
-  ideation: { route: "ideation", description: "6–12 concept cards with 10 attributes (1–20), evidence and ≥ 2 citations, seeded by the prompt.", schema: IdeationOutput, generate: generateIdeation },
+  ideation: { route: "ideation", description: "6–12 concept cards with 10 attributes (1–20), evidence and ≥ 2 citations, seeded by the prompt; one card (keeping the slate item's name, archetype and angle) when the schema is a single card.", schema: IdeationOutput, generate: generateIdeationRoute },
+  ideationSlate: { route: "ideationSlate", description: "The 6–12 names, archetypes and one-line angles of an ideation set, drafted by the ideation mock for the same prompt.", schema: IdeationSlateOutput, generate: generateIdeationSlate },
   logoDesigner: { route: "logoDesigner", description: "N distinct geometric logo marks as SVG on a 100 × 100 tile, in the brand colours; never a shield, badge, star or ball.", schema: LogoDesignOutput, generate: generateLogoDesigner },
   foundations: { route: "foundations", description: "Vision, Tiptap content for every outline section and a Now/Next/Later roadmap from the idea or the Import report; imported issues become roadmap items; figures labelled.", schema: FoundationsOutput, generate: generateFoundations },
+  foundationsSkeleton: { route: "foundationsSkeleton", description: "The foundations vision, a one-sentence thesis per outline section and the roadmap's titles and horizons, from the foundations mock for the same brief.", schema: FoundationsSkeletonOutput, generate: generateFoundationsSkeleton },
   skillGrader: { route: "skillGrader", description: "Rubric grading 0–1 per line; deterministic checks are authoritative.", schema: SkillGradeOutput, generate: generateSkillGrader },
   coach: { route: "coach", description: "Up to 3 instruction diffs for the focus skills; never weakens house rules.", schema: CoachOutput, generate: generateCoach },
   worker: { route: "worker", description: "Generic Sonnet worker: a stepwise plan and artefact list for a task.", schema: WorkerOutput, generate: generateWorker },
-  journeyCommentary: { route: "journeyCommentary", description: "Match Day commentary: one line per touch, entities linked from the manifest.", schema: CommentaryOutput, generate: generateJourneyCommentary },
+  journeyCommentary: { route: "journeyCommentary", description: "Customer Update narration: one line per touch, entities linked from the manifest.", schema: CommentaryOutput, generate: generateJourneyCommentary },
   nightlyBatch: { route: "nightlyBatch", description: "Nightly batch job summary with one result per item.", schema: NightlyBatchOutput, generate: generateNightlyBatch },
   linker: { route: "linker", description: "Proper-noun sweep: exact → alias → fuzzy against the manifest; ambiguous and unknown flagged.", schema: LinkerOutput, generate: generateLinker },
   classifier: { route: "classifier", description: "Picks one of the supplied labels by keyword overlap with a confidence.", schema: ClassifierOutput, generate: generateClassifier },
   categoriser: { route: "categoriser", description: "Bank transactions → standard chart of accounts with the rule that fired.", schema: CategoriserOutput, generate: generateCategoriser },
   quarantinedReader: { route: "quarantinedReader", description: "Extracts only the requested fields from untrusted content; instructions inside the content are ignored.", schema: QuarantinedReaderOutput, generate: generateQuarantinedReader },
   moderation: { route: "moderation", description: "Honest-agent and marketing-law pre-send check with flags and an allow/block verdict.", schema: ModerationOutput, generate: generateModeration },
+  conversation: { route: "conversation", description: "A reply at the agent's desk: 1-3 bubbles in its voice quoting only figures from the inputs, a hand-off for instructions (never a claim that anything was done), 2-4 quick replies by subject.", schema: AgentReplyOutput, generate: generateConversation },
 };
 
 export interface MockRouteInfo {
@@ -109,8 +119,10 @@ export interface MockModelClientOptions {
   logger?: ModelLogger;
   /** Replace the generator for a route (tests, scenario fixtures, recorded sessions). */
   overrides?: Partial<Record<RouteKey, MockGenerator>>;
-  /** Simulated latency per call in ms (default 0). */
+  /** Simulated latency per call in ms (default 0): the whole wait of `complete()`, the time to first token of a stream. */
   latencyMs?: number;
+  /** Simulated writing time per streamed element in ms (default 0). `createModelClient` reads MOCK_MODEL_STREAM_MS. */
+  streamElementMs?: number;
   /** Simulated latency jitter in ms (default 0). */
   latencyJitterMs?: number;
   /** Fail a route with this error on every call (for resilience tests). */
@@ -135,6 +147,81 @@ export class MockModelClient implements ModelClient {
   complete(req: CompleteRequest<unknown> & { schema?: undefined }): Promise<CompleteResult<unknown>>;
   async complete<T = unknown>(req: CompleteRequest<T>): Promise<CompleteResult<T>> {
     const started = Date.now();
+    // Like the live client: an aborted request makes no call, and one aborted during the (simulated) wait answers nothing.
+    if (req.signal?.aborted) throw new ModelAbortedError();
+    const out = this.produce(req);
+    const latency = (this.opts.latencyMs ?? 0) + (this.opts.latencyJitterMs ? Math.round(out.rng.next() * this.opts.latencyJitterMs) : 0);
+    if (latency > 0) await this.sleep(latency);
+    if (req.signal?.aborted) throw new ModelAbortedError();
+    const durationMs = Math.max(latency, Date.now() - started);
+    await this.emitUsage(req, out.usage, out.cost, durationMs, 0);
+
+    return {
+      text: out.text,
+      json: out.json,
+      usage: out.usage,
+      model: out.resolution.modelId,
+      modelKey: out.resolution.modelKey,
+      route: req.route,
+      stopReason: "end_turn",
+      cost: sumMeters([out.cost], out.resolution.modelId),
+      mode: "mock",
+      durationMs,
+      repaired: out.repaired,
+      warning: out.resolution.warning,
+    };
+  }
+
+  /**
+   * Streamed structured output with the same contract as the live client. The deterministic fixture is serialised and
+   * fed through the same scanner and repair logic; `latencyMs` passes before the first character and `streamElementMs`
+   * before each element completes (both 0 by default, so tests and e2e see every element at once, in order).
+   */
+  async streamStructured<T, E>(req: StreamStructuredRequest<T, E>): Promise<StreamStructuredResult<T, E>> {
+    const resolution = resolveModel(req.route, req.modelOverride);
+    return runStructuredStream(req, {
+      mode: "mock",
+      modelId: resolution.modelId,
+      modelKey: resolution.modelKey,
+      warning: resolution.warning,
+      maxTokens: req.maxTokens ?? 4096,
+      logger: this.opts.logger,
+      streamCall: (args) => this.streamCall(req, args),
+      complete: (r) => this.complete(r),
+    });
+  }
+
+  private async streamCall<T, E>(req: StreamStructuredRequest<T, E>, args: StreamCallArgs): Promise<StreamCallResult> {
+    const started = Date.now();
+    const { elementPath, elementSchema: _e, onElement: _o, onPartial: _p, partialThrottleMs: _t, ...rest } = req;
+    const out = this.produce({ ...rest, messages: args.messages });
+    const text = out.text;
+    const latency = (this.opts.latencyMs ?? 0) + (this.opts.latencyJitterMs ? Math.round(out.rng.next() * this.opts.latencyJitterMs) : 0);
+    const perElement = this.opts.streamElementMs ?? 0;
+    const abortIfNeeded = () => {
+      if (req.signal?.aborted) throw new ModelAbortedError();
+    };
+    abortIfNeeded();
+    if (latency > 0) await this.sleep(latency);
+    abortIfNeeded();
+    // Cut the text where each element ends so every element "arrives" in its own delta, after its writing time.
+    const ends = new JsonElementScanner({ path: elementPath }).feed(text).map((el) => el.end);
+    let at = 0;
+    const firstCut = Math.min(text.length, ends.length > 0 ? Math.max(1, Math.floor((ends[0] as number) / 2)) : text.length);
+    for (const cut of [firstCut, ...ends, text.length]) {
+      if (cut <= at) continue;
+      if (perElement > 0 && cut !== firstCut && cut !== text.length) await this.sleep(perElement);
+      abortIfNeeded();
+      await args.onText(text.slice(at, cut));
+      at = cut;
+    }
+    const durationMs = Math.max(latency + perElement * ends.length, Date.now() - started);
+    await this.emitUsage(req, out.usage, out.cost, durationMs, args.call, true);
+    return { text, stopReason: "end_turn", usage: out.usage, cost: out.cost };
+  }
+
+  /** The deterministic output for a request (no waiting, no usage event). */
+  private produce<T>(req: CompleteRequest<T>) {
     this.history.push(req as CompleteRequest);
     const failure = this.opts.failWith?.[req.route];
     if (failure) throw failure;
@@ -178,10 +265,12 @@ export class MockModelClient implements ModelClient {
 
     const usage = this.estimateUsage(req, text);
     const cost = meter(usage, resolution.modelId);
-    const latency = (this.opts.latencyMs ?? 0) + (this.opts.latencyJitterMs ? Math.round(rng.next() * this.opts.latencyJitterMs) : 0);
-    if (latency > 0) await this.sleep(latency);
-    const durationMs = Math.max(latency, Date.now() - started);
+    return { resolution, rng, json, text, repaired, usage, cost };
+  }
 
+  private async emitUsage(req: Pick<CompleteRequest, "route" | "modelOverride" | "scope" | "attribution">, usage: TokenUsage, cost: MeterResult, durationMs: number, attempt: number, streamed = false): Promise<void> {
+    if (!this.opts.onUsage) return;
+    const resolution = resolveModel(req.route, req.modelOverride);
     const event: UsageEvent = {
       route: req.route,
       model: resolution.modelId,
@@ -193,24 +282,10 @@ export class MockModelClient implements ModelClient {
       attribution: req.attribution,
       durationMs,
       occurredAt: new Date().toISOString(),
-      attempt: 0,
+      attempt,
+      ...(streamed ? { streamed } : {}),
     };
-    if (this.opts.onUsage) await this.opts.onUsage(event);
-
-    return {
-      text,
-      json,
-      usage,
-      model: resolution.modelId,
-      modelKey: resolution.modelKey,
-      route: req.route,
-      stopReason: "end_turn",
-      cost: sumMeters([cost], resolution.modelId),
-      mode: "mock",
-      durationMs,
-      repaired,
-      warning: resolution.warning,
-    };
+    await this.opts.onUsage(event);
   }
 
   /** Token estimate: chars/4. With `cacheSystem`, a repeated system prompt is counted as a cache read. */
@@ -247,8 +322,8 @@ export { buildMockContext, extractJsonValues, normaliseManifest, agentsFrom, num
 export { synthesizeFromZod, synthesizeFromJsonSchema } from "./synth";
 export { compilePlanRuleBased, detectAmounts, detectChannels, detectHardGates, detectAudience, detectTimeframe, inferTaskKind, type PlanCompilerContext, type HardGate, type DetectedAmount } from "./planCompiler";
 export { generateInboxComposer } from "./inboxComposer";
-export { generateIdeation } from "./ideation";
-export { generateLogoDesigner, MOCK_LOGO_FAMILIES } from "./logoDesigner";
+export { generateIdeation, generateConceptCard, generateIdeationRoute, type MockCardSpec } from "./ideation";
+export { generateLogoDesigner, MOCK_LOGO_DIRECTION_FAMILIES, MOCK_LOGO_FAMILIES } from "./logoDesigner";
 export { generateFoundations } from "./foundations";
 export { generateChiefOfStaff, readTasks, scoreTask } from "./chiefOfStaff";
 export { generateDepartmentLead } from "./departmentLead";
@@ -262,3 +337,4 @@ export { generateClassifier, generateCategoriser } from "./classifier";
 export { generateQuarantinedReader, sanitise as sanitiseUntrusted, requestedFields } from "./quarantinedReader";
 export { generateModeration } from "./moderation";
 export { generateWorker, generateNightlyBatch } from "./worker";
+export { generateConversation } from "./conversation";

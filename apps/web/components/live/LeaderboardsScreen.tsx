@@ -9,7 +9,7 @@ import { ListOrdered, Trophy } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { DataTable, DeltaBadge, Panel, ShellLink, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
-import { routes } from "@foundmill/widgets";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { boardKindLabel, boardScope, boardTitle, describeMetric, formatMetricValue, periodLabel, positionLabel } from "@/lib/live";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";

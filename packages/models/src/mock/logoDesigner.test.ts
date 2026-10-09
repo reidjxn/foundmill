@@ -2,7 +2,7 @@ import { sanitiseSvg } from "@foundmill/shared/logo";
 import { describe, expect, it } from "vitest";
 import { resolveModel } from "../routing";
 import { LogoDesignOutput } from "../schemas";
-import { MockModelClient } from "./index";
+import { MOCK_LOGO_DIRECTION_FAMILIES, MockModelClient } from "./index";
 import { promptWith } from "./fixtures.test-helpers";
 
 const client = new MockModelClient();
@@ -49,5 +49,36 @@ describe("logo designer (mock)", () => {
     const thin = await run({ business_name: "" });
     expect(thin.json.marks).toHaveLength(4);
     expect(thin.json.marks.every((m) => sanitiseSvg(m.svg).ok)).toBe(true);
+  });
+});
+
+describe("logo designer (mock), one mark per direction", () => {
+  const directions = ["monogram", "geometric", "negative_space", "abstract"] as const;
+
+  it("draws exactly one clean mark per direction, and the four directions never repeat a family", async () => {
+    const marks = await Promise.all(directions.map((direction) => run({ ...brief, count: 1, direction }).then((r) => r.json.marks)));
+    for (const set of marks) expect(set).toHaveLength(1);
+    const flat = marks.map((m) => m[0]!);
+    expect(new Set(flat.map((m) => m.name)).size).toBe(4);
+    expect(new Set(flat.map((m) => m.svg)).size).toBe(4);
+    for (const m of flat) expect(sanitiseSvg(m.svg).ok, m.name).toBe(true);
+    // The monogram draws the initial in the dot matrix.
+    expect(flat[0]!.name).toBe("Dot matrix");
+  });
+
+  it("picks only from the direction's own families, whatever the round", async () => {
+    const byName: Record<string, string> = { "Dot matrix": "matrix", Orbit: "orbit", Corner: "corner", Arch: "arch", "Split disc": "split", Signal: "wave", Fold: "fold", Stack: "stack" };
+    for (const direction of directions) {
+      for (let round = 0; round < 6; round++) {
+        const r = await run({ ...brief, direction, round, count: 4 });
+        expect(r.json.marks).toHaveLength(1);
+        expect(MOCK_LOGO_DIRECTION_FAMILIES[direction]).toContain(byName[r.json.marks[0]!.name]);
+      }
+    }
+  });
+
+  it("ignores an unknown direction and draws a set", async () => {
+    const r = await run({ ...brief, direction: "heraldic" });
+    expect(r.json.marks).toHaveLength(4);
   });
 });

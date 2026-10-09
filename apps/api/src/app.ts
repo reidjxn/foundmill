@@ -1,11 +1,13 @@
 /**
  * The Hono app (docs/ARCHITECTURE.md §13): `/health` (db + redis + temporal + composer reachability flags, never
- * throws), `/trpc/*` via tRPC's fetch adapter, CORS for the web origin(s) and localhost:3000, request logging with pino.
+ * throws), `/trpc/*` via tRPC's fetch adapter (gzip-compressed, streamed answers left alone), CORS for the web origin(s)
+ * and localhost:3000, request logging with pino.
  * `createApp(deps)` is pure so tests can boot it on an ephemeral port.
  */
 import { APP_NAME } from "@foundmill/config";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { Hono } from "hono";
+import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import type { ApiDeps } from "./context";
 import { createContextFactory } from "./context";
@@ -25,6 +27,20 @@ export function allowedOrigins(env: { APP_URL: string }): string[] {
     }
   }
   return [...origins];
+}
+
+/**
+ * True for a request whose answer streams: tRPC's `httpBatchStreamLink` (`trpc-accept: application/jsonl`, or the same in
+ * `accept`) and subscriptions over Server-Sent Events. Those answers are never compressed: a compressor holds each chunk
+ * back until it has a full block or the stream ends, so the first results would wait for the slowest.
+ */
+export function isStreamingRequest(headers: Headers): boolean {
+  if (headers.get("trpc-accept")?.trim() === "application/jsonl") return true;
+  const accept = headers.get("accept") ?? "";
+  return accept.split(",").some((t) => {
+    const type = t.split(";")[0]?.trim();
+    return type === "application/jsonl" || type === "text/event-stream";
+  });
 }
 
 export function createApp(deps: ApiDeps) {
@@ -78,6 +94,12 @@ export function createApp(deps: ApiDeps) {
       time: new Date().toISOString(),
     });
   });
+
+  // tRPC answers are JSON and shrink 5–10× with gzip (or deflate, whichever the client accepts). Hono's compress also
+  // skips any answer that already sets Transfer-Encoding (tRPC's streamed batches) or is text/event-stream; streamed
+  // requests are skipped up front as well, so a stream is never buffered.
+  const compressJson = compress({ threshold: 1024 });
+  app.use("/trpc/*", (c, next) => (isStreamingRequest(c.req.raw.headers) ? next() : compressJson(c, next)));
 
   // tRPC's fetch adapter, not @hono/trpc-server: that adapter overwrites the context's `env` with Hono's bindings
   // (`c.env`, the Node request and response), so every `ctx.env` read over HTTP came back undefined.

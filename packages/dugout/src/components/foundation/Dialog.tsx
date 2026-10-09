@@ -10,16 +10,10 @@ export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogPortal = DialogPrimitive.Portal;
 export const DialogClose = DialogPrimitive.Close;
 
-/** Backdrop per DESIGN §3: rgba(15,19,24,0.72) with a 2 px blur. */
+/** Backdrop (DESIGN §3): the canvas at 66 % over a 6 px blur, fading with the dialog. */
 export const DialogOverlay = forwardRef<ElementRef<typeof DialogPrimitive.Overlay>, ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>>(
   function DialogOverlay({ className, ...props }, ref) {
-    return (
-      <DialogPrimitive.Overlay
-        ref={ref}
-        className={cn("fixed inset-0 z-50 bg-backdrop backdrop-blur-dialog data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out", className)}
-        {...props}
-      />
-    );
+    return <DialogPrimitive.Overlay ref={ref} className={cn("backdrop-motion fixed inset-0 z-50 bg-backdrop backdrop-blur-dialog", className)} {...props} />;
   },
 );
 
@@ -32,6 +26,10 @@ export interface DialogContentProps extends ComponentPropsWithoutRef<typeof Dial
   hideClose?: boolean;
 }
 
+/**
+ * The dialog surface (DESIGN §3, §7): glass on r-lg with elev-3, centred, scaling .98 → 1 from its centre as it fades in
+ * (200 ms). The close button sits in the top-right corner; DialogHeader keeps its title clear of it.
+ */
 export const DialogContent = forwardRef<ElementRef<typeof DialogPrimitive.Content>, DialogContentProps>(function DialogContent(
   { className, children, size = "md", hideClose, ...props },
   ref,
@@ -42,9 +40,8 @@ export const DialogContent = forwardRef<ElementRef<typeof DialogPrimitive.Conten
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
-          "surface-overlay fixed left-1/2 top-1/2 z-50 max-h-[calc(100vh-4rem)] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden",
+          "surface-dialog overlay-motion fixed left-1/2 top-1/2 z-50 max-h-[calc(100vh-4rem)] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden",
           "flex flex-col text-body text-primary outline-none",
-          "data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out",
           SIZE[size],
           className,
         )}
@@ -54,9 +51,13 @@ export const DialogContent = forwardRef<ElementRef<typeof DialogPrimitive.Conten
         {hideClose ? null : (
           <DialogPrimitive.Close
             aria-label="Close"
-            className="absolute right-2 top-2 inline-flex size-6 items-center justify-center rounded-chip text-secondary hover:bg-white/6 hover:text-primary"
+            data-dialog-close
+            className={cn(
+              "absolute right-3 top-3 inline-flex size-control-sm items-center justify-center rounded-sm text-tertiary",
+              "transition-colors duration-hover ease-out hover:bg-white/8 hover:text-primary focus-ring",
+            )}
           >
-            <Icon icon={X} size="inline" />
+            <Icon icon={X} />
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Content>
@@ -64,27 +65,31 @@ export const DialogContent = forwardRef<ElementRef<typeof DialogPrimitive.Conten
   );
 });
 
-/** 32 px raised header with the title in display-sm and a hairline underneath. */
+/**
+ * The title block on the dialog's own glass (no band). Its first line (the title) keeps 29 px clear on the right, so a
+ * long or wrapping title never runs under the close button; the description below it uses the full width.
+ */
 export function DialogHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex min-h-panel-header flex-col gap-0.5 border-b border-subtle bg-panel-alt px-3 py-2", className)} {...props} />;
+  return <div data-dialog-header className={cn("flex min-h-panel-header flex-col gap-1 px-gutter pb-2 pt-gutter [&>:first-child]:pr-9", className)} {...props} />;
 }
 
 export function DialogBody({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex-1 overflow-y-auto bg-panel p-3", className)} {...props} />;
+  return <div className={cn("flex-1 overflow-y-auto px-gutter py-3", className)} {...props} />;
 }
 
+/** Actions, right-aligned on a darker strip under a hairline. */
 export function DialogFooter({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex items-center justify-end gap-2 border-t border-subtle bg-panel-alt px-3 py-2", className)} {...props} />;
+  return <div className={cn("flex flex-wrap items-center justify-end gap-2 border-t border-line-faint bg-black/15 px-gutter py-3", className)} {...props} />;
 }
 
 export const DialogTitle = forwardRef<ElementRef<typeof DialogPrimitive.Title>, ComponentPropsWithoutRef<typeof DialogPrimitive.Title>>(
   function DialogTitle({ className, ...props }, ref) {
-    return <DialogPrimitive.Title ref={ref} className={cn("t-display-sm text-primary", className)} {...props} />;
+    return <DialogPrimitive.Title ref={ref} className={cn("t-display-sm text-balance text-primary", className)} {...props} />;
   },
 );
 
 export const DialogDescription = forwardRef<ElementRef<typeof DialogPrimitive.Description>, ComponentPropsWithoutRef<typeof DialogPrimitive.Description>>(
   function DialogDescription({ className, ...props }, ref) {
-    return <DialogPrimitive.Description ref={ref} className={cn("text-small text-secondary", className)} {...props} />;
+    return <DialogPrimitive.Description ref={ref} className={cn("text-small text-pretty text-secondary", className)} {...props} />;
   },
 );

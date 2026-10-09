@@ -9,21 +9,27 @@ export interface ProgressRingProps extends Omit<SVGAttributes<SVGSVGElement>, "w
   size?: number;
   strokeWidth?: number;
   label?: string;
-  /** Ring colour via currentColor; default inherits. Track is the hairline token. */
+  /** Ring colour via currentColor; default inherits. The track is a strong hairline. */
   tone?: "current" | "kit" | "good" | "warn" | "bad" | "gold";
+  /** A soft glow in the ring's colour: for a running process (a light source), never a static figure. */
+  glow?: boolean;
 }
 
 const TONE: Record<NonNullable<ProgressRingProps["tone"]>, string> = {
   current: "",
-  kit: "text-kit-primary",
+  kit: "text-kit-lift",
   good: "text-status-good",
   warn: "text-status-warn",
   bad: "text-status-bad",
   gold: "text-gold",
 };
 
-/** A circular progress indicator. Exposes role=progressbar with aria-valuenow (percent). */
-export function ProgressRing({ value, indeterminate, size = 16, strokeWidth = 2, label = "Progress", tone = "current", className, ...rest }: ProgressRingProps) {
+/**
+ * A circular progress indicator (DESIGN §8): a strong-hairline track, a round-capped arc in its tone that eases to each
+ * new value. Exposes role=progressbar with aria-valuenow (percent). Under reduced motion the indeterminate arc rests.
+ * Server-safe.
+ */
+export function ProgressRing({ value, indeterminate, size = 16, strokeWidth = 2, label = "Progress", tone = "current", glow, className, ...rest }: ProgressRingProps) {
   const r = (size - strokeWidth) / 2;
   const c = 2 * Math.PI * r;
   const v = indeterminate || value === undefined ? undefined : Math.max(0, Math.min(1, value));
@@ -40,10 +46,11 @@ export function ProgressRing({ value, indeterminate, size = 16, strokeWidth = 2,
       width={size}
       height={size}
       viewBox={`0 0 ${size} ${size}`}
-      className={cn("inline-block shrink-0 align-middle", TONE[tone], v === undefined && "animate-spin", className)}
+      data-glow={glow || undefined}
+      className={cn("inline-block shrink-0 align-middle", TONE[tone], v === undefined && "animate-spin", glow && "progress-glow", className)}
       {...rest}
     >
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" className="stroke-subtle" strokeWidth={strokeWidth} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" className="stroke-line-strong" strokeWidth={strokeWidth} />
       <circle
         cx={size / 2}
         cy={size / 2}
@@ -54,7 +61,7 @@ export function ProgressRing({ value, indeterminate, size = 16, strokeWidth = 2,
         strokeLinecap="round"
         strokeDasharray={`${dash} ${c - dash}`}
         transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        className="transition-[stroke-dasharray] duration-panel ease-dugout"
+        className="progress-arc"
       />
     </svg>
   );

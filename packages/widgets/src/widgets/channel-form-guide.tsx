@@ -6,7 +6,7 @@
 import { useMemo } from "react";
 import { z } from "zod";
 import { Megaphone } from "lucide-react";
-import { CHANNEL_META, type ChannelKey } from "@foundmill/shared";
+import { CHANNEL_META, type ChannelKey } from "@foundmill/shared/constants";
 import { FormGuide, MiniTable, ProvenanceChip, RatingFigure, formatMoney, formatNumber, type FormCell, type MiniTableColumn } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";

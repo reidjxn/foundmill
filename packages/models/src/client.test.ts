@@ -227,7 +227,8 @@ describe("LiveModelClient.complete", () => {
     await c2.complete({ route: "classifier", messages: [{ role: "user", content: "go" }], temperature: 0.2, effort: "low" });
     expect(haiku.calls[0]!.body.temperature).toBe(0.2);
     expect(haiku.calls[0]!.body.model).toBe(MODELS.haiku);
-    expect((haiku.calls[0]!.body.output_config as { effort: string }).effort).toBe("low");
+    // Haiku 4.5 has no effort parameter: sending one would be a 400, so the client drops it.
+    expect(haiku.calls[0]!.body.output_config).toBeUndefined();
   });
 
   it("honours locked routes and surfaces the warning", async () => {

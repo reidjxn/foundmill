@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { RadioGroup, RadioGroupItem, RadioOption } from "./RadioGroup";
+import { Briefcase, Clock, Hourglass, Moon } from "lucide-react";
+import { RadioCard, RadioGroup, RadioGroupItem, RadioOption } from "./RadioGroup";
 
 const meta = {
   title: "Foundation/RadioGroup",
@@ -28,6 +29,21 @@ export const Horizontal: Story = {
           <RadioGroupItem value={m} /> {m}
         </label>
       ))}
+    </RadioGroup>
+  ),
+};
+
+/**
+ * Radio cards: the whole card is the target. Selected: an accent fill, a 55 % ring with a halo and glow, and the
+ * filled radio with its ink centre, so shape and colour both carry the state.
+ */
+export const Cards: Story = {
+  render: () => (
+    <RadioGroup defaultValue="full_time" aria-label="Time commitment" className="w-full grid-cols-4">
+      <RadioCard value="full_time" label="Full time" description="40 hours a week or more" icon={Briefcase} />
+      <RadioCard value="part_time" label="Part time" description="15 to 30 hours a week" icon={Clock} />
+      <RadioCard value="evenings" label="Evenings and weekends" description="Around 10 hours a week" icon={Moon} />
+      <RadioCard value="few_hours" label="A few hours a week" description="The team does most of the work" icon={Hourglass} />
     </RadioGroup>
   ),
 };
