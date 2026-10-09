@@ -3,8 +3,8 @@
  * Ideation is account-scoped and private (no business yet); every action creates an `idea_version` (AC-11.1.3).
  */
 import { repos, type IdeaWithVersion } from "@foundmill/db";
-import { IdeationOutput, type ConceptCard } from "@foundmill/models";
-import { ARCHETYPES, Archetype, BUSINESS_MODES, GAME_MODES, ValidationError } from "@foundmill/shared";
+import { IdeationOutput, ModelOutputError, type ConceptCard } from "@foundmill/models";
+import { AppError, ARCHETYPES, Archetype, BUSINESS_MODES, GAME_MODES, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { commitIdea, squadPreview } from "../services/commit";
 import { Id, protectedProcedure, router } from "../trpc";
@@ -56,6 +56,9 @@ async function founderBrief(ctx: { db: Parameters<typeof repos.founders.get>[0];
     : null;
 }
 
+/** Output budget for drafting concept cards: room for twelve full cards (about 1,000 tokens each) with margin. */
+export const IDEATION_MAX_TOKENS = 20_000;
+
 export const ideaRouter = router({
   list: protectedProcedure.input(z.object({ limit: z.number().int().min(1).max(100).default(50), cursor: z.string().nullish() }).optional()).query(({ ctx, input }) => repos.ideas.listForUser(ctx.db, ctx.userId, input ?? {})),
 
@@ -68,13 +71,20 @@ export const ideaRouter = router({
   /** Prompt (or empty = "surprise me within my constraints") → 6–12 concept cards (AC-11.1.2). */
   generate: protectedProcedure.input(z.object({ prompt: z.string().max(4000).default(""), archetypeHint: Archetype.optional() })).mutation(async ({ ctx, input }) => {
     const founder = await founderBrief(ctx);
-    const result = await ctx.models.complete({
-      route: "ideation",
-      schema: IdeationOutput,
-      system: "You are the Ideation agent. Draft 6-12 concept cards with 10 attributes (1-20) with evidence and at least 2 citations each, grounded in the founder's constraints.",
-      messages: [{ role: "user", content: "```json\n" + JSON.stringify({ prompt: input.prompt || "surprise me within my constraints", archetype_hint: input.archetypeHint ?? null, founder }) + "\n```" }],
-      attribution: { kind: "ideation" },
-    });
+    const result = await ctx.models
+      .complete({
+        route: "ideation",
+        schema: IdeationOutput,
+        // Twelve cards of ten scored attributes with evidence and citations run past the client's 4,096-token default.
+        maxTokens: IDEATION_MAX_TOKENS,
+        system: "You are the Ideation agent. Draft 6-12 concept cards with 10 attributes (1-20) with evidence and at least 2 citations each, grounded in the founder's constraints. Keep it tight: a pitch of at most 40 words, each attribute's evidence at most 25 words, each citation note at most 15 words.",
+        messages: [{ role: "user", content: "```json\n" + JSON.stringify({ prompt: input.prompt || "surprise me within my constraints", archetype_hint: input.archetypeHint ?? null, founder }) + "\n```" }],
+        attribution: { kind: "ideation" },
+      })
+      .catch((err: unknown) => {
+        if (err instanceof ModelOutputError && err.code === "max_tokens") throw new AppError("ideation_too_long", "The Ideation agent ran out of room before finishing the concepts. Try again, or narrow the brief.", 502);
+        throw err;
+      });
     const ideas: IdeaWithVersion[] = [];
     for (const card of result.json.concepts) {
       ideas.push(
