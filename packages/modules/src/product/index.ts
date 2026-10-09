@@ -33,3 +33,4 @@ export { ROADMAP_SUB_VIEWS } from "./RoadmapScreen";
 export type { SpecEditorProps, SpecEditorStatus } from "../env";
 export { specDocumentName } from "./spec/contract";
 export * from "./types";
+export { FoundationsBanner, VisionPanels, useFoundations, foundationsBasis, foundationsSummary, FOUNDATIONS_PATH, FOUNDATIONS_POLL_MS, type FoundationsBannerProps, type FoundationsQuery } from "./foundations";

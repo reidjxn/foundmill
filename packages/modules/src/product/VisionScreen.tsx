@@ -1,13 +1,16 @@
 "use client";
 /**
- * Product › Vision (BUILD §6.3, §11.5): the narrative sections of the spec read as one page, the pinned
- * (human-edited) blocks, the spec at a glance and what the squad is building now.
+ * Product › Vision (BUILD §6.3, §11.5): the business's vision (drafted on the first open with the specification and
+ * the roadmap: statement, who it is for, the problem, why now, principles, the north-star metric), the narrative
+ * sections of the spec read as one page, the pinned (human-edited) blocks, the spec at a glance and what the team is
+ * building now. While the foundations are drafting the tab says so and fills in when they are ready.
  */
 import { useMemo } from "react";
 import { BookOpen, Lock, Map as MapIcon } from "lucide-react";
 import { Chip, Markdown, Panel, StatusPill, formatDate, formatNumber, formatRelative } from "@foundmill/dugout";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
+import { FoundationsBanner, VisionPanels, useFoundations } from "./foundations";
 import { pmToText, pmWordCount } from "./prosemirror";
 import { computeRoadmapStatus, taskSummary } from "./roadmap-status";
 import { AuthorRef, Fact, PinnedChip, Screen, blockTitle, groupBySection } from "./shared";
@@ -22,6 +25,11 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
   const roadmap = useWidgetQuery<RoadmapResponse>("product.roadmap.list", {});
   const departments = useDepartments();
   useBusinessEvents(() => spec.refetch(), ["spec.version_published", "spec.proposal_created"]);
+  const foundations = useFoundations(() => {
+    spec.refetch();
+    roadmap.refetch();
+  });
+  const vision = foundations.data?.status === "ready" ? foundations.data.vision : null;
 
   const groups = useMemo(() => groupBySection(spec.data?.blocks ?? []), [spec.data]);
   const narrative = groups.filter((g) => (NARRATIVE_SECTIONS as readonly string[]).includes(g.section.toLowerCase()));
@@ -35,8 +43,10 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
 
   return (
     <Screen name="product/vision">
+      <FoundationsBanner foundations={foundations} />
+      {vision ? <VisionPanels vision={vision} /> : null}
       <Panel
-        title="Vision"
+        title={vision ? "From the specification" : "Vision"}
         span={8}
         loading={spec.isLoading}
         error={spec.error ? spec.error.message : undefined}

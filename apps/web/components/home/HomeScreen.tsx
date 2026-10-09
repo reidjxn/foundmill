@@ -36,6 +36,7 @@ import {
   type WidgetLayout,
   type WidgetPreset,
 } from "@foundmill/dugout";
+import { FoundationsBanner, useFoundations } from "@foundmill/modules";
 import { DASHBOARD_PRESET_LIST, fromGridLayout, prepareLayout, routes, toGridLayout, toScreenLayout, type DashboardPresetId } from "@foundmill/widgets";
 import { usePageShortcuts } from "@/lib/keys";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
@@ -201,6 +202,7 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
 
   return (
     <div className="flex min-h-full flex-col gap-gutter p-gutter" data-testid="home-screen" data-dashboard-id={row.id} data-dashboard-version={row.version} data-editing={editing || undefined}>
+      <HomeFoundations />
       <DayOne businessId={businessId} currency={currency} />
       <DashboardGrid
         key={row.id}
@@ -336,6 +338,19 @@ function DashboardGrid({ businessId, row, live, editable, editing, onEditingChan
       data-testid="home-grid"
     />
   );
+}
+
+/* ---------- Foundations ---------- */
+
+/**
+ * The vision, specification and roadmap a new business drafts on its first open (BUILD §11.1, §11.5): drafting, failed
+ * with Try again, or just ready with the way to the Vision tab. Nothing once they are settled, or for a business that
+ * has none (committed before foundations existed, or seeded). Ready brings the Product lead's note to the Inbox.
+ */
+function HomeFoundations() {
+  const queryClient = useQueryClient();
+  const foundations = useFoundations(() => void queryClient.invalidateQueries({ queryKey: trpcPathPrefix("inbox") as unknown[] }));
+  return <FoundationsBanner foundations={foundations} showReady />;
 }
 
 /* ---------- Day one ---------- */

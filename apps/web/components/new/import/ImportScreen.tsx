@@ -52,9 +52,10 @@ export function ImportScreen({ viewer }: ImportScreenProps) {
       viewer={viewer}
       runner={runner}
       continuing={generate.isPending}
-      onContinue={(report) =>
+      onContinue={(report, _configs, job) =>
         generate.mutate(
-          { prompt: reportToPrompt(report), archetypeHint: report.archetypeHint, single: true },
+          // The job id rides on the drafted idea so commit links the business to this import (its report and sources).
+          { prompt: reportToPrompt(report), archetypeHint: report.archetypeHint, single: true, importJobId: job.id },
           {
             onSuccess: (res) => {
               const first = res.ideas[0];
@@ -76,7 +77,8 @@ export function ImportScreen({ viewer }: ImportScreenProps) {
 export interface ImportFlowProps {
   viewer: { email: string | null };
   runner: ImportRunner;
-  onContinue: (report: ScoutingReport, configs: SourceConfig[]) => void;
+  /** Continue to Commit with the report; `job` is the Import job the business will be linked to at commit. */
+  onContinue: (report: ScoutingReport, configs: SourceConfig[], job: ImportJob) => void;
   continuing?: boolean;
   /** Milliseconds between `import.status` polls (tests pass 0). */
   pollMs?: number;
@@ -296,7 +298,7 @@ export function ImportFlow({ viewer, runner, onContinue, continuing, pollMs = DE
           <Button variant="ghost" icon={ArrowLeft} onClick={reset}>
             Change sources
           </Button>
-          <Button variant="primary" iconRight={ArrowRight} loading={continuing} onClick={() => onContinue(report, configs)} data-testid="continue-to-commit">
+          <Button variant="primary" iconRight={ArrowRight} loading={continuing} onClick={() => onContinue(report, configs, job)} data-testid="continue-to-commit">
             Continue to Commit
           </Button>
         </>

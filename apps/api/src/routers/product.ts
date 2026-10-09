@@ -24,7 +24,8 @@ export const productRouter = router({
     }),
     ensure: businessProcedure.mutation(async ({ ctx }) => {
       const result = await ensureFoundations({ db: ctx.db, models: ctx.models, temporal: ctx.temporal, log: ctx.log }, ctx.businessId, { userId: ctx.userId });
-      return { ...result.view, started: result.started, stale: false };
+      // Any member may trigger the drafting; the vision itself is read through `get` (product read permission).
+      return { ...result.view, vision: null, started: result.started, stale: false };
     }),
     retry: write.mutation(async ({ ctx }) => {
       const result = await retryFoundations({ db: ctx.db, models: ctx.models, temporal: ctx.temporal, log: ctx.log }, ctx.businessId, { userId: ctx.userId });
