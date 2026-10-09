@@ -811,3 +811,18 @@ The design changed too, because a department streamgraph has no axis and needs a
 ## 2026-10-08 — Widgets draw their own header; the grid adds none for framed widgets
 
 Every Home widget showed two titles: WidgetGrid wrapped each item in a panel with the registry title, and the widget's WidgetFrame drew its own panel and title with its actions. The widget's header is the one to keep (its title can carry data, such as "Leaderboard · …", and it holds the widget's chips), so registry entries gain `framed`: a framed widget is rendered bare, and in edit mode the grid's move, settings and remove controls float in the corner of the widget's header. Entries that are not framed (stories, an unknown widget) keep the grid's header and surface. The ribbon's hover card now loads a day's conversions on demand (`journey.roundup`, named) rather than the ribbon query carrying every conversion, which would mean tens of thousands of rows for two years.
+
+## 2026-10-08 — A code task's workspace is saved in the database after every session and restored at the next
+
+Each session ran in a fresh workspace that was deleted when it ended, and nothing carried the agent's files anywhere: GitHub is simulated on staging, and even the real GitHub connector can create a branch, open a pull request and merge one, but has no tool that writes files to a branch. A code task that took two sessions started from nothing the second time, and the founder could not see what was written.
+
+The orchestrator now keeps the work itself (migration 0013):
+
+- `workspace_blobs` holds each file's content once per business, addressed by sha256; `workspace_snapshots` holds one manifest per saved session (task, session, agent, branch, path/sha256/size per file, and what was added, changed or removed since the previous save). Both are tenant tables, readable by members and written only by the orchestrator's service role (`read_only` policy), with cross-tenant tests.
+- When a code session ends (in `finally`, before the workspace is removed) `saveWorkspace` reads the files the same way the acceptance run does (`readWorkspace`: single-link regular files through one O_NOFOLLOW descriptor each, no SDK HOME state, `node_modules` or `.git`, 2,000 files / 5 MB / 50 MB) and saves them; an unchanged workspace adds no row, and over a cap nothing is saved and the session note says why. A save never fails the session.
+- When a code session starts, `restoreWorkspace` writes the latest snapshot into the fresh workspace (paths checked again: relative, inside the workspace, never over SDK state; O_CREAT | O_EXCL | O_NOFOLLOW, mode 0600), tells the agent in its prompt that the task's earlier code is there, and posts a session note.
+- Development › Code (new tab after Pull requests; existing Development departments get it from the migration, later tabs move one place) lists tasks with saved code, every saved session, and each file in a read-only `CodeViewer` (`dev.code.list/files/file`; text up to 1 MB, binaries named, not shown).
+
+Database storage rather than object storage: there is no bucket on staging yet, workspaces are small (capped at 50 MB, deduplicated), and the rows inherit the tenancy and backups the rest of the data has. Pushing to the agent's branch (`agent/<taskId>`) stays the job of a GitHub "commit files" tool once the connector has one; the snapshots are what it will push.
+
+The DataTable's selected-row bar was a `<span>` inside `<tr>` (invalid HTML, a hydration error when a row is selected on the first render, as the Code tab does); it is now a `before:` pseudo-element on the row.

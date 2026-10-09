@@ -161,3 +161,49 @@ export interface WorkflowOutcome {
   workflowId?: string;
   reason?: string;
 }
+
+/* dev.code.list / files / file: the code agents wrote on code tasks, saved when each session ends (0013). */
+export interface CodeSnapshotSummary {
+  id: string;
+  taskId: string;
+  sessionId?: string | null;
+  agentId?: string | null;
+  branch?: string | null;
+  fileCount: number;
+  totalBytes: number;
+  added: number;
+  changed: number;
+  removed: number;
+  createdAt: Iso;
+}
+
+export interface CodeManifestEntry {
+  path: string;
+  sha256: string;
+  size: number;
+}
+
+export interface CodeTaskRow {
+  taskId: string;
+  title: string;
+  status: TaskStatus;
+  assigneeAgentId: string | null;
+  latest: CodeSnapshotSummary;
+  snapshots: number;
+}
+
+export interface CodeFilesResponse {
+  taskId: string;
+  branch: string;
+  snapshot: (CodeSnapshotSummary & { files: CodeManifestEntry[] }) | null;
+  history: CodeSnapshotSummary[];
+}
+
+export interface CodeFileResponse {
+  path: string;
+  size: number;
+  sha256: string;
+  binary: boolean;
+  truncated: boolean;
+  text: string | null;
+}

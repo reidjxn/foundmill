@@ -15,6 +15,7 @@ export * from "./data/RatingBar";
 export * from "./data/SkillGrid";
 export * from "./data/AttributeBars";
 export * from "./data/DiffView";
+export * from "./data/CodeViewer";
 export * from "./data/WidgetGrid";
 export * from "./data/MetricTile";
 export * from "./data/Lists";

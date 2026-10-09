@@ -29,6 +29,7 @@ import { emitEvent, systemActor } from "../events";
 import { applySessionEvent, initialProgress, type ProgressState } from "../progress";
 import { LoopDetector } from "./loop";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
+import { restoreWorkspace, saveWorkspace, type RestoredWorkspace } from "./workspace-store";
 import { syncWorkspaceToSandbox } from "./workspace-sync";
 import type { AgentSessionInput, SessionFinish, SessionLaunch, SessionResult } from "./types";
 
@@ -605,7 +606,19 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   // (never `process.env`), built-in tools by task kind only, and a path guard on every file-tool call. Deleted in `finally`.
   const cwd = await createSessionWorkspace(deps.env.ORCHESTRATOR_WORKSPACE_DIR, input.sessionId);
   const policy = sdkToolPolicyFor(task.kind, mcpToolNames(grants));
-  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? `Work on branch ${launch.branch} inside your working directory; it is the only place you can read or write files.` : "Keep every action inside the tools you were given; this task has no file access.", "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
+  // Code tasks pick up where the last session on the task left off (Development › Code keeps every session's files).
+  let restored: RestoredWorkspace | null = null;
+  if (policy.fileTools) {
+    try {
+      restored = await restoreWorkspace(deps.db, input.businessId, task.id, cwd);
+      if (restored.files > 0) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Restored ${restored.files} file${restored.files === 1 ? "" : "s"} (${Math.ceil(restored.bytes / 1024)} KB) saved by an earlier session on this task.` });
+    } catch (err) {
+      deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "workspace restore failed");
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: "The code saved for this task could not be restored; this session starts from an empty workspace." });
+    }
+  }
+  const continuing = restored && restored.files > 0 ? `Your working directory already holds this task's code from earlier sessions (${restored.files} file${restored.files === 1 ? "" : "s"}); read it and continue from it rather than starting again.` : "";
+  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? `Work on branch ${launch.branch} inside your working directory; it is the only place you can read or write files.` : "Keep every action inside the tools you were given; this task has no file access.", continuing, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
 
   const queue = new PromptQueue(input.sessionId);
   queue.push(taskPrompt);
@@ -751,11 +764,30 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     clearInterval(timer);
     cancel?.removeEventListener("abort", onCancel);
     queue.close();
+    // Keep the code whatever the outcome (done, stopped, failed): the workspace itself is deleted next.
+    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch }, cwd);
     try {
       await removeSessionWorkspace(cwd);
     } catch (err) {
       deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "session workspace cleanup failed");
     }
+  }
+}
+
+/** Save the session's code to the task and say so in the session stream; a failure to save never fails the session. */
+async function keepWorkspace(deps: OrchestratorDeps, recorder: SessionRecorder, owner: Parameters<typeof saveWorkspace>[1], cwd: string): Promise<void> {
+  const at = () => deps.clock.now().toISOString();
+  try {
+    const saved = await saveWorkspace(deps.db, owner, cwd);
+    if (saved.status === "refused") {
+      await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `This session's code was not saved: ${saved.reason}.` });
+    } else if (saved.status === "saved") {
+      const delta = [saved.added ? `${saved.added} added` : "", saved.changed ? `${saved.changed} changed` : "", saved.removed ? `${saved.removed} removed` : ""].filter(Boolean).join(", ");
+      await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Saved this task's code: ${saved.files} file${saved.files === 1 ? "" : "s"} (${Math.ceil(saved.bytes / 1024)} KB)${delta ? `, ${delta}` : ""}. Development › Code shows it.` });
+    }
+  } catch (err) {
+    deps.log.error({ err: (err as Error).message, sessionId: owner.sessionId }, "workspace save failed");
+    await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "error", text: "This session's code could not be saved." });
   }
 }
 

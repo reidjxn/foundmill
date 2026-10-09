@@ -170,3 +170,17 @@ export function truncate(s: string, max: number): string {
   const chars = Array.from(s);
   return chars.length <= max ? s : `${chars.slice(0, Math.max(0, max - 1)).join("").trimEnd()}…`;
 }
+
+/** File sizes, 1024-based: "812 B", "3.4 KB", "34 KB", "1.2 MB". */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const units = ["KB", "MB", "GB"];
+  let v = bytes / 1024;
+  let u = 0;
+  while (v >= 1024 && u < units.length - 1) {
+    v /= 1024;
+    u++;
+  }
+  return `${v < 10 ? v.toFixed(1).replace(/\.0$/, "") : Math.round(v)} ${units[u]}`;
+}

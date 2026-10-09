@@ -1,7 +1,8 @@
-// development module screens (BUILD §6.3, §11.6): Training Ground · Plan · Pull requests · Environments · Specialists.
+// development module screens (BUILD §6.3, §11.6): Live sessions · Plan · Pull requests · Code · Environments · Specialists.
 // Tab slugs and titles come from MODULE_TABS in @foundmill/shared; one file per screen in this folder.
 import { MODULE_TABS } from "@foundmill/shared";
 import { registerModule, type ModuleScreen } from "../registry";
+import { CodeScreen } from "./CodeScreen";
 import { EnvironmentsScreen } from "./EnvironmentsScreen";
 import { PlanScreen } from "./PlanScreen";
 import { PullRequestsScreen } from "./PullRequestsScreen";
@@ -12,6 +13,7 @@ const COMPONENTS: Record<string, ModuleScreen["Component"]> = {
   "training-ground": TrainingGroundScreen,
   plan: PlanScreen,
   "pull-requests": PullRequestsScreen,
+  code: CodeScreen,
   environments: EnvironmentsScreen,
   specialists: SpecialistsScreen,
 };
@@ -31,7 +33,7 @@ export const developmentScreens: ModuleScreen[] = MODULE_TABS.development.map((t
 });
 registerModule({ key: "development", screens: developmentScreens });
 
-export { TrainingGroundScreen, PlanScreen, PullRequestsScreen, EnvironmentsScreen, SpecialistsScreen };
+export { TrainingGroundScreen, PlanScreen, PullRequestsScreen, CodeScreen, EnvironmentsScreen, SpecialistsScreen };
 export { DevScreenOptionsProvider, useDevScreenOptions, type DevScreenOptions } from "./options";
 export type * as DevelopmentTypes from "./types";
 export { SHOUT_PRESET_LABELS, shoutInput, toGraphNodes } from "./TrainingGroundScreen";

@@ -4,7 +4,7 @@
  * per-session workspace is deleted whether the run succeeds or the SDK throws. The mock-sandbox path is untouched
  * (session.test.ts).
  */
-import { mkdir, mkdtemp, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { repos } from "@foundmill/db";
@@ -239,6 +239,41 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
     const tests = await readSessionEvents(t.redis, sessionId, { kinds: ["test_result"] });
     expect(tests.at(-1)?.event).toMatchObject({ kind: "test_result", acceptance: true, command: "pnpm test", passed: 3, failed: 0 });
     expect(provider.stopped).toBeGreaterThan(0);
+
+    // The code outlives the workspace: saved to the task, without the SDK's state, dependencies, git or links.
+    const saved = await repos.workspaces.latest(t.db, t.businessId, t.codeTaskId);
+    expect(saved?.files.map((f) => f.path)).toEqual(["package.json", "src/index.ts"]);
+    expect(saved).toMatchObject({ sessionId, agentId: t.workerId, added: 2 });
+    expect(allNotes.some((r) => r.event.kind === "note" && /Saved this task's code: 2 files \(\d+ KB\), 2 added\. Development › Code shows it\./.test(r.event.text))).toBe(true);
+  });
+
+  it("code task: the next session on the task starts from the saved code and is told so", async () => {
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = await acts.prepareSession(input);
+    let found = "";
+    let prompt = "";
+    script = async function* (call) {
+      const cwd = call.options.cwd as string;
+      found = await readFile(path.join(cwd, "src", "index.ts"), "utf8");
+      for await (const m of call.prompt as AsyncIterable<{ message: { content: string } }>) {
+        prompt = m.message.content;
+        break;
+      }
+      // The agent edits one file and adds another.
+      await writeFile(path.join(cwd, "src", "index.ts"), "export const ok = false;\n");
+      await writeFile(path.join(cwd, "README.md"), "# Notes\n");
+      yield* success(sessionId)();
+    };
+    await acts.runAgentSession(input, launch);
+    expect(found).toBe("export const ok = true;\n");
+    expect(prompt).toMatch(/already holds this task's code from earlier sessions \(2 files\)/);
+    const notes = await readSessionEvents(t.redis, sessionId, { kinds: ["note"] });
+    expect(notes.some((r) => r.event.kind === "note" && /^Restored 2 files .* saved by an earlier session on this task\.$/.test(r.event.text))).toBe(true);
+    const saved = await repos.workspaces.latest(t.db, t.businessId, t.codeTaskId);
+    expect(saved).toMatchObject({ sessionId, added: 1, changed: 1, removed: 0 });
+    expect(saved?.files.map((f) => f.path)).toEqual(["README.md", "package.json", "src/index.ts"]);
+    expect(await readdir(workspaceRoot)).toEqual([]);
   });
 
   it("code task: a failing acceptance run is recorded with its output", async () => {

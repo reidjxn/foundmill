@@ -107,7 +107,7 @@ HTTP (JSON), service-to-service auth with `SESSION_TOKEN_SECRET`-signed JWTs (`j
 
 - Temporal worker on task queue `TEMPORAL_TASK_QUEUE`. Workflows in `src/workflows/*.ts` (pure, bundled), activities in `src/activities/*.ts`.
 - `businessCycle(businessId)`: load brief → Chief of Staff plan (models) → dispatch `agentSession` children per task within concurrency/budget/rate capacity → collect → composer narrate → write `cycle.completed` → stop at time box.
-- `agentSession(agentId, taskId)`: mints a gateway session token, acquires a sandbox (`packages/sandbox`), runs the Claude Agent SDK (live) or the recorded replay (mock), streams to `as:{sessionId}`, writes `usage_ledger`, heartbeats, loop detection, pauses on `approval` signal.
+- `agentSession(agentId, taskId)`: mints a gateway session token, acquires a sandbox (`packages/sandbox`), runs the Claude Agent SDK (live) or the recorded replay (mock), streams to `as:{sessionId}`, writes `usage_ledger`, heartbeats, loop detection, pauses on `approval` signal. Code tasks start from the task's latest saved workspace and save it again when the session ends (`workspace_snapshots` / `workspace_blobs`, written by the orchestrator only; read on Development › Code).
 - Signals: `decision`, `shout`, `pause`, `resume`, `stop`, `founderSubmit`, `wake`. Queries: `progress`.
 - `apps/api` starts workflows through `@temporalio/client`; workflow ids are deterministic: `cycle:{businessId}:{n}`, `session:{sessionId}`, `engine:{channelId}`, `holiday:{holidayId}`.
 - When `TEMPORAL_ADDRESS` is unreachable in development, `pnpm dev` prints how to start `temporal server start-dev`.

@@ -14,3 +14,4 @@ export * from "./finance";
 export * from "./legal";
 export * from "./governance";
 export * from "./social";
+export * from "./workspaces";

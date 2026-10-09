@@ -15,6 +15,20 @@ import { SIGNALS, WORKFLOWS, workflowIds, type SignalName } from "../services/te
 import { Id, adminProcedure, audit, emit, router, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
 const read = sectionRead("development");
+
+/** Saved files are shown as text up to 1 MB; anything that is not UTF-8 (or holds NUL) is binary. */
+export const SAVED_FILE_TEXT_LIMIT = 1024 * 1024;
+export function decodeSavedFile(content: Uint8Array): { binary: boolean; truncated: boolean; text: string | null } {
+  const head = content.subarray(0, SAVED_FILE_TEXT_LIMIT);
+  if (head.includes(0)) return { binary: true, truncated: false, text: null };
+  try {
+    // A cut in the middle of a multi-byte character at the limit is not binary: decode leniently there.
+    const text = new TextDecoder("utf-8", { fatal: content.byteLength <= SAVED_FILE_TEXT_LIMIT }).decode(head);
+    return { binary: false, truncated: content.byteLength > SAVED_FILE_TEXT_LIMIT, text };
+  } catch {
+    return { binary: true, truncated: false, text: null };
+  }
+}
 const write = sectionWrite("development");
 
 /** Simulation names are connector catalogue keys (`payment.received`, `bank.sync`…); nothing else reaches the URL. */
@@ -236,6 +250,34 @@ export const devRouter = router({
       }),
     );
     return { ...result, label: "Simulated" as const };
+  }),
+
+  /** The code agents wrote on code tasks, kept after each session (0013 workspaces; written by the orchestrator). */
+  code: router({
+    /** Code tasks with saved work, the most recently saved first. */
+    list: read.query(({ ctx }) => ctx.rls((tx) => repos.workspaces.listTasks(tx, ctx.businessId))),
+
+    /** A task's saved files (the latest session's, or the one asked for) and every saved session, newest first. */
+    files: read.input(z.object({ taskId: Id, snapshotId: Id.optional() })).query(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const snapshot = input.snapshotId ? await repos.workspaces.getSnapshot(tx, ctx.businessId, input.snapshotId) : await repos.workspaces.latest(tx, ctx.businessId, input.taskId);
+        if (input.snapshotId && (!snapshot || snapshot.taskId !== input.taskId)) throw new NotFoundError("saved code", input.snapshotId);
+        const history = await repos.workspaces.listSnapshots(tx, ctx.businessId, input.taskId);
+        return { taskId: input.taskId, branch: agentBranch(input.taskId), snapshot, history };
+      }),
+    ),
+
+    /** One saved file as text (the first 1 MB), or marked binary. */
+    file: read.input(z.object({ snapshotId: Id, path: z.string().min(1).max(500) })).query(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const snapshot = await repos.workspaces.getSnapshot(tx, ctx.businessId, input.snapshotId);
+        const entry = snapshot?.files.find((f) => f.path === input.path);
+        if (!snapshot || !entry) throw new NotFoundError("saved file", input.path);
+        const [file] = await repos.workspaces.readFiles(tx, ctx.businessId, snapshot, [input.path]);
+        if (!file) throw new NotFoundError("saved file", input.path);
+        return { path: entry.path, size: entry.size, sha256: entry.sha256, ...decodeSavedFile(file.content) };
+      }),
+    ),
   }),
 
   prs: router({

@@ -35,6 +35,7 @@ import { socialRepo } from "./social";
 import { tasksRepo } from "./tasks";
 import { trainingRepo } from "./training";
 import { usageRepo } from "./usage";
+import { workspacesRepo } from "./workspaces";
 
 export const repos = {
   businesses: businessesRepo,
@@ -68,6 +69,7 @@ export const repos = {
   audit: auditRepo,
   events: eventsRepo,
   social: socialRepo,
+  workspaces: workspacesRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -106,3 +108,4 @@ export * from "./social";
 export * from "./tasks";
 export * from "./training";
 export * from "./usage";
+export * from "./workspaces";

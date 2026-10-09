@@ -56,7 +56,8 @@ export interface WorkspaceSyncResult {
 }
 
 const mb = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`;
-const isSdkHomeEntry = (name: string) => name.startsWith(SDK_HOME_PREFIX) || SDK_HOME_ARTIFACTS.includes(name);
+/** Whether a top-level workspace entry belongs to the SDK process rather than to the agent's work. */
+export const isSdkHomeEntry = (name: string) => name.startsWith(SDK_HOME_PREFIX) || SDK_HOME_ARTIFACTS.includes(name);
 const PROC_FD = existsSync("/proc/self/fd");
 
 /** Relative paths of every candidate file, sorted. Dirent types use lstat semantics: a symlink is never a file or a directory here. */

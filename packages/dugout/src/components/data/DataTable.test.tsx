@@ -114,7 +114,10 @@ describe("DataTable", () => {
     await user.click(screen.getByRole("checkbox", { name: "Select row 2" }));
     const row = bodyRows()[1] as HTMLElement;
     expect(row.getAttribute("aria-selected")).toBe("true");
-    expect(row.querySelector(".bg-kit-primary")).not.toBeNull();
+    // The edge is the row's own ::before (a <tr> holds cells only), so the row carries the class and no extra child.
+    expect(row.className).toContain("before:bg-kit-primary");
+    expect([...row.children].every((c) => c.getAttribute("role") === "gridcell" || c.tagName === "TD")).toBe(true);
+    expect((bodyRows()[0] as HTMLElement).className).not.toContain("before:bg-kit-primary");
     await user.click(screen.getByRole("checkbox", { name: "Select all rows" }));
     expect(bodyRows().every((r) => r.getAttribute("aria-selected") === "true")).toBe(true);
   });

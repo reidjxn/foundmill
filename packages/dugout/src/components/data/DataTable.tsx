@@ -738,17 +738,12 @@ export function DataTable<T>(props: DataTableProps<T>) {
           "relative flex w-full items-stretch border-b hairline-50 text-body text-primary select-none",
           index % 2 === 1 && "bg-white/2",
           "hover:bg-white/4",
-          selected && "bg-kit-primary/8",
+          // The selected-row bar is a pseudo-element: a <tr> may only hold cells, so no extra element here.
+          selected && "bg-kit-primary/8 before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:w-0.75 before:bg-kit-primary",
           focused && focusWithin && "outline-2 -outline-offset-2 outline-link",
           rowClassName?.(row.original),
         )}
       >
-        {selected ? (
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 left-0 w-0.75 bg-kit-primary"
-          />
-        ) : null}
         {row.getVisibleCells().map((cell, ci) => {
           const meta = cell.column.columnDef.meta;
           const numeric = !!meta?.numeric;
