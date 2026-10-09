@@ -148,6 +148,7 @@ describe("finaliseFoundations over the mock drafter", () => {
     for (const s of draft.sections) {
       expect(s.drafted, s.section).toBe(true);
       expect(s.content.type).toBe("doc");
+      expect(s.content.content[0]!.type, s.section).toBe("heading");
       expect(docText(s.content).length, s.section).toBeGreaterThan(20);
       expect(s.blockId).toBe(BLOCK(OUTLINE.indexOf(s.section) + 1));
     }
@@ -220,8 +221,10 @@ describe("finaliseFoundations over a hand-written answer", () => {
     expect(draft.sections).toHaveLength(OUTLINE.length);
     expect(draft.notes.missingSections).toEqual(OUTLINE.filter((s) => s !== "Problem" && s !== "Pricing"));
     expect(draft.notes.ignoredSections).toEqual(["Hiring plan"]);
-    expect(docText(draft.sections[0]!.content)).toBe("Accountants lose days.");
-    expect(docText(draft.sections.find((s) => s.section === "Pricing")!.content)).toBe("Charge €59 a month per practice (Estimate).");
+    // The block opens with a heading (its title); the model wrote none here, so it is the section name.
+    expect(docText(draft.sections[0]!.content)).toBe("Problem\nAccountants lose days.");
+    expect(draft.sections[0]!.content.content[0]).toEqual({ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Problem" }] });
+    expect(docText(draft.sections.find((s) => s.section === "Pricing")!.content)).toBe("Pricing\nCharge €59 a month per practice (Estimate).");
     expect(draft.sections.find((s) => s.section === "Data")!.drafted).toBe(false);
     expect(draft.vision.northStar.target).toBe("40 paying practices in six months (Forecast)");
     expect(draft.openQuestions[0]).toBe("Who signs the first contract?");

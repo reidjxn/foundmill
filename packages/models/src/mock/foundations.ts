@@ -85,7 +85,8 @@ function readBrief(ctx: MockContext): Brief {
   const pitch = str(pick(idea, "pitch")) ?? str(pick(report, "summary")) ?? `${name} is a ${ARCHETYPE_LABELS[archetype]} business.`;
   const helps = /helps\s+(.+?)\s+(cut|see|stop|get|replace|turn|prove|run|find|keep|save|ship|sell|book|learn|reach)\s+([^.,;]+)/i.exec(pitch);
   const audience = helps ? helps[1]!.trim() : DEFAULT_AUDIENCE[archetype];
-  const outcome = helps ? `${helps[2]!.toLowerCase()} ${helps[3]!.trim()}` : "get the result they came for with less effort";
+  // "… helps X get to a first customer through a narrow workflow, built around …": the outcome stops at "through".
+  const outcome = helps ? `${helps[2]!.toLowerCase()} ${helps[3]!.split(/\s+(?:through|by|with|using)\s+/)[0]!.trim()}` : "get the result they came for with less effort";
   const markets = strings(pick(founder, "target_markets", "targetMarkets"));
   const attributes = records(pick(idea, "attributes"))
     .map((a) => ({ label: str(a.label) ?? str(a.key) ?? "", value: typeof a.value === "number" ? a.value : 10, evidence: str(a.evidence) }))
@@ -144,7 +145,7 @@ function sectionDoc(section: string, b: Brief): TiptapDoc {
   if (key.includes("non-functional") || key.includes("nonfunctional"))
     return doc(bullets(["Pages answer within one second for a normal account", "Customer data stays in the EU and is encrypted at rest", "Keyboard access and readable contrast on every screen", "Every action an agent takes is logged and reversible where possible"]));
   if (key === "data" || key.startsWith("data"))
-    return doc(text("The product keeps only what the workflow needs."), bullets(["Accounts, members and their roles", "The records the core workflow creates, with their history", "Usage events for the north-star metric"]));
+    return doc(text("The product keeps only what the workflow needs, stores it in the EU and deletes it when a customer leaves."), bullets(["Accounts, members and their roles", "The records the core workflow creates, with their history", "Usage events for the north-star metric"]));
   if (key.includes("integration"))
     return doc(bullets([...(b.imported && b.exists.some((e) => /github/i.test(e)) ? ["GitHub: the existing repository is the starting point for Development"] : []), "Stripe for payments (test mode until the founder approves going live)", "Email for sign-up, receipts and the weekly summary"]));
   if (key.includes("pric"))
@@ -153,7 +154,7 @@ function sectionDoc(section: string, b: Brief): TiptapDoc {
     const target = Math.round((ns.range[0] + ns.range[1]) / 2);
     return doc(lead("North star:", `${ns.metric}. ${ns.definition}`), bullets([`Target: ${target} ${ns.unit} by the end of the second chapter (Forecast)`, "Activation rate of new accounts in their first week", "Cost per paying customer by channel"]));
   }
-  if (key.includes("risk")) return doc(bullets(b.risks.slice(0, 4)));
+  if (key.includes("risk")) return doc(bullets([...b.risks.slice(0, 4), "Cash: spending before the first paying customer shortens the runway, so every spend above the approval threshold waits for the founder"]));
   if (key.includes("onboarding") || key.includes("activation")) return doc(text("Activation is the first time a new user completes the core workflow."), bullets(["Ask for the minimum at sign-up", "Show progress towards the first result", "Nudge once by email if the user stops halfway"]));
   if (key.includes("retention")) return doc(bullets(["The weekly summary brings users back", "Saved work makes the second session faster than the first", "Streaks are never used to pressure the user"]));
   if (key.includes("supply")) return doc(text("Supply is recruited by hand first, then through referrals."), bullets(["Verified profiles before the first listing goes live", "Fair, visible fees"]));
@@ -161,11 +162,52 @@ function sectionDoc(section: string, b: Brief): TiptapDoc {
   if (key.includes("matching") || key.includes("trust")) return doc(bullets(["Payment held until both sides confirm", "A dispute route with a clear deadline", "Identity checks for providers"]));
   if (key.includes("formulation") || key.includes("bom")) return doc(text("The first formulation and bill of materials are agreed with a contract manufacturer."), bullets(["Every component has a supplier quote or is marked Estimate", "Two suppliers for each critical component"]));
   if (key.includes("manufactur")) return doc(bullets(["Samples before the first production run", "A minimum order quantity the budget can carry", "Quality checks agreed in writing"]));
-  if (key.includes("packag")) return doc(bullets(["Packaging that survives the post", "Labels that meet the rules of every target market"]));
+  if (key.includes("packag")) return doc(bullets(["Packaging that survives the post without a second box", "Labels that meet the rules of every target market, checked before printing", "Recyclable materials where the unit cost allows it"]));
   if (key.includes("complian")) return doc(bullets(["List the regulations per target market before launch", "Keep test reports and declarations with their dates"]));
-  if (key.includes("fulfil")) return doc(bullets(["One fulfilment partner at launch", "Delivery promise shown at checkout"]));
+  if (key.includes("fulfil")) return doc(bullets(["One fulfilment partner at launch, chosen on quotes the founder approves", "The delivery promise is shown at checkout", "Returns are accepted for thirty days"]));
   if (key.includes("firmware") || key.includes("app")) return doc(bullets(["Updates over the air with a rollback", "The app works offline and syncs later"]));
   return doc(text(`What ${b.name} needs for ${section.toLowerCase()} at launch.`), bullets(["Decide the minimum for the first customer", "List the open questions as research tasks"]));
+}
+
+/** A lead sentence for sections that are otherwise only a list, so every section reads as prose first. */
+function introFor(section: string, b: Brief): string {
+  const key = section.toLowerCase();
+  const intros: [RegExp, string][] = [
+    [/non-?functional/, `The bar ${b.name} holds from the first release, before any feature counts as done.`],
+    [/integration/, `Every integration runs through the platform gateway with ${b.name}'s own credentials, and none is required before the first paying customer.`],
+    [/risk/, "The risks the team watches from day one, each with the evidence that would retire it."],
+    [/retention/, "Customers come back when the product keeps paying off after the first week."],
+    [/matching|trust/, "Both sides need to trust a stranger before the first transaction can happen."],
+    [/manufactur/, "Production starts small and only after the samples pass the founder's review."],
+    [/packag/, "Packaging protects the product in transit and carries the information the law requires."],
+    [/complian/, "Compliance work that must be finished before the first sale; the founder signs where the law requires a person."],
+    [/fulfil/, "How an order reaches the customer, and what the customer is promised at checkout."],
+    [/firmware|app/, "The device and the app ship together and are updated together."],
+  ];
+  return intros.find(([re]) => re.test(key))?.[1] ?? `What ${b.name} commits to for ${section.toLowerCase()} in the first release, and what is still open.`;
+}
+
+/** A short block title per section (the prompt asks every section to open with one). */
+function titleFor(section: string, b: Brief): string {
+  const key = section.toLowerCase();
+  const titles: [RegExp, string][] = [
+    [/problem/, "The problem today"],
+    [/customer/, "Who buys first"],
+    [/value/, `Why ${b.name}`],
+    [/feature/, "The first release"],
+    [/non-?functional/, "The quality bar"],
+    [/^data/, "What we keep"],
+    [/integration/, "What we connect to"],
+    [/pric/, "Starting price"],
+    [/metric/, "How progress is measured"],
+    [/risk/, "What could go wrong"],
+    [/onboarding|activation/, "From sign-up to first result"],
+    [/retention/, "Why customers come back"],
+    [/fulfil/, "Getting it to customers"],
+    [/manufactur/, "Making it"],
+    [/formulation|bom/, "Formulation and parts"],
+  ];
+  return titles.find(([re]) => re.test(key))?.[1] ?? section;
 }
 
 function roadmapOf(b: Brief, outline: string[]): FoundationsRoadmapItem[] {
@@ -197,11 +239,15 @@ export function generateFoundations(ctx: MockContext): FoundationsOutput {
   const outline = outlineOf(ctx);
   const ns = NORTH_STAR[b.archetype];
   const target = ctx.rng.int(ns.range[0], ns.range[1]);
-  const sections: FoundationsSection[] = outline.map((section) => ({
-    section,
-    content: sectionDoc(section, b),
-    source_refs: [...(b.imported ? ["Import report"] : ["Concept card"]), ...(section.toLowerCase().includes("feature") ? b.seeds.slice(0, 4).map((s) => s.source).filter(Boolean) : [])],
-  }));
+  const sections: FoundationsSection[] = outline.map((section) => {
+    const body = sectionDoc(section, b).content;
+    const lead = body[0]?.type === "paragraph" ? [] : [text(introFor(section, b))];
+    return {
+      section,
+      content: { type: "doc", content: [heading(titleFor(section, b), 2), ...lead, ...body] } as TiptapDoc,
+      source_refs: [...(b.imported ? ["Import report"] : ["Concept card"]), ...(section.toLowerCase().includes("feature") ? b.seeds.slice(0, 4).map((s) => s.source).filter(Boolean) : [])],
+    };
+  });
   return {
     vision: {
       statement: truncate(`${b.name} exists so that ${b.audience} can ${b.outcome}.`, 600),

@@ -307,8 +307,11 @@ function cleanText(nodes: TiptapText[]): TiptapText[] {
   return nodes.map((t) => ({ ...t, text: t.text.replace(/\s+/g, " ") })).filter((t) => t.text.trim().length > 0);
 }
 
-/** Normalise a model document: collapse whitespace, drop empty nodes, label unlabelled figures. */
-export function finaliseDoc(doc: TiptapDoc, known: ReadonlySet<string>): { doc: TiptapDoc; labelled: number } {
+/**
+ * Normalise a model document: collapse whitespace, drop empty nodes, label unlabelled figures, and open with a heading
+ * (the block's title in the outline and on roadmap links; the section name when the model wrote none).
+ */
+export function finaliseDoc(doc: TiptapDoc, known: ReadonlySet<string>, section?: string): { doc: TiptapDoc; labelled: number } {
   let labelled = 0;
   const para = (p: TiptapParagraph): TiptapParagraph | null => {
     const content = cleanText(p.content);
@@ -330,7 +333,9 @@ export function finaliseDoc(doc: TiptapDoc, known: ReadonlySet<string>): { doc: 
       if (items.length) blocks.push({ ...b, content: items });
     }
   }
-  return { doc: { type: "doc", content: blocks.length ? blocks : [paragraph("Not drafted yet.")] }, labelled };
+  if (!blocks.length) blocks.push(paragraph("Not drafted yet."));
+  if (section && blocks[0]!.type !== "heading") blocks.unshift({ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: section }] });
+  return { doc: { type: "doc", content: blocks }, labelled };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -433,7 +438,7 @@ export function finaliseFoundations(output: z.output<typeof FoundationsOutput>, 
       missingSections.push(o.section);
       return { section: o.section, blockId: o.blockId, content: { type: "doc", content: [paragraph(`Not drafted yet: the inputs did not say enough about ${o.section.toLowerCase()}. It is listed in the open questions.`)] }, sourceRefs: [], drafted: false };
     }
-    const fin = finaliseDoc(found.content, known);
+    const fin = finaliseDoc(found.content, known, o.section);
     labelledFigures += fin.labelled;
     return { section: o.section, blockId: o.blockId, content: fin.doc, sourceRefs: [...new Set(found.source_refs.map((r) => r.trim()).filter(Boolean))].slice(0, 16), drafted: true };
   });
