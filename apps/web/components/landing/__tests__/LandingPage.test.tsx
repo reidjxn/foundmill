@@ -2,8 +2,9 @@
 import { act, render, screen, within } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
 import { describe, expect, it, vi } from "vitest";
-import { APP_TAGLINE } from "@foundmill/config";
+import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
 import { TooltipProvider } from "@foundmill/dugout";
+import { MONOGRAM_HEIGHT, MONOGRAM_WIDTH } from "@foundmill/dugout/brand";
 import { LandingPage } from "../LandingPage";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
@@ -29,6 +30,19 @@ describe("LandingPage (signed-out /)", () => {
     const starts = screen.getAllByRole("link", { name: /Start your business/ });
     expect(starts.length).toBeGreaterThanOrEqual(2);
     for (const a of [...starts, ...screen.getAllByRole("link", { name: "Sign in" })]) expect(a.getAttribute("href")).toBe("/login");
+  });
+
+  it("anchors the header with the wordmark alone and never draws the FM monogram", () => {
+    const { container } = renderPage();
+    const home = screen.getByRole("link", { name: `${APP_NAME} home` });
+    expect(home.getAttribute("href")).toBe("/");
+    expect(home.querySelectorAll("svg")).toHaveLength(1);
+    expect(home.querySelector("svg")?.getAttribute("height")).toBe("20");
+    // The closing call to action has no mark above its headline either.
+    expect(container.querySelector("#start-title")?.previousElementSibling).toBeNull();
+    // FM is for the favicon only: no monogram glyph or tile anywhere on the page.
+    expect(container.querySelector(`svg[viewBox="0 0 ${MONOGRAM_WIDTH} ${MONOGRAM_HEIGHT}"]`)).toBeNull();
+    expect(container.querySelector("svg[data-variant]")).toBeNull();
   });
 
   it("has every section, reachable from the section nav", () => {

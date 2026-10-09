@@ -14,6 +14,13 @@ test.describe("landing page", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Build a real business with a team of AI agents.");
     await expect(page.getByRole("img", { name: /Your team: you at the centre/ })).toBeVisible();
 
+    // The header is anchored by the Foundmill wordmark alone; the FM monogram is the favicon only.
+    const home = page.getByRole("banner").getByRole("link", { name: "Foundmill home" });
+    await expect(home).toBeVisible();
+    await expect(home.locator("svg")).toHaveCount(1);
+    expect((await home.locator("svg").boundingBox())!.height).toBe(20);
+    await expect(page.locator("svg[data-variant]")).toHaveCount(0);
+
     // Section nav scrolls to each section.
     for (const [label, id] of [["How it works", "how"], ["Departments", "departments"], ["Live sessions", "live"], ["Channels", "channels"], ["You decide", "control"]] as const) {
       await page.getByRole("navigation", { name: "Sections" }).getByRole("link", { name: label }).click();

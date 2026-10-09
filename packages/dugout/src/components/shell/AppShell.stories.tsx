@@ -196,7 +196,7 @@ function Shell({ children, sidebar, tabs, rightRail, ...props }: Partial<AppShel
       onNavigate={navigate}
       viewportWidth={1440}
       {...props}
-      sidebar={{ items: sidebar?.items ?? NORTHWIND_SIDEBAR, activeId, collapsed, onCollapsedChange: setCollapsed }}
+      sidebar={{ items: sidebar?.items ?? NORTHWIND_SIDEBAR, activeId, collapsed, onCollapsedChange: setCollapsed, brand: sidebar?.brand ?? { href: "/" } }}
       tabs={tabs ? { tabs: tabs.tabs, activeId: tab, activeSubViewId: tab === "channels" ? "paid" : undefined, onChange: (id) => setTab(id) } : undefined}
       rightRail={rail}
     >

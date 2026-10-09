@@ -15,7 +15,7 @@ import { Sidebar } from "./Sidebar";
 import type { StopAllAgentsProps } from "./StopAllAgents";
 import { TabBar, type TabBarProps } from "./TabBar";
 import { departmentLetters, RESERVED_SECTION_LETTERS, useKeyboardMap, type GoToTarget, type KeyboardMapContext } from "./keyboard";
-import type { BreadcrumbItem, ContinueState, Kit, ProcessingSegment, SidebarItem } from "./types";
+import type { BreadcrumbItem, ContinueState, Kit, ProcessingSegment, SidebarBrand, SidebarItem } from "./types";
 import { isViewportTooSmall, MIN_VIEWPORT_WIDTH, useViewportWidth } from "./useViewportWidth";
 
 export interface AppShellSidebar {
@@ -24,6 +24,8 @@ export interface AppShellSidebar {
   collapsed: boolean;
   /** Persist the collapsed state (per user, per business). */
   onCollapsedChange: (collapsed: boolean) => void;
+  /** The Foundmill wordmark at the foot of the expanded sidebar (nothing when collapsed). Omit to draw none. */
+  brand?: SidebarBrand;
 }
 
 export interface AppShellContinue extends ContinueHandlers {
@@ -240,6 +242,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
           activeId={sidebar.activeId}
           collapsed={sidebar.collapsed}
           onCollapsedChange={sidebar.onCollapsedChange}
+          brand={sidebar.brand}
           showLive={mode === "live"}
           onSelect={(item) => {
             cancelChord();

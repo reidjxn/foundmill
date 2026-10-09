@@ -1,14 +1,14 @@
 "use client";
 /**
  * The frame for the signed-in screens outside a business (/onboarding, /new/*): a 56 px top bar with the Foundmill
- * marks (DESIGN §8a), the first-run steps as a trail, the viewer and Sign out; content on bg-base within a 1440 px
+ * wordmark (DESIGN §8a), the first-run steps as a trail, the viewer and Sign out; content on bg-base within a 1440 px
  * measure. No sidebar, no kit bar: there is no business yet, so no kit colours either.
  */
 import { Check } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { APP_NAME } from "@foundmill/config";
-import { Icon, LogoMark, Wordmark, cn } from "@foundmill/dugout";
+import { Icon, Wordmark, cn } from "@foundmill/dugout";
 import { LinkButton } from "./LinkButton";
 
 export type StudioStep = "profile" | "new" | "ideate" | "import" | "compare" | "commit";
@@ -55,9 +55,8 @@ export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, 
   return (
     <div className="flex min-h-screen flex-col bg-base text-primary" data-testid="studio-frame" data-step={step}>
       <header className="flex h-14 shrink-0 items-center gap-6 border-b border-subtle bg-panel px-gutter">
-        <Link href="/" className="flex items-center gap-3 text-primary hover:no-underline" aria-label={`${APP_NAME} home`}>
-          <LogoMark size={24} variant="tile" label={null} />
-          <Wordmark height={16} label={APP_NAME} />
+        <Link href="/" className="flex items-center text-primary hover:no-underline" aria-label={`${APP_NAME} home`}>
+          <Wordmark height={20} label={APP_NAME} />
         </Link>
         <nav aria-label="First-run steps" className="flex min-w-0 items-center gap-1">
           <ol className="flex items-center gap-1">

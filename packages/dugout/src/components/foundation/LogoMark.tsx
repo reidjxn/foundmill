@@ -34,8 +34,12 @@ export interface LogoMarkProps extends Omit<SVGAttributes<SVGSVGElement>, "width
 const DUO_FILL = "var(--kit-primary, var(--accent-link))";
 
 /**
- * The product mark: the "FM" monogram cut from the Foundmill wordmark (see `src/brand/marks.ts`).
- * Vector, fill `currentColor`, so it inherits the surrounding text colour and stays crisp at 16 px.
+ * The "FM" monogram cut from the Foundmill wordmark (see `src/brand/marks.ts`).
+ *
+ * Favicon and app icon ONLY (founder, 2026-10-09): the art of `apps/web/app/icon.svg`, `apple-icon.png` and
+ * `public/brand/*` derives from this component, which is why it stays in the design system and in Storybook. Never render
+ * it in the product UI (sidebar, headers, frames, landing page, empty states); the in-product brand is `<Wordmark>`.
+ * Vector, fill `currentColor`.
  */
 export function LogoMark({
   size = 24,

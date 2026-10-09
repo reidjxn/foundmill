@@ -39,6 +39,17 @@ export interface SidebarItem {
   disabled?: boolean;
 }
 
+/**
+ * The product wordmark at the foot of the sidebar (DESIGN §8a). It is not an item: it has no icon, and it is drawn only
+ * while the sidebar is expanded (the wordmark does not fit in 64 px, and the FM monogram is never used as an icon).
+ */
+export interface SidebarBrand {
+  /** Where the wordmark links (the app passes "/"). Rendered through the shell link renderer. */
+  href: string;
+  /** Accessible name of the link. Defaults to the product name. */
+  label?: string;
+}
+
 /** Continue button states (BUILD §5.4). */
 export type ContinueState =
   | { kind: "idle" }

@@ -37,7 +37,6 @@ import {
   Chip,
   FormationBoard,
   Icon,
-  LogoMark,
   NeedsLargerWindow,
   ProvenanceChip,
   TeamOrbit,
@@ -119,9 +118,8 @@ function TopBar() {
   return (
     <header className="sticky top-0 z-40 border-b border-subtle/60 bg-base/70 backdrop-blur">
       <Container className="flex h-16 items-center gap-6">
-        <Link href="/" className="flex items-center gap-3 text-primary hover:no-underline" aria-label={`${APP_NAME} home`}>
-          <LogoMark size={28} variant="tile" label={null} />
-          <Wordmark height={16} label={APP_NAME} />
+        <Link href="/" className="flex items-center text-primary hover:no-underline" aria-label={`${APP_NAME} home`}>
+          <Wordmark height={20} label={APP_NAME} />
         </Link>
         <nav aria-label="Sections" className="flex items-center gap-5">
           {NAV.map((n) => (
@@ -547,7 +545,6 @@ function FinalCall() {
             style={{ backgroundImage: "radial-gradient(color-mix(in oklab, var(--white) 10%, transparent) 1px, transparent 1.5px)", backgroundSize: "22px 22px", maskImage: "radial-gradient(ellipse 60% 80% at 50% 100%, black 20%, transparent 80%)" }}
           />
           <div className="relative mx-auto flex max-w-2xl flex-col items-center gap-6">
-            <LogoMark size={48} variant="tile" label={null} />
             <h2 id="start-title" className="t-display-hero text-primary">
               Your team is ready when you are.
             </h2>

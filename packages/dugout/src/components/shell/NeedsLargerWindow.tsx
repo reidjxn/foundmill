@@ -1,7 +1,6 @@
 import type { HTMLAttributes } from "react";
 import { APP_NAME } from "@foundmill/config";
 import { cn } from "../../lib/cn";
-import { LogoMark } from "../foundation/LogoMark";
 import { MIN_VIEWPORT_WIDTH } from "./useViewportWidth";
 
 export interface NeedsLargerWindowProps extends HTMLAttributes<HTMLDivElement> {
@@ -11,7 +10,7 @@ export interface NeedsLargerWindowProps extends HTMLAttributes<HTMLDivElement> {
   minWidth?: number;
 }
 
-/** DESIGN §8: centred crest-less mark, display-md title, body line with the minimum width, the current width in mono. */
+/** DESIGN §8: centred display-md title, body line with the minimum width, the current width in mono. No mark: the FM monogram is reserved for the favicon. */
 export function NeedsLargerWindow({ width, minWidth = MIN_VIEWPORT_WIDTH, className, ...rest }: NeedsLargerWindowProps) {
   return (
     <div
@@ -21,7 +20,6 @@ export function NeedsLargerWindow({ width, minWidth = MIN_VIEWPORT_WIDTH, classN
       className={cn("flex min-h-screen w-full flex-col items-center justify-center gap-3 bg-base px-6 text-center text-primary", className)}
       {...rest}
     >
-      <LogoMark size={40} className="text-secondary" />
       <h1 className="t-display-md">This needs a larger window</h1>
       <p className="t-body text-secondary">
         {APP_NAME} is built for desktop screens at least {minWidth} px wide. Widen the window or move to a larger display.

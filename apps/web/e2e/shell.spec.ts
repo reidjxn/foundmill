@@ -30,8 +30,42 @@ test.describe("shell", () => {
     await expect(page.getByTestId("kit-bar")).toContainText("Northwind Skincare");
     await expect(page.getByRole("button", { name: /^(Continue|Respond to \d+ items?|Pause|Go to Journey|Come back)/ })).toBeVisible();
     await expect(page.getByTestId("stop-all-trigger")).toBeVisible();
-    // The sidebar foot carries the product mark (DESIGN §8a).
-    await expect(page.locator("[data-sidebar-item=brand]")).toBeVisible();
+    // The sidebar foot closes with the Foundmill wordmark (DESIGN §8a); see the next test.
+    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Foundmill" })).toBeVisible();
+  });
+
+  test("the sidebar foot closes with the Foundmill wordmark alone: a link to /, aligned with the icons, hidden when collapsed, reachable by arrow keys (DESIGN §8a)", async ({ page }) => {
+    const nav = page.getByRole("navigation", { name: "Primary" });
+    const brand = nav.getByRole("link", { name: "Foundmill" });
+    await expect(brand).toBeVisible();
+    await expect(brand).toHaveAttribute("href", "/");
+    // The wordmark is the whole content: one vector image, no text and no FM monogram (that is the favicon only).
+    await expect(brand.locator("svg")).toHaveCount(1);
+    await expect(brand).toHaveText("");
+    const wordmark = (await brand.locator("svg").boundingBox())!;
+    const settingsIcon = (await nav.getByRole("link", { name: "Settings" }).locator("svg").first().boundingBox())!;
+    expect(wordmark.height).toBeGreaterThanOrEqual(12);
+    expect(wordmark.height).toBeLessThanOrEqual(14);
+    expect(wordmark.x).toBeCloseTo(settingsIcon.x, 0);
+    // Arrow keys: Up from the first item wraps to the last stop, the wordmark; Down returns to Home.
+    const home = nav.getByRole("link", { name: "Home" });
+    await home.focus();
+    await page.keyboard.press("ArrowUp");
+    await expect(brand).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(home).toBeFocused();
+    // Collapsed to 64 px there is no room for it, and no mark takes its place.
+    await page.getByTestId("sidebar-toggle").click();
+    await expect(nav).toHaveAttribute("data-collapsed", "true");
+    await expect(nav.getByRole("link", { name: "Foundmill" })).toHaveCount(0);
+    await expect(nav.locator("[data-sidebar-item=brand]")).toHaveCount(0);
+    await home.focus();
+    await page.keyboard.press("ArrowUp");
+    await expect(nav.getByRole("link", { name: "Anthropic key" })).toBeFocused();
+    // Leave the stored preference as it was found.
+    await page.getByTestId("sidebar-toggle").click();
+    await expect(nav).not.toHaveAttribute("data-collapsed", "true");
+    await expect(brand).toBeVisible();
   });
 
   test("Continue reads Respond · N while notes wait for an answer and opens the first of them (AC-11.3.3)", async ({ page }) => {

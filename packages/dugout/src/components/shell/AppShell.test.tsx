@@ -35,6 +35,8 @@ describe("AppShell", () => {
     expect(screen.getByTestId("needs-larger-window")).toBeTruthy();
     expect(screen.getByText("This needs a larger window")).toBeTruthy();
     expect(screen.getByText("1279 px")).toBeTruthy();
+    // No mark of any kind: the FM monogram is reserved for the favicon.
+    expect(screen.getByTestId("needs-larger-window").querySelector("svg")).toBeNull();
     expect(screen.queryByTestId("app-shell")).toBeNull();
     expect(screen.queryByText("Content")).toBeNull();
   });
@@ -56,6 +58,16 @@ describe("AppShell", () => {
     expect(screen.getByRole("link", { name: "Network" })).toBeTruthy();
     expect(kitStyle({ primary: "#F5B841", secondary: "#000" })).toMatchObject({ "--kit-on-primary": "#0F1318" });
     expect(kitBarGradient(NORTHWIND_KIT)).toBe("linear-gradient(90deg, var(--kit-primary) 0%, #255D97 100%)");
+  });
+
+  it("draws the Foundmill wordmark in the sidebar foot when expanded and nothing for the brand when collapsed", () => {
+    const { unmount } = render(<AppShell {...shellProps({ sidebar: { items: NORTHWIND_SIDEBAR, activeId: "home", collapsed: false, onCollapsedChange: vi.fn(), brand: { href: "/" } } })} />);
+    const link = screen.getByRole("link", { name: "Foundmill" });
+    expect(link.getAttribute("href")).toBe("/");
+    expect(link.querySelectorAll("svg")).toHaveLength(1);
+    unmount();
+    render(<AppShell {...shellProps({ sidebar: { items: NORTHWIND_SIDEBAR, activeId: "home", collapsed: true, onCollapsedChange: vi.fn(), brand: { href: "/" } } })} />);
+    expect(screen.queryByRole("link", { name: "Foundmill" })).toBeNull();
   });
 
   it("hides the LIVE block and chip in Personal mode", () => {

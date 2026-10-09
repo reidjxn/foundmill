@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { APP_NAME } from "@foundmill/config";
+import { MONOGRAM_HEIGHT, MONOGRAM_WIDTH, WORDMARK_HEIGHT, WORDMARK_WIDTH } from "../../brand/marks";
+import { WORDMARK_ASPECT } from "../foundation/Wordmark";
 import { NORTHWIND_SIDEBAR } from "./fixtures";
-import { Sidebar, nextSidebarIndex, sidebarBadgeClass, sidebarItemName } from "./Sidebar";
+import { SIDEBAR_BRAND_HEIGHT, SIDEBAR_BRAND_ID, Sidebar, nextSidebarIndex, sidebarBadgeClass, sidebarItemName } from "./Sidebar";
 import { TabBar, nextTabIndex } from "./TabBar";
 import { DISTRIBUTION_TABS } from "./fixtures";
 
@@ -67,6 +70,93 @@ describe("Sidebar", () => {
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "key" }));
     expect(nextSidebarIndex("ArrowDown", 2, 3)).toBe(0);
     expect(nextSidebarIndex("x", 0, 3)).toBeNull();
+  });
+});
+
+describe("Sidebar brand (the Foundmill wordmark in the foot)", () => {
+  const brand = { href: "/" };
+
+  it("is a link to the given href named after the product, drawn as the wordmark and nothing else", () => {
+    render(<Sidebar items={NORTHWIND_SIDEBAR} activeId="home" collapsed={false} onCollapsedChange={() => {}} brand={brand} />);
+    const link = screen.getByRole("link", { name: APP_NAME });
+    expect(link.getAttribute("href")).toBe("/");
+    expect(link.getAttribute("data-sidebar-item")).toBe(SIDEBAR_BRAND_ID);
+    // One decorative SVG: the wordmark path at the sidebar cap height. No FM monogram (two paths) and no visible text.
+    const svgs = link.querySelectorAll("svg");
+    expect(svgs).toHaveLength(1);
+    expect(svgs[0]!.getAttribute("aria-hidden")).toBe("true");
+    expect(svgs[0]!.getAttribute("height")).toBe(String(SIDEBAR_BRAND_HEIGHT));
+    expect(svgs[0]!.getAttribute("width")).toBe(String(Math.round(SIDEBAR_BRAND_HEIGHT * WORDMARK_ASPECT)));
+    expect(svgs[0]!.querySelectorAll("path")).toHaveLength(1);
+    expect(link.textContent).toBe("");
+    // It sits on the same 12 px inset as the item icons.
+    const settings = screen.getByRole("link", { name: "Settings" });
+    expect(link.className).toContain("pl-3");
+    expect(settings.className).toContain("pl-3");
+  });
+
+  it("closes the foot, after the last item and before the collapse toggle", () => {
+    render(<Sidebar items={NORTHWIND_SIDEBAR} collapsed={false} onCollapsedChange={() => {}} brand={brand} />);
+    const key = screen.getByRole("link", { name: "Anthropic key" });
+    const link = screen.getByRole("link", { name: APP_NAME });
+    const toggle = screen.getByTestId("sidebar-toggle");
+    expect(key.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(link.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("is not drawn when the sidebar is collapsed, and no mark takes its place", () => {
+    render(<Sidebar items={NORTHWIND_SIDEBAR} activeId="home" collapsed onCollapsedChange={() => {}} brand={brand} />);
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    expect(screen.queryByRole("link", { name: APP_NAME })).toBeNull();
+    expect(nav.querySelector(`[data-sidebar-item="${SIDEBAR_BRAND_ID}"]`)).toBeNull();
+    // No wordmark and no FM monogram anywhere in the collapsed sidebar: only the items' Lucide icons remain.
+    expect(nav.querySelector(`svg[viewBox="0 0 ${WORDMARK_WIDTH} ${WORDMARK_HEIGHT}"]`)).toBeNull();
+    expect(nav.querySelector(`svg[viewBox="0 0 ${MONOGRAM_WIDTH} ${MONOGRAM_HEIGHT}"]`)).toBeNull();
+  });
+
+  it("is not drawn without the brand prop", () => {
+    render(<Sidebar items={NORTHWIND_SIDEBAR} collapsed={false} onCollapsedChange={() => {}} />);
+    expect(screen.queryByRole("link", { name: APP_NAME })).toBeNull();
+  });
+
+  it("takes part in arrow-key navigation as the last stop, wrapping to the first", async () => {
+    const user = userEvent.setup();
+    render(<Sidebar items={NORTHWIND_SIDEBAR} activeId="home" collapsed={false} onCollapsedChange={() => {}} brand={brand} />);
+    const home = screen.getByRole("link", { name: "Home" });
+    const link = screen.getByRole("link", { name: APP_NAME });
+    expect(link.tabIndex).toBe(-1);
+    home.focus();
+    await user.keyboard("{ArrowUp}");
+    expect(document.activeElement).toBe(link);
+    await user.keyboard("{ArrowUp}");
+    expect(document.activeElement).toBe(screen.getByRole("link", { name: "Anthropic key" }));
+    await user.keyboard("{End}");
+    expect(document.activeElement).toBe(link);
+    await user.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(home);
+    await user.keyboard("{Home}");
+    expect(document.activeElement).toBe(home);
+  });
+
+  it("leaves the remaining items' arrow-key order unchanged when collapsed", async () => {
+    const user = userEvent.setup();
+    render(<Sidebar items={NORTHWIND_SIDEBAR} activeId="home" collapsed onCollapsedChange={() => {}} brand={brand} />);
+    const home = screen.getByRole("link", { name: "Home" });
+    home.focus();
+    await user.keyboard("{ArrowUp}");
+    expect(document.activeElement).toBe(screen.getByRole("link", { name: "Anthropic key" }));
+    await user.keyboard("{ArrowDown}");
+    expect(document.activeElement).toBe(home);
+  });
+
+  it("is the focus stop of the nav when there are no enabled items", () => {
+    render(<Sidebar items={[]} collapsed={false} onCollapsedChange={() => {}} brand={brand} />);
+    expect(screen.getByRole("link", { name: APP_NAME }).tabIndex).toBe(0);
+  });
+
+  it("uses a custom accessible name when given", () => {
+    render(<Sidebar items={NORTHWIND_SIDEBAR} collapsed={false} onCollapsedChange={() => {}} brand={{ href: "/home", label: "Foundmill home" }} />);
+    expect(screen.getByRole("link", { name: "Foundmill home" }).getAttribute("href")).toBe("/home");
   });
 });
 

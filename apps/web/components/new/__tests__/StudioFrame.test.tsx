@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { APP_NAME } from "@foundmill/config";
+import { MONOGRAM_HEIGHT, MONOGRAM_WIDTH } from "@foundmill/dugout/brand";
 import { IMPORT_STEPS, STUDIO_STEPS, StudioFrame } from "../StudioFrame";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
@@ -25,6 +27,19 @@ describe("StudioFrame (first-run trail)", () => {
     expect(frame.querySelector('[data-step-item="compare"] a')).toBeNull();
     expect(screen.getByText("founder@example.com")).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Ideation Studio");
+  });
+
+  it("carries the Foundmill wordmark alone in its top bar, never the FM monogram", () => {
+    const { container } = render(
+      <StudioFrame step="new" title="New business">
+        <p>body</p>
+      </StudioFrame>,
+    );
+    const home = screen.getByRole("link", { name: `${APP_NAME} home` });
+    expect(home.getAttribute("href")).toBe("/");
+    expect(home.querySelectorAll("svg")).toHaveLength(1);
+    expect(container.querySelector(`svg[viewBox="0 0 ${MONOGRAM_WIDTH} ${MONOGRAM_HEIGHT}"]`)).toBeNull();
+    expect(container.querySelector("svg[data-variant]")).toBeNull();
   });
 
   it("draws the import trail for Door B", () => {

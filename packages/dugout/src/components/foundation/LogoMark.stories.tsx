@@ -2,6 +2,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { LogoMark } from "./LogoMark";
 import { Wordmark } from "./Wordmark";
 
+/**
+ * The FM monogram is for the browser favicon and the app icon only; it is never rendered in the product UI. These stories
+ * exist because the favicon art derives from it. The in-product brand is the Wordmark.
+ */
 const meta = {
   title: "Foundation/Brand",
   component: LogoMark,
@@ -43,25 +47,23 @@ export const Tile: Story = {
   ),
 };
 
-/** The wordmark at every size it is used, on the three surfaces it meets. */
+/** The wordmark at every size it is used, on the three surfaces it meets. Always alone, never beside the monogram. */
 export const WordmarkSurfaces: Story = {
   render: () => (
     <div className="flex flex-col gap-4">
       <div className="surface-panel flex flex-col gap-5 rounded-panel p-6 text-primary">
         <Wordmark height={12} />
-        <Wordmark height={16} />
-        <Wordmark height={24} />
+        <Wordmark height={20} />
+        <Wordmark height={28} />
         <Wordmark height={40} />
       </div>
       <div className="flex items-center gap-6 rounded-panel bg-ink p-6 text-primary">
-        <LogoMark size={24} />
         <Wordmark height={20} label={null} />
       </div>
       <div
         className="flex items-center gap-4 rounded-panel bg-kit-primary p-6 text-kit-on-primary"
         style={{ ["--kit-primary" as string]: "#1f6f5a", ["--kit-on-primary" as string]: "#ffffff" }}
       >
-        <LogoMark size={20} />
         <Wordmark height={16} label={null} />
       </div>
     </div>

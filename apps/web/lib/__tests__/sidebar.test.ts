@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { withSidebarKeys } from "@foundmill/dugout";
-import { activeSidebarId, buildSidebarItems, departmentBadges, departmentHref, type SidebarDepartment } from "../sidebar";
+import { SIDEBAR_BRAND, activeSidebarId, buildSidebarItems, departmentBadges, departmentHref, type SidebarDepartment } from "../sidebar";
 
 const BID = "00000000-0000-4000-8000-000000000001";
 const depts: SidebarDepartment[] = [
@@ -20,8 +20,10 @@ describe("sidebar items", () => {
     expect(items.find((i) => i.id === "inbox")?.fixed).toBe("inbox");
     expect(items.find((i) => i.id === "crm")?.fixed).toBe("crm");
     expect(items.some((i) => i.group === "live")).toBe(false);
-    expect(items.filter((i) => i.group === "foot").map((i) => i.label)).toEqual(["Settings", "Anthropic key", "Foundmill"]);
-    expect(items.find((i) => i.id === "brand")?.href).toBe("/");
+    // The Foundmill wordmark is not an item (no icon): Dugout draws it from `SIDEBAR_BRAND` while expanded.
+    expect(items.filter((i) => i.group === "foot").map((i) => i.label)).toEqual(["Settings", "Anthropic key"]);
+    expect(items.some((i) => i.id === "brand")).toBe(false);
+    expect(SIDEBAR_BRAND).toEqual({ href: "/" });
   });
 
   it("adds the LIVE block in live mode", () => {

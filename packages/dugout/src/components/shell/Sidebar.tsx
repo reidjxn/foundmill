@@ -2,13 +2,20 @@
 import { forwardRef, useRef, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { DeptColourToken } from "@foundmill/shared";
+import { APP_NAME } from "@foundmill/config";
 import { cn } from "../../lib/cn";
 import { Icon } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
 import { Keys } from "../foundation/Kbd";
 import { Tooltip } from "../foundation/Tooltip";
+import { Wordmark } from "../foundation/Wordmark";
 import { ShellLink } from "./ShellLink";
-import type { SidebarItem } from "./types";
+import type { SidebarBrand, SidebarItem } from "./types";
+
+/** `data-sidebar-item` value of the brand link (arrow keys reach it like any item while it is drawn). */
+export const SIDEBAR_BRAND_ID = "brand";
+/** Cap height of the wordmark in the sidebar foot, in px: the DESIGN §8a floor, a little taller than the 9 px caps of the tab-style labels. */
+export const SIDEBAR_BRAND_HEIGHT = 12;
 
 export interface SidebarProps extends Omit<HTMLAttributes<HTMLElement>, "onSelect"> {
   items: SidebarItem[];
@@ -16,6 +23,11 @@ export interface SidebarProps extends Omit<HTMLAttributes<HTMLElement>, "onSelec
   /** 232 px open, 64 px collapsed (BUILD §5.3). Persist it through onCollapsedChange. */
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
+  /**
+   * The Foundmill wordmark, last in the foot, left-aligned with the item icons. Drawn only while expanded: collapsed to
+   * 64 px the sidebar shows no brand at all (the FM monogram is reserved for the favicon). Omit to draw none.
+   */
+  brand?: SidebarBrand;
   /** Render the LIVE block. Items with group "live" are hidden in Personal mode. */
   showLive?: boolean;
   /** Fired on click or Enter/Space, in addition to the link's own navigation. */
@@ -97,11 +109,12 @@ function Badge({ item, collapsed }: { item: SidebarItem; collapsed: boolean }) {
 /**
  * The sidebar (BUILD §5.3, DESIGN §8): 232 px, 32 px items with a 16 px icon and a tab-style label; the active item has a
  * 3 px kit-primary left edge on bg-panel-alt; badges are 18 px pills in the department colour. Groups: main (Home, Inbox,
- * departments in the founder's order, CRM), a hairline, LIVE items, foot (Settings, Anthropic key). Collapsed to 64 px it
- * keeps icons, dots and badges and shows labels as tooltips. Arrow keys move focus; Enter or Space activates.
+ * departments in the founder's order, CRM), a hairline, LIVE items, foot (Settings, Anthropic key, the Foundmill
+ * wordmark). Collapsed to 64 px it keeps icons, dots and badges, shows labels as tooltips and drops the wordmark.
+ * Arrow keys move focus; Enter or Space activates.
  */
 export const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(
-  { items, activeId, collapsed, onCollapsedChange, showLive = true, onSelect, hideToggle, className, ...rest },
+  { items, activeId, collapsed, onCollapsedChange, brand, showLive = true, onSelect, hideToggle, className, ...rest },
   ref,
 ) {
   const visible = items.filter((it) => it.group !== "live" || showLive);
@@ -110,26 +123,54 @@ export const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(
   const foot = visible.filter((it) => it.group === "foot");
   const ordered = [...main, ...live, ...foot];
   const enabled = ordered.filter((it) => !it.disabled);
-  const focusable = activeId && enabled.some((it) => it.id === activeId) ? activeId : enabled[0]?.id;
+  const showBrand = !!brand && !collapsed;
+  // Roving focus order: every enabled item, then the wordmark link while it is drawn.
+  const focusOrder = [...enabled.map((it) => it.id), ...(showBrand ? [SIDEBAR_BRAND_ID] : [])];
+  const focusable = activeId && enabled.some((it) => it.id === activeId) ? activeId : focusOrder[0];
   const refs = useRef(new Map<string, HTMLElement>());
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     const target = e.target as HTMLElement;
     const id = target.getAttribute("data-sidebar-item");
     if (!id) return;
-    const pos = enabled.findIndex((it) => it.id === id);
-    const next = nextSidebarIndex(e.key, pos < 0 ? 0 : pos, enabled.length);
+    const pos = focusOrder.indexOf(id);
+    const next = nextSidebarIndex(e.key, pos < 0 ? 0 : pos, focusOrder.length);
     if (next === null) return;
     e.preventDefault();
-    const nextItem = enabled[next];
-    if (nextItem) refs.current.get(nextItem.id)?.focus();
+    const nextId = focusOrder[next];
+    if (nextId) refs.current.get(nextId)?.focus();
+  };
+
+  const renderBrand = (b: SidebarBrand) => {
+    const name = b.label ?? APP_NAME;
+    return (
+      <li key={SIDEBAR_BRAND_ID} className="relative">
+        <ShellLink
+          ref={(node: HTMLAnchorElement | null) => {
+            if (node) refs.current.set(SIDEBAR_BRAND_ID, node);
+            else refs.current.delete(SIDEBAR_BRAND_ID);
+          }}
+          href={b.href}
+          aria-label={name}
+          tabIndex={SIDEBAR_BRAND_ID === focusable ? 0 : -1}
+          data-sidebar-item={SIDEBAR_BRAND_ID}
+          className={cn(
+            "relative flex h-8 w-full items-center rounded-none pl-3 pr-2 text-primary",
+            "transition-colors duration-micro ease-dugout hover:bg-white/4 hover:no-underline",
+            "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
+          )}
+        >
+          <Wordmark height={SIDEBAR_BRAND_HEIGHT} label={null} className="animate-fade-in" style={{ animationDelay: "var(--dur-micro)" }} />
+        </ShellLink>
+      </li>
+    );
   };
 
   const renderItem = (item: SidebarItem) => {
     const active = item.id === activeId;
     const name = sidebarItemName(item);
     const cls = cn(
-      "group/item relative flex h-8 w-full items-center gap-2 rounded-none text-secondary outline-none",
+      "group/item relative flex h-8 w-full items-center gap-2 rounded-none text-secondary",
       "transition-colors duration-micro ease-dugout hover:bg-white/4 hover:text-primary hover:no-underline",
       "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
       collapsed ? "justify-center px-0" : "pl-3 pr-2",
@@ -218,7 +259,10 @@ export const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(
         </>
       ) : null}
       <div className="mt-auto border-t border-subtle">
-        <ul className="flex flex-col py-2">{foot.map(renderItem)}</ul>
+        <ul className="flex flex-col py-2">
+          {foot.map(renderItem)}
+          {brand && showBrand ? renderBrand(brand) : null}
+        </ul>
         {hideToggle ? null : (
           <div className={cn("flex h-8 items-center pb-2", collapsed ? "justify-center" : "px-2")}>
             <IconButton

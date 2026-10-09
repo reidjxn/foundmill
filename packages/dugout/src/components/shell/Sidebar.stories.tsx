@@ -7,8 +7,8 @@ import { NORTHWIND_SIDEBAR } from "./fixtures";
 const meta = {
   title: "Shell/Sidebar",
   component: Sidebar,
-  parameters: { layout: "fullscreen", docs: { description: { component: "232 px, 64 px collapsed. Active item: 3 px brand-colour edge on bg-panel-alt. Badges: 18 px pills in the department colour. Arrow keys move, Enter opens; collapsed items show their label and chord as a tooltip." } } },
-  args: { items: withSidebarKeys(NORTHWIND_SIDEBAR), activeId: "d-distribution", collapsed: false, showLive: true, onCollapsedChange: () => {} },
+  parameters: { layout: "fullscreen", docs: { description: { component: "232 px, 64 px collapsed. Active item: 3 px brand-colour edge on bg-panel-alt. Badges: 18 px pills in the department colour. Arrow keys move, Enter opens; collapsed items show their label and chord as a tooltip. The `brand` prop adds the Foundmill wordmark as the last foot row, left-aligned with the item icons; it is drawn only while expanded and the sidebar never shows the FM monogram." } } },
+  args: { items: withSidebarKeys(NORTHWIND_SIDEBAR), activeId: "d-distribution", collapsed: false, showLive: true, brand: { href: "#" }, onCollapsedChange: () => {} },
 } satisfies Meta<typeof Sidebar>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -24,8 +24,12 @@ function Frame(args: Story["args"]) {
   );
 }
 
+/** Expanded: the wordmark closes the foot, a link with the accessible name "Foundmill". */
 export const Expanded: Story = { render: (args) => <Frame {...args} /> };
+/** Collapsed to 64 px: icons and badges only. The wordmark does not fit, so the brand row is not drawn. */
 export const Collapsed: Story = { args: { collapsed: true }, render: (args) => <Frame {...args} /> };
+/** Without the `brand` prop the foot ends with the last item. */
+export const WithoutBrand: Story = { args: { brand: undefined }, render: (args) => <Frame {...args} /> };
 export const Personal: Story = { args: { showLive: false, activeId: "inbox" }, render: (args) => <Frame {...args} /> };
 export const SideBySide: Story = {
   render: (args) => (

@@ -4,11 +4,9 @@
  * Pure and unit-tested; the layout feeds it `department.list` + `inbox.list`.
  */
 import { Globe, Home, Inbox, KeyRound, Settings, Trophy, Users, Users2, type LucideIcon } from "lucide-react";
-import { APP_NAME } from "@foundmill/config";
-import type { SidebarItem } from "@foundmill/dugout";
+import type { SidebarBrand, SidebarItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { brandMarkIcon } from "./brand-icon";
 import { iconByName } from "./icons";
 
 export interface SidebarDepartment {
@@ -38,7 +36,10 @@ export interface SidebarInput {
   live: boolean;
 }
 
-export const SIDEBAR_IDS = { home: "home", inbox: "inbox", crm: "crm", milestones: "milestones", settings: "settings", keys: "keys", brand: "brand", network: "network", communities: "communities", leaderboards: "leaderboards" } as const;
+export const SIDEBAR_IDS = { home: "home", inbox: "inbox", crm: "crm", milestones: "milestones", settings: "settings", keys: "keys", network: "network", communities: "communities", leaderboards: "leaderboards" } as const;
+
+/** The Foundmill wordmark closing the sidebar foot (DESIGN §8a). Not an item: Dugout draws it when the sidebar is expanded. */
+export const SIDEBAR_BRAND: SidebarBrand = { href: "/" };
 
 export function departmentHref(businessId: string, d: SidebarDepartment): string {
   const first = d.tabs.slice().sort((a, b) => a.position - b.position)[0];
@@ -83,8 +84,6 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
   }
   items.push({ id: SIDEBAR_IDS.settings, label: "Settings", icon: Settings, href: routes.settings(bid, "business"), group: "foot" });
   items.push({ id: SIDEBAR_IDS.keys, label: "Anthropic key", icon: KeyRound, href: routes.settings(bid, "keys"), group: "foot" });
-  // The sidebar foot carries the product mark (DESIGN §8a): the LogoMark glyph links to the businesses index.
-  items.push({ id: SIDEBAR_IDS.brand, label: APP_NAME, icon: brandMarkIcon, href: "/", group: "foot" });
   return items;
 }
 

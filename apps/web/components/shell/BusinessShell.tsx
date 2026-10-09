@@ -25,7 +25,7 @@ import { publicEnv } from "@/lib/env";
 import { monogram } from "@/lib/format";
 import { KeyboardRegistryProvider, createKeyboardRegistry, useRegisteredShortcuts } from "@/lib/keys";
 import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } from "@/lib/search";
-import { activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
+import { SIDEBAR_BRAND, activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
 import { useStreamSubscription } from "@/lib/stream-client";
 import { getBrowserAccessToken } from "@/lib/supabase/client";
 import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
@@ -357,7 +357,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 crest={{ seed: business.slug || business.id, monogram: monogram(business.name) }}
                 businessName={business.name}
                 screenTitle={chrome.title ?? "Home"}
-                sidebar={{ items: sidebarItems, activeId, collapsed, onCollapsedChange }}
+                sidebar={{ items: sidebarItems, activeId, collapsed, onCollapsedChange, brand: SIDEBAR_BRAND }}
                 onNavigate={onNavigate}
                 nav={{ onBack: () => router.back(), onForward: () => router.forward() }}
                 continueButton={{
