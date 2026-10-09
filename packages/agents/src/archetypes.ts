@@ -135,7 +135,7 @@ const SPECIALIST_TASK = (title: string, goal: string, acceptance: string[], assi
 function board(archetype: Archetype, subject: string, body: string[], options: BoardDecision["options"]): BoardDecision {
   return {
     subject,
-    bodyMd: [`**The Board** welcomes the new ${ARCHETYPE_LABELS[archetype]} club.`, "", ...body].join("\n"),
+    bodyMd: [`**The Board** welcomes the new ${ARCHETYPE_LABELS[archetype]} business.`, "", ...body].join("\n"),
     options,
   };
 }

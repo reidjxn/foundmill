@@ -17,6 +17,7 @@ import { departmentsRepo } from "./departments";
 import { entitiesRepo } from "./entities";
 import { eventsRepo } from "./events";
 import { financeRepo } from "./finance";
+import { foundationsRepo } from "./foundations";
 import { foundersRepo } from "./founders";
 import { holidaysRepo } from "./holidays";
 import { ideasRepo } from "./ideas";
@@ -72,6 +73,7 @@ export const repos = {
   social: socialRepo,
   workspaces: workspacesRepo,
   logos: logosRepo,
+  foundations: foundationsRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -92,6 +94,7 @@ export * from "./departments";
 export * from "./entities";
 export * from "./events";
 export * from "./finance";
+export * from "./foundations";
 export * from "./founders";
 export * from "./holidays";
 export * from "./ideas";

@@ -11,6 +11,7 @@ export * from "./traits";
 export * from "./calibration";
 export * from "./club-rules";
 export * from "./archetypes";
+export * from "./foundations";
 export * from "./registry";
 export * from "./templates";
 export * from "./skills";

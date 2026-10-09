@@ -43,6 +43,38 @@ export interface SpecCompareResponse {
   to: SpecVersionRow;
 }
 
+/* product.foundations.get (apps/api services/foundations.ts `FoundationsView`) */
+export type FoundationsStatusKey = "none" | "pending" | "drafting" | "ready" | "failed";
+export interface FoundationsVision {
+  statement: string;
+  forWhom: string;
+  problem: string;
+  whyNow: string;
+  principles: { title: string; detail: string }[];
+  northStar: { metric: string; definition: string; target: string; label: "Estimate" | "Forecast" };
+}
+export interface FoundationsResponse {
+  status: FoundationsStatusKey;
+  door: "ideation" | "import" | null;
+  attempt: number;
+  runner: "temporal" | "local" | null;
+  startedAt: DateLike | null;
+  finishedAt: DateLike | null;
+  error: string | null;
+  vision: FoundationsVision | null;
+  summary: {
+    sectionsWritten?: number;
+    sectionsTotal?: number;
+    sectionsKept?: { section: string; reason: string }[];
+    roadmap?: { now?: number; next?: number; later?: number };
+    importedIssues?: number;
+    openQuestions?: string[];
+    [key: string]: unknown;
+  };
+  importLinked: boolean;
+  stale?: boolean;
+}
+
 /* product.roadmap.list */
 export interface RoadmapRow extends RoadmapItemRow {
   descriptionMd?: string;

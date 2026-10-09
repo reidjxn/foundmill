@@ -36,6 +36,13 @@ const SAMPLE_INPUT: Record<RouteKey, Record<string, unknown>> = {
   codeReview: { diff: "diff --git a/apps/api/src/routers/orders.ts b/apps/api/src/routers/orders.ts\n--- a/apps/api/src/routers/orders.ts\n+++ b/apps/api/src/routers/orders.ts\n@@ -1,3 +1,6 @@\n+const rows = await db.select().from(orders);\n+console.log(rows);\n+const key = process.env.STRIPE_KEY;\n" },
   ideation: { prompt: "A skincare brand for people with eczema who want fragrance-free products", founder: { skills: { engineering: 8, sales: 14, design: 12, finance: 9, domain: 16 }, constraints: ["bootstrapped"] } },
   logoDesigner: { business_name: "Northwind Skincare", pitch: "Fragrance-free skincare for sensitive skin.", archetype: "DTC physical product", brand_colours: { primary: "#1b4fd8", secondary: "#f5c400" }, count: 4, round: 0 },
+  foundations: {
+    business: { name: "Ledgerly", archetype: "b2b_saas", currency: "EUR" },
+    door: "ideation",
+    outline: [{ section: "Problem" }, { section: "Customers" }, { section: "Features" }, { section: "Pricing" }, { section: "Metrics" }],
+    idea: { title: "Ledgerly", pitch: "Ledgerly helps independent accountants cut a weekly chore to minutes through a narrow workflow.", attributes: [{ key: "market_pull", label: "Market pull", value: 14, evidence: "Accountants complain about reconciliations" }] },
+    founder: { target_markets: ["Nordics"], constraints: ["bootstrapped"] },
+  },
   skillGrader: { rubric: ["Tests pass", "Follows the design system", "Explains trade-offs"], deterministic: [{ criterion: "Tests pass", passed: true }], output: "Implemented the widget with Dugout components, tests pass, trade-offs documented in the PR." },
   coach: { instructions: { role: "Backend engineer", goals: ["Ship reliable APIs"], rules: ["Ask before schema changes"], playbook: ["Read the task"], tone: "Precise", examples: [] }, skill_results: [{ skill: "Testing", tested: 9, proven: 7 }, { skill: "Communication", tested: 11 }], focus_skills: ["Testing", "Communication", "Cost efficiency"] },
   worker: { task: { id: "t1", title: "Fix checkout bug for retail customers", kind: "code" } },

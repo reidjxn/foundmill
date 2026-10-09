@@ -116,10 +116,13 @@ describe("ImportFlow (BUILD §11.1 Door B, AC-11.1.5)", () => {
     expect(screen.getAllByText("Estimate").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByTestId("continue-to-commit"));
     expect(onContinue).toHaveBeenCalledTimes(1);
-    const [reportArg, configs] = onContinue.mock.calls[0]! as [ScoutingReport, SourceConfig[]];
+    const [reportArg, configs, job] = onContinue.mock.calls[0]! as [ScoutingReport, SourceConfig[], { id: string; status: string }];
     expect(reportArg.neverPushed).toBe(true);
     expect(reportArg.suggestedName).toBe("Ledgerly");
     expect(configs).toEqual([{ key: "github", value: "https://github.com/acme/ledgerly.git" }, { key: "stripe", value: "" }]);
+    // The finished job travels on, so commit can link the business to this import.
+    expect(job.status).toBe("done");
+    expect(job.id).toBeTruthy();
   });
 
   it("shows the running job while polling and lets the founder cancel back to the picker", async () => {

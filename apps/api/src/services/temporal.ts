@@ -2,7 +2,8 @@
  * Temporal client (docs/ARCHITECTURE.md §10). The connection is opened lazily on first use and every call degrades
  * gracefully: when the server is unreachable the API answers `{ queued: false, reason }` instead of failing the
  * founder's request. Workflow ids are deterministic (`cycle:{businessId}:{n}`, `session:{sessionId}`,
- * `engine:{channelId}`, `holiday:{holidayId}`, `plan:{planId}`, `training:{runId}`, `incorporation:{id}`).
+ * `engine:{channelId}`, `holiday:{holidayId}`, `plan:{planId}`, `training:{runId}`, `incorporation:{id}`,
+ * `foundations:{businessId}:{attempt}`).
  */
 import type { ApiLogger } from "./log";
 
@@ -17,6 +18,7 @@ export const WORKFLOWS = {
   playbook: "playbook",
   journeyBuild: "journeyBuild",
   importBusiness: "importBusiness",
+  businessFoundations: "businessFoundations",
 } as const;
 
 export const SIGNALS = {
@@ -39,6 +41,7 @@ export const workflowIds = {
   training: (runId: string) => `training:${runId}`,
   incorporation: (incorporationId: string) => `incorporation:${incorporationId}`,
   playbook: (playbookId: string) => `playbook:${playbookId}`,
+  foundations: (businessId: string, attempt: number) => `foundations:${businessId}:${attempt}`,
 } as const;
 
 export interface TemporalResult {

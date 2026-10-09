@@ -9,9 +9,10 @@
  * same inputs, so the same sources always give the same report. Every figure in the report is an Estimate. A GitHub
  * import never pushes (AC-11.1.5).
  */
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { repos, type Db, type Source } from "@foundmill/db";
 import { createSeededRng, type SeededRng } from "@foundmill/journey";
-import { NotFoundError, ValidationError, type Archetype, type SourceKind } from "@foundmill/shared";
+import { AppError, NotFoundError, ValidationError, type Archetype, type Env, type SourceKind } from "@foundmill/shared";
 import { z } from "zod";
 import type { TemporalService } from "./temporal";
 import { WORKFLOWS } from "./temporal";
@@ -87,6 +88,17 @@ export function validateConfigs(configs: readonly SourceConfig[]): Record<string
   return errors;
 }
 
+/** Only web links are stored as a source's `uri` (it is rendered as a link); anything else is dropped. */
+export function webUri(uri: string | null | undefined): string | null {
+  if (!uri) return null;
+  try {
+    const u = new URL(uri);
+    return u.protocol === "https:" || u.protocol === "http:" ? uri : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The `sources.uri` an import source is stored under (what the orchestrator's `importSource` routes on). */
 export function sourceUri(key: ImportSourceKey, value: string): string | null {
   const v = normaliseSourceValue(key, value);
@@ -94,7 +106,7 @@ export function sourceUri(key: ImportSourceKey, value: string): string | null {
     case "github":
       return `https://github.com/${v}`;
     case "website":
-      return v || null;
+      return webUri(v);
     case "registry":
       return v ? `https://opencorporates.com/companies?q=${encodeURIComponent(v)}` : null;
     case "google_drive":
@@ -175,27 +187,60 @@ export function stepsFor(key: ImportSourceKey, value: string): string[] {
 
 export const DEFAULT_STEP_MS = 400;
 
-const JobToken = z.object({
+/**
+ * The job id is the job: `<base64url(JSON token)>.<base64url(HMAC-SHA256)>`, keyed by SESSION_TOKEN_SECRET under its own
+ * label (like the App install state), so a job id cannot be forged or edited, and it names the account that started
+ * it (`u`): only that account can read it or link a business to it (security review L1).
+ */
+export const JobToken = z.object({
   v: z.literal(1),
   m: z.enum(["local", "temporal"]),
+  u: z.string().min(1).max(200),
   b: z.string().nullable(),
   w: z.string().nullable(),
   t: z.number().int().nonnegative(),
   ms: z.number().int().positive(),
-  s: z.array(z.object({ k: ImportSourceKey, v: z.string(), id: z.string().nullable() })).min(1),
+  s: z
+    .array(z.object({ k: ImportSourceKey, v: z.string().max(500), id: z.string().nullable() }))
+    .min(1)
+    .max(IMPORT_SOURCE_KEYS.length)
+    .refine((s) => new Set(s.map((x) => x.k)).size === s.length, "each source once"),
 });
-type JobToken = z.infer<typeof JobToken>;
+export type JobToken = z.infer<typeof JobToken>;
 
-export function encodeJobId(token: JobToken): string {
-  return Buffer.from(JSON.stringify(token), "utf8").toString("base64url");
+const JOB_LABEL = "foundmill/import-job/v1";
+/** Development and test without SESSION_TOKEN_SECRET: a key for this process only (ids do not survive a restart). */
+const PROCESS_JOB_KEY = randomBytes(32).toString("base64url");
+
+/** The key import job ids are signed with. Production and staging require SESSION_TOKEN_SECRET (412 `config` otherwise). */
+export function importJobKey(env: Pick<Env, "APP_ENV" | "SESSION_TOKEN_SECRET">): string {
+  const secret = env.SESSION_TOKEN_SECRET;
+  if (secret && secret.length >= 16) return secret;
+  if (env.APP_ENV === "development" || env.APP_ENV === "test") return PROCESS_JOB_KEY;
+  throw new AppError("config", "SESSION_TOKEN_SECRET is not set on the api, so imports cannot run", 412);
 }
 
-export function decodeJobId(jobId: string): JobToken {
-  try {
-    const parsed = JobToken.safeParse(JSON.parse(Buffer.from(jobId, "base64url").toString("utf8")));
-    if (parsed.success) return parsed.data;
-  } catch {
-    /* fall through */
+const jobMac = (key: string, body: string): Buffer => createHmac("sha256", key).update(`${JOB_LABEL}\n${body}`).digest();
+
+export function encodeJobId(key: string, token: JobToken): string {
+  const body = Buffer.from(JSON.stringify(JobToken.parse(token)), "utf8").toString("base64url");
+  return `${body}.${jobMac(key, body).toString("base64url")}`;
+}
+
+/** The token of a job id signed with `key`; NotFoundError for anything else (unsigned, edited, malformed). */
+export function decodeJobId(key: string, jobId: string): JobToken {
+  const [body, sig, ...rest] = jobId.split(".");
+  if (body && sig && rest.length === 0) {
+    const expected = jobMac(key, body);
+    const given = Buffer.from(sig, "base64url");
+    if (given.length === expected.length && timingSafeEqual(given, expected)) {
+      try {
+        const parsed = JobToken.safeParse(JSON.parse(Buffer.from(body, "base64url").toString("utf8")));
+        if (parsed.success) return parsed.data;
+      } catch {
+        /* fall through */
+      }
+    }
   }
   throw new NotFoundError("import job", jobId.slice(0, 24));
 }
@@ -432,6 +477,8 @@ export function buildScoutingReport(configs: readonly SourceConfig[], job?: Impo
 // --- start / status -------------------------------------------------------------------------------------------------
 
 export interface StartImportInput {
+  /** The account starting the import: the only one that can read the job or link a business to it. */
+  userId: string;
   businessId: string | null;
   sources: SourceConfig[];
   /** Milliseconds per local step (tests pass 1). */
@@ -448,6 +495,8 @@ export interface ImportStatus {
 export interface ImportDeps {
   db: Db;
   temporal: TemporalService;
+  /** `importJobKey(env)`: signs and verifies job ids. */
+  key: string;
 }
 
 /** Start the import: Temporal workflow over `sources` rows when a business exists and the worker answers, else the local job. */
@@ -456,6 +505,7 @@ export async function startImport(deps: ImportDeps, input: StartImportInput): Pr
   const configs = input.sources.map((s) => ({ key: s.key, value: normaliseSourceValue(s.key, s.value) }));
   const errors = validateConfigs(configs);
   if (Object.keys(errors).length) throw new ValidationError("Check the sources before importing", errors);
+  if (new Set(configs.map((c) => c.key)).size !== configs.length) throw new ValidationError("Each source can be imported once", { sources: "Each source can be imported once" });
   const stepMs = input.stepMs ?? DEFAULT_STEP_MS;
 
   if (input.businessId) {
@@ -471,25 +521,26 @@ export async function startImport(deps: ImportDeps, input: StartImportInput): Pr
     const workflowId = `import:${businessId}:${now.getTime().toString(36)}`;
     const workflow = await deps.temporal.start(WORKFLOWS.importBusiness, { workflowId, args: [{ businessId, sourceIds: rows.map((r) => r.id) }] });
     if (workflow.queued) {
-      const token: JobToken = { v: 1, m: "temporal", b: businessId, w: workflowId, t: now.getTime(), ms: stepMs, s: configs.map((c, i) => ({ k: c.key, v: c.value, id: rows[i]!.id })) };
-      const jobId = encodeJobId(token);
+      const token: JobToken = { v: 1, m: "temporal", u: input.userId, b: businessId, w: workflowId, t: now.getTime(), ms: stepMs, s: configs.map((c, i) => ({ k: c.key, v: c.value, id: rows[i]!.id })) };
+      const jobId = encodeJobId(deps.key, token);
       return { job: await temporalJobAt(deps.db, token, jobId, now), report: null, workflow };
     }
-    const token: JobToken = { v: 1, m: "local", b: businessId, w: null, t: now.getTime(), ms: stepMs, s: configs.map((c, i) => ({ k: c.key, v: c.value, id: rows[i]!.id })) };
-    const jobId = encodeJobId(token);
+    const token: JobToken = { v: 1, m: "local", u: input.userId, b: businessId, w: null, t: now.getTime(), ms: stepMs, s: configs.map((c, i) => ({ k: c.key, v: c.value, id: rows[i]!.id })) };
+    const jobId = encodeJobId(deps.key, token);
     const job = localJobAt(token, jobId, now);
     return { job, report: job.status === "done" ? buildScoutingReport(configs, job) : null, workflow };
   }
 
-  const token: JobToken = { v: 1, m: "local", b: null, w: null, t: now.getTime(), ms: stepMs, s: configs.map((c) => ({ k: c.key, v: c.value, id: null })) };
-  const jobId = encodeJobId(token);
+  const token: JobToken = { v: 1, m: "local", u: input.userId, b: null, w: null, t: now.getTime(), ms: stepMs, s: configs.map((c) => ({ k: c.key, v: c.value, id: null })) };
+  const jobId = encodeJobId(deps.key, token);
   const job = localJobAt(token, jobId, now);
   return { job, report: job.status === "done" ? buildScoutingReport(configs, job) : null, workflow: null };
 }
 
-/** Progress of a job; the Scouting report once every source finished. */
-export async function importStatus(deps: Pick<ImportDeps, "db">, jobId: string, now = new Date()): Promise<ImportStatus> {
-  const token = decodeJobId(jobId);
+/** Progress of a job; the Scouting report once every source finished. Only the account that started it can read it. */
+export async function importStatus(deps: Pick<ImportDeps, "db" | "key">, jobId: string, userId: string, now = new Date()): Promise<ImportStatus> {
+  const token = decodeJobId(deps.key, jobId);
+  if (token.u !== userId) throw new NotFoundError("import job", jobId.slice(0, 24));
   const configs: SourceConfig[] = token.s.map((s) => ({ key: s.k, value: s.v }));
   const job = token.m === "temporal" ? await temporalJobAt(deps.db, token, jobId, now) : localJobAt(token, jobId, now);
   return { job, report: job.status === "running" ? null : buildScoutingReport(configs, job), workflow: token.w ? { queued: true, workflowId: token.w } : null };

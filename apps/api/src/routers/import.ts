@@ -6,7 +6,7 @@
 import { repos } from "@foundmill/db";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { IMPORT_SOURCES, IMPORT_SOURCE_KEYS, SourceConfig, importStatus, startImport } from "../services/import";
+import { IMPORT_SOURCES, IMPORT_SOURCE_KEYS, SourceConfig, importJobKey, importStatus, startImport } from "../services/import";
 import { Id, protectedProcedure, router } from "../trpc";
 
 export const importRouter = router({
@@ -18,7 +18,7 @@ export const importRouter = router({
       const membership = await repos.memberships.get(ctx.db, input.businessId, ctx.userId);
       if (!membership || !["owner", "admin"].includes(membership.role)) throw new TRPCError({ code: "FORBIDDEN", message: "Only an owner or admin can import into this business" });
     }
-    const result = await startImport({ db: ctx.db, temporal: ctx.temporal }, { businessId: input.businessId ?? null, sources: input.sources, stepMs: input.stepMs });
+    const result = await startImport({ db: ctx.db, temporal: ctx.temporal, key: importJobKey(ctx.env) }, { userId: ctx.userId, businessId: input.businessId ?? null, sources: input.sources, stepMs: input.stepMs });
     if (input.businessId) {
       await repos.audit.append(ctx.db, input.businessId, { actorKind: "user", actorId: ctx.userId, action: "import.start", target: { kind: "import_job", id: result.job.id.slice(0, 64) }, details: { mode: result.job.mode, workflowId: result.job.workflowId, sources: input.sources.map((s) => s.key) } });
     }
@@ -26,7 +26,7 @@ export const importRouter = router({
   }),
 
   status: protectedProcedure.input(z.object({ jobId: z.string().min(8).max(8192) })).query(async ({ ctx, input }) => {
-    const result = await importStatus({ db: ctx.db }, input.jobId);
+    const result = await importStatus({ db: ctx.db, key: importJobKey(ctx.env) }, input.jobId, ctx.userId);
     if (result.job.businessId) {
       const membership = await repos.memberships.get(ctx.db, result.job.businessId, ctx.userId);
       if (!membership) throw new TRPCError({ code: "NOT_FOUND", message: "import job not found" });

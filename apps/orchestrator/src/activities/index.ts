@@ -8,6 +8,7 @@ import { createApprovalActivities } from "./approvals";
 import { createBriefActivities } from "./brief";
 import { createChannelActivities } from "./channel";
 import { createCycleActivities } from "./cycle";
+import { createFoundationsActivities } from "./foundations";
 import { createHealthActivities } from "./health";
 import { createHolidayActivities } from "./holiday";
 import { createJourneyActivities } from "./journey";
@@ -34,6 +35,7 @@ export function createActivities(deps: OrchestratorDeps) {
     ...createChannelActivities(deps),
     ...createJourneyActivities(deps),
     ...createMiscActivities(deps),
+    ...createFoundationsActivities(deps),
     ...createScheduleActivities(deps),
   };
 }

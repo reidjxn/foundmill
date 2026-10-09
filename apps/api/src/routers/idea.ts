@@ -7,6 +7,8 @@ import { ConceptCard, IdeationOutput, ModelOutputError } from "@foundmill/models
 import { AppError, ARCHETYPES, Archetype, BUSINESS_MODES, GAME_MODES, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { commitIdea, squadPreview } from "../services/commit";
+import { linkableImportJob } from "../services/foundations";
+import { importJobKey } from "../services/import";
 import { LogoChoice, takeLogoCheck } from "../services/logo";
 import { ideaLogoRouter } from "./logo";
 import { Id, protectedProcedure, router } from "../trpc";
@@ -77,8 +79,13 @@ export const ideaRouter = router({
     return { idea, versions };
   }),
 
-  /** Prompt (or empty = "surprise me within my constraints") → 6–12 concept cards (AC-11.1.2). */
-  generate: protectedProcedure.input(z.object({ prompt: z.string().max(4000).default(""), archetypeHint: Archetype.optional(), single: z.boolean().default(false) })).mutation(async ({ ctx, input }) => {
+  /**
+   * Prompt (or empty = "surprise me within my constraints") → 6–12 concept cards (AC-11.1.2). `importJobId` is Import's
+   * "Continue to Commit": the job the single card describes, recorded on the idea so commit links the business to it.
+   */
+  generate: protectedProcedure.input(z.object({ prompt: z.string().max(4000).default(""), archetypeHint: Archetype.optional(), single: z.boolean().default(false), importJobId: z.string().min(8).max(8192).optional() })).mutation(async ({ ctx, input }) => {
+    const importJobId = input.importJobId ? linkableImportJob(importJobKey(ctx.env), input.importJobId, ctx.userId) : null;
+    if (input.importJobId && !importJobId) throw new ValidationError("That import job cannot be linked to a new business");
     const founder = await founderBrief(ctx);
     // `single`: one card for a business that already exists (Import's "Continue to Commit"), a fraction of the wait.
     const result = await ctx.models
@@ -105,7 +112,7 @@ export const ideaRouter = router({
           attributes: attributesOf(card),
           starsCurrent: card.stars_current,
           starsPotential: card.stars_potential,
-          research: withMeta({ citations: card.citations }, { crest_seed: card.crest_seed }),
+          research: withMeta({ citations: card.citations }, { crest_seed: card.crest_seed, ...(importJobId ? { import_job_id: importJobId } : {}) }),
           action: "generated",
         }),
       );
@@ -210,6 +217,6 @@ export const ideaRouter = router({
       if (!profile) throw new ValidationError("Complete your founder profile before taking charge of a business");
       // A logo is an upload check like any other (the SVG check is CPU work).
       if (input.logo) takeLogoCheck(ctx.userId);
-      return commitIdea(ctx.db, ctx.temporal, ctx.userId, input);
+      return commitIdea(ctx.db, ctx.temporal, ctx.userId, input, () => importJobKey(ctx.env));
     }),
 });
