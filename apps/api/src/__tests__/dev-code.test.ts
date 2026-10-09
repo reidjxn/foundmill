@@ -65,6 +65,41 @@ describe("dev.code", () => {
     expect(audit.items[0]).toMatchObject({ actorKind: "user", actorId: ownerId, target: { kind: "task", id: taskId } });
   });
 
+  it("reads and sets the repository saved code is pushed to; members cannot set it", async () => {
+    const { businessId, ownerId, memberId } = hz.A;
+    const owner = hz.caller({ userId: ownerId });
+    expect(await owner.dev.code.repository({ businessId })).toEqual({ connected: false, status: null, repository: null, simulated: true });
+    await expect(owner.dev.code.setRepository({ businessId, repository: "acme/shop" })).rejects.toThrow(/connect GitHub/);
+    await repos.integrations.upsert(hz.db, businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { externalAccountId: "1", config: {} } });
+    expect(await owner.dev.code.setRepository({ businessId, repository: "https://github.com/Acme/shop.git" })).toMatchObject({ repository: { fullName: "Acme/shop", owner: "Acme", repo: "shop", writeEnabled: true } });
+    expect(await owner.dev.code.repository({ businessId })).toMatchObject({ connected: true, status: "mock", repository: { fullName: "Acme/shop" }, simulated: true });
+    await expect(hz.caller({ userId: memberId }).dev.code.setRepository({ businessId, repository: "evil/repo" })).rejects.toThrow();
+    await expect(owner.dev.code.setRepository({ businessId, repository: "no slash" })).rejects.toThrow(/owner\/name/);
+    const audit = await repos.audit.list(hz.db, businessId, { action: "dev.code.set_repository" });
+    expect(audit.items[0]).toMatchObject({ actorId: ownerId, details: { repository: "Acme/shop" } });
+    expect(await owner.dev.code.setRepository({ businessId, repository: null })).toEqual({ repository: null });
+  });
+
+  it("keeps the chosen repository when GitHub is connected again", async () => {
+    const { businessId, ownerId } = hz.B;
+    const owner = hz.caller({ userId: ownerId });
+    await owner.integrations.connect({ businessId, connectorKey: "github", input: {} });
+    await owner.dev.code.setRepository({ businessId, repository: "acme/shop" });
+    await owner.integrations.connect({ businessId, connectorKey: "github", input: {} });
+    expect((await owner.dev.code.repository({ businessId })).repository?.fullName).toBe("acme/shop");
+    const list = await owner.integrations.list({ businessId });
+    expect(list.catalogue.find((c) => c.key === "github")).toMatchObject({ live: false, integration: { status: "mock" } });
+  });
+
+  it("returns each save's push result with its history", async () => {
+    const { businessId, task2Id, ownerId } = hz.A;
+    const saved = await repos.workspaces.save(hz.db, businessId, { taskId: task2Id, files: [{ path: "a.ts", content: text("x") }] });
+    await repos.workspaces.recordPush(hz.db, businessId, saved.snapshot!.id, { repo: "Acme/shop", branch: `agent/${task2Id}`, commitSha: "c".repeat(40), url: "https://github.com/Acme/shop/commit/ccc" });
+    const files = await hz.caller({ userId: ownerId }).dev.code.files({ businessId, taskId: task2Id });
+    expect(files.snapshot).toMatchObject({ pushedRepo: "Acme/shop", pushedBranch: `agent/${task2Id}`, pushedCommitSha: "c".repeat(40), pushError: null });
+    expect(files.history[0]).toMatchObject({ pushedCommitSha: "c".repeat(40), pushedUrl: "https://github.com/Acme/shop/commit/ccc" });
+  });
+
   it("decodes text up to the limit and calls non-UTF-8 binary", () => {
     expect(decodeSavedFile(text("héllo"))).toEqual({ binary: false, truncated: false, text: "héllo" });
     expect(decodeSavedFile(new Uint8Array([0xff, 0xfe, 0x41]))).toMatchObject({ binary: true });

@@ -4,12 +4,18 @@
  * needs one; secrets returned by a connector are encrypted into `credentials` and never echoed.
  */
 import { repos, type Executor } from "@foundmill/db";
-import { AppError, buildAad, encryptJson, redactSecret } from "@foundmill/shared";
+import { AppError, buildAad, connectorMode, encryptJson, redactSecret } from "@foundmill/shared";
 import { z } from "zod";
 import { revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey } from "../services/keys";
 import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
 
 const read = sectionRead("settings");
+
+/** Choices the founder made on an integration that a reconnect keeps (the repository code is pushed to). */
+function keptSettings(row: { settings: unknown } | null): Record<string, unknown> {
+  const settings = (row?.settings ?? {}) as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(settings).filter(([k]) => k === "repo" || k === "writeEnabled"));
+}
 const admin = sectionAdmin("settings");
 
 export const integrationsRouter = router({
@@ -20,13 +26,13 @@ export const integrationsRouter = router({
       return {
         mode: ctx.env.INTEGRATIONS_MODE,
         integrations: rows,
-        catalogue: catalogue.map((c) => ({ ...c, integration: rows.find((r) => r.connectorKey === c.key) ?? null })),
+        catalogue: catalogue.map((c) => ({ ...c, live: connectorMode(ctx.env, c.key) === "live", integration: rows.find((r) => r.connectorKey === c.key) ?? null })),
       };
     }),
   ),
 
   connect: admin.input(z.object({ connectorKey: z.string().min(1).max(60), input: z.record(z.string(), z.unknown()).default({}) })).mutation(async ({ ctx, input }) => {
-    const mode = ctx.env.INTEGRATIONS_MODE;
+    const mode = connectorMode(ctx.env, input.connectorKey);
     if (!ctx.connectors.has(input.connectorKey)) throw new AppError("not_found", `Unknown connector ${input.connectorKey}`, 404);
     const connector = ctx.connectors.get(input.connectorKey, mode);
     const record = await connector.connect(ctx.businessId, input.input);
@@ -38,7 +44,7 @@ export const integrationsRouter = router({
         authKind: connector.auth.kind,
         scopes: record.scopes,
         accountLabel: record.accountLabel,
-        settings: { externalAccountId: record.externalAccountId, config: record.config, expiresAt: record.expiresAt },
+        settings: { ...keptSettings(await repos.integrations.getByKey(tx, ctx.businessId, input.connectorKey)), externalAccountId: record.externalAccountId, config: record.config, expiresAt: record.expiresAt },
         connectedBy: ctx.userId,
       });
       if (credentialToStore) {
@@ -68,7 +74,7 @@ export const integrationsRouter = router({
 
   health: read.input(z.object({ integrationId: Id })).mutation(async ({ ctx, input }) => {
     const integration = await repos.integrations.get(ctx.db, ctx.businessId, input.integrationId);
-    const connector = ctx.connectors.get(integration.connectorKey, ctx.env.INTEGRATIONS_MODE);
+    const connector = ctx.connectors.get(integration.connectorKey, connectorMode(ctx.env, integration.connectorKey));
     const settings = (integration.settings ?? {}) as Record<string, unknown>;
     const result = await connector.healthcheck({
       id: integration.id,

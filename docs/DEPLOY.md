@@ -78,6 +78,12 @@ Migrations run from the api at boot under an advisory lock; no manual `pnpm db:m
 2. **Live models.** api, composer and orchestrator call Anthropic with the platform key `ANTHROPIC_API_KEY` from their Railway variables when `MODEL_MODE=live` (set on all three since 2026-10-08). Add the key as a project shared variable and reference it from those three services (`ANTHROPIC_API_KEY=${{shared.ANTHROPIC_API_KEY}}`); until it is there they run on the mock client and log one error at boot. Settings → Keys (`/b/<business id>/settings/keys`) stores a per-business key, which the orchestrator uses only when the business's model billing is `byok`; the api and composer always use the platform key. Model ids live in `packages/models/src/routing.ts` (Opus 5.5, Sonnet 5.5, Haiku 4.5; re-verified 2026-10-08).
 3. **Real agent sessions.** With `INTEGRATIONS_MODE=mock` the orchestrator replays recorded sessions. Set `SANDBOX_MODE=e2b` and `E2B_API_KEY` on the orchestrator for real sandboxes while connectors stay in mock; `INTEGRATIONS_MODE=live` switches every connector to its vendor API and needs each vendor's key.
 
+4. **Agents' code on GitHub.** After each session on a code task, the orchestrator pushes the saved code to the task's own branch (`agent/<task id>`) of the repository chosen on Development › Code, through the gateway's GitHub connector (`commit_files`: one commit per session, only what changed, never the default branch, never a force-push). In mock mode the pushes land in the simulated GitHub and the Code tab says so. To push to real GitHub while every other connector stays mock:
+   1. Create a GitHub App (github.com → Settings → Developer settings → GitHub Apps → New). Repository permissions: **Contents: Read and write**, **Pull requests: Read and write**, **Metadata: Read**. Setup URL: `https://foundmill.com/integrations/github/callback`. Webhook URL: `https://ingest.foundmill.com/webhooks/github/{business id}` is per business, so leave webhooks inactive until merged-PR events are wanted. Generate a private key.
+   2. Install the App on the account that owns the repository (all repositories, or only the ones agents may write to).
+   3. On the **gateway** and the **api**: `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` (the PEM; `\n` escapes are accepted), `GITHUB_APP_SLUG` (the App's URL name), `LIVE_CONNECTORS=github`. The gateway calls GitHub; the api reads the installation when it is connected.
+   4. In the app: Settings › Integrations › GitHub › Connect opens the App's installation page; GitHub sends you back to the setup URL, and "Connect installation" finishes it. Then choose the repository on Development › Code ("Set up GitHub").
+
 ## 6. Staging status (2026-10-08, cloud session)
 
 Checked against the Railway GraphQL API (team token), the Vercel and Supabase connectors, and the live site. ✅ done, ⬜ open and who can do it.
@@ -101,6 +107,7 @@ Checked against the Railway GraphQL API (team token), the Vercel and Supabase co
 | `ANTHROPIC_API_KEY` on api, composer and orchestrator with `MODEL_MODE=live` | ✅ 2026-10-08: all three boot without the mock fallback; the key lists claude-opus-5-5, claude-sonnet-5-5 and claude-haiku-4-5-20251001 |
 | Real agent sessions: `SANDBOX_MODE=e2b` and `E2B_API_KEY` on the orchestrator | ✅ 2026-10-08: key valid; real round trips through the orchestrator's own code. Code tasks: the workspace is copied into the sandbox, dependencies install from the npm registry with scripts off, the network closes, then the tests run offline (verified on E2B, see DECISIONS 2026-10-08) |
 | Live connectors: `INTEGRATIONS_MODE=live` plus each vendor key on the gateway | ⬜ every service runs `mock` |
+| Agents' code on real GitHub: a GitHub App and `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_SLUG`, `LIVE_CONNECTORS=github` on gateway and api (§5.4) | ⬜ founder: create and install the App (only the account owner can); until then pushes go to the simulated GitHub |
 
 ## 7. Local stack without Postgres or Redis
 

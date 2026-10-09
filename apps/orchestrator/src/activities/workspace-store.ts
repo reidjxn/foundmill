@@ -23,7 +23,7 @@ import { constants } from "node:fs";
 import { mkdir, open, realpath } from "node:fs/promises";
 import path from "node:path";
 import { extractCandidateRecipients } from "@foundmill/connectors";
-import { isSafeWorkspacePath, repos, type Db, type WorkspaceManifestEntry } from "@foundmill/db";
+import { isSafeWorkspacePath, repos, type Db, type WorkspaceManifestEntry, type WorkspaceSnapshot } from "@foundmill/db";
 import { redactCredentialValues } from "@foundmill/sandbox";
 import { DEFAULT_SYNC_LIMITS, isSdkHomeEntry, NEVER_SYNCED_DIRS, readWorkspace, type WorkspaceSyncLimits } from "./workspace-sync";
 
@@ -52,7 +52,7 @@ export interface RestoredWorkspace {
 }
 
 export type SavedWorkspace =
-  | { status: "saved" | "unchanged"; files: number; bytes: number; added: number; changed: number; removed: number; leftOut: LeftOut[]; masked: string[] }
+  | { status: "saved" | "unchanged"; files: number; bytes: number; added: number; changed: number; removed: number; leftOut: LeftOut[]; masked: string[]; snapshot: WorkspaceSnapshot | null }
   | { status: "refused"; reason: string; leftOut: LeftOut[]; masked: string[] };
 
 export interface LeftOut {
@@ -249,5 +249,5 @@ export async function saveWorkspace(db: Db, owner: WorkspaceOwner, cwd: string, 
   const result = await db.transaction((tx) => repos.workspaces.save(tx, owner.businessId, { taskId: owner.taskId, sessionId: owner.sessionId, agentId: owner.agentId, branch: owner.branch, files, carryOver: options.carryOver }));
   if (result.refused) return { status: "refused", reason: result.refused, leftOut, masked };
   const bytes = files.reduce((s, f) => s + f.content.byteLength, 0);
-  return { status: result.saved ? "saved" : "unchanged", files: files.length, bytes, added: result.added, changed: result.changed, removed: result.removed, leftOut, masked };
+  return { status: result.saved ? "saved" : "unchanged", files: files.length, bytes, added: result.added, changed: result.changed, removed: result.removed, leftOut, masked, snapshot: result.snapshot };
 }

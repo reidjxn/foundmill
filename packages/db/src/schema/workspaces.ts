@@ -1,5 +1,6 @@
 /** 0013 — agent workspaces: the code an agent wrote on a code task, kept after its session ends. */
-import { bigint, char, index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { bigint, char, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { bytea, emptyList, id, timestamps } from "./_common";
 import { businessId } from "./_refs";
 import { agentSessions, agents, tasks } from "./agents";
@@ -44,6 +45,13 @@ export const workspaceSnapshots = pgTable(
     added: integer("added").notNull().default(0),
     changed: integer("changed").notNull().default(0),
     removed: integer("removed").notNull().default(0),
+    /** 0014: where this save was pushed (`owner/name`, the agent's branch) and the commit, or why it was not. */
+    pushedRepo: text("pushed_repo"),
+    pushedBranch: text("pushed_branch"),
+    pushedCommitSha: text("pushed_commit_sha"),
+    pushedUrl: text("pushed_url"),
+    pushedAt: timestamp("pushed_at", { withTimezone: true, mode: "date" }),
+    pushError: text("push_error"),
     ...timestamps(),
   },
   (t) => [
@@ -52,6 +60,7 @@ export const workspaceSnapshots = pgTable(
     index("workspace_snapshots_session_id_idx").on(t.sessionId),
     index("workspace_snapshots_agent_id_idx").on(t.agentId),
     index("workspace_snapshots_files_idx").using("gin", t.files.op("jsonb_path_ops")),
+    index("workspace_snapshots_pushed_idx").on(t.taskId, t.pushedRepo, t.createdAt).where(sql`pushed_commit_sha is not null`),
   ],
 );
 export type WorkspaceSnapshot = typeof workspaceSnapshots.$inferSelect;

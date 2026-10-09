@@ -1,8 +1,11 @@
 /**
  * GitHub App connector: repositories the installation can reach, tree/file reads (quarantined — repo
- * content is third-party text), branches, pull requests. Merging is `irreversible` (never spends money);
- * deleting a repository or force-pushing over history would be permanent deletion and is not offered.
+ * content is third-party text), branches, commits to working branches, pull requests. Merging is
+ * `irreversible` (never spends money); deleting a repository or force-pushing over history would be permanent
+ * deletion and is not offered. `commit_files` only fast-forwards a working branch and never writes the default
+ * branch, so a commit can always be reverted and the default branch changes only through `merge_pr`.
  */
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { defineTool } from "../../define";
 
@@ -55,6 +58,60 @@ export type PullRequestT = z.infer<typeof PullRequest>;
 
 const RepoRef = z.object({ owner: Owner, repo: RepoName });
 
+/** Files and bytes one `commit_files` call may carry (the session workspace caps). */
+export const MAX_COMMIT_FILES = 2_000;
+export const MAX_COMMIT_BYTES = 50 * 1024 * 1024;
+export const MAX_COMMIT_FILE_BYTES = 5 * 1024 * 1024;
+
+/** A path git and GitHub accept: relative, no empty, "." or ".." segment, nothing inside `.git`. */
+export const isCommitPath = (path: string): boolean => path.length > 0 && path.length <= 1000 && !path.startsWith("/") && !path.includes("\0") && path.split("/").every((seg) => seg.length > 0 && seg !== "." && seg !== ".." && seg.toLowerCase() !== ".git");
+const CommitPath = z.string().refine(isCommitPath, "relative path outside .git");
+export const FileWrite = z.object({ path: CommitPath, content: z.string().max(Math.ceil((MAX_COMMIT_FILE_BYTES * 4) / 3) + 4), encoding: z.enum(["utf-8", "base64"]).default("utf-8") });
+export type FileWriteT = z.infer<typeof FileWrite>;
+
+/** Decoded size of one file write. */
+export const fileWriteBytes = (f: Pick<FileWriteT, "content" | "encoding">): number => (f.encoding === "base64" ? Buffer.from(f.content, "base64").byteLength : Buffer.byteLength(f.content, "utf8"));
+export const fileWriteBuffer = (f: Pick<FileWriteT, "content" | "encoding">): Buffer => (f.encoding === "base64" ? Buffer.from(f.content, "base64") : Buffer.from(f.content, "utf8"));
+
+/** The sha git gives a blob (`git hash-object`), so unchanged files are never uploaded again. */
+export const gitBlobSha = (content: Uint8Array): string => createHash("sha1").update(`blob ${content.byteLength}\0`).update(content).digest("hex");
+
+export const CommitFilesInput = RepoRef.extend({
+  branch: BranchName,
+  /** Where a missing branch starts (default: the default branch). Ignored when the branch exists. */
+  fromRef: Ref.optional(),
+  message: z.string().min(1).max(5_000),
+  files: z.array(FileWrite).max(MAX_COMMIT_FILES).default([]),
+  deletions: z.array(CommitPath).max(MAX_COMMIT_FILES).default([]),
+}).superRefine((input, ctx) => {
+  const seen = new Set<string>();
+  let total = 0;
+  for (const f of input.files) {
+    if (seen.has(f.path)) ctx.addIssue({ code: "custom", path: ["files"], message: `${f.path} is listed twice` });
+    seen.add(f.path);
+    const bytes = fileWriteBytes(f);
+    if (bytes > MAX_COMMIT_FILE_BYTES) ctx.addIssue({ code: "custom", path: ["files"], message: `${f.path} is larger than 5 MB` });
+    total += bytes;
+  }
+  if (total > MAX_COMMIT_BYTES) ctx.addIssue({ code: "custom", path: ["files"], message: "the commit is larger than 50 MB" });
+  for (const d of input.deletions) if (seen.has(d)) ctx.addIssue({ code: "custom", path: ["deletions"], message: `${d} is both written and deleted` });
+});
+
+export const CommitFilesOutput = z.object({
+  branch: z.string(),
+  /** The branch did not exist and was created from `fromRef`. */
+  created: z.boolean(),
+  /** False when every file already matched the branch and nothing was deleted (no empty commits). */
+  committed: z.boolean(),
+  /** The branch head after the call. */
+  sha: z.string(),
+  parentSha: z.string(),
+  filesWritten: z.number().int().nonnegative(),
+  filesDeleted: z.number().int().nonnegative(),
+  url: z.url().nullable(),
+});
+export type CommitFilesOutputT = z.infer<typeof CommitFilesOutput>;
+
 export const githubTools = [
   defineTool({
     name: "list_repos",
@@ -93,6 +150,14 @@ export const githubTools = [
     output: z.object({ branch: z.string(), sha: z.string(), created: z.boolean() }),
     hints: {},
     annotations: { idempotentHint: true },
+  }),
+  defineTool({
+    name: "commit_files",
+    description: "Write files to a working branch as one commit: the branch is created from fromRef (default: the default branch) when missing, the files are added or replaced on top of it and the deletions removed. Only changed files are uploaded; nothing changed means no commit. Never writes the default branch (merge a pull request with merge_pr) and never force-pushes.",
+    input: CommitFilesInput,
+    output: CommitFilesOutput,
+    hints: {},
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   }),
   defineTool({
     name: "open_pr",

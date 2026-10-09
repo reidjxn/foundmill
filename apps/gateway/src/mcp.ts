@@ -14,7 +14,7 @@ import { APP_NAME } from "@foundmill/config";
 import { AppError, NotFoundError } from "@foundmill/shared";
 import type { Connector, McpToolDefinition } from "@foundmill/connectors";
 import { CallRequest } from "./types";
-import { executeToolCall, GatewayError, type GatewayDeps } from "./pipeline";
+import { executeToolCall, GatewayError, modeFor, type GatewayDeps } from "./pipeline";
 import { toolAllowed, type SessionToken } from "./tokens";
 
 export const MCP_SERVER_VERSION = "0.1.0";
@@ -68,7 +68,7 @@ export function createMcpServer(deps: GatewayDeps, session: SessionToken, connec
 export async function handleMcpRequest(deps: GatewayDeps, session: SessionToken, connectorKey: string, request: Request): Promise<Response> {
   let connector: Connector;
   try {
-    connector = deps.registry.get(connectorKey, deps.mode);
+    connector = deps.registry.get(connectorKey, modeFor(deps, connectorKey));
   } catch (e) {
     if (e instanceof NotFoundError) throw new GatewayError("unknown_connector", `Unknown connector "${connectorKey}"`, 404, { connector: connectorKey });
     throw e;

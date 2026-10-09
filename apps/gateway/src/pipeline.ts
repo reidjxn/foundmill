@@ -51,6 +51,8 @@ export interface GatewayDeps {
   /** `null` when no vault is configured: credentials cannot be decrypted and live connectors needing one fail with 503. */
   vault: Vault | null;
   mode: ConnectorMode;
+  /** Connectors that run live while `mode` is mock (LIVE_CONNECTORS, e.g. GitHub before every other vendor). */
+  liveConnectors?: readonly string[];
   rateLimits: RateLimitStore;
   recipients: UntrustedRecipientRegistry;
   log: GatewayLogger;
@@ -74,6 +76,11 @@ function stateCacheFor(deps: GatewayDeps): SessionStateCache {
 export interface ToolCallResult {
   status: 200 | 403 | 429;
   body: CallResponse;
+}
+
+/** The mode one connector runs in for this gateway. */
+export function modeFor(deps: Pick<GatewayDeps, "mode" | "liveConnectors">, connectorKey: string): ConnectorMode {
+  return deps.mode === "live" || deps.liveConnectors?.includes(connectorKey) ? "live" : deps.mode;
 }
 
 /** Thrown for request errors that are not policy outcomes (unknown connector/tool, missing integration...). */
@@ -175,7 +182,7 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
   // 2. Connector + tool.
   let connector: Connector;
   try {
-    connector = deps.registry.get(req.connector, deps.mode);
+    connector = deps.registry.get(req.connector, modeFor(deps, req.connector));
   } catch (e) {
     if (e instanceof NotFoundError) throw new GatewayError("unknown_connector", `Unknown connector "${req.connector}"`, 404, { connector: req.connector });
     throw e;
@@ -342,7 +349,7 @@ async function appendAudit(deps: GatewayDeps, session: SessionToken, req: CallRe
       ...(input.errorCode ? { errorCode: input.errorCode } : {}),
       ...(input.untrusted !== undefined ? { untrusted: input.untrusted } : {}),
       amountMinor: req.context.amountMinor ?? 0,
-      mode: deps.mode,
+      mode: modeFor(deps, req.connector),
       ...argsSummary(req.args),
     },
   });
@@ -381,7 +388,7 @@ async function hardGateDescriptor(deps: GatewayDeps, session: SessionToken, load
     reason: "hard_gate",
   };
   try {
-    const ctx: ToolContext = { businessId: session.businessId, agentId: session.agentId, sessionId: session.sessionId, integration: placeholderIntegration(loaded, deps.mode), log, mode: deps.mode };
+    const ctx: ToolContext = { businessId: session.businessId, agentId: session.agentId, sessionId: session.sessionId, integration: placeholderIntegration(loaded, modeFor(deps, loaded.connector.key)), log, mode: modeFor(deps, loaded.connector.key) };
     const result = await loaded.connector.callTool(loaded.tool.name, args, ctx);
     if (result.error?.code === "hard_gate" && result.data && typeof result.data === "object") return result.data as HumanActionDescriptor;
     // A connector that did not refuse a hard-gated tool is a contract violation; the policy denial above already stopped the call.
@@ -453,16 +460,20 @@ async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestPar
 
 async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date): Promise<ToolCallResult> {
   const { connector, tool } = loaded;
+  const mode = modeFor(deps, connector.key);
   // Credential: decrypted in memory for this call only; never logged, never part of any response.
   let credential: LoadedCredential | null = null;
+  // An App connector (GitHub) authenticates with the platform's App keys for the business's installation: it needs a
+  // connected integration row, not a stored per-business secret.
+  const appInstalled = connector.auth.kind === "app" && loaded.integrationRow !== null && loaded.integrationRow.status !== "disconnected" && loaded.integrationRow.archivedAt === null;
   if (loaded.integrationRow) {
     if (deps.vault) credential = await loadCredential(deps.db, deps.vault, session.businessId, loaded.integrationRow.id);
-    else if (deps.mode === "live" && connector.auth.kind !== "none") throw new GatewayError("vault_unavailable", "No vault is configured; credentials cannot be decrypted", 503);
+    else if (mode === "live" && connector.auth.kind !== "none" && !appInstalled) throw new GatewayError("vault_unavailable", "No vault is configured; credentials cannot be decrypted", 503);
   }
-  if (deps.mode === "live" && connector.auth.kind !== "none" && !credential) {
+  if (mode === "live" && connector.auth.kind !== "none" && !credential && !appInstalled) {
     throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business`, 409, { connector: connector.key });
   }
-  const integration: IntegrationRecord = loaded.integrationRow ? toIntegrationRecord(loaded.integrationRow, credential) : mockIntegrationRecord(connector.key, session.businessId, deps.mode === "mock" ? {} : { status: "connected" });
+  const integration: IntegrationRecord = loaded.integrationRow ? toIntegrationRecord(loaded.integrationRow, credential) : mockIntegrationRecord(connector.key, session.businessId, mode === "mock" ? {} : { status: "connected" });
 
   const ctx: ToolContext = {
     businessId: session.businessId,
@@ -471,7 +482,7 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     integration,
     ...(credential ? { credential: credential.credential } : {}),
     log,
-    mode: deps.mode,
+    mode,
   };
 
   let result: ToolResult;
@@ -506,7 +517,7 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
       currency: loaded.agent.currency,
       billedTo: loaded.business.modelBilling,
       occurredAt: now(),
-      details: { connector: connector.key, tool: tool.name, mode: deps.mode, untrusted, label: "Estimate" },
+      details: { connector: connector.key, tool: tool.name, mode: modeFor(deps, connector.key), untrusted, label: "Estimate" },
     });
   }
   const audit = await appendAudit(deps, session, req, {

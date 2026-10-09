@@ -3,7 +3,7 @@
  * app touches `process.env`. The session-token secret is the only secret the gateway needs to start; vendor
  * secrets come from `platformSecretsFromEnv()` (packages/connectors) and per-business credentials from the vault.
  */
-import { loadEnv, servicePort, type Env } from "@foundmill/shared";
+import { liveConnectorKeys, loadEnv, servicePort, type Env } from "@foundmill/shared";
 import type { ConnectorMode } from "@foundmill/connectors";
 
 export interface GatewayConfig {
@@ -13,6 +13,8 @@ export interface GatewayConfig {
   /** IPv6 wildcard: Railway's private network is IPv6-only (ARCHITECTURE §17). */
   host: string;
   integrationsMode: ConnectorMode;
+  /** LIVE_CONNECTORS: connectors that run live while integrationsMode is mock. */
+  liveConnectors: string[];
   sessionTokenSecret: string;
   /** Default lifetime of a minted session token. */
   sessionTokenTtlSeconds: number;
@@ -38,6 +40,7 @@ export function gatewayConfig(env: Env = loadEnv()): GatewayConfig {
     port: servicePort(env, "GATEWAY_PORT"),
     host: GATEWAY_HOST,
     integrationsMode: env.INTEGRATIONS_MODE,
+    liveConnectors: liveConnectorKeys(env),
     sessionTokenSecret: secret ?? DEV_SESSION_TOKEN_SECRET,
     sessionTokenTtlSeconds: DEFAULT_SESSION_TTL_SECONDS,
     sessionTokenMaxTtlSeconds: MAX_SESSION_TTL_SECONDS,

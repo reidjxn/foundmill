@@ -1,8 +1,8 @@
 "use client";
-/** Dialogs the development tabs share: Reassign, Stop and discard, Open in Claude Code, Forget saved code. */
+/** Dialogs the development tabs share: Reassign, Stop and discard, Open in Claude Code, Forget saved code, GitHub repository. */
 import { useId, useState } from "react";
-import { ExternalLink, Square, Trash2, UserRoundCog } from "lucide-react";
-import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, KeyValueList, SimpleSelect, Skeleton, Textarea } from "@foundmill/dugout";
+import { ExternalLink, FolderGit2, Settings2, Square, Trash2, UserRoundCog } from "lucide-react";
+import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, SimpleSelect, Skeleton, Textarea } from "@foundmill/dugout";
 import { useWidgetQuery } from "@foundmill/widgets";
 import { InlineError, errorMessage } from "./shared";
 import type { AgentRow, OpenInClaudeCodeResponse } from "./types";
@@ -104,6 +104,70 @@ export function ForgetCodeDialog({ open, onOpenChange, taskTitle, pending, error
           <Button variant="danger" icon={Trash2} loading={pending} onClick={onConfirm}>
             Forget saved code
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export interface GitHubRepositoryDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  connected: boolean;
+  simulated: boolean;
+  /** `owner/name` currently chosen, or null. */
+  repository: string | null;
+  pending?: boolean;
+  error?: Error | null;
+  onSave: (repository: string | null) => void;
+  onOpenSettings: () => void;
+}
+
+/** Where saved code is pushed after each session (Development › Code). Owners and admins. */
+export function GitHubRepositoryDialog({ open, onOpenChange, connected, simulated, repository, pending, error, onSave, onOpenSettings }: GitHubRepositoryDialogProps) {
+  const id = useId();
+  const [value, setValue] = useState(repository ?? "");
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (o) setValue(repository ?? "");
+        onOpenChange(o);
+      }}
+    >
+      <DialogContent size="sm" aria-describedby={`${id}-desc`}>
+        <DialogHeader>
+          <DialogTitle>Push saved code to GitHub</DialogTitle>
+          <DialogDescription id={`${id}-desc`}>
+            When a session on a code task ends, its saved code is committed to the task's own branch (agent/…) in this repository. Nothing is ever written to the default branch: merging stays a pull request.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="flex flex-col gap-3">
+          {simulated ? <Chip tone="info">Simulated GitHub: pushes are recorded here but do not reach github.com</Chip> : null}
+          {connected ? (
+            <Field htmlFor={`${id}-repo`} label="Repository" hint="owner/name, or the repository's github.com address">
+              <Input id={`${id}-repo`} value={value} onChange={(e) => setValue(e.target.value)} placeholder="acme/shop" mono />
+            </Field>
+          ) : (
+            <p className="text-body text-secondary">GitHub is not connected for this business yet. Connect it in Settings › Integrations, then choose the repository here.</p>
+          )}
+          <InlineError error={error} />
+        </DialogBody>
+        <DialogFooter>
+          {connected && repository ? (
+            <Button variant="ghost" onClick={() => onSave(null)} disabled={pending}>
+              Stop pushing
+            </Button>
+          ) : null}
+          {connected ? (
+            <Button variant="primary" icon={FolderGit2} loading={pending} disabled={!value.trim()} onClick={() => onSave(value.trim())}>
+              Save
+            </Button>
+          ) : (
+            <Button variant="primary" icon={Settings2} onClick={onOpenSettings}>
+              Open Settings › Integrations
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

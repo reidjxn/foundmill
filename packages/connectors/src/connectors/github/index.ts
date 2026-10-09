@@ -11,7 +11,7 @@ import { ConfigError, type Connector, type IntegrationRecord, type ToolContext }
 import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { githubMock } from "./mock";
-import { GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapPullRequest, mapRepository, mapTreeEntry, MAX_FILE_BYTES, MAX_TREE_ENTRIES, type GhPullRequest, type GhRepository } from "./tools";
+import { fileWriteBuffer, gitBlobSha, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapPullRequest, mapRepository, mapTreeEntry, MAX_FILE_BYTES, MAX_TREE_ENTRIES, type GhPullRequest, type GhRepository } from "./tools";
 import { createGithubWebhook } from "./webhooks";
 
 type RestOctokit = InstanceType<typeof Octokit>;
@@ -96,6 +96,45 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
           const created = await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha });
           return { branch, sha: created.data.object.sha, created: true };
         },
+        commit_files: async ({ owner, repo, branch, fromRef, message, files, deletions }, ctx) => {
+          const o = await octokitFor(ctx);
+          const info = (await o.rest.repos.get({ owner, repo })).data;
+          if (branch === info.default_branch) throw Object.assign(new Error(`commit_files never writes the default branch (${branch}); merge a pull request instead`), { status: 422 });
+          const existing = await o.rest.git.getRef({ owner, repo, ref: `heads/${branch}` }).catch((e: { status?: number }) => (e.status === 404 ? null : Promise.reject(e)));
+          const parentSha = existing ? existing.data.object.sha : await refSha(o, owner, repo, fromRef ?? info.default_branch);
+          const baseTree = (await o.rest.git.getCommit({ owner, repo, commit_sha: parentSha })).data.tree.sha;
+          // What the branch holds now, so unchanged files are not uploaded and only existing paths are deleted.
+          const current = await o.rest.git.getTree({ owner, repo, tree_sha: baseTree, recursive: "1" });
+          const known = current.data.truncated ? null : new Map(current.data.tree.filter((e) => e.type === "blob" && e.path && e.sha).map((e) => [e.path!, e.sha!] as const));
+          const writes = files.filter((f) => known?.get(f.path) !== gitBlobSha(fileWriteBuffer(f)));
+          const removals = known ? deletions.filter((d) => known.has(d)) : deletions;
+          const result = (sha: string, committed: boolean, url: string | null) => ({ branch, created: !existing, committed, sha, parentSha, filesWritten: committed ? writes.length : 0, filesDeleted: committed ? removals.length : 0, url });
+          if (writes.length === 0 && removals.length === 0) {
+            if (!existing) await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: parentSha });
+            return result(parentSha, false, null);
+          }
+          const entries: { path: string; mode: "100644"; type: "blob"; sha: string | null }[] = [];
+          let next = 0;
+          const upload = async () => {
+            while (next < writes.length) {
+              const f = writes[next++]!;
+              const blob = await o.rest.git.createBlob({ owner, repo, content: fileWriteBuffer(f).toString("base64"), encoding: "base64" });
+              entries.push({ path: f.path, mode: "100644", type: "blob", sha: blob.data.sha });
+            }
+          };
+          await Promise.all(Array.from({ length: Math.min(8, writes.length) }, upload));
+          for (const d of removals) entries.push({ path: d, mode: "100644", type: "blob", sha: null });
+          const tree = await o.rest.git.createTree({ owner, repo, base_tree: baseTree, tree: entries });
+          if (tree.data.sha === baseTree) {
+            if (!existing) await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: parentSha });
+            return result(parentSha, false, null);
+          }
+          const commit = await o.rest.git.createCommit({ owner, repo, message, tree: tree.data.sha, parents: [parentSha] });
+          // Fast-forward only: if the branch moved since it was read, GitHub refuses and nothing is overwritten.
+          if (existing) await o.rest.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: commit.data.sha, force: false });
+          else await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: commit.data.sha });
+          return result(commit.data.sha, true, commit.data.html_url ?? `${info.html_url}/commit/${commit.data.sha}`);
+        },
         open_pr: async ({ owner, repo, title, body, head, base, draft }, ctx) => {
           const o = await octokitFor(ctx);
           const open = await o.rest.pulls.list({ owner, repo, state: "open", head: `${owner}:${head}`, base, per_page: 1 });
@@ -113,7 +152,14 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
       },
       connect: async (businessId, input) => {
         const installationId = typeof input === "object" && input ? Number((input as { installationId?: unknown }).installationId) : Number.NaN;
-        if (!Number.isFinite(installationId)) throw new ConfigError(GITHUB_KEY, "installation id", "connect() expects { installationId } from the GitHub App installation callback");
+        if (!Number.isFinite(installationId)) {
+          // First step: the founder installs the App on GitHub (a consent only they can give). GitHub then sends them
+          // to the App's setup URL with installation_id and this state; Settings › Integrations finishes the connect.
+          if (!secrets.githubAppSlug) throw new ConfigError(GITHUB_KEY, "GITHUB_APP_SLUG", "set the GitHub App's URL name so Connect can open its installation page");
+          const createdAt = now().toISOString();
+          const installUrl = `https://github.com/apps/${encodeURIComponent(secrets.githubAppSlug)}/installations/new?state=${encodeURIComponent(businessId)}`;
+          return { id: uuid(), businessId, connectorKey: GITHUB_KEY, status: "disconnected", scopes: [], accountLabel: null, externalAccountId: null, config: { consentUrl: installUrl }, credentialRef: null, expiresAt: null, lastHealthAt: null, createdAt };
+        }
         const res = await (app().octokit as unknown as RestOctokit).rest.apps.getInstallation({ installation_id: installationId });
         const account = res.data.account as { login?: string; slug?: string; id?: number } | null;
         const label = account?.login ?? account?.slug ?? `installation ${installationId}`;

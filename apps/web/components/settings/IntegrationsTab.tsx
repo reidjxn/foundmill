@@ -7,7 +7,8 @@
  * staging only.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Activity, ExternalLink, FlaskConical, Plug, Unplug } from "lucide-react";
+import { Activity, ExternalLink, FlaskConical, FolderGit2, Plug, Unplug } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Button, Chip, IconButton, SimpleSelect, StatusPill, type StatusTone } from "@foundmill/dugout";
 import type { IntegrationStatus } from "@foundmill/shared";
@@ -85,11 +86,32 @@ export function IntegrationsTab() {
     }),
   );
 
+  // Back from installing the GitHub App (app/integrations/github/callback): the founder confirms the installation here.
+  const search = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const pendingInstallation = /^\d{1,20}$/.test(search?.get("github_installation") ?? "") ? search!.get("github_installation")! : null;
+  const confirmInstallation = () =>
+    pendingInstallation &&
+    connect.mutate({ businessId, connectorKey: "github", input: { installationId: Number(pendingInstallation) } }, { onSuccess: () => router.replace(pathname ?? `/b/${businessId}/settings/integrations`) });
+
   if (list.error) return <ErrorPanel title="Integrations" message={errorMessage(list.error)} onRetry={() => void list.refetch()} />;
   const rows = list.data?.catalogue ?? [];
 
   return (
     <AdminOnly>
+      {pendingInstallation ? (
+        <SettingsSection title="Finish connecting GitHub">
+          <div className="flex items-center gap-3" data-testid="github-installation">
+            <Hint>
+              GitHub installation {pendingInstallation} is ready. Connect it to this business so agents can push their code to their own branches. Then choose the repository on Development › Code.
+            </Hint>
+            <Button variant="primary" icon={FolderGit2} loading={connect.isPending} onClick={confirmInstallation}>
+              Connect installation
+            </Button>
+          </div>
+        </SettingsSection>
+      ) : null}
       <SettingsSection title="Connectors" actions={list.data ? <Chip tone={list.data.mode === "mock" ? "info" : "good"}>{list.data.mode === "mock" ? "Mock mode" : "Live"}</Chip> : undefined} loading={list.isLoading}>
         <Hint>OAuth consents and API keys are yours to grant: a connector that needs one opens the vendor's page and waits for you. Secrets are encrypted at rest and never shown again.</Hint>
         <ul className="flex flex-col divide-y divide-subtle" data-testid="connector-list">
@@ -106,6 +128,7 @@ export function IntegrationsTab() {
                   </span>
                 </span>
                 <StatusPill tone={status.tone}>{status.word}</StatusPill>
+                {list.data?.mode === "mock" && c.live ? <Chip tone="good">Live</Chip> : null}
                 <span className="flex-1 truncate text-small text-secondary">
                   {integ?.accountLabel ? `${integ.accountLabel} · ` : ""}
                   {c.tools.length} tools{integ?.scopes.length ? ` · ${integ.scopes.join(", ")}` : ""}

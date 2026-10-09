@@ -7,6 +7,7 @@ import { BUSINESS_MODES } from "@foundmill/shared";
 import { repos } from "@foundmill/db";
 import { storeCredential } from "../credentials";
 import { GatewayClientError } from "../client";
+import { modeFor } from "../pipeline";
 import { signServiceToken } from "../tokens";
 import { hashRecipient } from "../recipients";
 import { SAFE_EMAIL, setupGateway, TEST_CONNECTOR, TEST_SECRET, UNTRUSTED_EMAIL, type GatewayFixture } from "./harness";
@@ -347,6 +348,39 @@ describe("live mode", () => {
       const r = asAllow(await live.client.call(token, { connector: "test", tool: "note", args: {} }));
       expect(r.result.ok).toBe(true);
       expect(live.seen.at(-1)).toMatchObject({ mode: "live", credentialSecret: "live-key-123456" });
+    } finally {
+      await live.close();
+    }
+  });
+});
+
+describe("LIVE_CONNECTORS", () => {
+  it("runs the named connectors live while every other connector stays mock", async () => {
+    const mixed = await setupGateway({ mode: "mock", liveConnectors: ["test"], connector: { authKind: "app" }, extraConnectorKeys: ["other"] });
+    try {
+      asAllow(await mixed.client.call(await mixed.token({ allowedTools: ["test:*", "other:*"] }), { connector: "test", tool: "note", args: {} }));
+      expect(mixed.seen.at(-1)).toMatchObject({ mode: "live" });
+      asAllow(await mixed.client.call(await mixed.token({ allowedTools: ["test:*", "other:*"] }), { connector: "other", tool: "note", args: {} }));
+      expect(mixed.seen.at(-1)).toMatchObject({ mode: "mock" });
+    } finally {
+      await mixed.close();
+    }
+    expect(modeFor({ mode: "mock", liveConnectors: ["github"] }, "github")).toBe("live");
+    expect(modeFor({ mode: "mock", liveConnectors: ["github"] }, "stripe")).toBe("mock");
+    expect(modeFor({ mode: "live" }, "stripe")).toBe("live");
+  });
+});
+
+describe("live mode: App connectors (GitHub)", () => {
+  it("run for an installed business without a stored secret, and stop once the installation is disconnected", async () => {
+    const live = await setupGateway({ mode: "live", connector: { authKind: "app" } });
+    try {
+      const token = await live.token();
+      const r = asAllow(await live.client.call(token, { connector: "test", tool: "note", args: {} }));
+      expect(r.result.ok).toBe(true);
+      expect(live.seen.at(-1)).toMatchObject({ mode: "live", credentialSecret: null, integrationStatus: "connected" });
+      await repos.integrations.disconnect(live.db, live.businessId, live.integrationId);
+      await expect(live.client.call(token, { connector: "test", tool: "note", args: {} })).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
     } finally {
       await live.close();
     }

@@ -174,7 +174,23 @@ export interface CodeSnapshotSummary {
   added: number;
   changed: number;
   removed: number;
+  /** Where this save was pushed on GitHub and the commit, or why it was not (0014). */
+  pushedRepo?: string | null;
+  pushedBranch?: string | null;
+  pushedCommitSha?: string | null;
+  pushedUrl?: string | null;
+  pushedAt?: Iso | null;
+  pushError?: string | null;
   createdAt: Iso;
+}
+
+/* dev.code.repository */
+export interface CodeRepositoryResponse {
+  connected: boolean;
+  status: string | null;
+  repository: { fullName: string; owner: string; repo: string; writeEnabled: boolean } | null;
+  /** The simulated GitHub (mock mode): pushes are recorded but never reach github.com. */
+  simulated: boolean;
 }
 
 export interface CodeManifestEntry {

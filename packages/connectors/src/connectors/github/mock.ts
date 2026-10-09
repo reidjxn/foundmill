@@ -2,7 +2,7 @@ import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, stableHash } from "../../mock-utils";
 import { makeWebhookRequest, ReplayGuard } from "../../webhooks";
 import { commitSha, fileSha, GH_MERGED_PR, GH_REPOS, MOCK_GITHUB_WEBHOOK_SECRET, MOCK_INSTALLATION_ID, MOCK_OWNER, type GhFixtureRepo } from "./fixtures/repos";
-import { GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapPullRequest, mapRepository, MAX_TREE_ENTRIES, type GhPullRequest, type PullRequestT } from "./tools";
+import { fileWriteBuffer, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE_LIMITS, githubTools, mapPullRequest, mapRepository, MAX_TREE_ENTRIES, type GhPullRequest, type PullRequestT } from "./tools";
 import { createGithubWebhook, GITHUB_DELIVERY_HEADER, GITHUB_EVENT_HEADER, GITHUB_SIGNATURE_HEADER, githubSignature, normaliseGithubEvent, type GhWebhookPayload } from "./webhooks";
 
 const notFound = (what: string) => Object.assign(new Error(`${what} not found`), { status: 404 });
@@ -24,8 +24,16 @@ export function mergedPullRequestPayload(pr: GhPullRequest = GH_MERGED_PR, repo 
   return { action: "closed", installation: { id: MOCK_INSTALLATION_ID }, repository: { full_name: repo.full_name, default_branch: repo.default_branch }, sender: { login: "reidjxn" }, pull_request: pr };
 }
 
+/**
+ * In-memory GitHub. Branches from the fixtures share the repository's files; a branch `commit_files` wrote to keeps
+ * its own contents, which `read_file` and `read_tree` show at that ref. The first write to a repository the fixtures
+ * do not know creates it (empty, `main`), so mock mode works for whatever repository a business names.
+ */
 export function createGithubMock() {
   const repos = new Map<string, GhFixtureRepo>(GH_REPOS.map((r) => [r.repo.full_name, { ...r, branches: { ...r.branches }, files: [...r.files] }]));
+  /** `owner/repo@branch` → path → bytes, for branches with their own commits. */
+  const trees = new Map<string, Map<string, Buffer>>();
+  const treeKey = (r: GhFixtureRepo, branch: string) => `${r.repo.full_name}@${branch}`;
   const pulls = new Map<string, GhPullRequest[]>([[GH_REPOS[0]!.repo.full_name, [structuredClone(GH_MERGED_PR)]]]);
   const webhook = createGithubWebhook({ secret: MOCK_GITHUB_WEBHOOK_SECRET, replay: new ReplayGuard({ now: () => MOCK_NOW.getTime() }), now: () => MOCK_NOW });
 
@@ -42,6 +50,30 @@ export function createGithubMock() {
     throw notFound(`ref ${ref} in ${r.repo.full_name}`);
   };
   const prList = (fullName: string) => pulls.get(fullName) ?? pulls.set(fullName, []).get(fullName)!;
+  /** The branch a ref names (HEAD → default), or null for a commit sha. */
+  const branchOf = (r: GhFixtureRepo, ref: string): string | null => {
+    if (ref === "HEAD") return r.repo.default_branch;
+    const name = ref.replace(/^refs\/heads\//, "");
+    return r.branches[name] ? name : null;
+  };
+  /** Files at a ref: a branch's own commits, else the repository's fixture files. */
+  const filesAt = (r: GhFixtureRepo, ref: string): Map<string, Buffer> => {
+    const branch = branchOf(r, ref);
+    const own = branch ? trees.get(treeKey(r, branch)) : undefined;
+    return own ?? new Map(r.files.map((f) => [f.path, Buffer.from(f.content, "utf8")] as const));
+  };
+  const blobShaOf = (path: string, content: Buffer) => stableHash(`blob:${path}:${content.toString("base64")}`, 40);
+  const findOrCreate = (owner: string, repo: string): GhFixtureRepo => {
+    const existing = repos.get(`${owner}/${repo}`);
+    if (existing) return existing;
+    const created: GhFixtureRepo = {
+      repo: { id: 900_000_000 + (parseInt(stableHash(`repo:${owner}/${repo}`, 6), 16) % 99_999_999), full_name: `${owner}/${repo}`, name: repo, private: true, default_branch: "main", description: null, html_url: `https://github.com/${owner}/${repo}`, pushed_at: null, language: null, owner: { login: owner } },
+      branches: { main: commitSha(repo, "main") },
+      files: [],
+    };
+    repos.set(created.repo.full_name, created);
+    return created;
+  };
   const toPr = (p: GhPullRequest): PullRequestT => mapPullRequest(p);
 
   const connector = buildMockConnector({
@@ -63,14 +95,16 @@ export function createGithubMock() {
         const sha = resolveRef(r, ref);
         const prefix = path ? `${path.replace(/\/$/, "")}/` : "";
         const seen = new Map<string, { type: "blob" | "tree"; sha: string; size: number | null }>();
-        for (const f of r.files) {
+        const own = branchOf(r, ref) ? trees.get(treeKey(r, branchOf(r, ref)!)) : undefined;
+        const listed = own ? [...own].map(([p, content]) => ({ path: p, sha: blobShaOf(p, content), size: content.byteLength })) : r.files.map((f) => ({ path: f.path, sha: fileSha(f), size: Buffer.byteLength(f.content) }));
+        for (const f of listed) {
           if (!f.path.startsWith(prefix)) continue;
           const rest = f.path.slice(prefix.length);
           const parts = rest.split("/");
           if (recursive) {
             for (let i = 1; i < parts.length; i++) seen.set(parts.slice(0, i).join("/"), { type: "tree", sha: stableHash(`tree:${prefix}${parts.slice(0, i).join("/")}`, 40), size: null });
-            seen.set(rest, { type: "blob", sha: fileSha(f), size: Buffer.byteLength(f.content) });
-          } else if (parts.length === 1) seen.set(rest, { type: "blob", sha: fileSha(f), size: Buffer.byteLength(f.content) });
+            seen.set(rest, { type: "blob", sha: f.sha, size: f.size });
+          } else if (parts.length === 1) seen.set(rest, { type: "blob", sha: f.sha, size: f.size });
           else seen.set(parts[0]!, { type: "tree", sha: stableHash(`tree:${prefix}${parts[0]}`, 40), size: null });
         }
         if (path && seen.size === 0) throw notFound(`path ${path}`);
@@ -80,9 +114,11 @@ export function createGithubMock() {
       read_file: async ({ owner, repo, path, ref }) => {
         const r = find(owner, repo);
         resolveRef(r, ref);
-        const f = r.files.find((x) => x.path === path);
-        if (!f) throw notFound(`file ${path}`);
-        return { path, sha: fileSha(f), size: Buffer.byteLength(f.content), encoding: "utf-8" as const, content: f.content, url: `${r.repo.html_url}/blob/${ref === "HEAD" ? r.repo.default_branch : ref}/${path}` };
+        const content = filesAt(r, ref).get(path);
+        if (!content) throw notFound(`file ${path}`);
+        const text = content.toString("utf8");
+        const binary = text.includes("\uFFFD");
+        return { path, sha: blobShaOf(path, content), size: content.byteLength, encoding: binary ? ("base64" as const) : ("utf-8" as const), content: binary ? content.toString("base64") : text, url: `${r.repo.html_url}/blob/${ref === "HEAD" ? r.repo.default_branch : ref}/${path}` };
       },
       create_branch: async ({ owner, repo, branch, fromRef }) => {
         const r = find(owner, repo);
@@ -91,6 +127,34 @@ export function createGithubMock() {
         const sha = resolveRef(r, fromRef ?? "HEAD");
         r.branches[branch] = sha;
         return { branch, sha, created: true };
+      },
+      commit_files: async ({ owner, repo, branch, fromRef, message, files, deletions }) => {
+        const r = findOrCreate(owner, repo);
+        if (branch === r.repo.default_branch) throw Object.assign(new Error(`commit_files never writes the default branch (${branch}); merge a pull request instead`), { status: 422 });
+        const existed = Boolean(r.branches[branch]);
+        const from = existed ? branch : (fromRef ?? "HEAD");
+        const parentSha = resolveRef(r, from);
+        const next = new Map(filesAt(r, from));
+        let written = 0;
+        for (const f of files) {
+          const content = fileWriteBuffer(f);
+          if (next.get(f.path)?.equals(content)) continue;
+          next.set(f.path, content);
+          written++;
+        }
+        let deleted = 0;
+        for (const d of deletions) if (next.delete(d)) deleted++;
+        if (written + deleted === 0) {
+          if (!existed) {
+            r.branches[branch] = parentSha;
+            trees.set(treeKey(r, branch), next);
+          }
+          return { branch, created: !existed, committed: false, sha: parentSha, parentSha, filesWritten: 0, filesDeleted: 0, url: null };
+        }
+        const sha = stableHash(`commit:${r.repo.full_name}:${branch}:${parentSha}:${message}:${[...next].map(([p, c]) => `${p}=${blobShaOf(p, c)}`).sort().join(",")}`, 40);
+        r.branches[branch] = sha;
+        trees.set(treeKey(r, branch), next);
+        return { branch, created: !existed, committed: true, sha, parentSha, filesWritten: written, filesDeleted: deleted, url: `${r.repo.html_url}/commit/${sha}` };
       },
       open_pr: async ({ owner, repo, title, body, head, base, draft }) => {
         const r = find(owner, repo);

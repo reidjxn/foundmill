@@ -82,7 +82,7 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
     rateLimits = new MemoryRateLimitStore();
   }
 
-  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, rateLimits, recipients: new UntrustedRecipientRegistry(), log };
+  const deps: GatewayDeps = { db, registry, vault, mode: config.integrationsMode, liveConnectors: config.liveConnectors, rateLimits, recipients: new UntrustedRecipientRegistry(), log };
   // Until prepare() has run the database is assumed reachable (tests build the graph over an already-migrated PGlite).
   let readiness: DbReadiness | null = null;
   const app = createGatewayApp(deps, {
@@ -164,7 +164,7 @@ export async function startGateway(options: BuildDepsOptions = {}): Promise<Runn
   const readiness = await built.prepare();
   const running = await listenGateway(built.app, { port: built.config.port, hosts: [built.config.host, ...DEFAULT_LISTEN_HOSTS.filter((h) => h !== built.config.host)], log: built.deps.log });
   built.deps.log.info(
-    { port: running.port, host: running.host, db: readiness.ok, driver: readiness.driver, mode: built.config.integrationsMode, connectors: built.deps.registry.keys().length, vault: built.deps.vault?.kind ?? "none", rateLimits: built.rateLimitStoreKind },
+    { port: running.port, host: running.host, db: readiness.ok, driver: readiness.driver, mode: built.config.integrationsMode, liveConnectors: built.config.liveConnectors, connectors: built.deps.registry.keys().length, vault: built.deps.vault?.kind ?? "none", rateLimits: built.rateLimitStoreKind },
     `${APP_NAME} gateway listening`,
   );
   return { ...built, ...running };

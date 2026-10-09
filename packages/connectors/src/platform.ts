@@ -23,6 +23,8 @@ export interface PlatformSecrets {
   githubAppId?: string;
   githubAppPrivateKey?: string;
   githubWebhookSecret?: string;
+  /** The App's URL name (github.com/apps/<slug>): connect() without an installation id returns its install page. */
+  githubAppSlug?: string;
   shopifyClientId?: string;
   shopifyClientSecret?: string;
   tinkClientId?: string;
@@ -53,7 +55,9 @@ export function platformSecretsFromEnv(env: Env = loadEnv()): PlatformSecrets {
   if (env.SENDGRID_API_KEY) s.sendgridApiKey = env.SENDGRID_API_KEY;
   if (env.SENDGRID_WEBHOOK_PUBLIC_KEY) s.sendgridWebhookPublicKey = env.SENDGRID_WEBHOOK_PUBLIC_KEY;
   if (env.GITHUB_APP_ID) s.githubAppId = env.GITHUB_APP_ID;
-  if (env.GITHUB_APP_PRIVATE_KEY) s.githubAppPrivateKey = env.GITHUB_APP_PRIVATE_KEY;
+  // A PEM pasted into a single-line variable arrives with literal "\n"; the App needs real line breaks.
+  if (env.GITHUB_APP_PRIVATE_KEY) s.githubAppPrivateKey = env.GITHUB_APP_PRIVATE_KEY.includes("\n") ? env.GITHUB_APP_PRIVATE_KEY : env.GITHUB_APP_PRIVATE_KEY.replace(/\\n/g, "\n");
+  if (env.GITHUB_APP_SLUG) s.githubAppSlug = env.GITHUB_APP_SLUG;
   if (env.GITHUB_WEBHOOK_SECRET) s.githubWebhookSecret = env.GITHUB_WEBHOOK_SECRET;
   return s;
 }

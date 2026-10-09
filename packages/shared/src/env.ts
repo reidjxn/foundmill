@@ -4,6 +4,8 @@ import { z } from "zod";
 const Env = z.object({
   APP_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
   INTEGRATIONS_MODE: z.enum(["mock", "live"]).default("mock"),
+  /** Connectors that run live while INTEGRATIONS_MODE is mock, comma-separated (e.g. "github"). */
+  LIVE_CONNECTORS: z.string().default(""),
   MODEL_MODE: z.enum(["mock", "live"]).default("mock"),
   APP_URL: z.string().default("http://localhost:3000"),
   DATA_REGION: z.enum(["eu", "us"]).default("eu"),
@@ -41,6 +43,8 @@ const Env = z.object({
   GITHUB_APP_ID: z.string().optional(),
   GITHUB_APP_PRIVATE_KEY: z.string().optional(),
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
+  /** The GitHub App's URL name (github.com/apps/<slug>): Connect opens its installation page. */
+  GITHUB_APP_SLUG: z.string().optional(),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
   SENTRY_DSN: z.string().optional(),
   SEED_OWNER_EMAILS: z.string().optional(),
@@ -66,5 +70,9 @@ export function loadEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): Env {
 }
 export const resetEnvCache = () => { cached = undefined; };
 export const isMockIntegrations = (env = loadEnv()) => env.INTEGRATIONS_MODE === "mock";
+/** Connectors named in LIVE_CONNECTORS. */
+export const liveConnectorKeys = (env: Pick<Env, "LIVE_CONNECTORS">): string[] => env.LIVE_CONNECTORS.split(",").map((k) => k.trim()).filter(Boolean);
+/** The mode one connector runs in: live everywhere in live mode, or when LIVE_CONNECTORS names it. */
+export const connectorMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">, connectorKey: string): "mock" | "live" => (env.INTEGRATIONS_MODE === "live" || liveConnectorKeys(env).includes(connectorKey) ? "live" : "mock");
 export const isMockModels = (env = loadEnv()) => env.MODEL_MODE === "mock";
 export const servicePort = (env: Env, named: "API_PORT" | "GATEWAY_PORT" | "COMPOSER_PORT" | "STREAM_PORT" | "COLLAB_PORT" | "INGEST_PORT" | "SOCIAL_PORT"): number => env.PORT ?? env[named];

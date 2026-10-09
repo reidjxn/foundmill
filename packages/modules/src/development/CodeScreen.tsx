@@ -5,14 +5,14 @@
  * Left: tasks with saved code. Right: one saved session's files and the selected file in a CodeViewer.
  */
 import { useEffect, useMemo, useState } from "react";
-import { FileCode, FolderGit2, GitBranch, Network, Search, Trash2 } from "lucide-react";
-import { Avatar, Button, Chip, CodeViewer, DataTable, EmptyState, ErrorState, Input, Panel, SimpleSelect, cn, formatBytes, formatDate, formatDateTime, formatNumber, formatRelative, type DataTableColumn, type SelectOption } from "@foundmill/dugout";
+import { CircleCheck, ExternalLink, FileCode, FolderGit2, GitBranch, Network, Search, Trash2, TriangleAlert } from "lucide-react";
+import { Avatar, Button, Chip, CodeViewer, DataTable, EmptyState, ErrorState, Icon, Input, Panel, SimpleSelect, StatusPill, cn, formatBytes, formatDate, formatDateTime, formatNumber, formatRelative, type DataTableColumn, type SelectOption } from "@foundmill/dugout";
 import { departmentForModule, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
-import { ForgetCodeDialog } from "./dialogs";
+import { ForgetCodeDialog, GitHubRepositoryDialog } from "./dialogs";
 import { useDevScreenOptions } from "./options";
 import { Screen, TaskStatusPill, taskHref, toDate, toTileAgent, useAction, useAgentIndex, useAgents } from "./shared";
-import type { AgentRow, CodeFileResponse, CodeFilesResponse, CodeManifestEntry, CodeSnapshotSummary, CodeTaskRow } from "./types";
+import type { AgentRow, CodeFileResponse, CodeFilesResponse, CodeManifestEntry, CodeRepositoryResponse, CodeSnapshotSummary, CodeTaskRow } from "./types";
 
 /** Body height of both panels, so the task list and the file view line up. */
 export const CODE_PANEL_HEIGHT = 560;
@@ -22,7 +22,7 @@ const CODE_TOOLBAR_HEIGHT = 32;
 const FIRST_FILES = ["README.md", "readme.md", "package.json"];
 /** Above this many files the list gets a filter box. */
 const FILTER_FROM = 12;
-const SAVED_FOOTER = "Saved when each session ends. The next session on a task starts from its latest save.";
+const SAVED_FOOTER = "Saved when each session ends, and pushed to the task's branch when GitHub is set up. The next session on a task starts from its latest save.";
 
 export interface CodeTaskTableRow extends CodeTaskRow {
   id: string;
@@ -99,6 +99,53 @@ function FileList({ files, selected, onSelect }: { files: readonly CodeManifestE
   );
 }
 
+/** Whether this save reached GitHub: the commit (a link unless GitHub is simulated), why not, or that it is saved here only. */
+export function PushStatus({ snapshot, repository }: { snapshot: CodeSnapshotSummary | null; repository: CodeRepositoryResponse | undefined }) {
+  if (!snapshot) return null;
+  const simulated = repository?.simulated ?? true;
+  if (snapshot.pushedCommitSha) {
+    const short = snapshot.pushedCommitSha.slice(0, 7);
+    const branchUrl = snapshot.pushedRepo && snapshot.pushedBranch ? `https://github.com/${snapshot.pushedRepo}/tree/${snapshot.pushedBranch}` : null;
+    if (simulated || !snapshot.pushedUrl) {
+      return (
+        <StatusPill tone="good" icon={CircleCheck} title={`${snapshot.pushedRepo ?? ""}${simulated ? " (simulated GitHub)" : ""}`} data-testid="push-status">
+          Pushed · {short}
+          {simulated ? " · simulated" : ""}
+        </StatusPill>
+      );
+    }
+    return (
+      <span className="flex items-center gap-2" data-testid="push-status">
+        <a href={snapshot.pushedUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-small text-link hover:underline">
+          <Icon icon={CircleCheck} size="inline" /> Pushed · <span className="font-mono">{short}</span>
+        </a>
+        {branchUrl ? (
+          <a href={branchUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-small text-link hover:underline">
+            <Icon icon={ExternalLink} size="inline" /> Branch on GitHub
+          </a>
+        ) : null}
+      </span>
+    );
+  }
+  if (snapshot.pushError) {
+    return (
+      <span className="flex min-w-0 items-center gap-1.5" data-testid="push-status">
+        <StatusPill tone="warn" icon={TriangleAlert}>
+          Not pushed
+        </StatusPill>
+        <span className="max-w-64 truncate text-small text-secondary" title={snapshot.pushError}>
+          {snapshot.pushError}
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span className="text-small text-secondary" data-testid="push-status">
+      {repository?.repository ? "Not pushed yet: the next session on the task pushes it" : "Saved here only"}
+    </span>
+  );
+}
+
 export function CodeScreen({ businessId }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
   const options = useDevScreenOptions();
@@ -161,6 +208,37 @@ export function CodeScreen({ businessId }: ModuleScreenProps) {
 
   const goToPlan = () => navigate(routes.department(businessId, deptSlug ?? "development", "plan"));
   const action = useAction();
+  const repository = useWidgetQuery<CodeRepositoryResponse>("dev.code.repository", {});
+  const [settingRepo, setSettingRepo] = useState(false);
+  const saveRepository = (value: string | null) =>
+    void action.run("dev.code.setRepository", { repository: value }, {
+      key: "repository",
+      then: () => {
+        setSettingRepo(false);
+        repository.refetch();
+      },
+    });
+  const repoButton = (
+    <Button size="sm" variant="ghost" icon={FolderGit2} onClick={() => setSettingRepo(true)} title="Where saved code is pushed after each session">
+      {repository.data?.repository ? repository.data.repository.fullName : "Set up GitHub"}
+    </Button>
+  );
+  const repoDialog = (
+    <GitHubRepositoryDialog
+      open={settingRepo}
+      onOpenChange={(o) => {
+        setSettingRepo(o);
+        if (!o) action.clearError();
+      }}
+      connected={repository.data?.connected ?? false}
+      simulated={repository.data?.simulated ?? true}
+      repository={repository.data?.repository?.fullName ?? null}
+      pending={action.pending === "repository"}
+      error={settingRepo ? action.error : null}
+      onSave={saveRepository}
+      onOpenSettings={() => navigate(routes.settings(businessId, "integrations"))}
+    />
+  );
   const [forgetting, setForgetting] = useState(false);
   const forget = () => {
     if (!selectedTask) return;
@@ -182,9 +260,11 @@ export function CodeScreen({ businessId }: ModuleScreenProps) {
         <Panel
           span={12}
           title="Saved code"
+          actions={repoButton}
           empty={{ icon: FolderGit2, title: "No saved code yet", children: "When an agent's session on a code task ends, the files it wrote are saved here, and the next session on that task carries on from them.", action: { label: "Go to Plan", onClick: goToPlan } }}
           footer={<span>{SAVED_FOOTER}</span>}
         />
+        {repoDialog}
       </Screen>
     );
   }
@@ -194,6 +274,7 @@ export function CodeScreen({ businessId }: ModuleScreenProps) {
       <Panel
         span={4}
         title="Saved code"
+        actions={repoButton}
         flush
         loading={list.isLoading}
         error={list.error ? list.error.message : undefined}
@@ -245,9 +326,10 @@ export function CodeScreen({ businessId }: ModuleScreenProps) {
       >
         {selectedTask ? (
           <div className="flex h-panel-header items-center gap-2 border-b border-subtle px-2.5">
-            <Chip icon={GitBranch} mono title="The branch this work goes to once GitHub is connected">
+            <Chip icon={GitBranch} mono title="The task's own branch on GitHub">
               {files.data?.branch ?? `agent/${selectedTask.taskId}`}
             </Chip>
+            <PushStatus snapshot={snapshot} repository={repository.data} />
             <span className="flex-1" />
             {sessionOptions.length > 1 ? (
               <SimpleSelect controlSize="sm" options={sessionOptions} value={snapshot?.id ?? sessionOptions[0]?.value} onValueChange={(v) => setSnapshotId(v === history[0]?.id ? null : v)} aria-label="Saved session" className="w-80" />
@@ -297,6 +379,7 @@ export function CodeScreen({ businessId }: ModuleScreenProps) {
         error={forgetting ? action.error : null}
         onConfirm={forget}
       />
+      {repoDialog}
     </Screen>
   );
 }

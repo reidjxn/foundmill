@@ -29,6 +29,7 @@ import { emitEvent, systemActor } from "../events";
 import { applySessionEvent, initialProgress, type ProgressState } from "../progress";
 import { LoopDetector } from "./loop";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
+import { describePush, pushWorkspace, type PushContext } from "./workspace-push";
 import { restoreWorkspace, saveWorkspace, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
 import { syncWorkspaceToSandbox } from "./workspace-sync";
 import type { AgentSessionInput, SessionFinish, SessionLaunch, SessionResult } from "./types";
@@ -780,7 +781,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     cancel?.removeEventListener("abort", onCancel);
     queue.close();
     // Keep the code whatever the outcome (done, stopped, failed): the workspace itself is deleted next.
-    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed });
+    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, taskTitle: task.title, agentName: agent.name }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed });
     try {
       await removeSessionWorkspace(cwd);
     } catch (err) {
@@ -789,8 +790,11 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   }
 }
 
-/** Save the session's code to the task and say so in the session stream; a failure to save never fails the session. */
-async function keepWorkspace(deps: OrchestratorDeps, recorder: SessionRecorder, owner: Parameters<typeof saveWorkspace>[1], cwd: string, options: SaveWorkspaceOptions): Promise<void> {
+/**
+ * Save the session's code to the task, push it to the agent's branch on GitHub, and say so in the session stream; a
+ * failure to save or push never fails the session.
+ */
+async function keepWorkspace(deps: OrchestratorDeps, recorder: SessionRecorder, owner: PushContext, cwd: string, options: SaveWorkspaceOptions): Promise<void> {
   const at = () => deps.clock.now().toISOString();
   try {
     const saved = await saveWorkspace(deps.db, owner, cwd, options);
@@ -802,6 +806,10 @@ async function keepWorkspace(deps: OrchestratorDeps, recorder: SessionRecorder, 
       await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Saved this task's code: ${saved.files} file${saved.files === 1 ? "" : "s"} (${Math.ceil(saved.bytes / 1024)} KB)${delta ? `, ${delta}` : ""}. Development › Code shows it.` });
     }
     if (leftOut) await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: leftOut });
+    if (saved.status !== "refused" && saved.snapshot) {
+      const pushed = describePush(await pushWorkspace(deps.db, deps.gateway, owner, saved.snapshot));
+      if (pushed) await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: pushed.level, text: pushed.text });
+    }
   } catch (err) {
     deps.log.error({ err: (err as Error).message, sessionId: owner.sessionId }, "workspace save failed");
     await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "error", text: "This session's code could not be saved." });

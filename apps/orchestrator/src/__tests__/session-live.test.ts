@@ -11,7 +11,10 @@ import { repos, workspaceSnapshots } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
 import { LONG_LIVED_NAME_PATTERNS, parseSandboxSpec, type Sandbox, type SandboxProvider, type SandboxSpecInput } from "@foundmill/sandbox";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
+import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { ACCEPTANCE_EGRESS, createSessionActivities } from "../activities/session";
+import { createOfflineGatewayClient } from "../gateway-client";
 import { FILE_TOOLS, SDK_MODEL_KEY_NAME, SDK_SESSION_TOKEN_NAME } from "../activities/sdk-isolation";
 import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
@@ -391,6 +394,36 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
     expect(provider.specs.at(-1)!.egressAllowList).toEqual([]); // and no network at all
     expect(provider.writes.at(-1)!.size).toBe(0);
     await expect(stat(options.cwd as string)).rejects.toThrow();
+  });
+
+  it("code task: the session's code is pushed to the agent's branch through the gateway when GitHub is set up", async () => {
+    const github = createGithubMock();
+    const offline = createOfflineGatewayClient();
+    const gateway = { ...offline, async call(_token: string, req: { connector: string; tool: string; args: Record<string, unknown> }) {
+      offline.calls.push(req);
+      return { outcome: "allow" as const, result: await github.callTool(req.tool, req.args, makeToolContext(github)), costMinor: 0 };
+    } };
+    const pushing = createSessionActivities({ ...t.deps, env: { ...t.deps.env, ANTHROPIC_API_KEY: MODEL_KEY, ORCHESTRATOR_WORKSPACE_DIR: workspaceRoot }, gateway, sandbox: async () => ({ provider, mode: "docker" as const, fellBackFrom: null }) });
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop" } });
+    try {
+      const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+      const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+      const launch = await pushing.prepareSession(input);
+      script = async function* (call) {
+        await writeFile(path.join(call.options.cwd as string, "PUSHED.md"), "on the branch\n");
+        yield* success(sessionId)();
+      };
+      await pushing.runAgentSession(input, launch);
+      const commit = offline.calls.find((c) => c.tool === "commit_files");
+      expect(commit?.args).toMatchObject({ owner: "acme", repo: "shop", branch: `agent/${t.codeTaskId}` });
+      const onBranch = await github.callTool("read_file", { owner: "acme", repo: "shop", path: "PUSHED.md", ref: `agent/${t.codeTaskId}` }, makeToolContext(github));
+      expect((onBranch.data as { content: { content: string } }).content.content).toBe("on the branch\n");
+      const notes = await readSessionEvents(t.redis, sessionId, { kinds: ["note"] });
+      expect(notes.some((r) => r.event.kind === "note" && new RegExp(`^Pushed to agent/${t.codeTaskId} on acme/shop: \\d+ files? written, 0 removed \\(commit [0-9a-f]{7}\\)\\.$`).test(r.event.text))).toBe(true);
+      expect((await repos.workspaces.latest(t.db, t.businessId, t.codeTaskId))).toMatchObject({ sessionId, pushedRepo: "acme/shop", pushError: null });
+    } finally {
+      await repos.integrations.disconnect(t.deps.db, t.businessId, (await repos.integrations.getByKey(t.deps.db, t.businessId, "github"))!.id);
+    }
   });
 
   it("cleans the workspace up when the SDK throws mid-run, and the failure is reported without the environment", async () => {

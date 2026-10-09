@@ -5,10 +5,10 @@
  * Training Ground reflects the intent.
  */
 import { FLAGS, isSimulateEnv } from "@foundmill/config";
-import { TaskListFilter, repos, type Task } from "@foundmill/db";
+import { TaskListFilter, codeRepositoryOf, repos, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
 import { TaskGraphOutput } from "@foundmill/models";
-import { NotFoundError, ValidationError } from "@foundmill/shared";
+import { NotFoundError, ValidationError, connectorMode } from "@foundmill/shared";
 import { z } from "zod";
 import { replaySession } from "../services/replay";
 import { SIGNALS, WORKFLOWS, workflowIds, type SignalName } from "../services/temporal";
@@ -278,6 +278,30 @@ export const devRouter = router({
         return { path: entry.path, size: entry.size, sha256: entry.sha256, ...decodeSavedFile(file.content) };
       }),
     ),
+
+    /**
+     * Where saved code is pushed after each session: the GitHub integration's repository (null when none is chosen),
+     * whether GitHub is connected, and whether it is the simulated GitHub (mock mode: nothing reaches github.com).
+     */
+    repository: read.query(({ ctx }) =>
+      ctx.rls(async (tx) => {
+        const integration = await repos.integrations.getByKey(tx, ctx.businessId, "github");
+        const connected = integration !== null && integration.archivedAt === null && integration.status !== "disconnected";
+        return { connected, status: integration?.status ?? null, repository: integration ? codeRepositoryOf(integration) : null, simulated: connectorMode(ctx.env, "github") === "mock" };
+      }),
+    ),
+
+    /** Choose the repository saved code is pushed to (`owner/name` or a github.com URL), or stop pushing with null. */
+    setRepository: sectionAdmin("development")
+      .input(z.object({ repository: z.string().trim().max(300).nullable() }))
+      .mutation(({ ctx, input }) =>
+        ctx.rls(async (tx) => {
+          const fullName = input.repository ? input.repository.replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/i, "").replace(/\/+$/, "") : null;
+          const row = await repos.integrations.setCodeRepository(tx, ctx.businessId, fullName || null);
+          await audit(tx, ctx, { action: "dev.code.set_repository", target: { kind: "integration", id: row.id }, details: { repository: fullName || null } });
+          return { repository: codeRepositoryOf(row) };
+        }),
+      ),
 
     /**
      * Forget a task's saved code: every saved session of the task and the contents no other task uses. Owners and admins

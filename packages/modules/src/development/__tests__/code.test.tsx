@@ -2,7 +2,8 @@ import "./setup";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { CodeScreen, firstFile, sessionLabel, toCodeRows } from "../CodeScreen";
+import { render } from "@testing-library/react";
+import { CodeScreen, PushStatus, firstFile, sessionLabel, toCodeRows } from "../CodeScreen";
 import type { CodeFileResponse, CodeFilesResponse, CodeSnapshotSummary, CodeTaskRow } from "../types";
 import { BUSINESS_ID, createFakeSource, renderScreen } from "./fake-source";
 import { AGENT_JUNO, AGENT_PIKE, TASK_BUNDLE, TASK_INDEX, agents, agentsResponse } from "./fixtures";
@@ -123,6 +124,51 @@ describe("CodeScreen", () => {
     await user.click(within(dialog).getByRole("button", { name: "Forget saved code" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Forget saved code" })).toBeNull());
     expect(fake.refetches["dev.code.list"]).toBe(1);
+  });
+
+  it("sets the repository saved code is pushed to, or sends the founder to connect GitHub first", async () => {
+    const user = userEvent.setup();
+    const notConnected = createFakeSource({ responses: { ...responses(), "dev.code.repository": { connected: false, status: null, repository: null, simulated: true } } });
+    const first = renderScreen(notConnected, <CodeScreen {...props} />);
+    await user.click(await screen.findByRole("button", { name: "Set up GitHub" }));
+    let dialog = await screen.findByRole("dialog", { name: "Push saved code to GitHub" });
+    expect(within(dialog).getByText(/not connected for this business yet/)).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Open Settings › Integrations" }));
+    expect(notConnected.navigations).toEqual([`/b/${BUSINESS_ID}/settings/integrations`]);
+    first.unmount();
+
+    const connected = createFakeSource({ responses: { ...responses(), "dev.code.repository": { connected: true, status: "mock", repository: null, simulated: true } } });
+    renderScreen(connected, <CodeScreen {...props} />);
+    await user.click(await screen.findByRole("button", { name: "Set up GitHub" }));
+    dialog = await screen.findByRole("dialog", { name: "Push saved code to GitHub" });
+    expect(within(dialog).getByText(/Simulated GitHub/)).toBeTruthy();
+    await user.type(within(dialog).getByLabelText("Repository"), "acme/shop");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(connected.mutations).toEqual([{ path: "dev.code.setRepository", input: { repository: "acme/shop" } }]);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Push saved code to GitHub" })).toBeNull());
+    expect(connected.refetches["dev.code.repository"]).toBe(1);
+  });
+
+  it("shows whether a save reached GitHub", () => {
+    const repo = { connected: true, status: "connected", repository: { fullName: "acme/shop", owner: "acme", repo: "shop", writeEnabled: true }, simulated: false };
+    const pushed = { ...indexLatest, pushedRepo: "acme/shop", pushedBranch: `agent/${TASK_INDEX}`, pushedCommitSha: "abc1234def", pushedUrl: "https://github.com/acme/shop/commit/abc1234def" };
+    const live = render(<PushStatus snapshot={pushed} repository={repo} />);
+    expect(screen.getByRole("link", { name: /Pushed · abc1234/ }).getAttribute("href")).toBe("https://github.com/acme/shop/commit/abc1234def");
+    expect(screen.getByRole("link", { name: /Branch on GitHub/ }).getAttribute("href")).toBe(`https://github.com/acme/shop/tree/agent/${TASK_INDEX}`);
+    live.unmount();
+    const simulated = render(<PushStatus snapshot={pushed} repository={{ ...repo, simulated: true }} />);
+    expect(screen.getByTestId("push-status").textContent).toBe("Pushed · abc1234 · simulated");
+    expect(screen.queryByRole("link")).toBeNull();
+    simulated.unmount();
+    const failed = render(<PushStatus snapshot={{ ...indexLatest, pushError: "Update is not a fast forward" }} repository={repo} />);
+    expect(screen.getByText("Not pushed")).toBeTruthy();
+    expect(screen.getByTitle("Update is not a fast forward")).toBeTruthy();
+    failed.unmount();
+    const pending = render(<PushStatus snapshot={indexLatest} repository={repo} />);
+    expect(screen.getByTestId("push-status").textContent).toBe("Not pushed yet: the next session on the task pushes it");
+    pending.unmount();
+    render(<PushStatus snapshot={indexLatest} repository={{ ...repo, repository: null }} />);
+    expect(screen.getByTestId("push-status").textContent).toBe("Saved here only");
   });
 
   it("shows the empty, loading and error states", async () => {

@@ -136,6 +136,41 @@ describe("workspaces", () => {
     expect(read.map((f) => decode(f.content))).toEqual(["kept-elsewhere"]);
   });
 
+  it("records pushes and finds the last save that reached a repository", async () => {
+    const { businessId } = r.A;
+    const taskId = r.A.taskIds[6]!;
+    const save = (c: string) => r.svc((tx) => repos.workspaces.save(tx, businessId, { taskId, files: [{ path: "a.ts", content: text(c) }] }));
+    const one = (await save("1")).snapshot!;
+    const two = (await save("2")).snapshot!;
+    expect(await repos.workspaces.lastPushed(r.db, businessId, taskId, "acme/shop")).toBeNull();
+    await r.svc((tx) => repos.workspaces.recordPush(tx, businessId, one.id, { repo: "acme/shop", branch: `agent/${taskId}`, commitSha: "c1", url: "https://github.com/acme/shop/commit/c1" }));
+    await r.svc((tx) => repos.workspaces.recordPush(tx, businessId, two.id, { repo: "acme/shop", branch: `agent/${taskId}`, error: "GitHub refused: not a fast forward" }));
+    expect((await repos.workspaces.lastPushed(r.db, businessId, taskId, "acme/shop"))?.id).toBe(one.id);
+    expect(await repos.workspaces.lastPushed(r.db, businessId, taskId, "acme/other")).toBeNull();
+    const [latest] = await repos.workspaces.listSnapshots(r.db, businessId, taskId);
+    expect(latest).toMatchObject({ id: two.id, pushedCommitSha: null, pushError: "GitHub refused: not a fast forward" });
+    // Members cannot write push records.
+    await r.as(r.A.memberId, (tx) => repos.workspaces.recordPush(tx, businessId, two.id, { repo: "acme/shop", branch: "x", commitSha: "forged", url: null }));
+    expect((await repos.workspaces.getSnapshot(r.db, businessId, two.id))?.pushedCommitSha).toBeNull();
+  });
+
+  it("reads and sets the repository code tasks push to, only once GitHub is connected", async () => {
+    const { businessId, ownerId } = r.A;
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toBeNull();
+    await expect(r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, "acme/shop"))).rejects.toThrow(/connect GitHub/);
+    await r.svc((tx) => repos.integrations.upsert(tx, businessId, { connectorKey: "github", status: "connected", authKind: "app", settings: { externalAccountId: "42", config: { installationId: 42, repo: "acme/from-connect" } } }));
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ fullName: "acme/from-connect", owner: "acme", repo: "from-connect", writeEnabled: true });
+    await r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, "acme/shop"));
+    const chosen = await repos.integrations.codeRepository(r.db, businessId);
+    expect(chosen).toMatchObject({ fullName: "acme/shop", status: "connected" });
+    // The connect() settings stay alongside the choice.
+    expect((await repos.integrations.getByKey(r.db, businessId, "github"))?.settings).toMatchObject({ externalAccountId: "42", repo: "acme/shop" });
+    await expect(r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, "not a repo"))).rejects.toThrow(/owner\/name/);
+    await r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, null));
+    expect((await repos.integrations.codeRepository(r.db, businessId))?.fullName).toBe("acme/from-connect");
+    expect(await repos.integrations.codeRepository(r.db, r.B.businessId)).toBeNull();
+  });
+
   it("members read workspaces through RLS; they cannot write them", async () => {
     const { businessId, memberId, taskId } = r.A;
     const seen = await r.as(memberId, (tx) => repos.workspaces.latest(tx, businessId, taskId));

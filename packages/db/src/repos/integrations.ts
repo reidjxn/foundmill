@@ -2,7 +2,7 @@
  * integrations + webhooks — connector accounts per business (BUILD §13; routers integrations.list / connect /
  * disconnect / health). Secrets never live here: they are ciphertext rows in `credentials` (repos.credentials).
  */
-import { CONNECTOR_AUTH_KINDS, INTEGRATION_STATUSES, type IntegrationStatus } from "@foundmill/shared";
+import { CONNECTOR_AUTH_KINDS, INTEGRATION_STATUSES, ValidationError, type IntegrationStatus } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { credentials, integrations, WEBHOOK_STATUSES, webhooks, type Integration, type Webhook } from "../schema";
@@ -36,6 +36,36 @@ export const CreateWebhookInput = z.object({
 });
 export type CreateWebhookInput = z.input<typeof CreateWebhookInput>;
 
+/** `owner/name` of a GitHub repository. */
+export const REPOSITORY_FULL_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9_.-]{1,100}$/;
+
+/** Where a business's code tasks push their saved code: the GitHub integration's chosen repository. */
+export interface CodeRepository {
+  integrationId: string;
+  status: IntegrationStatus;
+  owner: string;
+  repo: string;
+  /** `owner/name`. */
+  fullName: string;
+  /** False when the founder turned pushing off for the repository (`settings.writeEnabled: false`). */
+  writeEnabled: boolean;
+}
+
+/**
+ * Reads the repository from an integration's settings: `repo` at the top level (set from Development › Code, and by
+ * the demo seed) or `config.repo` (as a connector's connect() may record it).
+ */
+export function codeRepositoryOf(integration: Pick<Integration, "id" | "status" | "settings" | "archivedAt">): CodeRepository | null {
+  if (integration.archivedAt || integration.status === "disconnected") return null;
+  const settings = (integration.settings ?? {}) as Record<string, unknown>;
+  const config = (settings.config ?? {}) as Record<string, unknown>;
+  const raw = typeof settings.repo === "string" ? settings.repo : typeof config.repo === "string" ? config.repo : null;
+  if (!raw || !REPOSITORY_FULL_NAME.test(raw)) return null;
+  const [owner, repo] = raw.split("/") as [string, string];
+  const flag = settings.writeEnabled ?? config.writeEnabled;
+  return { integrationId: integration.id, status: integration.status, owner, repo, fullName: raw, writeEnabled: flag !== false };
+}
+
 const scoped = (businessId: string, id: string) => and(eq(integrations.businessId, businessId), eq(integrations.id, id));
 const scopedWebhook = (businessId: string, id: string) => and(eq(webhooks.businessId, businessId), eq(webhooks.id, id));
 const toArray = <T>(v: T | T[] | undefined): T[] | undefined => (v === undefined ? undefined : Array.isArray(v) ? v : [v]);
@@ -58,6 +88,23 @@ export const integrationsRepo = {
   async getByKey(db: Executor, businessId: string, connectorKey: string): Promise<Integration | null> {
     const rows = await db.select().from(integrations).where(and(eq(integrations.businessId, businessId), eq(integrations.connectorKey, connectorKey))).limit(1);
     return rows[0] ?? null;
+  },
+
+  /** The GitHub repository the business's code tasks push to, or null when GitHub is not connected or none is chosen. */
+  async codeRepository(db: Executor, businessId: string): Promise<CodeRepository | null> {
+    const row = await integrationsRepo.getByKey(db, businessId, "github");
+    return row ? codeRepositoryOf(row) : null;
+  },
+
+  /** Choose (or clear, with null) the repository code tasks push to; GitHub must be connected first. */
+  async setCodeRepository(db: Executor, businessId: string, fullName: string | null): Promise<Integration> {
+    if (fullName !== null && !REPOSITORY_FULL_NAME.test(fullName)) throw new ValidationError("repository must be owner/name");
+    const row = await integrationsRepo.getByKey(db, businessId, "github");
+    if (!row || row.archivedAt || row.status === "disconnected") throw new ValidationError("connect GitHub before choosing a repository");
+    const settings = { ...((row.settings ?? {}) as Record<string, unknown>) };
+    if (fullName === null) delete settings.repo;
+    else settings.repo = fullName;
+    return one(await db.update(integrations).set({ settings }).where(scoped(businessId, row.id)).returning(), "integration");
   },
 
   /** One row per connector per business: connect creates it, reconnect updates it (and un-archives). */

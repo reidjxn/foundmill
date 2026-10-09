@@ -9,7 +9,7 @@
  */
 import { createHash } from "node:crypto";
 import { ValidationError } from "@foundmill/shared";
-import { and, count, desc, eq, inArray, notExists, sql, sum } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNotNull, notExists, sql, sum } from "drizzle-orm";
 import { z } from "zod";
 import { agentSessions, tasks, workspaceBlobs, workspaceSnapshots, type WorkspaceManifestEntry, type WorkspaceSnapshot } from "../schema";
 import { Id, parseInput, type Executor } from "./_shared";
@@ -95,6 +95,12 @@ const summaryColumns = {
   added: workspaceSnapshots.added,
   changed: workspaceSnapshots.changed,
   removed: workspaceSnapshots.removed,
+  pushedRepo: workspaceSnapshots.pushedRepo,
+  pushedBranch: workspaceSnapshots.pushedBranch,
+  pushedCommitSha: workspaceSnapshots.pushedCommitSha,
+  pushedUrl: workspaceSnapshots.pushedUrl,
+  pushedAt: workspaceSnapshots.pushedAt,
+  pushError: workspaceSnapshots.pushError,
   createdAt: workspaceSnapshots.createdAt,
   updatedAt: workspaceSnapshots.updatedAt,
 };
@@ -286,6 +292,26 @@ export const workspacesRepo = {
       await sweepBlobs(db, businessId, [...new Set(old.flatMap((o) => o.files.map((e) => e.sha256)))]);
     }
     return { snapshot: snapshot ?? null, saved: true, added, changed, removed, refused: null, pruned: old.length };
+  },
+
+  /** The newest save of a task that reached `repo` (`owner/name`): what the next push is diffed against. */
+  async lastPushed(db: Executor, businessId: string, taskId: string, repo: string): Promise<WorkspaceSnapshot | null> {
+    const rows = await db
+      .select()
+      .from(workspaceSnapshots)
+      .where(and(eq(workspaceSnapshots.businessId, businessId), eq(workspaceSnapshots.taskId, taskId), eq(workspaceSnapshots.pushedRepo, repo), isNotNull(workspaceSnapshots.pushedCommitSha)))
+      .orderBy(desc(workspaceSnapshots.createdAt), desc(workspaceSnapshots.id))
+      .limit(1);
+    return rows[0] ?? null;
+  },
+
+  /** Record where a save was pushed (its branch head after the push) or why it was not. Service role only. */
+  async recordPush(db: Executor, businessId: string, snapshotId: string, push: { repo: string; branch: string } & ({ commitSha: string; url: string | null } | { error: string })): Promise<void> {
+    const ok = "commitSha" in push;
+    await db
+      .update(workspaceSnapshots)
+      .set({ pushedRepo: push.repo, pushedBranch: push.branch, pushedCommitSha: ok ? push.commitSha : null, pushedUrl: ok ? push.url : null, pushedAt: ok ? new Date() : null, pushError: ok ? null : push.error.slice(0, 500) })
+      .where(and(eq(workspaceSnapshots.businessId, businessId), eq(workspaceSnapshots.id, snapshotId)));
   },
 
   /**

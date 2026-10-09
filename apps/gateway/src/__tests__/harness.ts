@@ -34,6 +34,8 @@ export interface TestConnectorOptions {
   perDay?: number;
   /** Connector key; default "test". A second instance keyed "anthropic" stands in for the key-bearing connector (SEC-1). */
   key?: string;
+  /** How the connector authenticates; "app" stands in for GitHub (platform App keys, no stored secret). */
+  authKind?: "api_key" | "app";
 }
 
 export function createTestConnector(options: TestConnectorOptions = {}, seen: SeenCall[] = []): { key: string; connector: Connector; registry: ConnectorRegistry; seen: SeenCall[] } {
@@ -75,7 +77,7 @@ export function createTestConnector(options: TestConnectorOptions = {}, seen: Se
     key,
     displayName: key === TEST_CONNECTOR ? "Test connector" : `Test connector (${key})`,
     phase: 1 as const,
-    auth: { kind: "api_key" as const },
+    auth: { kind: options.authKind ?? ("api_key" as const) },
     tools,
     rateLimits: { perMinute: options.perMinute ?? 1000, ...(options.perDay !== undefined ? { perDay: options.perDay } : {}) },
     costModel: (name: string) => (name === "note" ? 3 : 0),
@@ -139,6 +141,8 @@ export interface GatewayFixture {
 }
 
 export interface SetupGatewayOptions {
+  /** LIVE_CONNECTORS for this gateway. */
+  liveConnectors?: string[];
   mode?: "mock" | "live";
   connector?: TestConnectorOptions;
   businessMode?: "augmented" | "assisted" | "automated";
@@ -153,14 +157,14 @@ export async function setupGateway(options: SetupGatewayOptions = {}): Promise<G
   const db = h.db as unknown as Db;
   const business = await repos.businesses.create(db, { name: "Gateway Test Club", businessMode: options.businessMode ?? "assisted" });
   const agent = await repos.agents.create(db, business.id, { name: "Test Worker", agentType: "developer", modelKey: "sonnet", initialVersion: { instructions: { role: "worker" }, tools: [] } });
-  const integration = await repos.integrations.upsert(db, business.id, { connectorKey: TEST_CONNECTOR, status: "connected", authKind: "api_key", accountLabel: "test account" });
+  const integration = await repos.integrations.upsert(db, business.id, { connectorKey: TEST_CONNECTOR, status: "connected", authKind: options.connector?.authKind ?? "api_key", accountLabel: "test account" });
   const vault = new LocalVault(generateMasterKey());
   const seen: SeenCall[] = [];
   const connectors = [createTestConnector(options.connector, seen), ...(options.extraConnectorKeys ?? []).map((key) => createTestConnector({ ...options.connector, key }, seen))];
   const registry = createRegistry(connectors.map((c) => c.connector));
   const rateLimits = new MemoryRateLimitStore();
   const recipients = new UntrustedRecipientRegistry();
-  const deps: GatewayDeps = { db, registry, vault, mode: options.mode ?? "mock", rateLimits, recipients, log: silentLog, ...(options.now ? { now: options.now } : {}) };
+  const deps: GatewayDeps = { db, registry, vault, mode: options.mode ?? "mock", rateLimits, recipients, log: silentLog, ...(options.liveConnectors ? { liveConnectors: options.liveConnectors } : {}), ...(options.now ? { now: options.now } : {}) };
   const app = createGatewayApp(deps, { sessionTokenSecret: TEST_SECRET });
   const server = await listenGateway(app, { port: 0, host: "127.0.0.1" });
   const client = createGatewayClient({ baseUrl: server.url, serviceSecret: TEST_SECRET, serviceName: "test-orchestrator" });
