@@ -96,6 +96,11 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(onCommit.mock.calls[0]![0]).toMatchObject({ ideaId: IDEA_ID, name: suggested, gameMode: "live", archetype: "b2b_saas", businessMode: "assisted", currency: "EUR", spendCapMinor: 25_000, kit: { primary: "#1b4fd8" } });
   });
 
+  it("says what is happening while the business is set up", () => {
+    renderForm(vi.fn(), { committing: true });
+    expect(screen.getByTestId("committing-status").textContent).toBe("Setting up your business: departments, team and the first cycle. This takes a few seconds.");
+  });
+
   it("shows the team the archetype seeds", () => {
     renderForm(vi.fn(), {
       preview: {

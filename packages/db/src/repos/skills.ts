@@ -120,35 +120,42 @@ export const skillsRepo = {
     return db.select().from(agentSkills).where(and(eq(agentSkills.businessId, businessId), eq(agentSkills.agentId, agentId))).orderBy(asc(agentSkills.group), asc(agentSkills.skillKey));
   },
 
-  /** Writes the rating rows for an agent (one per skill key); the calibration maths lives in packages/agents. */
+  /**
+   * Writes the rating rows for an agent (one per skill key; a repeated key keeps its last entry) in one statement, so
+   * hiring an agent costs one round trip for its skills, not one per skill. The calibration maths lives in
+   * packages/agents. Rows come back in the order given.
+   */
   async upsertForAgent(db: Executor, businessId: string, agentId: string, inputs: UpsertAgentSkillInput[]): Promise<AgentSkill[]> {
-    const list = parseInput(z.array(UpsertAgentSkillInput).min(1), inputs, "agent skills");
-    return db.transaction(async (tx) => {
-      const out: AgentSkill[] = [];
-      for (const v of list) {
-        const values = {
-          businessId,
-          agentId,
-          skillKey: v.skillKey,
-          group: v.group,
-          tested: numericText(v.tested) ?? null,
-          proven: numericText(v.proven) ?? null,
-          nLive: v.nLive,
-          displayed: v.displayed,
-          potential: v.potential,
-        };
-        out.push(
-          one(
-            await tx
-              .insert(agentSkills)
-              .values(values)
-              .onConflictDoUpdate({ target: [agentSkills.agentId, agentSkills.skillKey], set: values, setWhere: eq(agentSkills.businessId, businessId) })
-              .returning(),
-            "agent skill",
-          ),
-        );
-      }
-      return out;
-    });
+    return (await skillsRepo.upsertForAgents(db, businessId, [{ agentId, skills: inputs }]))[0]!;
+  },
+
+  /** `upsertForAgent` for several agents in the same single statement (a whole team at commit). */
+  async upsertForAgents(db: Executor, businessId: string, entries: { agentId: string; skills: UpsertAgentSkillInput[] }[]): Promise<AgentSkill[][]> {
+    const lists = entries.map((e) => ({ agentId: parseInput(Id, e.agentId, "agent id"), list: parseInput(z.array(UpsertAgentSkillInput).min(1), e.skills, "agent skills") }));
+    const rows = lists.flatMap(({ agentId, list }) =>
+      [...new Map(list.map((v) => [v.skillKey, v] as const)).values()].map((v) => ({
+      businessId,
+      agentId,
+      skillKey: v.skillKey,
+      group: v.group,
+      tested: numericText(v.tested) ?? null,
+      proven: numericText(v.proven) ?? null,
+      nLive: v.nLive,
+      displayed: v.displayed,
+      potential: v.potential,
+    })),
+    );
+    if (rows.length === 0) return lists.map(() => []);
+    const written = await db
+      .insert(agentSkills)
+      .values(rows)
+      .onConflictDoUpdate({
+        target: [agentSkills.agentId, agentSkills.skillKey],
+        set: { group: sql`excluded."group"`, tested: sql`excluded.tested`, proven: sql`excluded.proven`, nLive: sql`excluded.n_live`, displayed: sql`excluded.displayed`, potential: sql`excluded.potential` },
+        setWhere: eq(agentSkills.businessId, businessId),
+      })
+      .returning();
+    const byWrittenKey = new Map(written.map((r) => [`${r.agentId}/${r.skillKey}`, r] as const));
+    return lists.map(({ agentId, list }) => list.map((v) => one([byWrittenKey.get(`${agentId}/${v.skillKey}`)].filter((r): r is AgentSkill => r !== undefined), "agent skill")));
   },
 };

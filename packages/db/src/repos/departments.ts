@@ -137,6 +137,21 @@ export const departmentsRepo = {
     return db.select().from(departmentMembers).where(and(eq(departmentMembers.businessId, businessId), eq(departmentMembers.departmentId, departmentId))).orderBy(asc(departmentMembers.createdAt));
   },
 
+  /** Several memberships in one statement; every department must belong to the business (checked in one query). */
+  async addMembers(db: Executor, businessId: string, inputs: { departmentId: string; memberKind: (typeof MEMBER_KINDS)[number]; memberId: string }[]): Promise<DepartmentMember[]> {
+    if (inputs.length === 0) return [];
+    const list = inputs.map((i) => parseInput(z.object({ departmentId: Id, memberKind: z.enum(MEMBER_KINDS), memberId: Id }), i, "department member"));
+    const ids = [...new Set(list.map((v) => v.departmentId))];
+    const owned = await db.select({ id: departments.id }).from(departments).where(and(eq(departments.businessId, businessId), inArray(departments.id, ids)));
+    if (owned.length !== ids.length) throw new ValidationError("Every department must belong to the business", { departmentIds: ids });
+    const unique = [...new Map(list.map((v) => [`${v.departmentId}/${v.memberKind}/${v.memberId}`, v] as const)).values()];
+    return db
+      .insert(departmentMembers)
+      .values(unique.map((v) => ({ businessId, departmentId: v.departmentId, memberKind: v.memberKind, memberId: v.memberId })))
+      .onConflictDoUpdate({ target: [departmentMembers.departmentId, departmentMembers.memberKind, departmentMembers.memberId], set: { businessId } })
+      .returning();
+  },
+
   async addMember(db: Executor, businessId: string, departmentId: string, input: { memberKind: (typeof MEMBER_KINDS)[number]; memberId: string }): Promise<DepartmentMember> {
     const v = parseInput(z.object({ memberKind: z.enum(MEMBER_KINDS), memberId: Id }), input, "department member");
     await departmentsRepo.get(db, businessId, departmentId);

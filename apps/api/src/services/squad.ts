@@ -57,3 +57,55 @@ export async function hireFromTemplate(tx: Executor, businessId: string, templat
   );
   return { agent, template, skillKeys: [...template.skills] };
 }
+
+/** One agent to hire in a batch: its id is chosen up front so others in the same batch can name it as line manager. */
+export interface PlannedHire {
+  id: string;
+  templateKey: string;
+  departmentIds: string[];
+  lineManagerId: string | null;
+}
+
+/**
+ * A whole team at once (commit): the same rows as `hireFromTemplate` for each, written in a handful of statements
+ * (agents, versions, the link between them, every skill) instead of several round trips per agent.
+ */
+export async function hireMany(tx: Executor, businessId: string, plans: PlannedHire[], opts: { createdBy?: string | null; currency?: string } = {}): Promise<HiredAgent[]> {
+  const templates = plans.map((p) => getTemplate(p.templateKey));
+  const agents = await repos.agents.createMany(
+    tx,
+    businessId,
+    plans.map((p, i) => {
+      const template = templates[i]!;
+      return {
+        id: p.id,
+        name: template.name,
+        role: template.role,
+        agentType: template.agentType,
+        layer: template.layer,
+        descriptionMd: template.description,
+        departmentIds: p.departmentIds,
+        lineManagerId: p.lineManagerId,
+        modelKey: template.modelKey,
+        status: "idle" as const,
+        autonomy: template.autonomy,
+        negotiation: template.negotiation ?? {},
+        schedule: template.schedule ?? {},
+        wageCapMinor: template.wageCapMinor,
+        currency: opts.currency ?? "EUR",
+        avatarSeed: `${businessId}:${template.key}`,
+        initialVersion: { instructions: template.instructions, tools: template.tools, modelKey: template.modelKey, createdByKind: "system" as const, createdBy: opts.createdBy ?? null },
+      };
+    }),
+  );
+  const withSkills = templates.map((template, i) => ({ template, agentId: agents[i]!.id })).filter(({ template }) => template.skills.length > 0);
+  await repos.skills.upsertForAgents(
+    tx,
+    businessId,
+    withSkills.map(({ template, agentId }) => ({
+      agentId,
+      skills: template.skills.map((skillKey) => ({ skillKey, group: getSkillDefinition(skillKey)?.group ?? "craft", tested: template.baselineRating, proven: null, nLive: 0, displayed: template.baselineRating, potential: template.baselineRating })),
+    })),
+  );
+  return agents.map((agent, i) => ({ agent, template: templates[i]!, skillKeys: [...templates[i]!.skills] }));
+}

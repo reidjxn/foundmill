@@ -185,6 +185,69 @@ export const agentsRepo = {
     });
   },
 
+  /**
+   * Many agents at once, each with its id chosen by the caller (so line managers can point at agents created in the
+   * same call): one insert for the agents, one for their first versions, one update linking them. Three round trips
+   * however large the team (commit hires about 26). Results come back in the order given.
+   */
+  async createMany(db: Executor, businessId: string, inputs: (CreateAgentInput & { id: string })[]): Promise<(Agent & { currentVersion: AgentVersion | null })[]> {
+    if (inputs.length === 0) return [];
+    const list = inputs.map((i) => ({ ...parseInput(CreateAgentInput, i, "agent"), id: parseInput(Id, i.id, "agent id") }));
+    const created = await db
+      .insert(agents)
+      .values(
+        list.map((v) => ({
+          id: v.id,
+          businessId,
+          name: v.name,
+          role: v.role,
+          agentType: v.agentType,
+          layer: v.layer,
+          descriptionMd: v.descriptionMd,
+          departmentIds: v.departmentIds,
+          lineManagerId: v.lineManagerId ?? null,
+          modelKey: v.modelKey,
+          status: v.status,
+          autonomy: v.autonomy,
+          negotiation: v.negotiation,
+          schedule: v.schedule,
+          wageCapMinor: v.wageCapMinor ?? null,
+          ...(v.currency ? { currency: v.currency } : {}),
+          avatarSeed: v.avatarSeed ?? `${v.agentType}:${v.name}`,
+        })),
+      )
+      .returning();
+    const withVersion = list.filter((v) => v.initialVersion);
+    const versions = withVersion.length
+      ? await db
+          .insert(agentVersions)
+          .values(
+            withVersion.map((v) => ({
+              businessId,
+              agentId: v.id,
+              version: 1,
+              instructions: v.initialVersion!.instructions,
+              tools: v.initialVersion!.tools,
+              modelKey: v.initialVersion!.modelKey ?? v.modelKey,
+              state: "live" as const,
+              createdByKind: v.initialVersion!.createdByKind,
+              createdBy: v.initialVersion!.createdBy ?? null,
+            })),
+          )
+          .returning()
+      : [];
+    const linked = versions.length
+      ? await db
+          .update(agents)
+          .set({ currentVersionId: sql`(select ${agentVersions.id} from ${agentVersions} where ${agentVersions.agentId} = ${agents.id} and ${agentVersions.version} = 1)` })
+          .where(and(eq(agents.businessId, businessId), inArray(agents.id, withVersion.map((v) => v.id))))
+          .returning()
+      : [];
+    const agentById = new Map([...created, ...linked].map((a) => [a.id, a] as const));
+    const versionByAgent = new Map(versions.map((v) => [v.agentId, v] as const));
+    return list.map((v) => ({ ...one([agentById.get(v.id)].filter((a): a is Agent => a !== undefined), "agent", v.id), currentVersion: versionByAgent.get(v.id) ?? null }));
+  },
+
   async update(db: Executor, businessId: string, agentId: string, input: UpdateAgentInput): Promise<Agent> {
     const v = parseInput(UpdateAgentInput, input, "agent update");
     return one(await db.update(agents).set(defined(v)).where(scoped(businessId, agentId)).returning(), "agent", agentId);

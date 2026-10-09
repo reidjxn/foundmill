@@ -47,6 +47,11 @@ export interface CommitScreenProps {
 
 type SquadPreview = RouterOutputs["idea"]["preview"];
 
+/** How long after a successful commit the screen waits for the client-side move before loading the Inbox outright. */
+export const COMMIT_NAVIGATION_FALLBACK_MS = 4_000;
+/** Full-page navigation (a seam for tests). */
+export const commitNavigation = { assign: (url: string) => window.location.assign(url) };
+
 export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
   const trpc = useTRPC();
   const router = useRouter();
@@ -59,7 +64,12 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
     trpc.idea.commit.mutationOptions({
       onSuccess: (res) => {
         toast({ title: `${res.business.name} is yours`, description: "The Board's first item is waiting in the Inbox.", tone: "good" });
-        router.push(routes.inbox(res.business.id, res.boardItem.id));
+        const to = routes.inbox(res.business.id, res.boardItem.id);
+        router.push(to);
+        // Belt and braces: if the client-side move has not happened in a few seconds, load the page outright.
+        window.setTimeout(() => {
+          if (window.location.pathname.startsWith("/new/")) commitNavigation.assign(to);
+        }, COMMIT_NAVIGATION_FALLBACK_MS);
       },
       onError: (err) => toast({ title: "Not committed", description: errorMessage(err), tone: "bad" }),
     }),
@@ -375,6 +385,11 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
               <Button type="submit" variant="primary" icon={ThumbsUp} loading={committing} className="mt-4 w-full" data-testid="take-charge-bottom">
                 Take charge
               </Button>
+              {committing ? (
+                <p role="status" className="mt-2 text-small text-secondary" data-testid="committing-status">
+                  Setting up your business: departments, team and the first cycle. This takes a few seconds.
+                </p>
+              ) : null}
               {touched && !valid ? (
                 <StatusPill tone="warn" role="alert" className="mt-2">
                   {Object.keys(errors).length} thing{Object.keys(errors).length === 1 ? "" : "s"} to fix first

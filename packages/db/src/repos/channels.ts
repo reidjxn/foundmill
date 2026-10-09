@@ -138,14 +138,39 @@ export const channelsRepo = {
     );
   },
 
-  /** The strategist's recommendation for the whole formation in one transaction (router distribution.recommend). */
+  /**
+   * Many channels at once (router distribution.recommend, commit): rows that supply the same fields are written in one
+   * statement (only supplied fields change on update, as in `upsert`), so a full set costs one round trip, not fifteen.
+   * Rows come back in the order given; a repeated key keeps its last entry.
+   */
   async upsertMany(db: Executor, businessId: string, inputs: UpsertChannelInput[]): Promise<Channel[]> {
-    const parsed = inputs.map((i) => parseInput(UpsertChannelInput, i, "channel"));
-    return db.transaction(async (tx) => {
-      const out: Channel[] = [];
-      for (const v of parsed) out.push(await channelsRepo.upsert(tx, businessId, v));
-      return out;
-    });
+    const parsed = [...new Map(inputs.map((i) => parseInput(UpsertChannelInput, i, "channel")).map((v) => [v.channelKey, v] as const)).values()];
+    const groups = new Map<string, { patch: Record<string, unknown>; rows: Record<string, unknown>[] }>();
+    for (const v of parsed) {
+      const patch = defined({
+        line: v.line,
+        enabled: v.enabled,
+        fit: v.fit,
+        potential: numericText(v.potential) ?? undefined,
+        recommended: v.recommended,
+        whyMd: v.whyMd,
+        budgetMinor: v.budgetMinor,
+        currency: v.currency,
+        kitMode: v.kitMode,
+        ownerAgentId: v.ownerAgentId,
+        archivedAt: null,
+      }) as Record<string, unknown>;
+      const fields = Object.keys(patch).sort().join(",");
+      const group = groups.get(fields) ?? groups.set(fields, { patch, rows: [] }).get(fields)!;
+      group.rows.push({ businessId, channelKey: v.channelKey, ...patch, line: v.line });
+    }
+    const written: Channel[] = [];
+    for (const { patch, rows } of groups.values()) {
+      const set = Object.fromEntries(Object.keys(patch).map((k) => [k, sql.raw(`excluded."${(channels[k as keyof typeof channels] as { name: string }).name}"`)]));
+      written.push(...(await db.insert(channels).values(rows as (typeof channels.$inferInsert)[]).onConflictDoUpdate({ target: [channels.businessId, channels.channelKey], set }).returning()));
+    }
+    const byKey = new Map(written.map((r) => [r.channelKey, r] as const));
+    return parsed.map((v) => byKey.get(v.channelKey)!);
   },
 
   async setEnabled(db: Executor, businessId: string, channelId: string, enabled: boolean): Promise<Channel> {

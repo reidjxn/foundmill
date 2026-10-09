@@ -172,6 +172,49 @@ describe("agents, versions, skills, training", () => {
   });
 });
 
+describe("a whole team in a few statements (commit)", () => {
+  it("creates agents that manage each other, their versions and skills, in the order given", async () => {
+    const A = r.A.businessId;
+    const lead = crypto.randomUUID();
+    const member = crypto.randomUUID();
+    const base = { role: "r", agentType: "engineer", layer: "worker" as const, modelKey: "sonnet" as const, departmentIds: [r.A.departmentId] };
+    // The member is listed first and names the lead, created in the same statement, as its line manager.
+    const made = await repos.agents.createMany(r.db, A, [
+      { id: member, name: "Member", ...base, lineManagerId: lead, initialVersion: { instructions: { role: "member" }, tools: [] } },
+      { id: lead, name: "Lead", ...base, initialVersion: { instructions: { role: "lead" }, tools: ["x:y"] } },
+    ]);
+    expect(made.map((a) => [a.id, a.name, a.lineManagerId])).toEqual([[member, "Member", lead], [lead, "Lead", null]]);
+    for (const a of made) {
+      expect(a.currentVersion).toMatchObject({ agentId: a.id, version: 1, state: "live" });
+      expect(a.currentVersionId).toBe(a.currentVersion!.id);
+      expect((await repos.agents.get(r.db, A, a.id)).currentVersionId).toBe(a.currentVersion!.id);
+    }
+
+    const skills = await repos.skills.upsertForAgents(r.db, A, [
+      { agentId: member, skills: [{ skillKey: "pr_hygiene", group: "execution", tested: 9, displayed: 9 }, { skillKey: "testing", group: "craft", tested: 8, displayed: 8 }, { skillKey: "pr_hygiene", group: "execution", tested: 11, displayed: 11 }] },
+      { agentId: lead, skills: [{ skillKey: "testing", group: "craft", tested: 14, displayed: 14 }] },
+    ]);
+    // A repeated key keeps its last entry; results line up with the input.
+    expect(skills.map((list) => list.map((k) => `${k.skillKey}:${k.displayed}`))).toEqual([["pr_hygiene:11", "testing:8", "pr_hygiene:11"], ["testing:14"]]);
+    expect((await repos.skills.listForAgent(r.db, A, member)).map((k) => k.skillKey).sort()).toEqual(["pr_hygiene", "testing"]);
+
+    const joined = await repos.departments.addMembers(r.db, A, [{ departmentId: r.A.departmentId, memberKind: "agent", memberId: member }, { departmentId: r.A.departmentId, memberKind: "agent", memberId: member }, { departmentId: r.A.departmentId, memberKind: "agent", memberId: lead }]);
+    expect(joined).toHaveLength(2);
+    await expect(repos.departments.addMembers(r.db, A, [{ departmentId: r.B.departmentId, memberKind: "agent", memberId: member }])).rejects.toThrow(/belong to the business/);
+  });
+
+  it("writes many channels at once and, like upsert, changes only the fields given", async () => {
+    const A = r.A.businessId;
+    await repos.channels.upsertMany(r.db, A, [{ channelKey: "seo", line: "defence", enabled: true, whyMd: "kept" }]);
+    const [seo, email] = await repos.channels.upsertMany(r.db, A, [
+      { channelKey: "seo", line: "defence", recommended: true },
+      { channelKey: "email_automation", line: "midfield", enabled: true, recommended: true },
+    ]);
+    expect(seo).toMatchObject({ channelKey: "seo", enabled: true, whyMd: "kept", recommended: true });
+    expect(email).toMatchObject({ channelKey: "email_automation", enabled: true, recommended: true });
+  });
+});
+
 describe("tasks, playbooks, holidays", () => {
   it("task graph: dependencies, cycle refusal, transitions, dispatchable set", async () => {
     const A = r.A.businessId;

@@ -76,6 +76,27 @@ export const screensRepo = {
     );
   },
 
+  /**
+   * Many tabs at once, each with its position given (a business's first screens at commit): one statement instead of
+   * one per tab. Same conflict rule as `upsert`. Rows come back in the order given.
+   */
+  async upsertMany(db: Executor, businessId: string, inputs: (UpsertScreenInput & { position: number })[]): Promise<ScreenDefinition[]> {
+    if (inputs.length === 0) return [];
+    const list = inputs.map((i) => ({ ...parseInput(UpsertScreenInput, i, "screen"), position: i.position }));
+    const written = await db
+      .insert(screenDefinitions)
+      .values(list.map((v) => ({ businessId, departmentId: v.departmentId, tabSlug: v.tabSlug, title: v.title, position: v.position, layout: v.layout })))
+      .onConflictDoUpdate({
+        target: [screenDefinitions.departmentId, screenDefinitions.tabSlug],
+        set: { title: sql`excluded.title`, layout: sql`excluded.layout`, position: sql`excluded.position`, archivedAt: null, version: sql`${screenDefinitions.version} + 1` },
+        setWhere: eq(screenDefinitions.businessId, businessId),
+      })
+      .returning();
+    const key = (r: { departmentId: string; tabSlug: string }) => `${r.departmentId}/${r.tabSlug}`;
+    const byKey = new Map(written.map((r) => [key(r), r] as const));
+    return list.map((v) => one([byKey.get(key(v))].filter((r): r is ScreenDefinition => r !== undefined), "screen"));
+  },
+
   /** Updates only the layout (widget grid edits); bumps the version. */
   async updateLayout(db: Executor, businessId: string, screenId: string, layout: ScreenLayout): Promise<ScreenDefinition> {
     const l = parseInput(ScreenLayout, layout, "screen layout");

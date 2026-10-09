@@ -950,3 +950,15 @@ Fixed:
 Not done yet:
 - **Re-checking the verifier.** The verifier is checked once, at connect time. Re-checking on health that they are still an organisation admin, and storing their numeric GitHub id instead of the login, would close the "admin who later leaves" gap.
 - **App webhooks.** They stay off until ingest routes GitHub App deliveries by installation through `app_installations`. Routing by `integrations.settings` would let a business claim another's events.
+
+## 2026-10-09 — Commit writes the team in batches
+
+Staging's api reaches Supabase's pooler with about 50 ms per query, so a request's cost is mostly its number of sequential queries. Commit's 722 queries became 73:
+
+- Agents are planned in memory, with ids chosen up front so line managers can point at agents in the same insert (PostgreSQL checks the self-reference at the end of the statement).
+- Agents, versions and the link between them take three statements.
+- Skills, department members, screens and channels take one statement each.
+- Repeated keys keep their last entry.
+- `channels.upsertMany` groups rows by the fields supplied, so an update still changes only those fields.
+
+The per-row repo functions stay for everything else. When a screen does many sequential queries, batch it the same way.

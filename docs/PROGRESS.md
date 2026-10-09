@@ -150,6 +150,10 @@ Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
   - GitHub App `foundmill` created by the founder, and its five gateway variables set.
 - 2026-10-09 — **`ctx.env` was empty over HTTP.** `@hono/trpc-server` overwrote it with Hono's bindings, crashing Settings › Integrations and sending billing and legal down their live branches in mock mode. The api now mounts tRPC's fetch adapter directly; an HTTP test covers it.
 - 2026-10-09 — **Ideation Studio drafts no longer cut off (founder report).** `idea.generate` used the 4,096-token default, and twelve cards with evidence and citations ran past it ("Output truncated at max_tokens=4096"). It now has a 20,000-token budget and asks for short evidence; a draft that still runs out says so in plain words.
+- 2026-10-09 — **"Take charge" takes seconds, not 36 (founder report).**
+  - `idea.commit` made 722 sequential database round trips: about 50 ms each to Supabase, so the button spun for 36 s.
+  - It now hires the whole team in a few statements (`agents.createMany`, `skills.upsertForAgents`, `departments.addMembers`, `screens.upsertMany`, a batched `channels.upsertMany`), giving 73 round trips, about 3–4 s.
+  - The screen says what it is doing while it works, and falls back to a full-page load if the move to the Inbox has not happened 4 s after success.
 - 2026-10-09 — **Import's "Continue to Commit" no longer hangs (founder report).** It asked the Ideation agent for six to twelve cards to use one; live, each try ran about 40 s into the 4,096-token cap and failed. It now asks for exactly one card (`idea.generate` `single`, 4,000-token budget).
 - 2026-10-09 — **The wordmark replaces the FM mark in the product (founder request).**
   - The FM monogram is now only the favicon and app icon.
