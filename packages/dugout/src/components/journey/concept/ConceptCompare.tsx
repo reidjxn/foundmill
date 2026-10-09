@@ -1,8 +1,7 @@
 import { Bot } from "lucide-react";
 import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../../lib/cn";
-import { initials } from "../../../lib/format";
-import { Crest } from "../../foundation/Crest";
+import { BusinessLogo } from "../../foundation/BusinessLogo";
 import { EmptyState } from "../../foundation/EmptyState";
 import { Icon } from "../../foundation/Icon";
 import { StarRating } from "../../foundation/StarRating";
@@ -61,7 +60,7 @@ export function ConceptCompare({ concepts, radarSize = 320, className }: Concept
           </span>
           {shown.map((c, i) => (
             <div key={c.id} className="flex min-w-0 items-center gap-2" role="columnheader">
-              <Crest seed={c.crestSeed} kitPrimary={c.kit.primary} kitSecondary={c.kit.secondary} monogram={c.monogram ?? initials(c.name)} size={32} title={`${c.name} logo`} />
+              <BusinessLogo src={c.logoSrc} name={c.name} primary={c.kit.primary} monogram={c.monogram} size={32} />
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span aria-hidden className={cn("inline-block size-2 rounded-full", `bg-${COMPARE_TONES[i]}`)} />

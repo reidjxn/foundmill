@@ -20,4 +20,10 @@ export const LIMITS = {
   rollbackWatchDays: 7,
   leadRetentionMonths: 24,
   budgetAlertPercents: [50, 80, 100] as const,
+  /** Logo generation (one Opus call per set): marks per set, sets per signed-in user per hour, sets per business per day. */
+  logoOptionsPerSet: 4,
+  logoSetsPerUserPerHour: 10,
+  logoSetsPerBusinessPerDay: 24,
+  /** Logo uploads checked (prepare and upload) per signed-in user per hour: the SVG check is CPU work on the api. */
+  logoChecksPerUserPerHour: 60,
 } as const;

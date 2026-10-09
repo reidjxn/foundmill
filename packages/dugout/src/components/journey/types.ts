@@ -304,7 +304,8 @@ export interface Concept {
   id: string;
   name: string;
   pitch: string;
-  crestSeed: string | number;
+  /** The chosen logo as a data URL (Commit screen); absent before one is chosen, which draws the initials mark. */
+  logoSrc?: string | null;
   kit: Kit;
   monogram?: string;
   /** 0–5 in halves. */

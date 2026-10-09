@@ -9,6 +9,7 @@ import { coachPrompt } from "./coach";
 import { quarantinedReaderPrompt } from "./quarantined-reader";
 import { journeyCommentaryPrompt } from "./journey-commentary";
 import { ideationPrompt } from "./ideation";
+import { logoDesignerPrompt } from "./logo-designer";
 import { researchPrompt } from "./research";
 import { distributionStrategistPrompt } from "./distribution-strategist";
 import { jurisdictionRecommenderPrompt } from "./jurisdiction-recommender";
@@ -30,6 +31,7 @@ export * from "./coach";
 export * from "./quarantined-reader";
 export * from "./journey-commentary";
 export * from "./ideation";
+export * from "./logo-designer";
 export * from "./research";
 export * from "./distribution-strategist";
 export * from "./jurisdiction-recommender";
@@ -51,6 +53,7 @@ export const PROMPT_LIST = [
   quarantinedReaderPrompt,
   journeyCommentaryPrompt,
   ideationPrompt,
+  logoDesignerPrompt,
   researchPrompt,
   distributionStrategistPrompt,
   jurisdictionRecommenderPrompt,

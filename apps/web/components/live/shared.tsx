@@ -3,9 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Lock } from "lucide-react";
 import { useMemo } from "react";
-import { Avatar, Crest, StatusPill, cn } from "@foundmill/dugout";
+import { Avatar, BusinessLogo as LogoSquare, StatusPill, cn } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets";
-import { monogram } from "@/lib/format";
 import { UNNAMED_PERSON } from "@/lib/live";
 import { useTRPC } from "@/lib/trpc-react";
 import type { RouterOutputs } from "@/lib/trpc";
@@ -41,10 +40,10 @@ export function usePeople(userIds: readonly string[], businessIds: readonly stri
   }, [q.data, q.isLoading, enabled]);
 }
 
-/** A business's logo from its public card; initials when the card has no brand colours or is not visible. */
+/** A business's mark from its public card: its initials on its brand colour (public cards carry no logo image); an avatar when the card has no brand colours or is not visible. */
 export function BusinessLogo({ card, name, size = 20 }: { card?: BusinessCard; name: string; size?: 20 | 32 | 48 }) {
-  if (!card?.kitPrimary || !card.kitSecondary || !name.trim()) return <Avatar size={size} name={name || "Business"} />;
-  return <Crest seed={card.slug || card.businessId} kitPrimary={card.kitPrimary} kitSecondary={card.kitSecondary} monogram={monogram(name)} size={size} title={`${name} logo`} />;
+  if (!card?.kitPrimary || !name.trim()) return <Avatar size={size} name={name || "Business"} />;
+  return <LogoSquare name={name} primary={card.kitPrimary} size={size} title={`${name} logo`} />;
 }
 
 /**

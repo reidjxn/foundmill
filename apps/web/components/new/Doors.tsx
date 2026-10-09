@@ -1,7 +1,7 @@
 "use client";
 /**
  * /new — Door A (Ideation Studio) or Door B (Import an existing business), BUILD §11.1. Two large choices, each a
- * panel with a crest-sized icon, what happens behind the door and who it is for. Earlier concepts are listed below
+ * panel with a logo-sized icon, what happens behind the door and who it is for. Earlier concepts are listed below
  * so a founder who left mid-studio can pick up where they stopped.
  */
 import { ArrowRight, FolderInput, Sparkles } from "lucide-react";

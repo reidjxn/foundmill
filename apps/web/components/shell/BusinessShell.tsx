@@ -22,7 +22,7 @@ import { LAST_BUSINESS_COOKIE, SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/const
 import { computeContinueState, respondHref, unviewedWin } from "@/lib/continue-state";
 import { CYCLE_EVENT_TYPES, cycleFromSnapshot, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus, EMPTY_CYCLE } from "@/lib/cycle";
 import { publicEnv } from "@/lib/env";
-import { monogram } from "@/lib/format";
+import { useBusinessLogoSrc } from "@/components/logo/useBusinessLogo";
 import { KeyboardRegistryProvider, createKeyboardRegistry, useRegisteredShortcuts } from "@/lib/keys";
 import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } from "@/lib/search";
 import { SIDEBAR_BRAND, activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
@@ -138,6 +138,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const departments = departmentsQ.data ?? initialDepartments;
   const visibleDepartments = useMemo(() => orderedVisibleDepartments(departments), [departments]);
   const business = data.business;
+  const logoSrc = useBusinessLogoSrc(businessId, data.logo);
   const live = business.gameMode === "live";
   const currency = financeQ.data?.cash.currency ?? "EUR";
 
@@ -354,7 +355,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 mode={business.gameMode}
                 businessMode={business.businessMode}
                 kit={data.kit}
-                crest={{ seed: business.slug || business.id, monogram: monogram(business.name) }}
+                logoSrc={logoSrc}
                 businessName={business.name}
                 screenTitle={chrome.title ?? "Home"}
                 sidebar={{ items: sidebarItems, activeId, collapsed, onCollapsedChange, brand: SIDEBAR_BRAND }}

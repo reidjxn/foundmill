@@ -1,7 +1,7 @@
 /**
  * Client boundaries (ARCHITECTURE §14, wave 3): Next.js Server Components import the `@foundmill/dugout` barrel, so
  * every module that only works in the browser must open with `"use client"`, file by file (never on a barrel), while
- * pure helpers (Crest SVG, format, brand paths, colour maths) stay server-safe.
+ * pure helpers (BusinessLogo, format, brand paths, colour maths) stay server-safe.
  *
  * The rule below is the one applied in the sweep. A module needs the directive when it
  *   - calls a React hook other than useId / useMemo / useCallback (those exist in the react-server build), or any
@@ -49,7 +49,7 @@ export const SERVER_SAFE_FILES = [
   "lib/rating.ts",
   "lib/seed.ts",
   "version.ts",
-  "components/foundation/Crest.tsx",
+  "components/foundation/BusinessLogo.tsx",
   "components/foundation/Icon.tsx",
   "components/foundation/LogoMark.tsx",
   "components/foundation/Wordmark.tsx",

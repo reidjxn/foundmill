@@ -7,7 +7,7 @@ import { Breadcrumbs } from "./Breadcrumbs";
 import { CommandPalette, type CommandPaletteProps } from "./CommandPalette";
 import { continueButtonAction, type ContinueHandlers } from "./ContinueButton";
 import { KeyboardHelp } from "./KeyboardHelp";
-import { KitBar, kitStyle, type CrestInput, type KitBarNav } from "./KitBar";
+import { KitBar, kitStyle, type KitBarNav } from "./KitBar";
 import { NeedsLargerWindow } from "./NeedsLargerWindow";
 import { ProcessingStrip } from "./ProcessingStrip";
 import { RightRail } from "./RightRail";
@@ -66,11 +66,14 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   mode: GameMode;
   businessMode: BusinessMode;
   kit: Kit;
-  crest: CrestInput;
+  /** The business's logo as a data URL (`business.logo.get`); absent or null draws the initials mark. */
+  logoSrc?: string | null;
+  /** A ready element instead of `logoSrc`. */
+  logo?: ReactNode;
   businessName: string;
   screenTitle: ReactNode;
   sidebar: AppShellSidebar;
-  /** Sidebar click, G chords and the crest button land here (apps call their router). */
+  /** Sidebar click, G chords and the logo button land here (apps call their router). */
   onNavigate?: (item: SidebarItem) => void;
   nav?: KitBarNav;
   continueButton: AppShellContinue;
@@ -134,7 +137,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     mode,
     businessMode,
     kit,
-    crest,
+    logoSrc,
+    logo,
     businessName,
     screenTitle,
     sidebar,
@@ -252,7 +256,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
         <div className="flex min-w-0 flex-1 flex-col">
           <KitBar
             kit={kit}
-            crest={crest}
+            logoSrc={logoSrc}
+            logo={logo}
             businessName={businessName}
             screenTitle={screenTitle}
             nav={nav}

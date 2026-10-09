@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { GraduationCap, MessageSquare, Pause } from "lucide-react";
 import { Avatar } from "../foundation/Avatar";
 import { Button } from "../foundation/Button";
-import { Crest } from "../foundation/Crest";
+import { BusinessLogo } from "../foundation/BusinessLogo";
 import { AgentStatusPill } from "../foundation/StatusPill";
 import { ProfileHeader } from "./ProfileHeader";
 
@@ -66,7 +66,7 @@ export const Person: Story = {
 };
 export const Organisation: Story = {
   args: {
-    avatar: <Crest seed="nordic" kitPrimary="#2B6CB0" kitSecondary="#FFFFFF" monogram="NB" size={64} />,
+    avatar: <BusinessLogo name="Nordic Beauty AB" primary="#2B6CB0" monogram="NB" size={64} />,
     name: "Nordic Beauty AB",
     chips: [{ label: "Organisation" }, { label: "Retailer" }, { label: "Stockholm" }],
     status: undefined,
