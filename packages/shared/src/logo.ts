@@ -170,20 +170,24 @@ export function sniffRaster(bytes: Uint8Array): RasterInfo | string {
 /** What a client sends: raster bytes (base64) with their declared type, or SVG markup. */
 export type LogoInput = { mime: RasterLogoMime; base64: string } | { mime: "image/svg+xml"; svg: string };
 
+/** Frozen when `checkLogo` returns it (the object, its lists and its counts), so a checked result cannot be edited. */
 export interface CheckedLogo {
-  mime: LogoMime;
-  /** The bytes that are stored (for SVG: the sanitised document, UTF-8). */
-  bytes: Uint8Array;
-  base64: string;
-  dataUrl: string;
-  width: number;
-  height: number;
+  readonly mime: LogoMime;
+  /**
+   * The checked bytes (for SVG: the sanitised document, UTF-8). A typed array cannot be frozen, so storage writes the
+   * bytes decoded from `base64`, which is.
+   */
+  readonly bytes: Uint8Array;
+  readonly base64: string;
+  readonly dataUrl: string;
+  readonly width: number;
+  readonly height: number;
   /** SVG only: what the sanitiser removed (at most 20 names, cut to 40 characters). */
-  removed: string[];
+  readonly removed: readonly string[];
   /** SVG only: how many things of each kind the sanitiser removed. */
-  removedCounts: Record<string, number>;
+  readonly removedCounts: Readonly<Record<string, number>>;
   /** Hex colours read from an SVG's fills (rasters are read in the browser). */
-  colours: string[];
+  readonly colours: readonly string[];
 }
 
 export type LogoCheck = { ok: true; logo: CheckedLogo } | { ok: false; reason: string };
@@ -200,7 +204,19 @@ export function isCheckedLogo(value: unknown): value is CheckedLogo {
   return typeof value === "object" && value !== null && CHECKED.has(value as CheckedLogo);
 }
 
+/**
+ * True for an object shaped like a `checkLogo` result (it carries checked bytes or a data URL) rather than raw input,
+ * so storage can refuse one that `checkLogo` did not return instead of treating it as raw input.
+ */
+export function looksLikeCheckedLogo(value: unknown): boolean {
+  return typeof value === "object" && value !== null && ("bytes" in value || "dataUrl" in value || "removedCounts" in value);
+}
+
 function passed(logo: CheckedLogo): LogoCheck {
+  Object.freeze(logo.removed);
+  Object.freeze(logo.removedCounts);
+  Object.freeze(logo.colours);
+  Object.freeze(logo);
   CHECKED.add(logo);
   return { ok: true, logo };
 }

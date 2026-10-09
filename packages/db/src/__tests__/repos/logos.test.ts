@@ -63,15 +63,23 @@ describe("logos", () => {
     expect(await r.as(ownerId, (tx) => repos.logos.remove(tx, businessId).then(() => repos.logos.getMeta(tx, businessId)))).not.toBeNull();
   });
 
-  it("stores a result checkLogo returned without checking again, and still checks a look-alike object", async () => {
+  it("stores a result checkLogo returned without checking again, and refuses a look-alike object outright", async () => {
     const { businessId } = r.B;
     const check = checkLogo(png(48));
     if (!check.ok) throw new Error(check.reason);
+    // The result is frozen, but its byte array cannot be: storage writes the bytes decoded from the frozen base64.
+    const checkedDataUrl = check.logo.dataUrl;
+    check.logo.bytes.fill(0);
     const { meta } = await r.svc((tx) => repos.logos.set(tx, businessId, { source: "upload", logo: check.logo }));
     expect(meta).toMatchObject({ width: 48, height: 48 });
-    // A hand-built object with the same shape is not trusted: it is checked, and this one fails.
+    expect((await repos.logos.get(r.db, businessId))!.dataUrl).toBe(checkedDataUrl);
+    // A hand-built object with the same shape (a copy, or a forgery) is not trusted, and is not mistaken for raw input.
     const forged = { ...check.logo, mime: "image/svg+xml" as const, bytes: new TextEncoder().encode("<svg onload=alert(1)>") };
-    await expect(r.svc((tx) => repos.logos.set(tx, businessId, { source: "upload", logo: forged as never }))).rejects.toThrow(ValidationError);
+    for (const lookAlike of [forged, { ...check.logo }]) {
+      const attempt = r.svc((tx) => repos.logos.set(tx, businessId, { source: "upload", logo: lookAlike as never }));
+      await expect(attempt).rejects.toBeInstanceOf(ValidationError);
+      await expect(attempt).rejects.toThrow(/not produced by the logo check/);
+    }
     await r.svc((tx) => repos.logos.remove(tx, businessId));
   });
 

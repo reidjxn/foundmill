@@ -11,13 +11,15 @@
  *   filter, pattern, symbol, iframe, unknown or prefixed names) is dropped with its children.
  * - Attributes: presentation and geometry only, each value capped in length (256 characters; 64 KiB for `d` and
  *   `points`) and then checked against a grammar (numbers, path data, transform functions, colours, enumerations).
- *   No event handlers, no `style` URLs, no class names.
+ *   No event handlers, no `style` URLs, no class names, no dashed strokes (a tiny dash on a long stroke paints for
+ *   seconds).
  * - References: `href` only as an internal `#id` (on `use` and gradients); `fill`, `stroke`, `clip-path` and `mask`
  *   accept `url(#id)` only, and only when that id exists in the output. External, `javascript:` and `data:` references
  *   are removed. `mask` and `clip-path` are not allowed inside a mask or clip path.
- * - Render cost: every reference draws a copy of its target, so references can multiply (a chain of `use`, masks or
- *   clip paths). The expanded size is computed (memoised by element, cycles refused) and a logo above
- *   SVG_MAX_RENDER_COST is refused, so no logo can stall the browser that draws it.
+ * - Render cost: `use`, masks and clip paths draw a copy of their target, so references can multiply, and long path
+ *   data or text weighs more than a rectangle. The expanded, weighted size is computed (memoised by element, cycles
+ *   refused) and a logo above SVG_MAX_RENDER_COST is refused, so no logo can stall the browser that draws it. Style
+ *   rules that fan out (many rules over many elements) are refused as soon as their output passes the size budget.
  * - `style` attributes and `<style>` sheets are read as data: simple element, class and id rules whose declarations
  *   pass the same grammars become presentation attributes; everything else in them (at-rules, `url(…)`, complex
  *   selectors) is ignored.
@@ -40,8 +42,14 @@ export const SVG_MAX_STYLE_RULES = 400;
 export const SVG_MAX_VALUE_CHARS = 256;
 /** Path data and point lists may be longer. */
 export const SVG_MAX_GEOMETRY_CHARS = 64 * 1024;
-/** Expanded size (elements, with every reference counted as a copy of its target) above which a logo is refused. */
+/**
+ * Expanded size above which a logo is refused: 1 per drawn element, plus 1 per 32 characters of path data or points,
+ * plus 1 per character of text, with every `use`, mask and clip-path counted as a full copy of its target and every
+ * gradient reference as 1. Content of `defs`, gradients, masks and clip paths counts only where it is referenced.
+ */
 export const SVG_MAX_RENDER_COST = 5000;
+/** Characters of path data or points that weigh as much as one more element. */
+export const SVG_GEOMETRY_CHARS_PER_COST = 32;
 /** At most this many removed names are reported (each cut to 40 characters); counts per kind are always complete. */
 export const SVG_MAX_REMOVED_NAMES = 20;
 /** Intrinsic size written on the sanitised root: the longer side, in px. */
@@ -83,6 +91,8 @@ export type SvgSanitiseResult =
   | { ok: false; reason: string };
 
 class SvgParseError extends Error {}
+/** Thrown by the walk once the cleaned document (or what style rules write into it) passes the output budget. */
+class SvgTooComplexError extends Error {}
 
 /** Bounded report of what was removed: complete counts per kind, the first few names. */
 class Removed {
@@ -386,8 +396,8 @@ const PRESENTATION: Record<string, Check> = {
   "stroke-linecap": oneOf("butt", "round", "square"),
   "stroke-linejoin": oneOf("miter", "round", "bevel", "arcs", "miter-clip"),
   "stroke-miterlimit": num,
-  "stroke-dasharray": (v) => (v.trim() === "none" ? "none" : numList(v)),
-  "stroke-dashoffset": length,
+  // No stroke-dasharray or stroke-dashoffset (as attributes, style or sheet properties): a tiny dash on a long stroke
+  // keeps the browser painting for seconds.
   transform,
   "clip-path": iri,
   mask: iri,
@@ -568,6 +578,13 @@ interface Walk {
   sheet: SheetRule[];
   ids: Set<string>;
   uses: number;
+  /** The output budget (characters). */
+  maxOutput: number;
+  /**
+   * Characters of declarations the sheet has written into elements so far: a rule fans out over every element it
+   * matches, so this is what can grow past the input. Everything else in the output comes from the input itself.
+   */
+  styleChars: number;
 }
 
 function applyStyles(el: XElement, w: Walk): Map<string, string> {
@@ -578,7 +595,13 @@ function applyStyles(el: XElement, w: Walk): Map<string, string> {
     const elId = el.attrs.get("id");
     for (const rule of w.sheet) {
       const hit = rule.kind === "element" ? rule.key === el.name : rule.kind === "class" ? classes.has(rule.key) : rule.key === elId;
-      if (hit) for (const [k, v] of rule.decls) values.set(k, v);
+      if (!hit) continue;
+      for (const [k, v] of rule.decls) {
+        values.set(k, v);
+        w.styleChars += k.length + v.length + 4;
+      }
+      // Stop as soon as the rules have written more than a whole logo may hold, before any grammar or serialiser runs.
+      if (w.styleChars > w.maxOutput) throw new SvgTooComplexError();
     }
   }
   const inline = el.attrs.get("style");
@@ -680,10 +703,30 @@ function resolveReferences(el: OutElement, ids: Set<string>, removed: Removed): 
   return true;
 }
 
+/** Drawn only through a reference: inside the tree they cost nothing until something points at them. */
+const DRAWN_BY_REFERENCE = new Set(["defs", "linearGradient", "radialGradient", "clipPath", "mask"]);
+const PAINT_SERVERS = new Set(["linearGradient", "radialGradient"]);
+const GEOMETRY_ATTR: Record<string, string> = { path: "d", polygon: "points", polyline: "points" };
+
+/** An element's own weight: 1, plus 1 per 32 characters of path data or points, plus 1 per character of text. */
+function ownWeight(el: OutElement): number {
+  let weight = 1;
+  const geometryAttr = own(GEOMETRY_ATTR, el.name);
+  const geometry = geometryAttr ? el.attrs.find(([n]) => n === geometryAttr) : undefined;
+  if (geometry) weight += Math.floor(geometry[1].length / SVG_GEOMETRY_CHARS_PER_COST);
+  for (const c of el.children) if (typeof c === "string") weight += c.length;
+  return weight;
+}
+
+/** True when the attribute draws a full copy of what it references (as opposed to a gradient, drawn once). */
+function expands(el: OutElement, attr: string): boolean {
+  return attr === "mask" || attr === "clip-path" || (attr === "href" && el.name === "use");
+}
+
 /**
- * The size of what a browser draws: 1 per element, plus its children, plus a full copy of every element it references
- * (`use`, gradients' href, masks, clip paths, paint servers). Memoised per element, so it costs one pass; a reference
- * cycle is refused; counting stops just past the cap.
+ * The weighted size of what a browser draws (see SVG_MAX_RENDER_COST): an element's own weight, plus its drawn
+ * children, plus a full copy of every `use`, mask and clip-path target, plus 1 per gradient reference. Memoised per
+ * element, so it costs one pass; a reference cycle (gradient hrefs included) is refused; counting stops past the cap.
  */
 function renderCost(root: OutElement): number | "cycle" {
   const byId = new Map<string, OutElement>();
@@ -707,16 +750,22 @@ function renderCost(root: OutElement): number | "cycle" {
     // A reference chain deeper than this is a cost problem whatever it draws.
     if (visiting.size > 1000) return cap;
     visiting.add(el);
-    let total = 1;
+    let total = ownWeight(el);
     for (const [name, value] of el.attrs) {
       if (total >= cap || state.cycle) break;
       const ref = referencedId(name, value);
       const target = ref === null ? undefined : byId.get(ref);
-      if (target) total += cost(target);
+      if (!target) continue;
+      if (expands(el, name)) total += cost(target);
+      else {
+        // A gradient is drawn once however many shapes use it; it is still walked, for loops through its href.
+        total += 1;
+        if (PAINT_SERVERS.has(target.name)) cost(target);
+      }
     }
     for (const c of el.children) {
       if (total >= cap || state.cycle) break;
-      if (typeof c !== "string") total += cost(c);
+      if (typeof c !== "string" && !DRAWN_BY_REFERENCE.has(c.name)) total += cost(c);
     }
     visiting.delete(el);
     const bounded = Math.min(total, cap);
@@ -804,13 +853,20 @@ export function sanitiseSvg(input: string, options: SvgSanitiseOptions = {}): Sv
   }
   // Applied in this order, so a more specific rule, or a later one of the same specificity, wins.
   sheet.sort((a, b) => a.specificity - b.specificity || a.order - b.order);
-  const w: Walk = { removed, sheet, ids: new Set(), uses: 0 };
-  const out = sanitiseElement(root, w, false);
+  const tooComplex = (kb: string) => `The SVG is too complex: ${kb} KB after cleaning (the limit is ${Math.round(maxOutput / 1024)} KB). Export a simpler mark or a PNG.`;
+  const w: Walk = { removed, sheet, ids: new Set(), uses: 0, maxOutput, styleChars: 0 };
+  let out: OutElement | null;
+  try {
+    out = sanitiseElement(root, w, false);
+  } catch (err) {
+    if (err instanceof SvgTooComplexError) return { ok: false, reason: tooComplex(`more than ${Math.round(maxOutput / 1024)}`) };
+    throw err;
+  }
   if (!out) return { ok: false, reason: "Not an SVG." };
   resolveReferences(out, w.ids, removed);
   const cost = renderCost(out);
   if (cost === "cycle") return { ok: false, reason: "The SVG refers to itself in a loop, so it cannot be drawn." };
-  if (cost > SVG_MAX_RENDER_COST) return { ok: false, reason: "The SVG repeats its parts too many times to draw quickly (through use, masks or clip paths). Export a simpler mark or a PNG." };
+  if (cost > SVG_MAX_RENDER_COST) return { ok: false, reason: "The SVG is too heavy to draw quickly: it repeats its parts too many times (through use, masks or clip paths) or its paths are very long. Export a simpler mark or a PNG." };
 
   // The root's coordinate system: its viewBox, or its pixel size.
   const rootAttrs = new Map(out.attrs);
@@ -832,7 +888,7 @@ export function sanitiseSvg(input: string, options: SvgSanitiseOptions = {}): Sv
   const shapes = countDrawable(out);
   if (shapes === 0) return { ok: false, reason: "Nothing drawable is left in the SVG after removing unsupported content." };
   const svg = serialise(out);
-  if (svg.length > maxOutput) return { ok: false, reason: `The SVG is too complex: ${Math.round(svg.length / 1024)} KB after cleaning (the limit is ${Math.round(maxOutput / 1024)} KB). Export a simpler mark or a PNG.` };
+  if (svg.length > maxOutput) return { ok: false, reason: tooComplex(String(Math.round(svg.length / 1024))) };
   const counts = new Map<string, number>();
   collectColours(out, counts);
   const colours = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c);

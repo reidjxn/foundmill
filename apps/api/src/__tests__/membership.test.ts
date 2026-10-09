@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { repos } from "@foundmill/db";
+import { DATA_REGIONS, MODEL_BILLING, PLAN_TIERS } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -72,6 +73,21 @@ describe("membership enforcement (businessProcedure)", () => {
     expect(entry!.actorId).toBe(hz.A.adminId);
     const verify = await repos.audit.verify(hz.db, hz.A.businessId);
     expect(verify.ok).toBe(true);
+  });
+
+  it("business.update takes Settings fields only: an admin cannot change the plan, model billing or data region", async () => {
+    const admin = hz.caller({ userId: hz.A.adminId });
+    const before = await repos.businesses.get(hz.db, hz.A.businessId);
+    const other = <T extends string>(all: readonly T[], current: T) => all.find((v) => v !== current)!;
+    const sneaky = { planTier: other(PLAN_TIERS, before.planTier), modelBilling: other(MODEL_BILLING, before.modelBilling), region: other(DATA_REGIONS, before.region) };
+    expect(await code(admin.business.update({ businessId: hz.A.businessId, name: "Alpha Admin Edit", ...sneaky } as never))).toBe("OK");
+    const after = await repos.businesses.get(hz.db, hz.A.businessId);
+    expect(after.name).toBe("Alpha Admin Edit");
+    expect({ planTier: after.planTier, modelBilling: after.modelBilling, region: after.region }).toEqual({ planTier: before.planTier, modelBilling: before.modelBilling, region: before.region });
+    // The audit entry lists only what was written (and the business it was written to).
+    const entry = (await admin.business.audit({ businessId: hz.A.businessId, limit: 10 })).items.find((e) => e.action === "business.update");
+    expect((entry!.details as { fields: string[] }).fields.filter((f) => f !== "businessId")).toEqual(["name"]);
+    await admin.business.update({ businessId: hz.A.businessId, name: before.name });
   });
 
   it("the profile gate: a user without a founder profile cannot take charge of an idea", async () => {

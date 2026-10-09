@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { makeJpeg, makePng, makeWebp } from "./testing/logo-fixtures";
-import { base64ToBytes, bytesToBase64, checkLogo, isLogoDataUrl, LOGO_MAX_BYTES, parseLogoDataUrl, sniffRaster, toLogoDataUrl } from "./logo";
+import { base64ToBytes, bytesToBase64, checkLogo, isCheckedLogo, isLogoDataUrl, LOGO_MAX_BYTES, looksLikeCheckedLogo, parseLogoDataUrl, sniffRaster, toLogoDataUrl } from "./logo";
 
 const b64 = (bytes: Uint8Array) => bytesToBase64(bytes);
 
@@ -69,6 +69,20 @@ describe("checkLogo: upload validation", () => {
     expect(r.logo.removed).toEqual(["attribute:onload", "element:script"]);
     expect(r.logo.colours).toEqual(["#1b4fd8"]);
     expect(parseLogoDataUrl(r.logo.dataUrl)).toEqual({ mime: "image/svg+xml", base64: r.logo.base64 });
+  });
+
+  it("returns a frozen, registered result; a copy or a look-alike is not registered", () => {
+    const r = checkLogo({ mime: "image/svg+xml", svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" onload="x"><rect width="10" height="10" fill="#1b4fd8"/></svg>' });
+    if (!r.ok) throw new Error(r.reason);
+    expect(isCheckedLogo(r.logo)).toBe(true);
+    for (const part of [r.logo, r.logo.removed, r.logo.removedCounts, r.logo.colours]) expect(Object.isFrozen(part)).toBe(true);
+    const logo = r.logo as unknown as { mime: string; base64: string; removed: string[] };
+    expect(() => (logo.mime = "image/png")).toThrow(TypeError);
+    expect(() => (logo.base64 = "AAAA")).toThrow(TypeError);
+    expect(() => logo.removed.push("x")).toThrow(TypeError);
+    expect(isCheckedLogo({ ...r.logo })).toBe(false);
+    expect(looksLikeCheckedLogo({ ...r.logo })).toBe(true);
+    expect(looksLikeCheckedLogo({ mime: "image/svg+xml", svg: "<svg/>" })).toBe(false);
   });
 });
 
