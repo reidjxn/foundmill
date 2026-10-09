@@ -14,7 +14,7 @@
  */
 import { createHash } from "node:crypto";
 import { AppError, BUSINESS_MODES, NotFoundError, type BusinessMode, type Vault } from "@foundmill/shared";
-import { repos, type Db, type Agent, type Business, type Integration } from "@foundmill/db";
+import { codeRepositoryOf, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
 import { evaluate, getPolicyEngine, type AgentAutonomy, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
 import {
   canonicalJson,
@@ -85,14 +85,30 @@ export function modeFor(deps: Pick<GatewayDeps, "mode" | "liveConnectors">, conn
 
 /** Thrown for request errors that are not policy outcomes (unknown connector/tool, missing integration...). */
 /**
- * A live App installation the gateway may mint tokens for: connected (or degraded) and verified when it was connected.
- * A row from mock mode, a disconnected or expired one, or one whose installation id was never checked against the
- * installer's GitHub account does not count, so an id typed into a request can never reach someone else's repositories.
+ * A live App installation the gateway may mint tokens for: an integration that is connected (or degraded), not archived,
+ * and names exactly the installation the gateway itself verified when the business connected it (`app_installations`,
+ * which no app role can write). A row from mock mode, a disconnected or expired one, or one whose installation id was
+ * written anywhere but through that check does not count, so a business can never reach another account's
+ * repositories by editing its own integration.
  */
-export function appInstallationVerified(row: Pick<Integration, "status" | "archivedAt" | "settings">): boolean {
-  if (row.archivedAt !== null || (row.status !== "connected" && row.status !== "degraded")) return false;
-  const config = ((row.settings ?? {}) as { config?: { verifiedAt?: unknown; verifiedBy?: unknown } }).config;
-  return typeof config?.verifiedAt === "string" && typeof config.verifiedBy === "string";
+export function appInstallationVerified(row: Pick<Integration, "status" | "archivedAt" | "settings">, verified: Pick<AppInstallation, "installationId"> | null): boolean {
+  if (!verified || row.archivedAt !== null || (row.status !== "connected" && row.status !== "degraded")) return false;
+  const externalAccountId = ((row.settings ?? {}) as { externalAccountId?: unknown }).externalAccountId;
+  return typeof externalAccountId === "string" && externalAccountId === verified.installationId;
+}
+
+/**
+ * The founder's push settings, enforced here rather than trusted from the caller: `commit_files` writes only to the
+ * repository chosen on Development › Code, only while pushing is turned on there, and every commit says `[skip ci]`.
+ * (The tool itself already refuses anything but `agent/` branches of private repositories and `.git` / `.github`.)
+ */
+export function guardGithubCommit(row: Integration | null, args: unknown): Record<string, unknown> {
+  const target = row ? codeRepositoryOf(row) : null;
+  if (!target?.writeEnabled) throw new GatewayError("push_not_enabled", "Pushing saved code to GitHub is not turned on for this business (Development › Code)", 422);
+  const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
+  if (`${String(a.owner)}/${String(a.repo)}`.toLowerCase() !== target.fullName.toLowerCase()) throw new GatewayError("repository_not_allowed", `Saved code is pushed only to ${target.fullName}, the repository chosen on Development › Code`, 422);
+  const message = typeof a.message === "string" ? a.message.slice(0, 4_980) : "";
+  return { ...a, message: /\[skip ci\]/i.test(message) ? message : `${message}\n\n[skip ci]` };
 }
 
 export class GatewayError extends AppError {
@@ -476,7 +492,7 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   let credential: LoadedCredential | null = null;
   // An App connector (GitHub) authenticates with the platform's App keys for the business's installation: it needs an
   // integration row the live connector verified (who installed it, checked with GitHub), not a stored secret.
-  const appInstalled = connector.auth.kind === "app" && loaded.integrationRow !== null && appInstallationVerified(loaded.integrationRow);
+  const appInstalled = connector.auth.kind === "app" && loaded.integrationRow !== null && appInstallationVerified(loaded.integrationRow, await repos.integrations.verifiedInstallation(deps.db, session.businessId, connector.key));
   if (loaded.integrationRow) {
     if (deps.vault) credential = await loadCredential(deps.db, deps.vault, session.businessId, loaded.integrationRow.id);
     else if (mode === "live" && connector.auth.kind !== "none" && !appInstalled) throw new GatewayError("vault_unavailable", "No vault is configured; credentials cannot be decrypted", 503);
@@ -498,7 +514,7 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
 
   let result: ToolResult;
   try {
-    result = await connector.callTool(tool.name, args, ctx);
+    result = await connector.callTool(tool.name, connector.key === "github" && tool.name === "commit_files" ? guardGithubCommit(loaded.integrationRow, args) : args, ctx);
   } catch (e) {
     if (isConfigError(e)) throw new GatewayError("connector_unconfigured", e.message, 503, { connector: connector.key });
     throw e;

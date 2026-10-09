@@ -73,6 +73,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("task_edges", s.taskEdges, "member", (f) => ({ fromTask: f.taskId, toTask: take(f.taskIds, "task_edges") })),
   spec("agent_sessions", s.agentSessions, "service", (f) => ({ agentId: f.agentId, versionId: f.agentVersionId, taskId: f.taskId })),
   spec("agent_metrics", s.agentMetrics, "service", (f) => ({ agentId: f.agent2Id, day: day(), tasksDone: 1 })),
+  // 0015 verified App installations (written by the gateway)
+  spec("app_installations", s.appInstallations, "service", () => ({ connectorKey: uniq("connector"), installationId: String(counter()), verifiedBy: "founder-login", verifiedAt: new Date("2026-10-09T00:00:00Z") })),
   // 0013 workspaces (written by the orchestrator)
   spec("workspace_blobs", s.workspaceBlobs, "service", () => ({ sha256: crypto.randomUUID().replace(/-/g, "").padEnd(64, "0"), sizeBytes: 1, content: new Uint8Array([1]) })),
   spec("workspace_snapshots", s.workspaceSnapshots, "service", (f) => ({ taskId: f.taskId, files: [], fileCount: 0 })),

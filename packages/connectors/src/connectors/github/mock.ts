@@ -27,7 +27,7 @@ export function mergedPullRequestPayload(pr: GhPullRequest = GH_MERGED_PR, repo 
 const blobShaOf = (path: string, content: Buffer) => stableHash(`blob:${path}:${content.toString("base64")}`, 40);
 
 /** One business's GitHub: the fixture repositories (copied), repositories it created, branch contents and pull requests. */
-function newWorld() {
+function newWorld(bytesPerBusiness: number) {
   const repos = new Map<string, GhFixtureRepo>(GH_REPOS.map((r) => [r.repo.full_name, { ...r, branches: { ...r.branches }, files: [...r.files] }]));
   /** `owner/repo@branch` → path → bytes, for branches with their own commits (oldest written first). */
   const trees = new Map<string, Map<string, Buffer>>();
@@ -71,7 +71,7 @@ function newWorld() {
     }
     trees.set(key, tree);
     stored += sizeOf(tree);
-    while (stored > MOCK_BYTES_PER_BUSINESS && trees.size > 1) {
+    while (stored > bytesPerBusiness && trees.size > 1) {
       const [oldestKey, oldest] = trees.entries().next().value!;
       trees.delete(oldestKey);
       stored -= sizeOf(oldest);
@@ -91,11 +91,15 @@ function newWorld() {
     repos.set(created.repo.full_name, created);
     return created;
   };
-  return { repos, find, resolveRef, prList, branchOf, ownTree, filesAt, setTree, findOrCreate };
+  return { repos, find, resolveRef, prList, branchOf, ownTree, filesAt, setTree, findOrCreate, bytes: () => stored };
 }
 
-/** What one business's mock GitHub may hold in files its agents wrote, and how many businesses are kept at once. */
+/**
+ * What one business's mock GitHub may hold in files its agents wrote, what all of them may hold together (the least
+ * recently used business is forgotten first), and how many businesses are kept at once.
+ */
 export const MOCK_BYTES_PER_BUSINESS = 20 * 1024 * 1024;
+export const MOCK_BYTES_TOTAL = 100 * 1024 * 1024;
 export const MOCK_BUSINESSES = 200;
 
 /**
@@ -106,15 +110,27 @@ export const MOCK_BUSINESSES = 200;
  * Written files are bounded per business (the oldest written branches are dropped first) and the least recently used
  * businesses are forgotten beyond MOCK_BUSINESSES.
  */
-export function createGithubMock() {
+export function createGithubMock(limits: { bytesPerBusiness?: number; bytesTotal?: number; businesses?: number } = {}) {
+  const bytesTotal = limits.bytesTotal ?? MOCK_BYTES_TOTAL;
+  const businesses = limits.businesses ?? MOCK_BUSINESSES;
   const worlds = new Map<string, ReturnType<typeof newWorld>>();
   const world = (businessId: string) => {
     let w = worlds.get(businessId);
     if (w) worlds.delete(businessId);
-    else w = newWorld();
+    else w = newWorld(limits.bytesPerBusiness ?? MOCK_BYTES_PER_BUSINESS);
     worlds.set(businessId, w);
-    while (worlds.size > MOCK_BUSINESSES) worlds.delete(worlds.keys().next().value!);
+    while (worlds.size > businesses) worlds.delete(worlds.keys().next().value!);
     return w;
+  };
+  /** After a write: forget the least recently used other businesses until everything fits the total budget. */
+  const fitTotal = (current: string) => {
+    let total = [...worlds.values()].reduce((n, w) => n + w.bytes(), 0);
+    for (const [key, w] of worlds) {
+      if (total <= bytesTotal) break;
+      if (key === current) continue;
+      total -= w.bytes();
+      worlds.delete(key);
+    }
   };
   const webhook = createGithubWebhook({ secret: MOCK_GITHUB_WEBHOOK_SECRET, replay: new ReplayGuard({ now: () => MOCK_NOW.getTime() }), now: () => MOCK_NOW });
   const toPr = (p: GhPullRequest): PullRequestT => mapPullRequest(p);
@@ -203,6 +219,7 @@ export function createGithubMock() {
         const sha = stableHash(`commit:${r.repo.full_name}:${branch}:${parentSha}:${message}:${[...next].map(([p, c]) => `${p}=${blobShaOf(p, c)}`).sort().join(",")}`, 40);
         r.branches[branch] = sha;
         g.setTree(r, branch, next);
+        fitTotal(ctx.businessId);
         return { branch, created: !existed, committed: true, sha, parentSha, filesWritten: written, filesDeleted: deleted, url: `${r.repo.html_url}/commit/${sha}` };
       },
       open_pr: async ({ owner, repo, title, body, head, base, draft }, ctx) => {

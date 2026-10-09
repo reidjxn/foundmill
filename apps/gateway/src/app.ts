@@ -15,12 +15,12 @@ import { bodyLimit } from "hono/body-limit";
 import { ZodError, z } from "zod";
 import { APP_NAME } from "@foundmill/config";
 import { AppError, NotFoundError, UnauthorizedError } from "@foundmill/shared";
-import { isConfigError, type Connector } from "@foundmill/connectors";
+import { isConfigError, type Connector, type HealthResult } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
 import { bearerToken, mintSessionToken, verifyServiceToken, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
 import { toIntegrationRecord } from "./credentials";
-import { executeToolCall, GatewayError, modeFor, type GatewayDeps } from "./pipeline";
+import { appInstallationVerified, executeToolCall, GatewayError, modeFor, type GatewayDeps } from "./pipeline";
 import { handleMcpRequest } from "./mcp";
 import { toCandidates } from "./recipients";
 import { STATE_ERROR_CODES, stateDenial } from "./state";
@@ -168,12 +168,15 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     });
     const record = await connector.connect(input.businessId, input.input).catch((e: unknown) => vendorFailure(e, connector.key));
     const { credentialToStore: _never, ...safe } = record;
-    if (record.status !== "disconnected") {
+    const { verifiedBy, verifiedAt } = record.config as { verifiedBy?: unknown; verifiedAt?: unknown };
+    if (record.status === "connected" && record.externalAccountId && typeof verifiedBy === "string" && typeof verifiedAt === "string") {
+      // The one place a verified installation is recorded: only this service role write makes it usable.
+      await repos.integrations.recordVerifiedInstallation(deps.db, input.businessId, { connectorKey: connector.key, installationId: record.externalAccountId, accountLabel: record.accountLabel, verifiedBy, verifiedAt: new Date(verifiedAt) });
       await repos.audit.append(deps.db, input.businessId, {
         actorKind: "system",
         action: "gateway.integration.connected",
         target: { connector: connector.key },
-        details: { service: c.var.service.svc, status: record.status, externalAccountId: record.externalAccountId, verifiedBy: (record.config as { verifiedBy?: unknown }).verifiedBy ?? null },
+        details: { service: c.var.service.svc, status: record.status, externalAccountId: record.externalAccountId, verifiedBy },
       });
     }
     return c.json({ mode: modeFor(deps, connector.key), record: safe });
@@ -184,6 +187,11 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     const connector = appConnector(input.connector);
     const row = await repos.integrations.getByKey(deps.db, input.businessId, connector.key);
     if (!row || row.archivedAt !== null) throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business`, 409, { connector: connector.key });
+    // Only a live installation this gateway verified is ever checked with the vendor (no token for any other id).
+    if (modeFor(deps, connector.key) !== "live" || !appInstallationVerified(row, await repos.integrations.verifiedInstallation(deps.db, input.businessId, connector.key))) {
+      const health: HealthResult = { ok: false, status: "disconnected", checkedAt: now().toISOString(), latencyMs: 0, message: `${connector.displayName} is not connected through a verified installation; connect it again from Settings › Integrations` };
+      return c.json({ health });
+    }
     const health = await connector.healthcheck(toIntegrationRecord(row, null)).catch((e: unknown) => vendorFailure(e, connector.key));
     return c.json({ health });
   });

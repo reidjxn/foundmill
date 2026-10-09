@@ -49,7 +49,7 @@ async function save(taskId: string, files: Record<string, string>): Promise<Work
 describe("pushWorkspace", () => {
   it("skips when GitHub is not connected or no repository is chosen", async () => {
     const { gateway, offline } = githubGateway();
-    const ctx: PushContext = { businessId: t.businessId, taskId: t.codeTaskId, sessionId: await openSessionRow(t, t.workerId, t.codeTaskId), agentId: t.workerId, branch: `agent/${t.codeTaskId}`, agentName: "Worker" };
+    const ctx: PushContext = { businessId: t.businessId, taskId: t.codeTaskId, sessionId: await openSessionRow(t, t.workerId, t.codeTaskId), agentId: t.workerId, branch: `agent/${t.codeTaskId}`, agentName: "Worker", holdBack: null };
     const snapshot = await save(t.codeTaskId, { "a.ts": "1" });
     expect(await pushWorkspace(t.deps.db, gateway, ctx, snapshot)).toEqual({ status: "skipped", reason: "connect GitHub and choose a repository on Development › Code" });
     expect(offline.calls).toEqual([]);
@@ -60,7 +60,7 @@ describe("pushWorkspace", () => {
     await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
     const taskId = t.fixture.taskIds[0]!;
     const { gateway, offline, readFile } = githubGateway();
-    const ctx = (sessionId: string): PushContext => ({ businessId: t.businessId, taskId, sessionId, agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker" });
+    const ctx = (sessionId: string): PushContext => ({ businessId: t.businessId, taskId, sessionId, agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker", holdBack: null });
 
     const first = await save(taskId, { "src/verify.ts": "v1", "README.md": "# Notes", "old.txt": "old" });
     const s1 = await openSessionRow(t, t.workerId, taskId);
@@ -93,7 +93,7 @@ describe("pushWorkspace", () => {
 
   it("records a refusal, an approval wait or an error on the save, and the next push tries again", async () => {
     const taskId = t.fixture.taskIds[1]!;
-    const ctx = async (): Promise<PushContext> => ({ businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker" });
+    const ctx = async (): Promise<PushContext> => ({ businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker", holdBack: null });
     const snapshot = await save(taskId, { "page.tsx": "x" });
 
     const denied = await pushWorkspace(t.deps.db, githubGateway(() => ({ outcome: "deny", reasons: ["paused agent"] })).gateway, await ctx(), snapshot);
@@ -119,7 +119,7 @@ describe("pushWorkspace", () => {
     const taskId = t.fixture.taskIds[3] ?? t.codeTaskId;
     const { gateway, offline } = githubGateway();
     const snapshot = await save(taskId, { "a.ts": "1" });
-    const ctx = async (extra: Partial<PushContext> = {}): Promise<PushContext> => ({ businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker", ...extra });
+    const ctx = async (extra: Partial<PushContext> = {}): Promise<PushContext> => ({ businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker", holdBack: null, ...extra });
     expect(await pushWorkspace(t.deps.db, gateway, await ctx({ holdBack: "the session was stopped" }), snapshot)).toEqual({ status: "skipped", reason: "the session was stopped" });
     expect(describePush({ status: "skipped", reason: "the session was stopped" })?.text).toBe("Not pushed to GitHub: the session was stopped. The code is saved on Development › Code.");
     expect(await pushWorkspace(t.deps.db, gateway, await ctx({ branch: "main" }), snapshot)).toEqual({ status: "skipped", reason: "main is not this task's branch" });
@@ -134,7 +134,7 @@ describe("pushWorkspace", () => {
     const taskId = t.fixture.taskIds[4] ?? t.codeTaskId;
     const { gateway, offline, readFile } = githubGateway();
     const snapshot = await save(taskId, { "src/app.ts": "app", ".github/workflows/ci.yml": "on: push", ".github/actions/setup/action.yml": "runs: x" });
-    const r = await pushWorkspace(t.deps.db, gateway, { businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker" }, snapshot);
+    const r = await pushWorkspace(t.deps.db, gateway, { businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker", holdBack: null }, snapshot);
     expect(r).toMatchObject({ status: "pushed", filesWritten: 1, leftOut: 2 });
     expect((offline.calls.at(-1)!.args as { files: { path: string }[] }).files.map((f) => f.path)).toEqual(["src/app.ts"]);
     expect(await readFile(".github/workflows/ci.yml", `agent/${taskId}`)).toBeNull();
@@ -146,7 +146,7 @@ describe("pushWorkspace", () => {
     const taskId = t.fixture.taskIds[2]!;
     const { gateway, offline } = githubGateway();
     const snapshot = await save(taskId, { "a.ts": "1" });
-    expect(await pushWorkspace(t.deps.db, gateway, { businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker" }, snapshot)).toEqual({ status: "skipped", reason: "pushing to acme/shop is turned off (Development › Code)" });
+    expect(await pushWorkspace(t.deps.db, gateway, { businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker", holdBack: null }, snapshot)).toEqual({ status: "skipped", reason: "pushing to acme/shop is turned off (Development › Code)" });
     expect(offline.calls).toEqual([]);
     await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
   });

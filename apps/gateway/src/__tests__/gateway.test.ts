@@ -9,7 +9,7 @@ import { repos } from "@foundmill/db";
 import { storeCredential } from "../credentials";
 import { GatewayClientError } from "../client";
 import { createGatewayApp, MAX_CALL_BODY_BYTES, MAX_MCP_BODY_BYTES, MAX_SERVICE_BODY_BYTES } from "../app";
-import { modeFor } from "../pipeline";
+import { guardGithubCommit, modeFor } from "../pipeline";
 import { signServiceToken } from "../tokens";
 import { hashRecipient } from "../recipients";
 import { SAFE_EMAIL, setupGateway, TEST_CONNECTOR, TEST_SECRET, UNTRUSTED_EMAIL, type GatewayFixture } from "./harness";
@@ -360,7 +360,8 @@ describe("LIVE_CONNECTORS", () => {
   it("runs the named connectors live while every other connector stays mock", async () => {
     const mixed = await setupGateway({ mode: "mock", liveConnectors: ["test"], connector: { authKind: "app" }, extraConnectorKeys: ["other"] });
     try {
-      await repos.integrations.upsert(mixed.db, mixed.businessId, { connectorKey: TEST_CONNECTOR, status: "connected", authKind: "app", settings: { externalAccountId: "1", config: { verifiedBy: "founder-login", verifiedAt: "2026-10-09T00:00:00Z" } } });
+      await repos.integrations.upsert(mixed.db, mixed.businessId, { connectorKey: TEST_CONNECTOR, status: "connected", authKind: "app", settings: { externalAccountId: "1", config: {} } });
+      await repos.integrations.recordVerifiedInstallation(mixed.db, mixed.businessId, { connectorKey: TEST_CONNECTOR, installationId: "1", accountLabel: "acme", verifiedBy: "founder-login", verifiedAt: new Date() });
       asAllow(await mixed.client.call(await mixed.token({ allowedTools: ["test:*", "other:*"] }), { connector: "test", tool: "note", args: {} }));
       expect(mixed.seen.at(-1)).toMatchObject({ mode: "live" });
       asAllow(await mixed.client.call(await mixed.token({ allowedTools: ["test:*", "other:*"] }), { connector: "other", tool: "note", args: {} }));
@@ -375,21 +376,27 @@ describe("LIVE_CONNECTORS", () => {
 });
 
 describe("live mode: App connectors (GitHub)", () => {
-  it("run only for an installation verified when it was connected, without a stored secret, and stop once disconnected", async () => {
+  it("run only for the installation the gateway verified, without a stored secret, and stop once disconnected", async () => {
     const live = await setupGateway({ mode: "live", connector: { authKind: "app" } });
     try {
       const token = await live.token();
       const call = () => live.client.call(token, { connector: "test", tool: "note", args: {} });
-      const setRow = (status: "connected" | "mock" | "expired", config: Record<string, unknown>) => repos.integrations.upsert(live.db, live.businessId, { connectorKey: TEST_CONNECTOR, status, authKind: "app", settings: { externalAccountId: "48213377", config } });
+      const setRow = (status: "connected" | "mock" | "expired", externalAccountId: string, config: Record<string, unknown> = {}) => repos.integrations.upsert(live.db, live.businessId, { connectorKey: TEST_CONNECTOR, status, authKind: "app", settings: { externalAccountId, config } });
 
-      // A connected row whose installation id nobody checked (typed into a request, or left from mock mode) is not enough.
-      await expect(call()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
-      await setRow("mock", { installationId: 48213377, verifiedBy: "someone", verifiedAt: "2026-10-09T00:00:00Z" });
-      await expect(call()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
-      await setRow("expired", { installationId: 48213377, verifiedBy: "someone", verifiedAt: "2026-10-09T00:00:00Z" });
+      // A connected row whose installation the gateway never verified is not enough, whatever its settings claim: a
+      // business could write its own integration row directly.
+      await setRow("connected", "48213377", { verifiedBy: "forged", verifiedAt: "2026-10-09T00:00:00Z" });
       await expect(call()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
 
-      await setRow("connected", { installationId: 48213377, verifiedBy: "founder-login", verifiedAt: "2026-10-09T00:00:00Z" });
+      // The gateway verified installation 111 for this business; the row pointing anywhere else is refused.
+      await repos.integrations.recordVerifiedInstallation(live.db, live.businessId, { connectorKey: TEST_CONNECTOR, installationId: "111", accountLabel: "acme", verifiedBy: "founder-login", verifiedAt: new Date() });
+      await expect(call()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
+      await setRow("mock", "111");
+      await expect(call()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
+      await setRow("expired", "111");
+      await expect(call()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
+
+      await setRow("connected", "111");
       const r = asAllow(await call());
       expect(r.result.ok).toBe(true);
       expect(live.seen.at(-1)).toMatchObject({ mode: "live", credentialSecret: null, integrationStatus: "connected" });
@@ -433,6 +440,12 @@ describe("live mode: App connectors (GitHub)", () => {
       expect(await post("/v1/integrations/connect", { businessId: "00000000-0000-4000-8000-000000000000", connector: TEST_CONNECTOR, input: {} }, service)).toMatchObject({ status: 404, body: { error: { code: "business_not_found" } } });
       expect(await post("/v1/integrations/connect", { businessId: live.businessId, connector: "nope", input: {} }, service)).toMatchObject({ status: 404, body: { error: { code: "unknown_connector" } } });
 
+      // Connect recorded the verified installation, so the row the api writes next is trusted.
+      expect(await repos.integrations.verifiedInstallation(live.db, live.businessId, TEST_CONNECTOR)).toMatchObject({ installationId: "1", verifiedBy: "founder-login" });
+      // Health checks only a verified installation: a row naming another id gets no vendor call.
+      await repos.integrations.upsert(live.db, live.businessId, { connectorKey: TEST_CONNECTOR, status: "connected", authKind: "app", settings: { externalAccountId: "999", config: {} } });
+      expect(await post("/v1/integrations/health", { businessId: live.businessId, connector: TEST_CONNECTOR }, service)).toMatchObject({ status: 200, body: { health: { ok: false, status: "disconnected" } } });
+      await repos.integrations.upsert(live.db, live.businessId, { connectorKey: TEST_CONNECTOR, status: "connected", authKind: "app", settings: { externalAccountId: "1", config: {} } });
       expect(await post("/v1/integrations/health", { businessId: live.businessId, connector: TEST_CONNECTOR }, service)).toMatchObject({ status: 200, body: { health: { ok: true } } });
       await repos.integrations.archive(live.db, live.businessId, live.integrationId);
       expect(await post("/v1/integrations/health", { businessId: live.businessId, connector: TEST_CONNECTOR }, service)).toMatchObject({ status: 409, body: { error: { code: "integration_not_connected" } } });
@@ -447,6 +460,18 @@ describe("live mode: App connectors (GitHub)", () => {
     } finally {
       await apiKeyed.close();
     }
+  });
+});
+
+describe("GitHub commits follow the founder's push settings", () => {
+  it("writes only to the chosen repository, only while pushing is on, and always with [skip ci]", () => {
+    const row = (settings: Record<string, unknown>) => ({ id: "i1", status: "connected", archivedAt: null, settings }) as unknown as Parameters<typeof guardGithubCommit>[0];
+    const args = { owner: "Acme", repo: "Shop", branch: "agent/t1", message: "Code saved", files: [] };
+    expect(() => guardGithubCommit(null, args)).toThrow(expect.objectContaining({ code: "push_not_enabled", status: 422 }));
+    expect(() => guardGithubCommit(row({ repo: "acme/shop" }), args)).toThrow(expect.objectContaining({ code: "push_not_enabled" }));
+    expect(() => guardGithubCommit(row({ repo: "acme/other", writeEnabled: true }), args)).toThrow(expect.objectContaining({ code: "repository_not_allowed" }));
+    expect(guardGithubCommit(row({ repo: "acme/shop", writeEnabled: true }), args)).toEqual({ ...args, message: "Code saved\n\n[skip ci]" });
+    expect(guardGithubCommit(row({ repo: "acme/shop", writeEnabled: true }), { ...args, message: "x [skip ci]" }).message).toBe("x [skip ci]");
   });
 });
 

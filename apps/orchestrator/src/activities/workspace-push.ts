@@ -30,8 +30,8 @@ export type PushResult =
 
 export interface PushContext extends WorkspaceOwner {
   agentName: string;
-  /** Why this session's save is not pushed (stopped, looped, failed); null pushes it. */
-  holdBack?: string | null;
+  /** Why this session's save is not pushed (stopped, looped, failed); null pushes it. Required, so a caller decides. */
+  holdBack: string | null;
 }
 
 /** Lifetime of the token minted for one push. */

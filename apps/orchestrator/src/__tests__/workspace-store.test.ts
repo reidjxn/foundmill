@@ -4,7 +4,7 @@ import { repos } from "@foundmill/db";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { isSecretFileName, restorablePath, restoreWorkspace, saveWorkspace } from "../activities/workspace-store";
+import { isSecretFileName, MAX_SEED_BYTES, restorablePath, restoreWorkspace, saveWorkspace, toSeed } from "../activities/workspace-store";
 import { describeLeftOut } from "../activities/session";
 import { DEFAULT_SYNC_LIMITS } from "../activities/workspace-sync";
 import { openSessionRow, setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
@@ -23,6 +23,17 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const d of dirs) await rm(d, { recursive: true, force: true });
   await t?.close();
+});
+
+describe("toSeed", () => {
+  it("sends every recipient while the seed fits the gateway's limit, and marks everything untrusted past it", () => {
+    const small = toSeed({ emails: new Set(["a@x.test"]), urls: new Set(["https://x.test/a"]), phones: new Set() });
+    expect(small).toEqual({ emails: ["a@x.test"], urls: ["https://x.test/a"], phones: [], all: false });
+    // 400 URLs of 2,000 characters: within the count and length limits, but about 800 KB together.
+    const urls = new Set(Array.from({ length: 400 }, (_, i) => `https://x.test/${i}/${"p".repeat(1_980)}`));
+    expect(toSeed({ emails: new Set(), urls, phones: new Set() })).toEqual({ emails: [], urls: [], phones: [], all: true });
+    expect(Buffer.byteLength(JSON.stringify({ emails: [], urls: [...urls], phones: [], all: false }))).toBeGreaterThan(MAX_SEED_BYTES);
+  });
 });
 
 describe("restorablePath", () => {

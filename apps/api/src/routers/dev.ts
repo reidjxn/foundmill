@@ -289,7 +289,7 @@ export const devRouter = router({
         const connected = integration !== null && integration.archivedAt === null && integration.status !== "disconnected";
         // Simulated follows the connection itself (a row connected in mock mode never reaches github.com, whatever this
         // service's environment says); with no connection, what Connect would make here.
-        const simulated = integration ? integration.status === "mock" : connectorMode(ctx.env, "github") === "mock";
+        const simulated = integration && connected ? integration.status === "mock" : connectorMode(ctx.env, "github") === "mock";
         return { connected, status: integration?.status ?? null, repository: integration ? codeRepositoryOf(integration) : null, simulated };
       }),
     ),

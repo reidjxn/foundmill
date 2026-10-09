@@ -142,6 +142,12 @@ Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
   - Pushes are capped at 300 files and 10 MB; text goes inline in the tree, and the gateway has body limits and a commit semaphore.
   - The GitHub mock is per business and bounded. The `config.repo` fallback is gone, and a changed installation forgets the repository.
   - DEPLOY §5.4 now has the OAuth-during-installation steps and gateway-only variables.
+- 2026-10-09 — **Second security review of the GitHub path, fixed.**
+  - Verified installations live in `app_installations` (migration 0015, read-only to app roles, written by the gateway after its check); the gateway mints tokens and runs health checks only for the recorded installation.
+  - Connecting requires the account's owner or an active organisation owner (the App needs Members: read).
+  - The gateway enforces the chosen repository, the push opt-in and `[skip ci]` on `commit_files`, and `create_branch` takes only `agent/` names.
+  - Base64 is checked in linear time; the commit queue is bounded with a deadline; the GitHub mock has a global budget; oversized untrusted seeds fall back to all-untrusted.
+  - GitHub App `foundmill` created by the founder, and its five gateway variables set.
 - 2026-10-09 — **`ctx.env` was empty over HTTP.** `@hono/trpc-server` overwrote it with Hono's bindings, crashing Settings › Integrations and sending billing and legal down their live branches in mock mode. The api now mounts tRPC's fetch adapter directly; an HTTP test covers it.
 - 2026-10-09 — **Ideation Studio drafts no longer cut off (founder report).** `idea.generate` used the 4,096-token default, and twelve cards with evidence and citations ran past it ("Output truncated at max_tokens=4096"). It now has a 20,000-token budget and asks for short evidence; a draft that still runs out says so in plain words.
 - 2026-10-09 — **Import's "Continue to Commit" no longer hangs (founder report).** It asked the Ideation agent for six to twelve cards to use one; live, each try ran about 40 s into the 4,096-token cap and failed. It now asks for exactly one card (`idea.generate` `single`, 4,000-token budget).

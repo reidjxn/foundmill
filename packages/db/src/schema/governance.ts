@@ -37,6 +37,27 @@ export const integrations = pgTable(
 export type Integration = typeof integrations.$inferSelect;
 export type NewIntegration = typeof integrations.$inferInsert;
 
+/**
+ * 0015 — an App connector's installation as the gateway verified it at connect time (who proved they own or administer
+ * its account). Written only by the gateway (service role); owners and admins read it. The gateway trusts an
+ * integration's installation id only when it matches this row.
+ */
+export const appInstallations = pgTable(
+  "app_installations",
+  {
+    id: id(),
+    businessId: businessId(),
+    connectorKey: text("connector_key").notNull(),
+    installationId: text("installation_id").notNull(),
+    accountLabel: text("account_label"),
+    verifiedBy: text("verified_by").notNull(),
+    verifiedAt: tstz("verified_at").notNull(),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("app_installations_business_connector_idx").on(t.businessId, t.connectorKey)],
+);
+export type AppInstallation = typeof appInstallations.$inferSelect;
+
 /** Only service_role may read or write this table (see 0011). Never expose through tRPC. */
 export const credentials = pgTable(
   "credentials",

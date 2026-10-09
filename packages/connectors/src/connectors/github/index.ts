@@ -6,8 +6,9 @@
  *
  * Connecting proves ownership: GitHub sends the installer back with an installation id and an OAuth code (the App has
  * "Request user authorization (OAuth) during installation" on); connect() trades the code for a user token
- * (GITHUB_APP_CLIENT_ID / GITHUB_APP_CLIENT_SECRET) and accepts the installation only when that user can manage it.
- * It runs in the gateway, the one service holding the App's keys.
+ * (GITHUB_APP_CLIENT_ID / GITHUB_APP_CLIENT_SECRET) and accepts the installation only when that user owns its account
+ * or is an active admin of its organization (the App's "Members: read" organization permission). It runs in the
+ * gateway, the one service holding the App's keys, which records the verified installation (`app_installations`).
  */
 import { isUtf8 } from "node:buffer";
 import { App } from "@octokit/app";
@@ -21,6 +22,12 @@ import { fileWriteBuffer, gitBlobSha, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE
 import { createGithubWebhook } from "./webhooks";
 
 type RestOctokit = InstanceType<typeof Octokit>;
+/** The parts of GitHub's installation object connecting reads. */
+interface GhInstallation {
+  account: { login?: string; slug?: string; id?: number; type?: string } | null;
+  permissions?: Record<string, string>;
+  repository_selection?: string;
+}
 
 /** The host's signed install state (apps/api services/install-state.ts): two base64url parts. */
 const INSTALL_STATE = /^[A-Za-z0-9_-]{1,400}\.[A-Za-z0-9_-]{1,100}$/;
@@ -32,20 +39,44 @@ const MAX_CONCURRENT_COMMITS = 4;
 /** Text a tree entry can carry inline: valid UTF-8 with no NUL byte. */
 const isText = (bytes: Buffer): boolean => isUtf8(bytes) && !bytes.includes(0);
 
-/** A counting semaphore: at most `size` runs at once, the rest queue in order. */
-function slots(size: number): { run<T>(fn: () => Promise<T>): Promise<T> } {
+/** commit_files calls that may wait for a slot, and for how long, before the gateway answers "busy". */
+const MAX_WAITING_COMMITS = 16;
+const COMMIT_WAIT_MS = 60_000;
+
+const busy = () => Object.assign(new Error("GitHub pushes are busy on this gateway; the next session pushes this code"), { status: 503 });
+
+/**
+ * A counting semaphore: at most `size` runs at once, at most `maxWaiting` wait (in order, each for at most `waitMs`);
+ * beyond that a call fails at once instead of holding its request body in memory.
+ */
+export function slots(size: number, maxWaiting = MAX_WAITING_COMMITS, waitMs = COMMIT_WAIT_MS): { run<T>(fn: () => Promise<T>): Promise<T> } {
   let active = 0;
-  const waiting: (() => void)[] = [];
+  const waiting: { resolve: () => void; timer: ReturnType<typeof setTimeout> }[] = [];
   return {
     async run(fn) {
       // A released slot passes straight to the next waiter, so a newcomer can never slip in between.
       if (active < size) active++;
-      else await new Promise<void>((resolve) => waiting.push(resolve));
+      else {
+        if (waiting.length >= maxWaiting) throw busy();
+        await new Promise<void>((resolve, reject) => {
+          const entry = {
+            resolve: () => {
+              clearTimeout(entry.timer);
+              resolve();
+            },
+            timer: setTimeout(() => {
+              waiting.splice(waiting.indexOf(entry), 1);
+              reject(busy());
+            }, waitMs),
+          };
+          waiting.push(entry);
+        });
+      }
       try {
         return await fn();
       } finally {
         const next = waiting.shift();
-        if (next) next();
+        if (next) next.resolve();
         else active--;
       }
     },
@@ -78,11 +109,12 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
   };
 
   /**
-   * Who installed the App: exchanges the authorization code GitHub sent after the installation for a user token, checks
-   * the installation is among those the user can access, and returns their login. The token is revoked afterwards and
-   * never stored.
+   * Who may connect an installation: trades the authorization code GitHub sent after the installation for a user token
+   * and accepts the installation only when that user owns its account (a personal installation) or is an active admin
+   * of its organization. Being listed in `/user/installations` is not enough: GitHub lists an installation for anyone
+   * with access to one of its repositories (collaborators, org members). The token is revoked afterwards, never stored.
    */
-  const installerOf = async (installationId: number, code: string): Promise<string> => {
+  const installerOf = async (installationId: number, code: string): Promise<{ login: string; installation: GhInstallation }> => {
     if (!secrets.githubAppClientId || !secrets.githubAppClientSecret) throw new ConfigError(GITHUB_KEY, "GITHUB_APP_CLIENT_ID / GITHUB_APP_CLIENT_SECRET", "copy the GitHub App's client id and a client secret so connecting can check who installed it");
     const clientId = secrets.githubAppClientId;
     const clientSecret = secrets.githubAppClientSecret;
@@ -92,14 +124,28 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
     const token = body.access_token;
     try {
       const user = new OctokitWithFetch({ auth: token });
-      let found = false;
-      for (let page = 1; page <= MAX_INSTALLATION_PAGES && !found; page++) {
+      let listed = false;
+      for (let page = 1; page <= MAX_INSTALLATION_PAGES && !listed; page++) {
         const list = await user.rest.apps.listInstallationsForAuthenticatedUser({ per_page: 100, page });
-        found = list.data.installations.some((i) => i.id === installationId);
+        listed = list.data.installations.some((i) => i.id === installationId);
         if (list.data.installations.length < 100) break;
       }
-      if (!found) throw new ForbiddenError(`GitHub installation ${installationId} is not one you can manage`);
-      return (await user.rest.users.getAuthenticated()).data.login;
+      if (!listed) throw new ForbiddenError(`GitHub installation ${installationId} is not one you can manage`);
+      const me = (await user.rest.users.getAuthenticated()).data;
+      const installation = (await (app().octokit as unknown as RestOctokit).rest.apps.getInstallation({ installation_id: installationId })).data as GhInstallation;
+      const account = installation.account;
+      if (account?.type === "User") {
+        if (account.id !== me.id) throw new ForbiddenError(`GitHub installation ${installationId} belongs to ${account.login ?? "another account"}; only that account can connect it`);
+      } else if (account?.type === "Organization" && account.login) {
+        const membership = await user.rest.orgs.getMembershipForAuthenticatedUser({ org: account.login }).then(
+          (r) => r.data,
+          () => null,
+        );
+        if (membership?.state !== "active" || membership.role !== "admin") throw new ForbiddenError(`Only an owner of the ${account.login} organisation on GitHub can connect its installation`);
+      } else {
+        throw new ForbiddenError(`GitHub installation ${installationId} is not on a user or organisation account`);
+      }
+      return { login: me.login, installation };
     } finally {
       // Best effort: the token has done its job.
       await fetch(`https://api.github.com/applications/${encodeURIComponent(clientId)}/token`, { method: "DELETE", headers: { accept: "application/vnd.github+json", authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`, "content-type": "application/json" }, body: JSON.stringify({ access_token: token }) }).catch(() => undefined);
@@ -244,12 +290,10 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
         // The authorization code GitHub sends after installing names the person who installed it; the installation
         // must be one they can administer.
         if (typeof given.code !== "string" || !OAUTH_CODE.test(given.code)) throw new ValidationError("GitHub did not send an authorization code: install the App again from Settings › Integrations");
-        const verifiedBy = await installerOf(installationId, given.code);
-        const res = await (app().octokit as unknown as RestOctokit).rest.apps.getInstallation({ installation_id: installationId });
-        const account = res.data.account as { login?: string; slug?: string; id?: number } | null;
-        const label = account?.login ?? account?.slug ?? `installation ${installationId}`;
+        const { login: verifiedBy, installation } = await installerOf(installationId, given.code);
+        const label = installation.account?.login ?? installation.account?.slug ?? `installation ${installationId}`;
         const createdAt = now().toISOString();
-        return { id: uuid(), businessId, connectorKey: GITHUB_KEY, status: "connected", scopes: Object.entries(res.data.permissions ?? {}).map(([k, v]) => `${k}:${v}`), accountLabel: label, externalAccountId: String(installationId), config: { installationId, account: label, repositorySelection: res.data.repository_selection, verifiedBy, verifiedAt: createdAt }, credentialRef: null, expiresAt: null, lastHealthAt: createdAt, createdAt };
+        return { id: uuid(), businessId, connectorKey: GITHUB_KEY, status: "connected", scopes: Object.entries(installation.permissions ?? {}).map(([k, v]) => `${k}:${v}`), accountLabel: label, externalAccountId: String(installationId), config: { installationId, account: label, repositorySelection: installation.repository_selection, verifiedBy, verifiedAt: createdAt }, credentialRef: null, expiresAt: null, lastHealthAt: createdAt, createdAt };
       },
       healthcheck: async (integration) => {
         const startedAt = now().getTime();

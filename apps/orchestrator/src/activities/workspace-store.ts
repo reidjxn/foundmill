@@ -208,12 +208,23 @@ function collect(found: { emails: Set<string>; urls: Set<string>; phones: Set<st
   for (const v of c.phones) found.phones.add(v);
 }
 
-/** The mint request's seed: every value, or `all` when there are too many or one is too long to send. */
-function toSeed(found: { emails: Set<string>; urls: Set<string>; phones: Set<string> }): RecipientSeed {
+/**
+ * Largest seed sent with the mint request: the gateway takes at most 1 MB on /v1/session-tokens, and the rest of the
+ * request is small.
+ */
+export const MAX_SEED_BYTES = 512 * 1024;
+
+/**
+ * The mint request's seed: every value, or `all` when there are too many, one is too long, or together they are too
+ * large to send (a seed the gateway refused would stop every later session on the task from starting).
+ */
+export function toSeed(found: { emails: Set<string>; urls: Set<string>; phones: Set<string> }): RecipientSeed {
   const kinds = ["emails", "urls", "phones"] as const;
   const tooMany = kinds.some((k) => found[k].size > MAX_SEEDED_RECIPIENTS || [...found[k]].some((v) => v.length > SEED_VALUE_LIMITS[k]));
-  if (tooMany) return { emails: [], urls: [], phones: [], all: true };
-  return { emails: [...found.emails], urls: [...found.urls], phones: [...found.phones], all: false };
+  const all: RecipientSeed = { emails: [], urls: [], phones: [], all: true };
+  if (tooMany) return all;
+  const seed: RecipientSeed = { emails: [...found.emails], urls: [...found.urls], phones: [...found.phones], all: false };
+  return Buffer.byteLength(JSON.stringify(seed), "utf8") > MAX_SEED_BYTES ? all : seed;
 }
 
 /** Mask credential-shaped values and the session's own secrets in text; null when there is nothing to mask. */

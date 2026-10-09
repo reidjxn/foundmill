@@ -3,8 +3,9 @@
  * content is third-party text), branches, commits to working branches, pull requests. Merging is
  * `irreversible` (never spends money); deleting a repository or force-pushing over history would be permanent
  * deletion and is not offered. `commit_files` only fast-forwards an `agent/` branch of a private repository and never
- * touches `.git` or `.github`, so a commit can always be reverted, cannot change the repository's workflows or
- * actions, and the default branch changes only through `merge_pr`.
+ * writes `.git` or `.github` (so it cannot add or edit workflow files), a commit can always be reverted, and the
+ * default branch changes only through `merge_pr`. Code it writes can still run in CI that the repository's own
+ * workflows start (scripts, local actions elsewhere, `on: create`): pushing is the founder's opt-in for that reason.
  */
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -12,7 +13,7 @@ import { defineTool } from "../../define";
 
 export const GITHUB_KEY = "github";
 export const GITHUB_API_URL = "https://api.github.com";
-export const GITHUB_APP_SCOPES = ["contents:write", "pull_requests:write", "metadata:read"];
+export const GITHUB_APP_SCOPES = ["contents:write", "pull_requests:write", "metadata:read", "members:read"];
 
 const Owner = z.string().min(1).max(100).regex(/^[A-Za-z0-9-]+$/, "GitHub owner");
 const RepoName = z
@@ -85,10 +86,11 @@ export const isCommitPath = (path: string): boolean => {
   return segments[0]!.toLowerCase() !== ".github" && segments.every((seg) => seg.length > 0 && seg !== "." && seg !== ".." && seg.toLowerCase() !== ".git");
 };
 const CommitPath = z.string().refine(isCommitPath, "relative path outside .git and .github");
-const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+/** Well-formed base64 in linear time (a grouped pattern backtracks past V8's stack on multi-megabyte files). */
+const isBase64 = (s: string): boolean => s.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(s);
 export const FileWrite = z
   .object({ path: CommitPath, content: z.string().max(Math.ceil((MAX_COMMIT_FILE_BYTES * 4) / 3) + 4), encoding: z.enum(["utf-8", "base64"]).default("utf-8") })
-  .refine((f) => f.encoding !== "base64" || BASE64.test(f.content), { message: "content is not base64", path: ["content"] });
+  .refine((f) => f.encoding !== "base64" || isBase64(f.content), { message: "content is not base64", path: ["content"] });
 export type FileWriteT = z.infer<typeof FileWrite>;
 
 /** Decoded size of one file write, without decoding it (base64 is checked well-formed above). */
@@ -168,7 +170,7 @@ export const githubTools = [
   defineTool({
     name: "create_branch",
     description: "Create a branch from a ref (default: the default branch). Idempotent: an existing branch with the same name is returned.",
-    input: RepoRef.extend({ branch: BranchName, fromRef: Ref.optional() }),
+    input: RepoRef.extend({ branch: z.string().regex(AGENT_BRANCH, "an agent/ working branch"), fromRef: Ref.optional() }),
     output: z.object({ branch: z.string(), sha: z.string(), created: z.boolean() }),
     hints: {},
     annotations: { idempotentHint: true },

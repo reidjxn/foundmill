@@ -5,7 +5,7 @@
 import { CONNECTOR_AUTH_KINDS, INTEGRATION_STATUSES, ValidationError, type IntegrationStatus } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { credentials, integrations, WEBHOOK_STATUSES, webhooks, type Integration, type Webhook } from "../schema";
+import { appInstallations, credentials, integrations, WEBHOOK_STATUSES, webhooks, type AppInstallation, type Integration, type Webhook } from "../schema";
 import { defined, Id, IsoDateInput, JsonObject, one, parseInput, type Executor } from "./_shared";
 
 export const UpsertIntegrationInput = z.object({
@@ -111,6 +111,28 @@ export const integrationsRepo = {
       settings.writeEnabled = options.pushEnabled === true;
     }
     return one(await db.update(integrations).set({ settings }).where(scoped(businessId, row.id)).returning(), "integration");
+  },
+
+  /** The installation the gateway verified for an App connector (GitHub), or null when none was. */
+  async verifiedInstallation(db: Executor, businessId: string, connectorKey: string): Promise<AppInstallation | null> {
+    const rows = await db.select().from(appInstallations).where(and(eq(appInstallations.businessId, businessId), eq(appInstallations.connectorKey, connectorKey))).limit(1);
+    return rows[0] ?? null;
+  },
+
+  /**
+   * Record the installation an App connector verified with the vendor (who owns or administers its account). Service
+   * role only (the gateway): no app role can write `app_installations`.
+   */
+  async recordVerifiedInstallation(db: Executor, businessId: string, input: { connectorKey: string; installationId: string; accountLabel: string | null; verifiedBy: string; verifiedAt: Date }): Promise<AppInstallation> {
+    const values = { connectorKey: input.connectorKey, installationId: input.installationId, accountLabel: input.accountLabel, verifiedBy: input.verifiedBy, verifiedAt: input.verifiedAt, updatedAt: new Date() };
+    return one(
+      await db
+        .insert(appInstallations)
+        .values({ businessId, ...values })
+        .onConflictDoUpdate({ target: [appInstallations.businessId, appInstallations.connectorKey], set: values })
+        .returning(),
+      "app installation",
+    );
   },
 
   /** One row per connector per business: connect creates it, reconnect updates it (and un-archives). */

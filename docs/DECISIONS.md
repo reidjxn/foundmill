@@ -912,3 +912,26 @@ FM is only the favicon, the app icon and the `public/brand` files. The Wordmark 
 ## 2026-10-09 — Import drafts one concept card, not a set
 
 "Continue to Commit" needs one card for a business that already exists, so `idea.generate` takes `single: true`: the prompt asks for exactly one card describing the imported business, on a 4,000-token budget. The Ideation Studio keeps 6–12 cards with a 20,000-token budget; the 4,096 default had cut live drafts off mid-JSON.
+
+## 2026-10-09 — Second review of the GitHub push path: verification outside tenant reach, owners only, gateway-enforced pushes
+
+A second review of the fixes above found two more ways to reach another account's installation, and some smaller gaps. This entry supersedes the earlier two where they differ.
+
+- **The verified installation lives in `app_installations` (0015).**
+  - The gateway writes it with the service role after its connect check. Owners and admins read it; no app role writes it.
+  - The gateway mints installation tokens, and runs health checks, only when the integration names the installation recorded there.
+  - Why: `settings.config.verifiedAt` on `integrations` could be forged by an owner writing the row straight through PostgREST (`integrations` is writable by owners and admins). SEC-8 is still open: removing `public` from Supabase's exposed schemas is a founder step in the Supabase dashboard.
+- **Only the account's owner connects it.** Being listed in `GET /user/installations` only means having access to one of its repositories, which includes collaborators and org members. Connecting now also requires one of:
+  - for a personal installation, the installation's account is the user themselves;
+  - for an organisation installation, an `active` / `admin` membership of that organisation (the App's "Members: read" organization permission).
+- **The gateway enforces the founder's push settings for `commit_files`:**
+  - it writes only to the chosen repository;
+  - only while pushing is on;
+  - every message carries `[skip ci]`.
+  - Separately, `create_branch` takes only `agent/` branch names, so an agent cannot create a deploy branch.
+- **Bounded:**
+  - Base64 is checked in linear time; the grouped pattern overflowed the regexp stack at about 3.4 MB.
+  - At most 16 commits wait for a slot, each for at most 60 s; beyond that the gateway answers busy.
+  - The GitHub mock has a 100 MB total budget, forgetting the least recently used business first.
+  - The untrusted seed falls back to "everything untrusted" past 512 KB, so `/v1/session-tokens`' 1 MB limit never stops a task's sessions from starting.
+- **Wording.** `.github` is never written, but `[skip ci]` and the `.github` refusal do not stop CI from running agent code: workflows on other events, scripts kept elsewhere, and services that ignore `[skip ci]` still run it. The opt-in with its warning is the control.

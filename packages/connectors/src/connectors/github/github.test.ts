@@ -1,12 +1,12 @@
 import { createHash, generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { jsonResponse, routedFetch, type FetchLike } from "../../http";
 import { isUntrusted } from "../../quarantine";
 import { describeConnectorContract, envKeysPresent, makeToolContext, TEST_BUSINESS_ID } from "../../testing/contract-suite";
 import { GH_MERGED_PR, GH_REPOS, MOCK_OWNER } from "./fixtures/repos";
-import { createGithubConnector } from "./index";
+import { createGithubConnector, slots } from "./index";
 import { createGithubMock, githubMock, mergedPullRequestPayload, signedDeliveryRequest } from "./mock";
-import { gitBlobSha } from "./tools";
+import { CommitFilesInput, gitBlobSha } from "./tools";
 
 /** A signed install state as apps/api issues it (the connector checks only its shape). */
 const STATE = "eyJiIjoiYTEiLCJ1IjoidTEifQ.c2lnbmF0dXJl";
@@ -47,10 +47,12 @@ describe("github mock: merge flow and simulation", () => {
   it("merges an open PR once, moves the base branch and refuses a second merge", async () => {
     const mock = createGithubMock();
     const ctx = makeToolContext(mock);
-    const created = await mock.callTool("create_branch", { owner: MOCK_OWNER, repo: "ledgerly-app", branch: "fix/vat" }, ctx);
-    expect(created.data).toMatchObject({ branch: "fix/vat", sha: GH_REPOS[1]!.branches.main, created: true });
-    expect((await mock.callTool("create_branch", { owner: MOCK_OWNER, repo: "ledgerly-app", branch: "fix/vat" }, ctx)).data).toMatchObject({ created: false });
-    const opened = await mock.callTool("open_pr", { owner: MOCK_OWNER, repo: "ledgerly-app", title: "Fix VAT", head: "fix/vat", base: "main", draft: false }, ctx);
+    const created = await mock.callTool("create_branch", { owner: MOCK_OWNER, repo: "ledgerly-app", branch: "agent/vat" }, ctx);
+    expect(created.data).toMatchObject({ branch: "agent/vat", sha: GH_REPOS[1]!.branches.main, created: true });
+    expect((await mock.callTool("create_branch", { owner: MOCK_OWNER, repo: "ledgerly-app", branch: "agent/vat" }, ctx)).data).toMatchObject({ created: false });
+    // Agents create only their own agent/ branches; a deploy branch such as main or production is never created by a tool.
+    expect((await mock.callTool("create_branch", { owner: MOCK_OWNER, repo: "ledgerly-app", branch: "production" }, ctx)).error?.code).toBe("invalid_args");
+    const opened = await mock.callTool("open_pr", { owner: MOCK_OWNER, repo: "ledgerly-app", title: "Fix VAT", head: "agent/vat", base: "main", draft: false }, ctx);
     const prNumber = (opened.data as { number: number }).number;
     const merged = await mock.callTool("merge_pr", { owner: MOCK_OWNER, repo: "ledgerly-app", prNumber }, ctx);
     expect(merged.ok).toBe(true);
@@ -58,8 +60,8 @@ describe("github mock: merge flow and simulation", () => {
     const again = await mock.callTool("merge_pr", { owner: MOCK_OWNER, repo: "ledgerly-app", prNumber }, ctx);
     expect(again.ok).toBe(false);
     expect(again.error?.status).toBe(409);
-    const branch = await mock.callTool("create_branch", { owner: MOCK_OWNER, repo: "ledgerly-app", branch: "main" }, ctx);
-    expect((branch.data as { sha: string }).sha).toBe((merged.data as { sha: string }).sha);
+    const main = await mock.callTool("read_tree", { owner: MOCK_OWNER, repo: "ledgerly-app", ref: "main" }, ctx);
+    expect(isUntrusted(main.data) && (main.data.content as { sha: string }).sha).toBe((merged.data as { sha: string }).sha);
     expect(mock.policyHints.merge_pr).toEqual({ irreversible: true, spendsMoney: false });
   });
   it("commits to a working branch, reads it back at that ref, and creates an unknown repository on first write", async () => {
@@ -100,6 +102,18 @@ describe("github mock: merge flow and simulation", () => {
     for (let i = 0; i < 6; i++) expect((await mock.callTool("commit_files", { owner: "acme", repo: "big", branch: `agent/b${i}`, message: "x", files: [{ path: "big.txt", content: big }] }, a)).ok).toBe(true);
     expect((await mock.callTool("read_file", { owner: "acme", repo: "secret-project", path: "plan.md", ref: "agent/t1" }, a)).ok).toBe(false);
     expect((await mock.callTool("read_file", { owner: "acme", repo: "big", path: "big.txt", ref: "agent/b5" }, a)).ok).toBe(true);
+  });
+  it("forgets the least recently used business once all of them together pass the total budget", async () => {
+    const mock = createGithubMock({ bytesPerBusiness: 1_000, bytesTotal: 2_500 });
+    const ctx = (n: number) => makeToolContext(mock, { businessId: `6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f6${n}` });
+    const write = (n: number) => mock.callTool("commit_files", { owner: "acme", repo: "shop", branch: "agent/t1", message: "x", files: [{ path: "a.txt", content: "x".repeat(900) }] }, ctx(n));
+    const has = async (n: number) => (await mock.callTool("read_file", { owner: "acme", repo: "shop", path: "a.txt", ref: "agent/t1" }, ctx(n))).ok;
+    for (const n of [1, 2]) expect((await write(n)).ok).toBe(true);
+    expect(await has(1)).toBe(true); // 1 is now the most recently used
+    expect((await write(3)).ok).toBe(true); // 2,700 bytes: business 2 (least recently used) goes
+    expect(await has(2)).toBe(false);
+    expect(await has(1)).toBe(true);
+    expect(await has(3)).toBe(true);
   });
   it("simulates pr.merged deterministically", async () => {
     const a = await githubMock.simulate("pr.merged", { businessId: TEST_BUSINESS_ID, seed: "s1" });
@@ -156,9 +170,15 @@ describe("github live: connecting proves who installed the App", () => {
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const appSecrets = { githubAppId: "123", githubAppPrivateKey: privateKey.export({ type: "pkcs8", format: "pem" }).toString(), githubAppClientId: "Iv1.client", githubAppClientSecret: "client-secret" };
 
-  /** GitHub's OAuth and installation endpoints for one installer who can manage `manages`. */
-  function installer(manages: number[], options: { exchange?: "ok" | "bad_code" } = {}) {
+  /**
+   * GitHub's OAuth and installation endpoints for one installer (user id 7, "founder-login") who sees `listed`
+   * installations; installation INSTALLATION belongs to `account`, and the installer's membership of an organization
+   * is `membership` (null: not a member).
+   */
+  function installer(listed: number[], options: { exchange?: "ok" | "bad_code"; account?: { login: string; id: number; type: string }; membership?: { state: string; role: string } | null } = {}) {
     const calls: string[] = [];
+    const account = options.account ?? { login: "acme", id: 99, type: "Organization" };
+    const membership = options.membership === undefined ? { state: "active", role: "admin" } : options.membership;
     const fetch = routedFetch({
       "POST https://github.com/login/oauth/access_token": async (req) => {
         calls.push("exchange");
@@ -168,29 +188,47 @@ describe("github live: connecting proves who installed the App", () => {
       },
       "GET https://api.github.com/user/installations": (req) => {
         calls.push(`installations ${req.headers.get("authorization")}`);
-        return jsonResponse({ total_count: manages.length, installations: manages.map((id) => ({ id, account: { login: `org-${id}` } })) });
+        return jsonResponse({ total_count: listed.length, installations: listed.map((id) => ({ id, account: { login: `org-${id}` } })) });
       },
       "GET https://api.github.com/user": () => (calls.push("user"), jsonResponse({ login: "founder-login", id: 7 })),
+      [`GET https://api.github.com/user/memberships/orgs/${account.login}`]: () => (calls.push(`membership ${account.login}`), membership ? jsonResponse({ ...membership, organization: { login: account.login } }) : jsonResponse({ message: "Not Found" }, { status: 404 })),
       "DELETE https://api.github.com/applications/Iv1.client/token": async (req) => {
         calls.push(`revoke ${((await req.json()) as { access_token: string }).access_token}`);
         return new Response(null, { status: 204 });
       },
       [`GET https://api.github.com/app/installations/${INSTALLATION}`]: (req) => {
         calls.push(`installation ${req.headers.get("authorization")?.split(" ")[0]}`);
-        return jsonResponse({ id: INSTALLATION, account: { login: "acme" }, permissions: { contents: "write", metadata: "read" }, repository_selection: "selected" });
+        return jsonResponse({ id: INSTALLATION, account, permissions: { contents: "write", metadata: "read" }, repository_selection: "selected" });
       },
     });
     return { calls, connector: createGithubConnector({ secrets: appSecrets, fetch }) };
   }
 
-  it("connects an installation the installer can manage, records who verified it, and revokes their token", async () => {
+  it("connects an organization's installation for an active admin, records who verified it, and revokes their token", async () => {
     const { connector, calls } = installer([1, INSTALLATION]);
     const record = await connector.connect(TEST_BUSINESS_ID, { installationId: INSTALLATION, code: "c0de" });
     expect(record).toMatchObject({ status: "connected", accountLabel: "acme", externalAccountId: String(INSTALLATION), scopes: ["contents:write", "metadata:read"], config: { installationId: INSTALLATION, account: "acme", verifiedBy: "founder-login", verifiedAt: expect.any(String) } });
-    expect(calls).toEqual(["exchange", "installations token ghu_user_token", "user", "revoke ghu_user_token", "installation bearer"]);
+    expect(calls).toEqual(["exchange", "installations token ghu_user_token", "user", "installation bearer", "membership acme", "revoke ghu_user_token"]);
   });
 
-  it("refuses someone else's installation, a bad code and a missing code, without reading the installation", async () => {
+  it("connects a personal installation only for that account", async () => {
+    const own = installer([INSTALLATION], { account: { login: "founder-login", id: 7, type: "User" } });
+    expect(await own.connector.connect(TEST_BUSINESS_ID, { installationId: INSTALLATION, code: "c0de" })).toMatchObject({ status: "connected", accountLabel: "founder-login" });
+    const someoneElse = installer([INSTALLATION], { account: { login: "mallory", id: 8, type: "User" } });
+    await expect(someoneElse.connector.connect(TEST_BUSINESS_ID, { installationId: INSTALLATION, code: "c0de" })).rejects.toMatchObject({ code: "forbidden", message: `GitHub installation ${INSTALLATION} belongs to mallory; only that account can connect it` });
+    expect(someoneElse.calls.at(-1)).toBe("revoke ghu_user_token");
+  });
+
+  it("refuses an org member who is not an admin, a non-member, someone else's installation, a bad code and a missing code", async () => {
+    // Listed in /user/installations because they can read one of its repositories: not enough.
+    const member = installer([INSTALLATION], { membership: { state: "active", role: "member" } });
+    await expect(member.connector.connect(TEST_BUSINESS_ID, { installationId: INSTALLATION, code: "c0de" })).rejects.toMatchObject({ code: "forbidden", message: "Only an owner of the acme organisation on GitHub can connect its installation" });
+    const pending = installer([INSTALLATION], { membership: { state: "pending", role: "admin" } });
+    await expect(pending.connector.connect(TEST_BUSINESS_ID, { installationId: INSTALLATION, code: "c0de" })).rejects.toMatchObject({ code: "forbidden" });
+    const outsider = installer([INSTALLATION], { membership: null });
+    await expect(outsider.connector.connect(TEST_BUSINESS_ID, { installationId: INSTALLATION, code: "c0de" })).rejects.toMatchObject({ code: "forbidden" });
+    expect(outsider.calls.at(-1)).toBe("revoke ghu_user_token");
+
     const other = installer([1, 2]);
     await expect(other.connector.connect(TEST_BUSINESS_ID, { installationId: INSTALLATION, code: "c0de" })).rejects.toMatchObject({ code: "forbidden", message: `GitHub installation ${INSTALLATION} is not one you can manage` });
     expect(other.calls).toEqual(["exchange", "installations token ghu_user_token", "revoke ghu_user_token"]);
@@ -302,6 +340,48 @@ function fakeGitApi(owner: string, repo: string, files: Record<string, string>, 
   const read = (branch: string) => Object.fromEntries([...trees.get(commits.get(refs.get(branch)!)!.tree)!].map(([p, sha]) => [p, blobs.get(sha)!.toString(p.endsWith(".png") ? "base64" : "utf8")]));
   return { fetch, log, refs, commits, read };
 }
+
+describe("commit_files limits", () => {
+  it("validates a multi-megabyte base64 file without blowing the regexp stack", () => {
+    const big = Buffer.alloc(4.5 * 1024 * 1024, 7).toString("base64");
+    expect(CommitFilesInput.safeParse({ owner: "acme", repo: "shop", branch: "agent/t1", message: "m", files: [{ path: "big.bin", content: big, encoding: "base64" }] }).success).toBe(true);
+    expect(CommitFilesInput.safeParse({ owner: "acme", repo: "shop", branch: "agent/t1", message: "m", files: [{ path: "x.bin", content: "abc", encoding: "base64" }] }).success).toBe(false);
+  });
+
+  it("runs a few commits at once, queues a bounded number in order, and turns the rest away", async () => {
+    vi.useFakeTimers();
+    try {
+      const s = slots(2, 2, 1_000);
+      const order: string[] = [];
+      const gates = new Map<string, () => void>();
+      const job = (name: string) => () => new Promise<string>((resolve) => gates.set(name, () => (order.push(name), resolve(name))));
+      const a = s.run(job("a"));
+      const b = s.run(job("b"));
+      const c = s.run(job("c"));
+      const d = s.run(job("d"));
+      await expect(s.run(job("e"))).rejects.toMatchObject({ status: 503 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect([...gates.keys()]).toEqual(["a", "b"]);
+      gates.get("a")!();
+      await a;
+      await vi.advanceTimersByTimeAsync(0);
+      expect([...gates.keys()]).toEqual(["a", "b", "c"]);
+      // d waited past its deadline and gives up; c and b still finish.
+      const dGaveUp = expect(d).rejects.toMatchObject({ status: 503 });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await dGaveUp;
+      gates.get("b")!();
+      gates.get("c")!();
+      expect(await Promise.all([b, c])).toEqual(["b", "c"]);
+      expect(order).toEqual(["a", "b", "c"]);
+      // The slots are all free again.
+      const f = s.run(async () => "f");
+      expect(await f).toBe("f");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("github live: commit_files against the Git Data API", () => {
   const OWNER = "acme";

@@ -99,6 +99,13 @@
       "when": 1791288720000,
       "tag": "0014_workspace_push",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791375120000,
+      "tag": "0015_app_installations",
+      "breakpoints": true
     }
   ]
 }
