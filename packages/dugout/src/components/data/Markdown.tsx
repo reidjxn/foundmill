@@ -22,6 +22,13 @@ export interface MarkdownProps extends Pick<
    * make the reader's browser fetch from a stranger's server, so it shows its alt text instead.
    */
   images?: boolean;
+  /**
+   * Turn `[[ent:<uuid>|Name]]` mentions into entity links (default true). Text written by other people passes `false`:
+   * a mention there names something in the author's business, not one the reader can open, so nothing in it is ever
+   * linked and the mention stays as the literal text it was typed as (no pre-filtering that a Markdown escape or a
+   * character reference could get around).
+   */
+  entities?: boolean;
 }
 
 /** Replace string children that carry entity markup with EntityText; leave everything else as is. */
@@ -47,12 +54,13 @@ export function Markdown({
   className,
   externalLinks = true,
   images = true,
+  entities = true,
   onResolveAmbiguous,
   onCreateDraft,
   onOpen,
 }: MarkdownProps) {
   const handlers = { onResolveAmbiguous, onCreateDraft, onOpen };
-  const L = (c: ReactNode) => linkify(c, handlers);
+  const L = (c: ReactNode) => (entities ? linkify(c, handlers) : c);
   const components: Components = {
     p: ({ children: c, ...rest }: ComponentPropsWithoutRef<"p">) => (
       <p className="my-0 [&+&]:mt-3 [&+ul]:mt-2 [&+ol]:mt-2" {...rest}>

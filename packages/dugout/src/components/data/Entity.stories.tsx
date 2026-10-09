@@ -188,13 +188,13 @@ export const MarkdownNote: Story = {
   render: () => <MarkdownDemo />,
 };
 
-/** Text written by other people (a community post): `images={false}` shows the alt text instead of fetching the image. */
+/** Text written by other people (a community post): `entities={false}` never links a mention and `images={false}` never fetches an image. */
 export const MarkdownWithoutImages: Story = {
   args: { entity: { id: ENTITY_IDS.sara, kind: "person", name: "Sara Lindqvist" } },
   render: () => (
     <div className="surface-panel max-w-md p-4">
-      <Markdown variant="body" images={false}>
-        {"Our funnel after the change: ![funnel chart](https://example.com/funnel.png). **Replies halved**; details in [the write-up](https://example.com/notes)."}
+      <Markdown variant="body" images={false} entities={false}>
+        {"Our funnel after the change: ![funnel chart](https://example.com/funnel.png). **Replies halved** at [[ent:11111111-1111-4111-8111-111111111111|Acme Ltd]]; details in [the write-up](https://example.com/notes)."}
       </Markdown>
     </div>
   ),

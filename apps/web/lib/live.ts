@@ -1,10 +1,10 @@
 /**
  * Pure helpers behind the LIVE pages (BUILD §11.14): /network, /communities, /leaderboards. No React, no Next.js, so
- * the rules are unit-tested on their own: who is on the other end of a connection, how a thread is titled, how a
- * board and its metric read, how the form string becomes cells, and what a community post may carry.
+ * the rules are unit-tested on their own: who is on the other end of a connection, how a thread is titled, who may
+ * speak as a business, and how a board and its metric read and how the form string becomes cells.
  */
 import { APP_NAME } from "@foundmill/config";
-import { ARCHETYPE_LABELS, ENTITY_MARKUP_RE, type Archetype, type Visibility } from "@foundmill/shared";
+import { ARCHETYPE_LABELS, WRITE_ROLES, type Archetype, type Visibility } from "@foundmill/shared";
 import type { FormResult } from "@foundmill/dugout";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -111,15 +111,25 @@ export function findDirectThread<T extends ThreadLike>(threads: readonly T[], vi
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Community posts
+// Speaking as a business
 // ---------------------------------------------------------------------------------------------------------------------
 
 /**
- * A post is written by someone else, so an `[[ent:<uuid>|Name]]` in it names an entity in *their* business, not one the
- * reader can open. It is shown as the plain name and never as an entity link.
+ * May the viewer speak as this business on the network ("post as Ledgerly")? The same rule the API enforces
+ * (`live.ts` speakingAs): the business is LIVE, committed and not archived, and the member holds a writing role with write
+ * access to the `live` section (an owner always does; an explicit permission wins; otherwise the role's default). The UI
+ * only offers the choice when this is true, and posts as the person by default; the API refuses anyone it does not hold for.
  */
-export function stripEntityMarkup(text: string): string {
-  return text.replace(new RegExp(ENTITY_MARKUP_RE.source, "g"), "$2");
+export function canSpeakAsBusiness(input: {
+  business: { gameMode: string; committedAt: Date | string | null; archivedAt: Date | string | null };
+  membership: { role: string; sectionPermissions?: Record<string, string> | null };
+}): boolean {
+  const { business, membership } = input;
+  if (business.gameMode !== "live" || !business.committedAt || business.archivedAt) return false;
+  if (!(WRITE_ROLES as readonly string[]).includes(membership.role)) return false;
+  if (membership.role === "owner") return true;
+  const explicit = membership.sectionPermissions?.live;
+  return explicit ? explicit === "write" : true;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

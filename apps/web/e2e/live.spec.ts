@@ -105,6 +105,12 @@ test.describe("live pages from the sidebar", () => {
     const feed = page.getByTestId("community-feed");
     await expect(feed.getByTestId("feed-post").first()).toBeVisible({ timeout: LONG });
     await expect(feed).toContainText("first-touch to outbound");
+    // A post is the person's own unless they choose the business: the choice is offered to the founder, and off by default.
+    const asBusiness = page.getByRole("switch", { name: "Post as Ledgerly" });
+    await expect(asBusiness).toBeVisible();
+    await expect(asBusiness).toHaveAttribute("aria-checked", "false");
+    await expect(page.getByText("Posting as yourself")).toBeVisible();
+
     // Reply opens the thread under a post, with its own box; the reply lands in it and the toggle counts it.
     const newest = feed.getByTestId("feed-post").first();
     await newest.getByRole("button", { name: "Reply", exact: true }).click();
@@ -123,6 +129,7 @@ test.describe("live pages from the sidebar", () => {
     await box.fill(text);
     await box.press("Control+Enter");
     await expect(feed.getByTestId("feed-post").first()).toContainText(text, { timeout: LONG });
+    await expect(feed.getByTestId("feed-post").first()).not.toContainText("Ledgerly");
     await expect(box).toHaveValue("");
     await expect(page.getByTestId("community-members")).toBeVisible();
   });

@@ -106,16 +106,17 @@ export function toTRPCError(err: unknown): TRPCError {
   if (cause instanceof ZodError) {
     return new TRPCError({ code: "BAD_REQUEST", message: cause.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "), cause });
   }
+  // A row that points at something that does not exist (an unknown user, post or business id in the input) is a bad
+  // reference from the caller, not a server fault, and must not echo the failed statement. tRPC has already wrapped a
+  // thrown database error as INTERNAL_SERVER_ERROR by the time it gets here; a code we set on purpose is left alone.
+  if (pgErrorCode(cause) === PG_FOREIGN_KEY_VIOLATION && (!(err instanceof TRPCError) || err.code === "INTERNAL_SERVER_ERROR")) {
+    return new TRPCError({ code: "NOT_FOUND", message: "A record this request refers to does not exist", cause: cause as Error });
+  }
   if (err instanceof TRPCError) return err;
   const message = (cause as { message?: string })?.message ?? String(cause);
   const nested = (cause as { cause?: { message?: string } })?.cause?.message ?? "";
   if (RLS_RE.test(message) || RLS_RE.test(nested)) {
     return new TRPCError({ code: "FORBIDDEN", message: "Not permitted for this business", cause: cause as Error });
-  }
-  // A row that points at something that does not exist (an unknown user, post or business id in the input) is a bad
-  // reference from the caller, not a server fault, and must not echo the failed statement.
-  if (pgErrorCode(cause) === PG_FOREIGN_KEY_VIOLATION) {
-    return new TRPCError({ code: "NOT_FOUND", message: "A record this request refers to does not exist", cause: cause as Error });
   }
   return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message, cause: cause as Error });
 }

@@ -2,15 +2,16 @@
 /**
  * /communities/[id] (BUILD §6.2, §11.14): one community. A profile header with Join or Leave, the feed (posts, each with
  * its replies on demand) with a post box, and the member list. The feed is for members: a visitor sees the description
- * and the size and is asked to join. Post text is written by other people, so it is rendered without images and without
- * entity links (an `[[ent:…]]` in a post names something in the author's business, not the reader's).
+ * and the size and is asked to join. Post text is written by other people, so it is rendered without images and with
+ * entity linking off (an `[[ent:…]]` in a post names something in the author's business, not the reader's). A post is
+ * the person's own unless they choose to post as the business, a choice offered only when they may (`canSpeakAsBusiness`).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Building2, Info, LogIn, LogOut, Lock, MessageSquare, UsersRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Avatar, Button, Chip, Composer, FeedPost, Markdown, Panel, ProfileHeader, StatusPill, formatDate, useToast, type ProfileChip, type ProfileFact } from "@foundmill/dugout";
-import { stripEntityMarkup } from "@/lib/live";
+import { Avatar, Button, Chip, Composer, FeedPost, Label, Markdown, Panel, ProfileHeader, StatusPill, Switch, formatDate, useToast, type ProfileChip, type ProfileFact } from "@foundmill/dugout";
+import { canSpeakAsBusiness } from "@/lib/live";
 import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
@@ -31,8 +32,8 @@ function BusinessBadge({ people, businessId }: { people: People; businessId: str
 
 function PostText({ children }: { children: string }) {
   return (
-    <Markdown variant="body" images={false}>
-      {stripEntityMarkup(children)}
+    <Markdown variant="body" images={false} entities={false}>
+      {children}
     </Markdown>
   );
 }
@@ -45,7 +46,8 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
   const router = useRouter();
   const { toast } = useToast();
   const membership = useCommunityMembership();
-  const live = data.business.gameMode === "live";
+  const mayPostAsBusiness = canSpeakAsBusiness({ business: data.business, membership: data.membership });
+  const [asBusiness, setAsBusiness] = useState(false);
 
   const getQ = useQuery(trpc.live.communities.get.queryOptions({ communityId }, { retry: false, staleTime: 10_000 }));
   const community = getQ.data?.community;
@@ -79,7 +81,7 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
       onError: (err) => toast({ title: "Not posted", description: errorMessage(err), tone: "bad" }),
     }),
   );
-  const write = (body: string, parentPostId?: string) => post.mutateAsync({ communityId, bodyMd: body, parentPostId: parentPostId ?? null, businessId: live ? businessId : null });
+  const write = (body: string, parentPostId?: string) => post.mutateAsync({ communityId, bodyMd: body, parentPostId: parentPostId ?? null, businessId: mayPostAsBusiness && asBusiness ? businessId : null });
 
   if (getQ.isLoading) return <div className="grid grid-cols-12 gap-gutter p-gutter"><Panel title="Community" span={12} loading data-testid="community-loading" /></div>;
   if (getQ.error || !community) {
@@ -148,8 +150,16 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
                 icon={MessageSquare}
                 placeholder="Share something with the community"
                 onSubmit={(body) => write(body)}
-                note={live ? `Posting as ${data.business.name}. Only you post; an agent can draft, never send.` : "Posting as yourself. Only you post; an agent can draft, never send."}
+                note={`Posting as ${mayPostAsBusiness && asBusiness ? data.business.name : "yourself"}. Only you post; an agent can draft, never send.`}
               />
+              {mayPostAsBusiness ? (
+                <div className="mt-2 flex items-center gap-2">
+                  <Switch id="post-as-business" size="sm" checked={asBusiness} onCheckedChange={setAsBusiness} />
+                  <Label htmlFor="post-as-business" className="normal-case tracking-normal text-body text-secondary">
+                    Post as {data.business.name}
+                  </Label>
+                </div>
+              ) : null}
             </div>
             {posts.length === 0 && !postsQ.isLoading ? <p className="p-panel-pad text-body text-secondary" data-testid="feed-empty">Nothing posted yet. Start the conversation above.</p> : null}
             <div data-testid="feed-posts">
@@ -170,8 +180,8 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
           <div className="col-span-4 flex min-w-0 flex-col gap-gutter">
             <Panel title="About" data-testid="community-about">
               {community.descriptionMd.trim() ? (
-                <Markdown variant="body" images={false}>
-                  {stripEntityMarkup(community.descriptionMd)}
+                <Markdown variant="body" images={false} entities={false}>
+                  {community.descriptionMd}
                 </Markdown>
               ) : (
                 <p className="flex items-start gap-2 text-body text-secondary">

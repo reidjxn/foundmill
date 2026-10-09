@@ -7,12 +7,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FakeApi } from "./fake-trpc";
 
 const api = vi.hoisted(() => ({ handlers: {}, calls: [] }) as FakeApi);
-const ctx = vi.hoisted(() => ({ gameMode: "live" as "live" | "personal", push: vi.fn() }));
+const ctx = vi.hoisted(() => ({ gameMode: "live" as "live" | "personal", role: "owner", sectionPermissions: {} as Record<string, string>, committed: true, push: vi.fn() }));
 vi.mock("@/lib/trpc-react", async () => {
   const { fakeTrpc } = await import("./fake-trpc");
   return { useTRPC: () => fakeTrpc(api) };
 });
-vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ businessId: "b1", data: { business: { name: "Ledgerly", gameMode: ctx.gameMode } } }) }));
+vi.mock("@/components/shell/business-context", () => ({
+  useBusiness: () => ({
+    businessId: "b1",
+    data: { business: { name: "Ledgerly", gameMode: ctx.gameMode, committedAt: ctx.committed ? new Date() : null, archivedAt: null }, membership: { role: ctx.role, sectionPermissions: ctx.sectionPermissions } },
+  }),
+}));
 vi.mock("@/components/shell/chrome", () => ({ useShellChrome: () => undefined }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: ctx.push }) }));
 vi.mock("next/link", () => ({ default: ({ href, children, prefetch: _prefetch, ...rest }: { href: string; children: React.ReactNode; prefetch?: boolean }) => <a href={href} {...rest}>{children}</a> }));
@@ -38,6 +43,9 @@ beforeEach(() => {
   api.handlers = { "live.people.lookup": lookup };
   api.calls = [];
   ctx.gameMode = "live";
+  ctx.role = "owner";
+  ctx.sectionPermissions = {};
+  ctx.committed = true;
   ctx.push.mockClear();
 });
 afterEach(cleanup);
@@ -59,7 +67,8 @@ describe("/communities", () => {
     expect(rows[2]!.textContent).toContain("Not joined");
 
     fireEvent.click(within(grid).getByRole("button", { name: "Join Bootstrapped founders" }));
-    await waitFor(() => expect(callsTo(api, "live.communities.join")).toEqual([{ communityId: open.id, businessId: "b1" }]));
+    // A person joins as themselves, never as the business.
+    await waitFor(() => expect(callsTo(api, "live.communities.join")).toEqual([{ communityId: open.id }]));
     fireEvent.click(within(grid).getByRole("button", { name: "Leave Fintech ops founders" }));
     await waitFor(() => expect(callsTo(api, "live.communities.leave")).toEqual([{ communityId: joined.id }]));
     // Pressing the button must not also open the row.
@@ -78,14 +87,14 @@ describe("/communities", () => {
     expect(screen.getByRole("menuitem", { name: /Join/ })).toBeTruthy();
   });
 
-  it("a Personal business joins as the founder alone and the page says why it is not listed", async () => {
+  it("a Personal business joins the same way and the page says why it is not listed", async () => {
     ctx.gameMode = "personal";
     api.handlers["live.communities.list"] = () => [open];
     api.handlers["live.communities.join"] = () => ({});
     mount(<CommunitiesScreen />);
     expect((await screen.findByTestId("personal-notice")).textContent).toContain("Ledgerly is a Personal business");
     fireEvent.click(await screen.findByRole("button", { name: "Join Bootstrapped founders" }));
-    await waitFor(() => expect(callsTo(api, "live.communities.join")).toEqual([{ communityId: open.id, businessId: undefined }]));
+    await waitFor(() => expect(callsTo(api, "live.communities.join")).toEqual([{ communityId: open.id }]));
   });
 
   it("says what will appear when there are no communities", async () => {
@@ -119,11 +128,12 @@ describe("/communities/[id]", () => {
     expect(posts[0]!.textContent).toContain("Ana Ruiz");
     expect(posts[0]!.textContent).toContain("Northlight Payments");
     expect(posts[0]!.textContent).toContain("Open Banking refresh drop-off is 12%.");
-    // Someone else's text: no image is loaded and the entity mention is a plain name, not a link.
+    // Someone else's text: no image is loaded and an entity mention is never linked (it stays the text it was typed as).
     expect(feed.querySelector("img")).toBeNull();
     expect(posts[1]!.textContent).toContain("pixel");
     expect(posts[1]!.textContent).toContain("Acme Ltd");
     expect(posts[1]!.querySelector("[data-entity-id]")).toBeNull();
+    expect(within(posts[1]!).queryAllByRole("link")).toHaveLength(0);
 
     fireEvent.click(within(posts[0]!).getByRole("button", { name: "1 reply" }));
     const thread = await within(posts[0]!).findByTestId("reply-thread");
@@ -132,14 +142,14 @@ describe("/communities/[id]", () => {
     expect(await within(thread).findByText("Ben Okoye")).toBeTruthy();
   });
 
-  it("posts as the current business, and replies under the post they belong to", async () => {
+  it("posts as the person by default, and replies under the post they belong to", async () => {
     memberView();
     mount(<CommunityScreen communityId={ids.community} />);
     const box = await screen.findByLabelText("Write a post");
-    expect(screen.getByText(/Posting as Ledgerly/)).toBeTruthy();
+    expect(screen.getByText(/Posting as yourself/)).toBeTruthy();
     fireEvent.change(box, { target: { value: "Thanks all." } });
     fireEvent.keyDown(box, { key: "Enter", metaKey: true });
-    await waitFor(() => expect(callsTo(api, "live.communities.post")).toEqual([{ communityId: ids.community, bodyMd: "Thanks all.", parentPostId: null, businessId: "b1" }]));
+    await waitFor(() => expect(callsTo(api, "live.communities.post")).toEqual([{ communityId: ids.community, bodyMd: "Thanks all.", parentPostId: null, businessId: null }]));
 
     const posts = await screen.findAllByTestId("feed-post");
     fireEvent.click(within(posts[0]!).getByRole("button", { name: "Reply" }));
@@ -147,7 +157,40 @@ describe("/communities/[id]", () => {
     const reply = within(thread).getByLabelText("Write a reply");
     fireEvent.change(reply, { target: { value: "Same here." } });
     fireEvent.click(within(thread).getByRole("button", { name: "Reply" }));
-    await waitFor(() => expect(callsTo(api, "live.communities.post").at(-1)).toMatchObject({ bodyMd: "Same here.", parentPostId: "p1" }));
+    await waitFor(() => expect(callsTo(api, "live.communities.post").at(-1)).toMatchObject({ bodyMd: "Same here.", parentPostId: "p1", businessId: null }));
+  });
+
+  it("offers posting as the business only to someone who may speak for it, and only when they choose it", async () => {
+    memberView();
+    const { unmount } = mount(<CommunityScreen communityId={ids.community} />);
+    const toggle = await screen.findByRole("switch", { name: "Post as Ledgerly" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(toggle);
+    expect(screen.getByText(/Posting as Ledgerly/)).toBeTruthy();
+    const box = screen.getByLabelText("Write a post");
+    fireEvent.change(box, { target: { value: "Official word." } });
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    await waitFor(() => expect(callsTo(api, "live.communities.post")).toEqual([{ communityId: ids.community, bodyMd: "Official word.", parentPostId: null, businessId: "b1" }]));
+    unmount();
+
+    // A viewer, a member held back on the live section, a Personal business and an uncommitted one never see the choice.
+    for (const [label, set] of [
+      ["viewer", () => (ctx.role = "viewer")],
+      ["restricted member", () => ((ctx.role = "member"), (ctx.sectionPermissions = { live: "read" }))],
+      ["personal business", () => (ctx.gameMode = "personal")],
+      ["uncommitted business", () => (ctx.committed = false)],
+    ] as const) {
+      ctx.role = "owner";
+      ctx.sectionPermissions = {};
+      ctx.gameMode = "live";
+      ctx.committed = true;
+      set();
+      const view = mount(<CommunityScreen communityId={ids.community} />);
+      await screen.findByLabelText("Write a post");
+      expect(screen.queryByRole("switch"), label).toBeNull();
+      expect(screen.getByText(/Posting as yourself/), label).toBeTruthy();
+      view.unmount();
+    }
   });
 
   it("a visitor sees the description and size, is asked to join, and the feed is never requested", async () => {
@@ -160,7 +203,7 @@ describe("/communities/[id]", () => {
     expect(screen.queryByLabelText("Write a post")).toBeNull();
     expect(callsTo(api, "live.communities.posts")).toHaveLength(0);
     fireEvent.click(screen.getByTestId("community-join"));
-    await waitFor(() => expect(callsTo(api, "live.communities.join")).toEqual([{ communityId: ids.community, businessId: "b1" }]));
+    await waitFor(() => expect(callsTo(api, "live.communities.join")).toEqual([{ communityId: ids.community }]));
   });
 
   it("an empty feed says how to start it, and a community that is missing or private reads as missing", async () => {

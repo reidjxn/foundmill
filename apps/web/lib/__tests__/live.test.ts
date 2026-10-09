@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  boardKindLabel, boardScope, boardTitle, counterpartId, describeMetric, findDirectThread, formResults, formatMetricValue, groupConnections, humanise, joinNames,
-  otherParticipants, periodLabel, personName, positionLabel, stripEntityMarkup, threadTitle, UNNAMED_PERSON, VISIBILITY_OPTIONS, visibilityLabel,
+  boardKindLabel, canSpeakAsBusiness, boardScope, boardTitle, counterpartId, describeMetric, findDirectThread, formResults, formatMetricValue, groupConnections, humanise, joinNames,
+  otherParticipants, periodLabel, personName, positionLabel, threadTitle, UNNAMED_PERSON, VISIBILITY_OPTIONS, visibilityLabel,
 } from "../live";
 
 const ME = "00000000-0000-4000-8000-0000000000aa";
@@ -80,11 +80,23 @@ describe("message threads", () => {
   });
 });
 
-describe("community text", () => {
-  it("shows an entity mention from someone else's post as its plain name, never as a link", () => {
-    expect(stripEntityMarkup("Met [[ent:11111111-1111-4111-8111-111111111111|Acme Ltd]] and [[ent:22222222-2222-4222-8222-222222222222|Jo Park]] today")).toBe("Met Acme Ltd and Jo Park today");
-    expect(stripEntityMarkup("No mentions here [[ent:not-an-id|X]]")).toBe("No mentions here [[ent:not-an-id|X]]");
-    expect(stripEntityMarkup("")).toBe("");
+describe("speaking as a business", () => {
+  const live = { gameMode: "live", committedAt: new Date(), archivedAt: null };
+  it("is offered only for a LIVE, committed, active business, to a writer with write access to the live section", () => {
+    expect(canSpeakAsBusiness({ business: live, membership: { role: "owner", sectionPermissions: {} } })).toBe(true);
+    expect(canSpeakAsBusiness({ business: live, membership: { role: "admin", sectionPermissions: {} } })).toBe(true);
+    expect(canSpeakAsBusiness({ business: live, membership: { role: "member", sectionPermissions: { finance: "none" } } })).toBe(true);
+    expect(canSpeakAsBusiness({ business: live, membership: { role: "member" } })).toBe(true);
+    // Read-only roles, and a member held back on the live section.
+    expect(canSpeakAsBusiness({ business: live, membership: { role: "viewer", sectionPermissions: {} } })).toBe(false);
+    expect(canSpeakAsBusiness({ business: live, membership: { role: "advisor", sectionPermissions: { live: "write" } } })).toBe(false);
+    expect(canSpeakAsBusiness({ business: live, membership: { role: "member", sectionPermissions: { live: "read" } } })).toBe(false);
+    expect(canSpeakAsBusiness({ business: live, membership: { role: "member", sectionPermissions: { live: "none" } } })).toBe(false);
+    expect(canSpeakAsBusiness({ business: live, membership: { role: "member", sectionPermissions: { live: "write" } } })).toBe(true);
+    // The business itself.
+    expect(canSpeakAsBusiness({ business: { ...live, gameMode: "personal" }, membership: { role: "owner" } })).toBe(false);
+    expect(canSpeakAsBusiness({ business: { ...live, committedAt: null }, membership: { role: "owner" } })).toBe(false);
+    expect(canSpeakAsBusiness({ business: { ...live, archivedAt: new Date() }, membership: { role: "owner" } })).toBe(false);
   });
 });
 

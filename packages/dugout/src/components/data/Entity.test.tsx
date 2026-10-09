@@ -160,6 +160,43 @@ describe("Markdown", () => {
     expect(listLink?.querySelector("[data-entity-id]")).not.toBeNull();
   });
 
+  it("links entity mentions unless asked not to; with entities off nothing is ever linked, however the mention is written", () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const tricky = [
+      `Plain [[ent:${id}|Acme Ltd]] mention`,
+      `- list [[ent:${id}|Acme Ltd]]`,
+      `**bold [[ent:${id}|Acme Ltd]]** and _em [[ent:${id}|Acme Ltd]]_`,
+      `| a |\n| - |\n| [[ent:${id}|Acme Ltd]] |`,
+      `escaped \\[[ent:${id}|Acme Ltd]]`,
+      `&#91;&#91;ent:${id}|Acme Ltd]]`,
+      `[[ent:[[ent:${id}|Acme Ltd]]|Nested]]`,
+    ];
+    const provider = (ui: React.ReactElement) => <EntityLinkProvider value={{ resolve: resolveFixtureEntity }}>{ui}</EntityLinkProvider>;
+    const on = render(provider(<Markdown variant="body">{tricky[0]!}</Markdown>));
+    expect(document.querySelectorAll("[data-entity-id]").length).toBe(1);
+    on.unmount();
+    for (const text of tricky) {
+      const { unmount } = render(
+        provider(
+          <Markdown variant="body" entities={false}>
+            {text}
+          </Markdown>,
+        ),
+      );
+      expect(document.querySelector("[data-entity-id]"), text).toBeNull();
+      expect(screen.queryAllByRole("link"), text).toHaveLength(0);
+      unmount();
+    }
+    render(
+      provider(
+        <Markdown variant="body" entities={false}>
+          {tricky[0]!}
+        </Markdown>,
+      ),
+    );
+    expect(document.querySelector("[data-markdown]")?.textContent).toBe(`Plain [[ent:${id}|Acme Ltd]] mention`);
+  });
+
   it("loads images unless asked not to; without images the alt text stands in and nothing is fetched", () => {
     const text = "Look: ![the chart](https://stranger.example/pixel.png) done";
     const { unmount } = render(<Markdown variant="body">{text}</Markdown>);
