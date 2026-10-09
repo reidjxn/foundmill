@@ -20,6 +20,7 @@ import { entitySweepPrompt } from "./entity-sweep";
 import { chapterTitlePrompt } from "./chapter-title";
 import { agentBuilderPrompt } from "./agent-builder";
 import { customSkillTestsPrompt } from "./custom-skill-tests";
+import { foundationsPrompt } from "./foundations";
 
 export * from "./template";
 export * from "./club-rules";
@@ -42,6 +43,7 @@ export * from "./entity-sweep";
 export * from "./chapter-title";
 export * from "./agent-builder";
 export * from "./custom-skill-tests";
+export * from "./foundations";
 
 export const PROMPT_LIST = [
   clubRulesPrompt,
@@ -65,6 +67,7 @@ export const PROMPT_LIST = [
   chapterTitlePrompt,
   agentBuilderPrompt,
   customSkillTestsPrompt,
+  foundationsPrompt,
 ] as const;
 
 export type PromptKey = (typeof PROMPT_LIST)[number]["key"];

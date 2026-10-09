@@ -77,6 +77,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("app_installations", s.appInstallations, "service", () => ({ connectorKey: uniq("connector"), installationId: String(counter()), verifiedBy: "founder-login", verifiedAt: new Date("2026-10-09T00:00:00Z") })),
   // 0017 the business logo (written by the api with the service role after its checks; one row per business)
   spec("business_logos", s.businessLogos, "service", () => ({ source: "upload", mime: "image/png", content: new Uint8Array([0x89, 0x50, 0x4e, 0x47]), sha256: "0".repeat(64), width: 512, height: 512 })),
+  // 0018 business foundations (one row per business; written by the api's service role and the orchestrator)
+  spec("business_foundations", s.businessFoundations, "service", () => ({ door: "ideation", status: "pending" })),
   // 0013 workspaces (written by the orchestrator)
   spec("workspace_blobs", s.workspaceBlobs, "service", () => ({ sha256: crypto.randomUUID().replace(/-/g, "").padEnd(64, "0"), sizeBytes: 1, content: new Uint8Array([1]) })),
   spec("workspace_snapshots", s.workspaceSnapshots, "service", (f) => ({ taskId: f.taskId, files: [], fileCount: 0 })),

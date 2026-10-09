@@ -19,6 +19,8 @@ export const ROUTES = {
   codeReview: { model: "opus" },
   ideation: { model: "opus" },
   logoDesigner: { model: "opus" }, // business logo marks as SVG (Commit screen, Settings › Business)
+  // Vision, first specification and first roadmap, drafted once when a new business is first opened (BUILD §11.1, §11.5).
+  foundations: { model: "opus" },
   skillGrader: { model: "opus" },
   coach: { model: "opus" },
   worker: { model: "sonnet" },

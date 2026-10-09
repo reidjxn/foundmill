@@ -10,6 +10,7 @@ import { Button, Panel, StatusPill, cn } from "@foundmill/dugout";
 import type { RoadmapHorizon } from "@foundmill/shared";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
+import { FoundationsBanner, useFoundations } from "./foundations";
 import { computeRoadmapStatus, type RoadmapStatus } from "./roadmap-status";
 import { groupByHorizon, indexDependencies, moveInput } from "./roadmap/board";
 import { Board } from "./roadmap/Board";
@@ -59,6 +60,11 @@ export function RoadmapScreen({ businessId, subView }: ModuleScreenProps) {
     if (subView === "timeline" || subView === "board") setView(subView);
   }, [subView]);
   useBusinessEvents(() => roadmap.refetch(), ["task.completed", "pr.merged", "spec.version_published", "spec.proposal_created"]);
+  // The first roadmap is drafted on the first open; show the drafting and load the items when they are ready.
+  const foundations = useFoundations(() => {
+    roadmap.refetch();
+    spec.refetch();
+  });
 
   const items = useMemo(() => roadmap.data?.items ?? [], [roadmap.data]);
   const columns = useMemo(() => groupByHorizon(items), [items]);
@@ -86,6 +92,7 @@ export function RoadmapScreen({ businessId, subView }: ModuleScreenProps) {
 
   return (
     <Screen name="product/roadmap">
+      <FoundationsBanner foundations={foundations} />
       <Panel
         title="Roadmap"
         span={12}
