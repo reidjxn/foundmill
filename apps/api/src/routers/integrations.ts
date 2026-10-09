@@ -3,19 +3,29 @@
  * OAuth consents are founder clicks (hard gate): `connect` hands back the vendor's consent URL when the connector
  * needs one; secrets returned by a connector are encrypted into `credentials` and never echoed.
  */
+import type { HealthResult, IntegrationRecord } from "@foundmill/connectors";
 import { repos, type Executor } from "@foundmill/db";
 import { AppError, buildAad, connectorMode, encryptJson, redactSecret } from "@foundmill/shared";
 import { z } from "zod";
+import { signInstallState, verifyInstallState } from "../services/install-state";
 import { revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey } from "../services/keys";
 import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
 
 const read = sectionRead("settings");
 
-/** Choices the founder made on an integration that a reconnect keeps (the repository code is pushed to). */
-function keptSettings(row: { settings: unknown } | null): Record<string, unknown> {
+/**
+ * Choices the founder made on an integration that a reconnect keeps (the repository code is pushed to), as long as the
+ * reconnect is to the same account: a different GitHub installation starts with no repository chosen.
+ */
+function keptSettings(row: { settings: unknown } | null, externalAccountId: string | null): Record<string, unknown> {
   const settings = (row?.settings ?? {}) as Record<string, unknown>;
+  if (settings.externalAccountId !== externalAccountId) return {};
   return Object.fromEntries(Object.entries(settings).filter(([k]) => k === "repo" || k === "writeEnabled"));
 }
+
+/** Finishing an App installation (GitHub): what GitHub sent back to the founder, with the state Connect signed. */
+const AppInstallation = z.object({ installationId: z.number().int().positive(), code: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/), state: z.string().min(1).max(600) });
+
 const admin = sectionAdmin("settings");
 
 export const integrationsRouter = router({
@@ -35,7 +45,25 @@ export const integrationsRouter = router({
     const mode = connectorMode(ctx.env, input.connectorKey);
     if (!ctx.connectors.has(input.connectorKey)) throw new AppError("not_found", `Unknown connector ${input.connectorKey}`, 404);
     const connector = ctx.connectors.get(input.connectorKey, mode);
-    const record = await connector.connect(ctx.businessId, input.input);
+
+    let record: Omit<IntegrationRecord, "id" | "businessId" | "connectorKey" | "credentialRef" | "lastHealthAt" | "createdAt"> & { credentialToStore?: IntegrationRecord["credentialToStore"] };
+    if (mode === "live" && connector.auth.kind === "app") {
+      // App connectors (GitHub) connect in the gateway, which holds the App's keys and checks with GitHub that the
+      // founder who installed the App can manage the installation. The api only signs and checks the state.
+      if (input.input.installationId === undefined) {
+        const state = signInstallState(ctx.env.SESSION_TOKEN_SECRET, { userId: ctx.userId!, businessId: ctx.businessId });
+        const first = await ctx.gateway.connect(ctx.businessId, input.connectorKey, { state });
+        const consentUrl = typeof first.config.consentUrl === "string" ? first.config.consentUrl : null;
+        // Nothing is written yet: an installation already connected stays as it is until the new one is confirmed.
+        return { integration: await repos.integrations.getByKey(ctx.db, ctx.businessId, input.connectorKey), record: { ...first, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
+      }
+      const finish = AppInstallation.parse(input.input);
+      verifyInstallState(ctx.env.SESSION_TOKEN_SECRET, finish.state, { userId: ctx.userId!, businessId: ctx.businessId });
+      record = await ctx.gateway.connect(ctx.businessId, input.connectorKey, { installationId: finish.installationId, code: finish.code });
+    } else {
+      record = await connector.connect(ctx.businessId, input.input);
+    }
+
     const { credentialToStore, ...safe } = record;
     const integration = await ctx.db.transaction(async (tx: Executor) => {
       const row = await repos.integrations.upsert(tx, ctx.businessId, {
@@ -44,7 +72,7 @@ export const integrationsRouter = router({
         authKind: connector.auth.kind,
         scopes: record.scopes,
         accountLabel: record.accountLabel,
-        settings: { ...keptSettings(await repos.integrations.getByKey(tx, ctx.businessId, input.connectorKey)), externalAccountId: record.externalAccountId, config: record.config, expiresAt: record.expiresAt },
+        settings: { ...keptSettings(await repos.integrations.getByKey(tx, ctx.businessId, input.connectorKey), record.externalAccountId), externalAccountId: record.externalAccountId, config: record.config, expiresAt: record.expiresAt },
         connectedBy: ctx.userId,
       });
       if (credentialToStore) {
@@ -58,7 +86,7 @@ export const integrationsRouter = router({
       return row;
     });
     const consentUrl = typeof record.config.linkUrl === "string" ? record.config.linkUrl : typeof record.config.consentUrl === "string" ? record.config.consentUrl : typeof record.config.authorizeUrl === "string" ? record.config.authorizeUrl : null;
-    return { integration, record: safe, consentUrl, founderConsentRequired: consentUrl !== null };
+    return { integration, record: { ...safe, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
   }),
 
   disconnect: admin.input(z.object({ integrationId: Id })).mutation(({ ctx, input }) =>
@@ -74,9 +102,11 @@ export const integrationsRouter = router({
 
   health: read.input(z.object({ integrationId: Id })).mutation(async ({ ctx, input }) => {
     const integration = await repos.integrations.get(ctx.db, ctx.businessId, input.integrationId);
-    const connector = ctx.connectors.get(integration.connectorKey, connectorMode(ctx.env, integration.connectorKey));
+    const mode = connectorMode(ctx.env, integration.connectorKey);
+    const connector = ctx.connectors.get(integration.connectorKey, mode);
     const settings = (integration.settings ?? {}) as Record<string, unknown>;
-    const result = await connector.healthcheck({
+    // An App connector's health check needs the App's keys, which only the gateway holds.
+    const result: HealthResult = mode === "live" && connector.auth.kind === "app" ? ((await ctx.gateway.health(ctx.businessId, integration.connectorKey)) as unknown as HealthResult) : await connector.healthcheck({
       id: integration.id,
       businessId: ctx.businessId,
       connectorKey: integration.connectorKey,

@@ -52,7 +52,8 @@ export interface GatewayCallResponse {
 export interface GatewayClient {
   readonly baseUrl: string;
   mintSessionToken(input: MintSessionTokenRequest): Promise<MintSessionTokenResponse>;
-  call(sessionToken: string, request: GatewayCallRequest): Promise<GatewayCallResponse>;
+  /** `timeoutMs` overrides the client's default for one long call (a push of many files). */
+  call(sessionToken: string, request: GatewayCallRequest, options?: { timeoutMs?: number }): Promise<GatewayCallResponse>;
   health(): Promise<{ ok: boolean; mode?: "mock" | "live" }>;
   mcpUrl(connector: string): string;
   sessionHeaders(sessionToken: string): Record<string, string>;
@@ -96,9 +97,9 @@ export function createGatewayClient(options: GatewayClientOptions): GatewayClien
   const serviceName = options.serviceName ?? "orchestrator";
   const timeoutMs = options.timeoutMs ?? 30_000;
 
-  async function request<T>(method: "GET" | "POST", path: string, init: { body?: unknown; token?: string; okStatuses?: number[] } = {}): Promise<T> {
+  async function request<T>(method: "GET" | "POST", path: string, init: { body?: unknown; token?: string; okStatuses?: number[]; timeoutMs?: number } = {}): Promise<T> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), init.timeoutMs ?? timeoutMs);
     let res: Response;
     try {
       res = await doFetch(`${baseUrl}${path}`, {
@@ -137,7 +138,7 @@ export function createGatewayClient(options: GatewayClientOptions): GatewayClien
     baseUrl,
     health: () => request("GET", "/health"),
     mintSessionToken: (input) => request<MintSessionTokenResponse>("POST", "/v1/session-tokens", { body: input, token: signServiceToken(options.serviceSecret, serviceName, DEFAULT_SERVICE_TOKEN_TTL_SECONDS, options.now) }),
-    call: (sessionToken, body) => request<GatewayCallResponse>("POST", "/v1/call", { body, token: sessionToken, okStatuses: [200, 403, 429] }),
+    call: (sessionToken, body, opts) => request<GatewayCallResponse>("POST", "/v1/call", { body, token: sessionToken, okStatuses: [200, 403, 429], ...(opts?.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}) }),
     mcpUrl: (connector) => `${baseUrl}/mcp/${connector}`,
     sessionHeaders: (sessionToken) => ({ authorization: `Bearer ${sessionToken}` }),
   };

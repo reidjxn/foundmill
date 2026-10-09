@@ -3,10 +3,16 @@
  * the gateway may inject an installation token as `ctx.credential.secret` (minted elsewhere), otherwise the
  * App (GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY) mints one for `integration.externalAccountId` (the
  * installation id). Webhooks verify with GITHUB_WEBHOOK_SECRET.
+ *
+ * Connecting proves ownership: GitHub sends the installer back with an installation id and an OAuth code (the App has
+ * "Request user authorization (OAuth) during installation" on); connect() trades the code for a user token
+ * (GITHUB_APP_CLIENT_ID / GITHUB_APP_CLIENT_SECRET) and accepts the installation only when that user can manage it.
+ * It runs in the gateway, the one service holding the App's keys.
  */
+import { isUtf8 } from "node:buffer";
 import { App } from "@octokit/app";
 import { Octokit } from "@octokit/rest";
-import { uuid } from "@foundmill/shared";
+import { ForbiddenError, uuid, ValidationError } from "@foundmill/shared";
 import { ConfigError, type Connector, type IntegrationRecord, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
@@ -15,6 +21,39 @@ import { fileWriteBuffer, gitBlobSha, GITHUB_APP_SCOPES, GITHUB_KEY, GITHUB_RATE
 import { createGithubWebhook } from "./webhooks";
 
 type RestOctokit = InstanceType<typeof Octokit>;
+
+/** The host's signed install state (apps/api services/install-state.ts): two base64url parts. */
+const INSTALL_STATE = /^[A-Za-z0-9_-]{1,400}\.[A-Za-z0-9_-]{1,100}$/;
+/** GitHub's OAuth codes are short hex strings; anything else is refused before it reaches GitHub. */
+const OAUTH_CODE = /^[A-Za-z0-9_-]{1,100}$/;
+/** commit_files calls one gateway process runs at once. */
+const MAX_CONCURRENT_COMMITS = 4;
+
+/** Text a tree entry can carry inline: valid UTF-8 with no NUL byte. */
+const isText = (bytes: Buffer): boolean => isUtf8(bytes) && !bytes.includes(0);
+
+/** A counting semaphore: at most `size` runs at once, the rest queue in order. */
+function slots(size: number): { run<T>(fn: () => Promise<T>): Promise<T> } {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  return {
+    async run(fn) {
+      // A released slot passes straight to the next waiter, so a newcomer can never slip in between.
+      if (active < size) active++;
+      else await new Promise<void>((resolve) => waiting.push(resolve));
+      try {
+        return await fn();
+      } finally {
+        const next = waiting.shift();
+        if (next) next();
+        else active--;
+      }
+    },
+  };
+}
+
+/** Installations listed per user while checking ownership (100 per page). */
+const MAX_INSTALLATION_PAGES = 10;
 
 export function createGithubConnector(options: LiveConnectorOptions = {}): Connector {
   const { secrets, fetch, now, resolveBusinessId } = resolveLiveOptions(options);
@@ -37,6 +76,38 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
     if (ctx.credential?.secret) return new OctokitWithFetch({ auth: ctx.credential.secret });
     return (await app().getInstallationOctokit(installationIdOf(ctx.integration))) as unknown as RestOctokit;
   };
+
+  /**
+   * Who installed the App: exchanges the authorization code GitHub sent after the installation for a user token, checks
+   * the installation is among those the user can access, and returns their login. The token is revoked afterwards and
+   * never stored.
+   */
+  const installerOf = async (installationId: number, code: string): Promise<string> => {
+    if (!secrets.githubAppClientId || !secrets.githubAppClientSecret) throw new ConfigError(GITHUB_KEY, "GITHUB_APP_CLIENT_ID / GITHUB_APP_CLIENT_SECRET", "copy the GitHub App's client id and a client secret so connecting can check who installed it");
+    const clientId = secrets.githubAppClientId;
+    const clientSecret = secrets.githubAppClientSecret;
+    const exchanged = await fetch("https://github.com/login/oauth/access_token", { method: "POST", headers: { accept: "application/json", "content-type": "application/json" }, body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code }) });
+    const body = (await exchanged.json().catch(() => ({}))) as { access_token?: unknown; error?: unknown };
+    if (!exchanged.ok || typeof body.access_token !== "string") throw new ForbiddenError(`GitHub did not accept the authorization${typeof body.error === "string" ? ` (${body.error})` : ""}: install the App again from Settings › Integrations`);
+    const token = body.access_token;
+    try {
+      const user = new OctokitWithFetch({ auth: token });
+      let found = false;
+      for (let page = 1; page <= MAX_INSTALLATION_PAGES && !found; page++) {
+        const list = await user.rest.apps.listInstallationsForAuthenticatedUser({ per_page: 100, page });
+        found = list.data.installations.some((i) => i.id === installationId);
+        if (list.data.installations.length < 100) break;
+      }
+      if (!found) throw new ForbiddenError(`GitHub installation ${installationId} is not one you can manage`);
+      return (await user.rest.users.getAuthenticated()).data.login;
+    } finally {
+      // Best effort: the token has done its job.
+      await fetch(`https://api.github.com/applications/${encodeURIComponent(clientId)}/token`, { method: "DELETE", headers: { accept: "application/vnd.github+json", authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`, "content-type": "application/json" }, body: JSON.stringify({ access_token: token }) }).catch(() => undefined);
+    }
+  };
+
+  /** commit_files calls this process runs at once (each can hold up to 10 MB); the rest wait their turn. */
+  const commitSlots = slots(MAX_CONCURRENT_COMMITS);
 
   const defaultBranch = async (o: RestOctokit, owner: string, repo: string) => (await o.rest.repos.get({ owner, repo })).data.default_branch;
   const refSha = async (o: RestOctokit, owner: string, repo: string, ref: string): Promise<string> => {
@@ -96,45 +167,51 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
           const created = await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha });
           return { branch, sha: created.data.object.sha, created: true };
         },
-        commit_files: async ({ owner, repo, branch, fromRef, message, files, deletions }, ctx) => {
-          const o = await octokitFor(ctx);
-          const info = (await o.rest.repos.get({ owner, repo })).data;
-          if (branch === info.default_branch) throw Object.assign(new Error(`commit_files never writes the default branch (${branch}); merge a pull request instead`), { status: 422 });
-          const existing = await o.rest.git.getRef({ owner, repo, ref: `heads/${branch}` }).catch((e: { status?: number }) => (e.status === 404 ? null : Promise.reject(e)));
-          const parentSha = existing ? existing.data.object.sha : await refSha(o, owner, repo, fromRef ?? info.default_branch);
-          const baseTree = (await o.rest.git.getCommit({ owner, repo, commit_sha: parentSha })).data.tree.sha;
-          // What the branch holds now, so unchanged files are not uploaded and only existing paths are deleted.
-          const current = await o.rest.git.getTree({ owner, repo, tree_sha: baseTree, recursive: "1" });
-          const known = current.data.truncated ? null : new Map(current.data.tree.filter((e) => e.type === "blob" && e.path && e.sha).map((e) => [e.path!, e.sha!] as const));
-          const writes = files.filter((f) => known?.get(f.path) !== gitBlobSha(fileWriteBuffer(f)));
-          const removals = known ? deletions.filter((d) => known.has(d)) : deletions;
-          const result = (sha: string, committed: boolean, url: string | null) => ({ branch, created: !existing, committed, sha, parentSha, filesWritten: committed ? writes.length : 0, filesDeleted: committed ? removals.length : 0, url });
-          if (writes.length === 0 && removals.length === 0) {
-            if (!existing) await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: parentSha });
-            return result(parentSha, false, null);
-          }
-          const entries: { path: string; mode: "100644"; type: "blob"; sha: string | null }[] = [];
-          let next = 0;
-          const upload = async () => {
-            while (next < writes.length) {
-              const f = writes[next++]!;
-              const blob = await o.rest.git.createBlob({ owner, repo, content: fileWriteBuffer(f).toString("base64"), encoding: "base64" });
-              entries.push({ path: f.path, mode: "100644", type: "blob", sha: blob.data.sha });
+        commit_files: ({ owner, repo, branch, fromRef, message, files, deletions }, ctx) =>
+          commitSlots.run(async () => {
+            const o = await octokitFor(ctx);
+            const info = (await o.rest.repos.get({ owner, repo })).data;
+            if (branch === info.default_branch) throw Object.assign(new Error(`commit_files never writes the default branch (${branch}); merge a pull request instead`), { status: 422 });
+            // What agents write can name customers or carry business data: it goes only where the founder controls access.
+            if (!info.private) throw Object.assign(new Error(`${owner}/${repo} is public; agents push only to private repositories`), { status: 422 });
+            const existing = await o.rest.git.getRef({ owner, repo, ref: `heads/${branch}` }).catch((e: { status?: number }) => (e.status === 404 ? null : Promise.reject(e)));
+            const parentSha = existing ? existing.data.object.sha : await refSha(o, owner, repo, fromRef ?? info.default_branch);
+            const baseTree = (await o.rest.git.getCommit({ owner, repo, commit_sha: parentSha })).data.tree.sha;
+            // What the branch holds now, so unchanged files are not uploaded and only existing paths are deleted.
+            const current = await o.rest.git.getTree({ owner, repo, tree_sha: baseTree, recursive: "1" });
+            const known = current.data.truncated ? null : new Map(current.data.tree.filter((e) => e.type === "blob" && e.path && e.sha).map((e) => [e.path!, e.sha!] as const));
+            const writes = files.map((f) => ({ path: f.path, bytes: fileWriteBuffer(f) })).filter((f) => known?.get(f.path) !== gitBlobSha(f.bytes));
+            const removals = known ? deletions.filter((d) => known.has(d)) : deletions;
+            const result = (sha: string, committed: boolean, url: string | null) => ({ branch, created: !existing, committed, sha, parentSha, filesWritten: committed ? writes.length : 0, filesDeleted: committed ? removals.length : 0, url });
+            if (writes.length === 0 && removals.length === 0) {
+              if (!existing) await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: parentSha });
+              return result(parentSha, false, null);
             }
-          };
-          await Promise.all(Array.from({ length: Math.min(8, writes.length) }, upload));
-          for (const d of removals) entries.push({ path: d, mode: "100644", type: "blob", sha: null });
-          const tree = await o.rest.git.createTree({ owner, repo, base_tree: baseTree, tree: entries });
-          if (tree.data.sha === baseTree) {
-            if (!existing) await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: parentSha });
-            return result(parentSha, false, null);
-          }
-          const commit = await o.rest.git.createCommit({ owner, repo, message, tree: tree.data.sha, parents: [parentSha] });
-          // Fast-forward only: if the branch moved since it was read, GitHub refuses and nothing is overwritten.
-          if (existing) await o.rest.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: commit.data.sha, force: false });
-          else await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: commit.data.sha });
-          return result(commit.data.sha, true, commit.data.html_url ?? `${info.html_url}/commit/${commit.data.sha}`);
-        },
+            // Text goes inline in the tree (one request however many files); only binary files need a blob each.
+            type Entry = { path: string; mode: "100644"; type: "blob" } & ({ content: string } | { sha: string | null });
+            const entries: Entry[] = writes.filter((f) => isText(f.bytes)).map((f) => ({ path: f.path, mode: "100644", type: "blob", content: f.bytes.toString("utf8") }));
+            const binary = writes.filter((f) => !isText(f.bytes));
+            let next = 0;
+            const upload = async () => {
+              while (next < binary.length) {
+                const f = binary[next++]!;
+                const blob = await o.rest.git.createBlob({ owner, repo, content: f.bytes.toString("base64"), encoding: "base64" });
+                entries.push({ path: f.path, mode: "100644", type: "blob", sha: blob.data.sha });
+              }
+            };
+            await Promise.all(Array.from({ length: Math.min(4, binary.length) }, upload));
+            for (const d of removals) entries.push({ path: d, mode: "100644", type: "blob", sha: null });
+            const tree = await o.rest.git.createTree({ owner, repo, base_tree: baseTree, tree: entries });
+            if (tree.data.sha === baseTree) {
+              if (!existing) await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: parentSha });
+              return result(parentSha, false, null);
+            }
+            const commit = await o.rest.git.createCommit({ owner, repo, message, tree: tree.data.sha, parents: [parentSha] });
+            // Fast-forward only: if the branch moved since it was read, GitHub refuses and nothing is overwritten.
+            if (existing) await o.rest.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: commit.data.sha, force: false });
+            else await o.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: commit.data.sha });
+            return result(commit.data.sha, true, commit.data.html_url ?? `${info.html_url}/commit/${commit.data.sha}`);
+          }),
         open_pr: async ({ owner, repo, title, body, head, base, draft }, ctx) => {
           const o = await octokitFor(ctx);
           const open = await o.rest.pulls.list({ owner, repo, state: "open", head: `${owner}:${head}`, base, per_page: 1 });
@@ -151,20 +228,28 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
         },
       },
       connect: async (businessId, input) => {
-        const installationId = typeof input === "object" && input ? Number((input as { installationId?: unknown }).installationId) : Number.NaN;
-        if (!Number.isFinite(installationId)) {
-          // First step: the founder installs the App on GitHub (a consent only they can give). GitHub then sends them
-          // to the App's setup URL with installation_id and this state; Settings › Integrations finishes the connect.
+        const given = (typeof input === "object" && input ? input : {}) as { installationId?: unknown; code?: unknown; state?: unknown };
+        const installationId = Number(given.installationId);
+        if (given.installationId === undefined) {
+          // First step: the founder installs the App on GitHub (a consent only they can give). The host signs `state`
+          // for this founder and business; GitHub hands it back with the installation id and an authorization code.
           if (!secrets.githubAppSlug) throw new ConfigError(GITHUB_KEY, "GITHUB_APP_SLUG", "set the GitHub App's URL name so Connect can open its installation page");
+          if (typeof given.state !== "string" || !INSTALL_STATE.test(given.state)) throw new ValidationError("Connecting GitHub needs a signed state from the api");
           const createdAt = now().toISOString();
-          const installUrl = `https://github.com/apps/${encodeURIComponent(secrets.githubAppSlug)}/installations/new?state=${encodeURIComponent(businessId)}`;
+          const installUrl = `https://github.com/apps/${encodeURIComponent(secrets.githubAppSlug)}/installations/new?state=${encodeURIComponent(given.state)}`;
           return { id: uuid(), businessId, connectorKey: GITHUB_KEY, status: "disconnected", scopes: [], accountLabel: null, externalAccountId: null, config: { consentUrl: installUrl }, credentialRef: null, expiresAt: null, lastHealthAt: null, createdAt };
         }
+        if (!Number.isSafeInteger(installationId) || installationId <= 0) throw new ValidationError("installationId must be a positive integer");
+        // The App's own key can read every installation of the App, whoever owns it, so an id alone proves nothing.
+        // The authorization code GitHub sends after installing names the person who installed it; the installation
+        // must be one they can administer.
+        if (typeof given.code !== "string" || !OAUTH_CODE.test(given.code)) throw new ValidationError("GitHub did not send an authorization code: install the App again from Settings › Integrations");
+        const verifiedBy = await installerOf(installationId, given.code);
         const res = await (app().octokit as unknown as RestOctokit).rest.apps.getInstallation({ installation_id: installationId });
         const account = res.data.account as { login?: string; slug?: string; id?: number } | null;
         const label = account?.login ?? account?.slug ?? `installation ${installationId}`;
         const createdAt = now().toISOString();
-        return { id: uuid(), businessId, connectorKey: GITHUB_KEY, status: "connected", scopes: Object.entries(res.data.permissions ?? {}).map(([k, v]) => `${k}:${v}`), accountLabel: label, externalAccountId: String(installationId), config: { installationId, account: label, repositorySelection: res.data.repository_selection }, credentialRef: null, expiresAt: null, lastHealthAt: createdAt, createdAt };
+        return { id: uuid(), businessId, connectorKey: GITHUB_KEY, status: "connected", scopes: Object.entries(res.data.permissions ?? {}).map(([k, v]) => `${k}:${v}`), accountLabel: label, externalAccountId: String(installationId), config: { installationId, account: label, repositorySelection: res.data.repository_selection, verifiedBy, verifiedAt: createdAt }, credentialRef: null, expiresAt: null, lastHealthAt: createdAt, createdAt };
       },
       healthcheck: async (integration) => {
         const startedAt = now().getTime();

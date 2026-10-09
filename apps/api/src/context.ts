@@ -3,7 +3,7 @@
  * services every router needs (models client, composer client, vault, connector registry, env).
  *
  * `createApiDeps()` builds the services once per process from the environment; `createContextFactory(deps)` turns
- * them into the per-request context for `@hono/trpc-server`. Tests build deps by hand (PGlite db, mock clients).
+ * them into the per-request context for tRPC (app.ts). Tests build deps by hand (PGlite db, mock clients).
  */
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import type { Context as HonoContext } from "hono";
@@ -18,6 +18,7 @@ import { createComposerClient, type ComposerClient } from "./services/composer";
 import { createApiModelClient } from "./services/models";
 import { createRedis } from "./services/redis";
 import { createSandboxRecordingResolver, type RecordingResolver } from "./services/replay";
+import { createApiGatewayClient, type ApiGatewayClient } from "./services/gateway";
 import { createIngestClient, type IngestClient } from "./services/simulate";
 import { createTemporalService, type TemporalService } from "./services/temporal";
 import { createLog, type ApiLogger } from "./services/log";
@@ -39,6 +40,8 @@ export interface ApiDeps {
   recordings: RecordingResolver | null;
   /** apps/ingest over the private network; `dev.simulate` mints the service token and proxies through it (SEC-2). */
   ingest: IngestClient;
+  /** apps/gateway for App connectors (GitHub): their connect and health run where the App's keys are. */
+  gateway: ApiGatewayClient;
   /** Reachability probes for /health; each must never throw. */
   health: {
     db(): Promise<boolean>;
@@ -98,6 +101,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
   const connectors = createDefaultRegistry();
   const recordings = options.recordings === undefined ? createSandboxRecordingResolver() : options.recordings;
   const ingest = createIngestClient({ url: env.INGEST_URL, secret: env.SESSION_TOKEN_SECRET ?? null });
+  const gateway = createApiGatewayClient({ url: env.GATEWAY_URL, secret: env.SESSION_TOKEN_SECRET ?? null });
   const auth = createAuthVerifier({
     supabaseUrl: env.SUPABASE_URL ?? null,
     // SUPABASE_JWT_SECRET is not in the shared env schema yet (packages/shared/src/env.ts); read here only.
@@ -132,7 +136,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     temporal: () => temporal.reachable(),
   };
 
-  return { env, db, redis, temporal, models, composer, vault, connectors, auth, log, recordings, ingest, health };
+  return { env, db, redis, temporal, models, composer, vault, connectors, auth, log, recordings, ingest, gateway, health };
 }
 
 /** Per-request context factory for `trpcServer({ createContext })`. */

@@ -54,7 +54,7 @@ export function ImportScreen({ viewer }: ImportScreenProps) {
       continuing={generate.isPending}
       onContinue={(report) =>
         generate.mutate(
-          { prompt: reportToPrompt(report), archetypeHint: report.archetypeHint },
+          { prompt: reportToPrompt(report), archetypeHint: report.archetypeHint, single: true },
           {
             onSuccess: (res) => {
               const first = res.ideas[0];

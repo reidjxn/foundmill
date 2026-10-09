@@ -856,3 +856,59 @@ Saved code stayed in Foundmill: the GitHub connector could branch, open and merg
 - **Where.** The repository is the GitHub integration's `settings.repo` (`config.repo` from a connector's connect() is read too), chosen on Development › Code by owners and admins (`dev.code.setRepository`, audited) and kept when GitHub is connected again. `settings.writeEnabled: false` turns pushing off.
 - **Real GitHub without switching every vendor live.** `LIVE_CONNECTORS=github` (gateway and api) runs the named connectors live while `INTEGRATIONS_MODE` stays mock. App-authenticated connectors (GitHub) run live without a stored per-business secret once the business's installation is connected: the App's keys mint installation tokens. GitHub connect without an installation id returns the App's installation page (`GITHUB_APP_SLUG`, state = the business id); GitHub's setup URL (`/integrations/github/callback`) forwards only a numeric installation id to Settings › Integrations, where the founder's click connects it, so a crafted link cannot attach an installation by itself.
 - **Not done here.** Agent templates grant GitHub by scope names (`repos.read`, `pulls.create`) that match no connector tool name, so agents cannot reach GitHub tools through MCP today; the push does not depend on them. Opening a pull request from the agent's branch stays the Integration agent's job once that mapping is fixed.
+
+## 2026-10-09 — GitHub pushes after the security review: verified installations, opt-in pushing, App keys only in the gateway
+
+The review of the push path (before anything reached main) found that an installation id alone could attach another account's GitHub installation to a business, now that the gateway mints tokens for the stored id. This entry supersedes the "Where" and "Real GitHub" points of the entry above where they differ.
+
+- **Connecting proves who installed the App.** The App has "Request user authorization (OAuth) during installation" on. Connect signs a state (HMAC with `SESSION_TOKEN_SECRET` under its own label: business, founder, 15-minute expiry, nonce). GitHub hands it back to `/integrations/github/callback` with the installation id and an OAuth code. Settings › Integrations shows the confirmation, and the api accepts the state only from the founder it was signed for, for that business. The gateway trades the code for a user token, requires the installation among `GET /user/installations`, records `verifiedBy` / `verifiedAt` and revokes the token. A bare installation id is refused, and nothing is written until the installation is verified: starting a new installation leaves a connected one alone. Single-use state storage was not added; the code is single-use at GitHub and the state is bound to the founder.
+- **The App's keys live only in the gateway.** GitHub's connect and health checks run in the gateway (`POST /v1/integrations/connect` and `/v1/integrations/health`, service JWT, App connectors only). The api holds no App secret, only `LIVE_CONNECTORS`.
+- **The gateway trusts only verified rows.** An App connector runs live only for an integration that is connected or degraded and carries `verifiedBy` / `verifiedAt`. Rows from mock mode, expired rows and unverified rows get 409. The Code tab's "simulated" flag follows the row's status, not the api's environment.
+- **Pushing is opt-in, and agent code never drives CI by itself.**
+  - `writeEnabled` is off until the founder ticks "Push agents' saved code to this repository". The dialog warns that a push can start CI and preview deploys with their secrets.
+  - Commits carry `[skip ci]` and no task title.
+  - `commit_files` refuses paths under `.github` (workflows, composite actions); the push leaves them out and says so.
+  - A session that was stopped, looped or failed is saved but not pushed.
+  - `commit_files` writes only `agent/<name>` branches of private repositories.
+  - "Forget repository" clears the repository and pushing with no fallback; `config.repo` is no longer read.
+  - A different installation forgets the chosen repository.
+  - Commit links render only for `https://github.com/` pages.
+- **Bounded.**
+  - `commit_files` takes at most 300 files and 10 MB, with base64 sizes computed without decoding. Text goes inline in the tree (one request); only binary files become blobs, four at a time. At most four commits run at once per gateway.
+  - Pushes get 120 s.
+  - Gateway bodies are limited: 16 MB on `/v1/call`, 4 MB on `/mcp`, 1 MB on the service routes.
+  - The GitHub mock keeps a separate world per business: 20 MB of written files each, oldest branch dropped first, at most 200 businesses.
+- **Not done here.** Pushing to a fork instead of the founder's repository (stronger isolation from CI secrets), and an opt-in for public repositories.
+
+## 2026-10-09 — The api mounts tRPC's fetch adapter directly
+
+`@hono/trpc-server` 0.4.2 spreads `env: c.env` (Hono's Node bindings) over the context `createContext` returns, so every `ctx.env` read over HTTP was `undefined`.
+
+- `integrations.list` returned `mode: null`.
+- `billing` and `legal` took their live branches in mock mode.
+- `keys` marked mock keys connected.
+- `connectorMode(ctx.env, …)` crashed Settings › Integrations.
+
+Tests never saw it because they call procedures in process. The api now mounts `fetchRequestHandler` from `@trpc/server/adapters/fetch` itself and drops the dependency. An HTTP-level test asserts a procedure reads the api's environment.
+
+## 2026-10-09 — The wordmark replaces the FM mark in the product (founder)
+
+FM is only the favicon, the app icon and the `public/brand` files. The Wordmark appears alone at these cap heights:
+
+| Place | Cap height |
+| --- | --- |
+| Sidebar foot | 12 px (the DESIGN §8a floor) |
+| Landing header | 20 px |
+| First-run header | 20 px |
+| Login lock-up | 28 px |
+
+- The wordmark is not an icon-shaped sidebar item: `Sidebar` takes a `brand` prop. This supersedes the 2026-10-07 decision to render the foot item with `brandMarkIcon`.
+- The collapsed sidebar shows no brand.
+- The landing page's closing call to action and `NeedsLargerWindow` carry no mark.
+- `LogoMark` stays in Dugout and Storybook only because the favicon art derives from it; `apps/web/lib/__tests__/brand-marks.test.ts` guards that.
+- Sidebar rows drop `outline-none`, so the global `:focus-visible` ring shows. Keyboard focus had been invisible on every sidebar item.
+- A business with an empty name still falls back to "FM" initials in its own generated logo (`monogram()`, `CrestKitEditor`). Those are the business's initials, not the Foundmill mark.
+
+## 2026-10-09 — Import drafts one concept card, not a set
+
+"Continue to Commit" needs one card for a business that already exists, so `idea.generate` takes `single: true`: the prompt asks for exactly one card describing the imported business, on a 4,000-token budget. The Ideation Studio keeps 6–12 cards with a 20,000-token budget; the 4,096 default had cut live drafts off mid-JSON.

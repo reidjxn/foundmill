@@ -5,21 +5,26 @@
  *   GET  /health                   liveness + what this replica runs (mode, connectors, policy, vault)
  *   GET  /v1/connectors            catalogue: phase, auth kind, tools, policyHints (public within the private network)
  *   POST /v1/session-tokens        service JWT → session JWT for one agent session
+ *   POST /v1/integrations/connect  service JWT → connect an App connector (GitHub) whose keys only the gateway holds
+ *   POST /v1/integrations/health   service JWT → that integration's health check
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   ALL  /mcp/:connector           session JWT → that connector's tools as an MCP streamable-HTTP server
  */
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { ZodError, z } from "zod";
 import { APP_NAME } from "@foundmill/config";
-import { AppError, UnauthorizedError } from "@foundmill/shared";
+import { AppError, NotFoundError, UnauthorizedError } from "@foundmill/shared";
+import { isConfigError, type Connector } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
 import { bearerToken, mintSessionToken, verifyServiceToken, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
-import { executeToolCall, GatewayError, type GatewayDeps } from "./pipeline";
+import { toIntegrationRecord } from "./credentials";
+import { executeToolCall, GatewayError, modeFor, type GatewayDeps } from "./pipeline";
 import { handleMcpRequest } from "./mcp";
 import { toCandidates } from "./recipients";
 import { STATE_ERROR_CODES, stateDenial } from "./state";
-import { CallRequest, MintSessionTokenRequest, type GatewayErrorBody, type HealthResponse, type MintSessionTokenResponse } from "./types";
+import { CallRequest, ConnectIntegrationRequest, IntegrationHealthRequest, MintSessionTokenRequest, type GatewayErrorBody, type HealthResponse, type MintSessionTokenResponse } from "./types";
 import { DEFAULT_SESSION_TTL_SECONDS, MAX_SESSION_TTL_SECONDS } from "./config";
 
 export interface GatewayAppOptions {
@@ -31,6 +36,11 @@ export interface GatewayAppOptions {
   /** For `/health`: whether the database answered at boot (see db-boot.ts). Defaults to true. */
   dbReady?: () => boolean;
 }
+
+/** Largest body per route (see the limits in createGatewayApp). */
+export const MAX_CALL_BODY_BYTES = 16 * 1024 * 1024;
+export const MAX_MCP_BODY_BYTES = 4 * 1024 * 1024;
+export const MAX_SERVICE_BODY_BYTES = 1024 * 1024;
 
 type Variables = { session: SessionToken; service: ServiceToken };
 export type GatewayApp = Hono<{ Variables: Variables }>;
@@ -57,6 +67,14 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
 
   app.notFound((c) => c.json(errorBody("not_found", `No route for ${c.req.method} ${c.req.path}`), 404));
 
+  // Request bodies are bounded before anything parses them: a direct call can carry one commit_files push (10 MB of
+  // files, base64 in JSON), an agent's MCP call far less, the service routes a few kilobytes.
+  const limit = (maxSize: number) => bodyLimit({ maxSize, onError: (c) => c.json(errorBody("payload_too_large", `Request body is larger than ${Math.round(maxSize / 1024)} KB`), 413) });
+  app.use("/v1/call", limit(MAX_CALL_BODY_BYTES));
+  app.use("/mcp/*", limit(MAX_MCP_BODY_BYTES));
+  app.use("/v1/session-tokens", limit(MAX_SERVICE_BODY_BYTES));
+  app.use("/v1/integrations/*", limit(MAX_SERVICE_BODY_BYTES));
+
   app.get("/health", (c) => {
     const engine = getPolicyEngine();
     const db = options.dbReady ? options.dbReady() : true;
@@ -78,12 +96,14 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.get("/v1/connectors", (c) => c.json({ mode: deps.mode, connectors: deps.registry.catalogue(deps.mode) }));
 
   // --- service auth -------------------------------------------------------------------------------------------
-  app.use("/v1/session-tokens", async (c, next) => {
+  const requireService = async (c: { req: { header(name: string): string | undefined }; set(key: "service", value: ServiceToken): void }, next: () => Promise<void>) => {
     const token = bearerToken(c.req.header("authorization"));
     if (!token) throw new UnauthorizedError("A service Bearer token is required");
     c.set("service", await verifyServiceToken(secret, token));
     await next();
-  });
+  };
+  app.use("/v1/session-tokens", requireService);
+  app.use("/v1/integrations/*", requireService);
 
   app.post("/v1/session-tokens", async (c) => {
     const input = MintSessionTokenRequest.parse(await c.req.json());
@@ -119,6 +139,53 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     });
     const body: MintSessionTokenResponse = { token: minted.token, expiresAt: minted.expiresAt, jti: minted.jti };
     return c.json(body, 201);
+  });
+
+  // --- App connectors: connect and health run here, where the App's keys are (BUILD §2.1 rule 2) ---------------
+  const appConnector = (key: string): Connector => {
+    let connector: Connector;
+    try {
+      connector = deps.registry.get(key, modeFor(deps, key));
+    } catch (e) {
+      if (e instanceof NotFoundError) throw new GatewayError("unknown_connector", `Unknown connector "${key}"`, 404, { connector: key });
+      throw e;
+    }
+    if (connector.auth.kind !== "app") throw new GatewayError("not_app_connector", `${connector.displayName} is not connected through the gateway`, 400, { connector: key });
+    return connector;
+  };
+  const vendorFailure = (e: unknown, connector: string): never => {
+    if (isConfigError(e)) throw new GatewayError("connector_unconfigured", e.message, 503, { connector });
+    if (e instanceof AppError) throw e;
+    const status = (e as { status?: unknown }).status;
+    throw new GatewayError("vendor_error", typeof status === "number" ? `${connector} answered ${status}` : `${connector} could not be reached`, 502, { connector });
+  };
+
+  app.post("/v1/integrations/connect", async (c) => {
+    const input = ConnectIntegrationRequest.parse(await c.req.json());
+    const connector = appConnector(input.connector);
+    await repos.businesses.get(deps.db, input.businessId).catch(() => {
+      throw new GatewayError("business_not_found", `business ${input.businessId} is not available to this gateway`, 404);
+    });
+    const record = await connector.connect(input.businessId, input.input).catch((e: unknown) => vendorFailure(e, connector.key));
+    const { credentialToStore: _never, ...safe } = record;
+    if (record.status !== "disconnected") {
+      await repos.audit.append(deps.db, input.businessId, {
+        actorKind: "system",
+        action: "gateway.integration.connected",
+        target: { connector: connector.key },
+        details: { service: c.var.service.svc, status: record.status, externalAccountId: record.externalAccountId, verifiedBy: (record.config as { verifiedBy?: unknown }).verifiedBy ?? null },
+      });
+    }
+    return c.json({ mode: modeFor(deps, connector.key), record: safe });
+  });
+
+  app.post("/v1/integrations/health", async (c) => {
+    const input = IntegrationHealthRequest.parse(await c.req.json());
+    const connector = appConnector(input.connector);
+    const row = await repos.integrations.getByKey(deps.db, input.businessId, connector.key);
+    if (!row || row.archivedAt !== null) throw new GatewayError("integration_not_connected", `${connector.displayName} is not connected for this business`, 409, { connector: connector.key });
+    const health = await connector.healthcheck(toIntegrationRecord(row, null)).catch((e: unknown) => vendorFailure(e, connector.key));
+    return c.json({ health });
   });
 
   // --- session auth -------------------------------------------------------------------------------------------

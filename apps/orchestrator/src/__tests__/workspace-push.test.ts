@@ -1,6 +1,7 @@
 /**
- * Saved code goes to GitHub (activities/workspace-push.ts): pushed through the gateway with commit_files, only what
- * changed since the last pushed save, one commit per session, the outcome recorded on the save. The gateway here is a
+ * Saved code goes to GitHub (activities/workspace-push.ts): pushed through the gateway with commit_files once the founder
+ * turned pushing on, only what changed since the last pushed save, one commit per finished session, never .github, the
+ * outcome recorded on the save. The gateway here is a
  * stand-in that runs the real GitHub mock connector, so branch contents can be read back.
  */
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
@@ -48,7 +49,7 @@ async function save(taskId: string, files: Record<string, string>): Promise<Work
 describe("pushWorkspace", () => {
   it("skips when GitHub is not connected or no repository is chosen", async () => {
     const { gateway, offline } = githubGateway();
-    const ctx: PushContext = { businessId: t.businessId, taskId: t.codeTaskId, sessionId: await openSessionRow(t, t.workerId, t.codeTaskId), agentId: t.workerId, branch: `agent/${t.codeTaskId}`, taskTitle: "Build onboarding", agentName: "Worker" };
+    const ctx: PushContext = { businessId: t.businessId, taskId: t.codeTaskId, sessionId: await openSessionRow(t, t.workerId, t.codeTaskId), agentId: t.workerId, branch: `agent/${t.codeTaskId}`, agentName: "Worker" };
     const snapshot = await save(t.codeTaskId, { "a.ts": "1" });
     expect(await pushWorkspace(t.deps.db, gateway, ctx, snapshot)).toEqual({ status: "skipped", reason: "connect GitHub and choose a repository on Development › Code" });
     expect(offline.calls).toEqual([]);
@@ -56,10 +57,10 @@ describe("pushWorkspace", () => {
   });
 
   it("pushes the first save whole, then only what changed, one commit per session, and records each", async () => {
-    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop" } });
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
     const taskId = t.fixture.taskIds[0]!;
     const { gateway, offline, readFile } = githubGateway();
-    const ctx = (sessionId: string): PushContext => ({ businessId: t.businessId, taskId, sessionId, agentId: t.workerId, branch: `agent/${taskId}`, taskTitle: "Order webhook hardening", agentName: "Worker" });
+    const ctx = (sessionId: string): PushContext => ({ businessId: t.businessId, taskId, sessionId, agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker" });
 
     const first = await save(taskId, { "src/verify.ts": "v1", "README.md": "# Notes", "old.txt": "old" });
     const s1 = await openSessionRow(t, t.workerId, taskId);
@@ -68,7 +69,8 @@ describe("pushWorkspace", () => {
     expect(offline.minted.at(-1)).toMatchObject({ allowedTools: ["github:commit_files"], ttlSeconds: 300, sessionId: s1, agentId: t.workerId });
     const call = offline.calls.at(-1)!;
     expect(call).toMatchObject({ connector: "github", tool: "commit_files", args: { owner: "acme", repo: "shop", branch: `agent/${taskId}`, deletions: [] } });
-    expect(call.args.message).toMatch(/^Order webhook hardening\n\nSaved by Worker at the end of a session \(3 added, 0 changed, 0 removed\)\./);
+    // No task title (the founder's words stay here), and CI does not run on agent code.
+    expect(call.args.message).toBe(`Code saved by Worker at the end of a session (3 added, 0 changed, 0 removed)\n\nFoundmill task ${taskId}, session ${s1}.\n\n[skip ci]`);
     expect(await readFile("src/verify.ts", `agent/${taskId}`)).toBe("v1");
     expect((await repos.workspaces.getSnapshot(t.db, t.businessId, first.id))).toMatchObject({ pushedRepo: "acme/shop", pushedBranch: `agent/${taskId}`, pushedCommitSha: (one as { commitSha: string }).commitSha, pushError: null });
 
@@ -91,7 +93,7 @@ describe("pushWorkspace", () => {
 
   it("records a refusal, an approval wait or an error on the save, and the next push tries again", async () => {
     const taskId = t.fixture.taskIds[1]!;
-    const ctx = async (): Promise<PushContext> => ({ businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, taskTitle: "Billing page", agentName: "Worker" });
+    const ctx = async (): Promise<PushContext> => ({ businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker" });
     const snapshot = await save(taskId, { "page.tsx": "x" });
 
     const denied = await pushWorkspace(t.deps.db, githubGateway(() => ({ outcome: "deny", reasons: ["paused agent"] })).gateway, await ctx(), snapshot);
@@ -113,13 +115,39 @@ describe("pushWorkspace", () => {
     expect((await repos.workspaces.getSnapshot(t.db, t.businessId, snapshot.id))).toMatchObject({ pushError: null, pushedCommitSha: (ok as { commitSha: string }).commitSha });
   });
 
-  it("does not push when the founder turned pushing off for the repository", async () => {
-    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: false } });
+  it("does not push a session that was stopped, looped or failed, a branch that is not the task's, or more than one push carries", async () => {
+    const taskId = t.fixture.taskIds[3] ?? t.codeTaskId;
+    const { gateway, offline } = githubGateway();
+    const snapshot = await save(taskId, { "a.ts": "1" });
+    const ctx = async (extra: Partial<PushContext> = {}): Promise<PushContext> => ({ businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker", ...extra });
+    expect(await pushWorkspace(t.deps.db, gateway, await ctx({ holdBack: "the session was stopped" }), snapshot)).toEqual({ status: "skipped", reason: "the session was stopped" });
+    expect(describePush({ status: "skipped", reason: "the session was stopped" })?.text).toBe("Not pushed to GitHub: the session was stopped. The code is saved on Development › Code.");
+    expect(await pushWorkspace(t.deps.db, gateway, await ctx({ branch: "main" }), snapshot)).toEqual({ status: "skipped", reason: "main is not this task's branch" });
+    expect(offline.calls).toEqual([]);
+
+    const many = await save(taskId, Object.fromEntries(Array.from({ length: 301 }, (_, i) => [`src/f${i}.ts`, `export const v = ${i};`])));
+    expect(await pushWorkspace(t.deps.db, gateway, await ctx(), many)).toMatchObject({ status: "failed", reason: "301 changed files (0.0 MB) are more than one push carries (300 files, 10 MB)" });
+    expect(offline.calls).toEqual([]);
+  });
+
+  it("never sends files under .github, and says so", async () => {
+    const taskId = t.fixture.taskIds[4] ?? t.codeTaskId;
+    const { gateway, offline, readFile } = githubGateway();
+    const snapshot = await save(taskId, { "src/app.ts": "app", ".github/workflows/ci.yml": "on: push", ".github/actions/setup/action.yml": "runs: x" });
+    const r = await pushWorkspace(t.deps.db, gateway, { businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker" }, snapshot);
+    expect(r).toMatchObject({ status: "pushed", filesWritten: 1, leftOut: 2 });
+    expect((offline.calls.at(-1)!.args as { files: { path: string }[] }).files.map((f) => f.path)).toEqual(["src/app.ts"]);
+    expect(await readFile(".github/workflows/ci.yml", `agent/${taskId}`)).toBeNull();
+    expect(describePush(r)?.text).toMatch(/2 files under \.github stayed here: agents never change a repository's workflows\.$/);
+  });
+
+  it("does not push until the founder turns pushing on for the repository", async () => {
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop" } });
     const taskId = t.fixture.taskIds[2]!;
     const { gateway, offline } = githubGateway();
     const snapshot = await save(taskId, { "a.ts": "1" });
-    expect(await pushWorkspace(t.deps.db, gateway, { businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, taskTitle: "x", agentName: "Worker" }, snapshot)).toEqual({ status: "skipped", reason: "pushing to acme/shop is turned off" });
+    expect(await pushWorkspace(t.deps.db, gateway, { businessId: t.businessId, taskId, sessionId: await openSessionRow(t, t.workerId, taskId), agentId: t.workerId, branch: `agent/${taskId}`, agentName: "Worker" }, snapshot)).toEqual({ status: "skipped", reason: "pushing to acme/shop is turned off (Development › Code)" });
     expect(offline.calls).toEqual([]);
-    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop" } });
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
   });
 });

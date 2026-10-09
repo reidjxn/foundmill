@@ -49,6 +49,18 @@ export const UntrustedSeed = z.object({
 });
 export type UntrustedSeed = z.input<typeof UntrustedSeed>;
 
+/** Service call: connect an App connector (GitHub) for a business; its keys live only in the gateway. */
+export const ConnectIntegrationRequest = z.object({
+  businessId: z.uuid(),
+  connector: z.string().regex(/^[a-z][a-z0-9_]{1,40}$/),
+  input: z.record(z.string(), z.unknown()).default({}),
+});
+export type ConnectIntegrationRequest = z.input<typeof ConnectIntegrationRequest>;
+
+/** Service call: health of a business's App connector integration. */
+export const IntegrationHealthRequest = z.object({ businessId: z.uuid(), connector: z.string().regex(/^[a-z][a-z0-9_]{1,40}$/) });
+export type IntegrationHealthRequest = z.input<typeof IntegrationHealthRequest>;
+
 export const MintSessionTokenRequest = SessionClaims.extend({
   ttlSeconds: z.number().int().positive().optional(),
   untrusted: UntrustedSeed.optional(),

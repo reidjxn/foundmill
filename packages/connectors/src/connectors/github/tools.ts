@@ -2,8 +2,9 @@
  * GitHub App connector: repositories the installation can reach, tree/file reads (quarantined — repo
  * content is third-party text), branches, commits to working branches, pull requests. Merging is
  * `irreversible` (never spends money); deleting a repository or force-pushing over history would be permanent
- * deletion and is not offered. `commit_files` only fast-forwards a working branch and never writes the default
- * branch, so a commit can always be reverted and the default branch changes only through `merge_pr`.
+ * deletion and is not offered. `commit_files` only fast-forwards an `agent/` branch of a private repository and never
+ * touches `.git` or `.github`, so a commit can always be reverted, cannot change the repository's workflows or
+ * actions, and the default branch changes only through `merge_pr`.
  */
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -14,7 +15,12 @@ export const GITHUB_API_URL = "https://api.github.com";
 export const GITHUB_APP_SCOPES = ["contents:write", "pull_requests:write", "metadata:read"];
 
 const Owner = z.string().min(1).max(100).regex(/^[A-Za-z0-9-]+$/, "GitHub owner");
-const RepoName = z.string().min(1).max(100).regex(/^[A-Za-z0-9_.-]+$/, "GitHub repository name");
+const RepoName = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[A-Za-z0-9_.-]+$/, "GitHub repository name")
+  .refine((n) => n !== "." && n !== "..", "GitHub repository name");
 const Ref = z.string().min(1).max(250);
 const BranchName = z.string().min(1).max(250).regex(/^(?!\/)(?!.*\.\.)(?!.*\/\/)[^\s~^:?*[\\]+(?<!\/)(?<!\.lock)$/, "git branch name");
 const Path = z.string().max(1000).regex(/^(?!\/)(?!.*\.\.(\/|$))/, "relative path");
@@ -58,26 +64,42 @@ export type PullRequestT = z.infer<typeof PullRequest>;
 
 const RepoRef = z.object({ owner: Owner, repo: RepoName });
 
-/** Files and bytes one `commit_files` call may carry (the session workspace caps). */
-export const MAX_COMMIT_FILES = 2_000;
-export const MAX_COMMIT_BYTES = 50 * 1024 * 1024;
+/**
+ * Files and bytes one `commit_files` call may carry: enough for a session's source changes, small enough that the
+ * gateway holds a few at once and GitHub's limits on creating content are not reached.
+ */
+export const MAX_COMMIT_FILES = 300;
+export const MAX_COMMIT_BYTES = 10 * 1024 * 1024;
 export const MAX_COMMIT_FILE_BYTES = 5 * 1024 * 1024;
 
-/** A path git and GitHub accept: relative, no empty, "." or ".." segment, nothing inside `.git`. */
-export const isCommitPath = (path: string): boolean => path.length > 0 && path.length <= 1000 && !path.startsWith("/") && !path.includes("\0") && path.split("/").every((seg) => seg.length > 0 && seg !== "." && seg !== ".." && seg.toLowerCase() !== ".git");
-const CommitPath = z.string().refine(isCommitPath, "relative path outside .git");
-export const FileWrite = z.object({ path: CommitPath, content: z.string().max(Math.ceil((MAX_COMMIT_FILE_BYTES * 4) / 3) + 4), encoding: z.enum(["utf-8", "base64"]).default("utf-8") });
+/** The only branches `commit_files` writes: an agent's working branch (`agent/<task id>`), never a deploy branch. */
+export const AGENT_BRANCH = /^agent\/(?!.*\.\.)[A-Za-z0-9][A-Za-z0-9._-]{0,99}(?<!\.lock)(?<!\.)$/;
+
+/**
+ * A path `commit_files` writes or deletes: relative, no empty, "." or ".." segment, nothing inside `.git`, and nothing
+ * under `.github` (workflows and local actions run with the repository's secrets on every push).
+ */
+export const isCommitPath = (path: string): boolean => {
+  if (path.length === 0 || path.length > 1000 || path.startsWith("/") || path.includes("\0")) return false;
+  const segments = path.split("/");
+  return segments[0]!.toLowerCase() !== ".github" && segments.every((seg) => seg.length > 0 && seg !== "." && seg !== ".." && seg.toLowerCase() !== ".git");
+};
+const CommitPath = z.string().refine(isCommitPath, "relative path outside .git and .github");
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+export const FileWrite = z
+  .object({ path: CommitPath, content: z.string().max(Math.ceil((MAX_COMMIT_FILE_BYTES * 4) / 3) + 4), encoding: z.enum(["utf-8", "base64"]).default("utf-8") })
+  .refine((f) => f.encoding !== "base64" || BASE64.test(f.content), { message: "content is not base64", path: ["content"] });
 export type FileWriteT = z.infer<typeof FileWrite>;
 
-/** Decoded size of one file write. */
-export const fileWriteBytes = (f: Pick<FileWriteT, "content" | "encoding">): number => (f.encoding === "base64" ? Buffer.from(f.content, "base64").byteLength : Buffer.byteLength(f.content, "utf8"));
+/** Decoded size of one file write, without decoding it (base64 is checked well-formed above). */
+export const fileWriteBytes = (f: Pick<FileWriteT, "content" | "encoding">): number => (f.encoding === "base64" ? (f.content.length / 4) * 3 - (f.content.endsWith("==") ? 2 : f.content.endsWith("=") ? 1 : 0) : Buffer.byteLength(f.content, "utf8"));
 export const fileWriteBuffer = (f: Pick<FileWriteT, "content" | "encoding">): Buffer => (f.encoding === "base64" ? Buffer.from(f.content, "base64") : Buffer.from(f.content, "utf8"));
 
 /** The sha git gives a blob (`git hash-object`), so unchanged files are never uploaded again. */
 export const gitBlobSha = (content: Uint8Array): string => createHash("sha1").update(`blob ${content.byteLength}\0`).update(content).digest("hex");
 
 export const CommitFilesInput = RepoRef.extend({
-  branch: BranchName,
+  branch: z.string().regex(AGENT_BRANCH, "an agent/ working branch"),
   /** Where a missing branch starts (default: the default branch). Ignored when the branch exists. */
   fromRef: Ref.optional(),
   message: z.string().min(1).max(5_000),
@@ -93,7 +115,7 @@ export const CommitFilesInput = RepoRef.extend({
     if (bytes > MAX_COMMIT_FILE_BYTES) ctx.addIssue({ code: "custom", path: ["files"], message: `${f.path} is larger than 5 MB` });
     total += bytes;
   }
-  if (total > MAX_COMMIT_BYTES) ctx.addIssue({ code: "custom", path: ["files"], message: "the commit is larger than 50 MB" });
+  if (total > MAX_COMMIT_BYTES) ctx.addIssue({ code: "custom", path: ["files"], message: "the commit is larger than 10 MB" });
   for (const d of input.deletions) if (seen.has(d)) ctx.addIssue({ code: "custom", path: ["deletions"], message: `${d} is both written and deleted` });
 });
 
@@ -153,7 +175,7 @@ export const githubTools = [
   }),
   defineTool({
     name: "commit_files",
-    description: "Write files to a working branch as one commit: the branch is created from fromRef (default: the default branch) when missing, the files are added or replaced on top of it and the deletions removed. Only changed files are uploaded; nothing changed means no commit. Never writes the default branch (merge a pull request with merge_pr) and never force-pushes.",
+    description: "Write files to an agent's working branch (agent/<name>) of a private repository as one commit: the branch is created from fromRef (default: the default branch) when missing, the files are added or replaced on top of it and the deletions removed. At most 300 files and 10 MB; nothing under .git or .github. Only changed files are uploaded; nothing changed means no commit. Never writes the default branch (merge a pull request with merge_pr) and never force-pushes.",
     input: CommitFilesInput,
     output: CommitFilesOutput,
     hints: {},

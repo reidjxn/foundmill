@@ -3,36 +3,45 @@
  * agent's branch (`agent/<taskId>`) of the repository the business chose (Development › Code), through the gateway's
  * GitHub connector (`commit_files`), never by calling GitHub from here.
  *
+ * - Off until the founder turns pushing on for the repository: a push runs the repository's CI and preview deploys on
+ *   code an agent wrote. Commits carry `[skip ci]`, files under `.github` (workflows, local actions) are never sent, and
+ *   a session that was stopped, looped or failed is not pushed at all.
  * - One commit per session, carrying only what changed since the last save that reached the repository (its files are
- *   the diff base; the first push sends every file and deletes nothing that was already in the repository).
+ *   the diff base; the first push sends every file and deletes nothing that was already in the repository), within
+ *   `commit_files`' limits (300 files, 10 MB).
  * - The token is minted for this call alone (`github:commit_files`, five minutes), so the push goes through the same
  *   policy, audit, rate limits and credentials as any agent tool call.
- * - `commit_files` never writes the default branch and never force-pushes; merging stays a pull request.
+ * - `commit_files` writes only `agent/` branches of private repositories and never force-pushes; merging stays a pull
+ *   request. The message names the agent and the task id, not the task's title (the founder's words stay here).
  * - The result is recorded on the save (commit and link, or why not). A save that did not reach GitHub is pushed again
  *   when the next session on the task ends. A failed push never fails the session.
  */
+import { isCommitPath, MAX_COMMIT_BYTES, MAX_COMMIT_FILES } from "@foundmill/connectors/connectors/github/tools";
 import { repos, type Db, type WorkspaceSnapshot } from "@foundmill/db";
 import type { GatewayClient } from "../gateway-client";
 import type { WorkspaceOwner } from "./workspace-store";
 
 export type PushResult =
-  | { status: "pushed"; repo: string; branch: string; commitSha: string; url: string | null; filesWritten: number; filesDeleted: number }
+  | { status: "pushed"; repo: string; branch: string; commitSha: string; url: string | null; filesWritten: number; filesDeleted: number; leftOut: number }
   | { status: "up_to_date"; repo: string; branch: string; commitSha: string }
   | { status: "skipped"; reason: string }
   | { status: "awaiting_approval"; repo: string; branch: string; approvalId: string | null }
   | { status: "failed"; repo: string; branch: string; reason: string };
 
 export interface PushContext extends WorkspaceOwner {
-  taskTitle: string;
   agentName: string;
+  /** Why this session's save is not pushed (stopped, looped, failed); null pushes it. */
+  holdBack?: string | null;
 }
 
 /** Lifetime of the token minted for one push. */
 export const PUSH_TOKEN_TTL_SECONDS = 300;
+/** How long one push may take end to end (up to 300 files through the gateway to GitHub). */
+export const PUSH_TIMEOUT_MS = 120_000;
 
 export function pushMessage(ctx: PushContext, snapshot: Pick<WorkspaceSnapshot, "added" | "changed" | "removed">): string {
   const counts = [`${snapshot.added} added`, `${snapshot.changed} changed`, `${snapshot.removed} removed`].join(", ");
-  return `${ctx.taskTitle.slice(0, 120)}\n\nSaved by ${ctx.agentName} at the end of a session (${counts}).\n\nFoundmill task ${ctx.taskId}, session ${ctx.sessionId}.`;
+  return `Code saved by ${ctx.agentName.slice(0, 80)} at the end of a session (${counts})\n\nFoundmill task ${ctx.taskId}, session ${ctx.sessionId}.\n\n[skip ci]`;
 }
 
 interface CommitFilesData {
@@ -47,9 +56,11 @@ interface CommitFilesData {
 export async function pushWorkspace(db: Db, gateway: GatewayClient, ctx: PushContext, snapshot: WorkspaceSnapshot): Promise<PushResult> {
   const target = await repos.integrations.codeRepository(db, ctx.businessId);
   if (!target) return { status: "skipped", reason: "connect GitHub and choose a repository on Development › Code" };
-  if (!target.writeEnabled) return { status: "skipped", reason: `pushing to ${target.fullName} is turned off` };
+  if (!target.writeEnabled) return { status: "skipped", reason: `pushing to ${target.fullName} is turned off (Development › Code)` };
+  if (ctx.holdBack) return { status: "skipped", reason: ctx.holdBack };
   const repo = target.fullName;
   const branch = ctx.branch;
+  if (branch !== `agent/${ctx.taskId}`) return { status: "skipped", reason: `${branch} is not this task's branch` };
   if (snapshot.pushedRepo === repo && snapshot.pushedCommitSha) return { status: "up_to_date", repo, branch, commitSha: snapshot.pushedCommitSha };
 
   const record = async (push: { commitSha: string; url: string | null } | { error: string }) => {
@@ -62,23 +73,36 @@ export async function pushWorkspace(db: Db, gateway: GatewayClient, ctx: PushCon
 
   try {
     const base = await repos.workspaces.lastPushed(db, ctx.businessId, ctx.taskId, repo);
-    const before = new Map((base?.files ?? []).map((f) => [f.path, f.sha256] as const));
-    const now = new Set(snapshot.files.map((f) => f.path));
-    const writes = snapshot.files.filter((f) => before.get(f.path) !== f.sha256);
+    // Only paths commit_files accepts: nothing under .git or .github ever leaves for the repository.
+    const pushable = snapshot.files.filter((f) => isCommitPath(f.path));
+    const leftOut = snapshot.files.length - pushable.length;
+    const before = new Map((base?.files ?? []).filter((f) => isCommitPath(f.path)).map((f) => [f.path, f.sha256] as const));
+    const now = new Set(pushable.map((f) => f.path));
+    const writes = pushable.filter((f) => before.get(f.path) !== f.sha256);
     const deletions = [...before.keys()].filter((p) => !now.has(p));
     if (base?.pushedCommitSha && writes.length === 0 && deletions.length === 0) {
       await record({ commitSha: base.pushedCommitSha, url: base.pushedUrl });
       return { status: "up_to_date", repo, branch, commitSha: base.pushedCommitSha };
     }
+    const bytes = writes.reduce((n, f) => n + f.size, 0);
+    if (writes.length > MAX_COMMIT_FILES || deletions.length > MAX_COMMIT_FILES || bytes > MAX_COMMIT_BYTES) {
+      const reason = `${writes.length} changed files (${(bytes / (1024 * 1024)).toFixed(1)} MB) are more than one push carries (${MAX_COMMIT_FILES} files, ${MAX_COMMIT_BYTES / (1024 * 1024)} MB)`;
+      await record({ error: reason });
+      return { status: "failed", repo, branch, reason };
+    }
     const contents = writes.length > 0 ? await repos.workspaces.readFiles(db, ctx.businessId, snapshot, writes.map((f) => f.path)) : [];
     if (contents.length !== writes.length) throw new Error("some saved files could not be read back");
 
     const token = await gateway.mintSessionToken({ businessId: ctx.businessId, agentId: ctx.agentId, sessionId: ctx.sessionId, allowedTools: ["github:commit_files"], ttlSeconds: PUSH_TOKEN_TTL_SECONDS });
-    const res = await gateway.call(token.token, {
-      connector: "github",
-      tool: "commit_files",
-      args: { owner: target.owner, repo: target.repo, branch, message: pushMessage(ctx, snapshot), files: contents.map((f) => ({ path: f.path, content: Buffer.from(f.content).toString("base64"), encoding: "base64" })), deletions },
-    });
+    const res = await gateway.call(
+      token.token,
+      {
+        connector: "github",
+        tool: "commit_files",
+        args: { owner: target.owner, repo: target.repo, branch, message: pushMessage(ctx, snapshot), files: contents.map((f) => ({ path: f.path, content: Buffer.from(f.content).toString("base64"), encoding: "base64" })), deletions },
+      },
+      { timeoutMs: PUSH_TIMEOUT_MS },
+    );
     if (res.outcome === "ask") {
       await record({ error: "waiting for the founder's approval" });
       return { status: "awaiting_approval", repo, branch, approvalId: res.approvalId ?? null };
@@ -96,7 +120,7 @@ export async function pushWorkspace(db: Db, gateway: GatewayClient, ctx: PushCon
     }
     await record({ commitSha: result.data.sha, url: result.data.url });
     if (!result.data.committed) return { status: "up_to_date", repo, branch, commitSha: result.data.sha };
-    return { status: "pushed", repo, branch, commitSha: result.data.sha, url: result.data.url, filesWritten: result.data.filesWritten, filesDeleted: result.data.filesDeleted };
+    return { status: "pushed", repo, branch, commitSha: result.data.sha, url: result.data.url, filesWritten: result.data.filesWritten, filesDeleted: result.data.filesDeleted, leftOut };
   } catch (err) {
     const reason = (err as Error).message.slice(0, 300) || "the push failed";
     await record({ error: reason });
@@ -108,7 +132,7 @@ export async function pushWorkspace(db: Db, gateway: GatewayClient, ctx: PushCon
 export function describePush(push: PushResult): { level: "info" | "warn"; text: string } | null {
   switch (push.status) {
     case "pushed":
-      return { level: "info", text: `Pushed to ${push.branch} on ${push.repo}: ${push.filesWritten} file${push.filesWritten === 1 ? "" : "s"} written, ${push.filesDeleted} removed (commit ${push.commitSha.slice(0, 7)}).` };
+      return { level: "info", text: `Pushed to ${push.branch} on ${push.repo}: ${push.filesWritten} file${push.filesWritten === 1 ? "" : "s"} written, ${push.filesDeleted} removed (commit ${push.commitSha.slice(0, 7)}).${push.leftOut ? ` ${push.leftOut} file${push.leftOut === 1 ? "" : "s"} under .github stayed here: agents never change a repository's workflows.` : ""}` };
     case "up_to_date":
       return null;
     case "skipped":

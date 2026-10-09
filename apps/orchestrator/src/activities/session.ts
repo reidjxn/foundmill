@@ -640,6 +640,8 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   let paused = false;
   let stoppedBy: { reason: string } | null = null;
   let loopTripped = false;
+  /** Why this session's code is not pushed: stays set unless the session finishes (or waits on an approval). */
+  let holdBack: string | null = "the session did not finish";
   let sdkSessionId: string | null = null;
   let tokensIn = 0;
   let tokensOut = 0;
@@ -771,17 +773,25 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     const acceptanceCommand = acceptanceCommandFor(task);
     if (acceptanceCommand) await runAcceptance(deps, recorder, sandbox, cwd, acceptanceCommand);
     const usage = { tokensIn, tokensOut, costMinor: Math.round(costUsdCents) };
-    if (loopTripped) return { outcome: "failed", reason: "loop detected: the same tool call repeated three times", blockedReason: "loop_detected", approvalId: null, summary: "Stopped after a detected loop.", providerSessionId: sdkSessionId, ...usage };
+    if (loopTripped) {
+      holdBack = "the session stopped on a loop";
+      return { outcome: "failed", reason: "loop detected: the same tool call repeated three times", blockedReason: "loop_detected", approvalId: null, summary: "Stopped after a detected loop.", providerSessionId: sdkSessionId, ...usage };
+    }
     const stop = stoppedBy as { reason: string } | null;
-    if (stop) return { outcome: "stopped", reason: stop.reason, blockedReason: "stopped", approvalId: null, summary: `Stopped: ${stop.reason}.`, providerSessionId: sdkSessionId, ...usage };
+    if (stop) {
+      holdBack = "the session was stopped";
+      return { outcome: "stopped", reason: stop.reason, blockedReason: "stopped", approvalId: null, summary: `Stopped: ${stop.reason}.`, providerSessionId: sdkSessionId, ...usage };
+    }
+    holdBack = null;
     if (recorder.pendingApprovalId) return { outcome: "blocked", reason: "waiting for the founder's approval", blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: "Blocked on an approval.", providerSessionId: sdkSessionId, ...usage };
     return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}" with ${recorder.toolCalls} tool calls.`, providerSessionId: sdkSessionId, ...usage };
   } finally {
     clearInterval(timer);
     cancel?.removeEventListener("abort", onCancel);
     queue.close();
-    // Keep the code whatever the outcome (done, stopped, failed): the workspace itself is deleted next.
-    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, taskTitle: task.title, agentName: agent.name }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed });
+    // Keep the code whatever the outcome (done, stopped, failed): the workspace itself is deleted next. Only a session
+    // that finished (or waits on an approval) is pushed to GitHub.
+    if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed });
     try {
       await removeSessionWorkspace(cwd);
     } catch (err) {

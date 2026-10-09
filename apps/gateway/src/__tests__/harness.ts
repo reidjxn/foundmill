@@ -7,7 +7,7 @@ import { z } from "zod";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import { repos, type Db } from "@foundmill/db";
 import { generateMasterKey, LocalVault } from "@foundmill/shared";
-import { buildLiveConnector, buildMockConnector, createRegistry, defineTool, mockHealth, mockIntegrationRecord, type Connector, type ConnectorRegistry, type ToolContext } from "@foundmill/connectors";
+import { buildLiveConnector, buildMockConnector, createRegistry, defineTool, mockHealth, mockIntegrationRecord, type Connector, type ConnectorRegistry, type IntegrationRecord, type ToolContext } from "@foundmill/connectors";
 import { createGatewayApp } from "../app";
 import { createGatewayClient, type GatewayClient } from "../client";
 import { listenGateway, type RunningGateway } from "../index";
@@ -36,6 +36,8 @@ export interface TestConnectorOptions {
   key?: string;
   /** How the connector authenticates; "app" stands in for GitHub (platform App keys, no stored secret). */
   authKind?: "api_key" | "app";
+  /** Stands in for the connector's connect() (GitHub's installation check). */
+  connect?: (businessId: string, input: unknown) => Promise<IntegrationRecord>;
 }
 
 export function createTestConnector(options: TestConnectorOptions = {}, seen: SeenCall[] = []): { key: string; connector: Connector; registry: ConnectorRegistry; seen: SeenCall[] } {
@@ -81,7 +83,7 @@ export function createTestConnector(options: TestConnectorOptions = {}, seen: Se
     tools,
     rateLimits: { perMinute: options.perMinute ?? 1000, ...(options.perDay !== undefined ? { perDay: options.perDay } : {}) },
     costModel: (name: string) => (name === "note" ? 3 : 0),
-    connect: async (businessId: string) => mockIntegrationRecord(key, businessId),
+    connect: async (businessId: string, input: unknown) => (options.connect ? options.connect(businessId, input) : mockIntegrationRecord(key, businessId)),
     healthcheck: async () => mockHealth(key),
     handlers: {
       note: async (args: { text: string }, ctx: ToolContext) => {

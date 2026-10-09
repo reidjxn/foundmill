@@ -84,6 +84,17 @@ export function modeFor(deps: Pick<GatewayDeps, "mode" | "liveConnectors">, conn
 }
 
 /** Thrown for request errors that are not policy outcomes (unknown connector/tool, missing integration...). */
+/**
+ * A live App installation the gateway may mint tokens for: connected (or degraded) and verified when it was connected.
+ * A row from mock mode, a disconnected or expired one, or one whose installation id was never checked against the
+ * installer's GitHub account does not count, so an id typed into a request can never reach someone else's repositories.
+ */
+export function appInstallationVerified(row: Pick<Integration, "status" | "archivedAt" | "settings">): boolean {
+  if (row.archivedAt !== null || (row.status !== "connected" && row.status !== "degraded")) return false;
+  const config = ((row.settings ?? {}) as { config?: { verifiedAt?: unknown; verifiedBy?: unknown } }).config;
+  return typeof config?.verifiedAt === "string" && typeof config.verifiedBy === "string";
+}
+
 export class GatewayError extends AppError {
   constructor(code: string, message: string, status: number, details?: unknown) {
     super(code, message, status, details);
@@ -463,9 +474,9 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   const mode = modeFor(deps, connector.key);
   // Credential: decrypted in memory for this call only; never logged, never part of any response.
   let credential: LoadedCredential | null = null;
-  // An App connector (GitHub) authenticates with the platform's App keys for the business's installation: it needs a
-  // connected integration row, not a stored per-business secret.
-  const appInstalled = connector.auth.kind === "app" && loaded.integrationRow !== null && loaded.integrationRow.status !== "disconnected" && loaded.integrationRow.archivedAt === null;
+  // An App connector (GitHub) authenticates with the platform's App keys for the business's installation: it needs an
+  // integration row the live connector verified (who installed it, checked with GitHub), not a stored secret.
+  const appInstalled = connector.auth.kind === "app" && loaded.integrationRow !== null && appInstallationVerified(loaded.integrationRow);
   if (loaded.integrationRow) {
     if (deps.vault) credential = await loadCredential(deps.db, deps.vault, session.businessId, loaded.integrationRow.id);
     else if (mode === "live" && connector.auth.kind !== "none" && !appInstalled) throw new GatewayError("vault_unavailable", "No vault is configured; credentials cannot be decrypted", 503);

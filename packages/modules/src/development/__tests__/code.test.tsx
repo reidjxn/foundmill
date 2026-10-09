@@ -143,8 +143,13 @@ describe("CodeScreen", () => {
     dialog = await screen.findByRole("dialog", { name: "Push saved code to GitHub" });
     expect(within(dialog).getByText(/Simulated GitHub/)).toBeTruthy();
     await user.type(within(dialog).getByLabelText("Repository"), "acme/shop");
+    // Pushing is off until the founder turns it on, knowing a push can run the repository's CI on agent code.
+    const push = within(dialog).getByRole("checkbox", { name: /Push agents' saved code to this repository/ });
+    expect(push.getAttribute("aria-checked")).toBe("false");
+    expect(within(dialog).getByText(/can start this repository's CI and preview deploys on code an agent wrote/)).toBeTruthy();
+    await user.click(push);
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
-    expect(connected.mutations).toEqual([{ path: "dev.code.setRepository", input: { repository: "acme/shop" } }]);
+    expect(connected.mutations).toEqual([{ path: "dev.code.setRepository", input: { repository: "acme/shop", pushEnabled: true } }]);
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Push saved code to GitHub" })).toBeNull());
     expect(connected.refetches["dev.code.repository"]).toBe(1);
   });
@@ -165,8 +170,16 @@ describe("CodeScreen", () => {
     expect(screen.getByTitle("Update is not a fast forward")).toBeTruthy();
     failed.unmount();
     const pending = render(<PushStatus snapshot={indexLatest} repository={repo} />);
-    expect(screen.getByTestId("push-status").textContent).toBe("Not pushed yet: the next session on the task pushes it");
+    expect(screen.getByTestId("push-status").textContent).toBe("Not pushed yet: the next finished session on the task pushes it");
     pending.unmount();
+    const off = render(<PushStatus snapshot={indexLatest} repository={{ ...repo, repository: { ...repo.repository, writeEnabled: false } }} />);
+    expect(screen.getByTestId("push-status").textContent).toBe("Saved here only: pushing is off");
+    off.unmount();
+    // A commit link that is not a github.com page is shown as text, never as a link.
+    const odd = render(<PushStatus snapshot={{ ...pushed, pushedUrl: "javascript:alert(1)" }} repository={repo} />);
+    expect(screen.queryByRole("link", { name: /Pushed · abc1234/ })).toBeNull();
+    expect(screen.getByTestId("push-status").textContent).toBe("Pushed · abc1234");
+    odd.unmount();
     render(<PushStatus snapshot={indexLatest} repository={{ ...repo, repository: null }} />);
     expect(screen.getByTestId("push-status").textContent).toBe("Saved here only");
   });

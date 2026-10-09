@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 /**
- * Connecting the GitHub App: GitHub's setup URL (app/integrations/github/callback) only forwards a numeric installation
- * id to the business's Integrations tab, where the founder's click connects it.
+ * Connecting the GitHub App: GitHub's callback URL (app/integrations/github/callback) only forwards the installation id,
+ * its one-time code and the api-signed state to the business's Integrations tab, where the founder's click connects it.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -47,24 +47,42 @@ afterEach(() => {
   search = new URLSearchParams();
 });
 
-describe("GitHub App setup URL", () => {
-  it("forwards a numeric installation id and a business id, nothing else", () => {
-    expect(githubSetupRedirect(new URLSearchParams({ installation_id: "48213377", state: BUSINESS, setup_action: "install" }))).toBe(`/b/${BUSINESS}/settings/integrations?github_installation=48213377`);
-    expect(githubSetupRedirect(new URLSearchParams({ installation_id: "1; drop", state: BUSINESS }))).toBe("/");
-    expect(githubSetupRedirect(new URLSearchParams({ installation_id: "1", state: "../../admin" }))).toBe("/");
+/** A state as the api signs it: base64url JSON naming the business, then a signature the web never checks. */
+const STATE = `${Buffer.from(JSON.stringify({ b: BUSINESS, u: "user-1", exp: 4102444800, n: "abcdefghijkl" })).toString("base64url")}.c2lnbmF0dXJl`;
+
+describe("GitHub App callback URL", () => {
+  it("forwards the installation id, GitHub's code and the signed state to the business the state names", () => {
+    const to = new URL(githubSetupRedirect(new URLSearchParams({ installation_id: "48213377", code: "c0de", state: STATE, setup_action: "install" })), "https://app.test");
+    expect(to.pathname).toBe(`/b/${BUSINESS}/settings/integrations`);
+    expect(Object.fromEntries(to.searchParams)).toEqual({ github_installation: "48213377", github_state: STATE, github_code: "c0de" });
+  });
+
+  it("sends anything else home", () => {
+    expect(githubSetupRedirect(new URLSearchParams({ installation_id: "1; drop", code: "c0de", state: STATE }))).toBe("/");
+    expect(githubSetupRedirect(new URLSearchParams({ installation_id: "1", code: "c0de", state: BUSINESS }))).toBe("/");
+    expect(githubSetupRedirect(new URLSearchParams({ installation_id: "1", state: `${Buffer.from(JSON.stringify({ b: "../../admin" })).toString("base64url")}.sig` }))).toBe("/");
     expect(githubSetupRedirect(new URLSearchParams({}))).toBe("/");
+    // A malformed code is dropped (the page then asks for a fresh installation) rather than forwarded.
+    expect(githubSetupRedirect(new URLSearchParams({ installation_id: "1", code: "<script>", state: STATE }))).not.toContain("github_code");
   });
 });
 
 describe("Settings › Integrations: finishing the GitHub connection", () => {
   it("connects the installation only when the founder confirms it, then drops it from the address", async () => {
-    search = new URLSearchParams({ github_installation: "48213377" });
+    search = new URLSearchParams({ github_installation: "48213377", github_code: "c0de", github_state: STATE });
     renderTab();
     expect(screen.getByTestId("github-installation").textContent).toContain("GitHub installation 48213377 is ready");
     expect(connect).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Connect installation" }));
-    await waitFor(() => expect(connect).toHaveBeenCalledWith({ businessId: BUSINESS, connectorKey: "github", input: { installationId: 48213377 } }));
+    await waitFor(() => expect(connect).toHaveBeenCalledWith({ businessId: BUSINESS, connectorKey: "github", input: { installationId: 48213377, code: "c0de", state: STATE } }));
     await waitFor(() => expect(replace).toHaveBeenCalledWith(`/b/${BUSINESS}/settings/integrations`));
+  });
+
+  it("offers no connect without GitHub's code, and nothing without a valid installation id", () => {
+    search = new URLSearchParams({ github_installation: "48213377", github_state: STATE });
+    renderTab();
+    expect(screen.getByTestId("github-installation").textContent).toContain("GitHub did not confirm who installed installation 48213377");
+    expect(screen.queryByRole("button", { name: "Connect installation" })).toBeNull();
   });
 
   it("shows nothing to confirm without a valid installation id", () => {

@@ -14,6 +14,7 @@ import { createAuthVerifier } from "../auth";
 import type { ApiDeps, CallerUser } from "../context";
 import { createCaller } from "../router";
 import { createComposerClient } from "../services/composer";
+import type { ApiGatewayClient } from "../services/gateway";
 import { silentLog } from "../services/log";
 import type { RecordingResolver } from "../services/replay";
 import { createIngestClient } from "../services/simulate";
@@ -42,11 +43,15 @@ export interface HarnessOptions {
   recordings?: RecordingResolver | null;
   /** Stands in for apps/ingest in `dev.simulate` tests; default: every call fails as unreachable. */
   ingestFetch?: typeof globalThis.fetch;
+  /** Stands in for apps/gateway (App connectors' connect and health); default: every call fails as unreachable. */
+  gateway?: ApiGatewayClient;
+  /** Env overrides (e.g. LIVE_CONNECTORS) on top of the test environment. */
+  env?: Partial<NodeJS.ProcessEnv>;
 }
 
 export async function createApiHarness(options: HarnessOptions): Promise<ApiHarness> {
   resetEnvCache();
-  const env = loadEnv({ APP_ENV: "test", INTEGRATIONS_MODE: "mock", MODEL_MODE: "mock", DEV_MASTER_KEY: generateMasterKey(), KMS_KEY_ID: undefined, DEV_AUTH_USER_ID: undefined, LOG_LEVEL: "silent", SESSION_TOKEN_SECRET: TEST_SESSION_TOKEN_SECRET, INGEST_URL: "http://ingest.test" });
+  const env = loadEnv({ APP_ENV: "test", INTEGRATIONS_MODE: "mock", MODEL_MODE: "mock", DEV_MASTER_KEY: generateMasterKey(), KMS_KEY_ID: undefined, DEV_AUTH_USER_ID: undefined, LOG_LEVEL: "silent", SESSION_TOKEN_SECRET: TEST_SESSION_TOKEN_SECRET, INGEST_URL: "http://ingest.test", ...options.env });
   const h = await createTestDb();
   const db = h.db as unknown as Db;
   const log = silentLog();
@@ -83,6 +88,14 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
           throw new Error("ingest service not running in tests");
         }),
     }),
+    gateway: options.gateway ?? {
+      connect: async () => {
+        throw new Error("gateway not running in tests");
+      },
+      health: async () => {
+        throw new Error("gateway not running in tests");
+      },
+    },
     health: { db: async () => true, redis: async () => false, temporal: () => temporal.reachable() },
   };
   const [A, B] = await Promise.all([createBusinessFixture(h, `${options.prefix}-a`), createBusinessFixture(h, `${options.prefix}-b`)]);

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { jsonResponse, routedFetch, type FetchLike } from "../../http";
 import { isUntrusted } from "../../quarantine";
@@ -7,6 +7,9 @@ import { GH_MERGED_PR, GH_REPOS, MOCK_OWNER } from "./fixtures/repos";
 import { createGithubConnector } from "./index";
 import { createGithubMock, githubMock, mergedPullRequestPayload, signedDeliveryRequest } from "./mock";
 import { gitBlobSha } from "./tools";
+
+/** A signed install state as apps/api issues it (the connector checks only its shape). */
+const STATE = "eyJiIjoiYTEiLCJ1IjoidTEifQ.c2lnbmF0dXJl";
 
 let delivery = 0;
 const nextDelivery = () => `delivery-${++delivery}`;
@@ -72,12 +75,31 @@ describe("github mock: merge flow and simulation", () => {
     expect(isUntrusted(tree.data) && (tree.data.content as { entries: { path: string }[] }).entries.map((e) => e.path)).toContain("NOTES.md");
     expect((await mock.callTool("commit_files", { owner: MOCK_OWNER, repo: "northwind-site", branch: "agent/t1", message: "Session 2", files: [{ path: "NOTES.md", content: "notes\n" }] }, ctx)).data).toMatchObject({ committed: false, sha: (first.data as { sha: string }).sha });
     const refused = await mock.callTool("commit_files", { owner: MOCK_OWNER, repo: "northwind-site", branch: "main", message: "x", files: [{ path: "a", content: "b" }] }, ctx);
-    expect(refused.error?.status).toBe(422);
+    expect(refused.error?.code).toBe("invalid_args");
     const fresh = await mock.callTool("commit_files", { owner: "acme", repo: "new-shop", branch: "agent/t9", message: "First", files: [{ path: "index.ts", content: "export {};\n" }] }, ctx);
     expect(fresh.data).toMatchObject({ created: true, committed: true, url: expect.stringContaining("https://github.com/acme/new-shop/commit/") });
     // The PR flow works on top of the pushed branch.
     expect((await mock.callTool("open_pr", { owner: "acme", repo: "new-shop", title: "Agent work", head: "agent/t9", base: "main" }, ctx)).ok).toBe(true);
     expect(mock.policyHints.commit_files).toEqual({});
+  });
+  it("keeps each business's repositories and branches to itself, and bounds what it holds", async () => {
+    const mock = createGithubMock();
+    const a = makeToolContext(mock);
+    const b = makeToolContext(mock, { businessId: "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f61" });
+    await mock.callTool("commit_files", { owner: "acme", repo: "secret-project", branch: "agent/t1", message: "x", files: [{ path: "plan.md", content: "launch on Friday\n" }] }, a);
+    const listed = async (ctx: typeof a) => { const r = await mock.callTool("list_repos", {}, ctx); return isUntrusted(r.data) ? (r.data.content as { items: { fullName: string }[] }).items.map((i) => i.fullName) : []; };
+    expect(await listed(a)).toContain("acme/secret-project");
+    expect(await listed(b)).not.toContain("acme/secret-project");
+    expect((await mock.callTool("read_file", { owner: "acme", repo: "secret-project", path: "plan.md", ref: "agent/t1" }, b)).error?.code).toBe("not_found");
+    // The same fixture repository: B does not see A's branch either.
+    await mock.callTool("commit_files", { owner: MOCK_OWNER, repo: "northwind-site", branch: "agent/t2", message: "x", files: [{ path: "a.ts", content: "a" }] }, a);
+    expect((await mock.callTool("read_file", { owner: MOCK_OWNER, repo: "northwind-site", path: "a.ts", ref: "agent/t2" }, b)).ok).toBe(false);
+
+    // Past the budget the oldest written branch goes first.
+    const big = "x".repeat(4 * 1024 * 1024);
+    for (let i = 0; i < 6; i++) expect((await mock.callTool("commit_files", { owner: "acme", repo: "big", branch: `agent/b${i}`, message: "x", files: [{ path: "big.txt", content: big }] }, a)).ok).toBe(true);
+    expect((await mock.callTool("read_file", { owner: "acme", repo: "secret-project", path: "plan.md", ref: "agent/t1" }, a)).ok).toBe(false);
+    expect((await mock.callTool("read_file", { owner: "acme", repo: "big", path: "big.txt", ref: "agent/b5" }, a)).ok).toBe(true);
   });
   it("simulates pr.merged deterministically", async () => {
     const a = await githubMock.simulate("pr.merged", { businessId: TEST_BUSINESS_ID, seed: "s1" });
@@ -114,16 +136,74 @@ describe("github live (canned responses)", () => {
     const noSecret = createGithubConnector({ secrets: {} });
     expect(await noSecret.webhooks![0]!.verify(signedDeliveryRequest(TEST_BUSINESS_ID, "push", {}, { secret: "platform-secret" }))).toBe(false);
   });
-  it("connect() without an installation id hands back the App's installation page, which needs GITHUB_APP_SLUG", async () => {
+  it("connect() without an installation id hands back the App's installation page carrying the host's signed state", async () => {
     const withSlug = createGithubConnector({ secrets: { githubAppSlug: "foundmill-agents" } });
-    const record = await withSlug.connect(TEST_BUSINESS_ID, {});
-    expect(record).toMatchObject({ status: "disconnected", externalAccountId: null, config: { consentUrl: `https://github.com/apps/foundmill-agents/installations/new?state=${TEST_BUSINESS_ID}` } });
-    await expect(createGithubConnector({ secrets: {} }).connect(TEST_BUSINESS_ID, {})).rejects.toMatchObject({ code: "connector_unconfigured" });
+    const record = await withSlug.connect(TEST_BUSINESS_ID, { state: STATE });
+    expect(record).toMatchObject({ status: "disconnected", externalAccountId: null, config: { consentUrl: `https://github.com/apps/foundmill-agents/installations/new?state=${STATE}` } });
+    await expect(withSlug.connect(TEST_BUSINESS_ID, {})).rejects.toMatchObject({ code: "validation" });
+    await expect(withSlug.connect(TEST_BUSINESS_ID, { state: TEST_BUSINESS_ID })).rejects.toMatchObject({ code: "validation" });
+    await expect(createGithubConnector({ secrets: {} }).connect(TEST_BUSINESS_ID, { state: STATE })).rejects.toMatchObject({ code: "connector_unconfigured" });
   });
   it("throws ConfigError without App credentials or an installation token", async () => {
     const c = createGithubConnector({ secrets: {} });
     await expect(c.callTool("list_repos", {}, makeToolContext(c, { mode: "live" }))).rejects.toMatchObject({ code: "connector_unconfigured" });
-    await expect(c.connect(TEST_BUSINESS_ID, { installationId: 1 })).rejects.toMatchObject({ code: "connector_unconfigured" });
+    await expect(c.connect(TEST_BUSINESS_ID, { installationId: 1, code: "abc123" })).rejects.toMatchObject({ code: "connector_unconfigured" });
+  });
+});
+
+describe("github live: connecting proves who installed the App", () => {
+  const INSTALLATION = 48213377;
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const appSecrets = { githubAppId: "123", githubAppPrivateKey: privateKey.export({ type: "pkcs8", format: "pem" }).toString(), githubAppClientId: "Iv1.client", githubAppClientSecret: "client-secret" };
+
+  /** GitHub's OAuth and installation endpoints for one installer who can manage `manages`. */
+  function installer(manages: number[], options: { exchange?: "ok" | "bad_code" } = {}) {
+    const calls: string[] = [];
+    const fetch = routedFetch({
+      "POST https://github.com/login/oauth/access_token": async (req) => {
+        calls.push("exchange");
+        const body = (await req.json()) as { client_id: string; client_secret: string; code: string };
+        expect(body).toEqual({ client_id: "Iv1.client", client_secret: "client-secret", code: "c0de" });
+        return options.exchange === "bad_code" ? jsonResponse({ error: "bad_verification_code" }) : jsonResponse({ access_token: "ghu_user_token", token_type: "bearer" });
+      },
+      "GET https://api.github.com/user/installations": (req) => {
+        calls.push(`installations ${req.headers.get("authorization")}`);
+        return jsonResponse({ total_count: manages.length, installations: manages.map((id) => ({ id, account: { login: `org-${id}` } })) });
+      },
+      "GET https://api.github.com/user": () => (calls.push("user"), jsonResponse({ login: "founder-login", id: 7 })),
+      "DELETE https://api.github.com/applications/Iv1.client/token": async (req) => {
+        calls.push(`revoke ${((await req.json()) as { access_token: string }).access_token}`);
+        return new Response(null, { status: 204 });
+      },
+      [`GET https://api.github.com/app/installations/${INSTALLATION}`]: (req) => {
+        calls.push(`installation ${req.headers.get("authorization")?.split(" ")[0]}`);
+        return jsonResponse({ id: INSTALLATION, account: { login: "acme" }, permissions: { contents: "write", metadata: "read" }, repository_selection: "selected" });
+      },
+    });
+    return { calls, connector: createGithubConnector({ secrets: appSecrets, fetch }) };
+  }
+
+  it("connects an installation the installer can manage, records who verified it, and revokes their token", async () => {
+    const { connector, calls } = installer([1, INSTALLATION]);
+    const record = await connector.connect(TEST_BUSINESS_ID, { installationId: INSTALLATION, code: "c0de" });
+    expect(record).toMatchObject({ status: "connected", accountLabel: "acme", externalAccountId: String(INSTALLATION), scopes: ["contents:write", "metadata:read"], config: { installationId: INSTALLATION, account: "acme", verifiedBy: "founder-login", verifiedAt: expect.any(String) } });
+    expect(calls).toEqual(["exchange", "installations token ghu_user_token", "user", "revoke ghu_user_token", "installation bearer"]);
+  });
+
+  it("refuses someone else's installation, a bad code and a missing code, without reading the installation", async () => {
+    const other = installer([1, 2]);
+    await expect(other.connector.connect(TEST_BUSINESS_ID, { installationId: INSTALLATION, code: "c0de" })).rejects.toMatchObject({ code: "forbidden", message: `GitHub installation ${INSTALLATION} is not one you can manage` });
+    expect(other.calls).toEqual(["exchange", "installations token ghu_user_token", "revoke ghu_user_token"]);
+
+    const bad = installer([INSTALLATION], { exchange: "bad_code" });
+    await expect(bad.connector.connect(TEST_BUSINESS_ID, { installationId: INSTALLATION, code: "c0de" })).rejects.toMatchObject({ code: "forbidden", message: expect.stringContaining("bad_verification_code") });
+    expect(bad.calls).toEqual(["exchange"]);
+
+    const none = installer([INSTALLATION]);
+    await expect(none.connector.connect(TEST_BUSINESS_ID, { installationId: INSTALLATION })).rejects.toMatchObject({ code: "validation" });
+    await expect(none.connector.connect(TEST_BUSINESS_ID, { installationId: INSTALLATION, code: "a b" })).rejects.toMatchObject({ code: "validation" });
+    await expect(none.connector.connect(TEST_BUSINESS_ID, { installationId: -4, code: "c0de" })).rejects.toMatchObject({ code: "validation" });
+    expect(none.calls).toEqual([]);
   });
 });
 
@@ -132,7 +212,7 @@ describe("github live (canned responses)", () => {
  * tree shas are content addresses, `PATCH refs` refuses a non-fast-forward unless forced, `POST refs` refuses an
  * existing ref. Requests are logged so tests can see what was uploaded.
  */
-function fakeGitApi(owner: string, repo: string, files: Record<string, string>) {
+function fakeGitApi(owner: string, repo: string, files: Record<string, string>, options: { public?: boolean } = {}) {
   const hash = (x: string) => createHash("sha1").update(x).digest("hex");
   const blobs = new Map<string, Buffer>();
   const trees = new Map<string, Map<string, string>>();
@@ -163,7 +243,7 @@ function fakeGitApi(owner: string, repo: string, files: Record<string, string>) 
     const path = decodeURIComponent(url.pathname);
     const body = req.method === "GET" ? undefined : await req.json();
     log.push({ method: req.method, path, body });
-    if (req.method === "GET" && path === base) return jsonResponse({ id: 1, name: repo, full_name: `${owner}/${repo}`, default_branch: "main", html_url: `https://github.com/${owner}/${repo}`, private: true, owner: { login: owner } });
+    if (req.method === "GET" && path === base) return jsonResponse({ id: 1, name: repo, full_name: `${owner}/${repo}`, default_branch: "main", html_url: `https://github.com/${owner}/${repo}`, private: !options.public, owner: { login: owner } });
     let m: RegExpMatchArray | null;
     if (req.method === "GET" && (m = path.match(new RegExp(`^${base}/git/ref/heads/(.+)$`)))) {
       const sha = refs.get(m[1]!);
@@ -182,12 +262,17 @@ function fakeGitApi(owner: string, repo: string, files: Record<string, string>) 
       return jsonResponse({ sha: gitBlobSha(buf) }, { status: 201 });
     }
     if (req.method === "POST" && path === `${base}/git/trees`) {
-      const b = body as { base_tree: string; tree: { path: string; sha: string | null }[] };
+      const b = body as { base_tree: string; tree: { path: string; sha?: string | null; content?: string }[] };
       const next = new Map(trees.get(b.base_tree)!);
       for (const e of b.tree) {
-        if (e.sha === null) {
+        if (e.content !== undefined) {
+          // Inline content: GitHub writes the blob itself.
+          const buf = Buffer.from(e.content, "utf8");
+          blobs.set(gitBlobSha(buf), buf);
+          next.set(e.path, gitBlobSha(buf));
+        } else if (e.sha === null) {
           if (!next.delete(e.path)) return jsonResponse({ message: `path ${e.path} does not exist` }, { status: 422 });
-        } else next.set(e.path, e.sha);
+        } else next.set(e.path, e.sha!);
       }
       return jsonResponse({ sha: putTree(next) }, { status: 201 });
     }
@@ -214,29 +299,33 @@ function fakeGitApi(owner: string, repo: string, files: Record<string, string>) 
     throw new Error(`fakeGitApi: no route for ${req.method} ${path}`);
   };
   /** The files a branch holds, as text. */
-  const read = (branch: string) => Object.fromEntries([...trees.get(commits.get(refs.get(branch)!)!.tree)!].map(([p, sha]) => [p, blobs.get(sha)!.toString("utf8")]));
+  const read = (branch: string) => Object.fromEntries([...trees.get(commits.get(refs.get(branch)!)!.tree)!].map(([p, sha]) => [p, blobs.get(sha)!.toString(p.endsWith(".png") ? "base64" : "utf8")]));
   return { fetch, log, refs, commits, read };
 }
 
 describe("github live: commit_files against the Git Data API", () => {
   const OWNER = "acme";
   const REPO = "shop";
-  const setup = () => {
-    const api = fakeGitApi(OWNER, REPO, { "README.md": "# Shop\n", "src/a.ts": "export const a = 1;\n", "src/same.ts": "same\n", "old.txt": "old\n" });
+  const setup = (options: { public?: boolean } = {}) => {
+    const api = fakeGitApi(OWNER, REPO, { "README.md": "# Shop\n", "src/a.ts": "export const a = 1;\n", "src/same.ts": "same\n", "old.txt": "old\n" }, options);
     const connector = createGithubConnector({ secrets: {}, fetch: api.fetch });
     const ctx = makeToolContext(connector, { mode: "live", credential: { kind: "app", secret: "ghs_installation_token" } });
-    const commit = (args: Record<string, unknown>) => connector.callTool("commit_files", { owner: OWNER, repo: REPO, message: "Agent session 1", ...args }, ctx);
-    return { api, commit };
+    const call = (args: Record<string, unknown>) => connector.callTool("commit_files", args, ctx);
+    const commit = (args: Record<string, unknown>) => call({ owner: OWNER, repo: REPO, message: "Agent session 1", ...args });
+    return { api, commit, call };
   };
 
   it("creates the branch from the default branch, uploads only changed files, deletes existing paths, one commit", async () => {
     const { api, commit } = setup();
-    const r = await commit({ branch: "agent/t1", files: [{ path: "src/a.ts", content: "export const a = 2;\n" }, { path: "src/same.ts", content: "same\n" }, { path: "src/new.ts", content: Buffer.from("new\n").toString("base64"), encoding: "base64" }], deletions: ["old.txt", "never-existed.txt"] });
+    const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]).toString("base64");
+    const r = await commit({ branch: "agent/t1", files: [{ path: "src/a.ts", content: "export const a = 2;\n" }, { path: "src/same.ts", content: "same\n" }, { path: "src/new.ts", content: Buffer.from("new\n").toString("base64"), encoding: "base64" }, { path: "logo.png", content: png, encoding: "base64" }], deletions: ["old.txt", "never-existed.txt"] });
     expect(r.ok, JSON.stringify(r.error)).toBe(true);
-    expect(r.data).toMatchObject({ branch: "agent/t1", created: true, committed: true, parentSha: api.refs.get("main"), filesWritten: 2, filesDeleted: 1, url: expect.stringMatching(/^https:\/\/github\.com\/acme\/shop\/commit\/[0-9a-f]{40}$/) });
-    expect(api.read("agent/t1")).toEqual({ "README.md": "# Shop\n", "src/a.ts": "export const a = 2;\n", "src/same.ts": "same\n", "src/new.ts": "new\n" });
-    // The unchanged file was never uploaded; the default branch did not move.
-    expect(api.log.filter((l) => l.path.endsWith("/git/blobs"))).toHaveLength(2);
+    expect(r.data).toMatchObject({ branch: "agent/t1", created: true, committed: true, parentSha: api.refs.get("main"), filesWritten: 3, filesDeleted: 1, url: expect.stringMatching(/^https:\/\/github\.com\/acme\/shop\/commit\/[0-9a-f]{40}$/) });
+    expect(api.read("agent/t1")).toEqual({ "README.md": "# Shop\n", "src/a.ts": "export const a = 2;\n", "src/same.ts": "same\n", "src/new.ts": "new\n", "logo.png": png });
+    // The unchanged file was never uploaded; text went inline in the tree and only the binary file needed a blob.
+    expect(api.log.filter((l) => l.path.endsWith("/git/blobs"))).toHaveLength(1);
+    const tree = api.log.find((l) => l.path.endsWith("/git/trees"))!.body as { tree: { path: string; content?: string; sha?: string | null }[] };
+    expect(tree.tree.map((e) => [e.path, "content" in e ? "inline" : e.sha === null ? "delete" : "blob"])).toEqual([["src/a.ts", "inline"], ["src/new.ts", "inline"], ["logo.png", "blob"], ["old.txt", "delete"]]);
     expect(api.read("main")["old.txt"]).toBe("old\n");
     expect(api.commits.get(api.refs.get("agent/t1")!)).toMatchObject({ message: "Agent session 1", parents: [api.refs.get("main")] });
   });
@@ -255,15 +344,24 @@ describe("github live: commit_files against the Git Data API", () => {
     expect(api.log.filter((l) => l.method === "PATCH").every((l) => (l.body as { force?: boolean }).force === false)).toBe(true);
   });
 
-  it("refuses the default branch and paths inside .git before writing anything", async () => {
-    const { api, commit } = setup();
-    const main = await commit({ branch: "main", files: [{ path: "x.ts", content: "x" }] });
-    expect(main.ok).toBe(false);
-    expect(main.error?.status).toBe(422);
-    expect(main.error?.message).toMatch(/never writes the default branch/);
-    const git = await commit({ branch: "agent/t1", files: [{ path: ".git/hooks/post-checkout", content: "x" }] });
-    expect(git.ok).toBe(false);
-    expect(git.error?.code).toBe("invalid_args");
+  it("writes only agent/ branches of private repositories, never .git or .github, within its limits, before writing anything", async () => {
+    const { api, commit, call } = setup();
+    for (const branch of ["main", "production", "release/1.2", "gh-pages", "agent/", "agent/a/b", "agent/../main", "agent/x.lock"]) {
+      const r = await commit({ branch, files: [{ path: "x.ts", content: "x" }] });
+      expect(r.error?.code, branch).toBe("invalid_args");
+    }
+    for (const files of [[{ path: ".git/hooks/post-checkout", content: "x" }], [{ path: ".github/workflows/ci.yml", content: "on: push" }], [{ path: ".GitHub/actions/setup/action.yml", content: "x" }], [{ path: "x.bin", content: "not base64!", encoding: "base64" }], Array.from({ length: 301 }, (_, i) => ({ path: `f${i}.ts`, content: "x" })), Array.from({ length: 3 }, (_, i) => ({ path: `big${i}.txt`, content: "x".repeat(4 * 1024 * 1024) }))]) {
+      const r = await commit({ branch: "agent/t1", files });
+      expect(r.error?.code, files[0]!.path).toBe("invalid_args");
+    }
+    expect((await commit({ branch: "agent/t1", deletions: [".github/workflows/ci.yml"] })).error?.code).toBe("invalid_args");
+    expect((await call({ owner: OWNER, repo: "..", branch: "agent/t1", message: "m", files: [] })).error?.code).toBe("invalid_args");
+    expect(api.log).toEqual([]);
+
+    const open = setup({ public: true });
+    const r = await open.commit({ branch: "agent/t1", files: [{ path: "x.ts", content: "x" }] });
+    expect(r.error).toMatchObject({ status: 422, message: "acme/shop is public; agents push only to private repositories" });
+    expect(open.api.log.filter((l) => l.method !== "GET")).toEqual([]);
     const twice = await commit({ branch: "agent/t1", files: [{ path: "a", content: "1" }], deletions: ["a"] });
     expect(twice.error?.code).toBe("invalid_args");
     expect(api.log.filter((l) => l.method !== "GET")).toEqual([]);
@@ -295,11 +393,12 @@ describe("github live: commit_files against the Git Data API", () => {
 
 describe.skipIf(!envKeysPresent("GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_TEST_INSTALLATION_ID"))("github (live)", () => {
   const connector = createGithubConnector({ secrets: { githubAppId: process.env.GITHUB_APP_ID, githubAppPrivateKey: process.env.GITHUB_APP_PRIVATE_KEY, githubWebhookSecret: process.env.GITHUB_WEBHOOK_SECRET } });
-  describeConnectorContract("github live", { connector, mode: "live", deterministic: false, connectInput: { installationId: Number(process.env.GITHUB_TEST_INSTALLATION_ID) }, calls: [{ tool: "list_repos", args: { perPage: 1 } }] });
+  // connect() needs the OAuth code GitHub sends the installer, which a test cannot fabricate: the installation is given.
+  const integration = { ...makeToolContext(connector, { mode: "live" }).integration, externalAccountId: String(process.env.GITHUB_TEST_INSTALLATION_ID) };
+  describeConnectorContract("github live", { connector, mode: "live", deterministic: false, skipConnect: true, integration, calls: [{ tool: "list_repos", args: { perPage: 1 } }] });
   // GITHUB_TEST_REPO=owner/name: a repository the test installation may write to; the check commits to a scratch branch.
   it.skipIf(!process.env.GITHUB_TEST_REPO)("commit_files writes a commit to a scratch branch and is a no-op when repeated", async () => {
     const [owner, repo] = process.env.GITHUB_TEST_REPO!.split("/") as [string, string];
-    const integration = await connector.connect(TEST_BUSINESS_ID, { installationId: Number(process.env.GITHUB_TEST_INSTALLATION_ID) });
     const ctx = makeToolContext(connector, { mode: "live", integration });
     const args = { owner, repo, branch: "foundmill/commit-files-check", message: "Foundmill connector check", files: [{ path: "foundmill-check.txt", content: `checked ${new Date().toISOString()}\n` }] };
     const first = await connector.callTool("commit_files", args, ctx);

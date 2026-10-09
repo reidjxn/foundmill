@@ -45,6 +45,9 @@ const Env = z.object({
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
   /** The GitHub App's URL name (github.com/apps/<slug>): Connect opens its installation page. */
   GITHUB_APP_SLUG: z.string().optional(),
+  /** The App's OAuth client: connecting exchanges the code GitHub sends after installing to check who installed it. */
+  GITHUB_APP_CLIENT_ID: z.string().optional(),
+  GITHUB_APP_CLIENT_SECRET: z.string().optional(),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
   SENTRY_DSN: z.string().optional(),
   SEED_OWNER_EMAILS: z.string().optional(),

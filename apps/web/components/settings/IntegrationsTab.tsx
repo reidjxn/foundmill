@@ -91,9 +91,14 @@ export function IntegrationsTab() {
   const router = useRouter();
   const pathname = usePathname();
   const pendingInstallation = /^\d{1,20}$/.test(search?.get("github_installation") ?? "") ? search!.get("github_installation")! : null;
+  const installCode = search?.get("github_code") ?? null;
+  const installState = search?.get("github_state") ?? null;
+  // The code works once: whatever happens, the address loses it.
   const confirmInstallation = () =>
     pendingInstallation &&
-    connect.mutate({ businessId, connectorKey: "github", input: { installationId: Number(pendingInstallation) } }, { onSuccess: () => router.replace(pathname ?? `/b/${businessId}/settings/integrations`) });
+    installCode &&
+    installState &&
+    connect.mutate({ businessId, connectorKey: "github", input: { installationId: Number(pendingInstallation), code: installCode, state: installState } }, { onSettled: () => router.replace(pathname ?? `/b/${businessId}/settings/integrations`) });
 
   if (list.error) return <ErrorPanel title="Integrations" message={errorMessage(list.error)} onRetry={() => void list.refetch()} />;
   const rows = list.data?.catalogue ?? [];
@@ -103,12 +108,18 @@ export function IntegrationsTab() {
       {pendingInstallation ? (
         <SettingsSection title="Finish connecting GitHub">
           <div className="flex items-center gap-3" data-testid="github-installation">
-            <Hint>
-              GitHub installation {pendingInstallation} is ready. Connect it to this business so agents can push their code to their own branches. Then choose the repository on Development › Code.
-            </Hint>
-            <Button variant="primary" icon={FolderGit2} loading={connect.isPending} onClick={confirmInstallation}>
-              Connect installation
-            </Button>
+            {installCode && installState ? (
+              <>
+                <Hint>
+                  GitHub installation {pendingInstallation} is ready. Connect it to this business so agents can push their code to their own branches. GitHub confirms you can manage it first. Then choose the repository on Development › Code.
+                </Hint>
+                <Button variant="primary" icon={FolderGit2} loading={connect.isPending} onClick={confirmInstallation}>
+                  Connect installation
+                </Button>
+              </>
+            ) : (
+              <Hint>GitHub did not confirm who installed installation {pendingInstallation}, so it cannot be connected from this link. Use Connect on GitHub below to install it again.</Hint>
+            )}
           </div>
         </SettingsSection>
       ) : null}

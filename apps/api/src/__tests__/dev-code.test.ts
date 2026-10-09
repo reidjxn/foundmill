@@ -71,12 +71,13 @@ describe("dev.code", () => {
     expect(await owner.dev.code.repository({ businessId })).toEqual({ connected: false, status: null, repository: null, simulated: true });
     await expect(owner.dev.code.setRepository({ businessId, repository: "acme/shop" })).rejects.toThrow(/connect GitHub/);
     await repos.integrations.upsert(hz.db, businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { externalAccountId: "1", config: {} } });
-    expect(await owner.dev.code.setRepository({ businessId, repository: "https://github.com/Acme/shop.git" })).toMatchObject({ repository: { fullName: "Acme/shop", owner: "Acme", repo: "shop", writeEnabled: true } });
+    expect(await owner.dev.code.setRepository({ businessId, repository: "https://github.com/Acme/shop.git" })).toMatchObject({ repository: { fullName: "Acme/shop", owner: "Acme", repo: "shop", writeEnabled: false } });
+    expect(await owner.dev.code.setRepository({ businessId, repository: "Acme/shop", pushEnabled: true })).toMatchObject({ repository: { fullName: "Acme/shop", writeEnabled: true } });
     expect(await owner.dev.code.repository({ businessId })).toMatchObject({ connected: true, status: "mock", repository: { fullName: "Acme/shop" }, simulated: true });
     await expect(hz.caller({ userId: memberId }).dev.code.setRepository({ businessId, repository: "evil/repo" })).rejects.toThrow();
     await expect(owner.dev.code.setRepository({ businessId, repository: "no slash" })).rejects.toThrow(/owner\/name/);
     const audit = await repos.audit.list(hz.db, businessId, { action: "dev.code.set_repository" });
-    expect(audit.items[0]).toMatchObject({ actorId: ownerId, details: { repository: "Acme/shop" } });
+    expect(audit.items[0]).toMatchObject({ actorId: ownerId, details: { repository: "Acme/shop", pushEnabled: true } });
     expect(await owner.dev.code.setRepository({ businessId, repository: null })).toEqual({ repository: null });
   });
 
@@ -84,9 +85,9 @@ describe("dev.code", () => {
     const { businessId, ownerId } = hz.B;
     const owner = hz.caller({ userId: ownerId });
     await owner.integrations.connect({ businessId, connectorKey: "github", input: {} });
-    await owner.dev.code.setRepository({ businessId, repository: "acme/shop" });
+    await owner.dev.code.setRepository({ businessId, repository: "acme/shop", pushEnabled: true });
     await owner.integrations.connect({ businessId, connectorKey: "github", input: {} });
-    expect((await owner.dev.code.repository({ businessId })).repository?.fullName).toBe("acme/shop");
+    expect((await owner.dev.code.repository({ businessId })).repository).toMatchObject({ fullName: "acme/shop", writeEnabled: true });
     const list = await owner.integrations.list({ businessId });
     expect(list.catalogue.find((c) => c.key === "github")).toMatchObject({ live: false, integration: { status: "mock" } });
   });

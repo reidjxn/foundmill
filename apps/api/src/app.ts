@@ -1,10 +1,10 @@
 /**
  * The Hono app (docs/ARCHITECTURE.md §13): `/health` (db + redis + temporal + composer reachability flags, never
- * throws), `/trpc/*` via @hono/trpc-server, CORS for the web origin(s) and localhost:3000, request logging with pino.
+ * throws), `/trpc/*` via tRPC's fetch adapter, CORS for the web origin(s) and localhost:3000, request logging with pino.
  * `createApp(deps)` is pure so tests can boot it on an ephemeral port.
  */
-import { trpcServer } from "@hono/trpc-server";
 import { APP_NAME } from "@foundmill/config";
+import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { ApiDeps } from "./context";
@@ -78,12 +78,14 @@ export function createApp(deps: ApiDeps) {
     });
   });
 
-  app.use(
-    "/trpc/*",
-    trpcServer({
+  // tRPC's fetch adapter, not @hono/trpc-server: that adapter overwrites the context's `env` with Hono's bindings
+  // (`c.env`, the Node request and response), so every `ctx.env` read over HTTP came back undefined.
+  app.all("/trpc/*", (c) =>
+    fetchRequestHandler({
       router: appRouter,
       endpoint: "/trpc",
-      createContext: async (opts, c) => (await contextFactory(opts, c)) as unknown as Record<string, unknown>,
+      req: c.req.raw,
+      createContext: (opts) => contextFactory(opts, c),
       onError({ error, path }) {
         if (error.code === "INTERNAL_SERVER_ERROR") deps.log.error({ path, err: error.cause ?? error }, "trpc error");
       },

@@ -404,7 +404,7 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
       return { outcome: "allow" as const, result: await github.callTool(req.tool, req.args, makeToolContext(github)), costMinor: 0 };
     } };
     const pushing = createSessionActivities({ ...t.deps, env: { ...t.deps.env, ANTHROPIC_API_KEY: MODEL_KEY, ORCHESTRATOR_WORKSPACE_DIR: workspaceRoot }, gateway, sandbox: async () => ({ provider, mode: "docker" as const, fellBackFrom: null }) });
-    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop" } });
+    await repos.integrations.upsert(t.deps.db, t.businessId, { connectorKey: "github", status: "mock", authKind: "app", settings: { repo: "acme/shop", writeEnabled: true } });
     try {
       const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
       const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
@@ -421,6 +421,22 @@ describe("runAgentSession (live runner, SDK mocked)", () => {
       const notes = await readSessionEvents(t.redis, sessionId, { kinds: ["note"] });
       expect(notes.some((r) => r.event.kind === "note" && new RegExp(`^Pushed to agent/${t.codeTaskId} on acme/shop: \\d+ files? written, 0 removed \\(commit [0-9a-f]{7}\\)\\.$`).test(r.event.text))).toBe(true);
       expect((await repos.workspaces.latest(t.db, t.businessId, t.codeTaskId))).toMatchObject({ sessionId, pushedRepo: "acme/shop", pushError: null });
+
+      // A session that fails part-way is saved but not pushed.
+      const failedId = await openSessionRow(t, t.workerId, t.codeTaskId);
+      const failedInput = { ...input, sessionId: failedId };
+      const failedLaunch = await pushing.prepareSession(failedInput);
+      script = async function* (call) {
+        await writeFile(path.join(call.options.cwd as string, "HALF.md"), "half-written\n");
+        yield { type: "system", subtype: "init", session_id: "sdk-half" };
+        throw new Error("SDK transport closed");
+      };
+      const calls = offline.calls.length;
+      expect((await pushing.runAgentSession(failedInput, failedLaunch)).outcome).toBe("failed");
+      expect(offline.calls.slice(calls).filter((c) => c.tool === "commit_files")).toEqual([]);
+      expect((await repos.workspaces.latest(t.db, t.businessId, t.codeTaskId))).toMatchObject({ sessionId: failedId, pushedCommitSha: null });
+      const failedNotes = await readSessionEvents(t.redis, failedId, { kinds: ["note"] });
+      expect(failedNotes.map((r) => (r.event.kind === "note" ? r.event.text : ""))).toContain("Not pushed to GitHub: the session did not finish. The code is saved on Development › Code.");
     } finally {
       await repos.integrations.disconnect(t.deps.db, t.businessId, (await repos.integrations.getByKey(t.deps.db, t.businessId, "github"))!.id);
     }

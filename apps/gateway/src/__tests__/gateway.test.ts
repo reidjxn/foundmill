@@ -3,10 +3,12 @@
  * Policy outcomes are asserted end to end: audit rows, approvals + outbox events, usage_ledger metering.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { BUSINESS_MODES } from "@foundmill/shared";
+import { BUSINESS_MODES, ForbiddenError } from "@foundmill/shared";
+import { mockIntegrationRecord } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { storeCredential } from "../credentials";
 import { GatewayClientError } from "../client";
+import { createGatewayApp, MAX_CALL_BODY_BYTES, MAX_MCP_BODY_BYTES, MAX_SERVICE_BODY_BYTES } from "../app";
 import { modeFor } from "../pipeline";
 import { signServiceToken } from "../tokens";
 import { hashRecipient } from "../recipients";
@@ -358,6 +360,7 @@ describe("LIVE_CONNECTORS", () => {
   it("runs the named connectors live while every other connector stays mock", async () => {
     const mixed = await setupGateway({ mode: "mock", liveConnectors: ["test"], connector: { authKind: "app" }, extraConnectorKeys: ["other"] });
     try {
+      await repos.integrations.upsert(mixed.db, mixed.businessId, { connectorKey: TEST_CONNECTOR, status: "connected", authKind: "app", settings: { externalAccountId: "1", config: { verifiedBy: "founder-login", verifiedAt: "2026-10-09T00:00:00Z" } } });
       asAllow(await mixed.client.call(await mixed.token({ allowedTools: ["test:*", "other:*"] }), { connector: "test", tool: "note", args: {} }));
       expect(mixed.seen.at(-1)).toMatchObject({ mode: "live" });
       asAllow(await mixed.client.call(await mixed.token({ allowedTools: ["test:*", "other:*"] }), { connector: "other", tool: "note", args: {} }));
@@ -372,18 +375,92 @@ describe("LIVE_CONNECTORS", () => {
 });
 
 describe("live mode: App connectors (GitHub)", () => {
-  it("run for an installed business without a stored secret, and stop once the installation is disconnected", async () => {
+  it("run only for an installation verified when it was connected, without a stored secret, and stop once disconnected", async () => {
     const live = await setupGateway({ mode: "live", connector: { authKind: "app" } });
     try {
       const token = await live.token();
-      const r = asAllow(await live.client.call(token, { connector: "test", tool: "note", args: {} }));
+      const call = () => live.client.call(token, { connector: "test", tool: "note", args: {} });
+      const setRow = (status: "connected" | "mock" | "expired", config: Record<string, unknown>) => repos.integrations.upsert(live.db, live.businessId, { connectorKey: TEST_CONNECTOR, status, authKind: "app", settings: { externalAccountId: "48213377", config } });
+
+      // A connected row whose installation id nobody checked (typed into a request, or left from mock mode) is not enough.
+      await expect(call()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
+      await setRow("mock", { installationId: 48213377, verifiedBy: "someone", verifiedAt: "2026-10-09T00:00:00Z" });
+      await expect(call()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
+      await setRow("expired", { installationId: 48213377, verifiedBy: "someone", verifiedAt: "2026-10-09T00:00:00Z" });
+      await expect(call()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
+
+      await setRow("connected", { installationId: 48213377, verifiedBy: "founder-login", verifiedAt: "2026-10-09T00:00:00Z" });
+      const r = asAllow(await call());
       expect(r.result.ok).toBe(true);
       expect(live.seen.at(-1)).toMatchObject({ mode: "live", credentialSecret: null, integrationStatus: "connected" });
       await repos.integrations.disconnect(live.db, live.businessId, live.integrationId);
-      await expect(live.client.call(token, { connector: "test", tool: "note", args: {} })).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
+      await expect(call()).rejects.toMatchObject({ status: 409, code: "integration_not_connected" });
     } finally {
       await live.close();
     }
+  });
+
+  it("connect and health run in the gateway for a service caller, and only for App connectors", async () => {
+    const inputs: unknown[] = [];
+    const live = await setupGateway({
+      mode: "live",
+      connector: {
+        authKind: "app",
+        connect: async (businessId, input) => {
+          inputs.push(input);
+          if ((input as { code?: string }).code === "stolen") throw new ForbiddenError("GitHub installation 1 is not one you can manage");
+          return { ...mockIntegrationRecord(TEST_CONNECTOR, businessId, { status: "connected" }), externalAccountId: "1", config: { verifiedBy: "founder-login", verifiedAt: "2026-10-09T00:00:00Z" }, credentialToStore: { kind: "app", secret: "never-leaves" } };
+        },
+      },
+    });
+    try {
+      const post = async (path: string, body: unknown, token?: string) => {
+        const res = await fetch(`${live.server.url}${path}`, { method: "POST", headers: { "content-type": "application/json", ...(token === undefined ? {} : { authorization: `Bearer ${token}` }) }, body: JSON.stringify(body) });
+        return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+      };
+      const service = await signServiceToken(TEST_SECRET, "api");
+
+      expect((await post("/v1/integrations/connect", { businessId: live.businessId, connector: TEST_CONNECTOR, input: { installationId: 1, code: "c0de" } })).status).toBe(401);
+      expect((await post("/v1/integrations/connect", { businessId: live.businessId, connector: TEST_CONNECTOR, input: {} }, await live.token())).status).toBe(401);
+
+      const ok = await post("/v1/integrations/connect", { businessId: live.businessId, connector: TEST_CONNECTOR, input: { installationId: 1, code: "c0de" } }, service);
+      expect(ok).toMatchObject({ status: 200, body: { mode: "live", record: { status: "connected", externalAccountId: "1", config: { verifiedBy: "founder-login" } } } });
+      expect(JSON.stringify(ok.body)).not.toContain("never-leaves");
+      expect(inputs.at(-1)).toEqual({ installationId: 1, code: "c0de" });
+      expect((await repos.audit.list(live.db, live.businessId, { limit: 5 })).items.map((a) => a.action)).toContain("gateway.integration.connected");
+
+      expect(await post("/v1/integrations/connect", { businessId: live.businessId, connector: TEST_CONNECTOR, input: { installationId: 1, code: "stolen" } }, service)).toMatchObject({ status: 403, body: { error: { code: "forbidden" } } });
+      expect(await post("/v1/integrations/connect", { businessId: "00000000-0000-4000-8000-000000000000", connector: TEST_CONNECTOR, input: {} }, service)).toMatchObject({ status: 404, body: { error: { code: "business_not_found" } } });
+      expect(await post("/v1/integrations/connect", { businessId: live.businessId, connector: "nope", input: {} }, service)).toMatchObject({ status: 404, body: { error: { code: "unknown_connector" } } });
+
+      expect(await post("/v1/integrations/health", { businessId: live.businessId, connector: TEST_CONNECTOR }, service)).toMatchObject({ status: 200, body: { health: { ok: true } } });
+      await repos.integrations.archive(live.db, live.businessId, live.integrationId);
+      expect(await post("/v1/integrations/health", { businessId: live.businessId, connector: TEST_CONNECTOR }, service)).toMatchObject({ status: 409, body: { error: { code: "integration_not_connected" } } });
+    } finally {
+      await live.close();
+    }
+    const apiKeyed = await setupGateway({ mode: "live" });
+    try {
+      const res = await fetch(`${apiKeyed.server.url}/v1/integrations/connect`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${await signServiceToken(TEST_SECRET, "api")}` }, body: JSON.stringify({ businessId: apiKeyed.businessId, connector: TEST_CONNECTOR, input: {} }) });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ error: { code: "not_app_connector" } });
+    } finally {
+      await apiKeyed.close();
+    }
+  });
+});
+
+describe("request bodies are bounded", () => {
+  it("refuses a body past the route's limit before reading it, whoever sends it", async () => {
+    // In-process: a server that answers 413 before reading a body drops that connection, which would upset the
+    // shared fixture's pooled connections.
+    const app = createGatewayApp(g.deps, { sessionTokenSecret: TEST_SECRET });
+    const token = await g.token();
+    const post = async (path: string, bytes: number, auth: string) => (await app.request(path, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${auth}` }, body: JSON.stringify({ connector: "test", tool: "note", args: { text: "x".repeat(bytes) } }) })).status;
+    expect(await post("/v1/call", MAX_CALL_BODY_BYTES + 1, token)).toBe(413);
+    expect(await post("/mcp/test", MAX_MCP_BODY_BYTES + 1, token)).toBe(413);
+    expect(await post("/v1/integrations/connect", MAX_SERVICE_BODY_BYTES + 1, "anything")).toBe(413);
+    expect(await post("/v1/call", 1000, "not-a-token")).toBe(401);
   });
 });
 

@@ -18,7 +18,6 @@
   "dependencies": {
     "hono": "catalog:",
     "@hono/node-server": "catalog:",
-    "@hono/trpc-server": "catalog:",
     "@trpc/server": "catalog:",
     "zod": "catalog:",
     "superjson": "catalog:",

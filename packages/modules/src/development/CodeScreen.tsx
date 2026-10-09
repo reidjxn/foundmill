@@ -106,7 +106,9 @@ export function PushStatus({ snapshot, repository }: { snapshot: CodeSnapshotSum
   if (snapshot.pushedCommitSha) {
     const short = snapshot.pushedCommitSha.slice(0, 7);
     const branchUrl = snapshot.pushedRepo && snapshot.pushedBranch ? `https://github.com/${snapshot.pushedRepo}/tree/${snapshot.pushedBranch}` : null;
-    if (simulated || !snapshot.pushedUrl) {
+    // Only a github.com page is ever a link.
+    const commitUrl = snapshot.pushedUrl && /^https:\/\/github\.com\//.test(snapshot.pushedUrl) ? snapshot.pushedUrl : null;
+    if (simulated || !commitUrl) {
       return (
         <StatusPill tone="good" icon={CircleCheck} title={`${snapshot.pushedRepo ?? ""}${simulated ? " (simulated GitHub)" : ""}`} data-testid="push-status">
           Pushed · {short}
@@ -116,7 +118,7 @@ export function PushStatus({ snapshot, repository }: { snapshot: CodeSnapshotSum
     }
     return (
       <span className="flex items-center gap-2" data-testid="push-status">
-        <a href={snapshot.pushedUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-small text-link hover:underline">
+        <a href={commitUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-small text-link hover:underline">
           <Icon icon={CircleCheck} size="inline" /> Pushed · <span className="font-mono">{short}</span>
         </a>
         {branchUrl ? (
@@ -141,7 +143,7 @@ export function PushStatus({ snapshot, repository }: { snapshot: CodeSnapshotSum
   }
   return (
     <span className="text-small text-secondary" data-testid="push-status">
-      {repository?.repository ? "Not pushed yet: the next session on the task pushes it" : "Saved here only"}
+      {!repository?.repository ? "Saved here only" : repository.repository.writeEnabled ? "Not pushed yet: the next finished session on the task pushes it" : "Saved here only: pushing is off"}
     </span>
   );
 }
@@ -210,8 +212,8 @@ export function CodeScreen({ businessId }: ModuleScreenProps) {
   const action = useAction();
   const repository = useWidgetQuery<CodeRepositoryResponse>("dev.code.repository", {});
   const [settingRepo, setSettingRepo] = useState(false);
-  const saveRepository = (value: string | null) =>
-    void action.run("dev.code.setRepository", { repository: value }, {
+  const saveRepository = (value: string | null, pushEnabled: boolean) =>
+    void action.run("dev.code.setRepository", { repository: value, pushEnabled }, {
       key: "repository",
       then: () => {
         setSettingRepo(false);
@@ -220,7 +222,7 @@ export function CodeScreen({ businessId }: ModuleScreenProps) {
     });
   const repoButton = (
     <Button size="sm" variant="ghost" icon={FolderGit2} onClick={() => setSettingRepo(true)} title="Where saved code is pushed after each session">
-      {repository.data?.repository ? repository.data.repository.fullName : "Set up GitHub"}
+      {repository.data?.repository ? `${repository.data.repository.fullName}${repository.data.repository.writeEnabled ? "" : " · push off"}` : "Set up GitHub"}
     </Button>
   );
   const repoDialog = (
@@ -233,6 +235,7 @@ export function CodeScreen({ businessId }: ModuleScreenProps) {
       connected={repository.data?.connected ?? false}
       simulated={repository.data?.simulated ?? true}
       repository={repository.data?.repository?.fullName ?? null}
+      pushEnabled={repository.data?.repository?.writeEnabled ?? false}
       pending={action.pending === "repository"}
       error={settingRepo ? action.error : null}
       onSave={saveRepository}

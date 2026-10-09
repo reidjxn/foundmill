@@ -53,6 +53,19 @@ describe("HTTP surface on an ephemeral port", () => {
     expect(bad.status).toBe(401);
   });
 
+  it("procedures read the api's environment over HTTP, not the HTTP server's bindings", async () => {
+    // @hono/trpc-server replaced ctx.env with Hono's `c.env` (the Node request/response), so every ctx.env read over
+    // HTTP was undefined: Settings › Integrations crashed and mock-mode branches never ran.
+    const owner = { userId: hz.A.ownerId, email: "owner@a.test", authenticatedAt: new Date() };
+    const app = createApp({ ...hz.deps, auth: { resolve: async () => owner, verify: async () => owner } });
+    const input = encodeURIComponent(JSON.stringify({ json: { businessId: hz.A.businessId } }));
+    const res = await app.request(`/trpc/integrations.list?input=${input}`, { headers: { authorization: "Bearer test" } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { result: { data: { json: { mode: string; catalogue: { key: string; live: boolean }[] } } } };
+    expect(body.result.data.json.mode).toBe("mock");
+    expect(body.result.data.json.catalogue.find((c) => c.key === "github")).toMatchObject({ live: false });
+  });
+
   it("unknown routes answer JSON 404", async () => {
     const res = await fetch(`${base}/nope`);
     expect(res.status).toBe(404);

@@ -154,20 +154,25 @@ describe("workspaces", () => {
     expect((await repos.workspaces.getSnapshot(r.db, businessId, two.id))?.pushedCommitSha).toBeNull();
   });
 
-  it("reads and sets the repository code tasks push to, only once GitHub is connected", async () => {
+  it("reads and sets the repository code tasks push to, only once GitHub is connected, pushing only when turned on", async () => {
     const { businessId, ownerId } = r.A;
     expect(await repos.integrations.codeRepository(r.db, businessId)).toBeNull();
     await expect(r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, "acme/shop"))).rejects.toThrow(/connect GitHub/);
-    await r.svc((tx) => repos.integrations.upsert(tx, businessId, { connectorKey: "github", status: "connected", authKind: "app", settings: { externalAccountId: "42", config: { installationId: 42, repo: "acme/from-connect" } } }));
-    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ fullName: "acme/from-connect", owner: "acme", repo: "from-connect", writeEnabled: true });
+    // A repository named anywhere but the founder's choice (a connector's config) is not a push target.
+    await r.svc((tx) => repos.integrations.upsert(tx, businessId, { connectorKey: "github", status: "connected", authKind: "app", settings: { externalAccountId: "42", config: { installationId: 42, repo: "acme/from-connect", writeEnabled: true } } }));
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toBeNull();
+
     await r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, "acme/shop"));
-    const chosen = await repos.integrations.codeRepository(r.db, businessId);
-    expect(chosen).toMatchObject({ fullName: "acme/shop", status: "connected" });
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ fullName: "acme/shop", owner: "acme", repo: "shop", status: "connected", writeEnabled: false });
+    await r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, "acme/shop", { pushEnabled: true }));
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toMatchObject({ fullName: "acme/shop", writeEnabled: true });
     // The connect() settings stay alongside the choice.
-    expect((await repos.integrations.getByKey(r.db, businessId, "github"))?.settings).toMatchObject({ externalAccountId: "42", repo: "acme/shop" });
-    await expect(r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, "not a repo"))).rejects.toThrow(/owner\/name/);
+    expect((await repos.integrations.getByKey(r.db, businessId, "github"))?.settings).toMatchObject({ externalAccountId: "42", repo: "acme/shop", writeEnabled: true });
+    for (const bad of ["not a repo", "acme/..", "acme/.", "-acme/shop"]) await expect(r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, bad))).rejects.toThrow(/owner\/name/);
+    // Stop pushing: no repository, and pushing off, with no fallback to anything else.
     await r.as(ownerId, (tx) => repos.integrations.setCodeRepository(tx, businessId, null));
-    expect((await repos.integrations.codeRepository(r.db, businessId))?.fullName).toBe("acme/from-connect");
+    expect(await repos.integrations.codeRepository(r.db, businessId)).toBeNull();
+    expect((await repos.integrations.getByKey(r.db, businessId, "github"))?.settings).not.toHaveProperty("writeEnabled");
     expect(await repos.integrations.codeRepository(r.db, r.B.businessId)).toBeNull();
   });
 

@@ -287,18 +287,22 @@ export const devRouter = router({
       ctx.rls(async (tx) => {
         const integration = await repos.integrations.getByKey(tx, ctx.businessId, "github");
         const connected = integration !== null && integration.archivedAt === null && integration.status !== "disconnected";
-        return { connected, status: integration?.status ?? null, repository: integration ? codeRepositoryOf(integration) : null, simulated: connectorMode(ctx.env, "github") === "mock" };
+        // Simulated follows the connection itself (a row connected in mock mode never reaches github.com, whatever this
+        // service's environment says); with no connection, what Connect would make here.
+        const simulated = integration ? integration.status === "mock" : connectorMode(ctx.env, "github") === "mock";
+        return { connected, status: integration?.status ?? null, repository: integration ? codeRepositoryOf(integration) : null, simulated };
       }),
     ),
 
     /** Choose the repository saved code is pushed to (`owner/name` or a github.com URL), or stop pushing with null. */
     setRepository: sectionAdmin("development")
-      .input(z.object({ repository: z.string().trim().max(300).nullable() }))
+      // Pushing is off unless the founder turns it on: a push runs the repository's CI and preview deploys on agent code.
+      .input(z.object({ repository: z.string().trim().max(300).nullable(), pushEnabled: z.boolean().default(false) }))
       .mutation(({ ctx, input }) =>
         ctx.rls(async (tx) => {
           const fullName = input.repository ? input.repository.replace(/^https?:\/\/github\.com\//i, "").replace(/\.git$/i, "").replace(/\/+$/, "") : null;
-          const row = await repos.integrations.setCodeRepository(tx, ctx.businessId, fullName || null);
-          await audit(tx, ctx, { action: "dev.code.set_repository", target: { kind: "integration", id: row.id }, details: { repository: fullName || null } });
+          const row = await repos.integrations.setCodeRepository(tx, ctx.businessId, fullName || null, { pushEnabled: input.pushEnabled });
+          await audit(tx, ctx, { action: "dev.code.set_repository", target: { kind: "integration", id: row.id }, details: { repository: fullName || null, pushEnabled: Boolean(fullName) && input.pushEnabled } });
           return { repository: codeRepositoryOf(row) };
         }),
       ),

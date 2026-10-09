@@ -2,7 +2,7 @@
 /** Dialogs the development tabs share: Reassign, Stop and discard, Open in Claude Code, Forget saved code, GitHub repository. */
 import { useId, useState } from "react";
 import { ExternalLink, FolderGit2, Settings2, Square, Trash2, UserRoundCog } from "lucide-react";
-import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, SimpleSelect, Skeleton, Textarea } from "@foundmill/dugout";
+import { Button, Checkbox, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, SimpleSelect, Skeleton, Textarea } from "@foundmill/dugout";
 import { useWidgetQuery } from "@foundmill/widgets";
 import { InlineError, errorMessage } from "./shared";
 import type { AgentRow, OpenInClaudeCodeResponse } from "./types";
@@ -117,21 +117,27 @@ export interface GitHubRepositoryDialogProps {
   simulated: boolean;
   /** `owner/name` currently chosen, or null. */
   repository: string | null;
+  /** Whether saved code is pushed to it now (off until the founder turns it on). */
+  pushEnabled: boolean;
   pending?: boolean;
   error?: Error | null;
-  onSave: (repository: string | null) => void;
+  onSave: (repository: string | null, pushEnabled: boolean) => void;
   onOpenSettings: () => void;
 }
 
 /** Where saved code is pushed after each session (Development › Code). Owners and admins. */
-export function GitHubRepositoryDialog({ open, onOpenChange, connected, simulated, repository, pending, error, onSave, onOpenSettings }: GitHubRepositoryDialogProps) {
+export function GitHubRepositoryDialog({ open, onOpenChange, connected, simulated, repository, pushEnabled, pending, error, onSave, onOpenSettings }: GitHubRepositoryDialogProps) {
   const id = useId();
   const [value, setValue] = useState(repository ?? "");
+  const [push, setPush] = useState(pushEnabled);
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => {
-        if (o) setValue(repository ?? "");
+        if (o) {
+          setValue(repository ?? "");
+          setPush(pushEnabled);
+        }
         onOpenChange(o);
       }}
     >
@@ -139,15 +145,26 @@ export function GitHubRepositoryDialog({ open, onOpenChange, connected, simulate
         <DialogHeader>
           <DialogTitle>Push saved code to GitHub</DialogTitle>
           <DialogDescription id={`${id}-desc`}>
-            When a session on a code task ends, its saved code is committed to the task's own branch (agent/…) in this repository. Nothing is ever written to the default branch: merging stays a pull request.
+            When a session on a code task finishes, its saved code is committed to the task's own branch (agent/…) in this private repository. Nothing is ever written to the default branch: merging stays a pull request.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
           {simulated ? <Chip tone="info">Simulated GitHub: pushes are recorded here but do not reach github.com</Chip> : null}
           {connected ? (
-            <Field htmlFor={`${id}-repo`} label="Repository" hint="owner/name, or the repository's github.com address">
-              <Input id={`${id}-repo`} value={value} onChange={(e) => setValue(e.target.value)} placeholder="acme/shop" mono />
-            </Field>
+            <>
+              <Field htmlFor={`${id}-repo`} label="Repository" hint="owner/name, or the repository's github.com address">
+                <Input id={`${id}-repo`} value={value} onChange={(e) => setValue(e.target.value)} placeholder="acme/shop" mono />
+              </Field>
+              <label htmlFor={`${id}-push`} className="flex items-start gap-2 text-body">
+                <Checkbox id={`${id}-push`} checked={push} onCheckedChange={(v) => setPush(v === true)} className="mt-0.5" data-testid="push-enabled" />
+                <span className="flex flex-col gap-0.5">
+                  <span>Push agents' saved code to this repository</span>
+                  <span className="text-small text-secondary">
+                    A push can start this repository's CI and preview deploys on code an agent wrote, with their secrets. Commits are marked [skip ci], but services that ignore it still build. Files under .github are never pushed.
+                  </span>
+                </span>
+              </label>
+            </>
           ) : (
             <p className="text-body text-secondary">GitHub is not connected for this business yet. Connect it in Settings › Integrations, then choose the repository here.</p>
           )}
@@ -155,12 +172,12 @@ export function GitHubRepositoryDialog({ open, onOpenChange, connected, simulate
         </DialogBody>
         <DialogFooter>
           {connected && repository ? (
-            <Button variant="ghost" onClick={() => onSave(null)} disabled={pending}>
-              Stop pushing
+            <Button variant="ghost" onClick={() => onSave(null, false)} disabled={pending}>
+              Forget repository
             </Button>
           ) : null}
           {connected ? (
-            <Button variant="primary" icon={FolderGit2} loading={pending} disabled={!value.trim()} onClick={() => onSave(value.trim())}>
+            <Button variant="primary" icon={FolderGit2} loading={pending} disabled={!value.trim()} onClick={() => onSave(value.trim(), push)}>
               Save
             </Button>
           ) : (
