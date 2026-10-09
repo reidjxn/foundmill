@@ -7,26 +7,34 @@ import { Input } from "./Input";
 import { IconButton } from "./IconButton";
 
 describe("Input", () => {
-  it("renders a plain input with the md height and padding tokens", () => {
+  it("draws the field on the wrapper at the md height, with a borderless input inside", () => {
     render(<Input aria-label="Business name" />);
     const el = screen.getByRole("textbox", { name: "Business name" });
-    expect(el.className).toContain("h-control-md");
-    expect(el.className).toContain("pl-2");
-    expect(el.className).toContain("pr-2");
+    const field = el.parentElement!;
+    expect(field.hasAttribute("data-input-wrapper")).toBe(true);
+    expect(field.className).toContain("h-control-md");
+    expect(field.className).toContain("border-subtle");
+    expect(el.className).toContain("flex-1");
+    expect(el.className).toContain("border-0");
   });
 
-  it("pads for a leading icon and a trailing slot", () => {
-    render(<Input aria-label="Search" icon={Search} trailing={<span>⌘K</span>} />);
-    const el = screen.getByRole("textbox", { name: "Search" });
-    expect(el.className).toContain("pl-7");
-    expect(el.className).toContain("pr-8");
-    expect(el.parentElement?.querySelector("svg")).not.toBeNull();
+  it("lays the icon, prefix, suffix and trailing slot out in the flow, so they never overlap the value", () => {
+    render(<Input aria-label="Budget" icon={Search} prefix="£" suffix="GBP" trailing={<span>⌘K</span>} numeric defaultValue="60000" />);
+    const el = screen.getByRole("textbox", { name: "Budget" });
+    const field = el.parentElement!;
+    expect(field.querySelector("svg")).not.toBeNull();
+    const parts = Array.from(field.children).map((c) => c.getAttribute("data-input-prefix") !== null ? "prefix" : c.getAttribute("data-input-suffix") !== null ? "suffix" : c.tagName.toLowerCase());
+    expect(parts).toEqual(["span", "prefix", "input", "suffix", "span"]);
+    for (const child of Array.from(field.children)) expect(child.className).not.toContain("absolute");
+    expect(screen.getByText("GBP").className).toContain("shrink-0");
     expect(screen.getByText("⌘K")).toBeTruthy();
   });
 
-  it("marks invalid state through aria-invalid", () => {
+  it("marks invalid state through aria-invalid and on the field", () => {
     render(<Input aria-label="Amount" invalid />);
-    expect(screen.getByRole("textbox", { name: "Amount" }).getAttribute("aria-invalid")).toBe("true");
+    const el = screen.getByRole("textbox", { name: "Amount" });
+    expect(el.getAttribute("aria-invalid")).toBe("true");
+    expect(el.parentElement?.hasAttribute("data-invalid")).toBe(true);
   });
 
   it("keeps the same input element and focus when a trailing clear button appears (wave-2 web issue)", async () => {

@@ -10,7 +10,7 @@ import { AgentStatusPill, Chip, DataTable, DeptChip, EntityLink, MiniTable, Pane
 import { routes, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
 import { capUsedPct, formatMonth, monthKey, monthStart, outputPerHundred, sectionOf, trailingMonths } from "./metrics";
-import { Screen, fmtMoney, useCurrency, useNow } from "./shared";
+import { Screen, fmtMoney, toDate, useCurrency, useNow } from "./shared";
 import type { MembershipRow, PnlResponse, TaskRow, TasksListResponse, TeamAgentRow, WageRow, WagesResponse } from "./types";
 
 export const CAP_WARN_PCT = 80;
@@ -43,7 +43,8 @@ export function wageBillRows(wages: readonly WageRow[], agents: readonly TeamAge
   const doneByAgent = new Map<string, number>();
   for (const t of tasks) {
     if (t.status !== "done" || !t.assigneeAgentId) continue;
-    const ended = t.endedAt ?? t.updatedAt ?? null;
+    // Dates arrive as Date objects through superjson even where the row type says string.
+    const ended = toDate(t.endedAt ?? t.updatedAt ?? null)?.toISOString() ?? null;
     if (ended && !ended.startsWith(period)) continue;
     doneByAgent.set(t.assigneeAgentId, (doneByAgent.get(t.assigneeAgentId) ?? 0) + 1);
   }

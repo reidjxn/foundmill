@@ -101,9 +101,7 @@ export function DraftSpan({
   const KindIcon = ENTITY_KIND_ICONS[node.kindGuess];
   return (
     <span data-draft className="inline-flex max-w-full items-baseline gap-1 align-baseline">
-      <span className="underline decoration-dashed decoration-secondary/70 underline-offset-2">
-        {node.name}
-      </span>
+      <span>{node.name}</span>
       <Chip
         tone="warn"
         icon={KindIcon}

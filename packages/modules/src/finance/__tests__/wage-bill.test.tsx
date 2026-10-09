@@ -19,6 +19,12 @@ describe("wageBillRows", () => {
     expect(readAgents(agents)).toHaveLength(3);
     expect(readAgents(undefined)).toEqual([]);
   });
+
+  it("accepts task dates as Date objects (superjson delivers them that way) without crashing", () => {
+    const asDates = tasksDone.items.map((t) => ({ ...t, endedAt: t.endedAt ? (new Date(t.endedAt) as unknown as string) : t.endedAt, updatedAt: t.updatedAt ? (new Date(t.updatedAt) as unknown as string) : t.updatedAt }));
+    const rows = wageBillRows(wages.rows, readAgents(agentsResponse), asDates, "2026-10");
+    expect(rows.map((r) => r.tasksDone)).toEqual(wageBillRows(wages.rows, readAgents(agentsResponse), tasksDone.items, "2026-10").map((r) => r.tasksDone));
+  });
 });
 
 describe("WageBillScreen", () => {

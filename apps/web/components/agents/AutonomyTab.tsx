@@ -61,7 +61,7 @@ export function AutonomyTab({ businessId, profile, currency, typeCount, allCount
   const negotiationError = validateNegotiation(negotiation);
   const money = (label: string, id: string, value: number | null, onChange: (v: number | null) => void, hint?: string) => (
     <Field htmlFor={id} label={label} hint={hint}>
-      <Input id={id} numeric inputMode="decimal" value={formatMajor(value)} onChange={(e) => onChange(parseMajor(e.target.value))} placeholder={`0.00 ${currency}`} trailing={<span className="text-small text-secondary">{currency}</span>} />
+      <Input id={id} numeric inputMode="decimal" value={formatMajor(value)} onChange={(e) => onChange(parseMajor(e.target.value))} placeholder="0.00" suffix={currency} />
     </Field>
   );
 
@@ -133,7 +133,7 @@ export function AutonomyTab({ businessId, profile, currency, typeCount, allCount
             {money("Price ceiling", "price-max", negotiation.priceMaxMinor, (v) => setNegotiation((n) => ({ ...n, priceMaxMinor: v })))}
             {money("Walk away at", "walk-away", negotiation.walkAwayMinor, (v) => setNegotiation((n) => ({ ...n, walkAwayMinor: v })), "Required when negotiation is on.")}
             <Field htmlFor="max-concession" label="Max concession" hint="Percent the agent may move from its opening position.">
-              <Input id="max-concession" numeric inputMode="numeric" value={negotiation.maxConcessionPct === null ? "" : String(negotiation.maxConcessionPct)} onChange={(e) => setNegotiation((n) => ({ ...n, maxConcessionPct: e.target.value === "" ? null : Number(e.target.value) }))} trailing={<span className="text-small text-secondary">%</span>} />
+              <Input id="max-concession" numeric inputMode="numeric" value={negotiation.maxConcessionPct === null ? "" : String(negotiation.maxConcessionPct)} onChange={(e) => setNegotiation((n) => ({ ...n, maxConcessionPct: e.target.value === "" ? null : Number(e.target.value) }))} suffix="%" />
             </Field>
           </div>
           <Field htmlFor="topics" label="Topics" hint="Press Enter to add. Only these topics may be negotiated.">

@@ -38,7 +38,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "../foundation/Hov
 import { Icon } from "../foundation/Icon";
 import type { EntityDetails, EntityRef, EntityVerb } from "./types";
 
-/** Kind → Lucide icon (DESIGN §5: a person, an organisation and an agent read differently at a glance). */
+/** Kind → Lucide icon, for profile headers and lists; entity links themselves carry no icon (founder, 2026-10-09). */
 export const ENTITY_KIND_ICONS: Record<EntityKind, LucideIcon> = {
   person: UserRound,
   organisation: Building2,
@@ -130,7 +130,6 @@ export interface EntityCardProps {
 
 /** The 320 px card: avatar/logo, name, kind/role chips, three facts, actions (DESIGN §8). Also usable inline. */
 export function EntityCard({ details, onOpen, className }: EntityCardProps) {
-  const KindIcon = ENTITY_KIND_ICONS[details.kind];
   const facts = (details.facts ?? []).slice(0, 3);
   return (
     <div className={cn("flex flex-col gap-2", className)} data-entity-card={details.id}>
@@ -138,7 +137,6 @@ export function EntityCard({ details, onOpen, className }: EntityCardProps) {
         <Portrait details={details} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <Icon icon={KindIcon} size="inline" className="text-secondary" />
             {details.href || onOpen ? (
               <a
                 href={details.href ?? "#"}
@@ -148,7 +146,7 @@ export function EntityCard({ details, onOpen, className }: EntityCardProps) {
                     onOpen(details, e);
                   }
                 }}
-                className="t-display-sm truncate text-primary hover:text-link"
+                className="t-display-sm entity-link truncate text-primary"
               >
                 {details.name}
               </a>
@@ -219,14 +217,15 @@ export interface EntityLinkProps extends Omit<
   hoverCard?: boolean;
   /** Turn the right-click menu off. */
   contextMenu?: boolean;
-  /** Hide the 14 px kind icon. */
+  /** No longer used: entity links never carry a kind icon (founder, 2026-10-09). Kept so existing callers compile. */
   hideIcon?: boolean;
-  /** Mark the link as unverified (dashed underline, title). */
+  /** Mark the link as unverified (dotted underline in the secondary text colour, title). */
   unverified?: boolean;
 }
 
 /**
- * Inline entity mention (DESIGN §8): 14 px kind icon, accent-link, no underline at rest, hover card after 300 ms with
+ * Inline entity mention (DESIGN §8): plain text in the surrounding colour, always underlined, no kind icon (founder,
+ * 2026-10-09); it wraps with the sentence and truncates with its container. Hover card after 300 ms with
  * avatar/logo, name, chips, three facts and actions; click → `onOpen`; right-click → Message / Assign agent /
  * Add to list / Open profile. Keyboard: Tab focuses the link, Enter opens, Shift+F10 or the Menu key opens the verbs.
  */
@@ -239,7 +238,7 @@ export const EntityLink = forwardRef<HTMLAnchorElement, EntityLinkProps>(functio
     onVerb,
     hoverCard = true,
     contextMenu = true,
-    hideIcon,
+    hideIcon: _hideIcon,
     unverified,
     className,
     ...rest
@@ -259,7 +258,6 @@ export const EntityLink = forwardRef<HTMLAnchorElement, EntityLinkProps>(functio
   const open = onOpen ?? ctx.onOpen;
   const verbHandler = onVerb ?? ctx.onVerb;
   const verbs = resolved?.verbs ?? ctx.verbs ?? ENTITY_VERBS.map((v) => v.verb);
-  const KindIcon = entityKindIcon(kind);
 
   const anchor = (
     <a
@@ -277,17 +275,10 @@ export const EntityLink = forwardRef<HTMLAnchorElement, EntityLinkProps>(functio
         }
       }}
       title={unverified ? `${name} (unverified)` : undefined}
-      className={cn(
-        "inline-flex max-w-full items-baseline gap-1 rounded-chip text-link no-underline hover:underline focus-visible:outline-2",
-        unverified && "underline decoration-dashed decoration-secondary/70 underline-offset-2",
-        className,
-      )}
+      className={cn("entity-link", unverified && "decoration-dotted text-secondary", className)}
       {...rest}
     >
-      {hideIcon ? null : (
-        <Icon icon={KindIcon} size="inline" className="relative top-0.5 self-center" />
-      )}
-      <span className="truncate">{display ?? name}</span>
+      {display ?? name}
     </a>
   );
 

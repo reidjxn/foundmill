@@ -11,7 +11,7 @@ import { CHANNEL_LINES, type ChannelKey, type MatchdayLevel } from "@foundmill/s
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
 import { MODEL_LABELS, attributionRows, buildChannelViews, funnelStages, isPartialJourney, modelInUse, type AttributionRow } from "./channel-data";
-import { LINE_LABELS, Screen, channelLabel, useAction } from "./shared";
+import { LINE_LABELS, Screen, channelLabel, toDate, useAction } from "./shared";
 import type { ChannelsListResponse, JourneyRow, Page } from "./types";
 
 export const ATTRIBUTION_VIEWS: SavedView[] = [
@@ -92,7 +92,7 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
     [businessId, departments.data, navigate],
   );
   const rowActions = useCallback((): RowAction<AttributionRow>[] => [{ id: "open", label: "Open channel profile", icon: ExternalLink, onSelect: (r) => openChannel(r.channelKey) }], [openChannel]);
-  const latest = useMemo(() => wins.slice().sort((a, b) => b.conversion.occurredAt.localeCompare(a.conversion.occurredAt)).slice(0, 5), [wins]);
+  const latest = useMemo(() => wins.slice().sort((a, b) => (toDate(b.conversion.occurredAt)?.getTime() ?? 0) - (toDate(a.conversion.occurredAt)?.getTime() ?? 0)).slice(0, 5), [wins]);
 
   return (
     <Screen name="distribution/attribution">

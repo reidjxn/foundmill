@@ -352,7 +352,11 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   }, []);
   const moduleEnv = useMemo<Partial<ModuleEnv>>(() => ({ collabUrl: publicEnv().collabUrl, collabToken, SpecEditor }), [collabToken]);
   const specUser = useMemo(() => ({ id: viewer.userId ?? "dev", name: viewer.email ?? "You" }), [viewer.userId, viewer.email]);
-  const entityLinks = useMemo(() => ({ hrefFor: (ref: { id: string }) => routes.crm(businessId, ref.id), onOpen: (ref: { id: string }) => router.push(routes.crm(businessId, ref.id)) }), [businessId, router]);
+  // Agents open their profile; everything else (people, organisations, staff) opens its CRM record.
+  const entityLinks = useMemo(() => {
+    const hrefFor = (ref: { id: string; kind?: string; href?: string }) => ref.href ?? (ref.kind === "agent" ? routes.agent(businessId, ref.id) : routes.crm(businessId, ref.id));
+    return { hrefFor, onOpen: (ref: { id: string; kind?: string; href?: string }) => router.push(hrefFor(ref)) };
+  }, [businessId, router]);
 
   const financeDept = useMemo(() => visibleDepartments.find((d) => d.moduleKeys.includes("finance")), [visibleDepartments]);
   const onRunwayClick = useCallback(() => {

@@ -190,7 +190,7 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
         error={txQ.error ? txQ.error.message : undefined}
         onRetry={txQ.refetch}
         empty={txQ.data && rows.length === 0 && !accountId ? { icon: Landmark, title: "No transactions yet", children: "Transactions sync from your connected accounts; the finance lead categorises them into the standard chart of accounts." } : undefined}
-        actions={<Input icon={Search} controlSize="sm" placeholder="Search counterparty, description" aria-label="Search transactions" value={search} onChange={(e) => setSearch(e.target.value)} className="w-64" />}
+        actions={<Input icon={Search} controlSize="sm" placeholder="Search counterparty, description" aria-label="Search transactions" value={search} onChange={(e) => setSearch(e.target.value)} wrapperClassName="w-64" />}
         footer={<span className="tabular-nums">Latest {rows.length} transactions{accountId ? ` in ${accounts.find((a) => a.id === accountId)?.name ?? "this account"}` : ""} · right-click a row to recategorise · base currency {currency}</span>}
       >
         {accounts.length > 1 ? (

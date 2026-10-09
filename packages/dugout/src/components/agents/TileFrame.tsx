@@ -178,7 +178,7 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
               }
             }}
             title={session.task.title}
-            className="min-w-0 flex-1 truncate text-body text-link hover:underline"
+            className="entity-link min-w-0 flex-1 truncate text-body text-primary"
           >
             {session.task.title}
           </a>

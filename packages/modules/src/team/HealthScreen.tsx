@@ -112,7 +112,7 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
                     <dd className="truncate text-primary tabular-nums">{typeof details.errorRate === "number" ? formatPercent(details.errorRate, { digits: 1 }) : "—"}</dd>
                     <dd className="truncate">
                       {agent.currentTask ? (
-                        <a href={taskHref(businessId, agent.currentTask.id)} className="text-link no-underline hover:underline" onClick={(e) => { e.preventDefault(); navigate(taskHref(businessId, agent.currentTask!.id)); }}>
+                        <a href={taskHref(businessId, agent.currentTask.id)} className="entity-link" onClick={(e) => { e.preventDefault(); navigate(taskHref(businessId, agent.currentTask!.id)); }}>
                           {agent.currentTask.title}
                         </a>
                       ) : (

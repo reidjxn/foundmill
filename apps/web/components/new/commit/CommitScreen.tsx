@@ -340,7 +340,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
                       set("spendCap", e.target.value);
                     }}
                     invalid={Boolean(show("spendCap"))}
-                    trailing={<span className="text-small text-secondary">{form.currency}</span>}
+                    suffix={form.currency}
                   />
                 </Field>
                 <p className="pb-1 text-small text-secondary">

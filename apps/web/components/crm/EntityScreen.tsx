@@ -242,7 +242,7 @@ function ActivityTab({ get, businessId, squad }: { get: EntityGet; businessId: s
       id: i.id,
       at: i.at,
       title: i.href ? (
-        <a href={i.href} className="text-link hover:underline">
+        <a href={i.href} className="entity-link">
           {i.title}
         </a>
       ) : (
@@ -332,7 +332,7 @@ function DocumentsTab({ get, businessId }: { get: EntityGet; businessId: string 
           <li key={d.id} className="flex items-center gap-3 py-1.5 text-body">
             <Icon icon={ScrollText} size="inline" className="text-secondary" />
             {d.href ? (
-              <a href={d.href} className="text-link hover:underline">
+              <a href={d.href} className="entity-link">
                 {d.title}
               </a>
             ) : (

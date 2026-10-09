@@ -1,9 +1,7 @@
 import { Children, isValidElement, type ComponentPropsWithoutRef, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ExternalLink } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { Icon } from "../foundation/Icon";
 import { EntityText, type EntityTextProps } from "./EntityText";
 import { hasEntityMarkup } from "./entityMarkup";
 
@@ -133,14 +131,12 @@ export function Markdown({
       return (
         <a
           href={href}
-          className="text-link hover:underline"
+          className="entity-link"
           {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
           {...rest}
         >
           {c}
-          {external ? (
-            <Icon icon={ExternalLink} size={12} className="ml-0.5 inline align-baseline" />
-          ) : null}
+          {external ? <span className="sr-only"> (opens in a new tab)</span> : null}
         </a>
       );
     },

@@ -63,7 +63,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
         row.currentTask ? (
           <a
             href={taskHref(businessId, row.currentTask.id)}
-            className="truncate text-link no-underline hover:underline"
+            className="entity-link truncate"
             onClick={(e) => {
               e.preventDefault();
               navigate(taskHref(businessId, row.currentTask!.id));

@@ -8,7 +8,7 @@ import type { EntityRenderNode } from "./entityMarkup";
 import { ENTITY_IDS, NOTE_MARKDOWN, NOTE_WITH_MARKUP, resolveFixtureEntity } from "./fixtures";
 
 describe("EntityLink", () => {
-  it("renders a kind icon, the accent link and calls onOpen instead of navigating", async () => {
+  it("renders plain underlined text in the surrounding colour (no kind icon) and calls onOpen instead of navigating", async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();
     render(
@@ -19,8 +19,11 @@ describe("EntityLink", () => {
     );
     const link = screen.getByRole("link", { name: "Sara Lindqvist" });
     expect(link.getAttribute("data-entity-kind")).toBe("person");
-    expect(link.querySelector("svg")).not.toBeNull();
-    expect(link.className).toContain("text-link");
+    // Founder rule (2026-10-09): no icon inside an entity link; the text keeps the sentence's colour and is underlined.
+    expect(link.querySelector("svg")).toBeNull();
+    expect(link.textContent).toBe("Sara Lindqvist");
+    expect(link.className).toContain("entity-link");
+    expect(link.className).not.toContain("text-link");
     await user.click(link);
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(onOpen.mock.calls[0]?.[0]).toMatchObject({ id: ENTITY_IDS.sara, kind: "person" });

@@ -199,7 +199,7 @@ function AgentExhibit({ agentId }: { agentId: string | null }) {
         <Avatar size={32} name={found.name} agent={{ seed: found.avatarSeed || found.id, dept: found.dept }} status={found.status} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <a href={routes.agent(businessId, found.id)} className="truncate text-body-strong text-link hover:underline">
+            <a href={routes.agent(businessId, found.id)} className="entity-link truncate text-body-strong text-primary">
               {found.name}
             </a>
             <AgentStatusPill status={found.status} />

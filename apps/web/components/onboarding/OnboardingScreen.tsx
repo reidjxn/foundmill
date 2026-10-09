@@ -200,7 +200,7 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
             </Field>
             <div className="grid grid-cols-[1fr_160px] gap-gutter">
               <Field htmlFor="profile-budget" label="Budget you can commit" hint="Your own money for the first year, before any revenue. Leave empty if none. Accepts 25k." error={show("budget")}>
-                <Input id="profile-budget" numeric inputMode="decimal" value={form.budget} onChange={(e) => set("budget", e.target.value)} placeholder="25000" invalid={Boolean(show("budget"))} trailing={<span className="text-small text-secondary">{form.currency}</span>} />
+                <Input id="profile-budget" numeric inputMode="decimal" value={form.budget} onChange={(e) => set("budget", e.target.value)} placeholder="25000" invalid={Boolean(show("budget"))} suffix={form.currency} />
               </Field>
               <Field htmlFor="profile-currency" label="Currency" error={show("currency")}>
                 <SimpleSelect id="profile-currency" value={form.currency} onValueChange={(v) => set("currency", v)} options={CURRENCIES.map((c) => ({ value: c, label: c }))} aria-label="Currency" />

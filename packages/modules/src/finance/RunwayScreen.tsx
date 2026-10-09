@@ -11,7 +11,7 @@ import { routes, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
 import { FORECAST_SCENARIOS, type FinanceOverview, type ForecastDrivers, type ForecastRow, type ForecastScenario, type PnlResponse } from "./types";
 import { RUNWAY_BLOCK_MONTHS, formatMonth, monthKey, monthStart, pnlTotals, projectForecast, readDrivers, runwayTone, runwayWarnings, runwayWord, seedDrivers } from "./metrics";
-import { InlineError, Screen, fmtMoney, fmtMonths, useAction, useCurrency, useNow } from "./shared";
+import { InlineError, Screen, fmtMoney, fmtMonths, toDate, useAction, useCurrency, useNow } from "./shared";
 
 export const SCENARIO_META: Record<ForecastScenario, { label: string; tone: SeriesTone; hint: string }> = {
   base: { label: "Base", tone: "kit", hint: "What the plan says: current MRR, 5 % monthly growth, costs up 1 % a month." },
@@ -141,7 +141,7 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
           overview.refetch();
         }}
         actions={<ProvenanceChip kind="forecast" />}
-        footer={<span>{noForecasts ? "No forecast saved yet: the lines show drivers seeded from today's cash, MRR and gross burn. Save a scenario to keep it." : `Latest versions: ${FORECAST_SCENARIOS.map((s) => `${SCENARIO_META[s].label} ${stored[s] ? stored[s]!.createdAt.slice(0, 10) : "unsaved"}`).join(" · ")}.`} Every value is a forecast, not a measurement.</span>}
+        footer={<span>{noForecasts ? "No forecast saved yet: the lines show drivers seeded from today's cash, MRR and gross burn. Save a scenario to keep it." : `Latest versions: ${FORECAST_SCENARIOS.map((s) => `${SCENARIO_META[s].label} ${stored[s] ? (toDate(stored[s]!.createdAt)?.toISOString().slice(0, 10) ?? "unsaved") : "unsaved"}`).join(" · ")}.`} Every value is a forecast, not a measurement.</span>}
       >
         <LineChart label="Cash forecast by scenario" series={series} height={260} yFormat={(v) => fmtMoney(v, cur, { compact: true })} provenance="forecast" zeroBased={false} markX={monthStart(now, 0)} markLabel="Now" />
       </Panel>
@@ -202,7 +202,7 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
           <div className="grid grid-cols-6 gap-gutter">
             {DRIVER_FIELDS.map((f) => (
               <Field key={f.key} htmlFor={`${id}-${scenario}-${f.key}`} label={f.label} hint={f.hint}>
-                <Input id={`${id}-${scenario}-${f.key}`} numeric inputMode="decimal" controlSize="md" value={toField(draft, f.key, f.kind)} trailing={<span className="text-small text-secondary">{f.kind === "money" ? cur : f.kind === "percent" ? "%" : "mo"}</span>} onChange={(e) => setDriver(f.key, fromField(e.target.value, f.kind, Number(draft[f.key] ?? 0)))} />
+                <Input id={`${id}-${scenario}-${f.key}`} numeric inputMode="decimal" controlSize="md" value={toField(draft, f.key, f.kind)} suffix={f.kind === "money" ? cur : f.kind === "percent" ? "%" : "months"} onChange={(e) => setDriver(f.key, fromField(e.target.value, f.kind, Number(draft[f.key] ?? 0)))} />
               </Field>
             ))}
           </div>
