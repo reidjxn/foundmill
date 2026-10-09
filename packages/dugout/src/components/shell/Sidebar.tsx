@@ -4,6 +4,7 @@ import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { DeptColourToken } from "@foundmill/shared";
 import { APP_NAME } from "@foundmill/config";
 import { cn } from "../../lib/cn";
+import { FitText } from "../foundation/FitText";
 import { Icon } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
 import { Keys } from "../foundation/Kbd";
@@ -14,7 +15,7 @@ import type { SidebarBrand, SidebarItem } from "./types";
 
 /** `data-sidebar-item` value of the brand link (arrow keys reach it like any item while it is drawn). */
 export const SIDEBAR_BRAND_ID = "brand";
-/** Cap height of the wordmark in the sidebar foot, in px: the DESIGN §8a floor, a little taller than the 9 px caps of the tab-style labels. */
+/** Cap height of the wordmark in the sidebar foot, in px: the DESIGN §8a floor. */
 export const SIDEBAR_BRAND_HEIGHT = 12;
 
 export interface SidebarProps extends Omit<HTMLAttributes<HTMLElement>, "onSelect"> {
@@ -36,33 +37,26 @@ export interface SidebarProps extends Omit<HTMLAttributes<HTMLElement>, "onSelec
   hideToggle?: boolean;
 }
 
-/** Static class maps so Tailwind emits every variant. */
-const BADGE_DEPT_CLASS: Record<DeptColourToken, string> = {
-  "dept-1": "bg-dept-1 text-ink",
-  "dept-2": "bg-dept-2 text-ink",
-  "dept-3": "bg-dept-3 text-ink",
-  "dept-4": "bg-dept-4 text-ink",
-  "dept-5": "bg-dept-5 text-ink",
-  "dept-6": "bg-dept-6 text-ink",
-  "dept-7": "bg-dept-7 text-ink",
-  "dept-8": "bg-dept-8 text-ink",
-};
-const DOT_DEPT_CLASS: Record<DeptColourToken, string> = {
-  "dept-1": "bg-dept-1",
-  "dept-2": "bg-dept-2",
-  "dept-3": "bg-dept-3",
-  "dept-4": "bg-dept-4",
-  "dept-5": "bg-dept-5",
-  "dept-6": "bg-dept-6",
-  "dept-7": "bg-dept-7",
-  "dept-8": "bg-dept-8",
+/** Static class maps so Tailwind emits every variant: the tone the dot, the badge and their glows read. */
+const DEPT_TONE: Record<DeptColourToken, string> = {
+  "dept-1": "tone-dept-1",
+  "dept-2": "tone-dept-2",
+  "dept-3": "tone-dept-3",
+  "dept-4": "tone-dept-4",
+  "dept-5": "tone-dept-5",
+  "dept-6": "tone-dept-6",
+  "dept-7": "tone-dept-7",
+  "dept-8": "tone-dept-8",
 };
 
-/** Badge classes for an item (department colour, status-bad for Inbox, neutral otherwise). Exported for tests. */
+/**
+ * The badge's tone class for an item: the department colour, status-bad for the Inbox (items that need a response),
+ * nothing for a neutral badge (a surface-3 plate). Exported for tests.
+ */
 export function sidebarBadgeClass(item: Pick<SidebarItem, "dept" | "badgeTone">): string {
-  if (item.dept) return BADGE_DEPT_CLASS[item.dept];
-  if (item.badgeTone === "bad") return "bg-status-bad text-ink";
-  return "bg-panel-alt text-primary";
+  if (item.dept) return DEPT_TONE[item.dept];
+  if (item.badgeTone === "bad") return "tone-status-bad";
+  return "";
 }
 
 /** Index of the item an arrow/Home/End key moves focus to, wrapping. Exported for tests. */
@@ -91,27 +85,24 @@ export function sidebarItemName(item: SidebarItem): string {
 function Badge({ item, collapsed }: { item: SidebarItem; collapsed: boolean }) {
   if (!item.badge || item.badge <= 0) return null;
   const text = item.badge > 99 ? "99+" : String(item.badge);
+  const tone = sidebarBadgeClass(item);
   return (
-    <span
-      aria-hidden
-      data-badge
-      className={cn(
-        "inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full px-1 font-display text-label font-semibold leading-none tabular-nums",
-        sidebarBadgeClass(item),
-        collapsed ? "absolute -right-1.5 -top-1.5 ring-2 ring-panel" : "ml-auto",
-      )}
-    >
+    <span aria-hidden data-badge data-tone={tone ? undefined : "neutral"} data-collapsed={collapsed || undefined} className={cn("sidebar-badge", tone, !collapsed && "ml-auto")}>
       {text}
     </span>
   );
 }
 
 /**
- * The sidebar (BUILD §5.3, DESIGN §8): 232 px, 32 px items with a 16 px icon and a tab-style label; the active item has a
- * 3 px kit-primary left edge on bg-panel-alt; badges are 18 px pills in the department colour. Groups: main (Home, Inbox,
- * departments in the founder's order, CRM), a hairline, LIVE items, foot (Settings, Anthropic key, the Foundmill
- * wordmark). Collapsed to 64 px it keeps icons, dots and badges, shows labels as tooltips and drops the wordmark.
- * Arrow keys move focus; Enter or Space activates.
+ * The sidebar (BUILD §5.3, DESIGN §8): 232 px on the rail, its inner hairline catching light at the top. Items are
+ * 32 px, 10 px in from the edges, sentence case: a 16 px icon in text-3 and an action-style label in text-2; hover adds a
+ * 3.5 % plate. The active item takes a brand plate with a kit-lift ring and icon, and a lit 3 px edge with its glow at
+ * the rail's edge. Department icons carry a small dot in their colour; badges are 18 px glowing pills in the department
+ * colour. Groups: main (Home, Inbox, departments in the founder's order, CRM), a fading hairline, LIVE items, foot
+ * (Settings, Anthropic key, the Foundmill wordmark). A long founder-defined label wraps to two lines and steps down to
+ * fit, never silently clipped (its full text in a tooltip only as the last resort). Collapsed to 64 px it keeps icons,
+ * dots and badges, shows labels and chords as tooltips and drops the wordmark. Arrow keys move focus; Enter or Space
+ * activates.
  */
 export const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(
   { items, activeId, collapsed, onCollapsedChange, brand, showLive = true, onSelect, hideToggle, className, ...rest },
@@ -144,61 +135,53 @@ export const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(
   const renderBrand = (b: SidebarBrand) => {
     const name = b.label ?? APP_NAME;
     return (
-      <li key={SIDEBAR_BRAND_ID} className="relative">
-        <ShellLink
-          ref={(node: HTMLAnchorElement | null) => {
-            if (node) refs.current.set(SIDEBAR_BRAND_ID, node);
-            else refs.current.delete(SIDEBAR_BRAND_ID);
-          }}
-          href={b.href}
-          aria-label={name}
-          tabIndex={SIDEBAR_BRAND_ID === focusable ? 0 : -1}
-          data-sidebar-item={SIDEBAR_BRAND_ID}
-          className={cn(
-            "relative flex h-8 w-full items-center rounded-none pl-3 pr-2 text-primary",
-            "transition-colors duration-micro ease-dugout hover:bg-white/4 hover:no-underline",
-            "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
-          )}
-        >
-          <Wordmark height={SIDEBAR_BRAND_HEIGHT} label={null} className="animate-fade-in" style={{ animationDelay: "var(--dur-micro)" }} />
-        </ShellLink>
-      </li>
+      <ShellLink
+        ref={(node: HTMLAnchorElement | null) => {
+          if (node) refs.current.set(SIDEBAR_BRAND_ID, node);
+          else refs.current.delete(SIDEBAR_BRAND_ID);
+        }}
+        href={b.href}
+        aria-label={name}
+        tabIndex={SIDEBAR_BRAND_ID === focusable ? 0 : -1}
+        data-sidebar-item={SIDEBAR_BRAND_ID}
+        className="sidebar-item min-w-0 flex-1 text-primary hover:text-primary"
+      >
+        <Wordmark height={SIDEBAR_BRAND_HEIGHT} label={null} className="animate-fade-in" style={{ animationDelay: "var(--dur-micro)" }} />
+      </ShellLink>
     );
   };
 
   const renderItem = (item: SidebarItem) => {
     const active = item.id === activeId;
     const name = sidebarItemName(item);
-    const cls = cn(
-      "group/item relative flex h-8 w-full items-center gap-2 rounded-none text-secondary",
-      "transition-colors duration-micro ease-dugout hover:bg-white/4 hover:text-primary hover:no-underline",
-      "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
-      collapsed ? "justify-center px-0" : "pl-3 pr-2",
-      active && "bg-panel-alt text-primary",
-      item.disabled && "pointer-events-none opacity-50",
-    );
     const inner = (
       <>
-        {active ? <span aria-hidden data-active-edge className="absolute inset-y-0 left-0 w-0.75 bg-kit-primary" /> : null}
-        <span className="relative inline-flex shrink-0">
+        {active ? <span aria-hidden data-active-edge className="sidebar-edge" /> : null}
+        <span className="relative inline-flex shrink-0" data-sidebar-icon>
           <Icon icon={item.icon} />
-          {item.dept ? <span aria-hidden data-dept-dot className={cn("absolute -bottom-0.5 -right-0.5 size-1.5 rounded-full ring-2 ring-panel", DOT_DEPT_CLASS[item.dept])} /> : null}
+          {item.dept ? <span aria-hidden data-dept-dot className={cn("sidebar-dot", DEPT_TONE[item.dept])} /> : null}
           {collapsed ? <Badge item={item} collapsed /> : null}
         </span>
-        <span className={cn("t-tab min-w-0 flex-1 truncate text-left", collapsed ? "sr-only" : "animate-fade-in")} style={collapsed ? undefined : { animationDelay: "var(--dur-micro)" }}>
-          {item.label}
-        </span>
+        {collapsed ? (
+          <span className="sr-only">{item.label}</span>
+        ) : (
+          <FitText lines={2} className="min-w-0 flex-1 animate-fade-in text-left" style={{ animationDelay: "var(--dur-micro)" }} data-sidebar-label>
+            {item.label}
+          </FitText>
+        )}
         {collapsed ? null : <Badge item={item} collapsed={false} />}
       </>
     );
     const common = {
       "data-sidebar-item": item.id,
       "data-active": active || undefined,
+      "data-collapsed": collapsed || undefined,
       "aria-current": active ? ("page" as const) : undefined,
       "aria-label": name,
       "aria-keyshortcuts": item.keys ? item.keys.join(" ") : undefined,
+      "aria-disabled": item.disabled || undefined,
       tabIndex: item.id === focusable ? 0 : -1,
-      className: cls,
+      className: "sidebar-item",
     };
     const setRef = (node: HTMLElement | null) => {
       if (node) refs.current.set(item.id, node);
@@ -240,42 +223,40 @@ export const Sidebar = forwardRef<HTMLElement, SidebarProps>(function Sidebar(
       ref={ref}
       aria-label="Primary"
       data-collapsed={collapsed || undefined}
-      className={cn(
-        "flex h-full shrink-0 flex-col overflow-hidden border-r border-subtle bg-panel transition-[width] duration-panel ease-dugout",
-        collapsed ? "w-sidebar-collapsed" : "w-sidebar",
-        className,
-      )}
+      className={cn("shell-rail flex h-full shrink-0 flex-col overflow-hidden", collapsed ? "w-sidebar-collapsed" : "w-sidebar", className)}
       onKeyDown={onKeyDown}
       {...rest}
     >
-      <ul className="flex flex-col py-2">{main.map(renderItem)}</ul>
+      <ul className="flex flex-col gap-0.5 pb-2 pt-3">{main.map(renderItem)}</ul>
       {live.length > 0 ? (
         <>
-          <div role="separator" className="mx-3 h-px bg-subtle" />
-          <div className={cn("flex items-center", collapsed ? "h-2" : "h-6 px-3")}>
-            <span className={cn("t-label", collapsed && "sr-only")}>Live</span>
+          <div role="separator" className="rail-rule" />
+          <div className={cn("flex items-center", collapsed ? "h-2" : "h-control-xs px-5")}>
+            <span className={cn("t-data", collapsed && "sr-only")}>Live</span>
           </div>
-          <ul className="flex flex-col pb-2">{live.map(renderItem)}</ul>
+          <ul className="flex flex-col gap-0.5 pb-2">{live.map(renderItem)}</ul>
         </>
       ) : null}
-      <div className="mt-auto border-t border-subtle">
-        <ul className="flex flex-col py-2">
-          {foot.map(renderItem)}
-          {brand && showBrand ? renderBrand(brand) : null}
-        </ul>
-        {hideToggle ? null : (
-          <div className={cn("flex h-8 items-center pb-2", collapsed ? "justify-center" : "px-2")}>
-            <IconButton
-              icon={collapsed ? PanelLeftOpen : PanelLeftClose}
-              label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-              size="sm"
-              variant="ghost"
-              aria-expanded={!collapsed}
-              onClick={() => onCollapsedChange(!collapsed)}
-              data-testid="sidebar-toggle"
-            />
+      <div className="mt-auto flex flex-col pb-2">
+        <div role="separator" className="rail-rule mt-0" />
+        <ul className="flex flex-col gap-0.5 pb-1">{foot.map(renderItem)}</ul>
+        {showBrand || !hideToggle ? (
+          <div className={cn("flex items-center", collapsed ? "justify-center" : "pr-2.5")}>
+            {brand && showBrand ? renderBrand(brand) : null}
+            {hideToggle ? null : (
+              <IconButton
+                icon={collapsed ? PanelLeftOpen : PanelLeftClose}
+                label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                size="sm"
+                variant="ghost"
+                aria-expanded={!collapsed}
+                onClick={() => onCollapsedChange(!collapsed)}
+                className={cn("text-tertiary", !showBrand && !collapsed && "ml-auto")}
+                data-testid="sidebar-toggle"
+              />
+            )}
           </div>
-        )}
+        ) : null}
       </div>
     </nav>
   );

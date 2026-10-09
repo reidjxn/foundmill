@@ -17,35 +17,38 @@ export function groupShortcuts(list: readonly KeyboardShortcut[]): Array<{ group
   return GROUP_ORDER.map((group) => ({ group, items: list.filter((s) => s.group === group) })).filter((g) => g.items.length > 0);
 }
 
-/** The keyboard map overlay (BUILD §5.5): every shortcut with its keys, department chords included. Opens on "?". */
+/**
+ * The keyboard map overlay (BUILD §5.5): every shortcut with its keys, department chords included, in groups under data
+ * labels, in two columns; each row reads the action on the left and its key caps on the right. Opens on "?".
+ */
 export function KeyboardHelp({ open, onOpenChange, departments = [] }: KeyboardHelpProps) {
   const groups = useMemo(() => groupShortcuts(shortcutList(departments)), [departments]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="md" data-testid="keyboard-help">
+      <DialogContent size="lg" data-testid="keyboard-help">
         <DialogHeader>
           <DialogTitle>Keyboard shortcuts</DialogTitle>
           <DialogDescription>Single keys work anywhere outside a text field. Chords are two keys in a row.</DialogDescription>
         </DialogHeader>
-        <DialogBody className="flex flex-col gap-3">
+        <DialogBody className="columns-2 gap-x-6">
           {groups.map((g) => (
-            <section key={g.group} aria-labelledby={`kh-${g.group}`}>
-              <h3 id={`kh-${g.group}`} className="t-label mb-1">
+            <section key={g.group} aria-labelledby={`kh-${g.group}`} className="mb-4 flex break-inside-avoid flex-col gap-1">
+              <h3 id={`kh-${g.group}`} className="t-data">
                 {g.group}
               </h3>
-              <dl className="grid grid-cols-[minmax(7rem,auto)_1fr] gap-x-4 gap-y-1">
+              <dl className="flex flex-col">
                 {g.items.map((s) => (
-                  <div key={s.id} className="contents">
-                    <dt className="inline-flex items-center gap-1">
+                  <div key={s.id} className="flex min-h-control-md flex-row-reverse items-center justify-between gap-4 border-b border-line-faint py-1 last:border-b-0">
+                    <dt className="inline-flex shrink-0 items-center gap-1">
                       {s.keys.map((k, i) => (
                         <span key={`${k}-${i}`} className="inline-flex items-center gap-1">
                           {i > 0 && s.id !== "option" ? (
-                            <span aria-hidden className="text-small text-secondary">
+                            <span aria-hidden className="text-small text-tertiary">
                               then
                             </span>
                           ) : null}
                           {k === "–" ? (
-                            <span aria-hidden className="text-small text-secondary">
+                            <span aria-hidden className="text-small text-tertiary">
                               to
                             </span>
                           ) : (
@@ -54,7 +57,7 @@ export function KeyboardHelp({ open, onOpenChange, departments = [] }: KeyboardH
                         </span>
                       ))}
                     </dt>
-                    <dd className="text-body text-secondary">{s.label}</dd>
+                    <dd className="min-w-0 text-body text-secondary">{s.label}</dd>
                   </div>
                 ))}
               </dl>

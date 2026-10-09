@@ -9,7 +9,8 @@ import { formatCompact } from "../../../lib/format";
 export type SeriesTone = "kit" | "kit-secondary" | "good" | "warn" | "bad" | "info" | "gold" | "secondary" | "link" | DeptColourToken;
 
 const TONE_VAR: Record<Exclude<SeriesTone, DeptColourToken>, string> = {
-  kit: "var(--kit-primary)",
+  // The brand lifted towards text-1, so a brand line reads on the dark panel whatever the business's colour.
+  kit: "var(--kit-lift)",
   "kit-secondary": "var(--kit-secondary)",
   good: "var(--status-good)",
   warn: "var(--status-warn)",
@@ -26,7 +27,7 @@ export function toneVar(tone: SeriesTone): string {
 
 /** Text classes for a tone (legend dots and values). Static map so Tailwind emits them. */
 export const TONE_TEXT: Record<SeriesTone, string> = {
-  kit: "text-kit-primary",
+  kit: "text-kit-lift",
   "kit-secondary": "text-kit-secondary",
   good: "text-status-good",
   warn: "text-status-warn",
@@ -53,9 +54,101 @@ export interface ChartMargin {
 }
 export const DEFAULT_MARGIN: ChartMargin = { top: 8, right: 12, bottom: 24, left: 40 };
 
-/** Axis styling shared by every chart: hairline strokes, small text in text-secondary (DESIGN §4). */
-export const AXIS_TICK_LABEL = { fill: "var(--text-secondary)", fontFamily: "var(--font-body)", fontSize: 12 } as const;
-export const AXIS_STROKE = "var(--line-subtle)";
+/** Axis styling shared by every chart: hairline strokes, mono 11 px ticks in text-3 (DESIGN §4: nothing smaller). */
+export const AXIS_TICK_LABEL = { fill: "var(--text-3)", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 500 } as const;
+export const AXIS_STROKE = "var(--line)";
+/** Gridlines: hairlines at 4.5 % white. */
+export const GRID_STROKE = "var(--line-faint)";
+
+/** Tick labels are JetBrains Mono 11: about 6.7 px a character (no DOM to measure while laying out). */
+export const TICK_CHAR_PX = 6.7;
+export const tickWidth = (label: string) => label.length * TICK_CHAR_PX;
+
+/** A real minus sign on negative figures: "-£5K" → "−£5K", "£-5K" → "−£5K". */
+export function signFix(label: string): string {
+  return label.replace(/^-/, "−").replace(/^([^\d\s−-]+)-/, "−$1");
+}
+
+/** The margin a y axis needs for its widest label, plus the tick and a gap (never less than `min`). */
+export function yAxisMargin(labels: readonly string[], min = 24): number {
+  return Math.max(min, Math.ceil(Math.max(0, ...labels.map(tickWidth)) + 14));
+}
+
+/** Integer ticks only when every value is a whole number (counts never show "0.5"). */
+export function countTicks(ticks: readonly number[], values: readonly number[]): number[] {
+  return values.every((v) => Number.isInteger(v)) ? ticks.filter((t) => Number.isInteger(t)) : [...ticks];
+}
+
+export interface PlacedTick {
+  key: string;
+  x: number;
+  label: string;
+  anchor: "start" | "middle" | "end";
+  showLabel: boolean;
+}
+
+/**
+ * Lay x tick labels out so none is clipped and none overlaps: a label that would cross the plot's edge (plus the
+ * margin beside it) is anchored to its tick on the inside, and one that would touch the label before it is skipped
+ * (its tick mark stays). With `every`, only every n-th label is a candidate (even thinning for bands).
+ */
+export function placeTicks(ticks: ReadonlyArray<{ key: string; x: number; label: string }>, innerW: number, room: { left: number; right: number }, opts: { gap?: number; every?: number } = {}): PlacedTick[] {
+  const gap = opts.gap ?? 12;
+  const every = Math.max(1, opts.every ?? 1);
+  let lastRight = -Infinity;
+  return ticks.map((t, i) => {
+    const w = tickWidth(t.label);
+    let anchor: PlacedTick["anchor"] = "middle";
+    let left = t.x - w / 2;
+    let right = t.x + w / 2;
+    if (left < -room.left) {
+      anchor = "start";
+      left = t.x;
+      right = t.x + w;
+    } else if (right > innerW + room.right) {
+      anchor = "end";
+      left = t.x - w;
+      right = t.x;
+    }
+    const showLabel = i % every === 0 && left >= lastRight + gap && right <= innerW + room.right + 0.5;
+    if (showLabel) lastRight = right;
+    return { key: t.key, x: t.x, label: t.label, anchor, showLabel };
+  });
+}
+
+/** A bottom axis from placed ticks: 4 px tick marks and mono labels, nothing clipped. */
+export function AxisX({ ticks, top, tickMarks = true }: { ticks: readonly PlacedTick[]; top: number; tickMarks?: boolean }) {
+  return (
+    <g data-axis="x" transform={`translate(0 ${top})`}>
+      {ticks.map((t) => (
+        <g key={t.key}>
+          {tickMarks ? <line x1={t.x} x2={t.x} y1={0} y2={4} stroke={AXIS_STROKE} /> : null}
+          {t.showLabel ? (
+            <text x={t.x} y={17} textAnchor={t.anchor} className="chart-tick">
+              {t.label}
+            </text>
+          ) : null}
+        </g>
+      ))}
+    </g>
+  );
+}
+
+/** A left axis: labels right-aligned 8 px from the plot, with full-width gridlines (the zero line a little stronger). */
+export function AxisY({ ticks, width, zero }: { ticks: ReadonlyArray<{ key: string; y: number; label: string; value: number }>; width: number; zero?: boolean }) {
+  return (
+    <g data-axis="y">
+      {ticks.map((t) => (
+        <g key={t.key}>
+          <line x1={0} x2={width} y1={t.y + 0.5} y2={t.y + 0.5} stroke={zero && t.value === 0 ? AXIS_STROKE : GRID_STROKE} />
+          <text x={-8} y={t.y} dy="0.32em" textAnchor="end" className="chart-tick">
+            {t.label}
+          </text>
+        </g>
+      ))}
+    </g>
+  );
+}
 
 export const compactTick = (v: number | { valueOf(): number }) => formatCompact(Number(v));
 
@@ -85,7 +178,7 @@ export interface ChartTooltipProps {
 export function ChartTooltip({ x, y, width, children }: ChartTooltipProps) {
   const flip = x + 180 > width;
   return (
-    <div role="status" className="surface-overlay pointer-events-none absolute z-10 min-w-28 px-2 py-1.5 text-small text-primary" style={{ left: flip ? undefined : x + 12, right: flip ? width - x + 12 : undefined, top: Math.max(0, y - 12) }} data-chart-tooltip>
+    <div role="status" className="surface-overlay pointer-events-none absolute z-10 min-w-32 px-2.5 py-2 text-small text-primary" style={{ left: flip ? undefined : x + 12, right: flip ? width - x + 12 : undefined, top: Math.max(0, y - 12) }} data-chart-tooltip>
       {children}
     </div>
   );
@@ -104,9 +197,10 @@ export function ChartLegend({ items, className }: { items: LegendItem[]; classNa
     <ul className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-secondary", className)} aria-label="Legend">
       {items.map((it) => (
         <li key={it.id} className="inline-flex items-center gap-1.5">
-          <span aria-hidden className={cn("inline-block h-0.5 w-3 rounded-full", TONE_TEXT[it.tone], it.dashed ? "border-t border-dashed border-current bg-transparent" : "bg-current")} />
+          <span aria-hidden className={cn("inline-block w-3.5 rounded-full", TONE_TEXT[it.tone], it.dashed ? "h-0 border-t-2 border-dashed border-current" : "h-0.5 bg-current")} />
           <span>{it.label}</span>
-          {it.dashed ? <span className="t-label">Forecast</span> : null}
+          {/* A dashed line is not measured: say so, unless its label already does. */}
+          {it.dashed && !/forecast|estimate|plan/i.test(it.label) ? <span className="est-chip">Forecast</span> : null}
         </li>
       ))}
     </ul>

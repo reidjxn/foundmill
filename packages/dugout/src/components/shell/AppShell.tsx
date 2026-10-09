@@ -1,7 +1,8 @@
 "use client";
-import { forwardRef, useCallback, useMemo, useState, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useMemo, useState, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import type { BusinessMode, GameMode, Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
+import { BusinessLogo } from "../foundation/BusinessLogo";
 import { TooltipProvider } from "../foundation/Tooltip";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { CommandPalette, type CommandPaletteProps } from "./CommandPalette";
@@ -127,6 +128,31 @@ export function sidebarItemForTarget(items: readonly SidebarItem[], target: GoTo
   return items.find((it) => it.fixed === target.kind);
 }
 
+/** The brand variables `kitStyle` writes (the shell root carries them; so does the document while a shell is mounted). */
+export const KIT_VARIABLES = ["--kit-primary", "--kit-secondary", "--kit-on-primary", "--kit-lift", "--kit-hi", "--kit-lo", "--kit-deep", "--kit-aura"] as const;
+
+/**
+ * While a shell is mounted, the document root carries the business's brand variables too, so the overlays that portal to
+ * the body (the command palette, dialogs, menus, toasts) light up in the business's colour rather than the stylesheet's
+ * steel. Removed again on unmount. Exported for tests.
+ */
+export function useDocumentKit(kit: Kit): void {
+  const { primary, secondary } = kit;
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    const vars = kitStyle({ primary, secondary }) as Record<string, string | undefined>;
+    for (const name of KIT_VARIABLES) {
+      const value = vars[name];
+      if (value) root.style.setProperty(name, value);
+      else root.style.removeProperty(name);
+    }
+    return () => {
+      for (const name of KIT_VARIABLES) root.style.removeProperty(name);
+    };
+  }, [primary, secondary]);
+}
+
 /**
  * The AppShell (BUILD §5.3, DESIGN §8): sidebar left, kit bar top, processing strip under it, tab bar, content grid,
  * optional right rail. Nothing floats. Applies the business kit as CSS variables on its root, binds the keyboard map,
@@ -222,6 +248,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     },
   });
 
+  useDocumentKit(kit);
+
   if (tooSmall) return <NeedsLargerWindow width={width} minWidth={minViewportWidth} />;
 
   const homeItem = items.find((it) => it.fixed === "home");
@@ -234,7 +262,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
         data-testid="app-shell"
         data-game-mode={mode}
         data-chord-pending={chordPending || undefined}
-        className={cn("flex h-screen w-full min-w-(--min-viewport) overflow-hidden bg-base text-primary", className)}
+        className={cn("flex h-screen w-full min-w-(--min-viewport) overflow-hidden canvas-lit text-primary", className)}
         style={rootStyle}
         {...rest}
       >
@@ -277,7 +305,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
           <ProcessingStrip segments={processing.segments} active={processing.active} />
           {tabs ? <TabBar {...tabs} /> : null}
           {breadcrumbs && breadcrumbs.length > 0 ? (
-            <div className="flex h-7 shrink-0 items-center border-b border-subtle bg-panel px-gutter">
+            <div className="rule-under flex h-control-md shrink-0 items-center px-gutter">
               <Breadcrumbs items={breadcrumbs} />
             </div>
           ) : null}
@@ -292,7 +320,14 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             ) : null}
           </div>
         </div>
-        {search ? <CommandPalette {...search} open={searchOpen} onOpenChange={setSearchOpen} /> : null}
+        {search ? (
+          <CommandPalette
+            {...search}
+            business={search.business ?? { name: businessName, href: homeItem?.href, logo: logoSrc !== undefined || !logo ? <BusinessLogo src={logoSrc} name={businessName} primary={kit.primary} size={20} /> : undefined }}
+            open={searchOpen}
+            onOpenChange={setSearchOpen}
+          />
+        ) : null}
         <KeyboardHelp open={helpOpen} onOpenChange={setHelpOpen} departments={departments} />
       </div>
     </TooltipProvider>

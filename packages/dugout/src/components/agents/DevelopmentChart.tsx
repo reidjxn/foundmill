@@ -53,13 +53,13 @@ export function DevelopmentChart({ series, sessions = [], dept, width = 640, hei
             {[5, 10, 15, 20].map((v) => (
               <g key={v} transform={`translate(0 ${y(v)})`}>
                 <line x1={0} x2={innerW} className="stroke-subtle" strokeDasharray={v === 20 ? undefined : "2 3"} />
-                <text x={-6} y={3} textAnchor="end" className="fill-secondary font-mono text-[10px] tabular-nums">
+                <text x={-6} y={3} textAnchor="end" className="chart-tick">
                   {v}
                 </text>
               </g>
             ))}
             {ticks.map((t) => (
-              <text key={t.getTime()} x={x(t)} y={innerH + 18} textAnchor="middle" className="fill-secondary font-body text-[11px]">
+              <text key={t.getTime()} x={x(t)} y={innerH + 18} textAnchor="middle" className="chart-tick">
                 {formatDate(t, "d MMM")}
               </text>
             ))}

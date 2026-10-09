@@ -6,7 +6,7 @@ import { MONOGRAM_HEIGHT, MONOGRAM_WIDTH, WORDMARK_HEIGHT, WORDMARK_WIDTH } from
 import { WORDMARK_ASPECT } from "../foundation/Wordmark";
 import { NORTHWIND_SIDEBAR } from "./fixtures";
 import { SIDEBAR_BRAND_HEIGHT, SIDEBAR_BRAND_ID, Sidebar, nextSidebarIndex, sidebarBadgeClass, sidebarItemName } from "./Sidebar";
-import { TabBar, nextTabIndex } from "./TabBar";
+import { TabBar, nextTabIndex, visibleTabCount } from "./TabBar";
 import { DISTRIBUTION_TABS } from "./fixtures";
 
 describe("Sidebar", () => {
@@ -16,15 +16,17 @@ describe("Sidebar", () => {
     expect(nav.getAttribute("data-collapsed")).toBeNull();
     const active = screen.getByRole("link", { name: "Distribution, 2 items" });
     expect(active.getAttribute("aria-current")).toBe("page");
-    expect(active.querySelector("[data-active-edge]")?.className).toContain("bg-kit-primary");
-    expect(active.querySelector("[data-badge]")?.className).toContain("bg-dept-3");
-    expect(active.querySelector("[data-dept-dot]")?.className).toContain("bg-dept-3");
-    expect(screen.getByRole("link", { name: "Inbox, 3 items" }).querySelector("[data-badge]")?.className).toContain("bg-status-bad");
+    expect(active.getAttribute("data-active")).toBe("true");
+    expect(active.querySelector("[data-active-edge]")?.className).toContain("sidebar-edge");
+    expect(active.querySelector("[data-badge]")?.className).toContain("tone-dept-3");
+    expect(active.querySelector("[data-dept-dot]")?.className).toContain("tone-dept-3");
+    expect(screen.getByRole("link", { name: "Inbox, 3 items" }).querySelector("[data-badge]")?.className).toContain("tone-status-bad");
     expect(screen.getByRole("link", { name: "Network" })).toBeTruthy();
     expect(screen.getByText("Live")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Settings" })).toBeTruthy();
     expect(sidebarItemName({ id: "x", label: "Inbox", icon: NORTHWIND_SIDEBAR[0]!.icon, group: "main", badge: 1 })).toBe("Inbox, 1 item");
-    expect(sidebarBadgeClass({ badgeTone: "neutral" })).toContain("bg-panel-alt");
+    expect(sidebarBadgeClass({ badgeTone: "neutral" })).toBe("");
+    expect(sidebarBadgeClass({ dept: "dept-6" })).toBe("tone-dept-6");
   });
 
   it("hides the LIVE block in Personal mode", () => {
@@ -73,6 +75,31 @@ describe("Sidebar", () => {
   });
 });
 
+describe("Sidebar labels", () => {
+  const long = "Retail Partnerships, Wholesale and Marketplace Distribution across the Nordics and the Baltics";
+  const items = [...NORTHWIND_SIDEBAR.slice(0, 2), { id: "d-long", label: long, icon: NORTHWIND_SIDEBAR[2]!.icon, href: "#", group: "department" as const, dept: "dept-3" as const, badge: 2 }];
+
+  it("lets a long founder-defined label wrap to two lines and fit, never clipped silently", () => {
+    render(<Sidebar items={items} collapsed={false} onCollapsedChange={() => {}} />);
+    const link = screen.getByRole("link", { name: `${long}, 2 items` });
+    const label = link.querySelector("[data-sidebar-label]");
+    expect(label?.textContent).toBe(long);
+    // FitText with two lines: wrap first, step the size down, truncate with a tooltip only as the last resort.
+    expect(label?.getAttribute("data-lines")).toBe("2");
+    expect(link.className).toContain("sidebar-item");
+  });
+
+  it("names a collapsed item in a tooltip with its chord, and keeps the badge on the icon", async () => {
+    const user = userEvent.setup();
+    render(<Sidebar items={[{ ...items[2]!, keys: ["G", "R"] }]} collapsed onCollapsedChange={() => {}} />);
+    const link = screen.getByRole("link", { name: `${long}, 2 items` });
+    expect(link.querySelector(".sr-only")?.textContent).toBe(long);
+    expect(link.querySelector("[data-badge]")?.getAttribute("data-collapsed")).toBe("true");
+    await user.hover(link);
+    expect((await screen.findAllByText(`${long}, 2 items`)).length).toBeGreaterThan(0);
+  });
+});
+
 describe("Sidebar brand (the Foundmill wordmark in the foot)", () => {
   const brand = { href: "/" };
 
@@ -89,10 +116,10 @@ describe("Sidebar brand (the Foundmill wordmark in the foot)", () => {
     expect(svgs[0]!.getAttribute("width")).toBe(String(Math.round(SIDEBAR_BRAND_HEIGHT * WORDMARK_ASPECT)));
     expect(svgs[0]!.querySelectorAll("path")).toHaveLength(1);
     expect(link.textContent).toBe("");
-    // It sits on the same 12 px inset as the item icons.
+    // It sits on the same inset as the item icons (both are sidebar rows: 10 px in from the rail, 10 px padding).
     const settings = screen.getByRole("link", { name: "Settings" });
-    expect(link.className).toContain("pl-3");
-    expect(settings.className).toContain("pl-3");
+    expect(link.className).toContain("sidebar-item");
+    expect(settings.className).toContain("sidebar-item");
   });
 
   it("closes the foot, after the last item and before the collapse toggle", () => {
@@ -189,5 +216,46 @@ describe("TabBar", () => {
     expect(screen.getByRole("tab", { name: /Channels/ }).textContent).toContain("Paid");
     expect(screen.getByRole("tab", { name: /Leads/ }).textContent).toContain("12");
     expect(screen.queryByRole("button", { name: "Formation views" })).toBeNull();
+  });
+
+  it("puts counts in a pill, red with ink when the count needs the founder", () => {
+    render(<TabBar tabs={[{ id: "all", label: "All" }, { id: "respond", label: "Respond", badge: 4, badgeTone: "bad" }, { id: "archive", label: "Archive", badge: 23 }]} activeId="all" />);
+    expect(screen.getByLabelText("4 items").getAttribute("data-tone")).toBe("bad");
+    expect(screen.getByLabelText("23 items").getAttribute("data-tone")).toBeNull();
+    // Before the bar is measured, the active tab draws its own static bar.
+    expect(screen.getByRole("tab", { name: /All/ }).querySelector("[data-tab-bar]")).not.toBeNull();
+  });
+
+  it("counts how many tabs fit before the rest move into More", () => {
+    expect(visibleTabCount([80, 80, 80], 300, 4, 70)).toBe(3);
+    expect(visibleTabCount([80, 80, 80, 80], 300, 4, 70)).toBe(2);
+    expect(visibleTabCount([400], 300, 4, 70)).toBe(1);
+    expect(visibleTabCount([80, 80], 0, 4, 70)).toBe(2);
+    expect(visibleTabCount([], 300, 4, 70)).toBe(0);
+  });
+
+  it("moves the tabs that do not fit into a More menu, which takes the active tab's name when it holds it", async () => {
+    const user = userEvent.setup();
+    const offset = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+    const client = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
+    // A 350 px bar and 100 px tabs: two tabs and More fit.
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get(this: HTMLElement) { return this.parentElement?.getAttribute("role") === "tablist" || this.getAttribute("role") === "tab" ? 100 : 0; } });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get(this: HTMLElement) { return this.firstElementChild?.getAttribute("role") === "tablist" ? 350 : 0; } });
+    try {
+      const onChange = vi.fn();
+      const { rerender } = render(<TabBar tabs={DISTRIBUTION_TABS} activeId="formation" onChange={onChange} />);
+      const more = await screen.findByRole("button", { name: "More tabs" });
+      expect(screen.getAllByRole("tab").filter((t) => !t.closest("[aria-hidden=true]")).map((t) => t.id)).toEqual(["tab-formation", "tab-channels"]);
+      await user.click(more);
+      await user.click(await screen.findByRole("menuitem", { name: "Creative" }));
+      expect(onChange).toHaveBeenCalledWith("creative");
+      rerender(<TabBar tabs={DISTRIBUTION_TABS} activeId="attribution" onChange={onChange} />);
+      expect(await screen.findByRole("button", { name: "More tabs, Attribution selected" })).toBeTruthy();
+    } finally {
+      if (offset) Object.defineProperty(HTMLElement.prototype, "offsetWidth", offset);
+      else delete (HTMLElement.prototype as { offsetWidth?: number }).offsetWidth;
+      if (client) Object.defineProperty(HTMLElement.prototype, "clientWidth", client);
+      else delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+    }
   });
 });

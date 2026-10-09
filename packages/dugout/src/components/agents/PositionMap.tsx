@@ -7,10 +7,10 @@ export const POSITION_LEVEL_LABELS: Record<PositionLevel, string> = { natural: "
 
 /** Tint per level in the rating ramp (DESIGN §9 Agent profile). */
 const LEVEL_CLASS: Record<PositionLevel, string> = {
-  natural: "bg-rating-4/15 border-rating-4/60 text-rating-4",
-  accomplished: "bg-rating-3/15 border-rating-3/60 text-rating-3",
-  competent: "bg-rating-2/15 border-rating-2/60 text-rating-2",
-  unconvincing: "bg-rating-1/15 border-rating-1/60 text-rating-1",
+  natural: "chip-tone tone-rating-4 text-rating-4",
+  accomplished: "chip-tone tone-rating-3 text-rating-3",
+  competent: "chip-tone tone-rating-2 text-rating-2",
+  unconvincing: "chip-tone tone-rating-1 text-rating-1",
 };
 
 /** Level from a 1–20 rating when the app has not classified the role. */
@@ -40,23 +40,24 @@ export function PositionMap({ roles, currentRoleId, onSelect, columns = 4, class
           const current = role.id === currentRoleId;
           const content = (
             <>
-              <span className="truncate text-body-strong text-primary">{role.label}</span>
-              <span className="flex items-center justify-between gap-1">
-                <span className="t-label text-current">{POSITION_LEVEL_LABELS[role.level]}</span>
+              {/* Role names wrap to two lines (never cut mid-word); the full name is in the cell's tooltip. */}
+              <span className="line-clamp-2 break-words text-body font-medium leading-4 text-primary">{role.label}</span>
+              <span className="mt-auto flex items-center justify-between gap-1">
+                <span className="text-small font-medium text-current">{POSITION_LEVEL_LABELS[role.level]}</span>
                 {role.rating !== undefined ? <span className="font-display text-display-sm font-semibold tabular-nums">{role.rating}</span> : null}
               </span>
-              {current ? <span className="t-label text-secondary">Current role</span> : null}
+              {current ? <span className="t-data text-secondary">Current role</span> : null}
             </>
           );
-          const cls = cn("flex h-full w-full flex-col gap-0.5 rounded-panel border p-2 text-left", LEVEL_CLASS[role.level], current && "ring-2 ring-kit-primary ring-offset-1 ring-offset-panel");
+          const cls = cn("flex h-full min-h-control-xl w-full flex-col gap-1 rounded-md border p-2.5 text-left", LEVEL_CLASS[role.level], current && "ring-2 ring-kit-lift/70 ring-offset-2 ring-offset-surface-1");
           return (
             <li key={role.id} data-level={role.level} aria-current={current ? "true" : undefined}>
               {onSelect ? (
-                <button type="button" onClick={() => onSelect(role)} className={cn(cls, "hover:brightness-110")} aria-label={`${role.label}: ${POSITION_LEVEL_LABELS[role.level]}${role.rating !== undefined ? `, ${role.rating} of 20` : ""}`}>
+                <button type="button" onClick={() => onSelect(role)} title={role.label} className={cn(cls, "pressable hover:brightness-125 focus-visible:shadow-ring")} aria-label={`${role.label}: ${POSITION_LEVEL_LABELS[role.level]}${role.rating !== undefined ? `, ${role.rating} of 20` : ""}`}>
                   {content}
                 </button>
               ) : (
-                <div className={cls} role="img" aria-label={`${role.label}: ${POSITION_LEVEL_LABELS[role.level]}${role.rating !== undefined ? `, ${role.rating} of 20` : ""}`}>
+                <div className={cls} title={role.label} role="img" aria-label={`${role.label}: ${POSITION_LEVEL_LABELS[role.level]}${role.rating !== undefined ? `, ${role.rating} of 20` : ""}`}>
                   {content}
                 </div>
               )}

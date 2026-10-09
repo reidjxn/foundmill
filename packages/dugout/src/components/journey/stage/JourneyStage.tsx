@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ChevronLeft, Pause, Play, RotateCcw, Star, Trophy, VolumeX } from "lucide-react";
 import { CHANNEL_META, type ChannelKey, type EntityKind, type MatchdayLevel } from "@foundmill/shared/constants";
 import { cn } from "../../../lib/cn";
+import { FitText } from "../../foundation/FitText";
 import { formatDate, formatDateTime, formatDuration, formatMoney, formatNumber, formatOrdinal, formatPercent } from "../../../lib/format";
 import { ratingClass } from "../../../lib/rating";
 import { usePrefersReducedMotion } from "../../../lib/reducedMotion";
@@ -111,8 +112,8 @@ function agentMeta(agents: readonly StageAgentMeta[] | undefined, id: string | n
 function Panelette({ title, children, className, action }: { title: string; children: ReactNode; className?: string; action?: ReactNode }) {
   return (
     <section className={cn("surface-panel flex min-w-0 flex-col overflow-hidden", className)} aria-label={title}>
-      <header className="flex h-panel-header shrink-0 items-center gap-2 border-b border-subtle bg-panel-alt px-panel-pad">
-        <h3 className="t-label flex-1 truncate">{title}</h3>
+      <header className="flex h-panel-header shrink-0 items-center gap-2 px-panel-pad rule-fade">
+        <h3 className="t-title min-w-0 flex-1 truncate text-primary">{title}</h3>
         {action}
       </header>
       <div className="min-h-0 flex-1 p-panel-pad">{children}</div>
@@ -130,12 +131,12 @@ function TeamSheet({ journey, agents }: { journey: Journey; agents?: readonly St
         <ol className="flex flex-col gap-2">
           {journey.channels.map((c) => (
             <li key={c.channelKey ?? "direct"} className="flex items-center gap-2">
-              <span className="w-36 truncate text-body-strong">
-                {channelLabel(c.channelKey)}
-                {c.channelKey === captainChannel && journey.captain ? <Icon icon={Star} size="inline" className="ml-1 inline text-gold" label="Lead channel" /> : null}
+              <span className="flex w-36 shrink-0 items-center gap-1 font-medium" title={channelLabel(c.channelKey)}>
+                <FitText minPx={11}>{channelLabel(c.channelKey)}</FitText>
+                {c.channelKey === captainChannel && journey.captain ? <Icon icon={Star} size="inline" className="shrink-0 text-gold" label="Lead channel" /> : null}
               </span>
-              <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-panel-alt">
-                <span className="block h-full bg-kit-primary" style={{ width: `${Math.round((c.weight / maxW) * 100)}%` }} />
+              <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/6">
+                <span className="block h-full rounded-full bg-kit-lift" style={{ width: `${Math.round((c.weight / maxW) * 100)}%` }} />
               </span>
               <span className="w-12 text-right tabular-nums">{formatPercent(c.weight, { digits: 0 })}</span>
               <span className="w-16 text-right text-small text-secondary tabular-nums">
@@ -306,8 +307,8 @@ function Rails({ journey, customer, touches, currency, onOpenEntity, entityKinds
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
             {customer.facts.map((f) => (
               <div key={f.label} className="contents">
-                <dt className="t-label">{f.label}</dt>
-                <dd className="truncate text-body">{f.value}</dd>
+                <dt className="t-data">{f.label}</dt>
+                <dd className="break-words text-body tabular-nums">{f.value}</dd>
               </div>
             ))}
           </dl>
@@ -318,7 +319,7 @@ function Rails({ journey, customer, touches, currency, onOpenEntity, entityKinds
         action={
           <div ref={tabsRef} role="tablist" aria-label="Stat panels" className="flex items-center gap-0.5" onKeyDown={onTabKey}>
             {RAIL_PANELS.map((p) => (
-              <button key={p} type="button" role="tab" aria-selected={panel === p} tabIndex={panel === p ? 0 : -1} data-rail-tab={p} onClick={() => setPanel(p)} className={cn("h-6 rounded-chip px-2 t-label hover:bg-white/6 hover:text-primary", panel === p && "bg-panel text-primary")}>
+              <button key={p} type="button" role="tab" aria-selected={panel === p} tabIndex={panel === p ? 0 : -1} data-rail-tab={p} onClick={() => setPanel(p)} className={cn("h-control-xs rounded-sm px-2 t-action-sm text-tertiary transition-colors hover:bg-white/6 hover:text-primary focus-visible:shadow-ring", panel === p && "tile-tab-on text-primary")}>
                 {RAIL_LABELS[p]}
               </button>
             ))}
@@ -331,9 +332,11 @@ function Rails({ journey, customer, touches, currency, onOpenEntity, entityKinds
               <ol className="flex flex-col gap-2">
                 {journey.channels.map((c) => (
                   <li key={c.channelKey ?? "direct"} className="flex items-center gap-2">
-                    <span className="w-36 truncate text-body-strong">{channelLabel(c.channelKey)}</span>
-                    <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-panel-alt">
-                      <span className="block h-full bg-kit-primary" style={{ width: `${Math.round((c.weight / maxW) * 100)}%` }} />
+                    <span className="w-36 shrink-0 font-medium" title={channelLabel(c.channelKey)}>
+                      <FitText minPx={11}>{channelLabel(c.channelKey)}</FitText>
+                    </span>
+                    <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/6">
+                      <span className="block h-full rounded-full bg-kit-lift" style={{ width: `${Math.round((c.weight / maxW) * 100)}%` }} />
                     </span>
                     <span className="w-12 text-right tabular-nums">{formatPercent(c.weight, { digits: 0 })}</span>
                   </li>
@@ -455,25 +458,25 @@ function FullTime({ journey, customer, agents, currency, onReplay, onClose, clos
           </div>
           <dl className="grid grid-cols-2 gap-3">
             <div>
-              <dt className="t-label">Acquisition cost</dt>
+              <dt className="t-data">Acquisition cost</dt>
               <dd className="inline-flex items-center gap-2">
                 <span className="t-display-lg tabular-nums">{journey.stats.acquisitionCostMinor === null ? "—" : formatMoney({ amountMinor: journey.stats.acquisitionCostMinor, currency: journey.stats.currency || currency })}</span>
                 <ProvenanceChip kind="estimate" />
               </dd>
             </div>
             <div>
-              <dt className="t-label">Payback</dt>
+              <dt className="t-data">Payback</dt>
               <dd className="inline-flex items-center gap-2">
                 <span className="t-display-lg tabular-nums">{payback === null ? "—" : `${formatNumber(payback, { maxDigits: 1 })} mo`}</span>
                 {payback !== null ? <ProvenanceChip kind="estimate" /> : null}
               </dd>
             </div>
             <div>
-              <dt className="t-label">Time to convert</dt>
+              <dt className="t-data">Time to convert</dt>
               <dd className="t-display-lg tabular-nums">{journey.stats.timeToConvertHours === null ? "—" : formatDuration(journey.stats.timeToConvertHours * 3_600_000)}</dd>
             </div>
             <div>
-              <dt className="t-label">Touches</dt>
+              <dt className="t-data">Touches</dt>
               <dd className="t-display-lg tabular-nums">{journey.stats.touchCount}</dd>
             </div>
           </dl>
@@ -567,10 +570,10 @@ export function JourneyStage({ journey, touches, customer, agents, kit, speed: s
   const vignette = { backgroundImage: "radial-gradient(ellipse at 50% 0%, color-mix(in oklab, var(--kit-primary) 10%, transparent), transparent 60%)" } as const;
 
   const header = (
-    <header className="flex flex-wrap items-center gap-3 border-b border-subtle px-gutter py-2" style={{ ["--kit-primary" as string]: kit.primary, ["--kit-secondary" as string]: kit.secondary }}>
+    <header className="flex flex-wrap items-center gap-3 px-gutter py-2 rule-fade" style={{ ["--kit-primary" as string]: kit.primary, ["--kit-secondary" as string]: kit.secondary }}>
       <span className="inline-flex items-center gap-2">
         <Icon icon={Trophy} className="text-gold" />
-        <span className="t-label text-gold">Customer Update</span>
+        <span className="t-data text-gold">Customer Update</span>
         <span className="t-display-sm">{LEVEL_WORD[journey.matchdayLevel]}</span>
         <span className="text-small text-secondary">
           {formatOrdinal(journey.nthOfKind)} {journey.kind}
@@ -579,23 +582,23 @@ export function JourneyStage({ journey, touches, customer, agents, kit, speed: s
       <ol className="mx-auto flex items-center gap-1" aria-label="Stages" data-stepper>
         {STAGE_ORDER.map((s, i) => (
           <li key={s} className="flex items-center gap-1">
-            <button type="button" aria-current={stage === s ? "step" : undefined} data-stage-step={s} onClick={() => goToStage(s)} className={cn("h-6 rounded-chip px-2 t-label hover:bg-white/6 hover:text-primary", stage === s && "bg-panel-alt text-primary shadow-[inset_0_-2px_0_var(--kit-primary)]")}>
+            <button type="button" aria-current={stage === s ? "step" : undefined} data-stage-step={s} onClick={() => goToStage(s)} className={cn("h-control-xs rounded-sm px-2 t-action-sm text-tertiary transition-colors hover:bg-white/6 hover:text-primary focus-visible:shadow-ring", stage === s && "tile-tab-on text-primary")}>
               {STAGE_LABELS[s]}
             </button>
             {i < STAGE_ORDER.length - 1 ? <span aria-hidden className="h-px w-2 bg-subtle" /> : null}
           </li>
         ))}
       </ol>
-      <div role="group" aria-label="Speed" className="flex items-center gap-0.5 rounded-panel bg-panel-alt p-0.5">
+      <div role="group" aria-label="Speed" className="seg-track h-control-sm">
         {REPLAY_SPEEDS.map((s) => (
-          <Button key={s} size="sm" variant="ghost" aria-pressed={speed === s} className={cn("px-2", speed === s && "bg-panel text-primary")} onClick={() => changeSpeed(s)} data-speed={s}>
+          <button key={s} type="button" aria-pressed={speed === s} className={cn("seg-item font-body text-action-sm font-medium focus-visible:shadow-ring", speed === s && "tile-tab-on text-primary")} onClick={() => changeSpeed(s)} data-speed={s}>
             {REPLAY_SPEED_LABELS[s]}
-          </Button>
+          </button>
         ))}
       </div>
       {!reduced && schedule.durationMs > 0 ? <IconButton icon={playing ? Pause : Play} label={playing ? "Pause" : "Play"} onClick={togglePlay} /> : null}
       <Tooltip content="Sound is off by default">
-        <span className="inline-flex items-center gap-1 rounded-chip bg-panel-alt px-1.5 t-label">
+        <span className="inline-flex items-center gap-1 rounded-sm bg-white/5 px-1.5 t-label">
           <Icon icon={VolumeX} size={12} /> Sound off
         </span>
       </Tooltip>
@@ -622,7 +625,7 @@ export function JourneyStage({ journey, touches, customer, agents, kit, speed: s
     <div className={cn("flex min-h-full flex-col bg-base", className)} style={vignette} data-journey-stage={speed} data-stage={stage} data-time={Math.round(time)} data-schedule-hash={schedule.hash}>
       {header}
       {schedule.durationMs > 0 ? (
-        <div className="flex items-center gap-3 border-b border-subtle px-gutter py-1.5">
+        <div className="flex items-center gap-3 px-gutter py-1.5 rule-fade">
           <span className="font-mono text-mono text-secondary tabular-nums">
             {formatReplayClock(time)} / {formatReplayClock(schedule.durationMs)}
           </span>

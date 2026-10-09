@@ -83,6 +83,10 @@ describe("misc", () => {
     expect(initials("ledgerly")).toBe("LE");
     expect(initials("Jean-Luc Picard")).toBe("JL");
     expect(initials("")).toBe("");
+    expect(initials("Patch & Co.")).toBe("PC");
+    expect(initials("(Re)Fill")).toBe("RE");
+    expect(initials("“Quoted” name")).toBe("QN");
+    expect(initials("&")).toBe("");
   });
   it("truncates", () => {
     expect(truncate("Founder Manager", 8)).toBe("Founder…");

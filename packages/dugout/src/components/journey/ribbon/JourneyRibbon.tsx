@@ -1,14 +1,15 @@
 "use client";
 import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { Banknote, CalendarDays, Diamond, Flag, Landmark, Rocket, Trophy } from "lucide-react";
-import { AxisBottom } from "@visx/axis";
+import { ArrowDownRight, ArrowUpRight, Banknote, CalendarDays, Diamond, Flag, Landmark, Rocket, Trophy } from "lucide-react";
 import { ParentSize } from "@visx/responsive";
-import { scaleLinear } from "@visx/scale";
 import { cn } from "../../../lib/cn";
 import { formatDate, formatMoney, formatNumber } from "../../../lib/format";
 import { usePrefersReducedMotion } from "../../../lib/reducedMotion";
 import { Button } from "../../foundation/Button";
+import { FitText } from "../../foundation/FitText";
 import { Icon } from "../../foundation/Icon";
+import { SegmentedControl } from "../../foundation/SegmentedControl";
+import { Figure } from "../../data/Figure";
 import type { Chapter, Conversion, ForecastPoint, JourneyDailyRow, Kit, Milestone, RibbonDepartment, RibbonEvent, RoadmapFlag, ZoomLevel } from "../types";
 import { ZOOM_LEVELS } from "../types";
 import {
@@ -23,6 +24,10 @@ import {
   toDayKey,
   windowTotals,
   ZOOM_LABELS,
+  PIN_HEIGHT,
+  PIN_INSET,
+  PIN_LABEL_MAX,
+  pinChipWidth,
   type MilestoneGlyphKind,
   type RibbonGeometry,
   type TrackBar,
@@ -101,19 +106,22 @@ interface SvgRipple {
   kind: RibbonEvent["kind"];
 }
 
-/** The revenue colour: the brand colour lifted towards the text colour so it reads on the dark panel whatever the brand. */
-const REVENUE = "color-mix(in oklab, var(--kit-primary) 55%, var(--text-primary))";
+/** The revenue colour: the brand lifted towards text-1 (kit-lift, derived per business), so it reads on the dark panel
+ * whatever the brand. The line glows over a blurred under-stroke; the area is a three-stop fill of the same light. */
+const REVENUE = "var(--kit-lift)";
 const TRACK_FILL: Record<TrackKind, { fill: string; opacity: number }> = {
-  signups: { fill: "var(--accent-link)", opacity: 0.8 },
+  signups: { fill: "var(--status-info)", opacity: 0.9 },
   payments: { fill: "var(--gold)", opacity: 1 },
-  hours: { fill: "var(--text-secondary)", opacity: 0.5 },
+  hours: { fill: "var(--text-secondary)", opacity: 0.28 },
 };
 const TRACK_LABEL: Record<TrackKind, string> = { signups: "New signups", payments: "Paying customers", hours: "Agent hours" };
 const GLYPH_ICON: Record<MilestoneGlyphKind, typeof Trophy> = { trophy: Trophy, flag: Flag, diamond: Diamond, banner: Landmark };
-const GLYPH_COLOUR: Record<MilestoneGlyphKind, string> = { trophy: "var(--gold)", flag: "var(--text-primary)", diamond: "var(--accent-link)", banner: "var(--text-primary)" };
+const GLYPH_COLOUR: Record<MilestoneGlyphKind, string> = { trophy: "var(--gold)", flag: "var(--text-2)", diamond: "var(--accent)", banner: "var(--text-2)" };
+/** Axis tick labels: mono 11 px, about 6.7 px a character (for keeping them inside the plot and apart). */
+const TICK_CHAR = 6.7;
 const RUNWAY_COLOUR = { neutral: "var(--text-secondary)", warn: "var(--status-warn)", bad: "var(--status-bad)" } as const;
 /** A dark halo behind SVG text so labels stay legible over lines and bars. */
-const HALO = { paintOrder: "stroke", stroke: "var(--bg-panel)", strokeWidth: 3, strokeLinejoin: "round" } as const;
+const HALO = { paintOrder: "stroke", stroke: "var(--surface-1)", strokeWidth: 3, strokeLinejoin: "round" } as const;
 
 function bannerIcon(kind: string) {
   if (kind === "funding") return Banknote;
@@ -412,11 +420,35 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
   const vis1 = scrollX + plotW + 48;
   const visibleBars = (kind: TrackKind) => geometry.tracks[kind].bars.filter((b) => b.x + b.w >= vis0 && b.x <= vis1);
   const visibleMilestones = geometry.milestones.filter((m) => m.x >= vis0 - 200 && m.x <= vis1);
-  const visibleTicks = geometry.ticks.filter((t) => t.x >= vis0 && t.x <= vis1);
   const visibleChapters = geometry.chapters.filter((c) => c.x1 >= vis0 && c.x0 <= vis1);
   const visibleRoadmap = geometry.roadmap.filter((r) => r.x >= vis0 - 200 && r.x <= vis1);
-  const tickScale = useMemo(() => scaleLinear<number>({ domain: [0, geometry.totalWidth], range: [0, geometry.totalWidth] }), [geometry.totalWidth]);
-  const tickLabels = useMemo(() => new Map(geometry.ticks.map((t) => [t.x, t.label] as const)), [geometry.ticks]);
+  // Axis labels stay inside the plot and never overlap: a label that would cross an edge is anchored to its tick on
+  // the inside, and one that would touch the label before it is skipped (the tick mark stays).
+  const axisLabels = useMemo(() => {
+    const out: Array<{ x: number; label: string; anchor: "start" | "middle" | "end"; showLabel: boolean }> = [];
+    let lastRight = -Infinity;
+    for (const t of geometry.ticks) {
+      const sx = t.x - scrollX;
+      if (sx < 0 || sx > plotW) continue;
+      const w = t.label.length * TICK_CHAR;
+      let anchor: "start" | "middle" | "end" = "middle";
+      let left = sx - w / 2;
+      let right = sx + w / 2;
+      if (left < 4) {
+        anchor = "start";
+        left = sx;
+        right = sx + w;
+      } else if (right > plotW - 4) {
+        anchor = "end";
+        left = sx - w;
+        right = sx;
+      }
+      const showLabel = left >= lastRight + 14 && right <= plotW + 0.5 && left >= -0.5;
+      if (showLabel) lastRight = right;
+      out.push({ x: t.x, label: t.label, anchor, showLabel });
+    }
+    return out;
+  }, [geometry.ticks, scrollX, plotW]);
 
   const totals = useMemo(() => {
     let hours = 0;
@@ -470,6 +502,16 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
     else onOpenDay?.(bar.day);
   };
 
+  const todayTag = `Today · ${formatDate(today, "d MMM")}${liveCount > 0 ? ` · ${liveCount} live` : ""}`;
+  // A chip is drawn while its day is in the window; the drop line carries it to the edge as it scrolls out.
+  const inView = (p: { x: number }) => p.x - scrollX >= 0 && p.x - scrollX <= plotW;
+  const pinStyle = (x: number, label: string | null, y: number) => {
+    // A chip near the right edge flips to end at its drop line, so it is never cut by the plot's edge.
+    const w = label ? pinChipWidth(label) : PIN_HEIGHT;
+    const left = x - scrollX - PIN_INSET;
+    return left + w > plotW - 4 && left > w ? { right: plotW - (x - scrollX) - PIN_INSET, top: y } : { left, top: y };
+  };
+
   return (
     <div
       ref={rootRef}
@@ -480,7 +522,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
       data-zoom={zoom}
       data-scroll-x={Math.round(scrollX)}
       data-revealed={revealed || undefined}
-      className={cn("relative select-none overflow-hidden rounded-panel bg-panel outline-none focus-visible:outline-2 focus-visible:outline-link", drag.current?.moved ? "cursor-grabbing" : "cursor-crosshair", className)}
+      className={cn("relative select-none overflow-hidden outline-none focus-visible:shadow-ring", drag.current?.moved ? "cursor-grabbing" : "cursor-crosshair", className)}
       style={{ width, height }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -489,62 +531,62 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
       onKeyDown={onKeyDown}
     >
       {/* Toolbar: what each mark means, and the zoom */}
-      <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-3 border-b border-subtle px-3" style={{ height: RIBBON_TOOLBAR }} data-ribbon-control>
-        <ul className="flex min-w-0 items-center gap-4 text-small text-secondary" aria-label="Legend" data-ribbon-legend>
-          <li className="flex items-center gap-1.5">
-            <svg width={18} height={10} aria-hidden>
-              <line x1={1} x2={17} y1={5} y2={5} stroke={REVENUE} strokeWidth={2} strokeLinecap="round" />
+      <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-3 px-panel-pad rule-fade" style={{ height: RIBBON_TOOLBAR }} data-ribbon-control>
+        <ul className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-small text-secondary" aria-label="Legend" data-ribbon-legend>
+          <li className="flex items-center gap-1.5 whitespace-nowrap">
+            <svg width={16} height={10} aria-hidden>
+              <line x1={1} x2={15} y1={5} y2={5} stroke={REVENUE} strokeWidth={2} strokeLinecap="round" />
             </svg>
             Revenue
           </li>
           {geometry.forecast ? (
-            <li className="flex items-center gap-1.5">
-              <svg width={18} height={10} aria-hidden>
-                <line x1={1} x2={17} y1={5} y2={5} stroke={REVENUE} strokeWidth={1.5} strokeDasharray="3 3" />
+            <li className="flex items-center gap-1.5 whitespace-nowrap">
+              <svg width={16} height={10} aria-hidden>
+                <line x1={1} x2={15} y1={5} y2={5} stroke={REVENUE} strokeWidth={1.5} strokeDasharray="3 3" />
               </svg>
               Forecast
             </li>
           ) : null}
-          <li className="flex items-center gap-1.5">
-            <Icon icon={Trophy} size={12} className="text-gold" />
-            <Icon icon={Flag} size={12} className="text-primary" />
+          <li className="flex items-center gap-1.5 whitespace-nowrap">
+            <Icon icon={Trophy} size={13} className="text-gold" />
             Milestones
           </li>
           {geometry.roadmap.length > 0 ? (
-            <li className="flex items-center gap-1.5">
-              <Icon icon={Flag} size={12} className="text-secondary opacity-60" />
+            <li className="flex items-center gap-1.5 whitespace-nowrap">
+              <Icon icon={Flag} size={13} className="text-tertiary" />
               Planned
             </li>
           ) : null}
-          <li className="hidden items-center gap-1.5 xl:flex">Hover for a day · click to open it</li>
         </ul>
-        <div className="flex shrink-0 items-center gap-0.5" role="group" aria-label="Zoom">
-          {ZOOM_LEVELS.map((z) => (
-            <Button key={z} size="sm" variant="ghost" aria-pressed={z === zoom} className={cn("h-6 px-2", z === zoom && "bg-panel-alt text-primary")} onClick={() => changeZoom(z)} data-zoom-option={z}>
-              {ZOOM_LABELS[z]}
-            </Button>
-          ))}
-          <Button size="sm" variant="ghost" icon={CalendarDays} className="h-6 px-2" onClick={() => updateScroll(scrollForToday(geometry, plotW))} aria-label="Scroll to today">
+        <div className="flex shrink-0 items-center gap-2">
+          <SegmentedControl<ZoomLevel>
+            aria-label="Zoom"
+            value={zoom}
+            onValueChange={changeZoom}
+            options={ZOOM_LEVELS.map((z) => ({ value: z, label: ZOOM_LABELS[z] }))}
+          />
+          <Button size="sm" icon={CalendarDays} onClick={() => updateScroll(scrollForToday(geometry, plotW))} aria-label="Scroll to today">
             Today
           </Button>
         </div>
       </div>
 
-      {/* Row labels with the values they show */}
-      <div className="absolute left-0 border-r border-subtle" style={{ top: RIBBON_TOOLBAR, width: RIBBON_GUTTER, height: plotH }} data-ribbon-labels aria-hidden>
-        <div className="absolute inset-x-0 truncate px-3 t-label" style={{ top: layout.chapterTop + 3 }} data-readout-when>
+      {/* Row labels with the values they show: the hero figure is the last 7 days' revenue, or the hovered day's */}
+      <div className="absolute left-0" style={{ top: RIBBON_TOOLBAR, width: RIBBON_GUTTER, height: plotH }} data-ribbon-labels aria-hidden>
+        <span aria-hidden className="absolute inset-y-0 right-0 w-px bg-linear-to-b from-transparent via-line to-transparent" />
+        <div className="absolute inset-x-0 truncate px-panel-pad t-data" style={{ top: layout.chapterTop + 6 }} data-readout-when>
           {readout.when}
         </div>
-        <div className="absolute inset-x-0 px-3" style={{ top: layout.revenueTop }}>
+        <div className="absolute inset-x-0 flex flex-col items-start gap-1 px-panel-pad" style={{ top: layout.chapterBottom + 10 }}>
           <div className="flex items-center gap-1.5 text-small text-secondary">
-            <svg width={10} height={10} aria-hidden>
-              <line x1={0} x2={10} y1={5} y2={5} stroke={REVENUE} strokeWidth={2} />
+            <svg width={12} height={10} aria-hidden>
+              <line x1={0} x2={12} y1={5} y2={5} stroke={REVENUE} strokeWidth={2} strokeLinecap="round" />
             </svg>
             Revenue
           </div>
-          <div className="t-display-sm tabular-nums text-primary" data-readout="revenue">
-            {readout.revenue}
-          </div>
+          <FitText className="t-figure-hero -ml-0.5 text-primary" text={readout.revenue} minPx={26} truncate={false} tooltip={false} data-readout="revenue">
+            <Figure value={readout.revenue} />
+          </FitText>
           <div className="text-small text-secondary">{readout.revenueCaption}</div>
           {readout.revenueDay ? (
             <div className="text-small tabular-nums text-secondary" data-readout="revenue-day">
@@ -552,18 +594,25 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
             </div>
           ) : null}
           {readout.trend !== null && Math.abs(readout.trend) >= 0.005 ? (
-            <div className={cn("text-small tabular-nums", readout.trend > 0 ? "text-status-good" : "text-status-bad")} data-readout="trend">
-              {`${readout.trend > 0 ? "▲" : "▼"} ${Math.round(Math.abs(readout.trend) * 100)}% vs prior week`}
-            </div>
+            <span
+              className={cn(
+                "chip-tone mt-1 inline-flex h-control-xs items-center gap-1 whitespace-nowrap rounded-pill border pl-1.5 pr-2 text-small font-medium tabular-nums",
+                readout.trend > 0 ? "tone-status-good text-status-good" : "tone-status-bad text-status-bad",
+              )}
+              data-readout="trend"
+            >
+              <Icon icon={readout.trend > 0 ? ArrowUpRight : ArrowDownRight} size={13} strokeWidth={2} />
+              {`${Math.round(Math.abs(readout.trend) * 100)}% vs prior week`}
+            </span>
           ) : null}
         </div>
         {(["signups", "payments", "hours"] as const).map((kind) => {
           const band = layout.tracks[kind];
           return (
-            <div key={kind} className="absolute inset-x-0 flex items-center gap-1.5 px-3 text-small" style={{ top: band.top, height: band.bottom - band.top }}>
-              <span className="size-2 shrink-0 rounded-[2px]" style={{ background: TRACK_FILL[kind].fill, opacity: TRACK_FILL[kind].opacity }} />
+            <div key={kind} className="absolute inset-x-0 flex items-center gap-2 px-panel-pad text-small" style={{ top: band.top, height: band.bottom - band.top }}>
+              <span className="size-2 shrink-0 rounded-xs" style={{ background: TRACK_FILL[kind].fill, opacity: kind === "hours" ? 0.6 : 1 }} />
               <span className="min-w-0 flex-1 truncate text-secondary">{TRACK_LABEL[kind]}</span>
-              <span className="tabular-nums text-primary" data-readout={kind}>
+              <span className="font-display text-display-sm font-semibold tabular-nums text-primary" data-readout={kind}>
                 {trackValue[kind]}
               </span>
             </div>
@@ -576,6 +625,9 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
           <filter id={`${uid}-glow`} x="-400%" y="-10%" width="900%" height="120%">
             <feGaussianBlur stdDeviation="4" />
           </filter>
+          <filter id={`${uid}-under`} x="-5%" y="-30%" width="110%" height="160%">
+            <feGaussianBlur stdDeviation="3.5" />
+          </filter>
           <mask id={`${uid}-reveal`} maskUnits="userSpaceOnUse" x="0" y="0" width={plotW} height={plotH}>
             <rect ref={revealRef} x="0" y="0" width={revealed ? plotW : 0} height={plotH} fill="#fff" />
           </mask>
@@ -583,43 +635,51 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
             <rect x="0" y="0" width={plotW} height={plotH} />
           </clipPath>
           <linearGradient id={`${uid}-revenue-fill`} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor={REVENUE} stopOpacity={0.28} />
-            <stop offset="1" stopColor={REVENUE} stopOpacity={0.02} />
+            <stop offset="0" stopColor={REVENUE} stopOpacity={0.3} />
+            <stop offset="0.55" stopColor={REVENUE} stopOpacity={0.09} />
+            <stop offset="1" stopColor={REVENUE} stopOpacity={0} />
           </linearGradient>
-          <pattern id={`${uid}-ahead`} width={8} height={8} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-            <line x1={0} y1={0} x2={0} y2={8} stroke="var(--text-primary)" strokeOpacity={0.05} strokeWidth={2} />
+          <linearGradient id={`${uid}-today`} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stopColor={REVENUE} stopOpacity={0.15} />
+            <stop offset="0.35" stopColor={REVENUE} stopOpacity={0.95} />
+            <stop offset="1" stopColor={REVENUE} stopOpacity={0.35} />
+          </linearGradient>
+          <pattern id={`${uid}-ahead`} width={7} height={7} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line x1={0} y1={0} x2={0} y2={7} stroke="var(--white)" strokeOpacity={0.045} strokeWidth={1.5} />
           </pattern>
         </defs>
         <g clipPath={`url(#${uid}-clip)`}>
           <g transform={`translate(${-scrollX} 0)`}>
-            {/* Chapters: quarter bands along the top, alternately shaded */}
+            {/* Chapters: quarter bands along the top; the current one is lit */}
             {visibleChapters.map((c) => {
-              const labelX = Math.max(c.x0, scrollX) + 8;
-              const room = c.x1 - labelX - 8;
+              const labelX = Math.max(c.x0, scrollX) + 10;
+              const room = c.x1 - labelX - 10;
               const text = `${c.name} · ${c.label}`;
               const current = c.status === "current";
               return (
-                <g key={c.id} data-chapter={c.id} opacity={c.status === "future" ? 0.7 : 1}>
-                  <rect x={c.x0} y={layout.chapterTop} width={Math.max(0, c.x1 - c.x0)} height={layout.chapterBottom - layout.chapterTop} fill={c.order % 2 === 0 ? "var(--bg-panel-alt)" : "var(--bg-panel)"} />
-                  <line x1={c.x0} x2={c.x0} y1={layout.chapterTop} y2={layout.axisTop} stroke="var(--line-subtle)" strokeWidth={1} />
+                <g key={c.id} data-chapter={c.id}>
+                  <rect x={c.x0} y={layout.chapterTop} width={Math.max(0, c.x1 - c.x0)} height={layout.chapterBottom - layout.chapterTop} fill={current ? REVENUE : "var(--white)"} fillOpacity={current ? 0.07 : c.order % 2 === 0 ? 0.025 : 0.012} />
+                  {current ? <line x1={c.x0} x2={c.x1} y1={layout.chapterBottom - 0.5} y2={layout.chapterBottom - 0.5} stroke={REVENUE} strokeOpacity={0.35} /> : null}
+                  <line x1={c.x0} x2={c.x0} y1={layout.chapterTop} y2={layout.axisTop} stroke="var(--line)" strokeWidth={1} />
                   {room > 40 ? (
-                    <text x={labelX} y={layout.chapterBottom - 6} fill={current ? "var(--text-primary)" : "var(--text-secondary)"} fontFamily="var(--font-body)" fontWeight={current ? 600 : 500} fontSize={11} style={{ cursor: onOpenChapter ? "pointer" : undefined }} onClick={() => onOpenChapter?.(c.id)}>
+                    <text x={labelX} y={layout.chapterBottom - 8} fill={current ? "var(--text-1)" : c.status === "future" ? "var(--text-3)" : "var(--text-2)"} fontFamily="var(--font-body)" fontWeight={current ? 600 : 500} fontSize={12} style={{ cursor: onOpenChapter ? "pointer" : undefined }} onClick={() => onOpenChapter?.(c.id)}>
                       <title>{text}</title>
-                      {text.length * 6.2 > room ? `${text.slice(0, Math.max(4, Math.floor(room / 6.2) - 1))}…` : text}
+                      {text.length * 6.6 > room ? `${text.slice(0, Math.max(4, Math.floor(room / 6.6) - 1))}…` : text}
                     </text>
                   ) : null}
                 </g>
               );
             })}
+            <line x1={vis0} x2={vis1} y1={layout.chapterBottom + 0.5} y2={layout.chapterBottom + 0.5} stroke="var(--line)" />
             {/* Everything after Today is ahead: hatched */}
-            <rect x={geometry.todayX} y={layout.chapterBottom} width={Math.max(0, geometry.totalWidth - geometry.todayX)} height={layout.axisTop - layout.chapterBottom} fill={`url(#${uid}-ahead)`} data-ahead />
-            {/* Revenue gridlines */}
+            <rect x={geometry.todayX} y={layout.chapterBottom + 1} width={Math.max(0, geometry.totalWidth - geometry.todayX)} height={layout.axisTop - layout.chapterBottom - 1} fill={`url(#${uid}-ahead)`} data-ahead />
+            {/* Revenue gridlines: hairlines, the zero line a little stronger */}
             {geometry.revenue.ticks.map((v) => (
-              <line key={v} x1={vis0} x2={vis1} y1={geometry.revenue.y(v)} y2={geometry.revenue.y(v)} stroke="var(--line-subtle)" strokeOpacity={v === 0 ? 1 : 0.6} strokeDasharray={v === 0 ? undefined : "2 4"} />
+              <line key={v} x1={vis0} x2={vis1} y1={geometry.revenue.y(v) + 0.5} y2={geometry.revenue.y(v) + 0.5} stroke="var(--white)" strokeOpacity={v === 0 ? 0.1 : 0.045} />
             ))}
             {/* Bar-row baselines */}
             {(["signups", "payments", "hours"] as const).map((kind) => (
-              <line key={kind} x1={vis0} x2={vis1} y1={layout.tracks[kind].bottom + 0.5} y2={layout.tracks[kind].bottom + 0.5} stroke="var(--line-subtle)" />
+              <line key={kind} x1={vis0} x2={vis1} y1={layout.tracks[kind].bottom + 0.5} y2={layout.tracks[kind].bottom + 0.5} stroke="var(--white)" strokeOpacity={0.045} />
             ))}
           </g>
 
@@ -627,17 +687,22 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
           <g mask={revealed ? undefined : `url(#${uid}-reveal)`}>
             <g transform={`translate(${-scrollX} 0)`}>
               {geometry.revenue.areaPath ? <path d={geometry.revenue.areaPath} fill={`url(#${uid}-revenue-fill)`} stroke="none" /> : null}
-              {geometry.revenue.linePath ? <path d={geometry.revenue.linePath} fill="none" stroke={REVENUE} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" data-revenue-line /> : null}
+              {geometry.revenue.linePath ? (
+                <>
+                  <path d={geometry.revenue.linePath} fill="none" stroke={REVENUE} strokeWidth={5} strokeOpacity={0.45} strokeLinejoin="round" strokeLinecap="round" filter={`url(#${uid}-under)`} data-revenue-glow />
+                  <path d={geometry.revenue.linePath} fill="none" stroke={REVENUE} strokeWidth={1.75} strokeLinejoin="round" strokeLinecap="round" data-revenue-line />
+                </>
+              ) : null}
               {geometry.forecast ? (
                 <g data-forecast>
-                  <path d={geometry.forecast.conePath} fill={REVENUE} fillOpacity={0.12} stroke="none" />
-                  <path d={geometry.forecast.basePath} fill="none" stroke={REVENUE} strokeWidth={1.5} strokeDasharray="4 4" />
+                  <path d={geometry.forecast.conePath} fill={REVENUE} fillOpacity={0.07} stroke="none" />
+                  <path d={geometry.forecast.basePath} fill="none" stroke={REVENUE} strokeOpacity={0.8} strokeWidth={1.5} strokeDasharray="4 4" strokeLinecap="round" />
                 </g>
               ) : null}
               {(["signups", "hours"] as const).map((kind) => (
                 <g key={kind} data-track={kind} fill={TRACK_FILL[kind].fill} fillOpacity={TRACK_FILL[kind].opacity}>
                   {visibleBars(kind).map((b) => (
-                    <rect key={b.key} x={b.x} y={b.y} width={b.w} height={b.h} rx={b.w >= 4 ? 1 : 0} data-bar={kind} data-count={b.value}>
+                    <rect key={b.key} x={b.x} y={b.y} width={b.w} height={b.h} rx={b.w >= 4 ? 1.5 : 0} data-bar={kind} data-count={b.value}>
                       <title>{barLabel(kind, b)}</title>
                     </rect>
                   ))}
@@ -652,7 +717,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
                     data-marker="payment"
                     data-count={b.value}
                     aria-label={barLabel("payments", b)}
-                    className="cursor-pointer outline-none focus-visible:[&>rect]:stroke-link"
+                    className="cursor-pointer outline-none focus-visible:[&>rect]:stroke-accent"
                     onClick={(e) => {
                       e.stopPropagation();
                       openBar(b);
@@ -667,7 +732,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
                   >
                     <title>{barLabel("payments", b)}</title>
                     <rect x={b.x} y={layout.tracks.payments.top} width={b.w} height={layout.tracks.payments.bottom - layout.tracks.payments.top} fill="transparent" />
-                    <rect x={b.x} y={b.y} width={b.w} height={b.h} rx={b.w >= 4 ? 1 : 0} fill={TRACK_FILL.payments.fill} strokeWidth={1.5} />
+                    <rect x={b.x} y={b.y} width={b.w} height={b.h} rx={b.w >= 4 ? 1.5 : 0} fill={TRACK_FILL.payments.fill} strokeWidth={1.5} />
                   </g>
                 ))}
               </g>
@@ -675,33 +740,21 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
           </g>
 
           <g transform={`translate(${-scrollX} 0)`}>
-            {/* Milestones: labelled pins over the revenue chart */}
-            {visibleMilestones.map((m) => {
-              const Glyph = m.glyph === "banner" ? bannerIcon(m.kind) : GLYPH_ICON[m.glyph];
-              return (
-                <g key={m.id} data-milestone={m.glyph}>
-                  <title>{`${m.label} · ${formatDate(m.day)}`}</title>
-                  <line x1={m.x} x2={m.x} y1={m.y + 13} y2={m.stemTo} stroke="var(--text-secondary)" strokeOpacity={0.5} strokeWidth={1} strokeDasharray="1 3" />
-                  <Glyph x={m.x - 6} y={m.y} width={12} height={12} strokeWidth={2} color={GLYPH_COLOUR[m.glyph]} />
-                  {m.showLabel ? (
-                    <text x={m.x + 10} y={m.y + 10} fill="var(--text-primary)" fontFamily="var(--font-body)" fontSize={11} {...HALO}>
-                      {m.label.length > 28 ? `${m.label.slice(0, 27)}…` : m.label}
-                    </text>
-                  ) : null}
-                </g>
-              );
-            })}
-            {/* Planned roadmap items, ghosted */}
+            {/* Milestones: drop lines from their chips (drawn in HTML above) to the revenue baseline, with node dots */}
+            {visibleMilestones.map((m) => (
+              <g key={m.id} data-milestone={m.glyph}>
+                <title>{`${m.label} · ${formatDate(m.day)}`}</title>
+                <line x1={m.x} x2={m.x} y1={m.y + PIN_HEIGHT} y2={m.stemTo} stroke={m.glyph === "trophy" ? "var(--gold)" : "var(--text-2)"} strokeOpacity={m.glyph === "trophy" ? 0.55 : 0.4} strokeWidth={1} strokeDasharray="1 3" strokeLinecap="round" />
+                <circle cx={m.x} cy={m.y + PIN_HEIGHT + 1} r={2} fill={m.glyph === "trophy" ? "var(--gold)" : "var(--text-1)"} />
+                <circle cx={m.x} cy={m.stemTo} r={2.25} fill={m.glyph === "trophy" ? "var(--gold)" : "var(--text-2)"} stroke="var(--surface-1)" strokeWidth={1.5} />
+              </g>
+            ))}
+            {/* Planned roadmap items: dashed (not measured), ghosted */}
             {visibleRoadmap.map((r) => (
-              <g key={r.id} data-roadmap opacity={0.7}>
+              <g key={r.id} data-roadmap>
                 <title>{`Planned: ${r.label} · ${formatDate(r.day)}`}</title>
-                <line x1={r.x} x2={r.x} y1={r.y + 13} y2={layout.revenueBottom} stroke="var(--text-secondary)" strokeOpacity={0.5} strokeWidth={1} strokeDasharray="1 3" />
-                <Flag x={r.x - 6} y={r.y} width={12} height={12} strokeWidth={2} color="var(--text-secondary)" />
-                {r.showLabel ? (
-                  <text x={r.x + 10} y={r.y + 10} fill="var(--text-secondary)" fontFamily="var(--font-body)" fontSize={11} fontStyle="italic" {...HALO}>
-                    {r.label.length > 28 ? `${r.label.slice(0, 27)}…` : r.label}
-                  </text>
-                ) : null}
+                <line x1={r.x} x2={r.x} y1={r.y + PIN_HEIGHT} y2={layout.revenueBottom} stroke="var(--text-2)" strokeOpacity={0.35} strokeWidth={1} strokeDasharray="1 3" strokeLinecap="round" />
+                <circle cx={r.x} cy={r.y + PIN_HEIGHT + 1} r={2} fill="none" stroke="var(--text-2)" strokeWidth={1} />
               </g>
             ))}
             {/* Runway: when the cash runs out (Estimate) */}
@@ -709,7 +762,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
               <g data-runway={geometry.runway.tone}>
                 {geometry.runway.inRange ? <line x1={geometry.runway.x} x2={geometry.runway.x} y1={layout.revenueTop} y2={layout.axisTop} stroke={RUNWAY_COLOUR[geometry.runway.tone]} strokeWidth={1.5} strokeDasharray="5 3" /> : null}
                 <text
-                  x={geometry.runway.inRange ? geometry.runway.x - 6 : geometry.totalWidth - 8}
+                  x={geometry.runway.inRange ? geometry.runway.x - 6 : Math.min(geometry.totalWidth, scrollX + plotW) - 8}
                   y={layout.revenueBottom - 6}
                   textAnchor="end"
                   fill={RUNWAY_COLOUR[geometry.runway.tone]}
@@ -722,20 +775,19 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
                 </text>
               </g>
             ) : null}
-            {/* Today */}
+            {/* Forecast label at the end of the dashed line */}
+            {geometry.forecast && geometry.todayX < scrollX + plotW - 120 ? (
+              <text x={Math.min(geometry.forecast.x1, scrollX + plotW) - 12} y={Math.max(layout.revenueTop + 12, geometry.revenue.y(forecastFromToday?.[forecastFromToday.length - 1]?.upsideMinor ?? 0) - 10)} textAnchor="end" className="t-data" fill="var(--text-3)" fontSize={10.5} letterSpacing="0.09em">
+                FORECAST
+              </text>
+            ) : null}
+            {/* Today: a glowing line, its end dot with a halo; the tag is HTML above */}
             {todayVisible ? (
               <g data-today>
-                <line x1={geometry.todayX} x2={geometry.todayX} y1={layout.chapterBottom} y2={layout.axisTop} stroke={REVENUE} strokeWidth={6} strokeOpacity={reduced ? 0.15 : 0.35} filter={`url(#${uid}-glow)`} />
-                <line x1={geometry.todayX} x2={geometry.todayX} y1={layout.chapterBottom} y2={layout.axisTop} stroke={REVENUE} strokeWidth={1.5} />
-                <circle cx={geometry.todayX} cy={todayRevenueY} r={3.5} fill={REVENUE} stroke="var(--bg-panel)" strokeWidth={1.5} />
-                <text x={geometry.todayX + 6} y={layout.chapterBottom + 14} fill="var(--text-primary)" fontFamily="var(--font-body)" fontWeight={600} fontSize={11} {...HALO}>
-                  {`Today${liveCount > 0 ? ` · ${liveCount} live` : ""}`}
-                </text>
-                {geometry.forecast ? (
-                  <text x={geometry.todayX + 8} y={Math.max(layout.revenueTop + 46, todayRevenueY - 8)} fill="var(--text-secondary)" fontFamily="var(--font-body)" fontSize={11} {...HALO}>
-                    Forecast
-                  </text>
-                ) : null}
+                <line x1={geometry.todayX} x2={geometry.todayX} y1={layout.chapterBottom} y2={layout.axisTop} stroke={REVENUE} strokeWidth={6} strokeOpacity={reduced ? 0.12 : 0.3} filter={`url(#${uid}-glow)`} />
+                <line x1={geometry.todayX} x2={geometry.todayX} y1={layout.chapterBottom} y2={layout.axisTop} stroke={`url(#${uid}-today)`} strokeWidth={1.5} />
+                <circle cx={geometry.todayX} cy={todayRevenueY} r={8} fill={REVENUE} fillOpacity={0.16} />
+                <circle cx={geometry.todayX} cy={todayRevenueY} r={4} fill={REVENUE} stroke="var(--surface-1)" strokeWidth={2} />
               </g>
             ) : null}
             {/* SVG ripple fallback (SMIL) */}
@@ -745,22 +797,24 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
                 <animate attributeName="opacity" from="1" to="0" dur={`${RIPPLE_MS}ms`} fill="freeze" />
               </circle>
             ))}
-            {/* Time axis */}
-            <AxisBottom
-              top={layout.axisTop}
-              scale={tickScale}
-              tickValues={visibleTicks.map((t) => t.x)}
-              tickFormat={(v) => tickLabels.get(Number(v)) ?? ""}
-              hideAxisLine
-              tickLength={4}
-              tickStroke="var(--line-subtle)"
-              tickLabelProps={{ fill: "var(--text-secondary)", fontFamily: "var(--font-body)", fontSize: 12, textAnchor: "middle", dy: "0.25em" }}
-            />
+            {/* Time axis: ticks and labels kept inside the plot and apart */}
+            <g data-axis>
+              {axisLabels.map((t) => (
+                <g key={t.x}>
+                  <line x1={t.x} x2={t.x} y1={layout.axisTop} y2={layout.axisTop + 4} stroke="var(--line-strong)" />
+                  {t.showLabel ? (
+                    <text x={t.x} y={layout.axisTop + 17} textAnchor={t.anchor} className="chart-tick">
+                      {t.label}
+                    </text>
+                  ) : null}
+                </g>
+              ))}
+            </g>
             {/* Hover scrubber */}
             {hoverX !== null ? (
               <g data-scrubber>
-                <rect x={hoverX + scrollX - geometry.pxPerDay / 2} y={layout.chapterBottom} width={Math.max(1, geometry.pxPerDay)} height={layout.axisTop - layout.chapterBottom} fill="var(--text-primary)" fillOpacity={0.05} />
-                <line x1={hoverX + scrollX} x2={hoverX + scrollX} y1={layout.chapterBottom} y2={layout.axisTop + 4} stroke="var(--text-primary)" strokeOpacity={0.5} strokeDasharray="2 3" />
+                <rect x={hoverX + scrollX - geometry.pxPerDay / 2} y={layout.chapterBottom} width={Math.max(1, geometry.pxPerDay)} height={layout.axisTop - layout.chapterBottom} fill="var(--white)" fillOpacity={0.05} />
+                <line x1={hoverX + scrollX} x2={hoverX + scrollX} y1={layout.chapterBottom} y2={layout.axisTop + 4} stroke="var(--white)" strokeOpacity={0.45} strokeDasharray="2 3" />
               </g>
             ) : null}
           </g>
@@ -770,13 +824,41 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
             {geometry.revenue.ticks
               .filter((v) => v > 0)
               .map((v) => (
-                <text key={v} x={6} y={geometry.revenue.y(v) - 4} fill="var(--text-secondary)" fontFamily="var(--font-body)" fontSize={10} {...HALO}>
+                <text key={v} x={8} y={geometry.revenue.y(v) + 14} className="chart-tick" {...HALO}>
                   {`${money(v, currency)}/day`}
                 </text>
               ))}
           </g>
         </g>
       </svg>
+
+      {/* Pins and the Today tag: HTML chips over the plot (they size to their words), clipped to the plot */}
+      <div className="pointer-events-none absolute overflow-hidden" style={{ left: RIBBON_GUTTER, top: RIBBON_TOOLBAR, width: plotW, height: plotH }} data-ribbon-pins aria-hidden>
+        {visibleMilestones.filter(inView).map((m) => {
+          const Glyph = m.glyph === "banner" ? bannerIcon(m.kind) : GLYPH_ICON[m.glyph];
+          const label = m.label.length > PIN_LABEL_MAX ? `${m.label.slice(0, PIN_LABEL_MAX - 1)}…` : m.label;
+          return (
+            <span key={m.id} className={cn("pin-chip absolute", !m.showLabel && "px-1")} data-kind={m.glyph === "trophy" ? "milestone" : "release"} style={pinStyle(m.x, m.showLabel ? label : null, m.y)} data-pin={m.id}>
+              <Glyph size={12} strokeWidth={2} color={GLYPH_COLOUR[m.glyph]} aria-hidden />
+              {m.showLabel ? label : null}
+            </span>
+          );
+        })}
+        {visibleRoadmap.filter(inView).map((r) => {
+          const label = r.label.length > PIN_LABEL_MAX ? `${r.label.slice(0, PIN_LABEL_MAX - 1)}…` : r.label;
+          return (
+            <span key={r.id} className={cn("pin-chip absolute", !r.showLabel && "px-1")} data-kind="planned" style={pinStyle(r.x, r.showLabel ? label : null, r.y)} data-pin={r.id}>
+              <Flag size={12} strokeWidth={2} aria-hidden />
+              {r.showLabel ? label : null}
+            </span>
+          );
+        })}
+        {todayVisible ? (
+          <span className="today-pill absolute -translate-x-1/2" style={{ left: Math.min(plotW - 64, Math.max(64, geometry.todayX - scrollX)), top: layout.chapterBottom + 10 }} data-today-tag>
+            {todayTag}
+          </span>
+        ) : null}
+      </div>
       <RibbonPixiLayer ref={pixiRef} width={width} height={height} enabled={usePixi} onUnavailable={() => setPixiUnavailable(true)} />
       {/* On this day */}
       {hoverSummary && !drag.current?.moved ? (
@@ -789,7 +871,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
         {liveText}
       </span>
       {reduced && liveCount > 0 ? (
-        <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-chip bg-panel-alt px-1.5 t-label text-primary" data-live-count>
+        <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-xs bg-surface-2 px-1.5 t-label text-primary" data-live-count>
           <Icon icon={CalendarDays} size={12} /> Live · {liveCount}
         </span>
       ) : null}

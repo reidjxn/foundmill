@@ -31,11 +31,11 @@ export function PreviewView({ preview, agentName, now = new Date(), className }:
   return (
     <div className={cn("flex h-full min-h-0 flex-col bg-base", className)} data-preview-mode={showLive ? "live" : "screenshot"}>
       {hasUrl && hasShot ? (
-        <div role="radiogroup" aria-label="Preview source" className="flex h-panel-header shrink-0 items-center gap-1 border-b border-subtle bg-panel px-2">
-          <Button size="sm" variant={showLive ? "default" : "ghost"} icon={Globe} role="radio" aria-checked={showLive} onClick={() => setMode("live")} className="h-6 px-1.5">
+        <div role="radiogroup" aria-label="Preview source" className="flex h-panel-header shrink-0 items-center gap-1 bg-surface-1 px-2.5 rule-fade">
+          <Button size="sm" variant={showLive ? "default" : "ghost"} icon={Globe} role="radio" aria-checked={showLive} onClick={() => setMode("live")} className="px-1.5">
             Live
           </Button>
-          <Button size="sm" variant={!showLive ? "default" : "ghost"} icon={Camera} role="radio" aria-checked={!showLive} onClick={() => setMode("screenshot")} className="h-6 px-1.5">
+          <Button size="sm" variant={!showLive ? "default" : "ghost"} icon={Camera} role="radio" aria-checked={!showLive} onClick={() => setMode("screenshot")} className="px-1.5">
             Screenshot
           </Button>
         </div>
@@ -46,7 +46,7 @@ export function PreviewView({ preview, agentName, now = new Date(), className }:
         ) : (
           <figure className="m-0 flex h-full flex-col">
             <img src={preview.screenshotUrl ?? undefined} alt={`Latest screenshot from ${agentName}`} className="max-w-full object-contain" />
-            <figcaption className="mt-auto flex h-6 items-center gap-1 px-2 text-small text-secondary">
+            <figcaption className="mt-auto flex h-control-sm items-center gap-1.5 px-2.5 text-small text-tertiary">
               Captured {preview.capturedAt ? formatRelative(preview.capturedAt, now) : "recently"}
             </figcaption>
           </figure>

@@ -48,8 +48,9 @@ describe("filterPaletteItems", () => {
   });
   it("groups by kind in the fixed order", () => {
     const groups = groupPaletteItems(PALETTE_ITEMS);
-    expect(groups.map((g) => g.kind)).toEqual(["command", "screen", "department", "inbox", "person", "organisation", "agent", "team_member", "community"]);
-    expect(groups[0]?.label).toBe("Commands");
+    // Where to go first (departments and agents), commands (settings among them) last.
+    expect(groups.map((g) => g.kind)).toEqual(["department", "agent", "screen", "inbox", "person", "organisation", "team_member", "community", "command"]);
+    expect(groups[0]?.label).toBe("Departments");
   });
 });
 
@@ -80,5 +81,36 @@ describe("CommandPalette", () => {
     expect(screen.getByText(/On Foundmill/)).toBeTruthy();
     await user.type(screen.getByRole("combobox"), "qqqq");
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Nothing matches"));
+  });
+
+  it("leads with Ask and Generate: Ask carries the query and stays while typing, Generate follows it", async () => {
+    const user = userEvent.setup();
+    const onAsk = vi.fn();
+    const onSelect = vi.fn();
+    const ask = [{ id: "ask-cos", kind: "command" as const, label: "Ask the Chief of Staff", description: "Anything about the business" }];
+    const generate = [
+      { id: "gen-concepts", kind: "command" as const, label: "Draft 12 concepts" },
+      { id: "gen-cover", kind: "command" as const, label: "Draft a cover plan", keywords: ["holiday"] },
+    ];
+    render(<CommandPalette open onOpenChange={() => {}} items={PALETTE_ITEMS} recent={RECENT_PALETTE_ITEMS} ask={ask} generate={generate} onAsk={onAsk} onSelect={onSelect} />);
+    const headings = [...screen.getByTestId("command-palette").querySelectorAll("[cmdk-group-heading]")].map((h) => h.textContent);
+    expect(headings.slice(0, 4)).toEqual(["Ask", "Generate", "Recent", "Departments"]);
+    await user.type(screen.getByRole("combobox"), "cover");
+    expect(await screen.findByRole("option", { name: /Ask the Chief of Staff.*“cover”/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Draft a cover plan/ })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /Draft 12 concepts/ })).toBeNull();
+    await user.click(screen.getByRole("option", { name: /Ask the Chief of Staff/ }));
+    expect(onAsk).toHaveBeenCalledWith(expect.objectContaining({ id: "ask-cos", kind: "ask" }), "cover");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("matches the business by name even when the app searches remotely", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(<CommandPalette open onOpenChange={() => {}} items={[]} remote business={{ name: "Northwind Skincare", href: "/b/northwind/home" }} onSelect={onSelect} />);
+    expect(screen.queryByRole("option", { name: /Northwind/ })).toBeNull();
+    await user.type(screen.getByRole("combobox"), "skin");
+    await user.click(await screen.findByRole("option", { name: /Northwind Skincare/ }));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "business", href: "/b/northwind/home" }));
   });
 });

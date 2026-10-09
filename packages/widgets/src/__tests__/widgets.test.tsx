@@ -11,6 +11,12 @@ import { createFakeSource, type FakeResponse } from "../testing";
 import "../widgets";
 import { BID, dataResponses, emptyResponses } from "./fixtures";
 
+/** A figure (dugout `Figure`) splits its currency, digits and decimals into spans; match the whole figure's text. */
+function byFigure(text: string) {
+  return screen.getByText((_, el) => !!el && el.hasAttribute("data-figure") && el.textContent === text);
+}
+
+
 type Case = {
   key: string;
   /** Text that proves the data state rendered real data. */
@@ -105,7 +111,8 @@ describe.each(CASES)("widget $key", (c) => {
   it("renders the data state", () => {
     const { container } = mount(def, dataResponses(), { settings: c.settings, live: c.live });
     const needle = String(c.expectData).replace(/^\/|\/$/g, "").replace(/\\/g, "");
-    const hits = screen.queryAllByText(c.expectData).length + container.querySelectorAll(`[aria-label*="${needle}"]`).length;
+    const figures = [...container.querySelectorAll("[data-figure]")].filter((el) => (el.textContent ?? "").includes(needle)).length;
+    const hits = screen.queryAllByText(c.expectData).length + container.querySelectorAll(`[aria-label*="${needle}"]`).length + figures;
     expect(hits, `expected ${needle} in the data state`).toBeGreaterThan(0);
     expect(container.querySelector("[data-state='loading']")).toBeNull();
     expect(container.querySelector("[role='alert']")).toBeNull();
@@ -147,7 +154,7 @@ describe("Forecast and Estimate chips", () => {
     unmount();
     mount(getWidget("status_strip")!, dataResponses(), { live: true });
     expect(screen.getByText("Leaderboard position")).toBeTruthy();
-    expect(screen.getByText("#8")).toBeTruthy();
+    expect(byFigure("#8")).toBeTruthy();
   });
 });
 

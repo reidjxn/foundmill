@@ -26,7 +26,7 @@ export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, classNam
     <div className={cn("flex flex-col gap-2", className)} data-trophy-cabinet>
       <div className="flex items-center gap-2 px-1 text-small text-secondary">
         <Icon icon={Trophy} size="inline" className="text-gold" />
-        <span className="t-label text-primary">Milestones</span>
+        <span className="t-title text-primary">Milestones</span>
         <span className="tabular-nums">
           {won} of {trophies.length} reached
         </span>
@@ -42,20 +42,20 @@ export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, classNam
                 onClick={Wrapper === "button" ? () => onOpen?.(t.key) : undefined}
                 className={cn(
                   "relative flex h-full w-full flex-col gap-2 overflow-hidden rounded-panel border p-panel-pad text-left",
-                  achieved ? "border-gold/50 bg-panel shadow-[inset_0_1px_0_color-mix(in_oklab,var(--gold)_35%,transparent)]" : "border-dashed border-subtle bg-base",
+                  achieved ? "border-gold/45 bg-surface-1 shadow-elev-1 inset-shadow-rim" : "dashed-edge bg-canvas/40",
                   Wrapper === "button" && "outline-none transition-[border-color,filter] duration-micro ease-dugout hover:border-gold hover:brightness-110 focus-visible:outline-2 focus-visible:outline-link",
                 )}
                 aria-label={Wrapper === "button" ? `${t.label}, reached ${formatDate(t.achievedAt as string)}` : undefined}
               >
                 {achieved ? <span aria-hidden className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-gold to-gold-deep" /> : null}
                 <div className="flex items-start justify-between gap-2">
-                  <span className={cn("inline-flex size-9 items-center justify-center rounded-full", achieved ? "bg-gold/15 text-gold" : "bg-panel-alt text-secondary")}>
+                  <span className={cn("inline-flex size-9 shrink-0 items-center justify-center rounded-full", achieved ? "bg-gold/15 text-gold shadow-glow-gold" : "bg-white/5 text-tertiary")}>
                     <Icon icon={achieved ? Trophy : Lock} size="lg" />
                   </span>
                   {achieved ? <Chip tone="gold">Reached</Chip> : <Chip tone="neutral">Not yet</Chip>}
                 </div>
                 <div className="min-w-0">
-                  <span className={cn("t-display-sm block truncate", achieved ? "text-primary" : "text-secondary")}>{t.label}</span>
+                  <span className={cn("t-display-sm block break-words", achieved ? "text-primary" : "text-secondary")}>{t.label}</span>
                   <span className="block text-small text-secondary">{t.description}</span>
                 </div>
                 {achieved ? (
@@ -67,7 +67,7 @@ export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, classNam
                     {t.customerName ? (
                       <div className="flex justify-between gap-2">
                         <dt className="text-secondary">Customer</dt>
-                        <dd className="truncate">{t.customerName}</dd>
+                        <dd className="break-words">{t.customerName}</dd>
                       </div>
                     ) : null}
                     {t.amountMinor ? (
@@ -82,7 +82,7 @@ export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, classNam
                 )}
               </Wrapper>
               {achieved && onShare && t.shareable ? (
-                <Button size="sm" variant="ghost" icon={Share2} className="mt-1 h-6 px-1.5" onClick={() => onShare(t.key)} aria-label={`Share ${t.label}`}>
+                <Button size="sm" variant="ghost" icon={Share2} className="mt-1 px-1.5" onClick={() => onShare(t.key)} aria-label={`Share ${t.label}`}>
                   Share
                 </Button>
               ) : null}

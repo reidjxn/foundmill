@@ -17,6 +17,30 @@ export interface TerminalViewProps {
   follow?: boolean;
   className?: string;
   style?: CSSProperties;
+  /** Who the terminal belongs to, for the empty state ("Waiting for Juno's first output"). */
+  agentName?: string;
+  /** The session is running: the empty state shows a live prompt with a caret instead of an idle message. */
+  live?: boolean;
+}
+
+/**
+ * What an empty terminal shows instead of a black void: a live prompt with a blinking caret and the agent's name while
+ * the session runs, or a quiet idle note. CSS-only motion; reduced motion leaves a solid caret and the words.
+ */
+export function TerminalEmpty({ agentName, live }: { agentName?: string; live?: boolean }) {
+  const who = agentName ?? "The agent";
+  return (
+    <div className="pointer-events-none absolute inset-0 flex flex-col justify-end gap-3 p-3 font-mono text-mono" data-terminal-empty={live ? "live" : "idle"}>
+      <div className="flex flex-col gap-1 text-tertiary">
+        <span className="opacity-60">{live ? "session attached · streaming" : "session idle · no output yet"}</span>
+        <span>
+          <span className="text-kit-lift">❯</span> <span className="text-secondary">{live ? `waiting for ${who}'s first output` : `${who} has not written anything yet`}</span>{" "}
+          {live ? <span aria-hidden className="prompt-caret" /> : null}
+        </span>
+      </div>
+      <p className="font-body text-small text-tertiary">{live ? "Lines stream in here as the session runs." : "Output appears here when the session starts."}</p>
+    </div>
+  );
 }
 
 /** Read a CSS custom property from the document root (xterm themes need resolved colours, not `var()`). */
@@ -83,7 +107,7 @@ function toTerminalText(chunk: StdoutChunk): string {
  * replay from the top when the chunk list rewinds (session scrubber). Falls back to a plain `<pre>` when asked or when
  * no DOM is available.
  */
-export function TerminalView({ chunks, label, renderer, follow = true, className, style }: TerminalViewProps) {
+export function TerminalView({ chunks, label, renderer, follow = true, className, style, agentName, live }: TerminalViewProps) {
   const useXterm = renderer ? renderer === "xterm" : typeof window !== "undefined";
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerminal | null>(null);
@@ -172,14 +196,23 @@ export function TerminalView({ chunks, label, renderer, follow = true, className
     if (followRef.current) term.scrollToBottom();
   }, [chunks]);
 
+  const empty = chunks.length === 0 ? <TerminalEmpty agentName={agentName} live={live} /> : null;
+
   if (!useXterm) {
+    if (empty) {
+      return (
+        <div role="log" aria-label={label} aria-live="polite" data-renderer="plain" className={cn("terminal-well relative h-full min-h-0", className)} style={style}>
+          {empty}
+        </div>
+      );
+    }
     return (
       <pre
         role="log"
         aria-label={label}
         aria-live="polite"
         data-renderer="plain"
-        className={cn("m-0 h-full min-h-0 overflow-auto bg-ink p-2 font-mono text-mono text-primary whitespace-pre-wrap", className)}
+        className={cn("terminal-well m-0 h-full min-h-0 overflow-auto px-3 py-2 font-mono text-mono text-primary whitespace-pre-wrap", className)}
         style={style}
       >
         {chunks.map((c, i) => (
@@ -192,13 +225,9 @@ export function TerminalView({ chunks, label, renderer, follow = true, className
   }
 
   return (
-    <div
-      ref={hostRef}
-      role="log"
-      aria-label={label}
-      data-renderer="xterm"
-      className={cn("dugout-terminal h-full min-h-0 w-full overflow-hidden bg-ink p-1 [&_.xterm]:h-full [&_.xterm-viewport]:bg-ink!", className)}
-      style={style}
-    />
+    <div className={cn("terminal-well relative h-full min-h-0 w-full", className)} style={style}>
+      <div ref={hostRef} role="log" aria-label={label} data-renderer="xterm" className="dugout-terminal h-full min-h-0 w-full overflow-hidden px-2 py-1.5 [&_.xterm]:h-full [&_.xterm-viewport]:bg-ink!" />
+      {empty}
+    </div>
   );
 }

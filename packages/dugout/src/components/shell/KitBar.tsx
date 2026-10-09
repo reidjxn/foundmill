@@ -2,11 +2,11 @@ import { forwardRef, type CSSProperties, type HTMLAttributes, type ReactNode } f
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import type { BusinessMode, GameMode, Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
-import { darkenHex, isHexColour, kitOnPrimary } from "../../lib/colour";
+import { darkenHex, isHexColour, kitOnPrimary, kitRamp } from "../../lib/colour";
 import { BusinessLogo } from "../foundation/BusinessLogo";
+import { FitText } from "../foundation/FitText";
 import { Icon } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
-import { Kbd } from "../foundation/Kbd";
 import { ContinueButton, type ContinueButtonProps } from "./ContinueButton";
 import { GameModeChip, ModeChip } from "./ModeChip";
 import { RunwayChip } from "./RunwayChip";
@@ -19,6 +19,12 @@ export interface KitBarNav {
   canGoBack?: boolean;
   canGoForward?: boolean;
 }
+
+/** The search's placeholder: short enough never to be cut (DESIGN §8). Below 200 px it reads "Search", then just the icon. */
+export const KITBAR_SEARCH_PLACEHOLDER = "Search or jump to…";
+/** Smallest sizes the business name and the screen title step down to before they truncate (FitText). */
+export const KITBAR_NAME_MIN_PX = 12;
+export const KITBAR_TITLE_MIN_PX = 15;
 
 export interface KitBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   kit: Kit;
@@ -35,12 +41,13 @@ export interface KitBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"> 
   nav?: KitBarNav;
   /** Opens the universal search (CommandPalette). */
   onSearch: () => void;
+  /** The search's placeholder (default "Search or jump to…"). Keep it short: the search gives way first at 1280. */
   searchPlaceholder?: string;
   /** Today, for the date + runway chip. */
   date: Date | string | number;
   runwayMonths: number | null | undefined;
   cash?: Money;
-  /** Runway is modelled, not read from a ledger (default true → "Est." label). */
+  /** Runway is modelled, not read from a ledger (default true → the dashed "Estimate" tag). */
   runwayEstimate?: boolean;
   onRunwayClick?: () => void;
   businessMode: BusinessMode;
@@ -53,26 +60,44 @@ export interface KitBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"> 
   onHome?: () => void;
 }
 
-/** CSS variables for a kit, applied on the shell root and the kit bar. Exported for AppShell and tests. */
+/**
+ * CSS variables for a kit, applied on the shell root and the kit bar (and on any preview of a brand, such as the
+ * landing deck). Besides the two brand colours it writes the computed text colour and the brand ramp derived from the
+ * primary in OKLCH (`kitRamp`): --kit-lift, --kit-hi, --kit-lo, --kit-deep and --kit-aura, so any brand colour lights
+ * the product correctly. A primary that is not a hex colour leaves the ramp to the stylesheet defaults (Foundmill
+ * steel). Pure and server-safe. Exported for AppShell and tests.
+ */
 export function kitStyle(kit: Kit): CSSProperties {
-  const primary = isHexColour(kit.primary) ? kit.primary : undefined;
+  const primary = isHexColour(kit.primary) ? (kit.primary.startsWith("#") ? kit.primary : `#${kit.primary}`) : undefined;
+  const ramp = primary ? kitRamp(primary) : undefined;
   return {
     "--kit-primary": kit.primary,
     "--kit-secondary": kit.secondary,
     "--kit-on-primary": primary ? kitOnPrimary(primary) : undefined,
+    "--kit-lift": ramp?.lift,
+    "--kit-hi": ramp?.hi,
+    "--kit-lo": ramp?.lo,
+    "--kit-deep": ramp?.deep,
+    "--kit-aura": ramp?.aura,
   } as CSSProperties;
 }
 
-/** DESIGN §8: gradient from kit-primary to kit-primary darkened 14 %. */
+/**
+ * The flat two-stop brand gradient (kit-primary to kit-primary darkened 14 %), for small brand previews (the landing
+ * deck, the logo picker's strip). The top bar itself is the glass slab (`kitbar-slab`).
+ */
 export function kitBarGradient(kit: Kit): string {
   const end = isHexColour(kit.primary) ? darkenHex(kit.primary, 0.14) : "var(--kit-primary)";
   return `linear-gradient(90deg, var(--kit-primary) 0%, ${end} 100%)`;
 }
 
 /**
- * The 56 px top bar (BUILD §5.3, DESIGN §8). Left: logo 32 px, business name, back/forward. Centre: screen title and
- * the universal search trigger (320 px, bg-ink at 40 %). Right: date + runway chip, business-mode chip, Continue,
- * Stop all agents. Text is kit-on-primary so it always passes APCA on the kit colour.
+ * The 56 px top bar (BUILD §5.3, DESIGN §8): a glass slab in the brand colour (gloss, a brand gradient from 92 % to
+ * 38 %, a fixed specular streak, a light top edge, a kit-lift line under it and the brand's light cast onto the canvas).
+ * Left: the 32 px logo tile, the business name, back/forward, a hairline, the screen title. Then the universal search
+ * and, right: date + runway, the business-mode chip, Continue, Stop all agents — all glass, 34 px. Nothing is clipped at
+ * 1280: the search gives way first (its placeholder shortens, then only the icon remains); a long business name or
+ * screen title wraps to two lines and steps its size down (FitText) before it would ever truncate.
  */
 export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
   {
@@ -83,7 +108,7 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
     screenTitle,
     nav,
     onSearch,
-    searchPlaceholder = "Search people, organisations, agents, screens…",
+    searchPlaceholder = KITBAR_SEARCH_PLACEHOLDER,
     date,
     runwayMonths,
     cash,
@@ -103,27 +128,33 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
 ) {
   const logoNode = logo ?? <BusinessLogo src={logoSrc} name={businessName} primary={kit.primary} size={32} data-testid="kitbar-logo" />;
   const identity = (
-    <span className="flex min-w-0 items-center gap-2">
-      {logoNode}
-      <span className="t-display-sm truncate" data-testid="kitbar-business-name">
+    <span className="flex min-w-0 items-center gap-2.5">
+      <span className="flex shrink-0">{logoNode}</span>
+      <FitText minPx={KITBAR_NAME_MIN_PX} lines={2} className="t-display-sm leading-tight" data-testid="kitbar-business-name">
         {businessName}
-      </span>
+      </FitText>
     </span>
   );
   const holiday = continueButton.state.kind === "holiday";
-  const navButtonClass = "text-kit-on-primary/80 hover:bg-ink/30 hover:text-kit-on-primary disabled:opacity-40";
+  const navButtonClass = "text-kit-on-primary hover:bg-black/20 hover:text-kit-on-primary disabled:opacity-40";
+  const titleText = typeof screenTitle === "string" || typeof screenTitle === "number" ? String(screenTitle) : undefined;
 
   return (
     <header
       ref={ref}
       data-testid="kit-bar"
-      className={cn("flex h-kitbar shrink-0 items-center gap-3 px-3 text-kit-on-primary", className)}
-      style={{ ...kitStyle(kit), backgroundImage: kitBarGradient(kit), ...style }}
+      className={cn("kitbar-slab z-10 flex h-kitbar shrink-0 items-center gap-2 px-3 text-kit-on-primary", className)}
+      style={{ ...kitStyle(kit), ...style }}
       {...rest}
     >
-      <div className="flex min-w-0 shrink-0 items-center gap-1" style={{ maxWidth: "var(--sidebar-width)" }}>
+      <div className="flex min-w-0 max-w-sidebar shrink-0 items-center">
         {onHome ? (
-          <button type="button" onClick={onHome} className="min-w-0 rounded-panel outline-none hover:no-underline focus-visible:outline-2 focus-visible:outline-link" aria-label={`${businessName}: go to Home`}>
+          <button
+            type="button"
+            onClick={onHome}
+            className="min-w-0 rounded-sm text-left outline-none hover:no-underline focus-visible:shadow-ring"
+            aria-label={`${businessName}: go to Home`}
+          >
             {identity}
           </button>
         ) : (
@@ -136,36 +167,41 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
           <IconButton icon={ChevronRight} label="Forward" size="sm" disabled={nav.canGoForward === false} onClick={nav.onForward} className={navButtonClass} />
         </div>
       ) : null}
+      <span aria-hidden className="kitbar-divider" />
 
-      <div className="flex min-w-0 flex-1 items-center gap-4">
-        <h1 className="t-display-md min-w-0 truncate" data-testid="kitbar-screen-title">
-          {screenTitle}
-        </h1>
-        <button
-          type="button"
-          onClick={onSearch}
-          aria-label="Search"
-          aria-keyshortcuts="/ Meta+K"
-          data-testid="kitbar-search"
-          className={cn(
-            "ml-auto flex h-control-md w-80 shrink-0 items-center gap-2 rounded-panel bg-ink/40 px-2 text-white outline-none",
-            "transition-colors duration-micro ease-dugout hover:bg-ink/55 focus-visible:outline-2 focus-visible:outline-link",
-          )}
-        >
-          <Icon icon={Search} size="inline" className="text-white/80" />
-          <span className="min-w-0 flex-1 truncate text-left text-body text-white/70">{searchPlaceholder}</span>
-          <span className="inline-flex items-center gap-1" aria-hidden>
-            <Kbd>/</Kbd>
-            <Kbd>⌘K</Kbd>
-          </span>
-        </button>
-      </div>
+      <h1 className="t-display-md flex min-w-0 shrink" data-testid="kitbar-screen-title">
+        {titleText !== undefined ? (
+          <FitText minPx={KITBAR_TITLE_MIN_PX} lines={2} className="leading-tight">
+            {titleText}
+          </FitText>
+        ) : (
+          <span className="min-w-0 truncate">{screenTitle}</span>
+        )}
+      </h1>
+
+      <button
+        type="button"
+        onClick={onSearch}
+        aria-label="Search"
+        aria-keyshortcuts="/ Meta+K"
+        data-testid="kitbar-search"
+        className="kitbar-glass kitbar-search"
+      >
+        <Icon icon={Search} size="default" className="kitbar-search-icon" />
+        <span className="kitbar-search-long truncate">{searchPlaceholder}</span>
+        <span aria-hidden className="kitbar-search-short">
+          Search
+        </span>
+        <span className="kitbar-search-keys" aria-hidden>
+          <kbd className="kitbar-kbd">⌘K</kbd>
+        </span>
+      </button>
 
       <div className="flex shrink-0 items-center gap-2">
         <RunwayChip date={date} runwayMonths={runwayMonths} cash={cash} estimate={runwayEstimate} onClick={onRunwayClick} />
         {gameMode === "live" ? <GameModeChip mode="live" /> : null}
         <ModeChip mode={businessMode} holiday={holiday} onClick={onModeClick} />
-        <ContinueButton {...continueButton} />
+        <ContinueButton {...continueButton} className={cn("h-kitbar-chip rounded-track", continueButton.className)} />
         <StopAllAgents {...stopAll} />
       </div>
     </header>

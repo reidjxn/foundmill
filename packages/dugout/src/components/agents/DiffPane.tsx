@@ -72,7 +72,7 @@ export function DiffPane({ files, selectedPath, onSelectPath, engine = "monaco",
   return (
     <div className={cn("flex h-full min-h-0 bg-ink", className)} data-diff-pane>
       {!hideFiles ? (
-        <nav aria-label="Changed files" className="flex w-52 shrink-0 flex-col border-r border-subtle bg-panel">
+        <nav aria-label="Changed files" className="flex w-52 shrink-0 flex-col border-r border-line bg-surface-1">
           <ul className="min-h-0 flex-1 overflow-y-auto py-1">
             {files.map((f) => {
               const active = f.path === file?.path;
@@ -98,11 +98,11 @@ export function DiffPane({ files, selectedPath, onSelectPath, engine = "monaco",
               );
             })}
           </ul>
-          <div className="flex h-panel-header items-center justify-between border-t border-subtle px-2 text-small text-secondary">
+          <div className="flex h-control-lg items-center justify-between border-t border-line px-2.5 text-small text-tertiary">
             <span>{files.length} {files.length === 1 ? "file" : "files"}</span>
             <div role="radiogroup" aria-label="Diff layout" className="flex gap-0.5">
-              <Button size="sm" variant={sideBySide ? "ghost" : "default"} icon={Rows3} role="radio" aria-checked={!sideBySide} onClick={() => setSideBySide(false)} className="h-6 px-1" aria-label="Inline" />
-              <Button size="sm" variant={sideBySide ? "default" : "ghost"} icon={Columns2} role="radio" aria-checked={sideBySide} onClick={() => setSideBySide(true)} className="h-6 px-1" aria-label="Side by side" />
+              <Button size="sm" variant={sideBySide ? "ghost" : "default"} icon={Rows3} role="radio" aria-checked={!sideBySide} onClick={() => setSideBySide(false)} className="px-1" aria-label="Inline" />
+              <Button size="sm" variant={sideBySide ? "default" : "ghost"} icon={Columns2} role="radio" aria-checked={sideBySide} onClick={() => setSideBySide(true)} className="px-1" aria-label="Side by side" />
             </div>
           </div>
         </nav>

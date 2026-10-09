@@ -21,6 +21,9 @@
 @import "./shell.css";
 /* Views: metric strips, tables, charts, the ribbon, live tiles, boards (components/data, journey, agents). */
 @import "./views.css";
+/* Conversation and generation: the agent's desk, quick replies, streaming text, the live run, drafting cards
+   (components/conversation). */
+@import "./conversation.css";
 
 /* Components in this package and in the packages built on top of it. Paths are relative to this file. */
 @source "./components";

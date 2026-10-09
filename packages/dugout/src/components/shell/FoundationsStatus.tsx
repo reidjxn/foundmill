@@ -60,6 +60,7 @@ export const FoundationsStatus = forwardRef<HTMLElement, FoundationsStatusProps>
       ref={ref}
       title={heading}
       span={span}
+      glow={drafting ? "brand" : undefined}
       data-foundations-state={state}
       actions={
         <StatusPill tone={pill.tone} icon={pill.icon} pulse={drafting}>

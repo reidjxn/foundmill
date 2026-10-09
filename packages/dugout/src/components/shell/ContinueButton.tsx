@@ -1,5 +1,5 @@
 "use client";
-import { forwardRef, useEffect, useRef, useState, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { ArrowRight, CircleAlert, Pause, Play, TreePalm, Undo2 } from "lucide-react";
 import { cn } from "../../lib/cn";
@@ -78,9 +78,10 @@ export function continueButtonAction(state: ContinueState, handlers: ContinueHan
 }
 
 /**
- * The Continue button (BUILD §5.4, DESIGN §7). At rest a kit-primary fill; blocked is status-bad "Respond · N";
- * processing shows a spinner, "Pause" and a 2 px sweep along the bottom edge; Customer Update is gold; holiday is neutral
- * with the caption and "Come back".
+ * The Continue button (BUILD §5.4, DESIGN §7). At rest the brand primary with its light (Play, "Continue"). Blocked is
+ * a solid red with ink text "Respond" and the count in a capsule, a 4 px red halo, and one 600 ms ring pulse when it
+ * turns blocked. Processing is a dark slab with a light arc orbiting its edge and "Pause". A Customer Update is gold.
+ * Holiday is neutral with the caption and "Come back". It keeps one width through its states, so the bar never jumps.
  */
 export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>(function ContinueButton(
   { state, pulseKey, bindSpace = false, disabled, size = "md", className, ...handlers },
@@ -89,17 +90,31 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
   const reduced = usePrefersReducedMotion();
   const [pulsing, setPulsing] = useState(false);
   const firstPulse = useRef(true);
+  const lastKind = useRef(state.kind);
+
+  const pulse = useCallback(() => {
+    if (reduced) return undefined;
+    setPulsing(true);
+    const t = setTimeout(() => setPulsing(false), CONTINUE_PULSE_MS);
+    return () => clearTimeout(t);
+  }, [reduced]);
 
   useEffect(() => {
     if (firstPulse.current) {
       firstPulse.current = false;
       return;
     }
-    if (pulseKey === undefined || reduced) return;
-    setPulsing(true);
-    const t = setTimeout(() => setPulsing(false), CONTINUE_PULSE_MS);
-    return () => clearTimeout(t);
-  }, [pulseKey, reduced]);
+    if (pulseKey === undefined) return;
+    return pulse();
+  }, [pulseKey, pulse]);
+
+  // One ring pulse in red when Continue turns blocked (never on mount, never a loop).
+  useEffect(() => {
+    const was = lastKind.current;
+    lastKind.current = state.kind;
+    if (state.kind === "blocked" && was !== "blocked") return pulse();
+    return undefined;
+  }, [state.kind, pulse]);
 
   const action = continueButtonAction(state, handlers);
   const label = continueButtonLabel(state);
@@ -126,48 +141,56 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
   } as const;
 
   const pulseClass = pulsing ? "animate-ring-pulse" : "";
+  const skin = "continue-skin min-w-continue-min";
 
   let button: ReactNode;
   switch (state.kind) {
     case "idle":
       button = (
-        <Button {...common} variant="primary" icon={Play} className={cn("min-w-28", pulseClass, className)}>
+        <Button {...common} variant="primary" icon={Play} className={cn(skin, pulseClass, className)}>
           {label}
         </Button>
       );
       break;
     case "blocked":
       button = (
-        <Button {...common} variant="danger" icon={CircleAlert} className={cn("min-w-28", pulseClass, className)} aria-label={`Respond to ${state.count} ${state.count === 1 ? "item" : "items"}`}>
-          {label}
+        <Button
+          {...common}
+          variant="danger"
+          icon={CircleAlert}
+          className={cn(skin, "tone-status-bad font-semibold", pulseClass, className)}
+          aria-label={`Respond to ${state.count} ${state.count === 1 ? "item" : "items"}`}
+        >
+          <span>Respond</span>
+          <span className="sr-only"> · </span>
+          <span className="continue-count" data-continue-count>
+            {state.count > 99 ? "99+" : state.count}
+          </span>
         </Button>
       );
       break;
     case "processing":
       button = (
-        <Button {...common} variant="primary" icon={Pause} className={cn("relative min-w-28 overflow-hidden", pulseClass, className)} aria-label="Pause the running cycle">
+        <Button {...common} variant="default" icon={Pause} className={cn(skin, "orbit", pulseClass, className)} aria-label="Pause the running cycle">
           {label}
-          <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden">
-            <span className="block h-full w-1/2 animate-sweep bg-kit-on-primary/70" />
-          </span>
         </Button>
       );
       break;
     case "matchday":
       button = (
-        <Button {...common} variant="gold" iconRight={ArrowRight} className={cn("min-w-28", pulseClass, className)}>
+        <Button {...common} variant="gold" iconRight={ArrowRight} className={cn(skin, "tone-gold", pulseClass, className)}>
           {label}
         </Button>
       );
       break;
     case "holiday":
       button = (
-        <span className={cn("inline-flex items-center gap-2", className)} data-continue-state="holiday">
-          <span className="inline-flex items-center gap-1.5 text-small text-kit-on-primary/80">
+        <span className="inline-flex items-center gap-2" data-continue-state="holiday">
+          <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-small text-kit-on-primary/80">
             <Icon icon={TreePalm} size="inline" />
             <span>{holidayCaption(state)}</span>
           </span>
-          <Button {...common} variant="default" icon={Undo2} className={cn("min-w-28", pulseClass)}>
+          <Button {...common} variant="default" icon={Undo2} className={cn(skin, pulseClass, className)}>
             {label}
           </Button>
         </span>

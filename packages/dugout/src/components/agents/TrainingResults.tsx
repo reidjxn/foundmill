@@ -1,5 +1,6 @@
 import { ArrowRight, Check, Minus, Trash2, TrendingDown, TrendingUp } from "lucide-react";
-import { SKILL_GROUPS, type Money, type SkillGroup } from "@foundmill/shared";
+import type { Money } from "@foundmill/shared";
+import { SKILL_GROUPS, type SkillGroup } from "@foundmill/shared/constants";
 import { cn } from "../../lib/cn";
 import { formatDuration, formatMoney } from "../../lib/format";
 import { RatingFigure } from "../data/RatingBar";
@@ -79,8 +80,8 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
   const groups = SKILL_GROUPS.filter((g) => results.some((r) => r.group === g));
   return (
     <section aria-label="Training results" className={cn("surface-panel flex min-w-0 flex-col overflow-hidden", className)} data-training-results>
-      <header className="flex h-panel-header shrink-0 items-center gap-2 border-b border-subtle bg-panel-alt px-panel-pad">
-        <h2 className="t-label flex-1">
+      <header className="flex h-panel-header shrink-0 items-center gap-2 px-panel-pad rule-fade">
+        <h2 className="t-title flex-1 text-primary">
           Results{candidateVersion !== undefined ? ` · draft v${candidateVersion}` : ""}
           {liveVersion !== undefined ? ` vs live v${liveVersion}` : ""}
         </h2>
@@ -93,22 +94,22 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
         <Chip tone="neutral">{summary.unchanged} same</Chip>
       </header>
       <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <div className="border-r border-subtle">
+        <div className="border-r border-line">
           {groups.map((g: SkillGroup) => (
             <table key={g} className="w-full border-collapse text-body" aria-label={`${SKILL_GROUP_LABELS[g]} skills`}>
               <thead>
-                <tr className="h-7 bg-panel-alt/60">
-                  <th scope="col" className="t-label px-panel-pad text-left font-semibold">
+                <tr className="h-control-sm border-b border-line">
+                  <th scope="col" className="t-data px-panel-pad text-left">
                     {SKILL_GROUP_LABELS[g]}
                   </th>
-                  <th scope="col" className="t-label px-2 text-right font-semibold">
+                  <th scope="col" className="t-data px-2 text-right">
                     Before
                   </th>
                   <th scope="col" className="w-6" aria-label="to" />
-                  <th scope="col" className="t-label px-2 text-left font-semibold">
+                  <th scope="col" className="t-data px-2 text-left">
                     After
                   </th>
-                  <th scope="col" className="t-label px-2 text-left font-semibold">
+                  <th scope="col" className="t-data px-2 text-left">
                     Change
                   </th>
                 </tr>
@@ -149,7 +150,7 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
           ))}
         </div>
         <div className="flex flex-col gap-3 p-panel-pad">
-          <h3 className="t-label">Coach</h3>
+          <h3 className="t-data">Coach</h3>
           <p className="t-reading text-primary">{coachExplanation}</p>
           {summary.bigDrops.length > 0 ? (
             <p className="flex items-start gap-1.5 text-small text-status-bad">
@@ -159,7 +160,7 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
           ) : null}
           <dl className="mt-auto grid grid-cols-2 gap-2 text-small">
             <div>
-              <dt className="t-label">Mean change</dt>
+              <dt className="t-data">Mean change</dt>
               <dd className={cn("tabular-nums", summary.meanDelta > 0 ? "text-status-good" : summary.meanDelta < 0 ? "text-status-bad" : "text-secondary")}>
                 {summary.meanDelta > 0 ? "+" : ""}
                 {summary.meanDelta} points
@@ -167,7 +168,7 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
             </div>
             {cost ? (
               <div>
-                <dt className="t-label">Session cost</dt>
+                <dt className="t-data">Session cost</dt>
                 <dd className="inline-flex items-center gap-1 tabular-nums">
                   {formatMoney(cost)} <ProvenanceChip kind="estimate" />
                 </dd>
@@ -175,14 +176,14 @@ export function TrainingResults({ results, coachExplanation, candidateVersion, l
             ) : null}
             {durationMs !== undefined ? (
               <div>
-                <dt className="t-label">Duration</dt>
+                <dt className="t-data">Duration</dt>
                 <dd className="tabular-nums">{formatDuration(durationMs)}</dd>
               </div>
             ) : null}
           </dl>
         </div>
       </div>
-      <footer className="flex items-center justify-end gap-2 border-t border-subtle bg-panel-alt px-panel-pad py-2">
+      <footer className="flex items-center justify-end gap-2 border-t border-line px-panel-pad py-2">
         <span className="mr-auto text-small text-secondary">The live version keeps working until you promote.</span>
         <Button variant="ghost" icon={Trash2} onClick={onDiscard} loading={discarding} disabled={promoting}>
           Discard

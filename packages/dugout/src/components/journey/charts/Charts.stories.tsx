@@ -24,8 +24,8 @@ type Story = StoryObj<typeof meta>;
 function Tile({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="surface-panel flex flex-col overflow-hidden">
-      <header className="flex h-panel-header items-center border-b border-subtle bg-panel-alt px-panel-pad">
-        <h2 className="t-label">{title}</h2>
+      <header className="flex h-panel-header items-center px-panel-pad rule-fade">
+        <h2 className="t-title text-primary">{title}</h2>
       </header>
       <div className="p-panel-pad">{children}</div>
     </section>
@@ -90,6 +90,27 @@ export const HeatmapStory: Story = {
     <div className="w-[720px]">
       <Tile title="Email opens by weekday × hour">
         <Heatmap label="Email opens by weekday and hour" rows={["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]} cols={Array.from({ length: 24 }, (_, h) => String(h))} values={Array.from({ length: 7 }, (_, d) => Array.from({ length: 24 }, (_, h) => (h >= 7 && h <= 20 ? rng.range(0, d >= 5 ? 20 : 60) : rng.range(0, 6))))} tone="dept-3" format={(v) => `${Math.round(v)} opens`} />
+      </Tile>
+    </div>
+  ),
+};
+
+/** Axes that never clip: margins sized to the widest label ("−£5K"), a real minus, month labels thinned when they would touch, integer ticks for counts, value labels only where they fit. */
+export const TightAxes: Story = {
+  render: () => (
+    <div className="grid grid-cols-2 gap-gutter" style={{ width: 960 }}>
+      <Tile title="Net cash change by month">
+        <BarChart
+          label="Net cash change by month"
+          height={200}
+          format={(v) => formatMoney({ amountMinor: Math.round(v), currency: "GBP" }, { compact: true })}
+          showValues
+          provenance="estimate"
+          data={["Apr 2026", "May 2026", "Jun 2026", "Jul 2026", "Aug 2026", "Sep 2026"].map((label, i) => ({ label, value: [-398300, 144800, -501300, 2100000, 1000000, 1500000][i]! }))}
+        />
+      </Tile>
+      <Tile title="Signups per week">
+        <LineChart label="Signups per week" height={200} series={[{ id: "s", label: "Signups", tone: "info", data: Array.from({ length: 12 }, (_, i) => ({ x: i + 1, y: [0, 1, 1, 2, 1, 3, 2, 2, 4, 3, 5, 4][i]! })), area: true }]} xType="linear" yFormat={(v) => String(v)} />
       </Tile>
     </div>
   ),

@@ -8,7 +8,6 @@ import { Button } from "../foundation/Button";
 import { Chip } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
-import { Input } from "../foundation/Input";
 import { Field } from "../foundation/Label";
 import { SimpleSelect } from "../foundation/Select";
 import { Textarea } from "../foundation/Textarea";
@@ -126,11 +125,12 @@ function ListEditor({
           const reason = flagged.get(i);
           return (
             <li key={i} className="flex items-start gap-1" data-flagged={reason ? true : undefined}>
-              <span className="w-5 shrink-0 pt-2 text-right text-small text-secondary tabular-nums" aria-hidden>
+              <span className="w-5 shrink-0 pt-2.5 text-right font-mono text-micro text-tertiary tabular-nums" aria-hidden>
                 {numbered ? `${i + 1}.` : "•"}
               </span>
               <div className="min-w-0 flex-1">
-                <Input value={item} readOnly={readOnly} onChange={(e) => set(i, e.target.value)} aria-label={`${numbered ? "Step" : "Item"} ${i + 1}`} tone={reason ? "warn" : undefined} />
+                {/* Instructions are sentences: an auto-growing field, never a one-line input that cuts them off. */}
+                <Textarea value={item} readOnly={readOnly} onChange={(e) => set(i, e.target.value)} aria-label={`${numbered ? "Step" : "Item"} ${i + 1}`} tone={reason ? "warn" : undefined} autoGrow rows={1} className="min-h-field resize-none" />
                 {reason ? (
                   <p role="status" className="mt-0.5 flex items-center gap-1 text-small text-status-warn">
                     <Icon icon={ShieldAlert} size="inline" />
@@ -162,8 +162,8 @@ function ListEditor({
 
 function Section({ id, section, children }: { id: string; section: InstructionSection; children: ReactNode }) {
   return (
-    <section aria-labelledby={`${id}-label`} className="flex flex-col gap-1.5 border-b border-subtle pb-4 last:border-b-0">
-      <h3 id={`${id}-label`} className="t-label">
+    <section aria-labelledby={`${id}-label`} className="flex flex-col gap-1.5 border-b border-line-faint pb-4 last:border-b-0">
+      <h3 id={`${id}-label`} className="t-title text-primary">
         {SECTION_LABELS[section]}
       </h3>
       <p className="text-small text-secondary">{SECTION_HINTS[section]}</p>
@@ -198,10 +198,10 @@ export function InstructionsEditor({ value, onChange, previous, versions = [], v
     <div className={cn("flex min-w-0 flex-col gap-3", className)} data-instructions-editor data-mode={mode}>
       <div className="flex flex-wrap items-center gap-2">
         <div role="radiogroup" aria-label="Instructions view" className="inline-flex items-center gap-0.5 rounded-panel border border-subtle bg-panel-alt p-0.5">
-          <Button size="sm" variant={mode === "edit" ? "default" : "ghost"} icon={PenLine} role="radio" aria-checked={mode === "edit"} onClick={() => setMode("edit")} className="h-6 px-1.5">
+          <Button size="sm" variant={mode === "edit" ? "default" : "ghost"} icon={PenLine} role="radio" aria-checked={mode === "edit"} onClick={() => setMode("edit")} className="px-1.5">
             Edit
           </Button>
-          <Button size="sm" variant={mode === "diff" ? "default" : "ghost"} icon={GitCompareArrows} role="radio" aria-checked={mode === "diff"} onClick={() => setMode("diff")} className="h-6 px-1.5">
+          <Button size="sm" variant={mode === "diff" ? "default" : "ghost"} icon={GitCompareArrows} role="radio" aria-checked={mode === "diff"} onClick={() => setMode("diff")} className="px-1.5">
             Diff
           </Button>
         </div>
@@ -257,11 +257,11 @@ export function InstructionsEditor({ value, onChange, previous, versions = [], v
               {value.examples.map((ex, i) => {
                 const reason = flags("examples").get(i);
                 return (
-                  <li key={i} className="grid grid-cols-[auto_1fr_auto] gap-2 rounded-panel border border-subtle bg-panel-alt p-2" data-flagged={reason ? true : undefined}>
-                    <span className="pt-5 text-small text-secondary tabular-nums" aria-hidden>
+                  <li key={i} className="flex items-start gap-2 rounded-md border border-line bg-white/2 p-2.5" data-flagged={reason ? true : undefined}>
+                    <span className="w-5 shrink-0 pt-6 text-right font-mono text-micro text-tertiary tabular-nums" aria-hidden>
                       {i + 1}.
                     </span>
-                    <div className="flex min-w-0 flex-col gap-2">
+                    <div className="flex min-w-0 flex-1 flex-col gap-2">
                       <Field htmlFor={`${id}-ex-${i}-in`} label="Input">
                         <Textarea id={`${id}-ex-${i}-in`} value={ex.input} readOnly={readOnly} onChange={(e) => setExample(i, { input: e.target.value })} rows={2} autoGrow />
                       </Field>
@@ -284,8 +284,8 @@ export function InstructionsEditor({ value, onChange, previous, versions = [], v
       )}
 
       {(comments.length > 0 || onComment) && (
-        <section aria-label="Comments" className="flex flex-col gap-2 border-t border-subtle pt-3">
-          <h3 className="t-label flex items-center gap-1">
+        <section aria-label="Comments" className="flex flex-col gap-2 border-t border-line pt-3">
+          <h3 className="t-title flex items-center gap-1.5 text-primary">
             <Icon icon={MessageSquare} size={12} /> Comments
           </h3>
           {comments.length === 0 ? <p className="text-small text-secondary">No comments on this version yet.</p> : null}

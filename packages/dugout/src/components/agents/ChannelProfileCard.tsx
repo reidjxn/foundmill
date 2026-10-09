@@ -1,6 +1,6 @@
 "use client";
 import { ArrowDownToLine, ArrowUpToLine, ExternalLink, Pause, Play } from "lucide-react";
-import { CHANNEL_META, type ChannelKey } from "@foundmill/shared";
+import { CHANNEL_META, type ChannelKey } from "@foundmill/shared/constants";
 import { cn } from "../../lib/cn";
 import { formatMoney, formatPercent } from "../../lib/format";
 import { AvatarStack } from "../foundation/Avatar";

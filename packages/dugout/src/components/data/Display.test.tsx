@@ -26,7 +26,8 @@ describe("RatingBar", () => {
     const cells = bar.querySelectorAll("span");
     expect(cells).toHaveLength(20);
     expect(Array.from(cells).filter((c) => c.className.includes("bg-rating-3"))).toHaveLength(14);
-    expect(Array.from(cells).filter((c) => c.className.includes("bg-panel-alt"))).toHaveLength(6);
+    expect(Array.from(cells).filter((c) => c.className.includes("cell-lit"))).toHaveLength(14);
+    expect(Array.from(cells).filter((c) => c.className.includes("cell-empty"))).toHaveLength(6);
   });
   it("outlines the comparison cells beyond the value", () => {
     render(<RatingBar value={10} compare={15} />);

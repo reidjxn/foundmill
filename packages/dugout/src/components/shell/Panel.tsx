@@ -1,5 +1,6 @@
 import { forwardRef, useId, type HTMLAttributes, type ReactNode } from "react";
-import { EllipsisVertical, Pin, Replace, Settings2 } from "lucide-react";
+import { Ellipsis, Pin, Replace, Settings2 } from "lucide-react";
+import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../foundation/DropdownMenu";
 import { EmptyState, type EmptyStateProps } from "../foundation/EmptyState";
@@ -37,8 +38,15 @@ export interface PanelProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   span?: GridSpan;
   /** Caret menu on the right of the header. Omitted → no caret. */
   menu?: PanelMenu;
-  /** Header slot between the title and the caret (chips, a small button). */
+  /** Header slot between the title and the caret (chips, a small button). Wraps under the title before it squeezes it. */
   actions?: ReactNode;
+  /** Mono meta after the title, in text-3 ("6 Aug – 8 Nov 2026", "4 of 5 done"). */
+  meta?: ReactNode;
+  /**
+   * Light inside the panel from its lit corner (DESIGN §3): a department colour (department cards, the note's metric
+   * strip, the agent thread) or "brand" (the Journey, the brief). The corner of the edge takes the colour too.
+   */
+  glow?: DeptColourToken | "brand";
   /** Shows a skeleton body (never a spinner inside a panel, DESIGN §7). */
   loading?: boolean;
   /** Empty state: a line of text or full EmptyState props. Shown instead of children. */
@@ -55,17 +63,33 @@ export interface PanelProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   children?: ReactNode;
 }
 
+/** Static class map so Tailwind emits every tone. */
+const GLOW_CLASS: Record<DeptColourToken | "brand", string> = {
+  brand: "glow-brand edge-tint",
+  "dept-1": "glow-dept edge-tint tone-dept-1",
+  "dept-2": "glow-dept edge-tint tone-dept-2",
+  "dept-3": "glow-dept edge-tint tone-dept-3",
+  "dept-4": "glow-dept edge-tint tone-dept-4",
+  "dept-5": "glow-dept edge-tint tone-dept-5",
+  "dept-6": "glow-dept edge-tint tone-dept-6",
+  "dept-7": "glow-dept edge-tint tone-dept-7",
+  "dept-8": "glow-dept edge-tint tone-dept-8",
+};
+
 function isEmptyStateProps(v: unknown): v is Omit<EmptyStateProps, "children"> & { children: ReactNode } {
   return typeof v === "object" && v !== null && !Array.isArray(v) && "children" in v && !("$$typeof" in v);
 }
 
 /**
- * The panel (DESIGN §3, §8): bg-panel, hairline, 4 px radius, inner highlight, no shadow. 32 px raised header with the
- * title in label style and a caret menu (swap content, settings, Pin to Home). Loading, empty and error states replace
- * the body; an optional footer sits under it.
+ * The panel (DESIGN §3, §8): a machined plate — surface 1, 10 px radius, a 1 px gradient edge that catches light at
+ * the top left and bottom right, a faint top light, elev-1 — optionally lit from its corner by a department or the
+ * brand (`glow`). The 40 px header sits on the panel's own surface (no band): the title in Inter 600 sentence case,
+ * optional mono meta, then the actions and a ghost "…" menu (swap content, settings, Pin to Home), with a rule under it
+ * that fades out to the right. The title is never clipped: the actions wrap under it first, and a long title wraps.
+ * Loading, empty and error states replace the body; an optional footer sits under it. Server-safe (no hooks but useId).
  */
 export const Panel = forwardRef<HTMLElement, PanelProps>(function Panel(
-  { title, span, menu, actions, loading, empty, error, onRetry, footer, flush, bodyClassName, className, children, ...rest },
+  { title, span, menu, actions, meta, glow, loading, empty, error, onRetry, footer, flush, bodyClassName, className, children, ...rest },
   ref,
 ) {
   const titleId = useId();
@@ -90,63 +114,71 @@ export const Panel = forwardRef<HTMLElement, PanelProps>(function Panel(
       aria-busy={loading || undefined}
       data-state={state}
       data-span={span}
-      className={cn("surface-panel flex min-w-0 flex-col overflow-hidden", span !== undefined && spanClass(span), className)}
+      data-glow={glow}
+      className={cn("surface-panel flex min-w-0 flex-col overflow-hidden", glow && GLOW_CLASS[glow], span !== undefined && spanClass(span), className)}
       {...rest}
     >
-      <header className="flex h-panel-header shrink-0 items-center gap-2 border-b border-subtle bg-panel-alt pl-panel-pad pr-1">
-        <h2 id={titleId} className="t-label min-w-0 flex-1 truncate">
-          {title}
-        </h2>
-        {actions ? <div className="flex shrink-0 items-center gap-1">{actions}</div> : null}
-        {hasMenu ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Panel menu"
-                className="inline-flex size-6 shrink-0 items-center justify-center rounded-chip text-secondary outline-none hover:bg-white/6 hover:text-primary focus-visible:outline-2 focus-visible:outline-link data-[state=open]:bg-white/6 data-[state=open]:text-primary"
-              >
-                <Icon icon={EllipsisVertical} size="inline" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {menu?.onSwap ? (
-                <DropdownMenuItem onSelect={menu.onSwap}>
-                  <Icon icon={Replace} size="inline" className="text-secondary" />
-                  Swap content
-                </DropdownMenuItem>
-              ) : null}
-              {menu?.onSettings ? (
-                <DropdownMenuItem onSelect={menu.onSettings}>
-                  <Icon icon={Settings2} size="inline" className="text-secondary" />
-                  Settings
-                </DropdownMenuItem>
-              ) : null}
-              {menu?.onPinToHome ? (
-                <DropdownMenuItem onSelect={menu.onPinToHome}>
-                  <Icon icon={Pin} size="inline" className="text-secondary" />
-                  {menu.pinned ? "Unpin from Home" : "Pin to Home"}
-                </DropdownMenuItem>
-              ) : null}
-              {menu?.items && menu.items.length > 0 ? (
-                <>
-                  {menu.onSwap || menu.onSettings || menu.onPinToHome ? <DropdownMenuSeparator /> : null}
-                  {menu.items.map((item) => (
-                    <DropdownMenuItem key={item.id} onSelect={item.onSelect} variant={item.variant} disabled={item.disabled}>
-                      {item.icon ? <Icon icon={item.icon} size="inline" className="text-secondary" /> : null}
-                      {item.label}
+      <header className="panel-head" data-panel-header>
+        <div className="flex min-w-0 flex-auto items-baseline gap-2">
+          <h2 id={titleId} className="t-title min-w-0 text-balance text-primary">
+            {title}
+          </h2>
+          {meta ? <span className="t-mono shrink-0 text-tertiary">{meta}</span> : null}
+        </div>
+        {actions || hasMenu ? (
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            {actions}
+            {hasMenu ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Panel menu"
+                    className="inline-flex size-control-sm shrink-0 items-center justify-center rounded-sm text-tertiary outline-none transition-colors duration-hover ease-out hover:bg-white/5 hover:text-primary focus-visible:shadow-ring data-[state=open]:bg-white/8 data-[state=open]:text-primary"
+                  >
+                    <Icon icon={Ellipsis} />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {menu?.onSwap ? (
+                    <DropdownMenuItem onSelect={menu.onSwap}>
+                      <Icon icon={Replace} size="inline" className="text-secondary" />
+                      Swap content
                     </DropdownMenuItem>
-                  ))}
-                </>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  ) : null}
+                  {menu?.onSettings ? (
+                    <DropdownMenuItem onSelect={menu.onSettings}>
+                      <Icon icon={Settings2} size="inline" className="text-secondary" />
+                      Settings
+                    </DropdownMenuItem>
+                  ) : null}
+                  {menu?.onPinToHome ? (
+                    <DropdownMenuItem onSelect={menu.onPinToHome}>
+                      <Icon icon={Pin} size="inline" className="text-secondary" />
+                      {menu.pinned ? "Unpin from Home" : "Pin to Home"}
+                    </DropdownMenuItem>
+                  ) : null}
+                  {menu?.items && menu.items.length > 0 ? (
+                    <>
+                      {menu.onSwap || menu.onSettings || menu.onPinToHome ? <DropdownMenuSeparator /> : null}
+                      {menu.items.map((item) => (
+                        <DropdownMenuItem key={item.id} onSelect={item.onSelect} variant={item.variant} disabled={item.disabled}>
+                          {item.icon ? <Icon icon={item.icon} size="inline" className="text-secondary" /> : null}
+                          {item.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </div>
         ) : null}
       </header>
       <div className={cn("min-h-0 flex-1", !flush && state === "ready" && "p-panel-pad", bodyClassName)} data-panel-body>
         {body}
       </div>
-      {footer ? <footer className="flex shrink-0 items-center gap-2 border-t border-subtle px-panel-pad py-1.5 text-small text-secondary">{footer}</footer> : null}
+      {footer ? <footer className="panel-foot flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-panel-pad py-2 text-small text-tertiary">{footer}</footer> : null}
     </section>
   );
 });

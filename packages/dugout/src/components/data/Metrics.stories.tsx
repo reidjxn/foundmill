@@ -4,7 +4,8 @@ import { CircleCheck, GitMerge, Mail, TriangleAlert } from "lucide-react";
 import { Chip } from "../foundation/Chip";
 import { FilterChips } from "./FilterChips";
 import { KeyValueList, MiniTable, Timeline } from "./Lists";
-import { MetricTile, StatusStrip } from "./MetricTile";
+import { Figure } from "./Figure";
+import { DeltaBadge, MetricTile, StatusStrip } from "./MetricTile";
 import { SavedViewSelector } from "./SavedViewSelector";
 import { FIXTURE_NOW, LEAD_VIEWS } from "./fixtures";
 import type { FilterChipValue, FilterField } from "./filters";
@@ -319,3 +320,45 @@ function SavedViewsDemo() {
 }
 
 export const SavedViews: Story = { render: () => <SavedViewsDemo /> };
+
+/** Figure micro-typography (Mission "lg"): dimmed raised currency, dimmed money decimals and scale suffix, mono units. */
+export const FigureTypography: Story = {
+  render: () => (
+    <div className="flex flex-wrap items-end gap-8">
+      {["£72K", "£4,255.57", "−£15K", "94%", "20", "0.1", "SEK 1,234,567.00", "—"].map((v) => (
+        <div key={v} className="flex flex-col gap-1">
+          <span className="t-data">{v}</span>
+          <Figure value={v} unit={v === "0.1" ? "mo" : undefined} className="t-display-lg text-primary" />
+        </div>
+      ))}
+    </div>
+  ),
+};
+
+/** Tiles in a tight strip: figures step down to fit and fall back to the compact form; captions wrap to two lines; nothing is clipped. */
+export const TightStrip: Story = {
+  render: () => (
+    <div style={{ width: 640 }}>
+      <StatusStrip
+        tiles={[
+          { label: "Cash in bank", value: { amountMinor: 123_456_700, currency: "SEK" }, caption: "3 connected accounts, synced 09:12", spark: SPARK, provenance: { source: "Bank balances" } },
+          { label: "Net burn", value: { amountMinor: -1_512_300, currency: "GBP" }, estimate: "estimate", caption: "Cash-flow positive" },
+          { label: "Customers this week", value: 20, format: "integer", delta: { value: -1, label: "vs last week" }, spark: [12, 14, 13, 18, 21, 20] },
+          { label: "Payback", value: 0.1, format: "decimal", unit: "mo", estimate: "estimate", caption: "141 paying customers" },
+        ]}
+      />
+    </div>
+  ),
+};
+
+/** Deltas are tone pills: one trend icon and the figure, the comparison inside. */
+export const Deltas: Story = {
+  render: () => (
+    <div className="flex flex-wrap gap-3">
+      <DeltaBadge delta={{ value: 4.39, percent: true, label: "vs prior week" }} />
+      <DeltaBadge delta={{ value: -21, label: "vs last week" }} />
+      <DeltaBadge delta={{ value: 0, label: "vs last month" }} />
+      <DeltaBadge delta={{ value: 1200, goodWhen: "down", label: "spend" }} />
+    </div>
+  ),
+};

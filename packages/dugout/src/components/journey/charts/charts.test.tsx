@@ -11,7 +11,7 @@ const days = (n: number) => Array.from({ length: n }, (_, i) => ({ x: new Date(D
 
 describe("chart helpers", () => {
   it("maps tones to tokens, finds the nearest index and pads extents", () => {
-    expect(toneVar("kit")).toBe("var(--kit-primary)");
+    expect(toneVar("kit")).toBe("var(--kit-lift)");
     expect(toneVar("dept-3")).toBe("var(--dept-3)");
     expect(nearestIndex([0, 10, 20], 13)).toBe(1);
     expect(extent([])).toEqual([0, 1]);
@@ -45,7 +45,8 @@ describe("LineChart", () => {
     expect(container.querySelectorAll("path[data-series]").length).toBe(2);
     expect(container.querySelector("path[data-series='fc']")?.getAttribute("stroke-dasharray")).toBe("4 4");
     expect(container.querySelector("[data-mark] text")?.textContent).toBe("TODAY");
-    expect(screen.getByText("Forecast", { selector: "span.t-label" })).toBeTruthy();
+    // The dashed series is labelled "Forecast" already; the chart's provenance chip says Forecast once.
+    expect(container.querySelector("[data-provenance='forecast']")?.textContent).toBe("Forecast");
     const hit = container.querySelector("rect[fill='transparent']") as SVGRectElement;
     hit.getBoundingClientRect = () => ({ left: 40, top: 8, width: 548, height: 128, right: 588, bottom: 136, x: 40, y: 8, toJSON: () => ({}) }) as DOMRect;
     fireEvent.pointerMove(hit, { clientX: 40, clientY: 50 });

@@ -84,7 +84,7 @@ export const ChannelToken = forwardRef<HTMLButtonElement, ChannelTokenProps>(fun
           className={cn(
             "relative inline-flex size-14 items-center justify-center rounded-full border-2 bg-panel-alt outline-none",
             "transition-[transform,border-color,background-color,color] duration-micro ease-dugout",
-            "hover:-translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-link",
+            "hover:-translate-y-px focus-visible:shadow-ring",
             accent ? (channel.enabled ? "text-primary" : "text-secondary hover:text-primary") : cn("text-primary hover:border-secondary/70", channel.enabled ? "border-kit-secondary/60" : "border-subtle"),
             channel.paused && "opacity-60",
             dragging && "scale-105 cursor-grabbing shadow-overlay",
@@ -94,15 +94,17 @@ export const ChannelToken = forwardRef<HTMLButtonElement, ChannelTokenProps>(fun
           {...rest}
         >
           <Icon icon={CHANNEL_ICONS[channel.key]} size={20} />
-          <span aria-hidden className={cn("absolute -bottom-0.5 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-panel px-1 font-display text-[11px] leading-none tabular-nums", RATING_BG[tone])}>
-            {fit}
-          </span>
-          {channel.recommended ? (
-            <span aria-hidden className="absolute -left-1 -top-0.5 inline-flex size-5 items-center justify-center rounded-full border-2 border-panel bg-kit-primary text-kit-on-primary">
-              <Icon icon={ThumbsUp} size={10} strokeWidth={2.25} />
-            </span>
-          ) : null}
         </button>
+        {/* The fit badge and the recommendation mark sit on the token's rim, outside the button's box, so the button
+            never spills past its own edge (they move with it: same wrapper). */}
+        <span aria-hidden className={cn("pointer-events-none absolute -bottom-0.5 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-surface-1 px-1 font-display text-micro leading-none tabular-nums", RATING_BG[tone], dragging && "scale-105")}>
+          {fit}
+        </span>
+        {channel.recommended ? (
+          <span aria-hidden className="pointer-events-none absolute -left-1 -top-0.5 inline-flex size-5 items-center justify-center rounded-full border-2 border-surface-1 bg-kit-primary text-kit-on-primary">
+            <Icon icon={ThumbsUp} size={10} strokeWidth={2.25} />
+          </span>
+        ) : null}
       </span>
       <FormGuide form={channel.form} name={`${label} form`} />
       {!hideLabel ? (

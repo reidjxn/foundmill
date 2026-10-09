@@ -83,7 +83,10 @@ export interface TabItem {
   href?: string;
   /** Tabs with sub-views show a 12 px caret that opens a dropdown. */
   subViews?: TabSubView[];
+  /** A count in a pill after the label. */
   badge?: number;
+  /** "bad": the count needs the founder (Respond's count is red with ink text). Default neutral. */
+  badgeTone?: "bad" | "neutral";
   disabled?: boolean;
 }
 

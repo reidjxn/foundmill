@@ -2,6 +2,7 @@
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
+import { FitText } from "../foundation/FitText";
 import { formatDate, formatMoney, formatNumber } from "../../lib/format";
 import { Button } from "../foundation/Button";
 import { Chip, ProvenanceChip } from "../foundation/Chip";
@@ -35,8 +36,8 @@ export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJo
   const payments = summary.conversions.filter((c) => c.kind === "payment");
   return (
     <section className={cn("surface-panel flex w-full max-w-2xl flex-col overflow-hidden", className)} aria-label={`Day digest, ${formatDate(summary.day)}`} data-day-digest={summary.day}>
-      <header className="flex h-panel-header items-center gap-2 border-b border-subtle bg-panel-alt pl-panel-pad pr-1">
-        <h2 className="t-label flex-1 truncate text-primary">
+      <header className="flex h-panel-header items-center gap-2 pl-panel-pad pr-1.5 rule-fade">
+        <h2 className="t-title min-w-0 flex-1 truncate text-primary">
           {summary.isToday ? "Today · " : ""}
           {formatDate(summary.day, "EEEE d MMMM yyyy")}
           {summary.chapter ? <span className="ml-2 text-secondary">{summary.chapter.title ?? summary.chapter.provisionalTitle}</span> : null}
@@ -56,7 +57,7 @@ export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJo
               ["Tasks done", formatNumber(p?.tasksDone ?? 0, { digits: 0 })],
             ].map(([k, v]) => (
               <div key={k}>
-                <dt className="t-label">{k}</dt>
+                <dt className="t-data">{k}</dt>
                 <dd className="t-display-lg tabular-nums">{v}</dd>
               </div>
             ))}
@@ -69,7 +70,7 @@ export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJo
           </div>
           {highlights.length > 0 ? (
             <div>
-              <span className="t-label">Highlights</span>
+              <span className="t-data">Highlights</span>
               <ul className="mt-1 flex flex-col gap-1">
                 {highlights.map((h, i) => (
                   <li key={i} className="flex items-start gap-1.5">
@@ -93,7 +94,7 @@ export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJo
           ) : null}
           {summary.conversions.length > 0 ? (
             <div>
-              <span className="t-label">Wins</span>
+              <span className="t-data">Wins</span>
               <ul className="mt-1 flex flex-col divide-y divide-subtle/50">
                 {summary.conversions.slice(0, 8).map((c) => (
                   <li key={c.id} className="flex h-row-compact items-center gap-2">
@@ -101,7 +102,7 @@ export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJo
                     <Chip tone={c.kind === "payment" ? "gold" : c.kind === "activation" ? "info" : "neutral"}>{KIND_WORD[c.kind]}</Chip>
                     <span className="min-w-0 flex-1 truncate">{c.entityId && c.entityName ? <EntityText text={`[[ent:${c.entityId}|${c.entityName}]]`} kinds={entityKinds} onOpenEntity={onOpenEntity} /> : (c.entityName ?? "Anonymous")}</span>
                     {c.kind === "payment" ? <span className="tabular-nums">{formatMoney({ amountMinor: c.amountMinor, currency: c.currency })}</span> : null}
-                    <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={() => onOpenJourney?.(c.id)} aria-label={`Open the Customer Update for ${c.entityName ?? KIND_WORD[c.kind]}`}>
+                    <Button size="sm" variant="ghost" className="px-1.5" onClick={() => onOpenJourney?.(c.id)} aria-label={`Open the Customer Update for ${c.entityName ?? KIND_WORD[c.kind]}`}>
                       Replay
                     </Button>
                   </li>
@@ -112,13 +113,15 @@ export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJo
           ) : null}
         </div>
         <aside className="flex flex-col gap-2" aria-label="Agent hours by department">
-          <span className="t-label">Team</span>
+          <span className="t-data">Team</span>
           {depts.length === 0 ? <span className="text-small text-secondary">No agent work recorded.</span> : null}
           {depts.map((d) => (
             <div key={d.id} className="flex items-center gap-2 text-small">
               <span aria-hidden className={cn("inline-block size-1.5 shrink-0 rounded-full", DEPT_BG[d.dept])} />
-              <span className="w-24 truncate">{d.name}</span>
-              <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-panel-alt">
+              <span className="w-24 shrink-0" title={d.name}>
+                <FitText minPx={11}>{d.name}</FitText>
+              </span>
+              <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/6">
                 <span className={cn("block h-full", DEPT_BG[d.dept])} style={{ width: `${Math.round((d.hours / maxHours) * 100)}%` }} />
               </span>
               <span className="w-10 text-right tabular-nums">{formatNumber(d.hours, { maxDigits: 1 })}h</span>

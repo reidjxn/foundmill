@@ -272,3 +272,28 @@ export const States: Story = {
     </div>
   ),
 };
+
+interface UsageRow {
+  id: string;
+  item: string;
+  quantity: number;
+  amount: number;
+  note: string | null;
+}
+const usageColumns: DataTableColumn<UsageRow>[] = [
+  { id: "item", accessorKey: "item", header: "Item", size: 220 },
+  { id: "quantity", accessorKey: "quantity", header: "Quantity", size: 64, meta: { numeric: true }, cell: ({ getValue }) => (getValue() as number).toLocaleString("en-GB") },
+  { id: "amount", accessorKey: "amount", header: "Amount", size: 64, meta: { numeric: true }, cell: ({ getValue }) => formatMoney({ amountMinor: getValue() as number, currency: "GBP" }) },
+  { id: "note", accessorKey: "note", header: "Note", size: 160 },
+];
+const usage: UsageRow[] = [
+  { id: "1", item: "Model tokens", quantity: 8_875_803, amount: 11_941, note: null },
+  { id: "2", item: "Sandbox minutes", quantity: 12_480, amount: 2_496, note: null },
+  { id: "3", item: "Tool calls", quantity: 1_204_118, amount: 120_412_33, note: null },
+];
+
+/** Numbers never truncate: numeric columns narrower than their values grow to fit them; an all-empty column is hidden. */
+export const NumbersNeverTruncate: Story = {
+  args: { data: [], columns: [] },
+  render: () => <DataTable title="Usage this month" data={usage} columns={usageColumns} hideEmptyColumns height={200} footer={null} />,
+};

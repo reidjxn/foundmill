@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { ChannelProfileCard } from "./ChannelProfileCard";
 import { FormGuide } from "./ChannelToken";
 import { FormationBoard } from "./FormationBoard";
-import { BOARD_H, BOARD_W, CAPTION_CORRIDOR, FAMILY_QUADRANT, HUB, RX, RY, WEDGE_HALF, benchChannels, boardLayout, channelLine, entranceOrder, fitShare, fitToT, halfWidth, pitchLines, signalPath, toggleChannel } from "./formation";
+import { BOARD_H, BOARD_W, CAPTION_CORRIDOR, FAMILY_QUADRANT, HUB, RX, RY, TOKEN_DOWN, TOKEN_UP, WEDGE_HALF, benchChannels, hitsHub, boardLayout, channelLine, entranceOrder, fitShare, fitToT, halfWidth, pitchLines, signalPath, toggleChannel } from "./formation";
 import { mockChannels } from "./mock";
 
 const channels = mockChannels();
@@ -76,6 +76,20 @@ describe("boardLayout (the quadrant map)", () => {
     assertClear(boardLayout(channels));
     assertClear(boardLayout(allOn));
     assertClear(boardLayout(sameFit));
+  });
+
+  it("never lets a token or its name touch the hub or cross the board's edge, whatever the fits", () => {
+    const strong = channels.map((c) => ({ ...c, enabled: true, fit: 20 }));
+    const mixed = channels.map((c, i) => ({ ...c, enabled: true, fit: [20, 19, 18, 3, 12][i % 5]! }));
+    for (const set of [channels, allOn, sameFit, strong, mixed]) {
+      for (const s of boardLayout(set)) {
+        expect(hitsHub(s, halfWidth(s.key)), `${s.key} on the hub`).toBe(false);
+        expect(s.x - halfWidth(s.key)).toBeGreaterThanOrEqual(0);
+        expect(s.x + halfWidth(s.key)).toBeLessThanOrEqual(BOARD_W);
+        expect(s.y - TOKEN_UP).toBeGreaterThanOrEqual(0);
+        expect(s.y + TOKEN_DOWN).toBeLessThanOrEqual(BOARD_H);
+      }
+    }
   });
 
   it("keeps the caption corridor above the hub clear", () => {

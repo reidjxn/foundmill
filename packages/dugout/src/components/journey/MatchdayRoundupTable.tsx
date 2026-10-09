@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Play, Trophy } from "lucide-react";
-import { CHANNEL_META, type ChannelKey, type ConversionKind, type EntityKind, type MatchdayLevel } from "@foundmill/shared";
+import { CHANNEL_META, type ChannelKey, type ConversionKind, type EntityKind, type MatchdayLevel } from "@foundmill/shared/constants";
 import { cn } from "../../lib/cn";
 import { formatDate, formatMoney, formatTime } from "../../lib/format";
 import { Button } from "../foundation/Button";
@@ -73,7 +73,7 @@ export function MatchdayRoundupTable({ rows, day, onOpenReplay, onOpenEntity, en
   }
   const Header = ({ k, children, align = "left" }: { k: SortKey; children: React.ReactNode; align?: "left" | "right" }) => (
     <th scope="col" aria-sort={sort.key === k ? (sort.dir === "asc" ? "ascending" : "descending") : "none"} className={cn("h-row-compact px-2", align === "right" && "text-right")}>
-      <button type="button" onClick={() => toggle(k)} className={cn("inline-flex items-center gap-1 t-label hover:text-primary", align === "right" && "flex-row-reverse")}>
+      <button type="button" onClick={() => toggle(k)} className={cn("inline-flex items-center gap-1 t-data transition-colors hover:text-primary focus-visible:shadow-ring", align === "right" && "flex-row-reverse")}>
         {children}
         {sort.key === k ? <Icon icon={sort.dir === "asc" ? ArrowUp : ArrowDown} size={12} /> : null}
       </button>
@@ -90,30 +90,30 @@ export function MatchdayRoundupTable({ rows, day, onOpenReplay, onOpenEntity, en
       </div>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-body">
-          <thead className="sticky top-0 bg-panel-alt">
-            <tr className="border-b border-subtle">
+          <thead className="table-head sticky top-0">
+            <tr>
               <Header k="time">Time</Header>
               <Header k="kind">Win</Header>
-              <th scope="col" className="h-row-compact px-2 text-left t-label">
+              <th scope="col" className="h-control-sm px-2.5 text-left t-data">
                 Customer
               </th>
-              <th scope="col" className="h-row-compact px-2 text-left t-label">
+              <th scope="col" className="h-control-sm px-2.5 text-left t-data">
                 Lead channel
               </th>
-              <th scope="col" className="h-row-compact px-2 text-right t-label">
+              <th scope="col" className="h-control-sm px-2.5 text-right t-data">
                 Touches
               </th>
               <Header k="value" align="right">
                 Value
               </Header>
-              <th scope="col" className="h-row-compact px-2 text-right t-label">
+              <th scope="col" className="h-control-sm px-2.5 text-right t-data">
                 Replay
               </th>
             </tr>
           </thead>
           <tbody>
             {sorted.map((r) => (
-              <tr key={r.conversionId} className={cn("h-row-compact border-b hairline-50 odd:bg-white/2 hover:bg-white/4", r.kind === "payment" && "shadow-[inset_3px_0_0_var(--gold)]")} data-roundup-row={r.conversionId}>
+              <tr key={r.conversionId} className={cn("h-row-compact border-b border-line-faint transition-colors odd:bg-white/1.5 hover:bg-white/4", r.kind === "payment" && "row-edge-gold")} data-roundup-row={r.conversionId}>
                 <td className="px-2 font-mono text-mono text-secondary tabular-nums">{formatTime(r.occurredAt)}</td>
                 <td className="px-2">
                   <span className="inline-flex items-center gap-1.5">
@@ -127,7 +127,7 @@ export function MatchdayRoundupTable({ rows, day, onOpenReplay, onOpenEntity, en
                 <td className="px-2 text-right tabular-nums">{r.touchCount ?? "—"}</td>
                 <td className="px-2 text-right tabular-nums">{r.kind === "payment" && r.amountMinor > 0 ? formatMoney({ amountMinor: r.amountMinor, currency: r.currency }) : "—"}</td>
                 <td className="px-2 text-right">
-                  <Button size="sm" variant="ghost" icon={Play} className="h-6 px-1.5" disabled={r.replayAvailable === false} onClick={() => onOpenReplay(r.conversionId)} aria-label={`Replay ${KIND_WORD[r.kind].toLowerCase()}${r.customerName ? ` for ${r.customerName}` : ""}`}>
+                  <Button size="sm" variant="ghost" icon={Play} className="px-1.5" disabled={r.replayAvailable === false} onClick={() => onOpenReplay(r.conversionId)} aria-label={`Replay ${KIND_WORD[r.kind].toLowerCase()}${r.customerName ? ` for ${r.customerName}` : ""}`}>
                     Replay
                   </Button>
                 </td>

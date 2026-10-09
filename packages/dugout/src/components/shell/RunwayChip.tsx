@@ -2,7 +2,7 @@ import { Calendar, Hourglass, TriangleAlert } from "lucide-react";
 import type { Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { formatDate, formatMoney, formatNumber } from "../../lib/format";
-import { Chip, type ChipTone } from "../foundation/Chip";
+import { Icon } from "../foundation/Icon";
 import { Tooltip } from "../foundation/Tooltip";
 
 export type RunwayTone = "neutral" | "warn" | "bad";
@@ -37,46 +37,57 @@ export interface RunwayChipProps {
   className?: string;
 }
 
-const TONE_CLASS: Record<RunwayTone, ChipTone> = { neutral: "ink", warn: "warn", bad: "bad" };
+const TONE_TEXT: Record<RunwayTone, string> = { neutral: "", warn: "text-status-warn", bad: "text-status-bad" };
 
-/** Date + runway chip for the top bar: "7 Oct 2026 · Runway 11 mo". The tone follows the runway horizon rule. */
+/**
+ * The date + runway chip on the brand slab (DESIGN §8): glass, 34 px — "9 Oct 2026 · 14 mo" with the dashed "Estimate"
+ * tag (a dashed edge always means "not measured"). The runway follows the horizon rule: amber under 9 months, red under
+ * 6, with a warning icon and a tinted ring, so the state never rests on colour alone. Before any finance source is
+ * connected it says "No runway yet" instead of a bare dash.
+ */
 export function RunwayChip({ date, runwayMonths, cash, estimate = true, onClick, className }: RunwayChipProps) {
   const tone = runwayTone(runwayMonths);
   const runway = formatRunway(runwayMonths);
+  const known = runwayMonths !== null && runwayMonths !== undefined && Number.isFinite(runwayMonths);
   const dateText = formatDate(date);
   const tip = [
     cash ? `Cash ${formatMoney(cash)}` : null,
-    runwayMonths === null || runwayMonths === undefined ? "Runway unknown until a bank or finance source is connected" : `Runway ${runway}${estimate ? " (Estimate)" : ""}`,
+    known ? `Runway ${runway}${estimate ? " (Estimate)" : ""}` : "Runway unknown until a bank or finance source is connected",
     tone === "bad" ? "Under 6 months: the runway horizon is red" : tone === "warn" ? "Under 9 months: the runway horizon is amber" : null,
   ]
     .filter(Boolean)
     .join(" · ");
+  const label = `${dateText}. Runway ${runway}${estimate && known ? ", estimate" : ""}${tone === "bad" ? ", critical" : tone === "warn" ? ", low" : ""}`;
+  const content = (
+    <>
+      <Icon icon={Calendar} size="inline" />
+      <span className="tabular-nums">{dateText}</span>
+      <span aria-hidden className="opacity-45">
+        ·
+      </span>
+      <span className={cn("inline-flex items-center gap-1.5", TONE_TEXT[tone])}>
+        <Icon icon={tone === "neutral" ? Hourglass : TriangleAlert} size="inline" className={tone === "neutral" ? undefined : "text-current"} />
+        {known ? <span className="tabular-nums">{runway}</span> : <span className="font-normal opacity-75">No runway yet</span>}
+      </span>
+      {estimate && known ? (
+        <span className="kitbar-est" title="Estimate">
+          Estimate
+        </span>
+      ) : null}
+    </>
+  );
+  const common = { "aria-label": label, "data-runway-tone": tone, "data-chip": "", className: cn("kitbar-glass", className) };
   return (
     <Tooltip content={tip}>
-      <Chip
-        tone={TONE_CLASS[tone]}
-        icon={tone === "neutral" ? Calendar : TriangleAlert}
-        onClick={onClick}
-        className={cn("gap-1.5", className)}
-        aria-label={`${dateText}. Runway ${runway}${estimate ? ", estimate" : ""}${tone === "bad" ? ", critical" : tone === "warn" ? ", low" : ""}`}
-        data-runway-tone={tone}
-      >
-        <span className="inline-flex items-center gap-1.5">
-          <span className="tabular-nums">{dateText}</span>
-          <span aria-hidden className="opacity-50">
-            ·
-          </span>
-          <span className="inline-flex items-center gap-0.5 tabular-nums">
-            <Hourglass size={11} strokeWidth={1.75} aria-hidden focusable="false" />
-            {runway}
-          </span>
-          {estimate && runwayMonths !== null && runwayMonths !== undefined ? (
-            <span className="rounded-chip border border-current px-0.5 text-label leading-none opacity-70" title="Estimate">
-              Est.
-            </span>
-          ) : null}
+      {onClick ? (
+        <button type="button" onClick={onClick} {...common}>
+          {content}
+        </button>
+      ) : (
+        <span role="group" {...common}>
+          {content}
         </span>
-      </Chip>
+      )}
     </Tooltip>
   );
 }

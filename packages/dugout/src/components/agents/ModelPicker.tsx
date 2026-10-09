@@ -34,11 +34,9 @@ export function ModelPicker({ options, value, onChange, disabled, className }: M
             key={o.key}
             htmlFor={`${id}-${o.key}`}
             data-checked={checked || undefined}
-            className={cn(
-              "grid cursor-pointer grid-cols-[auto_1fr_auto] items-start gap-x-3 gap-y-1 rounded-panel border border-subtle bg-panel-alt p-3 transition-colors duration-micro ease-dugout",
-              checked && "border-kit-primary/70",
-              (locked || disabled) && "cursor-not-allowed opacity-60",
-            )}
+            data-state={checked ? "checked" : "unchecked"}
+            data-disabled={locked || disabled ? "" : undefined}
+            className={cn("radio-card flex cursor-pointer items-start gap-3 rounded-md p-3 focus-within-ring", (locked || disabled) && "cursor-not-allowed opacity-60")}
           >
             <input
               id={`${id}-${o.key}`}
@@ -48,14 +46,14 @@ export function ModelPicker({ options, value, onChange, disabled, className }: M
               checked={checked}
               disabled={disabled || locked}
               onChange={() => onChange(o.key)}
-              className="mt-1 size-3.5 accent-kit-primary"
+              className="mt-1 size-4 shrink-0 accent-accent"
               aria-describedby={`${id}-${o.key}-desc`}
             />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
                 <ModelChip model={o.key} locked={locked} />
-                <span className="text-body-strong text-primary">{o.label}</span>
-                {checked ? <span className="t-label">Current</span> : null}
+                <span className="font-medium text-primary">{o.label}</span>
+                {checked ? <span className="rounded-pill bg-accent/12 px-1.5 text-small font-medium text-accent">Current</span> : null}
               </div>
               <p id={`${id}-${o.key}-desc`} className="text-small text-secondary">
                 {o.description}
@@ -68,10 +66,10 @@ export function ModelPicker({ options, value, onChange, disabled, className }: M
                 </p>
               ) : null}
             </div>
-            <dl className="grid grid-cols-[auto_auto] gap-x-2 text-right text-small tabular-nums">
-              <dt className="t-label">Skills</dt>
+            <dl className="grid shrink-0 grid-cols-2 items-baseline gap-x-2 gap-y-0.5 text-right text-small tabular-nums">
+              <dt className="t-data">Skills</dt>
               <dd className={cn(o.skillDelta > 0 ? "text-status-good" : o.skillDelta < 0 ? "text-status-bad" : "text-secondary")}>{checked ? "—" : formatDelta(o.skillDelta)}</dd>
-              <dt className="t-label">Wage</dt>
+              <dt className="t-data">Wage</dt>
               <dd className={cn(o.wageDelta.amountMinor < 0 ? "text-status-good" : o.wageDelta.amountMinor > 0 ? "text-status-warn" : "text-secondary")}>{checked ? "—" : `${formatMoneyDelta(o.wageDelta)}/mo`}</dd>
               <dd className="col-span-2 justify-self-end pt-1">{checked ? null : <ProvenanceChip kind="estimate" />}</dd>
             </dl>

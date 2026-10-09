@@ -150,11 +150,15 @@ export function formatOrdinal(n: number): string {
   return `${n}${suffix}`;
 }
 
-/** Up to two initials from a display name: "Ada Lovelace" → "AL", "ledgerly" → "L". */
+/**
+ * Up to two initials from a display name: "Ada Lovelace" → "AL", "ledgerly" → "LE". Punctuation and symbols are not
+ * letters: "Patch & Co." → "PC", "(Re)Fill" → "RE", "“Quoted” name" → "QN".
+ */
 export function initials(name: string, max = 2): string {
   const parts = name
     .trim()
     .split(/[\s\-_.]+/)
+    .map((p) => p.replace(/[^\p{L}\p{N}]/gu, ""))
     .filter(Boolean);
   if (parts.length === 0) return "";
   if (parts.length === 1) return (parts[0] as string).slice(0, max).toUpperCase();

@@ -190,7 +190,7 @@ export function SessionScrubber({ events, startedAt, endedAt, position, onPositi
       </Tooltip>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="sm" variant="ghost" className="h-6 px-1.5 font-mono normal-case" aria-label={`Speed ${speed}×`} disabled={!onSpeedChange}>
+          <Button size="sm" variant="ghost" className="px-1.5 font-mono normal-case" aria-label={`Speed ${speed}×`} disabled={!onSpeedChange}>
             {speed}×
           </Button>
         </DropdownMenuTrigger>

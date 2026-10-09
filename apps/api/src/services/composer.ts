@@ -9,6 +9,7 @@
  * given the business's current state and asked for an insight or the next-best decision (AC-11.3.2).
  */
 import { repos, type Db, type DbTx, type InboxItem } from "@foundmill/db";
+import { getEventDeclaration, isEventType } from "@foundmill/events";
 import { writeEventRow } from "./events";
 import { buildManifest, checkComposerText, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { ComposerOutput, type ModelClient } from "@foundmill/models";
@@ -119,6 +120,10 @@ export interface ComposeLocallyOptions {
   actorUserId?: string | null;
 }
 
+function isNarratableEvent(type: string): boolean {
+  return isEventType(type) && getEventDeclaration(type).narratable;
+}
+
 /** Compose one inbox item in-process (what the composer service does, without the buffer). */
 export async function composeLocally(db: Db, models: ModelClient, businessId: string, options: ComposeLocallyOptions = {}): Promise<InboxItem> {
   const business = await repos.businesses.get(db, businessId);
@@ -127,7 +132,13 @@ export async function composeLocally(db: Db, models: ModelClient, businessId: st
   if (agents.length === 0) throw new AppError("no_agents", "The business has no agents to write from", 409);
   const chief = (await repos.agents.chiefOfStaff(db, businessId)) ?? agents[0]!;
 
-  const events = options.eventIds && options.eventIds.length > 0 ? await repos.events.byIds(db, businessId, options.eventIds) : await repos.events.unnarrated(db, businessId, 3);
+  // Like the composer service (apps/composer/src/context.ts), only narratable events become notes: an
+  // `inbox.item_created` or `cycle.started` row picked here used to be narrated into a note about a note, and that note
+  // about another ("Chief of Staff: Chief of Staff: Update: …"). Non-narratable rows found on the way are marked narrated.
+  const candidates = options.eventIds && options.eventIds.length > 0 ? await repos.events.byIds(db, businessId, options.eventIds) : await repos.events.unnarrated(db, businessId, 20);
+  const skipped = candidates.filter((e) => !isNarratableEvent(e.type));
+  if (skipped.length && !(options.eventIds && options.eventIds.length > 0)) await repos.events.markNarrated(db, businessId, skipped.map((e) => e.id));
+  const events = candidates.filter((e) => isNarratableEvent(e.type)).slice(0, options.eventIds && options.eventIds.length > 0 ? undefined : 3);
 
   const crm = await repos.entities.manifest(db, businessId, { limit: 300 });
   const manifestInput: ManifestEntityInput[] = [
@@ -196,7 +207,7 @@ export async function composeLocally(db: Db, models: ModelClient, businessId: st
   return db.transaction(async (tx: DbTx) => {
     const created = await repos.inbox.createItem(tx, businessId, item, { costMinor: result.cost.costMinorInt, currency: business.glossary.currency ?? "EUR" });
     if (eventIds.length) await repos.events.markNarrated(tx, businessId, eventIds);
-    await writeEventRow(tx, {
+    const createdEventId = await writeEventRow(tx, {
       businessId,
       type: "inbox.item_created",
       actor: { kind: "agent", id: item.from_agent_id },
@@ -211,6 +222,8 @@ export async function composeLocally(db: Db, models: ModelClient, businessId: st
         cost: { amountMinor: result.cost.costMinorInt, currency: "EUR" },
       },
     });
+    // Not narratable (catalogue): marked at once so Refresh never narrates its own notes, as the composer service does.
+    await repos.events.markNarrated(tx, businessId, [createdEventId]);
     return created;
   });
 }

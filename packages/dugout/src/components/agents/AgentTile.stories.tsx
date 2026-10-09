@@ -99,3 +99,36 @@ export const Specialist: Story = {
     return <SpecialistTile session={s} data={mockSpecialistData()} now={args.now} controls={controls(() => {})} />;
   },
 };
+
+/** No output yet while the session runs: a live prompt with a blinking caret and the agent's name, never a black void. */
+export const EmptyTerminalLive: Story = {
+  name: "Empty terminal · live",
+  args: { session: { ...session(2, "running"), status: "running", stdout: [] }, defaultView: "terminal", terminalRenderer: "plain" },
+  render: (args) => (
+    <div style={{ width: 380, height: 300 }}>
+      <AgentTile {...args} />
+    </div>
+  ),
+};
+
+/** No output and not running: a quiet idle note. */
+export const EmptyTerminalIdle: Story = {
+  name: "Empty terminal · idle",
+  args: { session: { ...session(2, "running"), status: "paused", stdout: [] }, defaultView: "terminal", terminalRenderer: "plain" },
+  render: (args) => (
+    <div style={{ width: 380, height: 300 }}>
+      <AgentTile {...args} />
+    </div>
+  ),
+};
+
+/** A narrow tile: name over task, the phase as an icon with a tooltip, icon-only view tabs, and a footer that drops tokens first. */
+export const Narrow: Story = {
+  args: { session: session(1, "running"), controls: controls(() => {}) },
+  render: (args) => (
+    <div className="grid grid-cols-2 gap-2" style={{ width: 640, height: 300 }}>
+      <AgentTile {...args} />
+      <AgentTile {...args} session={{ ...session(3, "blocked"), agent: { ...session(3, "blocked").agent, name: "Sourcing and Manufacturing Specialist" } }} />
+    </div>
+  ),
+};

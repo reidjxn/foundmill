@@ -6,11 +6,13 @@ import { Avatar } from "../foundation/Avatar";
 import { Button } from "../foundation/Button";
 import { ProvenanceChip } from "../foundation/Chip";
 import { Icon, type IconComponent } from "../foundation/Icon";
-import { Sparkline } from "../foundation/Sparkline";
+import { FitText } from "../foundation/FitText";
 import { StatusPill, agentStatusTone, type StatusTone } from "../foundation/StatusPill";
 import { Tooltip } from "../foundation/Tooltip";
 import { EntityText } from "./EntityText";
-import { DEPT_BG, DEPT_TEXT } from "./ribbon/OnThisDayCard";
+import { Figure } from "../data/Figure";
+import { TileSpark } from "../data/MetricTile";
+import { DEPT_TEXT, DEPT_TONE } from "./ribbon/OnThisDayCard";
 import type { DepartmentCardData, HealthTone } from "./types";
 
 export interface DepartmentCardProps {
@@ -30,12 +32,14 @@ const HEALTH: Record<HealthTone, { tone: StatusTone; icon: IconComponent; word: 
   bad: { tone: "bad", icon: CircleX, word: "Failing" },
 };
 
-const DELTA_CLASS: Record<HealthTone, string> = { good: "text-status-good", warn: "text-status-warn", bad: "text-status-bad" };
+const DELTA_CLASS: Record<HealthTone, string> = { good: "tone-status-good text-status-good", warn: "tone-status-warn text-status-warn", bad: "tone-status-bad text-status-bad" };
 
 /**
- * Home's department card (BUILD §11.2, DESIGN §9): header with the colour dot, name, lead avatar and health pill;
- * squad strip with status rings (hover shows role, model and task); up to three "Now" lines with entities linked;
- * the module's headline metric with a 48 px sparkline; "Next up".
+ * Home's department card (BUILD §11.2, DESIGN §9, Mission): a department-glow panel whose lit corner takes the
+ * department colour. Header: the glowing dot, the name (fits: founder-defined names step down, never clip), the lead's
+ * face and name, the health pill. The team strip with status rings (hover shows role, model and task) and "4 of 7
+ * working"; up to three "Now" lines that wrap to two lines instead of clipping; the headline metric on an inner plate
+ * with its sparkline; "Next up" at the foot.
  */
 export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntity, entityKinds, maxSquad = 8, className }: DepartmentCardProps) {
   const health = HEALTH[d.health];
@@ -43,20 +47,27 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
   const extra = d.squad.length - squad.length;
   const working = d.squad.filter((m) => m.status === "healthy").length;
   return (
-    <section className={cn("surface-panel flex min-w-0 flex-col overflow-hidden", className)} aria-label={`${d.name} department`} data-department={d.id} data-health={d.health}>
-      <header className="flex h-panel-header items-center gap-2 border-b border-subtle bg-panel-alt pl-panel-pad pr-2">
-        <span aria-hidden className={cn("inline-block size-2 shrink-0 rounded-full", DEPT_BG[d.dept])} />
-        <h3 className="t-label min-w-0 flex-1 truncate text-primary">{d.name}</h3>
+    <section className={cn("@container surface-panel glow-dept edge-tint flex min-w-0 flex-col overflow-hidden", DEPT_TONE[d.dept], className)} aria-label={`${d.name} department`} data-department={d.id} data-health={d.health}>
+      <header className="flex h-panel-header shrink-0 items-center gap-2 pl-panel-pad pr-2.5 rule-fade">
+        <span aria-hidden className="chip-dot" />
+        <h3 className="min-w-0 shrink t-title text-primary">
+          <FitText minPx={11}>{d.name}</FitText>
+        </h3>
         <Tooltip content={`${d.lead.name} · lead`}>
-          <button type="button" className="inline-flex rounded-full outline-none focus-visible:outline-2 focus-visible:outline-link" onClick={() => onOpenAgent?.(d.squad.find((m) => m.name === d.lead.name)?.id ?? d.lead.name)} aria-label={`${d.lead.name}, department lead`}>
-            <Avatar size={20} name={d.lead.name} agent={{ seed: d.lead.seed, dept: d.dept }} status={d.lead.status} />
+          <button type="button" className="ml-1 inline-flex min-w-0 shrink-2 items-center gap-1.5 rounded-pill pr-1 text-small text-secondary outline-none transition-colors duration-hover hover:text-primary focus-visible:shadow-ring" onClick={() => onOpenAgent?.(d.squad.find((m) => m.name === d.lead.name)?.id ?? d.lead.name)} aria-label={`${d.lead.name}, department lead`}>
+            <Avatar size={22} name={d.lead.name} agent={{ seed: d.lead.seed, dept: d.dept }} status={d.lead.status} />
+            {/* The lead's name only where the header has room for it beside the department's own name. */}
+            <span className="hidden min-w-0 truncate @md:inline" aria-hidden>
+              {d.lead.name}
+            </span>
           </button>
         </Tooltip>
-        <StatusPill tone={health.tone} icon={health.icon}>
+        <span className="flex-1" />
+        <StatusPill tone={health.tone} icon={health.icon} className="shrink-0">
           {d.healthWord ?? health.word}
         </StatusPill>
       </header>
-      <div className="flex flex-col gap-3 p-panel-pad">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 px-panel-pad pb-3 pt-3">
         <div className="flex items-center gap-2" aria-label={`Team: ${d.squad.length} agents, ${working} working`}>
           <ul className="flex items-center" data-squad-strip>
             {squad.map((m, i) => {
@@ -66,7 +77,7 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
                   <Tooltip
                     content={
                       <span className="flex flex-col gap-0.5">
-                        <span className="text-body-strong">
+                        <span className="font-medium">
                           {m.name} · {word}
                         </span>
                         <span className="text-secondary">
@@ -76,57 +87,61 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
                       </span>
                     }
                   >
-                    <button type="button" className="inline-flex rounded-full outline-none ring-offset-panel focus-visible:outline-2 focus-visible:outline-link" onClick={() => onOpenAgent?.(m.id)} aria-label={`${m.name}, ${m.role}, ${word}${m.task ? `: ${m.task}` : ""}`} data-squad-member={m.id}>
-                      <Avatar size={24} name={m.name} agent={{ seed: m.seed, dept: d.dept }} status={m.status} />
+                    <button type="button" className="inline-flex rounded-full outline-none transition-transform duration-hover ease-out hover:-translate-y-0.5 focus-visible:shadow-ring" onClick={() => onOpenAgent?.(m.id)} aria-label={`${m.name}, ${m.role}, ${word}${m.task ? `: ${m.task}` : ""}`} data-squad-member={m.id}>
+                      <Avatar size={26} name={m.name} agent={{ seed: m.seed, dept: d.dept }} status={m.status} stacked surface="surface-1" />
                     </button>
                   </Tooltip>
                 </li>
               );
             })}
             {extra > 0 ? (
-              <li className="-ml-1.5 inline-flex size-6 items-center justify-center rounded-full bg-panel-alt font-mono text-mono text-secondary" aria-label={`${extra} more agents`}>
+              <li className="ml-1 inline-flex h-control-xs items-center px-1 font-mono text-mono text-tertiary" aria-label={`${extra} more agents`}>
                 +{extra}
               </li>
             ) : null}
           </ul>
-          <span className="text-small text-secondary tabular-nums">
-            {working} of {d.squad.length} working
+          <span className="ml-auto whitespace-nowrap text-small text-secondary tabular-nums">
+            <span className="font-medium text-primary">{working}</span> of {d.squad.length} working
           </span>
         </div>
         <div>
-          <span className="t-label">Now</span>
+          <span className="t-data">Now</span>
           {d.now.length === 0 ? (
-            <p className="text-small text-secondary">Quiet. The next cycle starts with Continue.</p>
+            <p className="mt-1 text-small text-secondary">Quiet. The next cycle starts with Continue.</p>
           ) : (
-            <ul className="mt-0.5 flex flex-col gap-0.5" data-now-lines>
+            <ul className="mt-1 flex flex-col gap-1" data-now-lines>
               {d.now.slice(0, 3).map((line, i) => (
-                <li key={i} className="flex items-start gap-1.5 text-body">
-                  <span aria-hidden className={cn("mt-2 inline-block size-1 shrink-0 rounded-full", DEPT_BG[d.dept])} />
-                  <EntityText text={line} kinds={entityKinds} onOpenEntity={onOpenEntity} className="min-w-0 truncate" />
+                <li key={i} className="flex items-start gap-2 text-body text-primary">
+                  <span aria-hidden className="chip-dot mt-1.5 size-1.5" />
+                  <EntityText text={line} kinds={entityKinds} onOpenEntity={onOpenEntity} className="line-clamp-2 min-w-0 text-pretty" />
                 </li>
               ))}
             </ul>
           )}
         </div>
-        <div className="flex items-end justify-between gap-3">
+        <div className="flex items-end justify-between gap-3 rounded-md border border-line-faint bg-white/2 px-3 pb-2.5 pt-2" data-department-metric>
           <div className="min-w-0">
-            <span className="t-label">{d.metric.label}</span>
-            <div className="flex items-baseline gap-2">
-              <span className="t-display-lg text-primary">{d.metric.value}</span>
-              {d.metric.delta ? <span className={cn("text-small tabular-nums", DELTA_CLASS[d.metric.deltaTone ?? "good"])}>{d.metric.delta}</span> : null}
+            <span className="t-data block">{d.metric.label}</span>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <FitText className="font-display text-display-md font-semibold text-primary" text={d.metric.value} truncate={false} tooltip={false}>
+                <Figure value={d.metric.value} />
+              </FitText>
+              {d.metric.delta ? (
+                <span className={cn("chip-tone inline-flex h-badge items-center whitespace-nowrap rounded-pill border px-1.5 text-small font-medium tabular-nums", DELTA_CLASS[d.metric.deltaTone ?? "good"])}>{d.metric.delta}</span>
+              ) : null}
               {d.metric.provenance ? <ProvenanceChip kind={d.metric.provenance} /> : null}
             </div>
           </div>
-          <Sparkline data={d.metric.series} width={48} height={16} className={DEPT_TEXT[d.dept]} label={`${d.metric.label}, ${d.metric.series.length} periods`} />
+          <TileSpark data={d.metric.series} className={cn("mb-1 max-w-32 shrink-0 basis-1/3", DEPT_TEXT[d.dept])} label={`${d.metric.label}, ${d.metric.series.length} periods`} />
         </div>
-        <div className="flex items-center gap-2 border-t border-subtle pt-2">
-          <Icon icon={Clock} size="inline" className="text-secondary" />
-          <span className="min-w-0 flex-1 truncate text-small text-secondary">
-            <span className="t-label mr-1">Next up</span>
+        <div className="mt-auto flex items-center gap-2">
+          <Icon icon={Clock} size="inline" className="shrink-0 text-tertiary" />
+          <span className="t-data shrink-0">Next up</span>
+          <span className="line-clamp-2 min-w-0 flex-1 text-small text-secondary" title={d.nextUp}>
             {d.nextUp}
           </span>
           {onOpen ? (
-            <Button size="sm" variant="ghost" iconRight={ArrowRight} className="h-6 px-1.5" onClick={() => onOpen(d.id)}>
+            <Button size="sm" variant="ghost" iconRight={ArrowRight} className="shrink-0 px-2" onClick={() => onOpen(d.id)}>
               Open
             </Button>
           ) : null}

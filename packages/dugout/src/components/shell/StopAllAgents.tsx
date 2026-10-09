@@ -4,7 +4,8 @@ import { OctagonX } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { Button } from "../foundation/Button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../foundation/Dialog";
-import { IconButton } from "../foundation/IconButton";
+import { Icon } from "../foundation/Icon";
+import { Tooltip } from "../foundation/Tooltip";
 
 export interface StopAllAgentsProps {
   /** Called when the founder confirms. May return a promise; the dialog shows loading until it settles. */
@@ -53,17 +54,21 @@ export function StopAllAgents({ onConfirm, runningCount, open, onOpenChange, dis
   };
 
   const count = runningCount ?? 0;
+  // The icon trigger is glass on the brand slab (34 px) with the octagon in a light red; hover warms it towards red.
   const trigger =
     variant === "icon" ? (
-      <IconButton
-        icon={OctagonX}
-        label="Stop all agents"
-        variant="ghost"
-        disabled={disabled}
-        onClick={() => setOpen(true)}
-        className={cn("text-kit-on-primary/80 hover:bg-status-bad/20 hover:text-status-bad", className)}
-        data-testid="stop-all-trigger"
-      />
+      <Tooltip content="Stop all agents">
+        <button
+          type="button"
+          aria-label="Stop all agents"
+          disabled={disabled}
+          onClick={() => setOpen(true)}
+          className={cn("kitbar-glass kitbar-stop w-kitbar-chip justify-center px-0", className)}
+          data-testid="stop-all-trigger"
+        >
+          <Icon icon={OctagonX} />
+        </button>
+      </Tooltip>
     ) : (
       <Button icon={OctagonX} variant="danger" disabled={disabled} onClick={() => setOpen(true)} className={className} data-testid="stop-all-trigger">
         Stop all agents

@@ -4,7 +4,7 @@ import { LayoutGrid, Network } from "lucide-react";
 import type { AgentStatus, DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { Avatar } from "../foundation/Avatar";
-import { Button } from "../foundation/Button";
+import { Icon } from "../foundation/Icon";
 
 /** Grid sizes the Training Ground adapts to (BUILD §11.6). */
 export const TILE_CAPACITIES = [1, 2, 4, 6, 9, 12, 16, 24] as const;
@@ -170,7 +170,7 @@ export function TileGrid<T extends TileGridItem>({ items, renderTile, focusedId:
       }}
       onKeyDown={(e) => onCellKey(e, index)}
       style={style}
-      className={cn("min-h-0 min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-link", ctx.inRail && "shrink-0")}
+      className={cn("min-h-0 min-w-0 rounded-md outline-none focus-visible:shadow-ring", ctx.inRail && "shrink-0")}
     >
       {renderTile(item, ctx)}
     </div>
@@ -180,11 +180,11 @@ export function TileGrid<T extends TileGridItem>({ items, renderTile, focusedId:
   const ordered = focusedItem ? [focusedItem, ...shown.filter((i) => i.id !== focusedItem.id)] : shown;
 
   return (
-    <div className={cn("flex h-full min-h-0 flex-col bg-base", className)} data-capacity={shape.capacity} data-focused={focusedItem ? "true" : undefined}>
+    <div className={cn("flex h-full min-h-0 flex-col", className)} data-capacity={shape.capacity} data-focused={focusedItem ? "true" : undefined}>
       {focusedItem ? (
-        <div role="region" aria-label={ariaLabel} className="grid min-h-0 flex-1 grid-cols-3 gap-px">
+        <div role="region" aria-label={ariaLabel} className="grid min-h-0 flex-1 grid-cols-3 gap-2 p-2">
           <div className="col-span-2 min-h-0 min-w-0">{cell(focusedItem, 0, { focused: true, compact: false, inRail: false })}</div>
-          <div role="list" aria-label="Other tiles" className="flex min-h-0 flex-col gap-px overflow-y-auto">
+          <div role="list" aria-label="Other tiles" className="flex min-h-0 flex-col gap-2 overflow-y-auto">
             {ordered.slice(1).map((item, i) => cell(item, i + 1, { focused: false, compact: true, inRail: true }, { height: railTileHeight }))}
           </div>
         </div>
@@ -192,15 +192,15 @@ export function TileGrid<T extends TileGridItem>({ items, renderTile, focusedId:
         <div
           role="region"
           aria-label={ariaLabel}
-          className="grid min-h-0 flex-1 gap-px"
+          className="grid min-h-0 flex-1 gap-2 p-2"
           style={{ gridTemplateColumns: `repeat(${shape.cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${shape.rows}, minmax(0, 1fr))` }}
         >
           {ordered.map((item, i) => cell(item, i, { focused: false, compact: shape.compact, inRail: false }))}
         </div>
       )}
       {overflow.length > 0 ? (
-        <div role="list" aria-label={`${overflow.length} more agents`} className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto border-t border-subtle bg-panel px-2" data-testid="overflow-strip">
-          <span className="t-label mr-1 shrink-0">+{overflow.length} more</span>
+        <div role="list" aria-label={`${overflow.length} more agents`} className="flex h-control-lg shrink-0 items-center gap-1.5 overflow-x-auto border-t border-line px-2.5" data-testid="overflow-strip">
+          <span className="t-data mr-1 shrink-0">+{overflow.length} more</span>
           {overflow.map((item) => (
             <button
               key={item.id}
@@ -208,10 +208,10 @@ export function TileGrid<T extends TileGridItem>({ items, renderTile, focusedId:
               type="button"
               onClick={() => setFocused(item.id)}
               title={item.label}
-              className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-panel border border-subtle bg-panel-alt px-1.5 text-small text-primary hover:border-secondary/60"
+              className="surface-raised pressable inline-flex h-control-sm shrink-0 items-center gap-1.5 rounded-pill pl-0.5 pr-2.5 text-small font-medium text-primary hover:brightness-125 focus-visible:shadow-ring"
             >
-              {item.avatar ? <Avatar size={20} name={item.avatar.name} agent={{ seed: item.avatar.seed, dept: item.avatar.dept }} status={item.avatar.status} /> : null}
-              <span className="max-w-32 truncate">{item.avatar?.name ?? item.label}</span>
+              {item.avatar ? <Avatar size={22} name={item.avatar.name} agent={{ seed: item.avatar.seed, dept: item.avatar.dept }} status={item.avatar.status} surface="surface-2" /> : null}
+              <span className="whitespace-nowrap">{item.avatar?.name ?? item.label}</span>
             </button>
           ))}
         </div>
@@ -231,13 +231,25 @@ export interface GroundViewToggleProps {
 /** Tiles / Task graph toggle for the Live sessions header (BUILD §11.6 "Formation view toggle"). */
 export function GroundViewToggle({ value, onChange, className }: GroundViewToggleProps) {
   return (
-    <div role="radiogroup" aria-label="Live sessions view" className={cn("inline-flex items-center gap-0.5 rounded-panel border border-subtle bg-panel-alt p-0.5", className)}>
-      <Button size="sm" variant={value === "tiles" ? "default" : "ghost"} icon={LayoutGrid} role="radio" aria-checked={value === "tiles"} onClick={() => onChange("tiles")} className="h-6 px-1.5">
-        Tiles
-      </Button>
-      <Button size="sm" variant={value === "formation" ? "default" : "ghost"} icon={Network} role="radio" aria-checked={value === "formation"} onClick={() => onChange("formation")} className="h-6 px-1.5">
-        Task graph
-      </Button>
+    <div role="radiogroup" aria-label="Live sessions view" className={cn("seg-track h-control-sm", className)}>
+      {(
+        [
+          { v: "tiles", label: "Tiles", icon: LayoutGrid },
+          { v: "formation", label: "Task graph", icon: Network },
+        ] as const
+      ).map((o) => (
+        <button
+          key={o.v}
+          type="button"
+          role="radio"
+          aria-checked={value === o.v}
+          onClick={() => onChange(o.v)}
+          className={cn("seg-item font-body text-action-sm font-medium focus-visible:shadow-ring", value === o.v && "tile-tab-on text-primary")}
+        >
+          <Icon icon={o.icon} size="inline" />
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }

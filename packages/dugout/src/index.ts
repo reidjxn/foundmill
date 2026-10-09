@@ -5,6 +5,7 @@ export * from "./components/shell";
 export * from "./components/data";
 export * from "./components/journey";
 export * from "./components/agents";
+export * from "./components/conversation";
 export * from "./lib";
 export * from "./version";
 export * from "./brand";

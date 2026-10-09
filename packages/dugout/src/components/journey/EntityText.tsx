@@ -1,6 +1,6 @@
 "use client";
 import { createElement, Fragment, type ReactNode } from "react";
-import { ENTITY_MARKUP_RE, type EntityKind } from "@foundmill/shared";
+import { ENTITY_MARKUP_RE, type EntityKind } from "@foundmill/shared/constants";
 import { EntityLink } from "../data/EntityLink";
 import type { EntityRef } from "../data/types";
 

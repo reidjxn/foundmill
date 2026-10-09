@@ -113,17 +113,17 @@ export function Markdown({
       </h3>
     ),
     h4: ({ children: c, ...rest }: ComponentPropsWithoutRef<"h4">) => (
-      <h4 className="t-label mt-3 mb-1 first:mt-0" {...rest}>
+      <h4 className="t-title mt-3 mb-1 text-primary first:mt-0" {...rest}>
         {L(c)}
       </h4>
     ),
     h5: ({ children: c, ...rest }: ComponentPropsWithoutRef<"h5">) => (
-      <h5 className="t-label mt-3 mb-1 first:mt-0" {...rest}>
+      <h5 className="t-title mt-3 mb-1 text-secondary first:mt-0" {...rest}>
         {L(c)}
       </h5>
     ),
     h6: ({ children: c, ...rest }: ComponentPropsWithoutRef<"h6">) => (
-      <h6 className="t-label mt-3 mb-1 first:mt-0" {...rest}>
+      <h6 className="t-data mt-3 mb-1 first:mt-0" {...rest}>
         {L(c)}
       </h6>
     ),
@@ -173,18 +173,18 @@ export function Markdown({
       );
     },
     blockquote: ({ children: c, ...rest }: ComponentPropsWithoutRef<"blockquote">) => (
-      <blockquote className="my-2 border-l-2 border-subtle pl-3 text-secondary" {...rest}>
+      <blockquote className="my-2 border-l-2 border-kit-lift/40 pl-3 text-secondary" {...rest}>
         {c}
       </blockquote>
     ),
-    hr: () => <hr className="my-4 border-subtle" />,
+    hr: () => <hr className="my-4 border-line" />,
     code: ({ children: c, className: cls, ...rest }: ComponentPropsWithoutRef<"code">) => {
       const block = typeof cls === "string" && cls.startsWith("language-");
       return (
         <code
           className={cn(
-            "rounded-chip font-mono text-mono",
-            block ? "block" : "bg-panel-alt px-1 py-px text-primary",
+            "rounded-xs font-mono text-mono",
+            block ? "block" : "bg-white/6 px-1 py-px text-primary ring-1 ring-inset ring-line",
             cls,
           )}
           {...rest}
@@ -195,28 +195,28 @@ export function Markdown({
     },
     pre: ({ children: c, ...rest }: ComponentPropsWithoutRef<"pre">) => (
       <pre
-        className="my-2 overflow-x-auto rounded-panel border border-subtle bg-ink p-3 font-mono text-mono text-primary"
+        className="my-2 overflow-x-auto rounded-md border border-line bg-ink p-3 font-mono text-mono text-primary"
         {...rest}
       >
         {c}
       </pre>
     ),
     table: ({ children: c, ...rest }: ComponentPropsWithoutRef<"table">) => (
-      <div className="my-2 overflow-x-auto rounded-panel border border-subtle">
+      <div className="my-2 overflow-x-auto rounded-md border border-line">
         <table className="w-full border-collapse text-body" {...rest}>
           {c}
         </table>
       </div>
     ),
     thead: ({ children: c, ...rest }: ComponentPropsWithoutRef<"thead">) => (
-      <thead className="bg-panel-alt" {...rest}>
+      <thead {...rest}>
         {c}
       </thead>
     ),
     th: ({ children: c, style, ...rest }: ComponentPropsWithoutRef<"th">) => (
       <th
         className={cn(
-          "t-label h-panel-header border-b border-subtle px-2 text-left",
+          "t-data h-control-sm border-b border-line px-2.5 text-left",
           style?.textAlign === "right" && "text-right",
         )}
         style={style}
@@ -253,7 +253,7 @@ export function Markdown({
       images ? (
         <img
           alt={alt ?? ""}
-          className="my-2 max-w-full rounded-panel border border-subtle"
+          className="my-2 max-w-full rounded-md border border-line"
           {...rest}
         />
       ) : alt ? (

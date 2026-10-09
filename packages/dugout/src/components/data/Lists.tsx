@@ -48,14 +48,15 @@ export function KeyValueList({
             <dt className="t-label truncate">{it.label}</dt>
             <dd
               className={cn(
-                "truncate text-body text-primary",
+                "text-body text-primary",
+                // Numbers never truncate; words wrap.
+                it.numeric ? "whitespace-nowrap tabular-nums" : "break-words",
                 it.mono && "font-mono text-mono",
-                it.numeric && "tabular-nums",
               )}
             >
               {it.value}
             </dd>
-            {it.hint ? <dd className="truncate text-small text-secondary">{it.hint}</dd> : null}
+            {it.hint ? <dd className="break-words text-small text-secondary">{it.hint}</dd> : null}
           </div>
         ))}
       </dl>
@@ -65,7 +66,7 @@ export function KeyValueList({
     <dl
       className={cn(
         "flex flex-col",
-        layout === "rows" ? "divide-y divide-subtle/50" : "gap-2",
+        layout === "rows" ? "divide-y divide-line-faint" : "gap-2",
         className,
       )}
       {...rest}
@@ -87,8 +88,8 @@ export function KeyValueList({
             className={cn(
               "min-w-0 flex-1 text-body text-primary",
               it.mono && "font-mono text-mono",
-              it.numeric && "text-right tabular-nums",
-              layout === "rows" && "truncate",
+              // Numbers never truncate; words wrap instead of being cut.
+              it.numeric ? "shrink-0 whitespace-nowrap text-right tabular-nums" : "break-words",
             )}
           >
             {it.value}
@@ -155,7 +156,7 @@ export function Timeline({
     return <p className={cn("text-body text-secondary", className)}>{emptyText}</p>;
   return (
     <ol className={cn("relative flex flex-col", className)} data-timeline {...rest}>
-      <span aria-hidden className="absolute inset-y-2 left-2 w-px bg-subtle" />
+      <span aria-hidden className="absolute inset-y-3 left-2 w-px bg-linear-to-b from-line-strong via-line to-transparent" />
       {sorted.map((e) => {
         const tone = e.tone ?? "neutral";
         const time = new Date(e.at);
@@ -163,7 +164,7 @@ export function Timeline({
           <li key={e.id} className="relative flex gap-3 py-1.5 pl-6" data-tone={tone}>
             <span
               className={cn(
-                "absolute left-0 top-2 inline-flex size-4 items-center justify-center rounded-full bg-panel",
+                "absolute left-0 top-2 inline-flex size-4 items-center justify-center rounded-full bg-surface-1 ring-1 ring-line",
                 DOT_CLASS[tone],
               )}
             >
@@ -176,14 +177,14 @@ export function Timeline({
             {e.actor ? <Avatar size={20} {...e.actor} className="mt-0.5" /> : null}
             <div className="min-w-0 flex-1">
               <div className="flex items-baseline gap-2">
-                <span className="t-body-strong min-w-0 flex-1 truncate text-primary">
+                <span className="t-body-strong min-w-0 flex-1 text-pretty break-words text-primary">
                   {e.title}
                 </span>
                 {e.statusWord ? <StatusPill tone={tone}>{e.statusWord}</StatusPill> : null}
                 <time
                   dateTime={time.toISOString()}
                   title={formatDateTime(time)}
-                  className="shrink-0 text-small text-secondary tabular-nums"
+                  className="shrink-0 font-mono text-micro text-tertiary tabular-nums"
                 >
                   {absolute ? formatDateTime(time) : formatRelative(time, now)}
                 </time>
@@ -244,19 +245,19 @@ export function MiniTable<T>({
   const extra = rows.length - shown.length;
   return (
     <div
-      className={cn("overflow-hidden rounded-panel border border-subtle", className)}
+      className={cn("overflow-hidden rounded-md border border-line", className)}
       data-mini-table
     >
       <table className="w-full border-collapse text-body" aria-label={rest["aria-label"]}>
-        <thead className="bg-panel-alt">
+        <thead>
           <tr>
             {columns.map((c) => (
               <th
                 key={c.id}
                 scope="col"
                 className={cn(
-                  "t-label h-6 border-b border-subtle px-2 text-left font-semibold",
-                  c.numeric && "text-right",
+                  "t-data h-control-sm border-b border-line px-2.5 text-left align-middle",
+                  c.numeric && "w-px whitespace-nowrap text-right",
                 )}
                 style={typeof c.width === "number" ? { width: c.width } : undefined}
               >
@@ -281,21 +282,22 @@ export function MiniTable<T>({
                 data-highlight={hl || undefined}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
                 className={cn(
-                  "relative border-b hairline-50 last:border-b-0",
-                  i % 2 === 1 && "bg-white/2",
+                  "relative border-b border-line-faint transition-colors duration-hover last:border-b-0",
+                  i % 2 === 1 && "bg-white/1.5",
                   onRowClick && "cursor-pointer hover:bg-white/4",
-                  hl && "bg-kit-primary/8",
+                  hl && "bg-kit-primary/10",
                 )}
               >
                 {columns.map((c, ci) => (
                   <td
                     key={c.id}
                     className={cn(
-                      "relative h-row-compact max-w-0 truncate px-2 align-middle text-primary",
-                      c.numeric && "text-right tabular-nums",
+                      "relative h-row-compact px-2.5 align-middle text-primary",
+                      // Numbers never truncate: the column takes their width. Text cells truncate in what is left.
+                      c.numeric ? "w-px whitespace-nowrap text-right tabular-nums" : "max-w-0 truncate",
                       ci === 0 &&
                         hl &&
-                        "before:absolute before:inset-y-0 before:left-0 before:w-0.75 before:bg-kit-primary",
+                        "before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-kit-primary",
                     )}
                     style={
                       typeof c.width === "string"
@@ -314,7 +316,7 @@ export function MiniTable<T>({
         </tbody>
       </table>
       {extra > 0 || caption ? (
-        <div className="flex items-center justify-between gap-2 border-t border-subtle bg-panel px-2 py-1 text-small text-secondary">
+        <div className="flex items-center justify-between gap-2 border-t border-line px-2.5 py-1.5 text-small text-tertiary">
           <span>{caption}</span>
           {extra > 0 ? <span className="tabular-nums">+{extra} more</span> : null}
         </div>

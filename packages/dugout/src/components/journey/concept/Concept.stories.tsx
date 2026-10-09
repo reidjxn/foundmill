@@ -44,3 +44,12 @@ export const Deck: Story = {
 export const CompareTwo: Story = { name: "Compare · 2", render: () => <ConceptCompare concepts={concepts.slice(0, 2)} /> };
 export const CompareThree: Story = { name: "Compare · 3", render: () => <ConceptCompare concepts={concepts.slice(0, 3)} /> };
 export const CompareFour: Story = { name: "Compare · 4", render: () => <ConceptCompare concepts={concepts} /> };
+
+/** A narrow card: Shortlist and Ask become icon buttons with tooltips, "More like this" stays a labelled generate pill, Merge and Discard are in More. */
+export const Narrow: Story = {
+  render: (args) => (
+    <div style={{ width: 300 }}>
+      <ConceptCard {...args} className="w-full" onAction={() => {}} />
+    </div>
+  ),
+};

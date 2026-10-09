@@ -665,11 +665,38 @@
     0 -14px 32px -18px color-mix(in oklab, var(--black) 85%, transparent);
 }
 
-/* The options: an even grid of two-line buttons (each at least 208 px; as many columns as fit), the ask button among
+/* The bar's layout: "Your call" on the left of the options; in a narrow reading pane (under 760 px, the 1280 window)
+   it moves to a line above them, so the options get the full width. */
+@utility decision-layout {
+  container-type: inline-size;
+}
+@utility decision-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px 16px;
+  @container (width < 760px) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+@utility decision-heading {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 132px;
+  @container (width < 760px) {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
+    max-width: none;
+  }
+}
+/* The options: an even grid of two-line buttons (each at least 196 px; as many columns as fit), the ask button among
    them; the free-text form takes a row of its own. Rows wrap and the bar grows: nothing truncates or overlaps. */
 @utility decision-options {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 208px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 196px), 1fr));
   gap: 8px;
   align-items: stretch;
   & > [data-decision-row] {

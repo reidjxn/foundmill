@@ -3,8 +3,7 @@ import { useEffect, useId, useState } from "react";
 import { Bot, Layers, Users } from "lucide-react";
 import { Button } from "../foundation/Button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../foundation/Dialog";
-import { Icon } from "../foundation/Icon";
-import { RadioGroup, RadioGroupItem } from "../foundation/RadioGroup";
+import { RadioCard, RadioGroup } from "../foundation/RadioGroup";
 
 /** BUILD §9.6: "This agent only" / "Apply to all [type] agents" / "Apply to all agents". */
 export const APPLY_SCOPES = ["agent", "type", "all"] as const;
@@ -47,7 +46,7 @@ export function applyScopeCopy(scope: ApplyScope, ctx: Pick<ApplyScopeDialogProp
 
 const SCOPE_ICON = { agent: Bot, type: Layers, all: Users } as const;
 
-/** Used by model, autonomy and negotiation settings (BUILD §5.4). Enter applies, Esc cancels. */
+/** Used by model, autonomy and negotiation settings (BUILD §5.4): three radio cards, the whole card the target. Enter applies, Esc cancels. */
 export function ApplyScopeDialog({ open, onOpenChange, agentName, agentType, typeCount, allCount, settingLabel, defaultScope = "agent", onApply }: ApplyScopeDialogProps) {
   const [scope, setScope] = useState<ApplyScope>(defaultScope);
   const [busy, setBusy] = useState(false);
@@ -74,20 +73,10 @@ export function ApplyScopeDialog({ open, onOpenChange, agentName, agentType, typ
           <DialogDescription>{settingLabel}</DialogDescription>
         </DialogHeader>
         <DialogBody>
-          <RadioGroup value={scope} onValueChange={(v) => setScope(v as ApplyScope)} aria-label="Scope" className="gap-1">
+          <RadioGroup value={scope} onValueChange={(v) => setScope(v as ApplyScope)} aria-label="Scope" className="gap-2">
             {APPLY_SCOPES.map((s) => {
               const copy = applyScopeCopy(s, { agentName, agentType, typeCount, allCount });
-              const id = `${baseId}-${s}`;
-              return (
-                <label key={s} htmlFor={id} className="flex cursor-pointer items-start gap-2 rounded-panel border border-transparent p-2 hover:bg-white/4 has-[[data-state=checked]]:border-subtle has-[[data-state=checked]]:bg-panel-alt">
-                  <RadioGroupItem id={id} value={s} className="mt-0.5" />
-                  <Icon icon={SCOPE_ICON[s]} className="mt-0.5 text-secondary" />
-                  <span className="flex flex-col">
-                    <span className="text-body text-primary">{copy.label}</span>
-                    <span className="text-small text-secondary">{copy.description}</span>
-                  </span>
-                </label>
-              );
+              return <RadioCard key={s} id={`${baseId}-${s}`} value={s} label={copy.label} description={copy.description} icon={SCOPE_ICON[s]} />;
             })}
           </RadioGroup>
         </DialogBody>

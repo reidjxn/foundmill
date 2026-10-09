@@ -192,3 +192,31 @@
   background-color: color-mix(in oklab, var(--white) 6%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--white) 3%, transparent);
 }
+
+/* ---------- Conversation (people messaging people) ---------- */
+/* The other person's bubble: a raised neutral plate with a hairline. */
+@utility bubble-other {
+  background-color: var(--surface-2);
+  box-shadow:
+    inset 0 0 0 1px var(--line),
+    inset 0 1px 0 var(--rim-light);
+}
+/* Your own bubble: brand glass (the business's lift at 13 % over the panel) with a lit hairline. */
+@utility bubble-self {
+  background-color: color-mix(in oklab, var(--kit-lift) 13%, var(--surface-1));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--kit-lift) 28%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--white) 8%, transparent);
+}
+
+/* ---------- Graphs and boards ---------- */
+/* A canvas for pan-and-zoom diagrams (the task graph): ink with a faint dot grid. */
+@utility graph-canvas {
+  background-color: var(--ink);
+  background-image: radial-gradient(circle, color-mix(in oklab, var(--white) 7%, transparent) 1px, transparent 1.2px);
+  background-size: 20px 20px;
+}
+/* A customer row (a payment) in a Customer Update table: a gold left edge (gold is reserved for customers and milestones). */
+@utility row-edge-gold {
+  box-shadow: inset 3px 0 0 var(--gold);
+}

@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { LayoutGroup, MotionConfig, motion } from "motion/react";
-import { CHANNEL_LINES, type ChannelKey, type ChannelLine } from "@foundmill/shared";
+import { CHANNEL_LINES, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
 import { cn } from "../../lib/cn";
 import { usePrefersReducedMotion } from "../../lib/reducedMotion";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../foundation/HoverCard";

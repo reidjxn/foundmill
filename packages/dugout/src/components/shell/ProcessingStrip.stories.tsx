@@ -5,7 +5,7 @@ import { NORTHWIND_SEGMENTS } from "./fixtures";
 const meta = {
   title: "Shell/ProcessingStrip",
   component: ProcessingStrip,
-  parameters: { layout: "fullscreen", docs: { description: { component: "3 px under the top bar. One segment per department in its colour; active segments shimmer with a 1.6 s sweep while a cycle runs. Reduced motion leaves them at full colour." } } },
+  parameters: { layout: "fullscreen", docs: { description: { component: "3 px under the top bar, on ink with 2 px gaps: one segment per department in its colour, its width its share of agent-minutes. A working department carries a bright head travelling its segment every 1.6 s with an 8 px glow (staggered, never in step); a department idle during a running cycle is dim; at rest every segment holds its colour quietly. Reduced motion: the head rests mid-segment." } } },
   args: { segments: NORTHWIND_SEGMENTS, active: true },
 } satisfies Meta<typeof ProcessingStrip>;
 export default meta;

@@ -8,7 +8,7 @@ import { PALETTE_ITEMS, RECENT_PALETTE_ITEMS } from "./fixtures";
 const meta = {
   title: "Shell/CommandPalette",
   component: CommandPalette,
-  parameters: { docs: { description: { component: "Universal search (BUILD §11.12) on cmdk: results grouped by kind with icons, operators kind:/role:/stage:/owner:/department: and > for commands, a hint row, ↑↓ ↵ Esc. Opens from the top bar, / or ⌘K." } } },
+  parameters: { docs: { description: { component: "Universal search (BUILD §11.12) on cmdk, on the dialog glass. It leads with what the founder can do — Ask an agent (the query travels with it) and Generate — then recent items, then departments and agents before screens, the Inbox, the CRM and commands (settings among them). The business matches its own name. Rows carry a glyph tinted by their department; the selected row takes the brand plate and a lit edge. Operators kind:/role:/stage:/owner:/department: and > for commands, a hint row, ↑↓ ↵ Esc. Opens from the top bar, / or ⌘K." } } },
   args: { open: true, onOpenChange: () => {}, items: PALETTE_ITEMS, recent: RECENT_PALETTE_ITEMS, onSelect: () => {} },
 } satisfies Meta<typeof CommandPalette>;
 export default meta;
@@ -69,3 +69,16 @@ function RemoteFrame(args: Story["args"]) {
 }
 
 export const RemoteSearch: Story = { name: "Remote (app-driven) results", render: (args) => <RemoteFrame {...args} /> };
+const ASK = [
+  { id: "ask-cos", kind: "ask" as const, label: "Ask the Chief of Staff", description: "Anything about the business" },
+  { id: "ask-scout", kind: "ask" as const, label: "Ask Scout", description: "Distribution lead", dept: "dept-3" as const },
+];
+const GENERATE = [
+  { id: "gen-concepts", kind: "generate" as const, label: "Draft 12 concepts", description: "Ideation Studio" },
+  { id: "gen-cover", kind: "generate" as const, label: "Draft a cover plan", description: "While you are away", keywords: ["holiday"] },
+];
+/** Ask and Generate lead; Recent follows; then where to go. */
+export const AskAndGenerate: Story = { name: "Ask and Generate lead", args: { ask: ASK, generate: GENERATE, onAsk: () => {} } };
+export const AskWithQuery: Story = { name: "Ask carries the query", args: { ask: ASK, generate: GENERATE, query: "why is cash down this month" } };
+/** The business is found by its own name, even when the app searches remotely. */
+export const BusinessByName: Story = { name: "The business by name", args: { query: "north", business: { name: "Northwind Skincare", href: "/b/northwind" }, items: [], recent: [] } };

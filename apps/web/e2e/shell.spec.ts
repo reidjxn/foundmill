@@ -62,8 +62,9 @@ test.describe("shell", () => {
     await home.focus();
     await page.keyboard.press("ArrowUp");
     await expect(nav.getByRole("link", { name: "Anthropic key" })).toBeFocused();
-    // Leave the stored preference as it was found.
-    await page.getByTestId("sidebar-toggle").click();
+    // Leave the stored preference as it was found. From the keyboard: collapsed, the toggle sits where the Next.js
+    // development indicator floats over the bottom-left corner in `next dev`, which would swallow a pointer click.
+    await page.getByTestId("sidebar-toggle").press("Enter");
     await expect(nav).not.toHaveAttribute("data-collapsed", "true");
     await expect(brand).toBeVisible();
   });

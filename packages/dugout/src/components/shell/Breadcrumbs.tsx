@@ -9,7 +9,7 @@ export interface BreadcrumbsProps extends HTMLAttributes<HTMLElement> {
   items: BreadcrumbItem[];
 }
 
-/** Small-style trail under the top bar; the last item is the current page. */
+/** Small-style trail under the tab bar: links in text-2, chevrons in text-3, the current page in text-1 (DESIGN §8). */
 export function Breadcrumbs({ items, className, ...rest }: BreadcrumbsProps) {
   if (items.length === 0) return null;
   return (
@@ -25,18 +25,18 @@ export function Breadcrumbs({ items, className, ...rest }: BreadcrumbsProps) {
           );
           return (
             <Fragment key={`${item.label}-${i}`}>
-              {i > 0 ? <Icon icon={ChevronRight} size={12} className="text-secondary/60" /> : null}
+              {i > 0 ? <Icon icon={ChevronRight} size={12} className="shrink-0 text-tertiary" /> : null}
               <li className="min-w-0">
                 {last ? (
-                  <span aria-current="page" className="text-primary">
+                  <span aria-current="page" className="font-medium text-primary">
                     {content}
                   </span>
                 ) : item.href ? (
-                  <ShellLink href={item.href} onClick={item.onClick} className="text-secondary hover:text-primary hover:no-underline">
+                  <ShellLink href={item.href} onClick={item.onClick} className="rounded-xs text-secondary transition-colors duration-hover ease-out hover:text-primary hover:no-underline">
                     {content}
                   </ShellLink>
                 ) : item.onClick ? (
-                  <button type="button" onClick={item.onClick} className="text-secondary hover:text-primary">
+                  <button type="button" onClick={item.onClick} className="rounded-xs text-secondary transition-colors duration-hover ease-out hover:text-primary">
                     {content}
                   </button>
                 ) : (

@@ -24,6 +24,7 @@ import {
 import { cn } from "../../lib/cn";
 import { formatCompact, formatMoney } from "../../lib/format";
 import { Avatar } from "../foundation/Avatar";
+import { FitText } from "../foundation/FitText";
 import { ProvenanceChip } from "../foundation/Chip";
 import { Icon, type IconComponent } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
@@ -90,6 +91,15 @@ export function isInteractiveTarget(target: EventTarget | null, root: HTMLElemen
   return false;
 }
 
+/** The tone's colour and --tone for the phase pill and its icon-only form. */
+const PILL_TONE: Record<StatusTone, string> = {
+  good: "tone-status-good text-status-good",
+  warn: "tone-status-warn text-status-warn",
+  bad: "tone-status-bad text-status-bad",
+  info: "tone-status-info text-status-info",
+  neutral: "tone-secondary text-secondary",
+};
+
 export interface TileFrameProps {
   session: AgentTileSession;
   views: readonly TileViewOption[];
@@ -149,6 +159,9 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
     onFocus(session.id);
   };
 
+  const pillToneText = PILL_TONE[pill.tone];
+  const noteTone = session.lastNote?.level === "error" ? "text-status-bad" : session.lastNote?.level === "warn" ? "text-status-warn" : "text-primary";
+
   return (
     <article
       aria-label={`${session.agent.name}: ${session.task.title}`}
@@ -158,51 +171,67 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
       data-compact={compact || undefined}
       onClick={onRootClick}
       className={cn(
-        "group relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-panel text-primary",
-        "border border-subtle shadow-inner-highlight",
-        focused && "border-kit-primary/60",
+        "@container group relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-line bg-surface-1 text-primary shadow-elev-1",
+        "transition duration-hover ease-out hover:border-line-strong",
+        focused && "tile-focused",
         onFocus && "cursor-pointer",
         className,
       )}
     >
-      <header className="flex h-panel-header shrink-0 items-center gap-2 border-b border-subtle bg-panel-alt pl-2 pr-1">
-        <Avatar size={20} name={session.agent.name} agent={{ seed: session.agent.seed, dept: session.agent.dept }} status={session.agent.status} />
-        <span className="shrink-0 text-body-strong">{session.agent.name}</span>
-        {onOpenTask || session.task.href ? (
-          <a
-            href={session.task.href ?? `#${session.task.id}`}
-            onClick={(e) => {
-              if (onOpenTask) {
-                e.preventDefault();
-                onOpenTask(session.task);
-              }
-            }}
-            title={session.task.title}
-            className="entity-link min-w-0 flex-1 truncate text-body text-primary"
-          >
-            {session.task.title}
-          </a>
-        ) : (
-          <span className="min-w-0 flex-1 truncate text-body text-secondary" title={session.task.title}>
-            {session.task.title}
+      <header className="flex h-panel-header shrink-0 items-center gap-2 pl-2.5 pr-1.5 rule-fade">
+        <Avatar size={24} name={session.agent.name} agent={{ seed: session.agent.seed, dept: session.agent.dept }} status={session.agent.status} presence={live ? "live" : undefined} />
+        {/* Name over task: both get the full width of the slot and truncate on their own, the name last. */}
+        <div className="flex min-w-0 flex-1 flex-col justify-center leading-none">
+          <span className="min-w-0 text-action font-semibold text-primary" title={session.agent.name} data-tile-name>
+            <FitText minPx={11} tooltip={false}>
+              {session.agent.name}
+            </FitText>
           </span>
-        )}
+          {onOpenTask || session.task.href ? (
+            <a
+              href={session.task.href ?? `#${session.task.id}`}
+              onClick={(e) => {
+                if (onOpenTask) {
+                  e.preventDefault();
+                  onOpenTask(session.task);
+                }
+              }}
+              title={session.task.title}
+              className="entity-link mt-0.5 min-w-0 truncate text-small text-secondary"
+              data-allow-truncate=""
+            >
+              {session.task.title}
+            </a>
+          ) : (
+            <span className="mt-0.5 min-w-0 truncate text-small text-secondary" title={session.task.title} data-allow-truncate="">
+              {session.task.title}
+            </span>
+          )}
+        </div>
         {compact && !focused ? (
           <Tooltip content={pill.word}>
-            <span className={cn("inline-flex", pill.tone === "good" ? "text-status-good" : pill.tone === "warn" ? "text-status-warn" : pill.tone === "bad" ? "text-status-bad" : pill.tone === "info" ? "text-status-info" : "text-secondary")}>
+            <span className={cn("inline-flex shrink-0", pillToneText)}>
               <Icon icon={pill.icon} size="inline" label={pill.word} />
             </span>
           </Tooltip>
         ) : (
-          <StatusPill tone={pill.tone} icon={pill.icon} pulse={live && !compact}>
-            {pill.word}
-          </StatusPill>
+          <>
+            {/* The phase pill never clips: in a narrow tile it becomes its icon with the word in a tooltip. */}
+            <StatusPill tone={pill.tone} icon={pill.icon} pulse={live && !compact} className="hidden shrink-0 @xl:inline-flex">
+              {pill.word}
+            </StatusPill>
+            <Tooltip content={pill.word}>
+              <span className={cn("chip-tone inline-flex size-control-xs shrink-0 items-center justify-center rounded-pill border @xl:hidden", pillToneText)} data-tone={pill.tone}>
+                <Icon icon={pill.icon} size="inline" label={pill.word} />
+              </span>
+            </Tooltip>
+          </>
         )}
         <ProgressRing value={session.progress} size={16} tone={progressTone(session)} label={`Progress ${pct}%`} />
-        <div role="tablist" aria-label="Tile view" onKeyDown={onTabKey} className="ml-1 flex items-center gap-px">
+        <div role="tablist" aria-label="Tile view" onKeyDown={onTabKey} className="seg-track ml-0.5 h-control-sm shrink-0" data-tile-tabs>
           {views.map((v, i) => {
             const selected = v.id === view;
-            return (
+            const tab = (
               <button
                 key={v.id}
                 id={tabIds[i]}
@@ -210,18 +239,24 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
                 type="button"
                 aria-selected={selected}
                 aria-controls={`${id}-panel`}
+                aria-label={v.label}
                 tabIndex={selected ? 0 : -1}
-                title={v.label}
                 onClick={() => onViewChange(v.id)}
                 className={cn(
-                  "inline-flex h-6 items-center gap-1 rounded-chip px-1.5 t-tab-sm text-secondary outline-none transition-colors duration-micro ease-dugout",
-                  "hover:bg-white/6 hover:text-primary focus-visible:outline-2 focus-visible:outline-link",
-                  selected && "bg-panel text-primary",
+                  "relative inline-flex h-full items-center gap-1 rounded-sm px-1.5 font-body text-action-sm font-medium text-tertiary outline-none transition-colors duration-hover ease-out",
+                  "hover:text-primary focus-visible:shadow-ring",
+                  selected && "tile-tab-on text-primary",
                 )}
               >
                 <Icon icon={v.icon} size="inline" />
-                {focused || !compact ? <span className={cn(!focused && "hidden wide:inline")}>{v.label}</span> : null}
+                {/* Labels only where they fit (a wide or focused tile); otherwise the icon carries a tooltip. */}
+                {!compact || focused ? <span className="hidden whitespace-nowrap @3xl:inline">{v.label}</span> : null}
               </button>
+            );
+            return (
+              <Tooltip key={v.id} content={v.label}>
+                {tab}
+              </Tooltip>
             );
           })}
         </div>
@@ -231,8 +266,8 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
         role="toolbar"
         aria-label={`Controls for ${session.agent.name}`}
         className={cn(
-          "absolute right-1 top-9 z-10 flex items-center gap-0.5 rounded-panel border border-subtle bg-panel-alt/95 p-0.5 shadow-overlay",
-          "transition-opacity duration-micro ease-dugout",
+          "surface-overlay absolute right-2 top-11 z-10 flex items-center gap-0.5 p-0.5",
+          "transition-opacity duration-hover ease-out",
           focused ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100 group-focus-within:opacity-100",
         )}
       >
@@ -250,34 +285,37 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
         {controls.onStop ? <IconButton icon={Square} label="Stop and discard" size="sm" variant="ghost" className="text-status-bad hover:bg-status-bad/12" disabled={over} onClick={() => controls.onStop?.(session.id)} /> : null}
       </div>
 
-      <div id={`${id}-panel`} role="tabpanel" aria-labelledby={tabIds[views.findIndex((v) => v.id === view)] ?? tabIds[0]} className="min-h-0 flex-1">
+      <div id={`${id}-panel`} role="tabpanel" aria-labelledby={tabIds[views.findIndex((v) => v.id === view)] ?? tabIds[0]} className="min-h-0 flex-1 bg-ink">
         {children}
       </div>
 
-      <footer className="flex h-6 shrink-0 items-center gap-2 overflow-hidden border-t border-subtle bg-panel px-2 text-small text-secondary tabular-nums" data-testid="tile-footer">
-        <span className="inline-flex items-center gap-1" title="Elapsed">
-          <Icon icon={Clock} size={12} />
+      {/* Footer: one line that never wraps. Items drop out by priority as the tile narrows (tokens first, then the
+          note); elapsed, cost with its Estimate chip and ETA always stay. */}
+      <footer className="@container/foot flex h-control-sm shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap border-t border-line px-2.5 text-small text-secondary tabular-nums" data-testid="tile-footer">
+        <span className="inline-flex shrink-0 items-center gap-1" title="Elapsed">
+          <Icon icon={Clock} size={12} className="text-tertiary" />
           {elapsed}
         </span>
         {!compact || focused ? (
-          <span className="inline-flex items-center gap-1" title="Tokens">
-            <Icon icon={CircleDot} size={12} />
-            {formatCompact(session.tokens)} tokens
+          <span className="hidden shrink-0 items-center gap-1 @xl/foot:inline-flex" title="Tokens">
+            <Icon icon={CircleDot} size={12} className="text-tertiary" />
+            {formatCompact(session.tokens)}
+            <span className="text-tertiary">tokens</span>
           </span>
         ) : null}
-        <span className="inline-flex items-center gap-1" title="Cost (estimate)">
-          <Icon icon={Coins} size={12} />
+        <span className="inline-flex shrink-0 items-center gap-1.5" title="Cost (estimate)">
+          <Icon icon={Coins} size={12} className="text-tertiary" />
           {formatMoney(session.cost)}
+          {!compact || focused ? <ProvenanceChip kind="estimate" className="hidden @xs/foot:inline-flex" /> : null}
         </span>
         {eta && !over ? (
-          <span className="inline-flex items-center gap-1" title="Estimated time remaining">
-            <Icon icon={Hourglass} size={12} />
-            ETA {eta}
+          <span className="inline-flex shrink-0 items-center gap-1" title="Estimated time remaining">
+            <Icon icon={Hourglass} size={12} className="text-tertiary" />
+            <span className="text-tertiary">ETA</span> {eta}
           </span>
         ) : null}
-        {!compact || focused ? <ProvenanceChip kind="estimate" className="h-4 px-1 text-[10px]" /> : null}
         {session.lastNote && (!compact || focused) ? (
-          <span className={cn("min-w-0 flex-1 truncate", session.lastNote.level === "error" ? "text-status-bad" : session.lastNote.level === "warn" ? "text-status-warn" : "text-primary")} title={session.lastNote.text}>
+          <span className={cn("hidden min-w-0 flex-1 truncate @2xl/foot:block", noteTone)} title={session.lastNote.text} data-allow-truncate="">
             {session.lastNote.source === "shout" ? "Nudge: " : ""}
             {session.lastNote.text}
           </span>

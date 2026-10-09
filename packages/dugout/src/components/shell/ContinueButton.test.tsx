@@ -39,11 +39,19 @@ describe("ContinueButton", () => {
     expect(handlers.onComeBack).toHaveBeenCalledTimes(1);
   });
 
-  it("renders processing with Pause and a sweep, Customer Update in gold", () => {
+  it("renders processing as a dark slab with an orbiting edge and Pause, blocked as Respond with a count capsule, Customer Update in gold", () => {
     const { rerender } = render(<ContinueButton state={{ kind: "processing" }} />);
     const pause = screen.getByRole("button", { name: "Pause the running cycle" });
     expect(pause.getAttribute("data-continue-state")).toBe("processing");
-    expect(pause.querySelector(".animate-sweep")).not.toBeNull();
+    expect(pause.className).toContain("orbit");
+    expect(pause.className).toContain("continue-skin");
+    expect(pause.textContent).toBe("Pause");
+    rerender(<ContinueButton state={{ kind: "blocked", count: 7 }} />);
+    const respond = screen.getByRole("button", { name: "Respond to 7 items" });
+    expect(respond.querySelector("[data-continue-count]")?.textContent).toBe("7");
+    // The separator is for assistive tech and text checks only: the eye reads "Respond [7]".
+    expect(respond.textContent).toBe("Respond · 7");
+    expect(respond.className).toContain("tone-status-bad");
     rerender(<ContinueButton state={{ kind: "matchday" }} />);
     expect(screen.getByRole("button", { name: "Go to Journey" }).getAttribute("data-variant")).toBe("gold");
   });
@@ -60,6 +68,24 @@ describe("ContinueButton", () => {
       expect(button().className).toContain("animate-ring-pulse");
       act(() => vi.advanceTimersByTime(CONTINUE_PULSE_MS + 1));
       expect(button().getAttribute("data-pulsing")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("pulses once in red when it turns blocked, never on mount", () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(<ContinueButton state={{ kind: "blocked", count: 1 }} />);
+      expect(screen.getByRole("button", { name: "Respond to 1 item" }).getAttribute("data-pulsing")).toBeNull();
+      rerender(<ContinueButton state={{ kind: "idle" }} />);
+      expect(screen.getByRole("button", { name: "Continue" }).getAttribute("data-pulsing")).toBeNull();
+      rerender(<ContinueButton state={{ kind: "blocked", count: 2 }} />);
+      const respond = screen.getByRole("button", { name: "Respond to 2 items" });
+      expect(respond.getAttribute("data-pulsing")).toBe("true");
+      expect(respond.className).toContain("animate-ring-pulse");
+      act(() => vi.advanceTimersByTime(CONTINUE_PULSE_MS + 1));
+      expect(screen.getByRole("button", { name: "Respond to 2 items" }).getAttribute("data-pulsing")).toBeNull();
     } finally {
       vi.useRealTimers();
     }

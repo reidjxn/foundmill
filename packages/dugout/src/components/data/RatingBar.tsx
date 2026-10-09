@@ -8,11 +8,12 @@ import {
   ratingTone,
 } from "../../lib/rating";
 
+/** Lit cells: the ramp colour with a faint glow in its own tone. */
 const FILL_CLASS: Record<ReturnType<typeof ratingTone>, string> = {
-  "rating-1": "bg-rating-1",
-  "rating-2": "bg-rating-2",
-  "rating-3": "bg-rating-3",
-  "rating-4": "bg-rating-4",
+  "rating-1": "cell-lit bg-rating-1 tone-rating-1",
+  "rating-2": "cell-lit bg-rating-2 tone-rating-2",
+  "rating-3": "cell-lit bg-rating-3 tone-rating-3",
+  "rating-4": "cell-lit bg-rating-4 tone-rating-4",
 };
 const OUTLINE_CLASS: Record<ReturnType<typeof ratingTone>, string> = {
   "rating-1": "border-rating-1",
@@ -32,7 +33,10 @@ export interface RatingBarProps extends Omit<HTMLAttributes<HTMLSpanElement>, "c
   name?: string;
 }
 
-/** DESIGN §5: 20 discrete cells, filled cells in the ramp colour for the value, empty cells bg-panel-alt. */
+/**
+ * DESIGN §5: 20 discrete cells (2 px apart), lit cells in the ramp colour for the value with a faint glow, empty cells a
+ * faint plate; a comparison outlines the cells between the value and it.
+ */
 export function RatingBar({
   value,
   compare,
@@ -52,7 +56,7 @@ export function RatingBar({
       aria-label={label}
       data-rating={v}
       data-tone={tone}
-      className={cn("inline-grid w-full min-w-20 grid-cols-20 gap-px", className)}
+      className={cn("inline-grid w-full min-w-20 grid-cols-20 gap-0.5", className)}
       {...rest}
     >
       {cells.map((filled, i) => {
@@ -67,7 +71,7 @@ export function RatingBar({
                 ? cn(FILL_CLASS[tone], "border-transparent")
                 : outlined
                   ? cn("bg-transparent", OUTLINE_CLASS[ratingTone(c as number)])
-                  : "border-transparent bg-panel-alt",
+                  : "cell-empty border-transparent",
             )}
             style={{ height: cellHeight }}
           />

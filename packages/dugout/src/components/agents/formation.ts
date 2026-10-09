@@ -1,6 +1,6 @@
 /** Channel Board logic (BUILD §11.7): channel families, icons, the quadrant layout, board/tray grouping and the toggle. Pure. */
 import { Calendar, FileText, Handshake, Mail, Mailbox, Megaphone, MessageSquareQuote, Mic, Newspaper, Radio, Search, Share2, Signpost, Star, Target } from "lucide-react";
-import { CHANNEL_LINES, CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared";
+import { CHANNEL_LINES, CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
 import type { IconComponent } from "../foundation/Icon";
 import type { ChannelLineGroup, ChannelTokenData, FormCell } from "./types";
 
@@ -184,6 +184,21 @@ export interface BoardSlot {
 
 /** Half-width of the corridor kept clear above the hub for the fit-band captions, in board units. */
 export const CAPTION_CORRIDOR = 128;
+/**
+ * The hub and its sweep ring, in board units at the narrowest desktop board (the hub is drawn at a fixed pixel size,
+ * so it covers the most board on the smallest board), plus a gap. No token's footprint comes closer to the hub centre.
+ */
+export const HUB_CLEAR = 104;
+/** A token's footprint above and below its circle's centre in board units: the circle above; strip and name below. */
+export const TOKEN_UP = 44;
+export const TOKEN_DOWN = 100;
+
+/** True when a token's footprint (its label's half-width either side, TOKEN_UP above, TOKEN_DOWN below) meets the hub. */
+export function hitsHub(p: { x: number; y: number }, hw: number): boolean {
+  const nx = Math.max(p.x - hw, Math.min(HUB.x, p.x + hw));
+  const ny = Math.max(p.y - TOKEN_UP, Math.min(HUB.y, p.y + TOKEN_DOWN));
+  return Math.hypot(nx - HUB.x, ny - HUB.y) < HUB_CLEAR;
+}
 
 /**
  * Where every channel lives on the map, running or not, so a channel always lights up in the same place and nothing
@@ -208,12 +223,20 @@ export function boardLayout(channels: readonly ChannelTokenData[]): BoardSlot[] 
   const project = (p: (typeof pts)[number]) => {
     const { angle, t } = toPolar(p.x, p.y);
     const delta = Math.max(-WEDGE_HALF, Math.min(WEDGE_HALF, angleDelta(angle, p.home)));
-    const q = polar(p.home + delta, Math.max(T_MIN, Math.min(T_MAX, t)));
-    p.x = q.x;
-    p.y = q.y;
-    const corridor = CAPTION_CORRIDOR + p.hw - 61;
-    if (p.y < HUB.y && Math.abs(p.x - HUB.x) < corridor) p.x = HUB.x + Math.sign(p.x - HUB.x || Math.cos((p.home * Math.PI) / 180)) * corridor;
-    p.x = Math.max(p.hw + 8, Math.min(BOARD_W - p.hw - 8, p.x));
+    // Step outwards along the token's own ray until its footprint clears the hub (the collision fix: a strong fit
+    // in a crowded quadrant used to be pushed onto the hub); the board's edges are never crossed.
+    let tt = Math.max(T_MIN, Math.min(T_MAX, t));
+    for (let k = 0; k < 80; k++) {
+      const q = polar(p.home + delta, tt);
+      p.x = q.x;
+      p.y = q.y;
+      const corridor = CAPTION_CORRIDOR + p.hw - 61;
+      if (p.y < HUB.y && Math.abs(p.x - HUB.x) < corridor) p.x = HUB.x + Math.sign(p.x - HUB.x || Math.cos((p.home * Math.PI) / 180)) * corridor;
+      p.x = Math.max(p.hw + 8, Math.min(BOARD_W - p.hw - 8, p.x));
+      p.y = Math.max(TOKEN_UP + 8, Math.min(BOARD_H - TOKEN_DOWN - 8, p.y));
+      if (!hitsHub(p, p.hw)) break;
+      tt += 0.01;
+    }
   };
   pts.forEach(project);
   for (let pass = 0; pass < 240; pass++) {

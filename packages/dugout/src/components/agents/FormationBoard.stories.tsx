@@ -90,3 +90,7 @@ export const ProfileCard: Story = {
     );
   },
 };
+/** Every channel a strong fit: the tokens crowd the hub, and the layout steps each one outwards until its circle and name clear the hub and the board's edges. */
+export const AllStrongFits: Story = {
+  render: () => <Board animateEntrance={false} initial={() => mockChannels().map((c) => ({ ...c, enabled: true, fit: 20 }))} />,
+};

@@ -1,7 +1,7 @@
 "use client";
 import { forwardRef, useId, useState, type FormEvent, type HTMLAttributes, type ReactNode } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { CircleCheck, Play, RotateCcw, ThumbsUp, TriangleAlert } from "lucide-react";
+import { CircleCheck, MessageCircle, Play, RotateCcw, ThumbsUp, TriangleAlert } from "lucide-react";
 import type { Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { formatMoney } from "../../lib/format";
@@ -55,8 +55,23 @@ export interface DecisionBarProps extends Omit<HTMLAttributes<HTMLDivElement>, "
   hotkeys?: boolean;
   /** Sticky at the bottom of the reading pane (default true). */
   sticky?: boolean;
-  /** Extra content on the left (expiry, "Decided by the Chief of Staff"). */
+  /** Extra content: the expiry under "Your call" when `deadline` is not given, otherwise a line after the options. */
   note?: ReactNode;
+  /** The deadline under "Your call" ("Expires in 5 days"). */
+  deadline?: ReactNode;
+  /** The data label on the left (default "Your call"). */
+  heading?: ReactNode;
+  /**
+   * Talk it through instead of typing: an "Ask <agent>" / "Reply to <agent>" button that opens the conversation
+   * (DIRECTION #7). When given it replaces the free-text box; without it the free-text form stays (`onExecute`).
+   */
+  onAsk?: () => void;
+  /** The ask button's label, e.g. "Ask Juno" or "Reply to Juno" (default "Ask the team"). */
+  askLabel?: string;
+  /** The ask button's second line (default "Talk it through first"). */
+  askDescription?: ReactNode;
+  /** Show the 1–4 key caps on the options even when the shell's keyboard map owns the digits (default: `hotkeys`). */
+  keyHints?: boolean;
 }
 
 /** "€500.00" / "No cost" / "Cost unknown". Exported for tests. */
@@ -72,24 +87,61 @@ export function reversibilityText(reversible: boolean | undefined): string {
   return reversible ? "Reversible" : "Not reversible";
 }
 
+/**
+ * The second line of an option: its consequence, or else what is known of its cost and reversibility ("No cost ·
+ * Reversible"); undefined when nothing is known. Exported for tests.
+ */
+export function optionSubline(o: DecisionOption): string | undefined {
+  if (o.consequence) return o.consequence;
+  const parts = [o.cost !== undefined ? costText(o.cost) : null, o.reversible !== undefined ? reversibilityText(o.reversible) : null].filter(Boolean);
+  return parts.length ? parts.join(" · ") : undefined;
+}
+
 /** The hidden description a screen reader gets for an option. */
 export function optionDescription(o: DecisionOption): string {
   return [o.recommended ? "Recommended." : null, o.consequence, `${costText(o.cost)}.`, `${reversibilityText(o.reversible)}.`].filter(Boolean).join(" ");
 }
 
 /**
- * The DecisionBar (BUILD §5.4, §11.3, DESIGN §8): sticky at the bottom of the reading pane, 64 px, bg-panel-alt, 2–4
- * buttons. The recommended option carries a thumbs-up and a kit-primary fill, the others are outlined; hover (or
- * focus) shows consequence, cost and reversibility in a small card; free text + Execute on the right. 1–4 choose.
+ * The DecisionBar (BUILD §5.4, §11.3, DESIGN §8, DIRECTION #7): sticky at the bottom of the reading pane, at least
+ * 64 px, glass (surface 2 at 86 % over a 16 px blur) with a top light line and an upward shadow. Left: "Your call" and
+ * the deadline. Options are two-line buttons, each carrying its own consequence under its label; the recommended one is
+ * primary with a thumbs-up and an inline "Recommended" tag. Options wrap and the bar grows — nothing truncates or
+ * overlaps. Hover (or focus) still shows consequence, cost and reversibility in a small card. With `onAsk`, an "Ask
+ * <agent>" button opens the conversation instead of a free-text box (typing is optional, never required); without it the
+ * free-text form + Execute stays. 1–4 choose.
  */
 export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function DecisionBar(
-  { options, onChoose, onExecute, freeTextPlaceholder = "Or tell the team what to do…", disabled, executing, answered, onReopen, hotkeys = true, sticky = true, note, className, ...rest },
+  {
+    options,
+    onChoose,
+    onExecute,
+    freeTextPlaceholder = "Or tell the team what to do…",
+    disabled,
+    executing,
+    answered,
+    onReopen,
+    hotkeys = true,
+    sticky = true,
+    note,
+    deadline,
+    heading = "Your call",
+    onAsk,
+    askLabel = "Ask the team",
+    askDescription = "Talk it through first",
+    keyHints,
+    className,
+    ...rest
+  },
   ref,
 ) {
   const shown = options.slice(0, DECISION_OPTIONS_MAX);
   const [text, setText] = useState("");
   const baseId = useId();
   const locked = !!disabled || !!executing || !!answered;
+  const showKeys = keyHints ?? hotkeys;
+  const leftLine = deadline ?? note;
+  const trailingNote = deadline !== undefined && deadline !== null ? note : undefined;
 
   useHotkeys(
     "1,2,3,4",
@@ -121,16 +173,16 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
       aria-label="Decision"
       data-testid="decision-bar"
       data-state={answered ? "answered" : executing ? "executing" : disabled ? "disabled" : "open"}
-      className={cn("flex h-16 shrink-0 items-center gap-2 border-t border-subtle bg-panel-alt px-gutter", sticky && "sticky bottom-0 z-10", className)}
+      className={cn("decision-glass decision-layout flex min-h-decision-bar shrink-0 flex-col justify-center px-gutter py-2.5", sticky && "sticky bottom-0 z-10", className)}
       {...rest}
     >
       {answered ? (
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
           <StatusPill tone="good" icon={CircleCheck}>
             Decided
           </StatusPill>
-          <span className="truncate text-body text-primary">{chosen ? chosen.label : answered.text ? `“${answered.text}”` : "Answered"}</span>
-          {note ? <span className="truncate text-small text-secondary">{note}</span> : null}
+          <span className="min-w-0 text-body-strong text-primary">{chosen ? chosen.label : answered.text ? `“${answered.text}”` : "Answered"}</span>
+          {note ? <span className="min-w-0 text-small text-secondary">{note}</span> : null}
           {onReopen ? (
             <Button size="sm" variant="ghost" icon={RotateCcw} onClick={onReopen} className="ml-auto">
               Reopen
@@ -138,82 +190,105 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
           ) : null}
         </div>
       ) : (
-        <>
-          <div className="flex min-w-0 items-center gap-2" role="group" aria-label="Options">
-            {shown.map((o, i) => {
-              const descId = `${baseId}-${o.id}`;
-              return (
-                <HoverCard key={o.id}>
-                  <HoverCardTrigger asChild>
-                    <Button
-                      variant={o.recommended ? "primary" : "default"}
-                      icon={o.recommended ? ThumbsUp : undefined}
-                      disabled={locked || o.disabled}
-                      onClick={() => onChoose(o)}
-                      aria-describedby={descId}
-                      aria-keyshortcuts={hotkeys ? String(i + 1) : undefined}
-                      data-option-id={o.id}
-                      data-recommended={o.recommended || undefined}
-                      className="max-w-64"
-                    >
-                      <span className="truncate">{o.label}</span>
-                      {hotkeys ? <Kbd className="ml-0.5 border-current/30 bg-transparent text-current/80">{i + 1}</Kbd> : null}
-                      <span id={descId} className="sr-only">
-                        {optionDescription(o)}
-                      </span>
-                    </Button>
-                  </HoverCardTrigger>
-                  <HoverCardContent side="top" className="w-72">
-                    <div className="flex flex-col gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="t-display-sm">{o.label}</span>
-                        {o.recommended ? (
-                          <StatusPill tone="info" icon={ThumbsUp}>
-                            Recommended
-                          </StatusPill>
-                        ) : null}
-                      </div>
-                      {o.consequence ? <p className="text-body text-secondary">{o.consequence}</p> : null}
-                      <dl className="grid grid-cols-2 gap-2">
-                        <div>
-                          <dt className="t-label">Cost</dt>
-                          <dd className="text-body-strong tabular-nums">{costText(o.cost)}</dd>
-                        </div>
-                        <div>
-                          <dt className="t-label">Reversibility</dt>
-                          <dd className="inline-flex items-center gap-1 text-body-strong">
-                            {o.reversible === false ? <Icon icon={TriangleAlert} size="inline" className="text-status-warn" /> : null}
-                            {reversibilityText(o.reversible)}
-                          </dd>
-                        </div>
-                      </dl>
-                    </div>
-                  </HoverCardContent>
-                </HoverCard>
-              );
-            })}
+        <div className="decision-inner">
+          <div className="decision-heading" data-decision-heading>
+            <span className="t-data">{heading}</span>
+            {leftLine ? <span className="text-small text-tertiary tabular-nums">{leftLine}</span> : null}
           </div>
-          {note ? <span className="truncate text-small text-secondary">{note}</span> : null}
-          {onExecute ? (
-            <form onSubmit={submit} className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2" data-testid="decision-free-text">
-              <Input
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder={freeTextPlaceholder}
-                disabled={locked}
-                aria-label="Free-text instruction"
-                wrapperClassName="min-w-0 max-w-96 flex-1"
-              />
-              <Button type="submit" variant="default" icon={Play} disabled={locked || text.trim() === ""} loading={executing} aria-label="Execute the instruction">
-                Execute
+          <div className="decision-options min-w-0 flex-1">
+            <div className="contents" role="group" aria-label="Options">
+              {shown.map((o, i) => {
+                const descId = `${baseId}-${o.id}`;
+                const sub = optionSubline(o);
+                return (
+                  <HoverCard key={o.id} openDelay={500}>
+                    <HoverCardTrigger asChild>
+                      <Button
+                        variant={o.recommended ? "primary" : "default"}
+                        icon={o.recommended ? ThumbsUp : undefined}
+                        disabled={locked || o.disabled}
+                        onClick={() => onChoose(o)}
+                        aria-describedby={descId}
+                        aria-keyshortcuts={hotkeys || showKeys ? String(i + 1) : undefined}
+                        data-option-id={o.id}
+                        data-recommended={o.recommended || undefined}
+                        description={sub}
+                        lines={2}
+                        className={cn("min-w-0 justify-start", showKeys && "pr-8")}
+                      >
+                        <span className="min-w-0">{o.label}</span>
+                        {o.recommended ? <span className="btn-tag">Recommended</span> : null}
+                        {showKeys ? (
+                          <Kbd aria-hidden className="absolute right-2 top-2 opacity-80" data-option-key>
+                            {i + 1}
+                          </Kbd>
+                        ) : null}
+                        <span id={descId} className="sr-only">
+                          {optionDescription(o)}
+                        </span>
+                      </Button>
+                    </HoverCardTrigger>
+                    <HoverCardContent side="top" className="w-72">
+                      <div className="flex flex-col gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="t-display-sm">{o.label}</span>
+                          {o.recommended ? (
+                            <StatusPill tone="info" icon={ThumbsUp}>
+                              Recommended
+                            </StatusPill>
+                          ) : null}
+                        </div>
+                        {o.consequence ? <p className="text-body text-secondary">{o.consequence}</p> : null}
+                        <dl className="grid grid-cols-2 gap-2">
+                          <div>
+                            <dt className="t-data">Cost</dt>
+                            <dd className="text-body-strong tabular-nums">{costText(o.cost)}</dd>
+                          </div>
+                          <div>
+                            <dt className="t-data">Reversibility</dt>
+                            <dd className="inline-flex items-center gap-1 text-body-strong">
+                              {o.reversible === false ? <Icon icon={TriangleAlert} size="inline" className="text-status-warn" /> : null}
+                              {reversibilityText(o.reversible)}
+                            </dd>
+                          </div>
+                        </dl>
+                      </div>
+                    </HoverCardContent>
+                  </HoverCard>
+                );
+              })}
+            </div>
+            {onAsk ? (
+              <Button variant="default" icon={MessageCircle} disabled={!!disabled || !!executing} onClick={onAsk} description={askDescription} lines={2} className="min-w-0 justify-start" data-decision-ask>
+                {askLabel}
               </Button>
-            </form>
-          ) : executing ? (
-            <StatusPill tone="info" className="ml-auto">
-              Executing
-            </StatusPill>
-          ) : null}
-        </>
+            ) : onExecute ? (
+              <form onSubmit={submit} className="flex min-w-0 items-center gap-2" data-testid="decision-free-text" data-decision-row>
+                <Input
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder={freeTextPlaceholder}
+                  disabled={locked}
+                  aria-label="Free-text instruction"
+                  wrapperClassName="min-w-0 flex-1"
+                />
+                <Button type="submit" variant="default" icon={Play} disabled={locked || text.trim() === ""} loading={executing} aria-label="Execute the instruction">
+                  Execute
+                </Button>
+              </form>
+            ) : null}
+            {executing && !onExecute ? (
+              <StatusPill tone="info" className="self-center justify-self-start" data-decision-row>
+                Executing
+              </StatusPill>
+            ) : null}
+            {trailingNote ? (
+              <span className="text-small text-secondary" data-decision-row>
+                {trailingNote}
+              </span>
+            ) : null}
+          </div>
+        </div>
       )}
     </div>
   );

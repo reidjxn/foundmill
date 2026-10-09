@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GridCell, PageGrid, snapSpan, spanClass } from "./PageGrid";
 import { Panel } from "./Panel";
-import { ProcessingStrip, processingStatusText } from "./ProcessingStrip";
+import { ProcessingStrip, processingStatusText, segmentState } from "./ProcessingStrip";
 import { RunwayChip, formatRunway, runwayTone } from "./RunwayChip";
 import { RightRail } from "./RightRail";
 import { NORTHWIND_SEGMENTS } from "./fixtures";
@@ -68,6 +68,36 @@ describe("Panel", () => {
     render(<Panel title="Plain">x</Panel>);
     expect(screen.queryByRole("button", { name: "Panel menu" })).toBeNull();
   });
+
+  it("draws the 40 px header on the panel's own surface: title style, mono meta, actions that wrap before the title is squeezed", () => {
+    render(
+      <Panel title="A long title the actions never squeeze" meta="6 Aug – 8 Nov 2026" actions={<button type="button">Forecast</button>}>
+        x
+      </Panel>,
+    );
+    const section = screen.getByRole("region", { name: "A long title the actions never squeeze" });
+    const header = section.querySelector("[data-panel-header]")!;
+    // No striped band: the header carries no background of its own and the title is never truncated.
+    expect(header.className).toContain("panel-head");
+    expect(header.className).not.toContain("bg-panel-alt");
+    const title = screen.getByRole("heading", { name: "A long title the actions never squeeze" });
+    expect(title.className).toContain("t-title");
+    expect(title.className).not.toContain("truncate");
+    expect(screen.getByText("6 Aug – 8 Nov 2026").className).toContain("t-mono");
+  });
+
+  it("lights the panel from its corner in a department colour or the brand", () => {
+    const { rerender } = render(<Panel title="Product" glow="dept-1">x</Panel>);
+    let section = screen.getByRole("region", { name: "Product" });
+    expect(section.getAttribute("data-glow")).toBe("dept-1");
+    expect(section.className).toContain("glow-dept");
+    expect(section.className).toContain("tone-dept-1");
+    rerender(<Panel title="Journey" glow="brand">x</Panel>);
+    section = screen.getByRole("region", { name: "Journey" });
+    expect(section.className).toContain("glow-brand");
+    rerender(<Panel title="Plain">x</Panel>);
+    expect(screen.getByRole("region", { name: "Plain" }).className).not.toContain("glow-");
+  });
 });
 
 describe("PageGrid", () => {
@@ -98,7 +128,13 @@ describe("ProcessingStrip", () => {
     const strip = screen.getByRole("status");
     expect(strip.getAttribute("aria-label")).toContain("Formulation Lab");
     expect(strip.querySelectorAll("[data-working]").length).toBe(4);
-    expect(strip.querySelector("[data-segment='d-product']")?.className).toContain("animate-shimmer");
+    // A working department carries the travelling head (CSS, strip-segment[data-working]) in its own tone.
+    const product = strip.querySelector("[data-segment='d-product']")!;
+    expect(product.getAttribute("data-state")).toBe("working");
+    expect(product.className).toContain("strip-segment");
+    expect(product.className).toContain("tone-dept-1");
+    expect(strip.querySelector("[data-segment='d-finance']")?.getAttribute("data-state")).toBe("waiting");
+    expect(segmentState(NORTHWIND_SEGMENTS[0]!, false)).toBe("rest");
     rerender(<ProcessingStrip segments={NORTHWIND_SEGMENTS} active={false} />);
     expect(screen.getByRole("status").querySelectorAll("[data-working]").length).toBe(0);
   });
@@ -116,7 +152,15 @@ describe("RunwayChip", () => {
     render(<RunwayChip date="2026-10-07" runwayMonths={5.5} cash={{ amountMinor: 18200000, currency: "EUR" }} />);
     const chip = screen.getByLabelText(/7 Oct 2026\. Runway 5\.5 mo, estimate, critical/);
     expect(chip.getAttribute("data-runway-tone")).toBe("bad");
-    expect(screen.getByText("Est.")).toBeTruthy();
+    // The dashed "not measured" tag, the word in full.
+    expect(screen.getByText("Estimate").className).toContain("kitbar-est");
+  });
+
+  it("says there is no runway yet instead of a bare dash, without an Estimate tag", () => {
+    render(<RunwayChip date="2026-10-07" runwayMonths={null} />);
+    expect(screen.getByText("No runway yet")).toBeTruthy();
+    expect(screen.queryByText("Estimate")).toBeNull();
+    expect(screen.getByLabelText(/Runway —/).getAttribute("data-runway-tone")).toBe("neutral");
   });
 });
 

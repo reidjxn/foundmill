@@ -76,7 +76,7 @@ export function SquadPulse({ departments, days, cells, onSelect, className }: Sq
       <div ref={gridRef} role="grid" aria-label={`Team pulse: ${formatNumber(total, { maxDigits: 0 })} agent hours over the last 7 days, by hour and department`} aria-rowcount={7} aria-colcount={24} className="flex flex-col gap-px" onKeyDown={onKeyDown}>
         <div role="row" className="flex items-center gap-px pl-12">
           {HOURS.map((h) => (
-            <span key={h} role="columnheader" className={cn("flex-1 text-center font-mono text-[10px] leading-3 text-secondary", h % 3 !== 0 && "invisible")} aria-label={`${h}:00`}>
+            <span key={h} role="columnheader" className={cn("flex-1 overflow-visible whitespace-nowrap text-center font-mono text-micro text-tertiary", h % 3 !== 0 && "invisible")} aria-label={`${h}:00`}>
               {String(h).padStart(2, "0")}
             </span>
           ))}
@@ -113,7 +113,7 @@ export function SquadPulse({ departments, days, cells, onSelect, className }: Sq
                     aria-label={`${label}${cell.lead ? `, mostly ${cell.lead.name}` : ""}`}
                     data-pulse-cell={`${d}:${cell.hour}`}
                     data-lead={cell.lead?.id}
-                    className={cn("h-4 flex-1 rounded-[2px] outline-none focus-visible:ring-2 focus-visible:ring-link", cell.total > 0 && cell.lead ? DEPT_BG[cell.lead.dept] : "bg-panel-alt")}
+                    className={cn("h-4 flex-1 rounded-xs outline-none focus-visible:shadow-ring", cell.total > 0 && cell.lead ? DEPT_BG[cell.lead.dept] : "cell-empty")}
                     style={cell.total > 0 ? { opacity: alpha } : undefined}
                     onFocus={() => setFocus({ d, h: cell.hour })}
                     onClick={() => onSelect?.(days[d] ?? "", cell.hour, cell.breakdown)}
@@ -127,7 +127,7 @@ export function SquadPulse({ departments, days, cells, onSelect, className }: Sq
       <ul className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-12 text-small text-secondary" aria-label="Departments">
         {departments.map((dep) => (
           <li key={dep.id} className="inline-flex items-center gap-1.5">
-            <span aria-hidden className={cn("inline-block size-2 rounded-[2px]", DEPT_BG[dep.dept])} />
+            <span aria-hidden className={cn("inline-block size-2 rounded-xs", DEPT_BG[dep.dept])} />
             {dep.name}
           </li>
         ))}

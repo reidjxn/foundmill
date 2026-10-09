@@ -203,8 +203,8 @@ export function nudgeItem(
   });
 }
 
-const ResizeHandle = forwardRef<HTMLElement, { axis: ResizeHandleAxis }>(function ResizeHandle(
-  { axis },
+const ResizeHandle = forwardRef<HTMLElement, { axis: ResizeHandleAxis; editing?: boolean }>(function ResizeHandle(
+  { axis, editing = true },
   ref,
 ) {
   return (
@@ -212,11 +212,13 @@ const ResizeHandle = forwardRef<HTMLElement, { axis: ResizeHandleAxis }>(functio
       ref={ref as never}
       className={cn(
         `react-resizable-handle react-resizable-handle-${axis}`,
-        "absolute bottom-0 right-0 z-10 flex size-5 cursor-se-resize items-end justify-end p-1 text-secondary opacity-70 hover:text-primary hover:opacity-100",
+        "absolute bottom-0 right-0 z-10 flex size-6 cursor-se-resize items-end justify-end p-1.5 text-tertiary transition-colors duration-hover hover:text-kit-lift",
+        // Only while editing: at rest a widget has no handles drawn on it.
+        !editing && "hidden",
       )}
       aria-hidden
     >
-      <span className="block size-2 border-b-2 border-r-2 border-current" />
+      <span className="block size-2.5 rounded-br-xs border-b-2 border-r-2 border-current" />
     </span>
   );
 });
@@ -634,7 +636,7 @@ export function WidgetGrid({
             resizeConfig={{
               enabled: editing,
               handles: ["se"],
-              handleComponent: (axis, ref) => <ResizeHandle axis={axis} ref={ref} />,
+              handleComponent: (axis, ref) => <ResizeHandle axis={axis} editing={editing} ref={ref} />,
             }}
             compactor={verticalCompactor}
             onLayoutChange={onLayoutChange}
@@ -656,7 +658,7 @@ export function WidgetGrid({
                     type="button"
                     className={cn(
                       DRAG_HANDLE_CLASS,
-                      "inline-flex size-6 cursor-grab items-center justify-center rounded-chip text-secondary hover:bg-white/6 hover:text-primary active:cursor-grabbing focus-visible:outline-2",
+                      "inline-flex size-control-sm cursor-grab items-center justify-center rounded-sm text-secondary hover:bg-white/6 hover:text-primary active:cursor-grabbing focus-visible:shadow-ring",
                     )}
                     aria-label={`Move ${entry?.title ?? it.widget}. Arrow keys move, Shift+arrows resize.`}
                     onKeyDown={(e) => onHandleKeyDown(e, it.i)}
@@ -667,16 +669,16 @@ export function WidgetGrid({
               const editButtons = editing ? (
                 <>
                   {entry?.settings && entry.settings.length > 0 ? (
-                    <IconButton size="sm" icon={Settings2} label={`${entry.title} settings`} className="size-6" onClick={() => setSettingsFor(it)} />
+                    <IconButton size="sm" icon={Settings2} label={`${entry.title} settings`} onClick={() => setSettingsFor(it)} />
                   ) : null}
-                  {!it.static ? <IconButton size="sm" icon={X} label={`Remove ${entry?.title ?? it.widget}`} className="size-6" onClick={() => remove(it.i)} /> : null}
+                  {!it.static ? <IconButton size="sm" icon={X} label={`Remove ${entry?.title ?? it.widget}`} onClick={() => remove(it.i)} /> : null}
                 </>
               ) : null;
               // A framed widget draws its own panel and header; the grid adds none, so each widget has one title.
               const header = framed ? null : (
-                <header className="flex h-panel-header shrink-0 items-center gap-1 border-b border-subtle bg-panel-alt pl-1.5 pr-1">
+                <header className="flex h-panel-header shrink-0 items-center gap-1 pl-1.5 pr-1.5 rule-fade">
                   {dragHandle}
-                  <h3 className="t-label min-w-0 flex-1 truncate pl-0.5">{entry?.title ?? it.widget}</h3>
+                  <h3 className="t-title min-w-0 flex-1 truncate pl-1.5 text-primary" title={entry?.title ?? it.widget}>{entry?.title ?? it.widget}</h3>
                   {editButtons}
                 </header>
               );
@@ -705,7 +707,7 @@ export function WidgetGrid({
                   className={cn(
                     "group/widget",
                     framed && "relative",
-                    editing && "outline-1 outline-dotted outline-secondary/70 outline-offset-2",
+                    editing && "rounded-md outline-1 outline-dashed outline-kit-lift/40 outline-offset-4",
                   )}
                 >
                   {renderFrame ? (
@@ -721,8 +723,10 @@ export function WidgetGrid({
                       {body}
                     </section>
                   )}
+                  {/* A framed widget's own header actions sit at its top right, so the edit controls float on the frame's
+                      top edge, centred, where a header has no controls: they never cover the widget's actions. */}
                   {framed && editing ? (
-                    <div className="absolute right-1 top-1 z-10 flex items-center gap-0.5 rounded-chip border border-subtle bg-panel-alt p-0.5" data-widget-controls>
+                    <div className="surface-overlay absolute left-1/2 top-0 z-20 flex -translate-x-1/2 -translate-y-1/2 items-center gap-0.5 rounded-pill p-0.5 px-1" data-widget-controls>
                       {dragHandle}
                       {editButtons}
                     </div>

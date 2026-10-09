@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -157,6 +158,11 @@ export interface DataTableProps<T> {
   /** Default: virtualise above 100 rows. */
   virtualized?: boolean;
   overscan?: number;
+  /**
+   * Hide columns where no row has a value (null, undefined, "" or "—"), so a table never spends width on an empty
+   * column. The column chooser still lists them. Default false.
+   */
+  hideEmptyColumns?: boolean;
   /** Status line under the body; default "N rows · M selected". Pass null to hide. */
   footer?: ReactNode | null;
   "aria-label"?: string;
@@ -390,11 +396,28 @@ export function DataTable<T>(props: DataTableProps<T>) {
   };
 
   // ---- Table ---------------------------------------------------------------------------------------------------------
+  const emptyColumnIds = useMemo(() => {
+    if (!props.hideEmptyColumns || data.length === 0) return new Set<string>();
+    const empty = new Set<string>();
+    for (const def of columns) {
+      const key = (def as { accessorKey?: string }).accessorKey;
+      const fn = (def as { accessorFn?: (row: T, i: number) => unknown }).accessorFn;
+      const id = def.id ?? key;
+      if (!id || (!key && !fn)) continue;
+      const blank = data.every((row, i) => {
+        const v = fn ? fn(row, i) : (row as Record<string, unknown>)[key as string];
+        return v === null || v === undefined || v === "" || v === "—";
+      });
+      if (blank) empty.add(id);
+    }
+    // Never hide every column.
+    return empty.size >= visibleIds.length ? new Set<string>() : empty;
+  }, [props.hideEmptyColumns, data, columns, visibleIds.length]);
   const columnVisibility = useMemo<VisibilityState>(() => {
     const vis: VisibilityState = {};
-    for (const id of allColumnIds) vis[id] = visibleIds.includes(id);
+    for (const id of allColumnIds) vis[id] = visibleIds.includes(id) && !emptyColumnIds.has(id);
     return vis;
-  }, [allColumnIds, visibleIds]);
+  }, [allColumnIds, visibleIds, emptyColumnIds]);
   const columnOrder = useMemo<ColumnOrderState>(
     () => [
       SELECT_COLUMN_ID,
@@ -697,6 +720,46 @@ export function DataTable<T>(props: DataTableProps<T>) {
   };
 
   // ---- Render --------------------------------------------------------------------------------------------------------
+  const [cues, setCues] = useState({ left: false, right: false });
+  const updateCues = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const left = el.scrollLeft > 2;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+    setCues((c) => (c.left === left && c.right === right ? c : { left, right }));
+  }, []);
+  useEffect(() => {
+    updateCues();
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => updateCues());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [updateCues, table.getTotalSize()]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Numbers never truncate (DESIGN §2): after each render, a numeric column narrower than its widest rendered value
+  // (or its header) grows to fit it. Only ever grows, so it settles in one pass; "Reset column widths" starts over.
+  // No dependency list on purpose: virtualised rows render as the body scrolls, and each new row is measured too.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    const grow: ColumnSizingState = {};
+    for (const col of table.getVisibleLeafColumns()) {
+      if (!col.columnDef.meta?.numeric) continue;
+      let need = 0;
+      for (const el of root.querySelectorAll<HTMLElement>(`[data-col="${CSS.escape(col.id)}"]`)) {
+        const content = el.firstElementChild as HTMLElement | null;
+        if (!content) continue;
+        const cs = getComputedStyle(el);
+        const pad = (Number.parseFloat(cs.paddingLeft) || 0) + (Number.parseFloat(cs.paddingRight) || 0);
+        need = Math.max(need, Math.ceil(content.scrollWidth + pad + 1));
+      }
+      if (need > col.getSize()) grow[col.id] = need;
+    }
+    if (Object.keys(grow).length > 0) setColumnSizing((prev) => ({ ...prev, ...grow }));
+  });
+
   const selectedCount = Object.keys(rowSelection).filter((k) => rowSelection[k]).length;
   const state: "loading" | "error" | "empty" | "ready" = loading
     ? "loading"
@@ -735,12 +798,12 @@ export function DataTable<T>(props: DataTableProps<T>) {
         onDoubleClick={() => onRowOpen?.(row.original)}
         onContextMenu={() => onRowContextMenu(index)}
         className={cn(
-          "relative flex w-full items-stretch border-b hairline-50 text-body text-primary select-none",
-          index % 2 === 1 && "bg-white/2",
+          "relative flex w-full items-stretch border-b border-line-faint text-body text-primary select-none transition-colors duration-hover ease-out",
+          index % 2 === 1 && "bg-white/1.5",
           "hover:bg-white/4",
-          // The selected-row bar is a pseudo-element: a <tr> may only hold cells, so no extra element here.
-          selected && "bg-kit-primary/8 before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:w-0.75 before:bg-kit-primary",
-          focused && focusWithin && "outline-2 -outline-offset-2 outline-link",
+          // The selected row: an accent plate with a lit left edge (a pseudo-element: a <tr> may only hold cells).
+          selected && "row-selected hover:bg-accent/12 before:pointer-events-none before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-kit-primary",
+          focused && focusWithin && "outline-1 -outline-offset-1 outline-accent/70",
           rowClassName?.(row.original),
         )}
       >
@@ -753,12 +816,14 @@ export function DataTable<T>(props: DataTableProps<T>) {
             <td
               key={cell.id}
               role="gridcell"
+              data-col={cell.column.id}
               className={cn(
-                "flex min-w-0 items-center overflow-hidden px-2 whitespace-nowrap",
+                "flex min-w-0 items-center overflow-hidden px-2.5 whitespace-nowrap",
                 align === "right" && "justify-end text-right",
                 align === "center" && "justify-center text-center",
                 numeric && "tabular",
-                last && "flex-1",
+                ci === 0 && "pl-3",
+                last && "flex-1 pr-3",
                 meta?.className,
               )}
               style={{
@@ -766,7 +831,15 @@ export function DataTable<T>(props: DataTableProps<T>) {
                 minWidth: last ? cell.column.getSize() : undefined,
               }}
             >
-              <span className="truncate">
+              {/* Numbers never truncate: their column grows to fit them (see the numeric fit effect). */}
+              {/* Text cells: a row's long free text may end in an ellipsis (a list convention), with the whole value in a
+                  tooltip; numbers never do. */}
+              <span
+                className={numeric ? "whitespace-nowrap" : "truncate [&_a]:min-w-0 [&_a]:truncate"}
+                data-cell-content=""
+                data-allow-truncate={numeric ? undefined : ""}
+                title={!numeric && typeof cell.getValue() === "string" ? (cell.getValue() as string) : undefined}
+              >
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
               </span>
             </td>
@@ -783,6 +856,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
       style={{ height }}
       data-density={density}
       data-state={state}
+      onScroll={updateCues}
     >
       <table
         role="grid"
@@ -805,14 +879,14 @@ export function DataTable<T>(props: DataTableProps<T>) {
         style={{ minWidth: totalWidth }}
       >
         <thead
-          className="sticky top-0 z-10 grid bg-panel-alt"
+          className="table-head sticky top-0 z-10 grid"
           onContextMenu={(e) => e.stopPropagation()}
         >
           {table.getHeaderGroups().map((hg) => (
             <tr
               key={hg.id}
               role="row"
-              className="flex h-panel-header w-full border-b border-subtle"
+              className="flex h-control-lg w-full"
               style={{ minWidth: totalWidth }}
             >
               {hg.headers.map((header, hi) => {
@@ -839,11 +913,13 @@ export function DataTable<T>(props: DataTableProps<T>) {
                             ? "none"
                             : undefined
                     }
+                    data-col={col.id}
                     className={cn(
-                      "relative flex min-w-0 items-center px-2",
+                      "relative flex min-w-0 items-center px-2.5",
                       align === "right" && "justify-end",
                       align === "center" && "justify-center",
-                      last && "flex-1",
+                      hi === 0 && "pl-3",
+                      last && "flex-1 pr-3",
                     )}
                     style={{ width: col.getSize(), minWidth: last ? col.getSize() : undefined }}
                   >
@@ -852,8 +928,9 @@ export function DataTable<T>(props: DataTableProps<T>) {
                         type="button"
                         onClick={col.getToggleSortingHandler()}
                         className={cn(
-                          "t-label flex min-w-0 items-center gap-1 rounded-chip hover:text-primary focus-visible:outline-2",
-                          sorted && "text-primary",
+                          "t-data group/sort -mx-1 flex min-w-0 items-center gap-1 rounded-xs px-1 py-0.5 transition-colors duration-hover hover:text-primary focus-visible:shadow-ring",
+                          align === "right" && "flex-row-reverse",
+                          sorted && "text-secondary",
                         )}
                         title={`Sort by ${label}. Shift+click to add a secondary sort.`}
                       >
@@ -869,18 +946,19 @@ export function DataTable<T>(props: DataTableProps<T>) {
                                 : ChevronsUpDown
                           }
                           size={12}
-                          className={cn(!sorted && "text-secondary/70")}
+                          className={cn("shrink-0", sorted ? "text-kit-lift" : "opacity-0 transition-opacity duration-hover group-hover/sort:opacity-100 group-focus-visible/sort:opacity-100")}
                         />
                         {sortIndex ? (
-                          <span className="font-mono text-label text-secondary">{sortIndex}</span>
+                          <span className="font-mono text-micro text-secondary">{sortIndex}</span>
                         ) : null}
                       </button>
                     ) : (
                       <span
                         className={cn(
-                          "t-label truncate",
+                          "t-data truncate",
                           col.id === SELECT_COLUMN_ID && "flex items-center",
                         )}
+                        title={col.id === SELECT_COLUMN_ID ? undefined : label}
                       >
                         {flexRender(col.columnDef.header, header.getContext())}
                       </span>
@@ -908,8 +986,8 @@ export function DataTable<T>(props: DataTableProps<T>) {
                           }
                         }}
                         className={cn(
-                          "absolute inset-y-0 right-0 w-1.5 cursor-col-resize touch-none select-none after:absolute after:inset-y-1.5 after:right-0.5 after:w-px after:bg-subtle hover:after:bg-secondary focus-visible:after:bg-link",
-                          col.getIsResizing() && "after:bg-link",
+                          "absolute inset-y-0 right-0 w-1.5 cursor-col-resize touch-none select-none after:absolute after:inset-y-3 after:right-0.5 after:w-px after:bg-line after:transition-colors hover:after:bg-secondary focus-visible:after:bg-accent",
+                          col.getIsResizing() && "after:bg-accent",
                         )}
                       />
                     ) : null}
@@ -969,6 +1047,13 @@ export function DataTable<T>(props: DataTableProps<T>) {
     </div>
   );
 
+  // Columns past the right edge scroll inside the panel; a fade at the edge says so instead of a silent cut.
+  const cuedBody = (
+    <div className="scroll-cues relative min-w-0" data-more-left={cues.left || undefined} data-more-right={cues.right || undefined}>
+      {body}
+    </div>
+  );
+
   const chooserColumns = table
     .getAllLeafColumns()
     .filter((c) => c.id !== SELECT_COLUMN_ID && !c.columnDef.meta?.locked);
@@ -980,7 +1065,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
       aria-busy={loading || undefined}
     >
       {showToolbar ? (
-        <div className="flex min-h-panel-header flex-wrap items-center gap-2 border-b border-subtle bg-panel-alt px-2 py-1">
+        <div className="flex min-h-panel-header flex-wrap items-center gap-2 px-2.5 py-1.5 rule-fade">
           {hasViews ? (
             <SavedViewSelector
               views={views as SavedView[]}
@@ -994,7 +1079,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
               onRevert={() => applyView(activeView)}
             />
           ) : title ? (
-            <h2 className="t-label px-1">{title}</h2>
+            <h2 className="t-title px-1 text-primary">{title}</h2>
           ) : null}
           <FilterChips
             fields={filterFields}
@@ -1071,7 +1156,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
 
       {rowActions ? (
         <ContextMenu onOpenChange={(o) => (o ? null : setMenuRow(null))}>
-          <ContextMenuTrigger asChild>{body}</ContextMenuTrigger>
+          <ContextMenuTrigger asChild>{cuedBody}</ContextMenuTrigger>
           <ContextMenuContent aria-label="Row actions">
             {menuActions.length === 0 ? (
               <ContextMenuItem disabled>No actions</ContextMenuItem>
@@ -1100,12 +1185,12 @@ export function DataTable<T>(props: DataTableProps<T>) {
           </ContextMenuContent>
         </ContextMenu>
       ) : (
-        body
+        cuedBody
       )}
 
       {footer === null ? null : (
         <div
-          className="flex h-6 shrink-0 items-center gap-3 border-t border-subtle px-3 text-small text-secondary tabular-nums"
+          className="flex h-control-sm shrink-0 items-center gap-3 border-t border-line px-3 text-small text-tertiary tabular-nums"
           data-table-footer
         >
           {footer ?? (

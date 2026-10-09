@@ -8,6 +8,12 @@ import "../widgets";
 import { CustomMetricSettingsEditor, formatMetric, metricQueryInput, type CustomMetricSettings } from "../widgets/custom-metric";
 import { BID, customMetric } from "./fixtures";
 
+/** A figure (dugout `Figure`) splits its currency, digits and decimals into spans; match the whole figure's text. */
+function byFigure(text: string) {
+  return screen.getByText((_, el) => !!el && el.hasAttribute("data-figure") && el.textContent === text);
+}
+
+
 const def = getWidget("custom_metric")!;
 const base = parseWidgetSettings(def, {}) as CustomMetricSettings;
 
@@ -70,7 +76,7 @@ describe("custom metric settings editor", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Preview" }));
     expect(fake.queried.get("dashboard.customMetric.get")).toEqual({ queryId: "mrr" });
-    expect(screen.getByText("€1,250.00")).toBeTruthy();
+    expect(byFigure("€1,250.00")).toBeTruthy();
   });
 });
 
@@ -98,7 +104,7 @@ describe("custom metric widget", () => {
     );
     expect(fake.queried.get("dashboard.customMetric.get")).toEqual({ sql: "select mrr from v_finance", queryId: undefined });
     expect(screen.getByText("Estimate")).toBeTruthy();
-    expect(screen.getByText("€1,250.00")).toBeTruthy();
+    expect(byFigure("€1,250.00")).toBeTruthy();
     expect(screen.queryByRole("textbox")).toBeNull();
   });
 });

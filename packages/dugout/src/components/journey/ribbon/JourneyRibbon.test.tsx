@@ -172,7 +172,8 @@ describe("JourneyRibbon", () => {
       act(() => ref.current?.ripple({ kind: "payment", amountMinor: 5900, label: "Payment from Alma Botanics" }));
       expect(container.querySelector("[data-ripple='payment']")).toBeTruthy();
       expect(screen.getByText("Payment from Alma Botanics just now")).toBeTruthy();
-      expect(container.querySelector("[data-today] text")?.textContent).toContain("Today · 1 live");
+      expect(container.querySelector("[data-today-tag]")?.textContent).toContain("Today · ");
+      expect(container.querySelector("[data-today-tag]")?.textContent).toContain(" · 1 live");
       act(() => {
         vi.advanceTimersByTime(400);
       });

@@ -47,7 +47,7 @@ export function AgentTile({ session, view: viewProp, defaultView = "terminal", o
   };
   return (
     <TileFrame session={session} views={AGENT_TILE_VIEWS} view={view} onViewChange={setView} focused={focused} compact={compact} controls={controls} onFocus={onFocus} onOpenTask={onOpenTask} now={now} className={className}>
-      {view === "terminal" ? <TerminalView chunks={session.stdout} label={`Terminal output for ${session.agent.name}`} renderer={terminalRenderer} /> : null}
+      {view === "terminal" ? <TerminalView chunks={session.stdout} label={`Terminal output for ${session.agent.name}`} renderer={terminalRenderer} agentName={session.agent.name} live={session.status === "running" || session.status === "review" || session.status === "merging"} /> : null}
       {view === "diff" ? <DiffPane files={session.files} engine={diffEngine} hideFiles={compact && !focused} /> : null}
       {view === "preview" ? <PreviewView preview={session.preview} agentName={session.agent.name} now={now} /> : null}
       {view === "plan" ? <PlanView plan={session.plan} tests={session.tests} /> : null}

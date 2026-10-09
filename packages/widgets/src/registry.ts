@@ -51,8 +51,13 @@ export type AnyWidgetDefinition = WidgetDefinition<any>;
 
 const registry = new Map<string, AnyWidgetDefinition>();
 
+/**
+ * Registers a widget definition. Registering the same key again replaces the earlier definition: under `next dev`
+ * (Turbopack hot reload, or a definition module reached through two import paths) a widget module can evaluate twice,
+ * and throwing there left Home's Journey on its skeleton. Keys are unique by construction; a unit test checks the
+ * source so a real collision still fails CI.
+ */
 export function registerWidget<S>(def: WidgetDefinition<S>): WidgetDefinition<S> {
-  if (registry.has(def.key)) throw new Error(`Widget "${def.key}" is already registered`);
   registry.set(def.key, def);
   return def;
 }

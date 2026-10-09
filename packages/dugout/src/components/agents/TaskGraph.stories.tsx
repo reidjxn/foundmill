@@ -40,3 +40,21 @@ export const Linear: Story = {
 };
 
 export const Empty: Story = { args: { nodes: [], height: 200 } };
+
+/** A hundred independent tasks: the layer wraps into side-by-side columns of eight, and the graph opens at a readable zoom at the top left. */
+export const ManyIndependentTasks: Story = {
+  args: {
+    nodes: Array.from({ length: 100 }, (_, i) => ({
+      id: `t${i}`,
+      title: ["Monthly management accounts", "Customer interview synthesis", "Creator seeding round", "Stability check on serum batch"][i % 4]! + ` #${Math.floor(i / 4) + 1}`,
+      status: (["done", "running", "planned", "blocked"] as const)[i % 4]!,
+      deps: [],
+    })),
+    height: 520,
+  },
+  render: (args) => (
+    <div style={{ width: 1100 }}>
+      <TaskGraph {...args} />
+    </div>
+  ),
+};

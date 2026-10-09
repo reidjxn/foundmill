@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Check, Columns2, Pencil, Rows3, X } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { Button } from "../foundation/Button";
 import { Chip } from "../foundation/Chip";
+import { Icon } from "../foundation/Icon";
 import { StatusPill } from "../foundation/StatusPill";
 import { Textarea } from "../foundation/Textarea";
 import {
@@ -51,31 +52,42 @@ export interface DiffViewProps {
 
 const LINE_CLASS: Record<DiffLine["kind"], string> = {
   equal: "text-primary",
-  insert: "bg-status-good/12 text-primary",
-  delete: "bg-status-bad/12 text-secondary",
+  insert: "bg-status-good/10 text-primary diff-edge-add",
+  delete: "bg-status-bad/10 text-secondary diff-edge-del",
 };
+/** The sign column's colour per kind. */
+const SIGN_CLASS: Record<DiffLine["kind"], string> = { equal: "text-tertiary", insert: "text-status-good", delete: "text-status-bad" };
 const SIGN: Record<DiffLine["kind"], string> = { equal: " ", insert: "+", delete: "−" };
 
 function Gutter({ n }: { n: number | undefined }) {
   return (
-    <span className="w-10 shrink-0 select-none pr-2 text-right text-secondary/70 tabular-nums">
+    <span className="w-10 shrink-0 select-none pr-2 text-right text-tertiary/80 tabular-nums">
       {n ?? ""}
     </span>
   );
 }
 
+/** An empty cell on the side a line does not exist on (side by side): a faint hatch, so the gap reads as absent. */
+function Absent() {
+  return <div className="diff-absent min-h-4.5 min-w-0" aria-hidden />;
+}
+
+/**
+ * One diff line. Lines wrap (pre-wrap, breaking long words) inside their own cell, so the columns of a side-by-side or
+ * three-way diff can never print over each other.
+ */
 function Line({ line, side }: { line: DiffLine; side?: "old" | "new" }) {
   const hiddenOnSide =
     side === "old" ? line.kind === "insert" : side === "new" ? line.kind === "delete" : false;
-  if (hiddenOnSide) return <div className="flex h-4.5 bg-panel-alt/40" aria-hidden />;
+  if (hiddenOnSide) return <Absent />;
   return (
     <div
-      className={cn("flex min-h-4.5 whitespace-pre font-mono text-mono", LINE_CLASS[line.kind])}
+      className={cn("flex min-h-4.5 min-w-0 whitespace-pre-wrap break-words font-mono text-mono", LINE_CLASS[line.kind])}
       data-kind={line.kind}
     >
       {side !== "new" ? <Gutter n={line.oldLine} /> : null}
       {side !== "old" ? <Gutter n={line.newLine} /> : null}
-      <span className="w-4 shrink-0 select-none text-center" aria-hidden>
+      <span className={cn("w-4 shrink-0 select-none text-center", SIGN_CLASS[line.kind])} aria-hidden>
         {SIGN[line.kind]}
       </span>
       <span className="sr-only">
@@ -164,7 +176,7 @@ function HunkEditor({
 }) {
   const [text, setText] = useState(initial);
   return (
-    <div className="flex flex-col gap-2 border-t border-subtle bg-ink p-2">
+    <div className="flex flex-col gap-2 border-t border-line bg-surface-1 p-2.5">
       <Textarea
         mono
         value={text}
@@ -172,7 +184,6 @@ function HunkEditor({
         rows={Math.min(16, Math.max(3, initial.split("\n").length + 1))}
         aria-label="Edit this hunk"
         autoFocus
-        className="bg-panel"
       />
       <div className="flex justify-end gap-1.5">
         <Button size="sm" variant="ghost" onClick={onCancel}>
@@ -245,57 +256,49 @@ export function DiffView({
       data-diff-view
       data-mode={mode}
     >
-      <header className="flex h-panel-header shrink-0 items-center gap-2 border-b border-subtle bg-panel-alt px-panel-pad">
+      <header className="flex min-h-panel-header shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-panel-pad py-1.5 rule-fade">
         {title ? (
-          <h3 className="t-label min-w-0 flex-1 truncate">{title}</h3>
+          <h3 className="t-title min-w-0 flex-1 break-words text-primary">{title}</h3>
         ) : (
           <span className="flex-1" />
         )}
-        <span className="flex items-center gap-1.5 text-small tabular-nums">
+        <span className="flex flex-wrap items-center gap-x-1.5 font-mono text-micro tabular-nums">
           <span className="text-status-good">+{summary.added}</span>
           <span className="text-status-bad">−{summary.removed}</span>
-          <span className="text-secondary">
+          <span className="text-tertiary">
             · {summary.hunks} {summary.hunks === 1 ? "hunk" : "hunks"}
           </span>
           {!readOnly && summary.hunks > 0 ? (
-            <span className="text-secondary">
+            <span className="text-tertiary">
               · {summary.accepted} accepted, {summary.rejected} rejected
               {summary.edited ? `, ${summary.edited} edited` : ""}, {summary.pending} pending
             </span>
           ) : null}
         </span>
         {three ? null : (
-          <div
-            role="radiogroup"
-            aria-label="Diff layout"
-            className="ml-2 flex items-center gap-0.5"
-          >
-            <Button
-              size="sm"
-              variant={mode === "inline" ? "default" : "ghost"}
-              icon={Rows3}
-              role="radio"
-              aria-checked={mode === "inline"}
-              onClick={() => setMode("inline")}
-              className="h-6 px-1.5"
-            >
-              Inline
-            </Button>
-            <Button
-              size="sm"
-              variant={mode === "side-by-side" ? "default" : "ghost"}
-              icon={Columns2}
-              role="radio"
-              aria-checked={mode === "side-by-side"}
-              onClick={() => setMode("side-by-side")}
-              className="h-6 px-1.5"
-            >
-              Side by side
-            </Button>
+          <div role="radiogroup" aria-label="Diff layout" className="seg-track ml-1 h-control-sm">
+            {(
+              [
+                { m: "inline", label: "Inline", icon: Rows3 },
+                { m: "side-by-side", label: "Side by side", icon: Columns2 },
+              ] as const
+            ).map((o) => (
+              <button
+                key={o.m}
+                type="button"
+                role="radio"
+                aria-checked={mode === o.m}
+                onClick={() => setMode(o.m)}
+                className={cn("seg-item font-body text-action-sm font-medium focus-visible:shadow-ring", mode === o.m && "tile-tab-on text-primary")}
+              >
+                <Icon icon={o.icon} size="inline" />
+                {o.label}
+              </button>
+            ))}
           </div>
         )}
       </header>
-      <div className="overflow-auto bg-ink" style={maxHeight ? { maxHeight } : undefined}>
+      <div className="min-w-0 overflow-auto bg-ink" style={maxHeight ? { maxHeight } : undefined}>
         {hunks.length === 0 && !three ? (
           <p className="p-panel-pad text-body text-secondary">No differences.</p>
         ) : null}
@@ -316,10 +319,10 @@ export function DiffView({
                   data-hunk={h.id}
                   data-decision={state.decision}
                   aria-label={`Hunk ${h.index + 1}`}
-                  className="border-b border-subtle last:border-b-0"
+                  className="border-b border-line last:border-b-0"
                 >
-                  <div className="flex h-panel-header items-center gap-2 bg-panel px-2">
-                    <span className="font-mono text-mono text-secondary">{hunkHeader(h)}</span>
+                  <div className="flex min-h-control-lg flex-wrap items-center gap-2 border-b border-line-faint bg-surface-1/70 px-2.5 py-1">
+                    <span className="font-mono text-micro text-tertiary">{hunkHeader(h)}</span>
                     <DecisionPill decision={state.decision} />
                     <span className="flex-1" />
                     {!readOnly ? (
@@ -332,19 +335,16 @@ export function DiffView({
                     ) : null}
                   </div>
                   {mode === "side-by-side" ? (
-                    <div className="grid grid-cols-2">
-                      <div className="border-r border-subtle">
-                        <p className="t-label px-2 py-0.5">{labelOld}</p>
-                        {h.lines.map((l) => (
-                          <Line key={l.key} line={l} side="old" />
-                        ))}
-                      </div>
-                      <div>
-                        <p className="t-label px-2 py-0.5">{labelNew}</p>
-                        {h.lines.map((l) => (
-                          <Line key={l.key} line={l} side="new" />
-                        ))}
-                      </div>
+                    // Row by row, so a wrapped line keeps its partner level with it; each cell is min-w-0.
+                    <div className="grid grid-cols-2 divide-x divide-line" data-diff-columns="2">
+                      <p className="t-data px-2.5 py-1">{labelOld}</p>
+                      <p className="t-data px-2.5 py-1">{labelNew}</p>
+                      {h.lines.map((l) => (
+                        <Fragment key={l.key}>
+                          <Line line={l} side="old" />
+                          <Line line={l} side="new" />
+                        </Fragment>
+                      ))}
                     </div>
                   ) : (
                     <div className={cn(state.decision === "rejected" && "opacity-70")}>
@@ -354,8 +354,8 @@ export function DiffView({
                     </div>
                   )}
                   {state.decision === "edited" && state.text !== undefined && !isEditing ? (
-                    <div className="border-t border-subtle bg-panel/40 p-2">
-                      <p className="t-label mb-1">Edited text</p>
+                    <div className="border-t border-line bg-surface-1/50 p-2.5">
+                      <p className="t-data mb-1">Edited text</p>
                       <pre className="whitespace-pre-wrap font-mono text-mono text-primary">
                         {state.text}
                       </pre>
@@ -378,9 +378,9 @@ export function DiffView({
 
 const CELL_CLASS: Record<ThreeWayRow["oursKind"], string> = {
   equal: "text-primary",
-  changed: "bg-status-warn/12 text-primary",
-  added: "bg-status-good/12 text-primary",
-  missing: "bg-status-bad/12 text-secondary",
+  changed: "bg-status-warn/10 text-primary diff-edge-change",
+  added: "bg-status-good/10 text-primary diff-edge-add",
+  missing: "bg-status-bad/10 text-secondary diff-edge-del",
 };
 
 function ThreeWayHunkView({
@@ -395,10 +395,10 @@ function ThreeWayHunkView({
       data-hunk={hunk.id}
       data-conflict={hunk.conflict || undefined}
       aria-label={`Hunk ${hunk.index + 1}${hunk.conflict ? ", conflict" : ""}`}
-      className="border-b border-subtle last:border-b-0"
+      className="border-b border-line last:border-b-0"
     >
-      <div className="flex h-panel-header items-center gap-2 bg-panel px-2">
-        <span className="font-mono text-mono text-secondary">
+      <div className="flex min-h-control-lg flex-wrap items-center gap-2 border-b border-line-faint bg-surface-1/70 px-2.5 py-1">
+        <span className="font-mono text-micro text-tertiary">
           @@ base {hunk.baseStart}
           {hunk.baseEnd >= hunk.baseStart ? `–${hunk.baseEnd}` : ""} @@
         </span>
@@ -414,34 +414,38 @@ function ThreeWayHunkView({
           </Chip>
         )}
       </div>
-      <div className="grid grid-cols-3">
+      {/* Row by row in three min-w-0 columns: each cell wraps its own text, so a long line can never print over the
+          next column, and a row's three cells stay level. */}
+      <div className="grid grid-cols-3 divide-x divide-line" data-diff-columns="3">
         {(["base", "ours", "theirs"] as const).map((col) => (
-          <div key={col} className={cn(col !== "theirs" && "border-r border-subtle")}>
-            <p className="t-label px-2 py-0.5">{labels[col]}</p>
-            {hunk.rows.map((r, i) => {
-              const kind =
-                col === "base" ? ("equal" as const) : col === "ours" ? r.oursKind : r.theirsKind;
-              const text = col === "base" ? r.base : col === "ours" ? r.ours : r.theirs;
-              const show =
-                col === "base"
-                  ? r.baseLine !== undefined
-                  : kind !== "missing" && text !== undefined;
-              return (
-                <div
-                  key={i}
-                  className={cn(
-                    "flex min-h-4.5 whitespace-pre font-mono text-mono",
-                    show ? CELL_CLASS[kind] : "bg-panel-alt/40",
-                  )}
-                  data-kind={kind}
-                >
-                  <Gutter n={col === "base" ? r.baseLine : undefined} />
-                  <span className="min-w-0 flex-1 pr-3">{show ? text || " " : ""}</span>
-                </div>
-              );
-            })}
-          </div>
+          <p key={col} className="t-data min-w-0 px-2.5 py-1">
+            {labels[col]}
+          </p>
         ))}
+        {hunk.rows.map((r, i) =>
+          (["base", "ours", "theirs"] as const).map((col) => {
+            const kind =
+              col === "base" ? ("equal" as const) : col === "ours" ? r.oursKind : r.theirsKind;
+            const text = col === "base" ? r.base : col === "ours" ? r.ours : r.theirs;
+            const show =
+              col === "base"
+                ? r.baseLine !== undefined
+                : kind !== "missing" && text !== undefined;
+            return show ? (
+              <div
+                key={`${i}-${col}`}
+                className={cn("flex min-h-4.5 min-w-0 whitespace-pre-wrap break-words font-mono text-mono", CELL_CLASS[kind])}
+                data-kind={kind}
+                data-col={col}
+              >
+                <Gutter n={col === "base" ? r.baseLine : undefined} />
+                <span className="min-w-0 flex-1 pr-3">{text || " "}</span>
+              </div>
+            ) : (
+              <div key={`${i}-${col}`} className="diff-absent min-h-4.5 min-w-0" data-kind={kind} data-col={col} aria-hidden />
+            );
+          }),
+        )}
       </div>
     </section>
   );

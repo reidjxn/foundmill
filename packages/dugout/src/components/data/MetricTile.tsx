@@ -1,5 +1,6 @@
 "use client";
 import { forwardRef, useId, type HTMLAttributes, type ReactNode } from "react";
+import { area as d3Area, curveMonotoneX, line as d3Line } from "d3-shape";
 import { Info, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "../../lib/cn";
 import {
@@ -12,8 +13,9 @@ import {
 import { ProvenanceChip, type ProvenanceKind } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
 import { Skeleton } from "../foundation/Skeleton";
-import { Sparkline } from "../foundation/Sparkline";
+import { FitText } from "../foundation/FitText";
 import { Tooltip } from "../foundation/Tooltip";
+import { Figure } from "./Figure";
 import type { MetricDelta, MetricProvenance, MetricValue } from "./types";
 
 export interface MetricTileProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
@@ -25,7 +27,7 @@ export interface MetricTileProps extends Omit<HTMLAttributes<HTMLDivElement>, "t
   format?: "compact" | "percent" | "integer" | "decimal";
   unit?: string;
   delta?: MetricDelta;
-  /** 48 px sparkline under the number. */
+  /** A full-width sparkline at the foot of the tile. */
   spark?: readonly number[];
   provenance?: MetricProvenance;
   /** "Forecast" or "Estimate" chip next to the number (DESIGN §10). */
@@ -69,6 +71,11 @@ export function deltaTone(delta: MetricDelta): "good" | "bad" | "neutral" {
   return up === goodUp ? "good" : "bad";
 }
 
+/**
+ * The change since the last period as a status pill (DESIGN §8): one trend icon and the figure in the delta's own tone,
+ * the comparison in the pill ("↗ 439% vs prior week"). The word "up"/"down" is in the accessible name, so colour and
+ * icon are never the only signal.
+ */
 export function DeltaBadge({ delta, className }: { delta: MetricDelta; className?: string }) {
   const tone = deltaTone(delta);
   const up = delta.value > 0;
@@ -83,20 +90,23 @@ export function DeltaBadge({ delta, className }: { delta: MetricDelta; className
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-0.5 text-small tabular-nums",
-        tone === "good" && "text-status-good",
-        tone === "bad" && "text-status-bad",
-        tone === "neutral" && "text-secondary",
+        "chip-tone inline-flex h-badge max-w-full shrink-0 items-center gap-1 whitespace-nowrap rounded-pill border pl-1 pr-1.5 font-body text-small font-medium tabular-nums",
+        tone === "good" && "tone-status-good text-status-good",
+        tone === "bad" && "tone-status-bad text-status-bad",
+        tone === "neutral" && "tone-secondary text-secondary",
         className,
       )}
       aria-label={`${word} ${flat ? "" : body}${delta.label ? ` ${delta.label}` : ""}`.trim()}
       data-tone={tone}
+      data-delta=""
     >
-      <Icon icon={flat ? Minus : up ? TrendingUp : TrendingDown} size={12} />
-      <span aria-hidden>
-        {flat ? "—" : up ? "▲" : "▼"} {flat ? "0" : body}
-      </span>
-      {delta.label ? <span className="text-secondary">{delta.label}</span> : null}
+      <Icon icon={flat ? Minus : up ? TrendingUp : TrendingDown} size={12} strokeWidth={2} />
+      <span aria-hidden>{flat ? "0" : body}</span>
+      {delta.label ? (
+        <span aria-hidden className="font-normal opacity-80">
+          {delta.label}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -113,10 +123,73 @@ function ProvenanceTip({ p }: { p: MetricProvenance }) {
   );
 }
 
+/** The compact copy of a figure that does not fit even at its floor ("£1,234,567.00" → "£1.2M"). */
+function compactFallback(value: MetricValue | null | undefined, text: string): string | undefined {
+  if (value === null || value === undefined || typeof value === "string") return undefined;
+  const compact = typeof value === "object" ? formatMoney(value, { compact: true }) : formatCompact(value);
+  return compact === text ? undefined : compact;
+}
+
 /**
- * MetricTile (DESIGN §9): display-lg figure, label caption, delta with an arrow, 48 px sparkline, provenance on hover,
- * Forecast/Estimate chip when the number is not real. Big numbers never animate digit by digit. The tile itself is a
- * plain container (a StatusStrip gives it `role="listitem"`); when clickable it holds a covering button.
+ * A tile sparkline: the full width of the tile, 20 px tall, a monotone line with a three-stop fill and a haloed dot at
+ * "now". Drawn in a 100-unit viewBox stretched to the tile (strokes keep their width), the dot in HTML so it stays
+ * round. Colour from currentColor.
+ */
+export function TileSpark({ data, label, className }: { data: readonly number[]; label?: string; className?: string }) {
+  const id = useId();
+  const n = data.length;
+  if (n < 2) return null;
+  let lo = Math.min(...data);
+  let hi = Math.max(...data);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) {
+    lo = 0;
+    hi = 1;
+  }
+  if (hi === lo) {
+    lo -= 0.5;
+    hi += 0.5;
+  }
+  const H = 20;
+  const pad = 3;
+  const x = (i: number) => (i / (n - 1)) * 100;
+  const y = (v: number) => H - pad - ((v - lo) / (hi - lo)) * (H - pad * 2);
+  const pts = data.map((v, i) => [x(i), y(v)] as [number, number]);
+  const line = d3Line<[number, number]>().curve(curveMonotoneX)(pts) ?? "";
+  const area =
+    d3Area<[number, number]>()
+      .y0(H)
+      .curve(curveMonotoneX)(pts) ?? "";
+  const last = pts[n - 1] as [number, number];
+  const first = data[0];
+  const end = data[n - 1];
+  return (
+    <span role="img" aria-label={label ?? `${n} points, from ${first} to ${end}`} className={cn("relative block h-5 w-full", className)} data-tile-spark="">
+      <svg aria-hidden width="100%" height={H} viewBox={`0 0 100 ${H}`} preserveAspectRatio="none" className="block overflow-visible">
+        <defs>
+          <linearGradient id={`${id}-f`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="currentColor" stopOpacity={0.24} />
+            <stop offset="55%" stopColor="currentColor" stopOpacity={0.07} />
+            <stop offset="100%" stopColor="currentColor" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <path d={area} fill={`url(#${id}-f)`} />
+        <path d={line} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      </svg>
+      <span
+        aria-hidden
+        className="spark-dot absolute -translate-x-1/2 -translate-y-1/2"
+        style={{ left: "100%", top: `${(last[1] / H) * 100}%` }}
+      />
+    </span>
+  );
+}
+
+/**
+ * MetricTile (DESIGN §9, Mission "lg"): a caps data label, a 30 px figure with dimmed raised currency, dimmed decimals
+ * and unit, the dashed Estimate / Forecast chip with the word in full, the delta as a tone pill, a caption that wraps
+ * (never cut) and a full-width sparkline at the foot. The figure fits its tile: it steps down, then falls back to the
+ * compact form ("£1.2M"); it is never clipped. Big numbers never animate digit by digit. The tile is a plain container
+ * (a StatusStrip gives it `role="listitem"`); when clickable it holds a covering button.
  */
 export const MetricTile = forwardRef<HTMLDivElement, MetricTileProps>(function MetricTile(
   {
@@ -138,15 +211,18 @@ export const MetricTile = forwardRef<HTMLDivElement, MetricTileProps>(function M
   ref,
 ) {
   const text = formatMetricValue(value, format);
+  const fallback = compactFallback(value, text);
   const id = useId();
+  const tone = delta ? deltaTone(delta) : "neutral";
+  const sparkTone = tone === "good" ? "text-status-good" : tone === "bad" ? "text-status-bad" : "text-kit-lift";
   return (
     <div
       ref={ref}
       aria-busy={loading || undefined}
       data-metric-tile
       className={cn(
-        "relative flex min-w-0 flex-col justify-between gap-1 bg-panel p-panel-pad text-left",
-        onClick && "cursor-pointer transition-colors duration-micro ease-dugout hover:bg-panel-alt",
+        "relative flex min-w-0 flex-col gap-1.5 bg-panel px-panel-pad pb-3 pt-2.5 text-left",
+        onClick && "cursor-pointer transition-colors duration-hover ease-out hover:bg-white/2",
         className,
       )}
       {...rest}
@@ -155,55 +231,52 @@ export const MetricTile = forwardRef<HTMLDivElement, MetricTileProps>(function M
         <button
           type="button"
           onClick={() => onClick()}
-          aria-labelledby={`${id}-label ${id}-value`}
+          // Named in plain words: the figure's parts are separate spans, which some readers space out ("€ 1,840 .00").
+          aria-label={typeof label === "string" || typeof label === "number" ? `${label} ${text}${unit ? ` ${unit}` : ""}` : undefined}
+          aria-labelledby={typeof label === "string" || typeof label === "number" ? undefined : `${id}-label ${id}-value`}
           data-metric-action
-          className="absolute inset-0 cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2"
+          className="absolute inset-0 cursor-pointer focus-ring"
         />
       ) : null}
-      <div className="flex items-center gap-1">
-        <span id={`${id}-label`} className="t-label min-w-0 flex-1 truncate">
+      <div className="flex min-h-badge items-start gap-1">
+        <span id={`${id}-label`} className="t-data min-w-0 flex-1 break-words pt-0.5" data-metric-label>
           {label}
         </span>
         {provenance ? (
           <Tooltip content={<ProvenanceTip p={provenance} />} side="top" align="end">
             <button
               type="button"
-              className="relative z-10 inline-flex size-4 items-center justify-center rounded-chip text-secondary hover:text-primary focus-visible:outline-2"
+              className="relative z-10 -mr-1 -mt-0.5 inline-flex size-badge shrink-0 items-center justify-center rounded-pill text-tertiary transition-colors duration-hover hover:bg-white/6 hover:text-primary focus-ring"
               aria-label={`Where this number comes from: ${provenance.source}`}
             >
-              <Icon icon={Info} size={12} />
+              <Icon icon={Info} size={13} />
             </button>
           </Tooltip>
         ) : null}
       </div>
       {loading ? (
-        <Skeleton className={cn("w-2/3", size === "lg" ? "h-10" : "h-7")} />
+        <Skeleton className={cn("w-2/3", size === "lg" ? "h-10" : "h-8")} />
       ) : (
-        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <span
-            id={`${id}-value`}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <FitText
             className={cn(size === "lg" ? "t-display-xl" : "t-display-lg", "text-primary")}
-            data-value={text}
+            text={unit ? `${text} ${unit}` : text}
+            truncate={false}
+            fallback={fallback && unit ? `${fallback} ${unit}` : fallback}
+            tooltip={false}
           >
-            {text}
-            {unit ? <span className="ml-0.5 text-display-sm text-secondary">{unit}</span> : null}
-          </span>
-          {estimate ? <ProvenanceChip kind={estimate} className="relative z-10" /> : null}
+            <Figure id={`${id}-value`} value={text} unit={unit} data-value={text} />
+          </FitText>
+          {estimate ? <ProvenanceChip kind={estimate} className="relative z-10 ml-0.5" /> : null}
           {delta ? <DeltaBadge delta={delta} /> : null}
         </div>
       )}
-      {(spark && spark.length > 1) || caption ? (
-        <div className="flex items-end justify-between gap-2">
-          {caption ? (
-            <span className="min-w-0 truncate text-small text-secondary">{caption}</span>
-          ) : (
-            <span />
-          )}
-          {spark && spark.length > 1 ? (
-            <Sparkline data={spark} width={48} height={16} className="text-kit-primary" fill />
-          ) : null}
-        </div>
+      {caption ? (
+        <span className="line-clamp-2 min-w-0 text-small text-secondary" title={typeof caption === "string" ? caption : undefined} data-metric-caption>
+          {caption}
+        </span>
       ) : null}
+      {spark && spark.length > 1 ? <TileSpark data={spark} className={cn("mt-auto pt-1", sparkTone)} /> : null}
     </div>
   );
 });
@@ -213,24 +286,26 @@ export const STATUS_STRIP_MAX = 6;
 export interface StatusStripProps extends HTMLAttributes<HTMLDivElement> {
   /** Up to six tiles; extra tiles are dropped. */
   tiles: readonly MetricTileProps[];
+  /** Grow to fill a flex parent (a widget body) so the sparklines sit on the strip's floor. */
+  fill?: boolean;
 }
 
-/** A row of ≤ 6 MetricTiles with 1 px hairline gaps (Home status strip, Inbox reading pane). */
-export function StatusStrip({ tiles, className, ...rest }: StatusStripProps) {
+/**
+ * A row of ≤ 6 MetricTiles on one plate, separated by hairlines that fade at both ends (Home status strip, Inbox
+ * reading pane). Inside a panel pass `rounded-none border-0`.
+ */
+export function StatusStrip({ tiles, fill, className, ...rest }: StatusStripProps) {
   const shown = tiles.slice(0, STATUS_STRIP_MAX);
   return (
     <div
       role="list"
-      className={cn(
-        "grid gap-px overflow-hidden rounded-panel border border-subtle bg-subtle",
-        className,
-      )}
+      className={cn("grid overflow-hidden rounded-md border border-line bg-surface-1", fill && "min-h-0 flex-1", className)}
       style={{ gridTemplateColumns: `repeat(${Math.max(1, shown.length)}, minmax(0, 1fr))` }}
       data-status-strip
       {...rest}
     >
       {shown.map((t, i) => (
-        <MetricTile key={i} role="listitem" {...t} />
+        <MetricTile key={i} role="listitem" {...t} className={cn("bg-transparent", i > 0 && "strip-divider", t.className)} />
       ))}
     </div>
   );

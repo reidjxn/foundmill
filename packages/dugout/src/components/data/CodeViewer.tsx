@@ -29,8 +29,8 @@ export function CodeViewer({ path, text, size, binary, truncated, loading, class
   const lines = useMemo(() => (text === null ? 0 : text.endsWith("\n") ? text.split("\n").length - 1 : text.split("\n").length), [text]);
   const gutter = useMemo(() => Array.from({ length: Math.max(1, lines) }, (_, i) => i + 1).join("\n"), [lines]);
   return (
-    <section className={cn("flex min-h-0 min-w-0 flex-col overflow-hidden rounded-panel border border-subtle bg-ink", className)} aria-label={`File ${path}`} data-code-viewer={path}>
-      <header className="flex h-8 shrink-0 items-center gap-2 border-b border-subtle bg-panel-alt px-2.5">
+    <section className={cn("flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-line bg-ink shadow-elev-1", className)} aria-label={`File ${path}`} data-code-viewer={path}>
+      <header className="flex h-control-lg shrink-0 items-center gap-2 border-b border-line bg-surface-1 px-3">
         <Icon icon={FileCode} size="inline" className="text-secondary" />
         <span className="min-w-0 flex-1 truncate font-mono text-mono text-primary">{path}</span>
         {binary ? null : <span className="text-small tabular-nums text-secondary">{lines.toLocaleString("en-GB")} lines</span>}
@@ -44,7 +44,7 @@ export function CodeViewer({ path, text, size, binary, truncated, loading, class
         </EmptyState>
       ) : (
         <div className="flex min-h-0 flex-1 overflow-auto" data-code-body>
-          <pre aria-hidden className="m-0 select-none border-r border-subtle px-2 py-2 text-right font-mono text-mono text-secondary/70">
+          <pre aria-hidden className="m-0 select-none border-r border-line-faint px-2.5 py-2 text-right font-mono text-mono text-tertiary/70">
             {gutter}
           </pre>
           <pre className="m-0 min-w-0 flex-1 px-3 py-2 font-mono text-mono text-primary">
@@ -52,7 +52,7 @@ export function CodeViewer({ path, text, size, binary, truncated, loading, class
           </pre>
         </div>
       )}
-      {truncated ? <footer className="shrink-0 border-t border-subtle px-2.5 py-1 text-small text-secondary">Showing the first 1 MB of this file.</footer> : null}
+      {truncated ? <footer className="shrink-0 border-t border-line px-3 py-1.5 text-small text-tertiary">Showing the first 1 MB of this file.</footer> : null}
     </section>
   );
 }

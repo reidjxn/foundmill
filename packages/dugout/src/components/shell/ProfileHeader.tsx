@@ -2,6 +2,7 @@ import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import { Chip, ProvenanceChip, type ChipTone, type ProvenanceKind } from "../foundation/Chip";
 import type { IconComponent } from "../foundation/Icon";
+import { FitText } from "../foundation/FitText";
 import { StarRating } from "../foundation/StarRating";
 
 export interface ProfileChip {
@@ -38,20 +39,29 @@ export interface ProfileHeaderProps extends Omit<HTMLAttributes<HTMLElement>, "t
 export const PROFILE_FACTS_MAX = 3;
 
 /**
- * DESIGN §8: 96 px, avatar/logo 64 px, name display-md, role and kind chips, three key facts in label + body pairs,
- * actions right, model chip (mono, bg-panel-alt) and current/potential stars.
+ * DESIGN §8: 96 px, avatar/logo 64 px, the name in display-md, role and kind chips, up to three key facts as
+ * data-label + value pairs, actions right, the model chip (mono) and current/potential stars. The name never gives way:
+ * the facts shrink and wrap first, then the name steps its size down (FitText) before it would ever truncate.
  */
 export const ProfileHeader = forwardRef<HTMLElement, ProfileHeaderProps>(function ProfileHeader(
   { avatar, name, chips = [], facts = [], actions, model, stars, status, className, ...rest },
   ref,
 ) {
   const shownFacts = facts.slice(0, PROFILE_FACTS_MAX);
+  const nameText = typeof name === "string" || typeof name === "number" ? String(name) : undefined;
   return (
-    <header ref={ref} data-testid="profile-header" className={cn("flex h-24 items-center gap-4 border-b border-subtle bg-panel px-gutter", className)} {...rest}>
-      <div className="flex size-16 shrink-0 items-center justify-center [&>*]:size-16">{avatar}</div>
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <div className="flex min-w-0 items-center gap-3">
-          <h1 className="t-display-md min-w-0 truncate text-primary">{name}</h1>
+    <header
+      ref={ref}
+      data-testid="profile-header"
+      className={cn("rule-under flex min-h-profile-header items-center gap-x-4 px-gutter py-3", className)}
+      {...rest}
+    >
+      <div className="flex size-profile-avatar shrink-0 items-center justify-center [&>*]:size-profile-avatar">{avatar}</div>
+      <div className="flex min-w-0 flex-auto flex-col gap-1.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+          <h1 className="t-display-md flex min-w-0 max-w-full text-primary">
+            {nameText !== undefined ? <FitText minPx={15}>{nameText}</FitText> : <span className="min-w-0 text-balance">{name}</span>}
+          </h1>
           {stars ? <StarRating value={stars.current} potential={stars.potential} label="Ability" showValue /> : null}
           {model ? (
             <Chip tone="neutral" mono title="Model">
@@ -71,11 +81,11 @@ export const ProfileHeader = forwardRef<HTMLElement, ProfileHeaderProps>(functio
         ) : null}
       </div>
       {shownFacts.length > 0 ? (
-        <dl className="grid shrink-0 auto-cols-max grid-flow-col gap-x-6" data-testid="profile-facts">
+        <dl className="flex min-w-0 shrink-4 flex-wrap justify-end gap-x-6 gap-y-2" data-testid="profile-facts">
           {shownFacts.map((f) => (
-            <div key={f.label} className="flex flex-col gap-0.5">
-              <dt className="t-label">{f.label}</dt>
-              <dd className="inline-flex items-center gap-1.5 text-body-strong text-primary tabular-nums">
+            <div key={f.label} className="flex min-w-0 flex-col gap-0.5">
+              <dt className="t-data whitespace-nowrap">{f.label}</dt>
+              <dd className="inline-flex flex-wrap items-center gap-1.5 text-body-strong text-primary tabular-nums">
                 {f.value}
                 {f.provenance ? <ProvenanceChip kind={f.provenance} /> : null}
               </dd>
@@ -83,7 +93,7 @@ export const ProfileHeader = forwardRef<HTMLElement, ProfileHeaderProps>(functio
           ))}
         </dl>
       ) : null}
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+      {actions ? <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div> : null}
     </header>
   );
 });

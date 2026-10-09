@@ -38,7 +38,7 @@ const CLIENT_LIBS = [
 ];
 
 /** Files that re-export other modules. They must never carry the directive. */
-export const BARRELS = ["index.ts", "lib/index.ts", "components/foundation.ts", "components/shell.ts", "components/data.ts", "components/journey.ts", "components/agents.ts", "brand.ts"];
+export const BARRELS = ["index.ts", "lib/index.ts", "components/foundation.ts", "components/shell.ts", "components/data.ts", "components/journey.ts", "components/agents.ts", "components/conversation.ts", "brand.ts"];
 
 /** Server-safe exports a Server Component is expected to use directly (ARCHITECTURE §14, DESIGN §4). */
 export const SERVER_SAFE_FILES = [
@@ -75,9 +75,20 @@ export const SERVER_SAFE_FILES = [
   "components/agents/formation.ts",
   "components/agents/progress.ts",
   "components/data/csv.ts",
+  // Figure micro-typography: plain spans, no hooks (a server component can set a figure).
+  "components/data/Figure.tsx",
   "components/data/diff.ts",
   "components/data/filters.ts",
   "components/data/entityMarkup.ts",
+  // Conversation and generation: the presence, receipts, reactions, typing line, live run and drafting frame are CSS
+  // only (conversation.css); AgentDesk, QuickReplies and StreamingText are the client pieces.
+  "components/conversation/types.ts",
+  "components/conversation/ReadReceipt.tsx",
+  "components/conversation/Reaction.tsx",
+  "components/conversation/TypingLine.tsx",
+  "components/conversation/DeskPresence.tsx",
+  "components/conversation/LiveRun.tsx",
+  "components/conversation/DraftingCard.tsx",
 ];
 
 export function listSourceFiles(root = SRC): string[] {

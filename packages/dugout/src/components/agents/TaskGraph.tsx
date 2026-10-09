@@ -19,9 +19,14 @@ export interface LayoutOptions {
   gapX: number;
   gapY: number;
   padding: number;
+  /**
+   * Most nodes stacked in one column. A layer with more (a hundred independent tasks) wraps into side-by-side
+   * sub-columns, so the graph stays readable instead of becoming one very tall column. Default 8.
+   */
+  maxRows?: number;
 }
 
-export const DEFAULT_LAYOUT: LayoutOptions = { nodeWidth: 188, nodeHeight: 56, gapX: 56, gapY: 16, padding: 16 };
+export const DEFAULT_LAYOUT: LayoutOptions = { nodeWidth: 196, nodeHeight: 64, gapX: 56, gapY: 14, padding: 16, maxRows: 8 };
 
 export interface PositionedNode {
   id: string;
@@ -104,19 +109,31 @@ export function layoutTaskGraph(nodes: readonly TaskGraphNode[], opts: Partial<L
   barycenterSweep(layers, succs, "up");
   barycenterSweep(layers, preds, "down");
 
-  const tallest = Math.max(0, ...layers.map((l) => l.length));
+  const maxRows = Math.max(1, Math.floor(o.maxRows ?? Infinity));
+  const rowsIn = (n: number) => Math.min(n, maxRows);
+  const subCols = layers.map((l) => Math.max(1, Math.ceil(l.length / maxRows)));
+  const totalCols = subCols.reduce((a, b) => a + b, 0);
+  const tallest = Math.max(0, ...layers.map((l) => rowsIn(l.length)));
   const height = o.padding * 2 + tallest * o.nodeHeight + Math.max(0, tallest - 1) * o.gapY;
-  const width = o.padding * 2 + count * o.nodeWidth + Math.max(0, count - 1) * o.gapX;
+  // Sub-columns of one layer sit closer together than layers do, so a wrapped layer still reads as one step.
+  const subGap = Math.min(o.gapX, 24);
+  const width = o.padding * 2 + totalCols * o.nodeWidth + Math.max(0, count - 1) * o.gapX + (totalCols - count) * subGap;
   const positioned: PositionedNode[] = [];
   const pos = new Map<string, PositionedNode>();
+  let x = o.padding;
   layers.forEach((layerIds, li) => {
-    const layerHeight = layerIds.length * o.nodeHeight + Math.max(0, layerIds.length - 1) * o.gapY;
-    const top = o.padding + (height - o.padding * 2 - layerHeight) / 2;
-    layerIds.forEach((id, oi) => {
-      const p: PositionedNode = { id, layer: li, order: oi, x: o.padding + li * (o.nodeWidth + o.gapX), y: top + oi * (o.nodeHeight + o.gapY) };
-      positioned.push(p);
-      pos.set(id, p);
-    });
+    const cols = subCols[li] ?? 1;
+    for (let c = 0; c < cols; c++) {
+      const colIds = layerIds.slice(c * maxRows, (c + 1) * maxRows);
+      const colHeight = colIds.length * o.nodeHeight + Math.max(0, colIds.length - 1) * o.gapY;
+      const top = o.padding + (height - o.padding * 2 - colHeight) / 2;
+      colIds.forEach((id, k) => {
+        const p: PositionedNode = { id, layer: li, order: c * maxRows + k, x, y: top + k * (o.nodeHeight + o.gapY) };
+        positioned.push(p);
+        pos.set(id, p);
+      });
+      x += o.nodeWidth + (c < cols - 1 ? subGap : o.gapX);
+    }
   });
   const edges: LayoutEdge[] = [];
   for (const n of nodes) {
@@ -153,12 +170,13 @@ export const TASK_STATUS_META: Record<TaskStatus, { tone: StatusTone; word: stri
   stopped: { tone: "neutral", word: "Stopped", icon: Ban },
 };
 
+/** Node edges: quiet for finished work, lit for what needs eyes (running, blocked, failed). The bar and word carry the state. */
 const TONE_STROKE: Record<StatusTone, string> = {
-  good: "stroke-status-good",
-  warn: "stroke-status-warn",
-  bad: "stroke-status-bad",
-  info: "stroke-status-info",
-  neutral: "stroke-subtle",
+  good: "stroke-white/10",
+  warn: "stroke-status-warn/60",
+  bad: "stroke-status-bad/60",
+  info: "stroke-status-info/55",
+  neutral: "stroke-white/10",
 };
 const TONE_TEXT: Record<StatusTone, string> = {
   good: "text-status-good",
@@ -172,7 +190,7 @@ const TONE_FILL: Record<StatusTone, string> = {
   warn: "fill-status-warn",
   bad: "fill-status-bad",
   info: "fill-status-info",
-  neutral: "fill-subtle",
+  neutral: "fill-tertiary",
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -207,6 +225,20 @@ export function zoomAround(t: Transform, factor: number, px: number, py: number)
 }
 
 /** The transform that fits a `w × h` drawing into a `vw × vh` viewport. */
+/** The zoom below which node words stop being readable; the first view never goes under it. */
+export const READABLE_ZOOM = 0.7;
+
+/**
+ * The first view of a graph: the whole graph when it fits at a readable zoom, otherwise the readable zoom anchored at
+ * the top left (the first tasks), with the rest a pan away.
+ */
+export function readableTransform(w: number, h: number, vw: number, vh: number, pad = 16): Transform {
+  const fitted = fitTransform(w, h, vw, vh, pad);
+  if (fitted.k >= READABLE_ZOOM) return fitted;
+  const k = READABLE_ZOOM;
+  return { k, x: w * k < vw ? (vw - w * k) / 2 : pad, y: h * k < vh ? (vh - h * k) / 2 : pad };
+}
+
 export function fitTransform(w: number, h: number, vw: number, vh: number, pad = 16): Transform {
   if (w <= 0 || h <= 0 || vw <= 0 || vh <= 0) return { x: 0, y: 0, k: 1 };
   const k = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.min((vw - pad * 2) / w, (vh - pad * 2) / h, 1)));
@@ -232,6 +264,11 @@ export function TaskGraph({ nodes, selectedId, onSelect, layout: layoutOpts, hei
     const w = el?.clientWidth ?? 0;
     setT(fitTransform(layout.width, layout.height, w || layout.width + 32, height));
   }, [layout.width, layout.height, height]);
+  const firstView = useCallback(() => {
+    const el = hostRef.current;
+    const w = el?.clientWidth ?? 0;
+    setT(readableTransform(layout.width, layout.height, w || layout.width + 32, height));
+  }, [layout.width, layout.height, height]);
 
   useEffect(() => {
     const el = hostRef.current;
@@ -245,8 +282,8 @@ export function TaskGraph({ nodes, selectedId, onSelect, layout: layoutOpts, hei
   }, [height]);
 
   useEffect(() => {
-    fit();
-  }, [fit, size.w]);
+    firstView();
+  }, [firstView, size.w]);
 
   const onWheel = (e: WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -303,9 +340,11 @@ export function TaskGraph({ nodes, selectedId, onSelect, layout: layoutOpts, hei
 
   return (
     <div className={cn("flex min-w-0 flex-col surface-panel overflow-hidden", className)} data-task-graph>
-      <div className="flex h-panel-header shrink-0 items-center gap-2 border-b border-subtle bg-panel-alt px-panel-pad">
-        <span className="t-label flex-1">Task graph · {nodes.length} tasks</span>
-        <span className="font-mono text-mono text-secondary tabular-nums" aria-live="polite">
+      <div className="flex h-panel-header shrink-0 items-center gap-2 px-panel-pad pr-2 rule-fade">
+        <span className="t-title flex-1 text-primary">
+          Task graph <span className="font-mono text-micro font-normal text-tertiary">· {nodes.length} tasks</span>
+        </span>
+        <span className="font-mono text-micro text-tertiary tabular-nums" aria-live="polite">
           {Math.round(t.k * 100)}%
         </span>
         <IconButton icon={Minus} label="Zoom out" size="sm" onClick={() => setT((p) => zoomAround(p, 1 / 1.2, size.w / 2, height / 2))} />
@@ -324,19 +363,19 @@ export function TaskGraph({ nodes, selectedId, onSelect, layout: layoutOpts, hei
         onPointerCancel={onPointerUp}
         onKeyDown={onKey}
         style={{ height }}
-        className="relative min-w-0 cursor-grab touch-none select-none overflow-hidden bg-base outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-link active:cursor-grabbing"
+        className="graph-canvas relative min-w-0 cursor-grab touch-none select-none overflow-hidden outline-none focus-visible:shadow-ring active:cursor-grabbing"
       >
         <svg width="100%" height={height} role="img" aria-label={ariaLabel} className="block">
           <defs>
             <marker id="tg-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
-              <path d="M 0 0 L 8 4 L 0 8 z" className="fill-subtle" />
+              <path d="M 0 0 L 8 4 L 0 8 z" fill="var(--line-strong)" />
             </marker>
           </defs>
           <g transform={`translate(${t.x} ${t.y}) scale(${t.k})`} data-transform={`${t.x.toFixed(1)},${t.y.toFixed(1)},${t.k.toFixed(3)}`}>
             {layout.edges.map((e) => {
               const from = byId.get(e.from);
               const done = from?.status === "done";
-              return <path key={`${e.from}->${e.to}`} d={e.path} fill="none" strokeWidth={1.5} markerEnd="url(#tg-arrow)" className={cn(done ? "stroke-status-good/70" : "stroke-subtle")} strokeDasharray={done ? undefined : "4 3"} />;
+              return <path key={`${e.from}->${e.to}`} d={e.path} fill="none" strokeWidth={1.5} markerEnd="url(#tg-arrow)" stroke={done ? "color-mix(in oklab, var(--status-good) 60%, transparent)" : "var(--line-strong)"} strokeDasharray={done ? undefined : "4 3"} strokeLinecap="round" />;
             })}
             {layout.nodes.map((p) => {
               const n = byId.get(p.id);
@@ -363,24 +402,27 @@ export function TaskGraph({ nodes, selectedId, onSelect, layout: layoutOpts, hei
                   }}
                   className={cn("outline-none", onSelect && "cursor-pointer")}
                 >
-                  <rect width={o.nodeWidth} height={o.nodeHeight} rx={4} className={cn("fill-panel", selected ? "stroke-kit-primary" : TONE_STROKE[meta.tone])} strokeWidth={selected ? 2 : 1.5} />
-                  <rect x={0} y={0} width={3} height={o.nodeHeight} rx={1} className={TONE_FILL[meta.tone]} />
-                  {n.agent ? <g transform="translate(10 10)" dangerouslySetInnerHTML={{ __html: generateAvatar({ seed: n.agent.seed, dept: n.agent.dept, size: 20, title: n.agent.name }) }} /> : <circle cx={20} cy={20} r={10} className="fill-panel-alt" />}
-                  <text x={38} y={22} className="fill-primary font-body text-[12px] font-medium">
-                    {n.title.length > 22 ? `${n.title.slice(0, 21)}…` : n.title}
-                  </text>
-                  <g transform={`translate(38 ${o.nodeHeight - 22})`} className={TONE_TEXT[meta.tone]}>
+                  <rect width={o.nodeWidth} height={o.nodeHeight} rx={8} fill="var(--surface-1)" className={cn(selected ? "stroke-kit-lift" : TONE_STROKE[meta.tone])} strokeWidth={selected ? 2 : 1} />
+                  <rect x={0.5} y={8} width={2.5} height={o.nodeHeight - 16} rx={1.25} className={TONE_FILL[meta.tone]} />
+                  {n.agent ? <g transform="translate(12 10)" dangerouslySetInnerHTML={{ __html: generateAvatar({ seed: n.agent.seed, dept: n.agent.dept, size: 20, title: n.agent.name }) }} /> : <circle cx={22} cy={20} r={10} fill="var(--surface-3)" />}
+                  {/* The title wraps to two lines (HTML inside the node), so a task name is read, not guessed. */}
+                  <foreignObject x={40} y={7} width={o.nodeWidth - 48} height={34}>
+                    <div className="line-clamp-2 break-words font-body text-small font-medium leading-4 text-primary" title={n.title}>
+                      {n.title}
+                    </div>
+                  </foreignObject>
+                  <g transform={`translate(40 ${o.nodeHeight - 20})`} className={TONE_TEXT[meta.tone]}>
                     <Icon icon={meta.icon} size={12} x={0} y={0} />
-                    <text x={16} y={10} className="fill-current font-display text-[11px] font-semibold uppercase tracking-label">
+                    <text x={16} y={10} className="fill-current font-body text-micro font-medium">
                       {meta.word}
                     </text>
                   </g>
                   {pct !== null && n.status !== "done" ? (
-                    <text x={o.nodeWidth - 10} y={o.nodeHeight - 12} textAnchor="end" className="fill-secondary font-mono text-[11px] tabular-nums">
+                    <text x={o.nodeWidth - 10} y={o.nodeHeight - 10} textAnchor="end" className="fill-tertiary font-mono text-micro tabular-nums">
                       {pct}%
                     </text>
                   ) : null}
-                  {pct !== null ? <rect x={3} y={o.nodeHeight - 3} width={(o.nodeWidth - 3) * (pct / 100)} height={3} className={TONE_FILL[meta.tone]} /> : null}
+                  {pct !== null ? <rect x={8} y={o.nodeHeight - 3} width={Math.max(0, (o.nodeWidth - 16) * (pct / 100))} height={2} rx={1} className={TONE_FILL[meta.tone]} /> : null}
                 </g>
               );
             })}
@@ -395,7 +437,7 @@ export function TaskGraph({ nodes, selectedId, onSelect, layout: layoutOpts, hei
           ))}
         </ul>
       </div>
-      <div className="flex h-8 shrink-0 flex-wrap items-center gap-1 border-t border-subtle bg-panel px-panel-pad" aria-label="Legend">
+      <div className="flex min-h-control-lg shrink-0 flex-wrap items-center gap-1.5 border-t border-line px-panel-pad py-1.5" aria-label="Legend">
         {present.map((s) => (
           <StatusPill key={s} tone={TASK_STATUS_META[s].tone} icon={TASK_STATUS_META[s].icon}>
             {TASK_STATUS_META[s].word}

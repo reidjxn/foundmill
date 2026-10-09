@@ -184,7 +184,7 @@ export function FilterChipEditor({
             ]}
           />
         ) : kind === "select" && draft.op === "in" ? (
-          <fieldset className="flex max-h-48 flex-col gap-1 overflow-y-auto rounded-panel border border-subtle bg-panel-alt p-2">
+          <fieldset className="surface-well flex max-h-48 flex-col gap-1 overflow-y-auto rounded-sm p-2">
             <legend className="sr-only">Values</legend>
             {(field?.options ?? []).map((o) => {
               const checked = draft.list.includes(o.value);
@@ -307,19 +307,18 @@ export function FilterChips({
         const d = describeFilter(chip, fields);
         const text = `${d.field} ${d.op}${d.value ? ` ${d.value}` : ""}`;
         const body = (
-          <span className="inline-flex min-w-0 items-center gap-1">
-            <span className="font-display font-semibold text-label uppercase tracking-label text-secondary">
-              {d.field}
-            </span>
-            <span className="text-small text-secondary">{d.op}</span>
-            {d.value ? <span className="truncate text-small text-primary">{d.value}</span> : null}
+          <span className="inline-flex max-w-full items-center gap-1">
+            <span className="t-data shrink-0 text-secondary">{d.field}</span>
+            <span className="shrink-0 text-small text-tertiary">{d.op}</span>
+            {/* The value wraps instead of being cut (a number in a filter is never truncated). */}
+            {d.value ? <span className="break-words text-small font-medium text-primary">{d.value}</span> : null}
           </span>
         );
         const chipEl = (
           <span
             data-filter-chip={chip.id}
             className={cn(
-              "inline-flex h-chip max-w-72 items-center gap-1 rounded-chip border border-subtle bg-panel-alt pl-1.5 whitespace-nowrap",
+              "chip-plate inline-flex min-h-chip max-w-full items-center gap-1 rounded-sm border py-px pl-2 pr-2",
               !readOnly && "pr-0.5",
             )}
           >
@@ -329,7 +328,7 @@ export function FilterChips({
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex min-w-0 items-center rounded-chip hover:text-primary focus-visible:outline-1"
+                  className="inline-flex max-w-full items-center rounded-xs text-left transition-colors hover:text-primary focus-visible:shadow-ring"
                   aria-label={`Edit filter: ${text}`}
                 >
                   {body}
@@ -341,7 +340,7 @@ export function FilterChips({
                 type="button"
                 aria-label={`Remove filter: ${text}`}
                 onClick={() => remove(chip.id)}
-                className="inline-flex size-4 items-center justify-center rounded-chip text-secondary hover:bg-white/8 hover:text-primary focus-visible:outline-1"
+                className="inline-flex size-badge shrink-0 items-center justify-center rounded-xs text-tertiary transition-colors hover:bg-white/8 hover:text-primary focus-visible:shadow-ring"
               >
                 <Icon icon={X} size={10} strokeWidth={2.25} />
               </button>

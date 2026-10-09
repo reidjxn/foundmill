@@ -201,10 +201,16 @@ export interface RibbonLayout {
   axisTop: number;
 }
 
-const CHAPTER_STRIP = 20;
+const CHAPTER_STRIP = 24;
 const TRACK_HEIGHTS: Record<TrackKind, number> = { signups: 22, payments: 22, hours: 26 };
 const TRACK_GAP = 6;
 const AXIS_HEIGHT = 26;
+/** Pins (releases, milestones, planned items) are 22 px chips in lanes 28 px apart, the first 10 px under the chapters. */
+export const PIN_TOP = CHAPTER_STRIP + 10;
+export const PIN_LANE = 28;
+export const PIN_HEIGHT = 22;
+/** The chip starts this far left of its day, so the flag sits on the drop line. */
+export const PIN_INSET = 9;
 
 /** Bands for a plot of `width` × `height`: the chapter strip, the revenue chart (whatever is left), three bar rows, the axis. */
 export function ribbonLayout(width: number, height: number): RibbonLayout {
@@ -215,7 +221,10 @@ export function ribbonLayout(width: number, height: number): RibbonLayout {
   const paymentsTop = paymentsBottom - TRACK_HEIGHTS.payments;
   const signupsBottom = paymentsTop - TRACK_GAP;
   const signupsTop = signupsBottom - TRACK_HEIGHTS.signups;
-  const revenueTop = CHAPTER_STRIP + 20;
+  // The revenue scale starts under the first lane of pins when there is room, so the top gridline label is never
+  // covered by a chip; a short ribbon keeps the old 20 px gap.
+  const roomy = signupsTop - 12 - (CHAPTER_STRIP + 44) >= 120;
+  const revenueTop = CHAPTER_STRIP + (roomy ? 44 : 20);
   const revenueBottom = Math.max(revenueTop + 40, signupsTop - 12);
   return {
     width,
@@ -431,23 +440,36 @@ export function niceTicks(max: number, count = 3): number[] {
   return ticks;
 }
 
-/** Rough label width at 11 px for lane packing (no DOM to measure in a pure function). */
-const labelWidth = (text: string) => 18 + Math.min(text.length, 28) * 6.1;
+/** Labels longer than this are cut with an ellipsis on the chip (the full label is in its tooltip). */
+export const PIN_LABEL_MAX = 28;
+/**
+ * The width of a pin chip from its day's x: the flag, 12 px Inter 500 at about 6.6 px a character, and padding (no DOM
+ * to measure in a pure function). `labelWidth(label) - PIN_INSET` is how far right of the day the chip ends.
+ */
+export const pinChipWidth = (text: string) => 33 + Math.min(text.length, PIN_LABEL_MAX) * 6.6;
+const labelWidth = (text: string) => pinChipWidth(text) - PIN_INSET + 4;
+/** An icon-only chip (the label did not fit). */
+const ICON_CHIP = PIN_HEIGHT - PIN_INSET + 4;
 
-/** Pack pins into up to three lanes left to right; a label is shown when it fits before the next pin in its lane. */
-function packPins<T extends { x: number; label: string }>(items: readonly T[], maxLanes = 3): Array<T & { lane: number; showLabel: boolean }> {
+/**
+ * Pack pins into up to three lanes left to right; a label is shown when it fits before the next pin in its lane.
+ * `blocked` spans (Today's tag in lane 0) are never covered.
+ */
+function packPins<T extends { x: number; label: string }>(items: readonly T[], maxLanes = 3, blocked: ReadonlyArray<{ lane: number; x0: number; x1: number }> = []): Array<T & { lane: number; showLabel: boolean }> {
   const out: Array<T & { lane: number; showLabel: boolean }> = [];
   const laneEnd: number[] = Array.from({ length: maxLanes }, () => -Infinity);
+  const free = (lane: number, x0: number, x1: number) => (laneEnd[lane] ?? -Infinity) <= x0 && !blocked.some((b) => b.lane === lane && b.x0 < x1 && b.x1 > x0);
   for (const it of items) {
-    const withLabel = labelWidth(it.label);
-    let lane = laneEnd.findIndex((end) => it.x - 6 >= end);
+    const start = it.x - PIN_INSET - 2;
+    let lane = -1;
     let showLabel = true;
+    for (let l = 0; l < maxLanes && lane === -1; l++) if (free(l, start, it.x + labelWidth(it.label))) lane = l;
     if (lane === -1) {
-      lane = laneEnd.indexOf(Math.min(...laneEnd));
       showLabel = false;
+      for (let l = 0; l < maxLanes && lane === -1; l++) if (free(l, start, it.x + ICON_CHIP)) lane = l;
     }
-    const nextEnd = it.x + (showLabel ? withLabel : 12);
-    laneEnd[lane] = nextEnd;
+    if (lane === -1) lane = laneEnd.indexOf(Math.min(...laneEnd));
+    laneEnd[lane] = it.x + (showLabel ? labelWidth(it.label) : ICON_CHIP);
     out.push({ ...it, lane, showLabel });
   }
   // A label can only stay if nothing later in its lane starts under it.
@@ -455,10 +477,13 @@ function packPins<T extends { x: number; label: string }>(items: readonly T[], m
     const a = out[i] as T & { lane: number; showLabel: boolean };
     if (!a.showLabel) continue;
     const next = out.slice(i + 1).find((b) => b.lane === a.lane);
-    if (next && next.x - 6 < a.x + labelWidth(a.label)) a.showLabel = false;
+    if (next && next.x - PIN_INSET - 2 < a.x + labelWidth(a.label)) a.showLabel = false;
   }
   return out;
 }
+
+/** The Today tag's half-width, reserved in the first pin lane ("Today · 30 Sep · 12 live" fits). */
+export const TODAY_TAG_HALF = 62;
 
 export function buildRibbonGeometry(input: RibbonGeometryInput): RibbonGeometry {
   const { index, zoom, width, height, today } = input;
@@ -573,7 +598,7 @@ export function buildRibbonGeometry(input: RibbonGeometryInput): RibbonGeometry 
 
   // Milestones and planned roadmap items as labelled pins over the revenue chart, packed together into up to three
   // rows so no two labels overlap.
-  const pinY = (lane: number) => layout.revenueTop + 2 + lane * 17;
+  const pinY = (lane: number) => PIN_TOP + lane * PIN_LANE;
   type Pin = { x: number; label: string; day: DayKey; id: string } & ({ type: "milestone"; kind: MilestoneKind; glyph: MilestoneGlyphKind } | { type: "planned" });
   const pins: Pin[] = [];
   for (const m of input.milestones) {
@@ -588,7 +613,7 @@ export function buildRibbonGeometry(input: RibbonGeometryInput): RibbonGeometry 
     pins.push({ type: "planned", id: f.id, label: f.label, day: f.plannedOn, x: xOfDay(f.plannedOn) });
   }
   pins.sort((a, b) => a.x - b.x || a.label.localeCompare(b.label));
-  const packed = packPins(pins);
+  const packed = packPins(pins, 3, [{ lane: 0, x0: todayX - TODAY_TAG_HALF - 4, x1: todayX + TODAY_TAG_HALF + 4 }]);
   const milestones: MilestoneGlyph[] = [];
   const roadmap: RoadmapGlyph[] = [];
   for (const p of packed) {

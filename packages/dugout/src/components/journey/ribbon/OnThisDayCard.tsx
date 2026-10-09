@@ -2,6 +2,7 @@
 import { Banknote, Diamond, Flag, Landmark, Rocket, Trophy } from "lucide-react";
 import type { MilestoneKind } from "@foundmill/shared";
 import { cn } from "../../../lib/cn";
+import { FitText } from "../../foundation/FitText";
 import { formatDate, formatMoney, formatNumber } from "../../../lib/format";
 import { ProvenanceChip } from "../../foundation/Chip";
 import { Icon, type IconComponent } from "../../foundation/Icon";
@@ -22,6 +23,8 @@ export const MILESTONE_ICON: Record<MilestoneKind, IconComponent> = {
 /** Static class maps so Tailwind emits the department utilities. */
 export const DEPT_BG: Record<string, string> = { "dept-1": "bg-dept-1", "dept-2": "bg-dept-2", "dept-3": "bg-dept-3", "dept-4": "bg-dept-4", "dept-5": "bg-dept-5", "dept-6": "bg-dept-6", "dept-7": "bg-dept-7", "dept-8": "bg-dept-8" };
 export const DEPT_TEXT: Record<string, string> = { "dept-1": "text-dept-1", "dept-2": "text-dept-2", "dept-3": "text-dept-3", "dept-4": "text-dept-4", "dept-5": "text-dept-5", "dept-6": "text-dept-6", "dept-7": "text-dept-7", "dept-8": "text-dept-8" };
+/** Sets --tone to the department colour (glows, lit corners, dots with light). */
+export const DEPT_TONE: Record<string, string> = { "dept-1": "tone-dept-1", "dept-2": "tone-dept-2", "dept-3": "tone-dept-3", "dept-4": "tone-dept-4", "dept-5": "tone-dept-5", "dept-6": "tone-dept-6", "dept-7": "tone-dept-7", "dept-8": "tone-dept-8" };
 
 export interface OnThisDayCardProps {
   summary: DaySummary;
@@ -53,15 +56,15 @@ export function OnThisDayCard({ summary, forecastPoint, currency = "EUR", onOpen
           {forecastPoint ? (
             <dl className="grid grid-cols-3 gap-2 tabular-nums">
               <div>
-                <dt className="t-label">Expected</dt>
+                <dt className="t-data">Expected</dt>
                 <dd>{formatMoney({ amountMinor: forecastPoint.baseMinor, currency }, { compact: true })}</dd>
               </div>
               <div>
-                <dt className="t-label">Best case</dt>
+                <dt className="t-data">Best case</dt>
                 <dd>{formatMoney({ amountMinor: forecastPoint.upsideMinor, currency }, { compact: true })}</dd>
               </div>
               <div>
-                <dt className="t-label">Worst case</dt>
+                <dt className="t-data">Worst case</dt>
                 <dd>{formatMoney({ amountMinor: forecastPoint.downsideMinor, currency }, { compact: true })}</dd>
               </div>
             </dl>
@@ -71,29 +74,31 @@ export function OnThisDayCard({ summary, forecastPoint, currency = "EUR", onOpen
         <>
           <dl className="mt-2 grid grid-cols-4 gap-2 tabular-nums">
             <div>
-              <dt className="t-label">Revenue</dt>
+              <dt className="t-data">Revenue</dt>
               <dd>{formatMoney({ amountMinor: p?.revenueMinor ?? 0, currency }, { compact: true })}</dd>
             </div>
             <div>
-              <dt className="t-label">Signups</dt>
+              <dt className="t-data">Signups</dt>
               <dd>{formatNumber(p?.signups ?? 0, { digits: 0 })}</dd>
             </div>
             <div>
-              <dt className="t-label">Active</dt>
+              <dt className="t-data">Active</dt>
               <dd>{formatNumber(p?.activations ?? 0, { digits: 0 })}</dd>
             </div>
             <div>
-              <dt className="t-label">Paying</dt>
+              <dt className="t-data">Paying</dt>
               <dd>{formatNumber(p?.payments ?? 0, { digits: 0 })}</dd>
             </div>
           </dl>
           <div className="mt-2 flex flex-col gap-1">
-            <span className="t-label">Agent hours by department · {formatNumber(p?.totalHours ?? 0, { maxDigits: 1 })}</span>
+            <span className="t-data">Agent hours by department · {formatNumber(p?.totalHours ?? 0, { maxDigits: 1 })}</span>
             {top.length === 0 ? <span className="text-small text-secondary">No agent work recorded</span> : null}
             {top.map((d) => (
               <div key={d.id} className="flex items-center gap-2 text-small">
                 <span aria-hidden className={cn("inline-block size-1.5 shrink-0 rounded-full", DEPT_BG[d.dept])} />
-                <span className="w-24 truncate text-secondary">{d.name}</span>
+                <span className="w-24 shrink-0 text-secondary" title={d.name}>
+                  <FitText minPx={11}>{d.name}</FitText>
+                </span>
                 <span className="h-1 flex-1 overflow-hidden rounded-full bg-panel">
                   <span className={cn("block h-full", DEPT_BG[d.dept])} style={{ width: `${Math.round((d.hours / maxHours) * 100)}%` }} />
                 </span>
@@ -114,7 +119,7 @@ export function OnThisDayCard({ summary, forecastPoint, currency = "EUR", onOpen
         </ul>
       ) : null}
       {summary.conversions.length > 0 ? (
-        <ul className="mt-2 flex flex-col gap-0.5 border-t border-subtle pt-2">
+        <ul className="mt-2 flex flex-col gap-0.5 border-t border-line pt-2">
           {summary.conversions.slice(0, 3).map((c) => (
             <li key={c.id}>
               <button

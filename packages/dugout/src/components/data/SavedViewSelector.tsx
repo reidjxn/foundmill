@@ -2,6 +2,8 @@
 import { useState, type FormEvent } from "react";
 import { Bookmark, BookmarkPlus, ChevronDown, Pencil, RotateCcw, Save, Trash2 } from "lucide-react";
 import { cn } from "../../lib/cn";
+import { FitText } from "../foundation/FitText";
+import { triggerChevronClass } from "../foundation/menuStyles";
 import { Button } from "../foundation/Button";
 import {
   Dialog,
@@ -82,20 +84,21 @@ export function SavedViewSelector({
           <Button
             size="sm"
             variant="ghost"
-            className={cn("max-w-64 gap-1.5 normal-case tracking-normal", className)}
+            className={cn("group/trigger max-w-72 gap-1.5", className)}
             aria-label={`View: ${active?.name ?? "All"}${dirty ? " (unsaved changes)" : ""}`}
             data-saved-view={activeId ?? undefined}
           >
             <Icon icon={Bookmark} size="inline" className="text-secondary" />
-            <span className="truncate font-body text-body text-primary">
-              {active?.name ?? "All"}
+            {/* Founders name their views: the name fits (steps down, then truncates with a tooltip). */}
+            <span className="min-w-0 font-body text-body font-medium text-primary">
+              <FitText minPx={11}>{active?.name ?? "All"}</FitText>
             </span>
             {dirty ? (
-              <span className="t-label text-status-warn" aria-hidden>
+              <span className="shrink-0 rounded-pill bg-status-warn/12 px-1.5 text-small font-medium text-status-warn" aria-hidden>
                 Edited
               </span>
             ) : null}
-            <Icon icon={ChevronDown} size={12} className="text-secondary" />
+            <Icon icon={ChevronDown} size={12} className={cn("shrink-0 text-tertiary", triggerChevronClass)} />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="min-w-56">

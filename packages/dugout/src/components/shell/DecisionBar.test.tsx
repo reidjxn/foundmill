@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { DecisionBar, costText, optionDescription, reversibilityText } from "./DecisionBar";
+import { DecisionBar, costText, optionDescription, optionSubline, reversibilityText } from "./DecisionBar";
 import { REORDER_OPTIONS } from "./fixtures";
 
 describe("DecisionBar", () => {
@@ -87,5 +87,37 @@ describe("DecisionBar", () => {
     document.body.focus();
     await user.keyboard("1");
     expect(onChoose).not.toHaveBeenCalled();
+  });
+
+  it("gives every option its own consequence line, the recommended one a Recommended tag, and never truncates", () => {
+    expect(optionSubline({ id: "x", label: "X", consequence: "Stock-out risk in Nov" })).toBe("Stock-out risk in Nov");
+    expect(optionSubline({ id: "x", label: "X", cost: null, reversible: true })).toBe("No cost · Reversible");
+    expect(optionSubline({ id: "x", label: "X" })).toBeUndefined();
+    render(<DecisionBar options={REORDER_OPTIONS} onChoose={() => {}} deadline="Expires in 5 days" />);
+    expect(screen.getByText("Your call").className).toContain("t-data");
+    expect(screen.getByText("Expires in 5 days")).toBeTruthy();
+    const a = screen.getByRole("button", { name: /Reorder 2,000 units/ });
+    expect(a.textContent).toContain("Recommended");
+    expect(a.textContent).toContain("Meridian Labs ships in 12 days");
+    for (const b of screen.getAllByRole("button")) expect(b.className).not.toContain("truncate");
+    // The digits are shown on the options while the bar owns them.
+    expect(a.querySelector("kbd")?.textContent).toBe("1");
+  });
+
+  it("replaces the free-text box with Ask <agent> when onAsk is given; typing stays optional", async () => {
+    const user = userEvent.setup();
+    const onAsk = vi.fn();
+    const { rerender } = render(<DecisionBar options={REORDER_OPTIONS} onChoose={() => {}} onExecute={() => {}} onAsk={onAsk} askLabel="Ask Juno" hotkeys={false} keyHints />);
+    expect(screen.queryByTestId("decision-free-text")).toBeNull();
+    const ask = screen.getByRole("button", { name: /Ask Juno/ });
+    expect(ask.textContent).toContain("Talk it through first");
+    await user.click(ask);
+    expect(onAsk).toHaveBeenCalledTimes(1);
+    // keyHints shows the caps even when the shell's keyboard map owns the digits.
+    expect(screen.getByRole("button", { name: /Reorder 1,000 units/ }).querySelector("kbd")?.textContent).toBe("2");
+    rerender(<DecisionBar options={REORDER_OPTIONS} onChoose={() => {}} onExecute={() => {}} hotkeys={false} />);
+    expect(screen.getByTestId("decision-free-text")).toBeTruthy();
+    expect(screen.getByTestId("decision-bar").querySelector("[data-decision-ask]")).toBeNull();
+    expect(screen.getByRole("button", { name: /Reorder 1,000 units/ }).querySelector("kbd")).toBeNull();
   });
 });

@@ -23,7 +23,7 @@ import type { FormResult, SquadRow } from "./types";
 // Form
 // ---------------------------------------------------------------------------------------------------------------------
 
-const FORM_CLASS: Record<FormResult, string> = { success: "bg-status-good", partial: "bg-status-warn", failure: "bg-status-bad" };
+const FORM_CLASS: Record<FormResult, string> = { success: "cell-lit bg-status-good tone-status-good", partial: "cell-lit bg-status-warn tone-status-warn", failure: "cell-lit bg-status-bad tone-status-bad" };
 export const FORM_RESULT_WORD: Record<FormResult, string> = { success: "success", partial: "partial", failure: "failure" };
 
 export interface FormCellsProps {
@@ -32,14 +32,14 @@ export interface FormCellsProps {
   className?: string;
 }
 
-/** Five 8 px cells (good / warn / bad), oldest left; empty slots are bg-panel-alt. */
+/** Five 8 px cells (good / warn / bad) lit in their tone, oldest left; empty slots are a faint plate. */
 export function FormCells({ form, name = "Form", className }: FormCellsProps) {
   const cells = Array.from({ length: 5 }, (_, i) => form[form.length - 5 + i] ?? null);
   const words = cells.map((c) => (c ? FORM_RESULT_WORD[c] : "none"));
   return (
-    <ol aria-label={`${name}, last five: ${words.join(", ")}`} className={cn("inline-flex gap-px align-middle", className)}>
+    <ol aria-label={`${name}, last five: ${words.join(", ")}`} className={cn("inline-flex gap-0.5 align-middle", className)}>
       {cells.map((c, i) => (
-        <li key={i} aria-hidden data-result={c ?? "none"} className={cn("size-2 rounded-xs", c ? FORM_CLASS[c] : "bg-panel-alt")} />
+        <li key={i} aria-hidden data-result={c ?? "none"} className={cn("size-2.5 rounded-xs", c ? FORM_CLASS[c] : "cell-empty")} />
       ))}
     </ol>
   );
@@ -127,13 +127,13 @@ export function ToolIcons({ tools, max = 5, className }: ToolIconsProps) {
         const meta = TOOL_ICONS[t] ?? { icon: Wrench, label: t };
         return (
           <Tooltip key={t} content={meta.label}>
-            <span className="inline-flex size-5 items-center justify-center rounded-chip bg-panel-alt text-secondary" tabIndex={-1}>
+            <span className="inline-flex size-control-xs items-center justify-center rounded-sm bg-white/5 text-secondary ring-1 ring-inset ring-line" tabIndex={-1}>
               <Icon icon={meta.icon} size={12} />
             </span>
           </Tooltip>
         );
       })}
-      {extra > 0 ? <span className="ml-0.5 font-mono text-mono text-secondary">+{extra}</span> : null}
+      {extra > 0 ? <span className="ml-0.5 font-mono text-micro text-tertiary">+{extra}</span> : null}
     </span>
   );
 }
@@ -146,7 +146,7 @@ export function WageCell({ wage, className }: { wage: SquadRow["wage"]; classNam
   return (
     <span className={cn("inline-flex items-baseline gap-1 tabular-nums", className)} title="Monthly cost estimate: tokens, sandbox minutes and tool costs">
       {formatMoney(wage)}
-      <span className="text-small text-secondary">/mo</span>
+      <span className="t-unit">/mo</span>
     </span>
   );
 }
@@ -172,7 +172,7 @@ export function AgentNameCell({ row }: { row: Pick<SquadRow, "name" | "seed" | "
   return (
     <span className="inline-flex min-w-0 items-center gap-2">
       <Avatar size={24} name={row.name} agent={{ seed: row.seed, dept: row.dept }} status={row.status} />
-      <span className="truncate text-body-strong">{row.name}</span>
+      <span className="truncate font-medium" title={row.name}>{row.name}</span>
     </span>
   );
 }
@@ -201,7 +201,7 @@ export function squadColumns(opts: SquadColumnOptions = {}): DataTableColumn<Squ
     { id: "tools", accessorFn: (r) => r.tools.length, header: "Tools", size: 140, cell: ({ row }) => <ToolIcons tools={row.original.tools} />, meta: { numeric: true } },
     { id: "model", accessorKey: "model", header: "Model", size: 110, cell: ({ row }) => <ModelChip model={row.original.model} onClick={opts.onModelClick ? () => opts.onModelClick?.(row.original) : undefined} />, meta: { filter: "select", filterOptions: (["opus", "sonnet", "haiku"] as const).map((v) => ({ value: v, label: MODEL_LABELS[v] })) } },
     { id: "wage", accessorFn: (r) => r.wage.amountMinor, header: "Wage", size: 110, cell: ({ row }) => <WageCell wage={row.original.wage} />, meta: { numeric: true, csv: (r) => r.wage.amountMinor / 100 } },
-    { id: "latestUpdate", accessorFn: (r) => r.latestUpdate?.at ?? "", header: "Latest update", size: 260, cell: ({ row }) => (row.original.latestUpdate ? <span className="truncate text-secondary" title={row.original.latestUpdate.text}>{formatRelative(row.original.latestUpdate.at, now)} · {row.original.latestUpdate.text}</span> : "—") },
+    { id: "latestUpdate", accessorFn: (r) => r.latestUpdate?.at ?? "", header: "Latest update", size: 260, cell: ({ row }) => (row.original.latestUpdate ? <span className="truncate text-secondary" title={row.original.latestUpdate.text} data-allow-truncate="">{formatRelative(row.original.latestUpdate.at, now)} · {row.original.latestUpdate.text}</span> : "—") },
   ];
 }
 

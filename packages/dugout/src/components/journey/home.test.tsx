@@ -24,7 +24,11 @@ describe("DepartmentCard", () => {
     expect(screen.getByText("Waiting")).toBeTruthy();
     expect(screen.getByText("Failing")).toBeTruthy();
     expect(container.querySelectorAll("[data-department='d-development'] [data-squad-member]").length).toBe(5);
-    expect(screen.getByText("€41.20")).toBeTruthy();
+    // The figure is set in parts (dimmed raised currency, dimmed decimals); its text is the whole value.
+    const figure = document.querySelector("[data-department-metric] [data-figure]");
+    expect(figure?.textContent).toBe("€41.20");
+    expect(figure?.querySelector(".t-currency")?.textContent).toBe("€");
+    expect(figure?.querySelector(".t-decimals")?.textContent).toBe(".20");
     expect(screen.getAllByText("Estimate").length).toBeGreaterThan(0);
     expect(screen.getByText("Quiet. The next cycle starts with Continue.")).toBeTruthy();
   });

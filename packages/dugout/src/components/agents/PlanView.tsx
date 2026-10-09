@@ -31,8 +31,8 @@ export function PlanView({ plan, tests, className }: PlanViewProps) {
   const acc = tests?.acceptance ?? null;
   return (
     <div className={cn("flex h-full min-h-0 flex-col bg-panel", className)}>
-      <div className="flex h-panel-header shrink-0 items-center justify-between border-b border-subtle px-panel-pad">
-        <span className="t-label">Plan</span>
+      <div className="flex h-panel-header shrink-0 items-center justify-between bg-surface-1 px-panel-pad rule-fade">
+        <span className="t-title text-primary">Plan</span>
         <span className="text-small text-secondary tabular-nums">
           {done} of {plan.length} steps
         </span>
@@ -56,7 +56,7 @@ export function PlanView({ plan, tests, className }: PlanViewProps) {
         })}
       </ol>
       {tests ? (
-        <div className="flex shrink-0 flex-col gap-1 border-t border-subtle px-panel-pad py-2 text-small">
+        <div className="flex shrink-0 flex-col gap-1 border-t border-line bg-surface-1 px-panel-pad py-2 text-small">
           <div className="flex items-center gap-1.5 text-primary">
             <Icon icon={FlaskConical} size="inline" className="text-secondary" />
             {acc ? (

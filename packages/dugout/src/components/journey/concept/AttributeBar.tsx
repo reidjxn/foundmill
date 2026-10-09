@@ -1,4 +1,5 @@
 import type { HTMLAttributes } from "react";
+import { FitText } from "../../foundation/FitText";
 import { cn } from "../../../lib/cn";
 import { clampRating, ratingBandLabel, ratingCells, ratingClass, ratingTone } from "../../../lib/rating";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../../foundation/HoverCard";
@@ -17,7 +18,7 @@ export interface AttributeBarProps extends Omit<HTMLAttributes<HTMLDivElement>, 
 }
 
 /** Static cell classes so Tailwind emits them. */
-const CELL_FILL = { "rating-1": "bg-rating-1", "rating-2": "bg-rating-2", "rating-3": "bg-rating-3", "rating-4": "bg-rating-4" } as const;
+const CELL_FILL = { "rating-1": "cell-lit bg-rating-1 tone-rating-1", "rating-2": "cell-lit bg-rating-2 tone-rating-2", "rating-3": "cell-lit bg-rating-3 tone-rating-3", "rating-4": "cell-lit bg-rating-4 tone-rating-4" } as const;
 const CELL_GHOST = { "rating-1": "border-rating-1", "rating-2": "border-rating-2", "rating-3": "border-rating-3", "rating-4": "border-rating-4" } as const;
 
 /**
@@ -33,14 +34,18 @@ export function AttributeBar({ label, value, evidence, hideLabel, ghost, classNa
   const text = `${label}: ${v} of 20, ${ratingBandLabel(v)}${ghost !== undefined ? `, compared with ${clampRating(ghost)}` : ""}`;
   const bar = (
     <div role="meter" aria-valuemin={1} aria-valuemax={20} aria-valuenow={v} aria-valuetext={text} aria-label={label} className={cn("flex items-center gap-2", className)} data-attribute={label} {...rest}>
-      {hideLabel ? null : <span className="w-40 shrink-0 truncate t-label normal-case tracking-normal text-primary">{label}</span>}
-      <span className={cn("w-7 shrink-0 text-right t-display-sm", ratingClass(v))}>{v}</span>
-      <span className="flex flex-1 items-center gap-px" aria-hidden>
+      {hideLabel ? null : (
+        <span className="w-40 shrink-0 text-small text-secondary" title={label}>
+          <FitText minPx={11}>{label}</FitText>
+        </span>
+      )}
+      <span className="flex min-w-0 flex-1 items-center gap-0.5" aria-hidden>
         {cells.map((filled, i) => {
           const ghostOnly = !filled && ghostCells?.[i];
-          return <span key={i} className={cn("h-2.5 flex-1 rounded-[1px]", filled ? CELL_FILL[tone] : ghostOnly ? cn("border bg-transparent", CELL_GHOST[ghostTone]) : "bg-panel-alt")} />;
+          return <span key={i} className={cn("h-2 min-w-0 flex-1 rounded-xs", filled ? CELL_FILL[tone] : ghostOnly ? cn("border bg-transparent", CELL_GHOST[ghostTone]) : "cell-empty")} />;
         })}
       </span>
+      <span className={cn("w-6 shrink-0 text-right font-display text-display-sm font-semibold tabular-nums", ratingClass(v))}>{v}</span>
     </div>
   );
   if (!evidence || evidence.length === 0) return bar;

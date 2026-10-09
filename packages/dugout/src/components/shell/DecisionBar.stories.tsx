@@ -6,7 +6,7 @@ import { REORDER_OPTIONS } from "./fixtures";
 const meta = {
   title: "Shell/DecisionBar",
   component: DecisionBar,
-  parameters: { layout: "fullscreen", docs: { description: { component: "Sticky at the bottom of the reading pane, 64 px, bg-panel-alt. 2–4 options; the recommended one carries a thumbs-up and a kit-primary fill; hover or focus shows consequence, cost and reversibility; 1–4 choose; free text + Execute compiles a Plan (BUILD §11.3)." } } },
+  parameters: { layout: "fullscreen", docs: { description: { component: "Sticky at the bottom of the reading pane, at least 64 px, glass (surface 2 at 86 % over a 16 px blur) with a top light line and an upward shadow. Left: “Your call” and the deadline (above the options in a narrow pane). 2–4 options on an even grid of two-line buttons, each with its own consequence line; the recommended one is primary with a thumbs-up and a Recommended tag. Options wrap and the bar grows — nothing truncates or overlaps. Hover or focus shows consequence, cost and reversibility; 1–4 choose. With `onAsk`, “Ask <agent>” opens the conversation in place of the free-text box; without it, free text + Execute compiles a Plan (BUILD §11.3)." } } },
   args: { options: REORDER_OPTIONS, onChoose: () => {}, onExecute: () => {} },
   decorators: [
     (Story) => (
@@ -40,7 +40,7 @@ function OpenDemo(args: Story["args"]) {
           }, 900);
         }}
         onReopen={() => setAnswered(undefined)}
-        note="Expires in 2 days"
+        deadline="Expires in 2 days"
       />
     );
 }
@@ -49,5 +49,23 @@ export const TwoOptions: Story = { args: { options: REORDER_OPTIONS.slice(0, 2) 
 export const WithoutFreeText: Story = { args: { onExecute: undefined } };
 export const Executing: Story = { args: { executing: true } };
 export const Disabled: Story = { args: { disabled: true, note: "Only the owner can decide this" } };
+/** DIRECTION #7: “Ask Juno” replaces the free-text box; typing is optional, never required. */
+export const WithAsk: Story = { name: "Ask instead of typing", args: { onExecute: undefined, onAsk: () => {}, askLabel: "Ask Juno", deadline: "Expires in 5 days", keyHints: true } };
+/** The 1280 window: the reading pane is 668 px, “Your call” moves above the options and they wrap. */
+export const NarrowPane: Story = {
+  name: "Reading pane at 1280",
+  args: { deadline: "Expires in 5 days" },
+  decorators: [
+    (Story) => (
+      <div style={{ width: 668 }}>
+        <Story />
+      </div>
+    ),
+  ],
+};
+export const NoConsequences: Story = {
+  name: "Options without consequences",
+  args: { options: [{ id: "y", label: "Approve", recommended: true, cost: null, reversible: true }, { id: "n", label: "Decline", reversible: true }, { id: "w", label: "Wait a week" }], deadline: "Expires today" },
+};
 export const Answered: Story = { args: { answered: { optionId: "a" }, onReopen: () => {} } };
 export const AnsweredFreeText: Story = { args: { answered: { text: "ask for a quote and pause the Meta ads" } } };

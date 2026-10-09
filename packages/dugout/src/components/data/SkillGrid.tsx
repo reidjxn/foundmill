@@ -109,12 +109,12 @@ export function SkillGrid({
     >
       {groups.map(({ group, rows }) => (
         <section key={group} aria-labelledby={`skills-${group}`} className="min-w-0">
-          <header className="mb-2 flex h-6 items-center justify-between border-b border-subtle">
-            <h3 id={`skills-${group}`} className="t-label">
+          <header className="mb-2 flex h-control-sm items-center justify-between rule-fade">
+            <h3 id={`skills-${group}`} className="t-data">
               {SKILL_GROUP_LABELS[group]}
             </h3>
             {rows.length > 0 ? (
-              <span className="text-small text-secondary tabular-nums">
+              <span className="font-mono text-micro text-tertiary tabular-nums">
                 avg{" "}
                 {formatNumber(rows.reduce((a, r) => a + r.value, 0) / rows.length, {
                   maxDigits: 1,
@@ -139,9 +139,9 @@ export function SkillGrid({
                   data-skill={s.id}
                   data-selected={isSelected || undefined}
                   className={cn(
-                    "flex h-row-comfortable items-center gap-2 rounded-chip px-1 transition-colors duration-micro ease-dugout hover:bg-white/4",
+                    "flex min-h-row-comfortable items-center gap-2 rounded-sm px-1.5 transition-colors duration-hover ease-out hover:bg-white/4",
                     focus && dimUnselected && selected.length > 0 && !isSelected && "opacity-60",
-                    isSelected && "bg-kit-primary/8",
+                    isSelected && "row-selected",
                   )}
                 >
                   {focus ? (
@@ -153,7 +153,7 @@ export function SkillGrid({
                       disabled={disabled}
                       onClick={() => focus.onChange(toggleFocus(selected, s.id, max))}
                       className={cn(
-                        "inline-flex size-4 shrink-0 items-center justify-center rounded-chip border border-subtle bg-panel-alt text-kit-on-primary",
+                        "inline-flex size-4 shrink-0 items-center justify-center rounded-xs border border-line-strong bg-black/30 text-kit-on-primary transition-colors focus-visible:shadow-ring",
                         isSelected && "border-transparent bg-kit-primary",
                         disabled && "cursor-not-allowed opacity-40",
                       )}
@@ -161,7 +161,7 @@ export function SkillGrid({
                       {isSelected ? <Icon icon={Crosshair} size={12} strokeWidth={2.25} /> : null}
                     </button>
                   ) : null}
-                  <span className="min-w-0 flex-1 truncate text-body text-primary">
+                  <span className="min-w-0 flex-1 break-words text-body text-primary">
                     {s.name}
                     {s.note ? (
                       <Chip tone="neutral" className="ml-1.5">

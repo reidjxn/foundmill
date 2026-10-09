@@ -1,10 +1,14 @@
 "use client";
-import { Bookmark, BookmarkCheck, GitFork, GitMerge, MessageCircleQuestionMark, Trash } from "lucide-react";
+import { Bookmark, BookmarkCheck, Columns2, Ellipsis, Fan, GitMerge, MessageCircleQuestionMark, Trash } from "lucide-react";
 import { cn } from "../../../lib/cn";
+import { ratingClass } from "../../../lib/rating";
 import { Button } from "../../foundation/Button";
 import { Chip } from "../../foundation/Chip";
 import { BusinessLogo } from "../../foundation/BusinessLogo";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../foundation/DropdownMenu";
+import { FitText } from "../../foundation/FitText";
 import { Icon, type IconComponent } from "../../foundation/Icon";
+import { IconButton } from "../../foundation/IconButton";
 import { StarRating } from "../../foundation/StarRating";
 import { Tooltip } from "../../foundation/Tooltip";
 import { CONCEPT_ATTRIBUTE_LABELS, type Concept, type ConceptAction } from "../types";
@@ -23,13 +27,14 @@ export interface ConceptCardProps {
   className?: string;
 }
 
-const ACTIONS: Array<{ action: ConceptAction; label: string; icon: IconComponent; title: string }> = [
-  { action: "shortlist", label: "Shortlist", icon: Bookmark, title: "Keep this concept for Compare and Commit" },
-  { action: "merge", label: "Merge", icon: GitMerge, title: "Merge with another concept (creates a new version)" },
-  { action: "fork", label: "Fork", icon: GitFork, title: "Fork into a variant (creates a new version)" },
-  { action: "ask", label: "Ask", icon: MessageCircleQuestionMark, title: "Ask the research agent a question about it" },
-  { action: "discard", label: "Discard", icon: Trash, title: "Discard (reversible from history)" },
-];
+/** The display label for each action. Fork reads "More like this" (DESIGN: a per-card generate pill, not git words). */
+const ACTION_META: Record<ConceptAction, { label: string; icon: IconComponent; title: string }> = {
+  shortlist: { label: "Shortlist", icon: Bookmark, title: "Keep this concept for Compare and Commit" },
+  merge: { label: "Merge with another", icon: GitMerge, title: "Merge with another concept (creates a new version)" },
+  fork: { label: "More like this", icon: Fan, title: "Draft a variant of this concept (creates a new version)" },
+  ask: { label: "Ask", icon: MessageCircleQuestionMark, title: "Ask the research agent a question about it" },
+  discard: { label: "Discard", icon: Trash, title: "Discard (reversible from history)" },
+};
 
 /** Overall ability on the 1–20 ramp: the mean attribute, rounded. */
 export function conceptOverall(concept: Concept): number {
@@ -38,48 +43,59 @@ export function conceptOverall(concept: Concept): number {
 }
 
 /**
- * The Ideation Studio's profile card (BUILD §11.1, DESIGN §9): logo 48 (the initials mark until one is chosen), name display-sm, pitch, current and potential
- * stars, ten attributes as 20-cell bars with evidence on hover, actions Shortlist / Merge / Fork / Ask / Discard.
+ * The Ideation Studio's profile card (BUILD §11.1, DESIGN §9, Mission): the logo (the initials mark until one is
+ * chosen), name, archetype, current and potential stars, the pitch, the overall figure, ten attributes as 20-cell lit
+ * bars with evidence on hover. Actions never clip: Shortlist, the "More like this" generate pill and Ask are visible
+ * (icon buttons with tooltips in a narrow card), Merge and Discard sit in a "More" menu.
  */
 export function ConceptCard({ concept, onAction, shortlisted, selected, onToggleSelect, hideActions, className }: ConceptCardProps) {
   const overall = conceptOverall(concept);
+  const act = (a: ConceptAction) => onAction?.(a, concept.id);
+  const shortlistLabel = shortlisted ? "Shortlisted" : ACTION_META.shortlist.label;
   return (
     <article
-      className={cn("surface-panel flex w-80 flex-col overflow-hidden", selected && "outline outline-2 outline-link", className)}
+      className={cn("@container surface-panel glow-brand flex w-80 flex-col overflow-hidden", selected && "edge-tint tone-accent outline-1 outline-accent/60", className)}
       aria-label={`${concept.name}: concept card`}
       data-concept={concept.id}
       data-selected={selected || undefined}
       style={{ ["--kit-primary" as string]: concept.kit.primary, ["--kit-secondary" as string]: concept.kit.secondary }}
     >
-      <header className="flex items-start gap-3 border-b border-subtle bg-panel-alt p-panel-pad">
-        <BusinessLogo src={concept.logoSrc} name={concept.name} primary={concept.kit.primary} monogram={concept.monogram} size={48} />
+      <header className="flex items-start gap-3 px-panel-pad pb-2 pt-panel-pad">
+        <BusinessLogo src={concept.logoSrc} name={concept.name} primary={concept.kit.primary} monogram={concept.monogram} size={44} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h3 className="t-display-sm truncate">{concept.name}</h3>
-            {concept.version && concept.version > 1 ? <Chip mono>v{concept.version}</Chip> : null}
+          <div className="flex min-w-0 items-center gap-2">
+            <h3 className="min-w-0 font-display text-display-md font-semibold text-primary">
+              <FitText minPx={15}>{concept.name}</FitText>
+            </h3>
+            {concept.version && concept.version > 1 ? <Chip mono className="shrink-0">v{concept.version}</Chip> : null}
           </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+          {concept.archetypeLabel ? <p className="text-small text-secondary">{concept.archetypeLabel}</p> : null}
+          <div className="mt-1">
             <StarRating value={concept.currentStars} potential={concept.potentialStars} label="Current ability" showValue />
-            {concept.archetypeLabel ? <span className="text-small text-secondary">{concept.archetypeLabel}</span> : null}
           </div>
         </div>
         {onToggleSelect ? (
           <Tooltip content={selected ? "Remove from Compare" : "Add to Compare"}>
-            <button type="button" aria-pressed={selected} aria-label={`Compare ${concept.name}`} onClick={() => onToggleSelect(concept.id)} className={cn("inline-flex size-6 items-center justify-center rounded-chip border border-subtle text-secondary hover:text-primary", selected && "border-link text-link")}>
-              <Icon icon={selected ? BookmarkCheck : Bookmark} size="inline" />
+            <button
+              type="button"
+              aria-pressed={selected}
+              aria-label={`Compare ${concept.name}`}
+              onClick={() => onToggleSelect(concept.id)}
+              className={cn("pressable inline-flex size-control-sm shrink-0 items-center justify-center rounded-sm text-tertiary transition-colors hover:bg-white/6 hover:text-primary focus-visible:shadow-ring", selected && "bg-accent/12 text-accent")}
+            >
+              <Icon icon={selected ? BookmarkCheck : Columns2} size="inline" />
             </button>
           </Tooltip>
         ) : null}
       </header>
-      <div className="flex flex-col gap-3 p-panel-pad">
-        <p className="text-body text-primary">{concept.pitch}</p>
+      <div className="flex flex-col gap-3 px-panel-pad pb-panel-pad">
+        <p className="text-body text-pretty text-primary">{concept.pitch}</p>
         <div className="flex items-center gap-2 text-small text-secondary">
-          <span>
-            Overall <span className="t-display-sm text-primary">{overall}</span>
-          </span>
-          {concept.citations !== undefined ? <span>· {concept.citations} citations</span> : null}
+          <span className="t-data">Overall</span>
+          <span className={cn("font-display text-display-md font-semibold tabular-nums", ratingClass(overall))}>{overall}</span>
+          {concept.citations !== undefined ? <span className="text-tertiary">· {concept.citations} citations</span> : null}
         </div>
-        <ol className="flex flex-col gap-1.5" aria-label="Attributes">
+        <ol className="flex flex-col gap-1.5 border-t border-line-faint pt-3" aria-label="Attributes">
           {concept.attributes.map((a) => (
             <li key={a.key}>
               <AttributeBar label={CONCEPT_ATTRIBUTE_LABELS[a.key]} value={a.value} evidence={a.evidence} />
@@ -88,17 +104,38 @@ export function ConceptCard({ concept, onAction, shortlisted, selected, onToggle
         </ol>
       </div>
       {hideActions ? null : (
-        <footer className="flex items-center gap-1 border-t border-subtle bg-panel-alt px-2 py-1.5" aria-label="Actions">
-          {ACTIONS.map((a) => {
-            const isShortlist = a.action === "shortlist";
-            return (
-              <Tooltip key={a.action} content={a.title}>
-                <Button size="sm" variant={a.action === "discard" ? "ghost" : isShortlist && shortlisted ? "primary" : "ghost"} icon={isShortlist && shortlisted ? BookmarkCheck : a.icon} aria-pressed={isShortlist ? !!shortlisted : undefined} className={cn("h-6 px-1.5", a.action === "discard" && "ml-auto hover:text-status-bad")} onClick={() => onAction?.(a.action, concept.id)} data-concept-action={a.action}>
-                  {isShortlist && shortlisted ? "Shortlisted" : a.label}
-                </Button>
-              </Tooltip>
-            );
-          })}
+        <footer className="mt-auto flex items-center gap-1.5 border-t border-line px-2.5 py-2" aria-label="Actions">
+          <Tooltip content={ACTION_META.shortlist.title}>
+            <Button size="sm" variant={shortlisted ? "tinted" : "default"} icon={shortlisted ? BookmarkCheck : Bookmark} aria-pressed={!!shortlisted} aria-label={shortlistLabel} onClick={() => act("shortlist")} data-concept-action="shortlist" className="shrink-0">
+              <span className="hidden @md:inline">{shortlistLabel}</span>
+            </Button>
+          </Tooltip>
+          <Tooltip content={ACTION_META.fork.title}>
+            <Button size="sm" variant="generate" onClick={() => act("fork")} data-concept-action="fork" className="shrink-0">
+              {ACTION_META.fork.label}
+            </Button>
+          </Tooltip>
+          <Tooltip content={ACTION_META.ask.title}>
+            <Button size="sm" variant="ghost" icon={ACTION_META.ask.icon} aria-label={ACTION_META.ask.label} onClick={() => act("ask")} data-concept-action="ask" className="shrink-0">
+              <span className="hidden @md:inline">{ACTION_META.ask.label}</span>
+            </Button>
+          </Tooltip>
+          <span className="flex-1" />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <IconButton size="sm" variant="ghost" icon={Ellipsis} label={`More actions for ${concept.name}`} data-concept-more="" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => act("merge")} data-concept-action="merge">
+                <Icon icon={ACTION_META.merge.icon} size="inline" className="text-secondary" />
+                {ACTION_META.merge.label}
+              </DropdownMenuItem>
+              <DropdownMenuItem variant="danger" onSelect={() => act("discard")} data-concept-action="discard">
+                <Icon icon={ACTION_META.discard.icon} size="inline" />
+                {ACTION_META.discard.label}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </footer>
       )}
     </article>

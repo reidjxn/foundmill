@@ -17,7 +17,7 @@ describe("AttributeBar", () => {
     expect(meter.getAttribute("aria-valuenow")).toBe("15");
     expect(meter.getAttribute("aria-valuetext")).toContain("Good");
     expect(container.querySelectorAll(".bg-rating-3").length).toBe(15);
-    expect(container.querySelectorAll(".bg-panel-alt").length).toBe(5);
+    expect(container.querySelectorAll(".cell-empty").length).toBe(5);
     await user.hover(screen.getByText("15"));
     expect(await screen.findByText("Search volume up 22%")).toBeTruthy();
   });
@@ -41,8 +41,16 @@ describe("ConceptCard", () => {
     expect(screen.getByRole("img", { name: /Current ability: 3 of 5, potential 4.5/ })).toBeTruthy();
     expect(screen.getAllByRole("meter").length).toBe(10);
     expect(conceptOverall(c)).toBe(12);
-    for (const action of ["shortlist", "merge", "fork", "ask", "discard"] as const) {
+    // Shortlist, "More like this" (fork) and Ask are on the card; Merge and Discard are in the More menu.
+    for (const action of ["shortlist", "fork", "ask"] as const) {
       await user.click(document.querySelector(`[data-concept-action='${action}']`) as HTMLElement);
+      expect(onAction).toHaveBeenLastCalledWith(action, c.id);
+    }
+    expect(screen.getByRole("button", { name: "More like this" })).toBeTruthy();
+    for (const action of ["merge", "discard"] as const) {
+      expect(document.querySelector(`[data-concept-action='${action}']`)).toBeNull();
+      await user.click(screen.getByRole("button", { name: `More actions for ${c.name}` }));
+      await user.click(await screen.findByRole("menuitem", { name: action === "merge" ? "Merge with another" : "Discard" }));
       expect(onAction).toHaveBeenLastCalledWith(action, c.id);
     }
   });

@@ -7,7 +7,7 @@ import { RightRail } from "./RightRail";
 const meta = {
   title: "Shell/RightRail",
   component: RightRail,
-  parameters: { layout: "fullscreen", docs: { description: { component: "Optional 320 px rail for hover-card details, the agent log or a decision preview. Collapses to a 32 px handle; 200 ms width transition." } } },
+  parameters: { layout: "fullscreen", docs: { description: { component: "Optional 320 px rail for hover-card details, the agent log or a decision preview. On the rail colour with a hairline on its inner edge that catches light at the top; a 40 px header on its own surface (title style, a rule fading out under it). Collapses to a 32 px handle; 200 ms width transition." } } },
   args: { title: "Agent log", open: true, onOpenChange: () => {} },
 } satisfies Meta<typeof RightRail>;
 export default meta;
@@ -24,7 +24,7 @@ const LOG = [
 function Frame(args: Story["args"]) {
   const [open, setOpen] = useState(args?.open ?? true);
   return (
-    <div className="flex h-screen bg-base">
+    <div className="flex h-screen bg-canvas">
       <div className="flex-1 p-4 text-small text-secondary">Content grid gets the width back when the rail collapses.</div>
       <RightRail {...args} open={open} onOpenChange={setOpen} actions={<StatusPill tone="good">Live</StatusPill>}>
         <ul className="flex flex-col gap-2">

@@ -2,13 +2,15 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Button } from "../foundation/Button";
 import { ContinueButton } from "./ContinueButton";
+import { kitStyle } from "./KitBar";
+import { NORTHWIND_KIT } from "./fixtures";
 import { StopAllAgents } from "./StopAllAgents";
 import type { ContinueState } from "./types";
 
 const meta = {
   title: "Shell/ContinueButton",
   component: ContinueButton,
-  parameters: { backgrounds: { value: "panel" }, docs: { description: { component: "At rest a kit-primary fill. Blocked is status-bad with “Respond · N”. Processing shows Pause and a 2 px sweep. Match Day is gold. Holiday is neutral with the caption and “Come back”. One 600 ms ring pulse when pulseKey changes, never a loop; Space triggers the state's action." } } },
+  parameters: { backgrounds: { value: "panel" }, docs: { description: { component: "At rest the brand primary with its light. Blocked is a solid red with ink text “Respond” and the count in a capsule, a 4 px red halo, and one 600 ms ring pulse when it turns blocked. Processing is a dark slab with a light arc orbiting its edge and “Pause”. A Customer Update is gold. Holiday is neutral with the caption and “Come back”. It keeps one width through its states. One pulse when pulseKey changes, never a loop; Space triggers the state's action." } } },
   args: { state: { kind: "idle" }, bindSpace: true },
 } satisfies Meta<typeof ContinueButton>;
 export default meta;
@@ -59,6 +61,16 @@ export const WithStopAllAgents: Story = {
     <div className="flex items-center gap-2">
       <ContinueButton state={{ kind: "processing" }} />
       <StopAllAgents onConfirm={() => new Promise<void>((r) => setTimeout(r, 900))} runningCount={7} className="text-secondary" />
+    </div>
+  ),
+};
+/** On the brand slab, 34 px, as the top bar draws it. */
+export const OnTheSlab: Story = {
+  render: () => (
+    <div className="kitbar-slab flex h-kitbar items-center gap-2 px-3 text-kit-on-primary" style={kitStyle(NORTHWIND_KIT)}>
+      {STATES.slice(0, 5).map(([label, state]) => (
+        <ContinueButton key={label} state={state} className="h-kitbar-chip rounded-track" />
+      ))}
     </div>
   ),
 };

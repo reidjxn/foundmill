@@ -23,7 +23,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Sidebar left, top bar (KitBar), processing strip, tab bar, content grid, optional right rail (BUILD §5.3). The kit is applied as CSS variables on the root; the keyboard map (BUILD §5.5) is bound; / and ⌘K open the command palette, ? opens the keyboard help. Below 1280 px only NeedsLargerWindow renders.",
+          "Sidebar left on the rail, the brand glass slab on top (KitBar), the processing strip, the tab bar over the lit canvas, the content grid, an optional right rail (BUILD §5.3). The brand is applied as CSS variables on the root (and on the document while mounted, so portaled overlays take it too); the keyboard map (BUILD §5.5) is bound; / and ⌘K open the command palette, ? opens the keyboard help. Below 1280 px only NeedsLargerWindow renders.",
       },
     },
   },
@@ -291,4 +291,10 @@ export const DeptChipLegend: Story = {
     </div>
   ),
   parameters: { layout: "padded" },
+};
+export const At1280: Story = {
+  name: "1280 px window",
+  args: { ...baseArgs, viewportWidth: 1280, screenTitle: "Retail Partnerships", continueButton: { state: { kind: "blocked", count: 2 } } },
+  render: (args) => <Shell {...args} tabs={{ tabs: DISTRIBUTION_TABS, activeId: "formation" }} />,
+  parameters: { docs: { description: { story: "The minimum window: the search gives way first (placeholder → “Search” → icon); the title and every chip keep their words." } } },
 };

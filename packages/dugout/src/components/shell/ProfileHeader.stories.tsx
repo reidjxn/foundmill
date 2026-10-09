@@ -9,7 +9,7 @@ import { ProfileHeader } from "./ProfileHeader";
 const meta = {
   title: "Shell/ProfileHeader",
   component: ProfileHeader,
-  parameters: { layout: "fullscreen", docs: { description: { component: "96 px: avatar or logo 64 px, name display-md, role and kind chips, three key facts, actions right, model chip (mono) and current/potential stars (DESIGN §8)." } } },
+  parameters: { layout: "fullscreen", docs: { description: { component: "96 px on the canvas with a rule fading out under it: avatar or logo 64 px, name display-md, role and kind chips, three key facts as data-label + value pairs, actions right, model chip (mono) and current/potential stars (DESIGN §8). The name never gives way: the facts shrink and wrap first, then the name steps its size down." } } },
   args: {
     avatar: <Avatar name="Scout" size={64} agent={{ seed: "scout", dept: "dept-3" }} status="healthy" />,
     name: "Scout",
@@ -79,4 +79,16 @@ export const Organisation: Story = {
     stars: undefined,
     actions: undefined,
   },
+};
+/** A long agent name beside three facts and three actions at the 1280 window: the facts give way first. */
+export const LongNameAt1280: Story = {
+  name: "Long name at 1280",
+  args: { name: "Sourcing and Manufacturing Specialist" },
+  decorators: [
+    (Story) => (
+      <div style={{ width: 1048 }}>
+        <Story />
+      </div>
+    ),
+  ],
 };

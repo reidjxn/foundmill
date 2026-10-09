@@ -53,8 +53,8 @@ export function RfqFunnel({ stages }: { stages: readonly RfqStage[] }) {
       {rfqFunnelRates(stages).map(({ stage, rate, widthPct }) => (
         <li key={stage.id} className="grid grid-cols-[7rem_1fr_3.5rem] items-center gap-2 text-small">
           <span className="truncate text-secondary">{stage.label}</span>
-          <span className="relative h-5 overflow-hidden rounded-chip bg-panel-alt">
-            <span className="absolute inset-y-0 left-0 rounded-chip bg-kit-primary/70" style={{ width: `${widthPct}%` }} aria-hidden />
+          <span className="relative h-5 overflow-hidden rounded-xs bg-white/6">
+            <span className="absolute inset-y-0 left-0 rounded-xs bg-kit-lift/60" style={{ width: `${widthPct}%` }} aria-hidden />
             <span className="relative px-1.5 font-mono text-mono leading-5 text-primary tabular-nums">{stage.count}</span>
           </span>
           <span className="text-right text-secondary tabular-nums">{rate === null ? "—" : `${Math.round(rate * 100)}%`}</span>
@@ -70,8 +70,8 @@ export function QuoteTable({ quotes }: { quotes: readonly SupplierQuote[] }) {
   return (
     <div className="overflow-auto">
       <table className="w-full border-collapse text-small">
-        <thead className="sticky top-0 bg-panel-alt">
-          <tr className="t-label h-7">
+        <thead className="table-head sticky top-0">
+          <tr className="t-data h-control-sm">
             <th scope="col" className="px-2 text-left font-semibold">Supplier</th>
             <th scope="col" className="px-2 text-right font-semibold">Unit</th>
             <th scope="col" className="px-2 text-right font-semibold">MOQ</th>
@@ -121,7 +121,7 @@ export function SampleTracker({ samples }: { samples: readonly SampleItem[] }) {
             </div>
             <ol className="flex gap-0.5" aria-label={`${s.supplier} stages`}>
               {SAMPLE_STAGES.filter((st) => st !== "rejected").map((st, i) => (
-                <li key={st} aria-label={`${SAMPLE_WORD[st]}${i <= idx ? ", reached" : ""}`} className={cn("h-1.5 flex-1 rounded-xs", i <= idx ? (bad ? "bg-status-bad" : "bg-status-good") : "bg-panel-alt")} />
+                <li key={st} aria-label={`${SAMPLE_WORD[st]}${i <= idx ? ", reached" : ""}`} className={cn("h-1.5 flex-1 rounded-xs", i <= idx ? (bad ? "bg-status-bad" : "bg-status-good") : "cell-empty")} />
               ))}
             </ol>
             {s.note ? <p className="text-secondary">{s.note}</p> : null}
@@ -189,7 +189,7 @@ export function SpecialistTile({ session, data, view: viewProp, defaultView = "f
         {view === "samples" ? <SampleTracker samples={data.samples} /> : null}
         {view === "shipments" ? <ShipmentList shipments={data.shipments} /> : null}
         {view === "quotes" && data.quotes.some((q) => q.status === "accepted") ? (
-          <p className="flex items-center gap-1 border-t border-subtle px-panel-pad py-1.5 text-small text-secondary">
+          <p className="flex items-center gap-1 border-t border-line px-panel-pad py-1.5 text-small text-tertiary">
             <Chip tone="warn">Human gate</Chip> Any purchase order needs the founder's approval.
           </p>
         ) : null}

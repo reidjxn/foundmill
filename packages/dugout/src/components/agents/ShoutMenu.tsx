@@ -19,7 +19,8 @@ export const SHOUT_PRESETS: ReadonlyArray<{ key: ShoutPreset; label: string; hin
   { key: "hurry_up", label: "Hurry up", hint: "Prefer smaller changes and ship sooner." },
 ];
 
-export const SHOUT_MAX_LENGTH = 500;
+/** The longest nudge the API accepts (dev.shout: text max 280). */
+export const SHOUT_MAX_LENGTH = 280;
 
 export interface ShoutMenuProps {
   /** Who hears it: an agent name, or "all agents". */
@@ -55,12 +56,12 @@ export function ShoutMenu({ target, onShout, disabled, size = "sm", labelled }: 
             <IconButton icon={Megaphone} label={`Nudge ${target}`} size={size} disabled={disabled} />
           )}
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-64">
+        <DropdownMenuContent align="end" className="w-80">
           <DropdownMenuLabel>Nudge {target}</DropdownMenuLabel>
           {SHOUT_PRESETS.map((p) => (
-            <DropdownMenuItem key={p.key} onSelect={() => onShout({ preset: p.key, text: p.label })} className="h-auto flex-col items-start gap-0 py-1.5">
-              <span className="text-body text-primary">{p.label}</span>
-              <span className="text-small text-secondary">{p.hint}</span>
+            <DropdownMenuItem key={p.key} onSelect={() => onShout({ preset: p.key, text: p.label })} className="h-auto min-h-control-md flex-col items-start gap-0.5 py-2" data-nudge-preset={p.key}>
+              <span className="text-body font-medium leading-4 text-primary">{p.label}</span>
+              <span className="text-small text-tertiary group-data-highlighted/item:text-secondary">{p.hint}</span>
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />

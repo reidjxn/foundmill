@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { mockTaskGraph } from "./mock";
-import { TaskGraph, fitTransform, layerNodes, layoutTaskGraph, zoomAround } from "./TaskGraph";
+import { READABLE_ZOOM, TaskGraph, fitTransform, layerNodes, layoutTaskGraph, readableTransform, zoomAround } from "./TaskGraph";
 import type { TaskGraphNode } from "./types";
 
 const simple: TaskGraphNode[] = [
@@ -67,6 +67,24 @@ describe("layoutTaskGraph", () => {
     const l = layoutTaskGraph(nodes);
     expect(l.nodes).toHaveLength(nodes.length);
     expect(l.layers.flat().sort()).toEqual(nodes.map((n) => n.id).sort());
+  });
+});
+
+describe("tall layers", () => {
+  it("wraps a layer of many independent tasks into side-by-side columns of at most maxRows", () => {
+    const many: TaskGraphNode[] = Array.from({ length: 20 }, (_, i) => ({ id: `t${i}`, title: `Task ${i}`, status: "planned" as const, deps: [] }));
+    const l = layoutTaskGraph(many, { maxRows: 8 });
+    const xs = new Set(l.nodes.map((n) => n.x));
+    expect(xs.size).toBe(3); // 8 + 8 + 4
+    const perColumn = [...xs].map((x) => l.nodes.filter((n) => n.x === x).length);
+    expect(Math.max(...perColumn)).toBe(8);
+    // No two nodes overlap.
+    for (const a of l.nodes) for (const b of l.nodes) if (a !== b) expect(a.x === b.x && Math.abs(a.y - b.y) < 64).toBe(false);
+  });
+  it("opens big graphs at a readable zoom anchored top left, small ones fitted", () => {
+    expect(readableTransform(4000, 600, 1000, 480).k).toBe(READABLE_ZOOM);
+    expect(readableTransform(4000, 600, 1000, 480).x).toBe(16);
+    expect(readableTransform(400, 200, 1000, 480)).toEqual(fitTransform(400, 200, 1000, 480));
   });
 });
 

@@ -53,7 +53,7 @@ export function AmbiguousSpan({
           data-ambiguous
           aria-haspopup="dialog"
           aria-label={`${node.text}: ${node.prompt}`}
-          className="inline rounded-chip border-b border-dotted border-secondary text-primary hover:bg-white/4 focus-visible:outline-2"
+          className="inline rounded-xs border-b border-dotted border-secondary text-primary transition-colors hover:bg-white/4 focus-visible:shadow-ring"
         >
           {node.text}
           <span className="ml-1 inline-flex items-baseline gap-0.5 text-small text-secondary">
@@ -63,13 +63,13 @@ export function AmbiguousSpan({
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-72 p-1" aria-label={node.prompt}>
-        <p className="t-label px-2 pb-1 pt-1.5">{node.prompt}</p>
+        <p className="t-data px-2.5 pb-1 pt-2">{node.prompt}</p>
         <ul className="flex flex-col">
           {node.candidates.map((c) => (
             <li key={c.id}>
               <button
                 type="button"
-                className="flex h-row-compact w-full items-center gap-2 rounded-chip px-2 text-left text-body text-primary hover:bg-white/4 focus-visible:outline-2"
+                className="flex min-h-control-md w-full items-center gap-2 rounded-sm px-2.5 text-left text-body text-primary transition-colors hover:bg-white/8 focus-visible:shadow-ring"
                 onClick={() => {
                   setOpen(false);
                   onResolve?.(c);

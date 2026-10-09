@@ -1,4 +1,5 @@
 import { cn } from "../../lib/cn";
+import { FitText } from "../foundation/FitText";
 import { ProvenanceChip } from "../foundation/Chip";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../foundation/HoverCard";
 import { RatingBar, RatingFigure } from "./RatingBar";
@@ -53,15 +54,10 @@ export function AttributeBars({
           <div
             key={a.id}
             data-attribute={a.id}
-            className="flex h-6 min-w-0 items-center gap-2 rounded-chip px-1 hover:bg-white/4"
+            className="flex min-h-control-xs min-w-0 items-center gap-2 rounded-sm px-1.5 transition-colors duration-hover hover:bg-white/4"
           >
-            <dt
-              className={cn(
-                "t-label shrink-0 truncate normal-case tracking-normal",
-                labelClassName,
-              )}
-            >
-              <span className="font-body text-small normal-case text-secondary">{a.name}</span>
+            <dt className={cn("shrink-0 text-small text-secondary", labelClassName)} title={a.name}>
+              <FitText minPx={11}>{a.name}</FitText>
             </dt>
             <dd className="flex min-w-0 flex-1 items-center gap-2">
               {showValue ? (
@@ -83,12 +79,12 @@ export function AttributeBars({
           <HoverCard key={a.id}>
             <HoverCardTrigger asChild>{row}</HoverCardTrigger>
             <HoverCardContent className="w-72" side="right">
-              <p className="t-label mb-1">Evidence · {a.name}</p>
+              <p className="t-data mb-1">Evidence · {a.name}</p>
               <p className="text-body text-primary">{ev.summary}</p>
               {ev.sources.length > 0 ? (
-                <ul className="mt-2 flex flex-col gap-0.5 border-t border-subtle pt-2">
+                <ul className="mt-2 flex flex-col gap-0.5 border-t border-line pt-2">
                   {ev.sources.map((s) => (
-                    <li key={s} className="truncate text-small text-secondary">
+                    <li key={s} className="break-words text-small text-secondary">
                       {s}
                     </li>
                   ))}

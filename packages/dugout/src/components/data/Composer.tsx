@@ -61,8 +61,10 @@ export function Composer({ onSubmit, label = "Send", icon = Send, placeholder, r
   };
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)} data-composer>
+    <div className={cn("flex flex-col gap-2", className)} data-composer>
       <Textarea
+        autoGrow
+        className="max-h-60 min-h-field resize-none t-chat"
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={onKeyDown}
@@ -77,11 +79,11 @@ export function Composer({ onSubmit, label = "Send", icon = Send, placeholder, r
         aria-busy={working || undefined}
       />
       <div className="flex items-center gap-3">
-        <div id={noteId} className="min-w-0 flex-1 text-small text-secondary">
+        <div id={noteId} className="min-w-0 flex-1 text-small text-tertiary">
           {note}
         </div>
         <Keys keys={["Ctrl", "Enter"]} separator="+" className="shrink-0" />
-        <Button size="sm" icon={icon} loading={working} disabled={!canSend && !working} onClick={() => void submit()}>
+        <Button size="sm" variant={canSend ? "primary" : "default"} icon={icon} loading={working} disabled={!canSend && !working} onClick={() => void submit()} className="shrink-0">
           {label}
         </Button>
       </div>

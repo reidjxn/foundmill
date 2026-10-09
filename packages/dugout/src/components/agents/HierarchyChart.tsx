@@ -1,9 +1,9 @@
 "use client";
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "../../lib/cn";
 import { Avatar } from "../foundation/Avatar";
-import { Chip } from "../foundation/Chip";
-import { AgentStatusPill } from "../foundation/StatusPill";
+import { FitText } from "../foundation/FitText";
+import { agentStatusTone } from "../foundation/StatusPill";
 import { MODEL_LABELS } from "./SquadCells";
 import type { HierarchyKind, HierarchyNode } from "./types";
 
@@ -15,7 +15,7 @@ export interface HierarchyLayoutOptions {
   padding: number;
 }
 
-export const HIERARCHY_LAYOUT: HierarchyLayoutOptions = { nodeWidth: 176, nodeHeight: 60, gapX: 12, gapY: 40, padding: 12 };
+export const HIERARCHY_LAYOUT: HierarchyLayoutOptions = { nodeWidth: 188, nodeHeight: 64, gapX: 12, gapY: 40, padding: 16 };
 
 export interface HierarchyPlaced {
   id: string;
@@ -83,7 +83,15 @@ export function layoutHierarchy(nodes: readonly HierarchyNode[], opts: Partial<H
       const x2 = p.x + o.nodeWidth / 2;
       const y2 = p.y;
       const mid = y1 + (y2 - y1) / 2;
-      return { from: parent.id, to: p.id, path: `M ${x1} ${y1} L ${x1} ${mid} L ${x2} ${mid} L ${x2} ${y2}` };
+      // Orthogonal with rounded corners (radius up to 8, smaller when the turn is tight).
+      const r = Math.min(8, Math.abs(x2 - x1) / 2, (y2 - y1) / 4);
+      if (r < 0.5) return { from: parent.id, to: p.id, path: `M ${x1} ${y1} L ${x2} ${y2}` };
+      const dir = x2 > x1 ? 1 : -1;
+      return {
+        from: parent.id,
+        to: p.id,
+        path: `M ${x1} ${y1} L ${x1} ${mid - r} Q ${x1} ${mid} ${x1 + dir * r} ${mid} L ${x2 - dir * r} ${mid} Q ${x2} ${mid} ${x2} ${mid + r} L ${x2} ${y2}`,
+      };
     });
   return { nodes: list, edges, width, height };
 }
@@ -143,18 +151,47 @@ export function HierarchyChart({ nodes, selectedId, onSelect, layout: layoutOpts
     e.preventDefault();
   };
 
+  // The root (the founder or the Chief of Staff) is centred in view on first paint and when the tree changes; edges
+  // with more tree behind them fade (scroll cues).
+  const scroller = useRef<HTMLDivElement>(null);
+  const [cues, setCues] = useState({ left: false, right: false });
+  const updateCues = useCallback(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const left = el.scrollLeft > 2;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+    setCues((c) => (c.left === left && c.right === right ? c : { left, right }));
+  }, []);
+  const rootId = layout.nodes.find((n) => !n.parentId)?.id;
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    const root = rootId ? placedById.get(rootId) : undefined;
+    if (!el || !root) return;
+    el.scrollLeft = Math.max(0, root.x + o.nodeWidth / 2 - el.clientWidth / 2);
+    updateCues();
+  }, [rootId, layout.width, placedById, o.nodeWidth, updateCues]);
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => updateCues());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [updateCues]);
+
   return (
-    <div className={cn("overflow-auto", className)} data-hierarchy-chart>
+    <div className={cn("scroll-cues relative min-h-0", className)} data-more-left={cues.left || undefined} data-more-right={cues.right || undefined} data-hierarchy-chart>
+      <div ref={scroller} className="h-full overflow-auto" onScroll={updateCues}>
       <div role="tree" aria-label="Team hierarchy" className="relative" style={{ width: layout.width, height: layout.height }}>
         <svg width={layout.width} height={layout.height} aria-hidden className="absolute inset-0">
           {layout.edges.map((e) => (
-            <path key={`${e.from}-${e.to}`} d={e.path} fill="none" className="stroke-subtle" strokeWidth={1.5} />
+            <path key={`${e.from}-${e.to}`} d={e.path} fill="none" stroke="var(--line-strong)" strokeWidth={1.25} strokeLinecap="round" />
           ))}
         </svg>
         {layout.nodes.map((p) => {
           const n = byId.get(p.id);
           if (!n) return null;
           const selected = selectedId === n.id;
+          const unwell = n.status && n.status !== "healthy" ? agentStatusTone(n.status) : null;
           return (
             <button
               key={n.id}
@@ -173,35 +210,42 @@ export function HierarchyChart({ nodes, selectedId, onSelect, layout: layoutOpts
               onFocus={() => setActive(n.id)}
               onKeyDown={(e) => onKey(e, p)}
               onClick={() => onSelect?.(n)}
+              title={`${n.name} · ${n.role}`}
               className={cn(
-                "absolute flex items-center gap-2 rounded-panel border bg-panel px-2 text-left shadow-inner-highlight outline-none",
-                "transition-colors duration-micro ease-dugout hover:bg-panel-alt focus-visible:ring-2 focus-visible:ring-link",
-                selected ? "border-kit-primary" : "border-subtle",
-                n.kind === "assistant" && "border-l-3 border-l-kit-primary",
+                "pressable absolute flex items-center gap-2.5 overflow-hidden rounded-md border bg-surface-1 px-2.5 text-left shadow-elev-1 outline-none",
+                "transition duration-hover ease-out hover:border-line-strong hover:bg-surface-2 focus-visible:shadow-ring",
+                selected ? "tile-focused" : "border-line",
+                (n.kind === "assistant" || n.kind === "founder") && !selected && "border-kit-lift/45 bg-kit-lift/5",
               )}
               style={{ left: p.x, top: p.y, width: o.nodeWidth, height: o.nodeHeight }}
             >
-              <Avatar size={32} name={n.name} agent={n.avatar ? { seed: n.avatar.seed, dept: n.avatar.dept } : undefined} status={n.status} />
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-body-strong text-primary">{n.name}</span>
-                <span className="truncate text-small text-secondary">{n.role}</span>
-                <span className="mt-0.5 flex items-center gap-1">
-                  {n.model ? (
-                    <Chip tone="neutral" mono className="h-4 px-1 text-[10px]">
-                      {MODEL_LABELS[n.model]}
-                    </Chip>
-                  ) : (
-                    <Chip tone="neutral" className="h-4 px-1 text-[10px]">
-                      {KIND_LABEL[n.kind]}
-                    </Chip>
-                  )}
-                  {n.status && n.status !== "healthy" ? <AgentStatusPill status={n.status} className="h-4 px-1 text-[10px]" /> : null}
+              <Avatar size={34} name={n.name} agent={n.avatar ? { seed: n.avatar.seed, dept: n.avatar.dept } : undefined} status={n.status} />
+              <span className="flex min-w-0 flex-1 flex-col justify-center">
+                {/* Names fit: two lines first, then a step down; the full name is in the node's tooltip. */}
+                <span className="text-action font-semibold leading-4 text-primary">
+                  <FitText lines={2} minPx={11}>
+                    {n.name}
+                  </FitText>
+                </span>
+                <span className="mt-0.5 flex min-w-0 items-baseline gap-1 text-small">
+                  {unwell ? <span className={cn("shrink-0 font-medium", UNWELL_TEXT[unwell.tone])}>{unwell.word}</span> : null}
+                  {unwell ? <span className="shrink-0 text-tertiary">·</span> : null}
+                  <span className="min-w-0 text-secondary">
+                    <FitText minPx={11} tooltip={false}>
+                      {n.role}
+                    </FitText>
+                  </span>
+                  <span className="shrink-0 text-tertiary">·</span>
+                  <span className="shrink-0 font-mono text-micro text-tertiary">{n.model ? MODEL_LABELS[n.model] : KIND_LABEL[n.kind]}</span>
                 </span>
               </span>
             </button>
           );
         })}
       </div>
+      </div>
     </div>
   );
 }
+
+const UNWELL_TEXT: Record<string, string> = { good: "text-status-good", warn: "text-status-warn", bad: "text-status-bad", info: "text-status-info", neutral: "text-secondary" };

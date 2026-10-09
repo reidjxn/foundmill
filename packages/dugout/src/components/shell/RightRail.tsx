@@ -19,8 +19,10 @@ export interface RightRailProps extends Omit<HTMLAttributes<HTMLElement>, "title
 }
 
 /**
- * The optional 320 px right rail (BUILD §5.3): hover-card details, the agent log, a decision preview.
- * Collapses to a narrow handle so the content grid gets the width back; 200 ms width transition (DESIGN §7).
+ * The optional 320 px right rail (BUILD §5.3, DESIGN §8): hover-card details, the agent log, a decision preview. On the
+ * rail colour with a hairline on its inner edge that catches light at the top; a 40 px header on its own surface (the
+ * title style, a rule fading out under it). Collapses to a narrow handle so the content grid gets the width back
+ * (200 ms width transition).
  */
 export const RightRail = forwardRef<HTMLElement, RightRailProps>(function RightRail(
   { title = "Details", open, onOpenChange, actions, hideToggle, className, children, ...rest },
@@ -31,18 +33,15 @@ export const RightRail = forwardRef<HTMLElement, RightRailProps>(function RightR
       ref={ref}
       aria-label={typeof title === "string" ? title : "Right rail"}
       data-state={open ? "open" : "collapsed"}
-      className={cn(
-        "flex h-full shrink-0 flex-col overflow-hidden border-l border-subtle bg-panel transition-[width] duration-panel ease-dugout",
-        open ? "w-rail" : "w-8",
-        className,
-      )}
+      data-side="right"
+      className={cn("shell-rail flex h-full shrink-0 flex-col overflow-hidden", open ? "w-rail" : "w-control-md", className)}
       {...rest}
     >
-      <div className={cn("flex h-panel-header shrink-0 items-center border-b border-subtle bg-panel-alt", open ? "gap-2 pl-panel-pad pr-1" : "justify-center")}>
+      <div className={cn(open ? "panel-head" : "flex h-panel-header shrink-0 items-center justify-center")}>
         {open ? (
           <>
-            <h2 className="t-label min-w-0 flex-1 truncate">{title}</h2>
-            {actions ? <div className="flex shrink-0 items-center gap-1">{actions}</div> : null}
+            <h2 className="t-title min-w-0 flex-auto text-balance text-primary">{title}</h2>
+            {actions ? <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div> : null}
           </>
         ) : null}
         {hideToggle ? null : (
@@ -54,7 +53,7 @@ export const RightRail = forwardRef<HTMLElement, RightRailProps>(function RightR
             pressed={undefined}
             aria-expanded={open}
             onClick={() => onOpenChange(!open)}
-            className="size-6"
+            className={cn("text-tertiary", open && !actions && "ml-auto")}
           />
         )}
       </div>
@@ -65,7 +64,7 @@ export const RightRail = forwardRef<HTMLElement, RightRailProps>(function RightR
       ) : (
         <div className="flex flex-1 items-start justify-center pt-3">
           {typeof title === "string" ? (
-            <span aria-hidden className="t-label whitespace-nowrap text-secondary/70" style={{ writingMode: "vertical-rl" }}>
+            <span aria-hidden className="t-label whitespace-nowrap text-tertiary" style={{ writingMode: "vertical-rl" }}>
               {title}
             </span>
           ) : null}

@@ -1,9 +1,10 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { AppShell, sidebarItemForTarget, withSidebarKeys, type AppShellProps } from "./AppShell";
+import { AppShell, KIT_VARIABLES, sidebarItemForTarget, withSidebarKeys, type AppShellProps } from "./AppShell";
 import { SAMPLE_LOGOS } from "../foundation/logo-samples";
 import { kitBarGradient, kitStyle } from "./KitBar";
+import { kitRamp } from "../../lib/colour";
 import { FIXTURE_TODAY, NORTHWIND_KIT, NORTHWIND_SEGMENTS, NORTHWIND_SIDEBAR, PALETTE_ITEMS } from "./fixtures";
 
 beforeAll(() => {
@@ -35,8 +36,10 @@ describe("AppShell", () => {
     expect(screen.getByTestId("needs-larger-window")).toBeTruthy();
     expect(screen.getByText("This needs a larger window")).toBeTruthy();
     expect(screen.getByText("1279 px")).toBeTruthy();
-    // No mark of any kind: the FM monogram is reserved for the favicon.
-    expect(screen.getByTestId("needs-larger-window").querySelector("svg")).toBeNull();
+    // No mark of any kind (the FM monogram is reserved for the favicon): the only image is the Lucide monitor glyph.
+    const svgs = [...screen.getByTestId("needs-larger-window").querySelectorAll("svg")];
+    expect(svgs.every((svg) => svg.classList.contains("lucide"))).toBe(true);
+    expect(svgs.length).toBe(1);
     expect(screen.queryByTestId("app-shell")).toBeNull();
     expect(screen.queryByText("Content")).toBeNull();
   });
@@ -47,7 +50,8 @@ describe("AppShell", () => {
     expect(root.style.getPropertyValue("--kit-primary")).toBe("#2B6CB0");
     expect(root.style.getPropertyValue("--kit-secondary")).toBe("#FFFFFF");
     expect(root.style.getPropertyValue("--kit-on-primary")).toBe("#FFFFFF");
-    expect(screen.getByTestId("kit-bar").style.backgroundImage).toContain("linear-gradient");
+    // The glass slab: gloss, the brand gradient, the specular streak and the cast light are CSS on kitbar-slab.
+    expect(screen.getByTestId("kit-bar").className).toContain("kitbar-slab");
     expect(screen.getByTestId("kitbar-business-name").textContent).toBe("Northwind Skincare");
     expect(screen.getByTestId("kitbar-screen-title").textContent).toBe("Home");
     expect(screen.getByText("Content")).toBeTruthy();
@@ -57,7 +61,21 @@ describe("AppShell", () => {
     expect(screen.getByText("LIVE")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Network" })).toBeTruthy();
     expect(kitStyle({ primary: "#F5B841", secondary: "#000" })).toMatchObject({ "--kit-on-primary": "#0F1318" });
+    // The brand ramp is derived from the primary in OKLCH and written beside it.
+    const ramp = kitRamp("#2B6CB0");
+    expect(root.style.getPropertyValue("--kit-lift")).toBe(ramp.lift);
+    expect(root.style.getPropertyValue("--kit-hi")).toBe(ramp.hi);
+    expect(root.style.getPropertyValue("--kit-lo")).toBe(ramp.lo);
+    expect(root.style.getPropertyValue("--kit-deep")).toBe(ramp.deep);
+    expect(root.style.getPropertyValue("--kit-aura")).toBe(ramp.aura);
     expect(kitBarGradient(NORTHWIND_KIT)).toBe("linear-gradient(90deg, var(--kit-primary) 0%, #255D97 100%)");
+  });
+
+  it("leaves the brand ramp to the stylesheet's steel defaults when the primary is not a hex colour", () => {
+    const style = kitStyle({ primary: "var(--dept-2)", secondary: "#FFFFFF" }) as Record<string, unknown>;
+    expect(style["--kit-primary"]).toBe("var(--dept-2)");
+    for (const key of ["--kit-on-primary", "--kit-lift", "--kit-hi", "--kit-lo", "--kit-deep", "--kit-aura"]) expect(style[key]).toBeUndefined();
+    expect((kitStyle({ primary: "2E7D6B", secondary: "#FFFFFF" }) as Record<string, unknown>)["--kit-lift"]).toBe(kitRamp("#2E7D6B").lift);
   });
 
   it("draws the Foundmill wordmark in the sidebar foot when expanded and nothing for the brand when collapsed", () => {
@@ -161,5 +179,33 @@ describe("AppShell", () => {
     expect(screen.getByRole("navigation", { name: "Breadcrumb" }).textContent).toContain("Finance");
     expect(screen.getByRole("complementary", { name: "Decision preview" })).toBeTruthy();
     expect(screen.getByText("Rail body")).toBeTruthy();
+  });
+
+  it("carries the brand on the document while mounted, so overlays that portal to the body take the business's colour", () => {
+    const { unmount } = render(<AppShell {...shellProps({ kit: { primary: "#2E7D6B", secondary: "#E8C56B" } })} />);
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue("--kit-primary")).toBe("#2E7D6B");
+    expect(root.style.getPropertyValue("--kit-lift")).toBe(kitRamp("#2E7D6B").lift);
+    unmount();
+    for (const name of KIT_VARIABLES) expect(root.style.getPropertyValue(name)).toBe("");
+  });
+
+  it("finds the business by its name in the palette and opens Home", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(<AppShell {...shellProps({ search: { items: PALETTE_ITEMS, onSelect, remote: true } })} />);
+    await user.click(screen.getByTestId("kitbar-search"));
+    await user.type(await screen.findByRole("combobox"), "north");
+    const row = await screen.findByRole("option", { name: /Northwind Skincare/ });
+    await user.click(row);
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "business", label: "Northwind Skincare", href: "/b/northwind" }));
+  });
+
+  it("keeps the search placeholder short enough never to be cut, with the short forms for a narrow bar", () => {
+    render(<AppShell {...shellProps()} />);
+    const search = screen.getByTestId("kitbar-search");
+    expect(search.textContent).toContain("Search or jump to…");
+    expect(search.querySelector(".kitbar-search-short")?.textContent).toBe("Search");
+    expect(search.className).toContain("kitbar-search");
   });
 });
