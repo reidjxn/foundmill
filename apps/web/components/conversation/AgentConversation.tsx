@@ -26,7 +26,7 @@ import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { ConfirmPlanDialog } from "@/components/inbox/ConfirmPlanDialog";
-import { confirmationLines } from "@/components/inbox/logic";
+import { confirmationLines } from "@/components/inbox/confirmation";
 import { currentQuickReplies } from "@foundmill/dugout";
 import {
   FAILURE_PREFIX,

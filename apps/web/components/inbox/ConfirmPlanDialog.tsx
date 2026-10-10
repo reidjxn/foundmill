@@ -6,7 +6,7 @@
  */
 import { Check } from "lucide-react";
 import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, KeyValueList, Markdown, ProvenanceChip, StatusPill, formatMoney } from "@foundmill/dugout";
-import { totalCost, type ConfirmationLine } from "./logic";
+import { totalCost, type ConfirmationLine } from "./confirmation";
 
 export interface ConfirmPlanDialogProps {
   open: boolean;
