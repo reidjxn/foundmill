@@ -456,21 +456,19 @@
 }
 
 /* =========================================================================================================
-   Continue's states (on top of the Button variants): blocked is a solid red with a 4 px halo; processing is a dark
+   Continue's states (on top of the Button variants): blocked is a flat red with a 4 px halo; processing is a flat dark
    slab with an orbiting edge (`orbit`); the count sits in a capsule.
    ========================================================================================================= */
 @utility continue-skin {
   &[data-continue-state="blocked"] {
     box-shadow:
-      inset 0 1px 0 color-mix(in oklab, var(--white) 35%, transparent),
-      inset 0 0 0 1px color-mix(in oklab, var(--white) 12%, transparent),
-      0 0 0 4px color-mix(in oklab, var(--status-bad) 22%, transparent),
-      0 6px 20px -4px color-mix(in oklab, var(--status-bad) 65%, transparent);
+      inset 0 0 0 1px color-mix(in oklab, var(--white) 16%, transparent),
+      0 0 0 4px color-mix(in oklab, var(--status-bad) 22%, transparent);
   }
   &[data-continue-state="processing"] {
     color: var(--text-1);
     background-color: var(--slab-run);
-    background-image: linear-gradient(180deg, color-mix(in oklab, var(--white) 7%, transparent), color-mix(in oklab, var(--white) 1%, transparent));
+    background-image: none;
     box-shadow:
       inset 0 0 0 1px color-mix(in oklab, var(--kit-lift) 18%, transparent),
       inset 0 1px 0 color-mix(in oklab, var(--white) 8%, transparent),

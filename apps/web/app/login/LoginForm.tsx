@@ -68,7 +68,7 @@ export function LoginForm() {
                 {phase.message}
               </StatusPill>
             ) : null}
-            <Button type="submit" size="lg" variant="primary" icon={Send} loading={phase.kind === "sending"} disabled={!supabaseReady || email.trim().length === 0}>
+            <Button type="submit" size="lg" variant="glass" icon={Send} loading={phase.kind === "sending"} disabled={!supabaseReady || email.trim().length === 0}>
               Send sign-in link
             </Button>
           </form>

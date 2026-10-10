@@ -16,25 +16,27 @@ import { FitText, FitTooltip, type FitState, type FitTextProps } from "./FitText
 export const buttonVariants = cva(
   [
     "relative inline-flex items-center justify-center whitespace-nowrap select-none",
-    "rounded-sm border border-transparent font-body font-medium pressable",
+    "rounded-sm border border-transparent font-body font-medium no-underline pressable",
     "disabled:pointer-events-none disabled:opacity-50 aria-busy:cursor-progress",
   ],
   {
     variants: {
       variant: {
-        /** The brand gradient with a glow: Continue at rest, Approve, Save and continue. Use sparingly (DESIGN §5). */
+        /** A flat fill of the brand colour: Continue at rest, Approve, Save and continue. Use sparingly (DESIGN §5). */
         primary: "btn-primary text-kit-on-primary",
-        /** Secondary: a raised plate with a sheen. The default. */
+        /** Secondary: a flat raised plate with a hairline ring. The default. */
         default: "btn-secondary text-primary",
         /** Alias of `default`, for call sites that name it. */
         secondary: "btn-secondary text-primary",
         ghost: "btn-ghost text-secondary hover:text-primary",
-        /** A bright red gradient with near-black text: the blocked Continue, destructive confirmations. */
+        /** A flat bright red with near-black text: the blocked Continue, destructive confirmations. */
         danger: "btn-danger text-ink",
         /** Customer Updates and milestones only. */
         gold: "btn-gold text-ink",
         /** Brand-tinted secondary: the likeliest quick reply, "More like this". */
         tinted: "btn-tinted text-primary",
+        /** Brand-tinted glass pill: the marketing call to action, on the landing page and the sign-in frame only. */
+        glass: "btn-glass rounded-full",
         /** The signature generate control (DESIGN §7): the only light slab in the product. See `running`, `progress`, `count`. */
         generate: "gen-slab font-semibold",
       },
