@@ -84,13 +84,16 @@ const CONCEPTS: ExampleBusiness["howItWorks"]["concepts"] = [
 /** The brand picker's six options: Northwind's own mark first, then the generated marks in their own brand colours. */
 const BRAND_OPTIONS: ExampleBusiness["howItWorks"]["brandOptions"] = [{ logo: IDENTITY.logo, kit: IDENTITY.kit }, ...TUTORLANE.howItWorks.brandOptions.slice(1)];
 
-/** The Chief of Staff's plan for cycle 1, the week the first batch landed (five rows fit the card with its total). */
+/**
+ * The Chief of Staff's plan for cycle 1, the week the first batch landed (five rows fit the card with its total). Each
+ * task reads whole on one line of the card at 1280 px (about 26 characters).
+ */
 const FIRST_CYCLE_PLAN: readonly ExampleCyclePlanItem[] = [
-  { department: "formulation-lab", task: "Check batch 001 against its certificates", tasks: 3, done: 55 },
-  { department: "development", task: "Set up the Shopify store and checkout", tasks: 4, done: 40 },
-  { department: "retail-partnerships", task: "Seed twenty creators before launch", tasks: 3, done: 85 },
-  { department: "finance", task: "Build the landed cost model from batch 001", tasks: 1, done: 30 },
-  { department: "legal", task: "Incorporate and prepare the FDA listings", tasks: 1, done: 60 },
+  { department: "formulation-lab", task: "Check and release batch 001", tasks: 3, done: 55 },
+  { department: "development", task: "Set up the Shopify store", tasks: 4, done: 40 },
+  { department: "retail-partnerships", task: "Seed twenty creators", tasks: 3, done: 85 },
+  { department: "finance", task: "Model landed cost per unit", tasks: 1, done: 30 },
+  { department: "legal", task: "Incorporate in Delaware", tasks: 1, done: 60 },
 ];
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -125,7 +128,7 @@ const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
     from: { name: "Hollis", seed: "hollis", dept: "dept-3", role: "Distribution Strategist" },
     department: "Retail Partnerships",
     subject: "Accept Larkfield Market's opening terms?",
-    body: "The buyer wants all three products in 36 stores. Hollis swapped her free-fill request for a four-week launch promo and got Net 30. Northwind keeps 56% after landed cost and the promo.",
+    body: "The buyer wants all three products in 36 stores and asked for a free fill; Hollis offered a four-week launch promo instead and got Net 30. Northwind keeps 56% after landed cost and the promo.",
     stake: "$2,160 promo · Estimate",
     options: [
       { id: "accept", label: "Accept terms", recommended: true, done: "Larkfield terms accepted", outcome: "Hollis sends your signed vendor forms and books the first delivery." },
@@ -152,11 +155,11 @@ const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
     from: { name: "Cove", seed: "cove", dept: "dept-6", role: "Finance lead" },
     department: "Finance",
     subject: "Hold eight weeks of stock instead of six?",
-    body: "Chain orders arrive in lumps, and Larkfield reorders every two weeks. Two more weeks of cover ties up $4,700 more in stock at landed cost, and the runway holds at 13 months.",
+    body: "Chain orders arrive in lumps: Larkfield will reorder every two weeks. Two more weeks of cover ties up $4,700 more in stock at landed cost, and the runway holds at 13 months.",
     stake: "+$4,700 in stock · Estimate",
     options: [
       // The Inbox line is one line in a 21rem column: short enough to read whole.
-      { id: "eight", label: "Hold eight weeks", recommended: true, done: "Stock cover raised to eight weeks", outcome: "Cove checks cover against orders every Monday." },
+      { id: "eight", label: "Hold eight weeks", recommended: true, done: "Stock cover now eight weeks", outcome: "Cove checks cover against orders every Monday." },
       { id: "six", label: "Stay at six weeks", done: "Stock cover kept at six weeks", outcome: "Fern reorders sooner, in smaller batches." },
     ],
   },
@@ -283,7 +286,7 @@ const SESSION_SCRIPT: MockSessionScript = {
     "Every order line carries its quote number, so each cost can be traced.",
     "The serum's 40°C samples read in spec at week 12.",
     "The pack is missing the serum's week-12 readout; pulling it from the lab report.",
-    "Review: one pump quote had expired; Reed had it reissued at the same price.",
+    "Review: Cranbury's serum quote had expired; Reed had it reissued at the same price.",
   ],
   unitCommand: "uv run pytest",
   unitPassed: 6,
@@ -319,7 +322,10 @@ const CHANNELS: ExampleBusiness["channels"] = {
 /**
  * Two years of Northwind, relabelled from the design system's fixture. Pin dates are the fixture's (Oct 8, 2024 to
  * Sep 18, 2026); the milestone cards below use the same dates, and the revenue scale makes the $10K and $50K months true
- * on the Ribbon: the 30 days to Mar 20, 2025 pass $10,000 and the 30 days to Sep 18, 2026 pass $50,000.
+ * on the Ribbon: the 30 days to Mar 20, 2025 pass $10,000 and the 30 days to Sep 18, 2026 pass $50,000. First payments
+ * keep the fixture's order sizes: a shopper's first order is $29 to $149, and the large ones are stores' opening orders
+ * (`largeOrderNames`), the first of them Oak Hill Pharmacy's, the first retail partner. Pin labels stay within the
+ * Ribbon's 28 characters and chapter titles within 17, so neither is cut off on the Ribbon or its day card.
  */
 const JOURNEY: ExampleJourney = {
   /** The Ribbon's departments (ids match the fixture's generator; names and colours are Northwind's). */
@@ -333,9 +339,9 @@ const JOURNEY: ExampleJourney = {
   ],
   milestoneLabels: {
     "Launch day": "First batch",
-    "Northwind Skincare AB incorporated": "Northwind Skincare Inc. incorporated",
+    "Northwind Skincare AB incorporated": "Incorporated in Delaware",
     "First customer": "First reorder",
-    "First enterprise contract": "First retail door",
+    "First enterprise contract": "First retail partner",
     "10th customer": "Serum sold out",
     "Retinol serum v1": "Refill subscriptions",
     "$1K MRR": "$10K month",
@@ -348,10 +354,13 @@ const JOURNEY: ExampleJourney = {
     "Retail pack": "Retail-ready cartons",
     "$10K MRR": "$50K month",
   },
-  chapterTitles: ["First batch", "Refills and reorders", "Staying fragrance-free", "Results in public", "Angels and the holidays", "Cash in the warehouse", "Bigger batches", "Ready for retail", "Into the chains"],
-  customerNames: ["Priya Raman", "Hollow Oak Pharmacy", "Marcus Bell", "Elena Ortiz", "Juniper Street Pharmacy", "Sam Okoye", "Grace Whitfield", "Bayside Natural Foods", "Tom Alvarez", "Nadia Brooks"],
+  chapterTitles: ["First batch", "Refills begin", "Fragrance-free", "Results in public", "The angel round", "Cash in stock", "Bigger batches", "Ready for retail", "Into the chains"],
+  // Shoppers sign up and place first orders; stores place the large opening orders.
+  customerNames: ["Priya Raman", "Marcus Bell", "Elena Ortiz", "Sam Okoye", "Grace Whitfield", "Tom Alvarez", "Nadia Brooks", "Jenna Park", "Luis Moreno", "Hannah Cole"],
+  // Names read whole on the Ribbon's day card beside an order's value (17 characters at most).
+  largeOrderNames: ["Oak Hill Pharmacy", "Bayside Naturals", "Juniper Pharmacy", "Greenleaf Co-op", "Harbor Pharmacy", "Cedar Row Market", "Maple Apothecary", "Willow Naturals", "Brookside Grocers", "Old Mill Pharmacy", "Sandpiper Health", "Ridgeway Market"],
   roadmap: ["In 36 Larkfield stores", "Batch 007 lands", "Body lotion launch"],
-  revenueScale: { start: 1.11, end: 7.02 },
+  revenueScale: { start: 1.11, end: 7.02, keepOrderSizes: true },
 };
 
 const LARKFIELD_ID = "18ab2feb-5195-460b-a91f-7a90914065ea";
@@ -389,7 +398,7 @@ const CUSTOMER_UPDATE: ExampleCustomerUpdate = {
 const MILESTONES: ExampleBusiness["milestones"] = [
   { key: "first_batch", label: "First batch", description: "500 of each product from Cranbury Contract Labs.", achievedAt: "2024-10-08T12:00:00", shareable: true },
   { key: "first_reorder", label: "First reorder", description: "A customer comes back for a second serum.", achievedAt: "2024-11-08T12:00:00", shareable: true },
-  { key: "first_retail_door", label: "First retail door", description: "Five New Jersey pharmacies stock the routine.", achievedAt: "2024-12-26T12:00:00", customerName: "Hollow Oak Pharmacy", ...usd(512_764), shareable: true },
+  { key: "first_retail_partner", label: "First retail partner", description: "Oak Hill Pharmacy stocks the routine in its five New Jersey stores.", achievedAt: "2024-12-26T12:00:00", customerName: "Oak Hill Pharmacy", ...usd(378_260), shareable: true },
   { key: "month_10k", label: "$10K month", description: "Thirty days of sales pass $10,000.", achievedAt: "2025-03-20T12:00:00", shareable: true },
   { key: "customer_1000", label: "1,000th customer", description: "One thousand people have bought the routine.", achievedAt: "2025-09-25T12:00:00", shareable: true },
   { key: "month_50k", label: "$50K month", description: "Thirty days of sales pass $50,000.", achievedAt: "2026-09-18T12:00:00", shareable: true },
@@ -403,7 +412,7 @@ const INBOX_NOTE: ExampleInboxNote = {
   /** When the note arrived: today on the example business. */
   sentOn: "Wed, Oct 7",
   paragraphs: [
-    "Larkfield's opening order ships from stock this month and leaves the serum with five weeks of cover into the holidays. The batch 007 pack is ready: 5,000 of each product from Cranbury Contract Labs in New Jersey, with components from Maumee Valley Packaging in Ohio. Every line cites a quote; the serum's week-12 stability readout is attached.",
+    "Larkfield's opening order ships from stock this month and leaves the serum with about nine weeks of cover, into early December. The batch 007 pack is ready: 5,000 of each product from Cranbury Contract Labs in New Jersey, with components from Maumee Valley Packaging in Ohio. Every line cites a quote; the serum's week-12 stability readout is attached.",
     "Cranbury wants a 50% deposit of $21,000 with the order and $21,000 more when the batch passes release testing; Maumee invoices $14,350 on delivery. Placing an order is yours alone. The runway goes from 13 to 12 months (Estimate).",
   ],
   costMinor: 2_100_000,
@@ -449,7 +458,7 @@ const LEADS: readonly ExampleLead[] = [
     remit: "Formulas, stability tests, the contract manufacturer and packaging. Specialists prepare every quote and purchase order; you place it.",
     now: "Attaching the serum's week-12 readout to the batch 007 order",
     training: "Version 4 promoted: stability readouts against spec",
-    skills: [skill("formulas", "Formulation review", "craft", 16, 2, 18), skill("stability", "Stability testing", "craft", 17, 1, 18), skill("suppliers", "Supplier judgement", "judgement", 15, 2, 18), skill("stock", "Stock planning", "judgement", 14, 2, 17), skill("lead_times", "Lead-time tracking", "execution", 15, 1, 17), skill("records", "Batch records", "execution", 17, 0, 18)],
+    skills: [skill("formulas", "Formulation review", "craft", 16, 2, 18), skill("stability", "Stability testing", "craft", 17, 1, 18), skill("suppliers", "Supplier selection", "judgement", 15, 2, 18), skill("stock", "Stock planning", "judgement", 14, 2, 17), skill("lead_times", "Lead-time tracking", "execution", 15, 1, 17), skill("records", "Batch records", "execution", 17, 0, 18)],
     traits: [
       { id: "quotes", label: "Cites a quote for every cost", tone: "good" },
       { id: "never_orders", label: "Prepares orders, never places them", tone: "good" },

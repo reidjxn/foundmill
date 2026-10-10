@@ -78,11 +78,11 @@ const BRAND_OPTIONS: ExampleBusiness["howItWorks"]["brandOptions"] = LANDING_LOG
 
 /** The Chief of Staff's plan for cycle 1. */
 const FIRST_CYCLE_PLAN: readonly ExampleCyclePlanItem[] = [
-  { department: "product", task: "Interview twelve tutors about their week", tasks: 2, done: 72 },
+  { department: "product", task: "Interview twelve tutors", tasks: 2, done: 72 },
   { department: "development", task: "Build the lesson recap pipeline", tasks: 4, done: 45 },
   { department: "distribution", task: "Test SEO and tutor communities", tasks: 3, done: 88 },
   { department: "finance", task: "Set up Stripe and the AI cost model", tasks: 1, done: 30 },
-  { department: "legal", task: "Prepare incorporation and parental consent", tasks: 1, done: 60 },
+  { department: "legal", task: "Incorporation and consent", tasks: 1, done: 60 },
 ];
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -160,7 +160,7 @@ const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
     body: "Parents give consent before a child uses the companion. Lex reviewed the provider's data agreement and agreed fixes to two clauses. Signing is yours alone.",
     stake: "12-month term · US data only",
     options: [
-      { id: "sign", label: "Review and sign", recommended: true, done: "Consent data agreement signed", outcome: "Lex files the copy and sets the renewal reminder." },
+      { id: "sign", label: "Review and sign", recommended: true, done: "Consent agreement signed", outcome: "Lex files the copy and sets the renewal reminder." },
       { id: "ask", label: "Ask Lex a question", done: "Question sent to Lex", outcome: "Lex answers in your Inbox before anything moves." },
     ],
   },
@@ -171,9 +171,9 @@ const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
 // ---------------------------------------------------------------------------------------------------------------------
 
 const PRACTICE_SET_DIFF = [
-  "diff --git a/src/recap/practice-set.ts b/src/recap/practice-set.ts",
-  "--- a/src/recap/practice-set.ts",
-  "+++ b/src/recap/practice-set.ts",
+  "diff --git a/src/recap/practice.ts b/src/recap/practice.ts",
+  "--- a/src/recap/practice.ts",
+  "+++ b/src/recap/practice.ts",
   "@@ -1,6 +1,20 @@",
   ' import { models } from "@/lib/models";',
   '+import { tutorMethod } from "@/recap/method";',
@@ -226,9 +226,9 @@ const SESSION_SCRIPT: MockSessionScript = {
     "$ pnpm install --frozen-lockfile",
     "Lockfile is up to date, resolution step is skipped",
     "Progress: resolved 388, reused 388, downloaded 0, added 0",
-    "$ pnpm vitest run src/recap/practice-set.test.ts",
+    "$ pnpm vitest run src/recap/practice.test.ts",
     " RUN  v5.0.3 /workspace/tutorlane",
-    " ✓ src/recap/practice-set.test.ts (6 tests) 241ms",
+    " ✓ src/recap/practice.test.ts (6 tests) 241ms",
     " Test Files  1 passed (1)",
     "      Tests  6 passed (6)",
     "$ pnpm evals run grading --cases 200",
@@ -247,7 +247,7 @@ const SESSION_SCRIPT: MockSessionScript = {
     "https://github.com/foundmill-demo/tutorlane/pull/148",
   ],
   readPath: "src/recap/pipeline.ts",
-  file: { path: "src/recap/practice-set.ts", diff: PRACTICE_SET_DIFF, additions: 16, deletions: 2 },
+  file: { path: "src/recap/practice.ts", diff: PRACTICE_SET_DIFF, additions: 16, deletions: 2 },
   styleFile: { path: "src/emails/progress-note.css", diff: PROGRESS_NOTE_CSS },
   notes: [
     "Reading the test set before touching the prompt.",
@@ -303,9 +303,15 @@ const JOURNEY: ExampleJourney = {
     "Moved production to Meridian Labs": "Smaller model for grading",
     "First enterprise contract": "First tutoring agency",
   },
-  chapterTitles: ["Finding the wedge", "First tutors", "The recap chapter", "Parents join in", "The companion", "Steady state", "Exam season", "Agencies", "Fall semester"],
-  customerNames: ["Okafor Math Tutoring", "Hale Science Tutoring", "Rivera Languages", "Brook Lane Tutors", "Amari Chemistry", "Second Look English", "Patel Physics", "Linden Music Theory", "North Harbor Tutoring", "Ellis Test Prep"],
+  chapterTitles: ["First lessons", "First tutors", "Recaps catch on", "Parents join in", "The companion", "Steady state", "Exam season", "Agencies", "Fall semester"],
+  customerNames: ["Bright Path Tutoring", "Hale Science Tutoring", "Rivera Languages", "Brook Lane Tutors", "Amari Chemistry", "Second Look English", "Patel Physics", "Linden Music Theory", "North Harbor Tutoring", "Ellis Test Prep"],
   roadmap: ["Voice companion", "Agency dashboard", "Adult learners"],
+  // Revenue per day near MRR / 30 at each MRR pin: about $37 at $1K MRR (Mar 2025), $330 at $10K (Sep 2026).
+  revenueScale: { start: 0.1, end: 1.35 },
+  // Pro is $29 a month; the fixture's rare large payment is an agency paying a year up front for its 10 tutors.
+  planPrices: { pricesMinor: [2900], largeMinor: 348_000 },
+  // Okafor Math Tutoring pays on Friday, Oct 2 (first seen Sunday, Sep 20: twelve days), and on no other day.
+  updatePayment: { name: "Okafor Math Tutoring", day: "2026-10-02" },
 };
 
 /** The Customer Update the deck's gold card opens: how Okafor Math Tutoring became a paying customer. */
@@ -315,7 +321,7 @@ const CUSTOMER_UPDATE: ExampleCustomerUpdate = {
     // The mention's card shows three facts side by side in about 75 px each: values short enough to read whole.
     { label: "Segment", value: "SAT math" },
     { label: "Plan", value: "Pro" },
-    { label: "First seen", value: "Sep 21" },
+    { label: "First seen", value: "Sep 20" },
   ] },
   plan: "Pro · practice companion for 18 students",
   stats: { touches: 7, channels: 3, days: 12, acquisitionCostMinor: 4200 },
@@ -334,14 +340,17 @@ const CUSTOMER_UPDATE: ExampleCustomerUpdate = {
 };
 
 const usd = (amountMinor: number) => ({ amountMinor, currency: CURRENCY });
-/** The milestones the example business has reached, with time-zone-safe dates (local noon). */
+/**
+ * The milestones the example business has reached, in order, each on the day its Ribbon pin sits (local noon, time-zone
+ * safe), naming the tutor or agency whose payment the Ribbon records that day, at the same value.
+ */
 const MILESTONES: ExampleBusiness["milestones"] = [
-  { key: "customer_1", label: "First customer", description: "The first paying tutor.", achievedAt: "2024-11-19T12:00:00", customerName: "Hale Science Tutoring", ...usd(2900), shareable: true },
-  { key: "customer_10", label: "10th customer", description: "Ten paying tutors.", achievedAt: "2025-01-08T12:00:00", shareable: true },
-  { key: "customer_100", label: "100th customer", description: "One hundred paying tutors.", achievedAt: "2025-09-22T12:00:00", shareable: true },
-  { key: "mrr_1k", label: "$1K MRR", description: "Monthly recurring revenue crosses $1,000.", achievedAt: "2025-02-14T12:00:00", shareable: true },
-  { key: "mrr_10k", label: "$10K MRR", description: "Monthly recurring revenue crosses $10,000.", achievedAt: "2026-03-03T12:00:00", shareable: true },
-  { key: "first_agency", label: "First tutoring agency", description: "An agency puts all 25 of its tutors on Tutorlane.", achievedAt: "2026-10-01T12:00:00", customerName: "North Harbor Tutoring", ...usd(348000), shareable: true },
+  { key: "customer_1", label: "First customer", description: "The first paying tutor.", achievedAt: "2024-11-08T12:00:00", customerName: "Patel Physics", ...usd(2900), shareable: true },
+  { key: "first_agency", label: "First tutoring agency", description: "An agency pays a year up front for its 10 tutors.", achievedAt: "2024-12-26T12:00:00", customerName: "Rivera Languages", ...usd(348000), shareable: true },
+  { key: "customer_10", label: "10th customer", description: "Ten paying tutors.", achievedAt: "2024-12-31T12:00:00", shareable: true },
+  { key: "mrr_1k", label: "$1K MRR", description: "Monthly recurring revenue crosses $1,000.", achievedAt: "2025-03-20T12:00:00", shareable: true },
+  { key: "customer_100", label: "100th customer", description: "One hundred paying tutors.", achievedAt: "2025-09-25T12:00:00", shareable: true },
+  { key: "mrr_10k", label: "$10K MRR", description: "Monthly recurring revenue crosses $10,000.", achievedAt: "2026-09-18T12:00:00", shareable: true },
 ];
 
 /** The Inbox note in "You decide". */
@@ -380,7 +389,7 @@ const LEADS: readonly ExampleLead[] = [
     remit: "A vision, a living specification and a roadmap shaped by what tutors, parents and students actually do.",
     now: "Turning twelve tutor interviews into three roadmap changes",
     training: "Version 3 promoted: interview synthesis",
-    skills: [skill("research", "Research synthesis", "craft", 16, 2, 18), skill("spec", "Specification writing", "craft", 15, 1, 17), skill("prioritise", "Prioritisation", "judgement", 17, 1, 18), skill("no", "Saying no", "judgement", 14, 3, 17), skill("pace", "Pace", "execution", 13, 0, 15), skill("reliability", "Reliability", "execution", 15, 1, 17)],
+    skills: [skill("research", "Research synthesis", "craft", 16, 2, 18), skill("spec", "Specification writing", "craft", 15, 1, 17), skill("prioritize", "Prioritization", "judgement", 17, 1, 18), skill("no", "Saying no", "judgement", 14, 3, 17), skill("pace", "Pace", "execution", 13, 0, 15), skill("reliability", "Reliability", "execution", 15, 1, 17)],
     traits: [
       { id: "verbatim", label: "Quotes tutors word for word", tone: "good" },
       { id: "cuts", label: "Cuts scope before adding it", tone: "good" },
@@ -487,7 +496,7 @@ export const TUTORLANE: ExampleBusiness = {
     chapter: "Chapter 9",
     runwayMonths: 14,
     costPerTaskMinor: 46,
-    earlierDecision: { title: "You approved the domain renewal", detail: "Development renewed it for two years.", from: { name: "Forge", seed: "forge", dept: "dept-2" } },
+    earlierDecision: { title: "Domain renewal approved", detail: "Development renewed it for two years.", from: { name: "Forge", seed: "forge", dept: "dept-2" } },
     outcomes: CYCLE_OUTCOMES,
   },
   activity: ACTIVITY,

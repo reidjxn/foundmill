@@ -77,6 +77,9 @@ export function exampleChannels(business: ExampleBusiness): ChannelTokenData[] {
 
 export type ExampleJourneyData = ReturnType<typeof generateJourneyFixture>;
 
+/** The fixture's large first payments start here (its enterprise threshold): wholesale-sized orders. */
+export const LARGE_ORDER_MINOR = 120_000;
+
 /** Two years of the business's history: the design system's Journey fixture, relabelled and in its currency. */
 export function exampleJourney(business: ExampleBusiness): ExampleJourneyData {
   const j = business.journey;
@@ -87,11 +90,25 @@ export function exampleJourney(business: ExampleBusiness): ExampleJourneyData {
   const kickoff = Date.parse(d.kickoff);
   const factor = (day: string) => (scale ? scale.start * Math.pow(scale.end / scale.start, Math.min(1, Math.max(0, (Date.parse(day.slice(0, 10)) - kickoff) / 86_400_000 / (days - 1)))) : 1);
   const scaled = (amountMinor: number, day: string) => (scale ? Math.round(amountMinor * factor(day)) : amountMinor);
+  const orderSize = (amountMinor: number, day: string) => (scale?.keepOrderSizes ? amountMinor : scaled(amountMinor, day));
+  const large = j.largeOrderNames?.length ? j.largeOrderNames : null;
+  let nextLarge = 0;
+  // The Customer Update's customer owns one payment, the last on its day (`customerNames` leaves them out).
+  const update = j.updatePayment;
+  let updateIndex = -1;
+  if (update) d.conversions.forEach((c, i) => (updateIndex = c.kind === "payment" && c.occurredAt.startsWith(update.day) ? i : updateIndex));
+  const nameOf = (c: ExampleJourneyData["conversions"][number], i: number) => (i === updateIndex ? update!.name : large && c.kind === "payment" && c.amountMinor >= LARGE_ORDER_MINOR ? large[nextLarge++ % large.length]! : j.customerNames[i % j.customerNames.length]!);
+  // A business sold on plans: a payment is a plan's price (the large ones a year up front), and no revenue comes before the first.
+  const plan = j.planPrices?.pricesMinor.length ? j.planPrices : null;
+  let nextPrice = 0;
+  const amountOf = (c: ExampleJourneyData["conversions"][number]) => (plan && c.kind === "payment" ? (c.amountMinor >= LARGE_ORDER_MINOR ? plan.largeMinor : plan.pricesMinor[nextPrice++ % plan.pricesMinor.length]!) : orderSize(c.amountMinor, c.occurredAt));
+  const firstPaid = plan ? d.conversions.find((c) => c.kind === "payment")?.occurredAt.slice(0, 10) : undefined;
+  const revenueOf = (r: ExampleJourneyData["rows"][number]) => (firstPaid && r.day < firstPaid ? 0 : scaled(r.revenueMinor, r.day));
   return {
     ...d,
-    rows: scale ? d.rows.map((r) => ({ ...r, revenueMinor: scaled(r.revenueMinor, r.day) })) : d.rows,
+    rows: scale || firstPaid ? d.rows.map((r) => ({ ...r, revenueMinor: revenueOf(r) })) : d.rows,
     forecast: scale ? d.forecast.map((f) => ({ ...f, baseMinor: Math.round(f.baseMinor * scale.end), upsideMinor: Math.round(f.upsideMinor * scale.end), downsideMinor: Math.round(f.downsideMinor * scale.end) })) : d.forecast,
-    conversions: d.conversions.map((c, i) => ({ ...c, amountMinor: scaled(c.amountMinor, c.occurredAt), currency: business.currency, entityName: j.customerNames[i % j.customerNames.length]! })),
+    conversions: d.conversions.map((c, i) => ({ ...c, amountMinor: amountOf(c), currency: business.currency, entityName: nameOf(c, i) })),
     milestones: d.milestones.map((m) => {
       const dollars = m.label.replace(/€/g, "$");
       return { ...m, label: j.milestoneLabels[m.label] ?? j.milestoneLabels[dollars] ?? dollars };

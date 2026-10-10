@@ -17,7 +17,8 @@ import {
   resetExampleCache,
   type ExampleBusiness,
 } from "../examples";
-import { channelProfile, departmentScreens, exampleChannels, exampleJourney, exampleMoney, orbitDepartments } from "../examples/helpers";
+import { PIN_LABEL_MAX } from "@foundmill/dugout/components/journey/ribbon/geometry";
+import { LARGE_ORDER_MINOR, channelProfile, departmentScreens, exampleChannels, exampleJourney, exampleMoney, orbitDepartments } from "../examples/helpers";
 
 afterEach(() => resetExampleCache());
 
@@ -175,10 +176,13 @@ describe.each(EXAMPLE_IDS)("example business %s", (id) => {
     for (const d of business.journey.ribbonDepartments) expect(labels).toContain(d.name);
     expect(business.journey.roadmap).toHaveLength(3);
     const journey = exampleJourney(business);
-    expect(journey.conversions.every((c) => c.currency === "USD" && business.journey.customerNames.includes(c.entityName ?? ""))).toBe(true);
+    const names = [...business.journey.customerNames, ...(business.journey.largeOrderNames ?? []), ...(business.journey.updatePayment ? [business.journey.updatePayment.name] : [])];
+    expect(journey.conversions.every((c) => c.currency === "USD" && names.includes(c.entityName ?? ""))).toBe(true);
     const milestoneText = journey.milestones.map((m) => m.label).join(" | ");
     expect(milestoneText).not.toMatch(/€|Northwind Skincare AB|Retinol serum|Meridian Labs/);
-    expect(milestoneText).toContain(`${business.identity.name} Inc. incorporated`);
+    expect(journey.milestones.find((m) => m.kind === "incorporation")?.label).toMatch(/incorporated/i);
+    // Every pin reads whole on the Ribbon: past PIN_LABEL_MAX characters its label is cut with an ellipsis.
+    for (const m of journey.milestones) expect(m.label.length, m.label).toBeLessThanOrEqual(PIN_LABEL_MAX);
   });
 
   it("has a Customer Update, milestones and an Inbox note that hold together", async () => {
@@ -216,9 +220,11 @@ describe("Northwind Skincare", () => {
     const journey = exampleJourney(northwind);
     const pins = new Map(journey.milestones.map((m) => [m.label, m]));
     for (const card of northwind.milestones) expect(pins.get(card.label)?.achievedAt.slice(0, 10), card.label).toBe(card.achievedAt?.slice(0, 10));
-    // The first retail door's value is the wholesale order the Ribbon records that day.
-    const door = journey.conversions.find((c) => c.id === pins.get("First retail door")?.ref?.conversionId);
-    expect(northwind.milestones.find((m) => m.key === "first_retail_door")?.amountMinor).toBe(door?.amountMinor);
+    // The first retail partner is the store whose opening order the Ribbon records that day, at the same value.
+    const partner = journey.conversions.find((c) => c.id === pins.get("First retail partner")?.ref?.conversionId);
+    const card = northwind.milestones.find((m) => m.key === "first_retail_partner");
+    expect(partner?.entityName).toBe("Oak Hill Pharmacy");
+    expect(card).toMatchObject({ customerName: partner?.entityName, amountMinor: partner?.amountMinor });
     // "$10K month" and "$50K month" are 30 days of sales, crossed in the month before the pin.
     const days = journey.rows.filter((r) => r.departmentId === null);
     const thirtyDays = (day: string) => {
@@ -229,5 +235,32 @@ describe("Northwind Skincare", () => {
     expect(thirtyDays("2025-03-20")).toBeGreaterThanOrEqual(1_000_000);
     expect(thirtyDays("2026-08-18")).toBeLessThan(5_000_000);
     expect(thirtyDays("2026-09-18")).toBeGreaterThanOrEqual(5_000_000);
+  });
+
+  it("orders on the Ribbon are skincare-sized: shoppers spend $29 to $149, and the large orders come from stores", async () => {
+    const northwind = await loadExample("northwind");
+    const payments = exampleJourney(northwind).conversions.filter((c) => c.kind === "payment");
+    const stores = northwind.journey.largeOrderNames ?? [];
+    expect(stores.length).toBeGreaterThan(0);
+    for (const p of payments) {
+      if (stores.includes(p.entityName ?? "")) expect(p.amountMinor, p.entityName ?? "").toBeGreaterThanOrEqual(LARGE_ORDER_MINOR);
+      else expect(p.amountMinor, p.entityName ?? "").toBeLessThan(15_000);
+    }
+    // No store's order outgrows the 36-store chain's opening order, the biggest in the story.
+    const chainOrder = 1_663_200;
+    expect(northwind.customerUpdate.commentary.map((c) => c.text).join(" ")).toContain(exampleMoney(northwind, chainOrder).replace(".00", ""));
+    for (const p of payments) expect(p.amountMinor).toBeLessThan(chainOrder);
+  });
+
+  it("reads whole in the narrowest places: the Ribbon's day card, the cycle 1 plan's rows and the deck's Inbox lines", async () => {
+    const northwind = await loadExample("northwind");
+    // The day card puts the chapter title beside a date such as "Wed 15 Oct 2025": 17 characters fit.
+    for (const title of northwind.journey.chapterTitles) expect(title.length, title).toBeLessThanOrEqual(17);
+    // A plan row is about 175 px wide at 1280 px: 27 characters fit.
+    for (const p of northwind.howItWorks.firstCyclePlan) expect(p.task.length, p.task).toBeLessThanOrEqual(27);
+    // The day card lists a customer beside the order's value: 17 characters fit.
+    for (const name of [...northwind.journey.customerNames, ...(northwind.journey.largeOrderNames ?? [])]) expect(name.length, name).toBeLessThanOrEqual(17);
+    // A decision's Inbox line in the deck is one line of a 21rem column.
+    for (const o of northwind.deck.outcomes) if (o.kind === "decision") for (const opt of o.options) expect(opt.done.length, opt.done).toBeLessThanOrEqual(30);
   });
 });

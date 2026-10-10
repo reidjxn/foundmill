@@ -90,11 +90,11 @@ const BRAND_OPTIONS: ExampleBusiness["howItWorks"]["brandOptions"] = [{ logo: ID
 
 /** The Chief of Staff's plan for cycle 1, two years ago: get one game playing in a sandbox and find the first studios. */
 const FIRST_CYCLE_PLAN: readonly ExampleCyclePlanItem[] = [
-  { department: "development", task: "Play a Godot web build headless", tasks: 4, done: 48 },
+  { department: "development", task: "Play a Godot build headless", tasks: 4, done: 48 },
   { department: "product", task: "Interview ten indie studios", tasks: 2, done: 70 },
   { department: "distribution", task: "Test devlogs and Discord", tasks: 3, done: 85 },
   { department: "finance", task: "Set up Stripe and run costs", tasks: 1, done: 35 },
-  { department: "legal", task: "Incorporation and build NDAs", tasks: 1, done: 55 },
+  { department: "legal", task: "Incorporate and draft NDAs", tasks: 1, done: 55 },
 ];
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -117,9 +117,9 @@ const ACTIVITY: readonly ActivityLine[] = [
   { who: "Vex", dept: "dept-2", text: "reproduced a Unity WebGL crash 3 times out of 3, replay attached" },
   { who: "Echo", dept: "dept-1", text: "turned nine studio interviews into the Windows builds spec" },
   { who: "Moss", dept: "dept-3", text: "answered 14 playtesting questions across four Discord servers" },
-  { who: "Tern", dept: "dept-8", text: "trained Sprite on 40 known card-game bugs: 34 found" },
+  { who: "Tern", dept: "dept-8", text: "trained Vex on 60 Unity WebGL crash logs: 52 triaged correctly" },
   { who: "Seal", dept: "dept-5", text: "drafted confidentiality terms for unreleased builds" },
-  { who: "Flare", dept: "dept-3", text: "confirmed a booth at Copperline Indie Fest in Denver, Nov 14–15" },
+  { who: "Flare", dept: "dept-3", text: "priced a booth at Copperline Indie Fest in Denver, Nov 14–15" },
   { who: "Quinn", dept: "dept-1", text: "wrote the acceptance tests for the localization playtest" },
   { who: "Bolt", dept: "dept-2", text: "opened pull request #318 with every eval threshold green" },
 ];
@@ -338,7 +338,10 @@ const CHANNELS: ExampleBusiness["channels"] = {
  * releases 2025-02-16, 2025-08-03, 2026-01-10 and 2026-06-27, decisions 2025-05-15 and 2026-04-01, funding 2025-10-22,
  * $1K MRR 2025-03-20, 100th customer 2025-09-25, $10K MRR 2026-09-18); the labels below say what happened on each.
  * Conversions take their names from `customerNames` in turn: the first payment is the seventh name and the first large
- * contract the third, so the day under each of those pins names the studio its milestone card names.
+ * payment the third, so the day under each of those pins names the studio its milestone card names. Kettlebird Games,
+ * the Customer Update's studio, is named only on its own payment (Oct 5: first seen Sep 24, eleven days to convert).
+ * Every payment is a plan's price ($29 for Indie; the fixture's rare large payment is a year of Team up front), and
+ * there is no revenue before the first paying studio.
  */
 const JOURNEY: ExampleJourney = {
   ribbonDepartments: [
@@ -363,11 +366,13 @@ const JOURNEY: ExampleJourney = {
     "Retail pack": "Unity WebGL builds",
   },
   // One per past chapter (quarter), oldest first; the ninth is the current chapter, still untitled on the Ribbon.
-  chapterTitles: ["First playthrough", "First studios", "Studios first", "Every pull request", "The pre-seed", "On the Marketplace", "Unity joins Godot", "The $10K chapter", "Demo deadlines"],
-  customerNames: ["Brineling Studio", "Lampwick Interactive", "Hollow Pine Games", "Oddacre Games", "Puddlejump Studio", "Saltgrass Games", "Gravelmoth Games", KETTLEBIRD.name, "Thistlewing Studio", "Quarry Lane Studio"],
+  chapterTitles: ["First playthrough", "First studios", "Studios first", "Pull requests", "The pre-seed", "The Marketplace", "Unity joins Godot", "Five figures", "Demo deadlines"],
+  customerNames: ["Brineling Studio", "Lampwick Interactive", "Hollow Pine Games", "Oddacre Games", "Puddlejump Studio", "Saltgrass Games", "Gravelmoth Games", "Mossgate Games", "Thistlewing Studio", "Quarry Lane Studio"],
   roadmap: ["Windows desktop builds", "Publisher dashboard", "Localization playtests"],
   // Revenue per day near MRR / 30 at each MRR pin: about $37 at $1K MRR (Mar 2025), $330 at $10K (Sep 2026).
   revenueScale: { start: 0.1, end: 1.35 },
+  planPrices: { pricesMinor: [2900], largeMinor: 149_000 },
+  updatePayment: { name: KETTLEBIRD.name, day: "2026-10-05" },
 };
 
 /** The Customer Update the deck's gold card opens: how Kettlebird Games became a paying studio. */
@@ -401,7 +406,7 @@ const CUSTOMER_UPDATE: ExampleCustomerUpdate = {
 /** The milestones, in the order they happened, each on the day its Ribbon pin sits (local noon, time-zone safe). */
 const MILESTONES: ExampleBusiness["milestones"] = [
   { key: "customer_1", label: "First paying studio", description: "The first studio pays for nightly playtests.", achievedAt: "2024-11-08T12:00:00", customerName: "Gravelmoth Games", ...usd(2900), shareable: true },
-  { key: "first_team_plan", label: "First Team plan", description: "A studio pays a year up front for checks on every pull request.", achievedAt: "2024-12-26T12:00:00", customerName: "Hollow Pine Games", ...usd(149_000), shareable: true },
+  { key: "first_team_plan", label: "First Team plan", description: "A studio pays a year of the Team plan up front, for all three of its games.", achievedAt: "2024-12-26T12:00:00", customerName: "Hollow Pine Games", ...usd(149_000), shareable: true },
   { key: "mrr_1k", label: "$1K MRR", description: "Monthly recurring revenue crosses $1,000.", achievedAt: "2025-03-20T12:00:00", shareable: true },
   { key: "customer_100", label: "100 studios", description: "One hundred studios pay for Glitchwick.", achievedAt: "2025-09-25T12:00:00", shareable: true },
   { key: "github_marketplace", label: "On GitHub Marketplace", description: "Studios install Glitchwick from GitHub Marketplace.", achievedAt: "2026-01-10T12:00:00", shareable: true },
@@ -425,7 +430,7 @@ const INBOX_NOTE: ExampleInboxNote = {
   options: [
     { id: "approve", label: "Sponsor", recommended: true, consequence: "Flare confirms the slot; Pip writes the post. You pay the $1,200 invoice.", costMinor: 120_000, reversible: false },
     { id: "playtests", label: "Free playtests only", consequence: "Moss offers playtests in the jam's Discord: $260 in runs (Estimate), no slot.", costMinor: 26_000, reversible: true },
-    { id: "later", label: "Not this chapter", consequence: "Jams stay off the board; Flare asks about the next jam.", costMinor: null, reversible: true },
+    { id: "later", label: "Not this chapter", consequence: "No sponsorship this chapter; Flare asks about the next jam.", costMinor: null, reversible: true },
   ],
 };
 
@@ -442,7 +447,7 @@ const LEADS: readonly ExampleLead[] = [
     model: "Sonnet",
     stars: { current: 4, potential: 5 },
     remit: "Agents build the playtester itself: sandboxes for web and desktop builds, the play loop, replays, the pull request check and the 120-bug eval every change must pass.",
-    now: "Opening pull request #318 for model routing",
+    now: "Posting replays on pull request reviews",
     training: "Version 6 promoted: the eval runs before every merge",
     skills: [skill("sandboxes", "Sandbox orchestration", "craft", 17, 1, 19), skill("evals", "Eval design", "craft", 17, 3, 19), skill("planning", "Planning", "judgement", 14, 1, 16), skill("routing", "Model routing", "judgement", 15, 4, 18), skill("reliability", "Reliability", "execution", 15, 1, 17), skill("cost", "Cost efficiency", "execution", 16, 5, 18)],
     traits: [
@@ -459,7 +464,7 @@ const LEADS: readonly ExampleLead[] = [
     model: "Opus",
     stars: { current: 3.5, potential: 4.5 },
     remit: "A vision, a living specification and a roadmap shaped by how small studios build, test and ship their games.",
-    now: "Writing the Windows builds spec from nine interviews",
+    now: "Reviewing the Windows builds spec with Bolt",
     training: "Version 3 promoted: studio interview synthesis",
     skills: [skill("research", "Research synthesis", "craft", 16, 2, 18), skill("spec", "Specification writing", "craft", 15, 1, 17), skill("prioritize", "Prioritization", "judgement", 16, 1, 18), skill("no", "Saying no", "judgement", 15, 2, 17), skill("pace", "Pace", "execution", 14, 0, 16), skill("reliability", "Reliability", "execution", 15, 1, 17)],
     traits: [
@@ -476,7 +481,7 @@ const LEADS: readonly ExampleLead[] = [
     model: "Sonnet",
     stars: { current: 3, potential: 4.5 },
     remit: "Fifteen channels scored for fit. Devlogs, Discord communities, r/gamedev, itch.io jams and the GitHub Marketplace listing come first, inside the caps you set.",
-    now: "Putting events on the board at a fit of 16",
+    now: "Testing copy for the GitHub Marketplace listing",
     training: "Version 3 promoted: devlogs that lead with a replay",
     skills: [skill("fit", "Channel fit", "craft", 17, 1, 19), skill("copy", "Copywriting", "craft", 15, 2, 17), skill("experiments", "Experiment design", "judgement", 15, 1, 18), skill("budget", "Budget discipline", "judgement", 16, 0, 17), skill("attribution", "Attribution", "execution", 13, 2, 16), skill("speed", "Speed to test", "execution", 16, 1, 17)],
     traits: [
@@ -510,7 +515,7 @@ const LEADS: readonly ExampleLead[] = [
     model: "Opus",
     stars: { current: 3.5, potential: 4 },
     remit: "Incorporation, terms, confidentiality for unreleased builds, the data processing addendum and the GitHub app's permissions, prepared in full. You review and sign.",
-    now: "Trimming the GitHub app to the permissions it uses",
+    now: "Preparing the data processing addendum for you",
     training: "Version 3 promoted: data processing checklist",
     skills: [skill("drafting", "Contract drafting", "craft", 15, 1, 17), skill("privacy", "Data protection", "craft", 16, 2, 18), skill("risk", "Risk spotting", "judgement", 17, 1, 18), skill("ask", "Knowing when to ask", "judgement", 18, 0, 19), skill("plain", "Plain English", "execution", 15, 2, 17), skill("permissions", "Permission reviews", "execution", 14, 3, 17)],
     traits: [
@@ -526,7 +531,7 @@ const LEADS: readonly ExampleLead[] = [
     role: "Head of team",
     model: "Sonnet",
     stars: { current: 3, potential: 4 },
-    remit: "Hires playtester agents from templates, trains each one on real bugs from the 120-bug eval, and moves ratings only with evidence.",
+    remit: "Hires playtester agents from templates, trains each one on real bugs studios have filed (never the 120-bug eval's), and moves ratings only with evidence.",
     now: "Training Sprite on 40 known card-game bugs",
     training: "Version 3 promoted: one training set per genre",
     skills: [skill("hiring", "Hiring decisions", "craft", 15, 1, 17), skill("training", "Training design", "craft", 16, 2, 18), skill("roles", "Role design", "judgement", 14, 1, 16), skill("feedback", "Feedback", "judgement", 15, 1, 17), skill("cost", "Cost awareness", "execution", 14, 1, 16), skill("coverage", "Genre coverage", "execution", 13, 2, 16)],

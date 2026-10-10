@@ -139,4 +139,38 @@ test.describe("landing page", () => {
     // Choosing never navigated or scrolled the page.
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
   });
+
+  test("Northwind's Ribbon agrees with its milestone cards, and its long department names read whole", async ({ page }) => {
+    await page.goto("/?example=northwind");
+    await page.locator("#journey").scrollIntoViewIfNeeded();
+    const ribbon = page.locator("[aria-roledescription='journey ribbon']");
+    await expect(ribbon).toBeVisible();
+    await ribbon.evaluate((el) => el.scrollIntoView({ block: "center" }));
+    const box = (await ribbon.boundingBox())!;
+    const y = box.y + box.height * 0.6;
+    // The day card names the hovered day: find the first retail partner's day (Dec 26, 2024) by halving the distance.
+    const card = page.locator("[data-on-this-day]");
+    const dayAt = async (x: number) => {
+      await page.mouse.move(x, y);
+      return (await card.count()) ? await card.getAttribute("data-on-this-day") : null;
+    };
+    let lo = box.x;
+    while (!(await dayAt(lo)) && lo < box.x + box.width / 2) lo += 8;
+    let hi = box.x + box.width - 8;
+    for (let i = 0; i < 24 && hi - lo > 0.25; i++) {
+      const mid = (lo + hi) / 2;
+      if (((await dayAt(mid)) ?? "") < "2024-12-26") lo = mid;
+      else hi = mid;
+    }
+    await expect.poll(() => dayAt(hi)).toBe("2024-12-26");
+    // The pharmacy's opening order on the Ribbon is the milestone card's customer and value.
+    await expect(card).toContainText("First retail partner");
+    await expect(card).toContainText("Oak Hill Pharmacy");
+    await expect(card).toContainText("$3,782.60");
+    // "Retail Partnerships" and "Formulation Lab" fit the card's department column (scaled at most, never cut).
+    await expect(card.locator('[data-fit="truncated"]')).toHaveCount(0);
+    await page.mouse.move(1, 1);
+    const partner = page.locator("#journey").getByText("First retail partner", { exact: true }).locator("xpath=ancestor::*[contains(., '$3,782.60')][1]");
+    await expect(partner).toContainText("Oak Hill Pharmacy");
+  });
 });

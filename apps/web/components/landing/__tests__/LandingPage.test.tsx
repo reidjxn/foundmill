@@ -313,7 +313,7 @@ describe("LandingPage server render", () => {
     try {
       const utc = await markupIn("UTC");
       expect(utc).toContain("7 Oct 2026");
-      expect(utc).toContain("22 Sep 2025");
+      expect(utc).toContain("25 Sep 2025");
       for (const zone of ["America/Los_Angeles", "Pacific/Honolulu", "Asia/Tokyo", "Pacific/Auckland"]) expect(await markupIn(zone), zone).toBe(utc);
     } finally {
       process.env.TZ = original;

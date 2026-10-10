@@ -96,7 +96,8 @@ export function OnThisDayCard({ summary, forecastPoint, currency = "EUR", onOpen
             {top.map((d) => (
               <div key={d.id} className="flex items-center gap-2 text-small">
                 <span aria-hidden className={cn("inline-block size-1.5 shrink-0 rounded-full", DEPT_BG[d.dept])} />
-                <span className="w-24 shrink-0 text-secondary" title={d.name}>
+                {/* Wide enough for a founder's long department name ("Retail Partnerships") at the 11 px floor. */}
+                <span className="w-32 shrink-0 text-secondary" title={d.name}>
                   <FitText minPx={11}>{d.name}</FitText>
                 </span>
                 <span className="h-1 flex-1 overflow-hidden rounded-full bg-panel">

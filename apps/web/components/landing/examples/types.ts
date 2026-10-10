@@ -158,14 +158,33 @@ export interface ExampleJourney {
   chapterTitles: readonly string[];
   /** Customer names for the Ribbon's conversions. */
   customerNames: readonly string[];
+  /**
+   * Names for the fixture's large first payments (its wholesale-sized orders), in turn, so a consumer brand's big orders
+   * come from stores rather than shoppers. Absent: `customerNames`, like every other conversion.
+   */
+  largeOrderNames?: readonly string[];
+  /**
+   * For a business sold on plans: each first payment on the Ribbon is a plan's price rather than the fixture's amount,
+   * and there is no revenue before the first payment. Payments take `pricesMinor` in turn (list a price more than once
+   * to weight it); the fixture's large first payments (`LARGE_ORDER_MINOR` and up) take `largeMinor`, a year up front,
+   * say. Absent: the fixture's amounts (see `revenueScale`).
+   */
+  planPrices?: { pricesMinor: readonly number[]; largeMinor: number };
+  /**
+   * The Customer Update's customer on the Ribbon: the last payment on `day` (YYYY-MM-DD, when the update's customer
+   * paid) is theirs. Leave them out of `customerNames`, so hovering the Ribbon never shows them signing up a year before
+   * the update says they first came. Absent: every conversion takes `customerNames` in turn.
+   */
+  updatePayment?: { name: string; day: string };
   /** The three roadmap items after Today. */
   roadmap: readonly string[];
   /**
    * The business's own revenue scale: the fixture's revenue (daily rows, payments and the forecast) times a factor that
    * grows geometrically from `start` on the first day to `end` today, so revenue milestones read true on the Ribbon.
-   * Absent: the fixture's scale.
+   * With `keepOrderSizes`, first payments keep the fixture's order sizes (a shopper's first order stays $29 to $149, a
+   * store's opening order $1,200 to $4,800) and only the daily revenue and the forecast grow. Absent: the fixture's scale.
    */
-  revenueScale?: { start: number; end: number };
+  revenueScale?: { start: number; end: number; keepOrderSizes?: boolean };
 }
 
 export interface ExampleCustomerUpdate {
