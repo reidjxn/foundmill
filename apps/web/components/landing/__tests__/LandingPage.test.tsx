@@ -215,7 +215,7 @@ describe("LandingPage (signed-out /)", () => {
   it("swaps every section to the business the visitor picks, in its brand colours, and restarts the deck on it", async () => {
     renderPage();
     const landing = screen.getByTestId("landing");
-    expect(landing.style.getPropertyValue("--kit-primary")).toBe("#1F6F5F");
+    expect(landing.style.getPropertyValue("--kit-primary")).toBe("#2B6CB0");
     fireEvent.click(screen.getByRole("radio", { name: "Glitchwick" }));
     await waitFor(() => expect(landing.getAttribute("data-example")).toBe("glitchwick"));
     expect(window.location.search).toBe("?example=glitchwick");

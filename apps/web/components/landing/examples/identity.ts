@@ -2,7 +2,6 @@
  * The picker's view of each example business: name, logo, brand colours, vertical and one line. Small and always in the
  * landing page's main bundle, so the picker draws every option (and themes a pending one) before its content loads.
  */
-import { LEDGERLY_KIT } from "@foundmill/dugout/components/journey/fixtures";
 import { GLITCHWICK_LOGO, LANDING_LOGOS, NORTHWIND_LOGO } from "../logos";
 import type { ExampleId, ExampleIdentity } from "./types";
 
@@ -13,8 +12,9 @@ export const EXAMPLE_IDENTITIES: Readonly<Record<ExampleId, ExampleIdentity>> = 
     monogram: "TL",
     seed: "Tutorlane",
     logo: LANDING_LOGOS[0]!.src,
-    // Deep teal and gold (the design system's second example kit).
-    kit: LEDGERLY_KIT,
+    // Blue and gold (founder, 2026-10-10): the default landing page stays blue, and each example has its own colour
+    // (Tutorlane blue, Glitchwick vermilion, Northwind green). White text on #2B6CB0 is 5.2:1.
+    kit: { primary: "#2B6CB0", secondary: "#E8C56B" },
     vertical: "Education software",
     description: "An AI teaching assistant for independent tutors: lesson notes, practice sets and parent progress notes after every lesson.",
   },
