@@ -40,7 +40,7 @@ type SetHooks = { emit?: (event: LogoEvent) => void; signal?: AbortSignal };
 
 /**
  * One set for `brief`, spending one allowance: the slots are announced, each mark is handed over as it passes, then the
- * whole set. `after` runs once the set is done (Settings meters and audits there). The allowance is refunded only when
+ * whole set. `after` runs once the set is done (Settings audits there). The allowance is refunded only when
  * nothing was delivered and no tokens were spent.
  */
 async function runLogoSet(
@@ -68,7 +68,8 @@ async function runLogoSet(
       onFailed: (slot, message) => hooks.emit?.({ type: "failed", index: slot.index, message }),
     }));
   } catch (err) {
-    // A set that failed or was stopped part way is still metered for the calls that ended.
+    // A set that failed or was stopped part way is still audited with what its finished calls cost (each call was booked
+    // to the ledger by the model client as it ended; a call stopped in flight is booked as an Estimate).
     if (spend.calls > 0) await opts.after?.(null, spend).catch(() => undefined);
     // A delivered mark, or a set the founder stopped, keeps the allowance spent.
     if (delivered > 0 || hooks.signal?.aborted) throw err;
@@ -90,7 +91,11 @@ function streamError(ctx: Pick<Context, "env" | "log" | "requestId">, path: stri
 
 const BusinessGenerateInput = z.object({ colours: BrandColours.optional(), round: Round });
 
-/** Settings › Business: a set for the business, metered to its usage ledger and audited once it is done. */
+/**
+ * Settings › Business: a set for the business, audited once it is done. Each of its model calls is booked to the
+ * business's usage ledger by the API's model client (attribution `businessId`, services/models.ts), so nothing is
+ * booked here.
+ */
 async function businessLogoSet(ctx: BusinessContext, input: z.infer<typeof BusinessGenerateInput>, hooks?: SetHooks): Promise<LogoSet> {
   const allowance = takeLogoAllowance({ userId: ctx.userId, businessId: ctx.businessId });
   let brief: LogoBrief;
@@ -112,8 +117,7 @@ async function businessLogoSet(ctx: BusinessContext, input: z.infer<typeof Busin
         const costMinor = set?.cost.amountMinor ?? Math.round(spend.costMicroMinor / 1_000_000);
         const mode = set?.mode ?? ctx.models.mode;
         return ctx.db.transaction(async (tx) => {
-          await repos.usage.record(tx, ctx.businessId, { kind: "tokens", modelKey: spend.modelKey ?? "opus", quantity: spend.tokens, unit: "tokens", costMinor: Math.max(0, costMinor), currency: spend.currency, billedTo: "credits", details: { service: "api", route: "logoDesigner", purpose: "logo", model: spend.model, calls: spend.calls, mode, label: "Estimate" } });
-          await audit(tx, ctx, { action: "business.logo.generate", target: { kind: "business", id: ctx.businessId }, details: { options: set?.options.length ?? 0, dropped: set?.dropped ?? 0, failed: set?.failed ?? 0, stopped: set === null, round: input.round, costMinor, currency: spend.currency, costLabel: "Estimate", mode } });
+          await audit(tx, ctx, { action: "business.logo.generate", target: { kind: "business", id: ctx.businessId }, details: { options: set?.options.length ?? 0, dropped: set?.dropped ?? 0, failed: set?.failed ?? 0, stopped: set === null, round: input.round, costMinor, currency: spend.currency, costLabel: "Estimate", mode, calls: spend.calls } });
         });
       },
     },

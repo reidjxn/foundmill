@@ -4,6 +4,7 @@
  */
 import type { SessionCommand } from "../control-bus";
 import type { ProgressState } from "../progress";
+import type { FoundationsDraft } from "@foundmill/agents";
 import type { AgentStatus, BusinessMode, ModelKey, PlanActionType, PolicyOutcome, TaskKind, TaskStatus } from "@foundmill/shared";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -437,6 +438,19 @@ export interface FoundationsPlanned {
 export interface FoundationsStepDone {
   current: boolean;
   usage: FoundationsStepUsage;
+}
+
+/**
+ * The single-call `draftFoundations` result (23545f4), kept for one release so a businessFoundations workflow started
+ * before the staged drafting finishes on its old path (review item 6; remove with `legacyBusinessFoundations`).
+ */
+export interface FoundationsDrafted {
+  /** False when the attempt is no longer the current drafting one (nothing was asked of the model). */
+  current: boolean;
+  draft: FoundationsDraft | null;
+  door: "ideation" | "import";
+  /** Model metadata kept on the row's summary (cost in minor units, an Estimate). */
+  model: Record<string, unknown>;
 }
 
 export interface BusinessFoundationsResult {

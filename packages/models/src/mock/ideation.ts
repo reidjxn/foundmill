@@ -79,7 +79,9 @@ interface DraftInputs {
 }
 
 function draftInputs(ctx: MockContext): DraftInputs {
-  const prompt = ctx.getString("prompt", "concept", "brief", "idea") ?? ctx.lastUser;
+  // Import's single card: the brief is a fixed instruction and the report travels as untrusted data; the card is shaped
+  // by the report, as a model would shape it.
+  const prompt = ctx.getString("import_report") ?? ctx.getString("prompt", "concept", "brief", "idea") ?? ctx.lastUser;
   const founder = ctx.getRecord("founder", "founder_profile", "profile");
   return {
     prompt,

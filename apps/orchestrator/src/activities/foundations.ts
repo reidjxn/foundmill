@@ -12,10 +12,28 @@
  * the screens fill in while the workflow runs; nothing else is written until `applyFoundations`, which assembles the
  * stored progress and writes the vision, the specification blocks (never a pinned one), the roadmap and the Inbox note
  * in one transaction, only for the attempt that is still current. `failFoundations` records a readable reason.
+ *
+ * For one release `draftFoundations` (the single call, as at 23545f4) stays registered and `applyFoundations` still
+ * takes the draft it returns, so a workflow started before the staged drafting finishes on its old path (review item 6;
+ * see `legacyBusinessFoundations` in workflows/businessFoundations.ts for when they go).
  */
 import { Context } from "@temporalio/activity";
 import { ApplicationFailure } from "@temporalio/common";
-import { assembleFoundationsDraft, chunkSections, describeFoundationsFailure, foundationsReadyNote, progressEventPayload, readFoundationsProgress, readyEventPayload, sectionsToWrite, type FoundationsProgress, type FoundationsProgressStore } from "@foundmill/agents";
+import {
+  assembleFoundationsDraft,
+  buildFoundationsRequest,
+  chunkSections,
+  describeFoundationsFailure,
+  finaliseFoundations,
+  foundationsReadyNote,
+  progressEventPayload,
+  readFoundationsProgress,
+  readyEventPayload,
+  sectionsToWrite,
+  type FoundationsDraft,
+  type FoundationsProgress,
+  type FoundationsProgressStore,
+} from "@foundmill/agents";
 import {
   FoundationsSupersededError,
   NO_FOUNDATIONS_USAGE,
@@ -29,7 +47,7 @@ import {
 import { repos, type Executor } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { agentActor, emitEvent, systemActor } from "../events";
-import type { BusinessFoundationsInput, FoundationsPlanned, FoundationsStepDone } from "./types";
+import type { BusinessFoundationsInput, FoundationsDrafted, FoundationsPlanned, FoundationsStepDone } from "./types";
 
 /** Errors a retry cannot fix: the key was refused, or the model declined. */
 const NON_RETRYABLE_CODES = new Set(["auth", "refusal", "request"]);
@@ -106,6 +124,32 @@ export function createFoundationsActivities(deps: OrchestratorDeps) {
   }
 
   return {
+    /**
+     * The single-call drafting as at 23545f4, kept registered for one release for workflows started before the staged
+     * drafting (review item 6; remove with `legacyBusinessFoundations`). Writes nothing, so Temporal can retry it; it
+     * heartbeats and passes the activity's cancellation signal to the call, like the staged steps.
+     */
+    async draftFoundations(input: BusinessFoundationsInput): Promise<FoundationsDrafted> {
+      const ctx = activityContext();
+      const beat = ctx ? setInterval(() => ctx.heartbeat({ businessId: input.businessId, attempt: input.attempt }), FOUNDATIONS_HEARTBEAT_MS) : null;
+      try {
+        ctx?.heartbeat({ businessId: input.businessId, attempt: input.attempt });
+        const row = await repos.foundations.get(deps.db, input.businessId);
+        if (!row || row.status !== "drafting" || row.attempt !== input.attempt) return { current: false, draft: null, door: row?.door ?? "ideation", model: {} };
+        const inputs = await repos.foundations.inputs(deps.db, input.businessId);
+        const request = buildFoundationsRequest(inputs);
+        const result = await deps.models.complete({ ...request, signal: ctx?.cancellationSignal, scope: `foundations:${input.businessId}`, attribution: { businessId: input.businessId, agentId: inputs.authorAgentId ?? undefined, kind: "foundations" } });
+        const draft = finaliseFoundations(result.json, inputs);
+        return { current: true, draft, door: inputs.door, model: { route: result.route, model: result.model, mode: result.mode, costMinor: result.cost.costMinorInt, costLabel: "Estimate", repaired: result.repaired, runner: "temporal" } };
+      } catch (err) {
+        deps.log.warn({ businessId: input.businessId, attempt: input.attempt, err: (err as Error)?.message }, "foundations drafting attempt failed");
+        // The founder sees a fixed readable reason; the cause stays in the worker log for operators.
+        throw ApplicationFailure.create({ message: describeFoundationsFailure(err), type: FOUNDATIONS_DRAFT_ERROR, nonRetryable: NON_RETRYABLE_CODES.has(String((err as { code?: unknown })?.code)) });
+      } finally {
+        if (beat) clearInterval(beat);
+      }
+    },
+
     /** Step 1: start or resume the progress, then the plan (the vision first). Returns the section batches still to write. */
     async draftFoundationsPlan(input: BusinessFoundationsInput): Promise<FoundationsPlanned> {
       const skipped: FoundationsPlanned = { current: false, door: "ideation", chunks: [], usage: usageModel(NO_FOUNDATIONS_USAGE) };
@@ -137,16 +181,25 @@ export function createFoundationsActivities(deps: OrchestratorDeps) {
       });
     },
 
-    /** Assemble the stored progress and write it in one transaction, for the current attempt only. */
-    async applyFoundations(input: BusinessFoundationsInput & { model: Record<string, unknown> }): Promise<{ applied: boolean; inboxItemId: string | null }> {
+    /**
+     * Assemble the stored progress and write it in one transaction, for the current attempt only. A workflow on the
+     * single-call path (started before the staged drafting) passes the draft and door `draftFoundations` returned
+     * instead; it is written as it is, as at 23545f4.
+     */
+    async applyFoundations(input: BusinessFoundationsInput & { model: Record<string, unknown>; draft?: FoundationsDraft; door?: "ideation" | "import" }): Promise<{ applied: boolean; inboxItemId: string | null }> {
       const row = await repos.foundations.get(deps.db, input.businessId);
       if (!row || row.status !== "drafting" || row.attempt !== input.attempt) return { applied: false, inboxItemId: null };
-      const progress = readFoundationsProgress(row.progress);
-      if (!progress) throw ApplicationFailure.create({ message: "The drafting finished but could not be saved. Try again.", type: FOUNDATIONS_DRAFT_ERROR, nonRetryable: true });
       const inputs = await repos.foundations.inputs(deps.db, input.businessId);
-      const draft = assembleFoundationsDraft(progress, inputs);
+      let draft: FoundationsDraft;
+      if (input.draft) draft = input.draft;
+      else {
+        const progress = readFoundationsProgress(row.progress);
+        if (!progress) throw ApplicationFailure.create({ message: "The drafting finished but could not be saved. Try again.", type: FOUNDATIONS_DRAFT_ERROR, nonRetryable: true });
+        draft = assembleFoundationsDraft(progress, inputs);
+      }
+      const door = input.door ?? inputs.door;
       const res = await repos.foundations.apply(deps.db, input.businessId, input.attempt, draft, {
-        note: (stats) => foundationsReadyNote(draft, inputs.door, stats),
+        note: (stats) => foundationsReadyNote(draft, door, stats),
         model: input.model,
         // The Inbox event goes through the outbox in the same transaction as the item (a retried apply writes neither).
         onInboxItem: async (tx, item) => {

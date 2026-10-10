@@ -22,6 +22,9 @@
  *   incremental scanner in ./structured-stream.ts. The connection phase gets the same retry policy as `complete()`;
  *   a stream that breaks after connecting is restarted or resumed there.
  * - The limiter books `reserveTokens` (default `max_tokens`) output tokens per call.
+ * - A call stopped by its signal after the request went out is still metered: the prompt's estimated input tokens, no
+ *   output, flagged `aborted` on the usage event (the provider may bill it and reports nothing). A call stopped before
+ *   it was sent books nothing.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
@@ -299,12 +302,15 @@ export class LiveModelClient implements ModelClient {
   /** One API call with rate-limit reservation and the retry policy. */
   private async send(params: Anthropic.MessageCreateParamsNonStreaming, req: CallContext, scope: string, call: number, plan: CallPlan): Promise<{ message: Anthropic.Message & { usage: { speed?: string | null } }; requestId?: string; speed?: Speed }> {
     const maxAttempts = this.opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
-    const estimatedInput = estimateTokens(JSON.stringify(params.messages) + JSON.stringify(params.system ?? ""));
+    const estimatedInput = estimateInputTokens(params);
     const state: AttemptState = { fast: plan.fast, transient: 0 };
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (req.signal?.aborted) throw new ModelAbortedError();
       const fast = state.fast;
       await this.rateLimiter.acquire(this.bucket(fast), { requests: 1, inputTokens: estimatedInput, outputTokens: plan.reserve }, scope);
+      // Stopped while the limiter waited: nothing was sent, so nothing is booked.
+      if (req.signal?.aborted) throw new ModelAbortedError();
+      const sentAt = Date.now();
       try {
         const { data, response, request_id } = fast
           ? await this.anthropic.beta.messages.create({ ...params, speed: "fast", betas: [FAST_MODE_BETA] } as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, { signal: req.signal }).withResponse()
@@ -314,6 +320,10 @@ export class LiveModelClient implements ModelClient {
         const message = data as Anthropic.Message & { usage: { speed?: string | null } };
         return { message, requestId: request_id ?? undefined, speed: speedOf(message.usage, fast) };
       } catch (error) {
+        if (isAbort(error, req)) {
+          await this.meterAborted(req, plan, call, estimatedInput, fast, sentAt);
+          throw new ModelAbortedError();
+        }
         await this.handleAttemptError(error, req, scope, attempt, maxAttempts, call, state);
       }
     }
@@ -323,12 +333,14 @@ export class LiveModelClient implements ModelClient {
   /** Open a stream with the same reservation and connection-phase retry policy as `send`. */
   private async openStream(params: Anthropic.MessageCreateParamsNonStreaming, req: CallContext, scope: string, call: number, plan: CallPlan): Promise<{ stream: StreamHandle; requestId?: string; fast: boolean }> {
     const maxAttempts = this.opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
-    const estimatedInput = estimateTokens(JSON.stringify(params.messages) + JSON.stringify(params.system ?? ""));
+    const estimatedInput = estimateInputTokens(params);
     const state: AttemptState = { fast: plan.fast, transient: 0 };
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (req.signal?.aborted) throw new ModelAbortedError();
       const fast = state.fast;
       await this.rateLimiter.acquire(this.bucket(fast), { requests: 1, inputTokens: estimatedInput, outputTokens: plan.reserve }, scope);
+      if (req.signal?.aborted) throw new ModelAbortedError();
+      const sentAt = Date.now();
       const stream = (
         fast
           ? this.anthropic.beta.messages.stream({ ...params, speed: "fast", betas: [FAST_MODE_BETA] } as unknown as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming, { signal: req.signal })
@@ -340,6 +352,10 @@ export class LiveModelClient implements ModelClient {
         this.rateLimiter.clearPenalty(scope);
         return { stream, requestId: request_id ?? undefined, fast };
       } catch (error) {
+        if (isAbort(error, req)) {
+          await this.meterAborted(req, plan, call, estimatedInput, fast, sentAt, true);
+          throw new ModelAbortedError();
+        }
         await this.handleAttemptError(error, req, scope, attempt, maxAttempts, call, state);
       }
     }
@@ -384,9 +400,12 @@ export class LiveModelClient implements ModelClient {
       if (snapshot) {
         const usage = { ...toUsage(snapshot), outputTokens: Math.max(snapshot.output_tokens ?? 0, estimateTokens(text)) };
         partial = { usage, cost: await emitUsage(usage, fast ? "fast" : undefined) };
+      } else if (!callbackFailed && isAbort(error, req)) {
+        // Stopped before the stream said what it used: book the prompt (an Estimate), as a stopped `complete()` does.
+        await this.meterAborted(req, plan, args.call, estimateInputTokens(params), fast, started, true);
       }
       if (callbackFailed) throw error;
-      if (req.signal?.aborted || error instanceof Anthropic.APIUserAbortError) throw new ModelAbortedError();
+      if (isAbort(error, req)) throw new ModelAbortedError();
       if (error instanceof Anthropic.APIError && typeof error.status === "number" && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429) {
         throw new ModelRequestError(`Anthropic request failed (${error.status}): ${error.message}`, error.status, error.type ?? null, { requestId: error.requestID });
       }
@@ -396,7 +415,7 @@ export class LiveModelClient implements ModelClient {
 
   /** The retry policy for one failed attempt: sleeps and returns to retry, or throws the typed error. */
   private async handleAttemptError(error: unknown, req: CallContext, scope: string, attempt: number, maxAttempts: number, call: number, state: AttemptState): Promise<void> {
-    if (req.signal?.aborted || error instanceof Anthropic.APIUserAbortError) throw new ModelAbortedError();
+    if (isAbort(error, req)) throw new ModelAbortedError();
     const last = attempt + 1 >= maxAttempts;
     if (state.fast && !last && error instanceof Anthropic.APIError && (error instanceof Anthropic.RateLimitError || error.status === 400 || error.status === 403 || error.status === 404)) {
       // Fast mode's own pool is exhausted, or the beta is not enabled for this key: standard speed now beats waiting.
@@ -448,6 +467,33 @@ export class LiveModelClient implements ModelClient {
     }
   }
 
+  /**
+   * A call stopped (its signal aborted) after its request went out (review item 8): the provider reported no usage but
+   * may still bill the prompt, so book the prompt's estimated input tokens and no output, flagged `aborted`. Like every
+   * cost here it is an Estimate; here the token count is estimated too.
+   */
+  private async meterAborted(req: CallContext, plan: CallPlan, call: number, estimatedInput: number, fast: boolean, sentAt: number, streamed = false): Promise<void> {
+    const usage: TokenUsage = { ...ZERO_USAGE, inputTokens: estimatedInput };
+    const speed: Speed | undefined = fast ? "fast" : undefined;
+    const { resolution } = plan;
+    await this.emit({
+      route: req.route,
+      model: resolution.modelId,
+      modelKey: resolution.modelKey,
+      mode: "live",
+      usage,
+      cost: meter(usage, resolution.modelId, { speed }),
+      scope: req.scope,
+      attribution: req.attribution,
+      durationMs: Date.now() - sentAt,
+      occurredAt: new Date().toISOString(),
+      attempt: call,
+      aborted: true,
+      ...(streamed ? { streamed: true } : {}),
+      ...(speed ? { speed } : {}),
+    });
+  }
+
   private async emit(event: UsageEvent): Promise<void> {
     if (!this.opts.onUsage) return;
     try {
@@ -480,6 +526,12 @@ function buildSystem(system: CompleteRequest["system"], cache: boolean): Anthrop
 }
 
 const toParam = (m: ChatMessage): Anthropic.MessageParam => ({ role: m.role, content: m.content });
+
+/** The prompt's input tokens, estimated locally (limiter reservations, and the booking of a call stopped in flight). */
+const estimateInputTokens = (params: Pick<Anthropic.MessageCreateParamsNonStreaming, "messages" | "system">): number => estimateTokens(JSON.stringify(params.messages) + JSON.stringify(params.system ?? ""));
+
+/** The caller stopped the call (its signal), whatever the SDK made of it. */
+const isAbort = (error: unknown, req: Pick<CallContext, "signal">): boolean => req.signal?.aborted === true || error instanceof Anthropic.APIUserAbortError;
 
 /** The speed that served a call: the response's `usage.speed` when present, else what was requested. */
 function speedOf(usage: { speed?: string | null } | undefined, requestedFast: boolean): Speed | undefined {

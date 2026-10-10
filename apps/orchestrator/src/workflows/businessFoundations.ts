@@ -7,9 +7,17 @@
  * not stored. Each step stores what it wrote on the row as it lands (the screens fill in); `applyFoundations` then writes
  * it all in one transaction. Whatever happens, the row ends ready or failed (with a reason the founder can read and a
  * retry on Home and Product, which resumes from what was stored), never stuck in drafting.
+ *
+ * Versioning (review item 6): the staged drafting replaced one `draftFoundations` call. A workflow started on the old
+ * code replays on this one, so the staged path sits behind `patched(FOUNDATIONS_STAGED_PATCH)`: a history recorded
+ * without the marker keeps the old single-call path (`legacyBusinessFoundations`) to the end; every new run records the
+ * marker and drafts in stages.
  */
-import { ActivityFailure, ApplicationFailure, proxyActivities } from "@temporalio/workflow";
+import { ActivityFailure, ApplicationFailure, patched, proxyActivities } from "@temporalio/workflow";
 import type { Activities, BusinessFoundationsInput, BusinessFoundationsResult, FoundationsStepUsage } from "../activities";
+
+/** The patch id of the staged drafting (Temporal `patched`). Never rename it: recorded histories carry it. */
+export const FOUNDATIONS_STAGED_PATCH = "foundations-staged";
 
 /**
  * The plan: one short call (low effort). The activity heartbeats while it waits, so a lost worker is noticed within a
@@ -45,6 +53,9 @@ function sumUsage(all: FoundationsStepUsage[]): FoundationsStepUsage {
 }
 
 export async function businessFoundations(input: BusinessFoundationsInput): Promise<BusinessFoundationsResult> {
+  // A workflow that began on the single-call drafting (no patch marker in its history) finishes on it.
+  if (!patched(FOUNDATIONS_STAGED_PATCH)) return legacyBusinessFoundations(input);
+
   const fail = async (error: string): Promise<BusinessFoundationsResult> => {
     await writeActs.failFoundations({ ...input, error });
     return { status: "failed", inboxItemId: null, error };
@@ -72,5 +83,41 @@ export async function businessFoundations(input: BusinessFoundationsInput): Prom
     return { status: applied.applied ? "ready" : "skipped", inboxItemId: applied.inboxItemId, error: null };
   } catch {
     return fail(FOUNDATIONS_SAVE_FAILED);
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The single-call drafting, kept for one release (review item 6)
+// ---------------------------------------------------------------------------------------------------------------------
+//
+// REMOVE in the release after the staged drafting has shipped, once no businessFoundations workflow started before it
+// is still running (they finish within about 45 minutes; check with
+// `temporal workflow list --query 'WorkflowType="businessFoundations" AND ExecutionStatus="Running"'` and that none
+// started before the deploy). Then: delete `legacyBusinessFoundations` and `legacyDraftActs` below, the
+// `draftFoundations` activity and the `draft`/`door` branch of `applyFoundations` (activities/foundations.ts),
+// `FoundationsDrafted` (activities/types.ts) and the replay fixtures (`__tests__/workflows/fixtures/legacy-*.json`), and
+// replace the `patched` check above with `deprecatePatched(FOUNDATIONS_STAGED_PATCH)`. Drop `deprecatePatched` a release
+// later, once no workflow that recorded the marker is still running.
+
+/** As at 23545f4: one Opus call drafting every section, generous, with backoff for rate limits and overloads. */
+const legacyDraftActs = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", heartbeatTimeout: "1 minute", retry: { maximumAttempts: 3, initialInterval: "15 seconds", backoffCoefficient: 2 } });
+
+/** The workflow body at 23545f4, command for command: draftFoundations → applyFoundations (with the draft) or failFoundations. */
+async function legacyBusinessFoundations(input: BusinessFoundationsInput): Promise<BusinessFoundationsResult> {
+  let drafted: Awaited<ReturnType<Activities["draftFoundations"]>>;
+  try {
+    drafted = await legacyDraftActs.draftFoundations(input);
+  } catch (err) {
+    const error = reasonOf(err, FOUNDATIONS_DRAFT_FAILED);
+    await writeActs.failFoundations({ ...input, error });
+    return { status: "failed", inboxItemId: null, error };
+  }
+  if (!drafted.current || !drafted.draft) return { status: "skipped", inboxItemId: null, error: null };
+  try {
+    const applied = await writeActs.applyFoundations({ ...input, draft: drafted.draft, door: drafted.door, model: drafted.model });
+    return { status: applied.applied ? "ready" : "skipped", inboxItemId: applied.inboxItemId, error: null };
+  } catch {
+    await writeActs.failFoundations({ ...input, error: FOUNDATIONS_SAVE_FAILED });
+    return { status: "failed", inboxItemId: null, error: FOUNDATIONS_SAVE_FAILED };
   }
 }

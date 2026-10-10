@@ -96,12 +96,16 @@ describe("product.foundations — Door A (Ideation Studio)", () => {
     expect(roadmap.every((i) => i.specBlockIds.every((id) => ids.has(id)))).toBe(true);
     expect(roadmap.some((i) => i.descriptionMd.includes("**Acceptance criteria**"))).toBe(true);
     expect(view.summary).toMatchObject({ sectionsWritten: seed.specOutline.length, model: { route: "foundations", mode: "mock", costLabel: "Estimate" } });
-    // The in-process run books its model call to the business's usage ledger (L2).
-    const usage = await repos.usage.list(hz.db, a.businessId, { kind: "tokens" });
+    // The in-process run books each of its model calls once to the business's usage ledger (L2), through the API's
+    // model client (review item 7): one row per call, no extra row for the run.
+    const usage = await repos.usage.list(hz.db, a.businessId, { kind: "tokens", limit: 200 });
     const booked = usage.items.filter((u) => (u.details as { kind?: string }).kind === "foundations");
-    expect(booked).toHaveLength(1);
+    const calls = (view.summary as { model: { calls: number } }).model.calls;
+    expect(calls).toBeGreaterThanOrEqual(3);
+    expect(booked).toHaveLength(calls);
+    expect(booked.every((u) => u.agentId === productLead && ["foundations", "foundationsSkeleton"].includes((u.details as { route: string }).route))).toBe(true);
     // Metered at list prices in the pricing currency (USD), and labelled as such: never relabelled as euros.
-    expect(booked[0]!.currency).toBe(PRICING_CURRENCY);
+    expect(booked.every((u) => u.currency === PRICING_CURRENCY && (u.details as { label?: string }).label === "Estimate")).toBe(true);
   });
 
   it("posts one Inbox update from the Product lead with the vision, and writes inbox.item_created", async () => {

@@ -68,7 +68,8 @@ export function usageSink(db: Db, log: Logger): (event: UsageEvent) => Promise<v
         currency: event.cost.currency,
         billedTo: "credits",
         occurredAt: event.occurredAt,
-        details: { route: event.route, model: event.model, mode: event.mode, kind: a.kind ?? null, taskId: a.taskId ?? null, label: event.cost.label, attempt: event.attempt },
+        // A call stopped in flight keeps `aborted`: its tokens are an Estimate as well as its price.
+        details: { route: event.route, model: event.model, mode: event.mode, kind: a.kind ?? null, taskId: a.taskId ?? null, label: event.cost.label, attempt: event.attempt, ...(event.aborted ? { aborted: true } : {}) },
       });
     } catch (err) {
       log.warn({ err: (err as Error).message, route: event.route }, "usage ledger write failed");

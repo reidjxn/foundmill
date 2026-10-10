@@ -31,7 +31,7 @@ import {
 } from "@foundmill/agents";
 import { FoundationsSupersededError, draftFoundationsStaged } from "@foundmill/agents/foundations-steps";
 import { repos, type BusinessFoundationsRow, type Db, type DbTx, type Source } from "@foundmill/db";
-import { PRICING_CURRENCY, type ModelClient } from "@foundmill/models";
+import type { ModelClient } from "@foundmill/models";
 import type { FoundationsDoor, FoundationsRunner, FoundationsStatus } from "@foundmill/shared";
 import { writeEventRow } from "./events";
 import { IMPORT_SOURCES, decodeJobId, importStatus, localJobAt, sourceUri, validateConfigs, webUri, type ImportStatus, type ScoutingReport } from "./import";
@@ -234,22 +234,9 @@ export async function runFoundationsLocally(deps: FoundationsDeps, businessId: s
     const [row, author] = await Promise.all([repos.foundations.get(deps.db, businessId), repos.foundations.author(deps.db, businessId, inputs.authorAgentId)]);
     const attribution = { businessId, agentId: inputs.authorAgentId ?? undefined, kind: "foundations" };
     const store = foundationsProgressStore(deps.db, businessId, attempt, inputs.authorAgentId);
+    // Each call is booked to the business's usage ledger by the API's model client as it ends (attribution `businessId`,
+    // services/models.ts), as the orchestrator's client does through its usage sink: nothing is booked here.
     const { usage } = await draftFoundationsStaged({ models: deps.models, inputs, store, signal, scope: `foundations:${businessId}`, attribution, log: deps.log }, { stored: readFoundationsProgress(row?.progress), author });
-    // Book the calls to the business's usage ledger (the orchestrator's client does this through its usage sink).
-    await repos.usage
-      .record(deps.db, businessId, {
-        agentId: inputs.authorAgentId,
-        kind: "tokens",
-        modelKey: usage.modelKey,
-        quantity: usage.inputTokens + usage.outputTokens,
-        unit: "tokens",
-        costMinor: usage.costMinor,
-        // The staged calls are metered at list prices, in the pricing currency (as the orchestrator's usage sink books them).
-        currency: PRICING_CURRENCY,
-        billedTo: "credits",
-        details: { route: "foundations", model: usage.model, mode: usage.mode, kind: "foundations", label: "Estimate", runner: "local", attempt, staged: true, calls: usage.calls },
-      })
-      .catch((err: unknown) => deps.log.warn({ businessId, err: (err as Error).message }, "foundations: usage ledger write failed"));
     const progress = readFoundationsProgress((await repos.foundations.get(deps.db, businessId))?.progress);
     if (!progress) throw new FoundationsSupersededError();
     const draft = assembleFoundationsDraft(progress, inputs);

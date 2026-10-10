@@ -130,6 +130,12 @@ export interface UsageEvent {
   streamed?: boolean;
   /** `fast` when Opus fast mode served the call (metered at the fast-mode price). */
   speed?: Speed;
+  /**
+   * True when the call was stopped (its signal aborted) after the request went out and before the provider reported
+   * any usage. The provider may still bill the prompt, so `usage` is the prompt's estimated input tokens (no output):
+   * an Estimate of the tokens as well as of the price. Sinks keep the flag in the ledger row's details.
+   */
+  aborted?: true;
 }
 
 export type UsageSink = (event: UsageEvent) => void | Promise<void>;

@@ -5,7 +5,7 @@
  */
 import { hasClubRulesPrefix } from "@foundmill/agents";
 import { repos } from "@foundmill/db";
-import { MockModelClient, type CompleteRequest, type ModelClient } from "@foundmill/models";
+import { MockModelClient, PRICING_CURRENCY, type CompleteRequest, type ModelClient } from "@foundmill/models";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CONVERSATION_LIMITS, conceptStarters, conversationLimiter, replyAboutConcept } from "../services/conversation";
 import { createApiHarness, type ApiHarness } from "./harness";
@@ -117,6 +117,19 @@ describe("agent.conversation.send", () => {
     expect(view.messages.map((m) => m.id)).toEqual(res.messages.map((m) => m.id));
     expect(view.quickReplies).toEqual(reply.quickReplies);
     expect(res.thread.messageCount).toBe(2);
+  });
+
+  it("books the reply once to its business's usage ledger, with its agent and Inbox item (review item 7)", async () => {
+    const item = await decisionItem("Which market first?");
+    const ledger = async (businessId: string) => (await repos.usage.list(hz.db, businessId, { kind: "tokens", limit: 200 })).items.filter((u) => (u.details as { kind?: string }).kind === "conversation");
+    const [beforeA, beforeB] = await Promise.all([ledger(hz.A.businessId), ledger(hz.B.businessId)]);
+    await owner().agent.conversation.send({ businessId: hz.A.businessId, subject: { kind: "inbox_item", id: item.id }, quickReplyId: "why_that_one" });
+    const booked = (await ledger(hz.A.businessId)).filter((u) => !beforeA.some((b) => b.id === u.id));
+    expect(booked).toHaveLength(1);
+    expect(booked[0]).toMatchObject({ agentId: hz.A.agentId, kind: "tokens", modelKey: "opus", currency: PRICING_CURRENCY, billedTo: "credits", details: { service: "api", route: "conversation", kind: "conversation", inboxItemId: item.id, mode: "mock", label: "Estimate" } });
+    expect(booked[0]!.quantity).toBeGreaterThan(0);
+    // Nothing is booked to another business.
+    expect(await ledger(hz.B.businessId)).toHaveLength(beforeB.length);
   });
 
   it("forces a gated quick reply to hand_off and pads a reply to at least two quick replies", async () => {

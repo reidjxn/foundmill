@@ -13,8 +13,10 @@
  * - Only the founder's own finished sign-up import qualifies (`linkableImportJob`: signed here, started by this
  *   account, no business yet, done), the same rule `idea.generate` applies to `importJobId`.
  *
- * The card is drafted on the same request and prompt as `idea.generate({ single: true })` (packages/agents
- * `buildSingleConceptRequest`), from the same report text the Import screen used to send.
+ * The card is drafted on the same request as `idea.generate({ single: true })` (packages/agents
+ * `buildSingleConceptRequest`). The report is not the founder's brief: the brief is a fixed instruction and the report
+ * text (what the Import screen used to send) follows it inside an <untrusted_content> block (review item 10), because
+ * reports will carry what live connectors read, not only what the founder typed.
  */
 import { buildSingleConceptRequest, type IdeationBrief } from "@foundmill/agents";
 import { repos, type Db, type IdeaWithVersion } from "@foundmill/db";
@@ -29,8 +31,11 @@ export const IMPORT_CONCEPT_TTL_MS = 30 * 60_000;
 /** Founders with a held draft at once (oldest dropped first). */
 export const IMPORT_CONCEPT_MAX_ENTRIES = 1_000;
 
-/** The brief the Ideation agent drafts the imported business's card from (what the Import screen used to send). */
-export function importConceptPrompt(report: ScoutingReport): string {
+/** The founder-side brief for the imported business's card: a fixed instruction, never text from the report. */
+export const IMPORT_CONCEPT_BRIEF = "Produce one concept card that describes the existing business in the import report as it is, not a new idea.";
+
+/** The Import report as the Ideation agent reads it (what the Import screen used to send): data, never instructions. */
+export function importReportText(report: ScoutingReport): string {
   const lines = [
     `Existing business import: ${report.suggestedName}.`,
     `What exists: ${report.whatExists.join("; ")}.`,
@@ -38,9 +43,13 @@ export function importConceptPrompt(report: ScoutingReport): string {
     `Weaknesses: ${report.weaknesses.join("; ")}.`,
     `Missing: ${report.whatIsMissing.join("; ")}.`,
     report.roadmapSeeds.length ? `Roadmap seeds: ${report.roadmapSeeds.map((s) => s.title).join("; ")}.` : "",
-    "Produce one concept card that describes this business as it is, not a new idea.",
   ];
   return lines.filter(Boolean).join("\n").slice(0, 3900);
+}
+
+/** The brief the Ideation agent drafts the imported business's card from: the fixed instruction, the report as untrusted content. */
+export function importConceptBrief(report: ScoutingReport, founder: IdeationBrief["founder"]): IdeationBrief {
+  return { prompt: IMPORT_CONCEPT_BRIEF, archetypeHint: report.archetypeHint, founder, source: { kind: "import_report", content: { import_report: importReportText(report) } } };
 }
 
 interface DraftedConcept {
@@ -134,7 +143,7 @@ async function finishedImport(deps: ImportConceptDeps, jobId: string, userId: st
 }
 
 async function draftConcept(deps: ImportConceptDeps, userId: string, report: ScoutingReport, signal?: AbortSignal): Promise<DraftedConcept> {
-  const brief: IdeationBrief = { prompt: importConceptPrompt(report), archetypeHint: report.archetypeHint, founder: await founderBrief(deps.db, userId) };
+  const brief = importConceptBrief(report, await founderBrief(deps.db, userId));
   const res = await deps.models.complete({ ...buildSingleConceptRequest(brief), signal, scope: `ideation:${userId}`, attribution: { kind: "ideation" } });
   return { card: res.json, costMinor: res.cost.costMinorInt, mode: res.mode };
 }

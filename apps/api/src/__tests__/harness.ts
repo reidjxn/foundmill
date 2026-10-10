@@ -1,20 +1,21 @@
 /**
- * Test harness: PGlite database (packages/db testing), two seeded businesses (A and B) from the RLS fixture, mock
- * model client, in-process composer fallback, a disabled Temporal service and a local vault. `caller(user)` is the
- * in-process tRPC caller for that signed-in user.
+ * Test harness: PGlite database (packages/db testing), two seeded businesses (A and B) from the RLS fixture, the mock
+ * model client wired as in production (calls made for a business are booked to its usage ledger), in-process composer
+ * fallback, a disabled Temporal service and a local vault. `caller(user)` is the in-process tRPC caller for that
+ * signed-in user.
  */
 import { createBusinessFixture, type BusinessFixture } from "@foundmill/db/__tests__/rls/fixtures";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import type { Db } from "@foundmill/db";
 import type { StreamRedis } from "@foundmill/events";
 import { createDefaultRegistry } from "@foundmill/connectors";
-import { createModelClient } from "@foundmill/models";
 import { loadEnv, resetEnvCache } from "@foundmill/shared";
 import { createVault, generateMasterKey } from "@foundmill/shared/crypto";
 import { createAuthVerifier } from "../auth";
 import type { ApiDeps, CallerUser } from "../context";
 import { createCaller } from "../router";
 import { createComposerClient } from "../services/composer";
+import { createApiModelClient } from "../services/models";
 import type { ApiGatewayClient } from "../services/gateway";
 import { silentLog } from "../services/log";
 import type { RecordingResolver } from "../services/replay";
@@ -56,7 +57,8 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
   const h = await createTestDb();
   const db = h.db as unknown as Db;
   const log = silentLog();
-  const models = createModelClient({ mode: "mock", logger: log });
+  // The production wiring: calls made for a business are booked to its usage ledger.
+  const models = createApiModelClient(env, log, { db });
   const temporal = createTemporalService({ address: "127.0.0.1:1", namespace: "default", taskQueue: "test", log, disabled: !options.temporalClient, connect: options.temporalClient ? async () => options.temporalClient! : undefined });
   const composer = createComposerClient({
     url: "http://127.0.0.1:1",

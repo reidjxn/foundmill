@@ -98,7 +98,8 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
 
   const redis = options.redis === undefined ? createRedis(env.REDIS_URL, log) : options.redis;
   const temporal = createTemporalService({ address: env.TEMPORAL_ADDRESS, namespace: env.TEMPORAL_NAMESPACE, taskQueue: env.TEMPORAL_TASK_QUEUE, log });
-  const models = createApiModelClient(env, log);
+  // Calls made for a business are booked to its usage ledger through the client (services/models.ts).
+  const models = createApiModelClient(env, log, { db });
   const composer = createComposerClient({ url: env.COMPOSER_URL, db, models, log, allowFallback: env.APP_ENV === "development" || env.APP_ENV === "test" });
 
   let vault: Vault | null = null;

@@ -2,10 +2,10 @@
  * Live client tests with an injected fetch: no network, but the real SDK request/response pipeline, structured output
  * parameters, header parsing, repair retry and error mapping are exercised end to end.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { LiveModelClient, createModelClient, keyFingerprint, validateApiKey } from "./client";
-import { ModelOutputError, ModelRateLimitError, ModelRequestError, ModelUnavailableError } from "./errors";
+import { ModelAbortedError, ModelOutputError, ModelRateLimitError, ModelRequestError, ModelUnavailableError } from "./errors";
 import { MockModelClient } from "./mock";
 import { RateLimiter } from "./rate-limit";
 import { MODELS } from "./routing";
@@ -335,5 +335,66 @@ describe("effectiveModelMode", () => {
     expect(effectiveModelMode("live", undefined, logger)).toBe("mock");
     expect(effectiveModelMode("live", "", logger)).toBe("mock");
     expect(errors).toHaveLength(2);
+  });
+});
+
+describe("LiveModelClient: a stopped call is still metered (review item 8)", () => {
+  /** A transport that accepts the request and never answers until the call's signal aborts it. */
+  function hangingFetch() {
+    const sent: string[] = [];
+    const fetchImpl = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      sent.push(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        const fail = () => reject(signal?.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+        if (signal?.aborted) fail();
+        else signal?.addEventListener("abort", fail, { once: true });
+      });
+    };
+    return { fetch: fetchImpl as unknown as typeof globalThis.fetch, sent };
+  }
+
+  const PROMPT = "Draft the vision for a bookkeeping business. ".repeat(100);
+
+  it("books the prompt's estimated input tokens, no output, as an Estimate flagged aborted, with the call's attribution", async () => {
+    const { fetch, sent } = hangingFetch();
+    const events: UsageEvent[] = [];
+    const client = new LiveModelClient({ apiKey: "sk-ant-test", fetch, sleep: noSleep, onUsage: (e) => void events.push(e) });
+    const stop = new AbortController();
+    const call = client.complete({ route: "conversation", system: "House rules", messages: [{ role: "user", content: PROMPT }], signal: stop.signal, scope: "s1", attribution: { businessId: "b-1", agentId: "a-1", kind: "conversation" } });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    stop.abort();
+    await expect(call).rejects.toBeInstanceOf(ModelAbortedError);
+
+    expect(sent).toHaveLength(1);
+    expect(events).toHaveLength(1);
+    const e = events[0]!;
+    expect(e).toMatchObject({ route: "conversation", model: MODELS.opus, mode: "live", aborted: true, attempt: 0, scope: "s1", attribution: { businessId: "b-1", agentId: "a-1", kind: "conversation" } });
+    // About four characters per token over the messages and the system prompt; nothing was written back.
+    expect(e.usage.inputTokens).toBeGreaterThanOrEqual(Math.floor(PROMPT.length / 4));
+    expect(e.usage).toMatchObject({ outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 });
+    expect(e.cost).toMatchObject({ label: "Estimate", currency: "USD" });
+    expect(e.cost.costMicroMinor).toBeGreaterThan(0);
+  });
+
+  it("a call stopped before it was sent books nothing", async () => {
+    const { fetch, sent } = hangingFetch();
+    const events: UsageEvent[] = [];
+    const client = new LiveModelClient({ apiKey: "sk-ant-test", fetch, sleep: noSleep, onUsage: (e) => void events.push(e) });
+    const stop = new AbortController();
+    stop.abort();
+    await expect(client.complete({ route: "conversation", messages: [{ role: "user", content: PROMPT }], signal: stop.signal })).rejects.toBeInstanceOf(ModelAbortedError);
+    expect(sent).toHaveLength(0);
+    expect(events).toHaveLength(0);
+  });
+
+  it("a call that answers is booked once, from the provider's usage, without the aborted flag", async () => {
+    const { fetch } = fakeFetch([() => message("plain answer", { usage: { input_tokens: 900, output_tokens: 40 } })]);
+    const events: UsageEvent[] = [];
+    const client = new LiveModelClient({ apiKey: "sk-ant-test", fetch, sleep: noSleep, onUsage: (e) => void events.push(e) });
+    await client.complete({ route: "conversation", messages: [{ role: "user", content: PROMPT }], signal: new AbortController().signal });
+    expect(events).toHaveLength(1);
+    expect(events[0]!.usage).toMatchObject({ inputTokens: 900, outputTokens: 40 });
+    expect(events[0]!.aborted).toBeUndefined();
   });
 });

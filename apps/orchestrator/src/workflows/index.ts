@@ -22,6 +22,6 @@ export type { IncorporationResult } from "./incorporation";
 export { journeyBuild } from "./journeyBuild";
 export { importBusiness } from "./importBusiness";
 export type { ImportBusinessResult } from "./importBusiness";
-export { businessFoundations, FOUNDATIONS_DRAFT_FAILED, FOUNDATIONS_SAVE_FAILED } from "./businessFoundations";
+export { businessFoundations, FOUNDATIONS_DRAFT_FAILED, FOUNDATIONS_SAVE_FAILED, FOUNDATIONS_STAGED_PATCH } from "./businessFoundations";
 export { journeyDailyRefresh, benchmarksRebuild, credentialExpiryScan, consentRenewalScan, agentMetricsRollup } from "./schedules";
 export * from "./signals";

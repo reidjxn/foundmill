@@ -186,8 +186,12 @@ describe("business.logo.generate (Opus, sanitised, metered, rate-limited)", () =
     const again = await owner.business.logo.generate({ businessId, colours: { primary: "#1f6f5f", secondary: "#e8c56b" }, round: 1 });
     expect(again.options.map((o) => o.id)).not.toEqual(set.options.map((o) => o.id));
 
-    const usage = await repos.usage.list(hz.db, businessId, {});
-    expect(usage.items.filter((u) => (u.details as { purpose?: string }).purpose === "logo")).toHaveLength(2);
+    // Each model call of the two sets is booked once, by the API's model client (review item 7): no extra row per set.
+    const usage = await repos.usage.list(hz.db, businessId, { limit: 200 });
+    const logoRows = usage.items.filter((u) => (u.details as { kind?: string }).kind === "logo");
+    expect(logoRows).toHaveLength(2 * LIMITS.logoOptionsPerSet);
+    for (const row of logoRows) expect(row).toMatchObject({ kind: "tokens", modelKey: "opus", currency: "USD", details: { service: "api", route: "logoDesigner", label: "Estimate" } });
+    expect(usage.items.filter((u) => (u.details as { purpose?: string }).purpose === "logo")).toHaveLength(0);
     const audit = await repos.audit.list(hz.db, businessId, { action: "business.logo.generate" });
     expect(audit.items[0]!.details).toMatchObject({ options: 4, costLabel: "Estimate", mode: "mock", round: 1 });
 

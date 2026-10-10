@@ -5,10 +5,12 @@
  */
 import { readFoundationsProgress } from "@foundmill/agents";
 import { repos } from "@foundmill/db";
-import { MockModelClient, ModelRequestError, ModelUnavailableError } from "@foundmill/models";
+import { meter, MockModelClient, ModelRequestError, ModelUnavailableError, MODELS, type UsageEvent } from "@foundmill/models";
 import { ApplicationFailure } from "@temporalio/common";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createActivities } from "../activities";
 import { FOUNDATIONS_DRAFT_ERROR, createFoundationsActivities } from "../activities/foundations";
+import { usageSink } from "../deps";
 import { FOUNDATIONS_DRAFT_ERROR_TYPE } from "../workflows/businessFoundations";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
@@ -125,4 +127,44 @@ describe("businessFoundations activities", () => {
       await h.close();
     }
   }, 120_000);
+});
+
+describe("the single-call drafting, kept for workflows started before the staged drafting (review item 6)", () => {
+  it("draftFoundations is still registered, drafts without writing, and applyFoundations writes the draft it returned (the old arguments)", async () => {
+    const h = await setupOrchestratorHarness({ prefix: "found-legacy" });
+    try {
+      // The worker registers every activity createActivities returns.
+      expect(typeof createActivities(h.deps).draftFoundations).toBe("function");
+      await repos.foundations.create(h.db, h.businessId, { door: "ideation" });
+      await repos.foundations.claim(h.db, h.businessId);
+      const acts = createFoundationsActivities(h.deps);
+      expect(await acts.draftFoundations({ businessId: h.businessId, attempt: 2 })).toMatchObject({ current: false, draft: null });
+      const drafted = await acts.draftFoundations({ businessId: h.businessId, attempt: 1 });
+      expect(drafted).toMatchObject({ current: true, door: "ideation", model: { route: "foundations", mode: "mock", runner: "temporal", costLabel: "Estimate" } });
+      expect(drafted.draft!.sections.length).toBeGreaterThan(0);
+      // The draft writes nothing: the attempt is still drafting, with no staged progress.
+      expect(await repos.foundations.get(h.db, h.businessId)).toMatchObject({ status: "drafting", progress: null });
+
+      const applied = await acts.applyFoundations({ businessId: h.businessId, attempt: 1, draft: drafted.draft!, door: drafted.door, model: drafted.model });
+      expect(applied.applied).toBe(true);
+      expect(applied.inboxItemId).toBeTruthy();
+      const row = await repos.foundations.get(h.db, h.businessId);
+      expect(row).toMatchObject({ status: "ready", summary: { model: drafted.model } });
+      expect((row!.vision as { statement: string }).statement).toBe(drafted.draft!.vision.statement);
+      expect(await acts.applyFoundations({ businessId: h.businessId, attempt: 1, draft: drafted.draft!, door: drafted.door, model: drafted.model })).toEqual({ applied: false, inboxItemId: null });
+    } finally {
+      await h.close();
+    }
+  }, 120_000);
+});
+
+describe("usageSink", () => {
+  it("books a call stopped in flight with its aborted flag (its tokens are an Estimate too)", async () => {
+    const usage = { inputTokens: 800, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
+    const event: UsageEvent = { route: "foundations", model: MODELS.opus, modelKey: "opus", mode: "live", usage, cost: meter(usage, MODELS.opus), attribution: { businessId: t.businessId, kind: "foundations" }, durationMs: 10, occurredAt: new Date().toISOString(), attempt: 0, aborted: true };
+    const before = (await repos.usage.list(t.db, t.businessId, { limit: 500 })).items;
+    await usageSink(t.db, t.deps.log)(event);
+    const row = (await repos.usage.list(t.db, t.businessId, { limit: 500 })).items.find((u) => !before.some((b) => b.id === u.id));
+    expect(row).toMatchObject({ quantity: 800, currency: "USD", details: { route: "foundations", kind: "foundations", label: "Estimate", aborted: true } });
+  });
 });

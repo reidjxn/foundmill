@@ -179,16 +179,17 @@ describe("idea.logo.stream / business.logo.stream", () => {
     expect(done.set.remaining).toBe(LIMITS.logoSetsPerUserPerHour - 1);
   });
 
-  it("Settings: meters one usage row and one audit entry per streamed set", async () => {
+  it("Settings: meters each of the set's calls once (one usage row per call) and one audit entry per streamed set", async () => {
     const { businessId, ownerId } = hz.B;
     const owner = hz.caller({ userId: ownerId });
     const events = await collect(await owner.business.logo.stream({ businessId, colours: { primary: "#1f6f5f", secondary: "#e8c56b" } }));
     expect(events.filter((e) => e.type === "option")).toHaveLength(4);
     expect(events.at(-1)).toMatchObject({ type: "done", set: { remaining: LIMITS.logoSetsPerUserPerHour - 1 } });
-    const usage = await repos.usage.list(hz.db, businessId, {});
-    const rows = usage.items.filter((u) => (u.details as { purpose?: string }).purpose === "logo");
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.details).toMatchObject({ calls: 4, label: "Estimate" });
+    const usage = await repos.usage.list(hz.db, businessId, { limit: 200 });
+    const rows = usage.items.filter((u) => (u.details as { kind?: string }).kind === "logo");
+    expect(rows).toHaveLength(4);
+    for (const row of rows) expect(row.details).toMatchObject({ service: "api", route: "logoDesigner", label: "Estimate" });
+    expect(usage.items.filter((u) => (u.details as { purpose?: string }).purpose === "logo")).toHaveLength(0);
     const audit = await repos.audit.list(hz.db, businessId, { action: "business.logo.generate" });
     expect(audit.items[0]!.details).toMatchObject({ options: 4, failed: 0, stopped: false, costLabel: "Estimate" });
     // Viewers cannot stream a set either.

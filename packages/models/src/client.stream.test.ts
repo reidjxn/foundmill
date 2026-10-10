@@ -2,10 +2,10 @@
  * Live client: per-route effort and fast mode, the limiter reservation, and `streamStructured` over real SSE responses
  * from an injected fetch (the SDK's own stream parser runs; no network).
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { LiveModelClient } from "./client";
-import { ModelRateLimitError } from "./errors";
+import { ModelAbortedError, ModelRateLimitError } from "./errors";
 import { FAST_MODE_PRICING, MODEL_PRICING } from "./pricing";
 import { RateLimiter } from "./rate-limit";
 import { FAST_MODE_BETA, MODELS } from "./routing";
@@ -311,5 +311,32 @@ describe("LiveModelClient.streamStructured: invalid output goes to repair, never
     expect(calls).toHaveLength(1);
     expect(err).toMatchObject({ name: "ModelOutputError", code: "max_tokens" });
     expect((err as { details: { elements: unknown[] } }).details.elements).toHaveLength(2);
+  });
+});
+
+describe("a stream stopped before it said what it used (review item 8)", () => {
+  it("books the prompt's estimated input tokens as an Estimate flagged aborted and streamed", async () => {
+    let opened = false;
+    const fetchImpl = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      opened = true;
+      // Headers arrive at once; the body sends nothing until the call is stopped.
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () => controller.error(new DOMException("The operation was aborted.", "AbortError")), { once: true });
+        },
+      });
+      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream", "request-id": "req_hang" } });
+    };
+    const events: UsageEvent[] = [];
+    const client = new LiveModelClient({ apiKey: "k", fetch: fetchImpl as unknown as typeof globalThis.fetch, sleep: noSleep, onUsage: (e) => void events.push(e) });
+    const stop = new AbortController();
+    const call = client.streamStructured({ route: "ideation", system: "Draft cards.", messages: [{ role: "user", content: "a brief ".repeat(200) }], schema: Cards, elementPath: "concepts", elementSchema: Card, signal: stop.signal, attribution: { businessId: "b-1", kind: "ideation" } });
+    await vi.waitFor(() => expect(opened).toBe(true));
+    await new Promise((r) => setTimeout(r, 20));
+    stop.abort();
+    await expect(call).rejects.toBeInstanceOf(ModelAbortedError);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ route: "ideation", aborted: true, streamed: true, attribution: { businessId: "b-1" }, usage: { outputTokens: 0 }, cost: { label: "Estimate" } });
+    expect(events[0]!.usage.inputTokens).toBeGreaterThanOrEqual(400);
   });
 });
