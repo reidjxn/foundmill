@@ -23,13 +23,12 @@ import {
   StopAllAgents,
   TeamOrbit,
   cn,
-  formatMoney,
   kitBarGradient,
   kitStyle,
   usePrefersReducedMotion,
   type ProcessingSegment,
 } from "@foundmill/dugout";
-import { ACTIVITY, EXAMPLE_BUSINESS, EXAMPLE_CHAPTER, EXAMPLE_CURRENCY, EXAMPLE_KIT, EXAMPLE_RUNWAY_MONTHS, LEADS, exampleToday, type ActivityLine, type ExampleDecision, type ExampleWin } from "./example";
+import { ACTIVITY, EXAMPLE_BUSINESS, EXAMPLE_CHAPTER, EXAMPLE_KIT, EXAMPLE_RUNWAY_MONTHS, LEADS, exampleMoney, exampleToday, type ActivityLine, type ExampleDecision, type ExampleWin } from "./example";
 import { LANDING_LOGOS } from "./logos";
 import { continueStateFor, cycleReducer, cycleStatusText, cycleTasks, initialCycleState, type CycleState, type InboxItem } from "./cycle";
 import { useSeen } from "./parts";
@@ -293,7 +292,7 @@ function LiveColumn({ feed, state, progress }: { feed: Array<{ key: number; line
         <dl className="flex flex-col gap-1.5">
           <DeckStat label="Tasks done" value={`${done} of ${t.tasks}`} />
           <DeckStat label="Pull requests merged" value={String(Math.min(t.prs, Math.floor(progress * t.prs)))} />
-          <DeckStat label="Agent spend" value={formatMoney({ amountMinor: Math.round(progress * t.tasks * 46), currency: EXAMPLE_CURRENCY })} estimate />
+          <DeckStat label="Agent spend" value={exampleMoney(Math.round(progress * t.tasks * 46))} estimate />
         </dl>
       </div>
     </section>

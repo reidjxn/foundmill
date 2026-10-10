@@ -5,8 +5,8 @@
  */
 import { useMemo, useState, type ReactNode } from "react";
 import { Flag, Lightbulb, Play, type LucideIcon } from "lucide-react";
-import { Avatar, BusinessLogo, Chip, ConceptCard, Icon, ProvenanceChip, cn, formatMoney, kitBarGradient, kitStyle, type Kit } from "@foundmill/dugout";
-import { EXAMPLE_BUSINESS, EXAMPLE_CURRENCY, FIRST_CYCLE_PLAN, LEADS, exampleConcepts, exampleKits } from "./example";
+import { Avatar, BusinessLogo, Chip, ConceptCard, Icon, ProvenanceChip, cn, kitBarGradient, kitStyle, type Kit } from "@foundmill/dugout";
+import { EXAMPLE_BUSINESS, FIRST_CYCLE_PLAN, LEADS, exampleConcepts, exampleKits, exampleMoney } from "./example";
 import { LANDING_LOGOS } from "./logos";
 import { Glass, Reveal, Section, SectionHeading } from "./parts";
 
@@ -148,7 +148,7 @@ function CyclePlan() {
       </ul>
       <span className="mt-auto flex items-center gap-2 text-small text-secondary">
         <span className="tabular-nums">
-          {total} tasks · {FIRST_CYCLE_PLAN.length} departments · {formatMoney({ amountMinor: total * 46, currency: EXAMPLE_CURRENCY })}
+          {total} tasks · {FIRST_CYCLE_PLAN.length} departments · {exampleMoney(total * 46)}
         </span>
         <ProvenanceChip kind="estimate" />
       </span>

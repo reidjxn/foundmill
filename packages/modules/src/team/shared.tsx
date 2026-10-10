@@ -429,7 +429,7 @@ export function agentEntity(businessId: string, agent: AgentRow, currency = "EUR
     chips: [{ label: STATUS_WORD[agent.status], tone: agentStatusTone(agent.status).tone }, { label: MODEL_LABELS[agent.modelKey] ?? agent.modelKey }],
     facts: [
       { label: "Departments", value: (agent.departments ?? []).map((d) => d.name).join(", ") || "—" },
-      { label: "Wage (Estimate)", value: `${new Intl.NumberFormat("en-GB", { style: "currency", currency: agent.currency ?? currency, maximumFractionDigits: 0 }).format(wage / 100)}/mo` },
+      { label: "Wage (Estimate)", value: `${new Intl.NumberFormat("en-GB", { style: "currency", currency: agent.currency ?? currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 }).format(wage / 100)}/mo` },
       { label: "Current task", value: agent.currentTask?.title ?? "None" },
     ],
     verbs: ["open_profile", "message"],

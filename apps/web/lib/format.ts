@@ -4,7 +4,7 @@ import type { Money } from "@foundmill/shared";
 export function formatMoney(money: Money | { amountMinor: number; currency: string } | null | undefined, locale = "en-GB"): string {
   if (!money) return "—";
   try {
-    return new Intl.NumberFormat(locale, { style: "currency", currency: money.currency, maximumFractionDigits: 2 }).format(money.amountMinor / 100);
+    return new Intl.NumberFormat(locale, { style: "currency", currency: money.currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: 2 }).format(money.amountMinor / 100);
   } catch {
     return `${(money.amountMinor / 100).toFixed(2)} ${money.currency}`;
   }

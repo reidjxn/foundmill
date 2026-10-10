@@ -315,7 +315,7 @@ export function orderDeck(deck: readonly IdeaLike[], shortlist: readonly string[
 /** Money label for the generation cost ("Estimate · €0.12"). */
 export function costLabel(costMinor: number, currency = "EUR"): string {
   try {
-    return new Intl.NumberFormat("en-GB", { style: "currency", currency, minimumFractionDigits: 2 }).format(costMinor / 100);
+    return new Intl.NumberFormat("en-GB", { style: "currency", currency, currencyDisplay: "narrowSymbol", minimumFractionDigits: 2 }).format(costMinor / 100);
   } catch {
     return `${(costMinor / 100).toFixed(2)} ${currency}`;
   }

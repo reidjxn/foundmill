@@ -75,7 +75,7 @@ export function fmtAxisMoney(amountMinor: number | null | undefined, currency: s
   if (amountMinor === null || amountMinor === undefined || !Number.isFinite(amountMinor)) return "—";
   const major = amountMinor / 100;
   try {
-    const text = new Intl.NumberFormat("en-GB", { style: "currency", currency, notation: "compact", maximumFractionDigits: Math.abs(major) >= 1000 ? 1 : 0 }).format(Math.abs(major));
+    const text = new Intl.NumberFormat("en-GB", { style: "currency", currency, currencyDisplay: "narrowSymbol", notation: "compact", maximumFractionDigits: Math.abs(major) >= 1000 ? 1 : 0 }).format(Math.abs(major));
     return major < 0 ? `−${text}` : text;
   } catch {
     return fmtSigned(amountMinor, currency, { compact: true });

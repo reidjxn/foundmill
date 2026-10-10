@@ -39,8 +39,16 @@ test.describe("landing page", () => {
     await page.locator("#live").scrollIntoViewIfNeeded();
     await expect(page.getByRole("region", { name: "Example agent sessions" }).getByRole("group")).toHaveCount(4);
     await page.locator("#journey").scrollIntoViewIfNeeded();
-    await expect(page.locator("[aria-roledescription='journey ribbon']")).toBeVisible();
+    const ribbon = page.locator("[aria-roledescription='journey ribbon']");
+    await expect(ribbon).toBeVisible();
+    // The product's own parts print the example's dollars as "$" too, never en-GB's "US$": the ribbon's revenue scale,
+    // the milestone values and the live tiles' costs.
+    await expect(ribbon).toContainText(/\$\d{3}\.00\/day/);
+    await expect(page.getByText("$3,480.00", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("landing")).not.toContainText("US$");
     await expect(page.getByRole("region", { name: "Customer Update" })).toBeVisible();
+    // The example is a US business: its own figures print as dollars.
+    await expect(page.getByRole("region", { name: "Customer Update" }).getByText("$42.00", { exact: true })).toBeVisible();
     await page.locator("#channels").scrollIntoViewIfNeeded();
     const board = page.getByRole("group", { name: "Board: active channels" });
     await expect(board.getByRole("button")).toHaveCount(4);
@@ -48,6 +56,14 @@ test.describe("landing page", () => {
     await page.getByRole("button", { name: /^Social media,/ }).focus();
     await page.keyboard.press("Enter");
     await expect(board.getByRole("button")).toHaveCount(5);
+
+    // The Inbox note's cost is in dollars too, and nothing of the earlier sterling example is left on the page.
+    await page.locator("#control").scrollIntoViewIfNeeded();
+    await expect(page.getByRole("article", { name: "Example Inbox note" }).locator('[data-value="$480.00"]')).toBeVisible();
+    // The DecisionBar's hover card (portalled to <body>) states the cost in dollars as well.
+    await page.getByTestId("decision-bar").getByRole("button", { name: /^Approve/ }).hover();
+    await expect(page.getByText(/^Not reversible$/)).toBeVisible();
+    for (const gone of ["£", "GBP", "Maths", "GCSE", "US$"]) await expect(page.locator("body")).not.toContainText(gone, { useInnerText: true });
 
     // Every way in goes to sign-in.
     await page.getByRole("banner").getByRole("link", { name: "Start your business" }).click();
@@ -61,7 +77,7 @@ test.describe("landing page", () => {
     await expect(deck).toHaveAttribute("data-phase", "decision", { timeout: 15_000 });
     await expect(deck.getByRole("button", { name: /Respond to 1 item/ })).toBeVisible();
     await page.getByTestId("deck-decision").getByRole("button", { name: "Merge" }).click();
-    await expect(deck.getByText("Photo marking merged to production")).toBeVisible();
+    await expect(deck.getByText("Photo grading merged", { exact: true })).toBeVisible();
 
     // Pressing Continue runs the next cycle, which brings a customer; the gold card opens the Journey.
     await deck.getByRole("button", { name: "Continue" }).click();
@@ -73,6 +89,6 @@ test.describe("landing page", () => {
     await expect(page.locator("#journey-title")).toBeFocused();
     await expect(deck).toHaveAttribute("data-phase", "idle");
     // The update it opens is about the same customer.
-    await expect(page.getByRole("region", { name: "Customer Update" }).getByText("Okafor Maths Tuition").first()).toBeVisible();
+    await expect(page.getByRole("region", { name: "Customer Update" }).getByText("Okafor Math Tutoring").first()).toBeVisible();
   });
 });

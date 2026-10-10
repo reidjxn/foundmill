@@ -18,7 +18,7 @@ const COMPACT_UNITS: ReadonlyArray<readonly [number, string]> = [
  */
 function formatCompactMoney(major: number, currency: string, locale: string): string {
   const abs = Math.abs(major);
-  const standard = new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: 0 });
+  const standard = new Intl.NumberFormat(locale, { style: "currency", currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 });
   for (let i = 0; i < COMPACT_UNITS.length; i++) {
     const [unit, suffix] = COMPACT_UNITS[i]!;
     if (abs < unit) continue;
@@ -41,7 +41,7 @@ export function formatMoney(m: Money, opts: { compact?: boolean; locale?: string
   const locale = opts.locale ?? "en-GB";
   if (opts.compact && Math.abs(major) >= 10_000) return formatCompactMoney(major, m.currency, locale);
   return new Intl.NumberFormat(locale, {
-    style: "currency", currency: m.currency, maximumFractionDigits: opts.compact ? 0 : 2,
+    style: "currency", currency: m.currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: opts.compact ? 0 : 2,
   }).format(major);
 }
 export const money = (amountMinor: number, currency = "EUR"): Money => ({ amountMinor, currency });

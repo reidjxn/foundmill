@@ -91,7 +91,7 @@ function TopBar() {
         <Button asChild variant="ghost">
           <Link href={SIGN_IN}>Sign in</Link>
         </Button>
-        <Button asChild variant="primary" iconRight={ArrowRight}>
+        <Button asChild variant="glass" iconRight={ArrowRight}>
           <Link href={SIGN_IN}>Start your business</Link>
         </Button>
       </Container>

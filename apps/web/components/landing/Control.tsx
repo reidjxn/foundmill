@@ -7,7 +7,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ArrowRight, CircleStop, FileSignature, Inbox, KeyRound, Landmark, Lock, ShieldCheck, Tag, Trash2, type LucideIcon } from "lucide-react";
 import { Avatar, Button, Chip, DecisionBar, DeptChip, Icon, StatusStrip, TeamOrbit, type DecisionOption } from "@foundmill/dugout";
-import { EXAMPLE_CURRENCY, EXAMPLE_INBOX_NOTE, EXAMPLE_START_CYCLE } from "./example";
+import { EXAMPLE_CURRENCY, EXAMPLE_INBOX_NOTE, EXAMPLE_START_CYCLE, exampleMoney } from "./example";
 import { Container, Glass, ProductWindow, Reveal, SIGN_IN, Section, SectionHeading } from "./parts";
 
 const HOUSE_RULES: ReadonlyArray<{ icon: LucideIcon; text: string }> = [
@@ -84,7 +84,9 @@ function InboxNote() {
             <span className="t-body-strong text-primary">
               {NOTE.from.name} · {NOTE.from.role}
             </span>
-            <span className="text-small text-secondary">Wed 7 Oct · cycle {EXAMPLE_START_CYCLE + 1}</span>
+            <span className="text-small text-secondary">
+              {NOTE.sentOn} · cycle {EXAMPLE_START_CYCLE + 1}
+            </span>
           </span>
           <DeptChip dept={NOTE.from.dept}>{NOTE.department}</DeptChip>
           <Chip tone="bad" icon={Inbox}>
@@ -100,7 +102,7 @@ function InboxNote() {
           ))}
           <StatusStrip
             tiles={[
-              { label: "Cost", value: { amountMinor: NOTE.costMinor, currency: EXAMPLE_CURRENCY }, estimate: "estimate" },
+              { label: "Cost", value: exampleMoney(NOTE.costMinor), estimate: "estimate" },
               { label: "Channel fit", value: NOTE.fit },
               { label: "Runway after", value: "14 months", estimate: "estimate" },
             ]}
@@ -135,7 +137,7 @@ export function FinalCall() {
             </h2>
             <p className="t-reading mx-auto text-pretty text-secondary">Never started a company? You do not need to know how to incorporate, price, run ads or keep books. Every decision arrives with the work done, a recommendation and the reason for it.</p>
             <div className="flex gap-3">
-              <Button asChild variant="primary" size="lg" iconRight={ArrowRight}>
+              <Button asChild variant="glass" size="lg" iconRight={ArrowRight}>
                 <Link href={SIGN_IN}>Start your business</Link>
               </Button>
               <Button asChild variant="ghost" size="lg">

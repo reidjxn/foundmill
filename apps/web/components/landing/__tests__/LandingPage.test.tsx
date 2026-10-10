@@ -96,10 +96,10 @@ describe("LandingPage (signed-out /)", () => {
     expect(deck.getAttribute("data-phase")).toBe("decision");
     expect(within(deck).getByRole("button", { name: /Respond to 1 item/ })).toBeTruthy();
     const decision = screen.getByTestId("deck-decision");
-    expect(within(decision).getByText("Merge photo marking to production?")).toBeTruthy();
+    expect(within(decision).getByText("Merge photo grading to production?")).toBeTruthy();
     fireEvent.click(within(decision).getByRole("button", { name: "Merge" }));
     expect(deck.getAttribute("data-phase")).toBe("idle");
-    expect(within(deck).getByText("Photo marking merged to production")).toBeTruthy();
+    expect(within(deck).getByText("Photo grading merged")).toBeTruthy();
     // The decision card is gone; keyboard focus moves to Continue, the next thing to press.
     await act(async () => {
       vi.advanceTimersByTime(10);
@@ -115,8 +115,8 @@ describe("LandingPage (signed-out /)", () => {
     expect(deck.getAttribute("data-phase")).toBe("win");
     const win = screen.getByTestId("deck-win");
     // The same customer as the Customer Update the gold card opens.
-    expect(within(win).getByText("Okafor Maths Tuition")).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Customer Update" })).getAllByText("Okafor Maths Tuition").length).toBeGreaterThan(0);
+    expect(within(win).getByText("Okafor Math Tutoring")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Customer Update" })).getAllByText("Okafor Math Tutoring").length).toBeGreaterThan(0);
     expect(within(deck).getByRole("button", { name: /Go to Journey/ })).toBeTruthy();
     fireEvent.click(within(win).getByRole("button", { name: /See the Customer Update/ }));
     expect(deck.getAttribute("data-phase")).toBe("idle");
@@ -158,6 +158,45 @@ describe("LandingPage (signed-out /)", () => {
     // Only milestones the example reached, each labelled as the example business's.
     expect(screen.queryByText("Not yet")).toBeNull();
     expect(screen.getByText(/6 of 6 reached/)).toBeTruthy();
+  });
+
+  it("prices the example business in US dollars and tells its story in US English", async () => {
+    vi.useFakeTimers();
+    const { container } = renderPage();
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
+    // The example's own figures print as dollars ("$42.00", never "£42.00" or "US$42.00").
+    expect(within(screen.getByTestId("cycle-deck")).getByText(/^\$\d+\.\d\d$/)).toBeTruthy();
+    expect(screen.getByText(/departments · \$5\.06$/)).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Customer Update" })).getByText("$42.00")).toBeTruthy();
+    const note = screen.getByRole("article", { name: "Example Inbox note" });
+    expect(note.querySelector('[data-value="$480.00"]')).toBeTruthy();
+    expect(within(note).getByText(/^It costs \$480, above the \$250 cap/)).toBeTruthy();
+    expect(within(note).getByText("Wed, Oct 7 · cycle 215")).toBeTruthy();
+    expect(screen.getByText("$10K MRR")).toBeTruthy();
+    // Nothing of the earlier sterling, UK-schooled example is left.
+    const text = container.textContent ?? "";
+    for (const gone of ["£", "GBP", "Maths", "GCSE", "A-level", "Tuition", "UK "]) expect(text, gone).not.toContain(gone);
+    expect(text).toContain("SAT quadratics: 40 practice questions");
+  });
+
+  it("prints the dollars in the product's own parts as $ too, never en-GB's US$", async () => {
+    vi.useFakeTimers();
+    renderPage();
+    // Let the live tiles render, each with its cost in the footer. (The Journey Ribbon needs a measured width, so its
+    // revenue scale and readout are covered by e2e/landing.spec.ts.)
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
+    const tiles = within(screen.getByRole("region", { name: "Example agent sessions" })).getAllByRole("group");
+    for (const tile of tiles) expect(within(tile).getByText(/^\$\d+\.\d\d$/)).toBeTruthy();
+    // Milestone values (TrophyCabinet) and the DecisionBar's cost line for screen readers.
+    expect(screen.getByText("$29.00")).toBeTruthy();
+    expect(screen.getByText("$3,480.00")).toBeTruthy();
+    expect(screen.getByText(/^Recommended\. Scout books the sponsorship and the copy runs next week\. \$480\.00\. Not reversible\.$/)).toBeTruthy();
+    expect(document.body.textContent).not.toContain("US$");
+    for (const el of document.body.querySelectorAll("[aria-label], [title]")) expect(`${el.getAttribute("aria-label")} ${el.getAttribute("title")}`).not.toContain("US$");
   });
 
   it("renders the live tiles in the browser only, already mid-session, then streams them", async () => {

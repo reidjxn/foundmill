@@ -42,7 +42,7 @@ export function Hero() {
             {APP_NAME} hires, trains and runs a team of AI agents across product, development, distribution, finance, legal and hiring. You set the direction and make the calls only a founder should make. They do the rest, every cycle, in the open.
           </p>
           <div className="flex items-center gap-3">
-            <Button asChild variant="primary" size="lg" iconRight={ArrowRight}>
+            <Button asChild variant="glass" size="lg" iconRight={ArrowRight}>
               <Link href={SIGN_IN}>Start your business</Link>
             </Button>
             <Button asChild variant="ghost" size="lg">

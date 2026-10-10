@@ -6,8 +6,8 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Clock, Coins, MousePointerClick, Radio, Star, Trophy } from "lucide-react";
-import { Avatar, Chip, EntityLinkProvider, EntityText, Icon, JourneyRibbon, ProvenanceChip, TrophyCabinet, cn, formatMoney } from "@foundmill/dugout";
-import { EXAMPLE_BUSINESS, EXAMPLE_CURRENCY, EXAMPLE_CUSTOMER_UPDATE, EXAMPLE_KIT, EXAMPLE_RIBBON_DEPARTMENTS, exampleJourney, exampleMilestones } from "./example";
+import { Avatar, Chip, EntityLinkProvider, EntityText, Icon, JourneyRibbon, ProvenanceChip, TrophyCabinet, cn } from "@foundmill/dugout";
+import { EXAMPLE_BUSINESS, EXAMPLE_CURRENCY, EXAMPLE_CUSTOMER_UPDATE, EXAMPLE_KIT, EXAMPLE_RIBBON_DEPARTMENTS, exampleJourney, exampleMilestones, exampleMoney } from "./example";
 import { Glass, ProductWindow, Reveal, Section, SectionHeading, useSeen } from "./parts";
 
 /** Taller than Home's 300 px so all four rows (revenue, signups, paying customers, agent hours) read at a glance. */
@@ -129,7 +129,7 @@ function CustomerUpdate() {
           <Stat icon={MousePointerClick} label="Touches" value={String(u.stats.touches)} />
           <Stat icon={Radio} label="Channels" value={String(u.stats.channels)} />
           <Stat icon={Clock} label="Days" value={String(u.stats.days)} />
-          <Stat icon={Coins} label="Cost to acquire" value={formatMoney({ amountMinor: u.stats.acquisitionCostMinor, currency: EXAMPLE_CURRENCY })} estimate />
+          <Stat icon={Coins} label="Cost to acquire" value={exampleMoney(u.stats.acquisitionCostMinor)} estimate />
         </dl>
         <div className="grid grid-cols-[1fr_15rem] gap-6">
           <EntityLinkProvider value={entities}>

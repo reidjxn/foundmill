@@ -71,7 +71,8 @@ export function cycleReducer(state: CycleState, action: CycleAction): CycleState
       if (state.phase !== "processing") return state;
       const outcome = CYCLE_OUTCOMES[state.next % CYCLE_OUTCOMES.length]!;
       const t = cycleTasks(state.cycle);
-      const result = outcome.kind === "win" ? `A customer was won: ${outcome.customer}.` : "1 decision for you.";
+      // Two lines in the deck's Inbox column, so the customer's name is never cut off.
+      const result = outcome.kind === "win" ? `New customer: ${outcome.customer}.` : "1 decision for you.";
       const note: InboxItem = { id: `note-${state.cycle}`, title: `Cycle ${state.cycle} note`, detail: `${t.tasks} tasks done across ${t.departments} departments. ${result}`, from: CHIEF, tone: "note" };
       return { ...state, phase: outcome.kind, current: outcome, next: state.next + 1, inbox: push(state.inbox, note) };
     }
@@ -85,7 +86,7 @@ export function cycleReducer(state: CycleState, action: CycleAction): CycleState
     case "openWin": {
       if (state.phase !== "win" || state.current?.kind !== "win") return state;
       const w = state.current;
-      const item: InboxItem = { id: `won-${w.id}-${state.cycle}`, title: `${w.customer} is a paying customer`, detail: w.plan, from: { name: w.standout.name, seed: w.standout.seed, dept: w.standout.dept }, tone: "won" };
+      const item: InboxItem = { id: `won-${w.id}-${state.cycle}`, title: `Won: ${w.customer}`, detail: w.plan, from: { name: w.standout.name, seed: w.standout.seed, dept: w.standout.dept }, tone: "won" };
       return { ...state, phase: "idle", current: null, inbox: push(state.inbox, item) };
     }
     case "stopAll": {

@@ -1,15 +1,17 @@
 /**
  * Example data for the signed-out landing page: Tutorlane, an AI teaching assistant for independent tutors. After each
  * lesson it turns the recording into notes, a practice set in the tutor's own method and a progress note for the
- * parent; between lessons a practice companion works with the student and marks handwritten working from photos.
+ * parent; between lessons a practice companion works with the student and grades handwritten work from photos.
  * Every step the page shows maps to a connector the product has (Google Calendar and Drive, Stripe, SendGrid, Gmail,
- * Anthropic, Voyage, GitHub, sandboxes, Dropbox Sign, Cloudflare DNS, Companies House).
+ * Anthropic, Voyage, GitHub, sandboxes, Dropbox Sign, Cloudflare DNS, OpenCorporates). It is a US business: prices are in
+ * US dollars and its copy is in US English (the product's own vocabulary, such as "Brand colours", stays as the product
+ * spells it).
  *
  * Brand colours and the two-year Journey come from the design system's fixtures (relabelled here), so the page carries
  * no colour literals; nothing is presented as real traction: every example is labelled Example and every money
  * figure that is not a measurement is labelled Estimate where it appears.
  */
-import { DTC_CHANNEL_PROFILE, STOREFRONT_SESSION_SCRIPT, type Concept, type MockChannelProfile, type MockSessionScript, type RibbonDepartment, type SkillRow, type TrophyCard, type Trait } from "@foundmill/dugout";
+import { DTC_CHANNEL_PROFILE, STOREFRONT_SESSION_SCRIPT, formatMoney, type Concept, type MockChannelProfile, type MockSessionScript, type RibbonDepartment, type SkillRow, type TrophyCard, type Trait } from "@foundmill/dugout";
 import type { ChannelKey, DeptColourToken, ModuleKey } from "@foundmill/shared";
 import { LEDGERLY_KIT, conceptFixtures, generateJourneyFixture } from "@foundmill/dugout/components/journey/fixtures";
 import { LANDING_LOGOS } from "./logos";
@@ -17,7 +19,17 @@ import { LANDING_LOGOS } from "./logos";
 export const EXAMPLE_BUSINESS = { name: "Tutorlane", monogram: "TL", seed: "Tutorlane" } as const;
 /** Brand colours: deep teal and gold (the design system's second example kit). */
 export const EXAMPLE_KIT = LEDGERLY_KIT;
-export const EXAMPLE_CURRENCY = "GBP";
+export const EXAMPLE_CURRENCY = "USD";
+/**
+ * The locale the example's own money figures are formatted in, so they print "$42.00". The product's formatter defaults
+ * to en-GB, which prints US dollars as "US$42.00".
+ */
+export const EXAMPLE_LOCALE = "en-US";
+
+/** A money figure of the example business, from minor units: "$42.00". */
+export function exampleMoney(amountMinor: number): string {
+  return formatMoney({ amountMinor, currency: EXAMPLE_CURRENCY }, { locale: EXAMPLE_LOCALE });
+}
 /** Where the example business is when the page opens: two years in (the Journey), in its ninth chapter. */
 export const EXAMPLE_START_CYCLE = 214;
 export const EXAMPLE_CHAPTER = "Chapter 9";
@@ -65,7 +77,7 @@ export function exampleConcepts(): Concept[] {
     {
       id: "concept-probelark",
       name: "Probelark",
-      pitch: "Voice mock exams for language learners, built from their own course materials.",
+      pitch: "Voice practice exams for language learners, built from their own course materials.",
       logoSrc: LANDING_LOGOS[3]!.src,
       kit: others[3]?.kit ?? EXAMPLE_KIT,
       currentStars: 3,
@@ -103,17 +115,17 @@ export interface ActivityLine {
 }
 
 export const ACTIVITY: readonly ActivityLine[] = [
-  { who: "Forge", dept: "dept-2", text: "opened a pull request for photo marking" },
+  { who: "Forge", dept: "dept-2", text: "opened a pull request for photo grading" },
   { who: "Scout", dept: "dept-3", text: "put SEO on the board at a fit of 17" },
   { who: "Ledger", dept: "dept-6", text: "reconciled this week's Stripe payouts, 64 of 64 matched" },
   { who: "Lex", dept: "dept-5", text: "drafted the parental consent flow for your review" },
   { who: "Iris", dept: "dept-1", text: "turned twelve tutor interviews into three roadmap changes" },
-  { who: "Juno", dept: "dept-2", text: "raised marking accuracy from 74% to 93% on the test set" },
-  { who: "Atlas", dept: "dept-8", text: "trained Mira on exam-board mark schemes" },
-  { who: "Pike", dept: "dept-3", text: "published 'GCSE quadratics: 40 practice questions'" },
-  { who: "Tally", dept: "dept-6", text: "updated the AI cost per student estimate to £1.90" },
+  { who: "Juno", dept: "dept-2", text: "raised grading accuracy from 74% to 93% on the test set" },
+  { who: "Atlas", dept: "dept-8", text: "trained Mira on AP scoring rubrics" },
+  { who: "Pike", dept: "dept-3", text: "published 'SAT quadratics: 40 practice questions'" },
+  { who: "Tally", dept: "dept-6", text: "updated the AI cost per student estimate to $1.90" },
   { who: "Quill", dept: "dept-1", text: "wrote the spec for Lesson Recap v2" },
-  { who: "Clause", dept: "dept-5", text: "checked the companion against the UK children's code" },
+  { who: "Clause", dept: "dept-5", text: "checked the companion against COPPA" },
   { who: "Wren", dept: "dept-2", text: "shipped parent progress notes to staging" },
 ];
 
@@ -153,11 +165,11 @@ export const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
     id: "merge",
     from: { name: "Forge", seed: "forge", dept: "dept-2", role: "Lead developer" },
     department: "Development",
-    subject: "Merge photo marking to production?",
-    body: "The companion now marks handwritten working from photos. Agreement with tutors' own marks rose from 74% to 93% on 200 past answers, and every check is green.",
+    subject: "Merge photo grading to production?",
+    body: "The companion now grades handwritten work from photos. Agreement with tutors' own grades rose from 74% to 93% on 200 past answers, and every check is green.",
     stake: "Pull request #148 · all checks passing",
     options: [
-      { id: "merge", label: "Merge", recommended: true, done: "Photo marking merged to production", outcome: "Every tutor gets it on the next release." },
+      { id: "merge", label: "Merge", recommended: true, done: "Photo grading merged", outcome: "Every tutor gets it on the next release." },
       { id: "hold", label: "Test on 100 more", done: "Merge held for more testing", outcome: "Forge adds 100 more answers to the test set and comes back to you." },
     ],
   },
@@ -165,9 +177,9 @@ export const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
   {
     kind: "win",
     id: "okafor",
-    customer: "Okafor Maths Tuition",
+    customer: "Okafor Math Tutoring",
     plan: "Pro · practice companion for 18 students",
-    firstTouch: "Read 'GCSE quadratics: 40 practice questions'",
+    firstTouch: "Read 'SAT quadratics: 40 practice questions'",
     standout: { name: "Juno", seed: "juno", dept: "dept-2" },
     involved: [
       { name: "Juno", seed: "juno", dept: "dept-2" },
@@ -180,12 +192,13 @@ export const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
     id: "models",
     from: { name: "Ledger", seed: "ledger", dept: "dept-6", role: "Finance lead" },
     department: "Finance",
-    subject: "Raise the AI budget to £600 a month?",
-    body: "Photo marking doubled model use. The cost per student is £1.90 against the £8 tutors pay for the companion, and the runway still holds at 14 months.",
-    stake: "+£250 a month · Estimate",
+    subject: "Raise the AI budget to $600 a month?",
+    body: "Photo grading doubled model use. The cost per student is $1.90 against the $8 tutors pay for the companion, and the runway still holds at 14 months.",
+    stake: "+$250 a month · Estimate",
     options: [
-      { id: "raise", label: "Raise to £600", recommended: true, done: "AI budget raised to £600 a month", outcome: "Ledger watches the cost per student every day." },
-      { id: "keep", label: "Keep £350", done: "AI budget kept at £350 a month", outcome: "Forge routes routine marking to a smaller model to stay inside it." },
+      // The Inbox line is one line in a 21rem column: short enough that the dollar figure is never cut off.
+      { id: "raise", label: "Raise to $600", recommended: true, done: "AI budget raised to $600", outcome: "Ledger watches the cost per student every day." },
+      { id: "keep", label: "Keep $350", done: "AI budget kept at $350", outcome: "Forge routes routine grading to a smaller model to stay inside it." },
     ],
   },
   {
@@ -195,7 +208,7 @@ export const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
     department: "Legal",
     subject: "Sign the consent provider's data agreement?",
     body: "Parents give consent before a child uses the companion. Lex reviewed the provider's data agreement and agreed fixes to two clauses. Signing is yours alone.",
-    stake: "12-month term · UK and EU data only",
+    stake: "12-month term · US data only",
     options: [
       { id: "sign", label: "Review and sign", recommended: true, done: "Consent data agreement signed", outcome: "Lex files the copy and sets the renewal reminder." },
       { id: "ask", label: "Ask Lex a question", done: "Question sent to Lex", outcome: "Lex answers in your Inbox before anything moves." },
@@ -246,17 +259,17 @@ const PROGRESS_NOTE_CSS = [
   "+}",
 ].join("\n");
 
-/** Four engineers on Tutorlane's AI product: the recap pipeline, photo marking, progress notes and the test set. */
+/** Four engineers on Tutorlane's AI product: the recap pipeline, photo grading, progress notes and the test set. */
 export const EXAMPLE_SESSION_SCRIPT: MockSessionScript = {
   ...STOREFRONT_SESSION_SCRIPT,
   tasks: [
     "Practice sets in the tutor's own method",
-    "Mark handwritten working from photos",
+    "Grade handwritten work from photos",
     "Parent progress note after each lesson",
-    "Test set: 200 marked homework answers",
+    "Test set: 200 graded homework answers",
     "Voice companion: latency under 800 ms",
     "Lesson recap from Drive recordings",
-    "Curriculum search over exam-board specs",
+    "Curriculum search over state standards",
     "Stripe billing for the companion add-on",
   ],
   stdout: [
@@ -268,17 +281,17 @@ export const EXAMPLE_SESSION_SCRIPT: MockSessionScript = {
     " ✓ src/recap/practice-set.test.ts (6 tests) 241ms",
     " Test Files  1 passed (1)",
     "      Tests  6 passed (6)",
-    "$ pnpm evals run marking --cases 200",
-    "Running 200 cases (marked GCSE maths homework)",
-    "  ✓  agreement with tutors' marks 186/200 (93.0%)",
-    "  ✘  partial credit on two-step working 7/12 (58%)",
+    "$ pnpm evals run grading --cases 200",
+    "Running 200 cases (graded SAT math homework)",
+    "  ✓  agreement with tutors' grades 186/200 (93.0%)",
+    "  ✘  partial credit on two-step problems 7/12 (58%)",
     "  1 threshold missed (partial credit ≥ 75%)",
     "$ git add -A && git commit -m \"feat(recap): practice sets follow the tutor's method\"",
     "[agent/task-1 7c1e2b9] feat(recap): practice sets follow the tutor's method",
     " 4 files changed, 212 insertions(+), 18 deletions(-)",
     "$ pnpm tsc --noEmit",
     "$ pnpm eslint src",
-    "$ pnpm evals run marking --cases 200",
+    "$ pnpm evals run grading --cases 200",
     "  all thresholds met (agreement 93.0%, partial credit 83%)",
     "$ gh pr create --fill --base main",
     "https://github.com/foundmill-demo/tutorlane/pull/148",
@@ -289,15 +302,15 @@ export const EXAMPLE_SESSION_SCRIPT: MockSessionScript = {
   notes: [
     "Reading the test set before touching the prompt.",
     "Practice questions now come only from the skills this lesson covered.",
-    "Partial credit follows the tutor's mark scheme; the model only explains it.",
-    "Partial credit on two-step working missed its threshold; adding worked examples to the prompt.",
+    "Partial credit follows the tutor's rubric; the model only explains it.",
+    "Partial credit on two-step problems missed its threshold; adding worked examples to the prompt.",
     "Review: one finding about a student's name in the prompt log, redacted.",
   ],
   unitCommand: "pnpm vitest run",
   unitPassed: 6,
-  acceptanceCommand: "pnpm evals run marking",
-  failingCheck: "partial credit on two-step working",
-  failure: "Error: marking agreement 61.0%, below the 90% threshold",
+  acceptanceCommand: "pnpm evals run grading",
+  failingCheck: "partial credit on two-step problems",
+  failure: "Error: grading agreement 61.0%, below the 90% threshold",
   currency: EXAMPLE_CURRENCY,
 };
 
@@ -331,17 +344,17 @@ export const EXAMPLE_RIBBON_DEPARTMENTS: RibbonDepartment[] = [
 ];
 
 const MILESTONE_LABELS: Record<string, string> = {
-  "Northwind Skincare AB incorporated": "Tutorlane Ltd incorporated",
+  "Northwind Skincare AB incorporated": "Tutorlane Inc. incorporated",
   "Retinol serum v1": "Lesson recap v1",
   "Bundle builder": "Practice companion",
   "Subscription plans": "Parent progress notes",
-  "Retail pack": "Photo marking",
+  "Retail pack": "Photo grading",
   "Chose DTC over wholesale": "Chose tutors over schools",
-  "Moved production to Meridian Labs": "Routine marking on a smaller model",
+  "Moved production to Meridian Labs": "Smaller model for grading",
   "First enterprise contract": "First tutoring agency",
 };
-const CHAPTER_TITLES = ["Finding the wedge", "First tutors", "The recap chapter", "Parents join in", "The companion", "Steady state", "Exam term", "Agencies", "Autumn term"];
-const TUTOR_NAMES = ["Okafor Maths Tuition", "Hale Science Tutoring", "Rivera Languages", "Brook Lane Tutors", "Amari Chemistry", "Second Look English", "Patel Physics", "Linden Music Theory", "North Quay Tutoring", "Ellis Exam Coaching"];
+const CHAPTER_TITLES = ["Finding the wedge", "First tutors", "The recap chapter", "Parents join in", "The companion", "Steady state", "Exam season", "Agencies", "Fall semester"];
+const TUTOR_NAMES = ["Okafor Math Tutoring", "Hale Science Tutoring", "Rivera Languages", "Brook Lane Tutors", "Amari Chemistry", "Second Look English", "Patel Physics", "Linden Music Theory", "North Harbor Tutoring", "Ellis Test Prep"];
 
 /** Two years of the example's history, relabelled from the design system's fixture for Tutorlane. */
 export function exampleJourney(): ReturnType<typeof generateJourneyFixture> {
@@ -349,28 +362,29 @@ export function exampleJourney(): ReturnType<typeof generateJourneyFixture> {
   return {
     ...d,
     conversions: d.conversions.map((c, i) => ({ ...c, currency: EXAMPLE_CURRENCY, entityName: TUTOR_NAMES[i % TUTOR_NAMES.length]! })),
-    milestones: d.milestones.map((m) => ({ ...m, label: MILESTONE_LABELS[m.label] ?? m.label.replace(/€/g, "£") })),
+    milestones: d.milestones.map((m) => ({ ...m, label: MILESTONE_LABELS[m.label] ?? m.label.replace(/€/g, "$") })),
     chapters: d.chapters.map((c) => ({ ...c, title: c.title ? (CHAPTER_TITLES[c.index] ?? c.title) : null })),
     roadmap: d.roadmap.map((r, i) => ({ ...r, label: ["Voice companion", "Agency dashboard", "Adult learners"][i] ?? r.label })),
   };
 }
 
-/** The Customer Update the deck's gold card opens: how Okafor Maths Tuition became a paying customer. */
+/** The Customer Update the deck's gold card opens: how Okafor Math Tutoring became a paying customer. */
 export const EXAMPLE_CUSTOMER_UPDATE = {
   level: "Featured update",
-  customer: { name: "Okafor Maths Tuition", entityId: "5d0c6a3e-8f1b-4c2a-9e47-2b6f1d8c3a90", facts: [
-    { label: "Segment", value: "Independent tutor · GCSE and A-level maths" },
-    { label: "Plan", value: "Pro · companion for 18 students" },
-    { label: "First seen", value: "21 Sep 2026" },
+  customer: { name: "Okafor Math Tutoring", entityId: "5d0c6a3e-8f1b-4c2a-9e47-2b6f1d8c3a90", facts: [
+    // The mention's card shows three facts side by side in about 75 px each: values short enough to read whole.
+    { label: "Segment", value: "SAT math" },
+    { label: "Plan", value: "Pro" },
+    { label: "First seen", value: "Sep 21" },
   ] },
   plan: "Pro · practice companion for 18 students",
   stats: { touches: 7, channels: 3, days: 12, acquisitionCostMinor: 4200 },
   commentary: [
-    { text: "Pike's guide 'GCSE quadratics: 40 practice questions' brings Adaeze Okafor to the site on a Sunday evening.", highlight: true },
+    { text: "Pike's guide 'SAT quadratics: 40 practice questions' brings Adaeze Okafor to the site on a Sunday evening.", highlight: true },
     { text: "On Tuesday she records a lesson and tries the free recap." },
     { text: "Juno's recap lands within the hour: lesson notes, a practice set in her own method and a progress note for the parent.", highlight: true },
     { text: "Nell's follow-up shows her how parents can add the practice companion." },
-    { text: "Three parents ask for the companion by Friday. [[ent:5d0c6a3e-8f1b-4c2a-9e47-2b6f1d8c3a90|Okafor Maths Tuition]] moves to Pro.", highlight: true },
+    { text: "Three parents ask for the companion by Friday. [[ent:5d0c6a3e-8f1b-4c2a-9e47-2b6f1d8c3a90|Okafor Math Tutoring]] moves to Pro.", highlight: true },
   ],
   agents: [
     { name: "Juno", seed: "juno", dept: "dept-2" as DeptColourToken, role: "Lesson recap pipeline", rating: 10, standout: true },
@@ -381,14 +395,14 @@ export const EXAMPLE_CUSTOMER_UPDATE = {
 
 /** The milestones the example business has reached, with time-zone-safe dates (local noon). */
 export function exampleMilestones(): TrophyCard[] {
-  const gbp = (amountMinor: number) => ({ amountMinor, currency: EXAMPLE_CURRENCY });
+  const usd = (amountMinor: number) => ({ amountMinor, currency: EXAMPLE_CURRENCY });
   return [
-    { key: "customer_1", label: "First customer", description: "The first paying tutor.", achievedAt: "2024-11-19T12:00:00", customerName: "Hale Science Tutoring", ...gbp(2900), shareable: true },
+    { key: "customer_1", label: "First customer", description: "The first paying tutor.", achievedAt: "2024-11-19T12:00:00", customerName: "Hale Science Tutoring", ...usd(2900), shareable: true },
     { key: "customer_10", label: "10th customer", description: "Ten paying tutors.", achievedAt: "2025-01-08T12:00:00", shareable: true },
     { key: "customer_100", label: "100th customer", description: "One hundred paying tutors.", achievedAt: "2025-09-22T12:00:00", shareable: true },
-    { key: "mrr_1k", label: "£1K MRR", description: "Monthly recurring revenue crosses £1,000.", achievedAt: "2025-02-14T12:00:00", shareable: true },
-    { key: "mrr_10k", label: "£10K MRR", description: "Monthly recurring revenue crosses £10,000.", achievedAt: "2026-03-03T12:00:00", shareable: true },
-    { key: "first_agency", label: "First tutoring agency", description: "An agency puts all 25 of its tutors on Tutorlane.", achievedAt: "2026-10-01T12:00:00", customerName: "North Quay Tutoring", ...gbp(348000), shareable: true },
+    { key: "mrr_1k", label: "$1K MRR", description: "Monthly recurring revenue crosses $1,000.", achievedAt: "2025-02-14T12:00:00", shareable: true },
+    { key: "mrr_10k", label: "$10K MRR", description: "Monthly recurring revenue crosses $10,000.", achievedAt: "2026-03-03T12:00:00", shareable: true },
+    { key: "first_agency", label: "First tutoring agency", description: "An agency puts all 25 of its tutors on Tutorlane.", achievedAt: "2026-10-01T12:00:00", customerName: "North Harbor Tutoring", ...usd(348000), shareable: true },
   ];
 }
 
@@ -397,9 +411,11 @@ export const EXAMPLE_INBOX_NOTE = {
   from: { name: "Scout", seed: "scout", dept: "dept-3" as DeptColourToken, role: "Distribution Strategist" },
   department: "Distribution",
   subject: "Sponsor a newsletter read by 9,000 tutors?",
+  /** When the note arrived: today on the example business. */
+  sentOn: "Wed, Oct 7",
   paragraphs: [
-    "Tutor communities are Tutorlane's strongest channel after search: four of the last ten tutors who upgraded came from one. A one-month sponsorship of the largest UK tutors' newsletter is ready to book, with the copy written.",
-    "It costs £480, above the £250 cap you set for new spend, so it waits for you. The runway stays at 14 months either way.",
+    "Tutor communities are Tutorlane's strongest channel after search: four of the last ten tutors who upgraded came from one. A one-month sponsorship of the largest tutors' newsletter in the US is ready to book, with the copy written.",
+    "It costs $480, above the $250 cap you set for new spend, so it waits for you. The runway stays at 14 months either way.",
   ],
   costMinor: 48_000,
   fit: "16 of 20",
@@ -458,7 +474,7 @@ export const LEADS: readonly ExampleLead[] = [
     model: "Sonnet",
     stars: { current: 3.5, potential: 5 },
     remit: "Agents build the AI product itself: the recap pipeline, the practice companion and the tests every prompt change must pass.",
-    now: "Opening a pull request for photo marking",
+    now: "Opening a pull request for photo grading",
     training: "Version 4 promoted: tests before every prompt change",
     skills: [skill("prompts", "Prompt design", "craft", 16, 3, 18), skill("testing", "Testing", "craft", 16, 6, 18), skill("planning", "Planning", "judgement", 13, 1, 16), skill("scope", "Scope control", "judgement", 12, 3, 16), skill("reliability", "Reliability", "execution", 14, 1, 17), skill("cost", "Cost efficiency", "execution", 12, -2, 16)],
     traits: [
@@ -495,7 +511,7 @@ export const LEADS: readonly ExampleLead[] = [
     role: "Finance lead",
     model: "Opus",
     stars: { current: 4, potential: 4.5 },
-    remit: "Cash, burn, runway, AI cost per student and a reconciled ledger. Anything that is not a real figure is labelled Forecast or Estimate.",
+    remit: "Cash, burn, runway, AI cost per student and a reconciled ledger. Anything that is not a real figure is labeled Forecast or Estimate.",
     now: "Reconciling this week's Stripe payouts, 64 of 64 matched",
     training: "Version 5 promoted: AI cost per student",
     skills: [skill("reconcile", "Reconciliation", "craft", 18, 1, 19), skill("forecast", "Forecasting", "craft", 14, 2, 17), skill("cash", "Cash discipline", "judgement", 17, 0, 18), skill("unit", "Unit economics", "judgement", 14, 2, 17), skill("reporting", "Reporting clarity", "execution", 15, 1, 17), skill("audit", "Audit trail", "execution", 18, 0, 19)],
@@ -534,9 +550,9 @@ export const LEADS: readonly ExampleLead[] = [
     model: "Sonnet",
     stars: { current: 3, potential: 4 },
     remit: "Hire agents from templates, train them against real tests, and watch their skills grow.",
-    now: "Training Mira on exam-board mark schemes",
-    training: "Version 2 promoted: training against mark schemes",
-    skills: [skill("hiring", "Hiring judgement", "craft", 15, 1, 17), skill("training", "Training design", "craft", 16, 2, 18), skill("roles", "Role design", "judgement", 14, 1, 16), skill("feedback", "Feedback", "judgement", 15, 2, 17), skill("cost", "Cost awareness", "execution", 13, 1, 16), skill("coverage", "Coverage planning", "execution", 14, 0, 16)],
+    now: "Training Mira on AP scoring rubrics",
+    training: "Version 2 promoted: training against scoring rubrics",
+    skills: [skill("hiring", "Hiring decisions", "craft", 15, 1, 17), skill("training", "Training design", "craft", 16, 2, 18), skill("roles", "Role design", "judgement", 14, 1, 16), skill("feedback", "Feedback", "judgement", 15, 2, 17), skill("cost", "Cost awareness", "execution", 13, 1, 16), skill("coverage", "Coverage planning", "execution", 14, 0, 16)],
     traits: [
       { id: "real_tests", label: "Trains against real tests", tone: "good" },
       { id: "templates", label: "Hires from templates first" },
