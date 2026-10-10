@@ -6,7 +6,7 @@
  * so a note can never carry an id from another club.
  */
 import { EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, ValidationError, type InboxItemType, type InboxState } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agents, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItems, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
 import { Currency, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
@@ -227,6 +227,11 @@ export const inboxRepo = {
    * Records the founder's (or the Chief of Staff's, on holiday) answer: inserts the decision row, marks the item
    * answered and, when the item blocked Continue, releases it — all in one transaction. A chosen option must be
    * one of the item's options.
+   *
+   * Exactly once, even when two answers race (two tabs, two members, the DecisionBar and a conversation's "Go with"):
+   * the item is marked answered by an update that only matches an open item. Under READ COMMITTED the second
+   * transaction's update waits for the first's row lock, re-checks the row, finds it answered and matches nothing, so
+   * the second answer (and the plan its caller wrote in the same transaction) rolls back instead of running twice.
    */
   async decide(db: Executor, businessId: string, itemId: string, input: DecideInput): Promise<{ item: InboxItem; decision: Decision }> {
     const v = parseInput(DecideInput, input, "decision");
@@ -237,6 +242,12 @@ export const inboxRepo = {
         const options = ((item.decision as { options?: { id: string }[] } | null)?.options ?? []).map((o) => o.id);
         if (!options.includes(v.chosenOption)) throw new ValidationError("chosenOption is not one of the item's options", { chosenOption: v.chosenOption, options });
       }
+      const [updated] = await tx
+        .update(inboxItems)
+        .set({ state: "answered", blocksContinue: false })
+        .where(and(scoped(businessId, itemId), notInArray(inboxItems.state, ["answered", "archived"])))
+        .returning();
+      if (!updated) throw new ValidationError("Inbox item is already answered", { itemId });
       const decision = one(
         await tx
           .insert(decisions)
@@ -244,7 +255,6 @@ export const inboxRepo = {
           .returning(),
         "decision",
       );
-      const updated = one(await tx.update(inboxItems).set({ state: "answered", blocksContinue: false }).where(scoped(businessId, itemId)).returning(), "inbox item", itemId);
       return { item: updated, decision };
     });
   },

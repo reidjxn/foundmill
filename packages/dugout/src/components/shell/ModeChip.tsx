@@ -26,7 +26,10 @@ export interface ModeChipProps extends Omit<ChipProps, "children" | "tone" | "ic
   description?: string;
   /** Makes the chip a button (open Settings › Mode). */
   onClick?: () => void;
-  /** Holiday variant: the business is on holiday and runs in Automated mode regardless. */
+  /**
+   * Holiday variant: the business is on holiday and runs in Automated mode regardless. The chip still shows the mode's
+   * word only (the holiday caption beside Continue says "On holiday until …"); its label and tooltip say holiday.
+   */
   holiday?: boolean;
 }
 
@@ -45,11 +48,11 @@ export function ModeChip({ mode, description, onClick, holiday, className, mono:
   const content = (
     <>
       <Icon icon={info.icon} size="inline" />
-      <span>{holiday ? `${info.word} · Holiday` : info.word}</span>
+      <span className="kitbar-chip-word">{info.word}</span>
     </>
   );
   return (
-    <Tooltip content={description ?? info.summary}>
+    <Tooltip content={description ?? (holiday ? `On holiday: ${info.summary}` : info.summary)}>
       {onClick ? (
         <button type="button" onClick={onClick} {...common}>
           {content}
@@ -81,7 +84,7 @@ export function GameModeChip({ mode, className, mono: _mono, dot: _dot, fit: _fi
         {...rest}
       >
         <Icon icon={live ? Globe : Lock} size="inline" />
-        <span>{live ? "LIVE" : "Personal"}</span>
+        <span className="kitbar-chip-word">{live ? "LIVE" : "Personal"}</span>
       </span>
     </Tooltip>
   );

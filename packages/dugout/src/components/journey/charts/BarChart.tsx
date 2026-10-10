@@ -61,8 +61,11 @@ function BarChartSvg({ data, label, width, height, horizontal, tone, format: raw
   const top = marginProp?.top ?? DEFAULT_MARGIN.top + (showValues && !horizontal ? 14 : 4);
   const bottom = marginProp?.bottom ?? DEFAULT_MARGIN.bottom + 2;
   const innerHFor = (b: number) => Math.max(1, height - top - b);
+  // Printed values under negative bars need room of their own: the value scale stops short of the axis, so the lowest
+  // label sits between its bar and the month labels instead of on them.
+  const negRoom = showValues && !horizontal && min < 0 ? 18 : 0;
   // Vertical: the value scale depends only on the height; its labels set the left margin.
-  const valueV = scaleLinear<number>({ domain: [min, max === min ? min + 1 : max], range: [innerHFor(bottom), 0], nice: true });
+  const valueV = scaleLinear<number>({ domain: [min, max === min ? min + 1 : max], range: [Math.max(1, innerHFor(bottom) - negRoom), 0], nice: true });
   const vTicks = countTicks(valueV.ticks(4), values);
   const widestCategory = Math.max(0, ...labels.map((l) => l.length * CATEGORY_CHAR_PX));
   const left = marginProp?.left ?? (horizontal ? Math.min(Math.round(width * 0.4), Math.ceil(widestCategory + 14)) : yAxisMargin(vTicks.map((t) => format(t))));
@@ -71,7 +74,7 @@ function BarChartSvg({ data, label, width, height, horizontal, tone, format: raw
   const innerW = Math.max(1, width - margin.left - margin.right);
   const innerH = innerHFor(bottom);
   const band = useMemo(() => scaleBand<string>({ domain: labels, range: horizontal ? [0, innerH] : [0, innerW], padding: 0.32 }), [labels.join("|"), horizontal, innerW, innerH]); // eslint-disable-line react-hooks/exhaustive-deps
-  const value = useMemo(() => scaleLinear<number>({ domain: [min, max === min ? min + 1 : max], range: horizontal ? [0, innerW] : [innerH, 0], nice: true }), [min, max, horizontal, innerW, innerH]);
+  const value = useMemo(() => scaleLinear<number>({ domain: [min, max === min ? min + 1 : max], range: horizontal ? [0, innerW] : [Math.max(1, innerH - negRoom), 0], nice: true }), [min, max, horizontal, innerW, innerH, negRoom]);
   const { tip, show, hide } = useChartTooltip<BarDatum>();
   const sheenId = `bar-sheen-${useId().replace(/:/g, "")}`;
   const zero = value(0);
@@ -82,8 +85,9 @@ function BarChartSvg({ data, label, width, height, horizontal, tone, format: raw
   const xTicks = horizontal
     ? placeTicks(countTicks(value.ticks(4), values).map((v) => ({ key: String(v), x: value(v), label: format(v) })), innerW, { left: margin.left - 4, right: margin.right - 2 })
     : placeTicks(labels.map((l) => ({ key: l, x: (band(l) ?? 0) + band.bandwidth() / 2, label: l })), innerW, { left: margin.left - 4, right: margin.right - 2 }, { every, gap: 8 });
-  // Value labels only where they fit over their bar (the tooltip always has the value).
-  const valueFits = (d: BarDatum) => (horizontal ? true : tickWidth(format(d.value)) + 4 <= step);
+  // Value labels over vertical bars all or none: when one would not fit over its bar, none is printed (a chart with
+  // one bar unlabelled reads as a missing value); the tooltip always has every value.
+  const valuesFit = horizontal || data.every((d) => tickWidth(format(d.value)) + 4 <= step);
   return (
     <>
       <svg width={width} height={height} role="img" aria-label={`${label}. ${summary}`} className="block overflow-visible">
@@ -151,7 +155,7 @@ function BarChartSvg({ data, label, width, height, horizontal, tone, format: raw
               >
                 <Bar x={x} y={y} width={w} height={h} fill={fill} fillOpacity={d.provenance ? 0.4 : 0.92} stroke={d.provenance ? fill : "none"} strokeDasharray={d.provenance ? "3 2" : undefined} rx={2} />
                 {!d.provenance && h > 3 && w > 3 ? <rect x={x} y={y} width={w} height={h} rx={2} fill={`url(#${sheenId})`} pointerEvents="none" aria-hidden /> : null}
-                {showValues && valueFits(d) ? (
+                {showValues && valuesFit ? (
                   <text
                     x={horizontal ? Math.max(zero, v) + 6 : pos + band.bandwidth() / 2}
                     y={horizontal ? pos + band.bandwidth() / 2 : negative ? Math.max(zero, v) + 14 : Math.min(zero, v) - 6}

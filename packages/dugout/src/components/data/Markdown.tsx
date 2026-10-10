@@ -196,6 +196,7 @@ export function Markdown({
     pre: ({ children: c, ...rest }: ComponentPropsWithoutRef<"pre">) => (
       <pre
         className="my-2 overflow-x-auto rounded-md border border-line bg-ink p-3 font-mono text-mono text-primary"
+        data-scroll-region="code"
         {...rest}
       >
         {c}

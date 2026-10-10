@@ -11,7 +11,7 @@ import { DataTable, FitText, Panel, StatusPill, formatDate, formatRelative, type
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "@foundmill/widgets/data";
-import { fitColumns, humanise, useTableWidth, type ColumnFit } from "../fit";
+import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { useDevScreenOptions } from "./options";
 import { Screen, agentBranch, shortSha, toDate, useAgentIndex, useAgents, useDevDepartment } from "./shared";
@@ -172,12 +172,12 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
   const rows = useMemo(() => toEnvironmentRows(tasks.data?.items ?? [], prs.data, deployments, agentIndex), [tasks.data, prs.data, deployments, agentIndex]);
   const optionNow = options.now;
   const now = useMemo(() => optionNow ?? new Date(), [optionNow]);
-  const empty = useMemo(() => emptyEnvironmentColumns(rows), [rows]);
-  const [tableRef, tableWidth] = useTableWidth();
-  const sizes = useMemo(() => fitColumns(tableWidth, ENVIRONMENT_FIT, (ENVIRONMENT_VIEWS[0]!.columns as string[]).filter((c) => !empty.has(c))), [tableWidth, empty]);
+  // Each column at its minimum; the table shares the spare width by ENVIRONMENT_FIT's weights itself (`meta.grow`),
+  // among the columns it shows (empty ones are hidden).
+  const sizes = useMemo(() => fitColumns(null, ENVIRONMENT_FIT, []), []);
 
   const columns = useMemo<DataTableColumn<EnvironmentRow>[]>(
-    () => [
+    () => fitToGrow<EnvironmentRow>([
       {
         id: "branch",
         accessorKey: "branch",
@@ -229,7 +229,7 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
       { id: "provider", accessorFn: (r) => providerLabel(r.provider) ?? "", header: "Provider", size: sizes.provider, cell: ({ row }) => (providerLabel(row.original.provider) ? <span className="text-secondary">{providerLabel(row.original.provider)}</span> : <span className="text-tertiary">—</span>) },
       { id: "commitSha", accessorFn: (r) => r.commitSha ?? "", header: "Commit", size: sizes.commitSha, cell: ({ row }) => <span className="font-mono text-mono text-secondary">{shortSha(row.original.commitSha) || "—"}</span> },
       { id: "deployedAt", accessorFn: (r) => r.deployedAt?.getTime() ?? null, header: "Deployed", size: sizes.deployedAt, meta: { filter: "date", label: "Deployed" }, cell: ({ row }) => (row.original.deployedAt ? <span className="text-secondary" title={formatDate(row.original.deployedAt)}>{formatRelative(row.original.deployedAt, now)}</span> : <span className="text-tertiary">Not yet</span>) },
-    ],
+    ], ENVIRONMENT_FIT),
     [now, sizes],
   );
 
@@ -262,7 +262,7 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
         }
         footer={<span>Every agent branch gets its own preview deployment once its tests pass; the URL, provider and commit appear with the first one. Production releases show on the Journey.</span>}
       >
-        <div ref={tableRef} className="min-w-0">
+        <div className="min-w-0">
           <DataTable<EnvironmentRow> data={rows} columns={columns} views={ENVIRONMENT_VIEWS} defaultViewId="all" rowActions={rowActions} onRowOpen={(r) => r.url && window.open(r.url, "_blank", "noopener")} height={Math.min(520, Math.max(4, rows.length) * 28 + 42)} hideEmptyColumns exportFileName="environments" empty={{ icon: Boxes, children: "Environments appear here as code tasks start: one preview deployment per agent branch.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } }} aria-label="Environments" className="border-0" />
         </div>
       </Panel>

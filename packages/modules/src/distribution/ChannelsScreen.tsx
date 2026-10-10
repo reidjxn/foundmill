@@ -38,8 +38,8 @@ import type { ModuleScreenProps } from "../registry";
 import { buildChannelViews, channelStatus, type ChannelView } from "./channel-data";
 import { METRICS_WINDOW_DAYS } from "./FormationScreen";
 import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
-import { fitColumns, type ColumnFit } from "../fit";
-import { EstimatedMoney, InlineError, LINE_LABELS, OFFLINE_TRACKING_LABEL, Screen, fitTableHeight, parseMajor, searchParam, useAction, useFittedColumns } from "./shared";
+import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
+import { EstimatedMoney, InlineError, LINE_LABELS, OFFLINE_TRACKING_LABEL, Screen, fitTableHeight, parseMajor, searchParam, useAction } from "./shared";
 import type { CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, RecommendResponse, RecommendationRow } from "./types";
 
 export const CHANNEL_VIEWS: SavedView[] = [
@@ -192,8 +192,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
     const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency: currency ?? "EUR", today });
     return provisional ? localScores(built) : built;
   }, [channels.data, campaigns.data, metrics.data, recommendation, currency, today, provisional]);
-  const fitted = useFittedColumns(CHANNEL_FIT, views, "all");
-  const columns = useMemo(() => channelColumns(fitted.sizes), [fitted.sizes]);
+  const columns = useMemo(() => fitToGrow(channelColumns(), CHANNEL_FIT), []);
 
   const rescore = useCallback(async () => {
     try {
@@ -282,7 +281,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
         flush
       >
         <InlineError error={action.error} className="px-panel-pad pt-2" />
-        <div ref={fitted.ref} className="min-w-0">
+        <div className="min-w-0">
         <DataTable<ChannelView>
           aria-label="Channels"
           data={rows}
@@ -296,7 +295,6 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
           rowClassName={(r) => (r.channelKey === highlight ? "bg-white/4" : undefined)}
           height={fitTableHeight(rows.length, { maxRows: 16 })}
           exportFileName="channels"
-          onActiveViewChange={fitted.onActiveViewChange}
           empty={{ title: "No channels scored yet", children: "Ask the Distribution Strategist for a recommendation.", action: { label: "Get recommendation", onClick: rescoreNow } }}
         />
         </div>

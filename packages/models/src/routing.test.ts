@@ -40,14 +40,15 @@ describe("routing (BUILD §10.1)", () => {
     const r = resolveModel("inboxComposer", "haiku");
     expect(r.modelKey).toBe("opus");
     expect(r.locked).toBe(true);
-    expect(r.warning).toMatch(/locked to opus/);
+    expect(r.warning).toMatch(/locked to Opus/);
     expect(resolveModel("planCompiler", "sonnet").modelKey).toBe("opus");
   });
 
   it("Chief of Staff downgrade applies but warns; upgrade does not warn", () => {
     const down = resolveModel("chiefOfStaff", "sonnet");
     expect(down.modelKey).toBe("sonnet");
-    expect(down.warning).toMatch(/Downgrading/);
+    expect(down.warning).toMatch(/lowers the quality of planning and routing/);
+    expect(down.warning).not.toMatch(/"/);
     const same = resolveModel("chiefOfStaff", "opus");
     expect(same.warning).toBeUndefined();
     const up = resolveModel("worker", "opus");

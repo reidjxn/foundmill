@@ -5,7 +5,7 @@
  * idea_comparison; from here the founder commits the leader, merges the set or goes back to the studio.
  */
 import { useMutation } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Bot, GitMerge, Trophy } from "lucide-react";
+import { ArrowLeft, ArrowRight, Columns3, GitMerge, Trophy } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef } from "react";
 import { Button, Chip, ConceptCompare, EmptyState, Markdown, Panel, Skeleton, SkeletonRows, StatusPill, cn, useToast } from "@foundmill/dugout";
@@ -66,7 +66,7 @@ function CompareBody({ ids, viewer }: { ids: string[]; viewer: { email: string |
   if (ids.length < COMPARE_MIN) {
     return (
       <StudioFrame step="compare" title="Compare concepts" lede="Side-by-side attributes, a radar and the agent verdict." viewer={viewer} actions={back}>
-        <EmptyState icon={Bot} title="Pick two to four cards first" action={{ label: "Open the studio", onClick: () => router.push("/new/ideate") }}>
+        <EmptyState icon={Columns3} title="Pick two to four cards first" action={{ label: "Open the studio", onClick: () => router.push("/new/ideate") }}>
           Tick the compare box on each card in the Ideation Studio, then press Compare.
         </EmptyState>
       </StudioFrame>

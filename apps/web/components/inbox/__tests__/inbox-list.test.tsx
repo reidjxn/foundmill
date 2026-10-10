@@ -28,7 +28,7 @@ describe("InboxList (DESIGN §9 rows)", () => {
     const onSelect = vi.fn();
     const r = render(
       <InboxList
-        rows={[row({}), row({ id: "i2", needsAnswer: true, typeWord: "Decision", tag: { word: "Respond", tone: "bad", icon: "respond" } }), row({ id: "i3", won: true, needsAnswer: true, typeWord: "Customer won", tag: { word: "Win", tone: "gold", icon: "win" } })]}
+        rows={[row({}), row({ id: "i2", needsAnswer: true, typeWord: "Decision", tag: { word: "Respond", tone: "bad", icon: "respond" } }), row({ id: "i3", won: true, needsAnswer: true, typeWord: "Customer won", tag: { word: "Customer", tone: "gold", icon: "win" } })]}
         selectedId="i2"
         onSelect={onSelect}
         loading={false}
@@ -38,7 +38,7 @@ describe("InboxList (DESIGN §9 rows)", () => {
       />,
     );
     expect(r.getAllByRole("option")).toHaveLength(3);
-    expect(r.getAllByTestId("row-tag").map((t) => t.getAttribute("data-row-tag"))).toEqual(["Update", "Respond", "Win"]);
+    expect(r.getAllByTestId("row-tag").map((t) => t.getAttribute("data-row-tag"))).toEqual(["Update", "Respond", "Customer"]);
     // Every tag carries an icon beside its word (colour is never the only signal).
     for (const t of r.getAllByTestId("row-tag")) expect(t.querySelector("svg")).toBeTruthy();
     for (const s of r.getAllByTestId("row-subject")) expect(s.className).not.toMatch(/\btruncate\b|line-clamp/);

@@ -8,7 +8,7 @@
  */
 import type { ReactNode } from "react";
 import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
-import { Panel, Wordmark } from "@foundmill/dugout";
+import { Panel, ToastPlacement, Wordmark } from "@foundmill/dugout";
 
 export interface BrandFrameProps {
   /** The panel's title ("Sign in", "Not found"). */
@@ -23,6 +23,8 @@ export function BrandFrame({ title, meta, children, footer }: BrandFrameProps) {
   return (
     <main className="relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-canvas p-gutter text-primary">
       <div aria-hidden className="brand-backdrop -z-10" />
+      {/* No sidebar: toasts go bottom right, clear of the centred panel. */}
+      <ToastPlacement position="bottom-right" sidebar="none" />
       <div className="brand-column relative animate-rise-in">
         <header className="mb-8 flex flex-col items-start gap-3">
           <Wordmark height={28} label={APP_NAME} className="text-primary" />

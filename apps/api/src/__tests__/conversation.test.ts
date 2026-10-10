@@ -243,6 +243,42 @@ describe("races and limits (adversarial)", () => {
     expect((await repos.plans.list(hz.db, hz.A.businessId, { limit: 200, includeArchived: true })).items.length).toBe(plansBefore);
   });
 
+  it("a Go with chip from a stale tab never decides a different option than the one it named", async () => {
+    // Tab 1 shows the starters: "Go with: Outbound to a narrow ICP" (id go_with → outbound).
+    const item = await decisionItem("Two tabs, one decision?");
+    const subject = { kind: "inbox_item" as const, id: item.id };
+    const tab1 = await owner().agent.conversation.get({ businessId: hz.A.businessId, subject });
+    const stale = tab1.quickReplies.find((q) => q.kind === "choose_option")!;
+    expect(stale).toMatchObject({ id: "go_with", option_id: "outbound" });
+
+    // Tab 2 talks on; the agent now offers the other option under the same chip id.
+    recordingModels(() => ({
+      bubbles: ["Content first is cheaper this month."],
+      reaction: "thinking",
+      quick_replies: [
+        { id: "go_with", label: "Go with: Content first", say: "Go with Content first.", kind: "choose_option", option_id: "content", recommended: true },
+        { id: "why", label: "Why?", say: "Why?", kind: "ask", option_id: null, recommended: false },
+      ],
+      hand_off: null,
+      refers_to: [],
+    }));
+    const tab2 = await owner().agent.conversation.send({ businessId: hz.A.businessId, subject, text: "What about content first?" });
+    expect(tab2.quickReplies.find((q) => q.id === "go_with")).toMatchObject({ option_id: "content" });
+
+    // Tab 1 presses the chip it shows ("Outbound"): refused as stale, nothing decided, nothing planned.
+    const plansBefore = (await repos.plans.list(hz.db, hz.A.businessId, { limit: 200, includeArchived: true })).items.length;
+    await expect(owner().agent.conversation.send({ businessId: hz.A.businessId, subject, quickReplyId: stale.id, optionId: stale.option_id })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringMatching(/no longer available/),
+    });
+    expect(await repos.inbox.decisionsFor(hz.db, hz.A.businessId, item.id)).toHaveLength(0);
+    expect((await repos.plans.list(hz.db, hz.A.businessId, { limit: 200, includeArchived: true })).items.length).toBe(plansBefore);
+
+    // The chip tab 2 shows decides exactly what it names.
+    const res = await owner().agent.conversation.send({ businessId: hz.A.businessId, subject, quickReplyId: "go_with", optionId: "content" });
+    expect(res.decision!.decision.chosenOption).toBe("content");
+  });
+
   it("bounds sends per person (TOO_MANY_REQUESTS, nothing written) without blocking another member of the business", async () => {
     const client = recordingModels();
     const subject = { kind: "agent" as const, id: hz.A.agentId };

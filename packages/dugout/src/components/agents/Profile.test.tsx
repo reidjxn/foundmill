@@ -62,7 +62,7 @@ describe("HealthBadge", () => {
 
 describe("HierarchyChart", () => {
   it("lays out parents centred over children without overlap per depth", () => {
-    const l = layoutHierarchy(mockHierarchy(), { nodeWidth: 100, nodeHeight: 40, gapX: 10, gapY: 20, padding: 0 });
+    const l = layoutHierarchy(mockHierarchy(), { nodeWidth: 100, nodeHeight: 40, gapX: 10, gapY: 20, padding: 0, stackLeaves: false });
     const byId = new Map(l.nodes.map((n) => [n.id, n]));
     const cos = byId.get("cos")!;
     const kids = cos.childIds.map((k) => byId.get(k)!);
@@ -76,6 +76,32 @@ describe("HierarchyChart", () => {
     expect(byId.get("founder")!.depth).toBe(0);
     expect(byId.get("w-0")!.depth).toBe(3);
     expect(l.edges).toHaveLength(l.nodes.length - 1);
+  });
+
+  it("stacks leaf children in one column under their parent, so a big team reads in one window", () => {
+    const opts = { nodeWidth: 100, nodeHeight: 40, gapX: 10, gapY: 20, padding: 0, stackIndent: 20, stackGap: 8 };
+    const stacked = layoutHierarchy(mockHierarchy(), opts);
+    const tidy = layoutHierarchy(mockHierarchy(), { ...opts, stackLeaves: false });
+    expect(stacked.width).toBeLessThan(tidy.width);
+    expect(stacked.nodes).toHaveLength(tidy.nodes.length);
+    expect(stacked.edges).toHaveLength(stacked.nodes.length - 1);
+    const byId = new Map(stacked.nodes.map((n) => [n.id, n]));
+    for (const parent of stacked.nodes) {
+      const leaves = parent.childIds.map((k) => byId.get(k)!).filter((k) => k.childIds.length === 0);
+      if (leaves.length < 2) continue;
+      // One column: the same x, below the parent, never overlapping one another.
+      expect(new Set(leaves.map((l) => l.x)).size).toBe(1);
+      const ys = leaves.map((l) => l.y).sort((a, b) => a - b);
+      for (let i = 1; i < ys.length; i++) expect(ys[i]!).toBeGreaterThanOrEqual(ys[i - 1]! + 40);
+      expect(ys[0]!).toBeGreaterThan(parent.y);
+    }
+    // No two nodes overlap anywhere.
+    for (const a of stacked.nodes)
+      for (const b of stacked.nodes) {
+        if (a === b) continue;
+        const overlap = a.x < b.x + 100 && b.x < a.x + 100 && a.y < b.y + 40 && b.y < a.y + 40;
+        expect(overlap, `${a.id} overlaps ${b.id}`).toBe(false);
+      }
   });
 
   it("walks the tree with arrow keys and selects on click", () => {

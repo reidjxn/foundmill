@@ -245,14 +245,14 @@ function answer(question: string, s: SubjectIn, task: TaskIn | null, next: TaskI
   if (rec && s.kind === "inbox_item") {
     if (/\bwhy\b|recommend|that\s+one/.test(q)) {
       const cost = rec.cost ? ` It costs ${rec.cost}.` : "";
-      return { bubbles: [`I'd go with ${rec.label}.`, truncate(`${rec.consequence || "It keeps the work moving with the least risk."}${cost}`, 300)], reaction: "thinking", missing: false };
+      return { bubbles: [`I'd go with “${rec.label}”.`, truncate(`${rec.consequence || "It keeps the work moving with the least risk."}${cost}`, 300)], reaction: "thinking", missing: false };
     }
     if (/\brisk|downside|worst|go\s+wrong|concern/.test(q)) {
       const undo = rec.reversible === true ? "It's reversible, so we can change course later." : rec.reversible === false ? "It's hard to undo, so I'd be sure first." : "I don't know yet whether it can be undone.";
-      return { bubbles: [undo, alt ? truncate(`The alternative, ${alt.label}: ${alt.consequence || "it changes nothing for now"}`, 300) : "There's no other option on the table."], reaction: rec.reversible === false ? "concerned" : "thinking", missing: false };
+      return { bubbles: [undo, alt ? truncate(`The alternative, “${alt.label}”: ${alt.consequence || "it changes nothing for now"}`, 300) : "There's no other option on the table."], reaction: rec.reversible === false ? "concerned" : "thinking", missing: false };
     }
     if (/\bcost|spend|price|budget|how\s+much/.test(q)) {
-      return rec.cost ? { bubbles: [`${rec.label} costs ${rec.cost}.`], reaction: "noted", missing: false } : { bubbles: [`${rec.label} has no cost recorded, so I don't have that figure yet.`], reaction: "noted", missing: true };
+      return rec.cost ? { bubbles: [`“${rec.label}” costs ${rec.cost}.`], reaction: "noted", missing: false } : { bubbles: [`“${rec.label}” has no cost recorded, so I don't have that figure yet.`], reaction: "noted", missing: true };
     }
   }
 
@@ -309,7 +309,7 @@ export function generateConversation(ctx: MockContext): AgentReplyOutput {
   } else if (intent === "acknowledge") {
     // On an open decision "OK" decides nothing by itself: the recommended option is one press away.
     const rec = decisionOpen(subject) ? (subject.options.find((o) => o.recommended) ?? subject.options[0]) : undefined;
-    bubbles = rec ? [truncate(`Shall I go with ${rec.label}?`, 320), "Nothing is decided until you choose."] : [ack];
+    bubbles = rec ? [truncate(`Shall I go with “${rec.label}”?`, 320), "Nothing is decided until you choose."] : [ack];
     reaction = "pleased";
   } else if (intent === "decline") {
     bubbles = [`${ack} I'll leave it there.`];

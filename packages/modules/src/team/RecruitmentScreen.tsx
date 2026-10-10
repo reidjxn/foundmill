@@ -12,7 +12,7 @@ import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/d
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import type { ModuleKey } from "@foundmill/shared/constants";
-import { fitColumns, humanise, plural, useTableWidth, type ColumnFit } from "../fit";
+import { fitColumns, fitToGrow, humanise, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { CloneDialog, HireDialog, LoanDialog, ReleaseDialog } from "./dialogs";
 import { AgentCell, AgentStatusWordPill, FAMILY_LABELS, Screen, agentDept, agentEntity, agentHref, suggestTemplates, useAgents, useNow } from "./shared";
@@ -93,13 +93,12 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
   const open = (agentId: string) => navigate(agentHref(businessId, agentId));
   const refetch = () => agentsQuery.refetch();
   const draft = () => best && setHire({ template: best });
-  const [catalogueRef, catalogueWidth] = useTableWidth();
-  const [movesRef, movesWidth] = useTableWidth();
-  const catalogueSizes = useMemo(() => fitColumns(catalogueWidth, CATALOGUE_FIT, CATALOGUE_VIEWS[0]!.columns as string[]), [catalogueWidth]);
-  const movesSizes = useMemo(() => fitColumns(movesWidth, MOVES_FIT, MOVES_VIEWS[0]!.columns as string[]), [movesWidth]);
+  // Each column at its minimum; the tables share their spare width by the specs' weights themselves (`meta.grow`).
+  const catalogueSizes = useMemo(() => fitColumns(null, CATALOGUE_FIT, []), []);
+  const movesSizes = useMemo(() => fitColumns(null, MOVES_FIT, []), []);
 
   const catalogueColumns = useMemo<DataTableColumn<CatalogueRow>[]>(
-    () => [
+    () => fitToGrow<CatalogueRow>([
       {
         id: "name",
         accessorKey: "name",
@@ -149,13 +148,13 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         ),
       },
       { id: "hired", accessorKey: "hired", header: "In team", size: catalogueSizes.hired, meta: { numeric: true }, cell: ({ row }) => (row.original.hired ? row.original.hired : <span className="text-tertiary">—</span>) },
-    ],
+    ], CATALOGUE_FIT),
     [currency, catalogueSizes, departments.data],
   );
   const catalogueActions = (row: CatalogueRow): RowAction<CatalogueRow>[] => [{ id: "hire", label: "Hire…", icon: UserRoundPlus, onSelect: () => setHire({ template: row }) }];
 
   const movesColumns = useMemo<DataTableColumn<AgentRow>[]>(
-    () => [
+    () => fitToGrow<AgentRow>([
       {
         id: "name",
         accessorKey: "name",
@@ -184,7 +183,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         },
       },
       { id: "status", accessorKey: "status", header: "Status", size: movesSizes.status, cell: ({ row }) => <AgentStatusWordPill status={row.original.status} expectedReturnAt={row.original.expectedReturnAt} now={now} /> },
-    ],
+    ], MOVES_FIT),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `open` is stable per data source
     [businessId, currency, now, movesSizes],
   );
@@ -275,7 +274,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         }
         footer={notice ? <span data-testid="recruitment-notice" className="text-secondary">{notice}</span> : "Double-click or right-click a template to hire it into a department. Wage caps are estimates."}
       >
-        <div ref={catalogueRef} className="min-w-0">
+        <div className="min-w-0">
           <DataTable<CatalogueRow> aria-label="Catalogue" data={rows} columns={catalogueColumns} views={catalogueViews} onViewsChange={setCatalogueViews} defaultViewId="all" rowActions={catalogueActions} onRowOpen={(row) => setHire({ template: row })} height={Math.min(480, Math.max(240, rows.length * 34 + 44))} density="comfortable" exportFileName="catalogue" className="border-0" />
         </div>
       </Panel>
@@ -290,7 +289,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         empty={agentsQuery.data && team.length === 0 ? { icon: Users, children: "Hired agents appear here; right-click one to clone it, loan it to another department or release it." } : undefined}
         footer="Release stops running tasks and keeps the history. Clone copies instructions, tools, model and skills. Loan adds a department; move replaces it."
       >
-        <div ref={movesRef} className="min-w-0">
+        <div className="min-w-0">
           <DataTable<AgentRow> aria-label="Team moves" data={team} columns={movesColumns} views={movesViews} onViewsChange={setMovesViews} defaultViewId="all" rowActions={movesActions} onRowOpen={(a) => open(a.id)} height={Math.min(420, Math.max(200, team.length * 28 + 44))} exportFileName="team-moves" className="border-0" />
         </div>
       </Panel>

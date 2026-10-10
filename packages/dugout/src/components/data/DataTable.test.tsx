@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { Mail, Trash2 } from "lucide-react";
+import { Chip } from "../foundation/Chip";
 import { DataTable, type DataTableColumn } from "./DataTable";
 import { generateLeads, LEAD_STAGE_LABELS, LEAD_VIEWS, type LeadRow } from "./fixtures";
 import type { SavedView } from "./types";
@@ -255,6 +256,78 @@ describe("DataTable", () => {
     expect(n).toBeGreaterThan(5);
     expect(n).toBeLessThan(80);
     expect(screen.getByText(/5,000 rows/)).toBeTruthy();
+  });
+
+  it("shares the spare width among growing columns in the header and the body alike", () => {
+    const grow: DataTableColumn<LeadRow>[] = [
+      { accessorKey: "name", header: "Name", size: 180, meta: { grow: 2 } },
+      { accessorKey: "company", header: "Company", size: 140, meta: { grow: 1 } },
+      { accessorKey: "score", header: "Score", size: 80, meta: { numeric: true } },
+    ];
+    render(<DataTable data={leads.slice(0, 3)} columns={grow} />);
+    const head = (name: string) => screen.getByRole("columnheader", { name: new RegExp(name) });
+    expect(head("Name").style.flex).toBe("2 0 180px");
+    expect(head("Company").style.flex).toBe("1 0 140px");
+    // With growing columns the last one keeps its width instead of taking the spare.
+    expect(head("Score").style.flex).toBe("");
+    expect(head("Score").style.flexShrink).toBe("0");
+    const cells = within(bodyRows()[0] as HTMLElement).getAllByRole("gridcell");
+    expect(cells.map((c) => c.style.flex)).toEqual(["2 0 180px", "1 0 140px", ""]);
+  });
+
+  it("gives the spare width to the last column when none grows", () => {
+    render(<DataTable data={leads.slice(0, 3)} columns={columns.slice(0, 3)} />);
+    expect(screen.getByRole("columnheader", { name: /Stage/ }).style.flex).toBe("1 0 160px");
+    expect(screen.getByRole("columnheader", { name: /Name/ }).style.flex).toBe("");
+  });
+
+  it("hides its own Filter button on request, still showing a view's filters read-only, and relabels it", () => {
+    const { unmount } = render(<DataTable data={leads} columns={columns} hideFilter />);
+    expect(screen.queryByRole("button", { name: "Filter" })).toBeNull();
+    unmount();
+    const filtered: SavedView[] = [{ id: "won", name: "Won", columns: ["name", "stage"], sort: [], filters: [{ id: "f", field: "stage", op: "eq", value: "won" }] }];
+    const second = render(<DataTable data={leads} columns={columns} views={filtered} hideFilter />);
+    expect(screen.queryByRole("button", { name: "Filter" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Remove filter/ })).toBeNull();
+    expect(screen.getByText(/Stage/, { selector: "[data-filter-chip] *, [data-filter-chip]" })).toBeTruthy();
+    second.unmount();
+    render(<DataTable data={leads} columns={columns} filterLabel="Filter rows" />);
+    expect(screen.getByRole("button", { name: "Filter rows" })).toBeTruthy();
+  });
+
+  describe("content fit", () => {
+    // jsdom lays nothing out: a cell's natural width is faked from its words (8 px a character).
+    const natural = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get");
+    afterEach(() => natural.mockReset());
+    const fake = () => natural.mockImplementation(function (this: HTMLElement) {
+      return this.hasAttribute("data-cell-content") || this.hasAttribute("data-header-label") ? (this.textContent ?? "").length * 8 : 0;
+    });
+
+    it("widens a chip-only column to its widest chip, never cutting it, and leaves free text alone", () => {
+      fake();
+      const chipCols: DataTableColumn<LeadRow>[] = [
+        { accessorKey: "name", header: "Name", size: 60 },
+        { id: "status", header: "Status", size: 60, cell: ({ row }) => <Chip tone="good">{`Customer since ${row.original.country}`}</Chip> },
+      ];
+      render(<DataTable data={leads.slice(0, 2)} columns={chipCols} />);
+      const widest = Math.max(...leads.slice(0, 2).map((r) => `Customer since ${r.country}`.length * 8 + 1));
+      expect(Number(screen.getByRole("separator", { name: "Resize Status" }).getAttribute("aria-valuenow"))).toBe(widest);
+      // Plain text may still end in an ellipsis: the Name column keeps its width.
+      expect(Number(screen.getByRole("separator", { name: "Resize Name" }).getAttribute("aria-valuenow"))).toBe(60);
+    });
+
+    it("fits numbers, then lets the column narrow again when the rows change", () => {
+      fake();
+      const money: DataTableColumn<{ id: string; v: string }>[] = [
+        { accessorKey: "id", header: "Id", size: 80 },
+        { accessorKey: "v", header: "Value", size: 64, meta: { numeric: true } },
+      ];
+      const { rerender } = render(<DataTable data={[{ id: "a", v: "£1,234,567.89" }]} columns={money} />);
+      const width = () => Number(screen.getByRole("separator", { name: "Resize Value" }).getAttribute("aria-valuenow"));
+      expect(width()).toBe("£1,234,567.89".length * 8 + 1);
+      rerender(<DataTable data={[{ id: "b", v: "£5" }]} columns={money} />);
+      expect(width()).toBe(64);
+    });
   });
 
   it("resizes a column from the keyboard", async () => {

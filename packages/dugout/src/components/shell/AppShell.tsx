@@ -3,6 +3,7 @@ import { forwardRef, useCallback, useEffect, useMemo, useState, type CSSProperti
 import type { BusinessMode, GameMode, Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { BusinessLogo } from "../foundation/BusinessLogo";
+import { useToastPlacement } from "../foundation/Toast";
 import { TooltipProvider } from "../foundation/Tooltip";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { CommandPalette, type CommandPaletteProps } from "./CommandPalette";
@@ -249,6 +250,8 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   });
 
   useDocumentKit(kit);
+  // Toasts stack bottom left beside the sidebar, at its real width (collapsed or not), while the shell is mounted.
+  useToastPlacement({ position: "bottom-left", sidebar: sidebar.collapsed ? "collapsed" : "expanded" });
 
   if (tooSmall) return <NeedsLargerWindow width={width} minWidth={minViewportWidth} />;
 

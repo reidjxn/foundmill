@@ -50,6 +50,8 @@ export function RunwayChip({ date, runwayMonths, cash, estimate = true, onClick,
   const runway = formatRunway(runwayMonths);
   const known = runwayMonths !== null && runwayMonths !== undefined && Number.isFinite(runwayMonths);
   const dateText = formatDate(date);
+  const dayMonth = formatDate(date, "d MMM");
+  const year = formatDate(date, "yyyy");
   const tip = [
     cash ? `Cash ${formatMoney(cash)}` : null,
     known ? `Runway ${runway}${estimate ? " (Estimate)" : ""}` : "Runway unknown until a bank or finance source is connected",
@@ -60,10 +62,16 @@ export function RunwayChip({ date, runwayMonths, cash, estimate = true, onClick,
   const label = `${dateText}. Runway ${runway}${estimate && known ? ", estimate" : ""}${tone === "bad" ? ", critical" : tone === "warn" ? ", low" : ""}`;
   const content = (
     <>
-      <Icon icon={Calendar} size="inline" />
-      <span className="tabular-nums">{dateText}</span>
-      <span aria-hidden className="opacity-45">
-        ·
+      {/* The date gives way in the top bar's last compaction step; the year goes first (KitBarFit). */}
+      <span className="kitbar-date">
+        <Icon icon={Calendar} size="inline" />
+        <span className="tabular-nums">
+          {dayMonth}
+          <span className="kitbar-year"> {year}</span>
+        </span>
+        <span aria-hidden className="opacity-45">
+          ·
+        </span>
       </span>
       <span className={cn("inline-flex items-center gap-1.5", TONE_TEXT[tone])}>
         <Icon icon={tone === "neutral" ? Hourglass : TriangleAlert} size="inline" className={tone === "neutral" ? undefined : "text-current"} />

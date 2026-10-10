@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect } from "react";
 import { Button } from "./Button";
-import { ToastProvider, useToast, type ToastOptions } from "./Toast";
+import { ToastPlacement, ToastProvider, useToast, type ToastOptions } from "./Toast";
 
 const meta = {
   title: "Foundation/Toast",
@@ -10,7 +10,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Wrap the app in <ToastProvider>; call useToast().toast({...}) anywhere below. The stack sits bottom left of the content column, clear of the sidebar, the DecisionBar, Continue and dialog footers. The newest toast is in front with a tone tile and a timer; older ones peek behind it and fan out on hover or focus (the timers pause). F8 focuses the stack; swipe left dismisses.",
+          "Wrap the app in <ToastProvider>; call useToast().toast({...}) anywhere below. The stack sits bottom left of the content column, clear of the sidebar (at its real width), the DecisionBar, Continue and dialog footers. A layout without a sidebar renders <ToastPlacement> (or calls useToastPlacement) to put the stack bottom right, so it never lands on its first column of cards. The newest toast is in front with a tone tile and a timer; older ones peek behind it and fan out on hover or focus (the timers pause). F8 focuses the stack; swipe left dismisses.",
       },
     },
   },
@@ -65,3 +65,13 @@ function Stacked() {
 
 /** Three toasts in the deck: the newest in front, two peeking behind. */
 export const Stack: Story = { render: () => <Stacked /> };
+
+/** A frame without a sidebar (first run, sign-in) moves the stack bottom right while it is mounted. */
+export const WithoutASidebar: Story = {
+  render: () => (
+    <>
+      <ToastPlacement position="bottom-right" sidebar="none" />
+      <Demo />
+    </>
+  ),
+};

@@ -113,7 +113,8 @@ export function CrmScreen() {
       { id: "roles", accessorFn: (r) => r.roles.join(", "), header: "Roles", size: 200, cell: ({ row }) => (row.original.roles.length ? <span className="flex flex-wrap gap-1">{row.original.roles.map((r) => <Chip key={r}>{roleWord(r)}</Chip>)}</span> : <span className="text-tertiary">None</span>) },
       { id: "stage", accessorFn: (r) => r.stage ?? "", header: "Stage", size: 140, cell: ({ row }) => (row.original.stage ? <StatusPill tone={STAGE_TONE[row.original.stage] ?? "neutral"}>{stageWord(row.original.stage)}</StatusPill> : <span className="text-tertiary">None</span>) },
       { id: "owner", accessorFn: (r) => (r.owner ? (resolvers.ownerName(r.owner) ?? r.owner.id) : ""), header: "Owner", size: 160, cell: ({ row }) => (row.original.owner ? <span className="truncate">{resolvers.ownerName(row.original.owner) ?? "An agent"}</span> : <span className="text-tertiary">Unassigned</span>) },
-      { id: "email", accessorFn: (r) => r.email ?? r.domain ?? "", header: "Email or domain", size: 272, cell: ({ getValue }) => ((getValue() as string) ? <span className="truncate font-mono text-mono text-secondary">{getValue() as string}</span> : <span className="text-tertiary">None</span>) },
+      // Email takes the spare width (emails show in full at 1440); the other columns keep theirs.
+      { id: "email", accessorFn: (r) => r.email ?? r.domain ?? "", header: "Email or domain", size: 272, meta: { grow: 1 }, cell: ({ getValue }) => ((getValue() as string) ? <span className="truncate font-mono text-mono text-secondary">{getValue() as string}</span> : <span className="text-tertiary">None</span>) },
       { id: "lawfulBasis", accessorFn: (r) => r.lawfulBasis ?? "", header: "Lawful basis", size: 160, cell: ({ getValue }) => ((getValue() as string) ? LAWFUL_BASIS_LABEL[getValue() as string] ?? plainWords(getValue() as string) : <Chip tone="warn">Not recorded</Chip>), meta: { filter: "select", filterOptions: Object.entries(LAWFUL_BASIS_LABEL).map(([value, label]) => ({ value, label })) } },
       { id: "source", accessorFn: (r) => sourceWord(r.source), header: "Source", size: 140, cell: ({ getValue }) => ((getValue() as string) ? <span className="text-secondary">{getValue() as string}</span> : <span className="text-tertiary">Unknown</span>) },
       { id: "createdAt", accessorKey: "createdAt", header: "Added", size: 120, cell: ({ getValue }) => <span className="font-mono text-mono text-secondary">{formatRelative(getValue() as string)}</span>, meta: { filter: "date" } },
@@ -213,7 +214,6 @@ export function CrmScreen() {
               setChips(next);
               setRaw(text);
             }}
-            addLabel="Filter by role, stage or owner"
           />
           {text ? (
             <Chip tone="info" onRemove={() => { setText(""); setRaw(""); }} removeLabel="Clear search text">
@@ -251,7 +251,7 @@ export function CrmScreen() {
             ))}
           </div>
         ) : null}
-        <DataTable<CrmRow> aria-label="CRM records" data={index.rows} columns={columns} views={views} onViewsChange={setViews} activeViewId={activeViewId} onActiveViewChange={setActiveViewId} rowActions={rowActions} onRowOpen={(r) => open_(r.id)} height={typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 360)} exportFileName="crm" className="border-0" hideEmptyColumns />
+        <DataTable<CrmRow> aria-label="CRM records" data={index.rows} columns={columns} views={views} onViewsChange={setViews} activeViewId={activeViewId} onActiveViewChange={setActiveViewId} rowActions={rowActions} onRowOpen={(r) => open_(r.id)} height={typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 360)} exportFileName="crm" className="border-0" hideEmptyColumns hideFilter />
       </Panel>
       </div>
 

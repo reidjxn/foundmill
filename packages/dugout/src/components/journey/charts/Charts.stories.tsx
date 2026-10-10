@@ -76,9 +76,13 @@ export const Bars: Story = {
 
 export const Funnel: Story = {
   render: () => (
-    <div className="w-[720px]">
+    <div className="flex w-[720px] flex-col gap-gutter">
       <Tile title="Acquisition funnel · 30 days">
         <FunnelChart label="Acquisition funnel" stages={[{ label: "Visits", value: 12480 }, { label: "Signups", value: 842 }, { label: "Activated", value: 411 }, { label: "Paid", value: 96 }]} />
+      </Tile>
+      {/* A tiny step reads "<1%", never "0%"; a count that does not fit its hairline bar sits beside it. */}
+      <Tile title="Touch funnel · 35 days">
+        <FunnelChart label="Touch funnel" stages={[{ label: "Impressions", value: 2_900_000 }, { label: "Signups", value: 115 }, { label: "Activations", value: 72 }, { label: "Customers", value: 27 }]} provenance="estimate" />
       </Tile>
     </div>
   ),
@@ -95,7 +99,7 @@ export const HeatmapStory: Story = {
   ),
 };
 
-/** Axes that never clip: margins sized to the widest label ("−£5K"), a real minus, month labels thinned when they would touch, integer ticks for counts, value labels only where they fit. */
+/** Axes that never clip: margins sized to the widest label ("−£5K"), a real minus, month labels thinned when they would touch, integer ticks for counts, value labels on every bar or none (only when all fit), with room under zero for the negative ones. */
 export const TightAxes: Story = {
   render: () => (
     <div className="grid grid-cols-2 gap-gutter" style={{ width: 960 }}>

@@ -414,6 +414,38 @@
     pointer-events: none;
   }
 }
+/* Top-bar compaction: KitBarFit writes the steps it needed on the bar's data-compact ("year holiday-short …"), one at a
+   time, until every control is whole and the title has its room. Outside a compacting bar every part shows in full. */
+@utility kitbar-year {
+  [data-compact~="year"] & {
+    display: none;
+  }
+}
+@utility kitbar-date {
+  display: contents;
+  [data-compact~="date-none"] & {
+    display: none;
+  }
+}
+@utility kitbar-holiday-full {
+  [data-compact~="holiday-short"] & {
+    display: none;
+  }
+}
+@utility kitbar-holiday-short {
+  display: none;
+  [data-compact~="holiday-short"] & {
+    display: inline;
+  }
+  [data-compact~="holiday-icon"] & {
+    display: none;
+  }
+}
+@utility kitbar-chip-word {
+  [data-compact~="chips-icon"] & {
+    display: none;
+  }
+}
 /* The hairline between the business and the screen title. */
 @utility kitbar-divider {
   flex: none;
@@ -665,42 +697,61 @@
     0 -14px 32px -18px color-mix(in oklab, var(--black) 85%, transparent);
 }
 
-/* The bar's layout: "Your call" on the left of the options; in a narrow reading pane (under 760 px, the 1280 window)
-   it moves to a line above them, so the options get the full width. */
+/* The bar's layout, compact so the conversation above keeps its room: one heading line ("Your call", the deadline, and
+   the ask button pushed to its right end), then the options across the whole bar. */
 @utility decision-layout {
   container-type: inline-size;
 }
 @utility decision-inner {
   display: flex;
-  align-items: center;
-  gap: 8px 16px;
-  @container (width < 760px) {
-    flex-direction: column;
-    align-items: stretch;
-  }
+  flex-direction: column;
+  gap: 6px;
 }
 @utility decision-heading {
   display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: 2px;
-  max-width: 132px;
-  @container (width < 760px) {
-    flex-direction: row;
-    align-items: baseline;
-    gap: 8px;
-    max-width: none;
-  }
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-height: var(--control-sm);
 }
-/* The options: an even grid of two-line buttons (each at least 196 px; as many columns as fit), the ask button among
-   them; the free-text form takes a row of its own. Rows wrap and the bar grows: nothing truncates or overlaps. */
+/* "Ask <agent> · Talk it through first": one line at the heading's right end (it wraps under the deadline only when
+   the line is too short for both). */
+@utility decision-ask {
+  margin-left: auto;
+  gap: 6px;
+}
+/* The options: a grid of two-line buttons with tight padding. Where every option fits on one row (each at least 168 px)
+   the columns share the width by each option's words (--option-cols, set by the bar), so a long option gets the room to
+   stay on two lines and a short one stays narrow; otherwise an even grid wraps. The free-text form, the executing pill
+   and a trailing note take rows of their own. Rows wrap and the bar grows: nothing truncates or overlaps. */
 @utility decision-options {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 196px), 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 168px), 1fr));
+  gap: 6px;
   align-items: stretch;
   & > [data-decision-row] {
     grid-column: 1 / -1;
+  }
+  @container (width >= 360px) {
+    &[data-count="2"] {
+      grid-template-columns: var(--option-cols);
+    }
+  }
+  @container (width >= 540px) {
+    &[data-count="3"] {
+      grid-template-columns: var(--option-cols);
+    }
+  }
+  @container (width >= 716px) {
+    &[data-count="4"] {
+      grid-template-columns: var(--option-cols);
+    }
+  }
+}
+@utility decision-option {
+  &.h-auto {
+    padding-block: 5px;
+    min-height: var(--control-md);
   }
 }
 

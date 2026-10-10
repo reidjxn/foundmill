@@ -9,7 +9,7 @@ import { MockModelClient, type CompleteRequest, type ModelClient } from "@foundm
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildScoutingReport, DEFAULT_STEP_MS } from "../services/import";
 import { ImportConceptCache, importConceptPrompt, importConcepts } from "../services/import-concept";
-import { readMeta } from "../services/ideation";
+import { IDEATION_LIMITS, ideationLimiter, readMeta, takeIdeationAllowance } from "../services/ideation";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -114,6 +114,26 @@ describe("import.prepareConcept / import.continue (audit P7)", () => {
     const slow = await caller.import.start({ sources: SOURCES, stepMs: 10_000 });
     await expect(caller.import.prepareConcept({ jobId: slow.job.id })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(mock.history).toHaveLength(0);
+  });
+});
+
+describe("import drafting allowance (security review 2026-10-10)", () => {
+  it("starting a card counts against the founder's drafting allowance; asking again for the same job does not", async () => {
+    ideationLimiter.reset();
+    const { client, calls, open } = gatedModels();
+    const { userId, caller, jobId } = await founder(client, "import-card-allowance@test.local");
+    for (let i = 0; i < IDEATION_LIMITS.hour.limit - 1; i++) takeIdeationAllowance(userId);
+    expect(await caller.import.prepareConcept({ jobId })).toEqual({ status: "drafting" });
+    // Idempotent per job: no second draft, no second allowance.
+    expect(await caller.import.prepareConcept({ jobId })).toEqual({ status: "drafting" });
+    open();
+    expect((await caller.import.continue({ jobId })).speculative).toBe(true);
+    expect(calls).toHaveLength(1);
+    // The allowance is used up: neither a new draft ahead nor a cold Continue reaches the model.
+    await expect(caller.import.prepareConcept({ jobId })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+    await expect(caller.import.continue({ jobId })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+    expect(calls).toHaveLength(1);
+    ideationLimiter.reset();
   });
 });
 

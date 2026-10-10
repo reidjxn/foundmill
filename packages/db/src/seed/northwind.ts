@@ -210,7 +210,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   const taskSpecs: TaskSpec[] = [
     { kind: "specialist", title: "Second batch purchase order pack", goal: "Assemble the PO pack for batch 002 across three SKUs with quote ids and the landed-cost model; the founder signs.", acceptance: ["Every line cites a quote id", "Landed cost per unit at 2,000 and 5,000 units", "No PO sent"], status: "running", departmentSlug: "operations", assigneeTemplateKey: "sourcing_manufacturing", roadmapTitle: "Second production batch (3 SKUs)", startedDaysAgo: 0, durationHours: 3, progress: 0.55, phase: "implementing" },
     { kind: "specialist", title: "Stability data for serum reformulation", goal: "Collate 12-week stability results for serum v3 and flag any drift beyond spec.", acceptance: ["All three storage conditions reported", "Drift flagged with values", "Recommendation labelled Estimate"], status: "review", departmentSlug: "operations", assigneeTemplateKey: "formulation_chemist", roadmapTitle: "Second production batch (3 SKUs)", startedDaysAgo: 1, durationHours: 2.5, phase: "review" },
-    { kind: "code", title: "Subscription pause and skip", goal: "Add pause and skip to the refill subscription through the commerce connector in mock mode.", acceptance: ["Pause and skip through the Shopify connector (mock)", "Webhook events reach the journey model", "Playwright test for the account page"], status: "running", departmentSlug: "development", assigneeTemplateKey: "backend_engineer", roadmapTitle: "Subscription refills v2 (pause and skip)", startedDaysAgo: 0, durationHours: 4, progress: 0.35, phase: "implementing", fileScope: ["apps/storefront/account/**"] },
+    { kind: "code", title: "Subscription pause and skip", goal: "Add pause and skip to the refill subscription through the commerce connector, against the test store.", acceptance: ["Pause and skip through the Shopify connector (test store)", "Webhook events reach the journey model", "Playwright test for the account page"], status: "running", departmentSlug: "development", assigneeTemplateKey: "backend_engineer", roadmapTitle: "Subscription refills v2 (pause and skip)", startedDaysAgo: 0, durationHours: 4, progress: 0.35, phase: "implementing", fileScope: ["apps/storefront/account/**"] },
     { kind: "code", title: "Account page: refill schedule UI", goal: "Show the next refill date with pause/skip controls.", acceptance: ["Matches the design", "Accessible controls", "Storybook story"], status: "ready", departmentSlug: "development", assigneeTemplateKey: "frontend_engineer", roadmapTitle: "Subscription refills v2 (pause and skip)", dependsOn: ["Subscription pause and skip"] },
     { kind: "code", title: "Batch results page", goal: "Render published batch results per product from the lab documents.", acceptance: ["One page per SKU", "Results cite the lab report"], status: "planned", departmentSlug: "development", assigneeTemplateKey: "planner", roadmapTitle: "Batch results page per product" },
     { kind: "channel", title: "Creator seeding wave 4", goal: "Brief and seed ten creators with codes; disclosure checked before any payout.", acceptance: ["Ten briefs sent", "Codes registered for attribution", "No payout without disclosure check"], status: "blocked", departmentSlug: "distribution", assigneeTemplateKey: "channel_influencer", startedDaysAgo: 2, durationHours: 1.5, phase: "implementing" },
@@ -312,7 +312,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   const chief = squad.chief;
   const latest = journey.latestPayments[0];
   const won = latest ? mention(latest.customer.entityId, latest.customer.displayName) : "a new customer";
-  const runwayText = finance.runwayMonths === null ? "runway not computable yet" : `${finance.runwayMonths} months of runway (Estimate)`;
+  const runwayText = finance.runwayMonths === null ? "no runway limit yet, as the business stays cash-flow positive" : `${finance.runwayMonths} months of runway (Estimate)`;
   const trophy = journey.data.milestones.filter((m) => m.trophyKey).at(-1);
   const inboxDrafts: Array<InboxSpec | null> = [
     {
@@ -376,7 +376,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
       fromAgentId: squad.byTemplate.get("engineering_lead")?.agent.id ?? chief.agent.id,
       subject: "Subscription pause and skip: 35% done",
       bodyMd: [
-        `${agentMention(agentEntities, squad.byTemplate.get("backend_engineer")!)} has the Shopify connector calls for pause and skip passing in mock mode; webhooks into the journey model are next.`,
+        `${agentMention(agentEntities, squad.byTemplate.get("backend_engineer")!)} has the Shopify connector calls for pause and skip passing against the test store; webhooks into the journey model are next.`,
         `${agentMention(agentEntities, squad.byTemplate.get("frontend_engineer")!)} starts the account page once the API lands. No merge to main without your approval (Assisted mode).`,
       ].join("\n\n"),
       exhibit: { kind: "table", spec_ref: "tasks_by_status" },
@@ -387,7 +387,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
           type: "milestone",
           fromAgentId: chief.agent.id,
           subject: `Milestone: ${trophy.label}`,
-          bodyMd: `${trophy.label} reached on ${trophy.achievedAt.slice(0, 10)}. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole team gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
+          bodyMd: `${trophy.label} reached on ${new Date(trophy.achievedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole team gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
           createdDaysAgo: 2,
           state: "read",
         }

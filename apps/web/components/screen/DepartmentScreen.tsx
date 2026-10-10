@@ -137,7 +137,8 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
   if (moduleScreen) {
     const Component = moduleScreen.Component;
     return (
-      <div className="min-h-full p-gutter" data-testid="module-screen" data-module={`${moduleScreen.moduleKey}/${moduleScreen.tabSlug}`}>
+      // Each module screen pads itself (its own Screen wrapper, p-gutter), so the content gutter is 16 px as on Home.
+      <div className="min-h-full" data-testid="module-screen" data-module={`${moduleScreen.moduleKey}/${moduleScreen.tabSlug}`}>
         <Component businessId={businessId} departmentId={department.id} subView={subView} />
       </div>
     );

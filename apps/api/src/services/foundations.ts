@@ -31,7 +31,7 @@ import {
 } from "@foundmill/agents";
 import { FoundationsSupersededError, draftFoundationsStaged } from "@foundmill/agents/foundations-steps";
 import { repos, type BusinessFoundationsRow, type Db, type DbTx, type Source } from "@foundmill/db";
-import type { ModelClient } from "@foundmill/models";
+import { PRICING_CURRENCY, type ModelClient } from "@foundmill/models";
 import type { FoundationsDoor, FoundationsRunner, FoundationsStatus } from "@foundmill/shared";
 import { writeEventRow } from "./events";
 import { IMPORT_SOURCES, decodeJobId, importStatus, localJobAt, sourceUri, validateConfigs, webUri, type ImportStatus, type ScoutingReport } from "./import";
@@ -244,7 +244,8 @@ export async function runFoundationsLocally(deps: FoundationsDeps, businessId: s
         quantity: usage.inputTokens + usage.outputTokens,
         unit: "tokens",
         costMinor: usage.costMinor,
-        currency: "EUR",
+        // The staged calls are metered at list prices, in the pricing currency (as the orchestrator's usage sink books them).
+        currency: PRICING_CURRENCY,
         billedTo: "credits",
         details: { route: "foundations", model: usage.model, mode: usage.mode, kind: "foundations", label: "Estimate", runner: "local", attempt, staged: true, calls: usage.calls },
       })

@@ -121,6 +121,11 @@ export interface InboxListResponse extends Page<InboxItemRow> {
   blocking?: number;
 }
 
+/* founder.profile.get (only what the widgets read) */
+export interface FounderProfileResponse {
+  profile: { displayName?: string } | null;
+}
+
 /* distribution.channels.list */
 export interface ChannelFormSummary {
   channelId: string;

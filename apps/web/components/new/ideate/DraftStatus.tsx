@@ -79,7 +79,7 @@ export function DraftStatus({ run, now: pinnedNow }: { run: DraftRun; now?: numb
           <span data-testid="draft-elapsed" aria-label={`${formatElapsed(elapsedMs)} elapsed`}>
             {formatElapsed(elapsedMs)}
           </span>
-          {run.mock ? " · mock mode" : ""}
+          {run.mock ? " · sample drafts" : ""}
         </span>
       </div>
       <LiveRun

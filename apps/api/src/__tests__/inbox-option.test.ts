@@ -127,3 +127,20 @@ describe("compileOptionPlan", () => {
     expect(plan.summary).toMatch(/Nadia carries out your choice/);
   });
 });
+
+describe("an answered item costs nothing to answer again (security review 2026-10-10)", () => {
+  it("free text on an answered item is refused before the plan compiler runs, through inbox.decide and the Inbox reply", async () => {
+    const first = await callerWith(slowModels(0).client);
+    const item = await decisionItem([{ id: "seo", label: "Start SEO content", consequence: "The content agent writes the first four articles." }]);
+    await first.inbox.decide({ businessId: hz.A.businessId, itemId: item.id, chosenOption: "seo" });
+
+    const { client, routes } = slowModels(0);
+    const again = await callerWith(client);
+    for (let i = 0; i < 3; i++) {
+      await expect(again.inbox.decide({ businessId: hz.A.businessId, itemId: item.id, freeText: "spend €100 on Google ads this week" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/already answered/) });
+    }
+    await expect(again.agent.conversation.inboxReply({ businessId: hz.A.businessId, itemId: item.id, text: "Spend €100 on Google ads this week" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(routes).toEqual([]);
+    expect(await repos.inbox.decisionsFor(hz.db, hz.A.businessId, item.id)).toHaveLength(1);
+  });
+});

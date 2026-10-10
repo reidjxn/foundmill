@@ -107,7 +107,10 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
         <div>
           <span className="t-data">Now</span>
           {d.now.length === 0 ? (
-            <p className="mt-1 text-small text-secondary">Quiet. The next cycle starts with Continue.</p>
+            // Said once, briefly: every quiet card repeating the same instruction would read as noise on Home.
+            <p className="mt-1 text-small text-secondary" data-now-quiet>
+              Quiet
+            </p>
           ) : (
             <ul className="mt-1 flex flex-col gap-1" data-now-lines>
               {d.now.slice(0, 3).map((line, i) => (

@@ -132,7 +132,7 @@ export default function MonacoDiff({ original, modified, language = "plaintext",
       options={options}
       height={height}
       loading={<Skeleton className="m-2 h-3 w-1/2" />}
-      wrapperProps={{ "data-monaco-diff": true, role: "region", "aria-label": label }}
+      wrapperProps={{ "data-monaco-diff": true, "data-scroll-region": "diff", role: "region", "aria-label": label }}
     />
   );
 }

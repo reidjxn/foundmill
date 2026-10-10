@@ -43,7 +43,7 @@ export function CodeViewer({ path, text, size, binary, truncated, loading, class
           This is a binary file, so it is not shown as text.
         </EmptyState>
       ) : (
-        <div className="flex min-h-0 flex-1 overflow-auto" data-code-body>
+        <div className="flex min-h-0 flex-1 overflow-auto" data-code-body data-scroll-region="code">
           <pre aria-hidden className="m-0 select-none border-r border-line-faint px-2.5 py-2 text-right font-mono text-mono text-tertiary/70">
             {gutter}
           </pre>

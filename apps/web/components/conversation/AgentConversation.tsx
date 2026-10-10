@@ -87,6 +87,11 @@ export interface AgentConversationProps {
   initialText?: string | null;
   /** Called after `initialText` was handed to the desk. */
   onInitialTextSent?: () => void;
+  /**
+   * The agent's first line while the thread is empty, in place of its generic greeting: an Inbox note's own subject
+   * ("I'd go with “Approve”. Ask me anything before you decide."). No model call.
+   */
+  opener?: string | null;
   /** Sheet only: who the founder is talking to, so the sheet opens at once while the desk loads. */
   personaHint?: { name: string; role?: string | null; avatarSeed: string; dept?: DeptColourToken | null } | null;
   className?: string;
@@ -99,6 +104,8 @@ interface Outgoing {
   words?: string;
   text?: string;
   quickReplyId?: string;
+  /** The option the pressed chip names on screen (sent with it, so a chip that now names another option is refused). */
+  optionId?: string | null;
 }
 
 /** The nearest ancestor of `el` that scrolls. */
@@ -139,7 +146,7 @@ let localSeq = 0;
 const nextLocalId = () => `local-${Date.now().toString(36)}-${(localSeq++).toString(36)}`;
 
 export const AgentConversation = forwardRef<AgentConversationHandle, AgentConversationProps>(function AgentConversation(
-  { subject, variant = "inline", open = true, onOpenChange, keyModifier = "none", hotkeys = true, inboxReply = false, onDecision, decided = false, fallbackDept = "dept-1", subjectLine, initialText, onInitialTextSent, personaHint, className },
+  { subject, variant = "inline", open = true, onOpenChange, keyModifier = "none", hotkeys = true, inboxReply = false, onDecision, decided = false, fallbackDept = "dept-1", subjectLine, initialText, onInitialTextSent, personaHint, opener, className },
   ref,
 ) {
   const { businessId, data: biz } = useBusiness();
@@ -250,7 +257,7 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
               if (res.decision) onDecision?.(res.decision);
               if (res.handOff) showPreview(res.handOff);
             })
-          : sendM.mutateAsync({ businessId, subject: input.subject, ...(out.quickReplyId ? { quickReplyId: out.quickReplyId } : { text: out.text! }) }).then((res) => {
+          : sendM.mutateAsync({ businessId, subject: input.subject, ...(out.quickReplyId ? { quickReplyId: out.quickReplyId, ...(out.optionId !== undefined ? { optionId: out.optionId } : {}) } : { text: out.text! }) }).then((res) => {
               outgoing.current.delete(out.localId);
               merge(res, out.localId);
               if (res.decision) onDecision?.(res.decision);
@@ -278,7 +285,7 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
   const takeABreak = useCallback(
     (reply: QuickReplyItem) => {
       const task = persona?.currentTask;
-      if (!task) return post(sayOf(reply), { quickReplyId: reply.id });
+      if (!task) return post(sayOf(reply), { quickReplyId: reply.id, optionId: reply.option_id });
       if (inFlight.current) return;
       inFlight.current = true;
       spoke.current = true;
@@ -333,7 +340,7 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
       }
       if (reply.id === TAKE_A_BREAK_ID) return takeABreak(reply);
       setPendingReplyId(reply.id);
-      post(sayOf(reply), { quickReplyId: reply.id });
+      post(sayOf(reply), { quickReplyId: reply.id, optionId: reply.option_id });
     },
     [replying, pauseM.isPending, local, onRetry, takeABreak, post],
   );
@@ -498,9 +505,10 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
     );
   }
 
+  const deskPersona = deskPersonaOf(persona, fallbackDept);
   const desk = (
     <AgentDesk
-      persona={deskPersonaOf(persona, fallbackDept)}
+      persona={opener ? { ...deskPersona, voice: { ...deskPersona.voice, greeting: opener } } : deskPersona}
       messages={messages}
       starters={starters}
       onQuickReply={onQuickReply}

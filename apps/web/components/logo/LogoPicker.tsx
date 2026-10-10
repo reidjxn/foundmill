@@ -17,7 +17,7 @@
  */
 import { Check, Eraser, Palette, Upload } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { BusinessLogo, Button, Chip, GenerateControl, ProvenanceChip, Skeleton, StatusPill, cn, type Kit } from "@foundmill/dugout";
+import { BusinessLogo, Button, Chip, FitText, GenerateControl, ProvenanceChip, Skeleton, StatusPill, cn, type Kit } from "@foundmill/dugout";
 import { errorMessage } from "@/lib/trpc";
 import { LOGO_FILE_ACCEPT, LOGO_FILE_HINT, formatCostEstimate, readLogoFile, sameKit, suggestKit, type LogoDraft } from "@/lib/logo";
 
@@ -215,9 +215,12 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
         <div className="flex size-32 items-center justify-center rounded-panel border border-subtle bg-ink" data-testid="logo-preview">
           <BusinessLogo src={value?.dataUrl} name={name || "Your business"} primary={kit.primary} size={96} />
         </div>
-        <div className="flex h-10 w-32 items-center gap-2 rounded-panel bg-kit-primary px-2 text-kit-on-primary" aria-label="Top bar preview" data-testid="kit-bar-preview">
+        {/* The name as the top bar sets it: as wide as it needs (up to 156 px), then two lines, then a smaller size. */}
+        <div className="flex min-h-10 w-max min-w-32 max-w-48 items-center gap-2 rounded-panel bg-kit-primary px-2 py-1 text-kit-on-primary" aria-label="Top bar preview" data-testid="kit-bar-preview">
           <BusinessLogo src={value?.dataUrl} name={name || "Your business"} primary={kit.primary} size={20} title="" />
-          <span className="truncate t-display-sm">{name || "Your business"}</span>
+          <FitText minPx={11} lines={2} className="min-w-0 t-display-sm leading-tight">
+            {name || "Your business"}
+          </FitText>
         </div>
       </div>
 

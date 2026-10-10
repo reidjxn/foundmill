@@ -133,7 +133,9 @@ export function RadarChart({ axes, series, max = 20, size = 280, label, rings = 
               })}
             </g>
           ))}
-          <text x={4} y={-scale(max) - 4} className="chart-tick" id={`${uid}-max`}>
+          {/* The scale's top value, just inside the outer ring beside the first axis: never on the first axis's label,
+              which sits above the ring. A halo keeps it legible where a polygon's edge crosses it. */}
+          <text x={4} y={-scale(max) + 4} dominantBaseline="hanging" className="chart-tick" id={`${uid}-max`} paintOrder="stroke" stroke="var(--surface-1)" strokeWidth={3} strokeLinejoin="round" data-radar-max>
             {max}
           </text>
         </Group>

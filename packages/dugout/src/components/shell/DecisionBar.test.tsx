@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { DecisionBar, costText, optionDescription, optionSubline, reversibilityText } from "./DecisionBar";
+import { DecisionBar, costText, optionDescription, optionSubline, optionWeight, reversibilityText } from "./DecisionBar";
 import { REORDER_OPTIONS } from "./fixtures";
 
 describe("DecisionBar", () => {
@@ -102,6 +102,19 @@ describe("DecisionBar", () => {
     for (const b of screen.getAllByRole("button")) expect(b.className).not.toContain("truncate");
     // The digits are shown on the options while the bar owns them.
     expect(a.querySelector("kbd")?.textContent).toBe("1");
+  });
+
+  it("is compact: the ask sits on the heading line and the options share the width by their words", () => {
+    render(<DecisionBar options={REORDER_OPTIONS} onChoose={() => {}} onAsk={() => {}} askLabel="Ask Juno" deadline="Expires in 5 days" />);
+    const heading = screen.getByTestId("decision-bar").querySelector("[data-decision-heading]") as HTMLElement;
+    expect(heading.querySelector("[data-decision-ask]")).not.toBeNull();
+    const grid = screen.getByRole("group", { name: "Options" }).parentElement as HTMLElement;
+    expect(grid.getAttribute("data-count")).toBe(String(REORDER_OPTIONS.length));
+    const cols = grid.style.getPropertyValue("--option-cols");
+    expect(cols.split("minmax(").length - 1).toBe(REORDER_OPTIONS.length);
+    expect(cols).toContain(`${optionWeight(REORDER_OPTIONS[0]!)}fr`);
+    expect(optionWeight({ id: "a", label: "Hold", consequence: "Stock-out risk in Nov" })).toBe(25);
+    expect(optionWeight({ id: "a", label: "Go", recommended: true })).toBe(20);
   });
 
   it("replaces the free-text box with Ask <agent> when onAsk is given; typing stays optional", async () => {

@@ -246,7 +246,9 @@ export const STOPWORDS = new Set(
     "other some such no nor not only own same so than too very can will just should would could do does did doing have has had having " +
     "about into over after before between under again further once here there up down out off above below during without within along " +
     "want wants wanted need needs like make build create start new business company idea ideas product products app apps please help " +
-    "something anything everything thing things way ways get got going go also lot lots really very much many kind sort"
+    "something anything everything thing things way ways get got going go also lot lots really very much many kind sort " +
+    // "Surprise me within my constraints" (an empty brief) is an instruction, not a theme: never a concept's name or angle.
+    "surprise surprises surprising constraint constraints"
   ).split(/\s+/),
 );
 

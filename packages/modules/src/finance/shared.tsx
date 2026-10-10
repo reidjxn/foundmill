@@ -1,10 +1,9 @@
 "use client";
 /** Helpers shared by the finance screens: layout, clock, money, mutations with pending/error state, downloads. */
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode, type RefCallback } from "react";
+import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
 import type { Money } from "@foundmill/shared";
-import { PageGrid, cn, formatMoney, type SavedView } from "@foundmill/dugout";
+import { PageGrid, cn, formatMoney } from "@foundmill/dugout";
 import { useWidgetData } from "@foundmill/widgets/data";
-import { fitColumns, useTableWidth, type ColumnFit } from "../fit";
 
 /* ---------- Options (host or tests) ---------- */
 
@@ -110,22 +109,6 @@ export function fmtQuantity(q: number | string | null | undefined): string {
 export function fitTableHeight(rows: number, opts: { minRows?: number; maxRows?: number; rowHeight?: number } = {}): number {
   const { minRows = 4, maxRows = 18, rowHeight = 28 } = opts;
   return 41 + Math.min(maxRows, Math.max(minRows, rows)) * rowHeight;
-}
-
-/**
- * Column widths that fill the table's real width for the saved view on screen (DESIGN §2 "never clip"): every column
- * at the width its content needs, the spare width shared by grow weight, so the default view fits at 1280 with no
- * column cut at the panel edge and figures do not drift apart at 1440. Put `ref` on a wrapper around the DataTable and
- * pass `onActiveViewChange` to it.
- */
-export function useFittedColumns<K extends string>(specs: Record<K, ColumnFit>, views: readonly SavedView[], defaultViewId: string): { ref: RefCallback<HTMLElement>; sizes: Record<K, number>; onActiveViewChange: (id: string | null) => void } {
-  const [ref, width] = useTableWidth();
-  const [viewId, setViewId] = useState<string | null>(defaultViewId);
-  const columns = (views.find((v) => v.id === viewId) ?? views.find((v) => v.id === defaultViewId))?.columns ?? [];
-  const key = columns.join(",");
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` stands for the visible column list
-  const sizes = useMemo(() => fitColumns(width, specs, columns as K[]), [width, specs, key]);
-  return { ref, sizes, onActiveViewChange: setViewId };
 }
 
 /* ---------- Mutations ---------- */

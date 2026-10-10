@@ -11,8 +11,8 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { CONTRACT_NEXT, CONTRACT_STATUS_WORD, contractKindLabel, isExternalHref, readObligations, type Obligation } from "./legal-data";
-import { fitColumns, type ColumnFit } from "../fit";
-import { CONTRACT_PILL, FounderLinkOut, FounderOnlyChip, InlineError, Pill, Screen, fitTableHeight, fmtMoney, useAction, useCurrency, useFittedColumns, useNow } from "./shared";
+import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
+import { CONTRACT_PILL, FounderLinkOut, FounderOnlyChip, InlineError, Pill, Screen, fitTableHeight, fmtMoney, useAction, useCurrency, useNow } from "./shared";
 import type { BusinessGetResponse, ContractRow, ContractStatus, ContractsListResponse } from "./types";
 
 const CONTRACTS_INPUT = { limit: 200 } as const;
@@ -109,14 +109,8 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
   useBusinessEvents(() => list.refetch(), ["contract.signed"]);
 
   const rows = useMemo(() => (list.data?.items ?? []).filter((c) => !c.archivedAt), [list.data]);
-  // The columns on screen: the ones with a value in some row (the table hides empty ones), fewer beside an open contract.
-  const present = useMemo<ContractColumnId[]>(() => {
-    const dated = (k: "startsAt" | "endsAt" | "updatedAt") => rows.some((r) => !!r[k]);
-    const all = (Object.keys(CONTRACT_FIT) as ContractColumnId[]).filter((id) => (id === "startsAt" || id === "endsAt" || id === "updatedAt" ? dated(id) : true));
-    return selectedId ? all.filter((id) => CONTRACT_COLUMNS_BESIDE_DETAIL.includes(id)) : all;
-  }, [rows, selectedId]);
-  const fitted = useFittedColumns(CONTRACT_FIT, views, "all", present);
-  const columns = useMemo(() => contractColumns(businessId, currency, now, fitted.sizes).filter((c) => !selectedId || CONTRACT_COLUMNS_BESIDE_DETAIL.includes(c.id as ContractColumnId)), [businessId, currency, now, fitted.sizes, selectedId]);
+  // The table shares its spare width by the fit specs' weights itself (DataTable `meta.grow`), for whichever columns show.
+  const columns = useMemo(() => fitToGrow(contractColumns(businessId, currency, now), CONTRACT_FIT).filter((c) => !selectedId || CONTRACT_COLUMNS_BESIDE_DETAIL.includes(c.id as ContractColumnId)), [businessId, currency, now, selectedId]);
   const selected = useMemo(() => (selectedId ? ({ ...(rows.find((r) => r.id === selectedId) ?? {}), ...(detail.data ?? {}) } as ContractRow | undefined) : undefined), [rows, selectedId, detail.data]);
   const selectedRow = selected && selected.id ? selected : undefined;
   const obligations = useMemo(() => readObligations(selectedRow?.obligations, now), [selectedRow, now]);
@@ -229,8 +223,8 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
             <InlineError error={create.error} className="col-span-12" />
           </form>
         ) : null}
-        <div ref={fitted.ref} className="min-w-0">
-          <DataTable<ContractRow> aria-label="Contracts" data={rows} columns={columns} views={views} onViewsChange={setViews} defaultViewId="all" onActiveViewChange={fitted.onActiveViewChange} hideEmptyColumns height={fitTableHeight(rows.length, { minRows: showForm ? 4 : 6, maxRows: 16 })} exportFileName="contracts" rowActions={rowActions} onRowOpen={(r) => setSelectedId(r.id)} rowClassName={(r) => (r.id === selectedId ? "row-selected" : undefined)} />
+        <div className="min-w-0">
+          <DataTable<ContractRow> aria-label="Contracts" data={rows} columns={columns} views={views} onViewsChange={setViews} defaultViewId="all" hideEmptyColumns height={fitTableHeight(rows.length, { minRows: showForm ? 4 : 6, maxRows: 16 })} exportFileName="contracts" rowActions={rowActions} onRowOpen={(r) => setSelectedId(r.id)} rowClassName={(r) => (r.id === selectedId ? "row-selected" : undefined)} />
         </div>
         <InlineError error={action.error} className="px-panel-pad py-1" />
       </Panel>

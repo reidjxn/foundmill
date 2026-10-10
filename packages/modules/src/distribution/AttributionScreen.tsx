@@ -13,8 +13,8 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { MODEL_LABELS, attributionRows, buildChannelViews, funnelStages, isPartialJourney, modelInUse, type AttributionRow } from "./channel-data";
-import { fitColumns, type ColumnFit } from "../fit";
-import { EstimatedMoney, LINE_LABELS, Screen, channelLabel, fitTableHeight, plainWords, toDate, useAction, useFittedColumns } from "./shared";
+import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
+import { EstimatedMoney, LINE_LABELS, Screen, channelLabel, fitTableHeight, plainWords, toDate, useAction } from "./shared";
 import type { ChannelsListResponse, JourneyRow, Page } from "./types";
 
 export const ATTRIBUTION_VIEWS: SavedView[] = [
@@ -105,8 +105,7 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
   // A count no channel reports (every row 0, e.g. no lead capture yet) is noise, not data: its column is left out.
   const unmeasured = useMemo(() => (rows.length ? (["impressions", "leads", "signups"] as const).filter((k) => rows.every((r) => r[k] === 0)) : []), [rows]);
   const present = useMemo(() => (Object.keys(ATTRIBUTION_FIT) as AttributionColumnId[]).filter((id) => !(unmeasured as readonly string[]).includes(id)), [unmeasured]);
-  const fitted = useFittedColumns(ATTRIBUTION_FIT, views, "all", present);
-  const columns = useMemo(() => attributionColumns(cur, fitted.sizes).filter((c) => present.includes(c.id as AttributionColumnId)), [cur, fitted.sizes, present]);
+  const columns = useMemo(() => fitToGrow(attributionColumns(cur), ATTRIBUTION_FIT).filter((c) => present.includes(c.id as AttributionColumnId)), [cur, present]);
   const wins = useMemo(() => journeys.data?.items ?? [], [journeys.data]);
   const partialWins = wins.filter(isPartialJourney).length;
   const paying = wins.filter((w) => w.conversion.kind === "payment").length;
@@ -197,7 +196,7 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
         footer={<span>Share is of measured customers. Offline channels carry partial journeys because the touches before a code redemption are unknown.</span>}
         flush
       >
-        <div ref={fitted.ref} className="min-w-0">
+        <div className="min-w-0">
         <DataTable<AttributionRow>
           aria-label="Channel attribution"
           data={rows}
@@ -210,7 +209,6 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
           onRowOpen={(r) => openChannel(r.channelKey)}
           height={fitTableHeight(rows.length, { minRows: 6, maxRows: 15 })}
           exportFileName="channel-attribution"
-          onActiveViewChange={fitted.onActiveViewChange}
           empty={{ title: "No measured touches yet", children: "Once a channel runs, its customers land here with the share each one earns." }}
         />
         </div>

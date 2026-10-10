@@ -202,7 +202,7 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
               </RadioGroup>
             </Field>
             <div className="grid grid-cols-4 gap-gutter">
-              <Field htmlFor="profile-budget" label="Budget you can commit" hint="Your own money for the first year, before any revenue. Leave empty if none. Accepts 25k." error={show("budget")} className="col-span-3">
+              <Field htmlFor="profile-budget" label="Budget you can commit" hint="Your own money for the first year, before any revenue. Leave it empty if there is none; 25k works too." error={show("budget")} className="col-span-3">
                 <MoneyInput id="profile-budget" value={form.budget} onChange={(e) => set("budget", e.target.value)} placeholder="25000" invalid={Boolean(show("budget"))} currency={form.currency} />
               </Field>
               <Field htmlFor="profile-currency" label="Currency" error={show("currency")}>
@@ -224,7 +224,7 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
           </Section>
 
           <Section id="constraints" title="Constraints and risk">
-            <ChipField id="profile-constraints" label="Constraints" hint="Free text. The Ideation agent treats these as hard limits; 'surprise me' stays inside them." values={form.constraints} suggestions={CONSTRAINT_SUGGESTIONS} onChange={(v) => set("constraints", v)} placeholder="Add a constraint and press Enter" />
+            <ChipField id="profile-constraints" label="Constraints" hint="Write your own or pick one below. The Ideation agent treats every constraint as a hard limit, even when it surprises you." values={form.constraints} suggestions={CONSTRAINT_SUGGESTIONS} onChange={(v) => set("constraints", v)} placeholder="Add a constraint and press Enter" />
             <Field htmlFor="profile-risk" label="Risk appetite" required error={show("riskAppetite")}>
               <RadioGroup id="profile-risk" value={form.riskAppetite} onValueChange={(v) => set("riskAppetite", v)} className="grid-cols-3" aria-label="Risk appetite">
                 {RISK_OPTIONS.map((o) => (
@@ -306,11 +306,24 @@ function currencyName(code: string): string {
   }
 }
 
+/** The country's name for a two-letter code ("GB" → "United Kingdom"), so a stored code never reads as a bare id. */
+export function countryNameOf(value: string): string | null {
+  const code = value.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(code)) return null;
+  try {
+    const name = new Intl.DisplayNames(["en-GB"], { type: "region" }).of(code);
+    return name && name !== code ? name : null;
+  } catch {
+    return null;
+  }
+}
+
 function CountryInput({ id, value, onChange }: { id: string; value: string; onChange: (v: string) => void }) {
   const listId = `${id}-countries`;
+  const name = countryNameOf(value);
   return (
     <>
-      <Input id={id} list={listId} value={value} onChange={(e) => onChange(e.target.value)} placeholder="Country" autoComplete="off" />
+      <Input id={id} list={listId} value={value} onChange={(e) => onChange(e.target.value)} placeholder="Country" autoComplete="off" suffix={name ?? undefined} />
       <datalist id={listId}>
         {COUNTRIES.map((c) => (
           <option key={c} value={c} />

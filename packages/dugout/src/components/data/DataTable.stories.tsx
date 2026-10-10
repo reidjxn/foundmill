@@ -297,3 +297,35 @@ export const NumbersNeverTruncate: Story = {
   args: { data: [], columns: [] },
   render: () => <DataTable title="Usage this month" data={usage} columns={usageColumns} hideEmptyColumns height={200} footer={null} />,
 };
+
+const growColumns: DataTableColumn<LeadRow>[] = [
+  { accessorKey: "name", header: "Name", size: 150 },
+  { accessorKey: "company", header: "Company", size: 140, meta: { grow: 1 } },
+  {
+    accessorKey: "stage",
+    header: "Stage",
+    // Narrower than its widest pill on purpose: a chip-only column widens to fit, never cutting a pill.
+    size: 60,
+    cell: ({ getValue }) => {
+      const stage = getValue() as LeadStage;
+      return <StatusPill tone={STAGE_TONE[stage]}>{LEAD_STAGE_LABELS[stage]}</StatusPill>;
+    },
+  },
+  { accessorKey: "email", header: "Email", size: 180, meta: { grow: 2 } },
+  { accessorKey: "score", header: "Score", size: 56, meta: { numeric: true } },
+];
+
+/**
+ * Spare width by weight (`meta.grow`): Email takes two shares and Company one, in the header and the body alike, so the
+ * numbers stay together on the right. The Stage column fits its pills. The screen filters with its own search, so the
+ * table's Filter button is hidden (`hideFilter`).
+ */
+export const GrowingColumns: Story = {
+  args: { data: [], columns: [] },
+  render: () => (
+    <div className="flex flex-col gap-gutter">
+      <DataTable title="People" data={generateLeads(8, "grow")} columns={growColumns} height={260} hideFilter />
+      <DataTable title="People" data={generateLeads(8, "grow")} columns={growColumns} height={260} filterLabel="Filter rows" />
+    </div>
+  ),
+};

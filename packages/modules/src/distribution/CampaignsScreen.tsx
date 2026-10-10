@@ -28,8 +28,8 @@ import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/wid
 import type { ModuleScreenProps } from "../registry";
 import { APPROVAL_WORDS, CAMPAIGN_STATUS_WORDS, assetCounts, canTransition } from "./channel-data";
 import { ASSET_KIND_WORD } from "./channel-data";
-import { fitColumns, type ColumnFit } from "../fit";
-import { InlineError, Screen, channelLabel, fitTableHeight, searchParam, useAction, useFittedColumns } from "./shared";
+import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
+import { InlineError, Screen, channelLabel, fitTableHeight, searchParam, useAction } from "./shared";
 import type { AgentRow, AssetRow, CampaignRow, ChannelsListResponse, Page } from "./types";
 
 export interface CampaignTableRow extends CampaignRow {
@@ -131,8 +131,7 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
       return { ...c, channelLabel: ch ? channelLabel(ch.channelKey) : "Channel", assets: byCampaign.get(c.id) ?? [] };
     });
   }, [campaigns.data, channels.data, assets.data]);
-  const fitted = useFittedColumns(CAMPAIGN_FIT, views, "all");
-  const columns = useMemo(() => campaignColumns(fitted.sizes), [fitted.sizes]);
+  const columns = useMemo(() => fitToGrow(campaignColumns(), CAMPAIGN_FIT), []);
   const selected = useMemo(() => rows.find((r) => r.id === selectedId) ?? rows[0] ?? null, [rows, selectedId]);
 
   const setStatus = useCallback(
@@ -176,7 +175,7 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
         flush
       >
         <InlineError error={action.error} className="px-panel-pad pt-2" />
-        <div ref={fitted.ref} className="min-w-0">
+        <div className="min-w-0">
         <DataTable<CampaignTableRow>
           aria-label="Campaigns"
           data={rows}
@@ -190,7 +189,6 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
           rowClassName={(r) => (selected && r.id === selected.id ? "bg-white/4" : undefined)}
           height={fitTableHeight(rows.length, { minRows: 12, maxRows: 18 })}
           exportFileName="campaigns"
-          onActiveViewChange={fitted.onActiveViewChange}
           empty={{ title: "No campaigns yet", children: "Each channel on the board plans its first campaign here and asks for your approval before launch." }}
         />
         </div>

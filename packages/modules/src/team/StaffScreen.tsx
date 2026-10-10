@@ -9,7 +9,7 @@ import { ExternalLink, ShieldCheck, UserRoundMinus, UserRoundPlus, Users } from 
 import { Avatar, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EmptyState, EntityLink, Field, Input, Panel, SimpleSelect, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { MEMBERSHIP_ROLES, type MembershipRole } from "@foundmill/shared/constants";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
-import { fitColumns, plural, useTableWidth, type ColumnFit } from "../fit";
+import { fitColumns, fitToGrow, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { DECISION_LABELS, InlineError, ROLE_LABELS, STAFF_SECTIONS, Screen, memberEntity, memberName, permissionSummary, readMe, sectionLabel, useAction, useHumans, useMe, useNow, type Me } from "./shared";
 import type { MembershipRow, ResponsibilitiesResponse, SectionPermission } from "./types";
@@ -282,12 +282,12 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
   const [remove, setRemove] = useState<StaffRow | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const canAdmin = rows.find((r) => r.isMe)?.role === "owner" || rows.find((r) => r.isMe)?.role === "admin" || !me.userId;
-  const [tableRef, tableWidth] = useTableWidth();
-  const sizes = useMemo(() => fitColumns(tableWidth, STAFF_FIT, STAFF_VIEWS[0]!.columns as string[]), [tableWidth]);
+  // Each column at its minimum; the table shares the spare width by STAFF_FIT's weights itself (DataTable `meta.grow`).
+  const sizes = useMemo(() => fitColumns(null, STAFF_FIT, []), []);
   const onlyMe = rows.length > 0 && rows.every((r) => r.isMe);
 
   const columns = useMemo<DataTableColumn<StaffRow>[]>(
-    () => [
+    () => fitToGrow<StaffRow>([
       {
         id: "name",
         accessorKey: "name",
@@ -332,7 +332,7 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
       },
       { id: "approves", accessorFn: (r) => r.approves.length, header: "Approves", size: sizes.approves, meta: { filter: "number", csv: (r) => r.approves.join("; ") }, cell: ({ row }) => (row.original.approves.length ? <span className="block min-w-0 truncate" title={row.original.approves.join(", ")}>{row.original.approves.join(", ")}</span> : <span className="text-tertiary">—</span>) },
       { id: "joined", accessorKey: "joinedAt", header: "Joined", size: sizes.joined, cell: ({ row }) => (row.original.joinedAt ? <span className="text-secondary">{formatRelative(row.original.joinedAt, now)}</span> : "—") },
-    ],
+    ], STAFF_FIT),
     [businessId, me, navigate, now, sizes],
   );
 
@@ -380,7 +380,7 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
           </span>
         }
       >
-        <div ref={tableRef} className="min-w-0">
+        <div className="min-w-0">
           {/* The table is as tall as its rows (up to the window), so one person is not a screen of empty rows. */}
           <DataTable<StaffRow> aria-label="Staff" data={rows} columns={columns} views={views} onViewsChange={setViews} defaultViewId="all" rowActions={rowActions} onRowOpen={(row) => setEdit(row)} height={Math.min(typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 264), Math.max(1, rows.length) * ROW_PX + 42)} exportFileName="staff" className="border-0" />
         </div>

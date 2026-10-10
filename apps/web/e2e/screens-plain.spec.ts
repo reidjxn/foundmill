@@ -16,8 +16,9 @@ test.describe("screens in plain words", () => {
     await openBusiness(page, "crm");
     const grid = page.getByRole("grid", { name: "CRM records" });
     await expect(grid.getByRole("row").nth(1)).toBeVisible({ timeout: LONG });
-    // One filter control per job: the search's own chips say what they narrow, the table keeps "Filter".
-    await expect(page.getByTestId("crm-search").getByRole("button", { name: "Filter by role, stage or owner" })).toBeVisible();
+    // One filter control: the search's "Filter"; the table hides its own (a saved view's filters still show there).
+    await expect(page.getByTestId("crm-search").getByRole("button", { name: "Filter", exact: true })).toBeVisible();
+    await expect(page.getByTestId("crm-table-panel").getByRole("button", { name: "Filter", exact: true })).toHaveCount(0);
     // The agents' own records (filed under "squad" before the rename) are the hardest case: open one when listed.
     const agentRow = grid.getByRole("row").filter({ has: page.locator('[data-col="kind"]', { hasText: /^Agent$/ }) }).first();
     const row = (await agentRow.count()) ? agentRow : grid.getByRole("row").nth(1);
@@ -57,7 +58,7 @@ test.describe("screens in plain words", () => {
     const strip = page.getByRole("region", { name: "Status" });
     await expect(strip.getByText("Leaderboard position", { exact: true })).toBeVisible({ timeout: LONG });
     await expect(strip).not.toContainText(SNAKE, { timeout: LONG });
-    if (await page.getByTestId("kit-bar").getByText("No runway yet").count()) await expect(strip.getByText("None yet")).toBeVisible({ timeout: LONG });
+    if (await page.getByTestId("kit-bar").getByText("No runway yet").count()) await expect(strip.getByText(/^(No limit|Not known yet)$/)).toBeVisible({ timeout: LONG });
     // Quiet department cards say so briefly; the instruction to press Continue is not repeated in every "Next up".
     await expect(page.locator("[data-department]").filter({ hasText: "Continue plans the next cycle" })).toHaveCount(0);
   });

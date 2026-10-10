@@ -13,8 +13,8 @@ import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { PNL_CATEGORY_OPTIONS, categoryLabel, monthStart, plainWords, sectionOf, type PnlSection } from "./metrics";
 import { RecategoriseDialog } from "./RecategoriseDialog";
-import { fitColumns, type ColumnFit } from "../fit";
-import { Screen, fmtMoney, fmtSigned, useCurrency, useFittedColumns, useNow } from "./shared";
+import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
+import { Screen, fmtMoney, fmtSigned, useCurrency, useNow } from "./shared";
 import type { AccountRow, AccountsListResponse, CategorySource, TransactionRow, TransactionsListResponse } from "./types";
 
 export const CONSENT_WARN_DAYS = 7;
@@ -157,8 +157,8 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
   const accounts = useMemo(() => readAccounts(accountsQ.data), [accountsQ.data]);
   const rows = useMemo(() => txQ.data?.items ?? [], [txQ.data]);
   const monthIso = useMemo(() => monthStart(now, 0).toISOString(), [now]);
-  const fitted = useFittedColumns(TRANSACTION_FIT, views, "all");
-  const columns = useMemo(() => transactionColumns(accounts, businessId, monthIso, fitted.sizes), [accounts, businessId, monthIso, fitted.sizes]);
+  // The table shares its spare width by the fit specs' weights itself (DataTable `meta.grow`), at any width and view.
+  const columns = useMemo(() => fitToGrow(transactionColumns(accounts, businessId, monthIso), TRANSACTION_FIT), [accounts, businessId, monthIso]);
   const totals = useMemo(() => {
     const by = new Map<string, number>();
     for (const a of accounts) by.set(a.currency, (by.get(a.currency) ?? 0) + a.balanceMinor);
@@ -223,7 +223,7 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
             ))}
           </div>
         ) : null}
-        <div ref={fitted.ref} className="min-w-0">
+        <div className="min-w-0">
         <DataTable<TransactionRow>
           aria-label="Transactions"
           data={rows}
@@ -236,7 +236,6 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
           exportFileName="transactions"
           rowActions={rowActions}
           onRowOpen={(row) => setRecat(row)}
-          onActiveViewChange={fitted.onActiveViewChange}
           empty={accountId ? "No transactions in this account." : undefined}
         />
         </div>

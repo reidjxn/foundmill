@@ -12,7 +12,7 @@ import { AGENT_STATUSES } from "@foundmill/shared/constants";
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
-import { fitColumns, plural, useTableWidth, type ColumnFit } from "../fit";
+import { fitToGrow, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { CloneDialog, LoanDialog, ReleaseDialog } from "./dialogs";
 import { ModelChangeDialog, describeModelSet } from "./ModelChangeDialog";
@@ -68,15 +68,14 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
   const [clone, setClone] = useState<AgentRow | null>(null);
   const [loan, setLoan] = useState<AgentRow | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [tableRef, tableWidth] = useTableWidth();
-  const sizes = useMemo(() => fitColumns(tableWidth, SQUAD_FIT, TEAM_SQUAD_VIEWS[0]!.columns as string[]), [tableWidth]);
 
   const open = (agentId: string) => navigate(agentHref(businessId, agentId));
   const teamDept = departmentForModule(departments.data, "team");
   const recruitHref = routes.department(businessId, teamDept?.slug ?? "team", "recruitment");
 
   const columns = useMemo<DataTableColumn<SquadRow>[]>(() => {
-    const base = squadColumns({
+    // Sized from SQUAD_FIT; the table shares its spare width by the specs' weights itself (DataTable `meta.grow`).
+    const base = fitToGrow(squadColumns({
       now,
       onModelClick: (row) => {
         const a = byId.get(row.id);
@@ -97,10 +96,9 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
         ) : (
           <span className="text-tertiary">—</span>
         ),
-    });
+    }), SQUAD_FIT);
     return base.map((col): DataTableColumn<SquadRow> => {
-      const size = col.id ? sizes[col.id] : undefined;
-      const sized = size ? { ...col, size } : col;
+      const sized = col;
       if (col.id === "name") {
         return {
           ...sized,
@@ -125,7 +123,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
       return sized;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `open`/`navigate` are stable per data source
-  }, [businessId, byId, currency, now, sizes]);
+  }, [businessId, byId, currency, now]);
 
   const rowActions = (row: SquadRow): RowAction<SquadRow>[] => {
     const agent = byId.get(row.id);
@@ -170,7 +168,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
           </span>
         }
       >
-        <div ref={tableRef} className="min-w-0">
+        <div className="min-w-0">
           <DataTable<SquadRow>
             aria-label="Agents"
             data={rows}

@@ -12,8 +12,8 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { INCORPORATION_STATUS_WORD, ROUTE_META, entityTypeLabel, formatAddress, jurisdictionName, officerRows, readSteps, type OfficerRow } from "./legal-data";
-import { fitColumns, type ColumnFit } from "../fit";
-import { ENTITY_STATUS_PILL, Fact, InlineError, Pill, Screen, fitTableHeight, fmtMoney, humanise, useAction, useCurrency, useFittedColumns, useLegalStatus, useNow } from "./shared";
+import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
+import { ENTITY_STATUS_PILL, Fact, InlineError, Pill, Screen, fitTableHeight, fmtMoney, humanise, useAction, useCurrency, useLegalStatus, useNow } from "./shared";
 import type { IncorporationRow, LookupResult, OfficersResponse } from "./types";
 
 const OFFICERS_INPUT = { role: "officer", limit: 200 } as const;
@@ -97,8 +97,7 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
 
   const entity = status.data?.entity ?? null;
   const rows = useMemo(() => officerRows(entity, officers.data?.items), [entity, officers.data]);
-  const fitted = useFittedColumns(OFFICER_FIT, views, "all");
-  const columns = useMemo(() => officerColumns(businessId, fitted.sizes), [businessId, fitted.sizes]);
+  const columns = useMemo(() => fitToGrow(officerColumns(businessId), OFFICER_FIT), [businessId]);
   const events = useMemo(() => historyEvents(status.data?.history ?? []), [status.data?.history]);
   const loading = status.isLoading;
   const noEntity = !loading && !status.error && !entity;
@@ -280,8 +279,8 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
         meta={rows.length ? `${rows.length} officer${rows.length === 1 ? "" : "s"}` : undefined}
         footer={<span>Right-click an officer to open them in the CRM.</span>}
       >
-        <div ref={fitted.ref} className="min-w-0">
-          <DataTable<OfficerRow> aria-label="Officers" data={rows} columns={columns} getRowId={(r) => r.key} views={views} onViewsChange={setViews} defaultViewId="all" onActiveViewChange={fitted.onActiveViewChange} height={fitTableHeight(rows.length, { minRows: 3, maxRows: 10 })} exportFileName="officers" rowActions={officerActions} onRowOpen={(r) => r.entityId && navigate(routes.crm(businessId, r.entityId))} />
+        <div className="min-w-0">
+          <DataTable<OfficerRow> aria-label="Officers" data={rows} columns={columns} getRowId={(r) => r.key} views={views} onViewsChange={setViews} defaultViewId="all" height={fitTableHeight(rows.length, { minRows: 3, maxRows: 10 })} exportFileName="officers" rowActions={officerActions} onRowOpen={(r) => r.entityId && navigate(routes.crm(businessId, r.entityId))} />
         </div>
       </Panel>
 

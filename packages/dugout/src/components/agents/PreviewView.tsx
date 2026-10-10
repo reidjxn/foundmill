@@ -40,7 +40,7 @@ export function PreviewView({ preview, agentName, now = new Date(), className }:
           </Button>
         </div>
       ) : null}
-      <div className="relative min-h-0 flex-1 overflow-auto">
+      <div className="relative min-h-0 flex-1 overflow-auto" data-scroll-region="preview">
         {showLive ? (
           <iframe title={`Preview for ${agentName}`} src={preview.url ?? undefined} sandbox="allow-scripts allow-forms allow-same-origin allow-popups" className="size-full border-0 bg-white" />
         ) : (

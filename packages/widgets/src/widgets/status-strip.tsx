@@ -9,6 +9,7 @@ import { z } from "zod";
 import { Gauge } from "lucide-react";
 import { StatusStrip, formatNumber, type MetricTileProps } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
+import { RUNWAY_WORDS, runwayWords } from "../shared/runway";
 import { registerWidget, type WidgetProps } from "../registry";
 import { moduleHref, orderedDepartments, useDepartments } from "../shared/departments";
 import { WidgetFrame } from "../shared/frame";
@@ -46,22 +47,16 @@ export function squadHealth(departments: readonly DepartmentRow[] | undefined): 
 }
 
 /**
- * The runway tile. With a burn model it is the figure in months with its Estimate chip; without one it says so in the
- * same plain words as the top bar ("No runway yet": the label reads "Runway", the value "None yet") with the reason underneath, and no Estimate chip: nothing has been
- * estimated yet.
+ * The runway tile. With a burn model it is the figure in months with its Estimate chip; without one it says why in the
+ * shared runway words (shared/runway.ts: "No limit" when cash-flow positive, "Not known yet" otherwise) with the reason
+ * underneath, and no Estimate chip: nothing has been estimated yet.
  */
 export function runwayTile(finance: FinanceOverview | undefined, loading: boolean, onClick: () => void): MetricTileProps {
   const months = finance?.runway.months ?? null;
   const provenance = finance ? { source: "Cash ÷ net burn (trailing 3 months)", note: finance.burn.definition } : undefined;
   if (months === null) {
-    const caption = !finance
-      ? undefined
-      : finance.cash.accounts === 0
-        ? "Connect a bank to estimate it"
-        : finance.burn.netBurnMinor <= 0
-          ? "Cash-flow positive, so no limit yet"
-          : "Needs three months of bank history";
-    return { label: "Runway", value: loading ? null : "None yet", loading, caption, provenance, onClick };
+    const words = runwayWords(finance);
+    return { label: "Runway", value: loading ? null : (words?.value ?? RUNWAY_WORDS.no_bank.value), loading, caption: words?.caption, provenance, onClick };
   }
   return {
     label: "Runway",

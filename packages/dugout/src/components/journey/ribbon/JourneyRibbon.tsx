@@ -25,9 +25,9 @@ import {
   windowTotals,
   ZOOM_LABELS,
   PIN_HEIGHT,
-  PIN_INSET,
   PIN_LABEL_MAX,
-  pinChipWidth,
+  pinLaneY,
+  placePinChips,
   type MilestoneGlyphKind,
   type RibbonGeometry,
   type TrackBar,
@@ -122,6 +122,9 @@ const TICK_CHAR = 6.7;
 const RUNWAY_COLOUR = { neutral: "var(--text-secondary)", warn: "var(--status-warn)", bad: "var(--status-bad)" } as const;
 /** A dark halo behind SVG text so labels stay legible over lines and bars. */
 const HALO = { paintOrder: "stroke", stroke: "var(--surface-1)", strokeWidth: 3, strokeLinejoin: "round" } as const;
+
+/** A pin's label on its chip: cut with an ellipsis past PIN_LABEL_MAX (the full label is in its title). */
+const pinLabel = (label: string) => (label.length > PIN_LABEL_MAX ? `${label.slice(0, PIN_LABEL_MAX - 1)}…` : label);
 
 function bannerIcon(kind: string) {
   if (kind === "funding") return Banknote;
@@ -505,11 +508,34 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
   const todayTag = `Today · ${formatDate(today, "d MMM")}${liveCount > 0 ? ` · ${liveCount} live` : ""}`;
   // A chip is drawn while its day is in the window; the drop line carries it to the edge as it scrolls out.
   const inView = (p: { x: number }) => p.x - scrollX >= 0 && p.x - scrollX <= plotW;
-  const pinStyle = (x: number, label: string | null, y: number) => {
-    // A chip near the right edge flips to end at its drop line, so it is never cut by the plot's edge.
-    const w = label ? pinChipWidth(label) : PIN_HEIGHT;
-    const left = x - scrollX - PIN_INSET;
-    return left + w > plotW - 4 && left > w ? { right: plotW - (x - scrollX) - PIN_INSET, top: y } : { left, top: y };
+  // The Today tag in window pixels: centred on Today, kept inside the plot. Its width is measured once drawn (an
+  // estimate before that), so the pins can keep clear of exactly where it is.
+  const todayTagRef = useRef<HTMLSpanElement>(null);
+  const [todayTagW, setTodayTagW] = useState(0);
+  useLayoutEffect(() => {
+    const w = todayTagRef.current?.offsetWidth ?? 0;
+    if (w > 0) setTodayTagW((prev) => (Math.abs(w - prev) > 0.5 ? w : prev));
+  }, [todayTag, todayVisible]);
+  const tagW = todayTagW || todayTag.length * 6.9 + 18;
+  const todayTagCentre = Math.min(plotW - tagW / 2 - 2, Math.max(tagW / 2 + 2, geometry.todayX - scrollX));
+  // Pins never overlap each other or the Today tag (placed for this window: flips at the edge, other lanes, icons).
+  const chipPlacement = useMemo(
+    () =>
+      placePinChips(
+        [
+          ...geometry.milestones.filter(inView).map((m) => ({ id: m.id, x: m.x, y: m.y, label: m.showLabel ? pinLabel(m.label) : null })),
+          ...geometry.roadmap.filter(inView).map((r) => ({ id: r.id, x: r.x, y: r.y, label: r.showLabel ? pinLabel(r.label) : null })),
+        ],
+        { scrollX, plotW, avoid: todayVisible ? { left: todayTagCentre - tagW / 2, right: todayTagCentre + tagW / 2, y: pinLaneY(0) } : null },
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [geometry.milestones, geometry.roadmap, scrollX, plotW, todayVisible, todayTagCentre, tagW],
+  );
+  const pinY = (p: { id: string; y: number }) => chipPlacement.get(p.id)?.y ?? p.y;
+  const pinStyle = (id: string) => {
+    const c = chipPlacement.get(id);
+    if (!c) return undefined;
+    return c.anchor === "end" ? { right: plotW - c.right, top: c.y } : { left: c.left, top: c.y };
   };
 
   return (
@@ -744,8 +770,8 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
             {visibleMilestones.map((m) => (
               <g key={m.id} data-milestone={m.glyph}>
                 <title>{`${m.label} · ${formatDate(m.day)}`}</title>
-                <line x1={m.x} x2={m.x} y1={m.y + PIN_HEIGHT} y2={m.stemTo} stroke={m.glyph === "trophy" ? "var(--gold)" : "var(--text-2)"} strokeOpacity={m.glyph === "trophy" ? 0.55 : 0.4} strokeWidth={1} strokeDasharray="1 3" strokeLinecap="round" />
-                <circle cx={m.x} cy={m.y + PIN_HEIGHT + 1} r={2} fill={m.glyph === "trophy" ? "var(--gold)" : "var(--text-1)"} />
+                <line x1={m.x} x2={m.x} y1={pinY(m) + PIN_HEIGHT} y2={m.stemTo} stroke={m.glyph === "trophy" ? "var(--gold)" : "var(--text-2)"} strokeOpacity={m.glyph === "trophy" ? 0.55 : 0.4} strokeWidth={1} strokeDasharray="1 3" strokeLinecap="round" />
+                <circle cx={m.x} cy={pinY(m) + PIN_HEIGHT + 1} r={2} fill={m.glyph === "trophy" ? "var(--gold)" : "var(--text-1)"} />
                 <circle cx={m.x} cy={m.stemTo} r={2.25} fill={m.glyph === "trophy" ? "var(--gold)" : "var(--text-2)"} stroke="var(--surface-1)" strokeWidth={1.5} />
               </g>
             ))}
@@ -753,8 +779,8 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
             {visibleRoadmap.map((r) => (
               <g key={r.id} data-roadmap>
                 <title>{`Planned: ${r.label} · ${formatDate(r.day)}`}</title>
-                <line x1={r.x} x2={r.x} y1={r.y + PIN_HEIGHT} y2={layout.revenueBottom} stroke="var(--text-2)" strokeOpacity={0.35} strokeWidth={1} strokeDasharray="1 3" strokeLinecap="round" />
-                <circle cx={r.x} cy={r.y + PIN_HEIGHT + 1} r={2} fill="none" stroke="var(--text-2)" strokeWidth={1} />
+                <line x1={r.x} x2={r.x} y1={pinY(r) + PIN_HEIGHT} y2={layout.revenueBottom} stroke="var(--text-2)" strokeOpacity={0.35} strokeWidth={1} strokeDasharray="1 3" strokeLinecap="round" />
+                <circle cx={r.x} cy={pinY(r) + PIN_HEIGHT + 1} r={2} fill="none" stroke="var(--text-2)" strokeWidth={1} />
               </g>
             ))}
             {/* Runway: when the cash runs out (Estimate) */}
@@ -836,25 +862,27 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
       <div className="pointer-events-none absolute overflow-hidden" style={{ left: RIBBON_GUTTER, top: RIBBON_TOOLBAR, width: plotW, height: plotH }} data-ribbon-pins aria-hidden>
         {visibleMilestones.filter(inView).map((m) => {
           const Glyph = m.glyph === "banner" ? bannerIcon(m.kind) : GLYPH_ICON[m.glyph];
-          const label = m.label.length > PIN_LABEL_MAX ? `${m.label.slice(0, PIN_LABEL_MAX - 1)}…` : m.label;
+          const placed = chipPlacement.get(m.id);
+          if (!placed) return null;
           return (
-            <span key={m.id} className={cn("pin-chip absolute", !m.showLabel && "px-1")} data-kind={m.glyph === "trophy" ? "milestone" : "release"} style={pinStyle(m.x, m.showLabel ? label : null, m.y)} data-pin={m.id}>
+            <span key={m.id} className={cn("pin-chip absolute", !placed.label && "px-1")} data-kind={m.glyph === "trophy" ? "milestone" : "release"} style={pinStyle(m.id)} data-pin={m.id}>
               <Glyph size={12} strokeWidth={2} color={GLYPH_COLOUR[m.glyph]} aria-hidden />
-              {m.showLabel ? label : null}
+              {placed.label}
             </span>
           );
         })}
         {visibleRoadmap.filter(inView).map((r) => {
-          const label = r.label.length > PIN_LABEL_MAX ? `${r.label.slice(0, PIN_LABEL_MAX - 1)}…` : r.label;
+          const placed = chipPlacement.get(r.id);
+          if (!placed) return null;
           return (
-            <span key={r.id} className={cn("pin-chip absolute", !r.showLabel && "px-1")} data-kind="planned" style={pinStyle(r.x, r.showLabel ? label : null, r.y)} data-pin={r.id}>
+            <span key={r.id} className={cn("pin-chip absolute", !placed.label && "px-1")} data-kind="planned" style={pinStyle(r.id)} data-pin={r.id}>
               <Flag size={12} strokeWidth={2} aria-hidden />
-              {r.showLabel ? label : null}
+              {placed.label}
             </span>
           );
         })}
         {todayVisible ? (
-          <span className="today-pill absolute -translate-x-1/2" style={{ left: Math.min(plotW - 64, Math.max(64, geometry.todayX - scrollX)), top: layout.chapterBottom + 10 }} data-today-tag>
+          <span ref={todayTagRef} className="today-pill absolute -translate-x-1/2" style={{ left: todayTagCentre, top: pinLaneY(0) }} data-today-tag>
             {todayTag}
           </span>
         ) : null}

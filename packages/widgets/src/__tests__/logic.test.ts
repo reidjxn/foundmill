@@ -95,7 +95,7 @@ describe("status strip", () => {
     expect(squadHealth([])).toBeNull();
   });
 
-  it("speaks plain words: a board kind is never a stored key, no runway reads like the top bar", () => {
+  it("speaks plain words: a board kind is never a stored key, a missing runway says why", () => {
     expect(boardWords("customers_won")).toBe("Customers won");
     expect(boardWords("mrr_growth")).toBe("MRR growth");
     const base = { finance, ribbon: ribbon(14), departments, today: TODAY, currency: "EUR", loading: { finance: false, ribbon: false, departments: false, positions: false }, open: () => {} };
@@ -103,8 +103,13 @@ describe("status strip", () => {
     expect(untitled[5]!.caption).toBe("Customers won");
     expect(statusTiles({ ...base, live: true, positions: [] })[5]).toMatchObject({ value: "Not ranked" });
     const none = runwayTile({ ...finance, runway: { ...finance.runway, months: null } }, false, () => {});
-    expect(none).toMatchObject({ label: "Runway", value: "None yet" });
+    // One wording everywhere (shared/runway.ts): cash-flow positive is "No limit", otherwise "Not known yet" with the reason.
+    expect(none).toMatchObject({ label: "Runway", value: finance.burn.netBurnMinor <= 0 ? "No limit" : "Not known yet" });
     expect(none.estimate).toBeUndefined();
+    const positive = runwayTile({ ...finance, cash: { ...finance.cash, accounts: 1 }, burn: { ...finance.burn, netBurnMinor: -500 }, runway: { ...finance.runway, months: null } }, false, () => {});
+    expect(positive).toMatchObject({ value: "No limit", caption: "Cash-flow positive, so no limit yet" });
+    const noBank = runwayTile({ ...finance, cash: { ...finance.cash, accounts: 0 }, runway: { ...finance.runway, months: null } }, false, () => {});
+    expect(noBank).toMatchObject({ value: "Not known yet", caption: "Connect a bank to estimate it" });
   });
 });
 

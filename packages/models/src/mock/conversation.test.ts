@@ -192,7 +192,7 @@ describe("mock conversation route (audit-conversation §4)", () => {
     const ok = await reply(input(DECISION, "OK, go ahead"));
     expectShape(ok);
     expect(ok.hand_off).toBeNull();
-    expect(ok.bubbles).toEqual(["Shall I go with Outbound to a narrow ICP?", "Nothing is decided until you choose."]);
+    expect(ok.bubbles).toEqual(["Shall I go with “Outbound to a narrow ICP”?", "Nothing is decided until you choose."]);
     expect(ok.quick_replies[0]).toMatchObject({ kind: "choose_option", option_id: "outbound", recommended: true });
     const no = await reply(input(DECISION, "Not now"));
     expectShape(no);

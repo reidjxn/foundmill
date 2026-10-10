@@ -9,7 +9,7 @@ import { Check, LogOut } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { APP_NAME } from "@foundmill/config";
-import { Icon, Wordmark, cn } from "@foundmill/dugout";
+import { Icon, ToastPlacement, Wordmark, cn } from "@foundmill/dugout";
 import { LinkButton } from "./LinkButton";
 
 export type StudioStep = "profile" | "new" | "ideate" | "import" | "compare" | "commit";
@@ -57,6 +57,8 @@ export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, 
     <div className="relative isolate flex min-h-screen flex-col bg-canvas text-primary" data-testid="studio-frame" data-step={step}>
       {/* The landing page's light in Foundmill steel: there is no business yet, so no brand colour of its own. */}
       <div aria-hidden className="brand-backdrop -z-10" />
+      {/* No sidebar here: toasts go bottom right, never onto the first column of cards. */}
+      <ToastPlacement position="bottom-right" sidebar="none" />
       <header className="first-run-bar sticky top-0 z-20 flex h-kitbar shrink-0 items-center gap-8 px-gutter">
         <Link href="/" className="flex items-center text-primary hover:no-underline" aria-label={`${APP_NAME} home`}>
           <Wordmark height={20} label={APP_NAME} />

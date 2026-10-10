@@ -125,11 +125,13 @@ function Portrait({ details }: { details: EntityDetails }) {
 export interface EntityCardProps {
   details: EntityDetails;
   onOpen?: (entity: EntityRef, event: MouseEvent) => void;
+  /** Show the kind chip ("Person", "Organisation"…). Off when the kind is not known, so the card never guesses. */
+  showKind?: boolean;
   className?: string;
 }
 
 /** The 320 px card: avatar/logo, name, kind/role chips, three facts, actions (DESIGN §8). Also usable inline. */
-export function EntityCard({ details, onOpen, className }: EntityCardProps) {
+export function EntityCard({ details, onOpen, showKind = true, className }: EntityCardProps) {
   const facts = (details.facts ?? []).slice(0, 3);
   return (
     <div className={cn("flex flex-col gap-2", className)} data-entity-card={details.id}>
@@ -146,19 +148,19 @@ export function EntityCard({ details, onOpen, className }: EntityCardProps) {
                     onOpen(details, e);
                   }
                 }}
-                className="t-display-sm entity-link truncate text-primary"
+                className="t-display-sm entity-link text-balance break-words text-primary"
               >
                 {details.name}
               </a>
             ) : (
-              <span className="t-display-sm truncate text-primary">{details.name}</span>
+              <span className="t-display-sm text-balance break-words text-primary">{details.name}</span>
             )}
           </div>
           {details.subtitle ? (
-            <p className="truncate text-small text-secondary">{details.subtitle}</p>
+            <p className="break-words text-small text-secondary">{details.subtitle}</p>
           ) : null}
-          <div className="mt-1 flex flex-wrap gap-1">
-            <Chip tone="neutral">{ENTITY_KIND_LABELS[details.kind]}</Chip>
+          <div className="mt-1 flex flex-wrap gap-1 empty:hidden">
+            {showKind ? <Chip tone="neutral">{ENTITY_KIND_LABELS[details.kind]}</Chip> : null}
             {(details.chips ?? []).map((c) => (
               <Chip key={c.label} tone={c.tone ?? "neutral"} icon={c.icon}>
                 {c.label}
@@ -217,6 +219,8 @@ export interface EntityLinkProps extends Omit<
   hoverCard?: boolean;
   /** Turn the right-click menu off. */
   contextMenu?: boolean;
+  /** The markup did not say what the entity is: the hover card shows no kind chip rather than guess ("Person"). */
+  kindUnknown?: boolean;
   /** No longer used: entity links never carry a kind icon (founder, 2026-10-09). Kept so existing callers compile. */
   hideIcon?: boolean;
   /** Mark the link as unverified (dotted underline in the secondary text colour, title). */
@@ -239,6 +243,7 @@ export const EntityLink = forwardRef<HTMLAnchorElement, EntityLinkProps>(functio
     hoverCard = true,
     contextMenu = true,
     hideIcon: _hideIcon,
+    kindUnknown = false,
     unverified,
     className,
     ...rest
@@ -297,6 +302,7 @@ export const EntityLink = forwardRef<HTMLAnchorElement, EntityLinkProps>(functio
           <EntityCard
             details={{ id: entity.id, kind: kind ?? "person", name, ...(href ? { href } : {}) }}
             onOpen={open}
+            showKind={kind !== undefined && !kindUnknown}
           />
         )}
       </HoverCardContent>

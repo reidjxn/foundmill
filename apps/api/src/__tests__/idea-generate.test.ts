@@ -10,7 +10,7 @@ import { MockModelClient, ModelAbortedError, ModelOutputError, ModelUnavailableE
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app";
 import { SINGLE_CONCEPT_MAX_TOKENS, type DraftEvent } from "../routers/idea";
-import { concurrencyLimit, IDEATION_TOO_LONG_MESSAGE } from "../services/ideation";
+import { concurrencyLimit, IDEATION_LIMITS, IDEATION_TOO_LONG_MESSAGE, ideationLimiter, takeIdeationAllowance } from "../services/ideation";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -181,6 +181,35 @@ describe("idea.draft limits and errors", () => {
     const tooLong: ModelClient = { mode: "mock", complete: (async () => { throw new ModelOutputError("truncated", {}, "max_tokens"); }) as ModelClient["complete"] };
     const second = await callerFor(tooLong, "toolong@test.local");
     await expect(collect(await second.caller.idea.draft({ prompt: "x" }))).rejects.toMatchObject({ code: "BAD_GATEWAY", message: IDEATION_TOO_LONG_MESSAGE });
+  });
+});
+
+describe("drafting allowance (security review 2026-10-10)", () => {
+  it("bounds drafts per person: past the allowance a draft is refused before any model call; another founder is unaffected", async () => {
+    ideationLimiter.reset();
+    const mock = new MockModelClient();
+    const { userId, caller } = await callerFor(mock, "ideas-allowance@test.local");
+    // A set is a slate plus up to twelve cards (each retried once): every draft must count, streamed or not.
+    for (let i = 0; i < IDEATION_LIMITS.hour.limit; i++) takeIdeationAllowance(userId);
+    await expect(caller.idea.generate({ prompt: "x" })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+    await expect(caller.idea.generate({ prompt: "x", single: true })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+    await expect(collect(await caller.idea.draft({ prompt: "x" }))).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/Drafting limit reached/) });
+    expect(mock.history).toHaveLength(0);
+
+    const other = await callerFor(new MockModelClient(), "ideas-allowance-other@test.local");
+    expect((await other.caller.idea.generate({ prompt: "x", single: true })).ideas).toHaveLength(1);
+    ideationLimiter.reset();
+  });
+
+  it("a draft refused for a bad import job spends no allowance", async () => {
+    ideationLimiter.reset();
+    const { userId, caller } = await callerFor(new MockModelClient(), "ideas-allowance-bad@test.local");
+    for (let i = 0; i < IDEATION_LIMITS.hour.limit - 1; i++) takeIdeationAllowance(userId);
+    await expect(caller.idea.generate({ prompt: "x", importJobId: "not-a-real-import-job" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // The last draft of the hour is still there.
+    expect((await caller.idea.generate({ prompt: "x", single: true })).ideas).toHaveLength(1);
+    await expect(caller.idea.generate({ prompt: "x", single: true })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+    ideationLimiter.reset();
   });
 });
 

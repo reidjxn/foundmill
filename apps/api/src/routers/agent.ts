@@ -203,7 +203,7 @@ export const agentRouter = router({
         for (const agent of targets) {
           const r = resolveModel(routeOf(agent), input.modelKey as ModelKey);
           if (r.locked && r.modelKey !== input.modelKey) {
-            skipped.push({ agentId: agent.id, reason: r.warning ?? "locked route" });
+            skipped.push({ agentId: agent.id, reason: r.warning ?? "this work is locked to one model" });
             continue;
           }
           if (r.warning) warnings.push(`${agent.name}: ${r.warning}`);

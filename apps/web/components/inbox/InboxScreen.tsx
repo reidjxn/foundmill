@@ -7,7 +7,7 @@
  * Selection lives in the URL (`/b/[bid]/inbox/[itemId]`) and is changed with `history.pushState`, which Next's app
  * router integrates with `usePathname`, so J/K never re-renders the server page.
  */
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Inbox as InboxIcon, RefreshCw } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -70,6 +70,9 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
   );
   const pages = listQ.data?.pages;
   const agents = useMemo(() => agentIndex(departments), [departments]);
+  // The founder's own notes carry the founder's initials ("JR"), never the letters of "You".
+  const founderQ = useQuery(trpc.founder.profile.get.queryOptions(undefined, { staleTime: 5 * 60_000 }));
+  const founderName = founderQ.data?.profile?.displayName?.trim() || undefined;
   const rows = useMemo<InboxListRow[]>(() => {
     const seen = new Set<string>();
     const out: InboxListRow[] = [];
@@ -151,7 +154,7 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
   return (
     <div className="flex min-h-0 flex-1" data-testid="inbox-screen" data-tab={tab} data-selected={selectedId ?? undefined}>
       <aside className="flex min-h-0 shrink-0 flex-col border-r border-subtle bg-panel" style={{ width: INBOX_LIST_WIDTH }} aria-label={`${INBOX_TAB_LABELS[tab]} notes`} data-testid="inbox-pane">
-        <InboxList rows={rows} selectedId={selectedId} onSelect={select} loading={listQ.isLoading} hasMore={!!listQ.hasNextPage} loadingMore={listQ.isFetchingNextPage} onLoadMore={() => void listQ.fetchNextPage()} emptyText={EMPTY_TEXT[tab]} />
+        <InboxList rows={rows} selectedId={selectedId} onSelect={select} loading={listQ.isLoading} hasMore={!!listQ.hasNextPage} loadingMore={listQ.isFetchingNextPage} onLoadMore={() => void listQ.fetchNextPage()} emptyText={EMPTY_TEXT[tab]} founderName={founderName} />
       </aside>
       <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Reading pane" data-testid="reading-pane">
         {selectedId ? (

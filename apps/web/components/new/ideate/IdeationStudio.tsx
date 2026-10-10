@@ -11,7 +11,7 @@
  * quick replies), Discard (idea.discard; reversible from the tray). Select 2–4
  * cards → Compare. History opens every version. ⌘/Ctrl+Enter drafts from anywhere on the page.
  *
- * Ideation is private: no business exists yet, so there is no kit bar and nothing reaches LIVE.
+ * Ideation is private: no business exists yet, so there is no kit bar and nothing reaches Live.
  */
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Bookmark, CircleAlert, CircleCheck, Columns3, FileText, History, Info, Layers, Plus, RotateCcw, Trash2, X } from "lucide-react";
@@ -283,16 +283,16 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
         <div className="flex h-panel-header items-center gap-2 border-b border-subtle px-panel-pad">
           <FileText size={14} className="text-secondary" aria-hidden />
           <span className="t-title">Brief for the Ideation agent</span>
-          <span className="ml-auto text-small text-secondary">Private · nothing reaches LIVE</span>
+          <span className="ml-auto text-small text-secondary">Private · nothing reaches Live</span>
         </div>
         <div className={cn("flex flex-col gap-3 p-panel-pad", showHero && "p-5")}>
           {showHero ? (
             <div className="mb-1">
               <h2 className="t-display-lg">What should exist that does not yet?</h2>
-              <p className="mt-1 max-w-[640px] text-body text-secondary">A concept, a problem, a market, or nothing at all. The Ideation agent drafts six to twelve cards and rates each on ten attributes, with the reasoning behind every rating. Ask the Research agent about any card to question its market, competitors or pricing.</p>
+              <p className="mt-2 max-w-reading text-body text-secondary">A concept, a problem, a market, or nothing at all. The Ideation agent drafts six to twelve cards and rates each on ten attributes, with the reasoning behind every rating. Ask the Research agent about any card to question its market, competitors or pricing.</p>
             </div>
           ) : null}
-          <Textarea id="ideation-prompt" aria-label="Brief" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={showHero ? 4 : 2} maxLength={4000} placeholder={`Leave empty to ${SURPRISE}.`} disabled={busy} autoGrow />
+          <Textarea id="ideation-prompt" aria-label="Brief" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={showHero ? 4 : 2} maxLength={4000} placeholder={`Leave empty to ${SURPRISE}.`} disabled={busy} autoGrow className={showHero ? "min-h-20" : "min-h-14"} />
           <div className="flex flex-wrap items-center gap-2">
             <SimpleSelect aria-label="Archetype hint" value={archetypeHint} onValueChange={setArchetypeHint} options={ARCHETYPE_OPTIONS} controlSize="sm" className="w-52" disabled={busy} />
             {constraints.length > 0 ? (

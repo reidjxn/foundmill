@@ -85,6 +85,11 @@ export type RouteResolution = {
 
 const RANK: Record<ModelKey, number> = { haiku: 0, sonnet: 1, opus: 2 };
 
+/** A model key as a founder reads it in a warning ("opus" → "Opus"); never the route's internal name. */
+function modelWord(key: ModelKey): string {
+  return key.charAt(0).toUpperCase() + key.slice(1);
+}
+
 /** Resolve the model for a route, honouring locks and downgrade warnings (BUILD §10.1, §11.10 "Model selection"). */
 export function resolveModel(route: RouteKey, override?: ModelKey): RouteResolution {
   const def: RouteDefinition = ROUTES[route];
@@ -93,11 +98,11 @@ export function resolveModel(route: RouteKey, override?: ModelKey): RouteResolut
   let warning: string | undefined;
   if (override && override !== def.model) {
     if (locked) {
-      warning = `Route "${route}" is locked to ${def.model}; override "${override}" ignored.`;
+      warning = `This work is locked to ${modelWord(def.model)}, so ${modelWord(override)} is not used for it.`;
     } else {
       modelKey = override;
       if (def.warnOnDowngrade && RANK[override] < RANK[def.model]) {
-        warning = `Downgrading "${route}" from ${def.model} to ${override} reduces quality of planning and routing.`;
+        warning = `Moving from ${modelWord(def.model)} to ${modelWord(override)} lowers the quality of planning and routing.`;
       }
     }
   }

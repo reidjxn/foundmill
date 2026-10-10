@@ -1,27 +1,19 @@
 "use client";
 /**
  * The 380 px Inbox list (DESIGN §9 Inbox, DIRECTION #8): avatar 32, the subject in body-strong wrapping to as many
- * lines as it needs (never ellipsised), the time right, then one status tag (icon + word: "Respond", "Win",
+ * lines as it needs (never ellipsised), the time right, then one status tag (icon + word: "Respond", "Customer",
  * "Milestone", "Update"…) before a one-line preview. A won customer keeps the gold left edge.
  */
-import { Check, FileText, Flag, Inbox, MessageSquareReply, Mail, RefreshCw, TriangleAlert, UserCheck } from "lucide-react";
+import { Inbox } from "lucide-react";
+import { NOTE_TAG_ICONS } from "@foundmill/widgets/shared/note-tags";
 import { useEffect, useRef } from "react";
 import { APP_NAME } from "@foundmill/config";
 import { Avatar, Button, Chip, EmptyState, Skeleton, formatRelative, type ChipTone, type IconComponent } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import type { InboxRowModel, NoteTag, TagIcon } from "./logic";
 
-/** Lucide glyph per tag (the word carries the meaning; the icon and the tone repeat it). */
-export const TAG_ICONS: Record<TagIcon, IconComponent> = {
-  respond: MessageSquareReply,
-  win: UserCheck,
-  milestone: Flag,
-  warning: TriangleAlert,
-  update: RefreshCw,
-  report: FileText,
-  message: Mail,
-  decided: Check,
-};
+/** Lucide glyph per tag (the word carries the meaning; the icon and the tone repeat it). Shared with Home's preview. */
+export const TAG_ICONS: Record<TagIcon, IconComponent> = NOTE_TAG_ICONS;
 
 /** The tag as a chip: icon + word, the tone a second signal, never the only one. */
 export function NoteTagChip({ tag, size = "row", testId }: { tag: NoteTag; size?: "row" | "header"; testId?: string }) {
@@ -57,9 +49,11 @@ export interface InboxListProps {
   loadingMore?: boolean;
   onLoadMore: () => void;
   emptyText: string;
+  /** The founder's name, for the initials on the founder's own notes. */
+  founderName?: string;
 }
 
-export function InboxList({ rows, selectedId, onSelect, loading, hasMore, loadingMore, onLoadMore, emptyText }: InboxListProps) {
+export function InboxList({ rows, selectedId, onSelect, loading, hasMore, loadingMore, onLoadMore, emptyText, founderName }: InboxListProps) {
   const listRef = useRef<HTMLUListElement>(null);
   useEffect(() => {
     if (!selectedId) return;
@@ -112,7 +106,7 @@ export function InboxList({ rows, selectedId, onSelect, loading, hasMore, loadin
                 aria-label={`${row.subject}. ${row.tag.word}${row.needsAnswer && row.tag.word !== "Respond" ? ", needs an answer" : ""}${row.won ? ", customer won" : ""}`}
               >
                 <span className="shrink-0 pt-0.5">
-                  {row.agent ? <Avatar size={32} name={row.agent.name} agent={{ seed: row.agent.seed, dept: row.agent.dept }} /> : <Avatar size={32} name={row.fromUser ? "You" : APP_NAME} />}
+                  {row.agent ? <Avatar size={32} name={row.agent.name} agent={{ seed: row.agent.seed, dept: row.agent.dept }} /> : <Avatar size={32} name={row.fromUser ? (founderName ?? "You") : APP_NAME} />}
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="flex items-start gap-2">

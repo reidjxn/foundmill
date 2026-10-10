@@ -6,6 +6,8 @@
 import type { DecisionAnswer, DecisionOption, MetricTileProps, TabItem } from "@foundmill/dugout";
 import type { InboxItemType, InboxState, Money } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { runwayWords } from "@foundmill/widgets/shared/runway";
+import { NOTE_TYPE_TAGS, noteRowTag, type NoteTag as SharedNoteTag, type NoteTagIcon, type NoteTagTone } from "@foundmill/widgets/shared/note-tags";
 
 // --- tabs --------------------------------------------------------------------------------------------------------------
 
@@ -67,41 +69,24 @@ export function previewLine(bodyMd: string, max = 120): string {
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
 }
 
-/** The tag a row and the reading pane carry (DIRECTION #8): an icon and a word, so colour is never the only signal. */
-export type TagTone = "bad" | "warn" | "info" | "good" | "neutral" | "gold";
-export type TagIcon = "respond" | "win" | "milestone" | "warning" | "update" | "report" | "message" | "decided";
-export interface NoteTag {
-  word: string;
-  tone: TagTone;
-  icon: TagIcon;
-}
-
-const TYPE_TAG: Record<InboxItemType, NoteTag> = {
-  decision: { word: "Decided", tone: "neutral", icon: "decided" },
-  customer_won: { word: "Win", tone: "gold", icon: "win" },
-  warning: { word: "Warning", tone: "warn", icon: "warning" },
-  update: { word: "Update", tone: "info", icon: "update" },
-  milestone: { word: "Milestone", tone: "good", icon: "milestone" },
-  report: { word: "Report", tone: "neutral", icon: "report" },
-  human_message: { word: "Message", tone: "info", icon: "message" },
-};
+/** The tag a row and the reading pane carry (DIRECTION #8): one vocabulary with Home's preview (widgets/shared/note-tags). */
+export type TagTone = NoteTagTone;
+export type TagIcon = NoteTagIcon;
+export type NoteTag = SharedNoteTag;
 
 /**
- * One tag per row: a won customer reads as a win ("Win", gold), anything waiting on the founder says "Respond", the
- * rest name their kind ("Milestone", "Update", "Report", "Decided" once a decision is answered).
+ * One tag per row: a won customer reads "Customer" (gold), anything waiting on the founder says "Respond", the rest
+ * name their kind ("Milestone", "Update", "Report", "Decided" once a decision is answered).
  */
 export function rowTag(item: Pick<InboxRowInput, "type" | "state" | "blocksContinue">): NoteTag {
-  if (item.type === "customer_won") return TYPE_TAG.customer_won;
-  const answered = item.state === "answered" || item.state === "archived";
-  if (!answered && (item.blocksContinue || item.type === "decision")) return { word: "Respond", tone: "bad", icon: "respond" };
-  return TYPE_TAG[item.type];
+  return noteRowTag(item);
 }
 
 /** The reading pane's type tag: the same vocabulary, a little fuller ("Needs your call", "Customer won"). */
 export function headerTag(type: InboxItemType, answered: boolean, blocksContinue: boolean): NoteTag {
   if (type === "customer_won") return { word: "Customer won", tone: "gold", icon: "win" };
   if (!answered && (type === "decision" || blocksContinue)) return { word: "Needs your call", tone: "bad", icon: "respond" };
-  return TYPE_TAG[type];
+  return NOTE_TYPE_TAGS[type];
 }
 
 export interface InboxRowModel {
@@ -111,7 +96,7 @@ export interface InboxRowModel {
   createdAt: Date | string;
   /** The item waits for an answer ("Respond" tag). */
   needsAnswer: boolean;
-  /** Gold left edge and the "Win" tag: a won customer. */
+  /** Gold left edge and the "Customer" tag: a won customer. */
   won: boolean;
   unread: boolean;
   tone: RowTone;
@@ -204,6 +189,31 @@ export function decisionDeadline(decision: unknown, now = new Date()): string | 
  */
 export function hasAgentDesk(type: InboxItemType): boolean {
   return type !== "human_message";
+}
+
+/**
+ * The agent's first line under a note (DESIGN §8 Conversation: short, first person, specific): it picks up the note the
+ * founder is reading instead of a generic greeting, and names its recommendation when a decision is still open.
+ */
+export function noteOpener(type: InboxItemType, options: readonly Pick<DecisionOption, "label" | "recommended">[], answered: boolean): string | null {
+  const rec = options.find((o) => o.recommended);
+  if (type === "decision" && rec && !answered) return `I'd go with “${rec.label}”. Ask me anything before you decide.`;
+  switch (type) {
+    case "decision":
+      return answered ? "That one is decided. Ask me how it is going, or what comes next." : "Ask me anything before you decide.";
+    case "customer_won":
+      return "A new customer. Ask me how they found us, or what I'd do next.";
+    case "update":
+      return "That is where the work stands. Ask me what's blocking it, or what's next.";
+    case "warning":
+      return "Ask me what this needs from you, and by when.";
+    case "milestone":
+      return "Ask me what got us here, or what the next milestone is.";
+    case "report":
+      return "Ask me about any figure in this report.";
+    default:
+      return null;
+  }
 }
 
 export function decisionExpired(decision: unknown, now = new Date()): boolean {
@@ -364,9 +374,9 @@ export function statusStripTiles(strip: unknown, sources: MetricSources): Metric
         case "cash":
           return { label: "Cash", value: f ? { amountMinor: f.cash.amountMinor, currency } : null, provenance: provenance(m, "Bank balances") };
         case "runway": {
-          // No runway when nothing burns: say so rather than "—" (finance.overview returns null for net burn ≤ 0).
-          const positive = f && f.runway.months === null && f.burn.netBurnMinor <= 0;
-          if (positive) return { label: "Runway", value: "No limit", caption: "Cash in covers cash out", provenance: provenance(m, "Cash ÷ net burn") };
+          // No figure: the shared runway words (Home, Finance and the note say the same), never a bare "—".
+          const words = runwayWords(f);
+          if (words) return { label: "Runway", value: words.value, caption: words.caption, provenance: provenance(m, "Cash ÷ net burn") };
           return { label: "Runway", value: f?.runway.months ?? null, format: "decimal", unit: "months", estimate: "estimate", provenance: provenance(m, "Cash ÷ net burn") };
         }
         case "burn":

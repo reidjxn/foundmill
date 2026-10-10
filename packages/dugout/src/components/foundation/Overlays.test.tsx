@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Sparkles, Users } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "./Dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuTrigger } from "./DropdownMenu";
 import { EmptyState } from "./EmptyState";
 import { ErrorState } from "./ErrorState";
 import { Skeleton, SkeletonRows, SkeletonText } from "./Skeleton";
 import { Spinner } from "./Spinner";
-import { ToastProvider, toastStack, useToast, type ToastOptions } from "./Toast";
+import { ToastPlacement, ToastProvider, toastStack, useToast, type ToastOptions } from "./Toast";
 import { menuContentClass, menuItemClass, triggerChevronClass } from "./menuStyles";
 
 describe("menus", () => {
@@ -112,6 +112,34 @@ describe("Toast", () => {
     expect(saved.querySelector("[data-toast-timer]")).not.toBeNull();
     expect(saved.style.getPropertyValue("--toast-duration")).toBe("5000ms");
     expect(synced.querySelector("[data-toast-timer]")).toBeNull();
+  });
+
+  it("follows the mounted layout: beside the shell's sidebar at its width, bottom right in a frame without one", async () => {
+    const view = (layout: ReactNode) => (
+      <ToastProvider>
+        {layout}
+        <Fire toasts={[{ title: "Saved" }]} />
+      </ToastProvider>
+    );
+    const { rerender } = render(view(<ToastPlacement position="bottom-left" sidebar="collapsed" />));
+    const viewport = () => document.querySelector("[data-dugout-toasts]")!;
+    expect(viewport().getAttribute("data-position")).toBe("bottom-left");
+    expect(viewport().getAttribute("data-sidebar")).toBe("collapsed");
+    rerender(view(<ToastPlacement position="bottom-right" sidebar="none" />));
+    expect(viewport().getAttribute("data-position")).toBe("bottom-right");
+    // The layout gone, the stack goes back to the default.
+    rerender(view(null));
+    expect(viewport().getAttribute("data-position")).toBe("bottom-left");
+    expect(viewport().getAttribute("data-sidebar")).toBe("expanded");
+  });
+
+  it("keeps an explicit position whatever the layout says", () => {
+    render(
+      <ToastProvider position="top-right">
+        <ToastPlacement position="bottom-right" />
+      </ToastProvider>,
+    );
+    expect(document.querySelector("[data-dugout-toasts]")?.getAttribute("data-position")).toBe("top-right");
   });
 
   it("keeps toasts deeper than three hidden in the stack", async () => {

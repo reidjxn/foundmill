@@ -11,8 +11,8 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { capUsedPct, formatMonth, monthKey, monthStart, outputPerHundred, sectionOf, trailingMonths } from "./metrics";
-import { fitColumns, type ColumnFit } from "../fit";
-import { Screen, fmtMoney, toDate, useCurrency, useFittedColumns, useNow } from "./shared";
+import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
+import { Screen, fmtMoney, toDate, useCurrency, useNow } from "./shared";
 import type { MembershipRow, PnlResponse, TaskRow, TasksListResponse, TeamAgentRow, WageRow, WagesResponse } from "./types";
 
 export const CAP_WARN_PCT = 80;
@@ -179,8 +179,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
   const [views, setViews] = useState<SavedView[]>(WAGE_VIEWS);
 
   const rows = useMemo(() => wageBillRows(wages.data?.rows ?? [], readAgents(agents.data), tasks.data?.items ?? [], period), [wages.data, agents.data, tasks.data, period]);
-  const fitted = useFittedColumns(WAGE_FIT, views, "all");
-  const columns = useMemo(() => wageColumns(businessId, currency, fitted.sizes), [businessId, currency, fitted.sizes]);
+  const columns = useMemo(() => fitToGrow(wageColumns(businessId, currency), WAGE_FIT), [businessId, currency]);
   const squadMinor = rows.reduce((n, r) => n + r.costMinor, 0);
   const tasksDone = rows.reduce((n, r) => n + r.tasksDone, 0);
   const payrollMinor = useMemo(() => {
@@ -233,8 +232,8 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
         }
         footer={<span className="tabular-nums">{rows.length} agents · {fmtMoney(squadMinor, currency)} in {formatMonth(period)} · Estimate: metered usage at list prices</span>}
       >
-        <div ref={fitted.ref} className="min-w-0">
-          <DataTable<WageBillRow> aria-label="Team wage bill" data={rows} columns={columns} getRowId={(r) => r.agentId} views={views} onViewsChange={setViews} defaultViewId="all" onActiveViewChange={fitted.onActiveViewChange} height={480} exportFileName={`wage-bill-${period}`} rowActions={rowActions} onRowOpen={(r) => navigate(routes.agent(businessId, r.agentId))} />
+        <div className="min-w-0">
+          <DataTable<WageBillRow> aria-label="Team wage bill" data={rows} columns={columns} getRowId={(r) => r.agentId} views={views} onViewsChange={setViews} defaultViewId="all" height={480} exportFileName={`wage-bill-${period}`} rowActions={rowActions} onRowOpen={(r) => navigate(routes.agent(businessId, r.agentId))} />
         </div>
       </Panel>
       <Panel title="Staff" span={4} loading={humans.isLoading || pnl.isLoading} error={humans.error ? humans.error.message : undefined} onRetry={humans.refetch} empty={humans.data && staff.length === 0 ? { icon: UserRound, children: "Invite staff from Team › Staff; their payroll shows here from bank transactions." } : undefined} footer={<span>Payroll is the month's bank outflows categorised Payroll or Contractors.</span>}>

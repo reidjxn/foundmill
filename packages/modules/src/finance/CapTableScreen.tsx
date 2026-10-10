@@ -13,8 +13,8 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { aktiebokRows, delawareLedgerRows, modelRound, plainWords, safeTerms, toCsv, vestingSummary, type RoundInput } from "./metrics";
-import { fitColumns, type ColumnFit } from "../fit";
-import { Screen, downloadText, fmtMoney, fmtQuantity, parseAmount, useCurrency, useFittedColumns, useNow } from "./shared";
+import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
+import { Screen, downloadText, fmtMoney, fmtQuantity, parseAmount, useCurrency, useNow } from "./shared";
 import type { CapTableEntryRow, CapTableResponse, CapTableSummary, SecurityRow } from "./types";
 
 const KIND_TONE: Record<SecurityRow["kind"], ChipTone> = { common: "neutral", preferred: "info", option: "kit", warrant: "info", safe: "gold", note: "gold" };
@@ -135,10 +135,9 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
   const cur = data?.securities[0]?.currency || data?.entries[0]?.currency || currency;
   const holders = useMemo(() => holderRows(data), [data]);
   const entries = useMemo(() => (data?.entries ?? []).filter((e) => !e.archivedAt && (!holderFilter || e.holderEntityId === holderFilter)), [data, holderFilter]);
-  const holderFit = useFittedColumns(HOLDER_FIT, holderViews, "all");
-  const issuanceFit = useFittedColumns(ISSUANCE_FIT, issuanceViews, "all");
-  const hColumns = useMemo(() => holderColumns(businessId, holderFit.sizes), [businessId, holderFit.sizes]);
-  const iColumns = useMemo(() => issuanceColumns(businessId, data?.securities ?? [], now, issuanceFit.sizes), [businessId, data?.securities, now, issuanceFit.sizes]);
+  // Both tables share their spare width by the fit specs' weights themselves (DataTable `meta.grow`).
+  const hColumns = useMemo(() => fitToGrow(holderColumns(businessId), HOLDER_FIT), [businessId]);
+  const iColumns = useMemo(() => fitToGrow(issuanceColumns(businessId, data?.securities ?? [], now), ISSUANCE_FIT), [businessId, data?.securities, now]);
   const pool = useMemo(() => {
     const classes = data?.summary.byClass.filter((c) => c.kind === "option") ?? [];
     const authorised = classes.reduce((n, c) => n + (c.authorisedQuantity ?? 0), 0);
@@ -195,8 +194,8 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
         <StatusStrip tiles={tiles.map((t) => ({ ...t, loading: cap.isLoading }))} />
       </section>
       <Panel title="Holders" span={8} flush loading={cap.isLoading} error={cap.error ? cap.error.message : undefined} onRetry={cap.refetch} empty={empty ? emptyState : undefined} footer={empty ? undefined : <span className="tabular-nums">{holders.length} holder{holders.length === 1 ? "" : "s"} · fully diluted over {fmtQuantity(data?.summary.totalQuantity ?? 0)} shares · right-click for CRM and issuances</span>}>
-        <div ref={holderFit.ref} className="min-w-0">
-        <DataTable<HolderRow> aria-label="Holders" data={holders} columns={hColumns} getRowId={(r) => r.holderEntityId} views={holderViews} onViewsChange={setHolderViews} defaultViewId="all" onActiveViewChange={holderFit.onActiveViewChange} height={320} exportFileName="cap-table-holders" rowActions={holderActions} onRowOpen={(r) => navigate(routes.crm(businessId, r.holderEntityId))} rowClassName={(r) => (holderFilter === r.holderEntityId ? "bg-panel-alt" : undefined)} />
+        <div className="min-w-0">
+        <DataTable<HolderRow> aria-label="Holders" data={holders} columns={hColumns} getRowId={(r) => r.holderEntityId} views={holderViews} onViewsChange={setHolderViews} defaultViewId="all" height={320} exportFileName="cap-table-holders" rowActions={holderActions} onRowOpen={(r) => navigate(routes.crm(businessId, r.holderEntityId))} rowClassName={(r) => (holderFilter === r.holderEntityId ? "bg-panel-alt" : undefined)} />
         </div>
       </Panel>
       <Panel title="Classes" span={4} loading={cap.isLoading} error={cap.error ? cap.error.message : undefined} footer={empty ? undefined : <span>Options count toward fully diluted; SAFEs and notes are shown at principal until they convert.</span>}>
@@ -249,8 +248,8 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
         {empty ? (
           quiet("Each issuance and its vesting appear here once the first shares are recorded.", true)
         ) : (
-          <div ref={issuanceFit.ref} className="min-w-0">
-          <DataTable<CapTableEntryRow> aria-label="Issuances" data={entries} columns={iColumns} views={issuanceViews} onViewsChange={setIssuanceViews} defaultViewId="all" onActiveViewChange={issuanceFit.onActiveViewChange} height={360} exportFileName="cap-table-issuances" rowActions={issuanceActions} onRowOpen={(r) => navigate(routes.crm(businessId, r.holderEntityId))} empty={holderFilter ? "No issuances for this holder." : undefined} />
+          <div className="min-w-0">
+          <DataTable<CapTableEntryRow> aria-label="Issuances" data={entries} columns={iColumns} views={issuanceViews} onViewsChange={setIssuanceViews} defaultViewId="all" height={360} exportFileName="cap-table-issuances" rowActions={issuanceActions} onRowOpen={(r) => navigate(routes.crm(businessId, r.holderEntityId))} empty={holderFilter ? "No issuances for this holder." : undefined} />
           </div>
         )}
       </Panel>

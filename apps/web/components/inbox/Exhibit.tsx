@@ -7,7 +7,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Bot, ImageOff } from "lucide-react";
 import { useMemo } from "react";
-import { AgentStatusPill, Avatar, BarChart, Chip, DiffView, EmptyState, EntityCard, FunnelChart, LineChart, MiniTable, Panel, ProgressRing, formatMoney, formatNumber, type EntityDetails, type MiniTableColumn } from "@foundmill/dugout";
+import { AgentStatusPill, Avatar, BarChart, Chip, DiffView, EmptyState, EntityCard, FunnelChart, LineChart, MiniTable, Panel, ProgressRing, ProvenanceChip, formatMoney, formatNumber, type EntityDetails, type MiniTableColumn } from "@foundmill/dugout";
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useTRPC } from "@/lib/trpc-react";
@@ -70,7 +70,7 @@ function NamedQueryExhibit({ id, kind, currency }: { id: Exclude<ReturnType<type
       error={active.error ? "The exhibit's query failed." : undefined}
       onRetry={() => void active.refetch()}
       empty={data && shape === "empty" ? { children: "No rows yet for this exhibit." } : undefined}
-      actions={data?.label ? <Chip tone="neutral">{data.label}</Chip> : undefined}
+      actions={data?.label ? data.label === "Estimate" || data.label === "Forecast" ? <ProvenanceChip kind={data.label === "Forecast" ? "forecast" : "estimate"} /> : <Chip tone="neutral">{data.label}</Chip> : undefined}
       footer={data ? <span title={data.source}>Source: {data.source}</span> : undefined}
       data-testid="exhibit"
       data-exhibit={kind}
@@ -85,10 +85,12 @@ function NamedQueryExhibit({ id, kind, currency }: { id: Exclude<ReturnType<type
 function fmtCell(value: string | number | null, unit: string | undefined, currency: string): string {
   if (value === null || value === undefined) return "—";
   if (typeof value === "string") return value;
-  if (unit === "minor") return formatMoney({ amountMinor: value, currency });
-  if (unit === "percent") return `${formatNumber(value * 100, { maxDigits: 1 })}%`;
-  if (unit === "months") return `${formatNumber(value, { maxDigits: 1 })} mo`;
-  return formatNumber(value, { maxDigits: 1 });
+  // A true minus sign, never a hyphen, in front of a negative figure (DESIGN §4 figures).
+  const minus = (text: string) => text.replace(/^-/, "\u2212");
+  if (unit === "minor") return minus(formatMoney({ amountMinor: value, currency }));
+  if (unit === "percent") return minus(`${formatNumber(value * 100, { maxDigits: 1 })}%`);
+  if (unit === "months") return minus(`${formatNumber(value, { maxDigits: 1 })} mo`);
+  return minus(formatNumber(value, { maxDigits: 1 }));
 }
 
 function ExhibitBody({ data, shape, currency }: { data: ExhibitData; shape: ReturnType<typeof chartShape>; currency: string }) {
@@ -111,7 +113,8 @@ function ExhibitBody({ data, shape, currency }: { data: ExhibitData; shape: Retu
     const rowUnit = (row: Record<string, string | number | null>) => (typeof row.unit === "string" ? row.unit : undefined);
     const columns: MiniTableColumn<Record<string, string | number | null>>[] = data.columns
       .filter((c) => c.key !== "unit")
-      .map((c) => ({ id: c.key, header: c.label, numeric: c.unit !== "text" && c.unit !== "day", cell: (row) => fmtCell(row[c.key] ?? null, c.unit === "text" && typeof row[c.key] === "number" ? rowUnit(row) : c.unit, cur) }));
+      // A text column that holds figures with a per-row unit (Metric / Value) is numeric too: figures right-align.
+      .map((c) => ({ id: c.key, header: c.label, numeric: c.unit !== "day" && (c.unit !== "text" || data.rows!.some((r) => typeof r[c.key] === "number")), cell: (row) => fmtCell(row[c.key] ?? null, c.unit === "text" && typeof row[c.key] === "number" ? rowUnit(row) : c.unit, cur) }));
     return <MiniTable columns={columns} rows={data.rows} getRowKey={(_, i) => String(i)} maxRows={12} />;
   }
   const col = barColumn(data);

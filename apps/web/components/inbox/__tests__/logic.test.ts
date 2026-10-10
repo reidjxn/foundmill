@@ -21,6 +21,7 @@ import {
   refreshGate,
   rowModel,
   headerTag,
+  noteOpener,
   metricKey,
   parseFreeMetric,
   plainSource,
@@ -67,8 +68,8 @@ describe("rows (DESIGN §9)", () => {
     expect(rowModel({ ...base, type: "decision", state: "answered", blocksContinue: true }).needsAnswer).toBe(false);
     expect(rowModel({ ...base, type: "update", state: "unread", blocksContinue: false })).toMatchObject({ needsAnswer: false, tone: "info", typeWord: "Update" });
   });
-  it("tags every row with an icon and a word: a won customer is a win, open calls say Respond (DIRECTION #8)", () => {
-    expect(rowModel({ ...base, type: "customer_won", state: "unread", blocksContinue: true }).tag).toEqual({ word: "Win", tone: "gold", icon: "win" });
+  it("tags every row with an icon and a word: a won customer reads Customer, open calls say Respond (DIRECTION #8)", () => {
+    expect(rowModel({ ...base, type: "customer_won", state: "unread", blocksContinue: true }).tag).toEqual({ word: "Customer", tone: "gold", icon: "win" });
     expect(rowModel({ ...base, type: "decision", state: "unread", blocksContinue: true }).tag).toMatchObject({ word: "Respond", tone: "bad" });
     expect(rowModel({ ...base, type: "decision", state: "answered", blocksContinue: true }).tag).toMatchObject({ word: "Decided", tone: "neutral" });
     expect(rowModel({ ...base, type: "milestone", state: "read", blocksContinue: false }).tag).toMatchObject({ word: "Milestone", icon: "milestone" });
@@ -297,5 +298,16 @@ describe("the decision's deadline and the agent's desk", () => {
   it("describes a plan with nothing outside policy without a '0 actions' sentence", () => {
     expect(confirmPlanDescription([{ label: "Create a task", outcome: "allow", hardGate: false, cost: null, reasons: [] }])).toBe("Everything here is within the current policy. Nothing runs until you say go.");
     expect(confirmPlanDescription([{ label: "Set budget", outcome: "ask", hardGate: false, cost: null, reasons: [] }, { label: "Pay", outcome: "allow", hardGate: true, cost: null, reasons: [] }])).toBe("1 action sits outside the current policy and needs your go-ahead. 1 is hard-gated: the team prepares everything and you act.");
+  });
+});
+
+describe("the agent's opener under a note (DESIGN §8 Conversation)", () => {
+  it("picks up the note instead of a generic greeting, and names the recommendation while the call is open", () => {
+    const options = [{ label: "Approve", recommended: true }, { label: "Wait", recommended: false }];
+    expect(noteOpener("decision", options, false)).toBe("I'd go with “Approve”. Ask me anything before you decide.");
+    expect(noteOpener("decision", options, true)).toMatch(/decided/);
+    expect(noteOpener("update", [], false)).toMatch(/what's blocking it/);
+    expect(noteOpener("customer_won", [], false)).toMatch(/new customer/);
+    expect(noteOpener("human_message", [], false)).toBeNull();
   });
 });

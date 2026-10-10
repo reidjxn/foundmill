@@ -172,13 +172,14 @@ function renderNode(
     case "text":
       return <span key={key}>{node.text}</span>;
     case "entity": {
-      const kind = node.kind ?? h.resolveKind(node.id) ?? "person";
+      const known = node.kind ?? h.resolveKind(node.id);
       return (
         <EntityLink
           key={key}
+          kindUnknown={!known}
           entity={{
             id: node.id,
-            kind,
+            kind: known ?? "person",
             name: node.name ?? node.display,
             ...(node.href ? { href: node.href } : {}),
           }}

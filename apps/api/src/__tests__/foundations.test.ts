@@ -6,7 +6,7 @@
  */
 import { getArchetypeSeed } from "@foundmill/agents";
 import { businessFoundations, repos } from "@foundmill/db";
-import { MockModelClient, ModelUnavailableError, type ModelClient, type StreamStructuredRequest } from "@foundmill/models";
+import { MockModelClient, ModelUnavailableError, PRICING_CURRENCY, type ModelClient, type StreamStructuredRequest } from "@foundmill/models";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from "vitest";
 import { encodeJobId, importJobKey } from "../services/import";
@@ -98,7 +98,10 @@ describe("product.foundations — Door A (Ideation Studio)", () => {
     expect(view.summary).toMatchObject({ sectionsWritten: seed.specOutline.length, model: { route: "foundations", mode: "mock", costLabel: "Estimate" } });
     // The in-process run books its model call to the business's usage ledger (L2).
     const usage = await repos.usage.list(hz.db, a.businessId, { kind: "tokens" });
-    expect(usage.items.filter((u) => (u.details as { kind?: string }).kind === "foundations")).toHaveLength(1);
+    const booked = usage.items.filter((u) => (u.details as { kind?: string }).kind === "foundations");
+    expect(booked).toHaveLength(1);
+    // Metered at list prices in the pricing currency (USD), and labelled as such: never relabelled as euros.
+    expect(booked[0]!.currency).toBe(PRICING_CURRENCY);
   });
 
   it("posts one Inbox update from the Product lead with the vision, and writes inbox.item_created", async () => {

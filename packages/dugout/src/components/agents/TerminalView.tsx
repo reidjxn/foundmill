@@ -212,6 +212,7 @@ export function TerminalView({ chunks, label, renderer, follow = true, className
         aria-label={label}
         aria-live="polite"
         data-renderer="plain"
+        data-scroll-region="terminal"
         className={cn("terminal-well m-0 h-full min-h-0 overflow-auto px-3 py-2 font-mono text-mono text-primary whitespace-pre-wrap", className)}
         style={style}
       >
@@ -225,7 +226,7 @@ export function TerminalView({ chunks, label, renderer, follow = true, className
   }
 
   return (
-    <div className={cn("terminal-well relative h-full min-h-0 w-full", className)} style={style}>
+    <div className={cn("terminal-well relative h-full min-h-0 w-full", className)} style={style} data-scroll-region="terminal">
       <div ref={hostRef} role="log" aria-label={label} data-renderer="xterm" className="dugout-terminal h-full min-h-0 w-full overflow-hidden px-2 py-1.5 [&_.xterm]:h-full [&_.xterm-viewport]:bg-ink!" />
       {empty}
     </div>

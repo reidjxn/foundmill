@@ -18,6 +18,7 @@ import { buildIdeationCardRequest, buildIdeationSlateRequest, buildSingleConcept
 import { repos, type CreateIdeaInput, type IdeaWithVersion } from "@foundmill/db";
 import { ModelAbortedError, ModelOutputError, streamStructured, type ConceptCard, type IdeationSlateItem, type ModelClient, type ModelMode } from "@foundmill/models";
 import { AppError, type Archetype } from "@foundmill/shared";
+import { RateLimitedError, SlidingWindowLimiter, type WindowLimit } from "./rate-limit";
 
 /** Cards written at once (the rest wait for a free slot). Six keeps a twelve-card set to two waves without a burst of twelve. */
 export const IDEATION_CARD_CONCURRENCY = 6;
@@ -28,6 +29,29 @@ export const SURPRISE_PROMPT = "surprise me within my constraints";
 export const IDEATION_TOO_LONG_MESSAGE = "The Ideation agent ran out of room before finishing the concepts. Try again, or narrow the brief.";
 
 type Db = Parameters<typeof repos.ideas.createMany>[0];
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Allowance: a set is a slate plus up to twelve card calls (each retried once) on the platform key, and Ideation needs
+// no business, so any signed-in account could otherwise draft in a loop. Every draft (a set, Import's single card, a
+// card drafted ahead for Import) spends one. Process-local, like the logo and conversation limits (rate-limit.ts).
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const ideationLimiter = new SlidingWindowLimiter();
+const HOUR = 60 * 60_000;
+export const IDEATION_LIMITS = {
+  /** A founder drafting, reading and drafting again stays well inside this; a script or a stuck button does not. */
+  hour: { limit: 20, windowMs: HOUR },
+  day: { limit: 60, windowMs: 24 * HOUR },
+} as const satisfies Record<string, WindowLimit>;
+
+/** Spends one draft from the founder's allowance, or throws TOO_MANY_REQUESTS (nothing is drafted). */
+export function takeIdeationAllowance(userId: string): void {
+  const r = ideationLimiter.takeAll([
+    { key: `ideation:hour:${userId}`, rule: IDEATION_LIMITS.hour },
+    { key: `ideation:day:${userId}`, rule: IDEATION_LIMITS.day },
+  ]);
+  if (!r.ok) throw new RateLimitedError("Drafting", r.retryAfterMs);
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Version metadata (moved here from routers/idea.ts, which re-exports it)
@@ -197,6 +221,8 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
   const emit = opts.emit ?? (() => undefined);
   const signal = opts.signal;
   const { models } = deps;
+  // Before anything else: a refused draft calls no model and writes nothing.
+  takeIdeationAllowance(deps.userId);
   const brief: IdeationBrief = { prompt: input.prompt.trim() || SURPRISE_PROMPT, archetypeHint: input.archetypeHint ?? null, founder: await founderBrief(deps.db, deps.userId) };
   const meta = input.importJobId ? { import_job_id: input.importJobId } : {};
   const writer = new IdeaBatchWriter(deps.db, deps.userId);

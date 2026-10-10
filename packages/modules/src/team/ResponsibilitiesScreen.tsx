@@ -12,7 +12,7 @@ import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/d
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
-import { fitColumns, plural, useTableWidth, type ColumnFit } from "../fit";
+import { fitColumns, fitToGrow, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { AGENT_GATED_DECISIONS, DECISION_DESCRIPTIONS, DECISION_LABELS, InlineError, Screen, agentDept, agentEntity, agentHref, memberEntity, memberName, readMe, useAction, useAgents, useHumans, useMe, type Me } from "./shared";
 import type { AgentRow, HandlerKind, MembershipRow, ResponsibilitiesResponse, ResponsibilityHandler } from "./types";
@@ -201,13 +201,11 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
   const selectedRow = rows.find((r) => r.decisionType === selected) ?? null;
   // Signing can only go to a person: offer "Delegate to staff…" on the hard-gated rows only when there is someone.
   const otherStaff = (humansQuery.data ?? []).filter((h) => h.userId !== me.userId).length;
-  const [tableRef, tableWidth] = useTableWidth();
   const narrow = !!selectedRow;
   const [viewId, setViewId] = useState<string | null>("all");
-  const sizes = useMemo(() => {
-    const all = RESPONSIBILITY_VIEWS[0]!.columns as string[];
-    return narrow ? fitColumns(tableWidth, RESPONSIBILITY_FIT_NARROW, all.filter((c) => c !== "covers")) : fitColumns(tableWidth, RESPONSIBILITY_FIT, all);
-  }, [tableWidth, narrow]);
+  // Each column at its minimum; the table shares the spare width by the specs' weights itself (DataTable `meta.grow`).
+  const fit = narrow ? RESPONSIBILITY_FIT_NARROW : RESPONSIBILITY_FIT;
+  const sizes = useMemo(() => fitColumns(null, fit, []), [fit]);
 
   const takeBack = async (row: ResponsibilityRowView, departmentId?: string) => {
     const input: Record<string, unknown> = { decisionType: row.decisionType, handler: { kind: "founder", id: null } };
@@ -242,7 +240,7 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
   const delegateLabel = (row: ResponsibilityRowView) => (row.gated ? "Delegate to staff…" : "Delegate…");
 
   const columns = useMemo<DataTableColumn<ResponsibilityRowView>[]>(
-    () => [
+    () => fitToGrow<ResponsibilityRowView>([
       {
         id: "label",
         accessorKey: "label",
@@ -330,7 +328,7 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
           );
         },
       },
-    ],
+    ], fit),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handlers read the latest indexes through closures
     [agentIndex, humanIndex, me, businessId, action.pending, sizes, otherStaff, currency, narrow],
   );
@@ -370,7 +368,7 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
           </span>
         }
       >
-        <div ref={tableRef} className="min-w-0">
+        <div className="min-w-0">
           {/* Remounted when the detail opens or closes, so the Covers column leaves and returns without marking the view as edited. */}
           <DataTable<ResponsibilityRowView> key={narrow ? "with-detail" : "full"} aria-label="Responsibilities" data={rows} columns={columns} views={views} onViewsChange={setViews} activeViewId={viewId} onActiveViewChange={setViewId} defaultViewId="all" getRowId={(r) => r.decisionType} selectedIds={selectedRow ? [selectedRow.decisionType] : []} rowActions={rowActions} onRowClick={(row) => setSelected(row.decisionType)} onRowOpen={(row) => (row.gated && otherStaff === 0 ? setSelected(row.decisionType) : setDelegate(row))} height={Math.max(3, rows.length) * ROW_PX + 44} density="comfortable" exportFileName="responsibilities" footer={null} className="border-0" />
         </div>

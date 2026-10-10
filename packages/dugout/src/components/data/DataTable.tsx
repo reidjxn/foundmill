@@ -102,6 +102,16 @@ declare module "@tanstack/react-table" {
     align?: "left" | "center" | "right";
     /** Cell class. */
     className?: string;
+    /**
+     * A share of the table's spare width (a weight, like flex-grow): the column widens in the header and the body alike
+     * when the table is wider than its columns. When no visible column grows, the last column takes the spare width.
+     */
+    grow?: number;
+    /**
+     * Never narrower than its widest rendered cell or its header: the column widens to fit instead of cutting the value.
+     * Numeric columns always fit; so does any cell whose words all sit in chips or pills (a chip is never cut).
+     */
+    fitContent?: boolean;
   }
 }
 
@@ -145,6 +155,13 @@ export interface DataTableProps<T> {
 
   /** Toolbar title (label style) at the left when there are no views. */
   title?: ReactNode;
+  /**
+   * Hide the toolbar's own "Filter" button, for a screen that filters with its own control. Filters a saved view
+   * carries still show, read-only, so the founder can see why rows are missing.
+   */
+  hideFilter?: boolean;
+  /** The toolbar's filter button label (default "Filter"), e.g. "Filter rows" beside a search that filters too. */
+  filterLabel?: string;
   /** Extra toolbar content on the right. */
   toolbar?: ReactNode;
   hideToolbar?: boolean;
@@ -171,6 +188,19 @@ export interface DataTableProps<T> {
 
 const SELECT_COLUMN_ID = "__select";
 const MIN_COLUMN_WIDTH = 48;
+const DEFAULT_COLUMN_WIDTH = 160;
+const NO_SIZES: Record<string, number> = {};
+/** Elements a cell never cuts: chips, status pills and the Estimate / Forecast tags. */
+const ATOMIC = "[data-chip], [data-status-pill], [data-provenance]";
+
+/** True when every word in a cell sits inside a chip, pill or tag (so the cell fits them rather than cutting one). */
+function chipOnly(content: HTMLElement): boolean {
+  const atoms = content.querySelectorAll(ATOMIC);
+  if (atoms.length === 0) return false;
+  let inAtoms = "";
+  for (const a of atoms) if (!a.parentElement?.closest(ATOMIC)) inAtoms += a.textContent ?? "";
+  return (content.textContent ?? "").replace(/\s+/g, "") === inAtoms.replace(/\s+/g, "");
+}
 
 interface ChipFilterValue {
   chips: FilterChipValue[];
@@ -275,6 +305,8 @@ export function DataTable<T>(props: DataTableProps<T>) {
     onRetry,
     empty,
     title,
+    hideFilter,
+    filterLabel,
     toolbar,
     hideToolbar,
     globalFilter,
@@ -426,7 +458,28 @@ export function DataTable<T>(props: DataTableProps<T>) {
     ],
     [visibleIds, allColumnIds],
   );
+  // Widths the founder set (drag or arrow keys on a header's handle). Kept apart from the widths content needs (below),
+  // so a column widened to fit one page of rows never stays wide after the rows change.
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
+  // Content fit (numbers never truncate, chips are never cut): the width each fitting column's widest rendered cell or
+  // header needs, measured after render. It only grows while the rows, columns and density stay the same (virtual rows
+  // scroll in and out, so the widest seen so far is kept and the columns never jitter); a new data set starts again.
+  // The data set's identity as a string (callers often pass a new array each render, so not the reference).
+  const fitKey = `${density}|${visibleIds.join(",")}|${data.length}|${data.length > 0 ? `${getRowId(data[0] as T, 0)}:${getRowId(data[data.length - 1] as T, data.length - 1)}` : ""}`;
+  const [fit, setFit] = useState<{ key: string; sizes: Record<string, number> }>(() => ({ key: fitKey, sizes: {} }));
+  const fitSizes = fit.key === fitKey ? fit.sizes : NO_SIZES;
+  const effectiveSizing = useMemo<ColumnSizingState>(() => {
+    const ids = Object.keys(fitSizes);
+    if (ids.length === 0) return columnSizing;
+    const out: ColumnSizingState = { ...columnSizing };
+    for (const id of ids) {
+      const def = columns.find((c) => (c.id ?? (c as { accessorKey?: string }).accessorKey) === id);
+      const base = columnSizing[id] ?? def?.size ?? DEFAULT_COLUMN_WIDTH;
+      const need = fitSizes[id] ?? 0;
+      if (need > base) out[id] = Math.min(need, def?.maxSize ?? Number.POSITIVE_INFINITY);
+    }
+    return out;
+  }, [columnSizing, fitSizes, columns]);
 
   const [rowSelectionState, setRowSelectionState] = useState<RowSelectionState>({});
   const rowSelection = useMemo<RowSelectionState>(() => {
@@ -490,13 +543,21 @@ export function DataTable<T>(props: DataTableProps<T>) {
       sorting,
       columnVisibility,
       columnOrder,
-      columnSizing,
+      columnSizing: effectiveSizing,
       rowSelection,
       columnFilters,
       globalFilter: globalFilter ?? "",
     },
     onSortingChange: setSorting,
-    onColumnSizingChange: setColumnSizing,
+    // TanStack hands back the whole sizing map (content-fit widths included): keep only what the founder changed.
+    onColumnSizingChange: (updater) => {
+      const next = typeof updater === "function" ? updater(effectiveSizing) : updater;
+      setColumnSizing((prev) => {
+        const out: ColumnSizingState = { ...prev };
+        for (const [id, w] of Object.entries(next)) if (w !== effectiveSizing[id]) out[id] = w;
+        return out;
+      });
+    },
     onRowSelectionChange: (updater) => {
       const next = typeof updater === "function" ? updater(rowSelection) : updater;
       if (!selectedIds) setRowSelectionState(next);
@@ -513,7 +574,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
     enableSortingRemoval: true,
     enableRowSelection: true,
     columnResizeMode: "onChange",
-    defaultColumn: { filterFn: chipFilterFn as FilterFn<T>, minSize: MIN_COLUMN_WIDTH, size: 160 },
+    defaultColumn: { filterFn: chipFilterFn as FilterFn<T>, minSize: MIN_COLUMN_WIDTH, size: DEFAULT_COLUMN_WIDTH },
     globalFilterFn: globalFilterFn as FilterFn<T>,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -737,27 +798,57 @@ export function DataTable<T>(props: DataTableProps<T>) {
     return () => ro.disconnect();
   }, [updateCues, table.getTotalSize()]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Numbers never truncate (DESIGN §2): after each render, a numeric column narrower than its widest rendered value
-  // (or its header) grows to fit it. Only ever grows, so it settles in one pass; "Reset column widths" starts over.
-  // No dependency list on purpose: virtualised rows render as the body scrolls, and each new row is measured too.
+  // Content fit (DESIGN §2: numbers never truncate; a chip is never cut): after each render, a fitting column narrower
+  // than its widest rendered value (or its header) is widened to fit it. Fitting columns: numeric ones, `fitContent`
+  // ones, and any column whose cell holds nothing but chips or pills. The width comes from the content's natural width
+  // (it does not depend on the column's own width), so this settles in one pass. No dependency list on purpose: virtual
+  // rows render as the body scrolls, and each new row is measured too.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
     const root = scrollRef.current;
     if (!root) return;
-    const grow: ColumnSizingState = {};
+    const needs: Record<string, number> = {};
+    const padOf = (el: HTMLElement) => {
+      const cs = getComputedStyle(el);
+      return (Number.parseFloat(cs.paddingLeft) || 0) + (Number.parseFloat(cs.paddingRight) || 0);
+    };
     for (const col of table.getVisibleLeafColumns()) {
-      if (!col.columnDef.meta?.numeric) continue;
+      if (col.id === SELECT_COLUMN_ID) continue;
+      const meta = col.columnDef.meta;
+      const always = !!meta?.numeric || !!meta?.fitContent;
+      const sel = `td[data-col="${CSS.escape(col.id)}"]`;
+      // A text column is only measured when some cell in it holds a chip or pill (one query, not one per cell).
+      if (!always && !root.querySelector(`${sel} :is(${ATOMIC})`)) continue;
       let need = 0;
-      for (const el of root.querySelectorAll<HTMLElement>(`[data-col="${CSS.escape(col.id)}"]`)) {
-        const content = el.firstElementChild as HTMLElement | null;
-        if (!content) continue;
-        const cs = getComputedStyle(el);
-        const pad = (Number.parseFloat(cs.paddingLeft) || 0) + (Number.parseFloat(cs.paddingRight) || 0);
-        need = Math.max(need, Math.ceil(content.scrollWidth + pad + 1));
+      for (const cell of root.querySelectorAll<HTMLElement>(sel)) {
+        const content = cell.firstElementChild as HTMLElement | null;
+        if (!content || !(always || chipOnly(content))) continue;
+        need = Math.max(need, Math.ceil(content.scrollWidth + padOf(cell) + 1));
       }
-      if (need > col.getSize()) grow[col.id] = need;
+      if (need === 0 && !always) continue;
+      // The header label too (its sort icon and gaps beside it), so a fitted column's heading is never cut either.
+      const th = root.querySelector<HTMLElement>(`th[data-col="${CSS.escape(col.id)}"]`);
+      const label = th?.querySelector<HTMLElement>("[data-header-label]");
+      const holder = label?.parentElement as HTMLElement | null | undefined;
+      if (th && label && holder) {
+        const extra = holder === th ? 0 : holder.getBoundingClientRect().width - label.getBoundingClientRect().width;
+        need = Math.max(need, Math.ceil(label.scrollWidth + Math.max(0, extra) + padOf(th) + 1));
+      }
+      if (need > 0) needs[col.id] = need;
     }
-    if (Object.keys(grow).length > 0) setColumnSizing((prev) => ({ ...prev, ...grow }));
+    setFit((prev) => {
+      const sameKey = prev.key === fitKey;
+      const base = sameKey ? prev.sizes : NO_SIZES;
+      let changed = !sameKey;
+      const sizes: Record<string, number> = { ...base };
+      for (const [id, need] of Object.entries(needs)) {
+        if (need > (sizes[id] ?? 0)) {
+          sizes[id] = need;
+          changed = true;
+        }
+      }
+      return changed ? { key: fitKey, sizes } : prev;
+    });
   });
 
   const selectedCount = Object.keys(rowSelection).filter((k) => rowSelection[k]).length;
@@ -770,6 +861,14 @@ export function DataTable<T>(props: DataTableProps<T>) {
         : "ready";
   const visibleLeaf = table.getVisibleLeafColumns();
   const totalWidth = table.getTotalSize();
+  // Spare width: the growing columns share it by weight, in the header and every row alike (one flex rule for both,
+  // so they always line up); with no growing column the last one takes it.
+  const anyGrow = visibleLeaf.some((c) => (c.columnDef.meta?.grow ?? 0) > 0);
+  const columnStyle = (id: string, size: number, last: boolean): CSSProperties => {
+    const col = visibleLeaf.find((c) => c.id === id);
+    const grow = anyGrow ? Math.max(0, col?.columnDef.meta?.grow ?? 0) : last ? 1 : 0;
+    return grow > 0 ? { width: size, minWidth: size, flex: `${grow} 0 ${size}px` } : { width: size, flexShrink: 0 };
+  };
   const rowIdAttr = (r: Row<T>) => `${tableId}-row-${r.id}`;
   const activeDescendant =
     focusWithin && focusIndex >= 0 && rows[focusIndex]
@@ -823,19 +922,17 @@ export function DataTable<T>(props: DataTableProps<T>) {
                 align === "center" && "justify-center text-center",
                 numeric && "tabular",
                 ci === 0 && "pl-3",
-                last && "flex-1 pr-3",
+                last && "pr-3",
                 meta?.className,
               )}
-              style={{
-                width: cell.column.getSize(),
-                minWidth: last ? cell.column.getSize() : undefined,
-              }}
+              style={columnStyle(cell.column.id, cell.column.getSize(), last)}
             >
-              {/* Numbers never truncate: their column grows to fit them (see the numeric fit effect). */}
+              {/* Numbers never truncate: their column grows to fit them (see the content-fit effect). */}
               {/* Text cells: a row's long free text may end in an ellipsis (a list convention), with the whole value in a
-                  tooltip; numbers never do. */}
+                  tooltip; numbers never do. A chip or pill keeps its natural width: alone in a cell, its column fits
+                  it; after text that runs out of room, the whole chip gives way to the ellipsis, never cut mid-word. */}
               <span
-                className={numeric ? "whitespace-nowrap" : "truncate [&_a]:min-w-0 [&_a]:truncate"}
+                className={numeric ? "whitespace-nowrap" : "truncate [&_a]:min-w-0 [&_a]:truncate [&_[data-chip]]:max-w-none [&_[data-status-pill]]:max-w-none"}
                 data-cell-content=""
                 data-allow-truncate={numeric ? undefined : ""}
                 title={!numeric && typeof cell.getValue() === "string" ? (cell.getValue() as string) : undefined}
@@ -919,9 +1016,9 @@ export function DataTable<T>(props: DataTableProps<T>) {
                       align === "right" && "justify-end",
                       align === "center" && "justify-center",
                       hi === 0 && "pl-3",
-                      last && "flex-1 pr-3",
+                      last && "pr-3",
                     )}
-                    style={{ width: col.getSize(), minWidth: last ? col.getSize() : undefined }}
+                    style={columnStyle(col.id, col.getSize(), last)}
                   >
                     {header.isPlaceholder ? null : canSort ? (
                       <button
@@ -934,7 +1031,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                         )}
                         title={`Sort by ${label}. Shift+click to add a secondary sort.`}
                       >
-                        <span className="truncate">
+                        <span className="truncate" data-header-label="">
                           {flexRender(col.columnDef.header, header.getContext())}
                         </span>
                         <Icon
@@ -959,6 +1056,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                           col.id === SELECT_COLUMN_ID && "flex items-center",
                         )}
                         title={col.id === SELECT_COLUMN_ID ? undefined : label}
+                        data-header-label=""
                       >
                         {flexRender(col.columnDef.header, header.getContext())}
                       </span>
@@ -1081,12 +1179,16 @@ export function DataTable<T>(props: DataTableProps<T>) {
           ) : title ? (
             <h2 className="t-title px-1 text-primary">{title}</h2>
           ) : null}
-          <FilterChips
-            fields={filterFields}
-            chips={chips}
-            onChange={setChips}
-            className="min-w-0 flex-1"
-          />
+          {hideFilter && chips.length === 0 ? null : (
+            <FilterChips
+              fields={filterFields}
+              chips={chips}
+              onChange={setChips}
+              readOnly={hideFilter}
+              addLabel={filterLabel}
+              className="min-w-0 flex-1"
+            />
+          )}
           <div className="ml-auto flex items-center gap-1">
             {toolbar}
             <IconButton
@@ -1139,7 +1241,12 @@ export function DataTable<T>(props: DataTableProps<T>) {
                     {formatNumber(rows.length, { maxDigits: 0 })} rows
                   </span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setColumnSizing({})}>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setColumnSizing({});
+                    setFit({ key: "", sizes: {} });
+                  }}
+                >
                   <Icon icon={RotateCcw} size="inline" className="text-secondary" />
                   Reset column widths
                 </DropdownMenuItem>

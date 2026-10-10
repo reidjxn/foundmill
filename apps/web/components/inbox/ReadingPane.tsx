@@ -56,6 +56,7 @@ import {
   freeTextAllowed,
   hasAgentDesk,
   headerDates,
+  noteOpener,
   headerTag,
   journeyForItem,
   planStatusLine,
@@ -299,7 +300,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           <Panel title="Customer Update" span={12} actions={<Chip tone="gold">Win</Chip>} data-testid="customer-update">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-body text-secondary">The replay shows the first touch, who was involved, the win moment and the debrief.</p>
-              <Button variant="primary" icon={Play} onClick={openReplay} disabled={!journeyId} loading={journeysQ.isLoading} data-testid="open-replay">
+              <Button variant="gold" icon={Play} onClick={openReplay} disabled={!journeyId} loading={journeysQ.isLoading} data-testid="open-replay">
                 Open the Customer Update
               </Button>
             </div>
@@ -371,6 +372,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
             // Decided here, from the DecisionBar or in another tab: no more "Go with: …".
             decided={isAnswered || expired}
             fallbackDept={(department?.colourToken as DeptColourToken | undefined) ?? "dept-1"}
+            opener={noteOpener(item.type, options, isAnswered || expired)}
           />
         ) : null}
       </div>

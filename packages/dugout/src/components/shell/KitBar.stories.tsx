@@ -63,3 +63,19 @@ export const LongTitleAndName: Story = {
     ),
   ],
 };
+/**
+ * Ledgerly on holiday in a 1280 px window: the search is down to its icon and the bar still cannot hold everything, so
+ * the chips compact one step at a time (KitBarFit) until every control is whole and the title has its room: the year
+ * leaves the dates first, then the holiday caption shortens to "Until 21 Oct".
+ */
+export const HolidayAt1280: Story = {
+  name: "Holiday at 1280: the chips compact",
+  args: { kit: LEDGERLY_KIT, businessName: "Ledgerly", logoSrc: null, screenTitle: "Distribution", runwayMonths: null, businessMode: "automated", gameMode: "live", continueButton: { state: { kind: "holiday", until: "2026-10-21" } } },
+  decorators: [
+    (Story) => (
+      <div style={{ width: 1048 }}>
+        <Story />
+      </div>
+    ),
+  ],
+};

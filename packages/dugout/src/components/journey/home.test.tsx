@@ -30,7 +30,8 @@ describe("DepartmentCard", () => {
     expect(figure?.querySelector(".t-currency")?.textContent).toBe("€");
     expect(figure?.querySelector(".t-decimals")?.textContent).toBe(".20");
     expect(screen.getAllByText("Estimate").length).toBeGreaterThan(0);
-    expect(screen.getByText("Quiet. The next cycle starts with Continue.")).toBeTruthy();
+    expect(screen.getByText("Quiet", { selector: "[data-now-quiet]" })).toBeTruthy();
+    expect(screen.queryByText(/next cycle starts with Continue/)).toBeNull();
   });
   it("links entities in Now lines, exposes member status in the name and opens agents", async () => {
     const user = userEvent.setup();

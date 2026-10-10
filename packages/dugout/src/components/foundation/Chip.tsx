@@ -17,7 +17,8 @@ const TONE_CLASS: Record<ChipTone, string> = {
   warn: "chip-tone tone-status-warn text-status-warn",
   bad: "chip-tone tone-status-bad text-status-bad",
   info: "chip-tone tone-status-info text-status-info",
-  kit: "bg-kit-primary text-kit-on-primary border-transparent",
+  // The brand as light, never as a painted fill (DESIGN §5): a kit-lift tint and ring, the word in kit-lift.
+  kit: "chip-tone tone-kit-lift text-kit-lift",
   gold: "chip-tone tone-gold text-gold",
   ink: "bg-ink text-secondary border-line",
   "dept-1": "chip-tone tone-dept-1 text-dept-1",
@@ -94,14 +95,14 @@ export const Chip = forwardRef<HTMLSpanElement, ChipProps>(function Chip(
   if (onClick) {
     return (
       <span ref={ref} className="inline-flex max-w-full" {...rest}>
-        <button type="button" aria-pressed={selected} onClick={onClick} className={base} data-tone={tone}>
+        <button type="button" aria-pressed={selected} onClick={onClick} className={base} data-tone={tone} data-chip="">
           {content}
         </button>
       </span>
     );
   }
   return (
-    <span ref={ref} className={cn(base, onRemove && "pr-0.5")} data-tone={tone} {...rest}>
+    <span ref={ref} className={cn(base, onRemove && "pr-0.5")} data-tone={tone} data-chip="" {...rest}>
       {content}
       {onRemove ? (
         <button

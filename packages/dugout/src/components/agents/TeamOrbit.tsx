@@ -31,6 +31,8 @@ export const DEFAULT_ORBIT_DEPARTMENTS: readonly TeamOrbitDepartment[] = [
 ];
 
 const R_CHIEF = 17;
+/** How much further out the Chief of Staff's label sits than its portrait (about 30 px at the deck's size). */
+const R_CHIEF_LABEL = 7.5;
 const R_LEADS = 31;
 const R_WORKERS = 44.5;
 
@@ -114,12 +116,18 @@ export function TeamOrbit({ centreLabel = "You", centreCaption = "Founder", chie
         ))}
       </div>
 
-      {/* First orbit: the Chief of Staff, above the founder so its label is never cut by the founder's ring. */}
+      {/* First orbit: the Chief of Staff, above the founder. Its label rides on the outer side of the portrait (placed
+          further out along the same spoke, then kept upright on its own centre), so as the ring turns the label never
+          crosses the founder's "You". */}
       <div aria-hidden className="absolute inset-0 z-10 animate-orbit" style={spin(periodSeconds * 0.7)} data-orbit="chief">
         <span className="absolute -translate-x-1/2 -translate-y-1/2" style={at(R_CHIEF, 30)}>
-          <span className="flex animate-orbit flex-col items-center gap-1" style={spin(periodSeconds * 0.7, true)}>
+          <span className="block animate-orbit" style={spin(periodSeconds * 0.7, true)}>
             <Avatar size={36} name={chief.name} agent={{ seed: chief.seed, dept: "dept-1" }} />
-            <span className="t-label whitespace-nowrap rounded-chip bg-ink/70 px-1.5 py-px text-white/80">Chief of Staff</span>
+          </span>
+        </span>
+        <span className="absolute -translate-x-1/2 -translate-y-1/2" style={at(R_CHIEF + R_CHIEF_LABEL, 30)} data-orbit-label="chief">
+          <span className="block animate-orbit" style={spin(periodSeconds * 0.7, true)}>
+            <span className="t-label block whitespace-nowrap rounded-chip bg-ink/70 px-1.5 py-px text-white/80">Chief of Staff</span>
           </span>
         </span>
       </div>

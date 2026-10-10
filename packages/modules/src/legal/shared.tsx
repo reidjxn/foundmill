@@ -4,11 +4,10 @@
  * "Information, not legal or tax advice" caption, founder-only link-outs (the only way to an external submit,
  * pay or sign page) and the legal entity query every tab reads.
  */
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode, type RefCallback } from "react";
+import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
 import { ExternalLink, Info, ShieldCheck } from "lucide-react";
-import { Button, Chip, PageGrid, StatusPill, cn, formatMoney, type ButtonProps, type SavedView, type StatusTone } from "@foundmill/dugout";
+import { Button, Chip, PageGrid, StatusPill, cn, formatMoney, type ButtonProps, type StatusTone } from "@foundmill/dugout";
 import { useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets/data";
-import { fitColumns, useTableWidth, type ColumnFit } from "../fit";
 import { plainWords, type CalendarStatus } from "./legal-data";
 import type { ContractStatus, IncorporationStatus, IncorporationStatusResponse, LegalEntityStatus } from "./types";
 
@@ -178,28 +177,6 @@ export function Pill({ tone, word, className }: { tone: StatusTone; word: string
 export function fitTableHeight(rows: number, opts: { minRows?: number; maxRows?: number; rowHeight?: number } = {}): number {
   const { minRows = 4, maxRows = 18, rowHeight = 28 } = opts;
   return 41 + Math.min(maxRows, Math.max(minRows, rows)) * rowHeight;
-}
-
-/**
- * Column widths that fill the table's real width for the saved view on screen (DESIGN §2 "never clip"): every column
- * at the width its content needs, the spare width shared by grow weight, so the default view fits at 1280 with no
- * column cut at the panel edge. Put `ref` on a wrapper around the DataTable and pass `onActiveViewChange` to it.
- */
-export function useFittedColumns<K extends string>(
-  specs: Record<K, ColumnFit>,
-  views: readonly SavedView[],
-  defaultViewId: string,
-  /** Columns the screen actually renders, when it leaves some out (an empty column, say). */
-  present?: readonly string[],
-): { ref: RefCallback<HTMLElement>; sizes: Record<K, number>; onActiveViewChange: (id: string | null) => void } {
-  const [ref, width] = useTableWidth();
-  const [viewId, setViewId] = useState<string | null>(defaultViewId);
-  const inView = (views.find((v) => v.id === viewId) ?? views.find((v) => v.id === defaultViewId))?.columns ?? [];
-  const columns = present ? inView.filter((c) => present.includes(c)) : inView;
-  const key = columns.join(",");
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` stands for the visible column list
-  const sizes = useMemo(() => fitColumns(width, specs, columns as K[]), [width, specs, key]);
-  return { ref, sizes, onActiveViewChange: setViewId };
 }
 
 /* ---------- Money ---------- */

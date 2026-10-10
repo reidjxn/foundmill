@@ -31,6 +31,7 @@ import {
 } from "./metrics";
 import { Screen, fmtAxisMoney, fmtMoney, fmtMonths, useCurrency, useNow } from "./shared";
 import type { ChannelsListResponse, FinanceOverview, PnlResponse } from "./types";
+import { runwayWords } from "@foundmill/widgets/shared/runway";
 
 const TRAILING = 3;
 const HISTORY = 6;
@@ -87,7 +88,7 @@ export function overviewTiles(args: { overview: FinanceOverview; pnl: PnlRespons
     { key: "cash", label: METRIC_DEFINITIONS.cash.label, value: { amountMinor: overview.cash.amountMinor, currency }, spark: cashHistory(overview.cash.amountMinor, monthly, months), provenance: prov("cash", `Bank balances, ${bank}`, "finance.overview.cash"), caption: bank },
     { key: "grossBurn", label: METRIC_DEFINITIONS.grossBurn.label, value: { amountMinor: overview.burn.grossBurnMinor, currency }, estimate: "estimate", spark: monthlySeries(monthly, months, (m) => m.outflowMinor), provenance: prov("grossBurn", "Bank transactions, operating outflows", "finance.overview.burn.grossBurnMinor"), caption: `per month, ${overview.burn.months}-month average` },
     { key: "netBurn", label: METRIC_DEFINITIONS.netBurn.label, value: { amountMinor: overview.burn.netBurnMinor, currency }, estimate: "estimate", delta: undefined, spark: monthlySeries(monthly, months, (m) => m.outflowMinor - m.inflowMinor), provenance: prov("netBurn", "Bank transactions, financing excluded", "finance.overview.burn.netBurnMinor"), caption: overview.burn.netBurnMinor <= 0 ? "Cash-flow positive" : `per month, ${overview.burn.months}-month average` },
-    { key: "runway", label: METRIC_DEFINITIONS.runway.label, value: overview.runway.months === null ? "—" : `${overview.runway.months}`, unit: overview.runway.months === null ? undefined : "mo", estimate: overview.runway.months === null ? undefined : "estimate", provenance: prov("runway", "Cash ÷ net burn", "finance.overview.runway", fcRunway !== null ? `Base forecast: ${fmtMonths(fcRunway)}.` : undefined), caption: fcRunway !== null ? `Forecast: ${fmtMonths(fcRunway)}` : overview.runway.months === null ? (overview.burn.netBurnMinor <= 0 ? "Cash-flow positive, so no limit yet" : "Appears once net burn is measured") : runwayWord(overview.runway.months) },
+    { key: "runway", label: METRIC_DEFINITIONS.runway.label, value: overview.runway.months === null ? (runwayWords(overview)?.value ?? "—") : `${overview.runway.months}`, unit: overview.runway.months === null ? undefined : "mo", estimate: overview.runway.months === null ? undefined : "estimate", provenance: prov("runway", "Cash ÷ net burn", "finance.overview.runway", fcRunway !== null ? `Base forecast: ${fmtMonths(fcRunway)}.` : undefined), caption: fcRunway !== null ? `Forecast: ${fmtMonths(fcRunway)}` : overview.runway.months === null ? (runwayWords(overview)?.caption ?? "Appears once net burn is measured") : runwayWord(overview.runway.months) },
     { key: "revenue", label: METRIC_DEFINITIONS.revenue.label, value: { amountMinor: revenue, currency }, estimate: pnl?.source === "ledger" ? undefined : "estimate", spark: monthlySeries(monthly, months, (m) => m.inflowMinor), provenance: prov("revenue", pnlSource, "finance.pnl.categories[revenue]"), caption: `trailing ${TRAILING} months` },
     { key: "mrr", label: METRIC_DEFINITIONS.mrr.label, value: { amountMinor: mrr, currency }, estimate: "estimate", provenance: prov("mrr", pnlSource, `revenue ÷ ${TRAILING}`), caption: "per month" },
     { key: "arr", label: METRIC_DEFINITIONS.arr.label, value: { amountMinor: mrr * 12, currency }, estimate: "estimate", provenance: prov("arr", pnlSource, "MRR × 12"), caption: "annualised" },
@@ -201,7 +202,7 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
         empty={data && !hasData ? "Monthly inflows and outflows appear once transactions sync." : undefined}
         footer={<span>{pnl.data?.label ?? "Management P&L, unaudited, cash basis"}</span>}
       >
-        {flow.length ? <BarChart label="Net cash change by month" data={flow} height={CHART_HEIGHT} format={(v) => fmtAxisMoney(v, cur)} /> : null}
+        {flow.length ? <BarChart label="Net cash change by month" data={flow} height={CHART_HEIGHT} format={(v) => fmtAxisMoney(v, cur)} showValues /> : null}
       </Panel>
     </Screen>
   );

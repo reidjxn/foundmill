@@ -60,6 +60,9 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   }
 
   const item = await ctx.rls((tx) => repos.inbox.get(tx, ctx.businessId, input.itemId));
+  // Refused before the plan compiler (a model call on the platform key) runs: answering an answered item again would
+  // otherwise cost a call every time and only fail at the write. `repos.inbox.decide` re-checks it under the row lock.
+  if (item.state === "answered" || item.state === "archived") throw new ValidationError(`Inbox item is already ${item.state}`, { itemId: item.id });
   const options = ((item.decision as { options?: ItemOption[] } | null)?.options ?? []) as ItemOption[];
   const option = chosenOption ? options.find((o) => o.id === chosenOption) : undefined;
   if (chosenOption && !option) throw new ValidationError("chosenOption is not one of the item's options", { chosenOption, options: options.map((o) => o.id) });

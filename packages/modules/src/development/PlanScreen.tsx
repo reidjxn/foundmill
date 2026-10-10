@@ -10,7 +10,7 @@ import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, Ke
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
-import { fitColumns, humanise, plural, useTableWidth, type ColumnFit } from "../fit";
+import { fitColumns, fitToGrow, humanise, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { OpenInClaudeCodeDialog, ReassignDialog, StopDialog } from "./dialogs";
 import { useDevScreenOptions } from "./options";
@@ -28,8 +28,10 @@ export interface PlanRow extends TaskRow {
 }
 
 export const PLAN_VIEWS: SavedView[] = [
-  { id: "all", name: "All tasks", builtIn: true, columns: ["title", "status", "kind", "agentName", "progressNumber", "startedDate", "dependsOn", "priority"], sort: [{ id: "priority", desc: true }], filters: [] },
-  { id: "ready", name: "Ready to start", builtIn: true, columns: ["title", "kind", "agentName", "dependsOn", "priority"], sort: [{ id: "priority", desc: true }], filters: [{ id: "f-ready", field: "status", op: "in", value: ["ready", "planned"] }] },
+  // Every built-in view fits the Plan panel at 1280 (668 px) with its columns at their minimum widths (PLAN_FIT), so no
+  // column hides past the panel's edge; Started, Depends on and Priority stay in the column chooser and other views.
+  { id: "all", name: "All tasks", builtIn: true, columns: ["title", "status", "kind", "agentName", "progressNumber"], sort: [{ id: "priority", desc: true }], filters: [] },
+  { id: "ready", name: "Ready to start", builtIn: true, columns: ["title", "agentName", "dependsOn", "priority"], sort: [{ id: "priority", desc: true }], filters: [{ id: "f-ready", field: "status", op: "in", value: ["ready", "planned"] }] },
   { id: "in-progress", name: "In progress", builtIn: true, columns: ["title", "status", "agentName", "progressNumber", "startedDate"], sort: [{ id: "startedDate", desc: true }], filters: [{ id: "f-live", field: "status", op: "in", value: ["running", "paused", "blocked", "review", "merging"] }] },
   { id: "blocked", name: "Blocked", builtIn: true, columns: ["title", "agentName", "dependsOn", "progressNumber"], sort: [], filters: [{ id: "f-blocked", field: "status", op: "eq", value: "blocked" }] },
   { id: "done", name: "Done", builtIn: true, columns: ["title", "agentName", "kind", "startedDate"], sort: [{ id: "startedDate", desc: true }], filters: [{ id: "f-done", field: "status", op: "in", value: ["done", "failed", "stopped"] }] },
@@ -56,7 +58,6 @@ export const PLAN_FIT: Record<string, ColumnFit> = {
   dependsOn: { min: 220, grow: 1 },
   priority: { min: 88 },
 };
-const PLAN_FIT_VISIBLE = ["title", "status", "kind", "agentName", "progressNumber"];
 
 export function toPlanRows(tasks: readonly TaskRow[], edges: readonly { fromTask: string; toTask: string }[], agents: Map<string, AgentRow>): PlanRow[] {
   const titles = new Map(tasks.map((t) => [t.id, t.title]));
@@ -111,13 +112,13 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
       },
     });
 
-  const [tableRef, tableWidth] = useTableWidth();
-  const sizes = useMemo(() => fitColumns(tableWidth, PLAN_FIT, PLAN_FIT_VISIBLE), [tableWidth]);
+  // Each column at its minimum; the table shares the spare width by PLAN_FIT's weights itself (DataTable `meta.grow`).
+  const sizes = useMemo(() => fitColumns(null, PLAN_FIT, []), []);
 
   const runTask = (path: string, task: TaskRow, extra: Record<string, unknown> = {}) => action.run(path, { taskId: task.id, ...extra }, { key: `${path}:${task.id}`, then: () => tasks.refetch() });
 
   const columns = useMemo<DataTableColumn<PlanRow>[]>(
-    () => [
+    () => fitToGrow<PlanRow>([
       {
         id: "title",
         accessorKey: "title",
@@ -172,7 +173,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
       { id: "startedDate", accessorFn: (r) => r.startedDate?.getTime() ?? 0, header: "Started", size: sizes.startedDate, meta: { filter: "date", label: "Started" }, cell: ({ row }) => (row.original.startedDate ? <span className="text-secondary" title={formatDate(row.original.startedDate)}>{formatRelative(row.original.startedDate, options.now ?? new Date())}</span> : <span className="text-tertiary">—</span>) },
       { id: "dependsOn", accessorFn: (r) => r.dependsOn.join(", "), header: "Depends on", size: sizes.dependsOn, meta: { label: "Depends on" }, cell: ({ row }) => (row.original.dependsOn.length ? <span className="block min-w-0 truncate text-secondary" title={row.original.dependsOn.join(", ")}>{row.original.dependsOn.join(", ")}</span> : <span className="text-tertiary">—</span>) },
       { id: "priority", accessorKey: "priority", header: "Priority", size: sizes.priority, meta: { numeric: true } },
-    ],
+    ], PLAN_FIT),
     [businessId, options.now, sizes],
   );
 
@@ -239,7 +240,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
         }
         footer={action.error ? <InlineError error={action.error} /> : <span>Right-click a task for Start, Pause, Reassign, Upgrade, Stop and Open in Claude Code. Enter shows its dependencies.</span>}
       >
-        <div ref={tableRef} className="min-w-0">
+        <div className="min-w-0">
           <DataTable<PlanRow>
             data={rows}
             columns={columns}

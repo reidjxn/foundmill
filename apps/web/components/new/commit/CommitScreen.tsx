@@ -10,7 +10,7 @@
  * `CommitScreen` loads the idea, wires those calls to tRPC and commits.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Check, Globe, Lock, Scale, Sparkles, ThumbsUp } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Globe, Lock, Scale, ThumbsUp } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ARCHETYPE_LABELS, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
@@ -254,7 +254,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
               <div className="flex flex-wrap items-center gap-1.5" aria-label="Name suggestions">
                 <span className="text-small text-secondary">Suggestions:</span>
                 {suggestions.map((s) => (
-                  <Chip key={s} onClick={() => set("name", s)} selected={form.name === s} icon={Sparkles} data-suggestion={s}>
+                  <Chip key={s} onClick={() => set("name", s)} selected={form.name === s} data-suggestion={s}>
                     {s}
                   </Chip>
                 ))}

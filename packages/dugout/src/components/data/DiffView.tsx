@@ -298,7 +298,7 @@ export function DiffView({
           </div>
         )}
       </header>
-      <div className="min-w-0 overflow-auto bg-ink" style={maxHeight ? { maxHeight } : undefined}>
+      <div className="min-w-0 overflow-auto bg-ink" style={maxHeight ? { maxHeight } : undefined} data-scroll-region="diff">
         {hunks.length === 0 && !three ? (
           <p className="p-panel-pad text-body text-secondary">No differences.</p>
         ) : null}

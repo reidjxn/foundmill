@@ -9,7 +9,11 @@ import { LONG, NORTHWIND_BUSINESS_ID, signIn } from "./helpers";
  * - a control (button, tab, radio card, menu item, table header, chip or pill) whose label overflows its box, or is cut
  *   with an ellipsis without the FitText last resort (`data-fit="truncated"`) and a tooltip carrying the full text;
  * - any truncated text that contains a number or a currency sign (numbers never truncate; they fit or reflow);
- * - an input adornment (icon, prefix, suffix, trailing control) overlapping the text area of its field.
+ * - an input adornment (icon, prefix, suffix, trailing control) overlapping the text area of its field;
+ * - a table, or any region that scrolls sideways, whose content is wider than its box at the measured width: columns
+ *   past the panel's edge behind a sideways scroll are hidden from the founder just as surely as a cut label. The only
+ *   exceptions are regions marked `data-scroll-region` where scrolling is what the founder expects (code, diffs, the
+ *   terminal, the task graph and the team diagram, a live preview).
  *
  * Long free text in a row (a note preview, a long name in a table cell) may still end in an ellipsis: that is a list
  * convention, not a clipped control.
@@ -32,7 +36,7 @@ const FIXED_ROUTES = [
 ];
 
 interface Violation {
-  kind: "control-clipped" | "number-truncated" | "input-overlap";
+  kind: "control-clipped" | "number-truncated" | "input-overlap" | "table-overflow" | "scroll-overflow";
   text: string;
   where: string;
   px?: string;
@@ -87,6 +91,21 @@ function measure(): Violation[] {
       const overlap = Math.min(right, pr.right) - Math.max(left, pr.left);
       if (overlap > 0.5) out.push({ kind: "input-overlap", text: short(part.textContent) || "(icon)", where: input.id || input.getAttribute("aria-label") || where(field), px: `${Math.round(overlap)}px` });
     }
+  }
+  // Sideways overflow: a scrolling region (or a clipping box holding a table) whose content is wider than it is.
+  const TABLE = "table, [role=grid], [role=table], [role=treegrid]";
+  for (const el of Array.from(document.querySelectorAll<HTMLElement>("body *"))) {
+    const cs = getComputedStyle(el);
+    const scrolls = cs.overflowX === "auto" || cs.overflowX === "scroll";
+    const clipsTable = (cs.overflowX === "hidden" || cs.overflowX === "clip") && !!el.querySelector(TABLE);
+    if (!scrolls && !clipsTable) continue;
+    if (el.scrollWidth <= el.clientWidth + 2) continue;
+    if (el.closest("[data-scroll-region], [aria-hidden=true], [data-fit-ghost]") || el.querySelector(":scope > [data-scroll-region]")) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2 || cs.visibility === "hidden" || cs.display === "none") continue;
+    const table = el.matches(TABLE) ? el : el.querySelector<HTMLElement>(TABLE);
+    const name = table?.getAttribute("aria-label") ?? table?.closest("[data-datatable]")?.querySelector("h2")?.textContent ?? "";
+    out.push({ kind: table ? "table-overflow" : "scroll-overflow", text: short(name || el.textContent), where: where(el), px: `${el.clientWidth}<${el.scrollWidth}` });
   }
   return out;
 }

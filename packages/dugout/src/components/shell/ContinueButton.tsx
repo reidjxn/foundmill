@@ -61,6 +61,16 @@ export function holidayCaption(state: Extract<ContinueState, { kind: "holiday" }
   return "On holiday";
 }
 
+/**
+ * The caption in parts, for a top bar that has to compact (KitBarFit): the full caption without its year, the year on
+ * its own (it goes first), and the short form ("Until 14 Oct"). Exported for tests.
+ */
+export function holidayCaptionParts(state: Extract<ContinueState, { kind: "holiday" }>): { full: string; year: string; short: string } {
+  if (state.untilLabel) return { full: `On holiday until ${state.untilLabel}`, year: "", short: `Until ${state.untilLabel}` };
+  if (state.until) return { full: `On holiday until ${formatDate(state.until, "d MMM")}`, year: formatDate(state.until, "yyyy"), short: `Until ${formatDate(state.until, "d MMM")}` };
+  return { full: "On holiday", year: "", short: "On holiday" };
+}
+
 /** The callback Space (and a click) should run for a state. */
 export function continueButtonAction(state: ContinueState, handlers: ContinueHandlers): (() => void) | undefined {
   switch (state.kind) {
@@ -186,9 +196,18 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
     case "holiday":
       button = (
         <span className="inline-flex items-center gap-2" data-continue-state="holiday">
-          <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-small text-kit-on-primary/80">
+          <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-small text-kit-on-primary/80" data-holiday-caption>
             <Icon icon={TreePalm} size="inline" />
-            <span>{holidayCaption(state)}</span>
+            {/* In a crowded top bar the caption shortens, then leaves only its icon (KitBarFit); the words stay for
+                screen readers and in the tooltip. */}
+            <span className="sr-only">{holidayCaption(state)}</span>
+            <span aria-hidden className="kitbar-holiday-full">
+              {holidayCaptionParts(state).full}
+              {holidayCaptionParts(state).year ? <span className="kitbar-year"> {holidayCaptionParts(state).year}</span> : null}
+            </span>
+            <span aria-hidden className="kitbar-holiday-short">
+              {holidayCaptionParts(state).short}
+            </span>
           </span>
           <Button {...common} variant="default" icon={Undo2} className={cn(skin, pulseClass, className)}>
             {label}

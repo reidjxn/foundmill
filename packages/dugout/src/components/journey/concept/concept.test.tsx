@@ -74,6 +74,11 @@ describe("RadarChart", () => {
     expect(container.querySelectorAll("[data-radar-series]").length).toBe(2);
     expect(screen.getByRole("img", { name: /One: A 10, B 15, C 5/ })).toBeTruthy();
     expect(screen.getByRole("list", { name: "Legend" }).textContent).toContain("Two");
+    // The top ring's value sits inside the ring (below its line), never up among the first axis's label.
+    const max = container.querySelector("[data-radar-max]") as Element;
+    const firstLabel = container.querySelector("[data-radar] text title")?.parentNode as Element;
+    expect(max.getAttribute("dominant-baseline")).toBe("hanging");
+    expect(Number(max.getAttribute("y"))).toBeGreaterThan(Number(firstLabel.getAttribute("y")) + 13);
   });
 });
 

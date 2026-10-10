@@ -1,5 +1,5 @@
 "use client";
-import { forwardRef, useId, useState, type FormEvent, type HTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useId, useState, type CSSProperties, type FormEvent, type HTMLAttributes, type ReactNode } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { CircleCheck, MessageCircle, Play, RotateCcw, ThumbsUp, TriangleAlert } from "lucide-react";
 import type { Money } from "@foundmill/shared";
@@ -97,6 +97,14 @@ export function optionSubline(o: DecisionOption): string | undefined {
   return parts.length ? parts.join(" · ") : undefined;
 }
 
+/**
+ * An option's share of the bar's width: its words (label, consequence, the Recommended tag), so a long option gets the
+ * room to sit on two lines while a short one stays narrow. Exported for tests.
+ */
+export function optionWeight(o: DecisionOption): number {
+  return Math.max(20, o.label.length + (optionSubline(o)?.length ?? 0) + (o.recommended ? 14 : 0));
+}
+
 /** The hidden description a screen reader gets for an option. */
 export function optionDescription(o: DecisionOption): string {
   return [o.recommended ? "Recommended." : null, o.consequence, `${costText(o.cost)}.`, `${reversibilityText(o.reversible)}.`].filter(Boolean).join(" ");
@@ -104,12 +112,13 @@ export function optionDescription(o: DecisionOption): string {
 
 /**
  * The DecisionBar (BUILD §5.4, §11.3, DESIGN §8, DIRECTION #7): sticky at the bottom of the reading pane, at least
- * 64 px, glass (surface 2 at 86 % over a 16 px blur) with a top light line and an upward shadow. Left: "Your call" and
- * the deadline. Options are two-line buttons, each carrying its own consequence under its label; the recommended one is
- * primary with a thumbs-up and an inline "Recommended" tag. Options wrap and the bar grows — nothing truncates or
- * overlaps. Hover (or focus) still shows consequence, cost and reversibility in a small card. With `onAsk`, an "Ask
- * <agent>" button opens the conversation instead of a free-text box (typing is optional, never required); without it the
- * free-text form + Execute stays. 1–4 choose.
+ * 64 px, glass (surface 2 at 86 % over a 16 px blur) with a top light line and an upward shadow. Compact, so the
+ * conversation above keeps its room: one heading line ("Your call", the deadline and, at its right, "Ask <agent> · Talk
+ * it through first"), then the options in a tight grid across the whole bar. Options are two-line buttons, each
+ * carrying its own consequence under its label; the recommended one is primary with an inline thumbs-up "Recommended"
+ * tag. Options wrap and the bar grows — nothing truncates or overlaps. Hover (or focus) still shows consequence, cost and
+ * reversibility in a small card. With `onAsk` the ask button opens the conversation instead of a free-text box (typing
+ * is optional, never required); without it the free-text form + Execute stays. 1–4 choose.
  */
 export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function DecisionBar(
   {
@@ -173,7 +182,7 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
       aria-label="Decision"
       data-testid="decision-bar"
       data-state={answered ? "answered" : executing ? "executing" : disabled ? "disabled" : "open"}
-      className={cn("decision-glass decision-layout flex min-h-decision-bar shrink-0 flex-col justify-center px-gutter py-2.5", sticky && "sticky bottom-0 z-10", className)}
+      className={cn("decision-glass decision-layout flex min-h-decision-bar shrink-0 flex-col justify-center px-gutter py-2", sticky && "sticky bottom-0 z-10", className)}
       {...rest}
     >
       {answered ? (
@@ -194,8 +203,18 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
           <div className="decision-heading" data-decision-heading>
             <span className="t-data">{heading}</span>
             {leftLine ? <span className="text-small text-tertiary tabular-nums">{leftLine}</span> : null}
+            {onAsk ? (
+              <Button size="sm" variant="default" icon={MessageCircle} disabled={!!disabled || !!executing} onClick={onAsk} className="decision-ask" data-decision-ask>
+                <span>{askLabel}</span>
+                <span className="font-normal opacity-70">{askDescription}</span>
+              </Button>
+            ) : null}
           </div>
-          <div className="decision-options min-w-0 flex-1">
+          <div
+            className="decision-options min-w-0 flex-1"
+            data-count={shown.length}
+            style={{ "--option-cols": shown.map((o) => `minmax(min(100%, 168px), ${optionWeight(o)}fr)`).join(" ") } as CSSProperties}
+          >
             <div className="contents" role="group" aria-label="Options">
               {shown.map((o, i) => {
                 const descId = `${baseId}-${o.id}`;
@@ -205,7 +224,6 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
                     <HoverCardTrigger asChild>
                       <Button
                         variant={o.recommended ? "primary" : "default"}
-                        icon={o.recommended ? ThumbsUp : undefined}
                         disabled={locked || o.disabled}
                         onClick={() => onChoose(o)}
                         aria-describedby={descId}
@@ -214,10 +232,15 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
                         data-recommended={o.recommended || undefined}
                         description={sub}
                         lines={2}
-                        className={cn("min-w-0 justify-start", showKeys && "pr-8")}
+                        className={cn("decision-option min-w-0 justify-start", showKeys && "pr-8")}
                       >
                         <span className="min-w-0">{o.label}</span>
-                        {o.recommended ? <span className="btn-tag">Recommended</span> : null}
+                        {o.recommended ? (
+                          <span className="btn-tag gap-1">
+                            <Icon icon={ThumbsUp} size={11} />
+                            Recommended
+                          </span>
+                        ) : null}
                         {showKeys ? (
                           <Kbd aria-hidden className="absolute right-2 top-2 opacity-80" data-option-key>
                             {i + 1}
@@ -258,11 +281,7 @@ export const DecisionBar = forwardRef<HTMLDivElement, DecisionBarProps>(function
                 );
               })}
             </div>
-            {onAsk ? (
-              <Button variant="default" icon={MessageCircle} disabled={!!disabled || !!executing} onClick={onAsk} description={askDescription} lines={2} className="min-w-0 justify-start" data-decision-ask>
-                {askLabel}
-              </Button>
-            ) : onExecute ? (
+            {onAsk ? null : onExecute ? (
               <form onSubmit={submit} className="flex min-w-0 items-center gap-2" data-testid="decision-free-text" data-decision-row>
                 <Input
                   value={text}

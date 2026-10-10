@@ -8,6 +8,7 @@ import { FitText } from "../foundation/FitText";
 import { Icon } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
 import { ContinueButton, type ContinueButtonProps } from "./ContinueButton";
+import { KitBarFit } from "./KitBarFit";
 import { GameModeChip, ModeChip } from "./ModeChip";
 import { RunwayChip } from "./RunwayChip";
 import { StopAllAgents, type StopAllAgentsProps } from "./StopAllAgents";
@@ -96,8 +97,11 @@ export function kitBarGradient(kit: Kit): string {
  * 38 %, a fixed specular streak, a light top edge, a kit-lift line under it and the brand's light cast onto the canvas).
  * Left: the 32 px logo tile, the business name, back/forward, a hairline, the screen title. Then the universal search
  * and, right: date + runway, the business-mode chip, Continue, Stop all agents — all glass, 34 px. Nothing is clipped at
- * 1280: the search gives way first (its placeholder shortens, then only the icon remains); a long business name or
- * screen title wraps to two lines and steps its size down (FitText) before it would ever truncate.
+ * 1280: the search gives way first (its placeholder shortens, then only the icon remains); then, while the bar still
+ * cannot hold everything whole or the screen title would lose its room, the chips compact one step at a time
+ * (KitBarFit: dates drop the year, the holiday caption shortens to "Until 21 Oct" and then its icon, LIVE and the mode
+ * show their icons, the date leaves the runway chip); a long business name or screen title wraps to two lines and steps
+ * its size down (FitText) before it would ever truncate.
  */
 export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
   {
@@ -197,6 +201,7 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
         </span>
       </button>
 
+      <KitBarFit />
       <div className="flex shrink-0 items-center gap-2">
         <RunwayChip date={date} runwayMonths={runwayMonths} cash={cash} estimate={runwayEstimate} onClick={onRunwayClick} />
         {gameMode === "live" ? <GameModeChip mode="live" /> : null}

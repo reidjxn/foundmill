@@ -117,6 +117,13 @@
   list-style: none;
   outline: none;
   --toast-dir: -1;
+  /* Layout-aware (useToastPlacement): beside the collapsed sidebar, or at the page's edge when there is none. */
+  &[data-sidebar="collapsed"] {
+    left: calc(var(--sidebar-width-collapsed) + var(--gutter));
+  }
+  &[data-sidebar="none"] {
+    left: var(--gutter);
+  }
   &[data-position="bottom-right"] {
     left: auto;
     right: var(--gutter);

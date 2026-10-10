@@ -485,6 +485,74 @@ function packPins<T extends { x: number; label: string }>(items: readonly T[], m
 /** The Today tag's half-width, reserved in the first pin lane ("Today · 30 Sep · 12 live" fits). */
 export const TODAY_TAG_HALF = 62;
 
+/** The y of a pin lane's chips (lane 0 is level with the Today tag). */
+export const pinLaneY = (lane: number) => PIN_TOP + lane * PIN_LANE;
+
+export interface PinChipInput {
+  id: string;
+  /** The pin's day, in plot pixels (before scrolling). */
+  x: number;
+  /** Its lane's y from the packing. */
+  y: number;
+  /** The label to show (already cut to PIN_LABEL_MAX), or null for an icon-only chip. */
+  label: string | null;
+}
+
+export interface PlacedPinChip {
+  id: string;
+  y: number;
+  /** The label drawn, or null when only the icon fits. */
+  label: string | null;
+  /** Window pixels (after scrolling). */
+  left: number;
+  right: number;
+  /** "end": the chip ends at its drop line (flipped to the left of its day). */
+  anchor: "start" | "end";
+}
+
+/**
+ * Place the pin chips of the visible window so that none overlaps another or the Today tag (`avoid`, in window
+ * pixels). The packing in `buildRibbonGeometry` works on the whole time axis; here the window is known, so a chip
+ * that would cross the plot's right edge flips to end at its day, and a chip that then meets the Today tag (whose
+ * position is clamped into the window) or another chip tries, in order: its other side, another lane, its icon alone
+ * in its lane, its icon in another lane. A chip with nowhere to go is left out (its drop line and title remain). Pure.
+ */
+export function placePinChips(pins: readonly PinChipInput[], opts: { scrollX: number; plotW: number; lanes?: number; avoid?: { left: number; right: number; y: number } | null; gap?: number }): Map<string, PlacedPinChip> {
+  const { scrollX, plotW } = opts;
+  const lanes = opts.lanes ?? 3;
+  const gap = opts.gap ?? 4;
+  const taken = new Map<number, Array<{ left: number; right: number }>>();
+  const take = (y: number, r: { left: number; right: number }) => taken.set(y, [...(taken.get(y) ?? []), r]);
+  if (opts.avoid) take(opts.avoid.y, { left: opts.avoid.left, right: opts.avoid.right });
+  const free = (y: number, r: { left: number; right: number }) => !(taken.get(y) ?? []).some((t) => t.left < r.right + gap && t.right > r.left - gap);
+  const rect = (sx: number, w: number, anchor: "start" | "end") => (anchor === "start" ? { left: sx - PIN_INSET, right: sx - PIN_INSET + w } : { left: sx + PIN_INSET - w, right: sx + PIN_INSET });
+  const out = new Map<string, PlacedPinChip>();
+  for (const p of [...pins].sort((a, b) => a.x - b.x)) {
+    const sx = p.x - scrollX;
+    const ys = [p.y, ...Array.from({ length: lanes }, (_, l) => pinLaneY(l)).filter((y) => y !== p.y)];
+    const tries: Array<{ y: number; label: string | null; anchor: "start" | "end" }> = [];
+    const sides = (w: number): Array<"start" | "end"> => {
+      const start = rect(sx, w, "start");
+      const end = rect(sx, w, "end");
+      // Preferred: to the right of the day, unless that crosses the plot's edge and the left side has room.
+      const startFits = start.right <= plotW - 4;
+      const endFits = end.left >= 0;
+      if (startFits) return endFits ? ["start", "end"] : ["start"];
+      return endFits ? ["end"] : ["start"];
+    };
+    if (p.label) for (const y of ys) for (const a of sides(pinChipWidth(p.label))) tries.push({ y, label: p.label, anchor: a });
+    for (const y of ys) tries.push({ y, label: null, anchor: "start" });
+    for (const t of tries) {
+      const r = rect(sx, t.label ? pinChipWidth(t.label) : PIN_HEIGHT, t.anchor);
+      if (!free(t.y, r)) continue;
+      take(t.y, r);
+      out.set(p.id, { id: p.id, y: t.y, label: t.label, anchor: t.anchor, ...r });
+      break;
+    }
+  }
+  return out;
+}
+
 export function buildRibbonGeometry(input: RibbonGeometryInput): RibbonGeometry {
   const { index, zoom, width, height, today } = input;
   const horizonMonths = input.horizonMonths ?? 6;
@@ -598,7 +666,7 @@ export function buildRibbonGeometry(input: RibbonGeometryInput): RibbonGeometry 
 
   // Milestones and planned roadmap items as labelled pins over the revenue chart, packed together into up to three
   // rows so no two labels overlap.
-  const pinY = (lane: number) => PIN_TOP + lane * PIN_LANE;
+  const pinY = pinLaneY;
   type Pin = { x: number; label: string; day: DayKey; id: string } & ({ type: "milestone"; kind: MilestoneKind; glyph: MilestoneGlyphKind } | { type: "planned" });
   const pins: Pin[] = [];
   for (const m of input.milestones) {

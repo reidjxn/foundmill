@@ -43,6 +43,7 @@ export const StatusPill = forwardRef<HTMLSpanElement, StatusPillProps>(function 
     <span
       ref={ref}
       data-tone={tone}
+      data-status-pill=""
       data-pulse={pulse || undefined}
       className={cn(
         "chip-tone inline-flex max-w-full items-center gap-1 rounded-pill border py-px pl-1.5 pr-2 align-middle",

@@ -18,6 +18,7 @@ import { departmentRows, useRecentRibbon } from "../shared/ribbon";
 import { routes } from "../shared/routes";
 import { addDays, dailySeries, dayKey, daysUntil, lastDays, sumInRange } from "../shared/time";
 import type { ChannelsListResponse, ComplianceResponse, DepartmentRow, FinanceOverview, Page, RibbonResponse, RoadmapListResponse, TaskRow } from "../shared/types";
+import { RUNWAY_WORDS, runwayWords } from "../shared/runway";
 
 export const DEPARTMENT_METRICS = ["auto", "tasks_done", "roadmap_on_track", "blended_cpa", "runway", "squad_health", "next_filing"] as const;
 export type DepartmentMetricKey = (typeof DEPARTMENT_METRICS)[number];
@@ -121,8 +122,8 @@ export function headlineMetric(i: MetricInputs): DepartmentMetric {
     }
     case "runway": {
       const months = i.finance?.runway.months ?? null;
-      // The same plain words as the top bar when there is no burn model yet; Estimate only on a real estimate.
-      if (months === null) return { label: "Runway", value: "None yet", series: dailySeries(i.rows, i.days, (r) => r.revenueMinor) };
+      // The shared runway words when there is no figure ("No limit" when cash-flow positive); Estimate only on a real estimate.
+      if (months === null) return { label: "Runway", value: runwayWords(i.finance)?.value ?? RUNWAY_WORDS.no_bank.value, series: dailySeries(i.rows, i.days, (r) => r.revenueMinor) };
       return { label: "Runway", value: `${formatNumber(months, { maxDigits: 1 })} mo`, series: dailySeries(i.rows, i.days, (r) => r.revenueMinor), provenance: "estimate" };
     }
     case "squad_health": {

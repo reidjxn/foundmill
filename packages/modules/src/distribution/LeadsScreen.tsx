@@ -33,8 +33,8 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { LAWFUL_BASES, lawfulBasisLabel, suppressionOf } from "./channel-data";
-import { fitColumns, type ColumnFit } from "../fit";
-import { InlineError, Screen, fitTableHeight, plainWords, sourceLabel, useAction, useFittedColumns } from "./shared";
+import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
+import { InlineError, Screen, fitTableHeight, plainWords, sourceLabel, useAction } from "./shared";
 import type { AgentRow, LeadRow, Page } from "./types";
 
 export const LEAD_VIEWS: SavedView[] = [
@@ -136,8 +136,7 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
   useBusinessEvents(() => leads.refetch(), ["lead.created", "lead.replied"]);
 
   const rows = useMemo(() => leads.data?.items ?? [], [leads.data]);
-  const fitted = useFittedColumns(LEAD_FIT, views, "all");
-  const columns = useMemo(() => leadColumns(businessId, agents.data, fitted.sizes), [businessId, agents.data, fitted.sizes]);
+  const columns = useMemo(() => fitToGrow(leadColumns(businessId, agents.data), LEAD_FIT), [businessId, agents.data]);
   const openProfile = useCallback((r: LeadRow) => navigate(routes.crm(businessId, r.id)), [businessId, navigate]);
 
   const endRole = useCallback(
@@ -173,7 +172,7 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
         flush
       >
         <InlineError error={action.error} className="px-panel-pad pt-2" />
-        <div ref={fitted.ref} className="min-w-0">
+        <div className="min-w-0">
         <DataTable<LeadRow>
           aria-label="Leads"
           data={rows}
@@ -185,7 +184,6 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
           onRowOpen={openProfile}
           height={fitTableHeight(rows.length, { minRows: 12, maxRows: 18 })}
           exportFileName="leads"
-          onActiveViewChange={fitted.onActiveViewChange}
           empty={{ title: "No leads yet", children: "Qualified leads arrive here with their lawful basis once Lead generation runs on the board.", action: boardHref ? { label: "Open Lead generation", icon: ArrowUpToLine, onClick: () => navigate(`${boardHref}?channel=lead_generation`) } : undefined }}
         />
         </div>

@@ -107,6 +107,13 @@ export const SendInput = z
     text: z.string().trim().min(1).max(2000).optional(),
     /** A quick reply from the latest agent message, or a starter. */
     quickReplyId: z.string().regex(/^[a-z0-9_-]{1,24}$/).optional(),
+    /**
+     * The option the pressed chip names on the founder's screen (`option_id`, null for a chip that names none). Chip ids
+     * repeat across messages ("go_with"), so a tab showing an older message could otherwise decide whichever option the
+     * newest message's chip of that id names: a chip that no longer names this option is refused as stale. Optional for
+     * older clients.
+     */
+    optionId: z.string().max(40).nullable().optional(),
   })
   .refine((v) => (v.text ? 1 : 0) + (v.quickReplyId ? 1 : 0) === 1, { message: "Send either text or a quick reply", path: ["text"] });
 export type SendInput = z.infer<typeof SendInput>;
@@ -486,6 +493,8 @@ async function prepare(tx: DbTx, ctx: BusinessContext, input: SendInput): Promis
   if (input.quickReplyId) {
     chip = asQuickReplies(latestAgent?.quickReplies).find((q) => q.id === input.quickReplyId) ?? r.starters.find((q) => q.id === input.quickReplyId) ?? null;
     if (!chip) throw new ValidationError("That quick reply is no longer available", { quickReplyId: input.quickReplyId });
+    // The chip of this id now names another option than the one on the founder's screen (another tab moved on).
+    if (input.optionId !== undefined && (chip.option_id ?? null) !== input.optionId) throw new ValidationError("That quick reply is no longer available", { quickReplyId: chip.id, route: "stale" });
     if (chip.kind === "write") throw new ValidationError("Write your message", { quickReplyId: chip.id });
     // A chip offered before the item was decided (the DecisionBar, another tab): nothing is left to choose.
     if (chip.kind === "choose_option" && r.subject.answered) throw new ValidationError("This one is already decided, so there is nothing left to choose", { quickReplyId: chip.id, route: "stale" });

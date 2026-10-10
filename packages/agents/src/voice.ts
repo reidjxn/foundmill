@@ -15,12 +15,12 @@ export type VoiceRegister = "silent" | "terse" | "numerate" | "measured" | "mark
 const REGISTER_VOICES: Record<VoiceRegister, AgentVoice> = {
   silent: { greeting: "Ready.", thinking: ["Processing the input…", "Checking the fields…"], ack: ["Noted.", "Understood."] },
   terse: {
-    greeting: "Here. What do you need?",
+    greeting: "Hi. Ask me about the code, the tests or the branch.",
     thinking: ["Checking the branch…", "Reading the test output…", "Looking at the diff…"],
     ack: ["Understood.", "Noted. Changing course in this step.", "Clear."],
   },
   numerate: {
-    greeting: "Hello. Which figures do you want to look at?",
+    greeting: "Hi. Which figures shall we look at?",
     thinking: ["Pulling the figures…", "Checking the basis…", "Reconciling the records…"],
     ack: ["Noted.", "Understood. I'll keep the figures labelled.", "Clear."],
   },
@@ -40,7 +40,7 @@ const REGISTER_VOICES: Record<VoiceRegister, AgentVoice> = {
     ack: ["Understood.", "Noted. I'll keep the tolerances in view.", "Clear."],
   },
   calm: {
-    greeting: "I'm here. What do you need from me?",
+    greeting: "Hi. Ask me about the plan, the team or anything waiting on you.",
     thinking: ["Checking the plan…", "Looking across the team…", "Pulling up what's open…"],
     ack: ["Got it.", "Understood. I'll fold it into the plan.", "Noted."],
   },

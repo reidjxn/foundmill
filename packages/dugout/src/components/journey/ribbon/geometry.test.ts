@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { generateJourneyFixture, RIBBON_DEPARTMENTS } from "../fixtures";
 import { ZOOM_LEVELS } from "../types";
 import {
+  pinChipWidth,
+  pinLaneY,
+  placePinChips,
   addDaysKey,
   buildRibbonGeometry,
   chapterName,
@@ -267,5 +270,39 @@ describe("revealWidth", () => {
     expect(revealWidth(2200, 1000, 1200, 800)).toBe(800);
     expect(revealWidth(9000, 1000, 1200, 800)).toBe(800);
     expect(revealWidth(1600, 1000, 1200, -5)).toBe(0);
+  });
+});
+
+describe("placePinChips", () => {
+  const overlaps = (a: { left: number; right: number; y: number }, b: { left: number; right: number; y: number }) => a.y === b.y && a.left < b.right && a.right > b.left;
+
+  it("keeps every chip clear of the Today tag and of each other, flipping, changing lane or dropping the label", () => {
+    const plotW = 900;
+    // Today's tag sits at 760–880 in lane 0; two planned items just right of it would be flipped back over it.
+    const avoid = { left: 760, right: 880, y: pinLaneY(0) };
+    const pins = [
+      { id: "a", x: 860, y: pinLaneY(0), label: "Workflow (email approvals)" },
+      { id: "b", x: 880, y: pinLaneY(1), label: "Xero sync v2 (journals and…" },
+      { id: "c", x: 300, y: pinLaneY(0), label: "Release 2.6" },
+      { id: "d", x: 310, y: pinLaneY(0), label: "Release 2.7" },
+    ];
+    const placed = placePinChips(pins, { scrollX: 0, plotW, avoid });
+    const rects = [...placed.values()];
+    expect(rects).toHaveLength(4);
+    for (const r of rects) {
+      expect(overlaps(r, avoid)).toBe(false);
+      expect(r.right).toBeLessThanOrEqual(plotW);
+      for (const o of rects) if (o !== r) expect(overlaps(r, o)).toBe(false);
+    }
+    // Near the right edge a chip ends at its day instead of crossing the edge.
+    expect(placed.get("b")?.anchor).toBe("end");
+    // An undisturbed chip keeps its lane, its label and its side.
+    expect(placed.get("c")).toMatchObject({ y: pinLaneY(0), label: "Release 2.6", anchor: "start" });
+    expect(placed.get("c")?.right).toBeCloseTo(300 - 9 + pinChipWidth("Release 2.6"));
+  });
+
+  it("works in window pixels: the same pins scrolled", () => {
+    const placed = placePinChips([{ id: "a", x: 1300, y: pinLaneY(0), label: "Launch" }], { scrollX: 1000, plotW: 900 });
+    expect(placed.get("a")?.left).toBe(300 - 9);
   });
 });

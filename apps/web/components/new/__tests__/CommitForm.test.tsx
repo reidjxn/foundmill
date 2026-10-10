@@ -101,6 +101,8 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     expect(screen.getAllByRole("alert").some((a) => /Give the business a name/.test(a.textContent ?? ""))).toBe(true);
     const suggestion = document.querySelectorAll<HTMLElement>("[data-suggestion]")[1]!;
     const suggested = suggestion.dataset.suggestion!;
+    // Name suggestions are local rules, not a model call: no sparkle (it is reserved for generation).
+    expect(suggestion.querySelector("svg")).toBeNull();
     fireEvent.click(suggestion.querySelector("button")!);
     expect((screen.getByLabelText(/Business name/) as HTMLInputElement).value).toBe(suggested);
     fireEvent.click(document.querySelector<HTMLElement>('[data-option="live"] button[role="radio"]')!);

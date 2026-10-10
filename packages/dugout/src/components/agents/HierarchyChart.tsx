@@ -13,9 +13,18 @@ export interface HierarchyLayoutOptions {
   gapX: number;
   gapY: number;
   padding: number;
+  /**
+   * Stack a node's leaf children (the people with no reports) in one column under it, joined by a spine, instead of
+   * spreading them across the row. A team of 30 then reads in one window instead of a strip 6,000 px wide.
+   */
+  stackLeaves: boolean;
+  /** Indent of a stacked column from its spine. */
+  stackIndent: number;
+  /** Vertical gap between stacked nodes. */
+  stackGap: number;
 }
 
-export const HIERARCHY_LAYOUT: HierarchyLayoutOptions = { nodeWidth: 188, nodeHeight: 64, gapX: 12, gapY: 40, padding: 16 };
+export const HIERARCHY_LAYOUT: HierarchyLayoutOptions = { nodeWidth: 188, nodeHeight: 64, gapX: 12, gapY: 40, padding: 16, stackLeaves: true, stackIndent: 24, stackGap: 8 };
 
 export interface HierarchyPlaced {
   id: string;
@@ -33,7 +42,35 @@ export interface HierarchyLayout {
   height: number;
 }
 
-/** A tidy top-down tree: leaves spaced evenly, parents centred over their children. Orphans become roots. */
+/** An orthogonal path through `points` with rounded corners (radius up to 8, smaller when a leg is short). */
+function roundedPath(points: ReadonlyArray<readonly [number, number]>): string {
+  if (points.length < 2) return "";
+  const [x0, y0] = points[0]!;
+  let d = `M ${x0} ${y0}`;
+  for (let i = 1; i < points.length - 1; i++) {
+    const [px, py] = points[i - 1]!;
+    const [cx, cy] = points[i]!;
+    const [nx, ny] = points[i + 1]!;
+    const r = Math.min(8, Math.hypot(cx - px, cy - py) / 2, Math.hypot(nx - cx, ny - cy) / 2);
+    if (r < 0.5) {
+      d += ` L ${cx} ${cy}`;
+      continue;
+    }
+    const ax = cx - Math.sign(cx - px) * r;
+    const ay = cy - Math.sign(cy - py) * r;
+    const bx = cx + Math.sign(nx - cx) * r;
+    const by = cy + Math.sign(ny - cy) * r;
+    d += ` L ${ax} ${ay} Q ${cx} ${cy} ${bx} ${by}`;
+  }
+  const [lx, ly] = points[points.length - 1]!;
+  return `${d} L ${lx} ${ly}`;
+}
+
+/**
+ * A top-down org chart: parents centred over their branches, orphans become roots. With `stackLeaves` (the default) a
+ * node's leaf children sit in one column after its branches, joined by a spine; a node whose children are all leaves
+ * sits at the top left of its column with the spine dropping from it.
+ */
 export function layoutHierarchy(nodes: readonly HierarchyNode[], opts: Partial<HierarchyLayoutOptions> = {}): HierarchyLayout {
   const o = { ...HIERARCHY_LAYOUT, ...opts };
   const ids = new Set(nodes.map((n) => n.id));
@@ -42,29 +79,61 @@ export function layoutHierarchy(nodes: readonly HierarchyNode[], opts: Partial<H
     const parent = n.parentId && ids.has(n.parentId) && n.parentId !== n.id ? n.parentId : null;
     children.set(parent, [...(children.get(parent) ?? []), n.id]);
   }
+  const kidsOf = (id: string) => children.get(id) ?? [];
+  const isLeaf = (id: string) => kidsOf(id).length === 0;
+  /** A node's children split into branches (spread across the row) and stacked leaves (one column). */
+  const split = (id: string) => {
+    const kids = kidsOf(id);
+    if (!o.stackLeaves) return { branches: kids, leaves: [] as string[] };
+    return { branches: kids.filter((k) => !isLeaf(k)), leaves: kids.filter(isLeaf) };
+  };
+  const stackWidth = o.nodeWidth + o.stackIndent;
   const placed = new Map<string, HierarchyPlaced>();
   const widthOf = new Map<string, number>();
   const measure = (id: string, seen: Set<string>): number => {
     if (seen.has(id)) return o.nodeWidth;
     seen.add(id);
-    const kids = children.get(id) ?? [];
-    const w = kids.length ? kids.reduce((s, k) => s + measure(k, seen), 0) + o.gapX * (kids.length - 1) : o.nodeWidth;
+    const { branches, leaves } = split(id);
+    for (const l of leaves) {
+      seen.add(l);
+      widthOf.set(l, o.nodeWidth);
+    }
+    const cols = branches.map((k) => measure(k, seen));
+    if (leaves.length) cols.push(stackWidth);
+    const w = cols.length ? cols.reduce((s, c) => s + c, 0) + o.gapX * (cols.length - 1) : o.nodeWidth;
     widthOf.set(id, Math.max(o.nodeWidth, w));
     return widthOf.get(id)!;
   };
   const roots = children.get(null) ?? [];
   const seen = new Set<string>();
   roots.forEach((r) => measure(r, seen));
-  const place = (id: string, left: number, depth: number, parentId: string | null) => {
+  const rowY = (depth: number) => o.padding + depth * (o.nodeHeight + o.gapY);
+  type Route = { kind: "tree" } | { kind: "spine"; spineX: number; from: "parent" | "sibling"; prevId?: string };
+  const route = new Map<string, Route>();
+  const place = (id: string, left: number, depth: number, parentId: string | null, y = rowY(depth)) => {
     const w = widthOf.get(id) ?? o.nodeWidth;
-    const kids = children.get(id) ?? [];
-    placed.set(id, { id, x: left + (w - o.nodeWidth) / 2, y: o.padding + depth * (o.nodeHeight + o.gapY), depth, parentId, childIds: kids });
+    const kids = kidsOf(id);
+    const { branches, leaves } = split(id);
+    // All leaves: the node sits at the top left of its column and the spine drops from it.
+    const onlyLeaves = leaves.length > 0 && branches.length === 0;
+    const x = onlyLeaves ? left : left + (w - o.nodeWidth) / 2;
+    placed.set(id, { id, x, y, depth, parentId, childIds: kids });
     let cursor = left;
-    for (const k of kids) {
+    for (const k of branches) {
       if (placed.has(k)) continue;
       place(k, cursor, depth + 1, id);
+      route.set(k, { kind: "tree" });
       cursor += (widthOf.get(k) ?? o.nodeWidth) + o.gapX;
     }
+    if (!leaves.length) return;
+    const spineX = onlyLeaves ? x + o.stackIndent / 2 : cursor + o.stackIndent / 2;
+    const leafX = onlyLeaves ? x + o.stackIndent : cursor + o.stackIndent;
+    const firstY = onlyLeaves ? y + o.nodeHeight + o.stackGap * 2 : rowY(depth + 1);
+    leaves.forEach((l, i) => {
+      if (placed.has(l)) return;
+      placed.set(l, { id: l, x: leafX, y: firstY + i * (o.nodeHeight + o.stackGap), depth: depth + 1, parentId: id, childIds: [] });
+      route.set(l, i === 0 ? { kind: "spine", spineX, from: "parent" } : { kind: "spine", spineX, from: "sibling", prevId: leaves[i - 1] });
+    });
   };
   let cursor = o.padding;
   for (const r of roots) {
@@ -78,20 +147,28 @@ export function layoutHierarchy(nodes: readonly HierarchyNode[], opts: Partial<H
     .filter((p) => p.parentId)
     .map((p) => {
       const parent = placed.get(p.parentId as string)!;
-      const x1 = parent.x + o.nodeWidth / 2;
-      const y1 = parent.y + o.nodeHeight;
+      const r = route.get(p.id) ?? { kind: "tree" as const };
+      const pcx = parent.x + o.nodeWidth / 2;
+      const pBottom = parent.y + o.nodeHeight;
+      if (r.kind === "spine") {
+        const midY = p.y + o.nodeHeight / 2;
+        if (r.from === "sibling") {
+          // One spine segment per stacked node, from the previous one's join down to this one: no line drawn twice.
+          const prev = placed.get(r.prevId as string)!;
+          return { from: parent.id, to: p.id, path: roundedPath([[r.spineX, prev.y + o.nodeHeight / 2], [r.spineX, midY], [p.x, midY]]) };
+        }
+        // The first stacked node: straight down the spine when it drops from the parent, else round from the parent.
+        const fromParent = Math.abs(r.spineX - pcx) > o.nodeWidth / 2;
+        const points: Array<[number, number]> = fromParent
+          ? [[pcx, pBottom], [pcx, pBottom + o.gapY / 2], [r.spineX, pBottom + o.gapY / 2], [r.spineX, midY], [p.x, midY]]
+          : [[r.spineX, pBottom], [r.spineX, midY], [p.x, midY]];
+        return { from: parent.id, to: p.id, path: roundedPath(points) };
+      }
       const x2 = p.x + o.nodeWidth / 2;
       const y2 = p.y;
-      const mid = y1 + (y2 - y1) / 2;
-      // Orthogonal with rounded corners (radius up to 8, smaller when the turn is tight).
-      const r = Math.min(8, Math.abs(x2 - x1) / 2, (y2 - y1) / 4);
-      if (r < 0.5) return { from: parent.id, to: p.id, path: `M ${x1} ${y1} L ${x2} ${y2}` };
-      const dir = x2 > x1 ? 1 : -1;
-      return {
-        from: parent.id,
-        to: p.id,
-        path: `M ${x1} ${y1} L ${x1} ${mid - r} Q ${x1} ${mid} ${x1 + dir * r} ${mid} L ${x2 - dir * r} ${mid} Q ${x2} ${mid} ${x2} ${mid + r} L ${x2} ${y2}`,
-      };
+      const mid = pBottom + (y2 - pBottom) / 2;
+      if (Math.abs(x2 - pcx) < 1) return { from: parent.id, to: p.id, path: `M ${pcx} ${pBottom} L ${x2} ${y2}` };
+      return { from: parent.id, to: p.id, path: roundedPath([[pcx, pBottom], [pcx, mid], [x2, mid], [x2, y2]]) };
     });
   return { nodes: list, edges, width, height };
 }
@@ -180,7 +257,8 @@ export function HierarchyChart({ nodes, selectedId, onSelect, layout: layoutOpts
 
   return (
     <div className={cn("scroll-cues relative min-h-0", className)} data-more-left={cues.left || undefined} data-more-right={cues.right || undefined} data-hierarchy-chart>
-      <div ref={scroller} className="h-full overflow-auto" onScroll={updateCues}>
+      {/* A diagram that can be wider than its panel scrolls, with fade cues at the edges (like the task graph). */}
+      <div ref={scroller} className="h-full overflow-auto" onScroll={updateCues} data-scroll-region="diagram">
       <div role="tree" aria-label="Team hierarchy" className="relative" style={{ width: layout.width, height: layout.height }}>
         <svg width={layout.width} height={layout.height} aria-hidden className="absolute inset-0">
           {layout.edges.map((e) => (

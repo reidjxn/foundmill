@@ -2,13 +2,15 @@
 /**
  * Small layout and wording helpers the module screens share (team, development).
  *
- * - `useTableWidth` + `fitColumns`: size DataTable columns to the width the table really has, so the default view
- *   fills the panel at 1280 and 1440 without a column cut at the edge (DESIGN §2 "never clip"). Each column has a
- *   minimum (what its content needs) and a grow weight for the extra width; below the sum of the minimums the table
- *   scrolls sideways with its fade cue instead of squeezing a column.
+ * - `fitToGrow`: size DataTable columns from fit specs: each column has a minimum (what its content needs) and a grow
+ *   weight for the extra width, which the DataTable shares itself (`meta.grow`), so a view fills the panel at 1280 and
+ *   1440 without a column cut at the edge (DESIGN §2 "never clip"); below the sum of the minimums the table scrolls
+ *   sideways with its fade cue instead of squeezing a column. `useTableWidth` + `fitColumns` are the measured form
+ *   (kept for callers that need the numbers).
  * - `humanise` and `plural`: never show raw identifiers or "1 agents" to the founder.
  */
 import { useCallback, useLayoutEffect, useRef, useState, type RefCallback } from "react";
+import type { DataTableColumn } from "@foundmill/dugout";
 
 export interface ColumnFit {
   /** The width its content needs (px, including the cell padding). */
@@ -39,6 +41,20 @@ export function fitColumns<K extends string>(width: number | null | undefined, s
   const heaviest = growers.reduce((a, b) => ((specs[b].grow ?? 0) > (specs[a].grow ?? 0) ? b : a));
   out[heaviest] += extra - given;
   return out;
+}
+
+/**
+ * DataTable columns sized from fit specs, for the table to fit itself: each column at its minimum with its grow weight
+ * as `meta.grow`, so the DataTable shares the spare width by weight in the header and the body alike, at whatever width
+ * it has and for whichever columns the view shows (no measuring here). Columns without a spec are left as they are.
+ */
+export function fitToGrow<T>(columns: DataTableColumn<T>[], specs: Readonly<Record<string, ColumnFit>>): DataTableColumn<T>[] {
+  return columns.map((c) => {
+    const id = c.id ?? (c as { accessorKey?: string }).accessorKey;
+    const spec = id ? specs[id] : undefined;
+    if (!spec) return c;
+    return { ...c, size: spec.min, meta: { ...c.meta, grow: spec.grow ?? 0 } };
+  });
 }
 
 /**

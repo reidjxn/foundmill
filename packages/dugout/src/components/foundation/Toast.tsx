@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import * as ToastPrimitive from "@radix-ui/react-toast";
 import { Circle, CircleCheck, CircleX, Info, TriangleAlert, X } from "lucide-react";
 import { cn } from "../../lib/cn";
@@ -63,6 +63,46 @@ export const TOAST_TONES: Record<ToastTone, { icon: IconComponent; tone: string 
 /** Where the stack sits. Bottom left of the content column (the default) never covers a primary action. */
 export type ToastPosition = "bottom-left" | "bottom-right" | "top-right";
 
+/** The column a bottom-left stack sits beside: the expanded sidebar (232 px), the collapsed one (64 px), or none. */
+export type ToastSidebar = "expanded" | "collapsed" | "none";
+
+/** A layout's say in where toasts go while it is mounted (see `useToastPlacement`). */
+export interface ToastPlacementOptions {
+  position: ToastPosition;
+  /** For bottom-left: what the stack sits beside. Default "expanded". */
+  sidebar?: ToastSidebar;
+}
+
+interface PlacementApi {
+  register: (id: number, placement: ToastPlacementOptions) => void;
+  unregister: (id: number) => void;
+}
+const ToastPlacementContext = createContext<PlacementApi | null>(null);
+let placementSeq = 0;
+
+/**
+ * Layout-aware toasts: while the calling layout is mounted, the stack goes where it says (the most recently mounted
+ * layout wins; unmounting hands back to the one before). The AppShell keeps it bottom left beside its sidebar, at the
+ * sidebar's real width; a frame without a sidebar (first run, sign-in) sends it bottom right, so it never lands on the
+ * first column of cards. A ToastProvider given an explicit `position` ignores layouts. No-op outside a provider.
+ */
+export function useToastPlacement(placement: ToastPlacementOptions): void {
+  const api = useContext(ToastPlacementContext);
+  const { position, sidebar } = placement;
+  useEffect(() => {
+    if (!api) return;
+    const id = ++placementSeq;
+    api.register(id, { position, sidebar });
+    return () => api.unregister(id);
+  }, [api, position, sidebar]);
+}
+
+/** `useToastPlacement` as an element, for server-rendered layouts: `<ToastPlacement position="bottom-right" />`. */
+export function ToastPlacement(props: ToastPlacementOptions): null {
+  useToastPlacement(props);
+  return null;
+}
+
 /** At most this many toasts show in the stack; older ones wait hidden behind until a newer one leaves. */
 export const TOAST_VISIBLE = 3;
 /** Pixel gap between toasts when the stack fans out (tokens.css --toast-gap). */
@@ -86,7 +126,10 @@ export function toastStack(ids: readonly string[], heights: Readonly<Record<stri
 export interface ToastProviderProps {
   children: ReactNode;
   duration?: number;
-  /** Where toasts stack. Default bottom-left, beside the sidebar, where no primary action lives. */
+  /**
+   * Where toasts stack, fixed. Omit it to let the mounted layout decide (`useToastPlacement`): bottom left beside the
+   * sidebar in the AppShell, bottom right in frames without one; bottom left when no layout has said.
+   */
   position?: ToastPosition;
   /** Render the viewport here (default). Set false to place <Toaster /> yourself. */
   renderViewport?: boolean;
@@ -95,8 +138,19 @@ export interface ToastProviderProps {
 }
 
 /** State + Radix provider. Put one at the app root; call useToast().toast({...}) anywhere below. */
-export function ToastProvider({ children, duration = 5000, position = "bottom-left", renderViewport = true, max = 4 }: ToastProviderProps) {
+export function ToastProvider({ children, duration = 5000, position: fixedPosition, renderViewport = true, max = 4 }: ToastProviderProps) {
   const [toasts, setToasts] = useState<ToastRecord[]>([]);
+  const [placements, setPlacements] = useState<Array<{ id: number; placement: ToastPlacementOptions }>>([]);
+  const placementApi = useMemo<PlacementApi>(
+    () => ({
+      register: (id, placement) => setPlacements((prev) => [...prev.filter((p) => p.id !== id), { id, placement }]),
+      unregister: (id) => setPlacements((prev) => prev.filter((p) => p.id !== id)),
+    }),
+    [],
+  );
+  const layout = fixedPosition ? undefined : placements[placements.length - 1]?.placement;
+  const position: ToastPosition = fixedPosition ?? layout?.position ?? "bottom-left";
+  const sidebar: ToastSidebar = layout?.sidebar ?? "expanded";
   const [heights, setHeights] = useState<Record<string, number>>({});
   const seq = useRef(0);
 
@@ -147,29 +201,33 @@ export function ToastProvider({ children, duration = 5000, position = "bottom-le
 
   return (
     <ToastContext.Provider value={api}>
-      <ToastPrimitive.Provider duration={duration} swipeDirection={position === "bottom-left" ? "left" : "right"} label="Notification">
-        {children}
-        {toasts.map((t) => (
-          <Toast
-            key={t.id}
-            record={t}
-            index={stack[t.id]?.index ?? 0}
-            offset={stack[t.id]?.offset ?? 0}
-            duration={t.duration ?? duration}
-            frontHeight={frontHeight}
-            onOpenChange={(open) => (open ? undefined : dismiss(t.id))}
-            onRemoved={() => remove(t.id)}
-            onMeasure={(h) => measure(t.id, h)}
-          />
-        ))}
-        {renderViewport ? <Toaster position={position} /> : null}
-      </ToastPrimitive.Provider>
+      <ToastPlacementContext.Provider value={placementApi}>
+        <ToastPrimitive.Provider duration={duration} swipeDirection={position === "bottom-left" ? "left" : "right"} label="Notification">
+          {children}
+          {toasts.map((t) => (
+            <Toast
+              key={t.id}
+              record={t}
+              index={stack[t.id]?.index ?? 0}
+              offset={stack[t.id]?.offset ?? 0}
+              duration={t.duration ?? duration}
+              frontHeight={frontHeight}
+              onOpenChange={(open) => (open ? undefined : dismiss(t.id))}
+              onRemoved={() => remove(t.id)}
+              onMeasure={(h) => measure(t.id, h)}
+            />
+          ))}
+          {renderViewport ? <Toaster position={position} sidebar={sidebar} /> : null}
+        </ToastPrimitive.Provider>
+      </ToastPlacementContext.Provider>
     </ToastContext.Provider>
   );
 }
 
 export interface ToasterProps {
   position?: ToastPosition;
+  /** For bottom-left: what the stack sits beside (default the expanded sidebar). */
+  sidebar?: ToastSidebar;
   className?: string;
 }
 
@@ -178,8 +236,8 @@ export interface ToasterProps {
  * DecisionBar, Continue and dialog footers). The newest toast is in front; hovering or focusing the stack fans the
  * others out. F8 focuses it (Radix default hotkey).
  */
-export function Toaster({ position = "bottom-left", className }: ToasterProps) {
-  return <ToastPrimitive.Viewport data-dugout-toasts="" data-position={position} className={cn("toast-viewport", className)} />;
+export function Toaster({ position = "bottom-left", sidebar = "expanded", className }: ToasterProps) {
+  return <ToastPrimitive.Viewport data-dugout-toasts="" data-position={position} data-sidebar={sidebar} className={cn("toast-viewport", className)} />;
 }
 
 interface ToastProps {

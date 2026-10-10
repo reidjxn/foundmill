@@ -13,8 +13,8 @@ import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { PNL_SECTION_LABELS, buildPnl, categoryLabel, formatMonth, isUncategorised, ledgerPnlRows, monthStart, pnlTotals, type PnlRow } from "./metrics";
 import { RecategoriseDialog } from "./RecategoriseDialog";
-import { fitColumns, type ColumnFit } from "../fit";
-import { Screen, fitTableHeight, fmtMoney, fmtSigned, useCurrency, useFittedColumns, useNow } from "./shared";
+import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
+import { Screen, fitTableHeight, fmtMoney, fmtSigned, useCurrency, useNow } from "./shared";
 import type { PnlResponse, TransactionRow, TransactionsListResponse } from "./types";
 
 export const PNL_PERIODS = [
@@ -146,8 +146,8 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
     return buildPnl(pnl.data.categories);
   }, [pnl.data, ledger]);
   const totals = useMemo(() => (pnl.data && !ledger ? pnlTotals(pnl.data.categories) : null), [pnl.data, ledger]);
-  const fitted = useFittedColumns(PNL_FIT, views, "all");
-  const columns = useMemo(() => pnlColumns(pnl.data?.snapshots[0]?.currency ?? currency, fitted.sizes), [currency, pnl.data?.snapshots, fitted.sizes]);
+  // The line column takes the spare width (DataTable `meta.grow`), so the figures sit together on the right at any width.
+  const columns = useMemo(() => fitToGrow(pnlColumns(pnl.data?.snapshots[0]?.currency ?? currency), PNL_FIT), [currency, pnl.data?.snapshots]);
   const lineTransactions = useMemo(() => (selected ? (transactions.data?.items ?? []).filter((t) => matchesLine(t, selected)) : []), [selected, transactions.data]);
   const empty = pnl.data && pnl.data.categories.length === 0 && !ledger;
 
@@ -193,7 +193,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
           </>
         }
       >
-        <div ref={fitted.ref} className="min-w-0">
+        <div className="min-w-0">
         <DataTable<PnlRow>
           aria-label="Profit and loss"
           data={rows}
@@ -209,7 +209,6 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
           rowActions={rowActions}
           onRowOpen={(row) => (row.kind === "line" ? setSelected(row) : undefined)}
           footer={null}
-          onActiveViewChange={fitted.onActiveViewChange}
         />
         </div>
       </Panel>

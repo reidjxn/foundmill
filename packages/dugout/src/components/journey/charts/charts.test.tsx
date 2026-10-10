@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { AreaChart } from "./AreaChart";
 import { BarChart } from "./BarChart";
 import { extent, nearestIndex, toneVar } from "./common";
-import { FunnelChart, funnelRates } from "./FunnelChart";
+import { FunnelChart, funnelRates, funnelRateText, funnelStepText } from "./FunnelChart";
 import { Heatmap } from "./Heatmap";
 import { LineChart } from "./LineChart";
 
@@ -79,6 +79,22 @@ describe("BarChart", () => {
     const { container: horizontal } = render(<BarChart label="Channels" width={500} horizontal data={[{ label: "SEO", value: 40 }, { label: "Paid", value: -10 }]} />);
     expect(horizontal.querySelectorAll("[data-bar]").length).toBe(2);
   });
+
+  it("prints values on every bar or on none", () => {
+    const tight = (labelled: boolean) => [{ label: "Jan", value: labelled ? 1 : 1_234_567 }, { label: "Feb", value: 2 }];
+    const { container, rerender } = render(<BarChart label="Spend" width={120} height={120} showValues format={(v) => String(v)} data={tight(true)} />);
+    expect(container.querySelectorAll("[data-bar] text").length).toBe(2);
+    rerender(<BarChart label="Spend" width={120} height={120} showValues format={(v) => String(v)} data={tight(false)} />);
+    expect(container.querySelectorAll("[data-bar] text").length).toBe(0);
+  });
+
+  it("keeps the printed value under a negative bar clear of the month labels", () => {
+    const { container } = render(<BarChart label="Net cash" width={500} height={160} showValues data={[{ label: "Jul", value: 1200 }, { label: "Aug", value: -900 }, { label: "Sep", value: 300 }]} />);
+    const axisTop = Number(/translate\(0 ([\d.]+)\)/.exec(container.querySelector("[data-axis='x']")?.getAttribute("transform") ?? "")?.[1]);
+    const label = [...container.querySelectorAll("[data-bar='Aug'] text")].find((t) => t.textContent?.includes("900"));
+    // The value's baseline (plus a descender) sits above the month labels' cap height (17 px baseline, 11 px text).
+    expect(Number(label?.getAttribute("y")) + 3).toBeLessThanOrEqual(axisTop + 17 - 11);
+  });
 });
 
 describe("FunnelChart", () => {
@@ -87,6 +103,22 @@ describe("FunnelChart", () => {
     expect(container.querySelectorAll("[data-funnel-stage]").length).toBe(4);
     expect(screen.getByRole("img", { name: /Signups 840 \(7% of previous\)/ })).toBeTruthy();
     expect(screen.getByText("Estimate")).toBeTruthy();
+    // Rates in words, in a column as wide as the longest one.
+    const rates = [...container.querySelectorAll("[data-funnel-rate]")].map((t) => t.textContent);
+    expect(rates).toEqual(["7% to signups", "49% to activated", "23% to paid"]);
+  });
+
+  it("never rounds a real rate to 0% and never prints a count over a hairline bar", () => {
+    expect(funnelRateText(0)).toBe("0%");
+    expect(funnelRateText(0.004)).toBe("<1%");
+    expect(funnelRateText(0.067)).toBe("6.7%");
+    expect(funnelRateText(0.123)).toBe("12%");
+    expect(funnelStepText({ label: "MQL", value: 3 }, { ofPrevious: 0.5 })).toBe("50% to MQL");
+    expect(funnelStepText({ label: "Visits", value: 3 }, { ofPrevious: null })).toBe("");
+    const { container } = render(<FunnelChart label="Touch funnel" width={600} stages={[{ label: "Impressions", value: 1_200_000 }, { label: "Clicks", value: 900 }, { label: "Customers", value: 12 }]} />);
+    const counts = [...container.querySelectorAll("[data-funnel-count]")].map((t) => t.getAttribute("data-funnel-count"));
+    expect(counts).toEqual(["inside", "beside", "beside"]);
+    expect([...container.querySelectorAll("[data-funnel-rate]")].map((t) => t.textContent)).toEqual(["<1% to clicks", "1.3% to customers"]);
   });
 });
 

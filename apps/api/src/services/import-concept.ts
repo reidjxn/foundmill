@@ -21,7 +21,7 @@ import { repos, type Db, type IdeaWithVersion } from "@foundmill/db";
 import { ModelOutputError, type ConceptCard, type ModelClient, type ModelMode } from "@foundmill/models";
 import { AppError, ValidationError } from "@foundmill/shared";
 import { linkableImportJob } from "./foundations";
-import { founderBrief, ideaFromCard, IDEATION_TOO_LONG_MESSAGE } from "./ideation";
+import { founderBrief, ideaFromCard, IDEATION_TOO_LONG_MESSAGE, takeIdeationAllowance } from "./ideation";
 import { importStatus, type ScoutingReport } from "./import";
 
 /** How long a drafted card waits for the founder to continue. */
@@ -148,6 +148,8 @@ export async function prepareImportConcept(deps: ImportConceptDeps, jobId: strin
   const cache = deps.cache ?? importConcepts;
   const held = cache.get(userId, linked);
   if (held && !held.failed) return { status: held.settled ? "ready" : "drafting" };
+  // A new draft spends the founder's drafting allowance (asking again for a job already drafting does not).
+  takeIdeationAllowance(userId);
   const controller = new AbortController();
   const entry: HeldDraft = { jobId: linked, createdAt: Date.now(), controller, settled: false, failed: false, promise: Promise.resolve(null as never) };
   entry.promise = draftConcept(deps, userId, report, controller.signal).then(
@@ -185,6 +187,7 @@ export async function continueImport(deps: ImportConceptDeps, jobId: string, use
   if (held && !held.failed) drafted = await held.promise.catch(() => null);
   const speculative = drafted !== null;
   if (!drafted) {
+    takeIdeationAllowance(userId);
     drafted = await draftConcept(deps, userId, report).catch((err: unknown) => {
       throw err instanceof ModelOutputError && err.code === "max_tokens" ? new AppError("ideation_too_long", IDEATION_TOO_LONG_MESSAGE, 502) : err;
     });

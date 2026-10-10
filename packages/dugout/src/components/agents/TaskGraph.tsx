@@ -364,6 +364,7 @@ export function TaskGraph({ nodes, selectedId, onSelect, layout: layoutOpts, hei
         onKeyDown={onKey}
         style={{ height }}
         className="graph-canvas relative min-w-0 cursor-grab touch-none select-none overflow-hidden outline-none focus-visible:shadow-ring active:cursor-grabbing"
+        data-scroll-region="graph"
       >
         <svg width="100%" height={height} role="img" aria-label={ariaLabel} className="block">
           <defs>
