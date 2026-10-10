@@ -65,14 +65,21 @@ const TASKS = [
   "Postcard campaign for Stockholm pilots",
 ];
 
+/** The script's own crew member for session `i`, when it names one. */
+function scriptAgent(i: number, script: MockSessionScript): MockSessionAgent | undefined {
+  return script.agents?.length ? script.agents[i % script.agents.length] : undefined;
+}
+
 export function mockAgent(i: number, script: MockSessionScript = STOREFRONT_SESSION_SCRIPT): TileAgent {
+  const own = scriptAgent(i, script);
+  if (own) return { id: `agent-${i + 1}`, name: own.name, seed: own.seed, dept: own.dept, status: "healthy", model: own.model, role: own.role };
   const r = ROLES[i % ROLES.length]!;
   return { id: `agent-${i + 1}`, name: script.names[i % script.names.length]!, seed: `agent-${i + 1}`, dept: r.dept, status: "healthy", model: r.model, role: r.role };
 }
 
 export function mockTask(i: number, script: MockSessionScript = STOREFRONT_SESSION_SCRIPT): TileTask {
-  const r = ROLES[i % ROLES.length]!;
-  return { id: `task-${i + 1}`, title: script.tasks[i % script.tasks.length]!, href: `#task-${i + 1}`, kind: r.kind, branch: `agent/task-${i + 1}` };
+  const kind = scriptAgent(i, script)?.kind ?? ROLES[i % ROLES.length]!.kind;
+  return { id: `task-${i + 1}`, title: script.tasks[i % script.tasks.length]!, href: `#task-${i + 1}`, kind, branch: `agent/task-${i + 1}` };
 }
 
 const PLAN_TEMPLATES = [
@@ -81,8 +88,8 @@ const PLAN_TEMPLATES = [
   ["Collect sources", "Extract typed facts through the quarantined reader", "Score and rank", "Write the brief", "Link entities"],
 ];
 
-export function mockPlan(i: number): PlanStep[] {
-  const t = PLAN_TEMPLATES[i % PLAN_TEMPLATES.length]!;
+export function mockPlan(i: number, script?: MockSessionScript): PlanStep[] {
+  const t = script?.plans?.length ? script.plans[i % script.plans.length]! : PLAN_TEMPLATES[i % PLAN_TEMPLATES.length]!;
   return t.map((text, k) => ({ id: `step-${k + 1}`, text, state: "todo" as const }));
 }
 
@@ -109,6 +116,24 @@ export interface MockSessionScript {
   /** The repeated error of a session that loops and is stopped. */
   failure: string;
   currency: string;
+  /** Who works each session, in order (round again past the end). Absent: `names` as engineers in Development's colour. */
+  agents?: readonly MockSessionAgent[];
+  /** Each session's plan steps, in order (round again). Absent: the engineering plans. */
+  plans?: ReadonlyArray<readonly string[]>;
+  /** The founder's nudge mid-session and the agent's answer before it changes `styleFile`. Absent: "Match the design system". */
+  nudge?: { text: string; reply: string };
+  /** What a blocked session waits for: the tool call that needs approval and the note under the tile. Absent: a schema change. */
+  gate?: { connectorKey: string; tool: string; argsSummary: string; note: string };
+}
+
+/** One member of a script's crew: a specialist rather than an engineer, say (a lab's chemist in the lab's colour). */
+export interface MockSessionAgent {
+  name: string;
+  seed: string;
+  role: string;
+  dept: DeptColourToken;
+  model: ModelKey;
+  kind: NonNullable<TileTask["kind"]>;
 }
 
 const STDOUT_LINES = [
@@ -264,9 +289,9 @@ export function generateMockSessionEvents(seedKey: string | number, startedAt: s
   progress();
   if (opts.shout) {
     tick(duration * 0.04);
-    events.push({ kind: "note", at: at(), level: "info", source: "shout", text: "Match the design system" });
+    events.push({ kind: "note", at: at(), level: "info", source: "shout", text: sc.nudge?.text ?? "Match the design system" });
     tick(duration * 0.02);
-    events.push({ kind: "note", at: at(), level: "info", source: "agent", text: "Swapping ad-hoc spacing for tokens before the next build." });
+    events.push({ kind: "note", at: at(), level: "info", source: "agent", text: sc.nudge?.reply ?? "Swapping ad-hoc spacing for tokens before the next build." });
     events.push({ kind: "file_changed", at: at(), path: sc.styleFile.path, change: "modified", additions: 8, deletions: 1, diff: sc.styleFile.diff });
   }
   tick(duration * 0.1);
@@ -279,8 +304,9 @@ export function generateMockSessionEvents(seedKey: string | number, startedAt: s
 
   if (outcome === "blocked") {
     tick(duration * 0.05);
-    events.push({ kind: "tool_call", at: at(), callId: `c-${seedKey}-9`, connectorKey: "github", tool: "merge_pull_request", status: "awaiting_approval", argsSummary: "schema change in migrations/0013.sql", policyOutcome: "ask", approvalId: `appr-${seedKey}` });
-    events.push({ kind: "note", at: at(), level: "warn", source: "system", text: "Waiting for a founder decision: schema change needs approval." });
+    const gate = sc.gate ?? { connectorKey: "github", tool: "merge_pull_request", argsSummary: "schema change in migrations/0013.sql", note: "Waiting for a founder decision: schema change needs approval." };
+    events.push({ kind: "tool_call", at: at(), callId: `c-${seedKey}-9`, connectorKey: gate.connectorKey, tool: gate.tool, status: "awaiting_approval", argsSummary: gate.argsSummary, policyOutcome: "ask", approvalId: `appr-${seedKey}` });
+    events.push({ kind: "note", at: at(), level: "warn", source: "system", text: gate.note });
     return events;
   }
   if (outcome === "failed") {
@@ -323,7 +349,7 @@ export function mockSessionSeed(i: number, startedAt: string, script: MockSessio
     agent: mockAgent(i, script),
     task: mockTask(i, script),
     startedAt,
-    plan: mockPlan(i),
+    plan: mockPlan(i, script),
     tokens: 40_000 + rng.int(0, 180_000),
     cost: { amountMinor: 60 + rng.int(0, 900), currency: script.currency },
     preview: i % 3 === 0 ? { screenshotUrl: null, url: null, capturedAt: null } : {},

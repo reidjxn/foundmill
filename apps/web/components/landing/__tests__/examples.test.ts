@@ -210,4 +210,24 @@ describe("Northwind Skincare", () => {
     expect(retail).toMatchObject({ module: "distribution" });
     expect(northwind.departments.map((d) => d.label)).not.toContain("Distribution");
   });
+
+  it("puts every milestone card on its Ribbon pin's day, with revenue that bears out the $10K and $50K months", async () => {
+    const northwind = await loadExample("northwind");
+    const journey = exampleJourney(northwind);
+    const pins = new Map(journey.milestones.map((m) => [m.label, m]));
+    for (const card of northwind.milestones) expect(pins.get(card.label)?.achievedAt.slice(0, 10), card.label).toBe(card.achievedAt?.slice(0, 10));
+    // The first retail door's value is the wholesale order the Ribbon records that day.
+    const door = journey.conversions.find((c) => c.id === pins.get("First retail door")?.ref?.conversionId);
+    expect(northwind.milestones.find((m) => m.key === "first_retail_door")?.amountMinor).toBe(door?.amountMinor);
+    // "$10K month" and "$50K month" are 30 days of sales, crossed in the month before the pin.
+    const days = journey.rows.filter((r) => r.departmentId === null);
+    const thirtyDays = (day: string) => {
+      const i = days.findIndex((r) => r.day === day);
+      return days.slice(i - 29, i + 1).reduce((sum, r) => sum + r.revenueMinor, 0);
+    };
+    expect(thirtyDays("2025-02-20")).toBeLessThan(1_000_000);
+    expect(thirtyDays("2025-03-20")).toBeGreaterThanOrEqual(1_000_000);
+    expect(thirtyDays("2026-08-18")).toBeLessThan(5_000_000);
+    expect(thirtyDays("2026-09-18")).toBeGreaterThanOrEqual(5_000_000);
+  });
 });

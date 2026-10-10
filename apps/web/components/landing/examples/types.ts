@@ -152,7 +152,7 @@ export interface ExampleChannels {
 export interface ExampleJourney {
   /** The Ribbon's departments: ids are the fixture's (`d-product` … `d-operations`), names and colours are this business's. */
   ribbonDepartments: readonly RibbonDepartment[];
-  /** Fixture milestone label → this business's label. Unmapped labels keep the fixture's text with € shown as $. */
+  /** Fixture milestone label (its € shown as $: "$1K MRR") → this business's label. Unmapped labels keep the fixture's text with € shown as $. */
   milestoneLabels: Readonly<Record<string, string>>;
   /** One title per chapter (quarter), oldest first. */
   chapterTitles: readonly string[];
@@ -160,6 +160,12 @@ export interface ExampleJourney {
   customerNames: readonly string[];
   /** The three roadmap items after Today. */
   roadmap: readonly string[];
+  /**
+   * The business's own revenue scale: the fixture's revenue (daily rows, payments and the forecast) times a factor that
+   * grows geometrically from `start` on the first day to `end` today, so revenue milestones read true on the Ribbon.
+   * Absent: the fixture's scale.
+   */
+  revenueScale?: { start: number; end: number };
 }
 
 export interface ExampleCustomerUpdate {
@@ -182,7 +188,12 @@ export interface ExampleInboxNote {
   sentOn: string;
   paragraphs: readonly string[];
   costMinor: number;
-  fit: string;
+  /** The cost tile's label: "Cost" when absent ("Deposit" for a purchase order). */
+  costLabel?: string;
+  /** Channel fit ("16 of 20"): the middle tile of a note about a channel. */
+  fit?: string;
+  /** The middle tile when the note is not about a channel, in place of Channel fit (a purchase order's landed cost). */
+  metric?: { label: string; value: string; estimate?: boolean };
   /** The Runway after tile ("14 months"), labelled Estimate. */
   runwayAfter: string;
   /** The DecisionBar's options; `costMinor` null when the option costs nothing. */

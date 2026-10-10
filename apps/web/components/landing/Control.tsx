@@ -102,8 +102,8 @@ function InboxNote() {
           ))}
           <StatusStrip
             tiles={[
-              { label: "Cost", value: exampleMoney(business, note.costMinor), estimate: "estimate" },
-              { label: "Channel fit", value: note.fit },
+              { label: note.costLabel ?? "Cost", value: exampleMoney(business, note.costMinor), estimate: "estimate" },
+              note.metric ? { label: note.metric.label, value: note.metric.value, estimate: note.metric.estimate ? "estimate" : undefined } : { label: "Channel fit", value: note.fit },
               { label: "Runway after", value: note.runwayAfter, estimate: "estimate" },
             ]}
           />

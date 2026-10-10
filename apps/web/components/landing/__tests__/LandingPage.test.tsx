@@ -226,16 +226,17 @@ describe("LandingPage (signed-out /)", () => {
     expect(deck.getAttribute("data-example")).toBe("glitchwick");
     expect(deck.getAttribute("data-phase")).toBe("idle");
     expect(within(deck).getByText("Glitchwick")).toBeTruthy();
-    expect(within(deck).getByText(/Cycle 163 · Chapter 7/)).toBeTruthy();
+    expect(within(deck).getByText(/Cycle 197 · Chapter 9/)).toBeTruthy();
     expect(screen.getByText(/^Glitchwick is an example business\./)).toBeTruthy();
     // The ticker, the team, the Journey, the Customer Update, the milestones, the board and the Inbox note follow.
     expect(screen.getByRole("region", { name: "What the Glitchwick team did this week" })).toBeTruthy();
     const tabs = within(screen.getByRole("tablist", { name: "Departments" })).getAllByRole("tab");
-    expect(tabs.map((t) => t.textContent)).toEqual(["ProductEcho", "DevelopmentBolt", "DistributionFlare", "FinanceMint", "LegalVerity", "TeamHarbor"]);
-    expect(within(screen.getByRole("region", { name: "Customer Update" })).getAllByText("Lanternfly Games").length).toBeGreaterThan(0);
-    expect(screen.getByText("First publisher contract")).toBeTruthy();
+    // Development, the hero department of a developer-tools business, leads the tabs.
+    expect(tabs.map((t) => t.textContent)).toEqual(["DevelopmentBolt", "ProductEcho", "DistributionFlare", "FinanceMint", "LegalVerity", "TeamHarbor"]);
+    expect(within(screen.getByRole("region", { name: "Customer Update" })).getAllByText("Kettlebird Games").length).toBeGreaterThan(0);
+    expect(screen.getByText("On GitHub Marketplace")).toBeTruthy();
     expect(screen.getByRole("region", { name: "Channel Board" })).toBeTruthy();
-    expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Sponsor a game jam with 4,000 entrants?")).toBeTruthy();
+    expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Sponsor the Slow Turns Jam on itch.io?")).toBeTruthy();
     // Nothing of Tutorlane is left outside the picker.
     const main = screen.getByRole("main");
     const picker = screen.getByTestId("example-picker");
@@ -252,9 +253,11 @@ describe("LandingPage (signed-out /)", () => {
     expect(within(departments).getByRole("tab", { name: /Formulation Lab/ })).toBeTruthy();
     expect(within(departments).getByRole("tab", { name: /Retail Partnerships/ })).toBeTruthy();
     fireEvent.click(within(departments).getByRole("tab", { name: /Formulation Lab/ }));
-    expect(within(screen.getByRole("list", { name: "Formulation Lab screens" })).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Specialists", "Plan"]);
-    expect(within(screen.getByRole("region", { name: "Customer Update" })).getAllByText("Maple Refill Co.").length).toBeGreaterThan(0);
-    expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Retail Partnerships")).toBeTruthy();
+    expect(within(screen.getByRole("list", { name: "Formulation Lab screens" })).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Specialists", "Live sessions", "Plan"]);
+    expect(within(screen.getByRole("region", { name: "Customer Update" })).getAllByText("Larkfield Market").length).toBeGreaterThan(0);
+    expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Formulation Lab")).toBeTruthy();
+    // A purchase order's strip: the deposit and the landed cost in place of a channel's fit.
+    expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Landed cost per routine")).toBeTruthy();
   });
 
   it("renders the live tiles in the browser only, already mid-session, then streams them", async () => {
@@ -283,7 +286,7 @@ describe("LandingPage server render", () => {
     const [{ renderToString }, { createElement }, { hydrateRoot }, dugout, landing, northwind] = await Promise.all([import("react-dom/server"), import("react"), import("react-dom/client"), import("@foundmill/dugout"), import("../LandingPage"), import("../examples/northwind")]);
     const tree = createElement(dugout.TooltipProvider, null, createElement(landing.LandingPage, { terminalRenderer: "plain", initialExample: northwind.NORTHWIND }));
     const html = renderToString(tree);
-    expect(html).toContain("Maple Refill Co.");
+    expect(html).toContain("Larkfield Market");
     expect(html).toContain('data-example="northwind"');
     const container = document.createElement("div");
     container.innerHTML = html;

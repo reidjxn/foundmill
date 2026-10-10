@@ -102,8 +102,8 @@ test.describe("landing page", () => {
     const update = page.getByRole("region", { name: "Customer Update" });
 
     const businesses = [
-      { name: "Glitchwick", id: "glitchwick", customer: "Lanternfly Games", primary: "#c94a2c" },
-      { name: "Northwind Skincare", id: "northwind", customer: "Maple Refill Co.", primary: "#2f6f5e" },
+      { name: "Glitchwick", id: "glitchwick", customer: "Kettlebird Games", primary: "#c94a2c" },
+      { name: "Northwind Skincare", id: "northwind", customer: "Larkfield Market", primary: "#2f6f5e" },
       { name: "Tutorlane", id: "tutorlane", customer: "Okafor Math Tutoring", primary: "#2B6CB0" },
     ];
     for (const b of businesses) {

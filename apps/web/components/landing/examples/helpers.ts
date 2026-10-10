@@ -80,11 +80,22 @@ export type ExampleJourneyData = ReturnType<typeof generateJourneyFixture>;
 /** Two years of the business's history: the design system's Journey fixture, relabelled and in its currency. */
 export function exampleJourney(business: ExampleBusiness): ExampleJourneyData {
   const j = business.journey;
-  const d = generateJourneyFixture({ days: 730, departments: [...j.ribbonDepartments] });
+  const days = 730;
+  const d = generateJourneyFixture({ days, departments: [...j.ribbonDepartments] });
+  // The business's revenue scale (dates are UTC calendar days, so the index is the same in every time zone).
+  const scale = j.revenueScale;
+  const kickoff = Date.parse(d.kickoff);
+  const factor = (day: string) => (scale ? scale.start * Math.pow(scale.end / scale.start, Math.min(1, Math.max(0, (Date.parse(day.slice(0, 10)) - kickoff) / 86_400_000 / (days - 1)))) : 1);
+  const scaled = (amountMinor: number, day: string) => (scale ? Math.round(amountMinor * factor(day)) : amountMinor);
   return {
     ...d,
-    conversions: d.conversions.map((c, i) => ({ ...c, currency: business.currency, entityName: j.customerNames[i % j.customerNames.length]! })),
-    milestones: d.milestones.map((m) => ({ ...m, label: j.milestoneLabels[m.label] ?? m.label.replace(/€/g, "$") })),
+    rows: scale ? d.rows.map((r) => ({ ...r, revenueMinor: scaled(r.revenueMinor, r.day) })) : d.rows,
+    forecast: scale ? d.forecast.map((f) => ({ ...f, baseMinor: Math.round(f.baseMinor * scale.end), upsideMinor: Math.round(f.upsideMinor * scale.end), downsideMinor: Math.round(f.downsideMinor * scale.end) })) : d.forecast,
+    conversions: d.conversions.map((c, i) => ({ ...c, amountMinor: scaled(c.amountMinor, c.occurredAt), currency: business.currency, entityName: j.customerNames[i % j.customerNames.length]! })),
+    milestones: d.milestones.map((m) => {
+      const dollars = m.label.replace(/€/g, "$");
+      return { ...m, label: j.milestoneLabels[m.label] ?? j.milestoneLabels[dollars] ?? dollars };
+    }),
     chapters: d.chapters.map((c) => ({ ...c, title: c.title ? (j.chapterTitles[c.index] ?? c.title) : null })),
     roadmap: d.roadmap.map((r, i) => ({ ...r, label: j.roadmap[i] ?? r.label })),
   };
