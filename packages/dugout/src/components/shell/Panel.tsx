@@ -1,13 +1,12 @@
 import { forwardRef, useId, type HTMLAttributes, type ReactNode } from "react";
-import { Ellipsis, Pin, Replace, Settings2 } from "lucide-react";
 import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../foundation/DropdownMenu";
 import { EmptyState, type EmptyStateProps } from "../foundation/EmptyState";
 import { ErrorState } from "../foundation/ErrorState";
-import { Icon, type IconComponent } from "../foundation/Icon";
+import type { IconComponent } from "../foundation/Icon";
 import { SkeletonText } from "../foundation/Skeleton";
 import { spanClass } from "./PageGrid";
+import { PanelMenuButton } from "./PanelMenuButton";
 import type { GridSpan } from "./types";
 
 export interface PanelMenuItem {
@@ -86,7 +85,8 @@ function isEmptyStateProps(v: unknown): v is Omit<EmptyStateProps, "children"> &
  * brand (`glow`). The 40 px header sits on the panel's own surface (no band): the title in Inter 600 sentence case,
  * optional mono meta, then the actions and a ghost "…" menu (swap content, settings, Pin to Home), with a rule under it
  * that fades out to the right. The title is never clipped: the actions wrap under it first, and a long title wraps.
- * Loading, empty and error states replace the body; an optional footer sits under it. Server-safe (no hooks but useId).
+ * Loading, empty and error states replace the body; an optional footer sits under it. Server-safe (no hooks but useId):
+ * the menu is a client piece whose Radix code loads only when a panel has one (PanelMenuButton).
  */
 export const Panel = forwardRef<HTMLElement, PanelProps>(function Panel(
   { title, span, menu, actions, meta, glow, loading, empty, error, onRetry, footer, flush, bodyClassName, className, children, ...rest },
@@ -128,50 +128,7 @@ export const Panel = forwardRef<HTMLElement, PanelProps>(function Panel(
         {actions || hasMenu ? (
           <div className="ml-auto flex shrink-0 items-center gap-1">
             {actions}
-            {hasMenu ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label="Panel menu"
-                    className="inline-flex size-control-sm shrink-0 items-center justify-center rounded-sm text-tertiary outline-none transition-colors duration-hover ease-out hover:bg-white/5 hover:text-primary focus-visible:shadow-ring data-[state=open]:bg-white/8 data-[state=open]:text-primary"
-                  >
-                    <Icon icon={Ellipsis} />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {menu?.onSwap ? (
-                    <DropdownMenuItem onSelect={menu.onSwap}>
-                      <Icon icon={Replace} size="inline" className="text-secondary" />
-                      Swap content
-                    </DropdownMenuItem>
-                  ) : null}
-                  {menu?.onSettings ? (
-                    <DropdownMenuItem onSelect={menu.onSettings}>
-                      <Icon icon={Settings2} size="inline" className="text-secondary" />
-                      Settings
-                    </DropdownMenuItem>
-                  ) : null}
-                  {menu?.onPinToHome ? (
-                    <DropdownMenuItem onSelect={menu.onPinToHome}>
-                      <Icon icon={Pin} size="inline" className="text-secondary" />
-                      {menu.pinned ? "Unpin from Home" : "Pin to Home"}
-                    </DropdownMenuItem>
-                  ) : null}
-                  {menu?.items && menu.items.length > 0 ? (
-                    <>
-                      {menu.onSwap || menu.onSettings || menu.onPinToHome ? <DropdownMenuSeparator /> : null}
-                      {menu.items.map((item) => (
-                        <DropdownMenuItem key={item.id} onSelect={item.onSelect} variant={item.variant} disabled={item.disabled}>
-                          {item.icon ? <Icon icon={item.icon} size="inline" className="text-secondary" /> : null}
-                          {item.label}
-                        </DropdownMenuItem>
-                      ))}
-                    </>
-                  ) : null}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
+            {menu && hasMenu ? <PanelMenuButton menu={menu} /> : null}
           </div>
         ) : null}
       </header>

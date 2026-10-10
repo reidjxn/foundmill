@@ -1,4 +1,4 @@
-import { BrandPage } from "@/components/shell/BrandPage";
+import { LazyBrandPage } from "@/components/shell/LazyBrandPage";
 
 /**
  * Every address that resolves to nothing, including a business the founder cannot see (the /b/[bid] layout calls
@@ -6,5 +6,5 @@ import { BrandPage } from "@/components/shell/BrandPage";
  * nothing leaks about other tenants.
  */
 export default function NotFound() {
-  return <BrandPage title="Not found" heading="Nothing at this address" icon="search-x" description="The page does not exist, or it belongs to a business you cannot open. Open one of yours or start a new one." />;
+  return <LazyBrandPage title="Not found" heading="Nothing at this address" icon="search-x" description="The page does not exist, or it belongs to a business you cannot open. Open one of yours or start a new one." />;
 }

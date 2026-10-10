@@ -124,6 +124,9 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
                 variant="primary"
                 icon={MessageCircle}
                 onClick={() => desk.open({ kind: "agent", id: agent.id }, { persona: { name: agent.name, role: agent.role || humaniseKey(agent.agentType), avatarSeed: agent.avatarSeed || agent.id, dept } })}
+                // The sheet's code is on its way before the press.
+                onPointerEnter={desk.prefetch}
+                onFocus={desk.prefetch}
                 aria-haspopup="dialog"
                 data-testid="header-talk"
               >

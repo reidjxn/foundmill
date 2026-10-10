@@ -37,7 +37,7 @@ import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from 
 import { useTRPC } from "@/lib/trpc-react";
 import { WidgetDataHost } from "@/lib/widget-data";
 import { SpecUserProvider } from "@/components/spec/spec-user";
-import { AgentDeskHost, type AgentDeskApi } from "@/components/conversation/DeskHost";
+import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/components/conversation/DeskHost";
 import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { ShellChromeProvider, useShellChromeValue } from "./chrome";
@@ -361,6 +361,10 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     setParsed(q);
   }, []);
   const [searchOpen, setSearchOpen] = useState(false);
+  // The palette's Ask rows open a desk: its sheet's code is fetched as soon as the palette opens.
+  useEffect(() => {
+    if (searchOpen) prefetchAgentDesk();
+  }, [searchOpen]);
   // Lead rows: "Ask <agent>" opens the agent's desk as a sheet (the typed words become the first message); "Generate…"
   // goes to a surface where a real model call drafts something.
   const deskApi = useRef<AgentDeskApi>(null);

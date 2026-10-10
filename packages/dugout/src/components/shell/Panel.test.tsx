@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GridCell, PageGrid, snapSpan, spanClass } from "./PageGrid";
 import { Panel } from "./Panel";
+import { preloadPanelMenu } from "./PanelMenuButton";
 import { ProcessingStrip, processingStatusText, segmentState } from "./ProcessingStrip";
 import { RUNWAY_UNKNOWN_WORDS, RunwayChip, formatRunway, runwayTone } from "./RunwayChip";
 import { RightRail } from "./RightRail";
@@ -67,6 +70,32 @@ describe("Panel", () => {
   it("renders no caret without a menu", () => {
     render(<Panel title="Plain">x</Panel>);
     expect(screen.queryByRole("button", { name: "Panel menu" })).toBeNull();
+  });
+
+  it("draws the trigger the same before and after the menu's code arrives", async () => {
+    render(
+      <Panel title="Channels" menu={{ onSettings: vi.fn() }}>
+        x
+      </Panel>,
+    );
+    const plain = screen.getByRole("button", { name: "Panel menu" });
+    const look = plain.className;
+    const icon = plain.innerHTML;
+    await act(() => preloadPanelMenu());
+    // The menu's own trigger (Radix marks its state) took the plain one's place, with the same look.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Panel menu" }).getAttribute("data-state")).toBe("closed"));
+    const live = screen.getByRole("button", { name: "Panel menu" });
+    expect(live.className).toBe(look);
+    expect(live.innerHTML).toBe(icon);
+  });
+
+  it("keeps the menu's Radix code out of Panel's own imports (it loads only for a panel with a menu)", () => {
+    // Value imports only: a type-only import is erased from the bundle.
+    const staticImports = (file: string) => [...readFileSync(join(__dirname, file), "utf8").matchAll(/^import\s(?!type\s)[^;]*?from\s+["']([^"']+)["']/gm)].map((m) => m[1]!);
+    expect(staticImports("Panel.tsx")).not.toContain("../foundation/DropdownMenu");
+    expect(staticImports("Panel.tsx").some((s) => s.startsWith("@radix-ui/"))).toBe(false);
+    expect(staticImports("PanelMenuButton.tsx")).not.toContain("./PanelMenuDropdown");
+    expect(staticImports("PanelMenuButton.tsx")).not.toContain("../foundation/DropdownMenu");
   });
 
   it("draws the 40 px header on the panel's own surface: title style, mono meta, actions that wrap before the title is squeezed", () => {

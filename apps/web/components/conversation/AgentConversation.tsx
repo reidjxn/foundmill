@@ -25,6 +25,7 @@ import type { DeptColourToken } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
+import { provideAgentConversation } from "./DeskHost";
 import { ConfirmPlanDialog } from "@/components/inbox/ConfirmPlanDialog";
 import { confirmationLines } from "@/components/inbox/confirmation";
 import { currentQuickReplies } from "@foundmill/dugout";
@@ -543,3 +544,6 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
     </div>
   );
 });
+
+// The sheet host loads this module on demand; a page that imports it directly (the Inbox) hands it over instead.
+provideAgentConversation({ AgentConversation });

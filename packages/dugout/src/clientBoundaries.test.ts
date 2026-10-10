@@ -69,6 +69,8 @@ export const SERVER_SAFE_FILES = [
   "components/foundation/menuStyles.ts",
   "components/shell/types.ts",
   "components/shell/PageGrid.tsx",
+  // The panel frame renders on the server; its "…" menu is the client piece (PanelMenuButton, Radix loaded on demand).
+  "components/shell/Panel.tsx",
   "components/shell/NeedsLargerWindow.tsx",
   "components/journey/stage/schedule.ts",
   "components/journey/ribbon/geometry.ts",
