@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { GridCell, PageGrid, snapSpan, spanClass } from "./PageGrid";
 import { Panel } from "./Panel";
 import { ProcessingStrip, processingStatusText, segmentState } from "./ProcessingStrip";
-import { RunwayChip, formatRunway, runwayTone } from "./RunwayChip";
+import { RUNWAY_UNKNOWN_WORDS, RunwayChip, formatRunway, runwayTone } from "./RunwayChip";
 import { RightRail } from "./RightRail";
 import { NORTHWIND_SEGMENTS } from "./fixtures";
 
@@ -156,11 +156,23 @@ describe("RunwayChip", () => {
     expect(screen.getByText("Estimate").className).toContain("kitbar-est");
   });
 
-  it("says there is no runway yet instead of a bare dash, without an Estimate tag", () => {
-    render(<RunwayChip date="2026-10-07" runwayMonths={null} />);
-    expect(screen.getByText("No runway yet")).toBeTruthy();
+  it("without a figure says the words it is given (the ones Home's tiles use) and the reason, never a dash or an Estimate tag", () => {
+    const { unmount } = render(<RunwayChip date="2026-10-07" runwayMonths={null} words={{ value: "No limit", caption: "Cash-flow positive, so no limit yet" }} />);
+    expect(screen.getByText("No limit")).toBeTruthy();
     expect(screen.queryByText("Estimate")).toBeNull();
-    expect(screen.getByLabelText(/Runway —/).getAttribute("data-runway-tone")).toBe("neutral");
+    expect(screen.queryByText("—")).toBeNull();
+    const chip = screen.getByLabelText("7 Oct 2026. Runway: No limit. Cash-flow positive, so no limit yet");
+    expect(chip.getAttribute("data-runway-tone")).toBe("neutral");
+    unmount();
+    render(<RunwayChip date="2026-10-07" runwayMonths={null} words={{ value: "Not known yet", caption: "Connect a bank to estimate it" }} />);
+    expect(screen.getByText("Not known yet")).toBeTruthy();
+    expect(screen.getByLabelText(/Runway: Not known yet\. Connect a bank to estimate it$/)).toBeTruthy();
+  });
+
+  it("falls back to \"Not known yet\" when the app passes no words", () => {
+    render(<RunwayChip date="2026-10-07" runwayMonths={null} />);
+    expect(screen.getByText(RUNWAY_UNKNOWN_WORDS.value)).toBeTruthy();
+    expect(screen.queryByText("No runway yet")).toBeNull();
   });
 });
 

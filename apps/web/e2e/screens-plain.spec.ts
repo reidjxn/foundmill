@@ -58,7 +58,9 @@ test.describe("screens in plain words", () => {
     const strip = page.getByRole("region", { name: "Status" });
     await expect(strip.getByText("Leaderboard position", { exact: true })).toBeVisible({ timeout: LONG });
     await expect(strip).not.toContainText(SNAKE, { timeout: LONG });
-    if (await page.getByTestId("kit-bar").getByText("No runway yet").count()) await expect(strip.getByText(/^(No limit|Not known yet)$/)).toBeVisible({ timeout: LONG });
+    // The bar's runway chip and the tile say the same words when there is no figure.
+    const barWords = page.getByTestId("kit-bar").locator("[data-runway-words]");
+    if (await barWords.count()) await expect(strip.getByText((await barWords.innerText()).trim(), { exact: true })).toBeVisible({ timeout: LONG });
     // Quiet department cards say so briefly; the instruction to press Continue is not repeated in every "Next up".
     await expect(page.locator("[data-department]").filter({ hasText: "Continue plans the next cycle" })).toHaveCount(0);
   });

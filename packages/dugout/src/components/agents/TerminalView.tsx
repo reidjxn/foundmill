@@ -21,24 +21,36 @@ export interface TerminalViewProps {
   agentName?: string;
   /** The session is running: the empty state shows a live prompt with a caret instead of an idle message. */
   live?: boolean;
+  /** The task's goal in plain words: the empty state shows it, so every waiting tile says what it is about. */
+  brief?: string;
+  /** A small tile (the focus rail, a grid of 12 or more): the empty state keeps only its prompt line. */
+  compact?: boolean;
 }
 
 /**
  * What an empty terminal shows instead of a black void: a live prompt with a blinking caret and the agent's name while
- * the session runs, or a quiet idle note. CSS-only motion; reduced motion leaves a solid caret and the words.
+ * the session runs, or a quiet idle note, over the task's goal when it is known (so no two waiting tiles read alike).
+ * CSS-only motion; reduced motion leaves a solid caret and the words.
  */
-export function TerminalEmpty({ agentName, live }: { agentName?: string; live?: boolean }) {
+export function TerminalEmpty({ agentName, live, brief, compact }: { agentName?: string; live?: boolean; brief?: string; compact?: boolean }) {
   const who = agentName ?? "The agent";
   return (
-    <div className="pointer-events-none absolute inset-0 flex flex-col justify-end gap-3 p-3 font-mono text-mono" data-terminal-empty={live ? "live" : "idle"}>
+    <div className={cn("pointer-events-none absolute inset-0 flex flex-col justify-end font-mono text-mono", compact ? "p-2" : "gap-3 p-3")} data-terminal-empty={live ? "live" : "idle"}>
       <div className="flex flex-col gap-1 text-tertiary">
-        <span className="opacity-60">{live ? "session attached · streaming" : "session idle · no output yet"}</span>
+        {compact ? null : <span className="opacity-60">{live ? "session attached · streaming" : "session idle · no output yet"}</span>}
         <span>
           <span className="text-kit-lift">❯</span> <span className="text-secondary">{live ? `waiting for ${who}'s first output` : `${who} has not written anything yet`}</span>{" "}
           {live ? <span aria-hidden className="prompt-caret" /> : null}
         </span>
       </div>
-      <p className="font-body text-small text-tertiary">{live ? "Lines stream in here as the session runs." : "Output appears here when the session starts."}</p>
+      {compact ? null : brief ? (
+        <p className="font-body text-small text-secondary" data-terminal-brief>
+          <span className="text-tertiary">Goal · </span>
+          {brief}
+        </p>
+      ) : (
+        <p className="font-body text-small text-tertiary">{live ? "Lines stream in here as the session runs." : "Output appears here when the session starts."}</p>
+      )}
     </div>
   );
 }
@@ -107,7 +119,7 @@ function toTerminalText(chunk: StdoutChunk): string {
  * replay from the top when the chunk list rewinds (session scrubber). Falls back to a plain `<pre>` when asked or when
  * no DOM is available.
  */
-export function TerminalView({ chunks, label, renderer, follow = true, className, style, agentName, live }: TerminalViewProps) {
+export function TerminalView({ chunks, label, renderer, follow = true, className, style, agentName, live, brief, compact }: TerminalViewProps) {
   const useXterm = renderer ? renderer === "xterm" : typeof window !== "undefined";
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerminal | null>(null);
@@ -196,7 +208,7 @@ export function TerminalView({ chunks, label, renderer, follow = true, className
     if (followRef.current) term.scrollToBottom();
   }, [chunks]);
 
-  const empty = chunks.length === 0 ? <TerminalEmpty agentName={agentName} live={live} /> : null;
+  const empty = chunks.length === 0 ? <TerminalEmpty agentName={agentName} live={live} brief={brief} compact={compact} /> : null;
 
   if (!useXterm) {
     if (empty) {

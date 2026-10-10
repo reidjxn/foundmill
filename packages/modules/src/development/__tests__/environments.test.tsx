@@ -2,7 +2,7 @@ import "./setup";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { EnvironmentsScreen, deploymentFromEvent, providerLabel, toEnvironmentRows, type Deployment } from "../EnvironmentsScreen";
+import { BRANCH_NAME_MAX, EnvironmentsScreen, deploymentFromEvent, providerLabel, readableBranch, toEnvironmentRows, type Deployment } from "../EnvironmentsScreen";
 import { BUSINESS_ID, createFakeSource, renderScreen } from "./fake-source";
 import { TASK_BUNDLE, TASK_DONE, TASK_INDEX, agents, agentsResponse, emptyPrsResponse, emptyTasksResponse, prsResponse, tasks, tasksResponse } from "./fixtures";
 import type { TaskRow } from "../types";
@@ -20,7 +20,11 @@ describe("EnvironmentsScreen", () => {
     expect(within(table).getAllByRole("row")).toHaveLength(4);
     expect(within(table).getAllByText("Awaiting deployment")).toHaveLength(2);
     expect(within(table).getByText("Merged")).toBeTruthy();
-    expect(within(table).getByText(`agent/${TASK_DONE}`)).toBeTruthy();
+    // The branch reads as its task ("Sitemap and canonical fixes"); the git branch itself is in the tooltip.
+    const done = within(table).getByText("sitemap-canonical-fixes").closest("[data-branch]");
+    expect(done?.getAttribute("data-branch")).toBe(`agent/${TASK_DONE}`);
+    expect(done?.getAttribute("title")).toBe(`Branch agent/${TASK_DONE}`);
+    expect(within(table).queryByText(`agent/${TASK_DONE}`)).toBeNull();
     expect(screen.getByTestId("env-counts").textContent).toBe("0 live · 2 awaiting · 1 merged");
     expect(fake.queried.get("dev.tasks.list")).toEqual({ kind: "code", limit: 500 });
   });
@@ -36,7 +40,7 @@ describe("EnvironmentsScreen", () => {
     expect(within(table).getByText("0123456")).toBeTruthy();
     expect(within(table).getByText("Vercel")).toBeTruthy();
     expect(screen.getByTestId("env-counts").textContent).toBe("1 live · 1 awaiting · 1 merged");
-    fireEvent.contextMenu(within(table).getByText(`agent/${TASK_INDEX}`));
+    fireEvent.contextMenu(within(table).getByText("usage-index-ledgerly"));
     const menu = await screen.findByRole("menu");
     expect(within(menu).getByRole("menuitem", { name: "Open preview" }).getAttribute("aria-disabled")).toBe("true");
     await user.click(within(menu).getByRole("menuitem", { name: "Show in Plan" }));
@@ -87,6 +91,23 @@ describe("toEnvironmentRows", () => {
       ["Storefront fix #10", "merged"],
       ["Stopped work", "stopped"],
     ]);
+  });
+  it("names agent branches by their task: a short slug, small words out, a trailing number kept, unique per table", () => {
+    expect(readableBranch("agent/7c9cb72c-39ad-4e64-af5c-8df6e83e47a8", "Stability data for serum reformulation")).toBe("stability-data-serum");
+    expect(readableBranch("agent/x1234567", "Fix invoice PDF 500 for customers with no address")).toBe("fix-invoice-pdf-500");
+    expect(readableBranch("agent/x1234567", "Order webhook hardening #10")).toBe("order-webhook-hardening-10");
+    expect(readableBranch("agent/x1234567", "Review: approval workflow PR #318")).toBe("review-approval-318");
+    expect(readableBranch("agent/x1234567", "Crème brûlée & café copy")).toBe("creme-brulee-cafe-copy");
+    for (const t of ["Stability data for serum reformulation", "Order webhook hardening #10", "A really quite extraordinarily long single title word here"]) expect(readableBranch("agent/x1234567", t).length).toBeLessThanOrEqual(BRANCH_NAME_MAX);
+    // Branches with names of their own, and titles with nothing to slug, keep the branch.
+    expect(readableBranch("main", "Production release")).toBe("main");
+    expect(readableBranch("feature/pricing", "Pricing page")).toBe("feature/pricing");
+    expect(readableBranch("agent/x1234567", "請求書")).toBe("agent/x1234567");
+    expect(readableBranch("agent/x1234567", null)).toBe("agent/x1234567");
+    // Two tasks with one title stay apart by their task ids.
+    const base = tasks.find((t) => t.kind === "code")!;
+    const rows = toEnvironmentRows([{ ...base, id: "aaaaaaaa-1111", title: "Storefront fix", status: "done" }, { ...base, id: "bbbbbbbb-2222", title: "Storefront fix", status: "done" }], undefined, [], agentMap);
+    expect(rows.map((r) => r.branchName).sort()).toEqual(["storefront-fix-aaaaaa", "storefront-fix-bbbbbb"]);
   });
   it("names hosting providers in words and hides an unknown one", () => {
     expect(providerLabel("vercel")).toBe("Vercel");

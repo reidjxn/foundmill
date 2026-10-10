@@ -49,6 +49,29 @@ export interface TileSeedInput {
   currency?: string;
 }
 
+/** The longest brief a tile shows (about three lines of a tile's empty state). */
+export const GOAL_LINE_MAX = 200;
+
+/**
+ * A task's goal as plain text for a tile (its brief): the first paragraph that is not a heading, markdown marks
+ * removed. A paragraph longer than GOAL_LINE_MAX keeps its whole sentences up to that length, else its words with an
+ * ellipsis. Undefined when the goal is empty.
+ */
+export function goalLine(goalMd: string | null | undefined): string | undefined {
+  const para = (goalMd ?? "")
+    .split(/\n\s*\n/)
+    .map((p) => p.replace(/^\s*#{1,6}\s.*$/gm, "").replace(/^\s*([-*+>]|\d+\.)\s+/gm, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`]+/g, "").replace(/\s+/g, " ").trim())
+    .find(Boolean);
+  if (!para) return undefined;
+  if (para.length <= GOAL_LINE_MAX) return para;
+  const head = para.slice(0, GOAL_LINE_MAX + 1);
+  // The last sentence end (a stop followed by a space and a capital) within the limit.
+  let end = -1;
+  for (const m of head.matchAll(/[.!?](?=\s+[A-Z0-9])/g)) end = m.index ?? end;
+  if (end >= 40) return head.slice(0, end + 1);
+  return `${head.slice(0, head.lastIndexOf(" ") > 0 ? head.lastIndexOf(" ") : GOAL_LINE_MAX).replace(/[\s,;:]+$/, "")}…`;
+}
+
 /** The static facts a tile needs, from the task row, its open session (if any) and the agent row. */
 export function seedFromRows({ task, session, agent, taskHref, currency: businessCurrency }: TileSeedInput): SessionSeed {
   const tokens = session ? (session.tokensIn ?? 0) + (session.tokensOut ?? 0) : 0;
@@ -56,7 +79,7 @@ export function seedFromRows({ task, session, agent, taskHref, currency: busines
   return {
     id: session?.id ?? placeholderSessionId(task.id),
     agent: session?.modelKey ? { ...agent, model: session.modelKey } : agent,
-    task: { id: task.id, title: task.title, href: taskHref, kind: task.kind, branch: task.kind === "code" ? agentBranch(task.id) : undefined },
+    task: { id: task.id, title: task.title, href: taskHref, kind: task.kind, branch: task.kind === "code" ? agentBranch(task.id) : undefined, goal: goalLine(task.goalMd) },
     startedAt: toIso(session?.startedAt ?? task.startedAt ?? task.createdAt),
     tokens,
     cost: { amountMinor: session?.costMinor ?? 0, currency },

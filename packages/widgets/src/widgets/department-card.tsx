@@ -1,15 +1,17 @@
 "use client";
 /**
  * Department card widget (BUILD §11.2, DESIGN §9). One card per department: lead, health, squad strip, up to three
- * "Now" lines (entities linked), the module's headline metric with a sparkline, and "Next up". Reacts to
- * `agent.health_changed` and task events within the same render (AC-11.2.3) and then refetches.
+ * "Now" lines (entities linked), the module's headline metric with a sparkline, and "Next up". A quiet department (no
+ * task in progress) gets one line from real data instead of a void: the note waiting for the founder, an unread note,
+ * or the last task it finished (`quietLine`). Reacts to `agent.health_changed` and task events within the same render
+ * (AC-11.2.3) and then refetches.
  */
 import { useMemo, useState } from "react";
 import { z } from "zod";
 import { LayoutGrid } from "lucide-react";
 import type { AgentStatus, EntityKind, ModuleKey } from "@foundmill/shared";
 import { MODULE_KEYS } from "@foundmill/shared/constants";
-import { DepartmentCard, formatMoney, formatNumber, type DepartmentCardData, type DepartmentMetric, type HealthTone, type SquadMember } from "@foundmill/dugout";
+import { DepartmentCard, formatDate, formatMoney, formatNumber, type DepartmentCardData, type DepartmentMetric, type DepartmentQuietLine, type HealthTone, type SquadMember } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { primaryModule, resolveDepartment, useDepartments } from "../shared/departments";
@@ -17,7 +19,8 @@ import { WidgetFrame } from "../shared/frame";
 import { departmentRows, useRecentRibbon } from "../shared/ribbon";
 import { routes } from "../shared/routes";
 import { addDays, dailySeries, dayKey, daysUntil, lastDays, sumInRange } from "../shared/time";
-import type { ChannelsListResponse, ComplianceResponse, DepartmentRow, FinanceOverview, Page, RibbonResponse, RoadmapListResponse, TaskRow } from "../shared/types";
+import type { ChannelsListResponse, ComplianceResponse, DepartmentRow, FinanceOverview, InboxItemRow, InboxListResponse, Page, RibbonResponse, RoadmapListResponse, TaskRow } from "../shared/types";
+import { RESPOND_TAG, noteRowTag } from "../shared/note-tags";
 import { RUNWAY_WORDS, runwayWords } from "../shared/runway";
 
 export const DEPARTMENT_METRICS = ["auto", "tasks_done", "roadmap_on_track", "blended_cpa", "runway", "squad_health", "next_filing"] as const;
@@ -80,6 +83,53 @@ export function nowLines(tasks: readonly TaskRow[], squad: readonly SquadMember[
       const who = t.assigneeAgentId ? `[[ent:${t.assigneeAgentId}|${byId.get(t.assigneeAgentId) ?? "An agent"}]]` : "The team";
       return `${who} ${TASK_VERB[t.status] ?? "is on"} ${t.title}`;
     });
+}
+
+/**
+ * The Inbox page the shell already reads for its badges and Continue (apps/web `SHELL_INBOX_PAGE`): asking for the same
+ * page lets every card answer from that cache instead of a request of its own.
+ */
+export const QUIET_INBOX_PAGE = 50;
+/** Recently finished tasks, one business-wide request shared by every card. */
+export const QUIET_DONE_PAGE = 100;
+
+export type QuietLine = DepartmentQuietLine & { inboxItemId?: string };
+
+/** Milliseconds of a timestamp as the API sends it (a Date through superjson, an ISO string in fixtures); null if none. */
+function toMs(at: unknown): number | null {
+  const ms = at instanceof Date ? at.getTime() : typeof at === "string" || typeof at === "number" ? new Date(at).getTime() : NaN;
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** "31 Aug" this year, "13 Jan 2025" before it. */
+function dayLabel(ms: number, today: string): string {
+  return formatDate(ms, String(new Date(ms).getUTCFullYear()) === today.slice(0, 4) ? "d MMM" : "d MMM yyyy");
+}
+
+/**
+ * A quiet department's one line, from real data, the most useful first: a note from its agents waiting for the
+ * founder's answer ("Waiting for you", the same rule as the Inbox's "Respond" tag), else an unread note from them, else
+ * the last task it finished (with the day), else "All clear" once both the Inbox and the finished tasks have answered.
+ * Null while that is not known, so the card never claims "nothing waiting" on missing data.
+ */
+export function quietLine(input: { agentIds: ReadonlySet<string>; departmentId: string; inbox: readonly InboxItemRow[] | undefined; done: readonly TaskRow[] | undefined; today: string }): QuietLine | null {
+  const notes = (input.inbox ?? [])
+    .filter((n) => n.fromAgentId !== null && input.agentIds.has(n.fromAgentId) && n.state !== "archived")
+    .sort((a, b) => (toMs(b.createdAt) ?? 0) - (toMs(a.createdAt) ?? 0));
+  const respond = notes.filter((n) => noteRowTag(n) === RESPOND_TAG);
+  const waiting = respond[0];
+  if (waiting) return { kind: "respond", label: "Waiting for you", text: waiting.subject, detail: respond.length > 1 ? `${respond.length - 1} more in the Inbox` : undefined, inboxItemId: waiting.id };
+  const unread = notes.find((n) => n.state === "unread");
+  if (unread) return { kind: "inbox", label: "New in your Inbox", text: unread.subject, inboxItemId: unread.id };
+  const finished = (input.done ?? [])
+    .flatMap((t) => {
+      const ended = toMs(t.endedAt);
+      return t.departmentId === input.departmentId && t.status === "done" && ended !== null ? [{ title: t.title, ended }] : [];
+    })
+    .sort((a, b) => b.ended - a.ended)[0];
+  if (finished) return { kind: "finished", label: "Last finished", text: finished.title, detail: dayLabel(finished.ended, input.today) };
+  if (input.inbox && input.done) return { kind: "clear", label: "All clear", text: "Nothing in progress, and nothing waiting on you." };
+  return null;
 }
 
 export interface MetricInputs {
@@ -177,6 +227,9 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {}, { enabled: enabled && metricKey === "blended_cpa" });
   const finance = useWidgetQuery<FinanceOverview>("finance.overview", {}, { enabled: enabled && metricKey === "runway" });
   const compliance = useWidgetQuery<ComplianceResponse>("legal.compliance.list", { pendingOnly: true, days: 365 }, { enabled: enabled && metricKey === "next_filing" });
+  // A quiet card's line: the shell's own Inbox page (served from its cache) and one shared list of finished tasks.
+  const inbox = useWidgetQuery<InboxListResponse>("inbox.list", { limit: QUIET_INBOX_PAGE }, { enabled });
+  const done = useWidgetQuery<Page<TaskRow>>("dev.tasks.list", { status: ["done"], limit: QUIET_DONE_PAGE }, { enabled });
 
   const [overrides, setOverrides] = useState<Record<string, AgentStatus>>({});
   const squadIds = useMemo(() => new Set(dept?.squad.map((a) => a.id) ?? []), [dept]);
@@ -192,7 +245,10 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
       return;
     }
     tasks.refetch();
-    if (event.type === "task.completed" || event.type === "cycle.completed") ribbon.refetch();
+    if (event.type === "task.completed" || event.type === "cycle.completed") {
+      ribbon.refetch();
+      done.refetch();
+    }
   }, TASK_EVENTS);
 
   const taskItems = useMemo(() => tasks.data?.items ?? [], [tasks.data]);
@@ -202,6 +258,8 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
     const { health, word } = departmentHealth(squad, taskItems);
     const leadRow = dept.lead ?? dept.squad.find((a) => a.id === dept.leadAgentId) ?? dept.squad[0] ?? null;
     const next = taskItems.find((t) => (NEXT_TASK_STATUSES as readonly string[]).includes(t.status));
+    const now = nowLines(taskItems, squad);
+    const agentIds = new Set([...dept.squad.map((a) => a.id), ...(leadRow ? [leadRow.id] : [])]);
     return {
       id: dept.id,
       name: dept.name,
@@ -210,16 +268,19 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
       health,
       healthWord: word,
       squad,
-      now: nowLines(taskItems, squad),
+      now,
+      nowLoading: !tasks.data && tasks.isLoading,
+      quiet: now.length === 0 ? quietLine({ agentIds, departmentId: dept.id, inbox: inbox.data?.items, done: done.data?.items, today }) : null,
       metric: headlineMetric({ key: metricKey, rows, days: lastDays(14, today), squad, roadmap: roadmap.data, channels: channels.data, finance: finance.data, compliance: compliance.data, currency, today }),
       // A short status, not an instruction: every quiet card would otherwise repeat the same sentence.
       nextUp: next ? next.title : "Nothing queued",
     };
-  }, [dept, overrides, taskItems, metricKey, rows, roadmap.data, channels.data, finance.data, compliance.data, currency, today]);
+  }, [dept, overrides, taskItems, tasks.data, tasks.isLoading, inbox.data, done.data, metricKey, rows, roadmap.data, channels.data, finance.data, compliance.data, currency, today]);
 
   const entityKinds = useMemo(() => Object.fromEntries([...squadIds].map((id) => [id, "agent" as EntityKind])), [squadIds]);
   const openEntity = (id: string) => navigate(squadIds.has(id) ? routes.agent(businessId, id) : routes.crm(businessId, id));
   const firstTab = dept?.tabs.slice().sort((a, b) => a.position - b.position)[0];
+  const quietItemId = (card?.quiet as QuietLine | null | undefined)?.inboxItemId;
 
   if (card && dept) {
     return (
@@ -229,6 +290,7 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
         onOpen={firstTab ? () => navigate(routes.department(businessId, dept.slug, firstTab.slug)) : undefined}
         onOpenAgent={(agentId) => navigate(routes.agent(businessId, agentId))}
         onOpenEntity={openEntity}
+        onOpenQuiet={quietItemId ? () => navigate(routes.inbox(businessId, quietItemId)) : undefined}
         entityKinds={entityKinds}
       />
     );

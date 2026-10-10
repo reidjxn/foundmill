@@ -159,7 +159,8 @@ export function SessionScrubber({ events, startedAt, endedAt, position, onPositi
       <IconButton icon={SkipBack} label="Previous event" size="sm" onClick={() => step(-1)} />
       <IconButton icon={playing ? Pause : Play} label={playing ? "Pause replay" : "Play replay"} size="sm" pressed={playing} onClick={() => onPlayingChange?.(!playing)} disabled={!onPlayingChange} />
       <IconButton icon={SkipForward} label="Next event" size="sm" onClick={() => step(1)} />
-      <span className="w-24 shrink-0 font-mono text-mono text-secondary tabular-nums" aria-live="off">
+      {/* Never wraps ("00:00 /" over "00:00"): the clock takes the width it needs (w-24 is 78 px on the 13 px root). */}
+      <span className="shrink-0 whitespace-nowrap font-mono text-mono text-secondary tabular-nums" aria-live="off">
         {formatClock(clamped)} / {formatClock(length)}
       </span>
       <div className="relative min-w-0 flex-1 py-3">

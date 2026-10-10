@@ -100,6 +100,30 @@ export const Specialist: Story = {
   },
 };
 
+/**
+ * Specialist tiles with nothing in a view yet: each says what it is missing in its own state, over its own brief (the
+ * task's goal), so a row of them never repeats one generic sentence.
+ */
+export const SpecialistEmpty: Story = {
+  name: "Specialist · empty views",
+  render: (args) => {
+    const base = session(5, "running", false);
+    const empty = { rfq: [], quotes: [], samples: [], shipments: [] };
+    const tiles = [
+      { status: "running" as const, name: "Sourcing and Manufacturing Specialist", title: "Second batch purchase order pack", goal: "Assemble the PO pack for batch 002 across three SKUs with quote ids and the landed-cost model; the founder signs." },
+      { status: "review" as const, name: "Formulation Chemist", title: "Stability data for serum reformulation", goal: "Collate 12-week stability results for serum v3 and flag any drift beyond spec." },
+      { status: "paused" as const, name: "Packaging and Industrial Design Specialist", title: "Carton artwork proof round 2", goal: "Review the second proof for the refill carton against the labelling checklist." },
+    ];
+    return (
+      <div className="grid grid-cols-3 gap-2" style={{ width: 1000, height: 320 }}>
+        {tiles.map((t, i) => (
+          <SpecialistTile key={t.name} session={{ ...base, id: `sp-${i}`, status: t.status, phase: t.status === "review" ? "review" : "implementing", agent: { ...base.agent, name: t.name }, task: { id: `task-sp${i}`, title: t.title, href: "#", kind: "specialist", goal: t.goal } }} data={empty} now={args.now} controls={controls(() => {})} />
+        ))}
+      </div>
+    );
+  },
+};
+
 /** No output yet while the session runs: a live prompt with a blinking caret and the agent's name, never a black void. */
 export const EmptyTerminalLive: Story = {
   name: "Empty terminal · live",
@@ -122,7 +146,21 @@ export const EmptyTerminalIdle: Story = {
   ),
 };
 
-/** A narrow tile: name over task, the phase as an icon with a tooltip, icon-only view tabs, and a footer that drops tokens first. */
+/** Waiting for its first output, with the task's goal under the prompt (the brief), so two waiting tiles never read alike. */
+export const EmptyTerminalWithGoal: Story = {
+  name: "Empty terminal · with goal",
+  args: { session: { ...session(2, "running"), status: "running", stdout: [], task: { ...session(2, "running").task, goal: "Add pause and skip to the refill subscription through the commerce connector in mock mode." } }, defaultView: "terminal", terminalRenderer: "plain" },
+  render: (args) => (
+    <div style={{ width: 380, height: 300 }}>
+      <AgentTile {...args} />
+    </div>
+  ),
+};
+
+/**
+ * Narrow tiles (under 600 px): name over task on a row of their own at the tile's full width, then phase, progress and
+ * icon-only view tabs on a second row; the footer drops tokens first. Long names read in full.
+ */
 export const Narrow: Story = {
   args: { session: session(1, "running"), controls: controls(() => {}) },
   render: (args) => (

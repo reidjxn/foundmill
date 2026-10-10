@@ -357,8 +357,30 @@ export interface DepartmentCardData {
   squad: SquadMember[];
   /** Up to three live lines; [[ent:id|Name]] markup is rendered as entity links. */
   now: string[];
+  /** The department's work is still loading: "Now" shows placeholders instead of calling the department quiet. */
+  nowLoading?: boolean;
+  /**
+   * With no "Now" lines: what the department is waiting for or last did, one line from real data (a note waiting in
+   * the Inbox, the last task it finished). Without it a quiet card says only that nothing is in progress.
+   */
+  quiet?: DepartmentQuietLine | null;
   metric: DepartmentMetric;
   nextUp: string;
+}
+
+/**
+ * A quiet department's one line (DepartmentCard): a kicker, the line, and an optional short detail. `respond`: a note
+ * waiting for the founder's answer; `inbox`: an unread note from the department; `finished`: the last task it
+ * finished; `clear`: nothing in progress and nothing waiting on the founder.
+ */
+export interface DepartmentQuietLine {
+  kind: "respond" | "inbox" | "finished" | "clear";
+  /** "Waiting for you", "New in your Inbox", "Last finished", "All clear". */
+  label: string;
+  /** The note's subject or the task's title. */
+  text: string;
+  /** "2 more in the Inbox", "31 Aug". */
+  detail?: string;
 }
 
 export interface TrophyCard {

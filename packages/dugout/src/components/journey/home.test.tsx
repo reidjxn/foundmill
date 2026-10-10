@@ -48,6 +48,39 @@ describe("DepartmentCard", () => {
   });
 });
 
+describe("DepartmentCard · quiet", () => {
+  const quiet = cards.find((d) => d.now.length === 0)!;
+
+  it("fills Now with the line it is given, which opens the note", async () => {
+    const user = userEvent.setup();
+    const onOpenQuiet = vi.fn();
+    const { container } = render(<DepartmentCard department={{ ...quiet, quiet: { kind: "respond", label: "Waiting for you", text: "Approve the Q4 retail terms", detail: "2 more in the Inbox" } }} onOpenQuiet={onOpenQuiet} />);
+    expect(screen.getByText("Quiet", { selector: "[data-now-quiet]" })).toBeTruthy();
+    expect(container.querySelector("[data-now-lines]")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Waiting for you: Approve the Q4 retail terms. 2 more in the Inbox" }));
+    expect(onOpenQuiet).toHaveBeenCalledTimes(1);
+  });
+
+  it("states a finished task as plain text, and says only what it knows without a line", () => {
+    const { container, unmount } = render(<DepartmentCard department={{ ...quiet, quiet: { kind: "finished", label: "Last finished", text: "Customer interview synthesis", detail: "31 Aug" } }} onOpenQuiet={() => {}} />);
+    expect(screen.getByText("Last finished")).toBeTruthy();
+    expect(screen.getByText("31 Aug")).toBeTruthy();
+    // A task is not something to open from Home: no button.
+    expect(screen.queryByRole("button", { name: /Last finished/ })).toBeNull();
+    expect(container.querySelector("[data-now-quiet-line]")?.getAttribute("data-now-quiet-line")).toBe("finished");
+    unmount();
+    render(<DepartmentCard department={{ ...quiet, quiet: null }} />);
+    expect(screen.getByText("Nothing in progress right now.")).toBeTruthy();
+  });
+
+  it("shows placeholders while the work is loading instead of calling the department quiet", () => {
+    const { container } = render(<DepartmentCard department={{ ...quiet, nowLoading: true }} />);
+    expect(container.querySelector("[data-now-quiet]")).toBeNull();
+    expect(container.querySelector("[data-now-quiet-line]")).toBeNull();
+    expect(screen.getByLabelText("Loading what the team is doing").getAttribute("aria-busy")).toBe("true");
+  });
+});
+
 describe("SquadPulse", () => {
   const { cells, days } = squadPulseFixture();
   it("folds cells into a 7 × 24 grid led by the busiest department", () => {

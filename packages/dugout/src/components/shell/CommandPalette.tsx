@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Command } from "cmdk";
 import { Bot, Building2, ChevronRight, CornerDownLeft, Fan, Globe, Inbox, LayoutGrid, MapPin, MessageCircle, Search, Terminal, UserCog, User, Users, type LucideIcon } from "lucide-react";
 import { APP_NAME } from "@foundmill/config";
@@ -172,6 +172,54 @@ export function groupPaletteItems(items: readonly PaletteItem[]): PaletteGroup[]
   return PALETTE_KIND_ORDER.filter((k) => by.has(k)).map((k) => ({ kind: k, label: PALETTE_KIND_INFO[k].label, items: by.get(k) as PaletteItem[] }));
 }
 
+/** A row as the palette renders it: the item and the cmdk value that selects it (unique across sections). */
+export interface PaletteRow {
+  item: PaletteItem;
+  value: string;
+}
+
+/** One headed block of rows. `id` is also the block's `data-group`. */
+export interface PaletteSection {
+  id: string;
+  heading: string;
+  rows: PaletteRow[];
+}
+
+export interface PaletteSectionInput {
+  /** Free text was typed (operators alone do not count). */
+  typed: boolean;
+  ask: readonly PaletteItem[];
+  generate: readonly PaletteItem[];
+  /** The business itself when its name matches the query. */
+  business: PaletteItem | null;
+  /** Shown only when nothing is typed. */
+  recent: readonly PaletteItem[];
+  /** The matched items by kind, in `PALETTE_KIND_ORDER`. */
+  groups: readonly PaletteGroup[];
+}
+
+const rowsOf = (items: readonly PaletteItem[], prefix: string): PaletteRow[] => items.map((item) => ({ item, value: `${prefix}${item.id}` }));
+
+/**
+ * The palette's blocks in order (pure). With nothing typed it leads with what the founder can do (Ask, Generate), then
+ * Recent, then where to go, commands last. Once the query matches something specific (the business, a department, a
+ * screen, an Inbox note, a CRM record, a Generate row or a command) the matches lead: the business, then where to go,
+ * then Generate and the commands, and Ask follows as the fallback that carries the query. Ask is the only block that
+ * is always there, so ranking it first would make Enter ask an agent even when the founder typed a name to open. When
+ * nothing specific matches, Ask leads and Enter asks.
+ */
+export function paletteSections({ typed, ask, generate, business, recent, groups }: PaletteSectionInput): PaletteSection[] {
+  const askSection: PaletteSection = { id: "ask", heading: PALETTE_KIND_INFO.ask.label, rows: rowsOf(ask.map((it) => ({ ...it, kind: "ask" as const })), "ask:") };
+  const generateSection: PaletteSection = { id: "generate", heading: PALETTE_KIND_INFO.generate.label, rows: rowsOf(generate, "generate:") };
+  const businessSection: PaletteSection = { id: "business", heading: "Business", rows: business ? rowsOf([business], "business:") : [] };
+  const recentSection: PaletteSection = { id: "recent", heading: "Recent", rows: typed ? [] : rowsOf(recent, "recent:") };
+  const places = groups.filter((g) => g.kind !== "command").map((g): PaletteSection => ({ id: g.kind, heading: g.label, rows: rowsOf(g.items, "") }));
+  const commands = groups.filter((g) => g.kind === "command").map((g): PaletteSection => ({ id: g.kind, heading: g.label, rows: rowsOf(g.items, "") }));
+  const specific = business !== null || groups.length > 0 || generate.length > 0;
+  const ordered = typed && specific ? [businessSection, ...places, generateSection, ...commands, askSection] : [askSection, generateSection, businessSection, recentSection, ...places, ...commands];
+  return ordered.filter((s) => s.rows.length > 0);
+}
+
 export interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -193,11 +241,12 @@ export interface CommandPaletteProps {
   /** Extra content under the list (natural-language filter chips, for instance). */
   footer?: ReactNode;
   /**
-   * Lead rows: talk to an agent ("Ask the Chief of Staff", "Ask Juno"). Shown first and kept while typing, carrying the
-   * query ("Ask Juno · “why is cash down?”"); choosing one calls `onAsk` with the query (or `onSelect`).
+   * Talk to an agent ("Ask the Chief of Staff", "Ask Juno"). They lead while nothing is typed and stay while typing,
+   * carrying the query ("Ask Juno · “why is cash down?”"), below whatever the query matched (`paletteSections`);
+   * choosing one calls `onAsk` with the query (or `onSelect`).
    */
   ask?: readonly PaletteItem[];
-  /** Lead rows: make something ("Draft 12 concepts", "Draft a cover plan"), after Ask; matched against the query. */
+  /** Make something ("Draft 12 concepts", "Draft a cover plan"), after Ask on the empty palette; matched against the query. */
   generate?: readonly PaletteItem[];
   /** An Ask row was chosen, with the query typed so far ("" when none). Defaults to `onSelect(item)`. */
   onAsk?: (item: PaletteItem, text: string) => void;
@@ -224,12 +273,15 @@ const GROUP_CLASS =
   "[&_[cmdk-group-heading]]:t-data [&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pb-1.5 [&_[cmdk-group-heading]]:pt-2.5";
 
 /**
- * Universal search (BUILD §5.3, §11.12): a cmdk command menu on the dialog glass. It leads with what the founder can
- * do — Ask an agent (the query travels with it) and Generate — then recent items, then where to go: departments and
- * agents before screens, the Inbox, the CRM, and commands (settings among them) last. The business itself matches its
- * name. Rows carry a glyph tinted by their department; the selected row takes the brand plate and a lit edge. Operators
- * are parsed locally (`kind:`, `role:`, `stage:`, `owner:`, `department:`, leading `>` for commands) and shown as a hint
- * row. Arrow keys move, Enter opens, Esc closes; `/` and ⌘K open it through the keyboard map.
+ * Universal search (BUILD §5.3, §11.12): a cmdk command menu on the dialog glass. Empty, it leads with what the
+ * founder can do — Ask an agent and Generate — then recent items, then where to go: departments and agents before
+ * screens, the Inbox, the CRM, and commands (settings among them) last. Typed, whatever the query matches leads (the
+ * business by its name, places, records, Generate, commands) and Ask follows, carrying the query (`paletteSections`).
+ * The first row is selected and is what Enter runs, also when results arrive after the keystroke; once the founder
+ * moves the selection (arrows, pointer) their row stays selected for that query. Rows carry a glyph tinted by their
+ * department; the selected row takes the brand plate and a lit edge. Operators are parsed locally (`kind:`, `role:`,
+ * `stage:`, `owner:`, `department:`, leading `>` for commands) and shown as a hint row. Arrow keys move, Enter opens,
+ * Esc closes; `/` and ⌘K open it through the keyboard map.
  */
 export function CommandPalette({
   open,
@@ -252,9 +304,17 @@ export function CommandPalette({
   const [internal, setInternal] = useState("");
   const raw = query ?? internal;
   const parsed = useMemo(() => parseSearchQuery(raw), [raw]);
+  // The row the founder moved to (arrows, pointer) for this query; without one the first row is selected.
+  const [pick, setPick] = useState<{ raw: string; value: string } | null>(null);
+  // The list in state, not a ref: the dialog portals its content in after the first open render, and the selection
+  // sync below must run once the rows are there.
+  const [listEl, setListEl] = useState<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!open) setInternal("");
+    if (open) return;
+    setInternal("");
+    setPick(null);
   }, [open]);
 
   const setQuery = (next: string) => {
@@ -267,7 +327,7 @@ export function CommandPalette({
   const showRecent = parsed.text === "" && noFilters && recent.length > 0;
   const visible = useMemo(() => filterPaletteItems(items, parsed, { remote }), [items, parsed, remote]);
   const groups = useMemo(() => groupPaletteItems(visible), [visible]);
-  // Lead rows are always matched here, whatever `remote` says: Ask stays while typing; Generate follows the query.
+  // Ask and Generate are matched here, whatever `remote` says: Ask stays while typing; Generate follows the query.
   const askRows = !parsed.commandsOnly && (!kinds || kinds.includes("ask")) ? ask : [];
   const generateRows = useMemo(() => {
     if (kinds && !kinds.includes("generate")) return [];
@@ -279,7 +339,32 @@ export function CommandPalette({
       ? { id: "business", kind: "screen", label: business.name, description: business.description ?? "Home", href: business.href, avatar: business.logo, icon: Building2 }
       : null;
   const activeFilters = (Object.entries(parsed.filters) as Array<[SearchOperator, string]>).filter(([k]) => k !== "kind" || !kindsForFilter(parsed.filters.kind));
-  const nothing = visible.length === 0 && askRows.length === 0 && generateRows.length === 0 && !businessRow && !showRecent;
+  const sections = paletteSections({ typed: parsed.text !== "", ask: askRows, generate: generateRows, business: businessRow, recent: showRecent ? recent : [], groups });
+  const nothing = sections.length === 0;
+
+  // Selection (cmdk's controlled value): the founder's own pick while it is still listed, else the first row. cmdk alone
+  // keeps a selected row even when rows arrive above it (the CRM answers after the keystroke), so Enter would run a row
+  // that is no longer first.
+  const values = sections.flatMap((s) => s.rows.filter((r) => !r.item.disabled).map((r) => r.value));
+  const first = values[0] ?? "";
+  const selected = pick && pick.raw === raw && values.includes(pick.value) ? pick.value : first;
+  const valuesKey = values.join("\n");
+  const lastSelected = useRef(selected);
+  useLayoutEffect(() => {
+    const list = listEl;
+    if (!list) return;
+    const row = Array.from(list.querySelectorAll<HTMLElement>("[cmdk-item]")).find((el) => el.getAttribute("data-value") === selected);
+    // cmdk names the active row for assistive tech only when it moved the selection itself; name it here too.
+    if (row?.id) {
+      inputRef.current?.setAttribute("aria-activedescendant", row.id);
+      list.setAttribute("aria-activedescendant", row.id);
+    }
+    if (row && lastSelected.current !== selected) {
+      if (selected === first) list.scrollTop = 0;
+      else row.scrollIntoView?.({ block: "nearest" });
+    }
+    lastSelected.current = selected;
+  }, [listEl, selected, first, valuesKey]);
 
   const select = (item: PaletteItem) => {
     if (item.disabled) return;
@@ -304,12 +389,12 @@ export function CommandPalette({
     );
   };
 
-  const renderItem = (item: PaletteItem, keyPrefix = "") => {
+  const renderRow = ({ item, value }: PaletteRow) => {
     const description = item.kind === "ask" && parsed.text ? `“${parsed.text}”` : item.description;
     return (
       <Command.Item
-        key={`${keyPrefix}${item.id}`}
-        value={`${keyPrefix}${item.id}`}
+        key={value}
+        value={value}
         keywords={[item.label, ...(item.keywords ?? [])]}
         disabled={item.disabled}
         onSelect={() => select(item)}
@@ -317,14 +402,15 @@ export function CommandPalette({
         className="palette-row group/item flex min-h-row-comfortable cursor-default select-none items-center gap-2.5 px-2.5 py-1.5 text-body text-primary outline-none"
       >
         {glyph(item)}
+        {/* Words wrap (two lines at most) rather than being cut at the row's edge. */}
         <span className="flex min-w-0 flex-1 flex-col gap-px leading-tight">
-          <span className="truncate">{item.label}</span>
-          {description && (!item.dept || item.kind === "ask") ? <span className="truncate text-small text-secondary">{description}</span> : null}
+          <span className="line-clamp-2 break-words">{item.label}</span>
+          {description && (!item.dept || item.kind === "ask") ? <span className="line-clamp-2 break-words text-small text-secondary">{description}</span> : null}
         </span>
         {item.dept && item.description && item.kind !== "ask" ? <DeptChip dept={item.dept}>{item.description}</DeptChip> : null}
         {item.public ? <Chip tone="info">On {APP_NAME}</Chip> : null}
         {item.shortcut ? <Keys keys={item.shortcut} /> : null}
-        <Icon icon={item.kind === "ask" || item.kind === "generate" ? CornerDownLeft : ChevronRight} size={12} className="text-tertiary opacity-0 transition-opacity duration-hover ease-out group-aria-selected/item:opacity-100" />
+        <Icon icon={item.kind === "ask" || item.kind === "generate" ? CornerDownLeft : ChevronRight} size={12} className="shrink-0 text-tertiary opacity-0 transition-opacity duration-hover ease-out group-aria-selected/item:opacity-100" />
       </Command.Item>
     );
   };
@@ -333,10 +419,18 @@ export function CommandPalette({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg" hideClose className="top-24 w-palette translate-y-0 p-0" aria-describedby={undefined} data-testid="command-palette">
         <DialogTitle className="sr-only">Search</DialogTitle>
-        <Command label="Search" shouldFilter={false} loop className="palette-list flex flex-col">
+        <Command
+          label="Search"
+          shouldFilter={false}
+          loop
+          value={selected}
+          onValueChange={(v) => setPick(v && v !== first ? { raw, value: v } : null)}
+          className="palette-list flex flex-col"
+        >
           <div className="flex h-control-xl shrink-0 items-center gap-2.5 border-b border-line px-gutter">
             <Icon icon={Search} className="text-tertiary" />
             <Command.Input
+              ref={inputRef}
               value={raw}
               onValueChange={setQuery}
               placeholder={placeholder}
@@ -351,7 +445,13 @@ export function CommandPalette({
             {parsed.commandsOnly ? <Chip tone="neutral">Commands</Chip> : null}
             <Kbd>Esc</Kbd>
           </div>
-          <Command.List className="min-h-0 flex-1 overflow-y-auto p-1.5" label="Results">
+          <Command.List ref={setListEl} className="min-h-0 flex-1 overflow-y-auto p-1.5" label="Results">
+            {sections.map((section) => (
+              <Command.Group key={section.id} heading={section.heading} data-group={section.id} className={GROUP_CLASS}>
+                {section.rows.map(renderRow)}
+              </Command.Group>
+            ))}
+            {/* Under the rows, so the selected first row never moves while more results load. */}
             {loading ? (
               <div className="flex flex-col gap-2 p-2" aria-busy>
                 <Skeleton className="w-2/3" />
@@ -359,31 +459,6 @@ export function CommandPalette({
                 <Skeleton className="w-3/5" />
               </div>
             ) : null}
-            {askRows.length > 0 ? (
-              <Command.Group heading={PALETTE_KIND_INFO.ask.label} data-group="ask" className={GROUP_CLASS}>
-                {askRows.map((it) => renderItem({ ...it, kind: "ask" }, "ask:"))}
-              </Command.Group>
-            ) : null}
-            {generateRows.length > 0 ? (
-              <Command.Group heading={PALETTE_KIND_INFO.generate.label} data-group="generate" className={GROUP_CLASS}>
-                {generateRows.map((it) => renderItem(it, "generate:"))}
-              </Command.Group>
-            ) : null}
-            {businessRow ? (
-              <Command.Group heading="Business" data-group="business" className={GROUP_CLASS}>
-                {renderItem(businessRow, "business:")}
-              </Command.Group>
-            ) : null}
-            {showRecent ? (
-              <Command.Group heading="Recent" data-group="recent" className={GROUP_CLASS}>
-                {recent.map((it) => renderItem(it, "recent:"))}
-              </Command.Group>
-            ) : null}
-            {groups.map((g) => (
-              <Command.Group key={g.kind} heading={g.label} data-group={g.kind} className={GROUP_CLASS}>
-                {g.items.map((it) => renderItem(it))}
-              </Command.Group>
-            ))}
             {!loading && nothing ? (
               <div role="status" className="flex flex-col items-center gap-3 px-4 py-8 text-center">
                 <span aria-hidden className="icon-halo size-control-lg">

@@ -1,5 +1,5 @@
 "use client";
-import { ArrowRight, CircleCheck, CircleX, Clock, TriangleAlert } from "lucide-react";
+import { ArrowRight, CircleCheck, CircleX, Clock, Inbox, MessageSquareReply, Moon, TriangleAlert } from "lucide-react";
 import type { EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { Avatar } from "../foundation/Avatar";
@@ -7,19 +7,22 @@ import { Button } from "../foundation/Button";
 import { ProvenanceChip } from "../foundation/Chip";
 import { Icon, type IconComponent } from "../foundation/Icon";
 import { FitText } from "../foundation/FitText";
+import { Skeleton } from "../foundation/Skeleton";
 import { StatusPill, agentStatusTone, type StatusTone } from "../foundation/StatusPill";
 import { Tooltip } from "../foundation/Tooltip";
 import { EntityText } from "./EntityText";
 import { Figure } from "../data/Figure";
 import { TileSpark } from "../data/MetricTile";
 import { DEPT_TEXT, DEPT_TONE } from "./ribbon/OnThisDayCard";
-import type { DepartmentCardData, HealthTone } from "./types";
+import type { DepartmentCardData, DepartmentQuietLine, HealthTone } from "./types";
 
 export interface DepartmentCardProps {
   department: DepartmentCardData;
   onOpen?: (departmentId: string) => void;
   onOpenAgent?: (agentId: string) => void;
   onOpenEntity?: (entityId: string) => void;
+  /** Opens what a quiet card's line names (the note waiting in the Inbox). Without it the line is plain text. */
+  onOpenQuiet?: () => void;
   entityKinds?: Record<string, EntityKind>;
   /** Max avatars in the squad strip before "+N". Default 8. */
   maxSquad?: number;
@@ -39,13 +42,17 @@ const DELTA_CLASS: Record<HealthTone, string> = { good: "tone-status-good text-s
  * department colour. Header: the glowing dot, the name (fits: founder-defined names step down, never clip), the lead's
  * face and name, the health pill. The team strip with status rings (hover shows role, model and task) and "4 of 7
  * working"; up to three "Now" lines that wrap to two lines instead of clipping; the headline metric on an inner plate
- * with its sparkline; "Next up" at the foot.
+ * with its sparkline; "Next up" at the foot. "Now" takes the card's spare height, so the metric and "Next up" sit at the
+ * foot, level with the other cards in the row. A quiet card (nothing in progress) fills "Now" with one line from real
+ * data — the note waiting for the founder, an unread note, the last task it finished, or "All clear" — never a void
+ * (`QuietLine`); while the work is loading it shows placeholders rather than calling the department quiet.
  */
-export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntity, entityKinds, maxSquad = 8, className }: DepartmentCardProps) {
+export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntity, onOpenQuiet, entityKinds, maxSquad = 8, className }: DepartmentCardProps) {
   const health = HEALTH[d.health];
   const squad = d.squad.slice(0, maxSquad);
   const extra = d.squad.length - squad.length;
   const working = d.squad.filter((m) => m.status === "healthy").length;
+  const quiet = d.now.length === 0 && !d.nowLoading;
   return (
     <section className={cn("@container surface-panel glow-dept edge-tint flex min-w-0 flex-col overflow-hidden", DEPT_TONE[d.dept], className)} aria-label={`${d.name} department`} data-department={d.id} data-health={d.health}>
       <header className="flex h-panel-header shrink-0 items-center gap-2 pl-panel-pad pr-2.5 rule-fade">
@@ -104,13 +111,27 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
             <span className="font-medium text-primary">{working}</span> of {d.squad.length} working
           </span>
         </div>
-        <div>
-          <span className="t-data">Now</span>
-          {d.now.length === 0 ? (
-            // Said once, briefly: every quiet card repeating the same instruction would read as noise on Home.
-            <p className="mt-1 text-small text-secondary" data-now-quiet>
-              Quiet
-            </p>
+        <div className="flex flex-1 flex-col" data-now>
+          <div className="flex items-center gap-1.5">
+            <span className="t-data">Now</span>
+            {quiet ? (
+              <>
+                <span aria-hidden className="t-data">
+                  ·
+                </span>
+                <span className="t-data" data-now-quiet>
+                  Quiet
+                </span>
+              </>
+            ) : null}
+          </div>
+          {d.nowLoading && d.now.length === 0 ? (
+            <div role="status" className="mt-2 flex flex-col gap-2" aria-busy aria-label="Loading what the team is doing">
+              <Skeleton className="h-3 w-4/5" index={0} />
+              <Skeleton className="h-3 w-3/5" index={1} />
+            </div>
+          ) : quiet ? (
+            <QuietLine line={d.quiet ?? null} onOpen={onOpenQuiet} />
           ) : (
             <ul className="mt-1 flex flex-col gap-1" data-now-lines>
               {d.now.slice(0, 3).map((line, i) => (
@@ -137,7 +158,7 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
           </div>
           <TileSpark data={d.metric.series} className={cn("mb-1 max-w-32 shrink-0 basis-1/3", DEPT_TEXT[d.dept])} label={`${d.metric.label}, ${d.metric.series.length} periods`} />
         </div>
-        <div className="mt-auto flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <Icon icon={Clock} size="inline" className="shrink-0 text-tertiary" />
           <span className="t-data shrink-0">Next up</span>
           <span className="line-clamp-2 min-w-0 flex-1 text-small text-secondary" title={d.nextUp}>
@@ -151,5 +172,45 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
         </div>
       </div>
     </section>
+  );
+}
+
+const QUIET_ICON: Record<DepartmentQuietLine["kind"] | "unknown", IconComponent> = { respond: MessageSquareReply, inbox: Inbox, finished: CircleCheck, clear: Moon, unknown: Moon };
+
+/**
+ * A quiet card's one line, set in the space "Now" lines would take: the department's light on an icon disc, a kicker
+ * ("Waiting for you", "New in your Inbox", "Last finished", "All clear"), the line itself (two lines at most, the whole
+ * text on hover) and a short detail. A note opens from the line. Without a line it says only what the card knows.
+ */
+function QuietLine({ line, onOpen }: { line: DepartmentQuietLine | null; onOpen?: () => void }) {
+  const kind = line?.kind ?? "unknown";
+  const text = line?.text ?? "Nothing in progress right now.";
+  const opens = !!onOpen && (kind === "respond" || kind === "inbox");
+  const body = (
+    <>
+      <span aria-hidden className="icon-halo size-control-md">
+        <Icon icon={QUIET_ICON[kind]} size="inline" />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5 self-center">
+        {line ? <span className="t-data">{line.label}</span> : null}
+        <span className="line-clamp-2 text-pretty text-body text-primary" title={text}>
+          {text}
+        </span>
+        {line?.detail ? <span className="text-small text-secondary tabular-nums">{line.detail}</span> : null}
+      </span>
+      {opens ? <Icon icon={ArrowRight} size="inline" className="shrink-0 self-center text-tertiary transition-colors duration-hover group-hover/quiet:text-primary" /> : null}
+    </>
+  );
+  const box = "flex w-full items-start gap-3 rounded-md px-2 py-2 text-left";
+  return (
+    <div className="-mx-2 flex flex-1 items-center pt-1" data-now-quiet-line={kind}>
+      {opens && line ? (
+        <button type="button" onClick={onOpen} className={cn(box, "group/quiet outline-none transition-colors duration-hover hover:bg-white/4 focus-visible:shadow-ring")} aria-label={`${line.label}: ${text}${line.detail ? `. ${line.detail}` : ""}`}>
+          {body}
+        </button>
+      ) : (
+        <p className={box}>{body}</p>
+      )}
+    </div>
   );
 }

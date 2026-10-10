@@ -37,7 +37,7 @@ export const LightBrandColour: Story = {
   name: "Light brand colour → dark text",
   args: { kit: { primary: "#F5B841", secondary: "#0F1318" }, businessName: "Aurora Candles", logoSrc: null, businessMode: "augmented", gameMode: "personal", runwayMonths: 8 },
 };
-export const Ledgerly: Story = { args: { kit: LEDGERLY_KIT, businessName: "Ledgerly", logoSrc: SAMPLE_LOGOS.orbit, screenTitle: "Finance · Runway", runwayMonths: null } };
+export const Ledgerly: Story = { args: { kit: LEDGERLY_KIT, businessName: "Ledgerly", logoSrc: SAMPLE_LOGOS.orbit, screenTitle: "Finance · Runway", runwayMonths: null, runwayWords: { value: "No limit", caption: "Cash-flow positive, so no limit yet" } } };
 /** No logo yet: the initials mark in the primary, separated from the bar by its hairline. */
 export const WithoutLogo: Story = { name: "No logo yet → initials mark", args: { logoSrc: null } };
 /** The minimum window: the search keeps only what fits; the title is never cut. */

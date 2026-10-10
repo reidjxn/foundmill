@@ -1,5 +1,7 @@
-import { expect, test, type Page } from "@playwright/test";
-// A relative import on purpose (as playwright.config.ts does for the seed constants): the fixture is Node-only.
+import { expect, test, type APIRequestContext, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
+// Relative imports on purpose (as playwright.config.ts does for the seed constants): Node-only modules with no
+// imports of their own, from packages apps/web does not depend on.
+import { DEMO_OWNER_DISPLAY_NAME } from "../../../packages/db/src/seed/constants";
 import { makePng } from "../../../packages/shared/src/testing/logo-fixtures";
 
 /**
@@ -82,4 +84,37 @@ export function logoPng(): Buffer {
   return Buffer.from(makePng(256, 256, [214, 92, 38, 255]));
 }
 
-export { test, expect };
+/** The api the dev bearer reaches (playwright.config.ts starts it on :4000 unless NEXT_PUBLIC_API_URL says otherwise). */
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+
+/** The founder profile fields `founder.profile.update` takes (packages/db FounderProfileInput). */
+const PROFILE_FIELDS = ["displayName", "experience", "skills", "timeCommitment", "budgetMinor", "currency", "citizenship", "residence", "targetMarkets", "constraints", "riskAppetite", "visibility"] as const;
+export type FounderProfileSnapshot = Partial<Record<(typeof PROFILE_FIELDS)[number], unknown>>;
+
+/** An api client signed in as the dev founder (the literal `dev` bearer, e2e/README.md). Dispose it after use. */
+export async function devApi(playwright: PlaywrightWorkerArgs["playwright"]): Promise<APIRequestContext> {
+  return playwright.request.newContext({ baseURL: API_URL, extraHTTPHeaders: { authorization: "Bearer dev" } });
+}
+
+/** The dev founder's stored profile (only the editable fields), or null before the profile exists. */
+export async function readFounderProfile(api: APIRequestContext): Promise<FounderProfileSnapshot | null> {
+  const res = await api.get("/trpc/founder.profile.get");
+  expect(res.ok(), `founder.profile.get answered ${res.status()}`).toBe(true);
+  const body = (await res.json()) as { result: { data: { json: { profile: Record<string, unknown> | null } } } };
+  const profile = body.result.data.json.profile;
+  return profile ? Object.fromEntries(PROFILE_FIELDS.map((k) => [k, profile[k]])) : null;
+}
+
+/**
+ * Puts the dev founder's profile back as `before` held it. The dev founder is shared by every spec and every screen
+ * (the Inbox, the Hierarchy and the live pages show the name), so a spec that edits the profile restores it. A profile
+ * that did not exist before (a database seeded with SEED_OWNER_PROFILE=0) keeps what the spec saved, under the name
+ * the seed gives the demo founder.
+ */
+export async function restoreFounderProfile(api: APIRequestContext, before: FounderProfileSnapshot | null): Promise<void> {
+  const patch = before ?? { displayName: DEMO_OWNER_DISPLAY_NAME };
+  const res = await api.post("/trpc/founder.profile.update", { data: { json: patch } });
+  expect(res.ok(), `founder.profile.update answered ${res.status()}: ${await res.text()}`).toBe(true);
+}
+
+export { DEMO_OWNER_DISPLAY_NAME, test, expect };

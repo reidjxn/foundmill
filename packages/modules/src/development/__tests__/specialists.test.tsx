@@ -18,7 +18,9 @@ describe("SpecialistsScreen", () => {
     const tile = within(grid).getByRole("article", { name: /Wren: Supplier brief for the serum pump/ });
     for (const name of ["RFQ funnel", "Quotes", "Samples", "Shipments"]) expect(within(tile).getByRole("tab", { name })).toBeTruthy();
     expect(within(tile).queryByRole("tab", { name: "Terminal" })).toBeNull();
-    expect(within(tile).getByText(/funnel fills as RFQs go out/)).toBeTruthy();
+    // Nothing in the funnel yet: the tile says so in its own state, over its own task (no generic line shared by every tile).
+    expect(within(tile).getByText("No RFQs sent yet")).toBeTruthy();
+    expect(within(tile).getByText("Wren on Supplier brief for the serum pump.")).toBeTruthy();
     expect(fake.queried.get("dev.tasks.list")).toEqual({ kind: "specialist", limit: 200 });
     expect(fake.subscriberCount(`as:${SESSION_SOURCING}`)).toBe(1);
     expect(screen.getByTestId("specialist-counts").textContent).toBe("1 specialist · 1 running · 0 reporting");

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { CommandPalette, filterPaletteItems, groupPaletteItems, kindsForFilter, matchScore, parseSearchQuery } from "./CommandPalette";
+import { CommandPalette, filterPaletteItems, groupPaletteItems, kindsForFilter, matchScore, paletteSections, parseSearchQuery, type PaletteItem } from "./CommandPalette";
 import { PALETTE_ITEMS, RECENT_PALETTE_ITEMS } from "./fixtures";
 
 beforeAll(() => {
@@ -51,6 +51,32 @@ describe("filterPaletteItems", () => {
     // Where to go first (departments and agents), commands (settings among them) last.
     expect(groups.map((g) => g.kind)).toEqual(["department", "agent", "screen", "inbox", "person", "organisation", "team_member", "community", "command"]);
     expect(groups[0]?.label).toBe("Departments");
+  });
+});
+
+describe("paletteSections", () => {
+  const ask: PaletteItem[] = [{ id: "ask-cos", kind: "ask", label: "Ask the Chief of Staff" }];
+  const generate: PaletteItem[] = [{ id: "gen-logos", kind: "generate", label: "Generate logos" }];
+  const business: PaletteItem = { id: "business", kind: "screen", label: "Northwind Skincare" };
+  const ids = (sections: ReturnType<typeof paletteSections>) => sections.map((s) => s.id);
+
+  it("leads with Ask and Generate while nothing is typed, commands last", () => {
+    const groups = groupPaletteItems(PALETTE_ITEMS);
+    expect(ids(paletteSections({ typed: false, ask, generate, business: null, recent: RECENT_PALETTE_ITEMS, groups }))).toEqual(["ask", "generate", "recent", "department", "agent", "screen", "inbox", "person", "organisation", "team_member", "community", "command"]);
+  });
+
+  it("puts what the query matched above Ask: the business, places and records, Generate, commands, then Ask", () => {
+    const groups = groupPaletteItems(filterPaletteItems(PALETTE_ITEMS, parseSearchQuery("meridian")));
+    const sections = paletteSections({ typed: true, ask, generate, business, recent: RECENT_PALETTE_ITEMS, groups });
+    expect(ids(sections)).toEqual(["business", "inbox", "person", "organisation", "generate", "ask"]);
+    expect(sections[0]?.rows[0]?.value).toBe("business:business");
+    expect(sections.at(-1)?.rows[0]?.value).toBe("ask:ask-cos");
+    // A command the query names (Settings tabs, Stop all agents) is a match too.
+    expect(ids(paletteSections({ typed: true, ask, generate: [], business: null, recent: [], groups: groupPaletteItems(filterPaletteItems(PALETTE_ITEMS, parseSearchQuery("stop"))) }))).toEqual(["command", "ask"]);
+  });
+
+  it("lets Ask lead when the query matches nothing else", () => {
+    expect(ids(paletteSections({ typed: true, ask, generate: [], business: null, recent: RECENT_PALETTE_ITEMS, groups: [] }))).toEqual(["ask"]);
   });
 });
 
@@ -112,5 +138,78 @@ describe("CommandPalette", () => {
     await user.type(screen.getByRole("combobox"), "skin");
     await user.click(await screen.findByRole("option", { name: /Northwind Skincare/ }));
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "business", href: "/b/northwind/home" }));
+  });
+
+  const ASK: PaletteItem[] = [
+    { id: "ask:cos", kind: "ask", label: "Ask the Chief of Staff", description: "Team" },
+    { id: "ask:finance", kind: "ask", label: "Ask the Finance Lead", description: "Finance" },
+  ];
+  const headings = () => [...screen.getByTestId("command-palette").querySelectorAll("[cmdk-group-heading]")].map((h) => h.textContent);
+  const selectedRow = () => screen.getByTestId("command-palette").querySelector("[cmdk-item][aria-selected='true']")?.textContent ?? "";
+
+  it("opens the business the query names with Enter, with Ask below it", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const onAsk = vi.fn();
+    render(<CommandPalette open onOpenChange={() => {}} items={[]} remote ask={ASK} onAsk={onAsk} onSelect={onSelect} business={{ name: "Northwind Skincare", href: "/b/northwind/home" }} />);
+    await user.type(screen.getByRole("combobox"), "north");
+    await screen.findByRole("option", { name: /Northwind Skincare/ });
+    expect(headings()).toEqual(["Business", "Ask"]);
+    await waitFor(() => expect(selectedRow()).toContain("Northwind Skincare"));
+    // The combobox names the selected row for assistive tech.
+    const active = screen.getByRole("combobox").getAttribute("aria-activedescendant");
+    expect(active && document.getElementById(active)?.textContent).toContain("Northwind Skincare");
+    await user.keyboard("{Enter}");
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "business", href: "/b/northwind/home" }));
+    expect(onAsk).not.toHaveBeenCalled();
+  });
+
+  it("selects the first row on open and names it for assistive tech", async () => {
+    render(<CommandPalette open onOpenChange={() => {}} items={PALETTE_ITEMS} ask={ASK} onSelect={() => {}} />);
+    await waitFor(() => expect(selectedRow()).toContain("Ask the Chief of Staff"));
+    await waitFor(() => {
+      const active = screen.getByRole("combobox").getAttribute("aria-activedescendant");
+      expect(active && document.getElementById(active)?.textContent).toContain("Ask the Chief of Staff");
+    });
+  });
+
+  it("asks with Enter when the query matches nothing to open", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const onAsk = vi.fn();
+    render(<CommandPalette open onOpenChange={() => {}} items={PALETTE_ITEMS} ask={ASK} onAsk={onAsk} onSelect={onSelect} business={{ name: "Northwind Skincare" }} />);
+    await user.type(screen.getByRole("combobox"), "why is cash down");
+    expect(headings()).toEqual(["Ask"]);
+    await waitFor(() => expect(selectedRow()).toContain("Ask the Chief of Staff"));
+    await user.keyboard("{Enter}");
+    expect(onAsk).toHaveBeenCalledWith(expect.objectContaining({ id: "ask:cos" }), "why is cash down");
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("moves the selection to records that arrive after the keystroke, unless the founder moved it", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const onAsk = vi.fn();
+    const props = { open: true, onOpenChange: () => {}, remote: true, ask: ASK, onAsk, onSelect };
+    const { rerender } = render(<CommandPalette {...props} items={[]} />);
+    await user.type(screen.getByRole("combobox"), "meridian");
+    await waitFor(() => expect(selectedRow()).toContain("Ask the Chief of Staff"));
+    // The CRM answers: the record leads and is what Enter opens.
+    const hits = PALETTE_ITEMS.filter((i) => i.id === "o-meridian");
+    rerender(<CommandPalette {...props} items={hits} />);
+    expect(headings()).toEqual(["Organisations", "Ask"]);
+    await waitFor(() => expect(selectedRow()).toContain("Meridian Labs"));
+    await user.keyboard("{Enter}");
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "o-meridian" }));
+    expect(onAsk).not.toHaveBeenCalled();
+
+    // Moved by the founder: more results arriving keep their row selected.
+    await user.keyboard("{ArrowDown}");
+    await waitFor(() => expect(selectedRow()).toContain("Ask the Chief of Staff"));
+    rerender(<CommandPalette {...props} items={[...PALETTE_ITEMS.filter((i) => i.id === "inbox-2"), ...hits]} />);
+    expect(headings()).toEqual(["Inbox", "Organisations", "Ask"]);
+    await waitFor(() => expect(selectedRow()).toContain("Ask the Chief of Staff"));
+    await user.keyboard("{Enter}");
+    expect(onAsk).toHaveBeenCalledWith(expect.objectContaining({ id: "ask:cos" }), "meridian");
   });
 });

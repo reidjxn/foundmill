@@ -178,115 +178,132 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
         className,
       )}
     >
-      <header className="flex h-panel-header shrink-0 items-center gap-2 pl-2.5 pr-1.5 rule-fade">
-        <Avatar size={24} name={session.agent.name} agent={{ seed: session.agent.seed, dept: session.agent.dept }} status={session.agent.status} presence={live ? "live" : undefined} />
-        {/* Name over task: both get the full width of the slot and truncate on their own, the name last. */}
-        <div className="flex min-w-0 flex-1 flex-col justify-center leading-none">
-          <span className="min-w-0 text-action font-semibold text-primary" title={session.agent.name} data-tile-name>
-            <FitText minPx={11} tooltip={false}>
-              {session.agent.name}
-            </FitText>
-          </span>
-          {onOpenTask || session.task.href ? (
-            <a
-              href={session.task.href ?? `#${session.task.id}`}
-              onClick={(e) => {
-                if (onOpenTask) {
-                  e.preventDefault();
-                  onOpenTask(session.task);
-                }
-              }}
-              title={session.task.title}
-              className="entity-link mt-0.5 min-w-0 truncate text-small text-secondary"
-              data-allow-truncate=""
-            >
-              {session.task.title}
-            </a>
-          ) : (
-            <span className="mt-0.5 min-w-0 truncate text-small text-secondary" title={session.task.title} data-allow-truncate="">
-              {session.task.title}
+      {/* Header (DIRECTION #15: never clip). A wide tile (focused, or one or two across) keeps one 40 px row: who and
+          what, then phase, progress and the view tabs. A narrower tile gives who and what a row of their own at the
+          tile's full width and moves phase, progress and tabs to a second row, so the agent's name and the task read
+          in full; they step down to 11 px first and end in an ellipsis with a tooltip only as the last resort. Every
+          tile of a width gets the same header height, so the bodies of a row line up. */}
+      <header
+        className={cn(
+          "flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-2.5 pb-1.5 pt-2 rule-fade",
+          "@min-[600px]:h-panel-header @min-[600px]:flex-nowrap @min-[600px]:py-0 @min-[600px]:pr-1.5",
+        )}
+        data-tile-header
+      >
+        <div className="flex min-w-0 basis-full items-center gap-2 @min-[600px]:basis-0 @min-[600px]:flex-1" data-tile-identity>
+          <Avatar size={24} name={session.agent.name} agent={{ seed: session.agent.seed, dept: session.agent.dept }} status={session.agent.status} presence={live ? "live" : undefined} />
+          {/* Name over task, each on one line of the slot's full width. */}
+          <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+            <span className="block min-w-0 text-action font-semibold leading-4 text-primary" title={session.agent.name} data-tile-name>
+              <FitText minPx={11} tooltip={false}>
+                {session.agent.name}
+              </FitText>
             </span>
-          )}
+            {onOpenTask || session.task.href ? (
+              <a
+                href={session.task.href ?? `#${session.task.id}`}
+                onClick={(e) => {
+                  if (onOpenTask) {
+                    e.preventDefault();
+                    onOpenTask(session.task);
+                  }
+                }}
+                title={session.task.title}
+                className="entity-link block min-w-0 text-small leading-4 text-secondary"
+                data-tile-task
+              >
+                <FitText minPx={11} tooltip={false}>
+                  {session.task.title}
+                </FitText>
+              </a>
+            ) : (
+              <span className="block min-w-0 text-small leading-4 text-secondary" title={session.task.title} data-tile-task>
+                <FitText minPx={11} tooltip={false}>
+                  {session.task.title}
+                </FitText>
+              </span>
+            )}
+          </div>
         </div>
-        {compact && !focused ? (
+        <div className="flex min-w-0 flex-1 items-center gap-2 @min-[600px]:flex-none" data-tile-status>
+          {/* The phase pill never clips: in a tile under 300 px it becomes its icon with the word in a tooltip. */}
+          <StatusPill tone={pill.tone} icon={pill.icon} pulse={live && !compact} className="hidden shrink-0 @min-[300px]:inline-flex">
+            {pill.word}
+          </StatusPill>
           <Tooltip content={pill.word}>
-            <span className={cn("inline-flex shrink-0", pillToneText)}>
+            <span className={cn("chip-tone inline-flex size-control-xs shrink-0 items-center justify-center rounded-pill border @min-[300px]:hidden", pillToneText)} data-tone={pill.tone}>
               <Icon icon={pill.icon} size="inline" label={pill.word} />
             </span>
           </Tooltip>
-        ) : (
-          <>
-            {/* The phase pill never clips: in a narrow tile it becomes its icon with the word in a tooltip. */}
-            <StatusPill tone={pill.tone} icon={pill.icon} pulse={live && !compact} className="hidden shrink-0 @xl:inline-flex">
-              {pill.word}
-            </StatusPill>
-            <Tooltip content={pill.word}>
-              <span className={cn("chip-tone inline-flex size-control-xs shrink-0 items-center justify-center rounded-pill border @xl:hidden", pillToneText)} data-tone={pill.tone}>
-                <Icon icon={pill.icon} size="inline" label={pill.word} />
-              </span>
-            </Tooltip>
-          </>
-        )}
-        <ProgressRing value={session.progress} size={16} tone={progressTone(session)} label={`Progress ${pct}%`} />
-        <div role="tablist" aria-label="Tile view" onKeyDown={onTabKey} className="seg-track ml-0.5 h-control-sm shrink-0" data-tile-tabs>
-          {views.map((v, i) => {
-            const selected = v.id === view;
-            const tab = (
-              <button
-                key={v.id}
-                id={tabIds[i]}
-                role="tab"
-                type="button"
-                aria-selected={selected}
-                aria-controls={`${id}-panel`}
-                aria-label={v.label}
-                tabIndex={selected ? 0 : -1}
-                onClick={() => onViewChange(v.id)}
-                className={cn(
-                  "relative inline-flex h-full items-center gap-1 rounded-sm px-1.5 font-body text-action-sm font-medium text-tertiary outline-none transition-colors duration-hover ease-out",
-                  "hover:text-primary focus-visible:shadow-ring",
-                  selected && "tile-tab-on text-primary",
-                )}
-              >
-                <Icon icon={v.icon} size="inline" />
-                {/* Labels only where they fit (a wide or focused tile); otherwise the icon carries a tooltip. */}
-                {!compact || focused ? <span className="hidden whitespace-nowrap @3xl:inline">{v.label}</span> : null}
-              </button>
-            );
-            return (
-              <Tooltip key={v.id} content={v.label}>
-                {tab}
-              </Tooltip>
-            );
-          })}
+          <span className="inline-flex shrink-0 items-center gap-1">
+            <ProgressRing value={session.progress} size={16} tone={progressTone(session)} label={`Progress ${pct}%`} />
+            <span className="hidden text-small text-secondary tabular-nums @min-[300px]:inline" aria-hidden data-tile-progress>
+              {pct}%
+            </span>
+          </span>
+          <div role="tablist" aria-label="Tile view" onKeyDown={onTabKey} className="seg-track ml-auto h-control-sm shrink-0" data-tile-tabs>
+            {views.map((v, i) => {
+              const selected = v.id === view;
+              const tab = (
+                <button
+                  key={v.id}
+                  id={tabIds[i]}
+                  role="tab"
+                  type="button"
+                  aria-selected={selected}
+                  aria-controls={`${id}-panel`}
+                  aria-label={v.label}
+                  tabIndex={selected ? 0 : -1}
+                  onClick={() => onViewChange(v.id)}
+                  className={cn(
+                    "relative inline-flex h-full items-center gap-1 rounded-sm px-1.5 font-body text-action-sm font-medium text-tertiary outline-none transition-colors duration-hover ease-out",
+                    "hover:text-primary focus-visible:shadow-ring",
+                    selected && "tile-tab-on text-primary",
+                  )}
+                >
+                  <Icon icon={v.icon} size="inline" />
+                  {/* Labels only where the identity keeps its room (a tile 800 px or wider); otherwise the icon carries a tooltip. */}
+                  {!compact || focused ? <span className="hidden whitespace-nowrap @min-[800px]:inline">{v.label}</span> : null}
+                </button>
+              );
+              return (
+                <Tooltip key={v.id} content={v.label}>
+                  {tab}
+                </Tooltip>
+              );
+            })}
+          </div>
         </div>
       </header>
 
-      <div
-        role="toolbar"
-        aria-label={`Controls for ${session.agent.name}`}
-        className={cn(
-          "surface-overlay absolute right-2 top-11 z-10 flex items-center gap-0.5 p-0.5",
-          "transition-opacity duration-hover ease-out",
-          focused ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100 group-focus-within:opacity-100",
-        )}
-      >
-        {canResume ? (
-          <IconButton icon={Play} label="Resume" size="sm" onClick={() => controls.onResume?.(session.id)} />
-        ) : (
-          <IconButton icon={Pause} label="Pause" size="sm" disabled={!canPause} onClick={() => controls.onPause?.(session.id)} />
-        )}
-        {controls.onShout ? <ShoutMenu target={session.agent.name} disabled={over} onShout={(s) => controls.onShout?.(session.id, s)} /> : null}
-        {controls.onReassign ? <IconButton icon={UserRoundCog} label="Reassign" size="sm" disabled={over} onClick={() => controls.onReassign?.(session.id)} /> : null}
-        {controls.onUpgradeModel && session.agent.model !== "opus" ? (
-          <IconButton icon={ArrowUpCircle} label="Upgrade to Opus" size="sm" disabled={over} onClick={() => controls.onUpgradeModel?.(session.id)} />
-        ) : null}
-        {controls.onOpenInClaudeCode ? <IconButton icon={ExternalLink} label="Open in Claude Code" size="sm" onClick={() => controls.onOpenInClaudeCode?.(session.id)} /> : null}
-        {controls.onStop ? <IconButton icon={Square} label="Stop and discard" size="sm" variant="ghost" className="text-status-bad hover:bg-status-bad/12" disabled={over} onClick={() => controls.onStop?.(session.id)} /> : null}
-      </div>
+      {/* The body and its hover controls: the controls float at the body's top right whatever the header's height. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          role="toolbar"
+          aria-label={`Controls for ${session.agent.name}`}
+          className={cn(
+            "surface-overlay absolute right-2 top-2 z-10 flex items-center gap-0.5 p-0.5",
+            "transition-opacity duration-hover ease-out",
+            focused ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100 group-focus-within:opacity-100",
+          )}
+        >
+          {canResume ? (
+            <IconButton icon={Play} label="Resume" size="sm" onClick={() => controls.onResume?.(session.id)} />
+          ) : (
+            <IconButton icon={Pause} label="Pause" size="sm" disabled={!canPause} onClick={() => controls.onPause?.(session.id)} />
+          )}
+          {controls.onShout ? <ShoutMenu target={session.agent.name} disabled={over} onShout={(s) => controls.onShout?.(session.id, s)} /> : null}
+          {controls.onReassign ? <IconButton icon={UserRoundCog} label="Reassign" size="sm" disabled={over} onClick={() => controls.onReassign?.(session.id)} /> : null}
+          {controls.onUpgradeModel && session.agent.model !== "opus" ? (
+            <IconButton icon={ArrowUpCircle} label="Upgrade to Opus" size="sm" disabled={over} onClick={() => controls.onUpgradeModel?.(session.id)} />
+          ) : null}
+          {controls.onOpenInClaudeCode ? <IconButton icon={ExternalLink} label="Open in Claude Code" size="sm" onClick={() => controls.onOpenInClaudeCode?.(session.id)} /> : null}
+          {controls.onStop ? <IconButton icon={Square} label="Stop and discard" size="sm" variant="ghost" className="text-status-bad hover:bg-status-bad/12" disabled={over} onClick={() => controls.onStop?.(session.id)} /> : null}
+        </div>
 
-      <div id={`${id}-panel`} role="tabpanel" aria-labelledby={tabIds[views.findIndex((v) => v.id === view)] ?? tabIds[0]} className="min-h-0 flex-1 bg-ink">
-        {children}
+        <div id={`${id}-panel`} role="tabpanel" aria-labelledby={tabIds[views.findIndex((v) => v.id === view)] ?? tabIds[0]} className="min-h-0 flex-1 bg-ink">
+          {children}
+        </div>
       </div>
 
       {/* Footer: one line that never wraps. Items drop out by priority as the tile narrows (tokens first, then the
@@ -306,7 +323,8 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
         <span className="inline-flex shrink-0 items-center gap-1.5" title="Cost (estimate)">
           <Icon icon={Coins} size={12} className="text-tertiary" />
           {formatMoney(session.cost)}
-          {!compact || focused ? <ProvenanceChip kind="estimate" className="hidden @xs/foot:inline-flex" /> : null}
+          {/* The Estimate label stays wherever the footer has room for it (the focus rail included), not only on big tiles. */}
+          <ProvenanceChip kind="estimate" className="hidden @xs/foot:inline-flex" />
         </span>
         {eta && !over ? (
           <span className="inline-flex shrink-0 items-center gap-1" title="Estimated time remaining">

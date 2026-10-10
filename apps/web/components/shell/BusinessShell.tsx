@@ -19,6 +19,7 @@ import { AppShell, Avatar, EntityLinkProvider, ShellLinkProvider, useToast, type
 import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
 import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { runwayWords } from "@foundmill/widgets/shared/runway";
 import { LAST_BUSINESS_COOKIE, SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
 import { computeContinueState, respondHref, unviewedWin } from "@/lib/continue-state";
 import { CYCLE_EVENT_TYPES, cycleFromSnapshot, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus, EMPTY_CYCLE } from "@/lib/cycle";
@@ -462,7 +463,10 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 }}
                 date={new Date()}
                 runwayMonths={financeQ.data?.runway.months ?? null}
-                cash={financeQ.data ? { amountMinor: financeQ.data.cash.amountMinor, currency: financeQ.data.cash.currency } : undefined}
+                // Without a figure the chip says what Home's tiles say ("No limit", "Not known yet") with the reason.
+                runwayWords={runwayWords(financeQ.data)}
+                // A cash figure only when a bank account backs it (no account reads "Not known yet", never "Cash £0").
+                cash={financeQ.data && financeQ.data.cash.accounts > 0 ? { amountMinor: financeQ.data.cash.amountMinor, currency: financeQ.data.cash.currency } : undefined}
                 runwayEstimate
                 onRunwayClick={financeDept ? onRunwayClick : undefined}
                 onModeClick={() => router.push(routes.settings(businessId, "mode"))}

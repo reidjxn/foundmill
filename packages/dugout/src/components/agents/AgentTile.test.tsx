@@ -24,6 +24,7 @@ import { AgentTile } from "./AgentTile";
 import { generateMockSessionEvents, mockSessionSeed } from "./mock";
 import { reduceSessionEvents } from "./progress";
 import { TerminalView, needsReplay } from "./TerminalView";
+import { SpecialistTile, specialistEmptyCopy } from "./SpecialistTile";
 import { isInteractiveTarget, sessionPill } from "./TileFrame";
 import type { StdoutChunk } from "./types";
 
@@ -124,6 +125,41 @@ describe("AgentTile", () => {
     expect(screen.getByText("Paused")).toBeTruthy();
   });
 
+  it("never clips its header: who and what on a row of their own, phase, progress and views on the next", () => {
+    const long = { ...session, agent: { ...session.agent, name: "Sourcing and Manufacturing Specialist" }, task: { ...session.task, title: "Second batch purchase order pack for the refill range" } };
+    const { container } = render(<AgentTile session={long} now={NOW} terminalRenderer="plain" />);
+    const header = container.querySelector("[data-tile-header]")!;
+    const identity = header.querySelector("[data-tile-identity]")!;
+    const status = header.querySelector("[data-tile-status]")!;
+    // Narrow tiles wrap the status row under the identity (the identity takes the full row); wide ones keep one row.
+    expect(identity.className).toContain("basis-full");
+    expect(identity.className).toContain("@min-[600px]:flex-1");
+    expect(header.className).toContain("flex-wrap");
+    // The full name and title are in the DOM (FitText steps them down), with the tooltip text for the last resort.
+    const name = identity.querySelector("[data-tile-name]")!;
+    const task = identity.querySelector("[data-tile-task]")!;
+    expect(name.querySelector("[data-fit-box]")?.textContent).toBe("Sourcing and Manufacturing Specialist");
+    expect(name.getAttribute("title")).toBe("Sourcing and Manufacturing Specialist");
+    expect(task.querySelector("[data-fit-box]")?.textContent).toBe(long.task.title);
+    expect(task.getAttribute("title")).toBe(long.task.title);
+    expect(within(status as HTMLElement).getByRole("progressbar")).toBeTruthy();
+    expect(within(status as HTMLElement).getByText(`${Math.round(session.progress * 100)}%`)).toBeTruthy();
+    expect(within(status as HTMLElement).getByRole("tablist", { name: "Tile view" })).toBeTruthy();
+    // The hover controls sit in the body, not over the header's second row.
+    expect(screen.getByRole("toolbar").parentElement?.querySelector("[role=tabpanel]")).toBeTruthy();
+  });
+
+  it("an empty terminal shows the task's goal, so no two waiting tiles read alike; a small tile keeps only its prompt", () => {
+    const waiting = { ...session, stdout: [], task: { ...session.task, goal: "Add pause and skip to the refill subscription." } };
+    const { unmount } = render(<AgentTile session={waiting} now={NOW} terminalRenderer="plain" />);
+    expect(screen.getByText(/Add pause and skip to the refill subscription\./)).toBeTruthy();
+    expect(screen.queryByText("Lines stream in here as the session runs.")).toBeNull();
+    unmount();
+    render(<AgentTile session={waiting} now={NOW} compact terminalRenderer="plain" />);
+    expect(screen.queryByText(/Add pause and skip/)).toBeNull();
+    expect(screen.getByText(/waiting for .*'s first output/)).toBeTruthy();
+  });
+
   it("focus click ignores controls and calls onFocus from the body", async () => {
     const user = userEvent.setup();
     const onFocus = vi.fn();
@@ -132,6 +168,26 @@ describe("AgentTile", () => {
     expect(onFocus).not.toHaveBeenCalled();
     await user.click(screen.getByRole("log"));
     expect(onFocus).toHaveBeenCalledWith("session-1");
+  });
+});
+
+describe("SpecialistTile empty views", () => {
+  const empty = { rfq: [], quotes: [], samples: [], shipments: [] };
+  it("say what each tile is missing in its own state, over its own brief", () => {
+    expect(specialistEmptyCopy("funnel", { ...session, status: "running" })).toEqual({ title: "No RFQs sent yet", body: `${session.agent.name} on ${session.task.title}.` });
+    expect(specialistEmptyCopy("quotes", { ...session, status: "paused", task: { ...session.task, goal: "Carton proof round 2." } })).toEqual({ title: "Paused · no quotes in", body: "Carton proof round 2." });
+    expect(specialistEmptyCopy("samples", { ...session, status: "review", phase: "review" }).title).toBe("In review · no samples requested");
+    expect(specialistEmptyCopy("shipments", { ...session, status: "blocked" }).title).toBe("Waiting · no freight booked");
+  });
+  it("renders the tile's own empty line, never the generic one, and switches with the view", async () => {
+    const user = userEvent.setup();
+    const sp = { ...session, status: "paused" as const, task: { ...session.task, kind: "specialist" as const, goal: "Review the second carton proof against the labelling checklist." } };
+    render(<SpecialistTile session={sp} data={empty} now={NOW} />);
+    expect(screen.getByText("Paused · no RFQs sent")).toBeTruthy();
+    expect(screen.getByText("Review the second carton proof against the labelling checklist.")).toBeTruthy();
+    expect(screen.queryByText(/funnel fills as RFQs go out/)).toBeNull();
+    await user.click(screen.getByRole("tab", { name: "Samples" }));
+    expect(screen.getByText("Paused · no samples requested")).toBeTruthy();
   });
 });
 

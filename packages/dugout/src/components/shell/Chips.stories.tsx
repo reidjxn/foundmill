@@ -43,10 +43,12 @@ export const Runway: Story = {
       <RunwayChip date={FIXTURE_TODAY} runwayMonths={8.5} cash={{ amountMinor: 9800000, currency: "EUR" }} />
       <RunwayChip date={FIXTURE_TODAY} runwayMonths={4} cash={{ amountMinor: 4600000, currency: "EUR" }} onClick={() => {}} />
       <RunwayChip date={FIXTURE_TODAY} runwayMonths={11} estimate={false} />
-      <RunwayChip date={FIXTURE_TODAY} runwayMonths={null} />
+      <RunwayChip date={FIXTURE_TODAY} runwayMonths={null} words={{ value: "No limit", caption: "Cash-flow positive, so no limit yet" }} cash={{ amountMinor: 3300000, currency: "GBP" }} />
+      <RunwayChip date={FIXTURE_TODAY} runwayMonths={null} words={{ value: "Not known yet", caption: "Connect a bank to estimate it" }} />
+      <RunwayChip date={FIXTURE_TODAY} runwayMonths={null} words={{ value: "Not known yet", caption: "Needs three months of bank history" }} />
     </div>
   ),
-  parameters: { docs: { description: { story: "Neutral, amber under 9 months, red under 6, with a warning icon and a tinted ring (DESIGN §8). Modelled runway carries the dashed “Estimate” tag (DESIGN §10); before any finance source it reads “No runway yet”." } } },
+  parameters: { docs: { description: { story: "Neutral, amber under 9 months, red under 6, with a warning icon and a tinted ring (DESIGN §8). Modelled runway carries the dashed “Estimate” tag (DESIGN §10). Without a figure it says what Home's tiles say, from the app's shared runway wording: “No limit” when cash-flow positive, “Not known yet” without a bank or with too little history, the reason as its tooltip." } } },
 };
 export const Trail: Story = {
   name: "Breadcrumbs",

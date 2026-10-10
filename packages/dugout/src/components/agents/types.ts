@@ -139,6 +139,8 @@ export interface TileTask {
   kind?: TaskKind;
   /** `agent/<taskId>` worktree branch. */
   branch?: string;
+  /** The task's goal in one plain sentence (the brief): what a tile with nothing to show yet says it is working on. */
+  goal?: string;
 }
 
 export interface StdoutChunk {

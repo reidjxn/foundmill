@@ -64,3 +64,15 @@ function HierarchyDemo() {
 
 /** Org chart: founder → Chief of Staff → leads → workers. Arrow keys walk the tree. */
 export const Hierarchy: Story = { render: () => <HierarchyDemo /> };
+
+/**
+ * The same chart in a panel narrower than the tree: the gaps tighten and the nodes narrow (smaller avatar, the role on
+ * its own line) until it fits without a sideways scroll. The founder's staff sit beside the Chief of Staff.
+ */
+export const HierarchyFitted: Story = {
+  render: () => (
+    <div className="h-[560px] w-[960px] rounded-md border border-line">
+      <HierarchyChart nodes={mockHierarchy()} className="h-full" />
+    </div>
+  ),
+};

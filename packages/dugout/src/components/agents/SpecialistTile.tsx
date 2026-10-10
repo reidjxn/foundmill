@@ -6,8 +6,9 @@ import { formatDate, formatMoney } from "../../lib/format";
 import { ratingClass } from "../../lib/rating";
 import { Chip, ProvenanceChip } from "../foundation/Chip";
 import { EmptyState } from "../foundation/EmptyState";
+import { Icon, type IconComponent } from "../foundation/Icon";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
-import { TileFrame, type TileViewOption } from "./TileFrame";
+import { TileFrame, sessionPill, type TileViewOption } from "./TileFrame";
 import type { AgentTileSession, QuoteStatus, RfqStage, SampleStage, Shipment, ShipmentStatus, SpecialistData, SupplierQuote, SampleItem, TileControls, TileTask } from "./types";
 
 export const SPECIALIST_VIEWS: readonly TileViewOption[] = [
@@ -17,6 +18,35 @@ export const SPECIALIST_VIEWS: readonly TileViewOption[] = [
   { id: "shipments", label: "Shipments", icon: Ship },
 ];
 export type SpecialistView = "funnel" | "quotes" | "samples" | "shipments";
+
+/** Each view's icon and what it counts, for a tile whose view has nothing yet. */
+const VIEW_EMPTY: Record<SpecialistView, { icon: IconComponent; noneYet: string; none: string }> = {
+  funnel: { icon: Funnel, noneYet: "No RFQs sent yet", none: "no RFQs sent" },
+  quotes: { icon: ReceiptText, noneYet: "No quotes in yet", none: "no quotes in" },
+  samples: { icon: FlaskConical, noneYet: "No samples requested yet", none: "no samples requested" },
+  shipments: { icon: Ship, noneYet: "No shipments booked yet", none: "no freight booked" },
+};
+
+/** Does `view` have anything to show? */
+export function specialistViewEmpty(view: SpecialistView, data: SpecialistData): boolean {
+  if (view === "funnel") return data.rfq.length === 0;
+  if (view === "quotes") return data.quotes.length === 0;
+  if (view === "samples") return data.samples.length === 0;
+  return data.shipments.length === 0;
+}
+
+/**
+ * The empty line of one specialist tile's view, specific to that tile: what the view is still missing, in the
+ * session's own state ("Paused · no RFQs sent"), over the task's brief (its goal, else the agent and the task). A
+ * wall of specialist tiles never repeats one generic sentence.
+ */
+export function specialistEmptyCopy(view: SpecialistView, session: Pick<AgentTileSession, "status" | "phase" | "agent" | "task">): { title: string; body: string } {
+  const v = VIEW_EMPTY[view];
+  const word = sessionPill(session).word;
+  const title = session.status === "running" ? v.noneYet : `${word === "Review" ? "In review" : word} · ${v.none}`;
+  const goal = session.task.goal?.trim();
+  return { title, body: goal || `${session.agent.name} on ${session.task.title}.` };
+}
 
 const QUOTE_TONE: Record<QuoteStatus, { tone: StatusTone; word: string }> = {
   received: { tone: "neutral", word: "Received" },
@@ -181,13 +211,26 @@ export function SpecialistTile({ session, data, view: viewProp, defaultView = "f
     setViewState(v as SpecialistView);
     onViewChange?.(v as SpecialistView);
   };
+  const empty = specialistViewEmpty(view, data) ? specialistEmptyCopy(view, session) : null;
   return (
     <TileFrame session={session} views={SPECIALIST_VIEWS} view={view} onViewChange={setView} focused={focused} compact={compact} controls={controls} onFocus={onFocus} onOpenTask={onOpenTask} now={now} className={className}>
-      <div className="h-full min-h-0 overflow-auto bg-panel">
-        {view === "funnel" ? <RfqFunnel stages={data.rfq} /> : null}
-        {view === "quotes" ? <QuoteTable quotes={data.quotes} /> : null}
-        {view === "samples" ? <SampleTracker samples={data.samples} /> : null}
-        {view === "shipments" ? <ShipmentList shipments={data.shipments} /> : null}
+      <div className="h-full min-h-0 overflow-auto bg-panel [container-type:size]">
+        {empty ? (
+          // The view's own empty line. The body is a size container: the icon halo and the display-size title appear
+          // only when it is tall enough (a full tile), so a short one (the Specialists grid, the focus rail) still
+          // shows both lines whole instead of cutting the brief off.
+          <div role="status" className="flex min-h-full flex-col items-center justify-center gap-1 px-4 py-2.5 text-center [@container(min-height:190px)]:gap-2" data-specialist-empty={view}>
+            <span aria-hidden className="icon-halo hidden size-control-md [@container(min-height:190px)]:inline-flex">
+              <Icon icon={VIEW_EMPTY[view].icon} size="default" />
+            </span>
+            <p className="text-body font-semibold text-balance text-primary [@container(min-height:190px)]:t-display-sm">{empty.title}</p>
+            <p className="max-w-sm text-small text-pretty text-secondary">{empty.body}</p>
+          </div>
+        ) : null}
+        {!empty && view === "funnel" ? <RfqFunnel stages={data.rfq} /> : null}
+        {!empty && view === "quotes" ? <QuoteTable quotes={data.quotes} /> : null}
+        {!empty && view === "samples" ? <SampleTracker samples={data.samples} /> : null}
+        {!empty && view === "shipments" ? <ShipmentList shipments={data.shipments} /> : null}
         {view === "quotes" && data.quotes.some((q) => q.status === "accepted") ? (
           <p className="flex items-center gap-1 border-t border-line px-panel-pad py-1.5 text-small text-tertiary">
             <Chip tone="warn">Human gate</Chip> Any purchase order needs the founder's approval.

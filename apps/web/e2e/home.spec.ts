@@ -21,9 +21,15 @@ test.describe("home", () => {
     await expect(strip).toBeVisible({ timeout: LONG });
     await expect(strip.getByText("Runway", { exact: true })).toBeVisible({ timeout: LONG });
     const bar = page.getByTestId("kit-bar");
-    // No runway figure: the bar and the tile both say so in words, never a bare dash. The tile says why, in the words
-    // every screen shares ("No limit" when cash-flow positive, "Not known yet" otherwise).
-    if (await bar.getByText("No runway yet").count()) await expect(strip.getByText(/^(No limit|Not known yet)$/)).toBeVisible({ timeout: LONG });
+    // No runway figure: the bar and the tile say the same words, never a bare dash: "No limit" when cash-flow
+    // positive, "Not known yet" otherwise (the shared runway wording), the reason under the tile and in the bar's tooltip.
+    await expect(bar).not.toContainText("No runway yet");
+    const barWords = bar.locator("[data-runway-words]");
+    if (await barWords.count()) {
+      const words = (await barWords.innerText()).trim();
+      expect(words).toMatch(/^(No limit|Not known yet)$/);
+      await expect(strip.getByText(words, { exact: true })).toBeVisible({ timeout: LONG });
+    }
     // Inbox preview rows: the subject wraps to two lines; nothing in a row is cut sideways.
     const rows = page.locator("[data-inbox-row]");
     if (await rows.count()) {

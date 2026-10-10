@@ -13,6 +13,7 @@ import { KitBar, kitStyle, type KitBarNav } from "./KitBar";
 import { NeedsLargerWindow } from "./NeedsLargerWindow";
 import { ProcessingStrip } from "./ProcessingStrip";
 import { RightRail } from "./RightRail";
+import type { RunwayWords } from "./RunwayChip";
 import { Sidebar } from "./Sidebar";
 import type { StopAllAgentsProps } from "./StopAllAgents";
 import { TabBar, type TabBarProps } from "./TabBar";
@@ -91,6 +92,8 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   /** Today, runway and cash for the kit bar chip. */
   date: Date | string | number;
   runwayMonths: number | null | undefined;
+  /** The words when there is no runway figure ("No limit", "Not known yet") and why; see RunwayChip. */
+  runwayWords?: RunwayWords | null;
   cash?: Money;
   runwayEstimate?: boolean;
   onRunwayClick?: () => void;
@@ -181,6 +184,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
     onSearch,
     date,
     runwayMonths,
+    runwayWords,
     cash,
     runwayEstimate,
     onRunwayClick,
@@ -295,6 +299,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             onSearch={openSearch}
             date={date}
             runwayMonths={runwayMonths}
+            runwayWords={runwayWords}
             cash={cash}
             runwayEstimate={runwayEstimate}
             onRunwayClick={onRunwayClick}

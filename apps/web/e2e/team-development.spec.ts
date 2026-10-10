@@ -67,6 +67,13 @@ for (const width of [1280, 1440]) {
       await openTab(page, team, "hierarchy", "team/hierarchy");
       await expect(page.getByRole("tree", { name: "Team hierarchy" })).toBeVisible({ timeout: LONG });
       await expect(page.getByTestId("hierarchy-summary")).not.toContainText(/\b1 (agents|leads|workers)\b/);
+      // The whole chart fits the panel's width at both widths: no sideways scroll, and no node text under 11 px.
+      const chart = await page.locator("[data-scroll-region=diagram]").first().evaluate((el) => ({
+        overflow: el.scrollWidth - el.clientWidth,
+        smallest: Math.min(...Array.from(el.querySelectorAll<HTMLElement>("[role=treeitem] .fit-text")).map((t) => parseFloat(getComputedStyle(t).fontSize))),
+      }));
+      expect(chart.overflow, "the hierarchy fits its panel without scrolling sideways").toBeLessThanOrEqual(1);
+      expect(chart.smallest, "node text never drops below 11 px").toBeGreaterThanOrEqual(11);
 
       await openTab(page, team, "staff", "team/staff");
       await expect(page.getByRole("grid", { name: "Staff" })).toBeVisible({ timeout: LONG });
@@ -147,6 +154,13 @@ for (const width of [1280, 1440]) {
       const states = await envs.locator("[role=row]").evaluateAll((rows) => rows.slice(1).map((r) => (/Live|Awaiting deployment|Merged|Stopped/.exec(r.textContent ?? "") ?? [""])[0]));
       const rank = (s: string) => ["Live", "Awaiting deployment", "Merged", "Stopped"].indexOf(s);
       expect(states.map(rank), "rows ordered live, awaiting, merged, stopped").toEqual([...states.map(rank)].sort((a, b) => a - b));
+      // Branches read as their tasks ("order-webhook-hardening-3"), the git branch (agent/<task id>) in the tooltip.
+      const branches = await envs.locator("[data-branch]").evaluateAll((els) => els.map((e) => ({ shown: (e.textContent ?? "").trim(), raw: e.getAttribute("data-branch") ?? "", title: e.getAttribute("title") ?? "" })));
+      expect(branches.length, "the seed has agent branches").toBeGreaterThan(0);
+      for (const b of branches.filter((x) => x.raw.startsWith("agent/"))) {
+        expect(b.shown, `${b.raw} shows a readable name`).not.toMatch(/agent\/|[0-9a-f]{8}-[0-9a-f]{4}/);
+        expect(b.title).toBe(`Branch ${b.raw}`);
+      }
 
       await openTab(page, dev, "specialists", "development/specialists");
       await expect(page.getByTestId("specialist-counts")).toBeVisible({ timeout: LONG });

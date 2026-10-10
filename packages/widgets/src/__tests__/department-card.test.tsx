@@ -5,8 +5,11 @@ import { WidgetDataProvider } from "../data";
 import { getWidget, parseWidgetSettings } from "../registry";
 import { createFakeSource } from "../testing";
 import "../widgets";
-import { departmentHealth, headlineMetric, metricKeyFor, nowLines, toSquad } from "../widgets/department-card";
-import { AGENT, BID, DEPT, dataResponses, departments, ribbon, tasks } from "./fixtures";
+import { formatDate } from "@foundmill/dugout";
+import { departmentHealth, headlineMetric, metricKeyFor, nowLines, quietLine, toSquad } from "../widgets/department-card";
+import { addDays } from "../shared/time";
+import type { InboxItemRow } from "../shared/types";
+import { AGENT, BID, DEPT, TODAY, dataResponses, departments, inbox, ribbon, tasks } from "./fixtures";
 import { lastDays, dayKey } from "../shared/time";
 
 const def = getWidget("department_card")!;
@@ -69,7 +72,8 @@ describe("department card widget", () => {
     act(() => {
       fake.emit({ type: "task.completed", payload: { taskId: "t", kind: "code", title: "Invoice lines", assigneeAgentId: AGENT.beacon } });
     });
-    expect(fake.refetches["dev.tasks.list"]).toBe(1);
+    // The department's open tasks and the shared list of finished ones (a quiet card's "Last finished").
+    expect(fake.refetches["dev.tasks.list"]).toBe(2);
     expect(fake.refetches["journey.ribbon"]).toBe(1);
   });
 
@@ -83,6 +87,22 @@ describe("department card widget", () => {
       fake.emit({ id: "1-0", type: "agent.health_changed", json: JSON.stringify({ type: "agent.health_changed", payload: { agentId: AGENT.cove, to: "failing" } }) });
     });
     expect(screen.getByRole("button", { name: /^Cove, Frontend, Failing/ })).toBeTruthy();
+  });
+
+  it("fills a quiet card with the note waiting for the founder, and opens it", () => {
+    // Development with nothing in progress: only its finished task is left.
+    const responses = { ...dataResponses(), "dev.tasks.list": (input: Record<string, unknown> | undefined) => ({ ...tasks, items: tasks.items.filter((t) => t.status === "done" && (!input?.departmentId || t.departmentId === input.departmentId)) }) };
+    const { fake, container } = mountCard({ slot: 0 }, createFakeSource({ businessId: BID, responses }));
+    expect(screen.getByText("Quiet", { selector: "[data-now-quiet]" })).toBeTruthy();
+    expect(container.querySelector("[data-now-quiet-line]")?.getAttribute("data-now-quiet-line")).toBe("respond");
+    screen.getByRole("button", { name: "Waiting for you: Approve the schema change for usage index" }).click();
+    expect(fake.navigations.at(-1)).toBe(`/b/${BID}/inbox/${inbox.items[0]!.id}`);
+  });
+
+  it("keeps Now lines on a busy card and never calls it quiet", () => {
+    const { container } = mountCard({ slot: 0 });
+    expect(container.querySelector("[data-now-quiet]")).toBeNull();
+    expect(container.querySelector("[data-now-quiet-line]")).toBeNull();
   });
 
   it("opens the agent profile and the department tab", () => {
@@ -127,5 +147,41 @@ describe("department card logic", () => {
     expect(headlineMetric({ ...base, key: "squad_health" }).value).toBe("67%");
     expect(headlineMetric({ ...base, key: "roadmap_on_track", roadmap: dataResponses()["product.roadmap.list"] as never }).value).toBe("2/3");
     expect(headlineMetric({ ...base, key: "next_filing", compliance: dataResponses()["legal.compliance.list"] as never }).value).toBe("19");
+  });
+});
+
+describe("quiet department line", () => {
+  const base = { agentIds: new Set([AGENT.atlas, AGENT.beacon, AGENT.cove]), departmentId: DEPT.development, today: TODAY };
+  const decision = inbox.items[0]!;
+  const update = inbox.items[2]!;
+
+  it("says what waits for the founder first, with how many more", () => {
+    expect(quietLine({ ...base, inbox: inbox.items, done: tasks.items })).toEqual({ kind: "respond", label: "Waiting for you", text: decision.subject, detail: undefined, inboxItemId: decision.id });
+    const older: InboxItemRow = { ...decision, id: "older", subject: "An older call", createdAt: `${addDays(TODAY, -3)}T08:00:00.000Z` };
+    expect(quietLine({ ...base, inbox: [older, ...inbox.items], done: [] })).toMatchObject({ text: decision.subject, detail: "1 more in the Inbox" });
+    // Another department's notes and the founder's own never count.
+    expect(quietLine({ ...base, agentIds: new Set([AGENT.flint]), inbox: inbox.items, done: [] })).toMatchObject({ kind: "clear" });
+  });
+
+  it("then an unread note, then the last task it finished with the day, then all clear", () => {
+    const answered = inbox.items.map((n) => (n.id === decision.id ? { ...n, state: "answered" as const } : n.id === update.id ? { ...n, state: "unread" as const } : n));
+    expect(quietLine({ ...base, inbox: answered, done: tasks.items })).toMatchObject({ kind: "inbox", label: "New in your Inbox", text: update.subject, inboxItemId: update.id });
+    const finished = tasks.items.find((t) => t.status === "done")!;
+    expect(quietLine({ ...base, inbox: [], done: tasks.items })).toEqual({ kind: "finished", label: "Last finished", text: finished.title, detail: formatDate(finished.endedAt!, "d MMM") });
+    expect(quietLine({ ...base, inbox: [], done: [] })).toEqual({ kind: "clear", label: "All clear", text: "Nothing in progress, and nothing waiting on you." });
+  });
+
+  it("reads timestamps as the API sends them (Dates through superjson) as well as ISO strings", () => {
+    const finished = tasks.items.find((t) => t.status === "done")!;
+    const asDates = tasks.items.map((t) => ({ ...t, endedAt: t.endedAt ? (new Date(t.endedAt) as unknown as string) : t.endedAt }));
+    expect(quietLine({ ...base, inbox: [], done: asDates })).toMatchObject({ kind: "finished", text: finished.title, detail: formatDate(finished.endedAt!, "d MMM") });
+    const older: InboxItemRow = { ...decision, id: "older", subject: "An older call", createdAt: new Date(`${addDays(TODAY, -3)}T08:00:00.000Z`) as unknown as string };
+    const newer: InboxItemRow = { ...decision, createdAt: new Date(decision.createdAt) as unknown as string };
+    expect(quietLine({ ...base, inbox: [older, newer], done: [] })).toMatchObject({ text: decision.subject, detail: "1 more in the Inbox" });
+  });
+
+  it("claims nothing while the Inbox or the finished tasks are not known", () => {
+    expect(quietLine({ ...base, inbox: undefined, done: [] })).toBeNull();
+    expect(quietLine({ ...base, inbox: [], done: undefined })).toBeNull();
   });
 });

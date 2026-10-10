@@ -6,6 +6,7 @@ import { TrainingGroundScreen } from "../TrainingGroundScreen";
 import { shoutInput, toGraphNodes } from "../TrainingGroundScreen";
 import { BUSINESS_ID, createFakeSource, renderScreen } from "./fake-source";
 import { AGENT_JUNO, SESSION_BUNDLE, SESSION_INDEX, SESSION_SOURCING, TASK_BUNDLE, TASK_PLAYWRIGHT, bundleEvents, edges, emptyTasksResponse, rawFrame, tasks, trainingGroundResponses } from "./fixtures";
+import type { TasksListResponse } from "../types";
 
 const props = { businessId: BUSINESS_ID, departmentId: "d-dev" };
 
@@ -27,6 +28,20 @@ describe("TrainingGroundScreen", () => {
     expect(screen.getByTestId("ground-counts").textContent).toBe("3 live · 2 running");
     expect(screen.getByText(/16 is the largest team your key supports/)).toBeTruthy();
     expect(fake.queried.get("dev.tasks.list")).toMatchObject({ status: ["running", "paused", "blocked", "review", "merging"] });
+  });
+
+  it("gives every waiting tile its own words: a terminal shows its task's goal, a specialist with nothing yet its state and brief", async () => {
+    const responses = trainingGroundResponses();
+    const withGoals = (r: TasksListResponse): TasksListResponse => ({ ...r, items: r.items.map((t) => ({ ...t, goalMd: `## Goal\n\nShip ${t.title.toLowerCase()} behind a flag.` })) });
+    const fake = createFakeSource({ responses: { ...responses, "dev.tasks.list": (input: Record<string, unknown> | undefined) => withGoals(responses["dev.tasks.list"](input)) } });
+    renderScreen(fake, <TrainingGroundScreen {...props} />);
+    const grid = await screen.findByRole("region", { name: "Agent tiles" });
+    const juno = within(grid).getByRole("article", { name: /Juno: Add a bundle picker/ });
+    expect(within(juno).getByText(/Ship add a bundle picker to the product page behind a flag\./)).toBeTruthy();
+    const wren = within(grid).getByRole("article", { name: /Wren: Supplier brief/ });
+    expect(within(wren).getByText("No RFQs sent yet")).toBeTruthy();
+    expect(within(wren).getByText("Ship supplier brief for the serum pump behind a flag.")).toBeTruthy();
+    expect(within(grid).queryByText(/funnel fills as RFQs go out/)).toBeNull();
   });
 
   it("applies stream events to the tile (stored state first, stream on top) and throttles unfocused tiles", async () => {

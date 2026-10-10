@@ -1,13 +1,30 @@
 import { expect, test } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, completeProfile } from "./helpers";
+import { DEMO_OWNER_DISPLAY_NAME, LONG, NORTHWIND_BUSINESS_ID, completeProfile, devApi, readFounderProfile, restoreFounderProfile, type FounderProfileSnapshot } from "./helpers";
 
 /**
  * /onboarding — the founder profile (BUILD §11.1, AC-11.1.1). Stack and commands: e2e/README.md. This file runs
  * before every other spec (the `profile` project in playwright.config.ts): on a database seeded with
  * SEED_OWNER_PROFILE=0 the first test meets the gate and saves the profile; on a later run it finds the profile
  * saved and asserts the other half of the contract (business routes open, the form is pre-filled).
+ *
+ * The tests save the profile as "Playwright Founder". The dev founder is the one every other spec and screen shows, so
+ * the profile as it was before this file is put back when it finishes (`restoreFounderProfile`).
  */
 test.describe("onboarding", () => {
+  let before: FounderProfileSnapshot | null = null;
+  test.beforeAll(async ({ playwright }) => {
+    const api = await devApi(playwright);
+    before = await readFounderProfile(api);
+    await api.dispose();
+  });
+  test.afterAll(async ({ playwright }) => {
+    const api = await devApi(playwright);
+    await restoreFounderProfile(api, before);
+    // The name every screen shows is the one it had before (or the seed's, when this file created the profile).
+    expect((await readFounderProfile(api))?.displayName).toBe(before?.displayName ?? DEMO_OWNER_DISPLAY_NAME);
+    await api.dispose();
+  });
+
   test.beforeEach(async ({ page }) => {
     await page.goto("/login");
     await page.getByRole("button", { name: "Continue as developer" }).click();

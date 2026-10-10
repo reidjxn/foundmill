@@ -30,6 +30,31 @@ export const DepartmentCards: Story = {
   ),
 };
 
+const quietBase = cards.find((d) => d.now.length === 0)!;
+const busy = cards[0]!;
+
+/**
+ * One grid row at Home's height (the department card is 16 grid rows, 368 px): a busy card sets the height and the
+ * quiet ones fill "Now" with their one line instead of a void; the metric and "Next up" sit level across the row.
+ */
+export const QuietCards: Story = {
+  name: "Department cards · quiet, in one row",
+  render: () => (
+    <div className="flex w-[1200px] flex-col gap-gutter">
+      <div className="grid h-[368px] grid-cols-3 gap-gutter">
+        <DepartmentCard department={busy} entityKinds={ENTITY_KINDS} className="h-full" onOpen={() => {}} />
+        <DepartmentCard department={{ ...quietBase, id: "q-respond", name: "Team", dept: "dept-6", quiet: { kind: "respond", label: "Waiting for you", text: "Set the focus for the next cycle", detail: "2 more in the Inbox" } }} className="h-full" onOpen={() => {}} onOpenQuiet={() => {}} />
+        <DepartmentCard department={{ ...quietBase, id: "q-inbox", name: "Finance", dept: "dept-4", quiet: { kind: "inbox", label: "New in your Inbox", text: "VAT return due in nine days" } }} className="h-full" onOpen={() => {}} onOpenQuiet={() => {}} />
+      </div>
+      <div className="grid h-[368px] grid-cols-3 gap-gutter">
+        <DepartmentCard department={{ ...quietBase, quiet: { kind: "finished", label: "Last finished", text: "Customer interview synthesis #8", detail: "31 Aug" } }} className="h-full" onOpen={() => {}} />
+        <DepartmentCard department={{ ...quietBase, id: "q-clear", name: "Legal", dept: "dept-7", quiet: { kind: "clear", label: "All clear", text: "Nothing in progress, and nothing waiting on you." } }} className="h-full" onOpen={() => {}} />
+        <DepartmentCard department={{ ...quietBase, id: "q-loading", name: "Development", dept: "dept-2", nowLoading: true }} className="h-full" onOpen={() => {}} />
+      </div>
+    </div>
+  ),
+};
+
 export const Pulse: Story = {
   name: "Team pulse · 7 × 24",
   render: () => (

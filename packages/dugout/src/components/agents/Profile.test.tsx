@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { DevelopmentChart, chartDomain } from "./DevelopmentChart";
 import { HealthBadge, healthSummary } from "./HealthBadge";
-import { HierarchyChart, layoutHierarchy } from "./HierarchyChart";
+import { HIERARCHY_LAYOUT, HIERARCHY_MIN_NODE_WIDTH, HierarchyChart, fitHierarchyLayout, layoutHierarchy } from "./HierarchyChart";
 import { mockDevelopmentSeries, mockHierarchy, mockPositionRoles, mockTraits } from "./mock";
 import { PositionMap, positionLevelFor } from "./PositionMap";
 import { TraitChips } from "./TraitChips";
@@ -102,6 +102,44 @@ describe("HierarchyChart", () => {
         const overlap = a.x < b.x + 100 && b.x < a.x + 100 && a.y < b.y + 40 && b.y < a.y + 40;
         expect(overlap, `${a.id} overlaps ${b.id}`).toBe(false);
       }
+  });
+
+  it("puts a founder's staff beside the Chief of Staff, in its row, instead of a column of their own", () => {
+    const nodes = mockHierarchy();
+    const l = layoutHierarchy(nodes);
+    const byId = new Map(l.nodes.map((n) => [n.id, n]));
+    const cos = byId.get("cos")!;
+    const staff = byId.get("h-1")!;
+    expect(staff.y).toBe(cos.y);
+    expect(staff.x).toBeGreaterThanOrEqual(cos.x + HIERARCHY_LAYOUT.nodeWidth + HIERARCHY_LAYOUT.gapX);
+    // The chart is no wider than it is without the staff member.
+    expect(l.width).toBe(layoutHierarchy(nodes.filter((n) => n.id !== "h-1")).width);
+    expect(l.edges.find((e) => e.to === "h-1")?.from).toBe("founder");
+    // More staff than the row has room for go back to a stacked column beside the tree.
+    const many = [...nodes, ...Array.from({ length: 9 }, (_, i) => ({ id: `h-x${i}`, name: `Staff ${i}`, role: "Advisor", kind: "human" as const, parentId: "founder" }))];
+    const crowded = layoutHierarchy(many);
+    const stacked = crowded.nodes.filter((n) => n.parentId === "founder" && n.id !== "cos");
+    expect(new Set(stacked.map((n) => n.x)).size).toBe(1);
+    expect(crowded.width).toBeGreaterThan(l.width);
+  });
+
+  it("fits the tree to the panel's width: tighter gaps, then narrower nodes, never below the floor", () => {
+    const nodes = mockHierarchy();
+    const natural = layoutHierarchy(nodes).width;
+    expect(fitHierarchyLayout(nodes, natural + 40)).toEqual(HIERARCHY_LAYOUT);
+    expect(fitHierarchyLayout(nodes, null)).toEqual(HIERARCHY_LAYOUT);
+    const avail = natural - 120;
+    const fitted = fitHierarchyLayout(nodes, avail);
+    expect(fitted.gapX).toBeLessThan(HIERARCHY_LAYOUT.gapX);
+    expect(fitted.nodeWidth).toBeLessThan(HIERARCHY_LAYOUT.nodeWidth);
+    expect(fitted.nodeWidth).toBeGreaterThanOrEqual(HIERARCHY_MIN_NODE_WIDTH);
+    expect(layoutHierarchy(nodes, fitted).width).toBeLessThanOrEqual(avail);
+    // The widest node that fits: one pixel more would not.
+    expect(layoutHierarchy(nodes, { ...fitted, nodeWidth: fitted.nodeWidth + 1 }).width).toBeGreaterThan(avail);
+    // Node heights never change, so the screen's height for the chart stays right.
+    expect(layoutHierarchy(nodes, fitted).height).toBe(layoutHierarchy(nodes).height);
+    // Too narrow even at the floor: the floor, and the chart scrolls.
+    expect(fitHierarchyLayout(nodes, 300).nodeWidth).toBe(HIERARCHY_MIN_NODE_WIDTH);
   });
 
   it("walks the tree with arrow keys and selects on click", () => {

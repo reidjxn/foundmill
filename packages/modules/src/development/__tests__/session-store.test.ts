@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { computeProgress, type AgentSessionEvent } from "@foundmill/dugout";
-import { SessionThrottle, baseSession, concurrencyHint, latestSessionsByTask, openSessionsByTask, placeholderSessionId, readSessionEvent, seedFromRows } from "../session-store";
+import { GOAL_LINE_MAX, SessionThrottle, baseSession, concurrencyHint, goalLine, latestSessionsByTask, openSessionsByTask, placeholderSessionId, readSessionEvent, seedFromRows } from "../session-store";
 import { toTileAgent } from "../shared";
 import { AGENT_JUNO, SESSION_BUNDLE, TASK_BUNDLE, agents, bundleEvents, rawFrame, sessions, tasks } from "./fixtures";
 
@@ -43,6 +43,21 @@ describe("seedFromRows / baseSession", () => {
     const seed = seedFromRows({ task: bundle, session: null, agent });
     expect(seed.id).toBe(placeholderSessionId(TASK_BUNDLE));
     expect(seed.tokens).toBe(0);
+  });
+  it("carries the task's goal as one plain line (the brief a waiting tile shows)", () => {
+    const seed = seedFromRows({ task: { ...bundle, goalMd: "## Goal\n\nAdd a **bundle picker** to the [product page](https://x).\n\n- Picker renders" }, session: bundleSession, agent });
+    expect(seed.task.goal).toBe("Add a bundle picker to the product page.");
+    expect(seedFromRows({ task: bundle, session: bundleSession, agent }).task.goal).toBeUndefined();
+  });
+  it("goalLine keeps whole sentences of a long goal, else whole words with an ellipsis", () => {
+    expect(goalLine("  \n\n ")).toBeUndefined();
+    expect(goalLine("# Only a heading")).toBeUndefined();
+    const long = `Collate the twelve-week stability results for serum v3 across all three storage conditions. ${"Flag drift beyond spec with values and sources. ".repeat(6)}`;
+    expect(goalLine(long)!.length).toBeLessThanOrEqual(GOAL_LINE_MAX);
+    expect(goalLine(long)).toMatch(/^Collate the twelve-week .*\.$/);
+    const words = goalLine("word ".repeat(80))!;
+    expect(words.endsWith("…")).toBe(true);
+    expect(words.length).toBeLessThanOrEqual(GOAL_LINE_MAX + 1);
   });
   it("prefers the session's model over the agent's default", () => {
     const seed = seedFromRows({ task: bundle, session: { ...bundleSession, modelKey: "opus" }, agent });

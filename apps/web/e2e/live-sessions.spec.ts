@@ -20,6 +20,13 @@ test.describe("live sessions", () => {
     // Northwind runs in GBP: no tile shows a cost in euros.
     await expect(page.getByRole("region", { name: "Agent tiles" })).not.toContainText("€");
 
+    // Tile headers never clip: agent names and task titles read in full (FitText may step them down, not cut them).
+    const cut = await page.locator("[data-tile-header] [data-fit]").evaluateAll((els) => els.filter((e) => e.getAttribute("data-fit") === "truncated").map((e) => e.textContent));
+    expect(cut, "no tile header name or task ends in an ellipsis at 1280 px").toEqual([]);
+    // Every waiting tile says something of its own: no empty line repeats across tiles.
+    const lines = await page.locator("[data-specialist-empty], [data-terminal-empty]").evaluateAll((els) => els.map((e) => (e.textContent ?? "").replace(/\s+/g, " ").trim()));
+    expect(new Set(lines).size, `empty tiles repeat a line: ${lines.join(" | ")}`).toBe(lines.length);
+
     // Focus the first tile: it takes two thirds of the grid, the replay strip and Nudge appear under it.
     await tiles.first().click({ position: { x: 160, y: 120 } });
     const focused = page.locator("[data-tile-id][data-focused=true]");

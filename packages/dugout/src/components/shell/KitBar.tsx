@@ -10,7 +10,7 @@ import { IconButton } from "../foundation/IconButton";
 import { ContinueButton, type ContinueButtonProps } from "./ContinueButton";
 import { KitBarFit } from "./KitBarFit";
 import { GameModeChip, ModeChip } from "./ModeChip";
-import { RunwayChip } from "./RunwayChip";
+import { RunwayChip, type RunwayWords } from "./RunwayChip";
 import { StopAllAgents, type StopAllAgentsProps } from "./StopAllAgents";
 import type { Kit } from "./types";
 
@@ -47,6 +47,8 @@ export interface KitBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"> 
   /** Today, for the date + runway chip. */
   date: Date | string | number;
   runwayMonths: number | null | undefined;
+  /** The words when there is no runway figure (the app's shared wording, as on Home's tiles), with the reason. */
+  runwayWords?: RunwayWords | null;
   cash?: Money;
   /** Runway is modelled, not read from a ledger (default true → the dashed "Estimate" tag). */
   runwayEstimate?: boolean;
@@ -115,6 +117,7 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
     searchPlaceholder = KITBAR_SEARCH_PLACEHOLDER,
     date,
     runwayMonths,
+    runwayWords,
     cash,
     runwayEstimate = true,
     onRunwayClick,
@@ -203,7 +206,7 @@ export const KitBar = forwardRef<HTMLElement, KitBarProps>(function KitBar(
 
       <KitBarFit />
       <div className="flex shrink-0 items-center gap-2">
-        <RunwayChip date={date} runwayMonths={runwayMonths} cash={cash} estimate={runwayEstimate} onClick={onRunwayClick} />
+        <RunwayChip date={date} runwayMonths={runwayMonths} words={runwayWords} cash={cash} estimate={runwayEstimate} onClick={onRunwayClick} />
         {gameMode === "live" ? <GameModeChip mode="live" /> : null}
         <ModeChip mode={businessMode} holiday={holiday} onClick={onModeClick} />
         <ContinueButton {...continueButton} className={cn("h-kitbar-chip rounded-track", continueButton.className)} />
