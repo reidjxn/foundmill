@@ -91,4 +91,52 @@ test.describe("landing page", () => {
     // The update it opens is about the same customer.
     await expect(page.getByRole("region", { name: "Customer Update" }).getByText("Okafor Math Tutoring").first()).toBeVisible();
   });
+
+  test("the picker switches the whole page between the three example businesses", async ({ page }) => {
+    await page.goto("/");
+    const picker = page.getByRole("radiogroup", { name: "Watch it run" });
+    await expect(picker.getByRole("radio")).toHaveCount(3);
+    await expect(picker.getByRole("radio", { name: "Tutorlane" })).toHaveAttribute("aria-checked", "true");
+    const landing = page.getByTestId("landing");
+    const deck = page.getByTestId("cycle-deck");
+    const update = page.getByRole("region", { name: "Customer Update" });
+
+    const businesses = [
+      { name: "Glitchwick", id: "glitchwick", customer: "Lanternfly Games", primary: "#c94a2c" },
+      { name: "Northwind Skincare", id: "northwind", customer: "Maple Refill Co.", primary: "#2f6f5e" },
+      { name: "Tutorlane", id: "tutorlane", customer: "Okafor Math Tutoring", primary: "#1F6F5F" },
+    ];
+    for (const b of businesses) {
+      await picker.getByRole("radio", { name: b.name }).click();
+      await expect(landing).toHaveAttribute("data-example", b.id);
+      await expect(picker.getByRole("radio", { name: b.name })).toHaveAttribute("aria-checked", "true");
+      // The page wears the business's brand colours and the address can be shared.
+      expect(await landing.evaluate((el) => el.style.getPropertyValue("--kit-primary"))).toBe(b.primary);
+      await expect(page).toHaveURL(b.id === "tutorlane" ? /\/$/ : new RegExp(`\\?example=${b.id}$`));
+      // Its name in the hero's product screen, and its customer in the Customer Update.
+      await expect(deck.getByText(b.name, { exact: true })).toBeVisible();
+      await update.scrollIntoViewIfNeeded();
+      await expect(update.getByText(b.customer).first()).toBeVisible();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    }
+  });
+
+  test("the picker works from the keyboard, and a deep link opens on its business", async ({ page }) => {
+    await page.goto("/?example=northwind");
+    const picker = page.getByRole("radiogroup", { name: "Watch it run" });
+    await expect(picker.getByRole("radio", { name: "Northwind Skincare" })).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByTestId("cycle-deck").getByText("Northwind Skincare", { exact: true })).toBeVisible();
+    await expect(page.getByRole("tablist", { name: "Departments" }).getByRole("tab", { name: /Formulation Lab/ })).toBeVisible();
+
+    await picker.getByRole("radio", { name: "Northwind Skincare" }).focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect(picker.getByRole("radio", { name: "Glitchwick" })).toBeFocused();
+    await expect(page.getByTestId("landing")).toHaveAttribute("data-example", "glitchwick");
+    await expect(page).toHaveURL(/\?example=glitchwick$/);
+    await page.keyboard.press("Home");
+    await expect(page.getByTestId("landing")).toHaveAttribute("data-example", "tutorlane");
+    await expect(page).toHaveURL(/\/$/);
+    // Choosing never navigated or scrolled the page.
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  });
 });

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
@@ -7,6 +7,8 @@ import { TooltipProvider } from "@foundmill/dugout";
 import { MONOGRAM_HEIGHT, MONOGRAM_WIDTH } from "@foundmill/dugout/brand";
 import { LandingPage } from "../LandingPage";
 import { DECK_CYCLE_MS } from "../CycleDeck";
+import { resetExampleCache } from "../examples";
+import { NORTHWIND } from "../examples/northwind";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
 
@@ -36,12 +38,14 @@ beforeEach(() => {
 afterEach(() => {
   globalThis.IntersectionObserver = realObserver;
   vi.useRealTimers();
+  resetExampleCache();
+  window.history.replaceState(null, "", "/");
 });
 
-function renderPage() {
+function renderPage(initialExample?: typeof NORTHWIND) {
   return render(
     <TooltipProvider>
-      <LandingPage terminalRenderer="plain" />
+      <LandingPage terminalRenderer="plain" initialExample={initialExample} />
     </TooltipProvider>,
   );
 }
@@ -199,6 +203,60 @@ describe("LandingPage (signed-out /)", () => {
     for (const el of document.body.querySelectorAll("[aria-label], [title]")) expect(`${el.getAttribute("aria-label")} ${el.getAttribute("title")}`).not.toContain("US$");
   });
 
+  it("shows Tutorlane by default and offers the three example businesses above the deck", () => {
+    renderPage();
+    expect(screen.getByTestId("landing").getAttribute("data-example")).toBe("tutorlane");
+    const picker = screen.getByRole("radiogroup", { name: "Watch it run" });
+    expect(within(picker).getAllByRole("radio").map((r) => r.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
+    // The picker sits above the hero's product screen.
+    expect(picker.compareDocumentPosition(screen.getByTestId("cycle-deck")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("swaps every section to the business the visitor picks, in its brand colours, and restarts the deck on it", async () => {
+    renderPage();
+    const landing = screen.getByTestId("landing");
+    expect(landing.style.getPropertyValue("--kit-primary")).toBe("#1F6F5F");
+    fireEvent.click(screen.getByRole("radio", { name: "Glitchwick" }));
+    await waitFor(() => expect(landing.getAttribute("data-example")).toBe("glitchwick"));
+    expect(window.location.search).toBe("?example=glitchwick");
+    expect(landing.style.getPropertyValue("--kit-primary")).toBe("#c94a2c");
+
+    // The hero deck starts afresh on Glitchwick: its name, its chapter, the cycle after its own last one.
+    const deck = screen.getByTestId("cycle-deck");
+    expect(deck.getAttribute("data-example")).toBe("glitchwick");
+    expect(deck.getAttribute("data-phase")).toBe("idle");
+    expect(within(deck).getByText("Glitchwick")).toBeTruthy();
+    expect(within(deck).getByText(/Cycle 163 · Chapter 7/)).toBeTruthy();
+    expect(screen.getByText(/^Glitchwick is an example business\./)).toBeTruthy();
+    // The ticker, the team, the Journey, the Customer Update, the milestones, the board and the Inbox note follow.
+    expect(screen.getByRole("region", { name: "What the Glitchwick team did this week" })).toBeTruthy();
+    const tabs = within(screen.getByRole("tablist", { name: "Departments" })).getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toEqual(["ProductEcho", "DevelopmentBolt", "DistributionFlare", "FinanceMint", "LegalVerity", "TeamHarbor"]);
+    expect(within(screen.getByRole("region", { name: "Customer Update" })).getAllByText("Lanternfly Games").length).toBeGreaterThan(0);
+    expect(screen.getByText("First publisher contract")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Channel Board" })).toBeTruthy();
+    expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Sponsor a game jam with 4,000 entrants?")).toBeTruthy();
+    // Nothing of Tutorlane is left outside the picker.
+    const main = screen.getByRole("main");
+    const picker = screen.getByTestId("example-picker");
+    const outside = (main.textContent ?? "").replace(picker.textContent ?? "", "");
+    for (const gone of ["Tutorlane", "Okafor", "tutor"]) expect(outside, gone).not.toContain(gone);
+  });
+
+  it("opens on a deep-linked business with its own departments, customer and note", () => {
+    renderPage(NORTHWIND);
+    expect(screen.getByTestId("landing").getAttribute("data-example")).toBe("northwind");
+    expect(screen.getByRole("radio", { name: "Northwind Skincare" }).getAttribute("aria-checked")).toBe("true");
+    expect(within(screen.getByTestId("cycle-deck")).getByText("Northwind Skincare")).toBeTruthy();
+    const departments = screen.getByRole("tablist", { name: "Departments" });
+    expect(within(departments).getByRole("tab", { name: /Formulation Lab/ })).toBeTruthy();
+    expect(within(departments).getByRole("tab", { name: /Retail Partnerships/ })).toBeTruthy();
+    fireEvent.click(within(departments).getByRole("tab", { name: /Formulation Lab/ }));
+    expect(within(screen.getByRole("list", { name: "Formulation Lab screens" })).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Specialists", "Plan"]);
+    expect(within(screen.getByRole("region", { name: "Customer Update" })).getAllByText("Maple Refill Co.").length).toBeGreaterThan(0);
+    expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Retail Partnerships")).toBeTruthy();
+  });
+
   it("renders the live tiles in the browser only, already mid-session, then streams them", async () => {
     vi.useFakeTimers();
     renderPage();
@@ -219,6 +277,33 @@ describe("LandingPage server render", () => {
     const [{ renderToString }, { createElement }, dugout, landing] = await Promise.all([import("react-dom/server"), import("react"), import("@foundmill/dugout"), import("../LandingPage")]);
     return renderToString(createElement(dugout.TooltipProvider, null, createElement(landing.LandingPage, { terminalRenderer: "plain" })));
   }
+
+  it("hydrates a deep-linked business without a mismatch: the server and the browser render the same business", async () => {
+    vi.resetModules();
+    const [{ renderToString }, { createElement }, { hydrateRoot }, dugout, landing, northwind] = await Promise.all([import("react-dom/server"), import("react"), import("react-dom/client"), import("@foundmill/dugout"), import("../LandingPage"), import("../examples/northwind")]);
+    const tree = createElement(dugout.TooltipProvider, null, createElement(landing.LandingPage, { terminalRenderer: "plain", initialExample: northwind.NORTHWIND }));
+    const html = renderToString(tree);
+    expect(html).toContain("Maple Refill Co.");
+    expect(html).toContain('data-example="northwind"');
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.appendChild(container);
+    const errors: unknown[] = [];
+    const consoleError = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => void errors.push(args.join(" ")));
+    try {
+      let root: ReturnType<typeof hydrateRoot> | undefined;
+      await act(async () => {
+        root = hydrateRoot(container, tree, { onRecoverableError: (e) => errors.push(e) });
+      });
+      expect(errors).toEqual([]);
+      expect(container.querySelector('[data-testid="landing"]')?.getAttribute("data-example")).toBe("northwind");
+      act(() => root!.unmount());
+    } finally {
+      consoleError.mockRestore();
+      container.remove();
+      vi.resetModules();
+    }
+  });
 
   it("is identical in every time zone, so it hydrates cleanly anywhere", async () => {
     const original = process.env.TZ;

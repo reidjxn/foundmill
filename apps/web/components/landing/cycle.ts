@@ -1,10 +1,11 @@
 /**
  * The cycle the landing hero runs on example data: the same loop as the product (Continue → the team works →
- * a decision or a customer comes back → you respond), reduced to a pure reducer so it is testable without a clock.
+ * a decision or a customer comes back → you respond), reduced to a pure reducer over the example business so it is
+ * testable without a clock.
  */
 import type { ContinueState } from "@foundmill/dugout";
-import type { DeptColourToken } from "@foundmill/shared";
-import { CYCLE_OUTCOMES, EXAMPLE_START_CYCLE, type CycleOutcome } from "./example";
+import type { DeptColourToken } from "@foundmill/shared/constants";
+import type { CycleOutcome, ExampleBusiness } from "./examples/types";
 
 export type CyclePhase = "idle" | "processing" | "decision" | "win";
 
@@ -37,7 +38,6 @@ export type CycleAction =
   | { type: "openWin" }
   | { type: "stopAll" };
 
-const CHIEF = { name: "Orla", seed: "orla", dept: "dept-1" } as const;
 const INBOX_MAX = 5;
 
 /** Tasks the Chief of Staff reports for a cycle: deterministic, so the server and the browser agree. */
@@ -45,35 +45,39 @@ export function cycleTasks(cycle: number): { tasks: number; prs: number; departm
   return { tasks: 7 + ((cycle * 5) % 6), prs: 1 + (cycle % 3), departments: 4 + (cycle % 3) };
 }
 
-export function initialCycleState(): CycleState {
-  const t = cycleTasks(EXAMPLE_START_CYCLE);
+/** The deck when the page opens: idle after the business's last cycle, with that cycle's note and an earlier decision. */
+export function initialCycleState(business: ExampleBusiness): CycleState {
+  const start = business.deck.startCycle;
+  const t = cycleTasks(start);
+  const earlier = business.deck.earlierDecision;
   return {
-    cycle: EXAMPLE_START_CYCLE,
+    cycle: start,
     phase: "idle",
     next: 0,
     current: null,
     pressed: false,
     inbox: [
-      { id: `note-${EXAMPLE_START_CYCLE}`, title: `Cycle ${EXAMPLE_START_CYCLE} note`, detail: `${t.tasks} tasks done across ${t.departments} departments, ${t.prs} pull requests merged.`, from: CHIEF, tone: "note" },
-      { id: "decided-domain", title: "You approved the domain renewal", detail: "Development renewed it for two years.", from: { name: "Forge", seed: "forge", dept: "dept-2" }, tone: "decided" },
+      { id: `note-${start}`, title: `Cycle ${start} note`, detail: `${t.tasks} tasks done across ${t.departments} departments, ${t.prs} pull requests merged.`, from: business.chief, tone: "note" },
+      { id: "decided-earlier", title: earlier.title, detail: earlier.detail, from: earlier.from, tone: "decided" },
     ],
   };
 }
 
 const push = (inbox: InboxItem[], item: InboxItem) => [item, ...inbox.filter((i) => i.id !== item.id)].slice(0, INBOX_MAX);
 
-export function cycleReducer(state: CycleState, action: CycleAction): CycleState {
+export function cycleReducer(business: ExampleBusiness, state: CycleState, action: CycleAction): CycleState {
+  const outcomes = business.deck.outcomes;
   switch (action.type) {
     case "continue":
       if (state.phase !== "idle") return state;
       return { ...state, phase: "processing", cycle: state.cycle + 1, pressed: state.pressed || !!action.byVisitor };
     case "finish": {
       if (state.phase !== "processing") return state;
-      const outcome = CYCLE_OUTCOMES[state.next % CYCLE_OUTCOMES.length]!;
+      const outcome = outcomes[state.next % outcomes.length]!;
       const t = cycleTasks(state.cycle);
       // Two lines in the deck's Inbox column, so the customer's name is never cut off.
       const result = outcome.kind === "win" ? `New customer: ${outcome.customer}.` : "1 decision for you.";
-      const note: InboxItem = { id: `note-${state.cycle}`, title: `Cycle ${state.cycle} note`, detail: `${t.tasks} tasks done across ${t.departments} departments. ${result}`, from: CHIEF, tone: "note" };
+      const note: InboxItem = { id: `note-${state.cycle}`, title: `Cycle ${state.cycle} note`, detail: `${t.tasks} tasks done across ${t.departments} departments. ${result}`, from: business.chief, tone: "note" };
       return { ...state, phase: outcome.kind, current: outcome, next: state.next + 1, inbox: push(state.inbox, note) };
     }
     case "decide": {
@@ -91,7 +95,7 @@ export function cycleReducer(state: CycleState, action: CycleAction): CycleState
     }
     case "stopAll": {
       if (state.phase !== "processing") return state;
-      const item: InboxItem = { id: `stopped-${state.cycle}`, title: `You stopped cycle ${state.cycle}`, detail: "Every agent paused where it was. Continue picks up from there.", from: CHIEF, tone: "note" };
+      const item: InboxItem = { id: `stopped-${state.cycle}`, title: `You stopped cycle ${state.cycle}`, detail: "Every agent paused where it was. Continue picks up from there.", from: business.chief, tone: "note" };
       return { ...state, phase: "idle", cycle: state.cycle - 1, inbox: push(state.inbox, item) };
     }
   }

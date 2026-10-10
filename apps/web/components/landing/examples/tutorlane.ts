@@ -1,120 +1,95 @@
 /**
- * Example data for the signed-out landing page: Tutorlane, an AI teaching assistant for independent tutors. After each
- * lesson it turns the recording into notes, a practice set in the tutor's own method and a progress note for the
- * parent; between lessons a practice companion works with the student and grades handwritten work from photos.
- * Every step the page shows maps to a connector the product has (Google Calendar and Drive, Stripe, SendGrid, Gmail,
- * Anthropic, Voyage, GitHub, sandboxes, Dropbox Sign, Cloudflare DNS, OpenCorporates). It is a US business: prices are in
- * US dollars and its copy is in US English (the product's own vocabulary, such as "Brand colours", stays as the product
- * spells it).
+ * Tutorlane, an AI teaching assistant for independent tutors (the landing page's default example). After each lesson it
+ * turns the recording into notes, a practice set in the tutor's own method and a progress note for the parent; between
+ * lessons a practice companion works with the student and grades handwritten work from photos. Every step the page
+ * shows maps to a connector the product has (Google Calendar and Drive, Stripe, SendGrid, Gmail, Anthropic, Voyage,
+ * GitHub, sandboxes, Dropbox Sign, Cloudflare DNS, OpenCorporates). It is a US business: prices are in US dollars and its
+ * copy is in US English (the product's own vocabulary, such as "Brand colours", stays as the product spells it).
  *
- * Brand colours and the two-year Journey come from the design system's fixtures (relabelled here), so the page carries
- * no colour literals; nothing is presented as real traction: every example is labelled Example and every money
- * figure that is not a measurement is labelled Estimate where it appears.
+ * Brand colours and the two-year Journey come from the design system's fixtures (relabelled here); nothing is presented
+ * as real traction: every example is labelled Example and every money figure that is not a measurement is labelled
+ * Estimate where it appears. This module is in the landing page's main bundle; the other examples load on demand.
  */
-import { DTC_CHANNEL_PROFILE, STOREFRONT_SESSION_SCRIPT, formatMoney, type Concept, type MockChannelProfile, type MockSessionScript, type RibbonDepartment, type SkillRow, type TrophyCard, type Trait } from "@foundmill/dugout";
-import type { ChannelKey, DeptColourToken, ModuleKey } from "@foundmill/shared";
-import { LEDGERLY_KIT, conceptFixtures, generateJourneyFixture } from "@foundmill/dugout/components/journey/fixtures";
-import { LANDING_LOGOS } from "./logos";
+import { STOREFRONT_SESSION_SCRIPT, type MockSessionScript } from "@foundmill/dugout";
+import type { ChannelKey } from "@foundmill/shared/constants";
+import { conceptFixtures } from "@foundmill/dugout/components/journey/fixtures";
+import { LANDING_LOGOS } from "../logos";
+import { conceptAttributes as attributes, leadSkill as skill } from "./helpers";
+import { EXAMPLE_IDENTITIES } from "./identity";
+import type { ActivityLine, CycleOutcome, ExampleBusiness, ExampleCustomerUpdate, ExampleCyclePlanItem, ExampleDepartment, ExampleInboxNote, ExampleJourney, ExampleLead } from "./types";
 
-export const EXAMPLE_BUSINESS = { name: "Tutorlane", monogram: "TL", seed: "Tutorlane" } as const;
-/** Brand colours: deep teal and gold (the design system's second example kit). */
-export const EXAMPLE_KIT = LEDGERLY_KIT;
-export const EXAMPLE_CURRENCY = "USD";
-/**
- * The locale the example's own money figures are formatted in, so they print "$42.00". The product's formatter defaults
- * to en-GB, which prints US dollars as "US$42.00".
- */
-export const EXAMPLE_LOCALE = "en-US";
+const IDENTITY = EXAMPLE_IDENTITIES.tutorlane;
+const CURRENCY = "USD";
 
-/** A money figure of the example business, from minor units: "$42.00". */
-export function exampleMoney(amountMinor: number): string {
-  return formatMoney({ amountMinor, currency: EXAMPLE_CURRENCY }, { locale: EXAMPLE_LOCALE });
-}
-/** Where the example business is when the page opens: two years in (the Journey), in its ninth chapter. */
-export const EXAMPLE_START_CYCLE = 214;
-export const EXAMPLE_CHAPTER = "Chapter 9";
-export const EXAMPLE_RUNWAY_MONTHS = 14;
+// ---------------------------------------------------------------------------------------------------------------------
+// Departments (labels over the six modules) and the team orbit's agents
+// ---------------------------------------------------------------------------------------------------------------------
 
-/**
- * Today on the example business, as local noon. The page is server-rendered in UTC and hydrated in the visitor's
- * time zone, and every date it prints must read the same in both: a date-only ISO string ("2026-10-07") parses as
- * UTC midnight and prints as 6 Oct west of UTC, so dates here are built in local time.
- */
-export function exampleToday(): Date {
-  return new Date(2026, 9, 7, 12);
-}
-
-/** An ISO instant moved to local noon on the same calendar day, so it prints the same day in every time zone. */
-export function localNoon(iso: string): string {
-  return `${iso.slice(0, 10)}T12:00:00`;
-}
+const DEPARTMENTS: readonly ExampleDepartment[] = [
+  { id: "product", module: "product", label: "Product", dept: "dept-1", workers: [{ name: "Mira", seed: "mira" }, { name: "Quill", seed: "quill" }] },
+  { id: "development", module: "development", label: "Development", dept: "dept-2", workers: [{ name: "Juno", seed: "juno" }, { name: "Wren", seed: "wren" }] },
+  { id: "distribution", module: "distribution", label: "Distribution", dept: "dept-3", workers: [{ name: "Pike", seed: "pike" }, { name: "Nell", seed: "nell" }] },
+  { id: "finance", module: "finance", label: "Finance", dept: "dept-6", workers: [{ name: "Tally", seed: "tally" }] },
+  { id: "legal", module: "legal", label: "Legal", dept: "dept-5", workers: [{ name: "Clause", seed: "clause" }] },
+  { id: "team", module: "team", label: "Team", dept: "dept-8", workers: [{ name: "Beacon", seed: "beacon" }, { name: "Sol", seed: "sol" }] },
+];
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Ideas and brand (How it works)
 // ---------------------------------------------------------------------------------------------------------------------
 
-const attributes = (values: number[]): Concept["attributes"] =>
-  (["market_pull", "market_size", "competition", "speed_to_first_customer", "capital_intensity", "agent_executability", "founder_fit", "defensibility", "regulatory_load", "distribution_clarity"] as const).map((key, i) => ({ key, value: values[i] ?? 10 }));
+const OTHER_CONCEPTS = conceptFixtures();
 
 /** The Ideation Studio's two example concepts: Tutorlane in front, a runner-up behind it. */
-export function exampleConcepts(): Concept[] {
-  const others = conceptFixtures();
-  return [
-    {
-      id: "concept-tutorlane",
-      name: "Tutorlane",
-      pitch: "An AI teaching assistant for independent tutors: lesson notes, practice sets and progress notes after every lesson.",
-      logoSrc: LANDING_LOGOS[0]!.src,
-      monogram: EXAMPLE_BUSINESS.monogram,
-      kit: EXAMPLE_KIT,
-      currentStars: 3.5,
-      potentialStars: 4.5,
-      attributes: attributes([16, 13, 10, 15, 16, 17, 15, 12, 10, 15]),
-      verdict: "Tutors feel the pain every week and each one brings their families. Children's data is the risk to plan for.",
-      archetypeLabel: "B2B2C software",
-      version: 1,
-    },
-    {
-      id: "concept-probelark",
-      name: "Probelark",
-      pitch: "Voice practice exams for language learners, built from their own course materials.",
-      logoSrc: LANDING_LOGOS[3]!.src,
-      kit: others[3]?.kit ?? EXAMPLE_KIT,
-      currentStars: 3,
-      potentialStars: 4,
-      attributes: attributes([13, 12, 12, 14, 15, 16, 13, 10, 14, 12]),
-      verdict: "Strong pull at exam time, quiet the rest of the year.",
-      archetypeLabel: "Consumer software",
-      version: 1,
-    },
-  ];
-}
+const CONCEPTS: ExampleBusiness["howItWorks"]["concepts"] = [
+  {
+    id: "concept-tutorlane",
+    name: "Tutorlane",
+    pitch: "An AI teaching assistant for independent tutors: lesson notes, practice sets and progress notes after every lesson.",
+    logoSrc: LANDING_LOGOS[0]!.src,
+    monogram: IDENTITY.monogram,
+    kit: IDENTITY.kit,
+    currentStars: 3.5,
+    potentialStars: 4.5,
+    attributes: attributes([16, 13, 10, 15, 16, 17, 15, 12, 10, 15]),
+    verdict: "Tutors feel the pain every week and each one brings their families. Children's data is the risk to plan for.",
+    archetypeLabel: "B2B2C software",
+    version: 1,
+  },
+  {
+    id: "concept-probelark",
+    name: "Probelark",
+    pitch: "Voice practice exams for language learners, built from their own course materials.",
+    logoSrc: LANDING_LOGOS[3]!.src,
+    kit: OTHER_CONCEPTS[3]?.kit ?? IDENTITY.kit,
+    currentStars: 3,
+    potentialStars: 4,
+    attributes: attributes([13, 12, 12, 14, 15, 16, 13, 10, 14, 12]),
+    verdict: "Strong pull at exam time, quiet the rest of the year.",
+    archetypeLabel: "Consumer software",
+    version: 1,
+  },
+];
 
 /** Brand colours offered in the logo picker: Tutorlane's first, then the design system's other example kits. */
-export function exampleKits(): Array<{ primary: string; secondary: string }> {
-  return [EXAMPLE_KIT, ...conceptFixtures().map((c) => c.kit).filter((k) => k.primary !== EXAMPLE_KIT.primary)];
-}
+const KITS = [IDENTITY.kit, ...OTHER_CONCEPTS.map((c) => c.kit).filter((k) => k.primary !== IDENTITY.kit.primary)];
+/** The brand picker's six options: the six generated marks, each in its own brand colours. */
+const BRAND_OPTIONS: ExampleBusiness["howItWorks"]["brandOptions"] = LANDING_LOGOS.map((l, i) => ({ logo: l.src, kit: KITS[i % KITS.length]! }));
 
 /** The Chief of Staff's plan for cycle 1. */
-export const FIRST_CYCLE_PLAN: ReadonlyArray<{ key: ModuleKey; task: string; tasks: number; done: number }> = [
-  { key: "product", task: "Interview twelve tutors about their week", tasks: 2, done: 72 },
-  { key: "development", task: "Build the lesson recap pipeline", tasks: 4, done: 45 },
-  { key: "distribution", task: "Test SEO and tutor communities", tasks: 3, done: 88 },
-  { key: "finance", task: "Set up Stripe and the AI cost model", tasks: 1, done: 30 },
-  { key: "legal", task: "Prepare incorporation and parental consent", tasks: 1, done: 60 },
+const FIRST_CYCLE_PLAN: readonly ExampleCyclePlanItem[] = [
+  { department: "product", task: "Interview twelve tutors about their week", tasks: 2, done: 72 },
+  { department: "development", task: "Build the lesson recap pipeline", tasks: 4, done: 45 },
+  { department: "distribution", task: "Test SEO and tutor communities", tasks: 3, done: 88 },
+  { department: "finance", task: "Set up Stripe and the AI cost model", tasks: 1, done: 30 },
+  { department: "legal", task: "Prepare incorporation and parental consent", tasks: 1, done: 60 },
 ];
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The live activity: the hero feed and the ticker
 // ---------------------------------------------------------------------------------------------------------------------
 
-export interface ActivityLine {
-  who: string;
-  dept: DeptColourToken;
-  text: string;
-}
-
-export const ACTIVITY: readonly ActivityLine[] = [
+const ACTIVITY: readonly ActivityLine[] = [
   { who: "Forge", dept: "dept-2", text: "opened a pull request for photo grading" },
   { who: "Scout", dept: "dept-3", text: "put SEO on the board at a fit of 17" },
   { who: "Ledger", dept: "dept-6", text: "reconciled this week's Stripe payouts, 64 of 64 matched" },
@@ -133,33 +108,8 @@ export const ACTIVITY: readonly ActivityLine[] = [
 // The cycle in the hero deck: what each press of Continue brings back
 // ---------------------------------------------------------------------------------------------------------------------
 
-export interface ExampleDecision {
-  kind: "decision";
-  id: string;
-  from: { name: string; seed: string; dept: DeptColourToken; role: string };
-  department: string;
-  subject: string;
-  body: string;
-  /** What the choice commits, already labelled. */
-  stake: string;
-  /** Each option: the button label, the Inbox line once chosen (`done`) and what happens next (`outcome`). */
-  options: ReadonlyArray<{ id: string; label: string; recommended?: boolean; done: string; outcome: string }>;
-}
-
-export interface ExampleWin {
-  kind: "win";
-  id: string;
-  customer: string;
-  plan: string;
-  firstTouch: string;
-  standout: { name: string; seed: string; dept: DeptColourToken };
-  involved: ReadonlyArray<{ name: string; seed: string; dept: DeptColourToken }>;
-}
-
-export type CycleOutcome = ExampleDecision | ExampleWin;
-
 /** In order: the first press brings a decision, the second a customer, then they alternate with more decisions. */
-export const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
+const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
   {
     kind: "decision",
     id: "merge",
@@ -260,7 +210,7 @@ const PROGRESS_NOTE_CSS = [
 ].join("\n");
 
 /** Four engineers on Tutorlane's AI product: the recap pipeline, photo grading, progress notes and the test set. */
-export const EXAMPLE_SESSION_SCRIPT: MockSessionScript = {
+const SESSION_SCRIPT: MockSessionScript = {
   ...STOREFRONT_SESSION_SCRIPT,
   tasks: [
     "Practice sets in the tutor's own method",
@@ -311,7 +261,7 @@ export const EXAMPLE_SESSION_SCRIPT: MockSessionScript = {
   acceptanceCommand: "pnpm evals run grading",
   failingCheck: "partial credit on two-step problems",
   failure: "Error: grading agreement 61.0%, below the 90% threshold",
-  currency: EXAMPLE_CURRENCY,
+  currency: CURRENCY,
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -321,55 +271,45 @@ export const EXAMPLE_SESSION_SCRIPT: MockSessionScript = {
 const FITS: Record<ChannelKey, number> = { seo: 17, content: 16, email_automation: 15, affiliate: 14, social: 12, geo: 11, events: 10, influencer: 9, paid_ads: 8, pr: 7, lead_generation: 6, direct_mail: 4, print: 3, broadcast: 2, outdoor: 2 };
 
 /** Tutors search for practice material and trust other tutors: search, content, email and referrals first. */
-export const EXAMPLE_CHANNEL_PROFILE: MockChannelProfile = {
-  ...DTC_CHANNEL_PROFILE,
+const CHANNELS: ExampleBusiness["channels"] = {
+  seed: "tutorlane",
   fits: FITS,
   recommended: ["seo", "content", "email_automation", "affiliate"],
-  why: (label) => `${label} fits a tool tutors find while looking for practice material and recommend to other tutors. The first signal comes within a cycle and the cost per tutor sits inside the runway budget.`,
-  currency: EXAMPLE_CURRENCY,
+  why: "{channel} fits a tool tutors find while looking for practice material and recommend to other tutors. The first signal comes within a cycle and the cost per tutor sits inside the runway budget.",
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The journey: two years on the Ribbon, one Customer Update and the milestones
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** The Ribbon's departments (ids match the fixture's generator; names and colours are Tutorlane's). */
-export const EXAMPLE_RIBBON_DEPARTMENTS: RibbonDepartment[] = [
-  { id: "d-product", name: "Product", dept: "dept-1" },
-  { id: "d-development", name: "Development", dept: "dept-2" },
-  { id: "d-distribution", name: "Distribution", dept: "dept-3" },
-  { id: "d-finance", name: "Finance", dept: "dept-6" },
-  { id: "d-team", name: "Team", dept: "dept-8" },
-  { id: "d-operations", name: "Legal", dept: "dept-5" },
-];
-
-const MILESTONE_LABELS: Record<string, string> = {
-  "Northwind Skincare AB incorporated": "Tutorlane Inc. incorporated",
-  "Retinol serum v1": "Lesson recap v1",
-  "Bundle builder": "Practice companion",
-  "Subscription plans": "Parent progress notes",
-  "Retail pack": "Photo grading",
-  "Chose DTC over wholesale": "Chose tutors over schools",
-  "Moved production to Meridian Labs": "Smaller model for grading",
-  "First enterprise contract": "First tutoring agency",
-};
-const CHAPTER_TITLES = ["Finding the wedge", "First tutors", "The recap chapter", "Parents join in", "The companion", "Steady state", "Exam season", "Agencies", "Fall semester"];
-const TUTOR_NAMES = ["Okafor Math Tutoring", "Hale Science Tutoring", "Rivera Languages", "Brook Lane Tutors", "Amari Chemistry", "Second Look English", "Patel Physics", "Linden Music Theory", "North Harbor Tutoring", "Ellis Test Prep"];
-
 /** Two years of the example's history, relabelled from the design system's fixture for Tutorlane. */
-export function exampleJourney(): ReturnType<typeof generateJourneyFixture> {
-  const d = generateJourneyFixture({ days: 730, departments: EXAMPLE_RIBBON_DEPARTMENTS });
-  return {
-    ...d,
-    conversions: d.conversions.map((c, i) => ({ ...c, currency: EXAMPLE_CURRENCY, entityName: TUTOR_NAMES[i % TUTOR_NAMES.length]! })),
-    milestones: d.milestones.map((m) => ({ ...m, label: MILESTONE_LABELS[m.label] ?? m.label.replace(/€/g, "$") })),
-    chapters: d.chapters.map((c) => ({ ...c, title: c.title ? (CHAPTER_TITLES[c.index] ?? c.title) : null })),
-    roadmap: d.roadmap.map((r, i) => ({ ...r, label: ["Voice companion", "Agency dashboard", "Adult learners"][i] ?? r.label })),
-  };
-}
+const JOURNEY: ExampleJourney = {
+  /** The Ribbon's departments (ids match the fixture's generator; names and colours are Tutorlane's). */
+  ribbonDepartments: [
+    { id: "d-product", name: "Product", dept: "dept-1" },
+    { id: "d-development", name: "Development", dept: "dept-2" },
+    { id: "d-distribution", name: "Distribution", dept: "dept-3" },
+    { id: "d-finance", name: "Finance", dept: "dept-6" },
+    { id: "d-team", name: "Team", dept: "dept-8" },
+    { id: "d-operations", name: "Legal", dept: "dept-5" },
+  ],
+  milestoneLabels: {
+    "Northwind Skincare AB incorporated": "Tutorlane Inc. incorporated",
+    "Retinol serum v1": "Lesson recap v1",
+    "Bundle builder": "Practice companion",
+    "Subscription plans": "Parent progress notes",
+    "Retail pack": "Photo grading",
+    "Chose DTC over wholesale": "Chose tutors over schools",
+    "Moved production to Meridian Labs": "Smaller model for grading",
+    "First enterprise contract": "First tutoring agency",
+  },
+  chapterTitles: ["Finding the wedge", "First tutors", "The recap chapter", "Parents join in", "The companion", "Steady state", "Exam season", "Agencies", "Fall semester"],
+  customerNames: ["Okafor Math Tutoring", "Hale Science Tutoring", "Rivera Languages", "Brook Lane Tutors", "Amari Chemistry", "Second Look English", "Patel Physics", "Linden Music Theory", "North Harbor Tutoring", "Ellis Test Prep"],
+  roadmap: ["Voice companion", "Agency dashboard", "Adult learners"],
+};
 
 /** The Customer Update the deck's gold card opens: how Okafor Math Tutoring became a paying customer. */
-export const EXAMPLE_CUSTOMER_UPDATE = {
+const CUSTOMER_UPDATE: ExampleCustomerUpdate = {
   level: "Featured update",
   customer: { name: "Okafor Math Tutoring", entityId: "5d0c6a3e-8f1b-4c2a-9e47-2b6f1d8c3a90", facts: [
     // The mention's card shows three facts side by side in about 75 px each: values short enough to read whole.
@@ -387,28 +327,26 @@ export const EXAMPLE_CUSTOMER_UPDATE = {
     { text: "Three parents ask for the companion by Friday. [[ent:5d0c6a3e-8f1b-4c2a-9e47-2b6f1d8c3a90|Okafor Math Tutoring]] moves to Pro.", highlight: true },
   ],
   agents: [
-    { name: "Juno", seed: "juno", dept: "dept-2" as DeptColourToken, role: "Lesson recap pipeline", rating: 10, standout: true },
-    { name: "Nell", seed: "nell", dept: "dept-3" as DeptColourToken, role: "Email automation", rating: 8, standout: false },
-    { name: "Pike", seed: "pike", dept: "dept-3" as DeptColourToken, role: "SEO and content", rating: 6, standout: false },
+    { name: "Juno", seed: "juno", dept: "dept-2", role: "Lesson recap pipeline", rating: 10, standout: true },
+    { name: "Nell", seed: "nell", dept: "dept-3", role: "Email automation", rating: 8, standout: false },
+    { name: "Pike", seed: "pike", dept: "dept-3", role: "SEO and content", rating: 6, standout: false },
   ],
 };
 
+const usd = (amountMinor: number) => ({ amountMinor, currency: CURRENCY });
 /** The milestones the example business has reached, with time-zone-safe dates (local noon). */
-export function exampleMilestones(): TrophyCard[] {
-  const usd = (amountMinor: number) => ({ amountMinor, currency: EXAMPLE_CURRENCY });
-  return [
-    { key: "customer_1", label: "First customer", description: "The first paying tutor.", achievedAt: "2024-11-19T12:00:00", customerName: "Hale Science Tutoring", ...usd(2900), shareable: true },
-    { key: "customer_10", label: "10th customer", description: "Ten paying tutors.", achievedAt: "2025-01-08T12:00:00", shareable: true },
-    { key: "customer_100", label: "100th customer", description: "One hundred paying tutors.", achievedAt: "2025-09-22T12:00:00", shareable: true },
-    { key: "mrr_1k", label: "$1K MRR", description: "Monthly recurring revenue crosses $1,000.", achievedAt: "2025-02-14T12:00:00", shareable: true },
-    { key: "mrr_10k", label: "$10K MRR", description: "Monthly recurring revenue crosses $10,000.", achievedAt: "2026-03-03T12:00:00", shareable: true },
-    { key: "first_agency", label: "First tutoring agency", description: "An agency puts all 25 of its tutors on Tutorlane.", achievedAt: "2026-10-01T12:00:00", customerName: "North Harbor Tutoring", ...usd(348000), shareable: true },
-  ];
-}
+const MILESTONES: ExampleBusiness["milestones"] = [
+  { key: "customer_1", label: "First customer", description: "The first paying tutor.", achievedAt: "2024-11-19T12:00:00", customerName: "Hale Science Tutoring", ...usd(2900), shareable: true },
+  { key: "customer_10", label: "10th customer", description: "Ten paying tutors.", achievedAt: "2025-01-08T12:00:00", shareable: true },
+  { key: "customer_100", label: "100th customer", description: "One hundred paying tutors.", achievedAt: "2025-09-22T12:00:00", shareable: true },
+  { key: "mrr_1k", label: "$1K MRR", description: "Monthly recurring revenue crosses $1,000.", achievedAt: "2025-02-14T12:00:00", shareable: true },
+  { key: "mrr_10k", label: "$10K MRR", description: "Monthly recurring revenue crosses $10,000.", achievedAt: "2026-03-03T12:00:00", shareable: true },
+  { key: "first_agency", label: "First tutoring agency", description: "An agency puts all 25 of its tutors on Tutorlane.", achievedAt: "2026-10-01T12:00:00", customerName: "North Harbor Tutoring", ...usd(348000), shareable: true },
+];
 
 /** The Inbox note in "You decide". */
-export const EXAMPLE_INBOX_NOTE = {
-  from: { name: "Scout", seed: "scout", dept: "dept-3" as DeptColourToken, role: "Distribution Strategist" },
+const INBOX_NOTE: ExampleInboxNote = {
+  from: { name: "Scout", seed: "scout", dept: "dept-3", role: "Distribution Strategist" },
   department: "Distribution",
   subject: "Sponsor a newsletter read by 9,000 tutors?",
   /** When the note arrived: today on the example business. */
@@ -419,36 +357,21 @@ export const EXAMPLE_INBOX_NOTE = {
   ],
   costMinor: 48_000,
   fit: "16 of 20",
+  runwayAfter: "14 months",
+  options: [
+    { id: "approve", label: "Approve", recommended: true, consequence: "Scout books the sponsorship and the copy runs next week.", costMinor: 48_000, reversible: false },
+    { id: "smaller", label: "Try a smaller list first", consequence: "Scout finds a smaller tutors' list to test the copy on, inside your cap.", costMinor: null, reversible: true },
+    { id: "later", label: "Not this chapter", consequence: "Communities stay at search and referrals until the next chapter.", costMinor: null, reversible: true },
+  ],
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The team: six department leads with their ratings
 // ---------------------------------------------------------------------------------------------------------------------
 
-export interface ExampleLead {
-  key: ModuleKey;
-  department: string;
-  dept: DeptColourToken;
-  name: string;
-  seed: string;
-  role: string;
-  model: "Opus" | "Sonnet";
-  stars: { current: number; potential: number };
-  /** What the department does, in one sentence. */
-  remit: string;
-  now: string;
-  training: string;
-  skills: readonly SkillRow[];
-  traits: readonly Trait[];
-}
-
-const skill = (id: string, name: string, group: SkillRow["group"], value: number, delta: number, potential: number): SkillRow => ({ id, name, group, value, delta, potential, tested: 12, proven: Math.max(1, value - 2), tasks: 18 + value });
-
-export const LEADS: readonly ExampleLead[] = [
+const LEADS: readonly ExampleLead[] = [
   {
-    key: "product",
-    department: "Product",
-    dept: "dept-1",
+    department: "product",
     name: "Iris",
     seed: "iris",
     role: "Product lead",
@@ -465,9 +388,7 @@ export const LEADS: readonly ExampleLead[] = [
     ],
   },
   {
-    key: "development",
-    department: "Development",
-    dept: "dept-2",
+    department: "development",
     name: "Forge",
     seed: "forge",
     role: "Lead developer",
@@ -484,9 +405,7 @@ export const LEADS: readonly ExampleLead[] = [
     ],
   },
   {
-    key: "distribution",
-    department: "Distribution",
-    dept: "dept-3",
+    department: "distribution",
     name: "Scout",
     seed: "scout",
     role: "Distribution Strategist",
@@ -503,9 +422,7 @@ export const LEADS: readonly ExampleLead[] = [
     ],
   },
   {
-    key: "finance",
-    department: "Finance",
-    dept: "dept-6",
+    department: "finance",
     name: "Ledger",
     seed: "ledger",
     role: "Finance lead",
@@ -522,9 +439,7 @@ export const LEADS: readonly ExampleLead[] = [
     ],
   },
   {
-    key: "legal",
-    department: "Legal",
-    dept: "dept-5",
+    department: "legal",
     name: "Lex",
     seed: "lex",
     role: "Legal lead",
@@ -541,9 +456,7 @@ export const LEADS: readonly ExampleLead[] = [
     ],
   },
   {
-    key: "team",
-    department: "Team",
-    dept: "dept-8",
+    department: "team",
     name: "Atlas",
     seed: "atlas",
     role: "Head of team",
@@ -560,3 +473,29 @@ export const LEADS: readonly ExampleLead[] = [
     ],
   },
 ];
+
+export const TUTORLANE: ExampleBusiness = {
+  identity: IDENTITY,
+  currency: CURRENCY,
+  locale: "en-US",
+  chief: { name: "Orla", seed: "orla", dept: "dept-1" },
+  departments: DEPARTMENTS,
+  leads: LEADS,
+  deck: {
+    // Where the business is when the page opens: two years in (the Journey), in its ninth chapter.
+    startCycle: 214,
+    chapter: "Chapter 9",
+    runwayMonths: 14,
+    costPerTaskMinor: 46,
+    earlierDecision: { title: "You approved the domain renewal", detail: "Development renewed it for two years.", from: { name: "Forge", seed: "forge", dept: "dept-2" } },
+    outcomes: CYCLE_OUTCOMES,
+  },
+  activity: ACTIVITY,
+  howItWorks: { concepts: CONCEPTS, brandOptions: BRAND_OPTIONS, firstCyclePlan: FIRST_CYCLE_PLAN },
+  sessions: SESSION_SCRIPT,
+  channels: CHANNELS,
+  journey: JOURNEY,
+  customerUpdate: CUSTOMER_UPDATE,
+  milestones: MILESTONES,
+  inboxNote: INBOX_NOTE,
+};

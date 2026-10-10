@@ -6,8 +6,8 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Flag, Lightbulb, Play, type LucideIcon } from "lucide-react";
 import { Avatar, BusinessLogo, Chip, ConceptCard, Icon, ProvenanceChip, cn, kitBarGradient, kitStyle, type Kit } from "@foundmill/dugout";
-import { EXAMPLE_BUSINESS, FIRST_CYCLE_PLAN, LEADS, exampleConcepts, exampleKits, exampleMoney } from "./example";
-import { LANDING_LOGOS } from "./logos";
+import { useExample } from "./examples/context";
+import { departmentOf, exampleMoney, leadOf } from "./examples/helpers";
 import { Glass, Reveal, Section, SectionHeading } from "./parts";
 
 export function HowItWorks() {
@@ -56,7 +56,7 @@ function Step({ n, icon, title, text, children, delay }: { n: string; icon: Luci
 
 /** Two of the Ideation Studio's concept cards, the second behind the first, fading out at the bottom. */
 function ConceptStack() {
-  const [front, back] = useMemo(exampleConcepts, []);
+  const [front, back] = useExample().howItWorks.concepts;
   return (
     <div className="absolute inset-0" style={{ maskImage: "linear-gradient(180deg, black 70%, transparent 100%)" }}>
       {back ? (
@@ -75,17 +75,15 @@ function ConceptStack() {
 
 /** Logo and brand colours: six generated logos to choose from; the choice paints the brand bar under them. */
 function BrandPicker() {
-  const options = useMemo(() => {
-    const kits = exampleKits();
-    return Array.from({ length: 6 }, (_, i) => ({ seed: i === 0 ? EXAMPLE_BUSINESS.seed : `${EXAMPLE_BUSINESS.seed} ${i}`, kit: kits[i % kits.length]! as Kit, logo: LANDING_LOGOS[i]!.src }));
-  }, []);
+  const { identity, howItWorks } = useExample();
+  const options = useMemo(() => howItWorks.brandOptions.map((o, i) => ({ seed: i === 0 ? identity.seed : `${identity.seed} ${i}`, kit: o.kit as Kit, logo: o.logo })), [identity, howItWorks]);
   const [chosen, setChosen] = useState(0);
   const pick = options[chosen]!;
   return (
     <div className="flex size-full flex-col justify-center gap-5 px-6" style={kitStyle(pick.kit)}>
       <div className="flex items-center gap-5">
         <span className="grid size-28 shrink-0 place-items-center rounded-panel border border-subtle bg-base transition-shadow duration-panel" style={{ boxShadow: "0 0 48px -10px var(--kit-primary)" }}>
-          <BusinessLogo src={pick.logo} name={EXAMPLE_BUSINESS.name} primary={pick.kit.primary} size={96} />
+          <BusinessLogo src={pick.logo} name={identity.name} primary={pick.kit.primary} size={96} />
         </span>
         <div role="group" aria-label="Choose a logo" className="grid grid-cols-3 gap-2">
           {options.map((o, i) => (
@@ -97,14 +95,14 @@ function BrandPicker() {
               onClick={() => setChosen(i)}
               className={cn("grid size-14 place-items-center rounded-panel border bg-base transition-colors duration-micro", i === chosen ? "border-link" : "border-subtle hover:border-secondary/60")}
             >
-              <BusinessLogo src={o.logo} name={EXAMPLE_BUSINESS.name} primary={o.kit.primary} size={48} title={`Logo option ${i + 1}`} />
+              <BusinessLogo src={o.logo} name={identity.name} primary={o.kit.primary} size={48} title={`Logo option ${i + 1}`} />
             </button>
           ))}
         </div>
       </div>
       <div className="flex h-11 items-center gap-2 rounded-panel px-3 text-kit-on-primary transition-[background-image] duration-panel" style={{ backgroundImage: kitBarGradient(pick.kit) }}>
-        <BusinessLogo src={pick.logo} name={EXAMPLE_BUSINESS.name} primary={pick.kit.primary} size={24} />
-        <span className="t-display-sm">{EXAMPLE_BUSINESS.name}</span>
+        <BusinessLogo src={pick.logo} name={identity.name} primary={pick.kit.primary} size={24} />
+        <span className="t-display-sm">{identity.name}</span>
         <span className="flex-1" />
         <span className="t-tab-sm rounded-panel bg-ink/25 px-2 py-1">Continue</span>
       </div>
@@ -118,27 +116,31 @@ function BrandPicker() {
 
 /** The Chief of Staff's plan for a cycle: tasks per department, then the note that comes back. */
 function CyclePlan() {
-  const total = FIRST_CYCLE_PLAN.reduce((s, p) => s + p.tasks, 0);
+  const business = useExample();
+  const plan = business.howItWorks.firstCyclePlan;
+  const chief = business.chief;
+  const total = plan.reduce((s, p) => s + p.tasks, 0);
   return (
     <div className="flex size-full flex-col gap-3 p-5">
       <span className="flex items-center gap-2">
-        <Avatar size={32} name="Orla" agent={{ seed: "orla", dept: "dept-1" }} />
+        <Avatar size={32} name={chief.name} agent={{ seed: chief.seed, dept: chief.dept }} />
         <span className="flex flex-col">
-          <span className="t-body-strong text-primary">Orla · Chief of Staff</span>
+          <span className="t-body-strong text-primary">{chief.name} · Chief of Staff</span>
           <span className="text-small text-secondary">Plan for cycle 1</span>
         </span>
       </span>
       <ul className="flex flex-col gap-1.5">
-        {FIRST_CYCLE_PLAN.map((p) => {
-          const lead = LEADS.find((l) => l.key === p.key)!;
+        {plan.map((p) => {
+          const dept = departmentOf(business, p.department).dept;
+          const lead = leadOf(business, p.department);
           return (
-            <li key={p.key} className="flex items-center gap-2 rounded-panel border border-subtle/70 bg-panel/80 px-2.5 py-1.5">
-              <span className="h-6 w-1 rounded-full" style={{ backgroundColor: `var(--${lead.dept})` }} />
-              <Avatar size={20} name={lead.name} agent={{ seed: lead.seed, dept: lead.dept }} />
+            <li key={p.department} className="flex items-center gap-2 rounded-panel border border-subtle/70 bg-panel/80 px-2.5 py-1.5">
+              <span className="h-6 w-1 rounded-full" style={{ backgroundColor: `var(--${dept})` }} />
+              <Avatar size={20} name={lead.name} agent={{ seed: lead.seed, dept }} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-small text-primary">{p.task}</span>
                 <span className="mt-1 block h-1 overflow-hidden rounded-full bg-panel-alt">
-                  <span className="block h-full rounded-full" style={{ width: `${p.done}%`, backgroundColor: `var(--${lead.dept})` }} />
+                  <span className="block h-full rounded-full" style={{ width: `${p.done}%`, backgroundColor: `var(--${dept})` }} />
                 </span>
               </span>
               <span className="text-small tabular-nums text-secondary">{p.tasks}</span>
@@ -148,7 +150,7 @@ function CyclePlan() {
       </ul>
       <span className="mt-auto flex items-center gap-2 text-small text-secondary">
         <span className="tabular-nums">
-          {total} tasks · {FIRST_CYCLE_PLAN.length} departments · {exampleMoney(total * 46)}
+          {total} tasks · {plan.length} departments · {exampleMoney(business, total * business.deck.costPerTaskMinor)}
         </span>
         <ProvenanceChip kind="estimate" />
       </span>

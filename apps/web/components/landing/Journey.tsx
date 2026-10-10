@@ -7,16 +7,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { Clock, Coins, MousePointerClick, Radio, Star, Trophy } from "lucide-react";
 import { Avatar, Chip, EntityLinkProvider, EntityText, Icon, JourneyRibbon, ProvenanceChip, TrophyCabinet, cn } from "@foundmill/dugout";
-import { EXAMPLE_BUSINESS, EXAMPLE_CURRENCY, EXAMPLE_CUSTOMER_UPDATE, EXAMPLE_KIT, EXAMPLE_RIBBON_DEPARTMENTS, exampleJourney, exampleMilestones, exampleMoney } from "./example";
+import { useExample } from "./examples/context";
+import { exampleJourney, exampleMoney, type ExampleJourneyData } from "./examples/helpers";
+import type { ExampleBusiness } from "./examples/types";
 import { Glass, ProductWindow, Reveal, Section, SectionHeading, useSeen } from "./parts";
 
 /** Taller than Home's 300 px so all four rows (revenue, signups, paying customers, agent hours) read at a glance. */
 const RIBBON_HEIGHT = 400;
 
 export function JourneySection() {
+  const business = useExample();
+  const { identity, deck } = business;
   const [ref, seen] = useSeen<HTMLDivElement>("600px");
-  const data = useIdleJourney(seen);
-  const milestones = useMemo(exampleMilestones, []);
+  const data = useIdleJourney(seen, business);
+  const milestones = useMemo(() => [...business.milestones], [business]);
   return (
     <Section id="journey">
       <SectionHeading
@@ -28,7 +32,7 @@ export function JourneySection() {
       <Reveal>
         <div ref={ref}>
           <ProductWindow
-            title={`Journey · ${EXAMPLE_BUSINESS.name}`}
+            title={`Journey · ${identity.name}`}
             chips={
               <span className="flex items-center gap-2">
                 <Chip tone="neutral">Example business</Chip>
@@ -36,20 +40,20 @@ export function JourneySection() {
               </span>
             }
           >
-            <div className="bg-panel" style={{ height: RIBBON_HEIGHT, ["--kit-primary" as string]: EXAMPLE_KIT.primary, ["--kit-secondary" as string]: EXAMPLE_KIT.secondary }}>
+            <div className="bg-panel" style={{ height: RIBBON_HEIGHT }}>
               {data ? (
                 <JourneyRibbon
                   rows={data.rows}
-                  departments={EXAMPLE_RIBBON_DEPARTMENTS}
+                  departments={[...business.journey.ribbonDepartments]}
                   conversions={data.conversions}
                   milestones={data.milestones}
                   chapters={data.chapters}
                   forecast={data.forecast}
                   roadmap={data.roadmap}
-                  runwayMonths={14}
+                  runwayMonths={deck.runwayMonths}
                   today={data.today}
-                  kit={EXAMPLE_KIT}
-                  currency={EXAMPLE_CURRENCY}
+                  kit={identity.kit}
+                  currency={business.currency}
                   defaultZoom="all"
                   overlay="svg"
                   height={RIBBON_HEIGHT}
@@ -84,28 +88,29 @@ export function JourneySection() {
  * Two years of the example's daily rows take tens of milliseconds to build, so they are built when the browser is idle
  * after the section comes near the window, never during a scroll frame.
  */
-function useIdleJourney(seen: boolean): ReturnType<typeof exampleJourney> | null {
-  const [data, setData] = useState<ReturnType<typeof exampleJourney> | null>(null);
+function useIdleJourney(seen: boolean, business: ExampleBusiness): ExampleJourneyData | null {
+  const [data, setData] = useState<ExampleJourneyData | null>(null);
   useEffect(() => {
     if (!seen || data) return;
-    const build = () => setData(exampleJourney());
+    const build = () => setData(exampleJourney(business));
     if (typeof window.requestIdleCallback === "function") {
       const id = window.requestIdleCallback(build, { timeout: 800 });
       return () => window.cancelIdleCallback(id);
     }
     const t = setTimeout(build, 0);
     return () => clearTimeout(t);
-  }, [seen, data]);
+  }, [seen, data, business]);
   return data;
 }
 
 /** A Customer Update, compact: the customer, the path in four numbers, the narrated touches and who was involved. */
 function CustomerUpdate() {
-  const u = EXAMPLE_CUSTOMER_UPDATE;
+  const business = useExample();
+  const u = business.customerUpdate;
   // The customer is an organisation; on this page there is no profile to open, so the mention carries its facts only.
   const entities = useMemo(
     () => ({
-      resolve: (id: string) => (id === u.customer.entityId ? { id, kind: "organisation" as const, name: u.customer.name, subtitle: "Example customer", facts: u.customer.facts } : undefined),
+      resolve: (id: string) => (id === u.customer.entityId ? { id, kind: "organisation" as const, name: u.customer.name, subtitle: "Example customer", facts: [...u.customer.facts] } : undefined),
       onOpen: () => {},
     }),
     [u],
@@ -129,7 +134,7 @@ function CustomerUpdate() {
           <Stat icon={MousePointerClick} label="Touches" value={String(u.stats.touches)} />
           <Stat icon={Radio} label="Channels" value={String(u.stats.channels)} />
           <Stat icon={Clock} label="Days" value={String(u.stats.days)} />
-          <Stat icon={Coins} label="Cost to acquire" value={exampleMoney(u.stats.acquisitionCostMinor)} estimate />
+          <Stat icon={Coins} label="Cost to acquire" value={exampleMoney(business, u.stats.acquisitionCostMinor)} estimate />
         </dl>
         <div className="grid grid-cols-[1fr_15rem] gap-6">
           <EntityLinkProvider value={entities}>

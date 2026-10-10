@@ -1,15 +1,16 @@
 "use client";
 /**
  * The signed-out landing page at `/`: what Foundmill is, why now, how it works, and a way in. Built from the product's
- * own parts on one example business (the hero's deck runs real cycles, the concept cards, the team's attribute
- * ratings, live agent tiles, the Journey Ribbon, a Customer Update, the Channel Board, an Inbox note with its
- * DecisionBar), so what a visitor sees is the product itself. Desktop only, like the app: under 1280 px it shows
- * NeedsLargerWindow.
+ * own parts on an example business the visitor picks above the hero's deck (Tutorlane, Glitchwick or Northwind
+ * Skincare: the deck runs real cycles, the concept cards, the team's attribute ratings, live agent tiles, the Journey
+ * Ribbon, a Customer Update, the Channel Board, an Inbox note with its DecisionBar), so what a visitor sees is the
+ * product itself. The page wears the chosen business's brand colours. Desktop only, like the app: under 1280 px it
+ * shows NeedsLargerWindow.
  */
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
-import { Button, NeedsLargerWindow, Wordmark, isViewportTooSmall, useViewportWidth } from "@foundmill/dugout";
+import { Button, NeedsLargerWindow, Wordmark, isViewportTooSmall, kitStyle, useViewportWidth } from "@foundmill/dugout";
 import { Channels, LiveSessions } from "./LiveSessions";
 import { FinalCall, YourCall } from "./Control";
 import { Hero, Ticker } from "./Hero";
@@ -18,29 +19,50 @@ import { JourneySection } from "./Journey";
 import { TeamSection } from "./TeamSection";
 import { Thesis } from "./Thesis";
 import { Container, SIGN_IN } from "./parts";
+import { ExampleProvider, useExample } from "./examples/context";
+import type { ExampleBusiness } from "./examples/types";
 
 export interface LandingPageProps {
   /** Terminal renderer for the live tiles; tests pass "plain" (no canvas). */
   terminalRenderer?: "plain" | "xterm";
+  /**
+   * The business a deep link chose (`/?example=northwind`), loaded on the server so the first paint and hydration
+   * agree. Absent: the default business, Tutorlane.
+   */
+  initialExample?: ExampleBusiness;
 }
 
-export function LandingPage({ terminalRenderer }: LandingPageProps) {
+export function LandingPage({ terminalRenderer, initialExample }: LandingPageProps) {
+  return (
+    <ExampleProvider initial={initialExample}>
+      <LandingContent terminalRenderer={terminalRenderer} />
+    </ExampleProvider>
+  );
+}
+
+/**
+ * Everything that shows the example is keyed by the business, so choosing another one starts each part afresh on it
+ * (the deck's cycle loop, the department tour, the live tiles, the board); the hero's headline and the picker stay put.
+ */
+function LandingContent({ terminalRenderer }: { terminalRenderer?: "plain" | "xterm" }) {
   const width = useViewportWidth();
+  const business = useExample();
+  const id = business.identity.id;
   if (isViewportTooSmall(width)) return <NeedsLargerWindow width={width} />;
   return (
-    <div className="relative min-h-screen overflow-x-clip bg-base text-primary" data-testid="landing">
+    <div className="relative min-h-screen overflow-x-clip bg-base text-primary" style={kitStyle(business.identity.kit)} data-testid="landing" data-example={id}>
       <Backdrop />
       <TopBar />
       <main>
         <Hero />
-        <Ticker />
+        <Ticker key={`ticker-${id}`} />
         <Thesis />
-        <HowItWorks />
-        <TeamSection />
-        <LiveSessions terminalRenderer={terminalRenderer} />
-        <JourneySection />
-        <Channels />
-        <YourCall />
+        <HowItWorks key={`how-${id}`} />
+        <TeamSection key={`team-${id}`} />
+        <LiveSessions key={`live-${id}`} terminalRenderer={terminalRenderer} />
+        <JourneySection key={`journey-${id}`} />
+        <Channels key={`channels-${id}`} />
+        <YourCall key={`control-${id}`} />
         <FinalCall />
       </main>
       <Footer />

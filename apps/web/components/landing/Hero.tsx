@@ -1,7 +1,8 @@
 "use client";
 /**
  * The hero: the tagline over the deck. The headline sits centred in display-hero; the deck below is one screen of
- * the product on the example business, and pressing its Continue button runs a cycle.
+ * the product on the example business, and pressing its Continue button runs a cycle. Above the deck the visitor picks
+ * which business it runs (Watch it run); the deck starts afresh on each.
  */
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
@@ -9,13 +10,15 @@ import { ArrowRight, KeyRound, Monitor, Pause, Play, ShieldCheck, type LucideIco
 import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
 import { Button, Icon } from "@foundmill/dugout";
 import { CycleDeck } from "./CycleDeck";
-import { ACTIVITY, EXAMPLE_BUSINESS } from "./example";
+import { ExamplePicker } from "./ExamplePicker";
+import { useExample } from "./examples/context";
 import { Container, SIGN_IN, goToSection } from "./parts";
 
 /** The words the headline lights; the h1's text stays exactly the tagline. */
 const LIT = "real business";
 
 export function Hero() {
+  const business = useExample();
   const at = APP_TAGLINE.indexOf(LIT);
   const headline =
     at < 0 ? (
@@ -55,10 +58,11 @@ export function Hero() {
             <Assurance icon={Monitor}>A desktop app, built for focus</Assurance>
           </ul>
         </div>
-        <div className="flex w-full flex-col gap-4">
-          <CycleDeck onOpenJourney={() => goToSection("journey")} />
+        <div className="flex w-full flex-col gap-5">
+          <ExamplePicker />
+          <CycleDeck key={business.identity.id} onOpenJourney={() => goToSection("journey")} />
           <p className="text-center text-small text-secondary">
-            {EXAMPLE_BUSINESS.name} is an example business. Press Continue, answer what comes back, and run another cycle.
+            {business.identity.name} is an example business. Press Continue, answer what comes back, and run another cycle.
           </p>
         </div>
       </Container>
@@ -81,11 +85,12 @@ function Assurance({ icon, children }: { icon: LucideIcon; children: ReactNode }
  * the track is two identical halves and the loop never jumps.
  */
 export function Ticker() {
+  const { activity, identity } = useExample();
   const [paused, setPaused] = useState(false);
   const [hovered, setHovered] = useState(false);
-  const items = [...ACTIVITY, ...ACTIVITY];
+  const items = [...activity, ...activity];
   return (
-    <div aria-label={`What the ${EXAMPLE_BUSINESS.name} team did this week`} role="region" className="relative flex items-center gap-3 border-y border-subtle/70 bg-ink/60 pl-6">
+    <div aria-label={`What the ${identity.name} team did this week`} role="region" className="relative flex items-center gap-3 border-y border-subtle/70 bg-ink/60 pl-6">
       <button
         type="button"
         onClick={() => setPaused((p) => !p)}
@@ -100,7 +105,7 @@ export function Ticker() {
         <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 z-10 w-40 bg-gradient-to-l from-base to-transparent" />
         <ul className="flex w-max animate-marquee items-center whitespace-nowrap" style={{ animationPlayState: paused || hovered ? "paused" : "running" }}>
           {items.map((l, i) => (
-            <li key={i} aria-hidden={i >= ACTIVITY.length || undefined} className="inline-flex items-center gap-2 pr-10 text-small">
+            <li key={i} aria-hidden={i >= activity.length || undefined} className="inline-flex items-center gap-2 pr-10 text-small">
               <span className="size-1.5 rounded-full" style={{ backgroundColor: `var(--${l.dept})` }} />
               <span className="font-medium text-primary">{l.who}</span>
               <span className="text-secondary">{l.text}</span>

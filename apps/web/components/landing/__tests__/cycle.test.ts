@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { CYCLE_OUTCOMES, EXAMPLE_START_CYCLE } from "../example";
-import { continueStateFor, cycleReducer, cycleStatusText, initialCycleState, type CycleState } from "../cycle";
+import { TUTORLANE } from "../examples/tutorlane";
+import { GLITCHWICK } from "../examples/glitchwick";
+import { NORTHWIND } from "../examples/northwind";
+import { continueStateFor, cycleReducer as reduceFor, cycleStatusText, initialCycleState as initialFor, type CycleAction, type CycleState } from "../cycle";
 
+const CYCLE_OUTCOMES = TUTORLANE.deck.outcomes;
+const EXAMPLE_START_CYCLE = TUTORLANE.deck.startCycle;
+const cycleReducer = (state: CycleState, action: CycleAction) => reduceFor(TUTORLANE, state, action);
+const initialCycleState = () => initialFor(TUTORLANE);
 const run = (state: CycleState) => cycleReducer(cycleReducer(state, { type: "continue", byVisitor: true }), { type: "finish" });
 
 describe("the landing deck's cycle", () => {
@@ -68,5 +74,22 @@ describe("the landing deck's cycle", () => {
       s = s.phase === "win" ? cycleReducer(s, { type: "openWin" }) : cycleReducer(s, { type: "decide", optionId: "x" });
     }
     expect(kinds).toEqual([...CYCLE_OUTCOMES.map((o) => o.id), CYCLE_OUTCOMES[0]!.id]);
+  });
+
+  it("runs on whichever business the deck shows: its own start, Chief of Staff and outcomes", () => {
+    for (const business of [TUTORLANE, GLITCHWICK, NORTHWIND]) {
+      const start = initialFor(business);
+      expect(start.cycle).toBe(business.deck.startCycle);
+      expect(start.inbox[0]!.from).toEqual(business.chief);
+      expect(start.inbox[1]).toMatchObject({ title: business.deck.earlierDecision.title, tone: "decided" });
+      let s = start;
+      const ids: string[] = [];
+      for (let i = 0; i < business.deck.outcomes.length; i++) {
+        s = reduceFor(business, reduceFor(business, s, { type: "continue" }), { type: "finish" });
+        ids.push(s.current!.id);
+        s = reduceFor(business, s, s.phase === "win" ? { type: "openWin" } : { type: "decide", optionId: "x" });
+      }
+      expect(ids).toEqual(business.deck.outcomes.map((o) => o.id));
+    }
   });
 });

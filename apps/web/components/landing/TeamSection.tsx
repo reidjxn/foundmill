@@ -7,31 +7,35 @@
  * tab stops them for good.
  */
 import { useEffect, useState } from "react";
-import { Code2, Compass, GraduationCap, Megaphone, Pause, Play, Scale, Users, Wallet, type LucideIcon } from "lucide-react";
+import { Code2, Compass, FlaskConical, Gamepad2, GraduationCap, Megaphone, Pause, Play, Scale, Store, Users, Wallet, type LucideIcon } from "lucide-react";
 import { Avatar, Button, Chip, DeptChip, Icon, SkillGrid, StarRating, StatusPill, TraitChips, cn, usePrefersReducedMotion } from "@foundmill/dugout";
-import { MODULE_TABS, type ModuleKey } from "@foundmill/shared/constants";
-import { EXAMPLE_BUSINESS, LEADS, type ExampleLead } from "./example";
+import { useExample } from "./examples/context";
+import { departmentScreens, leadOf } from "./examples/helpers";
+import type { ExampleDepartment, ExampleDepartmentIcon, ExampleLead } from "./examples/types";
 import { Glass, Reveal, Section, SectionHeading, useSeen } from "./parts";
 
-const ICONS: Record<ModuleKey, LucideIcon> = { product: Compass, development: Code2, distribution: Megaphone, finance: Wallet, legal: Scale, team: Users };
+const ICONS: Record<ExampleDepartmentIcon, LucideIcon> = { product: Compass, development: Code2, distribution: Megaphone, finance: Wallet, legal: Scale, team: Users, lab: FlaskConical, retail: Store, playtest: Gamepad2 };
+const iconFor = (d: ExampleDepartment): LucideIcon => ICONS[d.icon ?? d.module];
 const ADVANCE_MS = 6500;
 
 export function TeamSection() {
+  const business = useExample();
+  const tabs = business.departments.map((department) => ({ department, lead: leadOf(business, department.id) }));
   const [index, setIndex] = useState(0);
   const [picked, setPicked] = useState(false);
   const [stopped, setStopped] = useState(false);
   const [held, setHeld] = useState({ pointer: false, focus: false });
   const reduced = usePrefersReducedMotion();
   const [ref, seen] = useSeen<HTMLDivElement>("-20%");
-  const lead = LEADS[index]!;
+  const current = tabs[index] ?? tabs[0]!;
   const touring = seen && !picked && !stopped && !reduced;
   const advancing = touring && !held.pointer && !held.focus;
 
   useEffect(() => {
     if (!advancing) return;
-    const t = setInterval(() => setIndex((i) => (i + 1) % LEADS.length), ADVANCE_MS);
+    const t = setInterval(() => setIndex((i) => (i + 1) % tabs.length), ADVANCE_MS);
     return () => clearInterval(t);
-  }, [advancing]);
+  }, [advancing, tabs.length]);
 
   const choose = (i: number) => {
     setPicked(true);
@@ -58,7 +62,7 @@ export function TeamSection() {
           }}
         >
           <div className="flex items-center justify-between gap-3">
-            <span className="text-small text-secondary">{EXAMPLE_BUSINESS.name}'s department leads</span>
+            <span className="text-small text-secondary">{business.identity.name}'s department leads</span>
             <span className="flex items-center gap-2">
               <Chip tone="neutral">Example business</Chip>
               {touring ? (
@@ -73,14 +77,14 @@ export function TeamSection() {
             </span>
           </div>
           <div role="tablist" aria-label="Departments" className="grid grid-cols-6 gap-2">
-            {LEADS.map((l, i) => {
+            {tabs.map(({ department: d, lead: l }, i) => {
               const active = i === index;
               return (
                 <button
-                  key={l.key}
+                  key={d.id}
                   type="button"
                   role="tab"
-                  id={`team-tab-${l.key}`}
+                  id={`team-tab-${d.id}`}
                   aria-selected={active}
                   aria-controls="team-panel"
                   tabIndex={active ? 0 : -1}
@@ -89,30 +93,30 @@ export function TeamSection() {
                     const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
                     if (!step) return;
                     e.preventDefault();
-                    const next = (i + step + LEADS.length) % LEADS.length;
+                    const next = (i + step + tabs.length) % tabs.length;
                     choose(next);
-                    document.getElementById(`team-tab-${LEADS[next]!.key}`)?.focus();
+                    document.getElementById(`team-tab-${tabs[next]!.department.id}`)?.focus();
                   }}
                   className={cn(
                     "group relative flex items-center gap-3 overflow-hidden rounded-panel border px-3 py-3 text-left transition-colors duration-panel",
                     active ? "border-subtle bg-panel-alt" : "border-subtle/50 bg-panel/40 hover:bg-panel/80",
                   )}
                 >
-                  <span aria-hidden className="absolute inset-x-0 top-0 h-0.5 transition-opacity duration-panel" style={{ backgroundColor: `var(--${l.dept})`, opacity: active ? 1 : 0 }} />
-                  <span className="grid size-9 shrink-0 place-items-center rounded-panel border" style={{ borderColor: `color-mix(in oklab, var(--${l.dept}) ${active ? 60 : 30}%, transparent)`, backgroundColor: `color-mix(in oklab, var(--${l.dept}) ${active ? 18 : 8}%, var(--bg-ink))`, color: `color-mix(in oklab, var(--${l.dept}) 80%, var(--white))` }}>
-                    <Icon icon={ICONS[l.key]} size={16} />
+                  <span aria-hidden className="absolute inset-x-0 top-0 h-0.5 transition-opacity duration-panel" style={{ backgroundColor: `var(--${d.dept})`, opacity: active ? 1 : 0 }} />
+                  <span className="grid size-9 shrink-0 place-items-center rounded-panel border" style={{ borderColor: `color-mix(in oklab, var(--${d.dept}) ${active ? 60 : 30}%, transparent)`, backgroundColor: `color-mix(in oklab, var(--${d.dept}) ${active ? 18 : 8}%, var(--bg-ink))`, color: `color-mix(in oklab, var(--${d.dept}) 80%, var(--white))` }}>
+                    <Icon icon={iconFor(d)} size={16} />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className={cn("t-display-sm block truncate", active ? "text-primary" : "text-secondary group-hover:text-primary")}>{l.department}</span>
+                    <span className={cn("t-display-sm line-clamp-2 break-words", active ? "text-primary" : "text-secondary group-hover:text-primary")}>{d.label}</span>
                     <span className="block truncate text-small text-secondary">{l.name}</span>
                   </span>
-                  {active && advancing ? <span aria-hidden className="absolute inset-x-0 bottom-0 h-px origin-left animate-progress" style={{ backgroundColor: `var(--${l.dept})`, animationDuration: `${ADVANCE_MS}ms` }} key={index} /> : null}
+                  {active && advancing ? <span aria-hidden className="absolute inset-x-0 bottom-0 h-px origin-left animate-progress" style={{ backgroundColor: `var(--${d.dept})`, animationDuration: `${ADVANCE_MS}ms` }} key={index} /> : null}
                 </button>
               );
             })}
           </div>
-          <div id="team-panel" role="tabpanel" aria-labelledby={`team-tab-${lead.key}`}>
-            <LeadProfile key={lead.key} lead={lead} />
+          <div id="team-panel" role="tabpanel" aria-labelledby={`team-tab-${current.department.id}`}>
+            <LeadProfile key={current.department.id} department={current.department} lead={current.lead} />
           </div>
         </div>
       </Reveal>
@@ -120,14 +124,14 @@ export function TeamSection() {
   );
 }
 
-function LeadProfile({ lead }: { lead: ExampleLead }) {
-  const accent = `var(--${lead.dept})`;
+function LeadProfile({ department, lead }: { department: ExampleDepartment; lead: ExampleLead }) {
+  const accent = `var(--${department.dept})`;
   return (
     <Glass accent={accent} className="relative flex animate-fade-in flex-col overflow-hidden">
       <span aria-hidden className="pointer-events-none absolute -right-32 -top-40 size-112 rounded-full" style={{ background: `radial-gradient(closest-side, color-mix(in oklab, ${accent} 22%, transparent), transparent)` }} />
       <header className="relative flex items-center gap-5 border-b border-subtle/70 px-6 py-5">
         <span className="rounded-full p-1.5" style={{ background: `radial-gradient(closest-side, color-mix(in oklab, ${accent} 50%, transparent), transparent)` }}>
-          <Avatar size={64} name={lead.name} agent={{ seed: lead.seed, dept: lead.dept }} status="healthy" />
+          <Avatar size={64} name={lead.name} agent={{ seed: lead.seed, dept: department.dept }} status="healthy" />
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-2">
           <span className="flex items-baseline gap-3">
@@ -135,7 +139,7 @@ function LeadProfile({ lead }: { lead: ExampleLead }) {
             <span className="t-display-md text-secondary">{lead.role}</span>
           </span>
           <span className="flex flex-wrap items-center gap-1.5">
-            <DeptChip dept={lead.dept}>{lead.department}</DeptChip>
+            <DeptChip dept={department.dept}>{department.label}</DeptChip>
             <Chip tone="neutral" mono>
               {lead.model}
             </Chip>
@@ -166,9 +170,9 @@ function LeadProfile({ lead }: { lead: ExampleLead }) {
           <span className="text-small text-secondary">{lead.remit}</span>
         </span>
         <span className="flex flex-col gap-2">
-          <span className="t-label">{lead.department} screens</span>
-          <ul className="flex flex-wrap gap-1.5" aria-label={`${lead.department} screens`}>
-            {MODULE_TABS[lead.key].map((t) => (
+          <span className="t-label">{department.label} screens</span>
+          <ul className="flex flex-wrap gap-1.5" aria-label={`${department.label} screens`}>
+            {departmentScreens(department).map((t) => (
               <li key={t.slug}>
                 <Chip tone="neutral">{t.title}</Chip>
               </li>

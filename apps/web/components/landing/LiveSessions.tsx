@@ -5,8 +5,9 @@
  */
 import { useState } from "react";
 import { Radio } from "lucide-react";
-import { AgentTile, Chip, FormationBoard, ProvenanceChip, TileGrid, mockChannels, toggleChannel, useLiveMockSessions, type AgentTileSession, type ChannelTokenData, type TileGridItem } from "@foundmill/dugout";
-import { EXAMPLE_CHANNEL_PROFILE, EXAMPLE_SESSION_SCRIPT } from "./example";
+import { AgentTile, Chip, FormationBoard, ProvenanceChip, TileGrid, toggleChannel, useLiveMockSessions, type AgentTileSession, type ChannelTokenData, type TileGridItem } from "@foundmill/dugout";
+import { useExample } from "./examples/context";
+import { exampleChannels } from "./examples/helpers";
 import { ProductWindow, Reveal, Section, SectionHeading, useMounted, useSeen } from "./parts";
 
 type TileItem = TileGridItem & { session: AgentTileSession };
@@ -40,7 +41,8 @@ export function LiveSessions({ terminalRenderer }: { terminalRenderer?: "plain" 
 }
 
 function LiveTiles({ terminalRenderer }: { terminalRenderer?: "plain" | "xterm" }) {
-  const live = useLiveMockSessions(4, { intervalMs: 500, prefill: 0.45, script: EXAMPLE_SESSION_SCRIPT });
+  const { sessions } = useExample();
+  const live = useLiveMockSessions(4, { intervalMs: 500, prefill: 0.45, script: sessions });
   const [focused, setFocused] = useState<string | null>(null);
   const items: TileItem[] = live.sessions.map((s) => ({ id: s.id, label: `${s.agent.name}: ${s.task.title}`, avatar: { name: s.agent.name, seed: s.agent.seed, dept: s.agent.dept, status: s.agent.status }, session: s }));
   const noop = () => {};
@@ -67,7 +69,8 @@ function LiveTiles({ terminalRenderer }: { terminalRenderer?: "plain" | "xterm" 
 }
 
 export function Channels() {
-  const [channels, setChannels] = useState<ChannelTokenData[]>(() => mockChannels("tutorlane", { profile: EXAMPLE_CHANNEL_PROFILE }));
+  const business = useExample();
+  const [channels, setChannels] = useState<ChannelTokenData[]>(() => exampleChannels(business));
   return (
     <Section id="channels">
       <div className="flex items-end justify-between gap-10">

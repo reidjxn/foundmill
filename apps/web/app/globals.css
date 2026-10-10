@@ -132,3 +132,22 @@ body {
 .first-run-measure {
   max-width: 960px;
 }
+
+/*
+ * The landing page's example swap (components/landing/examples/context.tsx): choosing another example business
+ * crossfades the whole page into it, as a same-document view transition. The provider marks <html> for the transition's
+ * length, so no other view transition in the app picks up this timing. It never runs under reduced motion (the provider
+ * skips it; this media block is the backstop).
+ */
+html[data-example-swap]::view-transition-old(root),
+html[data-example-swap]::view-transition-new(root) {
+  animation-duration: var(--dur-view);
+  animation-timing-function: var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-example-swap]::view-transition-group(*),
+  html[data-example-swap]::view-transition-old(*),
+  html[data-example-swap]::view-transition-new(*) {
+    animation: none !important;
+  }
+}

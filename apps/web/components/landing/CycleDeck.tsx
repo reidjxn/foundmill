@@ -1,6 +1,7 @@
 "use client";
 /**
- * The hero's deck: one screen of the product on the example business, and it works. The top bar is the product's own
+ * The hero's deck: one screen of the product on the example business, and it works. It reads the business once, when
+ * it mounts (the hero keys it by the business, so choosing another one starts a fresh deck and a fresh cycle loop). The top bar is the product's own
  * parts (logo, runway, mode, Continue, Stop all agents) on the brand colours; under it the processing strip, then the
  * Inbox, the team orbit and the live feed. Pressing Continue runs a cycle: the strip shimmers, the feed speeds up, and
  * the cycle comes back with a decision (Continue turns into "Respond · 1") or a customer (gold). The first cycle runs
@@ -28,9 +29,10 @@ import {
   usePrefersReducedMotion,
   type ProcessingSegment,
 } from "@foundmill/dugout";
-import { ACTIVITY, EXAMPLE_BUSINESS, EXAMPLE_CHAPTER, EXAMPLE_KIT, EXAMPLE_RUNWAY_MONTHS, LEADS, exampleMoney, exampleToday, type ActivityLine, type ExampleDecision, type ExampleWin } from "./example";
-import { LANDING_LOGOS } from "./logos";
-import { continueStateFor, cycleReducer, cycleStatusText, cycleTasks, initialCycleState, type CycleState, type InboxItem } from "./cycle";
+import { useExample } from "./examples/context";
+import { exampleMoney, exampleToday, orbitDepartments } from "./examples/helpers";
+import type { ActivityLine, ExampleBusiness, ExampleDecision, ExampleWin } from "./examples/types";
+import { continueStateFor, cycleReducer, cycleStatusText, cycleTasks, initialCycleState, type CycleAction, type CycleState, type InboxItem } from "./cycle";
 import { useSeen } from "./parts";
 
 /** How long a cycle runs in the deck (the product's cycles take hours; this is the replay). */
@@ -41,8 +43,9 @@ const FEED_MAX = 6;
 const PAUSE_GRACE_MS = 800;
 
 export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
+  const business = useExample();
   const reduced = usePrefersReducedMotion();
-  const [state, dispatch] = useReducer(cycleReducer, undefined, initialCycleState);
+  const [state, dispatch] = useReducer((s: CycleState, a: CycleAction) => cycleReducer(business, s, a), business, initialCycleState);
   const [ref, seen] = useSeen<HTMLDivElement>("0px");
   const [autoRan, setAutoRan] = useState(false);
   const decisionRef = useRef<HTMLButtonElement>(null);
@@ -52,7 +55,9 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
   const working = state.phase === "processing";
   const cycleMs = reduced ? DECK_CYCLE_MS_REDUCED : DECK_CYCLE_MS;
   const tick = useTicker(working ? 650 : 2800);
-  const feed = useFeed(tick);
+  const feed = useFeed(tick, business.activity);
+  const orbit = useMemo(() => orbitDepartments(business), [business]);
+  const { identity, deck } = business;
   const progress = useCycleProgress(working, cycleMs);
 
   const start = (byVisitor: boolean) => {
@@ -92,23 +97,23 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
   };
 
   // Segments take turns visually; the strip's spoken status stays one sentence per cycle (its own label is per segment).
-  const segments: ProcessingSegment[] = LEADS.map((l, i) => ({ id: l.key, label: l.department, dept: l.dept, active: working && (tick + i) % 4 !== 0 }));
+  const segments: ProcessingSegment[] = business.departments.map((d, i) => ({ id: d.id, label: d.label, dept: d.dept, active: working && (tick + i) % 4 !== 0 }));
 
   return (
-    <div ref={ref} className="relative" style={kitStyle(EXAMPLE_KIT)} data-testid="cycle-deck" data-phase={state.phase}>
+    <div ref={ref} className="relative" style={kitStyle(identity.kit)} data-testid="cycle-deck" data-example={identity.id} data-phase={state.phase}>
       <div aria-hidden className="pointer-events-none absolute -inset-x-24 -bottom-24 top-24 blur-3xl" style={{ background: "radial-gradient(ellipse 45% 55% at 50% 45%, color-mix(in oklab, var(--kit-primary) 38%, transparent), transparent 72%)" }} />
       <div className="relative overflow-hidden rounded-panel border border-subtle bg-base" style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06), 0 60px 120px -40px rgba(0,0,0,0.95)" }}>
         {/* The product's top bar, on the example business's brand colours. */}
-        <div className="flex h-kitbar items-center gap-3 px-3 text-kit-on-primary" style={{ backgroundImage: kitBarGradient(EXAMPLE_KIT) }}>
-          <BusinessLogo src={LANDING_LOGOS[0]!.src} name={EXAMPLE_BUSINESS.name} primary={EXAMPLE_KIT.primary} size={32} />
-          <span className="t-display-sm whitespace-nowrap">{EXAMPLE_BUSINESS.name}</span>
+        <div className="flex h-kitbar items-center gap-3 px-3 text-kit-on-primary" style={{ backgroundImage: kitBarGradient(identity.kit) }}>
+          <BusinessLogo src={identity.logo} name={identity.name} primary={identity.kit.primary} size={32} />
+          <span className="t-display-sm whitespace-nowrap">{identity.name}</span>
           <span aria-hidden className="mx-1 h-5 w-px bg-kit-on-primary/25" />
           <span className="t-display-md">Home</span>
           <span className="truncate text-small text-kit-on-primary tabular-nums">
-            Cycle {state.phase === "idle" ? state.cycle + 1 : state.cycle} · {EXAMPLE_CHAPTER}
+            Cycle {state.phase === "idle" ? state.cycle + 1 : state.cycle} · {deck.chapter}
           </span>
           <span className="flex-1" />
-          <RunwayChip date={today} runwayMonths={EXAMPLE_RUNWAY_MONTHS} estimate />
+          <RunwayChip date={today} runwayMonths={deck.runwayMonths} estimate />
           <ModeChip mode="assisted" />
           <ContinueButton
             ref={continueRef}
@@ -124,16 +129,16 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
         <ProcessingStrip segments={segments} active={working} label={working ? `Cycle ${state.cycle} running` : "No cycle running"} />
 
         <div className="grid h-125 grid-cols-[21rem_1fr_18rem]">
-          <InboxColumn state={state} decisionRef={decisionRef} onDecide={decide} onOpenWin={openWin} />
+          <InboxColumn business={business} state={state} decisionRef={decisionRef} onDecide={decide} onOpenWin={openWin} />
           <div className="relative flex min-w-0 flex-col items-center justify-center gap-3 overflow-hidden">
             <div aria-hidden className="absolute inset-0" style={{ backgroundImage: "radial-gradient(color-mix(in oklab, var(--white) 7%, transparent) 1px, transparent 1.5px)", backgroundSize: "22px 22px", maskImage: "radial-gradient(ellipse 60% 60% at 50% 50%, black 30%, transparent 85%)" }} />
-            <TeamOrbit className="relative w-108" />
+            <TeamOrbit className="relative w-108" chief={business.chief} departments={orbit} />
             <p className="relative flex items-center gap-2 text-small text-secondary" aria-live="polite" data-testid="cycle-status">
               <span className={cn("size-1.5 rounded-full", working ? "animate-pulse bg-status-good" : state.phase === "decision" ? "bg-status-bad" : state.phase === "win" ? "bg-gold" : "bg-secondary")} />
               {cycleStatusText(state)}
             </p>
           </div>
-          <LiveColumn feed={feed} state={state} progress={progress} />
+          <LiveColumn business={business} feed={feed} state={state} progress={progress} />
         </div>
       </div>
 
@@ -155,7 +160,7 @@ function PressHint() {
 // Inbox column
 // ---------------------------------------------------------------------------------------------------------------------
 
-function InboxColumn({ state, decisionRef, onDecide, onOpenWin }: { state: CycleState; decisionRef: React.RefObject<HTMLButtonElement | null>; onDecide: (optionId: string) => void; onOpenWin: () => void }) {
+function InboxColumn({ business, state, decisionRef, onDecide, onOpenWin }: { business: ExampleBusiness; state: CycleState; decisionRef: React.RefObject<HTMLButtonElement | null>; onDecide: (optionId: string) => void; onOpenWin: () => void }) {
   const waiting = state.phase === "decision" || state.phase === "win";
   return (
     <section aria-label="Inbox" className="flex min-h-0 flex-col border-r border-subtle bg-panel">
@@ -168,7 +173,7 @@ function InboxColumn({ state, decisionRef, onDecide, onOpenWin }: { state: Cycle
       <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden p-2">
         {state.phase === "processing" ? (
           <div className="flex shrink-0 items-center gap-2 rounded-panel border border-subtle/70 bg-panel-alt/60 px-2 py-2.5">
-            <Avatar size={24} name="Orla" agent={{ seed: "orla", dept: "dept-1" }} status="healthy" />
+            <Avatar size={24} name={business.chief.name} agent={{ seed: business.chief.seed, dept: business.chief.dept }} status="healthy" />
             <span className="min-w-0 flex-1">
               <span className="t-body-strong block truncate">Cycle {state.cycle} in progress</span>
               <span className="block h-1.5 w-full overflow-hidden rounded-full bg-panel">
@@ -262,7 +267,7 @@ function WinCard({ win: w, onOpen }: { win: ExampleWin; onOpen: () => void }) {
 // Live column
 // ---------------------------------------------------------------------------------------------------------------------
 
-function LiveColumn({ feed, state, progress }: { feed: Array<{ key: number; line: ActivityLine }>; state: CycleState; progress: number }) {
+function LiveColumn({ business, feed, state, progress }: { business: ExampleBusiness; feed: Array<{ key: number; line: ActivityLine }>; state: CycleState; progress: number }) {
   const working = state.phase === "processing";
   const t = cycleTasks(state.cycle);
   const done = Math.min(t.tasks, Math.floor(progress * t.tasks));
@@ -292,7 +297,7 @@ function LiveColumn({ feed, state, progress }: { feed: Array<{ key: number; line
         <dl className="flex flex-col gap-1.5">
           <DeckStat label="Tasks done" value={`${done} of ${t.tasks}`} />
           <DeckStat label="Pull requests merged" value={String(Math.min(t.prs, Math.floor(progress * t.prs)))} />
-          <DeckStat label="Agent spend" value={exampleMoney(Math.round(progress * t.tasks * 46))} estimate />
+          <DeckStat label="Agent spend" value={exampleMoney(business, Math.round(progress * t.tasks * business.deck.costPerTaskMinor))} estimate />
         </dl>
       </div>
     </section>
@@ -341,16 +346,16 @@ function useCycleProgress(active: boolean, durationMs: number): number {
 }
 
 /** The live feed: one new line per tick, newest first. Starts with four lines so the server and browser agree. */
-function useFeed(tick: number): Array<{ key: number; line: ActivityLine }> {
-  const [feed, setFeed] = useState(() => [3, 2, 1, 0].map((k) => ({ key: k, line: ACTIVITY[k % ACTIVITY.length]! })));
+function useFeed(tick: number, activity: readonly ActivityLine[]): Array<{ key: number; line: ActivityLine }> {
+  const [feed, setFeed] = useState(() => [3, 2, 1, 0].map((k) => ({ key: k, line: activity[k % activity.length]! })));
   const last = useRef(tick);
   useEffect(() => {
     if (tick === last.current) return;
     last.current = tick;
     setFeed((prev) => {
       const key = (prev[0]?.key ?? 0) + 1;
-      return [{ key, line: ACTIVITY[key % ACTIVITY.length]! }, ...prev].slice(0, FEED_MAX);
+      return [{ key, line: activity[key % activity.length]! }, ...prev].slice(0, FEED_MAX);
     });
-  }, [tick]);
+  }, [tick, activity]);
   return feed;
 }

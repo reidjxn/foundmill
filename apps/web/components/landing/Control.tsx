@@ -4,10 +4,11 @@
  * the right the house rules and the controls. Then the closing call, which speaks to a first-time founder directly.
  */
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowRight, CircleStop, FileSignature, Inbox, KeyRound, Landmark, Lock, ShieldCheck, Tag, Trash2, type LucideIcon } from "lucide-react";
 import { Avatar, Button, Chip, DecisionBar, DeptChip, Icon, StatusStrip, TeamOrbit, type DecisionOption } from "@foundmill/dugout";
-import { EXAMPLE_CURRENCY, EXAMPLE_INBOX_NOTE, EXAMPLE_START_CYCLE, exampleMoney } from "./example";
+import { useExample } from "./examples/context";
+import { exampleMoney, orbitDepartments } from "./examples/helpers";
 import { Container, Glass, ProductWindow, Reveal, SIGN_IN, Section, SectionHeading } from "./parts";
 
 const HOUSE_RULES: ReadonlyArray<{ icon: LucideIcon; text: string }> = [
@@ -22,13 +23,6 @@ const HOUSE_RULES: ReadonlyArray<{ icon: LucideIcon; text: string }> = [
 const CONTROLS: ReadonlyArray<{ icon: LucideIcon; title: string; text: string }> = [
   { icon: CircleStop, title: "Stop all agents", text: "One button in the top bar pauses every agent at once. They resume where they stopped." },
   { icon: KeyRound, title: "Your key, sealed", text: "Bring your own Anthropic key. Credentials are encrypted per business and never sent into a sandbox." },
-];
-
-const NOTE = EXAMPLE_INBOX_NOTE;
-const OPTIONS: DecisionOption[] = [
-  { id: "approve", label: "Approve", recommended: true, consequence: "Scout books the sponsorship and the copy runs next week.", cost: { amountMinor: NOTE.costMinor, currency: EXAMPLE_CURRENCY }, reversible: false },
-  { id: "smaller", label: "Try a smaller list first", consequence: "Scout finds a smaller tutors' list to test the copy on, inside your cap.", cost: null, reversible: true },
-  { id: "later", label: "Not this chapter", consequence: "Communities stay at search and referrals until the next chapter.", cost: null, reversible: true },
 ];
 
 export function YourCall() {
@@ -74,45 +68,51 @@ export function YourCall() {
 
 /** One Inbox note as the product shows it: who wrote it, the note, the numbers behind it and the DecisionBar. */
 function InboxNote() {
+  const business = useExample();
+  const note = business.inboxNote;
+  const options = useMemo<DecisionOption[]>(
+    () => note.options.map((o) => ({ id: o.id, label: o.label, recommended: o.recommended, consequence: o.consequence, cost: o.costMinor === null ? null : { amountMinor: o.costMinor, currency: business.currency }, reversible: o.reversible })),
+    [note, business.currency],
+  );
   const [answer, setAnswer] = useState<string | null>(null);
   return (
     <ProductWindow title="Inbox" chips={<Chip tone="neutral">Example business</Chip>} className="h-full">
       <article aria-label="Example Inbox note" className="flex flex-col">
         <header className="flex h-16 items-center gap-3 border-b border-subtle px-5">
-          <Avatar size={32} name={NOTE.from.name} agent={{ seed: NOTE.from.seed, dept: NOTE.from.dept }} />
+          <Avatar size={32} name={note.from.name} agent={{ seed: note.from.seed, dept: note.from.dept }} />
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="t-body-strong text-primary">
-              {NOTE.from.name} · {NOTE.from.role}
+              {note.from.name} · {note.from.role}
             </span>
             <span className="text-small text-secondary">
-              {NOTE.sentOn} · cycle {EXAMPLE_START_CYCLE + 1}
+              {note.sentOn} · cycle {business.deck.startCycle + 1}
             </span>
           </span>
-          <DeptChip dept={NOTE.from.dept}>{NOTE.department}</DeptChip>
+          <DeptChip dept={note.from.dept}>{note.department}</DeptChip>
           <Chip tone="bad" icon={Inbox}>
             Needs you
           </Chip>
         </header>
         <div className="flex flex-col gap-4 px-5 py-5">
-          <h3 className="t-display-md text-primary">{NOTE.subject}</h3>
-          {NOTE.paragraphs.map((text, i) => (
+          <h3 className="t-display-md text-primary">{note.subject}</h3>
+          {note.paragraphs.map((text, i) => (
             <p key={i} className={i === 0 ? "t-reading text-primary" : "t-reading text-secondary"}>
               {text}
             </p>
           ))}
           <StatusStrip
             tiles={[
-              { label: "Cost", value: exampleMoney(NOTE.costMinor), estimate: "estimate" },
-              { label: "Channel fit", value: NOTE.fit },
-              { label: "Runway after", value: "14 months", estimate: "estimate" },
+              { label: "Cost", value: exampleMoney(business, note.costMinor), estimate: "estimate" },
+              { label: "Channel fit", value: note.fit },
+              { label: "Runway after", value: note.runwayAfter, estimate: "estimate" },
             ]}
           />
         </div>
         <DecisionBar
-          options={OPTIONS}
+          options={options}
           onChoose={(o) => setAnswer(o.id)}
           answered={answer ? { optionId: answer } : undefined}
-          onReopen={OPTIONS.find((o) => o.id === answer)?.reversible ? () => setAnswer(null) : undefined}
+          onReopen={options.find((o) => o.id === answer)?.reversible ? () => setAnswer(null) : undefined}
           hotkeys={false}
           sticky={false}
         />
@@ -122,6 +122,8 @@ function InboxNote() {
 }
 
 export function FinalCall() {
+  const business = useExample();
+  const orbit = useMemo(() => orbitDepartments(business), [business]);
   return (
     <section aria-labelledby="start-title" className="relative pb-24 pt-4">
       <Container>
@@ -129,7 +131,7 @@ export function FinalCall() {
           <div aria-hidden className="absolute inset-0" style={{ background: "radial-gradient(ellipse 55% 90% at 50% 110%, color-mix(in oklab, var(--kit-primary) 50%, transparent), transparent 70%), var(--bg-ink)" }} />
           <div aria-hidden className="absolute inset-0" style={{ backgroundImage: "radial-gradient(color-mix(in oklab, var(--white) 10%, transparent) 1px, transparent 1.5px)", backgroundSize: "22px 22px", maskImage: "radial-gradient(ellipse 60% 80% at 50% 100%, black 20%, transparent 80%)" }} />
           <div aria-hidden className="pointer-events-none absolute -bottom-136 left-1/2 w-200 -translate-x-1/2 opacity-30" style={{ maskImage: "linear-gradient(180deg, transparent 0%, black 35%)" }}>
-            <TeamOrbit periodSeconds={140} />
+            <TeamOrbit periodSeconds={140} chief={business.chief} departments={orbit} />
           </div>
           <div className="relative mx-auto flex max-w-3xl flex-col items-center gap-7 pb-24 text-center">
             <h2 id="start-title" className="t-display-hero text-balance text-primary">

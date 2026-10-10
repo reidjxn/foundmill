@@ -1,8 +1,20 @@
 /**
+ * The example businesses' logo marks, and Tutorlane's six options in How it works' brand picker. Every mark is a checked
+ * SVG data URL (`checkLogo` from @foundmill/shared/logo) in the mock logo designer's style: a tile rounded at 22 % of its
+ * side and two or three flat geometric shapes, legible at 16 px. Static, so the landing page needs no api.
+ */
+
+/** Glitchwick: a play button with its middle slice knocked sideways (a build being played, a glitch caught), coral and cyan on ink. */
+export const GLITCHWICK_LOGO = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIiB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIHJ4PSIyMiIgZmlsbD0iIzBmMTMxOCIvPjxwYXRoIGQ9Ik0yNiAyMCBMNzggNTAgTDI2IDgwIFoiIGZpbGw9IiNlZjZhNGMiIHN0cm9rZT0iI2VmNmE0YyIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PHJlY3QgeD0iMjAiIHk9IjQzIiB3aWR0aD0iNjQiIGhlaWdodD0iMTQiIGZpbGw9IiMwZjEzMTgiLz48cmVjdCB4PSIzNiIgeT0iNDYiIHdpZHRoPSI0NCIgaGVpZ2h0PSI4IiByeD0iMiIgZmlsbD0iIzVmZDRlNiIvPjwvc3ZnPg==";
+
+/** Northwind Skincare: a cream serum drop with a gold bead on the brand green (the colours of the founder's own Northwind). */
+export const NORTHWIND_LOGO = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIiB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIHJ4PSIyMiIgZmlsbD0iIzJmNmY1ZSIvPjxwYXRoIGQ9Ik01MCAxNSBDNTggMjYgNzQgNDIgNzQgNTkgQTI0IDI0IDAgMCAxIDI2IDU5IEMyNiA0MiA0MiAyNiA1MCAxNSBaIiBmaWxsPSIjZjZmNGVmIi8+PGNpcmNsZSBjeD0iNTAiIGN5PSI2MCIgcj0iOCIgZmlsbD0iI2YyYzk0YyIvPjwvc3ZnPg==";
+
+/**
  * The six example logos in the landing page's brand picker: marks from the mock logo designer
  * (packages/models/src/mock/logoDesigner.ts), one family each, drawn for Tutorlane in each option's brand colours
- * (`exampleKits()`, in order) and checked by `checkLogo`. Static, so the landing page needs no api. The first is
- * Tutorlane's own, on its teal and gold.
+ * (`brandOptions` in examples/tutorlane.ts, in order) and checked by `checkLogo`. The first is Tutorlane's own, on its
+ * teal and gold.
  */
 export const LANDING_LOGOS: ReadonlyArray<{ name: string; src: string }> = [
   { name: "Corner", src: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIiB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiI+PHJlY3Qgd2lkdGg9IjEwMCIgaGVpZ2h0PSIxMDAiIHJ4PSIyMiIgZmlsbD0iI2Y2ZjRlZiIvPjxwYXRoIGQ9Ik03OCAyMiBMNzggNzAgQTQ4IDQ4IDAgMCAxIDMwIDIyIFoiIGZpbGw9IiMxZjZmNWYiLz48cmVjdCB4PSIyMiIgeT0iNTYiIHdpZHRoPSIyMiIgaGVpZ2h0PSIyMiIgcng9IjMiIGZpbGw9IiNlOGM1NmIiLz48L3N2Zz4=" },
