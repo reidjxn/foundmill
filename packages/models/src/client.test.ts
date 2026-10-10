@@ -4,11 +4,12 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { LiveModelClient, createModelClient, keyFingerprint, validateApiKey } from "./client";
+import { LiveModelClient, createModelClient, grammarGaps, keyFingerprint, structuredOutputFor, validateApiKey } from "./client";
 import { ModelAbortedError, ModelOutputError, ModelRateLimitError, ModelRequestError, ModelUnavailableError } from "./errors";
 import { MockModelClient } from "./mock";
 import { RateLimiter } from "./rate-limit";
 import { MODELS } from "./routing";
+import { AgentReplyDraft, ComposerOutput, ConceptCard, FoundationsOutput, FoundationsSkeletonOutput, IdeationSlateOutput, LogoDesignOutput, PlanOutput, QuarantinedReaderOutput } from "./schemas";
 import type { UsageEvent } from "./types";
 
 interface Captured {
@@ -148,6 +149,39 @@ describe("LiveModelClient.complete", () => {
     // rate limits learnt from the response headers
     expect(limiter.snapshot(client.rateLimitKey)?.requests.limit).toBe(1000);
     expect(limiter.snapshot(client.rateLimitKey)?.inputTokens.limit).toBe(2_000_000);
+  });
+
+  it("sends a schema with an open-ended map (PlanOutput.params) in the system prompt, not as a grammar that only allows {}", async () => {
+    const plan = { summary: "Pause Meta and move €300 to Google.", actions: [{ type: "disable_channel", params: { channel: "meta_ads" }, agent_id: null }, { type: "set_budget", params: { channel: "google_ads", amount_minor: 30_000, currency: "EUR" }, agent_id: null }] };
+    const { fetch, calls } = fakeFetch([() => message(JSON.stringify(plan))]);
+    const client = new LiveModelClient({ apiKey: "sk-ant-test", fetch, sleep: noSleep });
+
+    const result = await client.complete({ route: "planCompiler", schema: PlanOutput, system: ["House rules block", "You are the plan compiler."], cacheSystem: true, messages: [{ role: "user", content: "Pause Meta ads and put €300 on Google." }] });
+
+    expect(result.json.actions.map((a) => a.params)).toEqual([{ channel: "meta_ads" }, { channel: "google_ads", amount_minor: 30_000, currency: "EUR" }]);
+    const body = calls[0]!.body;
+    // No output_config.format: the SDK's rewrite would close `params` to an object with no properties.
+    expect(body.output_config).toBeUndefined();
+    const system = body.system as { type: string; text: string; cache_control?: unknown }[];
+    expect(system.map((b) => b.text.split("\n")[0])).toEqual(["House rules block", "You are the plan compiler.", "## Response format"]);
+    // The breakpoint moves to the last block, so the whole system (format block included) stays one cached prefix.
+    expect(system.map((b) => b.cache_control ?? null)).toEqual([null, null, { type: "ephemeral" }]);
+    const described = JSON.parse(system[2]!.text.split("It must match this JSON Schema:\n")[1]!) as { properties: Record<string, unknown> };
+    expect(Object.keys(described.properties)).toEqual(["summary", "actions"]);
+    expect(JSON.stringify(described)).toContain('"params":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{}}');
+    expect(body.model).toBe(MODELS.opus);
+    expect(body.max_tokens).toBe(4096);
+  });
+
+  it("keeps every closed route schema on structured outputs; only open maps and untyped values go to the prompt", () => {
+    expect(structuredOutputFor(PlanOutput)).toMatchObject({ kind: "prompt", gaps: ["$defs.__schema0.params: open-ended object"] });
+    expect(structuredOutputFor(QuarantinedReaderOutput)).toMatchObject({ kind: "prompt", gaps: ["$: open-ended object"] });
+    for (const schema of [ComposerOutput, ConceptCard, IdeationSlateOutput, LogoDesignOutput, FoundationsSkeletonOutput, FoundationsOutput, AgentReplyDraft, Note]) {
+      const out = structuredOutputFor(schema);
+      expect(out.kind).toBe("format");
+      if (out.kind === "format") expect(out.format.schema.additionalProperties).toBe(false);
+    }
+    expect(grammarGaps(z.toJSONSchema(z.object({ a: z.unknown(), b: z.looseObject({ x: z.string() }), c: z.string().nullable() })) as Record<string, unknown>)).toEqual(["$.a: untyped value", "$.b: open-ended object"]);
   });
 
   it("repairs invalid JSON once by quoting the validation issues back, then succeeds", async () => {

@@ -37,8 +37,17 @@ import { agentConversationPrompt } from "./prompts/agent-conversation";
 import { researcher as researcherTemplate } from "./templates/workers/researcher";
 import type { AgentInstructions, AgentVoice } from "./types";
 
-/** Output tokens for one reply: 1–3 bubbles and 2–4 quick replies fit comfortably (audit-conversation §4 "Speed"). */
-export const CONVERSATION_MAX_TOKENS = 700;
+/**
+ * One reply (1–3 bubbles and 2–4 quick replies) is a few hundred output tokens (audit-conversation §4 "Speed"): what the
+ * local rate limiter books per call.
+ */
+export const CONVERSATION_RESERVE_TOKENS = 700;
+/**
+ * `max_tokens` for one reply. Opus 5.5 always thinks (effort is the only control) and thinking counts toward
+ * `max_tokens`, so a cap sized for the reply alone cut the JSON off (stop_reason max_tokens) whenever it thought for a
+ * few hundred tokens: the reply plus room for low-effort thinking, as on the other first-draft routes.
+ */
+export const CONVERSATION_MAX_TOKENS = 3_000;
 /** Messages of the thread sent with each reply (oldest first). */
 export const CONVERSATION_THREAD_WINDOW = 12;
 /** Words across all bubbles. */
@@ -597,6 +606,7 @@ export interface ConversationRequest {
   messages: [{ role: "user"; content: string }];
   schema: typeof AgentReplyDraft;
   maxTokens: number;
+  reserveTokens: number;
   cacheSystem: true;
 }
 
@@ -687,6 +697,7 @@ export function buildConversationRequest(input: ConversationRequestInput): Conve
     messages: [{ role: "user", content: "```json\n" + json + "\n```" }],
     schema: AgentReplyDraft,
     maxTokens: CONVERSATION_MAX_TOKENS,
+    reserveTokens: CONVERSATION_RESERVE_TOKENS,
     cacheSystem: true,
   };
 }

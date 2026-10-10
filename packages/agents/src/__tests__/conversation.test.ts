@@ -4,6 +4,7 @@ import { hasClubRulesPrefix } from "../club-rules";
 import {
   CONCEPT_BUSINESS_NAME,
   CONVERSATION_MAX_TOKENS,
+  CONVERSATION_RESERVE_TOKENS,
   CONVERSATION_THREAD_WINDOW,
   DEFAULT_QUICK_REPLIES,
   TAKE_A_BREAK_ID,
@@ -189,6 +190,11 @@ describe("buildConversationRequest", () => {
     const req = buildConversationRequest(INPUT);
     expect(req.route).toBe("conversation");
     expect(req.maxTokens).toBe(CONVERSATION_MAX_TOKENS);
+    // Opus 5.5 always thinks and thinking counts toward max_tokens: the cap leaves room for it above the reply itself,
+    // while the limiter books only what a reply writes.
+    expect(req.maxTokens).toBeGreaterThanOrEqual(2_000);
+    expect(req.reserveTokens).toBe(CONVERSATION_RESERVE_TOKENS);
+    expect(req.reserveTokens).toBeLessThan(req.maxTokens);
     expect(req.cacheSystem).toBe(true);
     expect(req.schema).toBe(AgentReplyDraft);
     expect(hasClubRulesPrefix(req.system[0])).toBe(true);

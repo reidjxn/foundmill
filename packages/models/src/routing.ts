@@ -65,7 +65,8 @@ export const ROUTES = {
   quarantinedReader: { model: "haiku" },
   moderation: { model: "haiku" },
   // Talking to an agent at their desk (audit-conversation §4): 1–3 short bubbles and 2–4 quick replies the founder waits
-  // on, so Opus at low effort; callers cap max_tokens (~700) and cache the system prompt (house rules + instructions).
+  // on, so Opus at low effort; callers cache the system prompt (house rules + instructions) and size max_tokens for the
+  // reply (~700 tokens) plus the thinking Opus 5.5 always does, which counts toward max_tokens.
   conversation: { model: "opus", effort: "low" },
 } as const satisfies Record<string, RouteDefinition>;
 export type RouteKey = keyof typeof ROUTES;

@@ -4,7 +4,9 @@
  * Live path, verified against the pinned @anthropic-ai/sdk 0.131.0 types and platform.claude.com docs on 2026-10-05:
  * - Structured output through `output_config.format` (GA JSON schema mode; `zodOutputFormat` from the SDK's zod helper
  *   builds the schema). The returned text is still parsed and validated here with the caller's Zod schema so a single
- *   automatic repair retry can quote the validation issues back to the model.
+ *   automatic repair retry can quote the validation issues back to the model. A schema the grammar cannot express (an
+ *   open map such as PlanOutput's `params`, an untyped value) is sent as a "## Response format" system block instead,
+ *   because the SDK would close it to `{}` (`structuredOutputFor`).
  * - Prompt caching with `cache_control: { type: "ephemeral" }` on the last system block when `cacheSystem` is set (BUILD
  *   §10.4). Prefixes below the model's minimum (512 tokens on the 5.5 models, 4096 on Haiku 4.5) silently do not cache.
  * - Rate limits read from `anthropic-ratelimit-*` headers via `.withResponse()`; 429 backoff with jitter is scoped to
@@ -30,7 +32,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { loadEnv } from "@foundmill/shared";
 import { createHash } from "node:crypto";
-import type { z } from "zod";
+import { z } from "zod";
 import { ModelAbortedError, ModelOutputError, ModelRateLimitError, ModelRequestError, ModelUnavailableError } from "./errors";
 import { parseJsonLoose } from "./json";
 import { MockModelClient, type MockModelClientOptions } from "./mock";
@@ -265,7 +267,10 @@ export class LiveModelClient implements ModelClient {
     if (resolution.warning) this.opts.logger?.warn({ route: req.route, override: req.modelOverride }, resolution.warning);
     const maxTokens = req.maxTokens ?? this.opts.defaultMaxTokens ?? DEFAULT_MAX_TOKENS;
     const reserve = Math.max(1, Math.min(maxTokens, Math.round(req.reserveTokens ?? maxTokens)));
-    const system = buildSystem(req.system, req.cacheSystem === true);
+    const output = req.schema ? structuredOutputFor(req.schema) : undefined;
+    if (output?.kind === "prompt") this.opts.logger?.debug({ route: req.route, gaps: output.gaps.slice(0, 5) }, "schema not expressible as structured output; sending it in the system prompt instead");
+    const systemBlocks = output?.kind === "prompt" ? [...systemTexts(req.system), output.instruction] : req.system;
+    const system = buildSystem(systemBlocks, req.cacheSystem === true);
     const base: Omit<Anthropic.MessageCreateParamsNonStreaming, "messages"> = {
       model: resolution.modelId,
       max_tokens: maxTokens,
@@ -276,14 +281,7 @@ export class LiveModelClient implements ModelClient {
     const effort = wanted && caps.effort ? wanted : undefined;
     if (wanted && !effort) this.opts.logger?.debug({ route: req.route, model: resolution.modelId }, "effort dropped: this model has no effort parameter");
     const outputConfig: Anthropic.OutputConfig = {};
-    if (req.schema) {
-      // Send the JSON schema only. `zodOutputFormat` also carries a `parse` function, and the SDK's MessageStream runs it
-      // at message_stop and errors the stream when the output fails the schema: a streamed document with one bad element
-      // (or truncated at max_tokens) would then look like a broken connection and be regenerated, instead of reaching
-      // the element repair here. Validation and repair are this module's job (see the header).
-      const { type, schema } = zodOutputFormat(req.schema);
-      outputConfig.format = { type, schema };
-    }
+    if (output?.kind === "format") outputConfig.format = output.format;
     if (effort) outputConfig.effort = effort;
     if (outputConfig.format || outputConfig.effort) base.output_config = outputConfig;
     if (req.temperature !== undefined) {
@@ -519,8 +517,89 @@ export async function validateApiKey(apiKey: string, opts: { mode?: ModelMode; f
 // helpers
 // ---------------------------------------------------------------------------------------------------------------------
 
+const systemTexts = (system: CompleteRequest["system"]): string[] => (Array.isArray(system) ? [...system] : typeof system === "string" ? [system] : []);
+
+/**
+ * How a schema reaches the model. Structured outputs (`output_config.format`) need every object closed
+ * (`additionalProperties: false`) and every value typed, and the SDK's `zodOutputFormat` silently rewrites what does
+ * not fit: an open map (`z.record`, a loose object) becomes an object with no properties, so the grammar only lets the
+ * model write `{}` there (PlanOutput's `params` would always arrive empty), and an untyped value (`z.unknown()`) makes
+ * it throw. Such a schema is sent in the system prompt instead (`kind: "prompt"`): the model is asked for JSON only and
+ * the reply goes through the same parse, validation and repair as any other.
+ */
+export type StructuredOutput =
+  | { kind: "format"; format: Anthropic.JSONOutputFormat }
+  | { kind: "prompt"; instruction: string; gaps: string[] };
+
+const structuredOutputs = new WeakMap<z.ZodType, StructuredOutput>();
+
+export function structuredOutputFor(schema: z.ZodType): StructuredOutput {
+  let out = structuredOutputs.get(schema);
+  if (!out) {
+    out = describeStructuredOutput(schema);
+    structuredOutputs.set(schema, out);
+  }
+  return out;
+}
+
+function describeStructuredOutput(schema: z.ZodType): StructuredOutput {
+  let gaps: string[];
+  try {
+    gaps = grammarGaps(z.toJSONSchema(schema, { reused: "ref" }) as Record<string, unknown>);
+  } catch (error) {
+    gaps = [`(schema) ${error instanceof Error ? error.message : String(error)}`];
+  }
+  if (gaps.length === 0) {
+    try {
+      // Send the JSON schema only. `zodOutputFormat` also carries a `parse` function, and the SDK's MessageStream runs
+      // it at message_stop and errors the stream when the output fails the schema: a streamed document with one bad
+      // element (or truncated at max_tokens) would then look like a broken connection and be regenerated, instead of
+      // reaching the element repair here. Validation and repair are this module's job (see the header).
+      const { type, schema: jsonSchema } = zodOutputFormat(schema);
+      return { kind: "format", format: { type, schema: jsonSchema } };
+    } catch (error) {
+      gaps = [`(format) ${error instanceof Error ? error.message : String(error)}`];
+    }
+  }
+  const described = (() => {
+    try {
+      const { $schema: _drop, ...rest } = z.toJSONSchema(schema, { unrepresentable: "any" }) as Record<string, unknown>;
+      return JSON.stringify(rest);
+    } catch {
+      return "";
+    }
+  })();
+  const instruction = [
+    "## Response format",
+    "Reply with one JSON object and nothing else: no prose before or after it, no code fences.",
+    described ? `It must match this JSON Schema:\n${described}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return { kind: "prompt", instruction, gaps };
+}
+
+/** Paths in a (zod-generated) JSON schema that structured outputs cannot express: open maps and untyped values. */
+export function grammarGaps(root: Record<string, unknown>): string[] {
+  const gaps: string[] = [];
+  const walk = (node: unknown, path: string) => {
+    if (!node || typeof node !== "object") return;
+    const s = node as Record<string, unknown>;
+    const composite = ["anyOf", "oneOf", "allOf"].some((k) => Array.isArray(s[k]));
+    if (s.type === undefined && !composite && s.$ref === undefined && s.enum === undefined && s.const === undefined) gaps.push(`${path}: untyped value`);
+    if (s.additionalProperties !== undefined && s.additionalProperties !== false) gaps.push(`${path}: open-ended object`);
+    if (s.patternProperties !== undefined) gaps.push(`${path}: patternProperties`);
+    for (const [k, v] of Object.entries((s.properties as Record<string, unknown> | undefined) ?? {})) walk(v, `${path}.${k}`);
+    if (s.items !== undefined) walk(s.items, `${path}[]`);
+    for (const k of ["anyOf", "oneOf", "allOf"]) for (const [i, v] of ((s[k] as unknown[] | undefined) ?? []).entries()) walk(v, `${path}|${i}`);
+    for (const [k, v] of Object.entries((s.$defs as Record<string, unknown> | undefined) ?? {})) walk(v, `$defs.${k}`);
+  };
+  walk(root, "$");
+  return gaps;
+}
+
 function buildSystem(system: CompleteRequest["system"], cache: boolean): Anthropic.TextBlockParam[] | undefined {
-  const blocks = (Array.isArray(system) ? system : typeof system === "string" ? [system] : []).filter((s) => s.trim().length > 0);
+  const blocks = systemTexts(system).filter((s) => s.trim().length > 0);
   if (blocks.length === 0) return undefined;
   return blocks.map((text, i) => ({ type: "text", text, ...(cache && i === blocks.length - 1 ? { cache_control: { type: "ephemeral" } } : {}) }));
 }

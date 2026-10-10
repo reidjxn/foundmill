@@ -71,8 +71,12 @@ export function loadEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): Env {
   const parsed = Env.safeParse({ ...process.env, ...overrides });
   if (!parsed.success) throw new Error(`Invalid environment: ${parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`);
   const env = parsed.data;
-  if (env.DEV_AUTH_USER_ID && env.APP_ENV !== "development" && env.APP_ENV !== "test") {
+  if (env.APP_ENV !== "development" && env.APP_ENV !== "test") {
     env.DEV_AUTH_USER_ID = undefined; // never honoured outside development/test (docs/DECISIONS.md)
+    // Simulated model latency is a development knob: a deployed service's mock client (a live service without its key
+    // falls back to it) never waits on purpose.
+    env.MOCK_MODEL_LATENCY_MS = 0;
+    env.MOCK_MODEL_STREAM_MS = 0;
   }
   if (Object.keys(overrides).length === 0) cached = env;
   return env;

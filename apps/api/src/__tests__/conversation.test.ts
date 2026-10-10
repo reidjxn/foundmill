@@ -3,7 +3,7 @@
  * hand-offs, always 2–4 quick replies, "Go with: …" through the decide path, hand-offs staged for confirmation only,
  * Inbox questions that never use up a decision, and tenancy (business, role and section).
  */
-import { hasClubRulesPrefix } from "@foundmill/agents";
+import { CONVERSATION_MAX_TOKENS, CONVERSATION_RESERVE_TOKENS, hasClubRulesPrefix } from "@foundmill/agents";
 import { repos } from "@foundmill/db";
 import { MockModelClient, PRICING_CURRENCY, type CompleteRequest, type ModelClient } from "@foundmill/models";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -91,7 +91,8 @@ describe("agent.conversation.send", () => {
     expect(req).toBeDefined();
     expect(hasClubRulesPrefix(systemBlocks(req!)[0]!)).toBe(true);
     expect(systemBlocks(req!)[1]).toContain("## This conversation");
-    expect(req!.maxTokens).toBe(700);
+    expect(req!.maxTokens).toBe(CONVERSATION_MAX_TOKENS);
+    expect(req!.reserveTokens).toBe(CONVERSATION_RESERVE_TOKENS);
     expect(req!.cacheSystem).toBe(true);
 
     expect(res.messages.map((m) => m.author)).toEqual(["founder", "agent"]);

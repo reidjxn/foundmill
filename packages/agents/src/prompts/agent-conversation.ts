@@ -1,5 +1,5 @@
 /**
- * Agent conversation (audit-conversation §4 "System prompt"). Route `conversation` (Opus, low effort, ~700 tokens).
+ * Agent conversation (audit-conversation §4 "System prompt"). Route `conversation` (Opus, low effort; a reply is ~700 tokens, `max_tokens` leaves room for thinking).
  *
  * Sent after `buildSystemPrompt` (house rules first, then the agent's description and live instructions with its tone),
  * as its own system block so both blocks stay cacheable. The inputs travel as JSON in the user message
