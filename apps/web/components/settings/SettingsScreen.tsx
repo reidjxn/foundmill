@@ -1,7 +1,7 @@
 "use client";
 /**
- * Settings (BUILD §11.15, DESIGN §9): a left list of sections in tab style, right panel forms with 32 px inputs,
- * the danger zone outlined in status-bad at 40 %. Each tab is its own component; admin-only sections say so.
+ * Settings (BUILD §11.15, DESIGN §9): a left list of sections drawn like the sidebar (the active one on the brand
+ * plate with its lit edge), right panel forms, the danger zone outlined in status-bad at 40 %. Each tab is its own component; admin-only sections say so.
  */
 import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Briefcase, Building2, CreditCard, KeyRound, LayoutList, Plug, SlidersHorizontal, SpellCheck, Users, type LucideIcon } from "lucide-react";
@@ -61,12 +61,12 @@ export function SettingsScreen({ tab }: { tab: SettingsTabSlug }) {
   const Body = TABS[tab];
   return (
     <div className="settings-grid p-gutter" data-testid="settings-screen" data-tab={tab}>
-      <nav aria-label="Settings sections" className="flex flex-col gap-0.5 self-start rounded-panel border border-subtle bg-panel p-1">
+      <nav aria-label="Settings sections" className="surface-panel flex flex-col gap-0.5 self-start py-1.5">
         {SETTINGS_TABS.map((t) => {
           const active = t.slug === tab;
           return (
-            <ShellLink key={t.slug} href={routes.settings(businessId, t.slug)} aria-current={active ? "page" : undefined} className={`flex h-8 items-center gap-2 rounded-panel px-2 t-tab ${active ? "bg-panel-alt text-primary shadow-[inset_3px_0_0_var(--kit-primary)]" : "text-secondary hover:bg-panel-alt hover:text-primary"} ${t.slug === "danger" ? "mt-2 border-t border-subtle pt-2" : ""}`}>
-              <Icon icon={ICONS[t.slug]} size="default" />
+            <ShellLink key={t.slug} href={routes.settings(businessId, t.slug)} aria-current={active ? "page" : undefined} data-active={active || undefined} className={`sidebar-item hover:no-underline ${t.slug === "danger" ? "mt-1.5" : ""}`}>
+              <Icon icon={ICONS[t.slug]} size="default" data-sidebar-icon="" className={t.slug === "danger" ? "text-status-bad" : undefined} />
               {t.label}
             </ShellLink>
           );

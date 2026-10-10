@@ -121,10 +121,43 @@ describe("sector gates", () => {
     const hits = detectSectors({ name: "Northwind Skincare", archetype: "dtc_physical", glossary: { customers: "patients" } });
     expect(hits.map((h) => h.key)).toEqual(["health", "food", "cosmetics"]);
     expect(hits.find((h) => h.key === "cosmetics")?.reasons.join(" ")).toContain('"skincare"');
-    expect(hits.find((h) => h.key === "food")?.reasons.join(" ")).toContain("archetype");
+    expect(hits.find((h) => h.key === "food")?.reasons.join(" ")).toContain("common for DTC physical product businesses");
     const selected = new Set(["cosmetics"] as const);
     expect(gateState("cosmetics", selected, new Set())).toBe("open");
     expect(gateState("health", selected, new Set())).toBe("not_applicable");
     expect(gateState("cosmetics", selected, new Set(["cosmetics:safety", "cosmetics:pif", "cosmetics:notification", "cosmetics:claims"]))).toBe("clear");
+  });
+});
+
+describe("plain words for registry keys", () => {
+  it("never shows an enum, a code or a raw archetype", async () => {
+    const { archetypeLabel, entityTypeLabel, formatAddress, jurisdictionName } = await import("../legal-data");
+    expect(entityTypeLabel("private_limited_company")).toBe("Private limited company");
+    expect(entityTypeLabel("C-corp")).toBe("C-corp");
+    expect(entityTypeLabel("Ltd")).toBe("Private limited company (Ltd)");
+    expect(jurisdictionName("GB")).toBe("United Kingdom");
+    expect(jurisdictionName("se")).toBe("Sweden");
+    expect(jurisdictionName("us-de")).toBe("Delaware");
+    expect(jurisdictionName("Delaware")).toBe("Delaware");
+    expect(archetypeLabel("dtc_physical")).toBe("DTC physical product");
+    expect(formatAddress({ line1: "14 Quill Street", city: "Manchester", postal_code: "M4 5JW", country: "GB" })).toBe("14 Quill Street, Manchester, M4 5JW, United Kingdom");
+  });
+
+  it("writes the privacy policy's controller line in words", () => {
+    const text = generatePolicies({ businessName: "Northwind Skincare", legalName: "Northwind Skincare Ltd", jurisdiction: "GB", entityType: "private_limited_company", regNo: "15432198", address: "14 Quill Street, Manchester", region: "eu", archetype: "dtc_physical", flows: [], today: "2026-10-09" }).privacy;
+    expect(text).toContain("Northwind Skincare Ltd, private limited company, registration number 15432198 (United Kingdom)");
+    expect(text).not.toMatch(/private_limited_company|\(GB\)|dtc_physical/);
+  });
+
+  it("dates the policies in words, names the governing law's place and cites the UK GDPR for a UK company", () => {
+    const uk = generatePolicies({ businessName: "Northwind Skincare", legalName: "Northwind Skincare Ltd", jurisdiction: "GB", entityType: "private_limited_company", regNo: "15432198", address: "", region: "eu", archetype: "dtc_physical", flows: [], today: "2026-10-09" });
+    expect(uk.privacy).toContain("Last updated 9 October 2026");
+    expect(uk.privacy).not.toContain("2026-10-09");
+    expect(uk.privacy).toContain("UK General Data Protection Regulation (UK GDPR)");
+    expect(uk.terms).toContain("The law of the United Kingdom applies");
+    expect(uk.terms).not.toMatch(/law of GB\b/);
+    const se = generatePolicies({ businessName: "Ledgerly", legalName: "Ledgerly AB", jurisdiction: "se", entityType: "ab", regNo: null, address: "", region: "eu", archetype: "b2b_saas", flows: [], today: "2026-10-09" });
+    expect(se.privacy).toContain("the EU General Data Protection Regulation (GDPR)");
+    expect(se.terms).toContain("The law of Sweden applies");
   });
 });

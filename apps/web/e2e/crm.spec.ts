@@ -18,6 +18,11 @@ test.describe("crm", () => {
     const grid = page.getByRole("grid", { name: "CRM records" });
     await expect(grid).toBeVisible({ timeout: LONG });
     await expect(grid.getByRole("row").nth(1)).toBeVisible({ timeout: LONG });
+    // Plain words in the cells: a record's kind is singular ("Organisation", never the "Organisations" group name),
+    // and the agents' old "squad" source never reaches the founder.
+    await expect(grid.locator('[data-col="kind"]').filter({ hasText: /^(Organisation|Person|Agent|Staff|Member|Community|Venue)$/ }).first()).toBeVisible();
+    await expect(grid.locator('[data-col="kind"]').filter({ hasText: /Organisations|People/ })).toHaveCount(0);
+    await expect(grid).not.toContainText(/\bsquad\b/);
     await page.getByRole("button", { name: /^View: / }).click();
     await page.getByRole("menuitemradio", { name: "By kind" }).click();
     await expect(page.getByRole("button", { name: /^View: By kind/ })).toBeVisible();

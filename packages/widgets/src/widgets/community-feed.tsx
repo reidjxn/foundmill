@@ -53,7 +53,7 @@ function CommunityFeedWidget({ settings }: WidgetProps<CommunityFeedSettings>) {
     return (
       <WidgetFrame title="Community" data-widget="community_feed">
         <EmptyState icon={Users} className="py-4">
-          Communities are part of LIVE. Switch the game mode in Settings to join one.
+          Communities open once the business is live. Make it live in Settings to join one.
         </EmptyState>
       </WidgetFrame>
     );
@@ -75,7 +75,7 @@ function CommunityFeedWidget({ settings }: WidgetProps<CommunityFeedSettings>) {
 export const communityFeedWidget = registerWidget<CommunityFeedSettings>({
   key: "community_feed",
   title: "Community feed",
-  description: "Recent posts from one of your communities (LIVE).",
+  description: "Recent posts from one of your communities (live businesses).",
   icon: "users",
   surfaces: ["home"],
   defaultSize: { w: 4, h: 12, minW: 3, minH: 8 },

@@ -13,9 +13,27 @@ test.describe("login", () => {
     await expect(page.getByTestId("dev-bypass")).toBeVisible();
   });
 
+  test("the sign-in frame: the wordmark lock-up, one titled panel and no developer notes", async ({ page }) => {
+    await page.goto("/login");
+    const panel = page.getByTestId("brand-panel");
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText("Sign in", { exact: true })).toBeVisible();
+    await expect(page.locator("main")).not.toContainText(/DEV_AUTH_USER_ID|Supabase/);
+  });
+
   test("redirects a signed-out visitor from a business route to /login with next", async ({ page }) => {
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
     await expect(page).toHaveURL(/\/login\?next=/);
+  });
+});
+
+test.describe("not found", () => {
+  test("an address with no business behind it gets the branded page and one way on", async ({ page }) => {
+    await openBusiness(page);
+    await page.goto("/b/00000000-0000-4000-8000-0000000000ff/home");
+    await expect(page.getByTestId("brand-panel")).toBeVisible({ timeout: LONG });
+    await expect(page.getByText("Nothing at this address")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Go to your business" })).toHaveAttribute("href", "/");
   });
 });
 

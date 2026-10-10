@@ -19,7 +19,7 @@ describe("ContractsScreen", () => {
     expect(within(grid).getByText("Lease agreement")).toBeTruthy();
     expect(within(grid).getByText("€12,000.00")).toBeTruthy();
     expect(within(grid).getByText("NDA")).toBeTruthy();
-    expect(screen.getByText(/3 contracts · right-click/)).toBeTruthy();
+    expect(screen.getByText("3 contracts")).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Signing" })).toBeNull();
   });
 

@@ -13,7 +13,7 @@ import { useState } from "react";
 import { Button, Chip, IconButton, SimpleSelect, StatusPill, type StatusTone } from "@foundmill/dugout";
 import type { IntegrationStatus } from "@foundmill/shared";
 import { simulatePanelAvailable } from "@/lib/env";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, plainWords, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
@@ -26,7 +26,15 @@ export const STATUS_TONE: Record<IntegrationStatus, { tone: StatusTone; word: st
   degraded: { tone: "warn", word: "Degraded" },
   expired: { tone: "bad", word: "Expired" },
   disconnected: { tone: "neutral", word: "Not connected" },
-  mock: { tone: "info", word: "Mock" },
+  mock: { tone: "info", word: "Test data" },
+};
+
+/** How a connector signs in, in words (never the stored kind). */
+export const AUTH_WORD: Record<string, string> = {
+  oauth: "Sign in with the vendor",
+  api_key: "API key",
+  app: "Install the app",
+  none: "No sign-in needed",
 };
 
 /** The six panel actions BUILD §13.3 names; the ingest catalogue may add more. */
@@ -65,7 +73,17 @@ export function simulateRefusalMessage(result: SimulateResult): string {
 export function modeLabel(mode: string, rows: readonly { displayName: string; live?: boolean }[]): string {
   if (mode !== "mock") return "Live";
   const live = rows.filter((r) => r.live).map((r) => r.displayName);
-  return live.length ? `Mock mode · ${live.join(", ")} live` : "Mock mode";
+  return live.length ? `Test mode · ${live.join(", ")} live` : "Test mode";
+}
+
+/** The line under a connector: its account, what agents can do with it, when it was last checked. */
+export function connectorDetail(c: { tools: readonly unknown[] }, integ: { accountLabel?: string | null; scopes: readonly string[]; lastHealthAt?: string | Date | null } | null): string {
+  const parts: string[] = [];
+  if (integ?.accountLabel) parts.push(integ.accountLabel);
+  parts.push(`${plural(c.tools.length, "agent action")}`);
+  if (integ?.scopes.length) parts.push(plural(integ.scopes.length, "permission"));
+  if (integ?.lastHealthAt) parts.push(`checked ${formatDateTime(integ.lastHealthAt)}`);
+  return parts.join(" · ");
 }
 
 /** Leaves for a vendor's consent page in this tab (a seam for tests). */
@@ -137,39 +155,41 @@ export function IntegrationsTab() {
           </div>
         </SettingsSection>
       ) : null}
-      <SettingsSection title="Connectors" actions={list.data ? <Chip tone={list.data.mode === "mock" ? "info" : "good"}>{modeLabel(list.data.mode, rows)}</Chip> : undefined} loading={list.isLoading}>
-        <Hint>OAuth consents and API keys are yours to grant: a connector that needs one opens the vendor's page and waits for you. Secrets are encrypted at rest and never shown again.</Hint>
-        <ul className="flex flex-col divide-y divide-subtle" data-testid="connector-list">
+      <SettingsSection wide title="Connectors" meta={list.data ? plural(rows.filter((r) => r.integration && r.integration.status !== "disconnected").length, "connected", "connected") : undefined} actions={list.data ? <Chip tone={list.data.mode === "mock" ? "info" : "good"}>{modeLabel(list.data.mode, rows)}</Chip> : undefined} loading={list.isLoading}>
+        <Hint>Consents and API keys are yours to grant: a connector that needs one opens the vendor's page and waits for you. Secrets are stored encrypted and never shown again.</Hint>
+        <ul className="flex flex-col" data-testid="connector-list">
           {rows.map((c) => {
             const integ = c.integration;
             const status = STATUS_TONE[(integ?.status ?? "disconnected") as IntegrationStatus] ?? STATUS_TONE.disconnected;
             const connected = integ !== null && integ.status !== "disconnected";
             return (
-              <li key={c.key} className="flex min-h-row-comfortable items-center gap-3 py-1" data-connector={c.key}>
-                <span className="w-40 shrink-0">
-                  <span className="block text-body font-medium">{c.displayName}</span>
-                  <span className="block text-small text-secondary">
-                    {c.auth.kind} · phase {c.phase}
+              <li key={c.key} className="flex min-h-row-comfortable items-start gap-3 border-b border-line-faint py-2.5 last:border-b-0" data-connector={c.key}>
+                <span className="flex w-40 shrink-0 flex-col">
+                  <span className="text-body-strong text-primary">{c.displayName}</span>
+                  <span className="text-small text-tertiary">{AUTH_WORD[c.auth.kind] ?? plainWords(c.auth.kind)}</span>
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <StatusPill tone={status.tone}>{status.word}</StatusPill>
+                    {list.data?.mode === "mock" && c.live ? <Chip tone="good">Live</Chip> : null}
                   </span>
+                  <span className="break-words text-small text-secondary" title={integ?.scopes.length ? `Permissions: ${integ.scopes.join(", ")}` : undefined}>
+                    {connectorDetail(c, integ)}
+                  </span>
+                  {integ?.lastError ? <span className="break-words text-small text-status-bad">{integ.lastError}</span> : null}
                 </span>
-                <StatusPill tone={status.tone}>{status.word}</StatusPill>
-                {list.data?.mode === "mock" && c.live ? <Chip tone="good">Live</Chip> : null}
-                <span className="flex-1 truncate text-small text-secondary">
-                  {integ?.accountLabel ? `${integ.accountLabel} · ` : ""}
-                  {c.tools.length} tools{integ?.scopes.length ? ` · ${integ.scopes.join(", ")}` : ""}
-                  {integ?.lastHealthAt ? ` · checked ${formatDateTime(integ.lastHealthAt)}` : ""}
-                  {integ?.lastError ? ` · ${integ.lastError}` : ""}
+                <span className="flex shrink-0 items-center gap-1 pt-0.5">
+                  {connected ? (
+                    <>
+                      <IconButton label={`Check ${c.displayName} health`} icon={Activity} size="sm" disabled={health.isPending} onClick={() => integ && health.mutate({ businessId, integrationId: integ.id })} />
+                      <IconButton label={`Disconnect ${c.displayName}`} icon={Unplug} size="sm" disabled={disconnect.isPending} onClick={() => integ && disconnect.mutate({ businessId, integrationId: integ.id })} />
+                    </>
+                  ) : (
+                    <Button size="sm" icon={c.auth.kind === "oauth" ? ExternalLink : Plug} loading={connect.isPending && connect.variables?.connectorKey === c.key} onClick={() => connect.mutate({ businessId, connectorKey: c.key, input: {} })}>
+                      Connect
+                    </Button>
+                  )}
                 </span>
-                {connected ? (
-                  <>
-                    <IconButton label={`Check ${c.displayName} health`} icon={Activity} size="sm" disabled={health.isPending} onClick={() => integ && health.mutate({ businessId, integrationId: integ.id })} />
-                    <IconButton label={`Disconnect ${c.displayName}`} icon={Unplug} size="sm" disabled={disconnect.isPending} onClick={() => integ && disconnect.mutate({ businessId, integrationId: integ.id })} />
-                  </>
-                ) : (
-                  <Button size="sm" icon={c.auth.kind === "oauth" ? ExternalLink : Plug} loading={connect.isPending && connect.variables?.connectorKey === c.key} onClick={() => connect.mutate({ businessId, connectorKey: c.key, input: {} })}>
-                    Connect
-                  </Button>
-                )}
               </li>
             );
           })}

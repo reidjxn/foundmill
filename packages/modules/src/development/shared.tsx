@@ -3,7 +3,9 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { PageGrid, StatusPill, TASK_STATUS_META, cn, type TileAgent } from "@foundmill/dugout";
 import type { DeptColourToken, TaskStatus } from "@foundmill/shared";
+import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
+import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import { useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets/data";
 import type { AgentRow, AgentsListResponse, TaskRow } from "./types";
 
@@ -144,6 +146,21 @@ export function useAgentIndex(agents: readonly AgentRow[] | undefined): Map<stri
 
 export function agentHref(businessId: string, agentId: string): string {
   return routes.agent(businessId, agentId);
+}
+
+/**
+ * The department this screen is open in when it carries the development module (Development, or a department such as
+ * Formulation Lab that maps onto it), else the first department that does. Links to Plan and Live sessions stay in the
+ * department the founder is looking at.
+ */
+export function devDepartment(departments: readonly DepartmentRow[] | undefined, departmentId: string | undefined): DepartmentRow | undefined {
+  const here = departments?.find((d) => d.id === departmentId);
+  return here && here.moduleKeys.includes("development") ? here : departmentForModule(departments, "development");
+}
+
+export function useDevDepartment(departmentId: string | undefined): DepartmentRow | undefined {
+  const departments = useDepartments();
+  return devDepartment(departments.data, departmentId);
 }
 
 export function taskHref(businessId: string, deptSlug: string | undefined, taskId: string): string {

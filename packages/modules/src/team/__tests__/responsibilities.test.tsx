@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { RESPONSIBILITY_VIEWS, ResponsibilitiesScreen, handlerName, toResponsibilityRows } from "../ResponsibilitiesScreen";
-import { readMe } from "../shared";
+import { DECISION_DESCRIPTIONS, readMe } from "../shared";
 import { AGENT_MARA, AGENT_PIKE, BID, DEPT_DIST, DEPT_TEAM, USER_ADA, agents, dataResponses, departments, emptyResponses, humans, me, responsibilities } from "./fixtures";
 import { createFakeSource, renderScreen } from "./fake-source";
 
@@ -45,11 +45,33 @@ describe("ResponsibilitiesScreen", () => {
     expect(within(table).getAllByText("You (founder)")).toHaveLength(5);
     expect(within(table).getByText("Hard gate")).toBeTruthy();
     expect(within(table).getByText("Differs by department")).toBeTruthy();
-    expect(screen.getByTestId("responsibilities-summary").textContent).toBe("7 decision types · 2 delegated · 1 differ by department");
+    expect(screen.getByTestId("responsibilities-summary").textContent).toBe("7 decision types · 2 delegated · 1 differs by department");
     fireEvent.click(within(table).getByText("Message customers"));
     const detail = await screen.findByRole("table", { name: "Message customers by department" });
     expect(within(detail).getByRole("link", { name: "Mara" })).toBeTruthy();
     expect(within(detail).getByRole("button", { name: "Take back Message customers in Distribution" })).toBeTruthy();
+  });
+
+  it("makes room for the department detail: Covers steps aside, actions become named icon buttons, the detail says what the decision covers", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <ResponsibilitiesScreen {...props} />);
+    let table = await screen.findByRole("grid", { name: "Responsibilities" });
+    const headers = () => within(screen.getByRole("grid", { name: "Responsibilities" })).getAllByRole("columnheader").map((h) => h.textContent?.replace(/Resize.*$/, "").trim());
+    expect(headers()).toContain("Covers");
+    fireEvent.click(within(table).getByText("Message customers"));
+    const detail = await screen.findByRole("table", { name: "Message customers by department" });
+    expect(screen.getByText(DECISION_DESCRIPTIONS.message_customers, { selector: "p" })).toBeTruthy();
+    expect(detail).toBeTruthy();
+    table = screen.getByRole("grid", { name: "Responsibilities" });
+    expect(headers()).not.toContain("Covers");
+    const delegate = within(table).getByRole("button", { name: "Delegate Hire agents" });
+    expect(delegate.textContent).toBe("");
+    await user.click(delegate);
+    expect(await screen.findByTestId("delegate-dialog")).toBeTruthy();
+    await user.keyboard("{Escape}");
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(headers()).toContain("Covers"));
   });
 
   it("takes a decision back with one click, business-wide or in one department (AC-11.9.2 routing)", async () => {
@@ -67,6 +89,33 @@ describe("ResponsibilitiesScreen", () => {
     await user.click(within(detail).getByRole("button", { name: "Take back Message customers in Distribution" }));
     await waitFor(() => expect(fake.mutations[1]).toEqual({ path: "team.responsibilities.set", input: { decisionType: "message_customers", handler: { kind: "founder", id: null }, departmentId: DEPT_DIST } }));
     expect(within(table).queryByRole("button", { name: "Take back Spend above threshold" })).toBeNull();
+  });
+
+  it("offers signing only to staff: no delegate action on the hard gate until someone else is on the staff", async () => {
+    const user = userEvent.setup();
+    const alone = createFakeSource({ businessId: BID, responses: { ...dataResponses, "team.humans.list": humans.filter((h) => h.role === "owner") } });
+    const r = renderScreen(alone, <ResponsibilitiesScreen {...props} />);
+    let table = await screen.findByRole("grid", { name: "Responsibilities" });
+    expect(within(table).queryByRole("button", { name: "Delegate Sign contracts" })).toBeNull();
+    expect(within(table).getByText("Founder or staff only")).toBeTruthy();
+    fireEvent.contextMenu(within(table).getByText("Sign contracts"));
+    expect((await screen.findByRole("menuitem", { name: "Delegate to staff…" })).getAttribute("aria-disabled")).toBe("true");
+    await user.keyboard("{Escape}");
+    // Delegating anything else starts on "An agent"; choosing a staff member says there is no one yet and offers the invite.
+    await user.click(within(table).getByRole("button", { name: "Delegate Hire agents" }));
+    const dialog = await screen.findByTestId("delegate-dialog");
+    expect(within(dialog).getByRole("radio", { name: /An agent/, checked: true })).toBeTruthy();
+    await user.click(within(dialog).getByRole("radio", { name: /A staff member/ }));
+    expect(within(dialog).getByTestId("delegate-no-staff").textContent).toContain("No one else is on the staff yet.");
+    await user.click(within(dialog).getByRole("button", { name: "Invite staff" }));
+    expect(alone.navigations.at(-1)).toBe(`/b/${BID}/d/team/staff`);
+    r.unmount();
+
+    const withStaff = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(withStaff, <ResponsibilitiesScreen {...props} />);
+    table = await screen.findByRole("grid", { name: "Responsibilities" });
+    expect(within(table).getByRole("button", { name: "Delegate Sign contracts" }).textContent).toBe("Delegate to staff…");
+    expect(within(table).getByRole("button", { name: "Delegate Hire agents" }).textContent).toBe("Delegate…");
   });
 
   it("delegates to a staff member or an agent, never an agent for signing, optionally in one department", async () => {

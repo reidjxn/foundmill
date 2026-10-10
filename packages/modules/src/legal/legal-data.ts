@@ -4,10 +4,93 @@
  * regulated-sector gates. Everything here is information for the founder, never legal or tax advice, and nothing
  * here files, signs, pays or accepts terms (BUILD §11.11, AC-11.11.4).
  */
-import type { Archetype, IncorporationRoute } from "@foundmill/shared";
+import { ARCHETYPE_LABELS, type Archetype, type IncorporationRoute } from "@foundmill/shared/constants";
 import type { ComplianceEventRow, ComplianceListResponse, ContractRow, FilingRow, FilingStatus, IncorporationRow, IncorporationStepRecord, IntegrationRow, LegalEntityRow, OfficerEntityRow } from "./types";
 
 export const DAY_MS = 86_400_000;
+
+/* ---------- Plain words for stored keys (never show a registry code or an enum to the founder) ---------- */
+
+/** "private_limited_company" → "Private limited company"; "costOfSales" → "Cost of sales". */
+export function plainWords(key: string | null | undefined): string {
+  if (!key) return "";
+  const words = key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Contract kinds as words; an agreement's acronym keeps its capitals ("nda" → "NDA", "customer_msa" → "Customer"). */
+const CONTRACT_KIND_WORDS: Record<string, string> = {
+  nda: "NDA",
+  dpa: "Data processing",
+  safe: "SAFE",
+  msa: "Services",
+  customer_msa: "Customer",
+  supplier_msa: "Supplier",
+  sow: "Statement of work",
+  ip_assignment: "IP assignment",
+};
+const CONTRACT_INITIALISMS = new Set(["nda", "dpa", "msa", "safe", "sow", "ip", "saas", "sla"]);
+
+export function contractKindLabel(kind: string | null | undefined): string {
+  if (!kind) return "";
+  const key = kind.trim().toLowerCase();
+  if (CONTRACT_KIND_WORDS[key]) return CONTRACT_KIND_WORDS[key]!;
+  const words = plainWords(key).split(" ").map((w) => (CONTRACT_INITIALISMS.has(w.toLowerCase()) ? w.toUpperCase() : w));
+  return words.join(" ");
+}
+
+const ENTITY_TYPE_WORDS: Record<string, string> = {
+  private_limited_company: "Private limited company",
+  public_limited_company: "Public limited company",
+  limited_liability_partnership: "Limited liability partnership",
+  ltd: "Private limited company (Ltd)",
+  plc: "Public limited company (plc)",
+  llp: "Limited liability partnership (LLP)",
+  llc: "LLC",
+  c_corp: "C-corp",
+  "c-corp": "C-corp",
+  s_corp: "S-corp",
+  aktiebolag: "Aktiebolag (AB)",
+  ab: "Aktiebolag (AB)",
+  gmbh: "GmbH",
+  sas: "SAS",
+  sole_trader: "Sole trader",
+};
+
+/** A legal form as words: registry keys become sentences, forms typed by hand ("C-corp", "Ltd") stay as written. */
+export function entityTypeLabel(entityType: string | null | undefined): string {
+  if (!entityType) return "";
+  const key = entityType.trim().toLowerCase().replace(/\s+/g, "_");
+  if (ENTITY_TYPE_WORDS[key]) return ENTITY_TYPE_WORDS[key]!;
+  return /[_]/.test(entityType) || entityType === entityType.toLowerCase() ? plainWords(entityType) : entityType;
+}
+
+const SUBDIVISION_WORDS: Record<string, string> = { "us-de": "Delaware", "gb-eng": "England and Wales", "gb-sct": "Scotland", "gb-nir": "Northern Ireland", "england-wales": "England and Wales" };
+
+/** "GB" → "United Kingdom", "se" → "Sweden", "us-de" → "Delaware"; a name typed by hand ("Delaware") stays as written. */
+export function jurisdictionName(jurisdiction: string | null | undefined): string {
+  if (!jurisdiction) return "";
+  const j = jurisdiction.trim();
+  const sub = SUBDIVISION_WORDS[j.toLowerCase()];
+  if (sub) return sub;
+  if (/^[A-Za-z]{2}$/.test(j)) {
+    const code = j.toUpperCase() === "UK" ? "GB" : j.toUpperCase();
+    try {
+      const name = new Intl.DisplayNames(["en-GB"], { type: "region" }).of(code);
+      if (name && name !== code) return name;
+    } catch {
+      // Fall through to the code itself.
+    }
+    return code;
+  }
+  return j;
+}
+
+/** The business archetype as words ("dtc_physical" → "DTC physical product"). */
+export function archetypeLabel(archetype: string | null | undefined): string {
+  if (!archetype) return "";
+  return (ARCHETYPE_LABELS as Record<string, string>)[archetype] ?? plainWords(archetype);
+}
 
 export function toDate(d: string | Date | null | undefined): Date | null {
   if (!d) return null;
@@ -54,8 +137,8 @@ export const ROUTE_META: Record<IncorporationRoute, RouteMeta> = {
   },
   kit: {
     route: "kit",
-    label: "Kit",
-    jurisdictionLabel: "Everything else",
+    label: "Document pack",
+    jurisdictionLabel: "Any other jurisdiction",
     who: "The team prepares the documents and forms; you file them with the registry yourself.",
     external: null,
     entityTypes: ["As required by the registry"],
@@ -195,14 +278,16 @@ export function formatAddress(address: Record<string, string> | null | undefined
   const order = ["line1", "address_line_1", "addressLine1", "line2", "address_line_2", "addressLine2", "street", "locality", "city", "postal_code", "postalCode", "postcode", "region", "country"];
   const used = new Set<string>();
   const parts: string[] = [];
+  // A registry's two-letter country code reads as the country's name ("GB" → "United Kingdom").
+  const show = (k: string, v: string) => (k === "country" || k === "country_code" || k === "countryCode" ? jurisdictionName(v) : v);
   for (const k of order) {
     const v = address[k];
     if (v && !used.has(k)) {
-      parts.push(v);
+      parts.push(show(k, v));
       used.add(k);
     }
   }
-  for (const [k, v] of Object.entries(address)) if (v && !used.has(k)) parts.push(v);
+  for (const [k, v] of Object.entries(address)) if (v && !used.has(k)) parts.push(show(k, v));
   return parts.join(", ");
 }
 
@@ -291,13 +376,16 @@ export function monthKey(d: string | Date): string {
 }
 
 /** Twelve month buckets from `from` (inclusive), each with the rows due in it. */
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
 export function calendarMonths(rows: readonly CalendarRow[], from: Date, months = 12): { key: string; label: string; rows: CalendarRow[] }[] {
   const out: { key: string; label: string; rows: CalendarRow[] }[] = [];
   const start = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1));
   for (let i = 0; i < months; i++) {
     const d = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i, 1));
     const key = monthKey(d);
-    out.push({ key, label: d.toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" }), rows: rows.filter((r) => r.dueAt && monthKey(r.dueAt) === key) });
+    // "Sep 2027", never ICU's "Sept 2027": the same three-letter months as every other date in the product.
+    out.push({ key, label: `${MONTH_ABBR[d.getUTCMonth()]} ${d.getUTCFullYear()}`, rows: rows.filter((r) => r.dueAt && monthKey(r.dueAt) === key) });
   }
   return out;
 }
@@ -444,14 +532,37 @@ const ARCHETYPE_SERVICE: Record<Archetype, string> = {
 
 function controller(p: PolicyInput): string {
   const name = p.legalName || p.businessName;
-  const bits = [name, p.entityType ? p.entityType : null, p.regNo ? `registration number ${p.regNo}` : null, p.jurisdiction ? `(${p.jurisdiction})` : null].filter(Boolean);
-  return bits.join(", ");
+  const form = entityTypeLabel(p.entityType);
+  const place = jurisdictionName(p.jurisdiction);
+  // "Private limited company (Ltd)" reads lower-case mid-sentence; "C-corp", "LLC" and "GmbH" keep their capitals.
+  const sentence = /^(Private|Public|Limited) /.test(form);
+  const bits = [name, form ? (sentence ? form.charAt(0).toLowerCase() + form.slice(1) : form) : null, p.regNo ? `registration number ${p.regNo}` : null].filter(Boolean);
+  return `${bits.join(", ")}${place ? ` (${place})` : ""}`;
+}
+
+/** "2026-10-09" → "9 October 2026": a policy's date reads as a date, never an ISO key. */
+export function policyDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return iso;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(d);
+}
+
+/** A place mid-sentence: "the United Kingdom", "the Netherlands", "Delaware", "Sweden". */
+export function placeInSentence(name: string): string {
+  return /^(United |Netherlands$|Czech Republic$|Philippines$|Bahamas$)/.test(name) ? `the ${name}` : name;
+}
+
+/** A UK company answers to the UK GDPR, not the EU one (the UK left the EU's regime at the end of 2020). */
+function isUkJurisdiction(jurisdiction: string | null | undefined): boolean {
+  const j = (jurisdiction ?? "").trim().toLowerCase();
+  return j === "gb" || j === "uk" || j.startsWith("gb-") || j === "england-wales" || jurisdictionName(jurisdiction) === "United Kingdom";
 }
 
 export function generatePrivacyPolicy(p: PolicyInput): string {
-  const law = p.region === "eu" ? "the EU General Data Protection Regulation (GDPR)" : "applicable US state privacy laws";
+  const law = isUkJurisdiction(p.jurisdiction) ? "the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018" : p.region === "eu" ? "the EU General Data Protection Regulation (GDPR)" : "applicable US state privacy laws";
   const lines: string[] = [];
-  lines.push(`# Privacy policy`, ``, `Last updated ${p.today}`, ``);
+  lines.push(`# Privacy policy`, ``, `Last updated ${policyDate(p.today)}`, ``);
   lines.push(`${controller(p)} ("${p.businessName}", "we") provides ${p.archetype ? ARCHETYPE_SERVICE[p.archetype] : "its products and services"}. This policy explains what personal data we collect, why, and the rights you have under ${law}.`, ``);
   if (p.address) lines.push(`Our registered address is ${p.address}.`, ``);
   lines.push(`## What we collect and why`, ``);
@@ -474,7 +585,7 @@ export function generatePrivacyPolicy(p: PolicyInput): string {
 
 export function generateTerms(p: PolicyInput): string {
   const lines: string[] = [];
-  lines.push(`# Terms of service`, ``, `Last updated ${p.today}`, ``);
+  lines.push(`# Terms of service`, ``, `Last updated ${policyDate(p.today)}`, ``);
   lines.push(`These terms are an agreement between you and ${controller(p)} ("${p.businessName}") for ${p.archetype ? ARCHETYPE_SERVICE[p.archetype] : "our products and services"}.`, ``);
   lines.push(`## Your account`, ``, `Keep your credentials safe and tell us about any unauthorised use. You are responsible for activity under your account.`, ``);
   if (p.flows.some((f) => f.connectorKey === "stripe" || f.connectorKey === "shopify")) lines.push(`## Payment`, ``, `Prices are shown before you buy. Payments are processed by ${p.flows.filter((f) => f.connectorKey === "stripe" || f.connectorKey === "shopify").map((f) => f.processor).join(" and ")}; we never store full card numbers.`, ``);
@@ -482,7 +593,8 @@ export function generateTerms(p: PolicyInput): string {
   if (p.archetype === "dtc_physical" || p.archetype === "hardware") lines.push(`## Delivery and returns`, ``, `Delivery times are estimates. You may return unused goods within 14 days of delivery for a refund where the law requires it.`, ``);
   lines.push(`## Acceptable use`, ``, `Do not misuse the service, break the law, infringe others' rights or try to access accounts or data that are not yours.`, ``);
   lines.push(`## Liability`, ``, `To the extent the law allows, we are not liable for indirect losses. Nothing in these terms limits liability that cannot be limited by law.`, ``);
-  lines.push(`## Governing law`, ``, `${p.jurisdiction ? `The law of ${p.jurisdiction} applies and its courts have jurisdiction` : "The law of the place where the company is registered applies"}, without affecting consumer rights that apply where you live.`, ``);
+  const place = jurisdictionName(p.jurisdiction);
+  lines.push(`## Governing law`, ``, `${place ? `The law of ${placeInSentence(place)} applies and its courts have jurisdiction` : "The law of the place where the company is registered applies"}, without affecting consumer rights that apply where you live.`, ``);
   lines.push(`## Changes`, ``, `We may update these terms; material changes are announced at least 30 days before they apply.`, ``);
   return lines.join("\n");
 }
@@ -490,7 +602,7 @@ export function generateTerms(p: PolicyInput): string {
 export function generateCookiePolicy(p: PolicyInput): string {
   const cookies = p.flows.flatMap((f) => f.cookies.map((c) => ({ ...c, processor: f.processor })));
   const lines: string[] = [];
-  lines.push(`# Cookie policy`, ``, `Last updated ${p.today}`, ``);
+  lines.push(`# Cookie policy`, ``, `Last updated ${policyDate(p.today)}`, ``);
   lines.push(`${p.businessName} uses cookies and similar technologies on its website. Necessary cookies are set without consent; everything else waits for your choice in the cookie banner.`, ``);
   lines.push(`## Cookies we set`, ``, `| Cookie | Set by | Purpose | Duration | Category |`, `| --- | --- | --- | --- | --- |`);
   lines.push(`| session | ${p.businessName} | Keeps you signed in | Session | Necessary |`);
@@ -721,7 +833,7 @@ export function detectSectors(input: { name: string; pitch?: string | null; arch
     const reasons: string[] = [];
     const words = gate.keywords.filter((k) => text.includes(k));
     if (words.length) reasons.push(`mentions ${words.map((w) => `"${w}"`).join(", ")}`);
-    if (input.archetype && gate.archetypes.includes(input.archetype)) reasons.push(`common for the ${input.archetype.replace(/_/g, " ")} archetype`);
+    if (input.archetype && gate.archetypes.includes(input.archetype)) reasons.push(`common for ${archetypeLabel(input.archetype)} businesses`);
     if (reasons.length) hits.push({ key, reasons });
   }
   return hits;

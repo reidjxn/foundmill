@@ -1,13 +1,14 @@
 "use client";
 /**
- * Dialogs the Squad and Recruitment tabs share (BUILD §11.9 Recruitment: hire, release, clone, loan). Each one owns
+ * Dialogs the Agents and Recruitment tabs share (BUILD §11.9 Recruitment: hire, release, clone, loan). Each one owns
  * its form state, runs the mutation through `useAction`, keeps the dialog open on error and tells the caller when it
  * succeeded so the list is refetched.
  */
 import { useEffect, useId, useState } from "react";
 import { ArrowLeftRight, Copy, UserRoundMinus, UserRoundPlus } from "lucide-react";
-import { Button, Checkbox, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, ProvenanceChip, SimpleSelect, formatMoney } from "@foundmill/dugout";
+import { Button, Checkbox, Chip, MODEL_LABELS, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, ProvenanceChip, SimpleSelect, formatMoney } from "@foundmill/dugout";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
+import { humanise } from "../fit";
 import { FAMILY_LABELS, InlineError, isChiefOfStaff, useAction } from "./shared";
 import type { AgentRow, TemplateRow } from "./types";
 
@@ -25,7 +26,10 @@ export interface HireDialogProps {
   template: TemplateRow | null;
   onOpenChange: (open: boolean) => void;
   departments: readonly DepartmentRow[] | undefined;
-  /** Preselected department (the one whose tab is open). */
+  /**
+   * The department whose tab is open: preselected when it carries the template's module, otherwise the first
+   * department over that module is (a newsletter writer opened from Team › Recruitment lands in Distribution).
+   */
   defaultDepartmentId?: string;
   /** Prefilled name (the agent builder's suggestion). */
   defaultName?: string;
@@ -40,10 +44,15 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
   const options = departmentOptions(departments);
   const [departmentId, setDepartmentId] = useState<string>("");
   const [name, setName] = useState("");
+  const [fullDescription, setFullDescription] = useState(false);
   useEffect(() => {
     if (template) {
-      setDepartmentId(defaultDepartmentId && options.some((o) => o.value === defaultDepartmentId) ? defaultDepartmentId : (options[0]?.value ?? ""));
+      const mod = template.module;
+      const forModule = mod ? (departments ?? []).filter((d) => d.moduleKeys.includes(mod)).map((d) => d.id) : [];
+      const open = defaultDepartmentId && options.some((o) => o.value === defaultDepartmentId) ? defaultDepartmentId : undefined;
+      setDepartmentId((open && (!forModule.length || forModule.includes(open)) ? open : forModule[0]) ?? open ?? options[0]?.value ?? "");
       setName(defaultName ?? "");
+      setFullDescription(false);
       action.clearError();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset the form when a template is chosen
@@ -64,7 +73,15 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
       <DialogContent size="md" aria-describedby={`${id}-desc`} data-testid="hire-dialog">
         <DialogHeader>
           <DialogTitle>Hire {template?.name ?? "agent"}</DialogTitle>
-          <DialogDescription id={`${id}-desc`}>{template?.description}</DialogDescription>
+          {/* Template descriptions run long: three lines, the rest on request. */}
+          <DialogDescription id={`${id}-desc`} className={fullDescription ? undefined : "line-clamp-3"}>
+            {template?.description}
+          </DialogDescription>
+          {template && template.description.length > 220 ? (
+            <Button size="sm" variant="ghost" className="-ml-2 self-start" onClick={() => setFullDescription((v) => !v)} aria-expanded={fullDescription}>
+              {fullDescription ? "Show less" : "Read the full description"}
+            </Button>
+          ) : null}
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
           {template ? (
@@ -73,8 +90,8 @@ export function HireDialog({ template, onOpenChange, departments, defaultDepartm
               items={[
                 { label: "Role", value: template.role },
                 { label: "Family", value: FAMILY_LABELS[template.family] },
-                { label: "Model", value: template.modelKey, mono: true },
-                { label: "Skills", value: template.skills.length ? template.skills.join(", ") : "Set by the first training run" },
+                { label: "Model", value: MODEL_LABELS[template.modelKey] ?? template.modelKey },
+                { label: "Skills", value: template.skills.length ? template.skills.map(humanise).join(", ") : "Set by the first training run" },
                 {
                   label: "Wage cap",
                   value: (
@@ -116,7 +133,7 @@ export interface ReleaseDialogProps {
   onReleased: (agent: AgentRow) => void;
 }
 
-/** Release an agent from the squad (team.agents.release). The Chief of Staff cannot be released. */
+/** Release an agent from the team (team.agents.release). The Chief of Staff cannot be released. */
 export function ReleaseDialog({ agent, onOpenChange, onReleased }: ReleaseDialogProps) {
   const id = useId();
   const action = useAction();

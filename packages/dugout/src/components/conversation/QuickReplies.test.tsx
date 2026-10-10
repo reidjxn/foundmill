@@ -49,6 +49,44 @@ describe("QuickReplies", () => {
     expect(onChoose).toHaveBeenCalledTimes(1);
   });
 
+  it("leaves number keys to a dialog open above the replies (a sheet over the Inbox, a confirmation over a sheet)", () => {
+    const onPage = vi.fn();
+    const inSheet = vi.fn();
+    const { rerender } = render(
+      <>
+        <QuickReplies replies={REPLIES} onChoose={onPage} keyModifier="alt" />
+        <div role="dialog" data-state="open">
+          <QuickReplies replies={REPLIES} onChoose={inSheet} />
+        </div>
+      </>,
+    );
+    fireEvent.keyDown(document, { key: "¡", code: "Digit1", altKey: true });
+    expect(onPage).not.toHaveBeenCalled();
+    fireEvent.keyDown(document, { key: "1", code: "Digit1" });
+    expect(inSheet).toHaveBeenCalledWith(REPLIES[0]);
+    // A confirmation opened over the sheet takes the keys from it too.
+    rerender(
+      <>
+        <QuickReplies replies={REPLIES} onChoose={onPage} keyModifier="alt" />
+        <div role="dialog" data-state="open">
+          <QuickReplies replies={REPLIES} onChoose={inSheet} />
+        </div>
+        <div role="alertdialog" data-state="open" />
+      </>,
+    );
+    fireEvent.keyDown(document, { key: "2", code: "Digit2" });
+    expect(inSheet).toHaveBeenCalledTimes(1);
+    // Closed dialogs do not count.
+    rerender(
+      <>
+        <QuickReplies replies={REPLIES} onChoose={onPage} keyModifier="alt" />
+        <div role="dialog" data-state="closed" />
+      </>,
+    );
+    fireEvent.keyDown(document, { key: "¡", code: "Digit1", altKey: true });
+    expect(onPage).toHaveBeenCalledWith(REPLIES[0]);
+  });
+
   it("uses Alt+1–4 where 1–4 are taken, and shows the modifier on the key caps", () => {
     const onChoose = vi.fn();
     render(<QuickReplies replies={REPLIES} onChoose={onChoose} keyModifier="alt" />);

@@ -119,17 +119,15 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   const hasData = !!channels.data;
   return (
     <Screen name="distribution/formation">
-      <GridCell span={12} className="flex min-h-[560px] gap-gutter">
+      <GridCell span={12} className="flex gap-gutter">
         <Panel
           title="Board"
+          meta={hasData ? `${starters} of 15 running` : undefined}
           loading={channels.isLoading}
           error={channels.error ? channels.error.message : undefined}
           onRetry={channels.refetch}
           actions={
             <>
-              <Chip tone="neutral">
-                {starters} of 15 running
-              </Chip>
               {rescoreSoon.pending ? (
                 <Chip tone="neutral" data-testid="rescore-pending">
                   Local scores · re-scoring shortly
@@ -142,10 +140,8 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
           }
           footer={
             hasData ? (
-              <span className="flex flex-wrap items-center gap-2 tabular-nums">
-                <span>
-                  Budget across running channels {formatMoney({ amountMinor: budget, currency: currency ?? "EUR" })} per month · cost per customer <ProvenanceChip kind="estimate" />
-                </span>
+              <span className="inline-flex flex-wrap items-center gap-1.5 tabular-nums">
+                Budget across running channels {formatMoney({ amountMinor: budget, currency: currency ?? "EUR" })} per month · cost per customer is an <ProvenanceChip kind="estimate" /> · drag a channel on or off the board, or open it for its profile
               </span>
             ) : undefined
           }
@@ -159,7 +155,8 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
           <InlineError error={action.error} className="mb-2" />
           {hasData ? <FormationBoard channels={tokens} onToggle={onToggle} onOpenChannel={(k) => setSelected(k)} onPause={onPause} animateEntrance={animateEntrance} benchLabel="All 15 channels are available" /> : null}
         </Panel>
-        <ChannelProfileDrawer view={selectedView} token={selectedToken} action={action} onClose={() => setSelected(null)} onToggle={onToggle} onPause={onPause} onBudgetSaved={() => channels.refetch()} onOpenChannels={openChannels} />
+        {/* The profile opens on the right when a channel is picked; closed, the board takes the whole width. */}
+        {selectedView && selectedToken ? <ChannelProfileDrawer view={selectedView} token={selectedToken} action={action} onClose={() => setSelected(null)} onToggle={onToggle} onPause={onPause} onBudgetSaved={() => channels.refetch()} onOpenChannels={openChannels} /> : null}
       </GridCell>
     </Screen>
   );

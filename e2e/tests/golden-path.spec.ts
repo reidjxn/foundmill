@@ -52,12 +52,19 @@ async function commitFreshBusiness(page: Page, name: string): Promise<{ bid: str
   return { bid: m[1]!, itemId: m[2]! };
 }
 
-/** Answers the current item through the free-text form; walks through the confirmation when the plan needs it. */
+/**
+ * Answers the current item in the founder's own words: the DecisionBar's "Ask <agent>" opens the conversation's Write
+ * field, and an instruction typed there decides the item (`agent.conversation.inboxReply`; a question would stay in the
+ * conversation). Walks through the confirmation when the plan needs it.
+ */
 async function decideByFreeText(page: Page, text: string): Promise<{ confirmed: boolean }> {
   const bar = page.getByTestId("decision-bar");
   await expect(bar).toHaveAttribute("data-state", "open");
-  await bar.getByLabel("Free-text instruction").fill(text);
-  await bar.getByRole("button", { name: "Execute the instruction" }).click();
+  await bar.locator("[data-decision-ask]").click();
+  const field = page.getByTestId("agent-desk").getByRole("textbox", { name: /^Reply to / });
+  await expect(field).toBeFocused({ timeout: LONG });
+  await field.fill(text);
+  await field.press("Enter");
   const confirm = page.getByTestId("confirm-plan");
   const answered = page.getByTestId("answered-panel");
   await expect(confirm.or(answered).first()).toBeVisible({ timeout: LONG });
@@ -307,22 +314,22 @@ test.describe("seeded business (Northwind Skincare)", () => {
     // The screen selects the first open proposal; its detail renders one section per hunk.
     const detail = page.locator("[data-proposal]");
     await expect(detail).toBeVisible({ timeout: LONG });
-    // A proposal hunk is the region "Hunk N: <section · block>" (`section[data-hunk=<uuid>]`); the DiffView inside each
-    // one has its own line hunks ("Hunk 1", `data-hunk=<line id>`), so the cards are addressed by their accessible name.
-    const proposalHunks = detail.getByRole("region", { name: /^Hunk \d+: / });
+    // A proposal hunk is the region "Change N: <section · block>" (`section[data-hunk=<uuid>]`); the DiffView inside each
+    // one has its own line hunks (`data-hunk=<line id>`), so the cards are addressed by their accessible name.
+    const proposalHunks = detail.getByRole("region", { name: /^Change \d+: / });
     await expect(proposalHunks).toHaveCount(3, { timeout: LONG });
     // The first hunk still waiting for a decision (the first hunk on a fresh seed; the suite stays re-runnable until all three are decided).
-    const hunk = proposalHunks.filter({ has: page.getByRole("button", { name: "Accept hunk" }) }).first();
+    const hunk = proposalHunks.filter({ has: page.getByRole("button", { name: "Accept change" }) }).first();
     await expect(hunk, "every seeded hunk is already decided: re-seed (pnpm --filter @foundmill/db seed) to run AC-11.5.2 again").toBeVisible({ timeout: LONG });
     const hunkId = (await hunk.getAttribute("data-hunk"))!;
     expect(hunkId).toMatch(new RegExp(`^${UUID}$`));
     await expect(hunk.getByText("Pending").first()).toBeVisible();
-    await hunk.getByRole("button", { name: "Accept hunk" }).click();
+    await hunk.getByRole("button", { name: "Accept change" }).click();
     // The decision is recorded: the hunk shows Accepted, its buttons are gone, and the progress line counts it.
     const decided = detail.locator(`section[data-hunk="${hunkId}"]`);
     await expect(decided).toContainText(/Accepted/, { timeout: LONG });
-    await expect(decided.getByRole("button", { name: "Accept hunk" })).toHaveCount(0);
-    await expect(page.getByText(/[1-3] of 3 hunks decided/)).toBeAttached({ timeout: LONG });
+    await expect(decided.getByRole("button", { name: "Accept change" })).toHaveCount(0);
+    await expect(page.getByText(/[1-3] of 3 changes decided/).first()).toBeAttached({ timeout: LONG });
     // It survives a reload (the api wrote it; nothing was staged client-side only).
     await page.reload();
     await expect(page.locator(`section[data-hunk="${hunkId}"]`)).toContainText(/Accepted/, { timeout: LONG });

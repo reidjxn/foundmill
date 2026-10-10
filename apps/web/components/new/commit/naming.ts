@@ -210,8 +210,8 @@ export interface ModeCard<V extends string> {
 }
 
 export const GAME_MODE_CARDS: ModeCard<GameMode>[] = [
-  { value: "personal", label: "Personal", tagline: "Private. Just you and the team.", details: ["Nothing is shared outside the business", "Switch to LIVE later from Settings"] },
-  { value: "live", label: "LIVE", tagline: "Public profile, leaderboards, communities.", details: ["Your logo and milestones appear in the network", "Numbers you mark private stay private"] },
+  { value: "personal", label: "Personal", tagline: "Private. Just you and the team.", details: ["Nothing is shared outside the business", "Go live later from Settings"] },
+  { value: "live", label: "Live", tagline: "Public profile, leaderboards, communities.", details: ["Your logo and milestones appear in the network", "Numbers you mark private stay private"] },
 ];
 
 export const BUSINESS_MODE_CARDS: ModeCard<BusinessMode>[] = [

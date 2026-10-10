@@ -45,11 +45,11 @@ describe("WageBillScreen", () => {
     expect(within(table).getByText("84%")).toBeTruthy();
     expect(within(table).getByText("Uncapped")).toBeTruthy();
     expect(within(table).getByText("0.71")).toBeTruthy();
-    expect(within(table).getByText("opus")).toBeTruthy();
+    expect(within(table).queryByText("opus")).toBeNull(); // the model lives in the "Usage detail" view
     expect(screen.getByText("1 near or over cap")).toBeTruthy();
     const staff = screen.getByRole("region", { name: "Staff" });
     expect(within(staff).getByRole("link", { name: /Mara Lindqvist/ })).toBeTruthy();
-    expect(within(staff).getByText("owner")).toBeTruthy();
+    expect(within(staff).getByText("Owner")).toBeTruthy();
     expect(within(staff).getByText(/Payroll €16,000.00/)).toBeTruthy();
   });
 
@@ -58,7 +58,7 @@ describe("WageBillScreen", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <WageBillScreen {...props} />);
     const table = screen.getByRole("grid", { name: "Team wage bill" });
-    fireEvent.contextMenu(within(table).getByText("Full-stack engineer"));
+    fireEvent.contextMenu(within(table).getByRole("link", { name: /Nova/ }));
     const menu = await screen.findByRole("menu");
     await user.click(within(menu).getByRole("menuitem", { name: "Adjust wage cap" }));
     expect(fake.navigations[0]).toBe(`/b/${BID}/agents/${AGENT.nova}/settings`);

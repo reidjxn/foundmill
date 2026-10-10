@@ -34,7 +34,7 @@ export function VisibilityPanel() {
       loading={q.isLoading}
       error={q.error ? errorMessage(q.error) : undefined}
       onRetry={() => void q.refetch()}
-      footer="Your business is listed on the network only while it is LIVE."
+      footer="Your business is listed on the network only while it is live."
       data-testid="visibility-panel"
     >
       <p className="mb-2 flex items-center gap-1.5 text-small text-secondary">

@@ -10,7 +10,7 @@ import { useMemo } from "react";
 import { Chip, DevelopmentChart, Icon, KeyValueList, Markdown, Panel, PositionMap, ProvenanceChip, SkillGrid, TraitChips, formatDateTime, formatMoney, formatRelative } from "@foundmill/dugout";
 import { useTRPC } from "@/lib/trpc-react";
 import type { TabProps } from "./AgentProfileScreen";
-import { autonomyFromAgent, currentVersion, departmentColour, developmentSeries, humaniseKey, latestPromotedRun, negotiationFromAgent, parseInstructions, positionFits, toSkillRows, traitsFor, trainingSessionMarks, whatIDo } from "./logic";
+import { autonomyFromAgent, currentVersion, departmentColour, developmentSeries, humaniseKey, latestPromotedRun, negotiationFromAgent, parseInstructions, positionFits, toSkillRows, traitsFor, trainingSessionMarks, wageLabel, whatIDo } from "./logic";
 
 export function OverviewTab({ businessId, profile, currency }: TabProps) {
   const trpc = useTRPC();
@@ -37,7 +37,7 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
           {about.description ? <Markdown variant="body">{about.description}</Markdown> : <p className="text-body text-secondary">No description yet. The role line of the live instructions appears here once the agent has one.</p>}
           <dl className="grid grid-cols-3 gap-3">
             <div>
-              <dt className="t-label">Goals</dt>
+              <dt className="t-label">What I aim for</dt>
               <dd>
                 <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-4 text-body text-primary">
                   {about.inputs.length ? about.inputs.slice(0, 5).map((g, i) => <li key={i}>{g}</li>) : <li className="list-none text-secondary">None recorded</li>}
@@ -58,7 +58,7 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
               </dt>
               <dd>
                 <ul className="mt-1 flex flex-col gap-0.5 text-body text-primary" data-testid="never-does">
-                  {about.neverDoes.length ? about.neverDoes.map((n, i) => <li key={i}>{n}</li>) : <li className="text-secondary">Hard gates only (BUILD §2.2)</li>}
+                  {about.neverDoes.length ? about.neverDoes.map((n, i) => <li key={i}>{n}</li>) : <li className="text-secondary">Anything that moves money, signs or accepts terms in your name</li>}
                 </ul>
               </dd>
             </div>
@@ -66,7 +66,7 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
         </div>
       </Panel>
 
-      <Panel title="Traits" span={4} empty={traits.length === 0 ? { children: "Traits are derived from the instructions once a version is live." } : undefined} footer="Derived from the live instructions; hover a trait for the line it came from.">
+      <Panel title="Traits" span={4} className="self-start" empty={traits.length === 0 ? { children: "Traits are derived from the instructions once a version is live." } : undefined} footer="Derived from the live instructions; hover a trait for the line it came from.">
         <TraitChips traits={traits} />
       </Panel>
 
@@ -94,7 +94,7 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
           labelClassName="w-36"
           items={[
             { label: "Wage cap", value: money(agent.wageCapMinor === null ? null : Number(agent.wageCapMinor)), numeric: true },
-            { label: `Spent · ${profile.wage.period}`, value: <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: profile.wage.costMinor, currency })} <ProvenanceChip kind="estimate" /></span>, numeric: true },
+            { label: wageLabel(profile.wage.period).replace(/^Wage/, "Spent"), value: <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: profile.wage.costMinor, currency })} <ProvenanceChip kind="estimate" /></span>, numeric: true },
             { label: "Spend cap per action", value: money(autonomy.spendCapMinor), numeric: true },
             { label: "Asks above", value: money(autonomy.approvalThresholdMinor), numeric: true },
             { label: "Autonomy", value: autonomy.mode === "inherit" ? "Business mode" : autonomy.mode === "lower" ? "Asks more often" : "Acts more freely" },

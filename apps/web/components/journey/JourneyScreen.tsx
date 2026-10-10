@@ -10,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Route, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Chip, EmptyState, JourneyStage, Panel, type ReplaySpeed } from "@foundmill/dugout";
+import { Button, Chip, EmptyState, JourneyStage, Panel, ProvenanceChip, formatMoney, type ReplaySpeed } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage, trpcErrorCode, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -93,13 +93,25 @@ export function JourneyScreen({ journeyId }: JourneyScreenProps) {
 
   return (
     <div className="flex min-h-full flex-col" data-testid="journey-screen" data-journey-id={row.id} data-conversion-id={row.conversionId} data-speed={speed} data-nth={journey.nthOfKind} data-consent={journey.consent}>
-      <div className="flex flex-wrap items-center gap-2 border-b border-subtle bg-panel px-gutter py-1.5" data-testid="journey-toolbar">
+      <div className="rule-under flex flex-wrap items-center gap-2 px-gutter py-1.5" data-testid="journey-toolbar">
         <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={back} data-testid="journey-back">
           Inbox
         </Button>
-        <span className="text-small text-secondary">{title}</span>
+        <span className="t-title text-primary">{title}</span>
         {journey.partialJourney ? <Chip tone="neutral">Consented touches only</Chip> : null}
-        {journey.stats.acquisitionCostMinor !== null ? <Chip tone="neutral">Acquisition cost · {row.acquisitionCostLabel}</Chip> : null}
+        {journey.stats.acquisitionCostMinor !== null ? (
+          <span className="inline-flex items-center gap-1.5 text-small text-secondary" data-testid="acquisition-cost">
+            {/* Nothing spent says so in words; an Estimate chip on a zero would be noise. */}
+            {journey.stats.acquisitionCostMinor === 0 ? (
+              <>No paid acquisition</>
+            ) : (
+              <>
+                Acquisition cost <span className="tabular text-primary">{formatMoney({ amountMinor: journey.stats.acquisitionCostMinor, currency: row.conversion.currency })}</span>
+                {row.acquisitionCostLabel ? <ProvenanceChip kind={/forecast/i.test(row.acquisitionCostLabel) ? "forecast" : "estimate"} /> : null}
+              </>
+            )}
+          </span>
+        ) : null}
         <span className="flex-1" />
         {entityId ? (
           <Button size="sm" variant="default" icon={UserRound} onClick={() => router.push(routes.crm(businessId, entityId))} data-testid="journey-crm-link">

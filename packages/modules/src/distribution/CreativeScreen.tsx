@@ -5,11 +5,12 @@
  * Approve / Reject call `distribution.assets.approve/reject`. `?asset=<id>` highlights one.
  */
 import { useCallback, useMemo, useState } from "react";
-import { Check, ExternalLink, FileText, Film, Image, Mail, Mailbox, Newspaper, ScrollText, Share2, X } from "lucide-react";
-import { Button, Chip, EntityLink, Icon, Panel, StatusPill, cn, formatRelative, type IconComponent } from "@foundmill/dugout";
+import { Check, ExternalLink, FileText, Film, Image, Mail, Mailbox, Megaphone, Newspaper, ScrollText, Share2, X } from "lucide-react";
+import { Button, EntityLink, Icon, Panel, SegmentedControl, StatusPill, cn, formatRelative, type IconComponent } from "@foundmill/dugout";
 import { APPROVAL_STATES, ASSET_KINDS, type ApprovalState, type AssetKind } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { useBusinessEvents, useWidgetQuery } from "@foundmill/widgets/data";
+import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
+import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { APPROVAL_WORDS } from "./channel-data";
 import { InlineError, Screen, searchParam, useAction } from "./shared";
@@ -55,7 +56,12 @@ export function openPreview(ref: string | null): boolean {
   return true;
 }
 
+const ALL = "all";
+
 export function CreativeScreen({ businessId }: ModuleScreenProps) {
+  const { navigate } = useWidgetData();
+  const departments = useDepartments();
+  const campaignsHref = moduleHref(businessId, departments.data, "distribution", "campaigns");
   const assets = useWidgetQuery<AssetRow[]>("distribution.assets.list", {});
   const campaigns = useWidgetQuery<Page<CampaignRow>>("distribution.campaigns.list", { limit: 200 });
   const agents = useWidgetQuery<AgentRow[]>("team.agents.list", {});
@@ -90,34 +96,38 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
         loading={assets.isLoading}
         error={assets.error ? assets.error.message : undefined}
         onRetry={assets.refetch}
-        empty={assets.data && total === 0 ? { icon: Image, title: "No creative yet", children: "Engines draft emails, posts, ads, videos, articles, mailers, print artwork and scripts for each campaign; they appear here grouped by kind, waiting for your approval." } : undefined}
-        footer={
-          <span className="tabular-nums">
-            {total} assets · {counts.pending} awaiting approval · {counts.approved} approved · {counts.rejected} rejected. Anything in the founder's name needs your approval before it ships.
-          </span>
+        empty={
+          assets.data && total === 0
+            ? { icon: Image, title: "No creative yet", children: "Each campaign's emails, posts, ads and print artwork land here for your approval as its engine drafts them.", action: campaignsHref ? { label: "Open campaigns", icon: Megaphone, onClick: () => navigate(campaignsHref) } : undefined }
+            : undefined
         }
+        meta={total ? `${total} asset${total === 1 ? "" : "s"} · ${counts.pending} awaiting approval` : undefined}
+        actions={
+          total ? (
+            <SegmentedControl<string>
+              aria-label="Filter by approval state"
+              size="sm"
+              value={state ?? ALL}
+              onValueChange={(v) => setState(v === ALL ? null : (v as ApprovalState))}
+              options={[
+                { value: ALL, label: <FilterLabel word="All" count={total} /> },
+                ...APPROVAL_STATES.map((s) => ({ value: s, label: <FilterLabel word={APPROVAL_WORDS[s].word} count={counts[s]} /> })),
+              ]}
+            />
+          ) : undefined
+        }
+        footer={<span>Anything in the founder's name needs your approval before it ships.</span>}
         flush
       >
-        <div role="group" aria-label="Filter by approval state" className="flex flex-wrap items-center gap-1 border-b border-subtle px-panel-pad py-2">
-          <Chip tone={state === null ? "kit" : "neutral"} selected={state === null} onClick={() => setState(null)}>
-            All
-          </Chip>
-          {APPROVAL_STATES.map((s) => (
-            <Chip key={s} tone={state === s ? APPROVAL_WORDS[s].tone : "neutral"} selected={state === s} onClick={() => setState(state === s ? null : s)}>
-              {APPROVAL_WORDS[s].word}
-              <span className="ml-1 text-secondary tabular-nums">{counts[s]}</span>
-            </Chip>
-          ))}
-        </div>
         <InlineError error={action.error} className="px-panel-pad pt-2" />
-        {groups.length === 0 && total > 0 ? <p className="px-panel-pad py-4 text-small text-secondary">No {state ? APPROVAL_WORDS[state].word.toLowerCase() : ""} assets. Clear the filter to see the rest.</p> : null}
+        {groups.length === 0 && total > 0 ? <p className="px-panel-pad py-4 text-small text-secondary">No {state ? APPROVAL_WORDS[state].word.toLowerCase() : ""} assets. Pick All to see the rest.</p> : null}
         <div className="flex flex-col gap-4 p-panel-pad">
           {groups.map((g) => {
             const meta = ASSET_KIND_META[g.kind];
             return (
               <section key={g.kind} aria-label={meta.plural} className="flex flex-col gap-2">
-                <h3 className="t-label flex items-center gap-1.5">
-                  <Icon icon={meta.icon} size="inline" /> {meta.plural} <span className="tabular-nums text-secondary">{g.assets.length}</span>
+                <h3 className="t-title flex items-center gap-1.5 text-primary">
+                  <Icon icon={meta.icon} size="inline" className="text-tertiary" /> {meta.plural} <span className="t-mono text-tertiary">{g.assets.length}</span>
                 </h3>
                 <ul className="grid grid-cols-3 gap-3 2xl:grid-cols-4">
                   {g.assets.map((a) => (
@@ -135,6 +145,15 @@ export function CreativeScreen({ businessId }: ModuleScreenProps) {
   );
 }
 
+/** A filter option: the state's word and its count in mono. */
+function FilterLabel({ word, count }: { word: string; count: number }) {
+  return (
+    <>
+      {word} <span className="t-mono text-tertiary">{count}</span>
+    </>
+  );
+}
+
 function AssetCard({ asset, highlighted, campaign, author, businessId, pending, onDecide }: { asset: AssetRow; highlighted: boolean; campaign: string | null; author: { id: string; name: string } | null; businessId: string; pending: string | null; onDecide: (a: AssetRow, d: "approve" | "reject") => void }) {
   const meta = ASSET_KIND_META[asset.kind];
   const decidable = asset.approvalState === "pending" || asset.approvalState === "draft";
@@ -146,10 +165,16 @@ function AssetCard({ asset, highlighted, campaign, author, businessId, pending, 
           <Icon icon={meta.icon} size={16} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-body-strong text-primary">{title}</p>
-          <p className="truncate text-small text-secondary">{campaign ?? "No campaign"}</p>
+          <p className="line-clamp-2 text-body-strong text-primary" title={title}>
+            {title}
+          </p>
+          <p className="truncate text-small text-secondary" title={campaign ?? undefined}>
+            {campaign ?? "No campaign"}
+          </p>
         </div>
-        <StatusPill tone={APPROVAL_WORDS[asset.approvalState].tone}>{APPROVAL_WORDS[asset.approvalState].word}</StatusPill>
+        <StatusPill tone={APPROVAL_WORDS[asset.approvalState].tone} className="shrink-0 whitespace-nowrap">
+          {APPROVAL_WORDS[asset.approvalState].word}
+        </StatusPill>
       </div>
       <div className="flex min-w-0 items-center gap-2 text-small text-secondary">
         {author ? <EntityLink entity={{ id: author.id, kind: "agent", name: author.name, href: routes.agent(businessId, author.id) }} /> : <span>Author unknown</span>}

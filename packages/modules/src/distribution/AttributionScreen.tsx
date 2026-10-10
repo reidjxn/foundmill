@@ -5,7 +5,7 @@
  * attribution table with "Partial journey" labels for offline and consent-limited journeys, and the latest wins.
  */
 import { useCallback, useMemo, useState } from "react";
-import { ExternalLink, Trophy } from "lucide-react";
+import { ExternalLink, Route, Trophy } from "lucide-react";
 import { Button, Chip, DataTable, FunnelChart, KeyValueList, Panel, ProvenanceChip, StatusPill, formatDate, formatMoney, formatNumber, formatPercent, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { CHANNEL_LINES, type ChannelKey, type MatchdayLevel } from "@foundmill/shared/constants";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
@@ -13,7 +13,8 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { MODEL_LABELS, attributionRows, buildChannelViews, funnelStages, isPartialJourney, modelInUse, type AttributionRow } from "./channel-data";
-import { LINE_LABELS, Screen, channelLabel, toDate, useAction } from "./shared";
+import { fitColumns, type ColumnFit } from "../fit";
+import { EstimatedMoney, LINE_LABELS, Screen, channelLabel, fitTableHeight, plainWords, toDate, useAction, useFittedColumns } from "./shared";
 import type { ChannelsListResponse, JourneyRow, Page } from "./types";
 
 export const ATTRIBUTION_VIEWS: SavedView[] = [
@@ -25,40 +26,62 @@ export const ATTRIBUTION_VIEWS: SavedView[] = [
 /** Update levels brief / standard / featured (CLAUDE.md vocabulary over the stored `matchday_level` keys). */
 export const UPDATE_LEVEL_WORDS: Record<MatchdayLevel, string> = { friendly: "Brief", league: "Standard", cup: "Featured" };
 
-export function attributionColumns(currency: string): DataTableColumn<AttributionRow>[] {
+/** Conversion kinds as words; payments show their amount instead. */
+const CONVERSION_WORDS: Record<string, string> = { signup: "Signup", activation: "Activation", lead: "Lead", trial: "Trial started", order: "Order" };
+
+/** What each column's content needs and its share of the spare width: every view fits the 980 px table at 1280. */
+export const ATTRIBUTION_FIT = {
+  channel: { min: 140, grow: 2 },
+  line: { min: 104, grow: 1 },
+  enabled: { min: 90 },
+  impressions: { min: 112 },
+  leads: { min: 80 },
+  signups: { min: 84 },
+  customers: { min: 104 },
+  share: { min: 84 },
+  spend: { min: 100 },
+  cpa: { min: 146 },
+  partial: { min: 80 },
+  journey: { min: 136, grow: 1 },
+} satisfies Record<string, ColumnFit>;
+export type AttributionColumnId = keyof typeof ATTRIBUTION_FIT;
+
+export function attributionColumns(currency: string, sizes: Record<AttributionColumnId, number> = fitColumns<AttributionColumnId>(null, ATTRIBUTION_FIT, [])): DataTableColumn<AttributionRow>[] {
   const money = (minor: number) => formatMoney({ amountMinor: minor, currency });
   return [
-    { id: "channel", accessorFn: (r) => channelLabel(r.channelKey), header: "Channel", size: 180, cell: ({ row }) => <span className="truncate text-body-strong text-primary">{channelLabel(row.original.channelKey)}</span>, meta: { locked: true } },
-    { id: "line", accessorFn: (r) => LINE_LABELS[r.line], header: "Family", size: 110, meta: { filter: "select", filterOptions: CHANNEL_LINES.map((l) => ({ value: LINE_LABELS[l], label: LINE_LABELS[l] })) } },
-    { id: "enabled", accessorFn: (r) => r.enabled, header: "Running", size: 90, cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
-    { id: "impressions", accessorFn: (r) => r.impressions, header: "Impressions", size: 110, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue()), { digits: 0 })}</span>, meta: { numeric: true } },
-    { id: "leads", accessorFn: (r) => r.leads, header: "Leads", size: 90, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue()), { digits: 0 })}</span>, meta: { numeric: true } },
-    { id: "signups", accessorFn: (r) => r.signups, header: "Signups", size: 90, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue()), { digits: 0 })}</span>, meta: { numeric: true } },
-    { id: "customers", accessorFn: (r) => r.customers, header: "Customers", size: 100, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue()), { digits: 0 })}</span>, meta: { numeric: true } },
-    { id: "share", accessorFn: (r) => r.share, header: "Share of customers", size: 150, cell: ({ getValue }) => <span className="tabular-nums">{formatPercent(Number(getValue()), { digits: 0 })}</span>, meta: { numeric: true } },
-    { id: "spend", accessorFn: (r) => r.spendMinor, header: "Spend (35 d)", size: 120, cell: ({ getValue }) => <span className="tabular-nums">{money(Number(getValue()))}</span>, meta: { numeric: true } },
+    { id: "channel", accessorFn: (r) => channelLabel(r.channelKey), header: "Channel", size: sizes.channel, cell: ({ row }) => <span className="truncate text-body-strong text-primary">{channelLabel(row.original.channelKey)}</span>, meta: { locked: true } },
+    { id: "line", accessorFn: (r) => LINE_LABELS[r.line], header: "Family", size: sizes.line, meta: { filter: "select", filterOptions: CHANNEL_LINES.map((l) => ({ value: LINE_LABELS[l], label: LINE_LABELS[l] })) } },
+    { id: "enabled", accessorFn: (r) => r.enabled, header: "Running", size: sizes.enabled, cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
+    { id: "impressions", accessorFn: (r) => r.impressions, header: "Impressions", size: sizes.impressions, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue()), { digits: 0 })}</span>, meta: { numeric: true } },
+    { id: "leads", accessorFn: (r) => r.leads, header: "Leads", size: sizes.leads, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue()), { digits: 0 })}</span>, meta: { numeric: true } },
+    { id: "signups", accessorFn: (r) => r.signups, header: "Signups", size: sizes.signups, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue()), { digits: 0 })}</span>, meta: { numeric: true } },
+    { id: "customers", accessorFn: (r) => r.customers, header: "Customers", size: sizes.customers, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue()), { digits: 0 })}</span>, meta: { numeric: true } },
+    { id: "share", accessorFn: (r) => r.share, header: "Share", size: sizes.share, cell: ({ getValue }) => <span className="tabular-nums">{formatPercent(Number(getValue()), { digits: 0 })}</span>, meta: { numeric: true, label: "Share of customers" } },
+    { id: "spend", accessorFn: (r) => r.spendMinor, header: "Spend", size: sizes.spend, cell: ({ getValue }) => <span className="tabular-nums">{money(Number(getValue()))}</span>, meta: { numeric: true, label: "Spend, 35 days" } },
     {
       id: "cpa",
       accessorFn: (r) => r.cpaMinor ?? null,
       header: "Cost per customer",
-      size: 170,
-      cell: ({ row }) =>
-        row.original.cpaMinor === null ? (
-          <span className="text-secondary">No customers yet</span>
-        ) : (
-          <span className="inline-flex items-center gap-1.5 tabular-nums">
-            {money(row.original.cpaMinor)} <ProvenanceChip kind="estimate" />
-          </span>
-        ),
+      size: sizes.cpa,
+      cell: ({ row }) => <EstimatedMoney amountMinor={row.original.cpaMinor} currency={currency} spendMinor={row.original.spendMinor} />,
       meta: { numeric: true, label: "Cost per customer (Estimate)" },
     },
-    { id: "partial", accessorFn: (r) => r.partial, header: "Partial", size: 80, cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
+    { id: "partial", accessorFn: (r) => r.partial, header: "Partial", size: sizes.partial, cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
     {
       id: "journey",
       accessorFn: (r) => (r.partial ? "Partial journey" : "Measured"),
       header: "Journey",
-      size: 150,
-      cell: ({ row }) => (row.original.partial ? <Chip tone="warn" title="Offline touches are inferred from codes, vanity URLs and QR scans, so the journey before them is unknown.">Partial journey</Chip> : <Chip tone="good">Measured</Chip>),
+      size: sizes.journey,
+      cell: ({ row }) =>
+        row.original.partial ? (
+          <StatusPill tone="warn" icon={Route} className="whitespace-nowrap" title="Offline touches are inferred from codes, vanity URLs and QR scans, so the journey before them is unknown.">
+            Partial journey
+          </StatusPill>
+        ) : (
+          <StatusPill tone="good" className="whitespace-nowrap">
+            Measured
+          </StatusPill>
+        ),
       meta: { filter: "select", filterOptions: [{ value: "Partial journey", label: "Partial journey" }, { value: "Measured", label: "Measured" }] },
     },
   ];
@@ -79,12 +102,20 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
   const cur = currency ?? "EUR";
   const channelViews = useMemo(() => buildChannelViews({ channels: channels.data?.channels, currency: cur }), [channels.data, cur]);
   const rows = useMemo(() => attributionRows(channelViews, channels.data?.blended), [channelViews, channels.data]);
-  const columns = useMemo(() => attributionColumns(cur), [cur]);
+  // A count no channel reports (every row 0, e.g. no lead capture yet) is noise, not data: its column is left out.
+  const unmeasured = useMemo(() => (rows.length ? (["impressions", "leads", "signups"] as const).filter((k) => rows.every((r) => r[k] === 0)) : []), [rows]);
+  const present = useMemo(() => (Object.keys(ATTRIBUTION_FIT) as AttributionColumnId[]).filter((id) => !(unmeasured as readonly string[]).includes(id)), [unmeasured]);
+  const fitted = useFittedColumns(ATTRIBUTION_FIT, views, "all", present);
+  const columns = useMemo(() => attributionColumns(cur, fitted.sizes).filter((c) => present.includes(c.id as AttributionColumnId)), [cur, fitted.sizes, present]);
   const wins = useMemo(() => journeys.data?.items ?? [], [journeys.data]);
   const partialWins = wins.filter(isPartialJourney).length;
   const paying = wins.filter((w) => w.conversion.kind === "payment").length;
   const model = modelInUse(paying);
-  const stages = useMemo(() => funnelStages(channels.data?.blended), [channels.data]);
+  const allStages = useMemo(() => funnelStages(channels.data?.blended), [channels.data]);
+  // Impressions are reach, not a step: when the next stage is under 1 % of them their bar dwarfs the rest into
+  // hairlines and every rate reads 0 %, so they move to the panel's meta and the funnel starts at the first response.
+  const reach = allStages[0]?.label === "Impressions" && allStages.length > 2 && (allStages[1]?.value ?? 0) < (allStages[0]?.value ?? 0) * 0.01 ? allStages[0]!.value : null;
+  const stages = reach === null ? allStages : allStages.slice(1);
 
   const openChannel = useCallback(
     (key: ChannelKey) => {
@@ -99,34 +130,40 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
   return (
     <Screen name="distribution/attribution">
       <Panel title="Model in use" span={4} loading={journeys.isLoading} error={journeys.error ? journeys.error.message : undefined} onRetry={journeys.refetch}>
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           <p className="t-display-sm text-primary">{MODEL_LABELS[model.model]}</p>
           <KeyValueList
             dense
             layout="rows"
+            labelClassName="w-40"
             items={[
               { label: "Labelled wins", value: formatNumber(paying, { digits: 0 }), numeric: true },
-              { label: "Switch to data-driven at", value: formatNumber(model.threshold, { digits: 0 }), numeric: true },
-              { label: "Partial journeys", value: `${partialWins} of ${wins.length}`, numeric: true, hint: "Consent removed third-party touches, so only first-party touches were weighted." },
+              { label: "Data-driven from", value: `${formatNumber(model.threshold, { digits: 0 })} wins`, numeric: true },
+              { label: "Partial journeys", value: `${partialWins} of ${wins.length}`, numeric: true },
             ]}
           />
           <p className="text-small text-secondary">
-            {model.model === "position_based_40_20_40" ? `${model.remaining} more paying customers before the Markov removal-effect model takes over.` : "Weights come from the removal effect over every recorded conversion path; the position-based model is the fallback for paths the model has not seen."}
+            {model.model === "position_based_40_20_40" ? `${model.remaining} more paying customer${model.remaining === 1 ? "" : "s"} before the Markov removal-effect model takes over.` : "Weights come from the removal effect over every recorded conversion path; the position-based model is the fallback for paths the model has not seen."}{" "}
+            {partialWins ? "Where consent removed third-party touches, only first-party touches were weighted." : ""}
           </p>
           <section aria-label="Latest wins" className="flex flex-col gap-1 border-t border-subtle pt-2">
-            <p className="t-label">Latest wins</p>
+            <p className="t-title text-primary">Latest wins</p>
             {latest.length === 0 ? (
               <p className="text-small text-secondary">No wins yet. Each won customer gets a Customer Update with its touches weighted by the model.</p>
             ) : (
               <ul className="flex flex-col gap-1">
                 {latest.map((w) => (
                   <li key={w.id} className="flex items-center gap-2 text-small">
-                    <StatusPill tone={w.conversion.kind === "payment" ? "good" : "info"} icon={w.conversion.kind === "payment" ? Trophy : undefined}>
+                    <StatusPill tone={w.conversion.kind === "payment" ? "good" : "info"} icon={w.conversion.kind === "payment" ? Trophy : undefined} className="shrink-0 whitespace-nowrap">
                       {UPDATE_LEVEL_WORDS[w.matchdayLevel]}
                     </StatusPill>
-                    <span className="tabular-nums text-secondary">{formatDate(w.conversion.occurredAt)}</span>
-                    <span className="truncate text-primary">{w.conversion.kind === "payment" ? formatMoney({ amountMinor: w.conversion.amountMinor, currency: w.conversion.currency || cur }) : w.conversion.kind}</span>
-                    {isPartialJourney(w) ? <Chip tone="warn">Partial journey</Chip> : null}
+                    <span className="shrink-0 tabular-nums text-secondary">{formatDate(w.conversion.occurredAt)}</span>
+                    <span className="min-w-0 truncate text-primary">{w.conversion.kind === "payment" ? formatMoney({ amountMinor: w.conversion.amountMinor, currency: w.conversion.currency || cur }) : (CONVERSION_WORDS[w.conversion.kind] ?? plainWords(w.conversion.kind))}</span>
+                    {isPartialJourney(w) ? (
+                      <Chip tone="warn" className="shrink-0 whitespace-nowrap">
+                        Partial journey
+                      </Chip>
+                    ) : null}
                     <Button size="sm" variant="ghost" className="ml-auto" onClick={() => navigate(routes.journey(businessId, w.id))} aria-label={`Open Customer Update ${formatDate(w.conversion.occurredAt)}`}>
                       Open
                     </Button>
@@ -143,14 +180,12 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
         loading={channels.isLoading}
         error={channels.error ? channels.error.message : undefined}
         onRetry={channels.refetch}
+        meta={reach === null ? "last 35 days" : `last 35 days · ${formatNumber(reach, { digits: 0 })} impressions`}
+        actions={stages.length ? <ProvenanceChip kind="estimate" /> : undefined}
         empty={channels.data && stages.every((s) => s.value === 0) ? "The funnel fills as channels report impressions, leads, signups, activations and customers." : undefined}
-        footer={
-          <span>
-            Trailing 35 days across every channel. Counts come from links, codes, webhooks and conversion APIs; where a channel reports estimates they are an <ProvenanceChip kind="estimate" />.
-          </span>
-        }
+        footer={<span>Counts come from links, codes, webhooks and conversion APIs across every channel; a stage no channel measures yet is left out.</span>}
       >
-        <FunnelChart stages={stages} label="Touch funnel, impressions to customers" provenance="estimate" />
+        <FunnelChart stages={stages} label={`Touch funnel, ${(stages[0]?.label ?? "impressions").toLowerCase()} to customers`} />
       </Panel>
       <Panel
         title="Channel attribution"
@@ -158,13 +193,11 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
         loading={channels.isLoading}
         error={channels.error ? channels.error.message : undefined}
         onRetry={channels.refetch}
-        footer={
-          <span className="tabular-nums">
-            {rows.length} channels with activity · share is of measured customers; offline channels carry partial journeys because the touches before a code redemption are unknown.
-          </span>
-        }
+        meta={`${rows.length} channel${rows.length === 1 ? "" : "s"} with activity · last 35 days`}
+        footer={<span>Share is of measured customers. Offline channels carry partial journeys because the touches before a code redemption are unknown.</span>}
         flush
       >
+        <div ref={fitted.ref} className="min-w-0">
         <DataTable<AttributionRow>
           aria-label="Channel attribution"
           data={rows}
@@ -175,10 +208,12 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
           defaultViewId="all"
           rowActions={rowActions}
           onRowOpen={(r) => openChannel(r.channelKey)}
-          height={420}
+          height={fitTableHeight(rows.length, { minRows: 6, maxRows: 15 })}
           exportFileName="channel-attribution"
-          empty={{ title: "No measured touches yet", children: "Once a channel runs, its leads, signups and customers land here with the share each channel earns under the model in use." }}
+          onActiveViewChange={fitted.onActiveViewChange}
+          empty={{ title: "No measured touches yet", children: "Once a channel runs, its customers land here with the share each one earns." }}
         />
+        </div>
         {action.error ? <p className="px-panel-pad py-2 text-small text-status-bad">{action.error.message}</p> : null}
       </Panel>
     </Screen>

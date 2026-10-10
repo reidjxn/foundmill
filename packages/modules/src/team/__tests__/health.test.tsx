@@ -1,7 +1,8 @@
 import "./setup";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { HealthScreen, groupByHealth, healthDetails } from "../HealthScreen";
+import { HealthScreen, groupByHealth, healthDetails, healthReason } from "../HealthScreen";
+import { STATUS_DESCRIPTION, agentRoleLine } from "../shared";
 import { AGENT_JUNO, AGENT_MARA, BID, DEPT_TEAM, agents, dataResponses, emptyResponses } from "./fixtures";
 import { createFakeSource, renderScreen } from "./fake-source";
 
@@ -20,6 +21,23 @@ describe("health groups", () => {
   });
 });
 
+describe("card lines", () => {
+  const now = new Date("2026-10-07T12:00:00Z");
+  it("says why an agent is in its group without repeating the group or the card's figures", () => {
+    expect(healthReason("healthy", { errorRate: 0.01, lastHeartbeatAt: "2026-10-07T11:59:00Z" }, now)).toBe("");
+    expect(healthReason("degraded", { errorRate: 0.14 }, now)).toMatch(/^Error rate 14(\.0)? ?% over 24 h$/);
+    expect(healthReason("degraded", { errorRate: 0.14, reason: "Error rate 14 % over the last day" }, now)).toBe("Error rate 14 % over the last day");
+    expect(healthReason("injured", { expectedReturnAt: "2026-10-07T14:00:00Z", reason: "SendGrid credential expired" }, now)).toBe("Expected back in 2 hr · SendGrid credential expired");
+    expect(healthReason("failing", { loopDetected: true, reason: "Loop detected on the last session" }, now)).toBe("Loop detected on the last session");
+  });
+
+  it("drops a role that only restates the agent's name", () => {
+    expect(agentRoleLine({ name: "Quality Specialist", role: "Quality specialist" })).toBeNull();
+    expect(agentRoleLine({ name: "Juno", role: "Frontend engineer" })).toBe("Frontend engineer");
+    expect(agentRoleLine({ name: "Ivy", agentType: "qa_engineer" })).toBe("QA engineer");
+  });
+});
+
 describe("HealthScreen", () => {
   it("renders the counts strip and one panel per health group with Down showing the expected return", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
@@ -28,15 +46,17 @@ describe("HealthScreen", () => {
     expect(screen.getByTestId("health-summary").textContent).toBe("2 agents need you");
     expect(document.querySelectorAll("[data-health-group]")).toHaveLength(4);
     const down = document.querySelector("[data-health-group='injured']") as HTMLElement;
-    expect(within(down).getByText("Down · 1")).toBeTruthy();
+    expect(within(down).getByRole("heading", { name: "Down" })).toBeTruthy();
+    expect(within(down).getByText("1 agent")).toBeTruthy();
     expect(within(down).getByRole("link", { name: "Mara" })).toBeTruthy();
-    expect(within(down).getByText(/expected back in 2 hr/)).toBeTruthy();
     expect(within(down).getByText(/Expected back in 2 hr · SendGrid credential expired/)).toBeTruthy();
     expect(within(down).queryByText("Injured")).toBeNull();
     const degraded = document.querySelector("[data-health-group='degraded']") as HTMLElement;
     expect(within(degraded).getByText(/Error rate 14/)).toBeTruthy();
     const healthy = document.querySelector("[data-health-group='healthy']") as HTMLElement;
     expect(within(healthy).getByRole("link", { name: "Add a bundle picker to the product page" })).toBeTruthy();
+    // The group says what healthy means once, in its header; the cards do not repeat it.
+    expect(within(healthy).getAllByText(STATUS_DESCRIPTION.healthy)).toHaveLength(1);
     fireEvent.click(within(healthy).getByRole("button", { name: "Open Juno's profile" }));
     expect(fake.navigations[0]).toBe(`/b/${BID}/agents/${AGENT_JUNO}/overview`);
   });

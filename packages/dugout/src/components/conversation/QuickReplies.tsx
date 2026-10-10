@@ -31,6 +31,17 @@ export function quickReplyIndexFromKey(
   return null;
 }
 
+/**
+ * True when an open dialog sits above `el` (a sheet over the page, a confirmation over a sheet): its number keys belong to
+ * that dialog, never to replies underneath it.
+ */
+export function coveredByDialog(el: Element | null): boolean {
+  if (typeof document === "undefined" || !el) return false;
+  const open = document.querySelectorAll('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]');
+  const top = open[open.length - 1];
+  return Boolean(top && !top.contains(el));
+}
+
 /** True when the keystroke belongs to a field (typing a digit into a text box never sends a reply). */
 export function isTypingTarget(target: EventTarget | null): boolean {
   if (!target || typeof (target as HTMLElement).closest !== "function") return false;
@@ -103,6 +114,7 @@ export function QuickReplies({
   const [sending, setSending] = useState(false);
   const fieldRef = useRef<HTMLInputElement>(null);
   const writeButtonRef = useRef<HTMLButtonElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const fieldId = useId();
   const [mac, setMac] = useState(false);
   useEffect(() => {
@@ -123,13 +135,13 @@ export function QuickReplies({
     else onChoose(reply);
   };
 
-  // Number keys anywhere on the page, except while typing in a field.
+  // Number keys anywhere on the page, except while typing in a field or while a dialog covers these replies.
   const chooseRef = useRef(choose);
   chooseRef.current = choose;
   useEffect(() => {
     if (!hotkeys || disabled || choices.length === 0) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.isComposing || isTypingTarget(e.target)) return;
+      if (e.defaultPrevented || e.isComposing || isTypingTarget(e.target) || coveredByDialog(rootRef.current)) return;
       const i = quickReplyIndexFromKey(e, keyModifier);
       if (i === null) return;
       const reply = choices[i];
@@ -182,7 +194,7 @@ export function QuickReplies({
   const who = agentName ? `Reply to ${agentName}` : "Write a reply";
 
   return (
-    <div className={cn("flex min-w-0 flex-col gap-2.5", className)} data-testid="quick-replies">
+    <div ref={rootRef} className={cn("flex min-w-0 flex-col gap-2.5", className)} data-testid="quick-replies">
       <div role="group" aria-label={label} className="quick-replies">
         {choices.map((reply, i) => {
           const likely = reply.id === likeliest;

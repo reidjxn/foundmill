@@ -5,16 +5,16 @@
  * a goal).
  */
 import { useId, useMemo, useState } from "react";
-import { ArrowUpCircle, Bot, ExternalLink, ListTree, Network, Pause, Play, Square, Wand2 } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, EntityLink, Field, KeyValueList, Panel, ProgressRing, ProvenanceChip, TaskGraph, Textarea, SimpleSelect, formatDate, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { ArrowUpCircle, Bot, ExternalLink, ListTree, Network, Pause, Play, Radio, Square } from "lucide-react";
+import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, TASK_STATUS_META, TaskGraph, Textarea, SimpleSelect, formatDate, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
-import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { fitColumns, humanise, plural, useTableWidth, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { OpenInClaudeCodeDialog, ReassignDialog, StopDialog } from "./dialogs";
 import { useDevScreenOptions } from "./options";
-import { InlineError, Screen, TaskStatusPill, agentBranch, agentHref, progressValue, toDate, toTileAgent, useAction, useAgentIndex, useAgents } from "./shared";
+import { InlineError, Screen, TaskStatusPill, agentBranch, agentHref, progressValue, toDate, toTileAgent, useAction, useAgentIndex, useAgents, useDevDepartment } from "./shared";
 import { toGraphNodes } from "./TrainingGroundScreen";
 import type { AgentRow, PlanResponse, RoadmapListResponse, TaskRow, TasksListResponse } from "./types";
 
@@ -28,15 +28,35 @@ export interface PlanRow extends TaskRow {
 }
 
 export const PLAN_VIEWS: SavedView[] = [
-  { id: "all", name: "All tasks", builtIn: true, columns: ["title", "status", "kind", "agentName", "progressNumber", "dependsOn", "priority", "startedDate"], sort: [{ id: "priority", desc: true }], filters: [] },
+  { id: "all", name: "All tasks", builtIn: true, columns: ["title", "status", "kind", "agentName", "progressNumber", "startedDate", "dependsOn", "priority"], sort: [{ id: "priority", desc: true }], filters: [] },
   { id: "ready", name: "Ready to start", builtIn: true, columns: ["title", "kind", "agentName", "dependsOn", "priority"], sort: [{ id: "priority", desc: true }], filters: [{ id: "f-ready", field: "status", op: "in", value: ["ready", "planned"] }] },
   { id: "in-progress", name: "In progress", builtIn: true, columns: ["title", "status", "agentName", "progressNumber", "startedDate"], sort: [{ id: "startedDate", desc: true }], filters: [{ id: "f-live", field: "status", op: "in", value: ["running", "paused", "blocked", "review", "merging"] }] },
   { id: "blocked", name: "Blocked", builtIn: true, columns: ["title", "agentName", "dependsOn", "progressNumber"], sort: [], filters: [{ id: "f-blocked", field: "status", op: "eq", value: "blocked" }] },
   { id: "done", name: "Done", builtIn: true, columns: ["title", "agentName", "kind", "startedDate"], sort: [{ id: "startedDate", desc: true }], filters: [{ id: "f-done", field: "status", op: "in", value: ["done", "failed", "stopped"] }] },
 ];
 
-const STATUS_OPTIONS = (["planned", "ready", "running", "paused", "blocked", "review", "merging", "done", "failed", "stopped"] as TaskStatus[]).map((s) => ({ value: s, label: s }));
-const KIND_OPTIONS = ["code", "research", "channel", "specialist", "legal", "finance", "ops"].map((k) => ({ value: k, label: k }));
+const STATUS_OPTIONS = (["planned", "ready", "running", "paused", "blocked", "review", "merging", "done", "failed", "stopped"] as TaskStatus[]).map((s) => ({ value: s, label: TASK_STATUS_META[s].word }));
+
+/** Task kinds in words (the API sends keys). */
+export const KIND_LABELS: Record<string, string> = { code: "Code", research: "Research", channel: "Channel", specialist: "Specialist", legal: "Legal", finance: "Finance", ops: "Operations" };
+export const kindLabel = (kind: string | null | undefined): string => (kind ? (KIND_LABELS[kind] ?? humanise(kind)) : "—");
+const KIND_OPTIONS = Object.entries(KIND_LABELS).map(([value, label]) => ({ value, label }));
+
+/**
+ * Column minimums (what each cell needs, padding included) and how the extra width is shared. In "All tasks" the
+ * first five fill the panel at 1280 and 1440; Started, Depends on and Priority follow behind the scroll cue.
+ */
+export const PLAN_FIT: Record<string, ColumnFit> = {
+  title: { min: 196, grow: 5 },
+  status: { min: 108 },
+  kind: { min: 96 },
+  agentName: { min: 140, grow: 2 },
+  progressNumber: { min: 96 },
+  startedDate: { min: 104 },
+  dependsOn: { min: 220, grow: 1 },
+  priority: { min: 88 },
+};
+const PLAN_FIT_VISIBLE = ["title", "status", "kind", "agentName", "progressNumber"];
 
 export function toPlanRows(tasks: readonly TaskRow[], edges: readonly { fromTask: string; toTask: string }[], agents: Map<string, AgentRow>): PlanRow[] {
   const titles = new Map(tasks.map((t) => [t.id, t.title]));
@@ -54,14 +74,13 @@ export function toPlanRows(tasks: readonly TaskRow[], edges: readonly { fromTask
   });
 }
 
-export function PlanScreen({ businessId }: ModuleScreenProps) {
+export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
   const options = useDevScreenOptions();
   const tasks = useWidgetQuery<TasksListResponse>("dev.tasks.list", { limit: 500 });
   const roadmap = useWidgetQuery<RoadmapListResponse>("product.roadmap.list", {});
   const agents = useAgents();
-  const departments = useDepartments();
-  const deptSlug = departmentForModule(departments.data, "development")?.slug ?? "development";
+  const deptSlug = useDevDepartment(departmentId)?.slug ?? "development";
   const agentIndex = useAgentIndex(agents.data?.agents);
   const action = useAction();
   const planner = useAction();
@@ -92,6 +111,9 @@ export function PlanScreen({ businessId }: ModuleScreenProps) {
       },
     });
 
+  const [tableRef, tableWidth] = useTableWidth();
+  const sizes = useMemo(() => fitColumns(tableWidth, PLAN_FIT, PLAN_FIT_VISIBLE), [tableWidth]);
+
   const runTask = (path: string, task: TaskRow, extra: Record<string, unknown> = {}) => action.run(path, { taskId: task.id, ...extra }, { key: `${path}:${task.id}`, then: () => tasks.refetch() });
 
   const columns = useMemo<DataTableColumn<PlanRow>[]>(
@@ -100,28 +122,36 @@ export function PlanScreen({ businessId }: ModuleScreenProps) {
         id: "title",
         accessorKey: "title",
         header: "Task",
+        size: sizes.title,
         meta: { locked: true },
         cell: ({ row }) => (
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-body-strong">{row.original.title}</span>
-            {row.original.priority && row.original.priority >= 10 ? <Chip tone="warn">Hard</Chip> : null}
+            <span className="min-w-0 truncate text-body-strong" title={row.original.title}>
+              {row.original.title}
+            </span>
+            {row.original.priority && row.original.priority >= 10 ? (
+              <Chip tone="warn" className="shrink-0">
+                Hard
+              </Chip>
+            ) : null}
           </span>
         ),
       },
-      { id: "status", accessorKey: "status", header: "Status", meta: { filter: "select", filterOptions: STATUS_OPTIONS }, cell: ({ row }) => <TaskStatusPill status={row.original.status} /> },
-      { id: "kind", accessorKey: "kind", header: "Kind", meta: { filter: "select", filterOptions: KIND_OPTIONS } },
+      { id: "status", accessorKey: "status", header: "Status", size: sizes.status, meta: { filter: "select", filterOptions: STATUS_OPTIONS }, cell: ({ row }) => <TaskStatusPill status={row.original.status} /> },
+      { id: "kind", accessorFn: (r) => r.kind ?? "", header: "Kind", size: sizes.kind, meta: { filter: "select", filterOptions: KIND_OPTIONS, csv: (r) => kindLabel(r.kind) }, cell: ({ row }) => <span className="text-secondary">{kindLabel(row.original.kind)}</span> },
       {
         id: "agentName",
         accessorKey: "agentName",
         header: "Agent",
+        size: sizes.agentName,
         cell: ({ row }) => {
           const a = row.original.agent;
           if (!a) return <span className="text-secondary">{row.original.agentName}</span>;
           const tile = toTileAgent(a, a.id);
           return (
-            <span className="flex items-center gap-1.5">
+            <span className="flex min-w-0 items-center gap-1.5">
               <Avatar size={20} name={a.name} agent={{ seed: tile.seed, dept: tile.dept }} status={a.status} />
-              <EntityLink entity={{ id: a.id, kind: "agent", name: a.name, href: agentHref(businessId, a.id) }} hideIcon hoverCard={false} />
+              <EntityLink entity={{ id: a.id, kind: "agent", name: a.name, href: agentHref(businessId, a.id) }} hideIcon hoverCard={false} className="min-w-0 truncate" />
             </span>
           );
         },
@@ -130,6 +160,7 @@ export function PlanScreen({ businessId }: ModuleScreenProps) {
         id: "progressNumber",
         accessorKey: "progressNumber",
         header: "Progress",
+        size: sizes.progressNumber,
         meta: { numeric: true, label: "Progress %" },
         cell: ({ row }) => (
           <span className="inline-flex items-center justify-end gap-1.5 tabular-nums">
@@ -138,11 +169,11 @@ export function PlanScreen({ businessId }: ModuleScreenProps) {
           </span>
         ),
       },
-      { id: "dependsOn", accessorFn: (r) => r.dependsOn.join(", "), header: "Depends on", meta: { label: "Depends on" }, cell: ({ row }) => (row.original.dependsOn.length ? <span className="truncate text-secondary" title={row.original.dependsOn.join(", ")}>{row.original.dependsOn.join(", ")}</span> : <span className="text-secondary">—</span>) },
-      { id: "priority", accessorKey: "priority", header: "Priority", meta: { numeric: true } },
-      { id: "startedDate", accessorFn: (r) => r.startedDate?.getTime() ?? 0, header: "Started", meta: { filter: "date", label: "Started" }, cell: ({ row }) => (row.original.startedDate ? <span title={formatDate(row.original.startedDate)}>{formatRelative(row.original.startedDate, options.now ?? new Date())}</span> : <span className="text-secondary">—</span>) },
+      { id: "startedDate", accessorFn: (r) => r.startedDate?.getTime() ?? 0, header: "Started", size: sizes.startedDate, meta: { filter: "date", label: "Started" }, cell: ({ row }) => (row.original.startedDate ? <span className="text-secondary" title={formatDate(row.original.startedDate)}>{formatRelative(row.original.startedDate, options.now ?? new Date())}</span> : <span className="text-tertiary">—</span>) },
+      { id: "dependsOn", accessorFn: (r) => r.dependsOn.join(", "), header: "Depends on", size: sizes.dependsOn, meta: { label: "Depends on" }, cell: ({ row }) => (row.original.dependsOn.length ? <span className="block min-w-0 truncate text-secondary" title={row.original.dependsOn.join(", ")}>{row.original.dependsOn.join(", ")}</span> : <span className="text-tertiary">—</span>) },
+      { id: "priority", accessorKey: "priority", header: "Priority", size: sizes.priority, meta: { numeric: true } },
     ],
-    [businessId, options.now],
+    [businessId, options.now, sizes],
   );
 
   const rowActions = (row: PlanRow): RowAction<PlanRow>[] => {
@@ -201,44 +232,45 @@ export function PlanScreen({ businessId }: ModuleScreenProps) {
         loading={tasks.isLoading}
         error={tasks.error ? tasks.error.message : undefined}
         onRetry={tasks.refetch}
-        actions={
-          <span className="text-small text-secondary tabular-nums" data-testid="plan-counts">
+        meta={
+          <span data-testid="plan-counts">
             {(counts.running ?? 0) + (counts.paused ?? 0) + (counts.blocked ?? 0) + (counts.review ?? 0) + (counts.merging ?? 0)} in progress · {counts.ready ?? 0} ready · {counts.done ?? 0} done
           </span>
         }
         footer={action.error ? <InlineError error={action.error} /> : <span>Right-click a task for Start, Pause, Reassign, Upgrade, Stop and Open in Claude Code. Enter shows its dependencies.</span>}
       >
-        <DataTable<PlanRow>
-          data={rows}
-          columns={columns}
-          views={PLAN_VIEWS}
-          defaultViewId="all"
-          rowActions={rowActions}
-          onRowOpen={(r) => setSelectedId(r.id)}
-          onRowClick={(r) => setSelectedId(r.id)}
-          selectedIds={selected ? [selected.id] : []}
-          height={520}
-          exportFileName="tasks"
-          empty={{ icon: ListTree, children: "No tasks yet. Pick a roadmap item or write an objective on the right and the Planner builds the task graph." }}
-          aria-label="Tasks"
-        />
+        <div ref={tableRef} className="min-w-0">
+          <DataTable<PlanRow>
+            data={rows}
+            columns={columns}
+            views={PLAN_VIEWS}
+            defaultViewId="all"
+            rowActions={rowActions}
+            onRowOpen={(r) => setSelectedId(r.id)}
+            onRowClick={(r) => setSelectedId(r.id)}
+            selectedIds={selected ? [selected.id] : []}
+            height={520}
+            exportFileName="tasks"
+            empty={{ icon: ListTree, children: "No tasks yet. Pick a roadmap item or write an objective on the right and the Planner builds the task graph." }}
+            aria-label="Tasks"
+          />
+        </div>
       </Panel>
 
-      <Panel span={4} title="Plan from the roadmap" footer={<span className="inline-flex items-center gap-1">Planner cost is metered per run <ProvenanceChip kind="estimate" /></span>}>
+      <Panel span={4} title="Plan from the roadmap" glow="brand" footer={<span className="inline-flex items-center gap-1">Planner cost is metered per run <ProvenanceChip kind="estimate" /></span>}>
         <div className="flex flex-col gap-3">
           <Field htmlFor={`${id}-roadmap`} label="Roadmap item">
             <SimpleSelect id={`${id}-roadmap`} aria-label="Roadmap item" options={roadmapOptions} value={roadmapItemId || undefined} onValueChange={setRoadmapItemId} placeholder={roadmap.isLoading ? "Loading roadmap…" : roadmapOptions.length ? "Choose an item" : "No roadmap items yet"} disabled={!roadmapOptions.length} />
           </Field>
           <Field htmlFor={`${id}-goal`} label="Objective" hint="Optional with a roadmap item; required without one. Sent to the Planner as its goal.">
-            <Textarea id={`${id}-goal`} rows={3} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="Ship a bundle picker on the product page with Playwright coverage." maxLength={4000} />
+            <Textarea id={`${id}-goal`} rows={3} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="What should be true when it is done, e.g. customers can pause their subscription from the account page." maxLength={4000} />
           </Field>
-          <div className="flex items-center gap-2">
-            <Button variant="primary" icon={Wand2} disabled={!canPlan} loading={planner.pending === "plan"} onClick={runPlan}>
-              Build task graph
-            </Button>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            {/* A real model call (the Planner): the generate control, running while the plan is drafted. */}
+            <GenerateControl size="md" label="Build task graph" runningLabel="Planning the tasks" running={planner.pending === "plan"} disabled={!canPlan} onGenerate={runPlan} />
             {planned ? (
               <span className="text-small text-secondary tabular-nums" role="status">
-                Planned {planned.tasks.length} tasks
+                Planned {plural(planned.tasks.length, "task")}
               </span>
             ) : null}
           </div>
@@ -260,14 +292,17 @@ export function PlanScreen({ businessId }: ModuleScreenProps) {
         }
       >
         {selected ? (
-          <div className="grid grid-cols-[1fr_320px] gap-px">
-            <TaskGraph nodes={graphNodes} selectedId={selected.id} onSelect={(tid) => setSelectedId(tid)} height={360} aria-label={`Dependencies of ${selected.title}`} />
-            <div className="bg-panel p-panel-pad">
+          <div className="flex gap-px">
+            <div className="min-w-0 flex-1">
+              <TaskGraph nodes={graphNodes} selectedId={selected.id} onSelect={(tid) => setSelectedId(tid)} height={360} aria-label={`Dependencies of ${selected.title}`} />
+            </div>
+            <div className="w-80 shrink-0 bg-panel p-panel-pad">
               <KeyValueList
                 layout="stacked"
                 items={[
                   { label: "Status", value: <TaskStatusPill status={selected.status} /> },
                   { label: "Agent", value: selected.agentName },
+                  { label: "Kind", value: kindLabel(selected.kind) },
                   { label: "Branch", value: selected.kind === "code" ? agentBranch(selected.id) : "—", mono: true },
                   { label: "Depends on", value: selected.dependsOn.length ? selected.dependsOn.join(", ") : "Nothing" },
                   { label: "Unblocks", value: selected.blocks.length ? selected.blocks.join(", ") : "Nothing" },
@@ -282,7 +317,7 @@ export function PlanScreen({ businessId }: ModuleScreenProps) {
                 <Button size="sm" icon={ExternalLink} onClick={() => setClaudeCode(selected)}>
                   Open in Claude Code
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => navigate(routes.department(businessId, deptSlug, "training-ground"))}>
+                <Button size="sm" variant="ghost" icon={Radio} onClick={() => navigate(routes.department(businessId, deptSlug, "training-ground"))}>
                   Live sessions
                 </Button>
               </div>

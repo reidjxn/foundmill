@@ -182,8 +182,10 @@ export function TileGrid<T extends TileGridItem>({ items, renderTile, focusedId:
   return (
     <div className={cn("flex h-full min-h-0 flex-col", className)} data-capacity={shape.capacity} data-focused={focusedItem ? "true" : undefined}>
       {focusedItem ? (
-        <div role="region" aria-label={ariaLabel} className="grid min-h-0 flex-1 grid-cols-3 gap-2 p-2">
-          <div className="col-span-2 min-h-0 min-w-0">{cell(focusedItem, 0, { focused: true, compact: false, inRail: false })}</div>
+        // One row the height of the region (not "auto"): the rail's content would otherwise size the row, so the focused
+        // tile grew past the region and anything below it (the replay strip) drew over its footer.
+        <div role="region" aria-label={ariaLabel} className="grid min-h-0 flex-1 grid-cols-3 grid-rows-[minmax(0,1fr)] gap-2 p-2" data-layout="focused">
+          <div className="col-span-2 min-h-0 min-w-0">{cell(focusedItem, 0, { focused: true, compact: false, inRail: false }, { height: "100%" })}</div>
           <div role="list" aria-label="Other tiles" className="flex min-h-0 flex-col gap-2 overflow-y-auto">
             {ordered.slice(1).map((item, i) => cell(item, i + 1, { focused: false, compact: true, inRail: true }, { height: railTileHeight }))}
           </div>

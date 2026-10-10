@@ -61,21 +61,21 @@ export const PNL_SECTION_LABELS: Record<PnlSection, string> = {
 export const CHART_OF_ACCOUNTS: readonly { category: string; section: PnlSection; aliases: readonly string[] }[] = [
   { category: "Revenue", section: "revenue", aliases: ["revenue", "sales", "subscriptions", "subscription revenue", "income", "stripe payout", "payouts"] },
   { category: "Refunds", section: "revenue", aliases: ["refunds", "refund", "chargebacks"] },
-  { category: "Cost of sales", section: "cogs", aliases: ["cost of sales", "cogs", "cost of goods sold", "materials", "manufacturing", "fulfilment", "fulfillment", "shipping"] },
+  { category: "Cost of sales", section: "cogs", aliases: ["cost of sales", "cogs", "cost of goods", "cost of goods sold", "materials", "manufacturing", "fulfilment", "fulfillment", "shipping", "shipping and fulfilment", "stock purchases", "inventory"] },
   { category: "Hosting", section: "cogs", aliases: ["hosting", "infrastructure", "cloud", "aws", "servers"] },
   { category: "Payment fees", section: "cogs", aliases: ["payment fees", "stripe fees", "processing fees", "transaction fees"] },
-  { category: "Payroll", section: "opex", aliases: ["payroll", "salaries", "salary", "wages", "staff", "employer contributions"] },
+  { category: "Payroll", section: "opex", aliases: ["payroll", "salaries", "salary", "wages", "staff", "employer contributions", "salaries and contractors"] },
   { category: "Contractors", section: "opex", aliases: ["contractors", "freelancers", "consultants"] },
-  { category: "Software", section: "opex", aliases: ["software", "saas", "tools", "subscriptions software", "ai usage", "anthropic", "model usage"] },
-  { category: "Marketing", section: "opex", aliases: ["marketing", "advertising", "ads", "paid media", "google ads", "meta ads", "campaigns"] },
-  { category: "Office", section: "opex", aliases: ["office", "rent", "coworking", "utilities"] },
-  { category: "Travel", section: "opex", aliases: ["travel", "transport", "hotels", "flights"] },
-  { category: "Professional services", section: "opex", aliases: ["professional services", "legal", "accounting", "legal and accounting", "audit"] },
+  { category: "Software", section: "opex", aliases: ["software", "saas", "tools", "subscriptions software", "ai usage", "anthropic", "model usage", "software and hosting"] },
+  { category: "Marketing", section: "opex", aliases: ["marketing", "advertising", "ads", "paid media", "google ads", "meta ads", "campaigns", "marketing and advertising"] },
+  { category: "Office", section: "opex", aliases: ["office", "rent", "coworking", "utilities", "rent and facilities", "facilities"] },
+  { category: "Travel", section: "opex", aliases: ["travel", "transport", "hotels", "flights", "travel and meals", "meals"] },
+  { category: "Professional services", section: "opex", aliases: ["professional services", "professional fees", "legal", "legal fees", "accounting", "legal and accounting", "audit"] },
   { category: "Insurance", section: "opex", aliases: ["insurance"] },
-  { category: "Bank charges", section: "opex", aliases: ["bank charges", "bank fees", "fx fees"] },
+  { category: "Bank charges", section: "opex", aliases: ["bank charges", "bank fees", "fx fees", "bank fees and interest", "interest"] },
   { category: "Other operating", section: "opex", aliases: ["other operating", "other", "misc", "miscellaneous", "equipment", "hardware"] },
   { category: "Financing", section: "financing", aliases: ["financing", "investment", "equity", "safe", "loan", "loan repayment", "grant", "funding", "founder loan", "share capital"] },
-  { category: "Taxes", section: "tax", aliases: ["taxes", "tax", "vat", "corporation tax", "income tax", "payroll tax"] },
+  { category: "Taxes", section: "tax", aliases: ["taxes", "tax", "vat", "corporation tax", "income tax", "payroll tax", "taxes and government"] },
   { category: "Transfers", section: "other", aliases: ["transfers", "transfer", "internal transfer", "between accounts"] },
 ];
 
@@ -87,15 +87,41 @@ for (const c of CHART_OF_ACCOUNTS) {
   for (const a of c.aliases) aliasIndex.set(a, c);
 }
 
+/** "cost_of_goods" / "Cost-of-goods" / " COST OF GOODS " → "cost of goods": the categoriser and the seeds store snake_case keys. */
+export function categoryKey(category: string): string {
+  return category.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+}
+
+const UNCATEGORISED_KEYS = new Set(["uncategorised", "uncategorized", "unknown", "none"]);
+
+/** True for a missing category or one the categoriser stored as "uncategorised". */
+export function isUncategorised(category: string | null | undefined): boolean {
+  return !category || !category.trim() || UNCATEGORISED_KEYS.has(categoryKey(category));
+}
+
 /** The chart-of-accounts entry a free-text category maps to (null for an unknown or missing category). */
 export function chartEntry(category: string | null | undefined): (typeof CHART_OF_ACCOUNTS)[number] | null {
-  if (!category) return null;
-  const key = category.trim().toLowerCase();
+  if (isUncategorised(category)) return null;
+  const key = categoryKey(category!);
   return aliasIndex.get(key) ?? null;
 }
 
+/** A stored key in plain words for display: "gross_profit" → "Gross profit", "costOfSales" → "Cost of sales". */
+export function plainWords(key: string): string {
+  const words = key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_\-.]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** The category's display name: its chart-of-accounts line, else the stored key in plain words ("rnd_materials" → "Rnd materials"). */
+export function categoryLabel(category: string | null | undefined): string {
+  if (isUncategorised(category)) return "Uncategorised";
+  const entry = chartEntry(category);
+  if (entry) return entry.category;
+  return plainWords(categoryKey(category!));
+}
+
 export function sectionOf(category: string | null | undefined): PnlSection | "uncategorised" {
-  if (!category) return "uncategorised";
+  if (isUncategorised(category)) return "uncategorised";
   return chartEntry(category)?.section ?? "opex";
 }
 
@@ -169,16 +195,24 @@ export function buildPnl(categories: readonly CategoryTotal[]): PnlRow[] {
   const totals = pnlTotals(categories);
   const pct = (amount: number | null): number | null => (amount === null || totals.revenueMinor <= 0 ? null : round2((amount / totals.revenueMinor) * 100));
   const rows: PnlRow[] = [];
-  const lines = (section: PnlSection | "uncategorised") =>
-    categories
-      .filter((c) => sectionOf(c.category) === section)
+  // Categories that name the same chart line ("cost_of_goods" and "Cost of sales") are one line, not two.
+  const lines = (section: PnlSection | "uncategorised") => {
+    const byLabel = new Map<string, CategoryTotal>();
+    for (const c of categories) {
+      if (sectionOf(c.category) !== section) continue;
+      const label = categoryLabel(c.category);
+      const prev = byLabel.get(label);
+      byLabel.set(label, prev ? { ...prev, inflowMinor: prev.inflowMinor + c.inflowMinor, outflowMinor: prev.outflowMinor + c.outflowMinor, count: prev.count + c.count } : { ...c });
+    }
+    return [...byLabel.values()]
       .map((c) => ({ c, net: categoryNet(c) }))
-      .sort((a, b) => Math.abs(b.net) - Math.abs(a.net) || String(a.c.category).localeCompare(String(b.c.category)));
+      .sort((a, b) => Math.abs(b.net) - Math.abs(a.net) || categoryLabel(a.c.category).localeCompare(categoryLabel(b.c.category)));
+  };
   const pushSection = (section: PnlSection, subtotalLabel: string, amount: number) => {
     const ls = lines(section);
     rows.push({ id: `h-${section}`, label: PNL_SECTION_LABELS[section], depth: 0, kind: "header", amountMinor: null, count: ls.reduce((n, l) => n + l.c.count, 0), pctOfRevenue: null, section });
     for (const { c, net } of ls) {
-      rows.push({ id: `l-${section}-${c.category}`, label: chartEntry(c.category)?.category ?? c.category ?? "Uncategorised", depth: 1, kind: "line", amountMinor: net, count: c.count, pctOfRevenue: pct(net), category: c.category, section });
+      rows.push({ id: `l-${section}-${c.category}`, label: categoryLabel(c.category), depth: 1, kind: "line", amountMinor: net, count: c.count, pctOfRevenue: pct(net), category: c.category, section });
     }
     rows.push({ id: `s-${section}`, label: subtotalLabel, depth: 0, kind: "subtotal", amountMinor: amount, count: ls.reduce((n, l) => n + l.c.count, 0), pctOfRevenue: pct(amount), section });
   };
@@ -215,9 +249,9 @@ export function ledgerPnlRows(pnl: Record<string, unknown>, depth = 0, prefix = 
   }
   for (const [key, value] of Object.entries(pnl)) {
     const id = `${prefix}${key}`;
-    if (typeof value === "number") rows.push({ id, label: key, depth, kind: depth === 0 ? "subtotal" : "line", amountMinor: value, count: 0, pctOfRevenue: null });
+    if (typeof value === "number") rows.push({ id, label: plainWords(key), depth, kind: depth === 0 ? "subtotal" : "line", amountMinor: value, count: 0, pctOfRevenue: null });
     else if (value && typeof value === "object" && !Array.isArray(value)) {
-      rows.push({ id, label: key, depth, kind: "header", amountMinor: null, count: 0, pctOfRevenue: null });
+      rows.push({ id, label: plainWords(key), depth, kind: "header", amountMinor: null, count: 0, pctOfRevenue: null });
       rows.push(...ledgerPnlRows(value as Record<string, unknown>, depth + 1, `${id}.`));
     }
   }

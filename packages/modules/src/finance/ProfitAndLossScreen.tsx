@@ -6,21 +6,22 @@
  * lists its transactions; recategorising one through `finance.transactions.recategorise` can create a rule.
  */
 import { useMemo, useState } from "react";
-import { AlertTriangle, BookOpen, Landmark, ListFilter, Receipt, Tag } from "lucide-react";
-import { Button, Chip, DataTable, EntityLink, MiniTable, Panel, SimpleSelect, StatusPill, cn, formatDate, formatPercent, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { AlertTriangle, Landmark, Receipt, Tag, X } from "lucide-react";
+import { Button, DataTable, EntityLink, MiniTable, Panel, SegmentedControl, StatusPill, cn, formatDate, formatPercent, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
-import { buildPnl, chartEntry, formatMonth, ledgerPnlRows, monthStart, pnlTotals, type PnlRow } from "./metrics";
+import { PNL_SECTION_LABELS, buildPnl, categoryLabel, formatMonth, isUncategorised, ledgerPnlRows, monthStart, pnlTotals, type PnlRow } from "./metrics";
 import { RecategoriseDialog } from "./RecategoriseDialog";
-import { Screen, fmtMoney, fmtSigned, useCurrency, useNow } from "./shared";
+import { fitColumns, type ColumnFit } from "../fit";
+import { Screen, fitTableHeight, fmtMoney, fmtSigned, useCurrency, useFittedColumns, useNow } from "./shared";
 import type { PnlResponse, TransactionRow, TransactionsListResponse } from "./types";
 
 export const PNL_PERIODS = [
-  { value: "this-month", label: "This month", months: 0 },
-  { value: "3m", label: "Last 3 months", months: 3 },
-  { value: "6m", label: "Last 6 months", months: 6 },
-  { value: "12m", label: "Last 12 months", months: 12 },
+  { value: "this-month", label: "This month", short: "This month", months: 0 },
+  { value: "3m", label: "Last 3 months", short: "3 months", months: 3 },
+  { value: "6m", label: "Last 6 months", short: "6 months", months: 6 },
+  { value: "12m", label: "Last 12 months", short: "12 months", months: 12 },
 ] as const;
 export type PnlPeriod = (typeof PNL_PERIODS)[number]["value"];
 
@@ -39,13 +40,26 @@ export const PNL_VIEWS: SavedView[] = [
   { id: "uncategorised", name: "Needs categorising", builtIn: true, columns: ["label", "amount", "count"], sort: [], filters: [{ id: "f-unc", field: "section", op: "eq", value: "uncategorised" }] },
 ];
 
-export function pnlColumns(currency: string): DataTableColumn<PnlRow>[] {
+/** The number columns keep their width; the line column takes the rest, so the figures sit together at the right. */
+export const PNL_FIT = {
+  label: { min: 240, grow: 1 },
+  amount: { min: 140 },
+  pct: { min: 120 },
+  count: { min: 120 },
+  section: { min: 160 },
+} satisfies Record<string, ColumnFit>;
+export type PnlColumnId = keyof typeof PNL_FIT;
+
+/** Section keys as the chart of accounts names them (the filter and the CSV never show "cogs" or "opex"). */
+const SECTION_WORDS: Record<string, string> = { ...PNL_SECTION_LABELS, uncategorised: "Uncategorised", gross: "Gross profit", operating: "Operating result", net: "Net cash change" };
+
+export function pnlColumns(currency: string, sizes: Record<PnlColumnId, number> = fitColumns<PnlColumnId>(null, PNL_FIT, [])): DataTableColumn<PnlRow>[] {
   return [
     {
       id: "label",
       accessorKey: "label",
       header: "Line",
-      size: 320,
+      size: sizes.label,
       enableSorting: false,
       cell: ({ row }) => {
         const r = row.original;
@@ -62,7 +76,7 @@ export function pnlColumns(currency: string): DataTableColumn<PnlRow>[] {
       id: "amount",
       accessorFn: (r) => r.amountMinor,
       header: "Amount",
-      size: 140,
+      size: sizes.amount,
       enableSorting: false,
       cell: ({ row }) => (row.original.amountMinor === null ? "" : <span className={cn("tabular-nums", (row.original.kind === "subtotal" || row.original.kind === "total") && "text-body-strong text-primary")}>{fmtSigned(row.original.amountMinor, currency)}</span>),
       meta: { numeric: true, filter: false, csv: (r) => (r.amountMinor === null ? "" : (r.amountMinor / 100).toFixed(2)) },
@@ -71,7 +85,7 @@ export function pnlColumns(currency: string): DataTableColumn<PnlRow>[] {
       id: "pct",
       accessorFn: (r) => r.pctOfRevenue,
       header: "% of revenue",
-      size: 110,
+      size: sizes.pct,
       enableSorting: false,
       cell: ({ getValue }) => {
         const v = getValue() as number | null;
@@ -83,7 +97,7 @@ export function pnlColumns(currency: string): DataTableColumn<PnlRow>[] {
       id: "count",
       accessorFn: (r) => r.count,
       header: "Transactions",
-      size: 110,
+      size: sizes.count,
       enableSorting: false,
       cell: ({ row }) => (row.original.kind === "total" && row.original.id !== "t-net" ? "" : <span className="tabular-nums">{row.original.count}</span>),
       meta: { numeric: true, filter: false },
@@ -92,9 +106,10 @@ export function pnlColumns(currency: string): DataTableColumn<PnlRow>[] {
       id: "section",
       accessorFn: (r) => (r.id === "t-gross" ? "gross" : r.id === "t-operating" ? "operating" : (r.section ?? "net")),
       header: "Section",
+      size: sizes.section,
       enableSorting: false,
-      cell: ({ getValue }) => String(getValue() ?? ""),
-      meta: { filter: "select", filterOptions: ["revenue", "cogs", "opex", "financing", "tax", "other", "uncategorised"].map((s) => ({ value: s, label: s })) },
+      cell: ({ getValue }) => SECTION_WORDS[String(getValue() ?? "")] ?? "",
+      meta: { filter: "select", filterOptions: (["revenue", "cogs", "opex", "financing", "tax", "other", "uncategorised"] as const).map((s) => ({ value: s, label: SECTION_WORDS[s] ?? s })), csv: (r) => SECTION_WORDS[r.id === "t-gross" ? "gross" : r.id === "t-operating" ? "operating" : (r.section ?? "net")] ?? "" },
     },
   ];
 }
@@ -106,12 +121,10 @@ export function pnlRowClass(row: PnlRow): string | undefined {
   return undefined;
 }
 
-function matchesLine(tx: TransactionRow, line: PnlRow): boolean {
-  if (line.section === "uncategorised") return !tx.category;
-  if (!line.category) return false;
-  const a = chartEntry(tx.category)?.category ?? tx.category?.trim().toLowerCase();
-  const b = chartEntry(line.category)?.category ?? line.category.trim().toLowerCase();
-  return a === b;
+export function matchesLine(tx: Pick<TransactionRow, "category">, line: Pick<PnlRow, "section" | "category">): boolean {
+  if (line.section === "uncategorised") return isUncategorised(tx.category);
+  if (!line.category || isUncategorised(tx.category)) return false;
+  return categoryLabel(tx.category) === categoryLabel(line.category);
 }
 
 export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
@@ -133,7 +146,8 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
     return buildPnl(pnl.data.categories);
   }, [pnl.data, ledger]);
   const totals = useMemo(() => (pnl.data && !ledger ? pnlTotals(pnl.data.categories) : null), [pnl.data, ledger]);
-  const columns = useMemo(() => pnlColumns(pnl.data?.snapshots[0]?.currency ?? currency), [currency, pnl.data?.snapshots]);
+  const fitted = useFittedColumns(PNL_FIT, views, "all");
+  const columns = useMemo(() => pnlColumns(pnl.data?.snapshots[0]?.currency ?? currency, fitted.sizes), [currency, pnl.data?.snapshots, fitted.sizes]);
   const lineTransactions = useMemo(() => (selected ? (transactions.data?.items ?? []).filter((t) => matchesLine(t, selected)) : []), [selected, transactions.data]);
   const empty = pnl.data && pnl.data.categories.length === 0 && !ledger;
 
@@ -156,40 +170,30 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
         error={pnl.error ? pnl.error.message : undefined}
         onRetry={pnl.refetch}
         empty={empty ? { icon: Landmark, title: "No transactions in this period", children: "Connect a bank account and the finance lead categorises every transaction into the standard chart of accounts.", action: { label: "Connect a bank", icon: Landmark, onClick: () => navigate(routes.settings(businessId, "integrations")) } } : undefined}
-        actions={
-          <div className="flex items-center gap-2">
-            {pnl.data ? (
-              ledger ? (
-                <Chip tone="good" icon={BookOpen} title={ledger.source ? `Ledger: ${ledger.source}` : "Ledger"}>
-                  Ledger · {ledger.basis} basis
-                </Chip>
-              ) : (
-                <Chip tone="neutral" icon={AlertTriangle} title="Categorised bank transactions, not an audited ledger">
-                  {pnl.data.label}
-                </Chip>
-              )
-            ) : null}
-            <SimpleSelect aria-label="Period" controlSize="sm" value={period} onValueChange={(v) => setPeriod(v as PnlPeriod)} options={PNL_PERIODS.map((p) => ({ value: p.value, label: p.label }))} />
-          </div>
-        }
+        meta={pnl.data ? (ledger ? `Ledger · ${ledger.basis} basis` : pnl.data.label) : undefined}
+        actions={<SegmentedControl<PnlPeriod> aria-label="Period" size="sm" value={period} onValueChange={setPeriod} options={PNL_PERIODS.map((p) => ({ value: p.value, label: p.short, title: p.label }))} />}
         footer={
-          <span className="flex items-center gap-3">
+          <>
             <span>{range.label}</span>
             {totals ? (
               <>
+                <span aria-hidden>·</span>
                 <span className="tabular-nums">Gross margin {totals.grossMarginPct === null ? "—" : formatPercent(totals.grossMarginPct, { ofHundred: true, digits: 1 })}</span>
+                <span aria-hidden>·</span>
                 <span className="tabular-nums">Operating result {fmtSigned(totals.operatingResultMinor, currency, { compact: true })}</span>
                 {totals.uncategorisedMinor !== 0 ? (
-                  <StatusPill tone="warn" icon={AlertTriangle}>
+                  <StatusPill tone="warn" icon={AlertTriangle} className="whitespace-nowrap">
                     Uncategorised {fmtSigned(totals.uncategorisedMinor, currency, { compact: true })}
                   </StatusPill>
                 ) : null}
               </>
             ) : null}
+            <span aria-hidden>·</span>
             {ledger ? <span>Ledger snapshot {ledger.period}{ledger.source ? ` from ${ledger.source}` : ""}; bank categorisation is not shown while a ledger is connected.</span> : <span>Right-click a line to see its transactions or recategorise one.</span>}
-          </span>
+          </>
         }
       >
+        <div ref={fitted.ref} className="min-w-0">
         <DataTable<PnlRow>
           aria-label="Profit and loss"
           data={rows}
@@ -197,7 +201,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
           views={views}
           onViewsChange={setViews}
           defaultViewId="all"
-          height={Math.max(320, Math.min(640, rows.length * 28 + 8))}
+          height={fitTableHeight(rows.length, { minRows: 6, maxRows: 40 })}
           density="compact"
           virtualized={false}
           exportFileName={`pnl-${period}`}
@@ -205,7 +209,9 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
           rowActions={rowActions}
           onRowOpen={(row) => (row.kind === "line" ? setSelected(row) : undefined)}
           footer={null}
+          onActiveViewChange={fitted.onActiveViewChange}
         />
+        </div>
       </Panel>
       {selected ? (
         <Panel
@@ -215,7 +221,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
           error={transactions.error ? transactions.error.message : undefined}
           onRetry={transactions.refetch}
           actions={
-            <Button size="sm" variant="ghost" icon={ListFilter} onClick={() => setSelected(null)}>
+            <Button size="sm" variant="ghost" icon={X} onClick={() => setSelected(null)}>
               Close
             </Button>
           }

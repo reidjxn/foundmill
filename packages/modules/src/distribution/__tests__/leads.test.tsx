@@ -18,11 +18,20 @@ describe("LeadsScreen", () => {
     expect(within(table).getByRole("link", { name: /Anna Lindqvist/ }).getAttribute("href")).toBe(`/b/${BID}/crm/${LEAD.anna}/overview`);
     expect(within(table).getByText("Legitimate interest")).toBeTruthy();
     expect(within(table).getByText("Not recorded")).toBeTruthy();
-    expect(within(table).getByText("Suppressed")).toBeTruthy();
+    expect(within(table).getAllByText("Suppressed")).toHaveLength(2); // the stage chip and the suppression pill
     expect(within(table).getAllByText("Clear")).toHaveLength(2);
-    expect(within(table).getByRole("link", { name: /Mara/ })).toBeTruthy();
-    expect(within(table).getByText("Unassigned")).toBeTruthy();
     expect(screen.getByText(/3 leads · 1 without a lawful basis · 1 suppressed/)).toBeTruthy();
+  });
+
+  it("shows companies and owners in their own view", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <LeadsScreen {...props} />);
+    await user.click(screen.getByRole("button", { name: /All leads/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /Companies and owners/ }));
+    const table = screen.getByRole("grid", { name: "Leads" });
+    await waitFor(() => expect(within(table).getByRole("link", { name: /Mara/ })).toBeTruthy());
+    expect(within(table).getByText("Unassigned")).toBeTruthy();
   });
 
   it("filters with the built-in views (Needs lawful basis, Suppressed)", async () => {
@@ -92,7 +101,9 @@ describe("LeadsScreen", () => {
     const empty = createFakeSource({ businessId: BID, responses: emptyResponses });
     renderScreen(empty, <LeadsScreen {...props} />);
     expect(screen.getByText("No leads yet")).toBeTruthy();
-    expect(screen.getByText(/Move Lead generation onto the Board/)).toBeTruthy();
+    expect(screen.getByText(/once Lead generation runs on the board/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open Lead generation" }));
+    expect(empty.navigations.at(-1)).toBe(`/b/${BID}/d/distribution/formation?channel=lead_generation`);
 
     const failing = createFakeSource({ businessId: BID, responses: { ...emptyResponses, "crm.roles.byRole": new Error("crm down") } });
     renderScreen(failing, <LeadsScreen {...props} />);

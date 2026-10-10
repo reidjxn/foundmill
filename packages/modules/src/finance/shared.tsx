@@ -1,9 +1,10 @@
 "use client";
 /** Helpers shared by the finance screens: layout, clock, money, mutations with pending/error state, downloads. */
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode, type RefCallback } from "react";
 import type { Money } from "@foundmill/shared";
-import { PageGrid, cn, formatMoney } from "@foundmill/dugout";
+import { PageGrid, cn, formatMoney, type SavedView } from "@foundmill/dugout";
 import { useWidgetData } from "@foundmill/widgets/data";
+import { fitColumns, useTableWidth, type ColumnFit } from "../fit";
 
 /* ---------- Options (host or tests) ---------- */
 
@@ -67,6 +68,30 @@ export function fmtSigned(amountMinor: number | null | undefined, currency: stri
   return amountMinor < 0 ? `−${s}` : amountMinor > 0 ? `+${s}` : s;
 }
 
+/**
+ * Chart axis money: always compact, one decimal where it matters ("£1.5M", "£5K", "−£5K"), so neighbouring ticks never
+ * read the same and the sign is a real minus with the business's symbol.
+ */
+export function fmtAxisMoney(amountMinor: number | null | undefined, currency: string): string {
+  if (amountMinor === null || amountMinor === undefined || !Number.isFinite(amountMinor)) return "—";
+  const major = amountMinor / 100;
+  try {
+    const text = new Intl.NumberFormat("en-GB", { style: "currency", currency, notation: "compact", maximumFractionDigits: Math.abs(major) >= 1000 ? 1 : 0 }).format(Math.abs(major));
+    return major < 0 ? `−${text}` : text;
+  } catch {
+    return fmtSigned(amountMinor, currency, { compact: true });
+  }
+}
+
+/** "72,318", "25k", "1.2m", "£4,000" → major units (null when it is not a number). The inverse of the grouped display. */
+export function parseAmount(raw: string): number | null {
+  const m = /^([+-]?)(\d+(?:\.\d+)?)([kmb])?$/i.exec(raw.trim().replace(/[,\s'£$€¥]/g, ""));
+  if (!m) return null;
+  const mult = m[3] ? { k: 1e3, m: 1e6, b: 1e9 }[m[3].toLowerCase() as "k" | "m" | "b"] : 1;
+  const n = Number(`${m[1]}${m[2]}`) * mult;
+  return Number.isFinite(n) ? n : null;
+}
+
 export function fmtMonths(months: number | null | undefined): string {
   if (months === null || months === undefined || !Number.isFinite(months)) return "—";
   return `${Math.round(months * 10) / 10} mo`;
@@ -77,6 +102,30 @@ export function fmtQuantity(q: number | string | null | undefined): string {
   const n = Number(q);
   if (!Number.isFinite(n)) return "—";
   return new Intl.NumberFormat("en-GB", { maximumFractionDigits: 4 }).format(n);
+}
+
+/* ---------- Tables ---------- */
+
+/** DataTable body height that shows `rows` compact rows under the sticky header (no dead space under short tables). */
+export function fitTableHeight(rows: number, opts: { minRows?: number; maxRows?: number; rowHeight?: number } = {}): number {
+  const { minRows = 4, maxRows = 18, rowHeight = 28 } = opts;
+  return 41 + Math.min(maxRows, Math.max(minRows, rows)) * rowHeight;
+}
+
+/**
+ * Column widths that fill the table's real width for the saved view on screen (DESIGN §2 "never clip"): every column
+ * at the width its content needs, the spare width shared by grow weight, so the default view fits at 1280 with no
+ * column cut at the panel edge and figures do not drift apart at 1440. Put `ref` on a wrapper around the DataTable and
+ * pass `onActiveViewChange` to it.
+ */
+export function useFittedColumns<K extends string>(specs: Record<K, ColumnFit>, views: readonly SavedView[], defaultViewId: string): { ref: RefCallback<HTMLElement>; sizes: Record<K, number>; onActiveViewChange: (id: string | null) => void } {
+  const [ref, width] = useTableWidth();
+  const [viewId, setViewId] = useState<string | null>(defaultViewId);
+  const columns = (views.find((v) => v.id === viewId) ?? views.find((v) => v.id === defaultViewId))?.columns ?? [];
+  const key = columns.join(",");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` stands for the visible column list
+  const sizes = useMemo(() => fitColumns(width, specs, columns as K[]), [width, specs, key]);
+  return { ref, sizes, onActiveViewChange: setViewId };
 }
 
 /* ---------- Mutations ---------- */

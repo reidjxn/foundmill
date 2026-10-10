@@ -67,14 +67,16 @@ function Outline({ groups, selectedId, onSelect }: { groups: SectionGroup[]; sel
                     aria-current={active ? "true" : undefined}
                     tabIndex={active || (!selectedId && b === flat[0]) ? 0 : -1}
                     onClick={() => onSelect(b.id)}
+                    title={blockTitle(b)}
                     className={cn(
-                      "flex h-row-comfortable w-full items-center gap-2 border-l-[3px] px-panel-pad text-left text-body outline-none transition-colors duration-micro ease-dugout hover:bg-white/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
-                      active ? "border-kit-primary bg-panel-alt text-primary" : "border-transparent text-primary",
+                      "flex min-h-row-comfortable w-full items-start gap-2 px-panel-pad py-1.5 text-left text-body outline-none transition-colors duration-micro ease-dugout hover:bg-white/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
+                      active ? "row-selected text-primary" : "text-primary",
                     )}
                   >
-                    <Icon icon={b.authoredByKind === "agent" ? Bot : UserRound} size="inline" className="text-secondary" label={b.authoredByKind === "agent" ? "Agent-written" : "Human-written"} />
-                    <span className="min-w-0 flex-1 truncate">{blockTitle(b)}</span>
-                    {b.pinned ? <Icon icon={Lock} size="inline" className="text-status-info" label="Pinned" /> : null}
+                    <Icon icon={b.authoredByKind === "agent" ? Bot : UserRound} size="inline" className="mt-0.5 shrink-0 text-secondary" label={b.authoredByKind === "agent" ? "Agent-written" : "Human-written"} />
+                    {/* Two lines of the block's first sentence, never a one-line stub. */}
+                    <span className="line-clamp-2 min-w-0 flex-1 break-words">{blockTitle(b)}</span>
+                    {b.pinned ? <Icon icon={Lock} size="inline" className="mt-0.5 shrink-0 text-status-info" label="Pinned" /> : null}
                   </button>
                 </li>
               );
@@ -102,7 +104,7 @@ function EditorPanel({ businessId, block, onChanged }: { businessId: string; blo
 
   return (
     <Panel
-      title={block ? `${block.section} · ${blockTitle(block)}` : "Block"}
+      title={block ? block.section : "Block"}
       span={6}
       empty={!block ? { icon: FileText, children: "Pick a block in the outline to read or edit it." } : undefined}
       actions={
@@ -118,13 +120,15 @@ function EditorPanel({ businessId, block, onChanged }: { businessId: string; blo
       footer={
         block ? (
           <>
-            <StatusPill tone={STATUS_TONE[status]} pulse={status === "connecting"}>
-              {SPEC_EDITOR_STATUS_LABEL[status]}
-            </StatusPill>
-            <span className="font-mono text-mono">{specDocumentName(businessId, block.id)}</span>
+            {/* The host editor shows its own live status; the fallback editor has none, so the footer carries it. */}
+            {env.SpecEditor ? null : (
+              <StatusPill tone={STATUS_TONE[status]} pulse={status === "connecting"}>
+                {SPEC_EDITOR_STATUS_LABEL[status]}
+              </StatusPill>
+            )}
             <span className="flex-1" />
             <AuthorRef kind={block.authoredByKind} id={block.authoredBy} />
-            <span className="tabular-nums">· v{block.version}</span>
+            <span className="tabular-nums">· version {block.version}</span>
             {block.updatedAt ? <span className="tabular-nums">· {formatRelative(block.updatedAt)}</span> : null}
             <InlineError error={action.error} />
           </>
@@ -240,7 +244,7 @@ function HistoryPanel({ versions, onRestored, onPublished }: { versions: ReturnT
                     {formatDate(v.publishedAt, "d MMM")}
                   </time>
                 </div>
-                <p className="truncate text-small text-secondary" title={v.changelogMd}>
+                <p className="line-clamp-2 break-words text-small text-secondary" title={v.changelogMd}>
                   {v.changelogMd || "No changelog"}
                 </p>
                 <div className="mt-1 flex items-center gap-2 text-small text-secondary">

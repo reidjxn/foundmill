@@ -7,6 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, GitMerge, Search, Trash2, UserRoundPlus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { plainWords } from "@/lib/format";
 import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ENTITY_KIND_ICONS, ENTITY_KIND_LABELS, Field, Icon, Input, RadioGroup, RadioOption, SimpleSelect, Textarea, useToast } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
 import { errorMessage, trpcErrorCode, trpcPathPrefix } from "@/lib/trpc";
@@ -271,7 +272,7 @@ export function AddRoleDialog({ businessId, entityId, open, onOpenChange, roles 
   const invalidate = useCrmInvalidate();
   const [role, setRole] = useState("lead");
   const [stage, setStage] = useState("");
-  const options = useMemo(() => [...new Set([...(roles ?? []), ...KNOWN_ROLES])].map((r) => ({ value: r, label: r.replace(/_/g, " ") })), [roles]);
+  const options = useMemo(() => [...new Set([...(roles ?? []), ...KNOWN_ROLES])].map((r) => ({ value: r, label: plainWords(r) })), [roles]);
   const add = useMutation(
     trpc.crm.roles.add.mutationOptions({
       onSuccess: () => {

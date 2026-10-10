@@ -103,7 +103,7 @@ function ChannelFormGuideWidget({ settings }: WidgetProps<ChannelFormGuideSettin
   const rows = useMemo(() => buildFormRows(channels.data?.channels ?? [], metrics.data ?? [], today, settings), [channels.data, metrics.data, today, settings]);
   const cur = channels.data?.channels[0]?.currency ?? currency;
   const columns: MiniTableColumn<ChannelFormRow>[] = [
-    { id: "channel", header: "Channel", cell: (r) => <span className={r.enabled ? "text-body-strong" : "text-secondary"}>{r.label}{r.recommended ? <span className="t-label ml-1 text-secondary">rec.</span> : null}</span> },
+    { id: "channel", header: "Channel", cell: (r) => <span className={r.enabled ? "text-body-strong" : "text-secondary"}>{r.label}{r.recommended ? <span className="ml-1 text-small text-tertiary">Recommended</span> : null}</span> },
     { id: "fit", header: "Fit", numeric: true, width: 44, cell: (r) => <RatingFigure value={r.fit} /> },
     { id: "form", header: "Form", width: 64, cell: (r) => <FormGuide form={r.form} name={`${r.label} form`} /> },
     { id: "cpa", header: "CPA this week", numeric: true, width: 110, cell: (r) => (r.cpaMinor === null ? "—" : formatMoney({ amountMinor: r.cpaMinor, currency: cur })) },

@@ -59,8 +59,8 @@ describe("OverviewScreen", () => {
     fireEvent.click(within(warning).getByRole("button", { name: "Open Inbox" }));
     expect(fake.navigations[0]).toBe(`/b/${BID}/inbox`);
     expect(fake.queried.get("finance.pnl")).toEqual({ from: "2026-07-01T00:00:00.000Z", to: "2026-10-01T00:00:00.000Z" });
-    expect(screen.getByRole("region", { name: "Cash, last 6 months" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Net cash change by month" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Cash" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Net cash change" })).toBeTruthy();
   });
 
   it("turns the warning red and names the blocked Continue when runway is under 3 months (AC-11.8.3)", () => {

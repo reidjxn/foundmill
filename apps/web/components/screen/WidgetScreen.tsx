@@ -55,9 +55,9 @@ export function WidgetScreen({ businessId, screenId, rawLayout, live, editing, o
   if (layout.length === 0 && !editing) {
     return (
       <div className="p-gutter">
-        <Panel title="Empty screen" span={12}>
+        <Panel title="Widgets" span={12}>
           <EmptyState icon={LayoutGrid} title="Nothing on this tab yet" action={{ label: "Add widgets", icon: Pencil, onClick: () => onEditingChange(true) }}>
-            Press E or Edit to add widgets from the gallery; the layout saves as you go.
+            Pick widgets from the gallery; the layout saves as you go.
           </EmptyState>
         </Panel>
       </div>

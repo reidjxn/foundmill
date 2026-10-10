@@ -121,7 +121,9 @@ export function headlineMetric(i: MetricInputs): DepartmentMetric {
     }
     case "runway": {
       const months = i.finance?.runway.months ?? null;
-      return { label: "Runway", value: months === null ? "—" : `${formatNumber(months, { maxDigits: 1 })} mo`, series: dailySeries(i.rows, i.days, (r) => r.revenueMinor), provenance: "estimate" };
+      // The same plain words as the top bar when there is no burn model yet; Estimate only on a real estimate.
+      if (months === null) return { label: "Runway", value: "None yet", series: dailySeries(i.rows, i.days, (r) => r.revenueMinor) };
+      return { label: "Runway", value: `${formatNumber(months, { maxDigits: 1 })} mo`, series: dailySeries(i.rows, i.days, (r) => r.revenueMinor), provenance: "estimate" };
     }
     case "squad_health": {
       const healthy = i.squad.filter((m) => m.status === "healthy").length;
@@ -209,7 +211,8 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
       squad,
       now: nowLines(taskItems, squad),
       metric: headlineMetric({ key: metricKey, rows, days: lastDays(14, today), squad, roadmap: roadmap.data, channels: channels.data, finance: finance.data, compliance: compliance.data, currency, today }),
-      nextUp: next ? next.title : "Nothing queued. Continue plans the next cycle.",
+      // A short status, not an instruction: every quiet card would otherwise repeat the same sentence.
+      nextUp: next ? next.title : "Nothing queued",
     };
   }, [dept, overrides, taskItems, metricKey, rows, roadmap.data, channels.data, finance.data, compliance.data, currency, today]);
 
@@ -246,7 +249,9 @@ export const departmentCardWidget = registerWidget<DepartmentCardSettings>({
   description: "Lead, health, team, what is happening now, the headline metric and what is next for one department.",
   icon: "layout-grid",
   surfaces: ["home", "department"],
-  defaultSize: { w: 4, h: 12, minW: 3, minH: 10 },
+  // Sized to the card's content (header, team strip, three "Now" lines, the metric, "Next up"): a stored taller cell
+  // (the seeded and API presets keep h 30) is clamped here rather than drawn as an empty plate (DESIGN §9 Home).
+  defaultSize: { w: 4, h: 12, minW: 3, minH: 10, maxH: 16 },
   settingsSchema: DepartmentCardSettings,
   defaultSettings: DepartmentCardSettings.parse({}),
   Component: DepartmentCardWidget,

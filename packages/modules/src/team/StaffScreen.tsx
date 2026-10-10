@@ -6,9 +6,10 @@
  */
 import { useEffect, useId, useMemo, useState } from "react";
 import { ExternalLink, ShieldCheck, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, Input, Panel, SimpleSelect, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EmptyState, EntityLink, Field, Input, Panel, SimpleSelect, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { MEMBERSHIP_ROLES, type MembershipRole } from "@foundmill/shared/constants";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { fitColumns, plural, useTableWidth, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { DECISION_LABELS, InlineError, ROLE_LABELS, STAFF_SECTIONS, Screen, memberEntity, memberName, permissionSummary, readMe, sectionLabel, useAction, useHumans, useMe, useNow, type Me } from "./shared";
 import type { MembershipRow, ResponsibilitiesResponse, SectionPermission } from "./types";
@@ -32,6 +33,17 @@ export const STAFF_VIEWS: SavedView[] = [
   { id: "admins", name: "Owners and admins", builtIn: true, columns: ["name", "role", "sections", "approves"], sort: [{ id: "role", desc: false }], filters: [{ id: "role-admins", field: "role", op: "in", value: ["owner", "admin"] }] },
   { id: "approvers", name: "Approvers", builtIn: true, columns: ["name", "role", "approves"], sort: [{ id: "approves", desc: true }], filters: [{ id: "approves-any", field: "approves", op: "gt", value: 0 }] },
 ];
+
+/** Column minimums and how the extra width is shared (see fit.ts). */
+export const STAFF_FIT: Record<string, ColumnFit> = {
+  name: { min: 240, grow: 3 },
+  role: { min: 112 },
+  sections: { min: 280, grow: 4 },
+  approves: { min: 200, grow: 2 },
+  joined: { min: 112 },
+};
+
+const ROW_PX = 28;
 
 const ROLE_ORDER: Record<MembershipRole, number> = { owner: 0, admin: 1, member: 2, advisor: 3, viewer: 4 };
 const INVITABLE_ROLES = MEMBERSHIP_ROLES.filter((r) => r !== "owner");
@@ -70,10 +82,10 @@ function PermissionGrid({ id, value, onChange }: PermissionGridProps) {
         const sid = `${id}-perm-${section}`;
         return (
           <div key={section} className="flex items-center justify-between gap-2">
-            <label htmlFor={sid} className="text-body text-primary">
+            <label htmlFor={sid} className="min-w-0 text-body text-primary">
               {sectionLabel(section)}
             </label>
-            <SimpleSelect id={sid} aria-label={`${sectionLabel(section)} permission`} controlSize="sm" className="w-32" options={[{ value: "inherit", label: "Role default" }, ...PERMISSION_OPTIONS]} value={value[section] ?? "inherit"} onValueChange={(v) => {
+            <SimpleSelect id={sid} aria-label={`${sectionLabel(section)} permission`} controlSize="sm" className="w-40 shrink-0" options={[{ value: "inherit", label: "Role default" }, ...PERMISSION_OPTIONS]} value={value[section] ?? "inherit"} onValueChange={(v) => {
               const next = { ...value };
               if (v === "inherit") delete next[section];
               else next[section] = v as SectionPermission;
@@ -122,14 +134,15 @@ export function InviteDialog({ open, onOpenChange, onInvited }: InviteDialogProp
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="md" aria-describedby={`${id}-desc`} data-testid="invite-dialog">
+      {/* Wide enough for the two columns of section permissions with "Role default" in full. */}
+      <DialogContent size="lg" aria-describedby={`${id}-desc`} data-testid="invite-dialog">
         <DialogHeader>
           <DialogTitle>Invite staff</DialogTitle>
           <DialogDescription id={`${id}-desc`}>A person with a Foundmill account joins this business with a role and, where needed, per-section permissions. Ownership is transferred from Settings, not granted here.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
-          <Field htmlFor={`${id}-user`} label="User id" required hint="The account's id from Settings › Members or the person's profile." error={userId && !validId ? "Enter a valid account id (UUID)." : undefined}>
-            <Input id={`${id}-user`} value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000" className="font-mono text-mono" aria-invalid={!!userId && !validId} />
+          <Field htmlFor={`${id}-user`} label="Account id" required hint="Find it in Settings › Members or on the person's profile." error={userId && !validId ? "That is not an account id; it has 36 letters, digits and dashes." : undefined}>
+            <Input id={`${id}-user`} value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="Paste the account id" className="font-mono text-mono" aria-invalid={!!userId && !validId} />
           </Field>
           <Field htmlFor={`${id}-email`} label="E-mail" hint="Shown next to the name until the CRM entity is linked.">
             <Input id={`${id}-email`} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />
@@ -186,7 +199,7 @@ export function RoleDialog({ row, onOpenChange, onSaved }: RoleDialogProps) {
   };
   return (
     <Dialog open={!!row} onOpenChange={onOpenChange}>
-      <DialogContent size="md" aria-describedby={`${id}-desc`} data-testid="role-dialog">
+      <DialogContent size="lg" aria-describedby={`${id}-desc`} data-testid="role-dialog">
         <DialogHeader>
           <DialogTitle>Role and permissions for {row?.name}</DialogTitle>
           <DialogDescription id={`${id}-desc`}>{roleLocked ? (row?.isMe ? "You cannot change your own role; permissions still apply." : "The owner's role is fixed; transfer ownership from Settings.") : "Changes apply on the member's next request and are logged."}</DialogDescription>
@@ -269,6 +282,9 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
   const [remove, setRemove] = useState<StaffRow | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const canAdmin = rows.find((r) => r.isMe)?.role === "owner" || rows.find((r) => r.isMe)?.role === "admin" || !me.userId;
+  const [tableRef, tableWidth] = useTableWidth();
+  const sizes = useMemo(() => fitColumns(tableWidth, STAFF_FIT, STAFF_VIEWS[0]!.columns as string[]), [tableWidth]);
+  const onlyMe = rows.length > 0 && rows.every((r) => r.isMe);
 
   const columns = useMemo<DataTableColumn<StaffRow>[]>(
     () => [
@@ -276,43 +292,48 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
         id: "name",
         accessorKey: "name",
         header: "Member",
-        size: 220,
+        size: sizes.name,
         meta: { locked: true },
         cell: ({ row }) => (
-          <span className="inline-flex min-w-0 items-center gap-2">
+          <span className="flex min-w-0 items-center gap-2">
             <Avatar size={24} name={row.original.name} />
-            <EntityLink entity={{ id: row.original.membership.entityId ?? row.original.userId, kind: "team_member", name: row.original.name, href: row.original.membership.entityId ? `/b/${businessId}/crm/${row.original.membership.entityId}/overview` : undefined }} details={memberEntity(businessId, row.original.membership, me)} hideIcon className="text-body-strong" onOpen={(e) => e.href && navigate(e.href)} onVerb={(verb, e) => verb === "open_profile" && e.href && navigate(e.href)} />
-            {row.original.isMe ? <Chip tone="info">You</Chip> : null}
+            <EntityLink entity={{ id: row.original.membership.entityId ?? row.original.userId, kind: "team_member", name: row.original.name, href: row.original.membership.entityId ? `/b/${businessId}/crm/${row.original.membership.entityId}/overview` : undefined }} details={memberEntity(businessId, row.original.membership, me)} hideIcon className="min-w-0 truncate text-body-strong" onOpen={(e) => e.href && navigate(e.href)} onVerb={(verb, e) => verb === "open_profile" && e.href && navigate(e.href)} />
+            {row.original.isMe ? (
+              <Chip tone="info" className="shrink-0">
+                You
+              </Chip>
+            ) : null}
           </span>
         ),
       },
-      { id: "role", accessorKey: "role", header: "Role", size: 120, cell: ({ row }) => <Chip tone={row.original.role === "owner" ? "kit" : row.original.role === "admin" ? "info" : "neutral"}>{row.original.roleLabel}</Chip>, meta: { filter: "select", filterOptions: MEMBERSHIP_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] })) }, sortingFn: (a, b) => ROLE_ORDER[a.original.role] - ROLE_ORDER[b.original.role] },
+      { id: "role", accessorKey: "role", header: "Role", size: sizes.role, cell: ({ row }) => <Chip tone={row.original.role === "owner" ? "kit" : row.original.role === "admin" ? "info" : "neutral"}>{row.original.roleLabel}</Chip>, meta: { filter: "select", filterOptions: MEMBERSHIP_ROLES.map((r) => ({ value: r, label: ROLE_LABELS[r] })) }, sortingFn: (a, b) => ROLE_ORDER[a.original.role] - ROLE_ORDER[b.original.role] },
       {
         id: "sections",
         accessorFn: (r) => [...r.writes.map((s) => `${s}: write`), ...r.reads.map((s) => `${s}: read`)].join(", "),
         header: "Sections",
-        size: 320,
+        size: sizes.sections,
         cell: ({ row }) => {
           const { writes, reads } = row.original;
-          if (!writes.length && !reads.length) return <span className="text-small text-secondary">Role default</span>;
+          if (!writes.length && !reads.length) return <span className="text-secondary">Role default</span>;
+          // One line of plain words (writes first, in the primary colour), so a long list ends in an ellipsis with the
+          // whole list in the tooltip instead of chips cut at the cell edge.
+          const all = [...writes.map((s) => ({ s, level: "write" })), ...reads.map((s) => ({ s, level: "read" }))];
           return (
-            <span className="flex flex-wrap items-center gap-1">
-              {writes.map((s) => (
-                <Chip key={`w-${s}`} tone="good">
-                  {s} · write
-                </Chip>
-              ))}
-              {reads.map((s) => (
-                <Chip key={`r-${s}`}>{s} · read</Chip>
+            <span className="block min-w-0 truncate" title={all.map((a) => `${a.s} · ${a.level}`).join(", ")}>
+              {all.map((a, i) => (
+                <span key={`${a.level}-${a.s}`}>
+                  {i > 0 ? <span className="text-tertiary">, </span> : null}
+                  <span className={a.level === "write" ? "text-primary" : "text-secondary"}>{`${a.s} · ${a.level}`}</span>
+                </span>
               ))}
             </span>
           );
         },
       },
-      { id: "approves", accessorFn: (r) => r.approves.length, header: "Approves", size: 220, meta: { numeric: true, csv: (r) => r.approves.join("; ") }, cell: ({ row }) => (row.original.approves.length ? <span className="truncate" title={row.original.approves.join(", ")}>{row.original.approves.join(", ")}</span> : <span className="text-secondary">—</span>) },
-      { id: "joined", accessorKey: "joinedAt", header: "Joined", size: 120, cell: ({ row }) => (row.original.joinedAt ? <span className="text-secondary">{formatRelative(row.original.joinedAt, now)}</span> : "—") },
+      { id: "approves", accessorFn: (r) => r.approves.length, header: "Approves", size: sizes.approves, meta: { filter: "number", csv: (r) => r.approves.join("; ") }, cell: ({ row }) => (row.original.approves.length ? <span className="block min-w-0 truncate" title={row.original.approves.join(", ")}>{row.original.approves.join(", ")}</span> : <span className="text-tertiary">—</span>) },
+      { id: "joined", accessorKey: "joinedAt", header: "Joined", size: sizes.joined, cell: ({ row }) => (row.original.joinedAt ? <span className="text-secondary">{formatRelative(row.original.joinedAt, now)}</span> : "—") },
     ],
-    [businessId, me, navigate, now],
+    [businessId, me, navigate, now, sizes],
   );
 
   const rowActions = (row: StaffRow): RowAction<StaffRow>[] => [
@@ -336,24 +357,38 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
         error={humans.error ? humans.error.message : undefined}
         onRetry={refetch}
         empty={humans.data && rows.length === 0 ? { icon: Users, title: "Only you so far", children: "Staff are the humans of the business: co-founders, advisors, contractors. Each gets a role, section permissions and can approve decision types.", action: { label: "Invite staff", icon: UserRoundPlus, onClick: () => setInvite(true) } } : undefined}
-        actions={
-          <div className="flex items-center gap-2">
-            <span className="text-small text-secondary tabular-nums" data-testid="staff-summary">
-              {rows.length} {rows.length === 1 ? "person" : "people"} · {rows.filter((r) => r.approves.length).length} approving
+        meta={
+          rows.length ? (
+            <span data-testid="staff-summary">
+              {plural(rows.length, "person", "people")} · {rows.filter((r) => r.approves.length).length} approving
             </span>
-            <Button size="sm" icon={UserRoundPlus} onClick={() => setInvite(true)} disabled={!canAdmin} title={canAdmin ? undefined : "Only owners and admins invite staff"}>
-              Invite
-            </Button>
-          </div>
+          ) : undefined
+        }
+        actions={
+          <Button size="sm" icon={UserRoundPlus} onClick={() => setInvite(true)} disabled={!canAdmin} title={canAdmin ? undefined : "Only owners and admins invite staff"}>
+            Invite
+          </Button>
         }
         footer={
-          <span className="flex items-center gap-2">
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>Humans are CRM entities; a member with a linked entity opens its profile. Every role change is logged.</span>
-            {notice ? <span data-testid="staff-notice">{notice}</span> : null}
+            {notice ? (
+              <span data-testid="staff-notice" className="text-secondary">
+                {notice}
+              </span>
+            ) : null}
           </span>
         }
       >
-        <DataTable<StaffRow> aria-label="Staff" data={rows} columns={columns} views={views} onViewsChange={setViews} defaultViewId="all" rowActions={rowActions} onRowOpen={(row) => setEdit(row)} height={typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 264)} exportFileName="staff" className="border-0" />
+        <div ref={tableRef} className="min-w-0">
+          {/* The table is as tall as its rows (up to the window), so one person is not a screen of empty rows. */}
+          <DataTable<StaffRow> aria-label="Staff" data={rows} columns={columns} views={views} onViewsChange={setViews} defaultViewId="all" rowActions={rowActions} onRowOpen={(row) => setEdit(row)} height={Math.min(typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 264), Math.max(1, rows.length) * ROW_PX + 42)} exportFileName="staff" className="border-0" />
+        </div>
+        {onlyMe ? (
+          <EmptyState icon={Users} title="Only you so far" tone="kit" className="border-t border-line-faint" action={canAdmin ? { label: "Invite staff", icon: UserRoundPlus, onClick: () => setInvite(true) } : undefined}>
+            Staff are the humans of the business: co-founders, advisors, contractors. Each gets a role and section permissions, and can approve decision types.
+          </EmptyState>
+        ) : null}
       </Panel>
 
       <InviteDialog

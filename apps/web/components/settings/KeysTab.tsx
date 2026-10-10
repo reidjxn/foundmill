@@ -4,14 +4,16 @@
  * (encrypted with the business data key; never shown again, never logged). Rotate and revoke; spend-limit advice.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
+import type { IntegrationStatus } from "@foundmill/shared";
 import { KeyRound, RefreshCw, ShieldOff } from "lucide-react";
 import { useState } from "react";
 import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, StatusPill } from "@foundmill/dugout";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, plainWords } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
+import { STATUS_TONE } from "./IntegrationsTab";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
 
@@ -44,7 +46,7 @@ export function KeysTab() {
           <StatusPill tone={configured ? "good" : "neutral"} icon={KeyRound}>
             {configured ? "Key on file" : "No key"}
           </StatusPill>
-          {status.data?.integration ? <Chip tone={status.data.integration.status === "mock" ? "info" : "neutral"}>{status.data.integration.status}</Chip> : null}
+          {status.data?.integration ? <Chip tone={status.data.integration.status === "mock" ? "info" : "neutral"}>{STATUS_TONE[status.data.integration.status as IntegrationStatus]?.word ?? plainWords(status.data.integration.status)}</Chip> : null}
         </div>
         {configured && latest ? (
           <KeyValueList
@@ -76,14 +78,14 @@ export function KeysTab() {
             {validation.valid ? (
               <ul className="flex flex-wrap gap-1">
                 {validation.routedModels.map((m) => (
-                  <Chip key={m.key} tone={m.available ? "good" : "warn"} mono>
-                    {m.key}: {m.available ? "available" : "unavailable"}
+                  <Chip key={m.key} tone={m.available ? "good" : "warn"}>
+                    {plainWords(m.key)} · {m.available ? "available" : "not available"}
                   </Chip>
                 ))}
               </ul>
             ) : null}
             <Hint>
-              Checked {formatDateTime(validation.checkedAt)} ({validation.mode}).
+              Checked {formatDateTime(validation.checkedAt)}{validation.mode === "mock" ? " in test mode" : ""}.
             </Hint>
           </div>
         ) : null}

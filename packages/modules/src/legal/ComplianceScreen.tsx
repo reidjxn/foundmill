@@ -7,12 +7,12 @@
  */
 import { useMemo, useState } from "react";
 import { CalendarDays, CalendarRange, Inbox, List, Repeat } from "lucide-react";
-import { Button, Chip, DataTable, Panel, StatusStrip, cn, formatDate, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Chip, DataTable, Panel, SegmentedControl, StatusStrip, cn, formatDate, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { DUE_WINDOW_DAYS, calendarMonths, calendarRows, daysToNextDeadline, type CalendarRow } from "./legal-data";
-import { CALENDAR_PILL, Pill, Screen, humanise, useNow } from "./shared";
+import { CALENDAR_PILL, Pill, Screen, fitTableHeight, humanise, useNow } from "./shared";
 import type { ComplianceListResponse } from "./types";
 
 const COMPLIANCE_INPUT = { pendingOnly: false, days: 365 } as const;
@@ -41,11 +41,11 @@ export function daysLeftText(days: number | null): string {
 export function complianceColumns(): DataTableColumn<CalendarRow>[] {
   return [
     { id: "title", accessorKey: "title", header: "Deadline", size: 260, cell: ({ row }) => <span className="t-body-strong text-primary">{row.original.title}</span>, meta: { locked: true } },
-    { id: "kind", accessorKey: "kind", header: "Kind", size: 120, cell: ({ getValue }) => <Chip tone={getValue() === "filing" ? "info" : "neutral"}>{getValue() === "filing" ? "Filing" : "Compliance"}</Chip>, meta: { filter: "select", filterOptions: [{ value: "filing", label: "Filing" }, { value: "compliance", label: "Compliance" }] } },
+    { id: "kind", accessorKey: "kind", header: "Kind", size: 130, cell: ({ getValue }) => <Chip tone={getValue() === "filing" ? "info" : "neutral"} className="whitespace-nowrap">{getValue() === "filing" ? "Filing" : "Compliance"}</Chip>, meta: { filter: "select", filterOptions: [{ value: "filing", label: "Filing" }, { value: "compliance", label: "Compliance" }] } },
     { id: "category", accessorKey: "category", header: "Category", size: 160, cell: ({ getValue }) => <span className="text-secondary">{humanise(String(getValue()))}</span>, meta: { filter: "text" } },
     { id: "dueAt", accessorFn: (r) => r.dueAt ?? "", header: "Due", size: 120, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
     { id: "daysLeft", accessorFn: (r) => r.daysLeft ?? Number.POSITIVE_INFINITY, header: "Days left", size: 120, cell: ({ row }) => <span className={cn("tabular-nums", row.original.daysLeft !== null && row.original.daysLeft < 0 && "text-status-bad")}>{daysLeftText(row.original.daysLeft)}</span>, meta: { numeric: true } },
-    { id: "status", accessorKey: "status", header: "Status", size: 130, cell: ({ row }) => <Pill {...CALENDAR_PILL[row.original.status]} />, meta: { filter: "select", filterOptions: Object.entries(CALENDAR_PILL).map(([value, p]) => ({ value, label: p.word })) } },
+    { id: "status", accessorKey: "status", header: "Status", size: 140, cell: ({ row }) => <Pill {...CALENDAR_PILL[row.original.status]} />, meta: { filter: "select", filterOptions: Object.entries(CALENDAR_PILL).map(([value, p]) => ({ value, label: p.word })) } },
     { id: "recurrence", accessorFn: (r) => r.recurrence ?? "", header: "Recurs", size: 100, cell: ({ getValue }) => (getValue() ? <span className="inline-flex items-center gap-1 text-secondary"><Repeat size={14} aria-hidden /> {humanise(String(getValue()))}</span> : <span className="text-secondary">Once</span>) },
     { id: "completedAt", accessorFn: (r) => r.completedAt ?? "", header: "Done on", size: 120, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
     { id: "ref", accessorFn: (r) => r.ref ?? "", header: "Reference", size: 160, cell: ({ getValue }) => <span className="t-mono text-secondary">{String(getValue()) || "—"}</span> },
@@ -97,35 +97,39 @@ export function ComplianceScreen({ businessId, subView }: ModuleScreenProps) {
         error={query.error ? query.error.message : undefined}
         onRetry={query.refetch}
         empty={empty ? emptyState : undefined}
+        meta={rows.length ? `${rows.length} deadline${rows.length === 1 ? "" : "s"} · ${overdue} overdue` : undefined}
         actions={
-          <div role="group" aria-label="View" className="flex items-center gap-1">
-            <Button size="sm" variant={mode === "list" ? "primary" : "ghost"} icon={List} aria-pressed={mode === "list"} onClick={() => setMode("list")}>
-              List
-            </Button>
-            <Button size="sm" variant={mode === "calendar" ? "primary" : "ghost"} icon={CalendarDays} aria-pressed={mode === "calendar"} onClick={() => setMode("calendar")}>
-              Calendar
-            </Button>
-          </div>
+          <SegmentedControl<"list" | "calendar">
+            aria-label="View"
+            size="sm"
+            value={mode}
+            onValueChange={setMode}
+            options={[
+              { value: "list", label: "List", icon: List },
+              { value: "calendar", label: "Calendar", icon: CalendarDays },
+            ]}
+          />
         }
-        footer={<span className="tabular-nums">{rows.length} deadline{rows.length === 1 ? "" : "s"} · {overdue} overdue · right-click a row for the calendar, the entity and the Inbox</span>}
+        footer={<span>Right-click a deadline to see it in the calendar, open the legal entity or the Inbox.</span>}
       >
         {mode === "list" ? (
-          <DataTable<CalendarRow> aria-label="Deadlines" data={rows} columns={columns} getRowId={(r) => `${r.kind}-${r.id}`} views={views} onViewsChange={setViews} defaultViewId="open" height={420} exportFileName="compliance-calendar" rowActions={rowActions} onRowOpen={(r) => { setHighlight(r.id); setMode("calendar"); }} rowClassName={(r) => (r.id === highlight ? "bg-panel-alt" : undefined)} />
+          <DataTable<CalendarRow> aria-label="Deadlines" data={rows} columns={columns} getRowId={(r) => `${r.kind}-${r.id}`} views={views} onViewsChange={setViews} defaultViewId="open" height={fitTableHeight(rows.length, { minRows: 8, maxRows: 16 })} exportFileName="compliance-calendar" rowActions={rowActions} onRowOpen={(r) => { setHighlight(r.id); setMode("calendar"); }} rowClassName={(r) => (r.id === highlight ? "row-selected" : undefined)} />
         ) : (
           <ol aria-label="Twelve-month calendar" className="grid grid-cols-4 gap-gutter">
             {months.map((m) => (
-              <li key={m.key} aria-label={m.label} className="flex min-h-28 flex-col gap-1 rounded-panel border border-subtle bg-panel-alt p-2">
-                <p className="t-label">{m.label}</p>
+              <li key={m.key} aria-label={m.label} className={cn("surface-raised flex min-h-28 flex-col gap-1.5 rounded-md p-2.5", m.rows.length === 0 && "opacity-70")}>
+                <p className="t-title text-primary">{m.label}</p>
                 {m.rows.length === 0 ? (
                   <p className="t-small text-secondary">Nothing due</p>
                 ) : (
                   <ul className="flex flex-col gap-1">
                     {m.rows.map((r) => (
-                      <li key={`${r.kind}-${r.id}`} className={cn("flex items-center justify-between gap-2 rounded-chip px-1 py-0.5", r.id === highlight && "border-l-[3px] border-kit-primary")}>
-                        <span className="min-w-0 truncate t-body text-primary" title={r.title}>
-                          <span className="t-small text-secondary tabular-nums">{r.dueAt ? formatDate(r.dueAt, "d MMM") : ""}</span> {r.title}
+                      <li key={`${r.kind}-${r.id}`} className={cn("flex flex-col gap-1 rounded-sm px-1.5 py-1", r.id === highlight && "row-selected")}>
+                        <span className="t-body text-primary">{r.title}</span>
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="t-mono text-tertiary">{r.dueAt ? formatDate(r.dueAt, "d MMM") : ""}</span>
+                          <Pill {...CALENDAR_PILL[r.status]} />
                         </span>
-                        <Pill {...CALENDAR_PILL[r.status]} />
                       </li>
                     ))}
                   </ul>

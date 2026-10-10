@@ -7,13 +7,14 @@
  */
 import { useMemo, useState } from "react";
 import { ExternalLink, Network, UserRoundPlus } from "lucide-react";
-import { Avatar, Button, Chip, EntityLink, HierarchyChart, KeyValueList, ModelChip, Panel, ProvenanceChip, Switch, formatMoney, type HierarchyKind, type HierarchyNode } from "@foundmill/dugout";
+import { Avatar, Button, DeptChip, EntityLink, HierarchyChart, KeyValueList, ModelChip, Panel, ProvenanceChip, Switch, formatMoney, layoutHierarchy, type HierarchyKind, type HierarchyNode } from "@foundmill/dugout";
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
+import { plural } from "../fit";
 import type { ModuleScreenProps } from "../registry";
-import { AgentStatusWordPill, ROLE_LABELS, Screen, agentDept, agentEntity, agentHref, isChiefOfStaff, memberEntity, memberName, readMe, useAgents, useHumans, useLiveAgentStatus, useMe, useNow, useTeamOptions, withLiveStatus, type Me } from "./shared";
+import { AgentStatusWordPill, ROLE_LABELS, Screen, agentDept, agentRoleLine, agentEntity, agentHref, isChiefOfStaff, memberEntity, memberName, readMe, useAgents, useHumans, useLiveAgentStatus, useMe, useNow, useTeamOptions, withLiveStatus, type Me } from "./shared";
 import type { AgentRow, MembershipRow } from "./types";
 
 export const FOUNDER_NODE_ID = "founder";
@@ -36,7 +37,8 @@ export function toHierarchyNodes(agents: readonly AgentRow[], opts: { department
   const cos = live.find(isChiefOfStaff);
   const leadOfDept = new Map<string, string>();
   for (const d of opts.departments ?? []) if (d.leadAgentId && ids.has(d.leadAgentId)) leadOfDept.set(d.id, d.leadAgentId);
-  const nodes: HierarchyNode[] = [{ id: FOUNDER_NODE_ID, name: opts.founderName, role: "Founder", kind: "founder", parentId: null }];
+  // The chart already labels the founder's kind ("Founder"), so the role line says who it is: you.
+  const nodes: HierarchyNode[] = [{ id: FOUNDER_NODE_ID, name: opts.founderName, role: "You", kind: "founder", parentId: null }];
   for (const a of live) {
     const kind = hierarchyKind(a);
     let parentId: string | null = a.lineManagerId && ids.has(a.lineManagerId) && a.lineManagerId !== a.id ? a.lineManagerId : null;
@@ -48,7 +50,10 @@ export function toHierarchyNodes(agents: readonly AgentRow[], opts: { department
         parentId = lead && lead !== a.id ? lead : (cos?.id ?? FOUNDER_NODE_ID);
       } else parentId = cos?.id ?? FOUNDER_NODE_ID;
     }
-    nodes.push({ id: a.id, name: a.name, role: a.role ?? a.agentType ?? "Agent", kind, parentId, avatar: { seed: a.avatarSeed || a.id, dept: agentDept(a) }, status: a.status, model: a.modelKey, department: a.departments?.[0]?.name });
+    // A role that only repeats the name ("Quality Specialist" / "Quality specialist") gives way to the department.
+    const roleLine = agentRoleLine(a);
+    const department = a.departments?.[0]?.name;
+    nodes.push({ id: a.id, name: a.name, role: roleLine ?? department ?? "Agent", kind, parentId, avatar: { seed: a.avatarSeed || a.id, dept: agentDept(a) }, status: a.status, model: a.modelKey, department: roleLine ? department : undefined });
   }
   for (const m of opts.staff ?? []) {
     if (opts.me?.userId && m.userId === opts.me.userId) continue;
@@ -79,6 +84,8 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
   const liveAgents = agents.filter((a) => !a.archivedAt);
   const leads = liveAgents.filter((a) => hierarchyKind(a) === "lead").length;
   const workers = liveAgents.filter((a) => hierarchyKind(a) === "worker").length;
+  // The chart area is as tall as the tree, up to the window: the tree scrolls inside it with fades at the edges.
+  const treeHeight = useMemo(() => layoutHierarchy(nodes).height, [nodes]);
 
   return (
     <Screen name="team/hierarchy">
@@ -90,21 +97,23 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
         error={agentsQuery.error ? agentsQuery.error.message : undefined}
         onRetry={agentsQuery.refetch}
         empty={agentsQuery.data && liveAgents.length === 0 ? { icon: Network, title: "Just you", children: "The chart grows as you hire: the Chief of Staff reports to you, leads to the Chief of Staff, workers to their department's lead.", action: { label: "Go to Recruitment", icon: UserRoundPlus, onClick: () => navigate(recruitHref) } } : undefined}
-        actions={
-          <div className="flex items-center gap-3">
-            <span className="text-small text-secondary tabular-nums" data-testid="hierarchy-summary">
-              {liveAgents.length} agents · {leads} leads · {workers} workers
+        meta={
+          liveAgents.length ? (
+            <span data-testid="hierarchy-summary">
+              {plural(liveAgents.length, "agent")} · {plural(leads, "lead")} · {plural(workers, "worker")}
             </span>
-            <label className="flex items-center gap-1.5 text-small text-secondary">
-              <Switch size="sm" checked={includeStaff} onCheckedChange={setIncludeStaff} aria-label="Show staff" />
-              Show staff
-            </label>
-          </div>
+          ) : undefined
+        }
+        actions={
+          <label className="flex items-center gap-2 text-small text-secondary">
+            <Switch size="sm" checked={includeStaff} onCheckedChange={setIncludeStaff} aria-label="Show staff" />
+            Show staff
+          </label>
         }
         footer="Reporting lines come from each agent's line manager; agents without one report to their department's lead. Change a line manager from the agent's profile."
       >
-        <div className="overflow-auto p-panel-pad" style={{ maxHeight: "calc(100vh - 280px)" }}>
-          <HierarchyChart nodes={nodes} selectedId={selectedId} onSelect={(n) => setSelectedId(n.id === selectedId ? null : n.id)} />
+        <div className="flex flex-col" style={{ height: `min(${treeHeight + 2}px, calc(100vh - 248px))`, minHeight: 240 }}>
+          <HierarchyChart nodes={nodes} selectedId={selectedId} onSelect={(n) => setSelectedId(n.id === selectedId ? null : n.id)} className="min-h-0 flex-1" />
         </div>
       </Panel>
 
@@ -115,17 +124,17 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
               <div className="flex items-center gap-2">
                 <Avatar size={48} name={selectedAgent.name} agent={{ seed: selectedAgent.avatarSeed || selectedAgent.id, dept: agentDept(selectedAgent) }} status={selectedAgent.status} />
                 <span className="flex min-w-0 flex-col">
-                  <EntityLink entity={{ id: selectedAgent.id, kind: "agent", name: selectedAgent.name, href: agentHref(businessId, selectedAgent.id) }} details={agentEntity(businessId, selectedAgent, currency)} className="t-display-sm" onOpen={(e) => e.href && navigate(e.href)} onVerb={(verb, e) => verb === "open_profile" && e.href && navigate(e.href)} />
-                  <span className="text-small text-secondary">{selectedAgent.role ?? selectedAgent.agentType}</span>
+                  <EntityLink entity={{ id: selectedAgent.id, kind: "agent", name: selectedAgent.name, href: agentHref(businessId, selectedAgent.id) }} details={agentEntity(businessId, selectedAgent, currency)} className="t-display-sm min-w-0 truncate" onOpen={(e) => e.href && navigate(e.href)} onVerb={(verb, e) => verb === "open_profile" && e.href && navigate(e.href)} />
+                  {agentRoleLine(selectedAgent) ? <span className="text-small text-secondary">{agentRoleLine(selectedAgent)}</span> : null}
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
                 <AgentStatusWordPill status={selectedAgent.status} expectedReturnAt={selectedAgent.expectedReturnAt ?? selectedAgent.health?.expectedReturnAt} now={now} />
                 <ModelChip model={selectedAgent.modelKey} />
                 {(selectedAgent.departments ?? []).map((d) => (
-                  <Chip key={d.id} tone={d.colourToken}>
+                  <DeptChip key={d.id} dept={d.colourToken}>
                     {d.name}
-                  </Chip>
+                  </DeptChip>
                 ))}
               </div>
               <KeyValueList
@@ -153,7 +162,7 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
               <div className="flex items-center gap-2">
                 <Avatar size={48} name={memberName(selectedStaff, me)} />
                 <span className="flex min-w-0 flex-col">
-                  <EntityLink entity={{ id: selectedStaff.entityId ?? selectedStaff.userId, kind: "team_member", name: memberName(selectedStaff, me), href: selectedStaff.entityId ? routes.crm(businessId, selectedStaff.entityId) : undefined }} details={memberEntity(businessId, selectedStaff, me)} className="t-display-sm" onOpen={(e) => e.href && navigate(e.href)} />
+                  <EntityLink entity={{ id: selectedStaff.entityId ?? selectedStaff.userId, kind: "team_member", name: memberName(selectedStaff, me), href: selectedStaff.entityId ? routes.crm(businessId, selectedStaff.entityId) : undefined }} details={memberEntity(businessId, selectedStaff, me)} className="t-display-sm min-w-0 truncate" onOpen={(e) => e.href && navigate(e.href)} />
                   <span className="text-small text-secondary">{ROLE_LABELS[selectedStaff.role]}</span>
                 </span>
               </div>

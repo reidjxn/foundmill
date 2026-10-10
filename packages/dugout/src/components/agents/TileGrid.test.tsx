@@ -72,6 +72,8 @@ describe("TileGrid", () => {
     const rail = screen.getByRole("list", { name: "Other tiles" });
     expect(within(rail).getAllByRole("group")).toHaveLength(5);
     expect(screen.getByTestId("tile-t0").dataset.ctx).toBe(" compact rail");
+    // One row the height of the region, so the focused tile never grows under what sits below the grid.
+    expect(screen.getByRole("region").className).toContain("grid-rows-[minmax(0,1fr)]");
     const focusedCell = screen.getByRole("group", { name: "Tile 2" });
     fireEvent.keyDown(focusedCell, { key: "Escape" });
     expect(onFocusedChange).toHaveBeenLastCalledWith(null);

@@ -45,6 +45,43 @@ export function squadHealth(departments: readonly DepartmentRow[] | undefined): 
   return healthy / seen.size;
 }
 
+/**
+ * The runway tile. With a burn model it is the figure in months with its Estimate chip; without one it says so in the
+ * same plain words as the top bar ("No runway yet": the label reads "Runway", the value "None yet") with the reason underneath, and no Estimate chip: nothing has been
+ * estimated yet.
+ */
+export function runwayTile(finance: FinanceOverview | undefined, loading: boolean, onClick: () => void): MetricTileProps {
+  const months = finance?.runway.months ?? null;
+  const provenance = finance ? { source: "Cash ÷ net burn (trailing 3 months)", note: finance.burn.definition } : undefined;
+  if (months === null) {
+    const caption = !finance
+      ? undefined
+      : finance.cash.accounts === 0
+        ? "Connect a bank to estimate it"
+        : finance.burn.netBurnMinor <= 0
+          ? "Cash-flow positive, so no limit yet"
+          : "Needs three months of bank history";
+    return { label: "Runway", value: loading ? null : "None yet", loading, caption, provenance, onClick };
+  }
+  return {
+    label: "Runway",
+    value: formatNumber(months, { maxDigits: 1 }),
+    unit: "mo",
+    estimate: "estimate",
+    loading,
+    caption: finance?.runway.blocksContinue ? "Under 3 months: blocks Continue" : months < 9 ? "Under 9 months" : "Cash ÷ net burn",
+    provenance,
+    onClick,
+  };
+}
+
+/** A board's kind in words, for a caption: "customers_won" → "Customers won", "mrr_growth" → "MRR growth". */
+export function boardWords(kind: string): string {
+  const words = kind.split(/[_\s-]+/).filter(Boolean).map((w) => (/^(mrr|arr|cpa|ltv)$/i.test(w) ? w.toUpperCase() : w.toLowerCase()));
+  const text = words.join(" ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 export function statusTiles(i: StatusStripInputs): MetricTileProps[] {
   const weekFrom = addDays(i.today, -6);
   const prevFrom = addDays(i.today, -13);
@@ -56,11 +93,10 @@ export function statusTiles(i: StatusStripInputs): MetricTileProps[] {
   const revenueMonth = i.finance?.revenue.monthly.find((m) => m.month === month)?.inflowMinor ?? null;
   const revenueSeries = (i.finance?.revenue.monthly ?? []).slice(-6).map((m) => m.inflowMinor);
   const health = squadHealth(i.departments);
-  const runway = i.finance?.runway.months ?? null;
   const currency = i.finance?.cash.currency ?? i.currency;
   const tiles: MetricTileProps[] = [
     { label: "Cash", value: i.finance ? { amountMinor: i.finance.cash.amountMinor, currency } : null, loading: i.loading.finance, caption: i.finance?.cash.accounts ? `${i.finance.cash.accounts} account${i.finance.cash.accounts === 1 ? "" : "s"}` : "Connect a bank in Settings", provenance: { source: "Bank balances", asOf: i.finance?.cash.asOf ?? undefined }, onClick: () => i.open("finance") },
-    { label: "Runway", value: runway === null ? (i.loading.finance ? null : "—") : formatNumber(runway, { maxDigits: 1 }), unit: runway === null ? undefined : "mo", estimate: "estimate", loading: i.loading.finance, caption: i.finance?.runway.blocksContinue ? "Under 3 months: blocks Continue" : runway !== null && runway < 9 ? "Under 9 months" : i.finance?.burn.definition ? "Cash ÷ net burn" : undefined, provenance: i.finance ? { source: "Cash ÷ net burn (trailing 3 months)", note: i.finance.burn.definition } : undefined, onClick: () => i.open("finance") },
+    runwayTile(i.finance, i.loading.finance, () => i.open("finance")),
     { label: "Revenue this month", value: revenueMonth === null ? (i.loading.finance ? null : "—") : { amountMinor: revenueMonth, currency }, spark: revenueSeries, loading: i.loading.finance, caption: i.finance?.revenue.label ?? "Cash basis", provenance: { source: "Bank inflows, cash basis" }, onClick: () => i.open("finance") },
     { label: "Customers this week", value: i.ribbon ? customersWeek : null, format: "integer", loading: i.loading.ribbon, delta: i.ribbon ? { value: customersWeek - customersPrev, label: "vs last week" } : undefined, spark: i.ribbon ? dailySeries(rows, lastDays(14, i.today), (r) => r.payments) : undefined, provenance: { source: "Payments (first payments count as customers)" }, onClick: () => i.open("customers") },
     { label: "Business health", value: health === null ? (i.loading.departments ? null : "—") : health, format: "percent", loading: i.loading.departments, caption: health === null ? "No agents hired yet" : health >= 0.9 ? "Team healthy" : health >= 0.6 ? "Some agents need attention" : "Team in trouble", provenance: { source: "Share of agents healthy or idle" }, onClick: () => i.open("team") },
@@ -69,11 +105,11 @@ export function statusTiles(i: StatusStripInputs): MetricTileProps[] {
     const best = (i.positions ?? []).slice().sort((a, b) => a.position - b.position)[0];
     tiles.push({
       label: "Leaderboard position",
-      value: best ? `#${best.position}` : i.loading.positions ? null : "—",
+      value: best ? `#${best.position}` : i.loading.positions ? null : "Not ranked",
       loading: i.loading.positions,
       delta: best && best.movement ? { value: best.movement, label: "places" } : undefined,
-      caption: best ? (best.board.title ?? best.board.boardKind) : "Not ranked yet",
-      provenance: { source: "LIVE leaderboards (verified integrations only)" },
+      caption: best ? (best.board.title ?? boardWords(best.board.boardKind)) : "Verified metrics rank once connected",
+      provenance: { source: "Live leaderboards (verified integrations only)" },
       onClick: () => i.open("league", best?.leaderboardId),
     });
   }
@@ -131,7 +167,7 @@ function StatusStripWidget({ settings }: WidgetProps<StatusStripSettings>) {
 export const statusStripWidget = registerWidget<StatusStripSettings>({
   key: "status_strip",
   title: "Status strip",
-  description: "Cash, runway, revenue, customers this week, business health and leaderboard position when LIVE.",
+  description: "Cash, runway, revenue, customers this week, business health and leaderboard position once live.",
   icon: "gauge",
   surfaces: ["home", "department"],
   defaultSize: { w: 12, h: 6, minW: 6, minH: 5, maxH: 8 },

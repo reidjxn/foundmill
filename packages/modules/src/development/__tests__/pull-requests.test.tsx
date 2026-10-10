@@ -81,7 +81,7 @@ describe("row builders", () => {
   it("toMergedRows labels PRs and who merged them", () => {
     const rows = toMergedRows([...mergedPrs, { eventId: "e2", occurredAt: "2026-10-05T10:00:00Z", taskId: TASK_DONE, mergedBy: { kind: "user", id: "u-1" } }]);
     expect(rows[0]).toMatchObject({ prLabel: "#41", mergedByName: "Pike (integration agent)" });
-    expect(rows[1]).toMatchObject({ prLabel: "e2", mergedByName: "user u-1" });
+    expect(rows[1]).toMatchObject({ prLabel: "e2", mergedByName: "A staff member" });
   });
   it("previewFromEvent only reads preview deploys", () => {
     expect(previewFromEvent({ type: "deploy.succeeded", payload: { environment: "production", url: "https://x" } })).toBeNull();

@@ -34,7 +34,7 @@ describe("IPScreen", () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <IPScreen {...props} />);
-    fireEvent.click(screen.getByRole("button", { name: 'Screen "Northwind Skincare"' }));
+    fireEvent.click(screen.getByRole("button", { name: "Screen “Northwind Skincare”" }));
     expect(screen.getByRole("region", { name: "Screen of Northwind Skincare" })).toBeTruthy();
     const form = screen.getByRole("form", { name: "Screen a mark" });
     fireEvent.change(within(form).getByLabelText("Word mark"), { target: { value: "Northwind" } });

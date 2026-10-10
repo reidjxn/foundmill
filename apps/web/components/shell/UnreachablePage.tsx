@@ -10,13 +10,10 @@ export function UnreachablePage({ message }: { message: string }) {
   const router = useRouter();
   const env = publicEnv();
   return (
-    <BrandFrame footer={<span className="font-mono">API {env.apiUrl}</span>}>
-      <div className="flex h-8 items-center border-b border-subtle bg-panel-alt px-3">
-        <span className="t-label">The API is not answering</span>
-      </div>
-      <div className="p-5">
-        <EmptyState icon={ServerOff} title="Nothing loaded" action={{ label: "Try again", onClick: () => router.refresh() }}>
-          {message} Start apps/api (pnpm dev) or check NEXT_PUBLIC_API_URL, then try again.
+    <BrandFrame title="Can't reach the server" footer={<span className="font-mono text-mono">Server address {env.apiUrl}</span>}>
+      <div>
+        <EmptyState icon={ServerOff} title="Nothing loaded yet" action={{ label: "Try again", onClick: () => router.refresh() }}>
+          {message} Check your connection, then try again. If it keeps happening, the server may be restarting.
         </EmptyState>
         <div className="mt-3 flex justify-end">
           <Button variant="ghost" size="sm" asChild>

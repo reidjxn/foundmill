@@ -98,9 +98,9 @@ function CompareBody({ ids, viewer }: { ids: string[]; viewer: { email: string |
           <Panel title={<Skeleton className="h-3 w-24" />}>
             <SkeletonRows rows={10} cols={ids.length + 1} />
           </Panel>
-          <div className="grid grid-cols-[320px_1fr] gap-gutter">
-            <Panel title={<Skeleton className="h-3 w-20" />} loading />
-            <Panel title={<Skeleton className="h-3 w-20" />} loading />
+          <div className="grid grid-cols-12 gap-gutter">
+            <Panel title={<Skeleton className="h-3 w-20" />} loading className="col-span-4" />
+            <Panel title={<Skeleton className="h-3 w-20" />} loading className="col-span-8" />
           </div>
         </div>
       ) : compare.error ? (
@@ -108,12 +108,12 @@ function CompareBody({ ids, viewer }: { ids: string[]; viewer: { email: string |
       ) : (
         <div className="flex flex-col gap-gutter" data-testid="compare-result" data-count={concepts.length}>
           <ConceptCompare concepts={concepts} />
-          <div className="grid grid-cols-[1fr_360px] gap-gutter">
-            <Panel title="Agent verdict in full" footer={<span>Written by the Research agent from the cards' evidence · recorded as a comparison</span>}>
+          <div className="grid grid-cols-12 gap-gutter">
+            <Panel title="Agent verdict in full" className="col-span-8" footer={<span>Written by the Research agent from the cards' evidence and saved with your comparisons</span>}>
               <Markdown variant="reading">{data?.verdict.verdict_md ?? ""}</Markdown>
             </Panel>
-            <Panel title="Ranking" data-testid="ranking">
-              <ol className="flex flex-col divide-y divide-subtle/50">
+            <Panel title="Ranking" meta={`${concepts.length} concepts`} className="col-span-4" data-testid="ranking">
+              <ol className="flex flex-col divide-y divide-line-faint">
                 {[...(data?.verdict.ranking ?? [])]
                   .sort((a, b) => a.rank - b.rank)
                   .map((r) => {
@@ -121,12 +121,12 @@ function CompareBody({ ids, viewer }: { ids: string[]; viewer: { email: string |
                     const first = r.rank === 1;
                     return (
                       <li key={r.idea_id} className="flex items-start gap-3 py-2 first:pt-0 last:pb-0" data-rank={r.rank}>
-                        <span className={cn("inline-flex size-6 shrink-0 items-center justify-center rounded-full border text-small tabular-nums", first ? "border-gold text-gold" : "border-subtle text-secondary")} aria-label={`Rank ${r.rank}`}>
+                        <span className={cn("inline-flex size-control-xs shrink-0 items-center justify-center rounded-pill font-mono text-mono tabular-nums ring-1", first ? "bg-gold/12 text-gold ring-gold/40" : "text-secondary ring-line-strong")} aria-label={`Rank ${r.rank}`}>
                           {first ? <Trophy size={12} aria-hidden /> : r.rank}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate text-body-strong">{idea?.title ?? "Concept"}</span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="min-w-0 break-words text-body-strong">{idea?.title ?? "Concept"}</span>
                             {first ? <Chip tone="gold">Recommended</Chip> : null}
                           </div>
                           <p className="text-small text-secondary">{r.reason}</p>

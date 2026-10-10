@@ -32,7 +32,7 @@ export function LoginForm() {
     e.preventDefault();
     const supabase = await createClient();
     if (!supabase) {
-      setPhase({ kind: "error", message: "Sign-in is not configured for this environment." });
+      setPhase({ kind: "error", message: "Email sign-in is not set up on this server yet." });
       return;
     }
     setPhase({ kind: "sending" });
@@ -44,11 +44,8 @@ export function LoginForm() {
   }
 
   return (
-    <BrandFrame footer={<span>Desktop only · minimum 1280 px · {APP_NAME} sends a sign-in link, never a password.</span>}>
-      <div className="flex h-8 items-center border-b border-subtle bg-panel-alt px-3">
-        <span className="t-label">Sign in</span>
-      </div>
-      <div className="flex flex-col gap-4 p-5">
+    <BrandFrame title="Sign in" footer={<span>Desktop only: built for screens 1280 px wide or more. No password to remember: {APP_NAME} emails you a sign-in link.</span>}>
+      <div className="flex flex-col gap-4">
         {phase.kind === "sent" ? (
           <div className="flex flex-col gap-2" role="status" data-testid="login-sent">
             <StatusPill tone="good" icon={Mail}>
@@ -63,24 +60,24 @@ export function LoginForm() {
           </div>
         ) : (
           <form onSubmit={submit} className="flex flex-col gap-3" data-testid="login-form">
-            <Field htmlFor="login-email" label="Work email" hint={supabaseReady ? "We email a one-time link. No password." : "Supabase Auth is not configured in this environment."}>
-              <Input id="login-email" type="email" name="email" autoComplete="email" required icon={Mail} placeholder="founder@company.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!supabaseReady || phase.kind === "sending"} />
+            <Field htmlFor="login-email" label="Work email" hint={supabaseReady ? "We email you a one-time link. No password to remember." : "Email sign-in is not set up on this server yet."}>
+              <Input id="login-email" controlSize="lg" type="email" name="email" autoComplete="email" required icon={Mail} placeholder="founder@company.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!supabaseReady || phase.kind === "sending"} />
             </Field>
             {phase.kind === "error" ? (
               <StatusPill tone="bad" role="alert">
                 {phase.message}
               </StatusPill>
             ) : null}
-            <Button type="submit" variant="primary" icon={Send} loading={phase.kind === "sending"} disabled={!supabaseReady || email.trim().length === 0}>
+            <Button type="submit" size="lg" variant="primary" icon={Send} loading={phase.kind === "sending"} disabled={!supabaseReady || email.trim().length === 0}>
               Send sign-in link
             </Button>
           </form>
         )}
         {devBypass ? (
-          <form method="post" action="/auth/dev" className="flex flex-col gap-2 border-t border-subtle pt-4" data-testid="dev-bypass">
+          <form method="post" action="/auth/dev" className="flex flex-col gap-2 border-t border-line pt-4" data-testid="dev-bypass">
             <input type="hidden" name={NEXT_PARAM} value={next} />
-            <p className="text-small text-secondary">Development only: continue as the seeded founder (DEV_AUTH_USER_ID on the API).</p>
-            <Button type="submit" variant="default" icon={Wrench}>
+            <p className="text-small text-secondary">For development: continue as the example founder, who owns the sample businesses.</p>
+            <Button type="submit" size="lg" variant="default" icon={Wrench}>
               Continue as developer
             </Button>
           </form>

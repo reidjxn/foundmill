@@ -65,7 +65,8 @@ export function ConceptCard({ concept, onAction, shortlisted, selected, onToggle
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <h3 className="min-w-0 font-display text-display-md font-semibold text-primary">
-              <FitText minPx={15}>{concept.name}</FitText>
+              {/* DIRECTION #15: step down, then two lines, and only then truncate (a long or forked name stays readable). */}
+              <FitText minPx={15} lines={2}>{concept.name}</FitText>
             </h3>
             {concept.version && concept.version > 1 ? <Chip mono className="shrink-0">v{concept.version}</Chip> : null}
           </div>

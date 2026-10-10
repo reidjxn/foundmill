@@ -62,7 +62,7 @@ describe("board helpers", () => {
     expect(scale.end.toISOString().slice(0, 10)).toBe("2026-12-07");
     expect(scale.today).toBeGreaterThan(0);
     expect(scale.today).toBeLessThan(1);
-    expect(scale.ticks.map((t) => t.label)).toEqual(["Sept", "Oct", "Nov", "Dec"]);
+    expect(scale.ticks.map((t) => t.label)).toEqual(["Sep", "Oct", "Nov", "Dec"]);
     const span = barSpan(roadmap.items[0]!, scale)!;
     expect(span.left).toBeGreaterThan(0.3);
     expect(span.width).toBeGreaterThan(0.2);

@@ -77,12 +77,12 @@ describe("LogoPicker", () => {
     expect(screen.getByTestId("logo-error").textContent).toMatch(/cannot perform administration/);
   });
 
-  it("makes Generate logos the main action until a set exists", () => {
+  it("makes Generate logos the main action: the generate control, before Upload", () => {
     setup();
     const generate = screen.getByTestId("logo-generate");
-    expect(generate.getAttribute("data-variant")).toBe("primary");
-    expect(generate.textContent).toBe("Generate logos");
-    expect(generate.className).toMatch(/h-control-md/);
+    expect(generate.getAttribute("data-variant")).toBe("generate");
+    expect(generate.getAttribute("data-size")).toBe("lg");
+    expect(generate.textContent).toContain("Generate logos");
     // It comes before Upload, which stays a secondary action.
     const buttons = [...screen.getByTestId("logo-picker").querySelectorAll("button")].map((b) => b.getAttribute("data-testid"));
     expect(buttons.indexOf("logo-generate")).toBeLessThan(buttons.indexOf("logo-upload"));
@@ -146,6 +146,36 @@ describe("LogoPicker", () => {
     expect(set).toBe(SET);
     expect(seen.map((p) => p.type)).toEqual(["started", "option"]);
     await expect(readLogoStream(events([{ type: "started", total: 1, slots: [], mode: "mock" }]))).rejects.toThrow(/stopped before the set was finished/);
+  });
+
+  it("while a set is drawn the control shows the real count with Stop beside it; Stop keeps the marks already drawn", async () => {
+    let progress: ((p: LogoProgress) => void) | undefined;
+    let signal: AbortSignal | undefined;
+    const generate = vi.fn((_round: number, onProgress?: (p: LogoProgress) => void, sig?: AbortSignal) => {
+      progress = onProgress;
+      signal = sig;
+      return new Promise<GeneratedLogoSet>(() => undefined);
+    });
+    setup({}, { generate });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("logo-generate"));
+    });
+    const control = screen.getByTestId("logo-generate");
+    expect(control.getAttribute("data-running")).not.toBeNull();
+    expect(control.textContent).toContain("Drawing logos");
+    expect(control.textContent).toContain("0 of 4");
+    await act(async () => {
+      progress!({ type: "option", index: 1, option: SET.options[1]! });
+    });
+    expect(screen.getByTestId("logo-generate").textContent).toContain("1 of 4");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    });
+    expect(signal?.aborted).toBe(true);
+    expect(screen.getAllByTestId("logo-option")).toHaveLength(1);
+    expect(screen.queryByTestId("logo-slot")).toBeNull();
+    expect(screen.getByText("Stopped. The mark already drawn stays here.")).toBeTruthy();
+    expect(screen.getByTestId("logo-generate").textContent).toContain("Generate again");
   });
 
   it("disables every control while a choice is being saved", () => {

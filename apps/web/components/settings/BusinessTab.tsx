@@ -120,13 +120,13 @@ export function BusinessTab() {
         />
         <FormRow>
           <Field htmlFor="kit-primary" label="Primary colour" error={HEX_RE.test(primary) ? undefined : "Use a 6-digit hex colour"}>
-            <Input id="kit-primary" mono value={primary} onChange={(e) => setPrimary(e.target.value)} trailing={<span aria-hidden className="inline-block h-4 w-4 rounded-chip border border-subtle" style={{ background: HEX_RE.test(primary) ? primary : "transparent" }} />} data-testid="kit-primary-hex" />
+            <Input id="kit-primary" mono value={primary} onChange={(e) => setPrimary(e.target.value)} trailing={<span aria-hidden className="inline-block size-4 rounded-xs ring-1 ring-line-strong" style={{ background: HEX_RE.test(primary) ? primary : "transparent" }} />} data-testid="kit-primary-hex" />
           </Field>
           <Field htmlFor="kit-secondary" label="Secondary colour" error={HEX_RE.test(secondary) ? undefined : "Use a 6-digit hex colour"}>
-            <Input id="kit-secondary" mono value={secondary} onChange={(e) => setSecondary(e.target.value)} trailing={<span aria-hidden className="inline-block h-4 w-4 rounded-chip border border-subtle" style={{ background: HEX_RE.test(secondary) ? secondary : "transparent" }} />} data-testid="kit-secondary-hex" />
+            <Input id="kit-secondary" mono value={secondary} onChange={(e) => setSecondary(e.target.value)} trailing={<span aria-hidden className="inline-block size-4 rounded-xs ring-1 ring-line-strong" style={{ background: HEX_RE.test(secondary) ? secondary : "transparent" }} />} data-testid="kit-secondary-hex" />
           </Field>
         </FormRow>
-        <Hint>The logo is saved as soon as you choose it. Brand colours are saved with the button below; text on the primary colour is computed for contrast (APCA Lc ≥ 75).</Hint>
+        <Hint>The logo is saved as soon as you choose it. Brand colours are saved with the button below; text on the primary colour is picked for you so it always stays readable.</Hint>
         <SaveBar
           onSave={() => update.mutate({ businessId, name: name.trim(), slug, archetype: archetype || null, kitPrimary: primary, kitSecondary: secondary })}
           saving={update.isPending}

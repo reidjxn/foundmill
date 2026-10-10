@@ -30,6 +30,13 @@ describe("hierarchy nodes", () => {
     const lone = toHierarchyNodes([agents.find((a) => a.id === AGENT_MARA)!], { founderName: "Reid" });
     expect(lone.find((n) => n.id === AGENT_MARA)!.parentId).toBe(FOUNDER_NODE_ID);
   });
+
+  it("never repeats the name on the role line: a role that only restates it gives way to the department", () => {
+    const juno = agents.find((a) => a.id === AGENT_JUNO)!;
+    const nodes = toHierarchyNodes([{ ...juno, name: "Frontend Engineer", role: "Frontend engineer" }, { ...juno, id: "x-2", name: "Ivy", role: undefined, agentType: "qa_engineer" }], { founderName: "Reid" });
+    expect(nodes[1]).toMatchObject({ name: "Frontend Engineer", role: "Development", department: undefined });
+    expect(nodes[2]).toMatchObject({ name: "Ivy", role: "QA engineer", department: "Development" });
+  });
 });
 
 describe("HierarchyScreen", () => {
@@ -40,9 +47,9 @@ describe("HierarchyScreen", () => {
     const tree = await screen.findByRole("tree", { name: "Team hierarchy" });
     const items = within(tree).getAllByRole("treeitem");
     expect(items).toHaveLength(agents.length + 1);
-    expect(items[0]!.getAttribute("aria-label")).toBe("Reid, Founder, Founder");
+    expect(items[0]!.getAttribute("aria-label")).toBe("Reid, You, Founder");
     expect(within(tree).getByRole("treeitem", { name: /Orla, Chief of Staff, Team, Chief of Staff/ })).toBeTruthy();
-    expect(screen.getByTestId("hierarchy-summary").textContent).toBe("5 agents · 1 leads · 2 workers");
+    expect(screen.getByTestId("hierarchy-summary").textContent).toBe("5 agents · 1 lead · 2 workers");
     await user.click(within(tree).getByRole("treeitem", { name: /Pike/ }));
     const detail = await screen.findByTestId("hierarchy-detail");
     expect(within(detail).getByRole("link", { name: "Pike" })).toBeTruthy();

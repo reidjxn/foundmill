@@ -2,27 +2,23 @@
 /**
  * The reading pane (BUILD §11.3 "Anatomy", DESIGN §9 Inbox): 64 px header (persona EntityLink, date, department chip,
  * related entities), the note in reading style (Markdown with entity markup → EntityLinks), a status strip of up to
- * four live metrics with provenance, the exhibit, and the DecisionBar (1–4 hotkeys through the shell's keyboard map,
- * free text → `inbox.decide`). When policy says "ask", "Here is what will happen" lists every action with its cost
- * before `plan.confirm`. Answered items show what was chosen, the plan's progress and follow-up links. Won customers
- * open their Customer Update (the replay).
+ * four live metrics with provenance, the exhibit, the conversation with the agent who wrote it (DIRECTION #6: quick
+ * replies on Alt+1–4, T to talk; typed text goes through `agent.conversation.inboxReply`, so a question never uses up
+ * the decision) and the DecisionBar (1–4 through the shell's keyboard map; "Ask <agent>" opens the conversation's
+ * Write field instead of a free-text box). When policy says "ask", "Here is what will happen" lists every action with
+ * its cost before `plan.confirm`. Answered items show what was chosen, the plan's progress and follow-up links. Won
+ * customers open their Customer Update (the replay).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowRight, Check, ExternalLink, Play, ShieldAlert, Trophy } from "lucide-react";
+import { Archive, ArrowRight, CirclePause, ExternalLink, Play, ShieldAlert, Trophy } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Avatar,
   Button,
   Chip,
   DecisionBar,
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  DeptChip,
   EntityLink,
   KeyValueList,
   Markdown,
@@ -30,8 +26,8 @@ import {
   StatusPill,
   StatusStrip,
   formatDateTime,
-  formatMoney,
   formatRelative,
+  isTypingTarget,
   useToast,
   type DecisionAnswer,
   type DecisionOption,
@@ -44,22 +40,28 @@ import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
+import { AgentConversation, type AgentConversationHandle } from "@/components/conversation/AgentConversation";
+import { useAgentDesk } from "@/components/conversation/DeskHost";
+import { roleBesideName } from "@/components/conversation/logic";
+import { ConfirmPlanDialog } from "./ConfirmPlanDialog";
 import { Exhibit } from "./Exhibit";
+import { NoteTagChip } from "./InboxList";
 import {
-  TYPE_META,
   agentIndex,
   answeredFrom,
   confirmationLines,
+  decisionDeadline,
   decisionExpired,
   followUpLinks,
   freeTextAllowed,
+  hasAgentDesk,
   headerDates,
+  headerTag,
   journeyForItem,
   planStatusLine,
   statusStripTiles,
   stripSources,
   toDecisionOptions,
-  totalCost,
   type ConfirmationLine,
 } from "./logic";
 
@@ -116,7 +118,6 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const agents = useMemo(() => agentIndex(departments), [departments]);
   const persona = fromAgent ? agents.get(fromAgent.id) : undefined;
   const department = persona ? departments.find((d) => d.id === persona.departmentId) : undefined;
-  const meta = TYPE_META[item.type];
   const dates = headerDates(item, decisions[0]?.decidedAt ?? null);
 
   // --- status strip sources (only what the note needs) ---------------------------------------------------------------
@@ -158,18 +159,23 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   }, [result, decisions]);
   const isAnswered = !!answered || item.state === "answered" || item.state === "archived";
 
+  // A decision recorded here (an option) or in the conversation ("Go with: …", an instruction typed to the agent).
+  const onDecided = useCallback(
+    (res: DecideResult) => {
+      setResult(res);
+      // Continue follows inbox.list (AC-11.3.3); plan/dev/distribution screens follow the executed actions.
+      void invalidate(["inbox", "plan", "dev", "distribution", "team", "business"]);
+      if (res.requiresConfirmation) setConfirmOpen(true);
+      else {
+        toast({ title: "Decided", description: res.executed.length ? `${res.executed.length} action${res.executed.length === 1 ? "" : "s"} done, ${res.deferred.length} handed to the team.` : res.plan.summaryMd.slice(0, 140), tone: "good", action: res.followUp ? { label: "Open the update", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
+        if (won && journeyId) router.push(routes.journey(businessId, journeyId));
+      }
+    },
+    [invalidate, toast, router, businessId, won, journeyId],
+  );
   const decide = useMutation(
     trpc.inbox.decide.mutationOptions({
-      onSuccess: (res) => {
-        setResult(res);
-        // Continue follows inbox.list (AC-11.3.3); plan/dev/distribution screens follow the executed actions.
-        void invalidate(["inbox", "plan", "dev", "distribution", "team", "business"]);
-        if (res.requiresConfirmation) setConfirmOpen(true);
-        else {
-          toast({ title: "Decided", description: res.executed.length ? `${res.executed.length} action${res.executed.length === 1 ? "" : "s"} done, ${res.deferred.length} handed to the team.` : res.plan.summaryMd.slice(0, 140), tone: "good", action: res.followUp ? { label: "Open the update", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
-          if (won && journeyId) router.push(routes.journey(businessId, journeyId));
-        }
-      },
+      onSuccess: onDecided,
       onError: (err) => toast({ title: "Could not record the decision", description: errorMessage(err), tone: "bad" }),
     }),
   );
@@ -198,9 +204,28 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 
   const locked = isAnswered || expired || decide.isPending || confirm.isPending;
   const onChoose = useCallback((o: DecisionOption) => decide.mutate({ businessId, itemId: item.id, chosenOption: o.id }), [decide, businessId, item.id]);
-  const onExecute = useCallback((text: string) => decide.mutate({ businessId, itemId: item.id, freeText: text }), [decide, businessId, item.id]);
+  // The conversation under the note (DIRECTION #6): Alt+1–4 answer the agent (1–4 stay on the options), T talks.
+  const desk = useRef<AgentConversationHandle>(null);
+  const showDesk = hasAgentDesk(item.type);
+  const agentName = fromAgent?.name ?? "the Chief of Staff";
+  useEffect(() => {
+    if (!showDesk) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "t" || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.defaultPrevented || e.isComposing) return;
+      if (isTypingTarget(e.target) || document.querySelector("[role=dialog], [role=alertdialog]")) return;
+      e.preventDefault();
+      desk.current?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [showDesk]);
+  // An agent's desk opened as a sheet over the note (the palette's Ask, a profile's Talk) owns 1–4 while it is open:
+  // the note gives the keys up, so they reach the sheet's quick replies and never decide this note underneath it.
+  const sheetOpen = Boolean(useAgentDesk()?.current);
   usePageShortcuts({
-    onChooseOption: options.length && !locked ? (n) => {
+    onChooseOption: options.length && !locked && !sheetOpen ? (n) => {
+      // Any other dialog above the note (a confirmation, the keyboard help) holds the keys too.
+      if (document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')) return;
       const o = options[n - 1];
       if (o && !o.disabled) onChoose(o);
     } : undefined,
@@ -210,49 +235,66 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const links = useMemo(() => (plan ? followUpLinks(plan.actions, businessId, departments) : []), [plan, businessId, departments]);
   const planLine = planStatusLine(plan);
   const pendingConfirmation = plan?.status === "pending_confirmation";
+  const roleLine = roleBesideName(fromAgent?.name ?? persona?.name, persona?.role);
   const relatedEntities = entities.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, href: routes.crm(businessId, e.id) }));
 
   return (
     <article className="flex min-h-0 flex-1 flex-col" data-testid="inbox-item" data-item-id={item.id} data-type={item.type} data-state={isAnswered ? "answered" : item.state}>
       {/* header */}
-      <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-subtle bg-panel px-gutter py-2" data-testid="inbox-item-header">
-        {persona ? <Avatar size={32} name={persona.name} agent={{ seed: persona.seed, dept: persona.dept as DeptColourToken }} /> : <Avatar size={32} name={item.fromUserId ? "You" : "Team"} />}
-        <div className="flex min-w-0 flex-1 flex-col">
-          <h1 className="t-display-sm truncate text-primary">{item.subject}</h1>
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-small text-secondary">
+      <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-subtle bg-panel px-gutter py-2.5" data-testid="inbox-item-header">
+        {persona ? <Avatar size={40} name={persona.name} agent={{ seed: persona.seed, dept: persona.dept as DeptColourToken }} /> : <Avatar size={40} name={item.fromUserId ? "You" : "Team"} />}
+        {/* The persona column keeps a 16rem basis, so the tags wrap under it instead of crushing it. */}
+        <div className="flex min-w-0 flex-[1_1_16rem] flex-col gap-0.5">
+          <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
             {fromAgent ? (
-              <EntityLink entity={{ id: fromAgent.id, kind: "agent", name: fromAgent.name, href: routes.agent(businessId, fromAgent.id) }} onOpen={() => router.push(routes.agent(businessId, fromAgent.id))} hoverCard={false} contextMenu={false} data-testid="persona-link" />
+              <EntityLink entity={{ id: fromAgent.id, kind: "agent", name: fromAgent.name, href: routes.agent(businessId, fromAgent.id) }} onOpen={() => router.push(routes.agent(businessId, fromAgent.id))} hoverCard={false} contextMenu={false} className="text-body-strong text-primary" data-testid="persona-link" />
             ) : (
-              <span>{item.fromUserId ? "You" : "Team"}</span>
+              <span className="text-body-strong text-primary">{item.fromUserId ? "You" : "Team"}</span>
             )}
-            {persona?.role ? <span>{persona.role}</span> : null}
-            <span aria-hidden>·</span>
-            <time dateTime={dates.created.toISOString()} title={formatDateTime(dates.created)}>
+            {roleLine ? <span className="text-small text-secondary" data-testid="persona-role">{roleLine}</span> : null}
+          </p>
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-small text-secondary">
+            {department ? (
+              <DeptChip dept={department.colourToken as DeptColourToken} data-testid="department-chip">
+                {department.name}
+              </DeptChip>
+            ) : null}
+            <time dateTime={dates.created.toISOString()} title={formatDateTime(dates.created)} className="tabular-nums">
               {formatRelative(dates.created)}
             </time>
-            {dates.decided ? <span>· decided {formatRelative(dates.decided)}</span> : null}
+            {dates.decided ? <span className="tabular-nums">· decided {formatRelative(dates.decided)}</span> : null}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <StatusPill tone={meta.tone === "neutral" ? "info" : meta.tone} data-testid="type-pill">
-            {meta.word}
-          </StatusPill>
-          {department ? (
-            <Chip tone={department.colourToken as DeptColourToken} data-testid="department-chip">
-              {department.name}
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+          <NoteTagChip tag={headerTag(item.type, isAnswered, item.blocksContinue)} size="header" testId="type-pill" />
+          {item.blocksContinue && !isAnswered ? (
+            <Chip tone="neutral" icon={CirclePause} title="Continue waits until you answer this note">
+              Blocks Continue
             </Chip>
           ) : null}
-          {item.blocksContinue && !isAnswered ? <Chip tone="bad">Blocks Continue</Chip> : null}
-          {relatedEntities.slice(0, 3).map((e) => (
-            <EntityLink key={e.id} entity={e} className="text-small" />
-          ))}
-          {relatedEntities.length > 3 ? <span className="text-small text-secondary">+{relatedEntities.length - 3}</span> : null}
           {item.state !== "archived" && (isAnswered || !options.length) ? <Button size="sm" variant="ghost" icon={Archive} onClick={() => archive.mutate({ businessId, itemId: item.id })} loading={archive.isPending} data-testid="archive-item">Archive</Button> : null}
         </div>
       </header>
 
       {/* scrolling body */}
       <div className="flex min-h-0 flex-1 flex-col gap-gutter overflow-y-auto p-gutter">
+        <div className="flex flex-col gap-1.5" data-testid="inbox-title">
+          {/* The subject has the full width of the pane: it wraps, it is never crushed by chips. */}
+          <h1 className="t-display-md max-w-reading text-balance break-words text-primary">{item.subject}</h1>
+          {relatedEntities.length ? (
+            <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-small text-secondary" data-testid="related-entities">
+              <span>About</span>
+              {relatedEntities.slice(0, 4).map((e, i, all) => (
+                <span key={e.id} className="inline-flex items-baseline">
+                  <EntityLink entity={e} />
+                  {i < all.length - 1 ? <span aria-hidden>,</span> : null}
+                </span>
+              ))}
+              {relatedEntities.length > 4 ? <span>and {relatedEntities.length - 4} more</span> : null}
+            </p>
+          ) : null}
+        </div>
+
         {won ? (
           <Panel title="Customer Update" span={12} actions={<Chip tone="gold">Win</Chip>} data-testid="customer-update">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -316,6 +358,21 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
             </div>
           </Panel>
         ) : null}
+
+        {showDesk ? (
+          <AgentConversation
+            ref={desk}
+            subject={{ kind: "inbox_item", id: item.id }}
+            variant="inline"
+            keyModifier="alt"
+            // Typed words decide only an open decision that allows free text; otherwise they stay a conversation.
+            inboxReply={freeTextAllowed(item.decision) && !isAnswered && !expired}
+            onDecision={onDecided}
+            // Decided here, from the DecisionBar or in another tab: no more "Go with: …".
+            decided={isAnswered || expired}
+            fallbackDept={(department?.colourToken as DeptColourToken | undefined) ?? "dept-1"}
+          />
+        ) : null}
       </div>
 
       {/* decision bar */}
@@ -323,7 +380,10 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         <DecisionBar
           options={options}
           onChoose={onChoose}
-          onExecute={freeTextAllowed(item.decision) ? onExecute : undefined}
+          onAsk={showDesk ? () => desk.current?.openWrite() : undefined}
+          askLabel={`Ask ${agentName}`}
+          askDescription="Talk it through first"
+          deadline={decisionDeadline(item.decision) ?? undefined}
           disabled={expired || item.state === "archived"}
           executing={decide.isPending || confirm.isPending}
           answered={answered}
@@ -343,61 +403,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   );
 }
 
-/* ---------- "Here is what will happen" ---------- */
-
-export interface ConfirmPlanDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  lines: readonly ConfirmationLine[];
-  summary: string;
-  currency: string;
-  loading?: boolean;
-  onConfirm: () => void;
-}
-
-export function ConfirmPlanDialog({ open, onOpenChange, lines, summary, currency, loading, onConfirm }: ConfirmPlanDialogProps) {
-  const total = totalCost(lines, currency);
-  const asks = lines.filter((l) => l.outcome === "ask").length;
-  const denied = lines.filter((l) => l.outcome === "deny").length;
-  const gates = lines.filter((l) => l.hardGate).length;
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="md" data-testid="confirm-plan">
-        <DialogHeader>
-          <DialogTitle>Here is what will happen</DialogTitle>
-          <DialogDescription>
-            {asks} action{asks === 1 ? " sits" : "s sit"} outside the current policy and need{asks === 1 ? "s" : ""} your go-ahead.{denied ? ` ${denied} ${denied === 1 ? "is" : "are"} denied and will be skipped.` : ""}
-            {gates ? ` ${gates} ${gates === 1 ? "is" : "are"} hard-gated: the team prepares everything and you act.` : ""}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogBody>
-          <div className="flex flex-col gap-3">
-            {summary ? <Markdown variant="body">{summary}</Markdown> : null}
-            <ol className="flex flex-col divide-y divide-subtle rounded-panel border border-subtle" data-testid="confirm-plan-lines">
-              {lines.map((l, i) => (
-                <li key={i} className="flex items-center gap-3 px-panel-pad py-2" data-outcome={l.outcome}>
-                  <StatusPill tone={l.outcome === "allow" ? "good" : l.outcome === "ask" ? "warn" : l.outcome === "deny" ? "bad" : "neutral"}>{l.outcome === "allow" ? "Within policy" : l.outcome === "ask" ? "Needs your go-ahead" : l.outcome === "deny" ? "Denied" : l.outcome}</StatusPill>
-                  <span className="min-w-0 flex-1 truncate text-body">{l.label}</span>
-                  {l.hardGate ? <Chip tone="ink">You act</Chip> : null}
-                  <span className="shrink-0 text-small text-secondary tabular-nums">{l.cost ? formatMoney(l.cost) : "No cost"}</span>
-                </li>
-              ))}
-            </ol>
-            <KeyValueList items={[{ label: "Total cost", value: total ? formatMoney(total) : "No cost", numeric: true, hint: total ? "Estimate: budgets and caps as planned, not spend to date." : undefined }]} />
-          </div>
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={loading}>
-            Not now
-          </Button>
-          <Button variant="primary" icon={Check} loading={loading} onClick={onConfirm} data-testid="confirm-plan-go">
-            Go ahead
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
+export { ConfirmPlanDialog, type ConfirmPlanDialogProps } from "./ConfirmPlanDialog";
 
 /** The note body in the reading style. Dugout's Markdown keeps its own props, so the test id lives on this wrapper. */
 export function InboxNote({ bodyMd }: { bodyMd: string }) {

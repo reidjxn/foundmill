@@ -24,7 +24,7 @@ describe("EntityScreen", () => {
     expect(within(officers).getByText("Priya Shah")).toBeTruthy();
     expect(within(officers).getByText("Not in CRM yet")).toBeTruthy();
     expect(within(officers).getAllByText("In CRM")).toHaveLength(2);
-    expect(screen.getByText(/3 officers · right-click for the CRM/)).toBeTruthy();
+    expect(screen.getByText("3 officers")).toBeTruthy();
     const history = screen.getByRole("region", { name: "History" });
     expect(within(history).getByText("Companies House started")).toBeTruthy();
     expect(within(history).getByText("Stripe Atlas started")).toBeTruthy();

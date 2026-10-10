@@ -45,12 +45,14 @@ export interface TileSeedInput {
   session: SessionRow | null | undefined;
   agent: TileAgent;
   taskHref?: string;
+  /** The business's currency: sessions carry no currency of their own, so their cost is shown in it. */
+  currency?: string;
 }
 
 /** The static facts a tile needs, from the task row, its open session (if any) and the agent row. */
-export function seedFromRows({ task, session, agent, taskHref }: TileSeedInput): SessionSeed {
+export function seedFromRows({ task, session, agent, taskHref, currency: businessCurrency }: TileSeedInput): SessionSeed {
   const tokens = session ? (session.tokensIn ?? 0) + (session.tokensOut ?? 0) : 0;
-  const currency = session?.currency ?? "EUR";
+  const currency = session?.currency ?? businessCurrency ?? "EUR";
   return {
     id: session?.id ?? placeholderSessionId(task.id),
     agent: session?.modelKey ? { ...agent, model: session.modelKey } : agent,

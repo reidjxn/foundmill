@@ -1,10 +1,11 @@
 "use client";
 /**
- * The frame for the signed-in screens outside a business (/onboarding, /new/*): a 56 px top bar with the Foundmill
- * wordmark (DESIGN §8a), the first-run steps as a trail, the viewer and Sign out; content on bg-base within a 1440 px
- * measure. No sidebar, no kit bar: there is no business yet, so no kit colours either.
+ * The frame for the signed-in screens outside a business (/onboarding, /new/*): a 56 px glass top bar with the
+ * Foundmill wordmark (DESIGN §8a), the first-run steps as a numbered trail joined by hairlines, the viewer and Sign
+ * out; content on the canvas within a 1440 px measure, under the landing page's light in Foundmill steel. No sidebar,
+ * no kit bar: there is no business yet, so no brand colours of its own.
  */
-import { Check } from "lucide-react";
+import { Check, LogOut } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { APP_NAME } from "@foundmill/config";
@@ -53,28 +54,37 @@ export interface StudioFrameProps {
 export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, viewer, width = "wide", children }: StudioFrameProps) {
   const activeIndex = steps.findIndex((s) => s.id === step);
   return (
-    <div className="flex min-h-screen flex-col bg-base text-primary" data-testid="studio-frame" data-step={step}>
-      <header className="flex h-14 shrink-0 items-center gap-6 border-b border-subtle bg-panel px-gutter">
+    <div className="relative isolate flex min-h-screen flex-col bg-canvas text-primary" data-testid="studio-frame" data-step={step}>
+      {/* The landing page's light in Foundmill steel: there is no business yet, so no brand colour of its own. */}
+      <div aria-hidden className="brand-backdrop -z-10" />
+      <header className="first-run-bar sticky top-0 z-20 flex h-kitbar shrink-0 items-center gap-8 px-gutter">
         <Link href="/" className="flex items-center text-primary hover:no-underline" aria-label={`${APP_NAME} home`}>
           <Wordmark height={20} label={APP_NAME} />
         </Link>
-        <nav aria-label="First-run steps" className="flex min-w-0 items-center gap-1">
-          <ol className="flex items-center gap-1">
+        <nav aria-label="First-run steps" className="flex min-w-0 items-center">
+          <ol className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {steps.map((s, i) => {
               const done = i < activeIndex;
               const active = i === activeIndex;
               const content = (
-                <span className={cn("inline-flex h-7 items-center gap-1.5 rounded-chip px-2 t-tab", active ? "bg-panel-alt text-primary" : done ? "text-secondary hover:text-primary" : "text-secondary/60")}>
-                  <span className={cn("inline-flex size-4 items-center justify-center rounded-full border text-label tabular-nums", active ? "border-link text-link" : done ? "border-status-good text-status-good" : "border-subtle")} aria-hidden>
-                    {done ? <Icon icon={Check} size={10} /> : i + 1}
+                <span className={cn("inline-flex h-control-md items-center gap-2 rounded-sm px-1.5 t-action transition-colors duration-hover", active ? "text-primary" : done ? "text-secondary hover:text-primary" : "text-tertiary")}>
+                  <span
+                    className={cn(
+                      "inline-flex size-badge items-center justify-center rounded-pill font-mono text-micro tabular-nums",
+                      active ? "bg-accent text-ink shadow-glow-accent" : done ? "bg-status-good/12 text-status-good ring-1 ring-status-good/40" : "ring-1 ring-line-strong",
+                    )}
+                    aria-hidden
+                  >
+                    {done ? <Icon icon={Check} size={12} strokeWidth={2.5} /> : i + 1}
                   </span>
                   {s.label}
                 </span>
               );
               return (
-                <li key={s.id} aria-current={active ? "step" : undefined} data-step-item={s.id} data-state={active ? "active" : done ? "done" : "upcoming"}>
+                <li key={s.id} aria-current={active ? "step" : undefined} data-step-item={s.id} data-state={active ? "active" : done ? "done" : "upcoming"} className="flex items-center gap-2">
+                  {i > 0 ? <span aria-hidden className={cn("h-px w-6", done || active ? "bg-line-strong" : "bg-line")} /> : null}
                   {done && s.href && s.id !== "compare" && s.id !== "commit" ? (
-                    <Link href={s.href} className="hover:no-underline">
+                    <Link href={s.href} className="rounded-sm hover:no-underline focus-visible:shadow-ring">
                       {content}
                     </Link>
                   ) : (
@@ -85,20 +95,20 @@ export function StudioFrame({ step, steps = STUDIO_STEPS, title, lede, actions, 
             })}
           </ol>
         </nav>
-        <div className="ml-auto flex items-center gap-3">
-          {viewer?.email ? <span className="text-small text-secondary">{viewer.email}</span> : null}
-          <LinkButton variant="ghost" size="sm" href="/auth/signout" external>
+        <div className="ml-auto flex shrink-0 items-center gap-3">
+          {viewer?.email ? <span className="font-mono text-mono text-tertiary">{viewer.email}</span> : null}
+          <LinkButton variant="ghost" size="sm" icon={LogOut} href="/auth/signout" external>
             Sign out
           </LinkButton>
         </div>
       </header>
-      <main className={cn("mx-auto w-full flex-1 px-gutter py-6", width === "wide" ? "max-w-[1440px]" : "max-w-[960px]")}>
-        <div className="mb-5 flex items-end justify-between gap-6">
+      <main className={cn("mx-auto w-full flex-1 px-gutter pb-10 pt-8", width === "wide" ? "first-run-wide" : "first-run-measure")}>
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">
-            <h1 className="t-display-md">{title}</h1>
-            {lede ? <p className="mt-1 max-w-[720px] text-body text-secondary">{lede}</p> : null}
+            <h1 className="t-display-md text-balance">{title}</h1>
+            {lede ? <p className="mt-1.5 max-w-reading text-body text-pretty text-secondary">{lede}</p> : null}
           </div>
-          {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
         </div>
         {children}
       </main>

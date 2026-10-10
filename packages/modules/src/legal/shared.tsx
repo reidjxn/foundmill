@@ -4,11 +4,12 @@
  * "Information, not legal or tax advice" caption, founder-only link-outs (the only way to an external submit,
  * pay or sign page) and the legal entity query every tab reads.
  */
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode, type RefCallback } from "react";
 import { ExternalLink, Info, ShieldCheck } from "lucide-react";
-import { Button, Chip, PageGrid, StatusPill, cn, formatMoney, type ButtonProps, type StatusTone } from "@foundmill/dugout";
+import { Button, Chip, PageGrid, StatusPill, cn, formatMoney, type ButtonProps, type SavedView, type StatusTone } from "@foundmill/dugout";
 import { useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets/data";
-import type { CalendarStatus } from "./legal-data";
+import { fitColumns, useTableWidth, type ColumnFit } from "../fit";
+import { plainWords, type CalendarStatus } from "./legal-data";
 import type { ContractStatus, IncorporationStatus, IncorporationStatusResponse, LegalEntityStatus } from "./types";
 
 /* ---------- Options (host or tests) ---------- */
@@ -55,12 +56,12 @@ export function Screen({ name, children, className }: { name: string; children: 
   );
 }
 
-/** Label + value pair for compact fact rows. */
+/** Label + value pair for compact fact rows. Values wrap (an address, a long legal name); numbers never break. */
 export function Fact({ label, children, numeric, mono, className }: { label: ReactNode; children: ReactNode; numeric?: boolean; mono?: boolean; className?: string }) {
   return (
     <div className={cn("min-w-0", className)}>
-      <p className="t-label truncate">{label}</p>
-      <p className={cn("truncate text-primary", mono ? "t-mono" : "t-body", numeric && "tabular-nums")}>{children}</p>
+      <p className="t-label">{label}</p>
+      <p className={cn("text-primary", mono ? "t-mono break-all" : "t-body break-words", numeric && "whitespace-nowrap tabular-nums")}>{children}</p>
     </div>
   );
 }
@@ -84,7 +85,7 @@ export function InformationNotice({ kind = "advice", className, children }: { ki
 /** "Founder only" chip next to actions agents never perform (submit, pay, sign, accept terms). */
 export function FounderOnlyChip({ className }: { className?: string }) {
   return (
-    <Chip tone="kit" icon={ShieldCheck} className={className} title="Agents never perform this step; it is yours alone">
+    <Chip tone="kit" icon={ShieldCheck} className={cn("whitespace-nowrap", className)} title="Agents never perform this step; it is yours alone">
       Founder only
     </Chip>
   );
@@ -162,12 +163,43 @@ export const CONTRACT_PILL: Record<ContractStatus, { tone: StatusTone; word: str
   terminated: { tone: "bad", word: "Terminated" },
 };
 
+/** A status pill that keeps its words on one line (it never wraps inside a row; the row wraps around it). */
 export function Pill({ tone, word, className }: { tone: StatusTone; word: string; className?: string }) {
   return (
-    <StatusPill tone={tone} className={className}>
+    <StatusPill tone={tone} className={cn("shrink-0 whitespace-nowrap", className)}>
       {word}
     </StatusPill>
   );
+}
+
+/* ---------- Tables ---------- */
+
+/** DataTable body height that shows `rows` compact rows under the sticky header (no dead space under short tables). */
+export function fitTableHeight(rows: number, opts: { minRows?: number; maxRows?: number; rowHeight?: number } = {}): number {
+  const { minRows = 4, maxRows = 18, rowHeight = 28 } = opts;
+  return 41 + Math.min(maxRows, Math.max(minRows, rows)) * rowHeight;
+}
+
+/**
+ * Column widths that fill the table's real width for the saved view on screen (DESIGN §2 "never clip"): every column
+ * at the width its content needs, the spare width shared by grow weight, so the default view fits at 1280 with no
+ * column cut at the panel edge. Put `ref` on a wrapper around the DataTable and pass `onActiveViewChange` to it.
+ */
+export function useFittedColumns<K extends string>(
+  specs: Record<K, ColumnFit>,
+  views: readonly SavedView[],
+  defaultViewId: string,
+  /** Columns the screen actually renders, when it leaves some out (an empty column, say). */
+  present?: readonly string[],
+): { ref: RefCallback<HTMLElement>; sizes: Record<K, number>; onActiveViewChange: (id: string | null) => void } {
+  const [ref, width] = useTableWidth();
+  const [viewId, setViewId] = useState<string | null>(defaultViewId);
+  const inView = (views.find((v) => v.id === viewId) ?? views.find((v) => v.id === defaultViewId))?.columns ?? [];
+  const columns = present ? inView.filter((c) => present.includes(c)) : inView;
+  const key = columns.join(",");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` stands for the visible column list
+  const sizes = useMemo(() => fitColumns(width, specs, columns as K[]), [width, specs, key]);
+  return { ref, sizes, onActiveViewChange: setViewId };
 }
 
 /* ---------- Money ---------- */
@@ -245,7 +277,7 @@ export function InlineError({ error, className }: { error: Error | string | null
 
 /** Sentence-case a snake_case key for display. */
 export function humanise(s: string | null | undefined): string {
-  if (!s) return "";
-  const w = s.replace(/[_-]+/g, " ").trim();
-  return w.charAt(0).toUpperCase() + w.slice(1);
+  return plainWords(s);
 }
+
+export { archetypeLabel, entityTypeLabel, jurisdictionName } from "./legal-data";

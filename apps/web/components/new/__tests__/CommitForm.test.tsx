@@ -87,7 +87,7 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
   it("changes the default spend cap with the business mode until the founder edits it", () => {
     renderForm();
     fireEvent.click(screen.getByLabelText(/Automated/));
-    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("1000");
+    expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("1,000");
     fireEvent.change(screen.getByLabelText(/Spend cap per action/), { target: { value: "75" } });
     fireEvent.click(screen.getByLabelText(/Augmented/));
     expect((screen.getByLabelText(/Spend cap per action/) as HTMLInputElement).value).toBe("75");
@@ -206,6 +206,9 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
   it("says what is happening while the business is set up", () => {
     renderForm(vi.fn(), { committing: true });
     expect(screen.getByTestId("committing-status").textContent).toBe("Setting up your business: departments, team and the first cycle. This takes a few seconds.");
+    // The header says it too, beside the top button, which reads as the work in progress rather than the action.
+    expect(screen.getAllByText(/^Setting up your business/)).toHaveLength(2);
+    expect(screen.getByTestId("take-charge").textContent).toMatch(/Setting up…/);
   });
 
   it("shows the team the archetype seeds", () => {
@@ -219,6 +222,6 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     });
     const squad = screen.getByTestId("squad-preview");
     expect(squad.textContent).toMatch(/Chief of Staff/);
-    expect(squad.textContent).toMatch(/1 agents · 1 departments · 1 channels on/);
+    expect(squad.textContent).toMatch(/1 agent · 1 department · 1 channel on/);
   });
 });

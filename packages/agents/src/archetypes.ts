@@ -525,7 +525,7 @@ const services = ArchetypeSeed.parse({
     "services",
     "Productised package or bespoke engagements first?",
     [
-      "A services club scales through repeatable delivery. The Board asks whether the first clients buy a fixed package or bespoke work.",
+      "A services business scales through repeatable delivery. The Board asks whether the first clients buy a fixed package or bespoke work.",
     ],
     [
       {

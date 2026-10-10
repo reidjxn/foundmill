@@ -5,7 +5,7 @@
  * (shortlist, discarded-card snapshots) that the API has no procedure for.
  */
 import { ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
-import { CONCEPT_ATTRIBUTE_KEYS, createRng, hslToRgb, kitOnPrimaryDetail, rgbToHex, type Concept, type ConceptAttribute, type ConceptEvidence, type Kit } from "@foundmill/dugout";
+import { CONCEPT_ATTRIBUTE_KEYS, CONCEPT_ATTRIBUTE_LABELS, createRng, hslToRgb, kitOnPrimaryDetail, rgbToHex, type Concept, type ConceptAttribute, type ConceptEvidence, type Kit } from "@foundmill/dugout";
 
 export const META_KIND = "foundmill:meta";
 
@@ -44,7 +44,18 @@ export interface IdeaMeta {
   merged_into?: string;
   forked_from?: string;
   forked_to?: string;
-  qa?: { question: string; answer: string }[];
+  qa?: QaEntry[];
+}
+
+/** One Ask exchange stored on a version (`meta.qa`): the question, the answer, and the conversation when it has one. */
+export interface QaEntry {
+  question: string;
+  answer: string;
+  /** The Research agent's reply as bubbles (answers stored before the conversation have only `answer`). */
+  bubbles?: string[];
+  quick_replies?: { id: string; label: string; say?: string; kind?: string; option_id?: string | null; recommended?: boolean }[];
+  quick_reply_id?: string | null;
+  reaction?: string;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v) && typeof v === "object" && !Array.isArray(v);
@@ -59,7 +70,7 @@ export function readMeta(research: { citations: unknown[] } | null | undefined):
   if (typeof found.merged_into === "string") meta.merged_into = found.merged_into;
   if (typeof found.forked_from === "string") meta.forked_from = found.forked_from;
   if (typeof found.forked_to === "string") meta.forked_to = found.forked_to;
-  if (Array.isArray(found.qa)) meta.qa = found.qa.filter((q): q is { question: string; answer: string } => isRecord(q) && typeof q.question === "string" && typeof q.answer === "string");
+  if (Array.isArray(found.qa)) meta.qa = found.qa.filter((q): q is QaEntry => isRecord(q) && typeof q.question === "string" && typeof q.answer === "string");
   return meta;
 }
 
@@ -140,8 +151,26 @@ export function lineageOf(idea: IdeaLike): Lineage {
   return { mergedFrom: meta.merged_from ?? [], mergedInto: meta.merged_into ?? null, forkedFrom: meta.forked_from ?? null, forkedTo: meta.forked_to ?? null };
 }
 
-export function qaOf(idea: IdeaLike): { question: string; answer: string }[] {
+export function qaOf(idea: IdeaLike): QaEntry[] {
   return readMeta(idea.current?.research).qa ?? [];
+}
+
+/** The bubbles of a stored answer: its conversation bubbles, else the single answer. */
+export function qaBubbles(qa: QaEntry): string[] {
+  const bubbles = Array.isArray(qa.bubbles) ? qa.bubbles.filter((b): b is string => typeof b === "string" && b.trim().length > 0) : [];
+  return bubbles.length ? bubbles : [qa.answer];
+}
+
+const attributeLabel = (key: string): string => (CONCEPT_ATTRIBUTE_LABELS as Record<string, string>)[key] ?? key.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+
+/** Attributes a new version moved ("Market size 12 → 14"), by key, in the card's order. */
+export function attributeChanges(before: IdeaVersionLike["attributes"] | null | undefined, after: IdeaVersionLike["attributes"] | null | undefined): { key: string; label: string; from: number; to: number }[] {
+  if (!before || !after) return [];
+  return Object.keys(after).flatMap((key) => {
+    const a = before[key]?.value;
+    const b = after[key]?.value;
+    return typeof a === "number" && typeof b === "number" && a !== b ? [{ key, label: attributeLabel(key), from: a, to: b }] : [];
+  });
 }
 
 export const VERSION_ACTION_LABELS: Record<string, string> = { generated: "Generated", merged: "Merged", forked: "Forked", edited: "Edited" };

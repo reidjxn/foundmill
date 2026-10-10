@@ -10,3 +10,5 @@ export * from "./conversation/DeskPresence";
 export * from "./conversation/AgentDesk";
 export * from "./conversation/LiveRun";
 export * from "./conversation/DraftingCard";
+export * from "./conversation/NudgeMenu";
+export * from "./conversation/NudgeAck";

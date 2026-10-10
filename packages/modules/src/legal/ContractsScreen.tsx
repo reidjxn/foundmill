@@ -6,12 +6,13 @@
  */
 import { useId, useMemo, useState } from "react";
 import { ArrowRight, Ban, CheckCircle2, ExternalLink, FileSignature, FileText, Plus, UserRound } from "lucide-react";
-import { Button, Chip, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, Panel, SimpleSelect, formatDate, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, SimpleSelect, formatDate, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
-import { CONTRACT_NEXT, CONTRACT_STATUS_WORD, isExternalHref, readObligations, type Obligation } from "./legal-data";
-import { CONTRACT_PILL, FounderLinkOut, FounderOnlyChip, InlineError, Pill, Screen, fmtMoney, humanise, useAction, useCurrency, useNow } from "./shared";
+import { CONTRACT_NEXT, CONTRACT_STATUS_WORD, contractKindLabel, isExternalHref, readObligations, type Obligation } from "./legal-data";
+import { fitColumns, type ColumnFit } from "../fit";
+import { CONTRACT_PILL, FounderLinkOut, FounderOnlyChip, InlineError, Pill, Screen, fitTableHeight, fmtMoney, useAction, useCurrency, useFittedColumns, useNow } from "./shared";
 import type { BusinessGetResponse, ContractRow, ContractStatus, ContractsListResponse } from "./types";
 
 const CONTRACTS_INPUT = { limit: 200 } as const;
@@ -21,11 +22,28 @@ export const CONTRACT_VIEWS: SavedView[] = [
   { id: "active", name: "Active", builtIn: true, columns: ["title", "kind", "counterparty", "value", "endsAt", "obligations"], sort: [{ id: "endsAt", desc: false }], filters: [{ id: "f-act", field: "status", op: "in", value: ["signed", "active"] }] },
   { id: "signature", name: "Awaiting signature", builtIn: true, columns: ["title", "kind", "counterparty", "value", "status"], sort: [{ id: "updatedAt", desc: true }], filters: [{ id: "f-sig", field: "status", op: "eq", value: "awaiting_signature" }] },
   { id: "drafts", name: "Drafts and review", builtIn: true, columns: ["title", "kind", "counterparty", "status", "updatedAt"], sort: [{ id: "updatedAt", desc: true }], filters: [{ id: "f-dr", field: "status", op: "in", value: ["draft", "review"] }] },
-  { id: "all", name: "All", builtIn: true, columns: ["title", "kind", "counterparty", "status", "value", "startsAt", "endsAt", "obligations", "updatedAt"], sort: [{ id: "updatedAt", desc: true }], filters: [] },
+  { id: "all", name: "All", builtIn: true, columns: ["title", "kind", "counterparty", "status", "value", "endsAt", "obligations"], sort: [{ id: "updatedAt", desc: true }], filters: [] },
 ];
 
+/** What each column's content needs and its share of the spare width: every view fits the 980 px table at 1280. */
+export const CONTRACT_FIT = {
+  title: { min: 190, grow: 3 },
+  kind: { min: 120 },
+  counterparty: { min: 170, grow: 2 },
+  status: { min: 160 },
+  value: { min: 104 },
+  startsAt: { min: 100 },
+  endsAt: { min: 100 },
+  obligations: { min: 136 },
+  updatedAt: { min: 100 },
+} satisfies Record<string, ColumnFit>;
+export type ContractColumnId = keyof typeof CONTRACT_FIT;
+
+/** While a contract is open beside the table (8 of 12 columns), the table keeps the columns that identify a row. */
+export const CONTRACT_COLUMNS_BESIDE_DETAIL: readonly ContractColumnId[] = ["title", "counterparty", "status", "value"];
+
 const CONTRACT_KINDS = ["customer", "supplier", "nda", "employment", "contractor", "advisor", "lease", "partnership", "investment", "other"] as const;
-const KIND_OPTIONS = CONTRACT_KINDS.map((k) => ({ value: k, label: k === "nda" ? "NDA" : humanise(k) }));
+const KIND_OPTIONS = CONTRACT_KINDS.map((k) => ({ value: k, label: contractKindLabel(k) }));
 const PROVIDER_OPTIONS = [
   { value: "dropbox_sign", label: "Dropbox Sign" },
   { value: "docusign", label: "DocuSign" },
@@ -42,24 +60,24 @@ const NEXT_LABEL: Partial<Record<ContractStatus, { label: string; icon: typeof A
   terminated: { label: "Terminate", icon: Ban, variant: "danger" },
 };
 
-export function contractColumns(businessId: string, currency: string, now: Date): DataTableColumn<ContractRow>[] {
+export function contractColumns(businessId: string, currency: string, now: Date, sizes: Record<ContractColumnId, number> = fitColumns<ContractColumnId>(null, CONTRACT_FIT, [])): DataTableColumn<ContractRow>[] {
   return [
-    { id: "title", accessorFn: (r) => r.title || humanise(r.kind), header: "Contract", size: 240, cell: ({ row }) => <span className="t-body-strong text-primary">{row.original.title || `${humanise(row.original.kind)} agreement`}</span>, meta: { locked: true } },
-    { id: "kind", accessorKey: "kind", header: "Kind", size: 110, cell: ({ getValue }) => <Chip tone="neutral">{getValue() === "nda" ? "NDA" : humanise(String(getValue()))}</Chip>, meta: { filter: "select", filterOptions: KIND_OPTIONS } },
+    { id: "title", accessorFn: (r) => r.title || contractKindLabel(r.kind), header: "Contract", size: sizes.title, cell: ({ row }) => <span className="t-body-strong text-primary">{row.original.title || `${contractKindLabel(row.original.kind)} agreement`}</span>, meta: { locked: true } },
+    { id: "kind", accessorFn: (r) => contractKindLabel(r.kind), header: "Kind", size: sizes.kind, cell: ({ getValue }) => <Chip tone="neutral" className="whitespace-nowrap">{String(getValue())}</Chip>, meta: { filter: "select", filterOptions: KIND_OPTIONS.map((o) => ({ value: o.label, label: o.label })), csv: (r) => contractKindLabel(r.kind) } },
     {
       id: "counterparty",
       accessorFn: (r) => r.counterparty?.displayName ?? "",
       header: "Counterparty",
-      size: 200,
+      size: sizes.counterparty,
       cell: ({ row }) => (row.original.counterparty ? <EntityLink entity={{ id: row.original.counterparty.id, kind: "organisation", name: row.original.counterparty.displayName, href: routes.crm(businessId, row.original.counterparty.id) }} hoverCard={false} /> : <span className="text-secondary">—</span>),
       meta: { filter: "text" },
     },
-    { id: "status", accessorKey: "status", header: "Status", size: 150, cell: ({ row }) => <Pill {...CONTRACT_PILL[row.original.status]} />, meta: { filter: "select", filterOptions: Object.entries(CONTRACT_STATUS_WORD).map(([value, label]) => ({ value, label })) } },
-    { id: "value", accessorFn: (r) => r.valueMinor ?? 0, header: "Value", size: 110, cell: ({ row }) => <span className="tabular-nums">{row.original.valueMinor === null ? "—" : fmtMoney(row.original.valueMinor, row.original.currency || currency)}</span>, meta: { numeric: true } },
-    { id: "startsAt", accessorFn: (r) => r.startsAt ?? "", header: "Starts", size: 110, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
-    { id: "endsAt", accessorFn: (r) => r.endsAt ?? "", header: "Ends", size: 110, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
-    { id: "obligations", accessorFn: (r) => readObligations(r.obligations, now).filter((o) => o.status !== "met").length, header: "Open obligations", size: 130, cell: ({ getValue }) => <span className="tabular-nums">{String(getValue())}</span>, meta: { numeric: true } },
-    { id: "updatedAt", accessorFn: (r) => (r.updatedAt ? new Date(r.updatedAt).toISOString() : ""), header: "Updated", size: 110, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
+    { id: "status", accessorKey: "status", header: "Status", size: sizes.status, cell: ({ row }) => <Pill {...CONTRACT_PILL[row.original.status]} />, meta: { filter: "select", filterOptions: Object.entries(CONTRACT_STATUS_WORD).map(([value, label]) => ({ value, label })) } },
+    { id: "value", accessorFn: (r) => r.valueMinor ?? 0, header: "Value", size: sizes.value, cell: ({ row }) => <span className="tabular-nums">{row.original.valueMinor === null ? "—" : fmtMoney(row.original.valueMinor, row.original.currency || currency)}</span>, meta: { numeric: true } },
+    { id: "startsAt", accessorFn: (r) => r.startsAt ?? "", header: "Starts", size: sizes.startsAt, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
+    { id: "endsAt", accessorFn: (r) => r.endsAt ?? "", header: "Ends", size: sizes.endsAt, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
+    { id: "obligations", accessorFn: (r) => readObligations(r.obligations, now).filter((o) => o.status !== "met").length, header: "Open obligations", size: sizes.obligations, cell: ({ getValue }) => <span className="tabular-nums">{String(getValue())}</span>, meta: { numeric: true } },
+    { id: "updatedAt", accessorFn: (r) => (r.updatedAt ? new Date(r.updatedAt).toISOString() : ""), header: "Updated", size: sizes.updatedAt, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
   ];
 }
 
@@ -91,7 +109,14 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
   useBusinessEvents(() => list.refetch(), ["contract.signed"]);
 
   const rows = useMemo(() => (list.data?.items ?? []).filter((c) => !c.archivedAt), [list.data]);
-  const columns = useMemo(() => contractColumns(businessId, currency, now), [businessId, currency, now]);
+  // The columns on screen: the ones with a value in some row (the table hides empty ones), fewer beside an open contract.
+  const present = useMemo<ContractColumnId[]>(() => {
+    const dated = (k: "startsAt" | "endsAt" | "updatedAt") => rows.some((r) => !!r[k]);
+    const all = (Object.keys(CONTRACT_FIT) as ContractColumnId[]).filter((id) => (id === "startsAt" || id === "endsAt" || id === "updatedAt" ? dated(id) : true));
+    return selectedId ? all.filter((id) => CONTRACT_COLUMNS_BESIDE_DETAIL.includes(id)) : all;
+  }, [rows, selectedId]);
+  const fitted = useFittedColumns(CONTRACT_FIT, views, "all", present);
+  const columns = useMemo(() => contractColumns(businessId, currency, now, fitted.sizes).filter((c) => !selectedId || CONTRACT_COLUMNS_BESIDE_DETAIL.includes(c.id as ContractColumnId)), [businessId, currency, now, fitted.sizes, selectedId]);
   const selected = useMemo(() => (selectedId ? ({ ...(rows.find((r) => r.id === selectedId) ?? {}), ...(detail.data ?? {}) } as ContractRow | undefined) : undefined), [rows, selectedId, detail.data]);
   const selectedRow = selected && selected.id ? selected : undefined;
   const obligations = useMemo(() => readObligations(selectedRow?.obligations, now), [selectedRow, now]);
@@ -122,7 +147,7 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
 
   const canCreate = form.title.trim().length > 0 || form.kind.length > 0;
   const submitCreate = async () => {
-    const value = Number(form.value);
+    const value = Number(form.value.replace(/[,\s£$€]/g, ""));
     await create.run<ContractRow>(
       "legal.contracts.create",
       {
@@ -163,7 +188,8 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
             New contract
           </Button>
         }
-        footer={<span className="tabular-nums">{rows.length} contract{rows.length === 1 ? "" : "s"} · right-click to move a contract along its lifecycle · signing is yours alone</span>}
+        meta={rows.length ? `${rows.length} contract${rows.length === 1 ? "" : "s"}` : undefined}
+        footer={<span>Right-click a contract to move it along its lifecycle. Signing is yours alone.</span>}
       >
         {showForm ? (
           <form
@@ -180,8 +206,8 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
             <Field htmlFor={`${id}-title`} label="Title" className="col-span-4">
               <Input id={`${id}-title`} value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Master services agreement" maxLength={200} />
             </Field>
-            <Field htmlFor={`${id}-value`} label="Value" hint={currency} className="col-span-2">
-              <Input id={`${id}-value`} numeric inputMode="decimal" value={form.value} onChange={(e) => setForm((f) => ({ ...f, value: e.target.value }))} placeholder="12000" />
+            <Field htmlFor={`${id}-value`} label="Value" className="col-span-2">
+              <MoneyInput id={`${id}-value`} controlSize="md" currency={currency} value={form.value} onValueChange={(v) => setForm((f) => ({ ...f, value: v }))} placeholder="12,000" />
             </Field>
             <Field htmlFor={`${id}-starts`} label="Starts" className="col-span-2">
               <Input id={`${id}-starts`} type="date" value={form.startsAt} onChange={(e) => setForm((f) => ({ ...f, startsAt: e.target.value }))} />
@@ -203,13 +229,15 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
             <InlineError error={create.error} className="col-span-12" />
           </form>
         ) : null}
-        <DataTable<ContractRow> aria-label="Contracts" data={rows} columns={columns} views={views} onViewsChange={setViews} defaultViewId="all" height={showForm ? 320 : 460} exportFileName="contracts" rowActions={rowActions} onRowOpen={(r) => setSelectedId(r.id)} rowClassName={(r) => (r.id === selectedId ? "bg-panel-alt" : undefined)} />
+        <div ref={fitted.ref} className="min-w-0">
+          <DataTable<ContractRow> aria-label="Contracts" data={rows} columns={columns} views={views} onViewsChange={setViews} defaultViewId="all" onActiveViewChange={fitted.onActiveViewChange} hideEmptyColumns height={fitTableHeight(rows.length, { minRows: showForm ? 4 : 6, maxRows: 16 })} exportFileName="contracts" rowActions={rowActions} onRowOpen={(r) => setSelectedId(r.id)} rowClassName={(r) => (r.id === selectedId ? "row-selected" : undefined)} />
+        </div>
         <InlineError error={action.error} className="px-panel-pad py-1" />
       </Panel>
 
       {selectedRow ? (
         <Panel
-          title={selectedRow.title || `${humanise(selectedRow.kind)} agreement`}
+          title={selectedRow.title || `${contractKindLabel(selectedRow.kind)} agreement`}
           span={4}
           loading={detail.isLoading && !detail.data}
           error={detail.error ? detail.error.message : undefined}
@@ -229,7 +257,7 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
             dense
             layout="grid"
             items={[
-              { label: "Kind", value: selectedRow.kind === "nda" ? "NDA" : humanise(selectedRow.kind) },
+              { label: "Kind", value: contractKindLabel(selectedRow.kind) },
               { label: "Counterparty", value: selectedRow.counterparty ? <EntityLink entity={{ id: selectedRow.counterparty.id, kind: "organisation", name: selectedRow.counterparty.displayName, href: routes.crm(businessId, selectedRow.counterparty.id) }} /> : "—" },
               { label: "Value", value: selectedRow.valueMinor === null || selectedRow.valueMinor === undefined ? "—" : fmtMoney(selectedRow.valueMinor, selectedRow.currency || currency), numeric: true },
               { label: "Term", value: `${selectedRow.startsAt ? formatDate(selectedRow.startsAt) : "—"} → ${selectedRow.endsAt ? formatDate(selectedRow.endsAt) : "open-ended"}` },
@@ -238,7 +266,7 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
             ]}
           />
           <section aria-label="Signing" className="mt-3 flex flex-col gap-2 rounded-panel border border-subtle bg-panel-alt p-panel-pad">
-            <p className="t-label">Signing</p>
+            <p className="t-title text-primary">Signing</p>
             {selectedRow.status === "awaiting_signature" || selectedRow.status === "review" || selectedRow.status === "draft" ? (
               <>
                 <div className="flex flex-wrap items-center gap-2">
@@ -271,7 +299,7 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
             )}
           </section>
           <section aria-label="Obligations" className="mt-3">
-            <p className="t-label mb-1">Obligations</p>
+            <p className="t-title mb-1 text-primary">Obligations</p>
             <MiniTable<Obligation> aria-label="Obligations" rows={obligations} getRowKey={(o) => o.id} columns={obligationColumns()} emptyText="No obligations recorded for this contract." maxRows={20} caption={<span className="tabular-nums">{obligations.filter((o) => o.status !== "met").length} open of {obligations.length}</span>} />
           </section>
           <div className="mt-3 flex flex-wrap gap-1">

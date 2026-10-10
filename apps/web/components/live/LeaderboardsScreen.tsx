@@ -71,7 +71,7 @@ export function LeaderboardsScreen() {
         id: "title",
         accessorKey: "title",
         header: "Leaderboard",
-        size: 340,
+        size: 260,
         meta: { locked: true },
         cell: ({ row }) => (
           <span className="flex min-w-0 items-baseline gap-2">
@@ -80,14 +80,14 @@ export function LeaderboardsScreen() {
           </span>
         ),
       },
-      { id: "period", accessorKey: "period", header: "Period", size: 110, cell: ({ row }) => <span>{periodLabel(row.original.period)}</span> },
-      { id: "metricLabel", accessorKey: "metricLabel", header: "Ranked on", size: 160 },
-      { id: "computed", accessorKey: "computed", header: "Updated", size: 130, cell: ({ row }) => <span className="text-secondary">{row.original.computed ? formatRelative(row.original.computed) : "Not yet"}</span>, meta: { filter: "date" } },
+      { id: "period", accessorKey: "period", header: "Period", size: 100, cell: ({ row }) => <span>{periodLabel(row.original.period)}</span> },
+      { id: "metricLabel", accessorKey: "metricLabel", header: "Ranked on", size: 140 },
+      { id: "computed", accessorKey: "computed", header: "Updated", size: 110, cell: ({ row }) => <span className="text-secondary">{row.original.computed ? formatRelative(row.original.computed) : "Not yet"}</span>, meta: { filter: "date" } },
       {
         id: "position",
         accessorKey: "position",
         header: "Your position",
-        size: 150,
+        size: 130,
         meta: { numeric: true },
         cell: ({ row }) =>
           row.original.position === null ? (
@@ -115,7 +115,7 @@ export function LeaderboardsScreen() {
         loading={boardsQ.isLoading}
         error={boardsQ.error ? errorMessage(boardsQ.error) : undefined}
         onRetry={() => void boardsQ.refetch()}
-        empty={!boardsQ.isLoading && !boardsQ.error && rows.length === 0 ? { icon: Trophy, children: "No leaderboards yet. They are built from verified metrics of LIVE businesses and appear here once the first one is computed." } : undefined}
+        empty={!boardsQ.isLoading && !boardsQ.error && rows.length === 0 ? { icon: Trophy, children: "No leaderboards yet. They are built from the verified numbers of live businesses and appear here once the first one is computed." } : undefined}
         actions={<span className="text-small tabular-nums text-secondary">{rows.length} {rows.length === 1 ? "leaderboard" : "leaderboards"}</span>}
         footer="Boards rank verified integration metrics only. Numbers a founder types in never rank."
         data-testid="leaderboards-panel"
@@ -134,6 +134,7 @@ export function LeaderboardsScreen() {
           exportFileName="leaderboards"
           empty={{ icon: Trophy, children: "No leaderboard in this view." }}
           className="border-0"
+          hideEmptyColumns
         />
       </Panel>
       <Panel
@@ -149,7 +150,7 @@ export function LeaderboardsScreen() {
                 icon: Trophy,
                 children: live
                   ? `${data.business.name} is not on a leaderboard yet. A business ranks once an integration supplies a verified metric.`
-                  : `${data.business.name} is a Personal business, so it is not ranked. Switch it to LIVE to take part.`,
+                  : `${data.business.name} is a Personal business, so it is not ranked. Make it live in Settings to take part.`,
                 action: { label: live ? "Open integrations" : "Open Settings › Mode", onClick: () => router.push(settingsHref) },
               }
             : undefined

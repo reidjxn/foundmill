@@ -17,12 +17,12 @@ describe("CampaignsScreen", () => {
     expect(within(table).getByText("Launch week on Meta")).toBeTruthy();
     expect(within(table).getByText("Paid advertising")).toBeTruthy();
     expect(within(table).getByText("Live")).toBeTruthy();
-    expect(within(table).getByText("0/2 approved")).toBeTruthy();
-    expect(within(table).getByText("1/1 approved")).toBeTruthy();
-    expect(within(table).getByText("0/1 approved")).toBeTruthy();
+    expect(within(table).getByText("0 of 2 approved")).toBeTruthy();
+    expect(within(table).getByText("1 of 1 approved")).toBeTruthy();
+    expect(within(table).getByText("0 of 1 approved")).toBeTruthy();
     expect(within(table).getByText("1 awaiting")).toBeTruthy();
     expect(within(table).getByText("1 rejected")).toBeTruthy();
-    expect(screen.getByText(/3 campaigns · 1 live · 1 assets awaiting approval/)).toBeTruthy();
+    expect(screen.getByText(/3 campaigns · 1 live · 1 awaiting approval/)).toBeTruthy();
 
     const detail = screen.getByRole("region", { name: "Launch week on Meta" });
     expect(within(detail).getByText(/Reach 2,000 skincare shoppers/)).toBeTruthy();

@@ -7,25 +7,44 @@
  */
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, Cpu, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
-import { Avatar, Button, DataTable, EntityLink, MODEL_LABELS, Panel, SQUAD_VIEWS, formatRelative, squadColumns, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
+import { Button, DataTable, FormCells, MODEL_LABELS, Panel, SQUAD_VIEWS, formatRelative, squadColumns, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
 import { AGENT_STATUSES } from "@foundmill/shared/constants";
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
+import { fitColumns, plural, useTableWidth, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { CloneDialog, LoanDialog, ReleaseDialog } from "./dialogs";
 import { ModelChangeDialog, describeModelSet } from "./ModelChangeDialog";
-import { AgentStatusWordPill, InlineError, STATUS_WORD, Screen, agentEntity, agentHref, agentTypeNoun, taskHref, toSquadRow, useAgents, useLiveAgentStatus, useNow, useTeamOptions, withLiveStatus } from "./shared";
+import { AgentCell, AgentStatusWordPill, InlineError, STATUS_WORD, Screen, agentEntity, agentHref, agentTypeNoun, taskHref, toSquadRow, useAgents, useLiveAgentStatus, useNow, useTeamOptions, withLiveStatus } from "./shared";
 import type { AgentRow } from "./types";
 
-/** The five BUILD §11.9 views, with Wage and Tools reachable from General through the column chooser. */
-export const TEAM_SQUAD_VIEWS: SavedView[] = SQUAD_VIEWS;
+/**
+ * The five BUILD §11.9 views. General shows Wage (DESIGN §9 Team) and fits the panel at 1280 and 1440; Tools and the
+ * latest update are in the Tools, Health and Performance views and the column chooser.
+ */
+export const TEAM_SQUAD_VIEWS: SavedView[] = SQUAD_VIEWS.map((v) => (v.id === "general" ? { ...v, columns: ["name", "role", "departments", "status", "currentTask", "form", "rating", "model", "wage"] } : v));
 
-/** "12 agents · 9 healthy · 2 down · 1 idle" for the toolbar. */
+/** Column minimums (what each cell needs at 13 px, padding included) and how the extra width is shared. */
+export const SQUAD_FIT: Record<string, ColumnFit> = {
+  name: { min: 160, grow: 3 },
+  role: { min: 116, grow: 2 },
+  departments: { min: 112, grow: 1 },
+  status: { min: 108, grow: 1 },
+  currentTask: { min: 120, grow: 4 },
+  form: { min: 76 },
+  rating: { min: 80 },
+  tools: { min: 132 },
+  model: { min: 92 },
+  wage: { min: 112 },
+  latestUpdate: { min: 240, grow: 2 },
+};
+
+/** "12 agents · 9 healthy · 2 down · 1 idle" for the panel header. */
 export function squadSummary(agents: readonly Pick<AgentRow, "status">[]): string {
   const counts = new Map<string, number>();
   for (const a of agents) counts.set(a.status, (counts.get(a.status) ?? 0) + 1);
-  const parts = [`${agents.length} ${agents.length === 1 ? "agent" : "agents"}`];
+  const parts = [plural(agents.length, "agent")];
   for (const s of AGENT_STATUSES) {
     const n = counts.get(s);
     if (n) parts.push(`${n} ${STATUS_WORD[s].toLowerCase()}`);
@@ -49,6 +68,8 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
   const [clone, setClone] = useState<AgentRow | null>(null);
   const [loan, setLoan] = useState<AgentRow | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [tableRef, tableWidth] = useTableWidth();
+  const sizes = useMemo(() => fitColumns(tableWidth, SQUAD_FIT, TEAM_SQUAD_VIEWS[0]!.columns as string[]), [tableWidth]);
 
   const open = (agentId: string) => navigate(agentHref(businessId, agentId));
   const teamDept = departmentForModule(departments.data, "team");
@@ -65,7 +86,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
         row.currentTask ? (
           <a
             href={taskHref(businessId, row.currentTask.id)}
-            className="entity-link truncate"
+            className="entity-link block min-w-0 truncate"
             onClick={(e) => {
               e.preventDefault();
               navigate(taskHref(businessId, row.currentTask!.id));
@@ -74,36 +95,37 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
             {row.currentTask.title}
           </a>
         ) : (
-          <span className="text-secondary">—</span>
+          <span className="text-tertiary">—</span>
         ),
     });
-    return base.map((col) => {
+    return base.map((col): DataTableColumn<SquadRow> => {
+      const size = col.id ? sizes[col.id] : undefined;
+      const sized = size ? { ...col, size } : col;
       if (col.id === "name") {
         return {
-          ...col,
+          ...sized,
           cell: ({ row }) => {
             const agent = byId.get(row.original.id);
-            return (
-              <span className="inline-flex min-w-0 items-center gap-2">
-                <Avatar size={24} name={row.original.name} agent={{ seed: row.original.seed, dept: row.original.dept }} status={row.original.status} />
-                <EntityLink entity={{ id: row.original.id, kind: "agent", name: row.original.name, href: agentHref(businessId, row.original.id) }} details={agent ? agentEntity(businessId, agent, currency) : undefined} hideIcon className="text-body-strong" onOpen={(e) => open(e.id)} onVerb={(verb, e) => verb === "open_profile" && open(e.id)} />
-              </span>
-            );
+            return <AgentCell businessId={businessId} agent={{ id: row.original.id, name: row.original.name, seed: row.original.seed, dept: row.original.dept, status: row.original.status }} details={agent ? agentEntity(businessId, agent, currency) : undefined} onOpen={open} />;
           },
         };
       }
       if (col.id === "status") {
         return {
-          ...col,
+          ...sized,
           cell: ({ row }) => <AgentStatusWordPill status={row.original.status} expectedReturnAt={row.original.expectedReturnAt} now={now} />,
           meta: { ...col.meta, filter: "select", filterOptions: AGENT_STATUSES.map((s) => ({ value: s, label: STATUS_WORD[s] })) },
         };
       }
-      if (col.id === "departments") return { ...col, header: "Department(s)" };
-      return col;
+      // No results yet reads as words, not five unlit plates (DESIGN §2: colour is never the only signal).
+      if (col.id === "form") {
+        return { ...sized, cell: ({ row }) => (row.original.form.length ? <FormCells form={row.original.form} name={`${row.original.name} form`} /> : <span className="text-small text-tertiary">None yet</span>) };
+      }
+      if (col.id === "departments") return { ...sized, header: "Departments" };
+      return sized;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `open`/`navigate` are stable per data source
-  }, [businessId, byId, currency, now]);
+  }, [businessId, byId, currency, now, sizes]);
 
   const rowActions = (row: SquadRow): RowAction<SquadRow>[] => {
     const agent = byId.get(row.id);
@@ -118,7 +140,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
 
   const typeCount = modelAgent ? agents.filter((a) => agentTypeNoun(a) === agentTypeNoun(modelAgent)).length : 0;
   const refetch = () => agentsQuery.refetch();
-  const liveNote = live.size ? `${live.size} live ${live.size === 1 ? "change" : "changes"} applied ${formatRelative([...live.values()].map((l) => l.at).sort().at(-1)!, now)}` : null;
+  const liveNote = live.size ? `${plural(live.size, "live change")} applied ${formatRelative([...live.values()].map((l) => l.at).sort().at(-1)!, now)}` : null;
 
   return (
     <Screen name="team/squad">
@@ -130,37 +152,39 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
         error={agentsQuery.error ? agentsQuery.error.message : undefined}
         onRetry={refetch}
         empty={agentsQuery.data && agents.length === 0 ? { icon: Users, title: "No agents yet", children: "The team table lists every agent with its status, form, rating, model and wage once the first one is hired. Hire from the catalogue on the Recruitment tab.", action: { label: "Go to Recruitment", icon: UserRoundPlus, onClick: () => navigate(recruitHref) } } : undefined}
+        meta={agents.length ? <span data-testid="squad-summary">{squadSummary(agents)}</span> : undefined}
         actions={
-          <div className="flex items-center gap-2">
-            <span className="text-small text-secondary tabular-nums" data-testid="squad-summary">
-              {squadSummary(agents)}
-            </span>
-            <Button size="sm" icon={UserRoundPlus} onClick={() => navigate(recruitHref)}>
-              Hire
-            </Button>
-          </div>
+          <Button size="sm" icon={UserRoundPlus} onClick={() => navigate(recruitHref)}>
+            Hire
+          </Button>
         }
         footer={
-          <span className="flex items-center gap-2">
-            <span>Wage is this month's cost estimate: tokens, sandbox minutes and tool calls. Status updates arrive live.</span>
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>Wage is this month's cost so far, an estimate: tokens, sandbox minutes and tool calls. Status updates arrive live.</span>
             {liveNote ? <span data-testid="live-note">{liveNote}</span> : null}
-            {notice ? <span data-testid="model-notice">{notice}</span> : null}
+            {notice ? (
+              <span data-testid="model-notice" className="text-secondary">
+                {notice}
+              </span>
+            ) : null}
           </span>
         }
       >
-        <DataTable<SquadRow>
-          aria-label="Agents"
-          data={rows}
-          columns={columns}
-          views={views}
-          onViewsChange={setViews}
-          defaultViewId="general"
-          rowActions={rowActions}
-          onRowOpen={(row) => open(row.id)}
-          height={typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 264)}
-          exportFileName="squad"
-          className="border-0"
-        />
+        <div ref={tableRef} className="min-w-0">
+          <DataTable<SquadRow>
+            aria-label="Agents"
+            data={rows}
+            columns={columns}
+            views={views}
+            onViewsChange={setViews}
+            defaultViewId="general"
+            rowActions={rowActions}
+            onRowOpen={(row) => open(row.id)}
+            height={typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 264)}
+            exportFileName="agents"
+            className="border-0"
+          />
+        </div>
         <InlineError error={agentsQuery.error} className="px-panel-pad" />
       </Panel>
 

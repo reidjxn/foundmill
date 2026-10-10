@@ -1,9 +1,9 @@
 "use client";
 /** Helpers shared by the product screens: section ordering, authorship, mutations with pending/error state, layout. */
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { Bot, Lock, UserRound } from "lucide-react";
 import { Chip, EntityLink, Icon, PageGrid, cn, useEntityLinkContext } from "@foundmill/dugout";
-import { useWidgetData } from "@foundmill/widgets";
+import { useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { AuthorKind, SpecBlockRow } from "./types";
 import { pmTitle } from "./prosemirror";
 
@@ -69,12 +69,30 @@ export function findBlock(blocks: readonly SpecBlockRow[] | undefined, id: strin
 /* ---------- Authorship ---------- */
 
 export function authorWord(kind: AuthorKind): string {
-  return kind === "agent" ? "Agent" : kind === "user" ? "Team member" : "System";
+  return kind === "agent" ? "An agent" : kind === "user" ? "A teammate" : "System";
 }
 
-/** Who wrote a block: an EntityLink for agents and people (names resolve through the host's EntityLinkProvider). */
+/** agentId → name from the departments' teams (already cached by the shell), so provenance names the agent. */
+export function useAgentNames(): Map<string, string> {
+  const departments = useDepartments();
+  return useMemo(() => {
+    const out = new Map<string, string>();
+    for (const d of departments.data ?? []) {
+      if (d.lead) out.set(d.lead.id, d.lead.name);
+      for (const a of d.squad) if (!out.has(a.id)) out.set(a.id, a.name);
+    }
+    return out;
+  }, [departments.data]);
+}
+
+/**
+ * Who wrote a block, by name: the agent's name (linking to its profile), "You" for the signed-in founder, or the
+ * provider's resolved name; never a bare "Agent" when the name is known.
+ */
 export function AuthorRef({ kind, id, className }: { kind: AuthorKind; id: string | null; className?: string }) {
   const ctx = useEntityLinkContext();
+  const agents = useAgentNames();
+  const me = useWidgetQuery<{ membership?: { userId?: string } | null }>("business.get", {}, { enabled: kind === "user" && !!id });
   if (!id || kind === "system") {
     return (
       <span className={cn("inline-flex items-center gap-1 text-small text-secondary", className)}>
@@ -83,8 +101,16 @@ export function AuthorRef({ kind, id, className }: { kind: AuthorKind; id: strin
       </span>
     );
   }
-  const resolved = ctx.resolve?.(id);
-  return <EntityLink entity={{ id, kind: kind === "agent" ? "agent" : "team_member", name: resolved?.name ?? authorWord(kind) }} className={className} />;
+  if (kind === "user" && me.data?.membership?.userId === id) {
+    return (
+      <span className={cn("inline-flex items-center gap-1 text-small text-secondary", className)} data-author="you">
+        <Icon icon={UserRound} size="inline" />
+        You
+      </span>
+    );
+  }
+  const name = (kind === "agent" ? agents.get(id) : undefined) ?? ctx.resolve?.(id)?.name ?? authorWord(kind);
+  return <EntityLink entity={{ id, kind: kind === "agent" ? "agent" : "team_member", name }} className={className} />;
 }
 
 /** "Pinned" lock chip: human-edited blocks agents never overwrite without an accepted hunk (AC-11.5.3). */

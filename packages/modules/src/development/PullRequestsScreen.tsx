@@ -5,14 +5,15 @@
  */
 import { useMemo, useState } from "react";
 import { ExternalLink, GitMerge, GitPullRequest, MonitorPlay, Network, SearchCheck } from "lucide-react";
-import { Avatar, DataTable, EntityLink, Panel, StatusPill, formatDate, formatNumber, formatRelative, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
+import { Avatar, DataTable, EntityLink, FitText, Panel, StatusPill, formatDate, formatNumber, formatRelative, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "@foundmill/widgets/data";
+import { fitColumns, humanise, useTableWidth, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { OpenInClaudeCodeDialog } from "./dialogs";
 import { useDevScreenOptions } from "./options";
-import { Screen, agentHref, shortSha, toDate, toTileAgent, useAgentIndex, useAgents } from "./shared";
+import { Screen, agentHref, shortSha, toDate, toTileAgent, useAgentIndex, useAgents, useDevDepartment } from "./shared";
 import type { AgentRow, MergedPrRow, OpenPrRow, PrsListResponse } from "./types";
 
 /** Merge-queue status of an open PR (BUILD §11.6: Review agent → preview → Integration agent merge queue). */
@@ -47,6 +48,37 @@ export const MERGED_PR_VIEWS: SavedView[] = [
   { id: "by-agents", name: "Merged by agents", builtIn: true, columns: ["prLabel", "title", "branch", "mergedByName", "mergedAt"], sort: [{ id: "mergedAt", desc: true }], filters: [{ id: "f-agent", field: "mergedByName", op: "contains", value: "agent" }] },
 ];
 
+/** Column minimums and how the extra width is shared (see fit.ts). */
+export const OPEN_PR_FIT: Record<string, ColumnFit> = {
+  title: { min: 260, grow: 4 },
+  queue: { min: 156 },
+  status: { min: 120 },
+  agentName: { min: 180, grow: 2 },
+  branch: { min: 220, grow: 1 },
+  previewUrl: { min: 140 },
+};
+export const MERGED_PR_FIT: Record<string, ColumnFit> = {
+  prLabel: { min: 72 },
+  title: { min: 220, grow: 4 },
+  branch: { min: 180, grow: 1 },
+  mergedByName: { min: 150, grow: 1 },
+  additions: { min: 76 },
+  deletions: { min: 76 },
+  sha: { min: 92 },
+  mergedAt: { min: 104 },
+};
+
+/** An agent branch in mono: ids keep both ends when the column is narrow ("agent/0863…f1c2"). */
+function BranchName({ branch }: { branch: string }) {
+  return (
+    <span className="block min-w-0 font-mono text-mono">
+      <FitText minPx={12} truncate="middle">
+        {branch}
+      </FitText>
+    </span>
+  );
+}
+
 /** Preview URLs seen for a branch (`deploy.succeeded` events with environment "preview"). */
 export function previewFromEvent(event: WidgetEvent): { branch: string | null; taskId: string | null; url: string | null } | null {
   if (event.type !== "deploy.succeeded") return null;
@@ -62,18 +94,27 @@ export function toOpenRows(open: readonly OpenPrRow[], agents: Map<string, Agent
   });
 }
 
+/** Who merged, in words, when the event carries a kind but no name. */
+const MERGED_BY_KIND: Record<string, string> = { user: "A staff member", agent: "An agent", system: "Automatic merge" };
+
 export function toMergedRows(merged: readonly MergedPrRow[]): MergedPrTableRow[] {
   return merged.map((m) => ({
     ...m,
     id: m.eventId,
     mergedAt: toDate(m.occurredAt),
-    mergedByName: m.mergedBy?.name ?? (m.mergedBy?.kind ? `${m.mergedBy.kind}${m.mergedBy.id ? ` ${m.mergedBy.id.slice(0, 8)}` : ""}` : "GitHub"),
+    mergedByName: m.mergedBy?.name ?? (m.mergedBy?.kind ? (MERGED_BY_KIND[m.mergedBy.kind] ?? humanise(m.mergedBy.kind)) : "GitHub"),
     prLabel: m.prNumber ? `#${m.prNumber}` : m.eventId.slice(0, 8),
   }));
 }
 
-export function PullRequestsScreen({ businessId }: ModuleScreenProps) {
+export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
+  const deptSlug = useDevDepartment(departmentId)?.slug ?? "development";
+  const planHref = (taskId: string) => `${routes.department(businessId, deptSlug, "plan")}?task=${taskId}`;
+  const [openRef, openWidth] = useTableWidth();
+  const [mergedRef, mergedWidth] = useTableWidth();
+  const openSizes = useMemo(() => fitColumns(openWidth, OPEN_PR_FIT, OPEN_PR_VIEWS[0]!.columns as string[]), [openWidth]);
+  const mergedSizes = useMemo(() => fitColumns(mergedWidth, MERGED_PR_FIT, MERGED_PR_VIEWS[0]!.columns as string[]), [mergedWidth]);
   const options = useDevScreenOptions();
   const prs = useWidgetQuery<PrsListResponse>("dev.prs.list", {});
   const agents = useAgents();
@@ -103,11 +144,12 @@ export function PullRequestsScreen({ businessId }: ModuleScreenProps) {
 
   const openColumns = useMemo<DataTableColumn<OpenPrTableRow>[]>(
     () => [
-      { id: "title", accessorKey: "title", header: "Pull request", meta: { locked: true }, cell: ({ row }) => <span className="truncate text-body-strong">{row.original.title}</span> },
+      { id: "title", accessorKey: "title", header: "Pull request", size: openSizes.title, meta: { locked: true }, cell: ({ row }) => <span className="block min-w-0 truncate text-body-strong" title={row.original.title}>{row.original.title}</span> },
       {
         id: "queue",
         accessorKey: "queue",
         header: "Merge queue",
+        size: openSizes.queue,
         meta: { filter: "select", filterOptions: [{ value: "In review", label: "In review" }, { value: "In merge queue", label: "In merge queue" }] },
         cell: ({ row }) => {
           const meta = QUEUE_META[row.original.status];
@@ -116,69 +158,71 @@ export function PullRequestsScreen({ businessId }: ModuleScreenProps) {
               {meta.word}
             </StatusPill>
           ) : (
-            <StatusPill tone="neutral">{row.original.status}</StatusPill>
+            <StatusPill tone="neutral">{humanise(row.original.status)}</StatusPill>
           );
         },
       },
-      { id: "status", accessorKey: "status", header: "Status", meta: { filter: "select", filterOptions: [{ value: "review", label: "review" }, { value: "merging", label: "merging" }] } },
+      { id: "status", accessorKey: "status", header: "Status", size: openSizes.status, meta: { filter: "select", filterOptions: [{ value: "review", label: "In review" }, { value: "merging", label: "In merge queue" }] }, cell: ({ row }) => <span className="text-secondary">{QUEUE_META[row.original.status]?.word ?? humanise(row.original.status)}</span> },
       {
         id: "agentName",
         accessorKey: "agentName",
         header: "Agent",
+        size: openSizes.agentName,
         cell: ({ row }) => {
           const a = row.original.agent;
           if (!a) return <span className="text-secondary">{row.original.agentName}</span>;
           const tile = toTileAgent(a, a.id);
           return (
-            <span className="flex items-center gap-1.5">
+            <span className="flex min-w-0 items-center gap-1.5">
               <Avatar size={20} name={a.name} agent={{ seed: tile.seed, dept: tile.dept }} status={a.status} />
-              <EntityLink entity={{ id: a.id, kind: "agent", name: a.name, href: agentHref(businessId, a.id) }} hideIcon hoverCard={false} />
+              <EntityLink entity={{ id: a.id, kind: "agent", name: a.name, href: agentHref(businessId, a.id) }} hideIcon hoverCard={false} className="min-w-0 truncate" />
             </span>
           );
         },
       },
-      { id: "branch", accessorKey: "branch", header: "Branch", cell: ({ row }) => <span className="font-mono text-mono">{row.original.branch}</span> },
+      { id: "branch", accessorKey: "branch", header: "Branch", size: openSizes.branch, cell: ({ row }) => <BranchName branch={row.original.branch} /> },
       {
         id: "previewUrl",
         accessorKey: "previewUrl",
         header: "Preview",
+        size: openSizes.previewUrl,
         meta: { filter: false },
         cell: ({ row }) =>
           row.original.previewUrl ? (
-            <a href={row.original.previewUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-link hover:underline">
-              <MonitorPlay size={14} /> Open preview
+            <a href={row.original.previewUrl} target="_blank" rel="noreferrer" className="entity-link inline-flex items-center gap-1">
+              <MonitorPlay size={14} aria-hidden /> Open preview
             </a>
           ) : (
             <span className="text-secondary">Deploying…</span>
           ),
       },
     ],
-    [businessId],
+    [businessId, openSizes],
   );
 
   const mergedColumns = useMemo<DataTableColumn<MergedPrTableRow>[]>(
     () => [
-      { id: "prLabel", accessorKey: "prLabel", header: "PR", meta: { locked: true }, cell: ({ row }) => (row.original.url ? <a href={row.original.url} target="_blank" rel="noreferrer" className="font-mono text-mono text-link hover:underline">{row.original.prLabel}</a> : <span className="font-mono text-mono">{row.original.prLabel}</span>) },
-      { id: "title", accessorKey: "title", header: "Title", cell: ({ row }) => <span className="truncate text-body-strong">{row.original.title ?? "—"}</span> },
-      { id: "branch", accessorKey: "branch", header: "Branch", cell: ({ row }) => <span className="font-mono text-mono">{row.original.branch ?? "—"}</span> },
-      { id: "mergedByName", accessorKey: "mergedByName", header: "Merged by" },
-      { id: "additions", accessorKey: "additions", header: "+", meta: { numeric: true, label: "Additions" }, cell: ({ row }) => <span className="text-status-good tabular-nums">+{formatNumber(row.original.additions ?? 0)}</span> },
-      { id: "deletions", accessorKey: "deletions", header: "−", meta: { numeric: true, label: "Deletions" }, cell: ({ row }) => <span className="text-status-bad tabular-nums">−{formatNumber(row.original.deletions ?? 0)}</span> },
-      { id: "sha", accessorKey: "mergeCommitSha", header: "Commit", cell: ({ row }) => <span className="font-mono text-mono text-secondary">{shortSha(row.original.mergeCommitSha)}</span> },
-      { id: "mergedAt", accessorFn: (r) => r.mergedAt?.getTime() ?? 0, header: "Merged", meta: { filter: "date", label: "Merged" }, cell: ({ row }) => (row.original.mergedAt ? <span title={formatDate(row.original.mergedAt)}>{formatRelative(row.original.mergedAt, now)}</span> : "—") },
+      { id: "prLabel", accessorKey: "prLabel", header: "PR", size: mergedSizes.prLabel, meta: { locked: true }, cell: ({ row }) => (row.original.url ? <a href={row.original.url} target="_blank" rel="noreferrer" className="entity-link font-mono text-mono">{row.original.prLabel}</a> : <span className="font-mono text-mono">{row.original.prLabel}</span>) },
+      { id: "title", accessorKey: "title", header: "Title", size: mergedSizes.title, cell: ({ row }) => <span className="block min-w-0 truncate text-body-strong" title={row.original.title ?? undefined}>{row.original.title ?? "—"}</span> },
+      { id: "branch", accessorKey: "branch", header: "Branch", size: mergedSizes.branch, cell: ({ row }) => (row.original.branch ? <BranchName branch={row.original.branch} /> : <span className="text-tertiary">—</span>) },
+      { id: "mergedByName", accessorKey: "mergedByName", header: "Merged by", size: mergedSizes.mergedByName },
+      { id: "additions", accessorKey: "additions", header: "Added", size: mergedSizes.additions, meta: { numeric: true, label: "Lines added" }, cell: ({ row }) => <span className="text-status-good tabular-nums">+{formatNumber(row.original.additions ?? 0)}</span> },
+      { id: "deletions", accessorKey: "deletions", header: "Removed", size: mergedSizes.deletions, meta: { numeric: true, label: "Lines removed" }, cell: ({ row }) => <span className="text-status-bad tabular-nums">−{formatNumber(row.original.deletions ?? 0)}</span> },
+      { id: "sha", accessorKey: "mergeCommitSha", header: "Commit", size: mergedSizes.sha, cell: ({ row }) => <span className="font-mono text-mono text-secondary">{shortSha(row.original.mergeCommitSha) || "—"}</span> },
+      { id: "mergedAt", accessorFn: (r) => r.mergedAt?.getTime() ?? 0, header: "Merged", size: mergedSizes.mergedAt, meta: { filter: "date", label: "Merged" }, cell: ({ row }) => (row.original.mergedAt ? <span className="text-secondary" title={formatDate(row.original.mergedAt)}>{formatRelative(row.original.mergedAt, now)}</span> : <span className="text-tertiary">—</span>) },
     ],
-    [now],
+    [now, mergedSizes],
   );
 
   const openActions = (row: OpenPrTableRow): RowAction<OpenPrTableRow>[] => [
     { id: "preview", label: "Open preview", icon: MonitorPlay, disabled: !row.previewUrl, onSelect: (r) => r.previewUrl && window.open(r.previewUrl, "_blank", "noopener") },
-    { id: "task", label: "Show in Plan", icon: Network, onSelect: (r) => navigate(`${routes.department(businessId, "development", "plan")}?task=${r.taskId}`) },
+    { id: "task", label: "Show in Plan", icon: Network, onSelect: (r) => navigate(planHref(r.taskId)) },
     { id: "claude", label: "Open in Claude Code", icon: ExternalLink, onSelect: (r) => setClaudeCode(r), separatorBefore: true },
   ];
 
   const mergedActions = (row: MergedPrTableRow): RowAction<MergedPrTableRow>[] => [
     { id: "github", label: "Open on GitHub", icon: ExternalLink, disabled: !row.url, onSelect: (r) => r.url && window.open(r.url, "_blank", "noopener") },
-    { id: "task", label: "Show in Plan", icon: Network, disabled: !row.taskId, onSelect: (r) => r.taskId && navigate(`${routes.department(businessId, "development", "plan")}?task=${r.taskId}`) },
+    { id: "task", label: "Show in Plan", icon: Network, disabled: !row.taskId, onSelect: (r) => r.taskId && navigate(planHref(r.taskId)) },
   ];
 
   return (
@@ -190,18 +234,22 @@ export function PullRequestsScreen({ businessId }: ModuleScreenProps) {
         loading={prs.isLoading}
         error={prs.error ? prs.error.message : undefined}
         onRetry={prs.refetch}
-        actions={
-          <span className="text-small text-secondary tabular-nums" data-testid="pr-counts">
+        meta={
+          <span data-testid="pr-counts">
             {openRows.filter((r) => r.status === "review").length} in review · {openRows.filter((r) => r.status === "merging").length} in the merge queue
           </span>
         }
-        footer={<span>Merges follow the business mode: automatic when green in Assisted and Automated, founder approval in Augmented (AC-11.6.5).</span>}
+        footer={<span>Merges follow the business mode: automatic when the checks are green in Assisted and Automated, your approval in Augmented.</span>}
       >
-        <DataTable<OpenPrTableRow> data={openRows} columns={openColumns} views={OPEN_PR_VIEWS} defaultViewId="open" rowActions={openActions} onRowOpen={(r) => navigate(`${routes.department(businessId, "development", "plan")}?task=${r.taskId}`)} height={320} exportFileName="open-pull-requests" empty={{ icon: GitPullRequest, children: "Pull requests appear here when an agent's task passes its acceptance tests and enters review." }} aria-label="Open pull requests" />
+        <div ref={openRef} className="min-w-0">
+          <DataTable<OpenPrTableRow> data={openRows} columns={openColumns} views={OPEN_PR_VIEWS} defaultViewId="open" rowActions={openActions} onRowOpen={(r) => navigate(planHref(r.taskId))} height={Math.min(320, Math.max(3, openRows.length) * 28 + 42)} exportFileName="open-pull-requests" empty={{ icon: GitPullRequest, children: "Pull requests appear here when an agent's task passes its acceptance tests and enters review.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } }} aria-label="Open pull requests" className="border-0" />
+        </div>
       </Panel>
 
-      <Panel span={12} title="Merged" flush loading={prs.isLoading} error={prs.error ? prs.error.message : undefined} onRetry={prs.refetch}>
-        <DataTable<MergedPrTableRow> data={mergedRows} columns={mergedColumns} views={MERGED_PR_VIEWS} defaultViewId="recent" rowActions={mergedActions} height={360} exportFileName="merged-pull-requests" empty={{ icon: GitMerge, children: "Merged pull requests are listed here as the merge queue lands them." }} aria-label="Merged pull requests" />
+      <Panel span={12} title="Merged" flush loading={prs.isLoading} error={prs.error ? prs.error.message : undefined} onRetry={prs.refetch} meta={mergedRows.length ? <span>{mergedRows.length} merged</span> : undefined}>
+        <div ref={mergedRef} className="min-w-0">
+          <DataTable<MergedPrTableRow> data={mergedRows} columns={mergedColumns} views={MERGED_PR_VIEWS} defaultViewId="recent" rowActions={mergedActions} height={mergedRows.length ? 360 : 240} exportFileName="merged-pull-requests" empty={{ icon: GitMerge, children: "Merged pull requests are listed here as the merge queue lands them.", action: openRows.length ? { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } : undefined }} aria-label="Merged pull requests" className="border-0" />
+        </div>
       </Panel>
 
       <OpenInClaudeCodeDialog taskId={claudeCode?.taskId ?? null} taskTitle={claudeCode?.title} onOpenChange={(o) => !o && setClaudeCode(null)} />

@@ -6,7 +6,7 @@
  * points, the data-duties panel, a new-record dialog and a merge flow from any row's right-click menu.
  */
 import { useQuery } from "@tanstack/react-query";
-import { Building2, Database, Download, GitMerge, Search, Shield, Sparkles, UserRound, UserRoundPlus } from "lucide-react";
+import { ArrowRight, Building2, Database, Download, GitMerge, Search, Shield, Sparkles, UserRound, UserRoundPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, Button, Chip, DataTable, ENTITY_KIND_ICONS, EntityLink, FilterChips, Icon, Input, Kbd, Panel, Popover, PopoverAnchor, PopoverContent, StatusPill, formatRelative, type DataTableColumn, type FilterChipValue, type RowAction, type SavedView } from "@foundmill/dugout";
@@ -17,7 +17,8 @@ import { errorMessage } from "@/lib/trpc";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { MergeDialog, NewEntityDialog } from "./dialogs";
-import { CRM_VIEWS, LAWFUL_BASIS_LABEL, RETENTION_COPY, STAGE_TONE, groupByForView, groupCounts, groupLabel, stageWord, type CrmRow, type OwnerRef } from "./logic";
+import { CRM_VIEWS, KIND_WORD, LAWFUL_BASIS_LABEL, RETENTION_COPY, STAGE_TONE, groupByForView, groupCounts, groupLabel, roleWord, sourceWord, stageWord, type CrmRow, type OwnerRef } from "./logic";
+import { plainWords } from "@/lib/format";
 import { KIND_LABELS, chip, chipsToOperators, crmFilterFields, mergeChips, parseCrmQuery, type CrmFilterField } from "./search";
 import { useEntityIndex } from "./useEntityIndex";
 
@@ -98,24 +99,25 @@ export function CrmScreen() {
         id: "name",
         accessorKey: "name",
         header: "Name",
-        size: 260,
+        size: 240,
         meta: { locked: true },
+        // One portrait per row (the link carries no icon of its own; the Kind column says what the record is).
         cell: ({ row }) => (
-          <span className="inline-flex min-w-0 items-center gap-2">
+          <span className="inline-flex min-w-0 items-center gap-2.5">
             <Avatar size={24} name={row.original.name} />
-            <EntityLink entity={{ id: row.original.id, kind: row.original.kind, name: row.original.name, href: routes.crm(businessId, row.original.id) }} hoverCard={false} className="text-body-strong" onOpen={(e) => open_(e.id)} onVerb={(verb, e) => verb === "open_profile" && open_(e.id)} />
+            <EntityLink entity={{ id: row.original.id, kind: row.original.kind, name: row.original.name, href: routes.crm(businessId, row.original.id) }} hoverCard={false} className="min-w-0 truncate text-body-strong" onOpen={(e) => open_(e.id)} onVerb={(verb, e) => verb === "open_profile" && open_(e.id)} />
           </span>
         ),
       },
-      { id: "kind", accessorKey: "kind", header: "Kind", size: 120, cell: ({ row }) => <Chip tone="neutral" icon={ENTITY_KIND_ICONS[row.original.kind]}>{KIND_LABELS[row.original.kind]}</Chip>, meta: { filter: "select", filterOptions: (Object.keys(KIND_LABELS) as EntityKind[]).map((k) => ({ value: k, label: KIND_LABELS[k] })) } },
-      { id: "roles", accessorFn: (r) => r.roles.join(", "), header: "Roles", size: 180, cell: ({ row }) => (row.original.roles.length ? <span className="flex flex-wrap gap-1">{row.original.roles.map((r) => <Chip key={r}>{r.replace(/_/g, " ")}</Chip>)}</span> : <span className="text-secondary">—</span>) },
-      { id: "stage", accessorFn: (r) => r.stage ?? "", header: "Stage", size: 130, cell: ({ row }) => (row.original.stage ? <StatusPill tone={STAGE_TONE[row.original.stage] ?? "neutral"}>{stageWord(row.original.stage)}</StatusPill> : <span className="text-secondary">—</span>) },
-      { id: "owner", accessorFn: (r) => (r.owner ? (resolvers.ownerName(r.owner) ?? r.owner.id) : ""), header: "Owner", size: 150, cell: ({ row }) => (row.original.owner ? <span className="truncate">{resolvers.ownerName(row.original.owner) ?? row.original.owner.kind}</span> : <span className="text-secondary">Unassigned</span>) },
-      { id: "email", accessorFn: (r) => r.email ?? r.domain ?? "", header: "Email / domain", size: 220, cell: ({ getValue }) => <span className="truncate font-mono text-mono text-secondary">{(getValue() as string) || "—"}</span> },
-      { id: "lawfulBasis", accessorFn: (r) => r.lawfulBasis ?? "", header: "Lawful basis", size: 150, cell: ({ getValue }) => ((getValue() as string) ? LAWFUL_BASIS_LABEL[getValue() as string] ?? (getValue() as string) : <Chip tone="warn">Not recorded</Chip>), meta: { filter: "select", filterOptions: Object.entries(LAWFUL_BASIS_LABEL).map(([value, label]) => ({ value, label })) } },
-      { id: "source", accessorFn: (r) => r.source ?? "", header: "Source", size: 120, cell: ({ getValue }) => <span className="text-secondary">{(getValue() as string) || "—"}</span> },
-      { id: "createdAt", accessorKey: "createdAt", header: "Added", size: 120, cell: ({ getValue }) => <span className="text-secondary">{formatRelative(getValue() as string)}</span>, meta: { filter: "date" } },
-      { id: "updatedAt", accessorKey: "updatedAt", header: "Updated", size: 120, cell: ({ getValue }) => <span className="text-secondary">{formatRelative(getValue() as string)}</span>, meta: { filter: "date" } },
+      { id: "kind", accessorKey: "kind", header: "Kind", size: 136, cell: ({ row }) => <Chip tone="neutral" icon={ENTITY_KIND_ICONS[row.original.kind]}>{KIND_WORD[row.original.kind]}</Chip>, meta: { filter: "select", filterOptions: (Object.keys(KIND_LABELS) as EntityKind[]).map((k) => ({ value: k, label: KIND_LABELS[k] })) } },
+      { id: "roles", accessorFn: (r) => r.roles.join(", "), header: "Roles", size: 200, cell: ({ row }) => (row.original.roles.length ? <span className="flex flex-wrap gap-1">{row.original.roles.map((r) => <Chip key={r}>{roleWord(r)}</Chip>)}</span> : <span className="text-tertiary">None</span>) },
+      { id: "stage", accessorFn: (r) => r.stage ?? "", header: "Stage", size: 140, cell: ({ row }) => (row.original.stage ? <StatusPill tone={STAGE_TONE[row.original.stage] ?? "neutral"}>{stageWord(row.original.stage)}</StatusPill> : <span className="text-tertiary">None</span>) },
+      { id: "owner", accessorFn: (r) => (r.owner ? (resolvers.ownerName(r.owner) ?? r.owner.id) : ""), header: "Owner", size: 160, cell: ({ row }) => (row.original.owner ? <span className="truncate">{resolvers.ownerName(row.original.owner) ?? "An agent"}</span> : <span className="text-tertiary">Unassigned</span>) },
+      { id: "email", accessorFn: (r) => r.email ?? r.domain ?? "", header: "Email or domain", size: 272, cell: ({ getValue }) => ((getValue() as string) ? <span className="truncate font-mono text-mono text-secondary">{getValue() as string}</span> : <span className="text-tertiary">None</span>) },
+      { id: "lawfulBasis", accessorFn: (r) => r.lawfulBasis ?? "", header: "Lawful basis", size: 160, cell: ({ getValue }) => ((getValue() as string) ? LAWFUL_BASIS_LABEL[getValue() as string] ?? plainWords(getValue() as string) : <Chip tone="warn">Not recorded</Chip>), meta: { filter: "select", filterOptions: Object.entries(LAWFUL_BASIS_LABEL).map(([value, label]) => ({ value, label })) } },
+      { id: "source", accessorFn: (r) => sourceWord(r.source), header: "Source", size: 140, cell: ({ getValue }) => ((getValue() as string) ? <span className="text-secondary">{getValue() as string}</span> : <span className="text-tertiary">Unknown</span>) },
+      { id: "createdAt", accessorKey: "createdAt", header: "Added", size: 120, cell: ({ getValue }) => <span className="font-mono text-mono text-secondary">{formatRelative(getValue() as string)}</span>, meta: { filter: "date" } },
+      { id: "updatedAt", accessorKey: "updatedAt", header: "Updated", size: 104, cell: ({ getValue }) => <span className="font-mono text-mono text-secondary">{formatRelative(getValue() as string)}</span>, meta: { filter: "date" } },
     ],
     [businessId, open_, resolvers],
   );
@@ -168,7 +170,7 @@ export function CrmScreen() {
               </Button>
             </div>
           </PopoverAnchor>
-          <PopoverContent className="w-[640px] p-0" onOpenAutoFocus={(e) => e.preventDefault()} onInteractOutside={(e) => (e.target === inputRef.current ? e.preventDefault() : undefined)} data-testid="crm-typeahead">
+          <PopoverContent className="w-reading p-0" onOpenAutoFocus={(e) => e.preventDefault()} onInteractOutside={(e) => (e.target === inputRef.current ? e.preventDefault() : undefined)} data-testid="crm-typeahead">
             <div className="flex items-center gap-2 border-b border-subtle px-3 py-1.5 text-small text-secondary">
               <Icon icon={Sparkles} size="inline" />
               {parsedLive.chips.length ? (
@@ -177,7 +179,7 @@ export function CrmScreen() {
                   {parsedLive.text ? ` and search "${parsedLive.text}"` : ""}
                 </span>
               ) : (
-                <span>Press Enter to list every match · operators kind: role: stage: owner: department:</span>
+                <span>Press Enter to list every match. Narrow with kind:, role:, stage:, owner: or department:</span>
               )}
             </div>
             {typeaheadQ.isLoading && !typeaheadQ.data ? <p className="p-3 text-small text-secondary">Searching…</p> : null}
@@ -211,7 +213,7 @@ export function CrmScreen() {
               setChips(next);
               setRaw(text);
             }}
-            addLabel="Filter"
+            addLabel="Filter by role, stage or owner"
           />
           {text ? (
             <Chip tone="info" onRemove={() => { setText(""); setRaw(""); }} removeLabel="Clear search text">
@@ -236,8 +238,7 @@ export function CrmScreen() {
         error={index.error ? errorMessage(index.error) : undefined}
         onRetry={index.refetch}
         empty={!index.loading && !index.error && index.rows.length === 0 ? { icon: Database, children: index.mode === "search" ? "Nothing matches. Try fewer words, an email or a domain, or clear the filters." : "People and organisations arrive from imports, integrations and agents' work. Add one by hand or connect an importer.", action: { label: "New record", icon: UserRoundPlus, onClick: () => setNewOpen(true) } } : undefined}
-        actions={<span className="text-small text-secondary tabular-nums">{index.rows.length} {index.rows.length === 1 ? "record" : "records"}</span>}
-        footer={index.mode === "search" ? "Hybrid search: identifiers, name prefix and similarity, notes and documents, meaning. Scores shown on hover." : "Role listings; type to search across names, identifiers, notes and documents."}
+        footer={index.mode === "search" ? "Matches names, emails and domains, notes and documents, and meaning." : "Everyone the business works with. Type above to search names, emails, notes and documents."}
         data-testid="crm-table-panel"
       >
         {groupBy && groups.length ? (
@@ -250,20 +251,22 @@ export function CrmScreen() {
             ))}
           </div>
         ) : null}
-        <DataTable<CrmRow> aria-label="CRM records" data={index.rows} columns={columns} views={views} onViewsChange={setViews} activeViewId={activeViewId} onActiveViewChange={setActiveViewId} rowActions={rowActions} onRowOpen={(r) => open_(r.id)} height={typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 360)} exportFileName="crm" className="border-0" />
+        <DataTable<CrmRow> aria-label="CRM records" data={index.rows} columns={columns} views={views} onViewsChange={setViews} activeViewId={activeViewId} onActiveViewChange={setActiveViewId} rowActions={rowActions} onRowOpen={(r) => open_(r.id)} height={typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 360)} exportFileName="crm" className="border-0" hideEmptyColumns />
       </Panel>
       </div>
 
       {/* side panels ------------------------------------------------------------------------------------------------- */}
       <div className="col-span-3 flex flex-col gap-gutter">
-        <Panel title="Importers" data-testid="crm-importers" footer="Imports resolve identities by email, domain, LinkedIn URL, registration number and Stripe id before fuzzy name matching.">
+        <Panel title="Importers" data-testid="crm-importers" footer="Imports match people by email, domain, LinkedIn, company number and Stripe customer before they compare names.">
           <ul className="flex flex-col gap-1">
             {IMPORTERS.map((i) => (
               <li key={i.key}>
-                <a href={`${routes.settings(businessId, "integrations")}#${i.key}`} className="flex items-center gap-2 rounded-panel px-1 py-1 text-body text-primary hover:bg-panel-alt hover:no-underline">
-                  <Icon icon={Building2} size="inline" className="text-secondary" />
+                <a href={`${routes.settings(businessId, "integrations")}#${i.key}`} className="group flex min-h-control-md items-center gap-2 rounded-sm px-1.5 text-body text-primary transition-colors duration-hover hover:bg-white/4 hover:no-underline focus-visible:shadow-ring">
+                  <Icon icon={Building2} size="inline" className="text-tertiary" />
                   <span className="flex-1">{i.name}</span>
-                  <span className="text-small text-secondary">Connect</span>
+                  <span className="inline-flex items-center gap-1 text-small text-secondary group-hover:text-primary">
+                    Connect <Icon icon={ArrowRight} size={12} />
+                  </span>
                 </a>
               </li>
             ))}
@@ -286,7 +289,7 @@ export function CrmScreen() {
             </li>
             <li className="flex items-start gap-2">
               <Icon icon={UserRound} size="inline" className="mt-0.5 text-secondary" />
-              <span>Deletion requests queue for the scheduled job the founder approved; the global suppression list stops re-import.</span>
+              <span>Deletion requests wait for the scheduled job you approved; once deleted, a person is never imported again.</span>
             </li>
           </ul>
         </Panel>

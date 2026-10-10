@@ -54,7 +54,7 @@ describe("RecruitmentScreen", () => {
     expect(fake.queried.get("team.agents.catalogue")).toEqual({});
   });
 
-  it("hires a template into the open department through the dialog and refetches the team", async () => {
+  it("hires a template into the department over its module (changeable) through the dialog and refetches the team", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: (_p, input) => ({ id: "new-agent", name: input.name ?? "Newsletter writer", status: "idle", modelKey: "sonnet" }) });
     renderScreen(fake, <RecruitmentScreen {...props} />);
@@ -63,12 +63,13 @@ describe("RecruitmentScreen", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Hire…" }));
     const dialog = await screen.findByTestId("hire-dialog");
     expect(within(dialog).getByText("Hire Newsletter writer")).toBeTruthy();
-    expect(within(dialog).getByRole("combobox", { name: "Department" }).textContent).toBe("Team");
+    // A distribution template opened from Team › Recruitment starts in Distribution, not in the tab's own department.
+    expect(within(dialog).getByRole("combobox", { name: "Department" }).textContent).toBe("Distribution");
     await user.click(within(dialog).getByRole("combobox", { name: "Department" }));
-    await user.click(await screen.findByRole("option", { name: "Distribution" }));
+    await user.click(await screen.findByRole("option", { name: "Team" }));
     await user.type(within(dialog).getByLabelText("Name", { exact: false }), "Nell");
     await user.click(within(dialog).getByTestId("hire-confirm"));
-    await waitFor(() => expect(fake.mutations).toEqual([{ path: "team.agents.hire", input: { templateKey: "newsletter_writer", departmentId: DEPT_DIST, name: "Nell" } }]));
+    await waitFor(() => expect(fake.mutations).toEqual([{ path: "team.agents.hire", input: { templateKey: "newsletter_writer", departmentId: DEPT_TEAM, name: "Nell" } }]));
     await waitFor(() => expect(screen.getByTestId("recruitment-notice").textContent).toBe("Nell hired. First training run queued."));
     expect(fake.refetches["team.agents.list"]).toBe(1);
   });
@@ -86,10 +87,60 @@ describe("RecruitmentScreen", () => {
     await user.click(within(first).getByRole("button", { name: "Hire from this template" }));
     const dialog = await screen.findByTestId("hire-dialog");
     await user.click(within(dialog).getByTestId("hire-confirm"));
-    await waitFor(() => expect(fake.mutations[0]).toEqual({ path: "team.agents.hire", input: { templateKey: "newsletter_writer", departmentId: DEPT_TEAM } }));
+    await waitFor(() => expect(fake.mutations[0]).toEqual({ path: "team.agents.hire", input: { templateKey: "newsletter_writer", departmentId: DEPT_DIST } }));
     await waitFor(() => expect((screen.getByRole("textbox", { name: "Describe the agent" }) as HTMLTextAreaElement).value).toBe(""));
     await user.type(screen.getByRole("textbox", { name: "Describe the agent" }), "zzzz");
     expect(await screen.findByText(/No template matches those words yet/)).toBeTruthy();
+  });
+
+  it("drafts an agent from a sentence with the generate action, starting from the closest template", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: () => ({ id: "new-agent", name: "Newsletter writer" }) });
+    renderScreen(fake, <RecruitmentScreen {...props} />);
+    await screen.findByRole("grid", { name: "Catalogue" });
+    const draft = screen.getByTestId("draft-agent");
+    expect(draft.textContent).toContain("Draft this agent");
+    expect(draft.hasAttribute("disabled")).toBe(true);
+    const box = screen.getByRole("textbox", { name: "Describe the agent" });
+    await user.type(box, "writes our weekly customer newsletter");
+    expect(draft.hasAttribute("disabled")).toBe(false);
+    expect(screen.getByText(/the closest of/).textContent).toContain("Newsletter writer");
+    await user.click(draft);
+    const dialog = await screen.findByTestId("hire-dialog");
+    expect(within(dialog).getByText("Hire Newsletter writer")).toBeTruthy();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByTestId("hire-dialog")).toBeNull());
+    // ⌘/Ctrl+Enter in the sentence box does the same.
+    box.focus();
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    expect(await screen.findByTestId("hire-dialog")).toBeTruthy();
+  });
+
+  it("keeps a long template description to three lines in the hire dialog, the rest on request", async () => {
+    const user = userEvent.setup();
+    const long = "Runs the e-mail channel end to end. ".repeat(12).trim();
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "team.agents.catalogue": catalogue.map((t) => (t.key === "channel_email" ? { ...t, description: long } : t)) } });
+    renderScreen(fake, <RecruitmentScreen {...props} />);
+    const table = await screen.findByRole("grid", { name: "Catalogue" });
+    fireEvent.contextMenu(within(table).getByText("Email engine"));
+    await user.click(await screen.findByRole("menuitem", { name: "Hire…" }));
+    const dialog = await screen.findByTestId("hire-dialog");
+    const description = within(dialog).getByText(long);
+    expect(description.className).toContain("line-clamp-3");
+    await user.click(within(dialog).getByRole("button", { name: "Read the full description" }));
+    expect(description.className).not.toContain("line-clamp-3");
+    expect(within(dialog).getByRole("button", { name: "Show less" }).getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("shows skills and departments in words, never keys or module slugs", async () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <RecruitmentScreen {...props} />);
+    const table = await screen.findByRole("grid", { name: "Catalogue" });
+    expect(within(table).queryByText(/_/)).toBeNull();
+    expect(within(table).getByText("Planning, Prioritisation")).toBeTruthy();
+    expect(within(table).getAllByText("Development").length).toBe(3);
+    expect(within(table).getByText("Any")).toBeTruthy();
+    expect(within(table).queryByText("development")).toBeNull();
   });
 
   it("clones, loans and releases from the team moves table; the Chief of Staff cannot be released", async () => {

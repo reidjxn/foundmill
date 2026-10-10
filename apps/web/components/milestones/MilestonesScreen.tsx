@@ -8,11 +8,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Flag, Gem, Rocket, Trophy } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, Timeline, TrophyCabinet, useToast, type TimelineEvent, type TrophyCard } from "@foundmill/dugout";
+import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, StatusPill, Timeline, TrophyCabinet, useToast, type TimelineEvent, type TrophyCard } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
+import { plainWords, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { useBusiness } from "@/components/shell/business-context";
+import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
@@ -29,7 +30,7 @@ export function MilestonesScreen() {
   const search = useSearchParams();
   const { toast } = useToast();
   const live = data.business.gameMode === "live";
-  const currency = data.business.glossary?.currency ?? "EUR";
+  const currency = useBusinessCurrency();
   const today = new Date().toISOString().slice(0, 10);
   // Milestones come back whole whatever the range; a one-day range keeps the daily rows out of the payload.
   const ribbonQ = useQuery(trpc.journey.ribbon.queryOptions({ businessId, from: today, to: today }, { staleTime: 60_000 }));
@@ -70,16 +71,26 @@ export function MilestonesScreen() {
     [milestones, currency, router, businessId, toast, queryClient, trpc],
   );
 
+  // The kind sits in a fixed column before the title, so the pills line up and the dates form one clean column.
   const events = useMemo<TimelineEvent[]>(
     () =>
-      others.map((m) => ({
-        id: m.id,
-        at: m.achievedAt,
-        title: m.label,
-        icon: KIND_ICON[m.kind as keyof typeof KIND_ICON] ?? Flag,
-        tone: m.kind === "decision" ? "info" : "good",
-        statusWord: TIMELINE_KIND_WORD[m.kind] ?? m.kind,
-      })),
+      others.map((m) => {
+        const tone = m.kind === "decision" ? "info" : "good";
+        return {
+          id: m.id,
+          at: m.achievedAt,
+          title: (
+            <span className="flex items-start gap-3">
+              <span className="flex w-28 shrink-0">
+                <StatusPill tone={tone}>{TIMELINE_KIND_WORD[m.kind] ?? plainWords(m.kind)}</StatusPill>
+              </span>
+              <span className="min-w-0 pt-px">{m.label}</span>
+            </span>
+          ),
+          icon: KIND_ICON[m.kind as keyof typeof KIND_ICON] ?? Flag,
+          tone,
+        };
+      }),
     [others],
   );
 
@@ -91,15 +102,15 @@ export function MilestonesScreen() {
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="milestones-screen" data-won={won}>
       <Panel
-        title="Milestones"
+        title="Customers and revenue"
         span={12}
-        actions={<Chip tone={won ? "gold" : "neutral"}>{won ? `${won} won` : "None yet"}</Chip>}
-        footer={<span>{live ? "Shareable cards show the customer only when permission is recorded." : "Milestones light up as customers and revenue arrive; on LIVE they become shareable cards."}</span>}
+        glow="brand"
+        footer={<span>{live ? "Shareable cards show the customer only when permission is recorded." : "Milestones light up as customers and revenue arrive; once the business is live they become shareable cards."}</span>}
         data-testid="trophy-cabinet-panel"
       >
         <TrophyCabinet trophies={cards} columns={4} onOpen={onOpen} onShare={live ? setShareKey : undefined} />
       </Panel>
-      <Panel title="Other milestones" span={12} empty={events.length === 0 ? { icon: Flag, children: "Releases, decisions, incorporation, funding and launches appear here as they happen." } : undefined} data-testid="milestones-timeline">
+      <Panel title="Releases, decisions and launches" meta={events.length ? plural(events.length, "milestone") : undefined} span={12} empty={events.length === 0 ? { icon: Flag, children: "Releases, decisions, incorporation, funding and launches appear here as they happen." } : undefined} data-testid="milestones-timeline">
         <Timeline events={events} absolute />
       </Panel>
       <ShareDialog card={shareCard} businessName={data.business.name} onClose={() => setShareKey(null)} />

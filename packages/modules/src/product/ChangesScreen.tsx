@@ -12,11 +12,12 @@ import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, u
 import type { ModuleScreenProps } from "../registry";
 import { ProposalDetail } from "./changes/ProposalDetail";
 import { PROPOSAL_STATUS_PILL, SEVERITY_CHIP, decisionProgress, impactLines } from "./changes/hunks";
-import { InlineError, Screen, useAction } from "./shared";
+import { InlineError, Screen, useAction, useAgentNames } from "./shared";
 import type { ProposalRow, ProposalWithHunks, ProposalsListResponse, RoadmapResponse, SourceRow, SourcesListResponse, SpecGetResponse, SpecVersionRow } from "./types";
 
 export const PROPOSAL_VIEWS: SavedView[] = [
-  { id: "open", name: "Open", builtIn: true, columns: ["title", "severity", "proposedBy", "evidence", "impact", "createdAt"], sort: [{ id: "createdAt", desc: true }], filters: [{ id: "f-open", field: "status", op: "eq", value: "open" }] },
+  // The list sits in a third of the screen: the Open view keeps to what fits (the rest is in the detail and in All).
+  { id: "open", name: "Open", builtIn: true, columns: ["title", "severity"], sort: [{ id: "createdAt", desc: true }], filters: [{ id: "f-open", field: "status", op: "eq", value: "open" }] },
   { id: "all", name: "All", builtIn: true, columns: ["title", "status", "severity", "proposedBy", "evidence", "impact", "createdAt", "resolvedAt"], sort: [{ id: "createdAt", desc: true }], filters: [] },
   { id: "decided", name: "Decided", builtIn: true, columns: ["title", "status", "severity", "proposedBy", "resolvedAt"], sort: [{ id: "resolvedAt", desc: true }], filters: [{ id: "f-decided", field: "status", op: "neq", value: "open" }] },
 ];
@@ -32,13 +33,14 @@ function proposalFromLocation(): string | null {
 
 function ProposerCell({ id }: { id: string | null }) {
   const ctx = useEntityLinkContext();
+  const agents = useAgentNames();
   if (!id) return <span className="text-secondary">System</span>;
-  return <EntityLink entity={{ id, kind: "agent", name: ctx.resolve?.(id)?.name ?? "Agent" }} hoverCard={false} />;
+  return <EntityLink entity={{ id, kind: "agent", name: agents.get(id) ?? ctx.resolve?.(id)?.name ?? "An agent" }} hoverCard={false} />;
 }
 
 export function proposalColumns(currency: string): DataTableColumn<ProposalRow>[] {
   return [
-    { accessorKey: "title", header: "Proposal", size: 260, cell: ({ row }) => <span className="text-body-strong text-primary">{row.original.title || "Untitled proposal"}</span>, meta: { locked: true } },
+    { accessorKey: "title", header: "Proposal", size: 190, cell: ({ row }) => <span className="text-body-strong text-primary">{row.original.title || "Untitled proposal"}</span>, meta: { locked: true } },
     {
       accessorKey: "status",
       header: "Status",
@@ -56,7 +58,7 @@ export function proposalColumns(currency: string): DataTableColumn<ProposalRow>[
     {
       accessorKey: "severity",
       header: "Severity",
-      size: 150,
+      size: 130,
       cell: ({ row }) => {
         const s = SEVERITY_CHIP[row.original.severity];
         return (
@@ -146,7 +148,7 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
           rowClassName={(row) => (row.id === selectedId ? "bg-panel-alt" : undefined)}
           rowActions={(row) => [
             { id: "open", label: "Open proposal", icon: FolderOpen, onSelect: (r) => setSelectedId(r.id) },
-            { id: "accept", label: "Accept all hunks", icon: CheckCheck, disabled: row.status !== "open", separatorBefore: true, onSelect: (r) => void action.run("product.proposals.acceptAll", { proposalId: r.id }, { key: "acceptAll", then: refetchAll }) },
+            { id: "accept", label: "Accept all changes", icon: CheckCheck, disabled: row.status !== "open", separatorBefore: true, onSelect: (r) => void action.run("product.proposals.acceptAll", { proposalId: r.id }, { key: "acceptAll", then: refetchAll }) },
             { id: "reject", label: "Reject proposal", icon: X, variant: "danger", disabled: row.status !== "open", onSelect: (r) => void action.run("product.proposals.reject", { proposalId: r.id }, { key: "reject", then: refetchAll }) },
           ]}
         />
@@ -177,7 +179,7 @@ export function ChangesScreen({ businessId }: ModuleScreenProps) {
         ) : null}
       </Panel>
       <span className="sr-only" aria-live="polite">
-        {detail.data ? `${decisionProgress(detail.data.hunks).decided} of ${detail.data.hunks.length} hunks decided` : ""}
+        {detail.data ? `Decided ${decisionProgress(detail.data.hunks).decided} of ${detail.data.hunks.length} changes` : ""}
       </span>
     </Screen>
   );

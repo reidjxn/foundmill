@@ -6,7 +6,7 @@
  */
 import { useMemo } from "react";
 import { BookOpenText, ExternalLink, FileText, Swords } from "lucide-react";
-import { BarChart, Chip, EntityText, Icon, Panel, ProvenanceChip, formatDate, formatRelative } from "@foundmill/dugout";
+import { Button, Chip, EntityText, Icon, Panel, ProvenanceChip, formatDate, formatRelative } from "@foundmill/dugout";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
 import { Screen, blockTitle, findBlock } from "./shared";
@@ -23,7 +23,7 @@ function CompetitorCard({ source, onOpen }: { source: SourceRow; onOpen: () => v
       <header className="flex items-start gap-2">
         <Icon icon={Swords} size="default" className="mt-0.5 text-status-bad" />
         <div className="min-w-0 flex-1">
-          <h3 className="t-display-sm truncate text-primary">{source.title || hostOf(source.uri) || "Competitor"}</h3>
+          <h3 className="t-display-sm break-words text-primary">{source.title || hostOf(source.uri) || "Competitor"}</h3>
           {source.uri ? (
             <button type="button" onClick={onOpen} className="inline-flex items-center gap-1 font-mono text-mono text-link hover:underline focus-visible:outline-2 focus-visible:outline-link">
               {hostOf(source.uri) ?? source.uri}
@@ -83,16 +83,26 @@ function NoteRow({ source, blocks, onOpenBlock, onOpen }: { source: SourceRow; b
   const linked = linkedBlocks(source).map((l) => ({ ...l, block: findBlock(blocks, l.blockId) })).filter((l) => l.block);
   return (
     <li className="flex flex-col gap-1 px-panel-pad py-2" data-note={source.id}>
-      <div className="flex items-center gap-2">
-        <Chip tone={m.tone} icon={m.icon}>
+      <div className="flex items-start gap-2">
+        <Chip tone={m.tone} icon={m.icon} className="shrink-0">
           {m.word}
         </Chip>
-        <button type="button" onClick={onOpen} className="min-w-0 flex-1 truncate text-left text-body-strong text-primary hover:underline focus-visible:outline-2 focus-visible:outline-link">
+        <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-pretty break-words text-left text-body-strong text-primary hover:underline focus-visible:outline-2 focus-visible:outline-link">
           {source.title || source.uri || "Untitled"}
         </button>
-        <span className="text-small text-secondary tabular-nums">{formatDate(source.createdAt, "d MMM")}</span>
+        <span className="shrink-0 text-small text-secondary tabular-nums">{formatDate(source.createdAt, "d MMM")}</span>
       </div>
-      {r.summary ? <EntityText as="p" className="text-body text-primary">{String(r.summary)}</EntityText> : <p className="text-small text-secondary">Not summarised yet.</p>}
+      {r.summary ? (
+        <EntityText as="p" className="text-body text-primary">{String(r.summary)}</EntityText>
+      ) : (
+        // No summary yet (the Source Watcher writes one as it reads): offer the source itself rather than a dead line.
+        <p className="flex flex-wrap items-center gap-2 text-small text-secondary">
+          <span>No summary yet.</span>
+          <Button size="sm" variant="ghost" icon={source.uri ? ExternalLink : FileText} onClick={onOpen} data-read-source={source.id}>
+            Read the source
+          </Button>
+        </p>
+      )}
       {linked.length || topics(source).length ? (
         <div className="flex flex-wrap items-center gap-1">
           {linked.slice(0, 3).map((l) => (
@@ -124,6 +134,8 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
   const notes = sources.filter((s) => RESEARCH_NOTE_KINDS.includes(s.kind)).slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   const coverage = useMemo(() => coverageBySection(sources, blocks), [sources, blocks]);
   const topicList = useMemo(() => topicCounts(sources), [sources]);
+  const coverageMax = coverage.reduce((m, c) => Math.max(m, c.count), 0);
+  const unsummarised = notes.filter((n) => !relevance(n).summary).length;
   const href = (tab: string, query?: string) => `${moduleHref(businessId, departments.data, "product", tab) ?? routes.department(businessId, "product", tab)}${query ?? ""}`;
   const openBlock = (blockId: string) => navigate(href("specification", `?block=${blockId}`));
   const open = (s: SourceRow) => {
@@ -159,7 +171,19 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
         empty={list.data && spec.data && coverage.length === 0 ? { icon: FileText, children: "Coverage appears once the spec has sections and sources are linked to them." } : undefined}
         footer={<span>Sources linked to at least one block in each section. Sections at zero are the ones to interview for next.</span>}
       >
-        <BarChart label="Sources per spec section" horizontal height={Math.max(120, 24 * coverage.length + 32)} data={coverage.map((c) => ({ label: c.section, value: c.count }))} showValues format={(v) => String(Math.round(v))} />
+        {coverageMax === 0 && coverage.length ? <p className="mb-2 text-small text-secondary">No source is linked to a section yet; the Source Watcher links them as it reads.</p> : null}
+        {/* A list rather than a chart: section names wrap in full and counts are whole numbers (no "0 0 0 1 1 1" ticks). */}
+        <ul role="img" aria-label={`Sources per spec section. ${coverage.map((c) => `${c.section} ${c.count}`).join(", ")}`} className="flex flex-col gap-1.5">
+          {coverage.map((c) => (
+            <li key={c.section} className="grid grid-cols-[minmax(0,1fr)_4.5rem_2rem] items-center gap-2" data-coverage={c.section}>
+              <span className="break-words text-small text-primary">{c.section}</span>
+              <span className="h-1.5 overflow-hidden rounded-pill bg-white/6" aria-hidden>
+                <span className="block h-full rounded-pill bg-kit-lift" style={{ width: `${coverageMax ? Math.round((c.count / coverageMax) * 100) : 0}%` }} />
+              </span>
+              <span className={c.count ? "text-right text-small text-primary tabular-nums" : "text-right text-small text-tertiary tabular-nums"}>{c.count}</span>
+            </li>
+          ))}
+        </ul>
       </Panel>
 
       <Panel
@@ -169,7 +193,7 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
         error={err}
         onRetry={list.refetch}
         empty={list.data && notes.length === 0 ? { icon: BookOpenText, title: "No research notes yet", children: "Interviews, feedback, documents and issues the team has read appear here with a summary and the spec blocks they touch." } : undefined}
-        footer={<span className="tabular-nums">{notes.length} notes · names link to the CRM</span>}
+        footer={<span className="tabular-nums">{notes.length} notes{unsummarised ? ` · ${unsummarised} waiting for a summary` : ""} · names link to the CRM</span>}
         flush
       >
         <ul className="flex flex-col divide-y divide-subtle/50" aria-label="Research notes">

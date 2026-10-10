@@ -67,8 +67,9 @@ describe("FormationScreen", () => {
     expect(within(rail).getByRole("region", { name: "Why this channel" })).toBeTruthy();
     expect(within(rail).getAllByText(/Estimate/).length).toBeGreaterThan(0);
 
-    const budget = within(rail).getByLabelText(/EUR, per month/) as HTMLInputElement;
-    expect(budget.value).toBe("1200");
+    const budget = within(rail).getByLabelText("Monthly budget") as HTMLInputElement;
+    expect(budget.value).toBe("1,200"); // grouped at rest; the € symbol and the EUR code sit beside it
+    expect(within(rail).getByText("EUR")).toBeTruthy();
     fireEvent.change(budget, { target: { value: "1500" } });
     await act(async () => {
       fireEvent.click(within(rail).getByRole("button", { name: "Save budget" }));

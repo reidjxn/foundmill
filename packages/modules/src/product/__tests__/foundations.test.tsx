@@ -4,7 +4,7 @@ import { act, fireEvent, screen, within } from "@testing-library/react";
 import { RoadmapScreen } from "../RoadmapScreen";
 import { SpecificationScreen } from "../SpecificationScreen";
 import { VisionScreen } from "../VisionScreen";
-import { FOUNDATIONS_INTERRUPTED, FOUNDATIONS_POLL_MS, FOUNDATIONS_STREAM_POLL_MS, foundationsBasis, foundationsProgressLine, foundationsSummary } from "../foundations";
+import { FOUNDATIONS_INTERRUPTED, FOUNDATIONS_POLL_MS, FOUNDATIONS_STREAM_POLL_MS, foundationsBasis, foundationsItems, foundationsProgressLine, foundationsSteps, foundationsSummary } from "../foundations";
 import type { FoundationsProgress, FoundationsResponse } from "../types";
 import { createFakeSource, renderScreen } from "./fake-source";
 import { BID, dataResponses } from "./fixtures";
@@ -216,6 +216,21 @@ describe("foundations while they are drafting (audit P3)", () => {
     act(() => fake.setResponse("product.foundations.get", ready));
     expect(screen.queryByTestId("foundations-status")).toBeNull();
     expect(screen.getByTestId("vision-record")).toBeTruthy();
+  });
+
+  it("the document writing itself: the Product lead's live portrait, the step rail and one segment per part", () => {
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "product.foundations.get": drafting(progress(2)), "department.list": [] } });
+    renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);
+    const status = screen.getByTestId("foundations-status");
+    const steps = within(status).getAllByTestId("live-run-step");
+    expect(steps.map((s) => s.getAttribute("data-state"))).toEqual(["done", "current", "pending", "pending"]);
+    expect(steps[1]!.textContent).toContain("2 of 5 written");
+    // Five sections and three roadmap items: two written, one being written, the rest to come.
+    expect(within(status).getByTestId("live-run-bar").getAttribute("aria-label")).toBe("2 of 8 parts landed, 1 drafting, 5 queued");
+    // The section being written streams its thesis on the log line, in the writer's name.
+    expect(within(status).getByTestId("live-run-log").textContent).toContain("Mira");
+    expect(foundationsSteps({ ...progress(5, { written: 3, done: true }), stage: "finishing" }).map((s) => s.state)).toEqual(["done", "done", "done", "current"]);
+    expect(foundationsItems({ ...progress(5, { written: 1 }), stage: "roadmap" }).map((i) => i.state)).toEqual(["landed", "landed", "landed", "landed", "landed", "landed", "drafting", "queued"]);
   });
 
   it("polls every second without a stream connection, and only as a safety net with one", () => {

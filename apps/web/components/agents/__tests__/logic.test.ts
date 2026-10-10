@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   applyProposal,
   autonomyFromAgent,
+  firstPerson,
+  founderPlain,
+  plainDescription,
+  profileChips,
+  toolDisplay,
+  wageLabel,
+  whatIDo,
   blendDisplayed,
   coachProposals,
   developmentSeries,
@@ -187,6 +194,8 @@ describe("autonomy and negotiation forms", () => {
     expect(autonomyFromAgent({ mode: "higher", spendCapMinor: 5000 })).toEqual({ mode: "higher", spendCapMinor: 5000, approvalThresholdMinor: null });
     expect(autonomyFromAgent(null).mode).toBe("inherit");
     expect(validateAutonomy({ mode: "inherit", spendCapMinor: 100, approvalThresholdMinor: 200 })).toMatch(/above the spend cap/);
+    // The template default (no spending of its own, ask above £250) is not an error state.
+    expect(validateAutonomy({ mode: "inherit", spendCapMinor: 0, approvalThresholdMinor: 25_000 })).toBeNull();
     const n = negotiationFromAgent({ enabled: true, topics: ["price", 3] });
     expect(n.topics).toEqual(["price"]);
     expect(validateNegotiation(n)).toMatch(/walk-away/);
@@ -234,5 +243,33 @@ describe("sessions and tabs", () => {
   it("knows its tabs", () => {
     expect(isAgentTab("training")).toBe(true);
     expect(isAgentTab("settings")).toBe(false);
+  });
+});
+
+describe("founder copy on the profile (the instructions are written to the model)", () => {
+  it("says each header chip once and names the wage period in words", () => {
+    expect(profileChips({ role: "Chief of Staff", agentType: "chief_of_staff", layer: "assistant" }, [{ name: "Team", colourToken: "dept-4" }]).map((c) => c.label)).toEqual(["Chief of Staff", "Team"]);
+    expect(wageLabel("2026-10", new Date("2026-10-10T12:00:00Z"))).toBe("Wage this month");
+    expect(wageLabel("2026-09", new Date("2026-10-10T12:00:00Z"))).toBe("Wage in September 2026");
+    expect(wageLabel("garbage")).toBe("Wage");
+  });
+  it("keeps the first-person description and drops its structured tail and ids", () => {
+    expect(plainDescription("I plan each cycle and compile replies into typed Plans. Inputs: the brief. Outputs: a plan. Tools: x. Never does: spend.")).toBe("I plan each cycle and compile replies into plans.");
+    expect(founderPlain("Every founder reply becomes a plan; everything else queues for the founder, who reads the founder's Inbox.")).toBe("Every reply from you becomes a plan; everything else queues for you, who reads your Inbox.");
+    expect(founderPlain("Hard gates are routed to request_human_action (BUILD §2.2).")).toBe("Hard gates are routed to a task for you.");
+    expect(founderPlain("Send an email (never claiming to be human — BUILD §2.3). Refused when unverified.")).toBe("Send an email (never claiming to be human). Refused when unverified.");
+    expect(founderPlain("make sure every number has a record id; staff tasks with assignee agent ids")).toBe("make sure every number has a source record; staff tasks with assignee agents");
+  });
+  it("puts the playbook in the agent's own voice", () => {
+    expect(firstPerson("Load the brief through tools.")).toBe("I load the brief through tools.");
+    expect(firstPerson("After leads report, collect results.")).toBe("After leads report, I collect results.");
+    expect(firstPerson("For each department write the tasks.")).toBe("For each department I write the tasks.");
+    expect(firstPerson("Never merge without review.")).toBe("I never merge without review.");
+    const about = whatIDo({ agent: { descriptionMd: "I keep the books. Inputs: ledgers." } as never, neverDoes: ["Spend (BUILD §2.2)"], current: { instructions: { role: "r", goals: ["Route hard gates to request_human_action."], rules: [], playbook: ["Reconcile the bank feed."], tone: "", examples: [] } } as never });
+    expect(about).toEqual({ description: "I keep the books.", inputs: ["Route hard gates to a task for you."], outputs: ["I reconcile the bank feed."], neverDoes: ["Spend"] });
+  });
+  it("shows tools by name in words, flags hard gates and strips build references", () => {
+    expect(toolDisplay({ name: "refund_order", description: "HARD GATE (BUILD §2.2): refunds move money back to the customer." })).toEqual({ label: "Refund order", description: "Refunds move money back to the customer.", hardGate: true });
+    expect(toolDisplay({ name: "send_mail", title: "Send an email", description: "Sends mail (never claiming to be human — BUILD §2.3: disclosed)." })).toEqual({ label: "Send an email", description: "Sends mail (never claiming to be human; disclosed).", hardGate: false });
   });
 });

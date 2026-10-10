@@ -87,7 +87,24 @@ export const EXHIBIT_TITLES: Record<NamedQueryId, string> = {
 
 // --- transforms -------------------------------------------------------------------------------------------------------
 
-const TASK_STATUS_ORDER = ["planned", "queued", "running", "blocked", "waiting_approval", "review", "done", "failed", "stopped", "paused"] as const;
+const TASK_STATUS_ORDER = ["planned", "ready", "queued", "running", "blocked", "waiting_approval", "review", "merging", "done", "failed", "stopped", "paused"] as const;
+
+/** Task statuses in words ("review" → "In review"), never the raw enum. */
+const TASK_STATUS_WORDS: Record<string, string> = {
+  planned: "Planned",
+  ready: "Ready to start",
+  queued: "Queued",
+  running: "In progress",
+  blocked: "Blocked",
+  waiting_approval: "Waiting for approval",
+  review: "In review",
+  merging: "Merging",
+  done: "Done",
+  failed: "Failed",
+  stopped: "Stopped",
+  paused: "Paused",
+};
+const statusWord = (s: string): string => TASK_STATUS_WORDS[s] ?? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ");
 
 export function tasksByStatus(input: { items: readonly { status: string }[] } | undefined): ExhibitData {
   const counts = new Map<string, number>();
@@ -97,12 +114,12 @@ export function tasksByStatus(input: { items: readonly { status: string }[] } | 
     id: "tasks_by_status",
     title: EXHIBIT_TITLES.tasks_by_status,
     label: null,
-    source: "dev.tasks.list, counted by status",
+    source: "The team's tasks, counted by status",
     columns: [
       { key: "status", label: "Status", unit: "text" },
       { key: "count", label: "Tasks", unit: "count" },
     ],
-    rows: order.map((s) => ({ status: s.replace(/_/g, " "), count: counts.get(s) ?? 0 })),
+    rows: order.map((s) => ({ status: statusWord(s), count: counts.get(s) ?? 0 })),
   };
 }
 
@@ -137,7 +154,7 @@ export function conversions30d(input: RibbonLike | undefined, from: string, to: 
     id: "conversions_30d",
     title: EXHIBIT_TITLES.conversions_30d,
     label: null,
-    source: "journey_daily (business-wide rows), one point per day",
+    source: "Customer journeys across the business, one point per day",
     columns: [
       { key: "stage", label: "Stage", unit: "text" },
       { key: "count", label: "Count", unit: "count" },
@@ -164,7 +181,7 @@ export function channelCpa(input: ChannelsLike | undefined, currency: string): E
     id: "channel_cpa",
     title: EXHIBIT_TITLES.channel_cpa,
     label: "Estimate",
-    source: "channel_metrics, last 35 days: spend ÷ customers",
+    source: "Channel spend ÷ new customers, last 35 days",
     currency: input?.channels[0]?.currency ?? currency,
     columns: [
       { key: "channel", label: "Channel", unit: "text" },
@@ -248,7 +265,7 @@ export function roadmapStatus(input: RoadmapLike | undefined): ExhibitData {
     id: "roadmap_status",
     title: EXHIBIT_TITLES.roadmap_status,
     label: null,
-    source: "roadmap_items and their linked tasks",
+    source: "Roadmap items and their linked tasks",
     columns: [
       { key: "horizon", label: "Horizon", unit: "text" },
       { key: "items", label: "Items", unit: "count" },

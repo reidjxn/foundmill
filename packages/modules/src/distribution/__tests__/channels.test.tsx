@@ -26,7 +26,7 @@ describe("ChannelsScreen", () => {
     expect(within(table).getAllByText("Recommended")).toHaveLength(3);
     expect(within(table).getAllByText("Estimate").length).toBeGreaterThan(0);
     expect(within(table).getByLabelText(/Paid advertising potential/)).toBeTruthy();
-    expect(screen.getByText(/4 on the Board · 6 of 15 scored/)).toBeTruthy();
+    expect(screen.getByText(/4 on the board · 6 of 15 scored/)).toBeTruthy();
   });
 
   it("switches saved views: Running shows only the three running channels", async () => {

@@ -93,7 +93,8 @@ export const squadPulseWidget = registerWidget<SquadPulseSettings>({
   description: "A 7 × 24 heatmap of agent activity by hour and department.",
   icon: "activity",
   surfaces: ["home", "department"],
-  defaultSize: { w: 8, h: 12, minW: 6, minH: 10 },
+  // Sized to the 7 × 24 grid, its legend and footer: a stored taller cell is clamped instead of drawn empty.
+  defaultSize: { w: 8, h: 12, minW: 6, minH: 10, maxH: 16 },
   settingsSchema: SquadPulseSettings,
   defaultSettings: SquadPulseSettings.parse({}),
   Component: SquadPulseWidget,

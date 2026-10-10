@@ -3,7 +3,7 @@
  * The three connection lists on /network: requests waiting for the founder (accept or block), requests the founder
  * sent (withdraw), and the connections themselves in a DataTable with saved views and a right-click menu.
  */
-import { Ban, Check, Clock, MessageSquare, UserCheck, UserMinus, UserRound, Users } from "lucide-react";
+import { Ban, Check, Clock, MessageSquare, UserCheck, UserMinus, UserRound, Users, UsersRound } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Avatar, Button, DataTable, Panel, StatusPill, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { People } from "./shared";
@@ -35,11 +35,15 @@ interface CommonProps extends Partial<ConnectionHandlers> {
   onRetry?: () => void;
   /** The connection a mutation is working on: its buttons wait. */
   busyId?: string | null;
+  /** The one way on from an empty list (founders are met in communities). */
+  onFind?: () => void;
 }
+
+const findAction = (onFind?: () => void) => (onFind ? { label: "Browse communities", icon: UsersRound, onClick: onFind } : undefined);
 
 const otherUser = (row: ConnectionRow, viewerId: string) => (row.fromUser === viewerId ? row.toUser : row.fromUser);
 
-export function RequestsPanel({ rows, viewerId, people, loading, error, onRetry, busyId, onAccept, onBlock }: CommonProps) {
+export function RequestsPanel({ rows, viewerId, people, loading, error, onRetry, busyId, onAccept, onBlock, onFind }: CommonProps) {
   return (
     <Panel
       title="Requests"
@@ -48,14 +52,14 @@ export function RequestsPanel({ rows, viewerId, people, loading, error, onRetry,
       error={error}
       onRetry={onRetry}
       actions={rows.length ? <StatusPill tone="info" icon={Clock}>{rows.length} waiting</StatusPill> : undefined}
-      empty={rows.length === 0 ? { icon: UserCheck, children: "No requests waiting. When someone asks to connect, you accept or block them here." } : undefined}
+      empty={rows.length === 0 ? { icon: UserCheck, children: "No requests waiting. When someone asks to connect, it waits here for you.", action: findAction(onFind) } : undefined}
       data-testid="requests-panel"
     >
       <ul>
         {rows.map((row) => {
           const name = people.name(otherUser(row, viewerId));
           return (
-            <li key={row.id} className="flex items-center gap-3 border-b border-subtle/50 px-panel-pad py-2 last:border-b-0" data-testid="request-row">
+            <li key={row.id} className="flex items-center gap-3 border-b border-line-faint px-panel-pad py-2 last:border-b-0" data-testid="request-row">
               <Avatar size={32} name={name} />
               <div className="min-w-0 flex-1">
                 <p className="t-body-strong truncate text-primary">{name}</p>
@@ -77,7 +81,7 @@ export function RequestsPanel({ rows, viewerId, people, loading, error, onRetry,
   );
 }
 
-export function SentRequestsPanel({ rows, viewerId, people, loading, error, onRetry, busyId, onRemove }: CommonProps) {
+export function SentRequestsPanel({ rows, viewerId, people, loading, error, onRetry, busyId, onRemove, onFind }: CommonProps) {
   return (
     <Panel
       title="Sent requests"
@@ -86,14 +90,14 @@ export function SentRequestsPanel({ rows, viewerId, people, loading, error, onRe
       error={error}
       onRetry={onRetry}
       actions={rows.length ? <StatusPill tone="neutral" icon={Clock}>{rows.length} waiting</StatusPill> : undefined}
-      empty={rows.length === 0 ? { icon: Clock, children: "Requests you send wait here until the other person answers." } : undefined}
+      empty={rows.length === 0 ? { icon: Clock, children: "Requests you send wait here until the other person answers.", action: findAction(onFind) } : undefined}
       data-testid="sent-requests-panel"
     >
       <ul>
         {rows.map((row) => {
           const name = people.name(otherUser(row, viewerId));
           return (
-            <li key={row.id} className="flex items-center gap-3 border-b border-subtle/50 px-panel-pad py-2 last:border-b-0" data-testid="sent-request-row">
+            <li key={row.id} className="flex items-center gap-3 border-b border-line-faint px-panel-pad py-2 last:border-b-0" data-testid="sent-request-row">
               <Avatar size={32} name={name} />
               <div className="min-w-0 flex-1">
                 <p className="t-body-strong truncate text-primary">{name}</p>
@@ -137,7 +141,7 @@ export const CONNECTION_VIEWS: SavedView[] = [
   { id: "blocked", name: "Blocked", builtIn: true, columns: COLUMNS, sort: [{ id: "name", desc: false }], filters: ONLY("f-blocked", "blocked") },
 ];
 
-export function ConnectionsPanel({ rows, viewerId, people, loading, error, onRetry, onBlock, onRemove, onMessage }: CommonProps) {
+export function ConnectionsPanel({ rows, viewerId, people, loading, error, onRetry, onBlock, onRemove, onMessage, onFind }: CommonProps) {
   const [views, setViews] = useState<SavedView[]>(CONNECTION_VIEWS);
   const data = useMemo<ConnectionTableRow[]>(
     () =>
@@ -193,8 +197,8 @@ export function ConnectionsPanel({ rows, viewerId, people, loading, error, onRet
       loading={loading}
       error={error}
       onRetry={onRetry}
-      actions={<span className="text-small tabular-nums text-secondary">{connected} {connected === 1 ? "connection" : "connections"}</span>}
-      empty={data.length === 0 ? { icon: Users, children: "No connections yet. Accepted requests appear here, and a right-click on a connection offers Message, Block and Remove." } : undefined}
+      meta={connected ? `${connected} ${connected === 1 ? "connection" : "connections"}` : undefined}
+      empty={data.length === 0 ? { icon: Users, children: "No connections yet. Founders mostly meet in communities.", action: findAction(onFind) } : undefined}
       data-testid="connections-panel"
     >
       <DataTable<ConnectionTableRow>

@@ -7,13 +7,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { CircleCheck, ExternalLink, FileCode, FolderGit2, GitBranch, Network, Search, Trash2, TriangleAlert } from "lucide-react";
 import { Avatar, Button, Chip, CodeViewer, DataTable, EmptyState, ErrorState, Icon, Input, Panel, SimpleSelect, StatusPill, cn, formatBytes, formatDate, formatDateTime, formatNumber, formatRelative, type DataTableColumn, type SelectOption } from "@foundmill/dugout";
-import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { ForgetCodeDialog, GitHubRepositoryDialog } from "./dialogs";
 import { useDevScreenOptions } from "./options";
-import { Screen, TaskStatusPill, taskHref, toDate, toTileAgent, useAction, useAgentIndex, useAgents } from "./shared";
+import { Screen, TaskStatusPill, taskHref, toDate, toTileAgent, useAction, useAgentIndex, useAgents, useDevDepartment } from "./shared";
 import type { AgentRow, CodeFileResponse, CodeFilesResponse, CodeManifestEntry, CodeRepositoryResponse, CodeSnapshotSummary, CodeTaskRow } from "./types";
 
 /** Body height of both panels, so the task list and the file view line up. */
@@ -150,13 +149,12 @@ export function PushStatus({ snapshot, repository }: { snapshot: CodeSnapshotSum
   );
 }
 
-export function CodeScreen({ businessId }: ModuleScreenProps) {
+export function CodeScreen({ businessId, departmentId }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
   const options = useDevScreenOptions();
   const optionNow = options.now;
   const now = useMemo(() => optionNow ?? new Date(), [optionNow]);
-  const departments = useDepartments();
-  const deptSlug = departmentForModule(departments.data, "development")?.slug;
+  const deptSlug = useDevDepartment(departmentId)?.slug;
   const list = useWidgetQuery<CodeTaskRow[]>("dev.code.list", {});
   const agents = useAgents();
   const agentIndex = useAgentIndex(agents.data?.agents);

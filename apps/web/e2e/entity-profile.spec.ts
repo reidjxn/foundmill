@@ -12,10 +12,10 @@ interface CrmRowRef {
 }
 
 /**
- * The Kind column is a chip with the plural label of components/crm/search.ts KIND_LABELS (People, Organisations,
- * Agents, …); innerText carries the chip's CSS uppercase, so the match ignores case and the ref keeps the lower-cased label.
+ * The Kind column is a chip with one record's kind in words, singular (components/crm/logic.ts KIND_WORD: Person,
+ * Organisation, Agent, …); the match ignores case and the ref keeps the lower-cased word.
  */
-const KIND_CHIP = /^(People|Organisations|Agents|Team|Members|Communities|Venues)$/i;
+const KIND_CHIP = /^(Person|Organisation|Agent|Staff|Member|Community|Venue)$/i;
 
 /** The first visible CRM rows: name, kind chip label and profile link. */
 async function crmRows(page: Page, limit = 12): Promise<CrmRowRef[]> {
@@ -82,11 +82,11 @@ test.describe("entity profile", () => {
   test("merge then unmerge restores both records (AC-11.12.3)", async ({ page }) => {
     await openBusiness(page, "crm");
     // The duplicate candidate must be another record of the same kind (the dialog searches by name, email or domain
-    // within the source's kind). The listing also carries the squad as agent records, so the pair is taken from the
+    // within the source's kind). The listing also carries the agents as records, so the pair is taken from the
     // people and organisations: the first person or organisation that has a second row of its kind.
     const rows = await crmRows(page);
     const pair = rows.flatMap((source) => {
-      if (!source.kind || !/^(people|organisations)$/.test(source.kind)) return [];
+      if (!source.kind || !/^(person|organisation)$/.test(source.kind)) return [];
       const other = rows.find((r) => r.kind === source.kind && r.name !== source.name);
       return other ? [{ source, other }] : [];
     })[0];

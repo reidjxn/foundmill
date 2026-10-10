@@ -42,6 +42,17 @@ export const CustomMetricSettings = z.object({
 });
 export type CustomMetricSettings = z.infer<typeof CustomMetricSettings>;
 
+const QUERY_WORDS: Record<string, string> = { mrr: "MRR", arr: "ARR", cpa: "CPA", ltv: "LTV" };
+
+/** A named query in words: "active_customers" → "active customers", "mrr" → "MRR". */
+export function queryWords(queryId: string): string {
+  return queryId
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((w) => QUERY_WORDS[w.toLowerCase()] ?? w.toLowerCase())
+    .join(" ");
+}
+
 /** The query input the widget sends; null when the widget is not configured yet. */
 export function metricQueryInput(s: CustomMetricSettings): Record<string, unknown> | null {
   if (s.mode === "query") return s.queryId ? { queryId: s.queryId } : null;
@@ -88,7 +99,7 @@ function CustomMetricWidget({ settings }: WidgetProps<CustomMetricSettings>) {
       queries={input ? [metric] : []}
       flush
       empty={!input ? { icon: Sigma, text: "Pick a named query or describe the number you want in the widget settings." } : null}
-      footer={settings.mode === "sentence" && settings.compiled ? <span className="truncate">Compiled from: “{settings.sentence}”</span> : settings.queryId ? <span className="font-mono text-mono">{settings.queryId}</span> : undefined}
+      footer={settings.mode === "sentence" && settings.compiled ? <span className="truncate">Compiled from: “{settings.sentence}”</span> : settings.queryId ? <span>From the {queryWords(settings.queryId)} query</span> : undefined}
     >
       <MetricTile {...tileFor(metric.data, settings, currency)} className="h-full" />
     </WidgetFrame>

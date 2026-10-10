@@ -152,7 +152,11 @@ describe("attribution", () => {
     expect(paid.partial).toBe(false);
     expect(rows.find((r) => r.channelKey === "print")!.partial).toBe(true);
     expect(funnelStages(channelsList.blended).map((s) => s.value)).toEqual([18000, 450, 134, 80, 50]);
+    // A stage no channel measures (no lead capture) is left out rather than drawn as a 0 % step.
+    expect(funnelStages({ ...channelsList.blended!, leads: 0 }).map((s) => s.label)).toEqual(["Impressions", "Signups", "Activations", "Customers"]);
     expect(funnelStages(undefined).every((s) => s.value === 0)).toBe(true);
+    // Signups above leads: leads are a side door, not a step, so the funnel never reads over 100 %.
+    expect(funnelStages({ spendMinor: 0, impressions: 2_900_000, leads: 84, signups: 115, activations: 72, customers: 27, cpaMinor: null, days: 35 }).map((s) => s.label)).toEqual(["Impressions", "Signups", "Activations", "Customers"]);
   });
 });
 

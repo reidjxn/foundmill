@@ -9,7 +9,7 @@
  */
 import { useMemo, useState } from "react";
 import { Cookie, FileDiff, FileText, RefreshCw, Scale, ShieldCheck } from "lucide-react";
-import { Button, Chip, DiffView, Markdown, MiniTable, Panel, applyDecisions, buildHunks, diffLines, summariseDiff, type HunkDecisionState, type HunkDecisions, type IconComponent } from "@foundmill/dugout";
+import { Button, Chip, DiffView, Markdown, MiniTable, Panel, applyDecisions, formatDate, buildHunks, diffLines, summariseDiff, type HunkDecisionState, type HunkDecisions, type IconComponent } from "@foundmill/dugout";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -17,7 +17,7 @@ import { pmTitle, pmToText, textToPm } from "../product/prosemirror";
 import type { SpecGetResponse } from "../product/types";
 import type { ModuleScreenProps } from "../registry";
 import { POLICY_KEYS, POLICY_TITLES, dataFlows, formatAddress, generatePolicies, type PolicyKey } from "./legal-data";
-import { InformationNotice, InlineError, Screen, useAction, useLegalStatus, useNow } from "./shared";
+import { InformationNotice, InlineError, Screen, humanise, useAction, useLegalStatus, useNow } from "./shared";
 import type { BusinessGetResponse, IntegrationsListResponse, ProposalsListResponse } from "./types";
 
 const INTEGRATIONS_INPUT: Record<string, unknown> = {};
@@ -28,6 +28,7 @@ const PROPOSALS_INPUT = { status: "open", limit: 50 } as const;
 
 const POLICY_ICON: Record<PolicyKey, IconComponent> = { privacy: ShieldCheck, terms: Scale, cookies: Cookie };
 const POLICY_RE = /polic|privacy|terms|cookie|gdpr/i;
+const SEVERITY_WORD: Record<string, string> = { critical: "Critical", normal: "Normal", minor: "Minor", low: "Minor" };
 
 export function PoliciesScreen({ businessId }: ModuleScreenProps) {
   const now = useNow();
@@ -108,19 +109,19 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
         actions={
           <div role="tablist" aria-label="Policy" className="flex items-center gap-1">
             {POLICY_KEYS.map((key) => (
-              <Button key={key} role="tab" aria-selected={active === key} size="sm" variant={active === key ? "primary" : "ghost"} icon={POLICY_ICON[key]} onClick={() => setActive(key)}>
+              <Button key={key} role="tab" aria-selected={active === key} size="sm" variant="ghost" active={active === key} icon={POLICY_ICON[key]} onClick={() => setActive(key)}>
                 {POLICY_TITLES[key]}
               </Button>
             ))}
           </div>
         }
-        footer={<span>Generated from {flows.length} connected integration{flows.length === 1 ? "" : "s"}, the legal entity and the archetype on {now.toISOString().slice(0, 10)}. The published text is the "{POLICIES_SECTION}" section of the product spec; accepting hunks edits that block as you.</span>}
+        footer={<span>Generated from {flows.length} connected integration{flows.length === 1 ? "" : "s"}, the legal entity and the archetype on {formatDate(now)}. The published text is the "{POLICIES_SECTION}" section of the product spec; accepting hunks edits that block as you.</span>}
       >
         {generated ? (
           current ? (
             <section aria-label={`${POLICY_TITLES[active]} refresh`} className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2">
-                <Chip tone={unchanged ? "good" : "info"} icon={FileDiff}>
+                <Chip tone={unchanged ? "good" : "info"} icon={FileDiff} className="whitespace-nowrap">
                   {unchanged ? "Published text is current" : `${diff?.hunks.length ?? 0} change${diff?.hunks.length === 1 ? "" : "s"} proposed`}
                 </Chip>
                 {current.pinned ? <Chip tone="neutral">Pinned (human-edited)</Chip> : null}
@@ -146,7 +147,7 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
           ) : (
             <section aria-label={`${POLICY_TITLES[active]} preview`} className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2">
-                <Chip tone="warn" icon={FileText}>
+                <Chip tone="warn" icon={FileText} className="whitespace-nowrap">
                   Not yet in the spec
                 </Chip>
                 <span className="t-small text-secondary">The Product lead publishes the first version as a change proposal in the "{POLICIES_SECTION}" section; until then this preview is the generated text.</span>
@@ -164,9 +165,18 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
           getRowKey={(f) => f.connectorKey}
           maxRows={20}
           columns={[
-            { id: "processor", header: "Processor", cell: (f) => <span className="t-body-strong text-primary">{f.processor}</span> },
-            { id: "purpose", header: "Purpose", cell: (f) => <span className="text-secondary">{f.purpose}</span> },
-            { id: "cookies", header: "Cookies", numeric: true, width: 70, cell: (f) => <span className="tabular-nums">{f.cookies.length}</span> },
+            {
+              id: "processor",
+              header: "Processor and purpose",
+              // A narrow column: the processor over its purpose, so the purpose reads as a line, not a word per line.
+              cell: (f) => (
+                <span className="flex flex-col py-1 whitespace-normal">
+                  <span className="t-body-strong text-primary">{f.processor}</span>
+                  <span className="text-small text-secondary">{f.purpose}</span>
+                </span>
+              ),
+            },
+            { id: "cookies", header: "Cookies", numeric: true, width: 72, cell: (f) => <span className="tabular-nums">{f.cookies.length}</span> },
           ]}
         />
       </Panel>
@@ -175,7 +185,9 @@ export function PoliciesScreen({ businessId }: ModuleScreenProps) {
         <ul aria-label="Policy proposals" className="flex flex-col gap-1">
           {policyProposals.map((p) => (
             <li key={p.id} className="flex items-center gap-2">
-              <Chip tone={p.severity === "critical" ? "bad" : p.severity === "normal" ? "info" : "neutral"}>{p.severity}</Chip>
+              <Chip tone={p.severity === "critical" ? "bad" : p.severity === "normal" ? "info" : "neutral"} className="shrink-0 whitespace-nowrap">
+                {SEVERITY_WORD[p.severity] ?? humanise(p.severity)}
+              </Chip>
               <span className="t-body-strong text-primary">{p.title}</span>
               <Button size="sm" variant="ghost" onClick={() => navigate(`${changesHref}?proposal=${p.id}`)}>
                 Decide

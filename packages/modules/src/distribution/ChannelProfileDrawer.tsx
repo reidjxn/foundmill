@@ -6,10 +6,10 @@
  */
 import { useEffect, useId, useState } from "react";
 import { ArrowRight, Save } from "lucide-react";
-import { Button, ChannelProfileCard, Chip, Input, Markdown, RightRail, StatusPill, formatMoney, type ChannelTokenData } from "@foundmill/dugout";
+import { Button, ChannelProfileCard, Chip, Field, Markdown, MoneyInput, RightRail, StatusPill, formatMoney, type ChannelTokenData } from "@foundmill/dugout";
 import type { ChannelKey } from "@foundmill/shared";
 import { CAMPAIGN_STATUS_WORDS, CHANNEL_RULES, SHARED_RULES, approvalThresholdMinor, type ChannelView } from "./channel-data";
-import { InlineError, OFFLINE_TRACKING_LABEL, type ActionState } from "./shared";
+import { InlineError, OFFLINE_TRACKING_LABEL, parseMajor, type ActionState } from "./shared";
 
 export interface ChannelProfileDrawerProps {
   view: ChannelView | null;
@@ -33,12 +33,12 @@ export function ChannelProfileDrawer({ view, token, action, onClose, onToggle, o
   const open = !!view && !!token;
   const saveBudget = async () => {
     if (!view?.id) return;
-    const major = Number(budget);
-    if (!Number.isFinite(major) || major < 0) return;
+    const major = parseMajor(budget);
+    if (major === null || major < 0) return;
     const ok = await action.run("distribution.channels.budget", { channelId: view.id, budgetMinor: Math.round(major * 100), currency: view.currency }, { key: `budget:${view.id}` });
     if (ok !== undefined) onBudgetSaved();
   };
-  const budgetDirty = !!view && Number(budget) !== Math.round(view.budgetMinor / 100);
+  const budgetDirty = !!view && parseMajor(budget) !== Math.round(view.budgetMinor / 100);
 
   return (
     <RightRail
@@ -55,27 +55,27 @@ export function ChannelProfileDrawer({ view, token, action, onClose, onToggle, o
           </Button>
         ) : null
       }
-      className="h-full min-h-[480px]"
+      className="h-full"
     >
       {view && token ? (
         <div className="flex flex-col gap-4" data-channel-drawer={view.channelKey}>
           <ChannelProfileCard channel={token} onToggle={onToggle} onPause={onPause} />
           {view.kitMode ? (
-            <p className="text-small text-secondary">
-              <Chip tone="info">{OFFLINE_TRACKING_LABEL}</Chip> Bookings become a founder task with every material attached; nothing is booked by an agent.
-            </p>
+            <div className="flex flex-col items-start gap-1">
+              <Chip tone="info">{OFFLINE_TRACKING_LABEL}</Chip>
+              <p className="text-small text-secondary">Bookings become a founder task with every material attached; nothing is booked by an agent.</p>
+            </div>
           ) : null}
 
           <section aria-labelledby={`${budgetId}-h`} className="flex flex-col gap-2 border-t border-subtle pt-3">
-            <h3 id={`${budgetId}-h`} className="t-label">
-              Monthly budget
+            <h3 id={`${budgetId}-h`} className="t-title text-primary">
+              Budget
             </h3>
-            <div className="flex items-end gap-2">
-              <label htmlFor={budgetId} className="flex min-w-0 flex-1 flex-col gap-1">
-                <span className="text-small text-secondary">{view.currency}, per month</span>
-                <Input id={budgetId} controlSize="sm" numeric inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} disabled={!view.persisted} aria-describedby={`${budgetId}-hint`} />
-              </label>
-              <Button size="sm" icon={Save} loading={action.pending === `budget:${view.id}`} disabled={!view.persisted || !budgetDirty} onClick={saveBudget}>
+            <div className="flex flex-wrap items-end gap-2">
+              <Field htmlFor={budgetId} label="Monthly budget" className="min-w-0 flex-1">
+                <MoneyInput id={budgetId} controlSize="md" currency={view.currency} value={budget} onValueChange={setBudget} disabled={!view.persisted} aria-describedby={`${budgetId}-hint`} />
+              </Field>
+              <Button size="md" icon={Save} loading={action.pending === `budget:${view.id}`} disabled={!view.persisted || !budgetDirty} onClick={saveBudget}>
                 Save budget
               </Button>
             </div>
@@ -88,7 +88,7 @@ export function ChannelProfileDrawer({ view, token, action, onClose, onToggle, o
           </section>
 
           <section aria-label="Rules" className="flex flex-col gap-1 border-t border-subtle pt-3">
-            <h3 className="t-label">Rules</h3>
+            <h3 className="t-title text-primary">Rules</h3>
             <ul className="flex list-disc flex-col gap-0.5 pl-4 text-small text-primary">
               {CHANNEL_RULES[view.channelKey].map((rule) => (
                 <li key={rule}>{rule}</li>
@@ -102,15 +102,19 @@ export function ChannelProfileDrawer({ view, token, action, onClose, onToggle, o
           </section>
 
           <section aria-label="Campaigns" className="flex flex-col gap-1 border-t border-subtle pt-3">
-            <h3 className="t-label">Campaigns</h3>
+            <h3 className="t-title text-primary">Campaigns</h3>
             {view.campaigns.length === 0 ? (
               <p className="text-small text-secondary">No campaigns yet. The engine plans the first one once the channel is running.</p>
             ) : (
               <ul className="flex flex-col gap-1">
                 {view.campaigns.map((c) => (
                   <li key={c.id} className="flex items-center justify-between gap-2 text-small">
-                    <span className="truncate text-primary">{c.name}</span>
-                    <StatusPill tone={CAMPAIGN_STATUS_WORDS[c.status].tone}>{CAMPAIGN_STATUS_WORDS[c.status].word}</StatusPill>
+                    <span className="min-w-0 truncate text-primary" title={c.name}>
+                      {c.name}
+                    </span>
+                    <StatusPill tone={CAMPAIGN_STATUS_WORDS[c.status].tone} className="shrink-0 whitespace-nowrap">
+                      {CAMPAIGN_STATUS_WORDS[c.status].word}
+                    </StatusPill>
                   </li>
                 ))}
               </ul>
@@ -119,7 +123,7 @@ export function ChannelProfileDrawer({ view, token, action, onClose, onToggle, o
 
           {view.why ? (
             <section aria-label="Why this channel" className="flex flex-col gap-1 border-t border-subtle pt-3">
-              <h3 className="t-label">Why</h3>
+              <h3 className="t-title text-primary">Why this channel</h3>
               <Markdown variant="body">{view.why}</Markdown>
             </section>
           ) : null}

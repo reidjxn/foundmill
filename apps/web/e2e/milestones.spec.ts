@@ -16,6 +16,9 @@ test.describe("milestones", () => {
     // Two years of seeded wins light several milestones up.
     expect(await page.locator("[data-trophy][data-achieved]").count()).toBeGreaterThanOrEqual(1);
     await expect(page.getByTestId("milestones-screen")).toHaveAttribute("data-won", /^[1-8]$/);
+    // Money milestones are in the business's own currency: Northwind keeps its books in pounds, never euros.
+    await expect(page.locator("[data-trophy]").filter({ hasText: "MRR" }).first()).toContainText("£");
+    await expect(page.locator("[data-trophy]").filter({ hasText: "€" })).toHaveCount(0);
   });
 
   test("a reached milestone opens its Customer Update when one is recorded", async ({ page }) => {

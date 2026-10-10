@@ -10,12 +10,13 @@
  * `CommitScreen` loads the idea, wires those calls to tRPC and commits.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Check, Globe, Lock, Scale, Sparkles, ThumbsUp } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Globe, Lock, Scale, Sparkles, ThumbsUp } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { ARCHETYPE_LABELS, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
-import { Avatar, Button, Chip, ConceptCard, Field, Input, Panel, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, cn, formatMoney, useToast, type Kit } from "@foundmill/dugout";
+import { Avatar, Button, Chip, ConceptCard, EmptyState, Field, Input, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, cn, formatMoney, useToast, type Kit } from "@foundmill/dugout";
+import { plainWords, plural } from "@/lib/format";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
@@ -128,10 +129,9 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
     return (
       <StudioFrame step="commit" title="Already committed" viewer={viewer} actions={back}>
         <Panel title="Concept">
-          <p className="text-body">This concept already became a business.</p>
-          <LinkButton variant="primary" className="mt-3" href={routes.home(bid)}>
-            Open it
-          </LinkButton>
+          <EmptyState icon={Check} tone="kit" title="This concept already became a business" actions={<LinkButton variant="primary" size="sm" iconRight={ArrowRight} href={routes.home(bid)}>Open the business</LinkButton>}>
+            Its team is already at work. Open it to see what they are doing, or go back and commit another concept.
+          </EmptyState>
         </Panel>
       </StudioFrame>
     );
@@ -156,6 +156,9 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
 }
 
 /* ---------- the form ---------- */
+
+/** What the founder reads while Take charge runs (a few seconds in mock mode). */
+const SETTING_UP = "Setting up your business: departments, team and the first cycle. This takes a few seconds.";
 
 export interface CommitFormProps {
   idea: IdeaLike;
@@ -228,13 +231,15 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
     <StudioFrame
       step="commit"
       title={form.name.trim() ? `Commit to ${form.name.trim()}` : "Commit"}
-      lede="Name it, give it a logo, choose how it is run. Taking charge seeds the departments and the team and starts the first cycle."
+      // While the business is set up the header says so, beside the button that started it (the panel's own status line
+      // sits at the foot of a long column, usually off screen).
+      lede={committing ? SETTING_UP : "Name it, give it a logo, choose how it is run. Taking charge seeds the departments and the team and starts the first cycle."}
       viewer={viewer}
       actions={
         <>
           {back}
           <Button variant="primary" icon={ThumbsUp} loading={committing} onClick={() => submit()} data-testid="take-charge">
-            Take charge
+            {committing ? "Setting up…" : "Take charge"}
           </Button>
         </>
       }
@@ -254,12 +259,12 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
                   </Chip>
                 ))}
               </div>
-              <div className="grid grid-cols-2 gap-gutter border-t border-subtle pt-3">
+              <div className="grid grid-cols-2 gap-gutter border-t border-line pt-3">
                 <div data-testid="domain-checks" aria-busy={screening || undefined}>
                   <div className="mb-1.5 flex items-center gap-2">
                     <Globe size={14} className="text-secondary" aria-hidden />
                     <span className="t-label">Domains</span>
-                    <Chip>{screened?.domains[0]?.provenance ?? "Estimate"}</Chip>
+                    {(screened?.domains[0]?.provenance ?? "Estimate") === "Estimate" ? <ProvenanceChip kind="estimate" /> : <Chip>{screened?.domains[0]?.provenance}</Chip>}
                   </div>
                   {screened && !screening ? (
                     <ul className="flex flex-col gap-1">
@@ -306,8 +311,8 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
             <LogoColoursEditor name={form.name} kit={form.kit} onKitChange={(kit: Kit) => set("kit", kit)} logo={form.logo} onLogoChange={(logo) => set("logo", logo)} logoActions={logoActions} error={show("kit")} />
           </Panel>
 
-          <Panel title="Game mode">
-            <RadioGroup value={form.gameMode} onValueChange={(v) => set("gameMode", v as GameMode)} className="grid-cols-2" aria-label="Game mode">
+          <Panel title="Personal or live">
+            <RadioGroup value={form.gameMode} onValueChange={(v) => set("gameMode", v as GameMode)} className="grid-cols-2" aria-label="Personal or live">
               {GAME_MODE_CARDS.map((m) => (
                 <ModeCardOption key={m.value} id={`game-${m.value}`} value={m.value} label={m.label} tagline={m.tagline} details={m.details} selected={form.gameMode === m.value} icon={m.value === "live" ? Globe : Lock} />
               ))}
@@ -331,23 +336,27 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
                   <ModeCardOption key={m.value} id={`mode-${m.value}`} value={m.value} label={m.label} tagline={m.tagline} details={m.details} selected={form.businessMode === m.value} badge={m.value === "assisted" ? "Default" : undefined} />
                 ))}
               </RadioGroup>
-              <div className="grid grid-cols-[240px_1fr] items-end gap-gutter">
-                <Field htmlFor="spend-cap" label="Spend cap per action" hint="Above this every spend asks you first, whatever the mode. Empty means no cap." error={show("spendCap")}>
-                  <Input
+              <div className="grid grid-cols-12 items-start gap-gutter border-t border-line pt-3">
+                <Field htmlFor="spend-cap" label="Spend cap per action" hint="Above this every spend asks you first, whatever the mode. Empty means no cap." error={show("spendCap")} className="col-span-6">
+                  <MoneyInput
                     id="spend-cap"
-                    numeric
+                    controlSize="lg"
                     inputMode="decimal"
                     value={form.spendCap}
+                    currency={form.currency}
                     onChange={(e) => {
                       setCapTouched(true);
                       set("spendCap", e.target.value);
                     }}
                     invalid={Boolean(show("spendCap"))}
-                    suffix={form.currency}
                   />
                 </Field>
-                <p className="pb-1 text-small text-secondary">
-                  Default for {BUSINESS_MODE_CARDS.find((m) => m.value === form.businessMode)?.label}: {formatMoney({ amountMinor: DEFAULT_SPEND_CAP_MINOR[form.businessMode], currency: form.currency })} · Estimate. Money, signatures and identity always ask.
+                <p className="col-span-6 flex flex-wrap items-center gap-x-2 gap-y-1 pt-6 text-small text-secondary">
+                  <span>
+                    Default for {BUSINESS_MODE_CARDS.find((m) => m.value === form.businessMode)?.label}: <span className="tabular text-primary">{formatMoney({ amountMinor: DEFAULT_SPEND_CAP_MINOR[form.businessMode], currency: form.currency })}</span>
+                  </span>
+                  <ProvenanceChip kind="estimate" />
+                  <span>Money, signatures and identity always ask.</span>
                 </p>
               </div>
             </div>
@@ -361,7 +370,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
         </div>
 
         <aside className="col-span-4">
-          <div className="sticky top-6 flex flex-col gap-gutter">
+          <div className="sticky top-20 flex flex-col gap-gutter">
             <ConceptCard concept={{ ...concept, name: form.name.trim() || concept.name, kit: form.kit, logoSrc: form.logo?.dataUrl ?? null }} hideActions className="w-full" />
             <Panel title="Day one" loading={previewLoading} empty={!form.archetype ? "Pick an archetype to see who gets hired." : undefined} data-testid="squad-preview">
               {preview ? (
@@ -373,7 +382,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
                       </Chip>
                     ))}
                   </div>
-                  <ul className="flex flex-col divide-y divide-subtle/50" aria-label="Team">
+                  <ul className="flex flex-col divide-y divide-line-faint" aria-label="Team">
                     {preview.agents.map((a, i) => (
                       <li key={a.templateKey} className="flex items-center gap-2 py-1.5 first:pt-0 last:pb-0">
                         <Avatar size={24} name={a.name} agent={{ seed: a.templateKey, dept: preview.departments[i % preview.departments.length]?.colourToken ?? "dept-1" }} />
@@ -381,12 +390,12 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
                           <div className="truncate text-body-strong">{a.name}</div>
                           <div className="truncate text-small text-secondary">{a.role}</div>
                         </div>
-                        <Chip mono>{a.modelKey}</Chip>
+                        <Chip>{plainWords(a.modelKey)}</Chip>
                       </li>
                     ))}
                   </ul>
                   <p className="text-small text-secondary">
-                    {preview.agents.length} agents · {preview.departments.length} departments · {preview.defaultChannels.length} channels on · wages are estimates until the first cycle
+                    {plural(preview.agents.length, "agent")} · {plural(preview.departments.length, "department")} · {plural(preview.defaultChannels.length, "channel")} on · wages are estimates until the first cycle
                   </p>
                 </div>
               ) : null}
@@ -395,14 +404,14 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
               <ol className="flex flex-col gap-1.5 text-body">
                 {["Business, departments and team are created", "The logo and brand colours go on the top bar", "The first cycle starts", "The Board's first item lands in your Inbox: vision and three decisions"].map((s, i) => (
                   <li key={s} className="flex items-start gap-2">
-                    <span className="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-subtle text-label tabular-nums">{i + 1}</span>
+                    <span className="inline-flex size-badge shrink-0 items-center justify-center rounded-pill font-mono text-micro text-tertiary ring-1 ring-line-strong">{i + 1}</span>
                     <span>{s}</span>
                   </li>
                 ))}
               </ol>
-              <div className="mt-3 flex items-center gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Chip tone={form.gameMode === "live" ? "kit" : "ink"} icon={form.gameMode === "live" ? Globe : Lock}>
-                  {form.gameMode === "live" ? "LIVE" : "Personal"}
+                  {form.gameMode === "live" ? "Live" : "Personal"}
                 </Chip>
                 <Chip>{BUSINESS_MODE_CARDS.find((m) => m.value === form.businessMode)?.label}</Chip>
                 {form.archetype ? <Chip>{ARCHETYPE_LABELS[form.archetype]}</Chip> : null}
@@ -413,7 +422,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
               </Button>
               {committing ? (
                 <p role="status" className="mt-2 text-small text-secondary" data-testid="committing-status">
-                  Setting up your business: departments, team and the first cycle. This takes a few seconds.
+                  {SETTING_UP}
                 </p>
               ) : null}
               {touched && !valid ? (
@@ -430,21 +439,33 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
 }
 
 function ModeCardOption({ id, value, label, tagline, details, selected, badge, icon: Icon }: { id: string; value: string; label: string; tagline: string; details: string[]; selected: boolean; badge?: string; icon?: typeof Globe }) {
+  // A radio card (DESIGN §8): the whole card is the target; the selected card takes the accent ring. A badge
+  // ("Default", "From the card") sits on its own line so it never squeezes the title.
   return (
-    <div className={cn("relative flex items-start gap-2 rounded-panel border border-subtle bg-panel-alt p-3 transition-colors duration-micro ease-dugout hover:border-secondary/50", selected && "border-link")} data-option={value} data-selected={selected || undefined}>
-      {selected ? <span aria-hidden className="absolute inset-y-0 left-0 w-0.75 rounded-l-panel bg-kit-primary" /> : null}
+    <div
+      className={cn(
+        "relative flex h-full items-start gap-2.5 rounded-md bg-white/2 p-3 ring-1 ring-line transition-[box-shadow,background-color] duration-hover ease-out hover:bg-white/4 hover:ring-line-strong",
+        selected && "bg-accent/6 ring-accent/60 hover:ring-accent/70",
+      )}
+      data-option={value}
+      data-selected={selected || undefined}
+    >
       <RadioGroupItem id={id} value={value} className="mt-0.5" />
-      <label htmlFor={id} className="flex min-w-0 cursor-pointer flex-col gap-1 text-body text-primary">
+      <label htmlFor={id} className="flex min-w-0 flex-1 cursor-pointer flex-col gap-1 text-body text-primary">
+        {badge ? (
+          <span className="flex">
+            <Chip tone="kit">{badge}</Chip>
+          </span>
+        ) : null}
         <span className="flex items-center gap-1.5">
-          {Icon ? <Icon size={14} className="text-secondary" aria-hidden /> : null}
-          <span className="t-display-sm">{label}</span>
-          {badge ? <Chip tone="kit">{badge}</Chip> : null}
+          {Icon ? <Icon size={14} className="shrink-0 text-secondary" aria-hidden /> : null}
+          <span className="t-display-sm text-balance">{label}</span>
         </span>
         <span className="text-small text-secondary">{tagline}</span>
         <ul className="mt-0.5 flex flex-col gap-0.5">
           {details.map((d) => (
             <li key={d} className="flex items-start gap-1 text-small text-secondary">
-              <Check size={12} className="mt-0.5 shrink-0" aria-hidden />
+              <Check size={12} className="mt-0.5 shrink-0 text-tertiary" aria-hidden />
               <span>{d}</span>
             </li>
           ))}

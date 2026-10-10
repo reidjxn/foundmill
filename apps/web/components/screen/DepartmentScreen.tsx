@@ -8,7 +8,7 @@
  * layout (WidgetScreen: the gallery widgets and the grid) is its own chunk too, loaded only by tabs that have one.
  */
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { LayoutGrid, Pencil } from "lucide-react";
+import { ArrowRight, House, LayoutGrid, Pencil } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -109,8 +109,8 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
     return (
       <div className="p-gutter">
         <Panel title="Department" span={12}>
-          <EmptyState icon={LayoutGrid} title="No such department">
-            Nothing is called “{deptSlug}” in this business. Pick a department from the sidebar.
+          <EmptyState icon={LayoutGrid} title="No such department" action={{ label: "Go to Home", icon: House, onClick: () => router.push(routes.home(businessId)) }}>
+            Nothing is called “{deptSlug}” in this business.
           </EmptyState>
         </Panel>
       </div>
@@ -122,8 +122,8 @@ export function DepartmentScreen({ deptSlug, tabSlug, subView }: DepartmentScree
     return (
       <div className="p-gutter">
         <Panel title={department.name} span={12}>
-          <EmptyState icon={LayoutGrid} title="No such tab">
-            “{tabSlug}” is not a tab of {department.name}. Pick one from the tab bar.
+          <EmptyState icon={LayoutGrid} title="No such tab" action={tabs[0] ? { label: `Open ${tabs[0].label}`, icon: ArrowRight, onClick: () => router.push(tabs[0]!.href!) } : undefined}>
+            “{tabSlug}” is not a tab of {department.name}.
           </EmptyState>
         </Panel>
       </div>

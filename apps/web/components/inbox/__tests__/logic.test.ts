@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { confirmPlanDescription } from "../ConfirmPlanDialog";
 import {
   REFRESH_DEBOUNCE_MS,
   agentIndex,
   answeredFrom,
   confirmationLines,
+  decisionDeadline,
   decisionExpired,
   followUpLinks,
   freeTextAllowed,
+  hasAgentDesk,
   headerDates,
   inboxTabs,
   itemIdFromPath,
@@ -17,6 +20,10 @@ import {
   previewLine,
   refreshGate,
   rowModel,
+  headerTag,
+  metricKey,
+  parseFreeMetric,
+  plainSource,
   statusStripTiles,
   stripSources,
   toDecisionOptions,
@@ -59,6 +66,17 @@ describe("rows (DESIGN §9)", () => {
     expect(rowModel({ ...base, type: "customer_won", state: "read", blocksContinue: true })).toMatchObject({ needsAnswer: true, won: true, unread: false });
     expect(rowModel({ ...base, type: "decision", state: "answered", blocksContinue: true }).needsAnswer).toBe(false);
     expect(rowModel({ ...base, type: "update", state: "unread", blocksContinue: false })).toMatchObject({ needsAnswer: false, tone: "info", typeWord: "Update" });
+  });
+  it("tags every row with an icon and a word: a won customer is a win, open calls say Respond (DIRECTION #8)", () => {
+    expect(rowModel({ ...base, type: "customer_won", state: "unread", blocksContinue: true }).tag).toEqual({ word: "Win", tone: "gold", icon: "win" });
+    expect(rowModel({ ...base, type: "decision", state: "unread", blocksContinue: true }).tag).toMatchObject({ word: "Respond", tone: "bad" });
+    expect(rowModel({ ...base, type: "decision", state: "answered", blocksContinue: true }).tag).toMatchObject({ word: "Decided", tone: "neutral" });
+    expect(rowModel({ ...base, type: "milestone", state: "read", blocksContinue: false }).tag).toMatchObject({ word: "Milestone", icon: "milestone" });
+    expect(rowModel({ ...base, type: "warning", state: "read", blocksContinue: true }).tag.word).toBe("Respond");
+    expect(headerTag("customer_won", false, true)).toMatchObject({ word: "Customer won", tone: "gold" });
+    expect(headerTag("decision", false, true)).toMatchObject({ word: "Needs your call", tone: "bad" });
+    expect(headerTag("decision", true, true)).toMatchObject({ word: "Decided" });
+    expect(headerTag("update", false, false)).toMatchObject({ word: "Update" });
   });
   it("J/K moves through the visible rows and clamps at the ends", () => {
     const ids = ["a", "b", "c"];
@@ -148,16 +166,52 @@ describe("status strip (AC-11.3.6: numbers come from live queries, never the not
       { finance, conversions, now },
     );
     expect(tiles).toHaveLength(4);
-    expect(tiles[0]).toMatchObject({ label: "Cash", value: { amountMinor: 1_250_000, currency: "EUR" }, provenance: { source: "Bank", query: "cash_position" } });
+    expect(tiles[0]).toMatchObject({ label: "Cash", value: { amountMinor: 1_250_000, currency: "EUR" }, provenance: { source: "Bank accounts" } });
+    // Provenance is in plain words: never a query or table name.
+    expect(tiles.every((t) => !("query" in (t.provenance ?? {})))).toBe(true);
     expect(tiles[1]).toMatchObject({ label: "Runway", value: 12.5, unit: "months", estimate: "estimate" });
     expect(tiles[2]).toMatchObject({ label: "Customers this week", value: 1 });
     expect(tiles[3]).toMatchObject({ label: "MRR", value: { amountMinor: 42_000, currency: "EUR" }, caption: "2026-09" });
   });
   it("unknown metrics render honestly empty; missing sources give null values", () => {
     const tiles = statusStripTiles([{ metric: "made_up", source: "x" }, { metric: "cash" }], { finance: null, conversions: null, now });
-    expect(tiles[0]).toMatchObject({ label: "made up", value: null, provenance: { source: "x" } });
+    expect(tiles[0]).toMatchObject({ label: "Made up", value: null, provenance: { source: "x" } });
     expect(tiles[1]).toMatchObject({ value: null, provenance: { source: "Bank balances" } });
     expect(statusStripTiles("garbage", {})).toEqual([]);
+  });
+  it("free-form metrics show their figure as the figure, and known families read the live value (logic.ts free-form)", () => {
+    const tiles = statusStripTiles(
+      [
+        { metric: "Cash £72,318.22", source: "accounts" },
+        { metric: "Runway n/a mo (Estimate)", source: "forecasts" },
+        { metric: "Customers 1101", source: "conversions" },
+        { metric: "Due in 9 days", source: "filings" },
+      ],
+      { finance: { ...finance, runway: { months: null }, burn: { netBurnMinor: -1_000, grossBurnMinor: 5_000 } }, now },
+    );
+    expect(tiles[0]).toMatchObject({ label: "Cash", value: { amountMinor: 1_250_000, currency: "EUR" }, provenance: { source: "Bank accounts" } });
+    expect(tiles[1]).toMatchObject({ label: "Runway", value: "No limit", provenance: { source: "The cash forecast" } });
+    expect(tiles[2]).toMatchObject({ label: "Customers", value: "1,101", provenance: { source: "Customer conversions" } });
+    expect(tiles[3]).toMatchObject({ label: "Due in", value: "9 days", provenance: { source: "The filing calendar" } });
+    expect(tiles.some((t) => t.value === null)).toBe(false);
+  });
+  it("parses free-form metrics: money before other figures, estimates flagged, grouping added", () => {
+    expect(parseFreeMetric("Revenue 30d £57,552.75")).toEqual({ label: "Revenue 30 days", value: "£57,552.75", estimate: undefined });
+    expect(parseFreeMetric("Activation 35%")).toMatchObject({ label: "Activation", value: "35%" });
+    expect(parseFreeMetric("Runway 4.2 mo (Estimate)")).toMatchObject({ label: "Runway", value: "4.2 mo", estimate: "estimate" });
+    expect(parseFreeMetric("Holiday spend £324.00")).toMatchObject({ label: "Holiday spend", value: "£324.00" });
+    expect(parseFreeMetric("made_up")).toMatchObject({ label: "Made up", value: null });
+    expect(metricKey("Cash £1")).toBe("cash");
+    expect(metricKey("Cash after deposit £1")).toBeNull();
+    expect(metricKey("MRR £1")).toBe("mrr");
+    expect(metricKey("toString")).toBeNull();
+    expect([...stripSources([{ metric: "Cash £72,318.22" }, { metric: "Customers 1101" }])]).toEqual(["finance"]);
+  });
+  it("names sources in plain words", () => {
+    expect(plainSource("journey_daily")).toBe("Journey daily");
+    expect(plainSource("usage_ledger")).toBe("Model and tool usage");
+    expect(plainSource("Stripe, invoices paid")).toBe("Stripe, invoices paid");
+    expect(plainSource("")).toBeUndefined();
   });
   it("lists only the sources a strip needs", () => {
     expect([...stripSources([{ metric: "cash" }, { metric: "customers_week" }])]).toEqual(["finance", "conversions"]);
@@ -222,5 +276,26 @@ describe("won customers open their replay", () => {
     expect(journeyForItem({ type: "customer_won", entityIds: [], createdAt: "2026-10-07T00:00:00Z" }, journeys)).toBe("j-other");
     expect(journeyForItem({ type: "customer_won", entityIds: [], createdAt: "2026-12-07T00:00:00Z" }, journeys)).toBeNull();
     expect(journeyForItem({ type: "update", entityIds: ["e1"], createdAt: "2026-10-07T00:00:00Z" }, journeys)).toBeNull();
+  });
+});
+
+describe("the decision's deadline and the agent's desk", () => {
+  const now = new Date(2026, 9, 9, 14, 0, 0);
+  it("says when the decision expires, in days, under 'Your call'", () => {
+    expect(decisionDeadline({ expires_at: new Date(2026, 9, 14, 9, 0, 0).toISOString() }, now)).toBe("Expires in 5 days");
+    expect(decisionDeadline({ expires_at: new Date(2026, 9, 10, 9, 0, 0).toISOString() }, now)).toBe("Expires tomorrow");
+    expect(decisionDeadline({ expires_at: new Date(2026, 9, 9, 18, 0, 0).toISOString() }, now)).toBe("Expires today");
+    expect(decisionDeadline({ expires_at: new Date(2026, 9, 8).toISOString() }, now)).toBeNull();
+    expect(decisionDeadline(null, now)).toBeNull();
+  });
+
+  it("gives every agent's note a desk, never a message from another founder", () => {
+    for (const t of ["decision", "update", "warning", "report", "milestone", "customer_won"] as const) expect(hasAgentDesk(t)).toBe(true);
+    expect(hasAgentDesk("human_message")).toBe(false);
+  });
+
+  it("describes a plan with nothing outside policy without a '0 actions' sentence", () => {
+    expect(confirmPlanDescription([{ label: "Create a task", outcome: "allow", hardGate: false, cost: null, reasons: [] }])).toBe("Everything here is within the current policy. Nothing runs until you say go.");
+    expect(confirmPlanDescription([{ label: "Set budget", outcome: "ask", hardGate: false, cost: null, reasons: [] }, { label: "Pay", outcome: "allow", hardGate: true, cost: null, reasons: [] }])).toBe("1 action sits outside the current policy and needs your go-ahead. 1 is hard-gated: the team prepares everything and you act.");
   });
 });

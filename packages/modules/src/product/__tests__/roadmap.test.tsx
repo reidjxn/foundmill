@@ -18,7 +18,7 @@ describe("RoadmapScreen", () => {
     expect(within(billing).getByText("In progress")).toBeTruthy();
     expect(within(billing).getByText(/1\/2 tasks/)).toBeTruthy();
     expect(within(billing).getByRole("button", { name: /^Pricing$/ })).toBeTruthy();
-    expect(within(billing).getByText(/after SSO for teams/)).toBeTruthy();
+    expect(within(billing).getByText(/After SSO for teams/)).toBeTruthy();
     expect(within(screen.getByRole("list", { name: "Next items" })).getAllByRole("listitem")).toHaveLength(1);
     expect(within(screen.getByRole("list", { name: "Later items" })).getAllByRole("listitem")).toHaveLength(1);
     expect(screen.getByText(/4 items · drag between columns/)).toBeTruthy();

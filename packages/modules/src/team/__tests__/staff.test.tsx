@@ -51,10 +51,10 @@ describe("StaffScreen", () => {
     const dialog = await screen.findByTestId("invite-dialog");
     const confirm = within(dialog).getByTestId("invite-confirm");
     expect(confirm.hasAttribute("disabled")).toBe(true);
-    await user.type(within(dialog).getByLabelText(/User id/), "not-a-uuid");
-    expect(within(dialog).getByText("Enter a valid account id (UUID).")).toBeTruthy();
-    await user.clear(within(dialog).getByLabelText(/User id/));
-    await user.type(within(dialog).getByLabelText(/User id/), "90000000-0000-4000-8000-000000000009");
+    await user.type(within(dialog).getByLabelText(/Account id/), "not-a-uuid");
+    expect(within(dialog).getByText("That is not an account id; it has 36 letters, digits and dashes.")).toBeTruthy();
+    await user.clear(within(dialog).getByLabelText(/Account id/));
+    await user.type(within(dialog).getByLabelText(/Account id/), "90000000-0000-4000-8000-000000000009");
     await user.type(within(dialog).getByLabelText(/E-mail/), "cal@northwind.example");
     await user.click(within(dialog).getByRole("combobox", { name: "Role" }));
     await user.click(await screen.findByRole("option", { name: "Viewer" }));

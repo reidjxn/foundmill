@@ -883,3 +883,15 @@
     background-color: color-mix(in oklab, var(--white) 3.5%, transparent);
   }
 }
+/* A nudge's acknowledgement over the tile it answers: the agent's portrait and one bubble, lifted off the tile. */
+@utility nudge-ack {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 100%;
+  & > .desk-bubble {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--tone, var(--kit-lift)) 24%, transparent),
+      var(--elev-2);
+  }
+}

@@ -66,6 +66,32 @@ import { z } from "zod";
 import { audit, effectivePermission, emit, Id, type BusinessContext, type Section } from "../trpc";
 import { decideInboxItem, planContextFor, type DecideItemResult } from "./decide";
 import { compilePlan, evaluatePlan, requiresConfirmation, type ActionEvaluation } from "./plans";
+import { RateLimitedError, SlidingWindowLimiter, type WindowLimit } from "./rate-limit";
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Limits: every send can be a model call (a reply, a plan compile), so sends are bounded per person and per business.
+// Process-local like the logo limits (see rate-limit.ts for the replica caveat).
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const conversationLimiter = new SlidingWindowLimiter();
+const MINUTE = 60_000;
+export const CONVERSATION_LIMITS = {
+  /** A person pressing quick replies as fast as replies arrive stays well inside this; a script or a stuck key does not. */
+  burst: { limit: 20, windowMs: MINUTE },
+  user: { limit: 240, windowMs: 60 * MINUTE },
+  business: { limit: 1200, windowMs: 24 * 60 * MINUTE },
+} as const satisfies Record<string, WindowLimit>;
+
+/** Spends one send from every limit that applies (no business for a concept's Ask), or throws TOO_MANY_REQUESTS. */
+export function takeConversationAllowance(scope: { userId: string; businessId?: string | null }): void {
+  const entries = [
+    { key: `conversation:burst:${scope.userId}`, rule: CONVERSATION_LIMITS.burst },
+    { key: `conversation:user:${scope.userId}`, rule: CONVERSATION_LIMITS.user },
+    ...(scope.businessId ? [{ key: `conversation:business:${scope.businessId}`, rule: CONVERSATION_LIMITS.business }] : []),
+  ];
+  const r = conversationLimiter.takeAll(entries);
+  if (!r.ok) throw new RateLimitedError("Conversation", r.retryAfterMs);
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Inputs and component-facing types
@@ -279,7 +305,10 @@ async function personaOf(tx: DbTx, ctx: BusinessContext, r: Resolved, seed: stri
   const running = r.currentTask && r.currentTask.status === "running" ? r.currentTask : null;
   const presence = agentPresence(r.agent.status, r.currentTask);
   const voice = voiceOf(r.agent);
-  const lookingAt = r.subject.kind === "inbox_item" ? r.subject.title : (r.currentTask?.title ?? null);
+  // A compound note title ("Decided: Decision needed: next step") reads badly after "Checking"; the agent's own typing
+  // line stands in, as it does for a title that is a question.
+  const title = r.subject.kind === "inbox_item" ? r.subject.title : null;
+  const lookingAt = title !== null ? (title.includes(": ") ? null : title) : (r.currentTask?.title ?? null);
   return {
     id: r.agent.id,
     name: r.agent.name,
@@ -402,6 +431,24 @@ function activeQuickReplies(messages: readonly ConversationMessageView[], starte
   return last && last.author === "agent" && last.quickReplies.length >= 2 ? last.quickReplies : starters;
 }
 
+/**
+ * Once the Inbox item is decided (here, from the DecisionBar or another tab), the latest agent message no longer offers
+ * "Go with: …": its other chips stay and the answered item's starters fill it back to two (never more than four).
+ */
+export function withoutStaleOptions(messages: ConversationMessageView[], answered: boolean, starters: readonly QuickReply[]): ConversationMessageView[] {
+  const last = messages[messages.length - 1];
+  if (!answered || !last || last.author !== "agent" || !last.quickReplies.some((q) => q.kind === "choose_option")) return messages;
+  const kept = last.quickReplies.filter((q) => q.kind !== "choose_option");
+  const labels = new Set(kept.map((q) => q.label.toLowerCase()));
+  for (const s of starters) {
+    if (kept.length >= 2) break;
+    if (s.kind === "choose_option" || labels.has(s.label.toLowerCase()) || kept.some((q) => q.id === s.id)) continue;
+    kept.push(s);
+    labels.add(s.label.toLowerCase());
+  }
+  return [...messages.slice(0, -1), { ...last, quickReplies: kept.slice(0, 4) }];
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // get
 // ---------------------------------------------------------------------------------------------------------------------
@@ -411,7 +458,7 @@ export async function getConversation(ctx: BusinessContext, subject: Conversatio
     const r = await resolve(tx, ctx, subject);
     const thread = await repos.conversations.findThread(tx, ctx.businessId, { agentId: r.agent.id, subjectKind: subject.kind, subjectId: r.subject.id });
     const rows = thread ? await repos.conversations.listMessages(tx, ctx.businessId, thread.id, { limit: 50 }) : [];
-    const messages = toMessageViews(rows);
+    const messages = withoutStaleOptions(toMessageViews(rows), r.subject.answered, r.starters);
     const persona = await personaOf(tx, ctx, r, thread?.id ?? r.subject.id);
     return { subject: r.subject, thread, messages, persona, starters: r.starters, quickReplies: activeQuickReplies(messages, r.starters) };
   });
@@ -440,6 +487,8 @@ async function prepare(tx: DbTx, ctx: BusinessContext, input: SendInput): Promis
     chip = asQuickReplies(latestAgent?.quickReplies).find((q) => q.id === input.quickReplyId) ?? r.starters.find((q) => q.id === input.quickReplyId) ?? null;
     if (!chip) throw new ValidationError("That quick reply is no longer available", { quickReplyId: input.quickReplyId });
     if (chip.kind === "write") throw new ValidationError("Write your message", { quickReplyId: chip.id });
+    // A chip offered before the item was decided (the DecisionBar, another tab): nothing is left to choose.
+    if (chip.kind === "choose_option" && r.subject.answered) throw new ValidationError("This one is already decided, so there is nothing left to choose", { quickReplyId: chip.id, route: "stale" });
   }
   return { r, thread, history, latestAgent, chip, founderText: chip ? chip.say : (input.text ?? "") };
 }
@@ -506,6 +555,8 @@ function scriptedReply(bubbles: string[], quickReplies: QuickReply[], reaction: 
 
 export async function sendConversationMessage(ctx: BusinessContext, input: SendInput): Promise<SendResult> {
   const p = await ctx.rls((tx) => prepare(tx, ctx, input));
+  // Checked after the chip (a stale or write chip costs nothing), before any model call or decision.
+  takeConversationAllowance({ userId: ctx.userId, businessId: ctx.businessId });
   const { r, chip } = p;
   const voice = voiceOf(r.agent);
   const seed = `${p.thread?.id ?? r.subject.id}:${p.history.length}`;
@@ -525,7 +576,7 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
 
   // 2. "Review the plan" on a message that carries a hand-off → stage it (nothing runs until plan.confirm).
   if (chip?.kind === "hand_off" && p.latestAgent?.handOff && asQuickReplies(p.latestAgent.quickReplies).some((q) => q.id === chip.id) && chip.id !== TAKE_A_BREAK_ID) {
-    const staged = await stageHandOff(ctx, p.latestAgent.id);
+    const staged = await stageHandOff(ctx, p.latestAgent.id, { allowanceTaken: true });
     const reply = scriptedReply(
       ["Here's what would happen.", staged.hardGates > 0 ? "Part of it is yours to do; I've listed exactly what. Nothing runs until you confirm." : "Nothing runs until you confirm it."],
       [quickReply("thanks", "Thanks", "Thanks.", "acknowledge"), quickReply("change_it", "Change it", "I want to change the plan.", "write"), quickReply("not_now", "Not now", "Not now.", "decline")],
@@ -585,7 +636,7 @@ class HandOffRaced extends Error {
  * Compile an agent message's hand-off into a plan, check it against policy and stage it as `pending_confirmation`
  * (idempotent: a message staged before returns its plan). The founder runs it with `plan.confirm`.
  */
-export async function stageHandOff(ctx: BusinessContext, messageId: string): Promise<HandOffPreview> {
+export async function stageHandOff(ctx: BusinessContext, messageId: string, opts: { allowanceTaken?: boolean } = {}): Promise<HandOffPreview> {
   const { message, thread } = await ctx.rls(async (tx) => {
     const m = await repos.conversations.getMessage(tx, ctx.businessId, messageId);
     return { message: m, thread: await repos.conversations.getThread(tx, ctx.businessId, m.threadId) };
@@ -606,6 +657,8 @@ export async function stageHandOff(ctx: BusinessContext, messageId: string): Pro
   const already = await stored(message.planId);
   if (already) return already;
 
+  // Compiling is a model call: it counts against the send limits (unless the send that asked for it already did).
+  if (!opts.allowanceTaken) takeConversationAllowance({ userId: ctx.userId, businessId: ctx.businessId });
   const compiled = await compilePlan(ctx.models, instruction, planCtx);
   const evaluations = evaluatePlan(compiled.actions, planCtx);
   const plan = await ctx
@@ -672,6 +725,12 @@ export interface ConceptReply {
 /** Starters for the Ask dialog (no model call). */
 export const conceptStarters = (): QuickReply[] => conversationStarters({ kind: "concept" });
 
+/** The Research agent behind a concept card's Ask (no model call): who answers, in what voice, looking at what. */
+export function conceptPersona(conceptTitle: string): ConceptReply["persona"] {
+  const researcher = getTemplate("researcher");
+  return { name: "Research agent", role: researcher.role, avatarSeed: "research-agent", voice: researcher.voice, thinkingLine: thinkingLine(researcher.voice, { lookingAt: conceptTitle }), isAgent: true };
+}
+
 /**
  * One reply from the Research agent about a concept card, for `idea.ask` (audit-conversation §4 "Ask on a concept").
  * Same route, house rules and checks as the desk; the mock answers from the card's attributes, never "Mock …".
@@ -682,7 +741,8 @@ export async function replyAboutConcept(models: ModelClient, input: { concept: C
   if (input.quickReplyId && !chip) throw new ValidationError("That quick reply is no longer available", { quickReplyId: input.quickReplyId });
   const text = chip?.say ?? input.question?.trim() ?? "";
   if (!text) throw new ValidationError("Ask a question or pick a quick reply");
-  const researcher = getTemplate("researcher");
+  // The same per-person send limits as the desk (Ideation has no business yet).
+  if (input.userId) takeConversationAllowance({ userId: input.userId });
   // Title, pitch and evidence travel as untrusted data; the house rules name a neutral principal, never the concept.
   const requestInput = conceptConversationInput({ appName: APP_NAME, concept: input.concept, text, quickReply: chip, history: input.history });
   const request = buildConversationRequest(requestInput);
@@ -692,7 +752,7 @@ export async function replyAboutConcept(models: ModelClient, input: { concept: C
     bubbles: fin.reply.bubbles,
     quickReplies: fin.reply.quick_replies,
     reaction: fin.reply.reaction,
-    persona: { name: "Research agent", role: researcher.role, avatarSeed: "research-agent", voice: researcher.voice, thinkingLine: thinkingLine(researcher.voice, { lookingAt: input.concept.title }), isAgent: true },
+    persona: conceptPersona(input.concept.title),
     answerMd: fin.reply.bubbles.join("\n\n"),
   };
 }

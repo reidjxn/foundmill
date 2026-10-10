@@ -1,14 +1,37 @@
 "use client";
 /**
- * The 380 px Inbox list (DESIGN §9 Inbox): rows 56 px with avatar 24, subject in body-strong, preview in small
- * secondary, time right, a red 6 px dot when an answer is required and a gold left edge for a won customer.
+ * The 380 px Inbox list (DESIGN §9 Inbox, DIRECTION #8): avatar 32, the subject in body-strong wrapping to as many
+ * lines as it needs (never ellipsised), the time right, then one status tag (icon + word: "Respond", "Win",
+ * "Milestone", "Update"…) before a one-line preview. A won customer keeps the gold left edge.
  */
-import { Inbox } from "lucide-react";
+import { Check, FileText, Flag, Inbox, MessageSquareReply, Mail, RefreshCw, TriangleAlert, UserCheck } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { APP_NAME } from "@foundmill/config";
-import { Avatar, Button, EmptyState, Skeleton, formatRelative } from "@foundmill/dugout";
+import { Avatar, Button, Chip, EmptyState, Skeleton, formatRelative, type ChipTone, type IconComponent } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
-import type { InboxRowModel } from "./logic";
+import type { InboxRowModel, NoteTag, TagIcon } from "./logic";
+
+/** Lucide glyph per tag (the word carries the meaning; the icon and the tone repeat it). */
+export const TAG_ICONS: Record<TagIcon, IconComponent> = {
+  respond: MessageSquareReply,
+  win: UserCheck,
+  milestone: Flag,
+  warning: TriangleAlert,
+  update: RefreshCw,
+  report: FileText,
+  message: Mail,
+  decided: Check,
+};
+
+/** The tag as a chip: icon + word, the tone a second signal, never the only one. */
+export function NoteTagChip({ tag, size = "row", testId }: { tag: NoteTag; size?: "row" | "header"; testId?: string }) {
+  const tone: ChipTone = tag.tone;
+  return (
+    <Chip tone={tone} icon={TAG_ICONS[tag.icon]} className={size === "row" ? "h-badge shrink-0" : "shrink-0"} data-row-tag={tag.word} data-testid={testId}>
+      {tag.word}
+    </Chip>
+  );
+}
 
 export interface AgentMeta {
   id: string;
@@ -47,8 +70,8 @@ export function InboxList({ rows, selectedId, onSelect, loading, hasMore, loadin
     return (
       <div className="flex flex-col gap-px p-panel-pad" aria-busy="true" aria-label="Loading inbox" data-testid="inbox-list-loading">
         {Array.from({ length: 8 }, (_, i) => (
-          <div key={i} className="flex h-14 items-center gap-3">
-            <Skeleton shape="circle" className="size-6" />
+          <div key={i} className="flex h-16 items-center gap-3">
+            <Skeleton shape="circle" className="size-8" />
             <div className="flex flex-1 flex-col gap-1.5">
               <Skeleton className="h-3 w-2/3" />
               <Skeleton className="h-2.5 w-1/2" />
@@ -82,20 +105,31 @@ export function InboxList({ rows, selectedId, onSelect, loading, hasMore, loadin
                 data-unread={row.unread || undefined}
                 data-needs-answer={row.needsAnswer || undefined}
                 className={[
-                  "flex h-14 w-full items-center gap-3 border-l-[3px] px-panel-pad text-left outline-none transition-colors duration-micro ease-dugout hover:bg-white/4 focus-visible:outline-2 focus-visible:outline-link",
-                  row.won ? "border-l-gold" : selected ? "border-l-kit-primary" : "border-l-transparent",
-                  selected ? "bg-panel-alt" : "",
+                  "flex w-full items-start gap-3 px-panel-pad py-2.5 text-left outline-none transition-colors duration-micro ease-dugout hover:bg-white/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link",
+                  row.won ? "row-edge-gold" : "",
+                  selected ? (row.won ? "bg-panel-alt" : "row-selected") : "",
                 ].join(" ")}
-                aria-label={`${row.subject}${row.needsAnswer ? ", needs an answer" : ""}${row.won ? ", customer won" : ""}`}
+                aria-label={`${row.subject}. ${row.tag.word}${row.needsAnswer && row.tag.word !== "Respond" ? ", needs an answer" : ""}${row.won ? ", customer won" : ""}`}
               >
-                {row.agent ? <Avatar size={24} name={row.agent.name} agent={{ seed: row.agent.seed, dept: row.agent.dept }} /> : <Avatar size={24} name={row.fromUser ? "You" : APP_NAME} />}
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className={`truncate text-body-strong ${row.unread ? "text-primary" : "text-secondary"}`}>{row.subject}</span>
-                  <span className="truncate text-small text-secondary">{row.preview}</span>
+                <span className="shrink-0 pt-0.5">
+                  {row.agent ? <Avatar size={32} name={row.agent.name} agent={{ seed: row.agent.seed, dept: row.agent.dept }} /> : <Avatar size={32} name={row.fromUser ? "You" : APP_NAME} />}
                 </span>
-                <span className="flex shrink-0 items-center gap-2 text-small text-secondary tabular-nums">
-                  {row.needsAnswer ? <span aria-hidden className="inline-block size-1.5 rounded-full bg-status-bad" data-testid="needs-answer-dot" /> : null}
-                  <time dateTime={new Date(row.createdAt).toISOString()}>{formatRelative(row.createdAt)}</time>
+                <span className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="flex items-start gap-2">
+                    <span className={`min-w-0 flex-1 text-pretty break-words text-body-strong ${row.unread ? "text-primary" : "text-secondary"}`} data-testid="row-subject">
+                      {row.subject}
+                    </span>
+                    <time className="shrink-0 pt-px text-small text-secondary tabular-nums" dateTime={new Date(row.createdAt).toISOString()}>
+                      {formatRelative(row.createdAt)}
+                    </time>
+                  </span>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <NoteTagChip tag={row.tag} testId="row-tag" />
+                    {/* A note preview may end in "…" (a list convention, no-clip.spec.ts); the full line is the title. */}
+                    <span className="line-clamp-1 min-w-0 flex-1 break-all text-small text-secondary" title={row.preview}>
+                      {row.preview}
+                    </span>
+                  </span>
                 </span>
               </button>
             </li>

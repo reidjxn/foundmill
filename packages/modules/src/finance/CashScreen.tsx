@@ -6,14 +6,15 @@
  */
 import { useMemo, useState } from "react";
 import { AlertTriangle, CalendarClock, ExternalLink, Landmark, Search, ShieldCheck, Tag } from "lucide-react";
-import { Chip, DataTable, EntityLink, Input, Panel, StatusPill, cn, formatDate, formatRelative, type ChipTone, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, DataTable, EntityLink, Figure, Input, Panel, StatusPill, cn, formatDate, formatRelative, type ChipTone, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { daysUntil } from "@foundmill/widgets/shared/time";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
-import { PNL_CATEGORY_OPTIONS, chartEntry, monthStart, sectionOf, type PnlSection } from "./metrics";
+import { PNL_CATEGORY_OPTIONS, categoryLabel, monthStart, plainWords, sectionOf, type PnlSection } from "./metrics";
 import { RecategoriseDialog } from "./RecategoriseDialog";
-import { Screen, fmtMoney, fmtSigned, useCurrency, useNow } from "./shared";
+import { fitColumns, type ColumnFit } from "../fit";
+import { Screen, fmtMoney, fmtSigned, useCurrency, useFittedColumns, useNow } from "./shared";
 import type { AccountRow, AccountsListResponse, CategorySource, TransactionRow, TransactionsListResponse } from "./types";
 
 export const CONSENT_WARN_DAYS = 7;
@@ -35,15 +36,14 @@ export function consentState(consentExpiresAt: string | null | undefined, now: D
 }
 
 const SECTION_TONE: Record<PnlSection | "uncategorised", ChipTone> = { revenue: "good", cogs: "neutral", opex: "neutral", financing: "info", tax: "warn", other: "neutral", uncategorised: "warn" };
-const SOURCE_WORD: Record<CategorySource, string> = { rule: "rule", model: "agent", ledger: "ledger", user: "you" };
+const SOURCE_WORD: Record<CategorySource, string> = { rule: "by a rule", model: "by the finance lead", ledger: "from the ledger", user: "by you" };
 
 export function CategoryChip({ category, source }: { category: string | null; source: CategorySource | null }) {
   const section = sectionOf(category);
-  const label = category ? (chartEntry(category)?.category ?? category) : "Uncategorised";
+  const label = categoryLabel(category);
   return (
-    <Chip tone={SECTION_TONE[section]} icon={section === "uncategorised" ? AlertTriangle : undefined} title={source ? `Categorised by ${SOURCE_WORD[source]}` : "Not categorised yet"}>
+    <Chip tone={SECTION_TONE[section]} icon={section === "uncategorised" ? AlertTriangle : undefined} title={source ? `Categorised ${SOURCE_WORD[source]}` : "Not categorised yet"}>
       {label}
-      {source ? <span className="ml-1 text-secondary">· {SOURCE_WORD[source]}</span> : null}
     </Chip>
   );
 }
@@ -56,71 +56,92 @@ export const TRANSACTION_VIEWS: SavedView[] = [
   { id: "month", name: "This month", builtIn: true, columns: ["bookedAt", "counterparty", "description", "category", "amount"], sort: [{ id: "bookedAt", desc: true }], filters: [{ id: "f-month", field: "thisMonth", op: "eq", value: true }] },
 ];
 
-export function transactionColumns(accounts: readonly AccountRow[], businessId: string, monthStartIso: string): DataTableColumn<TransactionRow>[] {
+/** What each column's content needs and its share of the spare width: every view fits the 980 px table at 1280. */
+export const TRANSACTION_FIT = {
+  bookedAt: { min: 100 },
+  counterparty: { min: 150, grow: 2 },
+  description: { min: 180, grow: 3 },
+  category: { min: 140, grow: 1 },
+  categoryText: { min: 140 },
+  amount: { min: 116 },
+  account: { min: 130, grow: 1 },
+  thisMonth: { min: 100 },
+} satisfies Record<string, ColumnFit>;
+export type TransactionColumnId = keyof typeof TRANSACTION_FIT;
+
+export function transactionColumns(accounts: readonly AccountRow[], businessId: string, monthStartIso: string, sizes: Record<TransactionColumnId, number> = fitColumns<TransactionColumnId>(null, TRANSACTION_FIT, [])): DataTableColumn<TransactionRow>[] {
   const accountName = new Map(accounts.map((a) => [a.id, a.name]));
   return [
-    { id: "bookedAt", accessorKey: "bookedAt", header: "Date", size: 110, cell: ({ getValue }) => <span className="tabular-nums">{formatDate(getValue() as string)}</span>, meta: { filter: "date", locked: true } },
+    { id: "bookedAt", accessorKey: "bookedAt", header: "Date", size: sizes.bookedAt, cell: ({ getValue }) => <span className="tabular-nums">{formatDate(getValue() as string)}</span>, meta: { filter: "date", locked: true } },
     {
       id: "counterparty",
       accessorFn: (r) => r.counterparty ?? "",
       header: "Counterparty",
-      size: 200,
+      size: sizes.counterparty,
       cell: ({ row }) => {
         const r = row.original;
         if (r.counterpartyEntityId) return <EntityLink entity={{ id: r.counterpartyEntityId, kind: "organisation", name: r.counterparty ?? "Counterparty", href: routes.crm(businessId, r.counterpartyEntityId) }} />;
         return <span className="truncate text-body-strong text-primary">{r.counterparty ?? <span className="text-secondary">—</span>}</span>;
       },
     },
-    { id: "description", accessorKey: "description", header: "Description", size: 280, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "")}</span> },
+    { id: "description", accessorKey: "description", header: "Description", size: sizes.description, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "")}</span> },
     {
       id: "category",
-      accessorFn: (r) => r.category ?? "",
+      accessorFn: (r) => categoryLabel(r.category),
       header: "Category",
-      size: 190,
+      size: sizes.category,
       cell: ({ row }) => <CategoryChip category={row.original.category} source={row.original.categorySource} />,
-      meta: { filter: "select", filterOptions: [{ value: "", label: "Uncategorised" }, ...PNL_CATEGORY_OPTIONS.map((c) => ({ value: c, label: c }))] },
+      meta: { filter: "select", filterOptions: [{ value: "Uncategorised", label: "Uncategorised" }, ...PNL_CATEGORY_OPTIONS.map((c) => ({ value: c, label: c }))] },
     },
-    { id: "categoryText", accessorFn: (r) => (r.category ? (chartEntry(r.category)?.category ?? r.category) : "Uncategorised"), header: "Category name", cell: ({ getValue }) => String(getValue()), meta: { filter: "text" } },
+    { id: "categoryText", accessorFn: (r) => categoryLabel(r.category), header: "Category name", size: sizes.categoryText, cell: ({ getValue }) => String(getValue()), meta: { filter: "text" } },
     {
       id: "amount",
       accessorKey: "amountMinor",
       header: "Amount",
-      size: 130,
+      size: sizes.amount,
       cell: ({ row }) => <span className={cn("tabular-nums", row.original.amountMinor > 0 && "text-status-good")}>{fmtSigned(row.original.amountMinor, row.original.currency)}</span>,
       meta: { numeric: true, csv: (r) => (r.amountMinor / 100).toFixed(2) },
     },
-    { id: "account", accessorFn: (r) => accountName.get(r.accountId) ?? r.accountId.slice(0, 8), header: "Account", size: 160, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue())}</span>, meta: { filter: "select", filterOptions: accounts.map((a) => ({ value: a.name, label: a.name })) } },
-    { id: "thisMonth", accessorFn: (r) => r.bookedAt >= monthStartIso, header: "This month", cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
+    { id: "account", accessorFn: (r) => accountName.get(r.accountId) ?? r.accountId.slice(0, 8), header: "Account", size: sizes.account, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue())}</span>, meta: { filter: "select", filterOptions: accounts.map((a) => ({ value: a.name, label: a.name })) } },
+    { id: "thisMonth", accessorFn: (r) => r.bookedAt >= monthStartIso, header: "This month", size: sizes.thisMonth, cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
   ];
+}
+
+const PROVIDER_NAMES: Record<string, string> = { tink: "Tink", plaid: "Plaid", gocardless: "GoCardless", truelayer: "TrueLayer", stripe: "Stripe", wise: "Wise", manual: "Added by hand", mock: "Simulated bank" };
+
+/** The bank connection's display name ("tink" → "Tink"). */
+export function providerName(provider: string | null | undefined): string {
+  if (!provider) return "Bank";
+  return PROVIDER_NAMES[provider.toLowerCase()] ?? plainWords(provider);
 }
 
 export function AccountCard({ account, now, onReconnect }: { account: AccountRow; now: Date; onReconnect: () => void }) {
   const consent = consentState(account.consentExpiresAt, now);
   return (
-    <article aria-label={account.name} className="flex min-w-0 flex-col gap-1 bg-panel p-panel-pad">
-      <div className="flex items-center gap-1">
-        <span className="t-label min-w-0 flex-1 truncate">{account.name}</span>
-        <Chip tone="neutral" mono>
-          {account.provider}
+    <article aria-label={account.name} className="flex min-w-0 flex-col gap-2 bg-panel p-panel-pad">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="t-data min-w-0 flex-1">{account.name}</span>
+        <Chip tone="neutral" icon={Landmark}>
+          {providerName(account.provider)}
         </Chip>
       </div>
-      <span className="t-display-lg text-primary" data-value={account.balanceMinor}>
-        {fmtMoney(account.balanceMinor, account.currency)}
-      </span>
+      <Figure value={fmtMoney(account.balanceMinor, account.currency)} className="t-display-lg text-primary" data-value={account.balanceMinor} />
       <div className="flex flex-wrap items-center gap-2">
         <StatusPill tone={consent.tone} icon={consent.tone === "good" ? ShieldCheck : consent.tone === "neutral" ? CalendarClock : AlertTriangle}>
           {consent.word}
         </StatusPill>
         {consent.tone === "warn" || consent.tone === "bad" ? (
-          <button type="button" className="inline-flex items-center gap-1 text-small text-link hover:underline" onClick={onReconnect}>
-            <ExternalLink size={12} /> Renew consent
-          </button>
+          <Button size="sm" variant="ghost" icon={ExternalLink} onClick={onReconnect}>
+            Renew consent
+          </Button>
         ) : null}
       </div>
       <span className="text-small text-secondary">{account.balanceAt ? `Balance as of ${formatRelative(account.balanceAt, now)}` : "Balance not synced yet"}{account.consentExpiresAt ? ` · consent until ${formatDate(account.consentExpiresAt)}` : ""}</span>
     </article>
   );
 }
+
+const ACCOUNT_COLS: Record<number, string> = { 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-4" };
 
 export function CashScreen({ businessId }: ModuleScreenProps) {
   const now = useNow();
@@ -136,7 +157,8 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
   const accounts = useMemo(() => readAccounts(accountsQ.data), [accountsQ.data]);
   const rows = useMemo(() => txQ.data?.items ?? [], [txQ.data]);
   const monthIso = useMemo(() => monthStart(now, 0).toISOString(), [now]);
-  const columns = useMemo(() => transactionColumns(accounts, businessId, monthIso), [accounts, businessId, monthIso]);
+  const fitted = useFittedColumns(TRANSACTION_FIT, views, "all");
+  const columns = useMemo(() => transactionColumns(accounts, businessId, monthIso, fitted.sizes), [accounts, businessId, monthIso, fitted.sizes]);
   const totals = useMemo(() => {
     const by = new Map<string, number>();
     for (const a of accounts) by.set(a.currency, (by.get(a.currency) ?? 0) + a.balanceMinor);
@@ -160,23 +182,17 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
         error={accountsQ.error ? accountsQ.error.message : undefined}
         onRetry={accountsQ.refetch}
         empty={accountsQ.data && accounts.length === 0 ? { icon: Landmark, title: "No bank accounts connected", children: "Connect Tink or Plaid in Settings and every account appears here with its balance and consent expiry.", action: { label: "Connect a bank", icon: Landmark, onClick: reconnect } } : undefined}
+        meta={accounts.length ? `${accounts.length} connected${totals.length ? ` · ${totals.map((t) => fmtMoney(t.amountMinor, t.currency)).join(" + ")}` : ""}` : undefined}
         actions={
-          <span className="flex items-center gap-2">
-            {totals.map((t) => (
-              <span key={t.currency} className="text-body-strong text-primary tabular-nums">
-                {fmtMoney(t.amountMinor, t.currency)}
-              </span>
-            ))}
-            {lapsing.length ? (
-              <StatusPill tone={lapsing.some((a) => consentState(a.consentExpiresAt, now).tone === "bad") ? "bad" : "warn"} icon={AlertTriangle}>
-                {lapsing.length} consent{lapsing.length === 1 ? "" : "s"} to renew
-              </StatusPill>
-            ) : null}
-          </span>
+          lapsing.length ? (
+            <StatusPill tone={lapsing.some((a) => consentState(a.consentExpiresAt, now).tone === "bad") ? "bad" : "warn"} icon={AlertTriangle} className="whitespace-nowrap">
+              {lapsing.length} consent{lapsing.length === 1 ? "" : "s"} to renew
+            </StatusPill>
+          ) : undefined
         }
         footer={<span>Balances are read from the bank at each sync. Consent reminders land in the Inbox {CONSENT_WARN_DAYS} days before a connection lapses.</span>}
       >
-        <div className="grid gap-px bg-subtle" style={{ gridTemplateColumns: `repeat(${Math.min(4, Math.max(1, accounts.length))}, minmax(0, 1fr))` }} role="list" aria-label="Bank accounts">
+        <div className={cn("grid gap-px bg-subtle", ACCOUNT_COLS[Math.min(4, Math.max(1, accounts.length))])} role="list" aria-label="Bank accounts">
           {accounts.map((a) => (
             <div key={a.id} role="listitem" className={cn(accountId === a.id && "outline outline-2 -outline-offset-2 outline-link")}>
               <AccountCard account={a} now={now} onReconnect={reconnect} />
@@ -192,7 +208,7 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
         error={txQ.error ? txQ.error.message : undefined}
         onRetry={txQ.refetch}
         empty={txQ.data && rows.length === 0 && !accountId ? { icon: Landmark, title: "No transactions yet", children: "Transactions sync from your connected accounts; the finance lead categorises them into the standard chart of accounts." } : undefined}
-        actions={<Input icon={Search} controlSize="sm" placeholder="Search counterparty, description" aria-label="Search transactions" value={search} onChange={(e) => setSearch(e.target.value)} wrapperClassName="w-64" />}
+        actions={<Input icon={Search} controlSize="sm" placeholder="Search transactions" aria-label="Search transactions" title="Search counterparty or description" value={search} onChange={(e) => setSearch(e.target.value)} wrapperClassName="w-64" />}
         footer={<span className="tabular-nums">Latest {rows.length} transactions{accountId ? ` in ${accounts.find((a) => a.id === accountId)?.name ?? "this account"}` : ""} · right-click a row to recategorise · base currency {currency}</span>}
       >
         {accounts.length > 1 ? (
@@ -207,6 +223,7 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
             ))}
           </div>
         ) : null}
+        <div ref={fitted.ref} className="min-w-0">
         <DataTable<TransactionRow>
           aria-label="Transactions"
           data={rows}
@@ -219,8 +236,10 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
           exportFileName="transactions"
           rowActions={rowActions}
           onRowOpen={(row) => setRecat(row)}
+          onActiveViewChange={fitted.onActiveViewChange}
           empty={accountId ? "No transactions in this account." : undefined}
         />
+        </div>
       </Panel>
       <RecategoriseDialog transaction={recat} onClose={() => setRecat(null)} onSaved={() => txQ.refetch()} />
     </Screen>

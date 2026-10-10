@@ -61,9 +61,17 @@ export function generateInboxComposer(ctx: MockContext): ComposerOutput {
 
   const who = subjectEntity ? ent(subjectEntity) : (primary && stringField(primary.payload, ["customer_name", "customer", "entity_name", "supplier", "contact"])) || undefined;
 
+  // With no event, the composer service (and the api's in-process fallback) hands over a grounded next-best decision
+  // or a data-change insight: write from it, never a "nothing new" filler note.
+  const grounded = events.length === 0 ? readGrounded(ctx) : undefined;
+
   // --- fact → why → ask -------------------------------------------------------------------------------------------
-  const fact = factSentence(type, primary, who, channel, taskTitle, amount, businessName, rng);
-  const why = whySentence(type, metrics, channel, rng);
+  const fact = grounded ? groundedFact(grounded) : factSentence(type, primary, who, channel, taskTitle, amount, businessName, rng);
+  const why = grounded
+    ? grounded.kind === "decision"
+      ? "It is the most useful call while the team waits for news; each option below says what changes and whether it can be undone."
+      : "It is a real change in the numbers rather than an event, so I have kept to the figures behind it."
+    : whySentence(type, metrics, channel, rng);
   const ask = askSentence(type, rng);
   const brief = briefSentence(ctx);
 
@@ -84,7 +92,7 @@ export function generateInboxComposer(ctx: MockContext): ComposerOutput {
   // --- exhibit ---------------------------------------------------------------------------------------------------
   const exhibit = chooseExhibit(type, queries, channel, rng);
 
-  const subject = truncate(subjectLine(type, who ? plainName(subjectEntity, who) : undefined, channel, taskTitle, voice, rng), 80);
+  const subject = truncate(grounded ? grounded.title : subjectLine(type, who ? plainName(subjectEntity, who) : undefined, channel, taskTitle, voice, rng), 80);
 
   const runway = metrics.find((m) => /runway/i.test(m.metric));
   const runwayMonths = runway?.value !== undefined ? Number.parseFloat(runway.value) : primary ? numberField(primary.payload, ["months", "runway_months"]) : undefined;
@@ -141,6 +149,32 @@ function readMetrics(ctx: MockContext): MetricIn[] {
     }
   }
   return out;
+}
+
+interface Grounded {
+  kind: "decision" | "insight";
+  title: string;
+  facts: Record<string, unknown>;
+}
+
+/** The composer's `next_best_decision` or `insight` block (apps/composer/src/compose.ts composerInputs). */
+function readGrounded(ctx: MockContext): Grounded | undefined {
+  for (const [key, kind] of [["next_best_decision", "decision"], ["insight", "insight"]] as const) {
+    const rec = ctx.getRecord(key);
+    if (rec && typeof rec.title === "string" && rec.title.trim()) return { kind, title: rec.title.trim(), facts: isRecord(rec.facts) ? rec.facts : {} };
+  }
+  return undefined;
+}
+
+/** "Nothing new since my last note, so here is the call I would make next: … (blocked tasks: 3; running tasks: 2)." */
+function groundedFact(g: Grounded): string {
+  const facts = Object.entries(g.facts)
+    .filter(([k, v]) => !/_minor$|^currency$|^label$/.test(k) && (typeof v === "number" || (typeof v === "string" && v.length <= 60)))
+    .slice(0, 3)
+    .map(([k, v]) => `${humaniseKey(k)}: ${String(v)}`);
+  const title = g.title.charAt(0).toLowerCase() + g.title.slice(1);
+  const lead = g.kind === "decision" ? `Nothing new has happened since my last note, so here is the call I would make next: ${title}.` : `No new event, but the data moved: ${title}.`;
+  return facts.length ? `${lead} Where things stand (${facts.join("; ")}).` : lead;
 }
 
 function readNamedQueries(ctx: MockContext): NamedQuery[] {
@@ -322,7 +356,7 @@ function metricPhrase(e: EventIn): string {
 
 function whySentence(type: InboxItemType, metrics: MetricIn[], channel: ChannelKey | undefined, rng: MockContext["rng"]): string {
   const m = metrics.find((x) => x.value !== undefined);
-  const metricClause = m ? `${humaniseKey(m.metric)} stands at ${m.value} (source: ${m.source})` : undefined;
+  const metricClause = m ? `${humaniseKey(m.metric)} stands at ${m.value} (from ${humaniseKey(m.source)})` : undefined;
   switch (type) {
     case "customer_won":
       return rng.pick([
@@ -356,7 +390,7 @@ function whySentence(type: InboxItemType, metrics: MetricIn[], channel: ChannelK
 function askSentence(type: InboxItemType, rng: MockContext["rng"]): string {
   switch (type) {
     case "decision":
-      return rng.pick([`Pick an option below or tell me in your own words; I will compile it into a plan before anything runs.`, `Your call: choose below, or reply free text and I will turn it into typed actions for confirmation.`]);
+      return rng.pick([`Pick an option below or tell me in your own words; I will turn it into a plan before anything runs.`, `Your call: choose below, or tell me in your own words and I will show you the plan before anything runs.`]);
     case "customer_won":
       return `Choose how we follow up, or just celebrate; any choice marks this answered and opens the replay.`;
     case "warning":
@@ -390,7 +424,7 @@ const FILLERS: Partial<Record<InboxItemType, string[]>> = {
   decision: [
     "Each option lists its consequence, cost and whether it can be undone.",
     "Anything outside policy will show a confirmation with costs before it executes.",
-    "If none of the options fit, free text works and I will compile it into typed actions.",
+    "If none of the options fit, tell me in your own words and I will turn it into a plan for you to confirm.",
   ],
   update: [
     "The exhibit below is drawn from a named query, so the figures are live rather than typed by me.",

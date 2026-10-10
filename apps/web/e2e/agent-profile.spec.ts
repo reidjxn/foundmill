@@ -88,6 +88,33 @@ test.describe("agent profile", () => {
     await expect(page.getByTestId("permissions-panel")).toBeVisible();
   });
 
+  test("founder copy: each header chip once, no build references, tool ids or raw errors on any tab", async ({ page }) => {
+    await openSquadAgent(page);
+    const header = page.getByTestId("profile-header");
+    await expect(header).toBeVisible({ timeout: LONG });
+    // No "Click to change" label (the model chip is the control) and the wage period in words, not "2026-10".
+    await expect(header).not.toContainText(/Click to change|Wage · \d{4}-\d{2}/);
+    const chipTexts = (await header.locator("[data-chip], [data-tone]").allInnerTexts()).map((t) => t.trim().toLowerCase()).filter(Boolean);
+    expect(new Set(chipTexts).size, `duplicate header chips: ${chipTexts.join(", ")}`).toBe(chipTexts.length);
+    // "What I do" speaks to the founder: no structured tail, no tool ids, no build references.
+    const about = page.getByTestId("what-i-do");
+    await expect(about).toBeVisible();
+    await expect(about).not.toContainText(/Inputs:|Outputs:|BUILD §|\b[a-z]+_[a-z_]+\b/);
+    // Autonomy opens without a red error in its default state, and its saves say what they save.
+    await page.getByRole("tab", { name: "Autonomy" }).click();
+    await expect(page.getByTestId("agent-autonomy")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("save-autonomy")).toHaveText(/Save autonomy/);
+    await expect(page.getByTestId("save-negotiation")).toHaveText(/Save negotiation/);
+    // Tools by name in words, never "HARD GATE (BUILD §2.2)".
+    await page.getByRole("tab", { name: "Tools" }).click();
+    await expect(page.getByTestId("tool-grants")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("tool-grants")).not.toContainText(/BUILD §|HARD GATE/);
+    // Logs: an empty replay explains itself in words, never a client error message.
+    await page.getByRole("tab", { name: "Logs" }).click();
+    await expect(page.getByTestId("agent-logs")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("agent-logs")).not.toContainText(/enableOfflineQueue|writeable|ECONNREFUSED/);
+  });
+
   test("history and logs", async ({ page }) => {
     await openSquadAgent(page);
     await page.getByRole("tab", { name: "History" }).click();
@@ -95,5 +122,37 @@ test.describe("agent profile", () => {
     await page.getByRole("tab", { name: "Logs" }).click();
     await expect(page.getByTestId("agent-logs")).toBeVisible({ timeout: LONG });
     expect(page.url()).toContain(`/b/${NORTHWIND_BUSINESS_ID}/agents/`);
+  });
+
+  test("Talk opens the agent's desk as a sheet; a starter gets a reply in the agent's voice, with 2–4 quick replies", async ({ page }) => {
+    await openSquadAgent(page);
+    await page.getByTestId("header-talk").click();
+    const desk = page.getByTestId("agent-desk");
+    await expect(desk).toBeVisible({ timeout: LONG });
+    await expect(desk).toHaveAttribute("data-variant", "sheet");
+    // The agent's presence: portrait, name, role, the "AI agent" marker and a state line.
+    await expect(desk.getByTestId("desk-presence")).toContainText("AI agent");
+    await expect(desk.getByTestId("desk-state")).toBeVisible();
+    // Starters are there at once (no model call); the founder never has to type.
+    const replies = desk.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write])");
+    await expect(replies.first()).toBeVisible({ timeout: LONG });
+    expect(await replies.count()).toBeGreaterThanOrEqual(2);
+    expect(await replies.count()).toBeLessThanOrEqual(4);
+    const agentBubbles = desk.getByTestId("agent-bubble");
+    const before = await agentBubbles.count();
+    const label = (await replies.first().innerText()).replace(/^\d\s*/, "").trim();
+    await page.keyboard.press("1");
+    await expect(desk.getByTestId("founder-bubble").last()).toBeVisible();
+    await expect.poll(() => agentBubbles.count(), { timeout: LONG }).toBeGreaterThan(before);
+    await expect(desk.getByTestId("read-receipt").last()).toContainText(/Read \d\d:\d\d/);
+    const after = desk.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write])");
+    await expect(after.first()).toBeVisible({ timeout: LONG });
+    expect(await after.count()).toBeGreaterThanOrEqual(2);
+    expect(await after.count()).toBeLessThanOrEqual(4);
+    expect(label.length).toBeGreaterThan(0);
+    // Escape closes the sheet back to the profile.
+    await page.keyboard.press("Escape");
+    await expect(desk).toBeHidden();
+    await expect(page.getByTestId("agent-profile")).toBeVisible();
   });
 });

@@ -30,7 +30,7 @@ describe("PoliciesScreen", () => {
     expect(patch.content.type).toBe("doc");
     const text = JSON.stringify(patch.content);
     expect(text).toContain("Twilio SendGrid");
-    expect(text).toContain("Last updated 2026-10-07");
+    expect(text).toContain("Last updated 7 October 2026");
     expect(text).not.toContain("We use Stripe only.");
     await screen.findByText("Applied");
     expect(fake.refetches["product.spec.get"]).toBe(1);

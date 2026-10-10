@@ -25,25 +25,25 @@ describe("ChangesScreen", () => {
     expect(within(impact).getAllByText("Estimate").length).toBeGreaterThan(0);
     expect(within(impact).getByText("+4 days")).toBeTruthy();
     expect(within(impact).getByText("2 tasks")).toBeTruthy();
-    expect(screen.getByText("1/3 hunks decided")).toBeTruthy();
-    expect(screen.getByRole("region", { name: /Hunk 1: Pricing/ })).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: /^Hunk 1:/ })).getByText("Pinned")).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: /^Hunk 3:/ })).getByText("Accepted")).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: /^Hunk 3:/ })).queryByRole("button", { name: "Accept hunk" })).toBeNull();
+    expect(screen.getByText("1 of 3 changes decided")).toBeTruthy();
+    expect(screen.getByRole("region", { name: /Change 1: Pricing/ })).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: /^Change 1:/ })).getByText("Pinned")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: /^Change 3:/ })).getByText("Accepted")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: /^Change 3:/ })).queryByRole("button", { name: "Accept change" })).toBeNull();
   });
 
   it("accepts and rejects a hunk through product.proposals.decideHunk, and saves staged line edits as edited content", async () => {
     const fake = createFakeSource({ businessId: BID, responses });
     renderScreen(fake, <ChangesScreen businessId={BID} departmentId="d1" />);
-    const hunk1 = screen.getByRole("region", { name: /^Hunk 1:/ });
+    const hunk1 = screen.getByRole("region", { name: /^Change 1:/ });
     await act(async () => {
-      fireEvent.click(within(hunk1).getByRole("button", { name: "Accept hunk" }));
+      fireEvent.click(within(hunk1).getByRole("button", { name: "Accept change" }));
     });
     expect(fake.mutations.at(-1)).toEqual({ path: "product.proposals.decideHunk", input: { hunkId: HUNK.pricing1, decision: "accepted" } });
     expect(fake.refetches["product.proposals.get"]).toBe(1);
-    const hunk2 = screen.getByRole("region", { name: /^Hunk 2:/ });
+    const hunk2 = screen.getByRole("region", { name: /^Change 2:/ });
     await act(async () => {
-      fireEvent.click(within(hunk2).getByRole("button", { name: "Reject hunk" }));
+      fireEvent.click(within(hunk2).getByRole("button", { name: "Reject change" }));
     });
     expect(fake.mutations.at(-1)).toEqual({ path: "product.proposals.decideHunk", input: { hunkId: HUNK.features, decision: "rejected" } });
 
@@ -91,7 +91,7 @@ describe("ChangesScreen", () => {
   it("navigates to the spec block from a hunk title and handles empty, loading and error states", () => {
     const fake = createFakeSource({ businessId: BID, responses });
     renderScreen(fake, <ChangesScreen businessId={BID} departmentId="d1" />);
-    fireEvent.click(within(screen.getByRole("region", { name: /^Hunk 1:/ })).getByRole("button", { name: /Pricing · Pricing/ }));
+    fireEvent.click(within(screen.getByRole("region", { name: /^Change 1:/ })).getByRole("button", { name: /Pricing · Pricing/ }));
     expect(fake.navigations[0]).toMatch(/\/d\/product\/specification\?block=/);
 
     const empty = createFakeSource({ businessId: BID, responses: { ...emptyResponses, "department.list": [] } });

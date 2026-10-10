@@ -18,6 +18,8 @@ test.describe("commit", () => {
     await expect(page.getByTestId("commit-form")).toHaveAttribute("data-business-mode", "assisted");
     await expect(page.locator('[data-option="assisted"]')).toHaveAttribute("data-selected", "true");
     await expect(page.locator('[data-option="personal"]')).toHaveAttribute("data-selected", "true");
+    // The choice is named in plain words ("Personal or live"), not the internal "game mode".
+    await expect(page.getByRole("radiogroup", { name: "Personal or live" })).toBeVisible();
     await expect(page.getByLabel(/Spend cap per action/)).toHaveValue("250");
   });
 

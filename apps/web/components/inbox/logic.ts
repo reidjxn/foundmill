@@ -47,7 +47,7 @@ export type RowTone = "bad" | "warn" | "info" | "good" | "neutral";
 
 export const TYPE_META: Record<InboxItemType, { word: string; tone: RowTone }> = {
   decision: { word: "Decision", tone: "bad" },
-  customer_won: { word: "Customer won", tone: "bad" },
+  customer_won: { word: "Customer won", tone: "good" },
   warning: { word: "Warning", tone: "warn" },
   update: { word: "Update", tone: "info" },
   milestone: { word: "Milestone", tone: "good" },
@@ -67,18 +67,56 @@ export function previewLine(bodyMd: string, max = 120): string {
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
 }
 
+/** The tag a row and the reading pane carry (DIRECTION #8): an icon and a word, so colour is never the only signal. */
+export type TagTone = "bad" | "warn" | "info" | "good" | "neutral" | "gold";
+export type TagIcon = "respond" | "win" | "milestone" | "warning" | "update" | "report" | "message" | "decided";
+export interface NoteTag {
+  word: string;
+  tone: TagTone;
+  icon: TagIcon;
+}
+
+const TYPE_TAG: Record<InboxItemType, NoteTag> = {
+  decision: { word: "Decided", tone: "neutral", icon: "decided" },
+  customer_won: { word: "Win", tone: "gold", icon: "win" },
+  warning: { word: "Warning", tone: "warn", icon: "warning" },
+  update: { word: "Update", tone: "info", icon: "update" },
+  milestone: { word: "Milestone", tone: "good", icon: "milestone" },
+  report: { word: "Report", tone: "neutral", icon: "report" },
+  human_message: { word: "Message", tone: "info", icon: "message" },
+};
+
+/**
+ * One tag per row: a won customer reads as a win ("Win", gold), anything waiting on the founder says "Respond", the
+ * rest name their kind ("Milestone", "Update", "Report", "Decided" once a decision is answered).
+ */
+export function rowTag(item: Pick<InboxRowInput, "type" | "state" | "blocksContinue">): NoteTag {
+  if (item.type === "customer_won") return TYPE_TAG.customer_won;
+  const answered = item.state === "answered" || item.state === "archived";
+  if (!answered && (item.blocksContinue || item.type === "decision")) return { word: "Respond", tone: "bad", icon: "respond" };
+  return TYPE_TAG[item.type];
+}
+
+/** The reading pane's type tag: the same vocabulary, a little fuller ("Needs your call", "Customer won"). */
+export function headerTag(type: InboxItemType, answered: boolean, blocksContinue: boolean): NoteTag {
+  if (type === "customer_won") return { word: "Customer won", tone: "gold", icon: "win" };
+  if (!answered && (type === "decision" || blocksContinue)) return { word: "Needs your call", tone: "bad", icon: "respond" };
+  return TYPE_TAG[type];
+}
+
 export interface InboxRowModel {
   id: string;
   subject: string;
   preview: string;
   createdAt: Date | string;
-  /** Red 6 px dot: the item waits for an answer. */
+  /** The item waits for an answer ("Respond" tag). */
   needsAnswer: boolean;
-  /** Gold left edge: a won customer. */
+  /** Gold left edge and the "Win" tag: a won customer. */
   won: boolean;
   unread: boolean;
   tone: RowTone;
   typeWord: string;
+  tag: NoteTag;
 }
 
 export function rowModel(item: InboxRowInput): InboxRowModel {
@@ -93,6 +131,7 @@ export function rowModel(item: InboxRowInput): InboxRowModel {
     unread: item.state === "unread",
     tone: TYPE_META[item.type].tone,
     typeWord: TYPE_META[item.type].word,
+    tag: rowTag(item),
   };
 }
 
@@ -145,6 +184,28 @@ export function freeTextAllowed(decision: unknown): boolean {
   return v !== false;
 }
 
+/** "Expires in 5 days", "Expires today", "Expires tomorrow": the deadline under "Your call"; null without one or once expired. */
+export function decisionDeadline(decision: unknown, now = new Date()): string | null {
+  const v = (decision as { expires_at?: unknown } | null | undefined)?.expires_at;
+  if (typeof v !== "string") return null;
+  const t = Date.parse(v);
+  if (!Number.isFinite(t) || t < now.getTime()) return null;
+  const day = (ms: number) => Math.floor(ms / 86_400_000);
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const days = day(t - startOfToday);
+  if (days <= 0) return "Expires today";
+  if (days === 1) return "Expires tomorrow";
+  return `Expires in ${days} days`;
+}
+
+/**
+ * Notes the founder can talk through with the agent who wrote them (DIRECTION #6): decisions, updates, warnings,
+ * reports, milestones and Customer Updates. Messages from other founders on LIVE are people, not agents: no desk.
+ */
+export function hasAgentDesk(type: InboxItemType): boolean {
+  return type !== "human_message";
+}
+
 export function decisionExpired(decision: unknown, now = new Date()): boolean {
   const v = (decision as { expires_at?: unknown } | null | undefined)?.expires_at;
   if (typeof v !== "string") return false;
@@ -195,50 +256,145 @@ function latestMonthly(f: NonNullable<MetricSources["finance"]>): { month: strin
   return [...f.revenue.monthly].sort((a, b) => (a.month < b.month ? 1 : -1))[0];
 }
 
+/** Plain words for where a figure comes from: never a table or query name (seed and composer sources are keys). */
+const SOURCE_WORDS: Record<string, string> = {
+  accounts: "Bank accounts",
+  bank: "Bank accounts",
+  forecasts: "The cash forecast",
+  forecast: "The cash forecast",
+  conversions: "Customer conversions",
+  conversions_30d: "Customer conversions, last 30 days",
+  filings: "The filing calendar",
+  usage_ledger: "Model and tool usage",
+  tasks_by_status: "Team tasks",
+  channel_cpa: "Channel spend and customers",
+  cash_position: "Bank balances and burn",
+  runway_forecast: "The cash forecast",
+  roadmap_status: "The roadmap",
+  metrics: "Business metrics",
+};
+
+/** "usage_ledger" → "Model and tool usage"; free words pass through, keys are spelled out ("journey_daily" → "Journey daily"). */
+export function plainSource(source: string | undefined): string | undefined {
+  const raw = source?.trim();
+  if (!raw) return undefined;
+  const known = SOURCE_WORDS[raw.toLowerCase()];
+  if (known) return known;
+  if (/^[a-z0-9]+(?:[_.][a-z0-9]+)+$/.test(raw)) {
+    const words = raw.replace(/[_.]+/g, " ");
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+  return raw;
+}
+
+/** The value inside a free-form metric ("Cash £72,318.22", "Due in 9 days", "Activation 35%", "Customers 1101"). */
+const FREE_VALUE = /(?:[£$€¥]\s?|\b[A-Z]{3}\s)?-?\d[\d,]*(?:\.\d+)?(?:\s?%|\s?[kKmMbB]\b)?(?:\s?(?:months?|mo|weeks?|wks?|days?|hours?|hrs?|minutes?|mins?|units?|SKUs?)\b)?/;
+
+const FREE_MONEY = /(?:[£$€¥]\s?|\b[A-Z]{3}\s)-?\d[\d,]*(?:\.\d+)?(?:\s?[kKmMbB]\b)?/;
+
+export interface FreeMetric {
+  label: string;
+  value: string | null;
+  estimate?: "estimate" | "forecast";
+}
+
+/**
+ * Splits a free-form metric written by an agent or the seed into its label and its figure, so the tile shows the
+ * figure as the figure ("Cash" / "£72,318.22") rather than "—" under a caption carrying the number.
+ */
+export function parseFreeMetric(raw: string): FreeMetric {
+  let text = raw.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+  let estimate: FreeMetric["estimate"];
+  const kind = /\((estimate|forecast)\)|\b(estimate|forecast)\b$/i.exec(text);
+  if (kind) {
+    estimate = (kind[1] ?? kind[2])!.toLowerCase() === "forecast" ? "forecast" : "estimate";
+    text = text.replace(kind[0], "").trim();
+  }
+  // Money first ("Revenue 30d £57,552.75" is about the £, not the 30), then any figure.
+  const m = FREE_MONEY.exec(text) ?? FREE_VALUE.exec(text);
+  const tidy = (s: string) => s.replace(/[\s:·,;—-]+$/g, "").replace(/^[\s:·,;—-]+/g, "").trim();
+  if (!m) {
+    const label = tidy(text) || raw;
+    return { label: label.charAt(0).toUpperCase() + label.slice(1), value: null, estimate };
+  }
+  const figure = m[0].trim();
+  // "1101" → "1,101": figures written without grouping read like ids.
+  const value = /^\d{4,}$/.test(figure) ? Number(figure).toLocaleString("en-GB") : figure;
+  const rest = (text.slice(0, m.index) + " " + text.slice(m.index + m[0].length)).replace(/\b(\d+)d\b/g, "$1 days").replace(/\s+/g, " ");
+  const label = tidy(rest) || "Figure";
+  return { label: label.charAt(0).toUpperCase() + label.slice(1), value, estimate };
+}
+
+const FREE_FAMILY: Array<[RegExp, string]> = [
+  [/^cash\b(?!\s*(?:after|flow|out|in)\b)/i, "cash"],
+  [/^runway\b/i, "runway"],
+  [/^(?:net\s+)?burn\b/i, "net_burn"],
+  [/^mrr\b/i, "mrr"],
+];
+
+/**
+ * The metric key a strip entry resolves to: a catalogue key as is, a free-form "Cash £72,318.22" or "Runway n/a mo
+ * (Estimate)" to the live metric of the same name (AC-11.3.6: figures come from the live queries when they exist),
+ * anything else to null (the figure is read from the entry itself).
+ */
+export function metricKey(metric: string): string | null {
+  if (Object.hasOwn(SOURCE_FOR_METRIC, metric)) return metric;
+  for (const [re, key] of FREE_FAMILY) if (re.test(metric.trim())) return key;
+  return null;
+}
+
 /**
  * Resolve the Composer's `status_strip` entries (`{ metric, source }`) to MetricTiles. The note never carries the
- * numbers (AC-11.3.6); they come from the live queries the page already holds. Unknown metrics render "—" with the
- * source as provenance so the strip stays honest.
+ * numbers (AC-11.3.6); they come from the live queries the page already holds. A free-form entry whose live metric is
+ * not in the catalogue shows the figure it carries, split from its label; one with no figure at all renders "—" with
+ * the source as provenance so the strip stays honest. Provenance is in plain words, never a table name.
  */
 export function statusStripTiles(strip: unknown, sources: MetricSources): MetricTileProps[] {
   if (!Array.isArray(strip)) return [];
   const now = sources.now ?? new Date();
   const f = sources.finance ?? null;
   const currency = f?.cash.currency ?? "EUR";
-  const provenance = (m: StripMetricInput, fallback: string, query?: string) => ({ source: m.source || fallback, query, asOf: f?.cash.asOf ?? undefined });
+  const provenance = (m: StripMetricInput, fallback: string) => ({ source: plainSource(m.source) ?? fallback, asOf: f?.cash.asOf ?? undefined });
   return strip
     .filter((m): m is StripMetricInput => !!m && typeof m === "object" && typeof (m as StripMetricInput).metric === "string")
     .slice(0, 4)
     .map((m): MetricTileProps => {
-      switch (m.metric) {
+      const key = metricKey(m.metric);
+      switch (key) {
         case "cash":
-          return { label: "Cash", value: f ? { amountMinor: f.cash.amountMinor, currency } : null, provenance: provenance(m, "Bank balances", "cash_position") };
-        case "runway":
-          return { label: "Runway", value: f?.runway.months ?? null, format: "decimal", unit: "months", estimate: "estimate", provenance: provenance(m, "Cash ÷ net burn", "runway_forecast") };
+          return { label: "Cash", value: f ? { amountMinor: f.cash.amountMinor, currency } : null, provenance: provenance(m, "Bank balances") };
+        case "runway": {
+          // No runway when nothing burns: say so rather than "—" (finance.overview returns null for net burn ≤ 0).
+          const positive = f && f.runway.months === null && f.burn.netBurnMinor <= 0;
+          if (positive) return { label: "Runway", value: "No limit", caption: "Cash in covers cash out", provenance: provenance(m, "Cash ÷ net burn") };
+          return { label: "Runway", value: f?.runway.months ?? null, format: "decimal", unit: "months", estimate: "estimate", provenance: provenance(m, "Cash ÷ net burn") };
+        }
         case "burn":
         case "net_burn":
-          return { label: "Net burn", value: f ? { amountMinor: f.burn.netBurnMinor, currency } : null, estimate: "estimate", provenance: provenance(m, "Trailing 3-month average", "cash_position") };
+          return { label: "Net burn", value: f ? { amountMinor: f.burn.netBurnMinor, currency } : null, estimate: "estimate", provenance: provenance(m, "Trailing 3-month average") };
         case "mrr":
         case "revenue": {
           const latest = f ? latestMonthly(f) : undefined;
-          return { label: m.metric === "mrr" ? "MRR" : "Revenue", value: latest ? { amountMinor: latest.inflowMinor, currency } : null, estimate: m.metric === "mrr" ? "estimate" : undefined, caption: latest ? latest.month : undefined, provenance: provenance(m, "Cash basis, latest month", "cash_position") };
+          return { label: key === "mrr" ? "MRR" : "Revenue", value: latest ? { amountMinor: latest.inflowMinor, currency } : null, estimate: key === "mrr" ? "estimate" : undefined, caption: latest ? latest.month : undefined, provenance: provenance(m, "Cash basis, latest month") };
         }
         case "customers_week":
-          return { label: "Customers this week", value: countKind(sources.conversions, "payment", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days", "conversions_30d") };
+          return { label: "Customers this week", value: countKind(sources.conversions, "payment", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days") };
         case "customers_30d":
-          return { label: "Customers, 30 days", value: f?.customers30d ?? countKind(sources.conversions, "payment", 30, now), format: "integer", provenance: provenance(m, "Conversions, last 30 days", "conversions_30d") };
+          return { label: "Customers, 30 days", value: f?.customers30d ?? countKind(sources.conversions, "payment", 30, now), format: "integer", provenance: provenance(m, "Conversions, last 30 days") };
         case "signups_week":
-          return { label: "Signups this week", value: countKind(sources.conversions, "signup", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days", "conversions_30d") };
+          return { label: "Signups this week", value: countKind(sources.conversions, "signup", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days") };
         case "signups_30d":
-          return { label: "Signups, 30 days", value: countKind(sources.conversions, "signup", 30, now), format: "integer", provenance: provenance(m, "Conversions, last 30 days", "conversions_30d") };
+          return { label: "Signups, 30 days", value: countKind(sources.conversions, "signup", 30, now), format: "integer", provenance: provenance(m, "Conversions, last 30 days") };
         case "activations_week":
-          return { label: "Activations this week", value: countKind(sources.conversions, "activation", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days", "conversions_30d") };
+          return { label: "Activations this week", value: countKind(sources.conversions, "activation", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days") };
         case "tasks_running":
-          return { label: "Tasks running", value: sources.tasks ? sources.tasks.filter((t) => t.status === "running").length : null, format: "integer", provenance: provenance(m, "Team tasks", "tasks_by_status") };
+          return { label: "Tasks running", value: sources.tasks ? sources.tasks.filter((t) => t.status === "running").length : null, format: "integer", provenance: provenance(m, "Team tasks") };
         case "channels_enabled":
-          return { label: "Channels on", value: sources.channelsEnabled ?? null, format: "integer", provenance: provenance(m, "Enabled channels", "channel_cpa") };
-        default:
-          return { label: m.metric.replace(/_/g, " "), value: null, provenance: provenance(m, "Not available in this build") };
+          return { label: "Channels on", value: sources.channelsEnabled ?? null, format: "integer", provenance: provenance(m, "Enabled channels") };
+        default: {
+          const free = parseFreeMetric(m.metric);
+          return { label: free.label, value: free.value, estimate: free.estimate, provenance: provenance(m, "Written by the agent from the note's sources") };
+        }
       }
     });
 }
@@ -483,7 +639,8 @@ export function stripSources(strip: unknown): Set<StripSource> {
   if (!Array.isArray(strip)) return out;
   for (const m of strip) {
     const metric = m && typeof m === "object" ? (m as { metric?: unknown }).metric : undefined;
-    const src = typeof metric === "string" ? SOURCE_FOR_METRIC[metric] : undefined;
+    const key = typeof metric === "string" ? metricKey(metric) : null;
+    const src = key ? SOURCE_FOR_METRIC[key] : undefined;
     if (src) out.add(src);
   }
   return out;

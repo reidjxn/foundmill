@@ -36,6 +36,28 @@ describe("months", () => {
   });
 });
 
+describe("category names", () => {
+  it("reads snake_case keys from the categoriser and the seeds as chart lines, and merges lines that name the same one", async () => {
+    const { categoryLabel, isUncategorised } = await import("../metrics");
+    expect(categoryLabel("cost_of_goods")).toBe("Cost of sales");
+    expect(categoryLabel("COST_OF_GOODS_SOLD")).toBe("Cost of sales");
+    expect(categoryLabel("professional_fees")).toBe("Professional services");
+    expect(categoryLabel("software_and_hosting")).toBe("Software");
+    expect(categoryLabel("rnd_materials")).toBe("Rnd materials");
+    expect(categoryLabel(null)).toBe("Uncategorised");
+    expect(isUncategorised("uncategorised")).toBe(true);
+    const rows = buildPnl([
+      { category: "cost_of_goods", inflowMinor: 0, outflowMinor: 1000, count: 2 },
+      { category: "Cost of sales", inflowMinor: 0, outflowMinor: 500, count: 1 },
+      { category: "revenue", inflowMinor: 5000, outflowMinor: 0, count: 3 },
+    ]);
+    const cogs = rows.filter((r) => r.kind === "line" && r.section === "cogs");
+    expect(cogs).toHaveLength(1);
+    expect(cogs[0]).toMatchObject({ label: "Cost of sales", amountMinor: -1500, count: 3 });
+    expect(rows.some((r) => /_/.test(r.label))).toBe(false);
+  });
+});
+
 describe("chart of accounts", () => {
   it("maps free-text categories to the standard lines and sections", () => {
     expect(chartEntry("stripe payout")?.category).toBe("Revenue");

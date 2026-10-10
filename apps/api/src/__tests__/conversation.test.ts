@@ -7,7 +7,7 @@ import { hasClubRulesPrefix } from "@foundmill/agents";
 import { repos } from "@foundmill/db";
 import { MockModelClient, type CompleteRequest, type ModelClient } from "@foundmill/models";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { conceptStarters, replyAboutConcept } from "../services/conversation";
+import { CONVERSATION_LIMITS, conceptStarters, conversationLimiter, replyAboutConcept } from "../services/conversation";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -18,6 +18,8 @@ beforeAll(async () => {
 }, 120_000);
 afterEach(() => {
   hz.deps.models = original;
+  // Each test starts with a full allowance (the limits have their own tests below).
+  conversationLimiter.reset();
 });
 afterAll(() => hz.close());
 
@@ -214,6 +216,61 @@ describe("agent.conversation.send", () => {
     for (const extra of bad) {
       await expect(owner().agent.conversation.send({ businessId: hz.A.businessId, subject: { kind: "inbox_item", id: item.id }, ...extra })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     }
+  });
+});
+
+describe("races and limits (adversarial)", () => {
+  it("decided from the DecisionBar: the desk stops offering Go with, and a Go with pressed in a stale tab is refused before anything runs", async () => {
+    recordingModels();
+    const item = await decisionItem("Decided elsewhere?");
+    const subject = { kind: "inbox_item" as const, id: item.id };
+    const asked = await owner().agent.conversation.send({ businessId: hz.A.businessId, subject, quickReplyId: "why_that_one" });
+    const offered = asked.messages[1]!.quickReplies;
+    const goWith = offered.find((q) => q.kind === "choose_option");
+    expect(goWith, "the reply offers Go with on an open decision").toBeDefined();
+
+    await owner().inbox.decide({ businessId: hz.A.businessId, itemId: item.id, chosenOption: "content" });
+    const plansBefore = (await repos.plans.list(hz.db, hz.A.businessId, { limit: 200, includeArchived: true })).items.length;
+
+    const view = await owner().agent.conversation.get({ businessId: hz.A.businessId, subject });
+    const now = view.messages.at(-1)!.quickReplies;
+    expect(now.some((q) => q.kind === "choose_option")).toBe(false);
+    expect(now.length).toBeGreaterThanOrEqual(2);
+    expect(now.length).toBeLessThanOrEqual(4);
+
+    await expect(owner().agent.conversation.send({ businessId: hz.A.businessId, subject, quickReplyId: goWith!.id })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringMatching(/already decided/) });
+    expect(await repos.inbox.decisionsFor(hz.db, hz.A.businessId, item.id)).toHaveLength(1);
+    expect((await repos.plans.list(hz.db, hz.A.businessId, { limit: 200, includeArchived: true })).items.length).toBe(plansBefore);
+  });
+
+  it("bounds sends per person (TOO_MANY_REQUESTS, nothing written) without blocking another member of the business", async () => {
+    const client = recordingModels();
+    const subject = { kind: "agent" as const, id: hz.A.agentId };
+    for (let i = 0; i < CONVERSATION_LIMITS.burst.limit; i++) conversationLimiter.takeAll([{ key: `conversation:burst:${hz.A.ownerId}`, rule: CONVERSATION_LIMITS.burst }]);
+    const calls = conversationRequests(client).length;
+    const thread = await repos.conversations.findThread(hz.db, hz.A.businessId, { agentId: hz.A.agentId, subjectKind: "agent", subjectId: hz.A.agentId });
+    const count = thread ? (await repos.conversations.listMessages(hz.db, hz.A.businessId, thread.id, { limit: 200 })).length : 0;
+    await expect(owner().agent.conversation.send({ businessId: hz.A.businessId, subject, text: "What's next?" })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS", message: expect.stringMatching(/Try again in a minute/) });
+    expect(conversationRequests(client).length).toBe(calls);
+    const after = await repos.conversations.findThread(hz.db, hz.A.businessId, { agentId: hz.A.agentId, subjectKind: "agent", subjectId: hz.A.agentId });
+    expect(after ? (await repos.conversations.listMessages(hz.db, hz.A.businessId, after.id, { limit: 200 })).length : 0).toBe(count);
+    // A stale or write chip is refused before the limit is consulted (a mistake never costs an allowance).
+    await expect(owner().agent.conversation.send({ businessId: hz.A.businessId, subject, quickReplyId: "not_a_chip" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // The member has their own allowance.
+    const member = hz.caller({ userId: hz.A.memberId });
+    expect((await member.agent.conversation.send({ businessId: hz.A.businessId, subject, text: "What's next?" })).messages).toHaveLength(2);
+  });
+
+  it("bounds sends per business across its members, and a concept's Ask per person", async () => {
+    recordingModels();
+    for (let i = 0; i < CONVERSATION_LIMITS.business.limit; i++) conversationLimiter.takeAll([{ key: `conversation:business:${hz.A.businessId}`, rule: CONVERSATION_LIMITS.business }]);
+    const member = hz.caller({ userId: hz.A.memberId });
+    await expect(member.agent.conversation.send({ businessId: hz.A.businessId, subject: { kind: "agent", id: hz.A.agentId }, text: "What's next?" })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+
+    const concept = { id: "00000000-0000-4000-8000-0000000000c1", title: "Nornest", pitch: "Refill subscriptions for skincare.", attributes: { market_size: { value: 12, evidence: "EU refill market" } } };
+    for (let i = 0; i < CONVERSATION_LIMITS.burst.limit; i++) conversationLimiter.takeAll([{ key: `conversation:burst:someone`, rule: CONVERSATION_LIMITS.burst }]);
+    await expect(replyAboutConcept(hz.deps.models, { concept, quickReplyId: conceptStarters()[0]!.id, userId: "someone" })).rejects.toMatchObject({ status: 429 });
+    await expect(replyAboutConcept(hz.deps.models, { concept, quickReplyId: conceptStarters()[0]!.id, userId: "someone-else" })).resolves.toMatchObject({ persona: { name: "Research agent" } });
   });
 });
 

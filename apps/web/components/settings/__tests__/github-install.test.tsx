@@ -102,7 +102,7 @@ describe("Settings › Integrations: starting the GitHub connection", () => {
     const assign = vi.spyOn(navigation, "assign").mockImplementation(() => undefined);
     const open = vi.spyOn(window, "open");
     renderTab();
-    expect(await screen.findByText("Mock mode · GitHub live")).toBeTruthy();
+    expect(await screen.findByText("Test mode · GitHub live")).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "Connect" }));
     await waitFor(() => expect(assign).toHaveBeenCalledWith(install));
     expect(open).not.toHaveBeenCalled();
@@ -111,8 +111,8 @@ describe("Settings › Integrations: starting the GitHub connection", () => {
   });
 
   it("names the connectors that run live while the rest are simulated", () => {
-    expect(modeLabel("mock", [{ displayName: "GitHub", live: true }, { displayName: "Stripe", live: false }])).toBe("Mock mode · GitHub live");
-    expect(modeLabel("mock", [{ displayName: "Stripe" }])).toBe("Mock mode");
+    expect(modeLabel("mock", [{ displayName: "GitHub", live: true }, { displayName: "Stripe", live: false }])).toBe("Test mode · GitHub live");
+    expect(modeLabel("mock", [{ displayName: "Stripe" }])).toBe("Test mode");
     expect(modeLabel("live", [])).toBe("Live");
   });
 });

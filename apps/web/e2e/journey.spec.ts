@@ -24,6 +24,9 @@ test.describe("journey", () => {
     await expect(screen).toHaveAttribute("data-speed", "full");
     await expect(page.locator("[data-stepper]")).toBeVisible();
     await expect(page.getByTestId("journey-crm-link")).toBeVisible();
+    // A win that cost nothing to acquire says so in words; a zero never carries an Estimate chip.
+    const cost = page.getByTestId("acquisition-cost");
+    if (await cost.count()) await expect(cost).not.toContainText(/\b0\.00\b/);
     await page.locator("[data-speed=highlights]").click();
     await expect(screen).toHaveAttribute("data-speed", "highlights");
     await page.reload();

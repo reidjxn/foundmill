@@ -115,6 +115,28 @@ describe("mock inbox composer (BUILD §11.3, §12.2)", () => {
     expect(decision.body_md).not.toContain("2500"); // option costs live on the options, never as raw minor units in prose
   });
 
+  it("with no event writes from the grounded next-best decision it is given, never a 'nothing new' filler (composer service parity)", async () => {
+    const client = new MockModelClient();
+    const input = {
+      ...COMPOSER_INPUT,
+      source_events: [],
+      type: "decision",
+      decision_needed: true,
+      next_best_decision: { kind: "unblock_tasks", title: "Blocked tasks need a call", facts: { blocked_tasks: 3, running_tasks: 2 } },
+      options: [
+        { id: "review", label: "Review the blocked tasks now", recommended: true, consequence: "Work resumes this cycle.", cost_minor: 0, reversible: true },
+        { id: "park", label: "Park them until the next cycle", recommended: false, consequence: "Dependents wait.", cost_minor: 0, reversible: true },
+      ],
+    };
+    const out = (await client.complete({ route: "inboxComposer", messages: promptWith(input), schema: ComposerOutput })).json;
+    expect(out.type).toBe("decision");
+    expect(out.subject).toBe("Blocked tasks need a call");
+    expect(out.body_md).toContain("blocked tasks: 3");
+    expect(out.body_md).not.toMatch(/Quiet period|No fresh events|Decision needed: next step/);
+    expect(out.decision?.options.map((o) => o.id)).toEqual(["review", "park"]);
+    assertComposerInvariants(out, input, new Set(MANIFEST.map((m) => m.id)));
+  });
+
   it("never emits entity markup when the manifest is empty", async () => {
     const client = new MockModelClient();
     const r = await client.complete({ route: "inboxComposer", messages: promptWith(VARIANTS[10] as Record<string, unknown>), schema: ComposerOutput });

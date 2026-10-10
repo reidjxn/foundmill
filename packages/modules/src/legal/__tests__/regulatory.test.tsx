@@ -15,7 +15,8 @@ describe("RegulatoryScreen", () => {
     const sectors = screen.getByRole("list", { name: "Sectors" });
     expect(within(sectors).getAllByText("Suggested")).toHaveLength(2);
     expect(within(sectors).getAllByText("Gate open")).toHaveLength(2);
-    expect(within(sectors).getAllByText("Not applicable")).toHaveLength(4);
+    expect(within(sectors).queryAllByText("Not applicable")).toHaveLength(0); // an off switch says it; no pill repeats it
+    expect(within(sectors).getAllByRole("switch").filter((s) => s.getAttribute("aria-checked") === "true")).toHaveLength(2);
     expect(within(sectors).getByText(/Why: mentions "skincare"/)).toBeTruthy();
     expect(screen.getByText("2 open")).toBeTruthy();
     expect(screen.getByRole("region", { name: "Cosmetics checklist" })).toBeTruthy();

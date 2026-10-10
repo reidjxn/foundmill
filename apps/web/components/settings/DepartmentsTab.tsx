@@ -8,6 +8,7 @@ import { ArrowDown, ArrowUp, Check, GitMerge, Pencil, RotateCcw, Scissors, Trash
 import { useState } from "react";
 import { Button, Checkbox, Chip, DeptChip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, IconButton, Input, Label, SimpleSelect, Switch, departmentLetters } from "@foundmill/dugout";
 import { MODULE_KEYS, type ModuleKey } from "@foundmill/shared/constants";
+import { MODULE_WORDS, moduleList } from "@/lib/format";
 import { useTRPC } from "@/lib/trpc-react";
 import { orderedVisibleDepartments } from "@/lib/sidebar";
 import { useBusiness, type DepartmentRow } from "@/components/shell/business-context";
@@ -51,11 +52,11 @@ export function DepartmentsTab() {
 
   return (
     <AdminOnly>
-      <SettingsSection title="Departments" actions={<Button size="sm" variant="ghost" icon={RotateCcw} onClick={() => setConfirmReset(true)}>Reset to defaults</Button>}>
-        <Hint>Order is the sidebar order; the G-chord letter follows the name. Hidden departments keep their agents and tabs.</Hint>
-        <ul className="flex flex-col divide-y divide-subtle" data-testid="department-list">
+      <SettingsSection wide title="Departments" actions={<Button size="sm" variant="ghost" icon={RotateCcw} onClick={() => setConfirmReset(true)}>Reset to defaults</Button>}>
+        <Hint>This order is the sidebar's. Press G, then the letter beside a department, to jump to it. Hidden departments keep their agents and tabs.</Hint>
+        <ul className="flex flex-col" data-testid="department-list">
           {ordered.map((d, i) => (
-            <li key={d.id} className="flex h-row-comfortable items-center gap-2" data-department-id={d.id}>
+            <li key={d.id} className="flex min-h-row-comfortable items-center gap-2 border-b border-line-faint py-1 last:border-b-0" data-department-id={d.id}>
               <span className="flex w-12 gap-0.5">
                 <IconButton label="Move up" icon={ArrowUp} size="sm" disabled={i === 0 || reorder.isPending} onClick={() => move(i, -1)} />
                 <IconButton label="Move down" icon={ArrowDown} size="sm" disabled={i === ordered.length - 1 || reorder.isPending} onClick={() => move(i, 1)} />
@@ -75,9 +76,9 @@ export function DepartmentsTab() {
                   <IconButton label="Cancel" icon={X} size="sm" onClick={() => setEditingId(null)} />
                 </form>
               ) : (
-                <span className="flex flex-1 items-center gap-2">
-                  <span className="text-body font-medium">{d.name}</span>
-                  <span className="text-small text-secondary">{d.moduleKeys.join(" · ") || "custom"}</span>
+                <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span className="text-body-strong text-primary">{d.name}</span>
+                  {moduleList(d.moduleKeys).toLowerCase() !== d.name.toLowerCase() ? <span className="text-small text-tertiary">Covers {moduleList(d.moduleKeys).toLowerCase()}</span> : null}
                   {d.hidden ? <Chip tone="neutral">Hidden</Chip> : null}
                   <IconButton label={`Rename ${d.name}`} icon={Pencil} size="sm" onClick={() => (setEditingId(d.id), setDraftName(d.name))} />
                 </span>
@@ -128,11 +129,11 @@ export function DepartmentsTab() {
                 <Input id="split-name" value={splitName} onChange={(e) => setSplitName(e.target.value)} maxLength={80} />
               </Field>
               <fieldset className="flex flex-col gap-1">
-                <legend className="t-label mb-1">Modules to move</legend>
+                <legend className="t-label mb-1">What moves to the new department</legend>
                 {MODULE_KEYS.filter((m) => splitSource?.moduleKeys.includes(m)).map((m) => (
                   <label key={m} className="flex items-center gap-2 text-body">
                     <Checkbox checked={splitModules.includes(m)} onCheckedChange={(v) => setSplitModules((cur) => (v ? [...cur, m] : cur.filter((x) => x !== m)))} />
-                    {m}
+                    {MODULE_WORDS[m] ?? m}
                   </label>
                 ))}
               </fieldset>

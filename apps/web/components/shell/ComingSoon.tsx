@@ -19,7 +19,7 @@ export function ComingSoon({ title, description, icon = Construction, detail }: 
   return (
     <div className="p-gutter" data-testid="coming-soon">
       <Panel title={title} span={12}>
-        <EmptyState icon={icon} title={`${title} is coming in this build`}>
+        <EmptyState icon={icon} title={`${title} is on its way`}>
           {description}
         </EmptyState>
         {detail ? <p className="mt-2 text-center font-mono text-mono text-secondary">{detail}</p> : null}

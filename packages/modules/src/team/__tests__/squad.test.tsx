@@ -24,8 +24,11 @@ describe("team rows", () => {
   });
 
   it("uses the five BUILD §11.9 saved views and summarises statuses in the product vocabulary", () => {
-    expect(TEAM_SQUAD_VIEWS).toBe(SQUAD_VIEWS);
+    expect(TEAM_SQUAD_VIEWS.map((v) => v.name)).toEqual(SQUAD_VIEWS.map((v) => v.name));
     expect(TEAM_SQUAD_VIEWS.map((v) => v.name)).toEqual(["General", "Health", "Tools", "Cost", "Performance"]);
+    // General carries Wage (DESIGN §9 Team); the latest update lives in the Health and Performance views.
+    expect(TEAM_SQUAD_VIEWS[0]!.columns).toEqual(["name", "role", "departments", "status", "currentTask", "form", "rating", "model", "wage"]);
+    expect(TEAM_SQUAD_VIEWS.slice(1)).toEqual(SQUAD_VIEWS.slice(1));
     expect(squadSummary(agents)).toBe("5 agents · 2 healthy · 1 degraded · 1 down · 1 idle");
   });
 
@@ -48,8 +51,8 @@ describe("SquadScreen", () => {
     const table = await screen.findByRole("grid", { name: "Agents" });
     expect(within(table).getAllByRole("row")).toHaveLength(agents.length + 1);
     const headers = within(table).getAllByRole("columnheader").map((h) => h.textContent?.replace(/Resize.*$/, "").trim());
-    // The General view hides Tools and Wage (reachable from the column chooser); the other nine are the §11.9 columns in order.
-    expect(headers).toEqual(["Agent", "Role", "Department(s)", "Status", "Current task", "Form", "Rating", "Model", "Latest update"]);
+    // The General view hides Tools and the latest update (reachable from the column chooser and the other views).
+    expect(headers).toEqual(["Agent", "Role", "Departments", "Status", "Current task", "Form", "Rating", "Model", "Wage"]);
     expect(within(table).getByRole("link", { name: "Juno" })).toBeTruthy();
     expect(within(table).getByText("Down")).toBeTruthy();
     expect(within(table).getByText(/expected back in 2 hr/)).toBeTruthy();

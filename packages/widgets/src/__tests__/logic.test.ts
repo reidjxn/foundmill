@@ -14,7 +14,7 @@ import { describeEvent } from "../widgets/live-feed";
 import { customersPerWeek } from "../widgets/revenue-customers";
 import { groupByHorizon, roadmapStatus, taskProgress } from "../widgets/roadmap-timeline";
 import { sessionsToPulseCells } from "../widgets/squad-pulse";
-import { squadHealth, statusTiles } from "../widgets/status-strip";
+import { boardWords, runwayTile, squadHealth, statusTiles } from "../widgets/status-strip";
 import { milestoneKey, trophyCards } from "../widgets/trophy-cabinet";
 import { routes } from "../shared/routes";
 import { BID, TODAY, channelMetrics, channels, departments, finance, leaderboardEntries, leaderboards, ribbon, roadmap, sessions, team } from "./fixtures";
@@ -93,6 +93,18 @@ describe("status strip", () => {
     expect(live[5]).toMatchObject({ label: "Leaderboard position", value: "#8" });
     expect(squadHealth(departments)).toBeCloseTo(5 / 6, 5);
     expect(squadHealth([])).toBeNull();
+  });
+
+  it("speaks plain words: a board kind is never a stored key, no runway reads like the top bar", () => {
+    expect(boardWords("customers_won")).toBe("Customers won");
+    expect(boardWords("mrr_growth")).toBe("MRR growth");
+    const base = { finance, ribbon: ribbon(14), departments, today: TODAY, currency: "EUR", loading: { finance: false, ribbon: false, departments: false, positions: false }, open: () => {} };
+    const untitled = statusTiles({ ...base, live: true, positions: [{ ...leaderboardEntries[7]!, board: { ...leaderboards[0]!, title: null as never, boardKind: "customers_won" } }] });
+    expect(untitled[5]!.caption).toBe("Customers won");
+    expect(statusTiles({ ...base, live: true, positions: [] })[5]).toMatchObject({ value: "Not ranked" });
+    const none = runwayTile({ ...finance, runway: { ...finance.runway, months: null } }, false, () => {});
+    expect(none).toMatchObject({ label: "Runway", value: "None yet" });
+    expect(none.estimate).toBeUndefined();
   });
 });
 

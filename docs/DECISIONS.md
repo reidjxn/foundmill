@@ -1071,3 +1071,13 @@ The founder asked for a software example instead of the skincare brand, so the p
 - Kept: structure, regions and sizes, dark only, desktop only, Lucide, tokens only, the vector wordmark (founder 2026-10-09), department colours, the rating ramp, gold's reserved use, brand-colour restraint.
 - Generate is the only light slab in the product; primary actions use the brand gradient. No "AI purple": a drafting card takes its agent's department colour.
 - `cn()` now knows the design tokens, so a caller's `h-*` or `text-*` class wins over a component's default instead of being dropped or losing by CSS order; 30 call sites that relied on the old behaviour were adjusted.
+
+## 2026-10-10 — Conversation and screen-sweep judgement calls
+
+- **Inbox keys.** 1–4 stay on the DecisionBar's options; quick replies use Alt+1–4 there and plain 1–4 elsewhere; while an agent's sheet is open over a note, the note gives up 1–4 so a key can never decide the note underneath. T focuses the note's conversation.
+- **Typed text in the Inbox** decides an item only where the decision accepts free text and the decision is still open; otherwise it stays in the conversation.
+- **Conversation limits:** 20 sends a minute and 240 an hour per person, 1,200 a day per business, in-process per api replica (like the logo limits). A failed send keeps the founder's message ("Not sent") and resends only on "Try again".
+- **Ideation deck paging:** the Studio shows the newest 48 concepts with "Show older concepts", so a new fork is always visible and the page paints quickly.
+- **Refresh with nothing new** writes a decision grounded in the business's current state (as the composer service does; AC-11.3.2 requires one new note per Refresh) and the toast says nothing new happened.
+- **Tables fit their panel at 1280:** saved views drop secondary columns that the detail panel already shows; dropped columns stay in the column chooser and CSV exports.
+- **Generate buttons only where a model call exists.** Empty states without a generating mutation (Research summaries, specification gaps, Creative, Leads, Legal policies) get a navigation action instead; the sparkle icon is reserved for real model calls.

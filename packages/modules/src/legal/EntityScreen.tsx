@@ -7,12 +7,13 @@
  */
 import { useId, useMemo, useState } from "react";
 import { Building2, Download, ExternalLink, Landmark, Search, Users } from "lucide-react";
-import { Button, Chip, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, Panel, SimpleSelect, Timeline, formatDate, type DataTableColumn, type RowAction, type SavedView, type TimelineEvent } from "@foundmill/dugout";
+import { Button, Chip, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, SimpleSelect, Timeline, formatDate, type DataTableColumn, type RowAction, type SavedView, type TimelineEvent } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
-import { INCORPORATION_STATUS_WORD, ROUTE_META, formatAddress, officerRows, readSteps, type OfficerRow } from "./legal-data";
-import { ENTITY_STATUS_PILL, Fact, InlineError, Pill, Screen, fmtMoney, humanise, useAction, useCurrency, useLegalStatus, useNow } from "./shared";
+import { INCORPORATION_STATUS_WORD, ROUTE_META, entityTypeLabel, formatAddress, jurisdictionName, officerRows, readSteps, type OfficerRow } from "./legal-data";
+import { fitColumns, type ColumnFit } from "../fit";
+import { ENTITY_STATUS_PILL, Fact, InlineError, Pill, Screen, fitTableHeight, fmtMoney, humanise, useAction, useCurrency, useFittedColumns, useLegalStatus, useNow } from "./shared";
 import type { IncorporationRow, LookupResult, OfficersResponse } from "./types";
 
 const OFFICERS_INPUT = { role: "officer", limit: 200 } as const;
@@ -23,13 +24,22 @@ export const OFFICER_VIEWS: SavedView[] = [
   { id: "unlinked", name: "Not in CRM yet", builtIn: true, columns: ["name", "role", "appointedOn"], sort: [{ id: "name", desc: false }], filters: [{ id: "f-crm", field: "crm", op: "eq", value: "no" }] },
 ];
 
-export function officerColumns(businessId: string): DataTableColumn<OfficerRow>[] {
+/** What each column's content needs and its share of the spare width (the table is 647 px at 1280). */
+export const OFFICER_FIT = {
+  name: { min: 180, grow: 2 },
+  role: { min: 140, grow: 1 },
+  appointedOn: { min: 110 },
+  crm: { min: 130 },
+} satisfies Record<string, ColumnFit>;
+export type OfficerColumnId = keyof typeof OFFICER_FIT;
+
+export function officerColumns(businessId: string, sizes: Record<OfficerColumnId, number> = fitColumns<OfficerColumnId>(null, OFFICER_FIT, [])): DataTableColumn<OfficerRow>[] {
   return [
     {
       id: "name",
       accessorKey: "name",
       header: "Officer",
-      size: 240,
+      size: sizes.name,
       cell: ({ row }) =>
         row.original.entityId ? (
           <EntityLink entity={{ id: row.original.entityId, kind: "person", name: row.original.name, href: routes.crm(businessId, row.original.entityId) }} />
@@ -38,14 +48,14 @@ export function officerColumns(businessId: string): DataTableColumn<OfficerRow>[
         ),
       meta: { locked: true },
     },
-    { id: "role", accessorKey: "role", header: "Role", size: 180, cell: ({ getValue }) => <span className="text-secondary">{humanise(String(getValue()))}</span>, meta: { filter: "text" } },
-    { id: "appointedOn", accessorFn: (r) => r.appointedOn ?? "", header: "Appointed", size: 120, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
+    { id: "role", accessorKey: "role", header: "Role", size: sizes.role, cell: ({ getValue }) => <span className="text-secondary">{humanise(String(getValue()))}</span>, meta: { filter: "text" } },
+    { id: "appointedOn", accessorFn: (r) => r.appointedOn ?? "", header: "Appointed", size: sizes.appointedOn, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
     {
       id: "crm",
       accessorFn: (r) => (r.entityId ? "yes" : "no"),
       header: "CRM",
-      size: 130,
-      cell: ({ row }) => (row.original.entityId ? <Chip tone="good">In CRM</Chip> : <Chip tone="neutral">Not in CRM yet</Chip>),
+      size: sizes.crm,
+      cell: ({ row }) => (row.original.entityId ? <Chip tone="good" className="whitespace-nowrap">In CRM</Chip> : <Chip tone="neutral" className="whitespace-nowrap">Not in CRM yet</Chip>),
       meta: { filter: "select", filterOptions: [{ value: "yes", label: "In CRM" }, { value: "no", label: "Not in CRM yet" }] },
     },
   ];
@@ -87,7 +97,8 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
 
   const entity = status.data?.entity ?? null;
   const rows = useMemo(() => officerRows(entity, officers.data?.items), [entity, officers.data]);
-  const columns = useMemo(() => officerColumns(businessId), [businessId]);
+  const fitted = useFittedColumns(OFFICER_FIT, views, "all");
+  const columns = useMemo(() => officerColumns(businessId, fitted.sizes), [businessId, fitted.sizes]);
   const events = useMemo(() => historyEvents(status.data?.history ?? []), [status.data?.history]);
   const loading = status.isLoading;
   const noEntity = !loading && !status.error && !entity;
@@ -107,7 +118,7 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
 
   const confirmImport = async () => {
     if (!lookup) return;
-    const capital = Number(shareCapital);
+    const capital = Number(shareCapital.replace(/[,\s£$€]/g, ""));
     await action.run<{ entity: unknown; people: string[] }>(
       "legal.import.confirm",
       {
@@ -145,13 +156,13 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
     ? [
         { label: "Legal name", value: <span className="t-body-strong text-primary">{entity.legalName}</span> },
         { label: "Status", value: <Pill {...ENTITY_STATUS_PILL[entity.status]} /> },
-        { label: "Jurisdiction", value: entity.jurisdiction },
-        { label: "Entity type", value: entity.entityType },
+        { label: "Jurisdiction", value: jurisdictionName(entity.jurisdiction) || "—" },
+        { label: "Entity type", value: entityTypeLabel(entity.entityType) || "—" },
         { label: "Registration number", value: entity.regNo ?? "—", mono: true },
         { label: "Formed", value: entity.formedAt ? formatDate(entity.formedAt) : "Not yet formed" },
         { label: "Registered address", value: formatAddress(entity.registeredAddress) || "—" },
         { label: "Share capital", value: entity.shareCapitalMinor === null ? "—" : fmtMoney(entity.shareCapitalMinor, entity.currency || currency), numeric: true },
-        { label: "Source", value: entity.source ? humanise(entity.source) : "Entered by hand" },
+        { label: "Source", value: entity.source ? (SOURCE_LABEL[entity.source as LookupResult["source"]] ?? humanise(entity.source)) : "Entered by hand" },
       ]
     : [];
 
@@ -164,7 +175,6 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
         error={status.error ? status.error.message : undefined}
         onRetry={status.refetch}
         empty={noEntity ? { icon: Building2, title: "No legal entity yet", children: "Import an existing company on the right, or start an incorporation on the Incorporate tab; the entity's facts appear here.", action: { label: "Incorporate", icon: Landmark, onClick: () => navigate(routes.department(businessId, "legal", "incorporate")) } } : undefined}
-        actions={entity ? <Pill {...ENTITY_STATUS_PILL[entity.status]} /> : undefined}
         footer={entity ? <span>Legal name and address feed the contract templates and the generated policies. Officers are CRM people with the officer role.</span> : undefined}
       >
         {entity ? <KeyValueList aria-label="Entity facts" items={facts} layout="grid" /> : null}
@@ -205,17 +215,19 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
 
         {lookup ? (
           <section aria-label="Lookup result" className="mt-3 flex flex-col gap-2 rounded-panel border border-subtle bg-panel-alt p-panel-pad">
-            <div className="flex items-center justify-between gap-2">
-              <p className="t-label">From {SOURCE_LABEL[lookup.source]}</p>
-              <Chip tone="warn">Untrusted until confirmed</Chip>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="t-title text-primary">From {SOURCE_LABEL[lookup.source]}</p>
+              <Chip tone="warn" className="whitespace-nowrap">
+                Untrusted until confirmed
+              </Chip>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <Fact label="Legal name">{lookup.legalName}</Fact>
               <Fact label="Registration number" mono>
                 {lookup.regNo}
               </Fact>
-              <Fact label="Jurisdiction">{lookup.jurisdiction}</Fact>
-              <Fact label="Entity type">{lookup.entityType}</Fact>
+              <Fact label="Jurisdiction">{jurisdictionName(lookup.jurisdiction) || "—"}</Fact>
+              <Fact label="Entity type">{entityTypeLabel(lookup.entityType) || "—"}</Fact>
               <Fact label="Status">{lookup.status ? humanise(lookup.status) : "—"}</Fact>
               <Fact label="Formed">{lookup.formedAt ? formatDate(lookup.formedAt) : "—"}</Fact>
             </div>
@@ -241,8 +253,8 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
                 Deadlines found: {lookup.deadlines.map((d) => `${humanise(d.kind)} ${formatDate(d.dueAt)}`).join(" · ")} — they fill the compliance calendar on confirm.
               </p>
             ) : null}
-            <Field htmlFor={`${id}-capital`} label="Share capital" hint={`${currency}, optional; seeds the cap table as one ordinary class`}>
-              <Input id={`${id}-capital`} numeric inputMode="decimal" value={shareCapital} onChange={(e) => setShareCapital(e.target.value)} placeholder="25000" />
+            <Field htmlFor={`${id}-capital`} label="Share capital" hint="Optional; seeds the cap table as one ordinary class">
+              <MoneyInput id={`${id}-capital`} controlSize="lg" currency={currency} value={shareCapital} onValueChange={setShareCapital} placeholder="25,000" />
             </Field>
             <div className="flex items-center gap-2">
               <Button type="button" variant="primary" icon={Download} onClick={() => void confirmImport()} loading={action.pending === "confirm"}>
@@ -265,9 +277,12 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
         error={officers.error ? officers.error.message : undefined}
         onRetry={officers.refetch}
         empty={!loading && !officers.isLoading && rows.length === 0 ? { icon: Users, children: "Officers appear once a company is imported or formed; each becomes a CRM person with the officer role." } : undefined}
-        footer={<span className="tabular-nums">{rows.length} officer{rows.length === 1 ? "" : "s"} · right-click for the CRM</span>}
+        meta={rows.length ? `${rows.length} officer${rows.length === 1 ? "" : "s"}` : undefined}
+        footer={<span>Right-click an officer to open them in the CRM.</span>}
       >
-        <DataTable<OfficerRow> aria-label="Officers" data={rows} columns={columns} getRowId={(r) => r.key} views={views} onViewsChange={setViews} defaultViewId="all" height={260} exportFileName="officers" rowActions={officerActions} onRowOpen={(r) => r.entityId && navigate(routes.crm(businessId, r.entityId))} />
+        <div ref={fitted.ref} className="min-w-0">
+          <DataTable<OfficerRow> aria-label="Officers" data={rows} columns={columns} getRowId={(r) => r.key} views={views} onViewsChange={setViews} defaultViewId="all" onActiveViewChange={fitted.onActiveViewChange} height={fitTableHeight(rows.length, { minRows: 3, maxRows: 10 })} exportFileName="officers" rowActions={officerActions} onRowOpen={(r) => r.entityId && navigate(routes.crm(businessId, r.entityId))} />
+        </div>
       </Panel>
 
       <Panel title="History" span={4} loading={loading} empty={!loading && events.length === 0 ? "Incorporation and import events appear here." : undefined}>

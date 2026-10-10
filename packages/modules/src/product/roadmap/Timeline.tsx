@@ -5,7 +5,7 @@
  * listed under the chart so nothing disappears when a date is missing. Dates in Later are estimates and say so.
  */
 import { CalendarOff } from "lucide-react";
-import { Chip, Icon, ProvenanceChip, StatusPill, cn, formatDate } from "@foundmill/dugout";
+import { Chip, Icon, ProvenanceChip, cn, formatDate } from "@foundmill/dugout";
 import { HORIZON_LABEL, computeRoadmapStatus, type RoadmapStatusKey } from "../roadmap-status";
 import type { RoadmapRow } from "../types";
 import { barSpan, timelineScale } from "./board";
@@ -35,37 +35,62 @@ export function Timeline({ items, today = new Date(), onOpen }: { items: readonl
               {t.label}
             </span>
           ))}
+        </div>
+        {/* Today has its own lane under the months, so its tag never sits on a month label ("OctToday"). */}
+        <div className="h-control-xs" aria-hidden />
+        <div className="relative h-control-xs" aria-hidden>
           {scale.today !== null ? (
-            <span className="t-label absolute bottom-1 -translate-x-1/2 whitespace-nowrap text-kit-primary" style={{ left: pct(scale.today) }}>
-              Today
+            <span className={cn("today-pill absolute top-0 whitespace-nowrap", scale.today > 0.85 ? "-translate-x-full" : scale.today < 0.15 ? "" : "-translate-x-1/2")} style={{ left: pct(scale.today) }} data-today-tag>
+              Today · {formatDate(today, "d MMM")}
             </span>
           ) : null}
         </div>
         {scheduled.map((item) => {
           const span = barSpan(item, scale);
           const status = computeRoadmapStatus(item, today);
+          // A bar narrower than its label shows the label beside it (after, or before near the right edge).
+          // Later bars also carry the Estimate chip, so they need about twice the room.
+          const inside = span ? span.width >= (item.horizon === "later" ? 0.21 : 0.11) : false;
+          const after = span ? span.left + span.width < 0.8 : true;
           return (
             <div key={item.id} className="contents">
-              <button type="button" onClick={() => onOpen(item)} className="flex h-row-comfortable min-w-0 items-center gap-2 border-b border-subtle/50 pr-2 text-left outline-none hover:bg-white/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link">
-                <span className="min-w-0 flex-1 truncate text-body-strong text-primary">{item.title}</span>
-                <Chip tone="neutral">{HORIZON_LABEL[item.horizon]}</Chip>
+              <button type="button" onClick={() => onOpen(item)} title={item.title} className="flex min-h-row-comfortable min-w-0 items-center gap-2 border-b border-subtle/50 py-1 pr-2 text-left outline-none hover:bg-white/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-link">
+                <span className="line-clamp-2 min-w-0 flex-1 break-words text-body-strong text-primary">{item.title}</span>
+                <Chip tone="neutral" className="shrink-0">{HORIZON_LABEL[item.horizon]}</Chip>
               </button>
-              <div className="relative h-row-comfortable border-b border-subtle/50" role="img" aria-label={`${item.title}: ${item.targetStart ? formatDate(item.targetStart) : "no start"} to ${item.targetEnd ? formatDate(item.targetEnd) : "no end"}, ${status.word}`}>
+              <div className="relative min-h-row-comfortable border-b border-subtle/50" role="img" aria-label={`${item.title}: ${item.targetStart ? formatDate(item.targetStart) : "no start"} to ${item.targetEnd ? formatDate(item.targetEnd) : "no end"}, ${status.word}`}>
                 {scale.ticks.map((t) => (
                   <span key={t.at} className="absolute inset-y-0 border-l border-subtle/50" style={{ left: pct(t.at) }} aria-hidden />
                 ))}
                 {scale.today !== null ? <span data-today-line className="absolute inset-y-0 w-px bg-kit-primary" style={{ left: pct(scale.today), boxShadow: "0 0 8px var(--kit-primary)" }} aria-hidden /> : null}
                 {span ? (
-                  <span
-                    data-bar={item.id}
-                    className={cn("absolute top-2 flex h-[18px] items-center gap-1 overflow-hidden rounded-chip px-1.5 text-small text-primary", BAR_CLASS[status.key])}
-                    style={{ left: pct(span.left), width: pct(span.width) }}
-                    title={`${item.title} · ${status.word}`}
-                  >
-                    <Icon icon={status.icon} size={12} />
-                    <span className="truncate">{status.word}</span>
-                    {item.horizon === "later" ? <ProvenanceChip kind="estimate" className="h-4" /> : null}
-                  </span>
+                  <>
+                    <span
+                      data-bar={item.id}
+                      className={cn("absolute top-1/2 flex h-[18px] -translate-y-1/2 items-center gap-1 overflow-hidden rounded-chip px-1.5 text-small text-primary", BAR_CLASS[status.key])}
+                      style={{ left: pct(span.left), width: pct(span.width) }}
+                      title={`${item.title} · ${status.word}`}
+                    >
+                      {inside ? (
+                        <>
+                          <Icon icon={status.icon} size={12} className="shrink-0" />
+                          <span className="whitespace-nowrap">{status.word}</span>
+                          {item.horizon === "later" ? <ProvenanceChip kind="estimate" className="h-4" /> : null}
+                        </>
+                      ) : null}
+                    </span>
+                    {inside ? null : (
+                      <span
+                        className={cn("absolute top-1/2 flex -translate-y-1/2 items-center gap-1 whitespace-nowrap text-small text-secondary", after ? "pl-1.5" : "-translate-x-full pr-1.5")}
+                        style={{ left: pct(after ? span.left + span.width : span.left) }}
+                        data-bar-label={item.id}
+                      >
+                        <Icon icon={status.icon} size={12} className="shrink-0" />
+                        {status.word}
+                        {item.horizon === "later" ? <ProvenanceChip kind="estimate" className="h-4" /> : null}
+                      </span>
+                    )}
+                  </>
                 ) : null}
               </div>
             </div>
@@ -73,7 +98,7 @@ export function Timeline({ items, today = new Date(), onOpen }: { items: readonl
         })}
       </div>
       <p className="text-small text-secondary">
-        Today is the glowing line. Bars take the colour of the computed status; items in Later carry an <StatusPill tone="neutral">Estimate</StatusPill> chip because their dates are not commitments.
+        Today is the glowing line. Bars take the colour of the computed status; items in Later carry an <ProvenanceChip kind="estimate" /> chip because their dates are not commitments.
       </p>
       {undated.length ? (
         <section aria-label="Unscheduled items" className="flex flex-col gap-1">

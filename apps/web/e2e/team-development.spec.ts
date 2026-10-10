@@ -1,0 +1,159 @@
+import { expect, test, type Page } from "@playwright/test";
+import { LONG, openBusiness } from "./helpers";
+
+/**
+ * Team and Development screens on the seeded Northwind business at the two desktop widths (1280, the minimum, and
+ * 1440, the reference): every tab renders its panels, nothing is cut at the panel edge, raw identifiers never show,
+ * and the founder's main actions on these tabs work (the generate action on Recruitment, the hard gate on
+ * Responsibilities). The page-wide clipping guard is no-clip.spec.ts; this spec checks what is specific to these tabs.
+ */
+
+/** The department href for a sidebar label (department slugs are per business; names are labels over modules). */
+async function departmentBase(page: Page, label: RegExp): Promise<string> {
+  const link = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: label }).first();
+  await expect(link, `the seed gives Northwind a ${label} department`).toBeVisible({ timeout: LONG });
+  return (await link.getAttribute("href"))!.replace(/(\/d\/[^/]+)\/.*$/, "$1");
+}
+
+async function openTab(page: Page, base: string, slug: string, module: string): Promise<void> {
+  await page.goto(`${base}/${slug}`);
+  await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", module, { timeout: LONG });
+  await page.waitForLoadState("networkidle", { timeout: LONG }).catch(() => undefined);
+}
+
+/** The right edge of every column header in a grid sits inside the grid's own box (no header cut at the edge). */
+async function headersInside(page: Page, grid: string): Promise<string[]> {
+  return page.getByRole("grid", { name: grid }).evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    return Array.from(el.querySelectorAll<HTMLElement>("[role=columnheader]"))
+      .filter((h) => (h.textContent ?? "").trim())
+      .filter((h) => h.getBoundingClientRect().right > box.right + 1)
+      .map((h) => (h.textContent ?? "").trim());
+  });
+}
+
+for (const width of [1280, 1440]) {
+  test.describe(`team and development at ${width} px`, () => {
+    test.beforeEach(async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+    });
+
+    test("Team: agents table fits with Wage, names end in an ellipsis, health groups and hierarchy render", async ({ page }) => {
+      await openBusiness(page);
+      const team = await departmentBase(page, /^team$/i);
+
+      await openTab(page, team, "squad", "team/squad");
+      const agents = page.getByRole("grid", { name: "Agents" });
+      await expect(agents.getByRole("columnheader", { name: /wage/i })).toBeVisible({ timeout: LONG });
+      expect(await headersInside(page, "Agents"), "every General column fits the panel").toEqual([]);
+      await expect(page.getByTestId("squad-summary")).toContainText(/\d+ agents?/);
+      const overflow = await agents.locator("a[href*='/agents/']").first().evaluate((a) => getComputedStyle(a).textOverflow);
+      expect(overflow, "a long agent name ends in an ellipsis instead of being cut").toBe("ellipsis");
+
+      await openTab(page, team, "health", "team/health");
+      await expect(page.getByRole("list", { name: "Agents by health" })).toBeVisible({ timeout: LONG });
+      await expect(page.locator("[data-health-group]").first()).toBeVisible();
+      // Each group says what its status means once, in its header; its cards never repeat that sentence.
+      const repeats = await page.locator("[data-health-group]").evaluateAll((groups) =>
+        groups.flatMap((g) => {
+          const header = g.querySelector("[data-panel-header]");
+          const leaves = header ? Array.from(header.querySelectorAll("*")).filter((e) => !e.children.length).map((e) => (e.textContent ?? "").trim()) : [];
+          const sentence = leaves.filter((t) => t.endsWith(".")).sort((a, b) => b.length - a.length)[0];
+          return sentence && (g.textContent ?? "").split(sentence).length - 1 > 1 ? [sentence] : [];
+        }),
+      );
+      expect(repeats, "no health card repeats its group's description").toEqual([]);
+
+      await openTab(page, team, "hierarchy", "team/hierarchy");
+      await expect(page.getByRole("tree", { name: "Team hierarchy" })).toBeVisible({ timeout: LONG });
+      await expect(page.getByTestId("hierarchy-summary")).not.toContainText(/\b1 (agents|leads|workers)\b/);
+
+      await openTab(page, team, "staff", "team/staff");
+      await expect(page.getByRole("grid", { name: "Staff" })).toBeVisible({ timeout: LONG });
+    });
+
+    test("Team: signing is never offered to agents, and Recruitment drafts an agent with the generate action", async ({ page }) => {
+      await openBusiness(page);
+      const team = await departmentBase(page, /^team$/i);
+
+      await openTab(page, team, "responsibilities", "team/responsibilities");
+      const matrix = page.getByRole("grid", { name: "Responsibilities" });
+      await expect(matrix.getByText("Sign contracts")).toBeVisible({ timeout: LONG });
+      const signRow = matrix.getByRole("row").filter({ hasText: "Sign contracts" });
+      // With only the founder on the staff there is no one to delegate signing to; with staff it reads "Delegate to staff…".
+      const delegate = signRow.getByRole("button", { name: "Delegate Sign contracts" });
+      if (await delegate.count()) await expect(delegate).toHaveText("Delegate to staff…");
+      else await expect(signRow.getByText("Founder or staff only")).toBeVisible();
+      expect(await headersInside(page, "Responsibilities")).toEqual([]);
+      // Opening a decision's departments narrows the matrix: every column still fits and the detail says what it covers.
+      await matrix.getByText("Message customers").click();
+      await expect(page.getByRole("table", { name: "Message customers by department" })).toBeVisible({ timeout: LONG });
+      await expect(page.getByRole("grid", { name: "Responsibilities" }).getByRole("columnheader", { name: /covers/i })).toHaveCount(0);
+      expect(await headersInside(page, "Responsibilities"), "with the detail open nothing scrolls out of the matrix").toEqual([]);
+      await expect(page.getByRole("grid", { name: "Responsibilities" }).getByRole("button", { name: "Delegate Hire agents" })).toBeVisible();
+      await page.getByRole("button", { name: "Close" }).click();
+      await expect(page.getByRole("grid", { name: "Responsibilities" }).getByRole("columnheader", { name: /covers/i })).toHaveCount(1);
+
+      await openTab(page, team, "recruitment", "team/recruitment");
+      const draft = page.getByTestId("draft-agent");
+      await expect(draft).toBeVisible({ timeout: LONG });
+      await expect(draft).toBeDisabled();
+      await page.getByRole("textbox", { name: "Describe the agent" }).fill("an agent who writes our weekly customer newsletter");
+      await expect(page.getByRole("list", { name: "Suggested templates" })).toBeVisible();
+      await expect(draft).toBeEnabled();
+      await draft.click();
+      const dialog = page.getByTestId("hire-dialog");
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByRole("heading", { name: /^Hire / })).toBeVisible();
+      await dialog.getByRole("button", { name: "Cancel" }).click();
+      await expect(dialog).toBeHidden();
+      const catalogue = page.getByRole("grid", { name: "Catalogue" });
+      await expect(catalogue.getByRole("row").nth(1)).toBeVisible();
+      expect(await catalogue.getByRole("row").allTextContents(), "skills and departments read as words, never keys").not.toContainEqual(expect.stringMatching(/[a-z]_[a-z]/));
+      expect(await headersInside(page, "Catalogue")).toEqual([]);
+    });
+
+    test("Development: plan, pull requests, environments and specialists read as words and fit", async ({ page }) => {
+      await openBusiness(page);
+      const dev = await departmentBase(page, /development/i);
+
+      await openTab(page, dev, "plan", "development/plan");
+      const tasks = page.getByRole("grid", { name: "Tasks" });
+      await expect(tasks.getByRole("row").nth(1)).toBeVisible({ timeout: LONG });
+      await expect(tasks.getByRole("columnheader", { name: /progress/i })).toBeVisible();
+      const firstFive = await tasks.evaluate((el) => {
+        const box = el.getBoundingClientRect();
+        return Array.from(el.querySelectorAll<HTMLElement>("[role=columnheader]"))
+          .slice(0, 5)
+          .filter((h) => h.getBoundingClientRect().right > box.right + 1)
+          .map((h) => h.textContent);
+      });
+      expect(firstFive, "Task, Status, Kind, Agent and Progress fit the panel").toEqual([]);
+      const kinds = await tasks.locator("[data-col=kind]").allTextContents();
+      expect(kinds.filter((k) => /^[a-z]/.test(k.trim())), "task kinds are words (Specialist), not keys (specialist)").toEqual([]);
+
+      await openTab(page, dev, "pull-requests", "development/pull-requests");
+      await expect(page.getByRole("grid", { name: "Merged pull requests" })).toBeVisible({ timeout: LONG });
+      await expect(page.getByText(/AC-\d/)).toHaveCount(0);
+      expect(await headersInside(page, "Merged pull requests")).toEqual([]);
+
+      await openTab(page, dev, "environments", "development/environments");
+      const envs = page.getByRole("grid", { name: "Environments" });
+      await expect(envs).toBeVisible({ timeout: LONG });
+      const pills = await envs.locator("[data-tone]").evaluateAll((els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent));
+      expect(pills, "state pills are never cut").toEqual([]);
+      expect(await headersInside(page, "Environments")).toEqual([]);
+      // Live and awaiting branches come before the merged history.
+      const states = await envs.locator("[role=row]").evaluateAll((rows) => rows.slice(1).map((r) => (/Live|Awaiting deployment|Merged|Stopped/.exec(r.textContent ?? "") ?? [""])[0]));
+      const rank = (s: string) => ["Live", "Awaiting deployment", "Merged", "Stopped"].indexOf(s);
+      expect(states.map(rank), "rows ordered live, awaiting, merged, stopped").toEqual([...states.map(rank)].sort((a, b) => a - b));
+
+      await openTab(page, dev, "specialists", "development/specialists");
+      await expect(page.getByTestId("specialist-counts")).toBeVisible({ timeout: LONG });
+      await expect(page.getByTestId("specialist-counts")).not.toContainText(/\b1 specialists\b/);
+      const tiles = await page.getByRole("article").count();
+      expect(tiles, "finished specialists with nothing to show collapse into one list, not a wall of tiles").toBeLessThanOrEqual(12);
+      await expect(page.locator("[data-module-screen='development/specialists']")).not.toContainText("€");
+    });
+  });
+}

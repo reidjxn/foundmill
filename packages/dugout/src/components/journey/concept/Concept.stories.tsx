@@ -16,6 +16,8 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Card: Story = {};
+/** A forked card's long name wraps to two lines before anything is cut (DIRECTION #15). */
+export const LongName: Story = { name: "Long forked name", args: { concept: { ...concepts[2]!, id: "concept-long", name: "Soldesk variant for makerspaces with two locations", version: 3 } }, decorators: [(S) => <div style={{ width: 340 }}><S /></div>] };
 export const Shortlisted: Story = { args: { concept: concepts[1]!, shortlisted: true, selected: true, onToggleSelect: () => {} } };
 
 export const Deck: Story = {

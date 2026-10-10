@@ -10,7 +10,7 @@ import { useMemo, useState } from "react";
 import { Check, CheckCheck, ExternalLink, FileText, GitCommitVertical, Map as MapIcon, Save, X } from "lucide-react";
 import { Button, Chip, DiffView, EntityLink, Icon, KeyValueList, Markdown, Panel, ProvenanceChip, StatusPill, cn, formatDate, formatDateTime, useEntityLinkContext, type HunkDecisionState, type HunkDecisions } from "@foundmill/dugout";
 import { textToPm } from "../prosemirror";
-import { InlineError, PinnedChip, blockTitle, findBlock, useAction } from "../shared";
+import { InlineError, PinnedChip, blockTitle, findBlock, useAction, useAgentNames } from "../shared";
 import type { ProposalHunkRow, ProposalWithHunks, RoadmapRow, SourceRow, SpecBlockRow, SpecVersionRow } from "../types";
 import { DECISION_PILL, PROPOSAL_STATUS_PILL, SEVERITY_CHIP, decisionProgress, hunkSides, impactLines, isSettled } from "./hunks";
 
@@ -30,8 +30,15 @@ export interface ProposalDetailProps {
 
 function Proposer({ id }: { id: string | null }) {
   const ctx = useEntityLinkContext();
+  const agents = useAgentNames();
   if (!id) return <span className="text-small text-secondary">System</span>;
-  return <EntityLink entity={{ id, kind: "agent", name: ctx.resolve?.(id)?.name ?? "Agent" }} />;
+  return <EntityLink entity={{ id, kind: "agent", name: agents.get(id) ?? ctx.resolve?.(id)?.name ?? "An agent" }} />;
+}
+
+/** "transcript" → "Transcript", "github_issue" → "GitHub issue": a source's kind in words. */
+export function sourceKindWord(kind: string): string {
+  const words: Record<string, string> = { transcript: "Transcript", doc: "Document", url: "Web page", github_issue: "GitHub issue", competitor: "Competitor", legal: "Legal note", interview: "Interview", note: "Note", file: "File" };
+  return words[kind] ?? (kind.charAt(0).toUpperCase() + kind.slice(1)).replace(/_/g, " ");
 }
 
 function HunkCard({ hunk, index, blocks, roadmapItems, settled, onChanged, onOpenBlock, onOpenRoadmapItem }: { hunk: ProposalHunkRow; index: number; blocks: readonly SpecBlockRow[]; roadmapItems: readonly RoadmapRow[]; settled: boolean; onChanged: () => void; onOpenBlock: (id: string) => void; onOpenRoadmapItem: (id: string) => void }) {
@@ -54,20 +61,19 @@ function HunkCard({ hunk, index, blocks, roadmapItems, settled, onChanged, onOpe
   const title = block ? `${block.section} · ${blockTitle(block)}` : item ? `Roadmap · ${item.title}` : hunk.specBlockId ? "Spec block" : "Roadmap item";
 
   return (
-    <section aria-label={`Hunk ${index + 1}: ${title}`} data-hunk={hunk.id} className="flex flex-col gap-2 rounded-panel border border-subtle bg-panel-alt p-2">
-      <header className="flex flex-wrap items-center gap-2">
-        <span className="t-label tabular-nums">Hunk {index + 1}</span>
-        <button type="button" className="inline-flex min-w-0 items-center gap-1 truncate text-body-strong text-link hover:underline focus-visible:outline-2 focus-visible:outline-link" onClick={() => (block ? onOpenBlock(block.id) : item ? onOpenRoadmapItem(item.id) : undefined)}>
-          <Icon icon={block || !item ? FileText : MapIcon} size="inline" />
-          {title}
+    <section aria-label={`Change ${index + 1}: ${title}`} data-hunk={hunk.id} className="flex flex-col gap-2 rounded-panel border border-subtle bg-panel-alt p-2">
+      <header className="flex flex-wrap items-start gap-2">
+        <span className="t-label shrink-0 pt-0.5 tabular-nums">Change {index + 1}</span>
+        <button type="button" className="flex min-w-0 flex-[1_1_16rem] items-start gap-1 text-left text-body-strong text-link hover:underline focus-visible:outline-2 focus-visible:outline-link" onClick={() => (block ? onOpenBlock(block.id) : item ? onOpenRoadmapItem(item.id) : undefined)}>
+          <Icon icon={block || !item ? FileText : MapIcon} size="inline" className="mt-0.5 shrink-0" />
+          <span className="line-clamp-2 min-w-0 break-words">{title}</span>
         </button>
         {block?.pinned ? <PinnedChip /> : null}
-        <span className="flex-1" />
-        <StatusPill tone={pill.tone} icon={pill.icon}>
+        <StatusPill tone={pill.tone} icon={pill.icon} className="ml-auto">
           {pill.word}
         </StatusPill>
       </header>
-      {block?.pinned && hunk.decision === "pending" ? <p className="text-small text-secondary">This block is pinned (human-edited). Nothing changes unless you accept or edit this hunk.</p> : null}
+      {block?.pinned && hunk.decision === "pending" ? <p className="text-small text-secondary">This block is pinned (human-edited). Nothing changes unless you accept or edit this change.</p> : null}
       <DiffView
         title={null}
         original={sides.original}
@@ -82,17 +88,17 @@ function HunkCard({ hunk, index, blocks, roadmapItems, settled, onChanged, onOpe
       />
       {!locked ? (
         <footer className="flex flex-wrap items-center gap-2">
-          <span className="text-small text-secondary">{stagedCount ? `${stagedCount} change${stagedCount === 1 ? "" : "s"} staged in the diff` : "Decide the whole hunk, or accept and reject lines in the diff and save the result as an edit."}</span>
+          <span className="text-small text-secondary">{stagedCount ? `${stagedCount} change${stagedCount === 1 ? "" : "s"} staged in the diff` : "Decide the whole change, or accept and reject lines in the diff and save the result as an edit."}</span>
           <span className="flex-1" />
           <InlineError error={action.error} />
           <Button size="sm" variant="ghost" icon={X} onClick={() => void decide("rejected")} loading={action.pending === "rejected"}>
-            Reject hunk
+            Reject change
           </Button>
           <Button size="sm" variant="default" icon={Save} disabled={merged === null || stagedCount === 0} onClick={() => merged !== null && void decide("edited", textToPm(merged))} loading={action.pending === "edited"}>
             Save as edited
           </Button>
           <Button size="sm" variant="primary" icon={Check} onClick={() => void decide("accepted")} loading={action.pending === "accepted"}>
-            Accept hunk
+            Accept change
           </Button>
         </footer>
       ) : null}
@@ -131,7 +137,7 @@ export function ProposalDetail({ proposal, blocks, roadmapItems, sources, latest
           {resolvedAt ? <span>· resolved {formatDateTime(resolvedAt)}</span> : null}
           <span className="flex-1" />
           <span>
-            {progress.decided}/{progress.total} hunks decided
+            {progress.decided} of {progress.total} changes decided
           </span>
         </div>
       </header>
@@ -147,10 +153,10 @@ export function ProposalDetail({ proposal, blocks, roadmapItems, sources, latest
           <ul className="flex flex-col gap-1">
             {evidence.map((s) => (
               <li key={s.id}>
-                <button type="button" onClick={() => onOpenSource(s)} className="inline-flex max-w-full items-center gap-1 text-left text-body text-link hover:underline focus-visible:outline-2 focus-visible:outline-link">
-                  <Icon icon={s.uri ? ExternalLink : FileText} size="inline" />
-                  <span className="truncate">{s.title || s.uri || s.id}</span>
-                  <Chip tone="neutral">{s.kind}</Chip>
+                <button type="button" onClick={() => onOpenSource(s)} className="flex max-w-full items-start gap-1 text-left text-body text-link hover:underline focus-visible:outline-2 focus-visible:outline-link">
+                  <Icon icon={s.uri ? ExternalLink : FileText} size="inline" className="mt-1 shrink-0" />
+                  <span className="min-w-0 break-words">{s.title || s.uri || s.id}</span>
+                  <Chip tone="neutral" className="shrink-0">{sourceKindWord(s.kind)}</Chip>
                 </button>
               </li>
             ))}
@@ -169,7 +175,7 @@ export function ProposalDetail({ proposal, blocks, roadmapItems, sources, latest
       {!settled ? (
         <div className="flex flex-wrap items-center gap-2 rounded-panel border border-subtle bg-panel-alt p-2">
           <span className="text-body text-primary">
-            {progress.pending} of {progress.total} hunks still pending. Deciding the last one publishes a new spec version with a changelog.
+            {progress.pending} of {progress.total} changes still wait for you. Deciding the last one publishes a new spec version with a changelog.
           </span>
           <span className="flex-1" />
           <InlineError error={action.error} />

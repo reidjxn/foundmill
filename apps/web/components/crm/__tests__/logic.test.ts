@@ -54,7 +54,7 @@ describe("profile derivations", () => {
     const now = new Date("2026-10-07");
     const paying = leadScore([role({ stage: "customer" })] as never, [{ occurredAt: new Date("2026-10-01") }, { occurredAt: new Date("2026-09-30") }], 14, now);
     expect(paying.stars).toBe(5);
-    expect(paying.reasons).toEqual(["Stage customer", "2 interactions in 30 days", "Relationship 14/20"]);
+    expect(paying.reasons).toEqual(["Stage: customer", "2 interactions in 30 days", "Relationship 14/20"]);
     expect(leadScore([role({ role: "lead", stage: null })] as never, [], 3, now)).toEqual({ stars: 1.5, reasons: ["Lead"] });
     expect(leadScore([], [], 1, now).stars).toBe(0);
   });

@@ -7,7 +7,7 @@
 import { useEffect, useId, useState } from "react";
 import { Tag } from "lucide-react";
 import { Button, Checkbox, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, SimpleSelect } from "@foundmill/dugout";
-import { PNL_CATEGORY_OPTIONS, chartEntry } from "./metrics";
+import { PNL_CATEGORY_OPTIONS, categoryLabel, chartEntry, isUncategorised } from "./metrics";
 import { InlineError, fmtSigned, useAction } from "./shared";
 import type { TransactionRow } from "./types";
 
@@ -27,7 +27,7 @@ export function RecategoriseDialog({ transaction, onClose, onSaved }: Recategori
   const [applyToCounterparty, setApply] = useState(true);
   useEffect(() => {
     if (transaction) {
-      setCategory(chartEntry(transaction.category)?.category ?? transaction.category ?? UNCATEGORISED);
+      setCategory(isUncategorised(transaction.category) ? UNCATEGORISED : (chartEntry(transaction.category)?.category ?? transaction.category ?? UNCATEGORISED));
       setApply(!!transaction.counterparty);
       action.clearError();
     }
@@ -35,7 +35,7 @@ export function RecategoriseDialog({ transaction, onClose, onSaved }: Recategori
   }, [transaction?.id]);
 
   const options = [{ value: UNCATEGORISED, label: "Uncategorised" }, ...PNL_CATEGORY_OPTIONS.map((c) => ({ value: c, label: c }))];
-  if (transaction?.category && !PNL_CATEGORY_OPTIONS.includes(transaction.category) && !chartEntry(transaction.category)) options.push({ value: transaction.category, label: transaction.category });
+  if (transaction?.category && !isUncategorised(transaction.category) && !PNL_CATEGORY_OPTIONS.includes(transaction.category) && !chartEntry(transaction.category)) options.push({ value: transaction.category, label: categoryLabel(transaction.category) });
 
   const save = async () => {
     if (!transaction) return;

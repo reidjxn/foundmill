@@ -4,7 +4,7 @@
  * attribution rows and the campaign status machine. No React, no data access.
  */
 import { LIMITS } from "@foundmill/config";
-import type { ChannelTokenData, FormCell } from "@foundmill/dugout";
+import { formatMoney, type ChannelTokenData, type FormCell } from "@foundmill/dugout";
 import { CHANNEL_KEYS, CHANNEL_META, type ApprovalState, type CampaignStatus, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
 import { weekKey } from "@foundmill/widgets/shared/time";
 import type { AgentRow, AssetRow, BlendedSummary, CampaignRow, ChannelMetricRow, ChannelRow, ChannelSummaryRow, JourneyRow, RecommendationRow } from "./types";
@@ -181,7 +181,7 @@ export function toChannelToken(view: ChannelView, opts: TokenOptions = {}): Chan
 }
 
 export function summaryResults(form: ChannelSummaryRow, currency: string): Array<{ label: string; value: string }> {
-  const money = (minor: number) => `${(minor / 100).toLocaleString("en-GB", { maximumFractionDigits: 0 })} ${currency}`;
+  const money = (minor: number) => formatMoney({ amountMinor: minor, currency }, { compact: Math.abs(minor) >= 1_000_000 });
   return [
     { label: "Leads (35 days)", value: String(form.leads) },
     { label: "Signups", value: String(form.signups) },
@@ -273,6 +273,9 @@ export function assetCounts(assets: readonly AssetRow[]): AssetCounts {
   return c;
 }
 
+/** Asset kinds as words ("print" → "Print artwork"). */
+export const ASSET_KIND_WORD: Record<string, string> = { email: "Email", post: "Post", ad: "Ad", video: "Video", article: "Article", mailer: "Mailer", print: "Print artwork", script: "Script" };
+
 export const APPROVAL_WORDS: Record<ApprovalState, { word: string; tone: "good" | "warn" | "bad" | "neutral" }> = {
   draft: { word: "Draft", tone: "neutral" },
   pending: { word: "Awaiting approval", tone: "warn" },
@@ -340,15 +343,23 @@ export function attributionRows(views: readonly ChannelView[], blended: BlendedS
     .sort((a, b) => b.customers - a.customers || b.leads - a.leads || a.channelKey.localeCompare(b.channelKey));
 }
 
+/**
+ * The touch funnel. A middle stage that reads 0 while a later stage has volume is not measured by any channel yet
+ * (no lead capture, say), so it is left out rather than drawn as a 0 % step. A middle stage smaller than the stage
+ * after it is a side door, not a step (self-serve signups that never were leads), so it is left out too: a funnel
+ * never shows a step above 100 %.
+ */
 export function funnelStages(blended: BlendedSummary | undefined): Array<{ label: string; value: number }> {
   const b = blended ?? { impressions: 0, leads: 0, signups: 0, activations: 0, customers: 0 };
-  return [
+  const stages = [
     { label: "Impressions", value: b.impressions },
     { label: "Leads", value: b.leads },
     { label: "Signups", value: b.signups },
     { label: "Activations", value: b.activations },
     { label: "Customers", value: b.customers },
   ];
+  const measured = stages.filter((s, i) => s.value > 0 || i === 0 || i === stages.length - 1 || !stages.slice(i + 1).some((later) => later.value > 0));
+  return measured.filter((s, i) => i === 0 || i === measured.length - 1 || s.value >= (measured[i + 1]?.value ?? 0));
 }
 
 /* ---------- Leads ---------- */

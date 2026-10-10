@@ -5,7 +5,7 @@
  * set lawful basis, add note, end the lead role). Suppressed leads are never messaged by an engine.
  */
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import { ExternalLink, NotebookPen, ScrollText, ShieldBan, UserRoundX } from "lucide-react";
+import { ArrowUpToLine, ExternalLink, NotebookPen, ScrollText, ShieldBan, UserRoundX } from "lucide-react";
 import {
   Button,
   Chip,
@@ -28,69 +28,90 @@ import {
   type RowAction,
   type SavedView,
 } from "@foundmill/dugout";
+import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { LAWFUL_BASES, lawfulBasisLabel, suppressionOf } from "./channel-data";
-import { InlineError, Screen, useAction } from "./shared";
+import { fitColumns, type ColumnFit } from "../fit";
+import { InlineError, Screen, fitTableHeight, plainWords, sourceLabel, useAction, useFittedColumns } from "./shared";
 import type { AgentRow, LeadRow, Page } from "./types";
 
 export const LEAD_VIEWS: SavedView[] = [
-  { id: "all", name: "All leads", builtIn: true, columns: ["name", "company", "email", "stage", "source", "lawfulBasis", "suppression", "owner", "added"], sort: [{ id: "added", desc: true }], filters: [] },
+  { id: "all", name: "All leads", builtIn: true, columns: ["name", "email", "stage", "source", "lawfulBasis", "suppression", "added"], sort: [{ id: "added", desc: true }], filters: [] },
+  { id: "owners", name: "Companies and owners", builtIn: true, columns: ["name", "company", "stage", "owner", "added"], sort: [{ id: "added", desc: true }], filters: [] },
   { id: "needs-basis", name: "Needs lawful basis", builtIn: true, columns: ["name", "company", "email", "source", "lawfulBasis", "added"], sort: [{ id: "added", desc: true }], filters: [{ id: "f-basis", field: "lawfulBasis", op: "eq", value: "Not recorded" }] },
   { id: "suppressed", name: "Suppressed", builtIn: true, columns: ["name", "company", "email", "suppression", "suppressionReason", "added"], sort: [{ id: "added", desc: true }], filters: [{ id: "f-sup", field: "suppressed", op: "eq", value: true }] },
   { id: "new", name: "New this week", builtIn: true, columns: ["name", "company", "stage", "source", "lawfulBasis", "owner", "added"], sort: [{ id: "added", desc: true }], filters: [{ id: "f-new", field: "stage", op: "eq", value: "new" }] },
 ];
 
+/** What each column's content needs and its share of the spare width: every view fits the 980 px table at 1280. */
+export const LEAD_FIT = {
+  name: { min: 150, grow: 3 },
+  company: { min: 130, grow: 1 },
+  email: { min: 170, grow: 2 },
+  stage: { min: 100 },
+  source: { min: 120, grow: 1 },
+  lawfulBasis: { min: 170 },
+  suppression: { min: 116 },
+  suppressed: { min: 96 },
+  suppressionReason: { min: 150, grow: 2 },
+  owner: { min: 140, grow: 1 },
+  added: { min: 96 },
+} satisfies Record<string, ColumnFit>;
+export type LeadColumnId = keyof typeof LEAD_FIT;
+
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
-export function leadColumns(businessId: string, agents: readonly AgentRow[] | undefined): DataTableColumn<LeadRow>[] {
+export function leadColumns(businessId: string, agents: readonly AgentRow[] | undefined, sizes: Record<LeadColumnId, number> = fitColumns<LeadColumnId>(null, LEAD_FIT, [])): DataTableColumn<LeadRow>[] {
   const agentName = (id: string) => agents?.find((a) => a.id === id)?.name ?? "Agent";
   return [
     {
       id: "name",
       accessorFn: (r) => r.displayName,
       header: "Lead",
-      size: 220,
+      size: sizes.name,
       cell: ({ row }) => <EntityLink entity={{ id: row.original.id, kind: row.original.kind, name: row.original.displayName, href: routes.crm(businessId, row.original.id) }} className="text-body-strong" />,
       meta: { locked: true },
     },
-    { id: "company", accessorFn: (r) => str(r.identifiers["company"]) || str(r.identifiers["domain"]), header: "Company", size: 160, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "") || "—"}</span> },
-    { id: "email", accessorFn: (r) => str(r.identifiers["email"]), header: "Email", size: 200, cell: ({ getValue }) => <span className="truncate font-mono text-mono text-secondary">{String(getValue() ?? "") || "—"}</span> },
-    { id: "stage", accessorFn: (r) => r.role.stage ?? "", header: "Stage", size: 110, cell: ({ getValue }) => (getValue() ? <Chip tone="neutral">{String(getValue())}</Chip> : <span className="text-secondary">—</span>), meta: { filter: "select", filterOptions: ["new", "contacted", "replied", "qualified", "suppressed"].map((s) => ({ value: s, label: s })) } },
-    { id: "source", accessorFn: (r) => r.source ?? "", header: "Source", size: 130, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "") || "—"}</span> },
+    { id: "company", accessorFn: (r) => str(r.identifiers["company"]) || str(r.identifiers["domain"]), header: "Company", size: sizes.company, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "") || "—"}</span> },
+    { id: "email", accessorFn: (r) => str(r.identifiers["email"]), header: "Email", size: sizes.email, cell: ({ getValue }) => <span className="truncate font-mono text-mono text-secondary">{String(getValue() ?? "") || "—"}</span> },
+    { id: "stage", accessorFn: (r) => r.role.stage ?? "", header: "Stage", size: sizes.stage, cell: ({ getValue }) => (getValue() ? <Chip tone="neutral" className="whitespace-nowrap">{plainWords(String(getValue()))}</Chip> : <span className="text-secondary">—</span>), meta: { filter: "select", filterOptions: ["new", "contacted", "replied", "qualified", "suppressed"].map((s) => ({ value: s, label: plainWords(s) })) } },
+    { id: "source", accessorFn: (r) => sourceLabel(r.source), header: "Source", size: sizes.source, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "") || "—"}</span> },
     {
       id: "lawfulBasis",
       accessorFn: (r) => lawfulBasisLabel(r.lawfulBasis),
       header: "Lawful basis",
-      size: 160,
-      cell: ({ row }) => (row.original.lawfulBasis ? <Chip tone="good" icon={ScrollText}>{lawfulBasisLabel(row.original.lawfulBasis)}</Chip> : <Chip tone="warn" icon={ScrollText}>Not recorded</Chip>),
+      size: sizes.lawfulBasis,
+      cell: ({ row }) => (row.original.lawfulBasis ? <Chip tone="good" icon={ScrollText} className="whitespace-nowrap">{lawfulBasisLabel(row.original.lawfulBasis)}</Chip> : <Chip tone="warn" icon={ScrollText} className="whitespace-nowrap">Not recorded</Chip>),
       meta: { filter: "select", filterOptions: [{ value: "Not recorded", label: "Not recorded" }, ...LAWFUL_BASES] },
     },
     {
       id: "suppression",
       accessorFn: (r) => (suppressionOf(r).suppressed ? "Suppressed" : "Clear"),
       header: "Suppression",
-      size: 130,
+      size: sizes.suppression,
       cell: ({ row }) => {
         const s = suppressionOf(row.original);
         return s.suppressed ? (
-          <StatusPill tone="bad" icon={ShieldBan} title={s.reason ?? undefined}>
+          <StatusPill tone="bad" icon={ShieldBan} title={s.reason ?? undefined} className="whitespace-nowrap">
             Suppressed
           </StatusPill>
         ) : (
-          <StatusPill tone="good">Clear</StatusPill>
+          <StatusPill tone="good" className="whitespace-nowrap">
+            Clear
+          </StatusPill>
         );
       },
       meta: { filter: "select", filterOptions: [{ value: "Suppressed", label: "Suppressed" }, { value: "Clear", label: "Clear" }] },
     },
-    { id: "suppressed", accessorFn: (r) => suppressionOf(r).suppressed, header: "Suppressed", size: 100, cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
-    { id: "suppressionReason", accessorFn: (r) => suppressionOf(r).reason ?? "", header: "Reason", size: 180, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "") || "—"}</span> },
+    { id: "suppressed", accessorFn: (r) => suppressionOf(r).suppressed, header: "Suppressed", size: sizes.suppressed, cell: ({ getValue }) => (getValue() ? "Yes" : "No"), meta: { filter: "boolean" } },
+    { id: "suppressionReason", accessorFn: (r) => suppressionOf(r).reason ?? "", header: "Reason", size: sizes.suppressionReason, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "") || "—"}</span> },
     {
       id: "owner",
       accessorFn: (r) => (r.role.ownerRef?.kind === "agent" ? agentName(r.role.ownerRef.id) : (r.role.ownerRef?.id ?? "")),
       header: "Owner",
-      size: 150,
+      size: sizes.owner,
       cell: ({ row }) => {
         const o = row.original.role.ownerRef;
         if (!o) return <span className="text-secondary">Unassigned</span>;
@@ -98,12 +119,14 @@ export function leadColumns(businessId: string, agents: readonly AgentRow[] | un
         return <span className="text-secondary">{o.kind === "user" ? "Team member" : "Department"}</span>;
       },
     },
-    { id: "added", accessorFn: (r) => r.role.startedAt, header: "Added", size: 110, cell: ({ getValue }) => <span className="tabular-nums" title={formatDate(String(getValue()))}>{formatRelative(String(getValue()))}</span>, meta: { filter: "date" } },
+    { id: "added", accessorFn: (r) => r.role.startedAt, header: "Added", size: sizes.added, cell: ({ getValue }) => <span className="tabular-nums" title={formatDate(String(getValue()))}>{formatRelative(String(getValue()))}</span>, meta: { filter: "date" } },
   ];
 }
 
 export function LeadsScreen({ businessId }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
+  const departments = useDepartments();
+  const boardHref = moduleHref(businessId, departments.data, "distribution", "formation");
   const leads = useWidgetQuery<Page<LeadRow>>("crm.roles.byRole", { role: "lead", limit: 500 });
   const agents = useWidgetQuery<AgentRow[]>("team.agents.list", {});
   const action = useAction();
@@ -113,7 +136,8 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
   useBusinessEvents(() => leads.refetch(), ["lead.created", "lead.replied"]);
 
   const rows = useMemo(() => leads.data?.items ?? [], [leads.data]);
-  const columns = useMemo(() => leadColumns(businessId, agents.data), [businessId, agents.data]);
+  const fitted = useFittedColumns(LEAD_FIT, views, "all");
+  const columns = useMemo(() => leadColumns(businessId, agents.data, fitted.sizes), [businessId, agents.data, fitted.sizes]);
   const openProfile = useCallback((r: LeadRow) => navigate(routes.crm(businessId, r.id)), [businessId, navigate]);
 
   const endRole = useCallback(
@@ -144,14 +168,12 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
         loading={leads.isLoading}
         error={leads.error ? leads.error.message : undefined}
         onRetry={leads.refetch}
-        footer={
-          <span className="tabular-nums">
-            {rows.length} leads · {missingBasis} without a lawful basis · {suppressed} suppressed. Engines skip suppressed leads and never cold-email EU consumers.
-          </span>
-        }
+        meta={rows.length ? `${rows.length} lead${rows.length === 1 ? "" : "s"} · ${missingBasis} without a lawful basis · ${suppressed} suppressed` : undefined}
+        footer={<span>Engines skip suppressed leads and never cold-email EU consumers. Right-click a lead to record its lawful basis, add a note or end its lead role.</span>}
         flush
       >
         <InlineError error={action.error} className="px-panel-pad pt-2" />
+        <div ref={fitted.ref} className="min-w-0">
         <DataTable<LeadRow>
           aria-label="Leads"
           data={rows}
@@ -161,10 +183,12 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
           defaultViewId="all"
           rowActions={rowActions}
           onRowOpen={openProfile}
-          height={560}
+          height={fitTableHeight(rows.length, { minRows: 12, maxRows: 18 })}
           exportFileName="leads"
-          empty={{ title: "No leads yet", children: "Lead generation pushes qualified leads here with their lawful basis and suppression status. Move Lead generation onto the Board to start." }}
+          onActiveViewChange={fitted.onActiveViewChange}
+          empty={{ title: "No leads yet", children: "Qualified leads arrive here with their lawful basis once Lead generation runs on the board.", action: boardHref ? { label: "Open Lead generation", icon: ArrowUpToLine, onClick: () => navigate(`${boardHref}?channel=lead_generation`) } : undefined }}
         />
+        </div>
       </Panel>
       <LawfulBasisDialog lead={basisFor} action={action} onClose={() => setBasisFor(null)} onSaved={() => leads.refetch()} />
       <NoteDialog lead={noteFor} action={action} onClose={() => setNoteFor(null)} />

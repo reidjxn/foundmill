@@ -16,6 +16,21 @@ test.describe("home", () => {
     await expect(page.getByRole("tablist", { name: "Dashboards" }).getByRole("tab", { selected: true })).toBeVisible();
   });
 
+  test("the status strip's runway agrees with the top bar, and inbox rows wrap instead of clipping", async ({ page }) => {
+    const strip = page.getByRole("region", { name: "Status" });
+    await expect(strip).toBeVisible({ timeout: LONG });
+    await expect(strip.getByText("Runway", { exact: true })).toBeVisible({ timeout: LONG });
+    const bar = page.getByTestId("kit-bar");
+    // No burn model yet: both say so in words (the bar "No runway yet", the tile "None yet"), never a bare dash.
+    if (await bar.getByText("No runway yet").count()) await expect(strip.getByText("None yet")).toBeVisible({ timeout: LONG });
+    // Inbox preview rows: the subject wraps to two lines; nothing in a row is cut sideways.
+    const rows = page.locator("[data-inbox-row]");
+    if (await rows.count()) {
+      const clipped = await rows.evaluateAll((els) => els.flatMap((el) => [...el.querySelectorAll<HTMLElement>("*")]).filter((e) => e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).textOverflow === "ellipsis").length);
+      expect(clipped).toBe(0);
+    }
+  });
+
   test("E toggles Edit mode; the toolbar button mirrors it; Esc leaves it", async ({ page }) => {
     await page.keyboard.press("e");
     await expect(page.getByTestId("home-screen")).toHaveAttribute("data-editing", "true");

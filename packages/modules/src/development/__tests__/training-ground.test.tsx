@@ -136,6 +136,40 @@ describe("TrainingGroundScreen", () => {
     expect(within(focused()).getByText(/Nudge: Focus on tests/)).toBeTruthy();
   });
 
+  it("after a nudge the tile shows the agent's one-bubble answer in its own voice; the focused strip offers its own presets", async () => {
+    const user = userEvent.setup();
+    const persona = {
+      id: AGENT_JUNO,
+      name: "Juno",
+      avatarSeed: "juno",
+      colourToken: "dept-2",
+      voice: { greeting: "Here.", thinking: [], ack: ["Understood. Changing course in this step."] },
+      nudges: [
+        { key: "focus_on_tests", label: "Focus on tests", text: "Focus on tests", hint: "Make the acceptance tests pass first.", apiPreset: "Focus on tests" },
+        { key: "check_sources", label: "Check your sources", text: "Check your sources: quote the record behind every figure.", hint: "Quote the record behind every figure.", apiPreset: null },
+      ],
+    };
+    const fake = createFakeSource({ responses: { ...trainingGroundResponses(), "agent.conversation.get": (input?: Record<string, unknown>) => ({ persona, input }) }, onMutate: () => ({ message: "ok", results: [] }) });
+    renderScreen(fake, <TrainingGroundScreen {...props} />);
+    const grid = await screen.findByRole("region", { name: "Agent tiles" });
+    const tile = () => within(grid).getByRole("article", { name: /Juno: Add a bundle picker/ });
+    await user.click(within(tile()).getByRole("button", { name: "Nudge Juno" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Simplify/ }));
+    const ack = await screen.findByTestId("nudge-ack");
+    // The first sentence of the voice's acknowledgement only; nothing was asked of a model.
+    expect(ack.textContent).toContain("Understood.");
+    expect(ack.textContent).not.toContain("Changing course");
+    expect(ack.textContent).toContain("Nudge: Simplify.");
+    expect(fake.queried.get("agent.conversation.get")).toEqual({ subject: { kind: "agent", id: AGENT_JUNO } });
+
+    // Focus the tile: its strip offers the presets that fit Juno; a non-engineering preset goes as text.
+    await user.click(within(tile()).getByTestId("tile-footer"));
+    await user.click(await screen.findByTestId("nudge-menu"));
+    expect(await screen.findByRole("menuitem", { name: /Check your sources/ })).toBeTruthy();
+    await user.click(screen.getByRole("menuitem", { name: /Check your sources/ }));
+    await waitFor(() => expect(fake.mutations).toContainEqual({ path: "dev.tasks.shout", input: { taskId: TASK_BUNDLE, text: "Check your sources: quote the record behind every figure." } }));
+  });
+
   it("switches to the Task graph view and draws the whole task graph", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ responses: trainingGroundResponses() });

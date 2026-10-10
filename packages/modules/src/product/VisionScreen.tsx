@@ -13,7 +13,7 @@ import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, u
 import type { ModuleScreenProps } from "../registry";
 import { FoundationsBanner, VisionPanels, useFoundations } from "./foundations";
 import { PlainDoc } from "./PlainDoc";
-import { pmWordCount } from "./prosemirror";
+import { pmExcerpt, pmWordCount } from "./prosemirror";
 import { computeRoadmapStatus, taskSummary } from "./roadmap-status";
 import { AuthorRef, Fact, PinnedChip, Screen, blockTitle, groupBySection } from "./shared";
 import type { RoadmapResponse, SpecGetResponse } from "./types";
@@ -42,6 +42,8 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
   const agentAuthored = (spec.data?.blocks ?? []).filter((b) => b.authoredByKind === "agent").length;
   const words = (spec.data?.blocks ?? []).reduce((n, b) => n + pmWordCount(b.content), 0);
   const now = (roadmap.data?.items ?? []).filter((i) => i.horizon === "now").slice().sort((a, b) => a.position - b.position);
+  // What comes after Now, so the panel shows the road ahead rather than a mostly empty box.
+  const next = (roadmap.data?.items ?? []).filter((i) => i.horizon === "next").slice().sort((a, b) => a.position - b.position).slice(0, 4);
 
   const href = (tab: string, query?: string) => `${moduleHref(businessId, departments.data, "product", tab) ?? routes.department(businessId, "product", tab)}${query ?? ""}`;
   const openBlock = (blockId: string) => navigate(href("specification", `?block=${blockId}`));
@@ -97,23 +99,24 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
       <Panel
         title="Pinned blocks"
         span={4}
+        className="self-start"
         loading={spec.isLoading}
         error={spec.error ? spec.error.message : undefined}
         onRetry={spec.refetch}
         empty={spec.data && pinned.length === 0 ? { icon: Lock, children: "Pinned blocks appear when a team member edits a block. Agents never change them without an accepted proposal." } : undefined}
+        footer={pinned.length ? <span>Agents change a pinned block only through a proposal you accept.</span> : undefined}
         flush
       >
         <ul className="flex flex-col divide-y divide-subtle/50" aria-label="Pinned blocks">
           {pinned.map((b) => (
             <li key={b.id}>
-              <button type="button" onClick={() => openBlock(b.id)} className="flex w-full flex-col gap-0.5 px-panel-pad py-2 text-left outline-none hover:bg-white/4 focus-visible:outline-2 focus-visible:outline-link">
-                <span className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-body-strong text-primary">{blockTitle(b)}</span>
-                  <Chip tone="neutral">{b.section}</Chip>
-                </span>
-                <span className="flex items-center gap-2 text-small text-secondary tabular-nums">
+              <button type="button" onClick={() => openBlock(b.id)} className="flex w-full flex-col gap-1 px-panel-pad py-2.5 text-left outline-none hover:bg-white/4 focus-visible:outline-2 focus-visible:outline-link" data-pinned-block={b.id}>
+                <span className="text-pretty break-words text-body-strong text-primary">{b.section}</span>
+                {/* The block's own words, so the panel says what is pinned rather than a cut-off title. */}
+                <span className="line-clamp-3 text-small text-secondary">{pmExcerpt(b.content, 220) || blockTitle(b)}</span>
+                <span className="flex flex-wrap items-center gap-x-2 text-small text-secondary tabular-nums">
                   <AuthorRef kind={b.authoredByKind} id={b.authoredBy} />
-                  <span>· v{b.version}</span>
+                  <span>· version {b.version}</span>
                   {b.updatedAt ? <span>· {formatRelative(b.updatedAt)}</span> : null}
                 </span>
               </button>
@@ -122,7 +125,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
         </ul>
       </Panel>
 
-      <Panel title="Spec at a glance" span={4} loading={spec.isLoading} error={spec.error ? spec.error.message : undefined} onRetry={spec.refetch}>
+      <Panel title="Spec at a glance" span={4} className="self-start" loading={spec.isLoading} error={spec.error ? spec.error.message : undefined} onRetry={spec.refetch}>
         <div className="grid grid-cols-3 gap-3">
           <Fact label="Sections" numeric>
             {groups.length}
@@ -144,12 +147,18 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
           </Fact>
         </div>
         {groups.length ? (
-          <nav aria-label="Spec outline" className="mt-3 flex flex-wrap gap-1">
-            {groups.map((g) => (
-              <Chip key={g.section} tone="neutral" onClick={() => openBlock(g.blocks[0]!.id)}>
-                {g.section} <span className="ml-1 text-secondary tabular-nums">{g.blocks.length}</span>
-              </Chip>
-            ))}
+          // The outline as a quiet two-column list of section names (a count only where a section has several blocks).
+          <nav aria-label="Spec outline" className="mt-3 border-t border-subtle/50 pt-3">
+            <ol className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+              {groups.map((g) => (
+                <li key={g.section} className="min-w-0">
+                  <button type="button" onClick={() => openBlock(g.blocks[0]!.id)} className="flex w-full items-baseline gap-1.5 rounded-xs py-0.5 text-left text-small text-secondary outline-none hover:text-primary focus-visible:outline-2 focus-visible:outline-link" data-outline-section={g.section}>
+                    <span className="min-w-0 break-words">{g.section}</span>
+                    {g.blocks.length > 1 ? <span className="tabular-nums text-tertiary">{g.blocks.length}</span> : null}
+                  </button>
+                </li>
+              ))}
+            </ol>
           </nav>
         ) : null}
       </Panel>
@@ -157,30 +166,44 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
       <Panel
         title="Now on the roadmap"
         span={8}
+        className="self-start"
         loading={roadmap.isLoading}
         error={roadmap.error ? roadmap.error.message : undefined}
         onRetry={roadmap.refetch}
-        empty={roadmap.data && now.length === 0 ? { icon: MapIcon, children: "Nothing is in Now. Move items there on the Roadmap tab and the team picks them up next cycle.", action: { label: "Open roadmap", onClick: () => navigate(href("roadmap")) } } : undefined}
+        empty={roadmap.data && now.length === 0 && next.length === 0 ? { icon: MapIcon, children: "Nothing is in Now. Move items there on the Roadmap tab and the team picks them up next cycle.", action: { label: "Open roadmap", onClick: () => navigate(href("roadmap")) } } : undefined}
+        footer={roadmap.data ? <button type="button" className="text-link hover:underline focus-visible:outline-2 focus-visible:outline-link" onClick={() => navigate(href("roadmap"))}>Open the roadmap</button> : undefined}
         flush
       >
-        <ul className="flex flex-col divide-y divide-subtle/50" aria-label="Roadmap items in Now">
-          {now.map((item) => {
-            const st = computeRoadmapStatus(item);
-            const ts = taskSummary(item);
-            return (
-              <li key={item.id} className="flex items-center gap-3 px-panel-pad py-1.5">
-                <button type="button" className="min-w-0 flex-1 truncate text-left text-body-strong text-primary hover:underline focus-visible:outline-2 focus-visible:outline-link" onClick={() => navigate(href("roadmap", `?item=${item.id}`))}>
-                  {item.title}
-                </button>
-                <span className="text-small text-secondary tabular-nums">{ts.total ? `${ts.done}/${ts.total} tasks` : "No tasks"}</span>
-                <span className="text-small text-secondary tabular-nums">{item.targetEnd ? `by ${formatDate(item.targetEnd, "d MMM")}` : ""}</span>
-                <StatusPill tone={st.tone} icon={st.icon}>
-                  {st.word}
-                </StatusPill>
-              </li>
-            );
-          })}
-        </ul>
+        {[
+          { key: "now", label: "Now", items: now },
+          { key: "next", label: "Next up", items: next },
+        ]
+          .filter((g) => g.items.length)
+          .map((g) => (
+            <section key={g.key}>
+              {g.key === "next" || now.length === 0 ? <h3 className="t-label border-t border-subtle/50 px-panel-pad pb-1 pt-3">{g.label}</h3> : null}
+              <ul className="flex flex-col divide-y divide-subtle/50" aria-label={g.key === "now" ? "Roadmap items in Now" : "Roadmap items in Next"}>
+                {g.items.map((item) => {
+                  const st = computeRoadmapStatus(item);
+                  const ts = taskSummary(item);
+                  return (
+                    <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-panel-pad py-2">
+                      <button type="button" className="min-w-0 flex-[1_1_14rem] text-pretty break-words text-left text-body-strong text-primary hover:underline focus-visible:outline-2 focus-visible:outline-link" onClick={() => navigate(href("roadmap", `?item=${item.id}`))}>
+                        {item.title}
+                      </button>
+                      <span className="flex shrink-0 items-center gap-3">
+                        <span className="text-small text-secondary tabular-nums">{ts.total ? `${ts.done} of ${ts.total} task${ts.total === 1 ? "" : "s"}` : "No tasks yet"}</span>
+                        {item.targetEnd ? <span className="text-small text-secondary tabular-nums">by {formatDate(item.targetEnd, "d MMM")}</span> : null}
+                        <StatusPill tone={st.tone} icon={st.icon}>
+                          {st.word}
+                        </StatusPill>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
       </Panel>
     </Screen>
   );

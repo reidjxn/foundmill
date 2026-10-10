@@ -4,11 +4,12 @@
  * (AC-11.9.1: `agent.health_changed` updates the squad within 2 s), and the AgentRow → SquadRow mapping.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CircleAlert } from "lucide-react";
-import { PageGrid, StatusPill, agentStatusTone, cn, formatRelative, type EntityDetails, type SquadRow } from "@foundmill/dugout";
+import { CircleAlert, CircleDashed, CirclePause } from "lucide-react";
+import { Avatar, EntityLink, MODEL_LABELS, PageGrid, StatusPill, agentStatusTone, cn, formatRelative, type EntityDetails, type IconComponent, type SquadRow } from "@foundmill/dugout";
 import { MODULE_KEYS, type AgentStatus, type DecisionType, type DeptColourToken, type MembershipRole } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState, type WidgetEvent } from "@foundmill/widgets/data";
+import { humanise } from "../fit";
 import type { AgentHealthChangedPayload, AgentRow, AgentsListResponse, FounderProfileResponse, MembershipRow, TemplateRow } from "./types";
 
 /* ---------- Options the host or a test may override ---------- */
@@ -170,6 +171,21 @@ export function agentTypeNoun(agent: Pick<AgentRow, "agentType" | "role" | "laye
   return agent.layer ?? "worker";
 }
 
+/** Same words ignoring case and punctuation ("Quality Specialist" and "Quality specialist"). */
+function sameWords(a: string, b: string): boolean {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return norm(a) === norm(b);
+}
+
+/**
+ * The line under an agent's name: its role (or its type in words), or null when that only repeats the name
+ * ("Quality Specialist" over "Quality specialist"), so a card never says the same thing twice.
+ */
+export function agentRoleLine(agent: Pick<AgentRow, "name" | "role" | "agentType">): string | null {
+  const role = agent.role || humanise(agent.agentType);
+  return role && !sameWords(role, agent.name) ? role : null;
+}
+
 export function isChiefOfStaff(agent: Pick<AgentRow, "agentType" | "layer">): boolean {
   return agent.agentType === "chief_of_staff" || agent.layer === "assistant";
 }
@@ -194,19 +210,56 @@ export interface AgentStatusWordPillProps {
   status: AgentStatus;
   expectedReturnAt?: string | Date | null;
   now?: Date;
+  /** Show "expected back …" beside a Down pill (default). Off where the line under it already says when. */
+  withReturn?: boolean;
   className?: string;
 }
 
+/** Each status has its own glyph, so paused and idle (both neutral grey) differ by shape as well as by word. */
+export const STATUS_ICON: Partial<Record<AgentStatus, IconComponent>> = { injured: CircleAlert, paused: CirclePause, idle: CircleDashed };
+
 /** Status pill in the product vocabulary; "Down" carries the expected return once known (BUILD §11.9). */
-export function AgentStatusWordPill({ status, expectedReturnAt, now = new Date(), className }: AgentStatusWordPillProps) {
+export function AgentStatusWordPill({ status, expectedReturnAt, now = new Date(), withReturn = true, className }: AgentStatusWordPillProps) {
   const { tone } = agentStatusTone(status);
   const back = status === "injured" ? toDate(expectedReturnAt) : null;
   return (
-    <span className={cn("inline-flex items-center gap-1.5", className)} data-status={status}>
-      <StatusPill tone={tone} icon={status === "injured" ? CircleAlert : undefined}>
+    <span className={cn("inline-flex min-w-0 items-center gap-1.5", className)} data-status={status}>
+      <StatusPill tone={tone} icon={STATUS_ICON[status]} className="shrink-0">
         {STATUS_WORD[status]}
       </StatusPill>
-      {status === "injured" ? <span className="text-small text-secondary">{back ? `expected back ${formatRelative(back, now)}` : "expected back once reconnected"}</span> : null}
+      {status === "injured" && withReturn ? <span className="min-w-0 truncate text-small text-secondary">{back ? `expected back ${formatRelative(back, now)}` : "expected back once reconnected"}</span> : null}
+    </span>
+  );
+}
+
+/* ---------- Agent name cell ---------- */
+
+export interface AgentCellProps {
+  businessId: string;
+  agent: { id: string; name: string; seed: string | number; dept: DeptColourToken; status?: AgentStatus };
+  details?: EntityDetails;
+  onOpen: (agentId: string) => void;
+  avatarSize?: 20 | 24;
+  className?: string;
+}
+
+/**
+ * An agent in a table row: portrait and the name as an entity link. A block-level flex row (not inline-flex), so the
+ * name sits on the row's centre line with the other cells, and the link itself truncates with an ellipsis when the
+ * column is narrow (the full name is in the hover card).
+ */
+export function AgentCell({ businessId, agent, details, onOpen, avatarSize = 24, className }: AgentCellProps) {
+  return (
+    <span className={cn("flex min-w-0 items-center gap-2", className)}>
+      <Avatar size={avatarSize} name={agent.name} agent={{ seed: agent.seed, dept: agent.dept }} status={agent.status} className="shrink-0" />
+      <EntityLink
+        entity={{ id: agent.id, kind: "agent", name: agent.name, href: agentHref(businessId, agent.id) }}
+        details={details}
+        hideIcon
+        className="min-w-0 truncate text-body-strong"
+        onOpen={(e) => onOpen(e.id)}
+        onVerb={(verb, e) => verb === "open_profile" && onOpen(e.id)}
+      />
     </span>
   );
 }
@@ -373,7 +426,7 @@ export function agentEntity(businessId: string, agent: AgentRow, currency = "EUR
     href: agentHref(businessId, agent.id),
     subtitle: agent.role,
     portrait: { type: "agent", seed: agent.avatarSeed || agent.id, dept: agentDept(agent), status: agent.status },
-    chips: [{ label: STATUS_WORD[agent.status], tone: agentStatusTone(agent.status).tone }, { label: agent.modelKey }],
+    chips: [{ label: STATUS_WORD[agent.status], tone: agentStatusTone(agent.status).tone }, { label: MODEL_LABELS[agent.modelKey] ?? agent.modelKey }],
     facts: [
       { label: "Departments", value: (agent.departments ?? []).map((d) => d.name).join(", ") || "—" },
       { label: "Wage (Estimate)", value: `${new Intl.NumberFormat("en-GB", { style: "currency", currency: agent.currency ?? currency, maximumFractionDigits: 0 }).format(wage / 100)}/mo` },

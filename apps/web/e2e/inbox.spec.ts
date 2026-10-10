@@ -74,8 +74,12 @@ test.describe("inbox", () => {
     await page.keyboard.press("r");
     // Radix toasts render their title twice (once for the live region): the visible one is enough.
     await expect(page.getByText("One note at a time").first()).toBeVisible();
-    await expect(page.getByText("One new note").first()).toBeVisible({ timeout: LONG });
+    // With new events it narrates them; with none it says so and offers the next call grounded in the current state.
+    await expect(page.getByText(/^(One new note|Nothing new since your last note)$/).first()).toBeVisible({ timeout: LONG });
     await expect(rows).toHaveCount(before + 1, { timeout: LONG });
+    // Never the old filler ("Decision needed: next step", "No fresh events for …").
+    await expect(page.getByTestId("inbox-item")).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("inbox-title")).not.toContainText(/Decision needed: next step|No fresh events/);
     // The new note is selected and the second press never reached the api.
     await expect(page).toHaveURL(/\/inbox\/[0-9a-f-]{36}/);
     expect(refreshCalls).toHaveLength(1);
@@ -96,6 +100,9 @@ test.describe("inbox", () => {
     const bar = page.getByTestId("decision-bar");
     await expect(bar).toHaveAttribute("data-state", "open");
     expect(await bar.getByRole("group", { name: "Options" }).getByRole("button").count()).toBeGreaterThanOrEqual(2);
+    // The agent's desk offers "Go with: …" while the decision is open.
+    const desk = page.getByTestId("agent-desk");
+    await expect(desk.locator('[data-quick-reply="go_with"]')).toBeVisible({ timeout: LONG });
     await page.keyboard.press("1");
     const confirm = page.getByTestId("confirm-plan");
     const answered = page.getByTestId("answered-panel");
@@ -107,6 +114,11 @@ test.describe("inbox", () => {
     }
     await expect(item).toHaveAttribute("data-state", "answered");
     await expect(answered).toBeVisible();
+    // Decided from the DecisionBar: the desk keeps 2–4 replies but no longer offers "Go with: …" (no second decision).
+    await expect(desk.locator('[data-quick-reply="go_with"]')).toHaveCount(0, { timeout: LONG });
+    const left = desk.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write])");
+    await expect(left.first()).toBeVisible();
+    expect(await left.count()).toBeGreaterThanOrEqual(2);
     if (countBefore > 1) {
       await expect(page.getByRole("button", { name: `Respond to ${countBefore - 1} item${countBefore - 1 === 1 ? "" : "s"}` })).toBeVisible({ timeout: LONG });
       return;
@@ -116,6 +128,151 @@ test.describe("inbox", () => {
     // One press of Continue → business.continue (an in-process cycle step without Temporal) → a toast says what happened.
     await idle.click();
     await expect(page.getByText(/Cycle started|One new note|Cycle resumed|already running/).first()).toBeVisible({ timeout: LONG });
+  });
+
+  test("every note has the agent's desk; a quick reply (Alt+2) answers without using up the decision; T talks", async ({ page }) => {
+    await openInbox(page, "respond");
+    const decision = rowsOf(page).filter({ hasText: "Approve batch 002" }).first();
+    await expect(decision, "the seed gives Northwind the batch 002 decision").toBeVisible({ timeout: LONG });
+    await decision.click();
+    const item = page.getByTestId("inbox-item");
+    await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
+    const stateBefore = await item.getAttribute("data-state");
+    // The persona line never repeats itself ("Chief of Staff Chief of Staff").
+    const header = page.getByTestId("inbox-item-header");
+    const persona = (await header.getByTestId("persona-link").innerText()).trim();
+    const role = header.getByTestId("persona-role");
+    if (await role.count()) expect((await role.innerText()).trim().toLowerCase()).not.toBe(persona.toLowerCase());
+
+    const desk = page.getByTestId("agent-desk");
+    await expect(desk).toBeVisible({ timeout: LONG });
+    await expect(desk).toHaveAttribute("data-variant", "inline");
+    // 2–4 numbered quick replies on Alt+1–4 (1–4 stay on the decision's options), plus the ghost Write.
+    const replies = desk.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write])");
+    await expect(replies.first()).toBeVisible({ timeout: LONG });
+    expect(await replies.count()).toBeGreaterThanOrEqual(2);
+    expect(await replies.count()).toBeLessThanOrEqual(4);
+    await expect(replies.first()).toHaveAttribute("aria-keyshortcuts", "Alt+1");
+    const second = replies.nth(1);
+    const secondId = await second.getAttribute("data-quick-reply");
+    expect(secondId, "the second reply asks rather than decides").not.toBe("go_with");
+    const agentBubbles = desk.getByTestId("agent-bubble");
+    const before = await agentBubbles.count();
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press("Alt+2");
+    await expect.poll(() => agentBubbles.count(), { timeout: LONG }).toBeGreaterThan(before);
+    // The question did not decide anything: the item and its DecisionBar are still open.
+    await expect(item).toHaveAttribute("data-state", stateBefore!);
+    await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
+    await expect(page.getByTestId("answered-panel")).toHaveCount(0);
+
+    // The DecisionBar's "Ask <agent>" opens the desk's Write field instead of a free-text box.
+    await expect(page.getByTestId("decision-free-text")).toHaveCount(0);
+    await page.locator("[data-decision-ask]").click();
+    await expect(desk.getByRole("textbox", { name: /^Reply to / })).toBeFocused();
+    await page.keyboard.press("Escape");
+    // T brings the conversation into focus.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press("t");
+    await expect(desk.getByTestId("desk-thread")).toBeFocused();
+  });
+
+  test("a reply that does not get through keeps the founder's words; the agent says so in its own voice and Try again sends it", async ({ page }) => {
+    await openInbox(page, "respond");
+    const decision = rowsOf(page).filter({ hasText: "Approve batch 002" }).first();
+    await expect(decision, "the seed gives Northwind the batch 002 decision").toBeVisible({ timeout: LONG });
+    await decision.click();
+    const item = page.getByTestId("inbox-item");
+    await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
+    const stateBefore = await item.getAttribute("data-state");
+    const desk = page.getByTestId("agent-desk");
+    const replies = desk.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write]):not([data-quick-reply=go_with])");
+    await expect(replies.first()).toBeVisible({ timeout: LONG });
+    const founderBubbles = desk.getByTestId("founder-bubble");
+    const foundersBefore = await founderBubbles.count();
+
+    // The api is unreachable for this one send.
+    const offline = /\/trpc\/[^?]*agent\.conversation\.send/;
+    await page.route(offline, (route) => route.abort("connectionrefused"));
+    await replies.first().click();
+    await expect(founderBubbles).toHaveCount(foundersBefore + 1, { timeout: LONG });
+    await expect(desk.getByTestId("read-receipt").last()).toContainText("Not sent", { timeout: LONG });
+    const words = (await founderBubbles.last().innerText()).replace(/^You:\s*/, "").trim();
+    await expect(desk.getByTestId("agent-bubble").filter({ hasText: "didn't reach me" }).last()).toBeVisible();
+    const retry = desk.locator('[data-quick-reply="local-retry"]');
+    await expect(retry).toBeVisible();
+    await expect(retry).toHaveAttribute("data-likeliest", "true");
+    // Nothing was decided and nothing was resent on its own.
+    await expect(item).toHaveAttribute("data-state", stateBefore!);
+    await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
+
+    await page.unroute(offline);
+    const agentBubbles = desk.getByTestId("agent-bubble");
+    await retry.click();
+    await expect(desk.getByTestId("agent-bubble").filter({ hasText: "didn't reach me" })).toHaveCount(0, { timeout: LONG });
+    await expect(desk.getByTestId("read-receipt").last()).not.toContainText("Not sent", { timeout: LONG });
+    await expect.poll(() => agentBubbles.count(), { timeout: LONG }).toBeGreaterThan(0);
+    await expect(founderBubbles.last()).toContainText(words);
+    await expect(founderBubbles).toHaveCount(foundersBefore + 1);
+    await expect(desk.locator('[data-quick-reply="local-retry"]')).toHaveCount(0);
+    await expect(item).toHaveAttribute("data-state", stateBefore!);
+  });
+
+  test("number keys in an agent's sheet opened over a decision answer the sheet, never the note underneath", async ({ page }) => {
+    await openInbox(page, "respond");
+    const decision = rowsOf(page).filter({ hasText: "Approve batch 002" }).first();
+    await expect(decision, "the seed gives Northwind the batch 002 decision").toBeVisible({ timeout: LONG });
+    await decision.click();
+    const item = page.getByTestId("inbox-item");
+    await expect(item).toHaveAttribute("data-type", "decision", { timeout: LONG });
+    await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
+    const stateBefore = await item.getAttribute("data-state");
+    // The command palette's Ask row opens the Chief of Staff's desk as a sheet over the note.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press("Control+k");
+    await page.keyboard.type("ask chief");
+    const ask = page.locator('[data-group="ask"] [role="option"]').filter({ hasText: /Ask / }).first();
+    await expect(ask).toBeVisible({ timeout: LONG });
+    await ask.click();
+    const sheet = page.locator('[data-testid="agent-desk"][data-variant="sheet"]');
+    await expect(sheet).toBeVisible({ timeout: LONG });
+    const replies = sheet.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write])");
+    await expect(replies.first()).toBeVisible({ timeout: LONG });
+    const founders = sheet.getByTestId("founder-bubble");
+    const before = await founders.count();
+    await page.keyboard.press("1");
+    await expect(founders).toHaveCount(before + 1, { timeout: LONG });
+    // 1 went to the sheet's first reply: the note's DecisionBar did not take it, and nothing was decided.
+    await expect(page.getByTestId("confirm-plan")).toHaveCount(0);
+    await sheet.getByRole("button", { name: "Close" }).click();
+    await expect(sheet).toBeHidden();
+    await expect(item).toHaveAttribute("data-state", stateBefore!);
+    await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
+    await expect(page.getByTestId("answered-panel")).toHaveCount(0);
+  });
+
+  test("a \"Go with: …\" quick reply decides the note through the decide path", async ({ page }) => {
+    await signIn(page);
+    await commitFreshBusiness(page, `Playwright Desk ${Date.now().toString(36)}`);
+    const item = page.getByTestId("inbox-item");
+    await expect(item).toHaveAttribute("data-type", "decision");
+    const desk = page.getByTestId("agent-desk");
+    await expect(desk).toBeVisible({ timeout: LONG });
+    const goWith = desk.locator("[data-quick-reply=go_with]");
+    await expect(goWith, "an open decision offers Go with: <recommended>").toBeVisible({ timeout: LONG });
+    await expect(goWith).toContainText("Go with:");
+    await goWith.click();
+    const confirm = page.getByTestId("confirm-plan");
+    const answered = page.getByTestId("answered-panel");
+    await expect(confirm.or(answered).first()).toBeVisible({ timeout: LONG });
+    if (await confirm.isVisible()) {
+      await page.getByTestId("confirm-plan-go").click();
+      await expect(confirm).toBeHidden({ timeout: LONG });
+    }
+    await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
+    await expect(answered).toBeVisible();
+    // The agent acknowledges in the thread.
+    await expect(desk.getByTestId("agent-bubble").filter({ hasText: /Going with/ }).last()).toBeVisible({ timeout: LONG });
   });
 
   test("a won customer opens its Customer Update", async ({ page }) => {

@@ -10,6 +10,20 @@ import { LONG, openStudio, signIn } from "./helpers";
 const gridOf = (page: Page) => page.getByTestId("concept-grid");
 const cardsOf = (page: Page) => gridOf(page).locator("[data-concept]");
 
+/**
+ * The deck is paged, newest first (idea.list, 48 a page): "Show older concepts" loads the next page. Counting tests load
+ * every page first, so the deck the dev user has built up over many runs never caps what they count.
+ */
+async function loadWholeDeck(page: Page): Promise<void> {
+  const more = page.getByTestId("deck-more");
+  for (let i = 0; i < 50 && (await more.isVisible()); i++) {
+    const loaded = await cardsOf(page).count();
+    await more.click();
+    await expect.poll(() => cardsOf(page).count(), { timeout: LONG }).toBeGreaterThan(loaded);
+  }
+  await expect(page.getByTestId("deck-count")).toHaveText(new RegExp(`^${await cardsOf(page).count()} concepts$`));
+}
+
 /** Drafts a deck when fewer than `minimum` cards are loaded. The grid is already attached (openStudio). */
 async function needCards(page: Page, minimum: number): Promise<void> {
   const cards = cardsOf(page);
@@ -37,11 +51,18 @@ test.describe("ideation studio", () => {
     await openStudio(page);
   });
 
+  test("the brief tells the truth about what the agents do", async ({ page }) => {
+    // The hero only shows on an empty deck; its copy must never claim research grounding that does not run.
+    await expect(page.getByTestId("prompt-box")).not.toContainText(/grounds each with competitors/);
+  });
+
   test("AC-11.1.2: an empty brief drafts 6–12 cards, each with ten attributes and at least two citations", async ({ page }) => {
     const cards = cardsOf(page);
     const before = await cards.count();
     const generate = page.getByTestId("generate-button");
-    await expect(generate).toHaveText("Surprise me");
+    // The generate control: the light slab at rest, its label saying what will happen.
+    await expect(generate).toHaveAttribute("data-variant", "generate");
+    await expect(generate).toContainText("Surprise me within my constraints");
     await generate.click();
     // The cards stream in at the top of the deck as each is saved; the status line names who drafted them.
     const status = page.getByTestId("draft-status");
@@ -50,6 +71,8 @@ test.describe("ideation studio", () => {
     await expect(page.getByTestId("draft-progress")).toHaveText(/^\d+ concepts drafted/);
     await expect(page.getByTestId("draft-elapsed")).toHaveText(/^\d+:\d\d$/);
     await expect(page.getByTestId("drafting-card")).toHaveCount(0);
+    // The run panel reports the outcome in place; no toast lands over the cards.
+    await expect(page.locator("[data-dugout-toasts] li")).toHaveCount(0);
     await expect.poll(() => cards.count(), { timeout: LONG }).toBeGreaterThanOrEqual(before + 6);
     const added = (await cards.count()) - before;
     expect(added).toBeLessThanOrEqual(12);
@@ -68,7 +91,7 @@ test.describe("ideation studio", () => {
     const before = await cards.count();
     const brief = page.getByRole("textbox", { name: "Brief" });
     await brief.fill("bookkeeping for freelancers in the EU");
-    await expect(page.getByTestId("generate-button")).toHaveText("Draft concepts");
+    await expect(page.getByTestId("generate-button")).toContainText("Draft concepts");
     await brief.press("ControlOrMeta+Enter");
     await expect(page.getByTestId("draft-status")).toHaveAttribute("data-status", "done", { timeout: LONG });
     await expect.poll(() => cards.count(), { timeout: LONG }).toBeGreaterThanOrEqual(before + 6);
@@ -86,24 +109,94 @@ test.describe("ideation studio", () => {
     const status = page.getByTestId("draft-status");
     await expect(status).toHaveAttribute("data-status", "running");
     await expect(page.getByTestId("draft-progress")).toHaveText("Ideation agent is reading your brief");
-    await expect(page.getByTestId("generate-button")).toBeDisabled();
+    // Running: the dark slab with its label, the live run's step rail, and Stop beside the control.
+    const generate = page.getByTestId("generate-button");
+    await expect(generate).toHaveAttribute("data-running", "true");
+    await expect(generate).toContainText("Drafting concepts");
+    await expect(status.getByTestId("live-run-step").first()).toHaveAttribute("data-state", "current");
+    const stop = page.locator("[data-generate-stop]");
+    await expect(stop).toBeVisible();
     await expect(page.getByTestId("draft-elapsed")).toHaveText(/^0:0[1-9]$/, { timeout: 10_000 });
-    await page.getByTestId("stop-button").click();
+    await stop.click();
     await expect(status).toHaveAttribute("data-status", "stopped");
     await expect(page.getByTestId("draft-progress")).toHaveText("Stopped before any concept was finished");
-    await expect(page.getByTestId("stop-button")).toHaveCount(0);
-    await expect(page.getByTestId("generate-button")).toBeEnabled();
+    await expect(stop).toHaveCount(0);
+    await expect(generate).not.toHaveAttribute("data-running", /.*/);
+    await expect(generate).toBeEnabled();
     release();
   });
 
-  test("AC-11.1.3: fork creates a new version, history is navigable, discard is reversible", async ({ page }) => {
+  test("cards stream in with the live run: steps, one segment per concept, and each card \"Just in\"; steering chips prefill the brief", async ({ page }) => {
+    const cards = cardsOf(page);
+    const before = await cards.count();
+    await page.getByTestId("generate-button").click();
+    const status = page.getByTestId("draft-status");
+    await expect(status).toHaveAttribute("data-status", "done", { timeout: LONG });
+    const steps = status.getByTestId("live-run-step");
+    await expect(steps).toHaveCount(4);
+    await expect(steps.nth(2)).toHaveAttribute("data-state", "done");
+    await expect(status.getByTestId("live-run-bar")).toHaveAttribute("aria-label", /^(\d+) of \1 concepts landed$/);
+    await expect(status.getByTestId("live-run-meter")).toContainText("Estimate");
+    await expect.poll(() => cards.count(), { timeout: LONG }).toBeGreaterThanOrEqual(before + 6);
+    await expect(gridOf(page).getByTestId("just-in").first()).toBeVisible();
+    // Steer the next set: a chip adds its sentence to the brief once; nothing is drafted until Draft is pressed.
+    const brief = page.getByRole("textbox", { name: "Brief" });
+    await brief.fill("");
+    await page.getByTestId("steering-chips").getByRole("button", { name: "B2B instead" }).click();
+    await expect(brief).toHaveValue("Sell to businesses rather than consumers.");
+    await page.getByTestId("steering-chips").getByRole("button", { name: "B2B instead" }).click();
+    await expect(brief).toHaveValue("Sell to businesses rather than consumers.");
+    await expect(page.getByTestId("generate-button")).toContainText("Draft concepts");
+    await expect(status).toHaveAttribute("data-status", "done");
+  });
+
+  test("Ask on a concept: the Research agent's sheet, starters as buttons, quick replies after every answer, the version saved", async ({ page }) => {
     await needCards(page, 1);
+    const card = cardsOf(page).first();
+    await card.locator('[data-concept-action="ask"]').click();
+    const sheet = page.getByTestId("ask-dialog");
+    await expect(sheet).toBeVisible();
+    await expect(sheet).toHaveAttribute("data-variant", "sheet");
+    await expect(sheet.getByTestId("desk-presence")).toContainText("Research agent");
+    await expect(sheet.getByTestId("desk-presence")).toContainText("AI agent");
+    const replies = sheet.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write])");
+    await expect(replies.first()).toBeVisible({ timeout: LONG });
+    expect(await replies.count()).toBeGreaterThanOrEqual(2);
+    expect(await replies.count()).toBeLessThanOrEqual(4);
+    const bubbles = sheet.getByTestId("agent-bubble");
+    const before = await bubbles.count();
+    await replies.filter({ hasText: "Who pays first?" }).click();
+    await expect.poll(() => bubbles.count(), { timeout: LONG }).toBeGreaterThan(before);
+    await expect(sheet.getByTestId("ask-version")).toContainText(/Saved as version \d+/);
+    const next = sheet.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write])");
+    await expect(next.first()).toBeVisible({ timeout: LONG });
+    expect(await next.count()).toBeGreaterThanOrEqual(2);
+    // The answer is shown once (the thread is the only place it appears).
+    const answers = await bubbles.allInnerTexts();
+    expect(new Set(answers).size).toBe(answers.length);
+    // Typing is optional: Write, Enter sends, the field clears and closes.
+    const count = await bubbles.count();
+    await sheet.locator("[data-quick-reply=write]").click();
+    const field = sheet.getByRole("textbox", { name: /^Reply to Research agent/ });
+    await field.fill("How big is the market?");
+    await field.press("Enter");
+    await expect.poll(() => bubbles.count(), { timeout: LONG }).toBeGreaterThan(count);
+    await expect(sheet.getByTestId("quick-reply-write")).toHaveCount(0);
+    await expect(sheet.getByTestId("founder-bubble").last()).toHaveText(/How big is the market\?/);
+  });
+
+  test("AC-11.1.3: fork creates a new version, history is navigable, discard is reversible", async ({ page }) => {
+    // Counting needs every page of the deck, and the shared dev deck grows with every run: allow for loading it all.
+    test.slow();
+    await needCards(page, 1);
+    await loadWholeDeck(page);
     const grid = gridOf(page);
     const cards = cardsOf(page);
     const before = await cards.count();
     // A card still on its first version (the History button reads just "History"), so its history has exactly two
     // entries after the fork whatever earlier runs did to the rest of the deck.
-    const wrapper = grid.locator(":scope > div").filter({ has: page.locator("[data-testid=history-button]", { hasText: /^History$/ }) }).first();
+    // The oldest such card (the deck lists newest first), so it is a drafted card and not a fork from an earlier run.
+    const wrapper = grid.locator(":scope > div").filter({ has: page.locator("[data-testid=history-button]", { hasText: /^History$/ }) }).last();
     await expect(wrapper, "the deck has a card on version 1 (AC-11.1.2 drafts fresh ones)").toBeVisible();
     const card = wrapper.locator("[data-concept]");
     const id = (await card.getAttribute("data-concept"))!;
@@ -139,8 +232,14 @@ test.describe("ideation studio", () => {
     // Discard, then restore from the tray.
     const target = cards.last();
     const targetName = await target.getByRole("heading", { level: 3 }).innerText();
-    await target.locator('[data-concept-action="discard"]').click();
+    // Discard sits in the card's "More actions" menu.
+    await target.locator("[data-concept-more]").click();
+    await page.locator('[role="menuitem"][data-concept-action="discard"]').click();
     await expect(cards).toHaveCount(before);
+    // The outcome is said in the deck's header row with Undo beside it, not in a toast over the cards.
+    await expect(page.getByTestId("studio-notice")).toContainText(`Discarded ${targetName}`);
+    await expect(page.getByTestId("studio-notice-action")).toHaveText("Undo");
+    await expect(page.locator("[data-dugout-toasts] li")).toHaveCount(0);
     await page.getByTestId("tray-toggle").click();
     await expect(page.getByTestId("discard-tray")).toContainText(targetName);
     await page.getByTestId("restore-button").first().click();

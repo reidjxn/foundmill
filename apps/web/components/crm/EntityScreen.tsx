@@ -8,18 +8,19 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, Download, GitMerge, Handshake, Mail, MessageSquare, Pencil, Phone, Play, ScrollText, StickyNote, Trash2, Undo2, UserRoundPlus, Users } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Avatar, Button, Chip, ENTITY_KIND_ICONS, ENTITY_KIND_LABELS, EntityLink, Icon, KeyValueList, Panel, ProfileHeader, ProvenanceChip, RatingBar, StarRating, StatusPill, StatusStrip, Textarea, Timeline, formatDate, formatDateTime, formatMoney, formatRelative, useToast, type MetricTileProps, type ProfileChip, type ProfileFact, type TabItem, type TimelineEvent } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage, trpcErrorCode } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { useBusiness } from "@/components/shell/business-context";
+import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
+import { plainWords } from "@/lib/format";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { AddRoleDialog, DeleteRequestDialog, EditEntityDialog, ExportDialog, MergeDialog, useCrmInvalidate } from "./dialogs";
-import { ENTITY_TABS, LAWFUL_BASIS_LABEL, STAGE_TONE, activityItems, commercialSummary, documentItems, introPaths, leadScore, mergeBanner, primaryRole, relationshipStrength, stageWord, strengthRating, type EntityGet, type EntityTab, type OwnerRef } from "./logic";
+import { ENTITY_TABS, KIND_WORD, LAWFUL_BASIS_LABEL, STAGE_TONE, VISIBILITY_WORD, activityItems, commercialSummary, documentItems, introPaths, leadScore, mergeBanner, primaryRole, relationshipStrength, containerWord, roleWord, sourceWord, stageWord, strengthRating, type EntityGet, type EntityTab, type OwnerRef } from "./logic";
 import { RelationshipGraph } from "./RelationshipGraph";
 
 export interface EntityScreenProps {
@@ -27,16 +28,24 @@ export interface EntityScreenProps {
   tab: EntityTab;
 }
 
+/** Who made a merge, in words. */
+const MERGED_BY: Record<string, string> = { user: "by you", founder: "by you", agent: "by an agent", system: "automatically", import: "during an import" };
+
+/** An identifier on the profile, or a quiet "None" when the record has none. */
+function identifier(value: unknown): ReactNode {
+  return typeof value === "string" && value ? value : <span className="font-body text-body text-tertiary">None</span>;
+}
+
 const ACTIVITY_ICON = { email: Mail, meeting: Users, call: Phone, message: MessageSquare, note: StickyNote, mention: ScrollText, conversion: Play } as const;
 
 export function EntityScreen({ entityId, tab }: EntityScreenProps) {
-  const { businessId, departments, data } = useBusiness();
+  const { businessId, departments } = useBusiness();
   const trpc = useTRPC();
   const router = useRouter();
   const search = useSearchParams();
   const { toast } = useToast();
   const invalidate = useCrmInvalidate();
-  const currency = data.business.glossary?.currency ?? "EUR";
+  const currency = useBusinessCurrency();
 
   const getQ = useQuery(trpc.crm.entity.get.queryOptions({ businessId, entityId }, { staleTime: 15_000, retry: (n, err) => trpcErrorCode(err) !== "NOT_FOUND" && n < 2 }));
   const squadQ = useQuery(trpc.team.agents.list.queryOptions({ businessId }, { staleTime: 60_000, retry: false }));
@@ -82,7 +91,7 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
   const strength = relationshipStrength(get.relationships);
   const score = leadScore(get.roles, get.interactions, strength.rating);
   const banner = mergeBanner(get);
-  const chips: ProfileChip[] = [{ label: ENTITY_KIND_LABELS[entity.kind], icon: ENTITY_KIND_ICONS[entity.kind] }, ...get.roles.filter((r) => !r.endedAt).map((r) => ({ label: r.role.replace(/_/g, " ") }))];
+  const chips: ProfileChip[] = [{ label: KIND_WORD[entity.kind] ?? ENTITY_KIND_LABELS[entity.kind], icon: ENTITY_KIND_ICONS[entity.kind] }, ...get.roles.filter((r) => !r.endedAt).map((r) => ({ label: roleWord(r.role) }))];
   const facts: ProfileFact[] = [
     { label: "Owner", value: ownerName(role?.ownerRef as OwnerRef | null) },
     { label: "Relationship", value: <span className="inline-flex items-center gap-1.5">{strength.rating}<RatingBar value={strength.rating} name="Relationship strength" /></span> },
@@ -131,13 +140,13 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
                 <KeyValueList
                   labelClassName="w-36"
                   items={[
-                    { label: "Email", value: typeof entity.identifiers.email === "string" ? entity.identifiers.email : "—", mono: true },
-                    { label: "Domain", value: typeof entity.identifiers.domain === "string" ? entity.identifiers.domain : "—", mono: true },
-                    { label: "LinkedIn", value: typeof entity.identifiers.linkedin === "string" ? entity.identifiers.linkedin : "—", mono: true },
-                    { label: "Aliases", value: entity.aliases.length ? entity.aliases.join(", ") : "—" },
-                    { label: "Source", value: entity.source ?? "—" },
-                    { label: "Lawful basis", value: entity.lawfulBasis ? LAWFUL_BASIS_LABEL[entity.lawfulBasis] ?? entity.lawfulBasis : entity.kind === "person" ? <Chip tone="warn">Not recorded</Chip> : "—" },
-                    { label: "Visibility", value: entity.visibility },
+                    { label: "Email", value: identifier(entity.identifiers.email), mono: typeof entity.identifiers.email === "string" },
+                    { label: "Domain", value: identifier(entity.identifiers.domain), mono: typeof entity.identifiers.domain === "string" },
+                    { label: "LinkedIn", value: identifier(entity.identifiers.linkedin), mono: typeof entity.identifiers.linkedin === "string" },
+                    { label: "Other names", value: entity.aliases.length ? entity.aliases.join(", ") : <span className="text-tertiary">None</span> },
+                    { label: "Source", value: sourceWord(entity.source) || "Unknown" },
+                    { label: "Lawful basis", value: entity.lawfulBasis ? LAWFUL_BASIS_LABEL[entity.lawfulBasis] ?? plainWords(entity.lawfulBasis) : entity.kind === "person" ? <Chip tone="warn">Not recorded</Chip> : <span className="text-tertiary">Only recorded for people</span> },
+                    { label: "Visibility", value: VISIBILITY_WORD[entity.visibility] ?? plainWords(entity.visibility) },
                     { label: "Updated", value: formatDateTime(entity.updatedAt) },
                   ]}
                 />
@@ -146,17 +155,18 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
                 <div className="flex flex-col gap-3">
                   <div>
                     <span className="t-label block">Relationship strength</span>
-                    <span className="inline-flex items-center gap-2">
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span className="t-display-sm tabular-nums text-primary">{strength.rating}</span>
                       <RatingBar value={strength.rating} cellHeight={10} name="Relationship strength" />
-                      {strength.via ? <span className="text-small text-secondary">via {strength.via.other.displayName}</span> : <span className="text-small text-secondary">no relationships yet</span>}
+                      {strength.via ? <span className="text-small text-secondary">via {strength.via.other.displayName}</span> : <span className="text-small text-secondary">No relationships yet</span>}
                     </span>
                   </div>
                   <div>
                     <span className="t-label block">Lead score</span>
                     <span className="inline-flex items-center gap-2">
                       <StarRating value={score.stars} label="Lead score" showValue />
-                      <ProvenanceChip kind="estimate" />
+                      {/* Estimate only once there is something to estimate from. */}
+                      {score.reasons.length ? <ProvenanceChip kind="estimate" /> : null}
                       <span className="text-small text-secondary">{score.reasons.join(" · ") || "No signals yet"}</span>
                     </span>
                   </div>
@@ -164,7 +174,7 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
                     <span className="t-label block">Status</span>
                     {role ? (
                       <span className="inline-flex items-center gap-2">
-                        <Chip>{role.role.replace(/_/g, " ")}</Chip>
+                        <Chip>{roleWord(role.role)}</Chip>
                         {role.stage ? <StatusPill tone={STAGE_TONE[role.stage] ?? "neutral"}>{stageWord(role.stage)}</StatusPill> : null}
                         <span className="text-small text-secondary">since {formatDate(role.startedAt)}</span>
                       </span>
@@ -172,20 +182,17 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
                       <span className="text-small text-secondary">No active role</span>
                     )}
                   </div>
-                  <div>
-                    <span className="t-label block">Owner</span>
-                    <span className="text-body text-primary">{ownerName(role?.ownerRef as OwnerRef | null)}</span>
-                  </div>
+                  {/* The owner is in the header facts; it is not repeated here. */}
                 </div>
               </Panel>
-              <Panel title="Roles" span={12} actions={<Button size="sm" icon={UserRoundPlus} onClick={() => setDialog("role")} data-testid="add-role">Add role</Button>} empty={get.roles.length === 0 ? { children: "Roles say what this record is to the business: customer, lead, supplier, investor…" } : undefined}>
-                <ul className="flex flex-col divide-y divide-subtle" data-testid="roles-list">
+              <Panel title="Roles" span={12} actions={<Button size="sm" icon={UserRoundPlus} onClick={() => setDialog("role")} data-testid="add-role">Add role</Button>} empty={get.roles.length === 0 ? { icon: UserRoundPlus, children: "Roles say what this record is to the business: customer, lead, supplier or investor. Add the first one." } : undefined}>
+                <ul className="flex flex-col divide-y divide-line-faint" data-testid="roles-list">
                   {get.roles.map((r) => (
                     <li key={r.id} className="flex items-center gap-3 py-1.5 text-body" data-role-id={r.id}>
-                      <Chip>{r.role.replace(/_/g, " ")}</Chip>
+                      <Chip>{roleWord(r.role)}</Chip>
                       {r.stage ? <StatusPill tone={STAGE_TONE[r.stage] ?? "neutral"}>{stageWord(r.stage)}</StatusPill> : null}
                       <span className="text-small text-secondary">
-                        {formatDate(r.startedAt)} → {r.endedAt ? formatDate(r.endedAt) : "now"} · owner {ownerName(r.ownerRef as OwnerRef | null)}
+                        {formatDate(r.startedAt)} → {r.endedAt ? formatDate(r.endedAt) : "now"} · {r.ownerRef ? `owned by ${ownerName(r.ownerRef as OwnerRef | null)}` : "no owner yet"}
                       </span>
                       {!r.endedAt ? (
                         <Button size="sm" variant="ghost" className="ml-auto" loading={endRole.isPending} onClick={() => endRole.mutate({ businessId, roleId: r.id })}>
@@ -198,12 +205,12 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
               </Panel>
               {get.mergeHistory.length ? (
                 <Panel title="Merge history" span={12} data-testid="merge-history">
-                  <ul className="flex flex-col divide-y divide-subtle text-body">
+                  <ul className="flex flex-col divide-y divide-line-faint text-body">
                     {get.mergeHistory.map((m) => (
                       <li key={m.id} className="flex items-center gap-3 py-1.5">
                         <Icon icon={GitMerge} size="inline" className="text-secondary" />
                         <span>
-                          {m.keptId === entity.id ? "Absorbed" : "Merged into"} <span className="font-mono text-mono">{(m.keptId === entity.id ? m.mergedId : m.keptId).slice(0, 8)}</span> {formatRelative(m.createdAt)} by {m.byKind}
+                          {m.keptId === entity.id ? "Absorbed a duplicate record" : "Merged into another record"} {formatRelative(m.createdAt)}, {MERGED_BY[m.byKind] ?? `by ${plainWords(m.byKind).toLowerCase()}`}
                         </span>
                         {m.revertedAt ? <Chip tone="neutral">Reverted {formatRelative(m.revertedAt)}</Chip> : m.keptId === entity.id ? <Button size="sm" variant="ghost" icon={Undo2} className="ml-auto" loading={unmerge.isPending} onClick={() => unmerge.mutate({ businessId, mergeLogId: m.id })}>Unmerge</Button> : null}
                       </li>
@@ -283,7 +290,7 @@ function RelationshipsTab({ get, businessId }: { get: EntityGet; businessId: str
                 <Icon icon={ArrowRight} size={12} className="text-secondary" /> {get.entity.displayName}
               </span>
               <span className="inline-flex items-center gap-2 text-small text-secondary">
-                {p.type.replace(/_/g, " ")} · {p.strength}/20 <RatingBar value={p.strength} cellHeight={6} name="Path strength" />
+                {plainWords(p.type)} · {p.strength} of 20 <RatingBar value={p.strength} cellHeight={6} name="Path strength" />
               </span>
             </li>
           ))}
@@ -301,7 +308,7 @@ function CommercialTab({ get, currency }: { get: EntityGet; currency: string }) 
       <div className="col-span-12">
         <StatusStrip
           tiles={[
-            { label: "Lifetime value", value: { amountMinor: s.totalMinor, currency: s.currency }, provenance: { source: "conversions (payments)" } },
+            { label: "Lifetime value", value: { amountMinor: s.totalMinor, currency: s.currency }, provenance: { source: "Payments from this customer" } },
             { label: "Payments", value: s.payments, format: "integer" },
             { label: "Monthly", value: s.monthlyMinor === null ? null : { amountMinor: s.monthlyMinor, currency: s.currency }, estimate: "estimate", caption: "Average over active months" },
             { label: "First payment", value: s.firstPaymentAt ? formatDate(s.firstPaymentAt) : "—" },
@@ -338,7 +345,7 @@ function DocumentsTab({ get, businessId }: { get: EntityGet; businessId: string 
             ) : (
               <span className="text-primary">{d.title}</span>
             )}
-            <Chip>{d.kind.replace(/_/g, " ")}</Chip>
+            <Chip>{plainWords(containerWord(d.kind))}</Chip>
             {d.encrypted ? <Chip tone="neutral">Encrypted body</Chip> : null}
             <span className="ml-auto text-small text-secondary">{formatRelative(d.at)}</span>
           </li>
@@ -389,7 +396,7 @@ function NotesTab({ get, businessId }: { get: EntityGet; businessId: string }) {
                 {formatDateTime(n.occurredAt)}
                 {n.agentId ? " · agent" : " · you"}
               </span>
-              <p className="t-reading max-w-[640px] whitespace-pre-wrap text-primary">{n.summary}</p>
+              <p className="t-reading max-w-reading whitespace-pre-wrap text-primary">{n.summary}</p>
             </li>
           ))}
         </ul>

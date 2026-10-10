@@ -43,7 +43,7 @@ import { usePageShortcuts } from "@/lib/keys";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { gridRegistry } from "@/lib/widget-registry";
-import { useBusiness } from "@/components/shell/business-context";
+import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
@@ -64,7 +64,7 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
   const router = useRouter();
   const { toast } = useToast();
   const live = data.business.gameMode === "live";
-  const currency = data.business.glossary?.currency ?? "EUR";
+  const currency = useBusinessCurrency();
 
   const listQ = useQuery(trpc.dashboard.list.queryOptions({ businessId }, { staleTime: 30_000 }));
   const list = useMemo(() => listQ.data ?? [], [listQ.data]);

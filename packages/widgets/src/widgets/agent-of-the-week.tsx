@@ -48,7 +48,7 @@ export function agentRows(data: TeamAgentsListResponse | undefined): TeamAgentRo
 const PICK_WORD = { rating: "Highest rating", form: "Best form", value: "Best value" } as const;
 
 function AgentOfTheWeekWidget({ settings }: WidgetProps<AgentOfTheWeekSettings>) {
-  const { businessId, navigate } = useWidgetData();
+  const { businessId, navigate, currency = "EUR" } = useWidgetData();
   const team = useWidgetQuery<TeamAgentsListResponse>("team.agents.list", {});
   useBusinessEvents(() => team.refetch(), ["task.completed", "training.completed", "agent.promoted", "cycle.completed"]);
   const agent = useMemo(() => pickAgent(agentRows(team.data), settings), [team.data, settings]);
@@ -83,7 +83,7 @@ function AgentOfTheWeekWidget({ settings }: WidgetProps<AgentOfTheWeekSettings>)
             items={[
               { label: "Form", value: agent.form && agent.form.length ? <FormCells form={agent.form as FormResult[]} name={`${agent.name} form`} /> : "No completed tasks yet" },
               { label: "Working on", value: agent.currentTask ? agent.currentTask.title : "Between tasks" },
-              { label: "Wage this month", value: `${formatMoney({ amountMinor: agent.wage.costMinor, currency: "EUR" })} · Estimate`, numeric: true, hint: agent.wage.capMinor ? `Cap ${formatMoney({ amountMinor: agent.wage.capMinor, currency: "EUR" })}` : undefined },
+              { label: "Wage this month", value: `${formatMoney({ amountMinor: agent.wage.costMinor, currency })} · Estimate`, numeric: true, hint: agent.wage.capMinor ? `Cap ${formatMoney({ amountMinor: agent.wage.capMinor, currency })}` : undefined },
             ]}
           />
           <div className="mt-auto flex justify-end">

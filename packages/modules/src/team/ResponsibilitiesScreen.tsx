@@ -5,12 +5,14 @@
  * department. Every change goes through `team.responsibilities.set`, which routes the matching approvals and logs it.
  */
 import { useEffect, useId, useMemo, useState } from "react";
-import { ArrowLeftRight, Lock, ScrollText, Undo2 } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, MiniTable, Panel, RadioGroup, RadioOption, SimpleSelect, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { ArrowLeftRight, Bot, Lock, ScrollText, Undo2, UserRound, UserRoundPlus } from "lucide-react";
+import { Avatar, Button, Chip, DataTable, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, IconButton, MiniTable, Panel, RadioCard, RadioGroup, SimpleSelect, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { DECISION_TYPES, type DecisionType } from "@foundmill/shared/constants";
-import { useDepartments } from "@foundmill/widgets/shared/departments";
+import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
+import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
+import { fitColumns, plural, useTableWidth, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { AGENT_GATED_DECISIONS, DECISION_DESCRIPTIONS, DECISION_LABELS, InlineError, Screen, agentDept, agentEntity, agentHref, memberEntity, memberName, readMe, useAction, useAgents, useHumans, useMe, type Me } from "./shared";
 import type { AgentRow, HandlerKind, MembershipRow, ResponsibilitiesResponse, ResponsibilityHandler } from "./types";
@@ -29,10 +31,29 @@ export interface ResponsibilityRowView {
 }
 
 export const RESPONSIBILITY_VIEWS: SavedView[] = [
-  { id: "all", name: "All decisions", builtIn: true, columns: ["label", "handler", "scope", "actions"], sort: [], filters: [] },
-  { id: "delegated", name: "Delegated", builtIn: true, columns: ["label", "handler", "scope", "actions"], sort: [], filters: [{ id: "kind-not-founder", field: "handler", op: "neq", value: "founder" }] },
-  { id: "mine", name: "Mine", builtIn: true, columns: ["label", "scope", "actions"], sort: [], filters: [{ id: "kind-founder", field: "handler", op: "eq", value: "founder" }] },
+  { id: "all", name: "All decisions", builtIn: true, columns: ["label", "covers", "handler", "scope", "actions"], sort: [], filters: [] },
+  { id: "delegated", name: "Delegated", builtIn: true, columns: ["label", "covers", "handler", "scope", "actions"], sort: [], filters: [{ id: "kind-not-founder", field: "handler", op: "neq", value: "founder" }] },
+  { id: "mine", name: "Mine", builtIn: true, columns: ["label", "covers", "scope", "actions"], sort: [], filters: [{ id: "kind-founder", field: "handler", op: "eq", value: "founder" }] },
 ];
+
+/** Column minimums and how the extra width is shared (see fit.ts). The actions column holds Delegate and Take back. */
+export const RESPONSIBILITY_FIT: Record<string, ColumnFit> = {
+  // "Sign contracts" with its Hard gate chip fits whole at 1280; the description gives way first.
+  label: { min: 236, grow: 1 },
+  covers: { min: 220, grow: 5 },
+  handler: { min: 168, grow: 1 },
+  scope: { min: 136 },
+  actions: { min: 204 },
+};
+
+/**
+ * With the department detail open the matrix has two thirds of the width: Covers steps aside (the detail panel says
+ * what the decision covers) and Delegate / Take back become icon buttons named in their tooltips, so every column
+ * still fits at 1280 instead of the actions scrolling out of view.
+ */
+export const RESPONSIBILITY_FIT_NARROW: Record<string, ColumnFit> = { ...RESPONSIBILITY_FIT, actions: { min: 80 } };
+
+const ROW_PX = 34;
 
 export function handlerName(h: ResponsibilityHandler, ctx: { agents: Map<string, AgentRow>; humans: Map<string, MembershipRow>; me: Me }): string {
   if (h.kind === "founder") return "You (founder)";
@@ -66,17 +87,21 @@ export interface DelegateDialogProps {
   departments: readonly DepartmentRow[] | undefined;
   me: Me;
   onDelegated: (row: ResponsibilityRowView, handler: ResponsibilityHandler, departmentId: string | null) => void;
+  /** Opens Team › Staff, offered when a staff member is the handler and there is no one else yet. */
+  onInviteStaff?: () => void;
 }
 
-export function DelegateDialog({ row, onOpenChange, agents, humans, departments, me, onDelegated }: DelegateDialogProps) {
+export function DelegateDialog({ row, onOpenChange, agents, humans, departments, me, onDelegated, onInviteStaff }: DelegateDialogProps) {
   const id = useId();
   const action = useAction();
   const [kind, setKind] = useState<"user" | "agent">("user");
   const [handlerId, setHandlerId] = useState("");
   const [departmentId, setDepartmentId] = useState("all");
+  const hasOtherStaff = humans.some((h) => h.userId !== me.userId);
   useEffect(() => {
     if (row) {
-      setKind(row.gated ? "user" : row.handlerKind === "agent" ? "agent" : "user");
+      // With no one else on the staff an agent is the only choice (except for signing, which stays with a person).
+      setKind(row.gated ? "user" : row.handlerKind === "agent" || !hasOtherStaff ? "agent" : "user");
       setHandlerId(row.handler.kind !== "founder" && row.handler.id ? row.handler.id : "");
       setDepartmentId("all");
       action.clearError();
@@ -100,7 +125,7 @@ export function DelegateDialog({ row, onOpenChange, agents, humans, departments,
   };
   return (
     <Dialog open={!!row} onOpenChange={onOpenChange}>
-      <DialogContent size="sm" aria-describedby={`${id}-desc`} data-testid="delegate-dialog">
+      <DialogContent size="md" aria-describedby={`${id}-desc`} data-testid="delegate-dialog">
         <DialogHeader>
           <DialogTitle>Delegate “{row?.label}”</DialogTitle>
           <DialogDescription id={`${id}-desc`}>{row?.description} Approvals for this decision go to the handler from now on. Logged.</DialogDescription>
@@ -108,14 +133,34 @@ export function DelegateDialog({ row, onOpenChange, agents, humans, departments,
         <DialogBody className="flex flex-col gap-3">
           <fieldset>
             <legend className="t-label mb-1">Handler</legend>
-            <RadioGroup value={kind} onValueChange={(v) => { setKind(v as "user" | "agent"); setHandlerId(""); }} aria-label="Handler kind" className="gap-1">
-              <RadioOption id={`${id}-user`} value="user" label="A staff member" />
-              <RadioOption id={`${id}-agent`} value="agent" label="An agent" disabled={row?.gated} description={row?.gated ? "A hard gate: an agent can never sign or accept terms." : undefined} />
+            <RadioGroup
+              value={kind}
+              onValueChange={(v) => {
+                setKind(v as "user" | "agent");
+                setHandlerId("");
+              }}
+              aria-label="Handler kind"
+              className="grid grid-cols-1 gap-2"
+            >
+              <RadioCard id={`${id}-user`} value="user" icon={UserRound} label="A staff member" description="A co-founder, advisor or contractor." />
+              <RadioCard id={`${id}-agent`} value="agent" icon={Bot} label="An agent" disabled={row?.gated} description={row?.gated ? "A hard gate: an agent can never sign or accept terms." : "One of the team's agents."} />
             </RadioGroup>
           </fieldset>
-          <Field htmlFor={`${id}-who`} label={kind === "user" ? "Staff member" : "Agent"} required>
-            <SimpleSelect id={`${id}-who`} aria-label={kind === "user" ? "Staff member" : "Agent"} options={options} value={handlerId || undefined} onValueChange={setHandlerId} placeholder={options.length ? "Choose" : kind === "user" ? "No other staff yet; invite from the Staff tab" : "No agents yet"} disabled={!options.length} />
-          </Field>
+          {kind === "user" && !options.length ? (
+            // Nothing to choose from: say so in one line with the one action, instead of an empty, disabled list.
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-2 px-3 py-2" data-testid="delegate-no-staff">
+              <span className="text-small text-secondary">No one else is on the staff yet.</span>
+              {onInviteStaff ? (
+                <Button size="sm" icon={UserRoundPlus} onClick={onInviteStaff}>
+                  Invite staff
+                </Button>
+              ) : null}
+            </div>
+          ) : (
+            <Field htmlFor={`${id}-who`} label={kind === "user" ? "Staff member" : "Agent"} required>
+              <SimpleSelect id={`${id}-who`} aria-label={kind === "user" ? "Staff member" : "Agent"} options={options} value={handlerId || undefined} onValueChange={setHandlerId} placeholder={options.length ? "Choose" : "No agents yet"} disabled={!options.length} />
+            </Field>
+          )}
           <Field htmlFor={`${id}-dept`} label="Where">
             <SimpleSelect id={`${id}-dept`} aria-label="Where" options={deptOptions} value={departmentId} onValueChange={setDepartmentId} />
           </Field>
@@ -137,7 +182,7 @@ export function DelegateDialog({ row, onOpenChange, agents, humans, departments,
 /* ---------- Screen ---------- */
 
 export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
-  const { navigate } = useWidgetData();
+  const { navigate, currency = "EUR" } = useWidgetData();
   const data = useWidgetQuery<ResponsibilitiesResponse>("team.responsibilities.get", undefined);
   const agentsQuery = useAgents();
   const humansQuery = useHumans();
@@ -154,6 +199,15 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
   const [selected, setSelected] = useState<DecisionType | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const selectedRow = rows.find((r) => r.decisionType === selected) ?? null;
+  // Signing can only go to a person: offer "Delegate to staff…" on the hard-gated rows only when there is someone.
+  const otherStaff = (humansQuery.data ?? []).filter((h) => h.userId !== me.userId).length;
+  const [tableRef, tableWidth] = useTableWidth();
+  const narrow = !!selectedRow;
+  const [viewId, setViewId] = useState<string | null>("all");
+  const sizes = useMemo(() => {
+    const all = RESPONSIBILITY_VIEWS[0]!.columns as string[];
+    return narrow ? fitColumns(tableWidth, RESPONSIBILITY_FIT_NARROW, all.filter((c) => c !== "covers")) : fitColumns(tableWidth, RESPONSIBILITY_FIT, all);
+  }, [tableWidth, narrow]);
 
   const takeBack = async (row: ResponsibilityRowView, departmentId?: string) => {
     const input: Record<string, unknown> = { decisionType: row.decisionType, handler: { kind: "founder", id: null } };
@@ -170,20 +224,22 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
     if (h.kind === "agent" && h.id) {
       const agent = agentIndex.get(h.id);
       return (
-        <span className="inline-flex min-w-0 items-center gap-2">
+        <span className="flex min-w-0 items-center gap-2">
           {agent ? <Avatar size={20} name={agent.name} agent={{ seed: agent.avatarSeed || agent.id, dept: agentDept(agent) }} status={agent.status} /> : null}
-          <EntityLink entity={{ id: h.id, kind: "agent", name, href: agentHref(businessId, h.id) }} details={agent ? agentEntity(businessId, agent) : undefined} onOpen={(e) => e.href && navigate(e.href)} onVerb={(verb, e) => verb === "open_profile" && e.href && navigate(e.href)} />
+          <EntityLink entity={{ id: h.id, kind: "agent", name, href: agentHref(businessId, h.id) }} details={agent ? agentEntity(businessId, agent, currency) : undefined} className="min-w-0 truncate" onOpen={(e) => e.href && navigate(e.href)} onVerb={(verb, e) => verb === "open_profile" && e.href && navigate(e.href)} />
         </span>
       );
     }
     const m = h.id ? humanIndex.get(h.id) : undefined;
     return (
-      <span className="inline-flex min-w-0 items-center gap-2">
+      <span className="flex min-w-0 items-center gap-2">
         <Avatar size={20} name={name} />
-        <EntityLink entity={{ id: m?.entityId ?? h.id ?? name, kind: "team_member", name, href: m?.entityId ? `/b/${businessId}/crm/${m.entityId}/overview` : undefined }} details={m ? memberEntity(businessId, m, me) : undefined} onOpen={(e) => e.href && navigate(e.href)} />
+        <EntityLink entity={{ id: m?.entityId ?? h.id ?? name, kind: "team_member", name, href: m?.entityId ? `/b/${businessId}/crm/${m.entityId}/overview` : undefined }} details={m ? memberEntity(businessId, m, me) : undefined} className="min-w-0 truncate" onOpen={(e) => e.href && navigate(e.href)} />
       </span>
     );
   };
+
+  const delegateLabel = (row: ResponsibilityRowView) => (row.gated ? "Delegate to staff…" : "Delegate…");
 
   const columns = useMemo<DataTableColumn<ResponsibilityRowView>[]>(
     () => [
@@ -191,58 +247,96 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
         id: "label",
         accessorKey: "label",
         header: "Decision",
-        size: 300,
+        size: sizes.label,
         meta: { locked: true },
         cell: ({ row }) => (
-          <span className="flex min-w-0 flex-col py-0.5">
-            <span className="inline-flex items-center gap-1.5 text-body-strong">
-              {row.original.label}
-              {row.original.gated ? (
-                <Chip tone="warn" icon={Lock}>
-                  Hard gate
-                </Chip>
-              ) : null}
-            </span>
-            <span className="truncate text-small text-secondary" title={row.original.description}>
-              {row.original.description}
-            </span>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 truncate text-body-strong">{row.original.label}</span>
+            {row.original.gated ? (
+              <Chip tone="warn" icon={Lock} className="shrink-0">
+                Hard gate
+              </Chip>
+            ) : null}
           </span>
         ),
       },
-      { id: "handler", accessorFn: (r) => r.handlerKind, header: "Handler", size: 260, meta: { filter: "select", filterOptions: [{ value: "founder", label: "You" }, { value: "user", label: "Staff" }, { value: "agent", label: "Agent" }], csv: (r) => r.handlerName }, cell: ({ row }) => renderHandler(row.original.handler, row.original.handlerName) },
+      ...(narrow
+        ? []
+        : [
+            {
+              id: "covers",
+              accessorKey: "description",
+              header: "Covers",
+              size: sizes.covers,
+              enableSorting: false,
+              cell: ({ row }) => (
+                <span className="block min-w-0 truncate text-secondary" title={row.original.description}>
+                  {row.original.description}
+                </span>
+              ),
+            } satisfies DataTableColumn<ResponsibilityRowView>,
+          ]),
+      { id: "handler", accessorFn: (r) => r.handlerKind, header: "Handler", size: sizes.handler, meta: { filter: "select", filterOptions: [{ value: "founder", label: "You" }, { value: "user", label: "Staff" }, { value: "agent", label: "Agent" }], csv: (r) => r.handlerName }, cell: ({ row }) => renderHandler(row.original.handler, row.original.handlerName) },
       {
         id: "scope",
         accessorFn: (r) => (r.uniform ? "Every department" : "Differs by department"),
         header: "Scope",
-        size: 200,
+        size: sizes.scope,
         cell: ({ row }) => (row.original.uniform ? <span className="text-secondary">Every department</span> : <Chip tone="warn">Differs by department</Chip>),
       },
       {
         id: "actions",
         header: "",
-        size: 220,
+        size: sizes.actions,
         enableSorting: false,
-        meta: { filter: false, locked: true, csv: () => "" },
-        cell: ({ row }) => (
-          <span className="inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-            <Button size="sm" variant="ghost" icon={ArrowLeftRight} onClick={() => setDelegate(row.original)} aria-label={`Delegate ${row.original.label}`}>
-              Delegate…
-            </Button>
-            {row.original.handlerKind !== "founder" || !row.original.uniform ? (
-              <Button size="sm" variant="ghost" icon={Undo2} loading={action.pending === `takeback:${row.original.decisionType}`} onClick={() => void takeBack(row.original)} aria-label={`Take back ${row.original.label}`}>
-                Take back
-              </Button>
-            ) : null}
-          </span>
-        ),
+        meta: { filter: false, locked: true, label: "Actions", csv: () => "" },
+        cell: ({ row }) => {
+          const r = row.original;
+          const signOnly = r.gated && otherStaff === 0;
+          const canTakeBack = r.handlerKind !== "founder" || !r.uniform;
+          const takingBack = action.pending === `takeback:${r.decisionType}`;
+          if (narrow) {
+            return (
+              <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                {signOnly ? (
+                  <span className="inline-flex size-control-sm items-center justify-center text-tertiary" title="A hard gate: only you, or a staff member you delegate to, can sign">
+                    <Lock size={13} aria-label="Founder or staff only" />
+                  </span>
+                ) : (
+                  <IconButton size="sm" icon={ArrowLeftRight} label={`Delegate ${r.label}`} onClick={() => setDelegate(r)} />
+                )}
+                {canTakeBack ? <IconButton size="sm" icon={Undo2} label={`Take back ${r.label}`} loading={takingBack} onClick={() => void takeBack(r)} /> : null}
+              </span>
+            );
+          }
+          return (
+            <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+              {signOnly ? (
+                <span className="inline-flex items-center gap-1.5 px-2 text-small text-tertiary" title="A hard gate: only you, or a staff member you delegate to, can sign">
+                  <Lock size={13} aria-hidden className="shrink-0" />
+                  Founder or staff only
+                </span>
+              ) : (
+                <Button size="sm" variant="ghost" icon={ArrowLeftRight} onClick={() => setDelegate(r)} aria-label={`Delegate ${r.label}`}>
+                  {delegateLabel(r)}
+                </Button>
+              )}
+              {canTakeBack ? (
+                <Button size="sm" variant="ghost" icon={Undo2} loading={takingBack} onClick={() => void takeBack(r)} aria-label={`Take back ${r.label}`}>
+                  Take back
+                </Button>
+              ) : null}
+            </span>
+          );
+        },
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps -- handlers read the latest indexes through closures
-    [agentIndex, humanIndex, me, businessId, action.pending],
+    [agentIndex, humanIndex, me, businessId, action.pending, sizes, otherStaff, currency, narrow],
   );
 
   const rowActions = (row: ResponsibilityRowView): RowAction<ResponsibilityRowView>[] => [
-    { id: "delegate", label: "Delegate…", icon: ArrowLeftRight, onSelect: () => setDelegate(row) },
+    { id: "delegate", label: delegateLabel(row), icon: ArrowLeftRight, disabled: row.gated && otherStaff === 0, onSelect: () => setDelegate(row) },
     { id: "takeback", label: "Take back", icon: Undo2, disabled: row.handlerKind === "founder" && row.uniform, onSelect: () => void takeBack(row) },
     { id: "departments", label: "Show by department", icon: ScrollText, separatorBefore: true, onSelect: () => setSelected(row.decisionType) },
   ];
@@ -259,24 +353,32 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
         loading={data.isLoading && !data.data}
         error={data.error ? data.error.message : undefined}
         onRetry={data.refetch}
-        actions={
-          <span className="text-small text-secondary tabular-nums" data-testid="responsibilities-summary">
-            {rows.length} decision types · {delegated} delegated{differing ? ` · ${differing} differ by department` : ""}
+        meta={
+          <span data-testid="responsibilities-summary">
+            {plural(rows.length, "decision type")} · {delegated} delegated{differing ? ` · ${differing} ${differing === 1 ? "differs" : "differ"} by department` : ""}
           </span>
         }
         footer={
-          <span className="flex items-center gap-2">
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span>Delegating changes who receives the approvals for that decision; every change is logged. Signing stays a hard gate: no agent can ever hold it.</span>
-            {notice ? <span data-testid="responsibilities-notice">{notice}</span> : null}
+            {notice ? (
+              <span data-testid="responsibilities-notice" className="text-secondary">
+                {notice}
+              </span>
+            ) : null}
             <InlineError error={action.error} />
           </span>
         }
       >
-        <DataTable<ResponsibilityRowView> aria-label="Responsibilities" data={rows} columns={columns} views={views} onViewsChange={setViews} defaultViewId="all" rowActions={rowActions} onRowClick={(row) => setSelected(row.decisionType)} onRowOpen={(row) => setDelegate(row)} height={Math.max(320, rows.length * 44 + 48)} density="comfortable" exportFileName="responsibilities" footer={null} className="border-0" />
+        <div ref={tableRef} className="min-w-0">
+          {/* Remounted when the detail opens or closes, so the Covers column leaves and returns without marking the view as edited. */}
+          <DataTable<ResponsibilityRowView> key={narrow ? "with-detail" : "full"} aria-label="Responsibilities" data={rows} columns={columns} views={views} onViewsChange={setViews} activeViewId={viewId} onActiveViewChange={setViewId} defaultViewId="all" getRowId={(r) => r.decisionType} selectedIds={selectedRow ? [selectedRow.decisionType] : []} rowActions={rowActions} onRowClick={(row) => setSelected(row.decisionType)} onRowOpen={(row) => (row.gated && otherStaff === 0 ? setSelected(row.decisionType) : setDelegate(row))} height={Math.max(3, rows.length) * ROW_PX + 44} density="comfortable" exportFileName="responsibilities" footer={null} className="border-0" />
+        </div>
       </Panel>
 
       {selectedRow ? (
         <Panel span={4} title={`${selectedRow.label} by department`} flush actions={<Button size="sm" variant="ghost" onClick={() => setSelected(null)}>Close</Button>} empty={selectedRow.departments.length === 0 ? { children: "No departments yet; the business-wide handler applies." } : undefined}>
+          <p className="border-b border-line-faint px-panel-pad py-2.5 text-small text-secondary">{selectedRow.description}</p>
           <MiniTable<ResponsibilityRowView["departments"][number]>
             aria-label={`${selectedRow.label} by department`}
             rows={selectedRow.departments}
@@ -302,6 +404,7 @@ export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
         humans={humansQuery.data ?? []}
         departments={departments.data}
         me={me}
+        onInviteStaff={() => navigate(routes.department(businessId, departmentForModule(departments.data, "team")?.slug ?? "team", "staff"))}
         onDelegated={(row, handler, departmentId) => {
           setNotice(`${row.label} delegated to ${handlerName(handler, ctx)}${departmentId ? ` in ${departments.data?.find((d) => d.id === departmentId)?.name ?? "one department"}` : ""}.`);
           data.refetch();

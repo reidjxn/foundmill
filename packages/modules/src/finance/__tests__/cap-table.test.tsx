@@ -32,14 +32,15 @@ describe("CapTableScreen", () => {
     const holders = screen.getByRole("grid", { name: "Holders" });
     expect(within(holders).getByRole("link", { name: /Mara Lindqvist/ }).getAttribute("href")).toBe(`/b/${BID}/crm/${ENTITY.mara}/overview`);
     expect(within(holders).getAllByText("48.91%")).toHaveLength(2);
-    expect(within(holders).getAllByText("Common · 4,500,000")).toHaveLength(2);
-    const classes = screen.getByRole("table", { name: "Share classes" });
+    expect(within(holders).getAllByText("Common")).toHaveLength(2);
+    const classes = screen.getByRole("list", { name: "Share classes" });
     expect(within(classes).getByText("2026 Option Plan")).toBeTruthy();
     expect(within(classes).getByText("SAFE")).toBeTruthy();
     const issuances = screen.getByRole("grid", { name: "Issuances" });
     expect(within(issuances).getAllByText("4y / 1y cliff · 25% vested")).toHaveLength(2);
     expect(within(issuances).getByText("4y / 1y cliff · 0% vested")).toBeTruthy();
-    expect(screen.getByText(/4 issuances · versioned and audited · last change 14 Aug 2026/)).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Issuances" }).textContent).toContain("4 issuances");
+    expect(screen.getByText(/^Versioned and audited · last change/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Pay|Transfer|Wire/ })).toBeNull(); // no money movement
   });
 
@@ -102,7 +103,10 @@ describe("CapTableScreen", () => {
   it("shows the empty, loading and error states", () => {
     const empty = createFakeSource({ businessId: BID, responses: emptyResponses });
     const { unmount } = renderScreen(empty, <CapTableScreen {...props} />);
-    expect(screen.getAllByText("No cap table yet").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("No cap table yet")).toHaveLength(1); // one message, not one per panel
+    expect(screen.getAllByRole("button", { name: "Open Legal" })).toHaveLength(1);
+    expect((screen.getByRole("button", { name: "Delaware stock ledger" }) as HTMLButtonElement).disabled).toBe(true); // nothing to export
+    expect((screen.getByRole("button", { name: "Aktiebok" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getAllByRole("button", { name: "Open Legal" })[0]!);
     expect(empty.navigations[0]).toBe(`/b/${BID}/d/legal/entity`);
     unmount();

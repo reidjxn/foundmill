@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@foundmill/dugout";
 import { DraftStatus, DraftingCard } from "../ideate/DraftStatus";
@@ -111,44 +111,67 @@ describe("useDraftRun", () => {
   });
 });
 
-describe("DraftStatus", () => {
-  it("says who is drafting which concept, shows the elapsed time and offers Stop", () => {
+describe("DraftStatus (the live run under the brief)", () => {
+  const midRun = () => {
     let run = startRun(0);
     for (const e of [
+      { type: "started", agent: "Ideation agent", single: false, mode: "mock" },
       { type: "outline", index: 0, name: "Ledgerly", archetype: "b2b_saas" },
       { type: "outline", index: 1, name: "Quarloop", archetype: "services" },
       { type: "outlined", total: 2 },
+      { type: "writing", index: 1, attempt: 1 },
       { type: "idea", index: 0, idea: idea("a", "Ledgerly") },
     ] as DraftEvent[])
       run = applyDraftEvent(run, e, 1);
-    const onStop = vi.fn();
+    return run;
+  };
+
+  it("says who is drafting which concept, the steps, one bar segment per concept and the elapsed time", () => {
     render(
       <TooltipProvider>
-        <DraftStatus run={run} now={12_400} onStop={onStop} />
+        <DraftStatus run={midRun()} now={12_400} />
       </TooltipProvider>,
     );
     expect(screen.getByTestId("draft-progress").textContent).toBe("Ideation agent is drafting concept 2 of 2");
     expect(screen.getByTestId("draft-elapsed").textContent).toBe("0:12");
-    expect(screen.getByRole("progressbar", { name: "Concepts drafted" }).getAttribute("aria-valuenow")).toBe("50");
-    fireEvent.click(screen.getByTestId("stop-button"));
-    expect(onStop).toHaveBeenCalledTimes(1);
+    const steps = screen.getAllByTestId("live-run-step");
+    expect(steps.map((s) => s.getAttribute("data-state"))).toEqual(["done", "done", "current", "pending"]);
+    expect(steps[1]!.textContent).toContain("Slate of 2 angles");
+    expect(screen.getByTestId("live-run-bar").getAttribute("aria-label")).toBe("1 of 2 concepts landed, 1 drafting");
+    // Time left is the pace so far (12.4 s for one card) times the card still to come, labelled an Estimate.
+    expect(screen.getByTestId("live-run-meter").textContent).toMatch(/about 0:12 left/);
+    expect(screen.getByTestId("live-run-meter").textContent).toMatch(/Estimate/);
+    expect(screen.getByTestId("live-run-activity").textContent).toContain("Ideation agent is drafting Quarloop");
+    expect(screen.queryByTestId("stop-button")).toBeNull();
   });
 
-  it("drops Stop once the draft is over and freezes the timer", () => {
+  it("freezes the timer once the draft is over and shows the cost as an Estimate", () => {
     const run = { ...startRun(0), status: "done" as const, finishedAt: 8_000, total: 0, costMinor: 4 };
-    render(<DraftStatus run={run} now={60_000} onStop={() => undefined} />);
-    expect(screen.queryByTestId("stop-button")).toBeNull();
+    render(<DraftStatus run={run} now={60_000} />);
     expect(screen.getByTestId("draft-elapsed").textContent).toBe("0:08");
+    expect(screen.getByTestId("draft-status").getAttribute("data-status")).toBe("done");
+    expect(screen.getByTestId("live-run-meter").textContent).toMatch(/Estimate/);
+    expect(screen.queryByTestId("live-run-activity")).toBeNull();
   });
 });
 
 describe("DraftingCard", () => {
-  it("holds a named concept's place while its card is written", () => {
+  it("holds a named concept's place while its card is written, in the drafter's frame", () => {
     render(<DraftingCard slot={{ index: 3, name: "Fenwave", archetype: "marketplace", status: "writing", ideaId: null }} />);
     const card = screen.getByTestId("drafting-card");
     expect(card.getAttribute("data-slot")).toBe("3");
+    expect(card.getAttribute("data-state")).toBe("drafting");
     expect(card.textContent).toContain("Fenwave");
     expect(card.textContent).toContain("Writing the card");
+    expect(card.textContent).toContain("Ideation agent is drafting");
+    expect(card.textContent).toContain("Actions unlock when it lands");
     expect(card.hasAttribute("data-concept")).toBe(false);
+  });
+
+  it("names its drafter while it waits in the queue", () => {
+    render(<DraftingCard slot={{ index: 0, name: "Quarloop", archetype: null, status: "outlined", ideaId: null }} />);
+    const card = screen.getByTestId("drafting-card");
+    expect(card.getAttribute("data-state")).toBe("queued");
+    expect(card.textContent).toContain("Queued for Ideation agent");
   });
 });

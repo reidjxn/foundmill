@@ -6,13 +6,13 @@
  */
 import { useEffect, useId, useMemo, useState } from "react";
 import { AlertTriangle, Inbox, Save, TrendingUp, Undo2 } from "lucide-react";
-import { Button, Chip, Field, Input, KeyValueList, LineChart, Panel, ProvenanceChip, StatusPill, type LineSeries, type SeriesTone } from "@foundmill/dugout";
+import { Button, Chip, Field, Input, KeyValueList, LineChart, MoneyInput, Panel, ProvenanceChip, SegmentedControl, StatusPill, formatDate, type LineSeries, type SeriesTone } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { FORECAST_SCENARIOS, type FinanceOverview, type ForecastDrivers, type ForecastRow, type ForecastScenario, type PnlResponse } from "./types";
 import { RUNWAY_BLOCK_MONTHS, formatMonth, monthKey, monthStart, pnlTotals, projectForecast, readDrivers, runwayTone, runwayWarnings, runwayWord, seedDrivers } from "./metrics";
-import { InlineError, Screen, fmtMoney, fmtMonths, toDate, useAction, useCurrency, useNow } from "./shared";
+import { InlineError, Screen, fmtAxisMoney, fmtMoney, fmtMonths, parseAmount, toDate, useAction, useCurrency, useNow } from "./shared";
 
 export const SCENARIO_META: Record<ForecastScenario, { label: string; tone: SeriesTone; hint: string }> = {
   base: { label: "Base", tone: "kit", hint: "What the plan says: current MRR, 5 % monthly growth, costs up 1 % a month." },
@@ -23,10 +23,10 @@ export const SCENARIO_META: Record<ForecastScenario, { label: string; tone: Seri
 export const DRIVER_FIELDS: readonly { key: keyof ForecastDrivers; label: string; kind: "money" | "percent" | "months"; hint: string }[] = [
   { key: "startingCashMinor", label: "Starting cash", kind: "money", hint: "Cash in bank today" },
   { key: "monthlyRevenueMinor", label: "Monthly revenue", kind: "money", hint: "Cash-basis revenue this month" },
-  { key: "revenueGrowthPct", label: "Revenue growth", kind: "percent", hint: "% month on month" },
+  { key: "revenueGrowthPct", label: "Revenue growth", kind: "percent", hint: "Month on month" },
   { key: "monthlyCostsMinor", label: "Monthly costs", kind: "money", hint: "Gross burn this month" },
-  { key: "costGrowthPct", label: "Cost growth", kind: "percent", hint: "% month on month" },
-  { key: "horizonMonths", label: "Horizon", kind: "months", hint: "Months projected (1–60)" },
+  { key: "costGrowthPct", label: "Cost growth", kind: "percent", hint: "Month on month" },
+  { key: "horizonMonths", label: "Horizon", kind: "months", hint: "Projected, 1 to 60" },
 ];
 
 /** Latest stored forecast per scenario (the list is ordered scenario asc, createdAt desc). */
@@ -47,9 +47,9 @@ function toField(d: ForecastDrivers, key: keyof ForecastDrivers, kind: "money" |
   return kind === "money" ? (v / 100).toFixed(0) : String(v);
 }
 
-function fromField(raw: string, kind: "money" | "percent" | "months", prev: number): number {
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return prev;
+export function fromField(raw: string, kind: "money" | "percent" | "months", prev: number): number {
+  const n = kind === "money" ? parseAmount(raw) : Number(raw.trim().replace(/[%\s]/g, ""));
+  if (n === null || !Number.isFinite(n)) return prev;
   return kind === "money" ? Math.round(n * 100) : n;
 }
 
@@ -124,9 +124,9 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
     const p = projections[s];
     const last = p.series.at(-1);
     return [
-      { label: "Runway", value: <span className="flex items-center gap-1 tabular-nums">{p.runwayMonths === null ? `> ${drafts[s].horizonMonths} mo` : fmtMonths(p.runwayMonths)} <ProvenanceChip kind="forecast" /></span>, numeric: true },
+      { label: "Runway", value: <span className="flex items-center gap-1 tabular-nums">{p.runwayMonths === null ? `Beyond ${drafts[s].horizonMonths} months` : fmtMonths(p.runwayMonths)} <ProvenanceChip kind="forecast" /></span>, numeric: true },
       { label: "Cash out", value: p.zeroMonth ? formatMonth(p.zeroMonth) : "Not within horizon", numeric: true },
-      { label: `Cash in ${last ? formatMonth(last.month) : "—"}`, value: fmtMoney(last?.cashMinor ?? null, cur, { compact: true }), numeric: true },
+      { label: last ? `Cash, ${formatMonth(last.month)}` : "Cash at horizon", value: fmtMoney(last?.cashMinor ?? null, cur, { compact: true }), numeric: true },
     ];
   };
 
@@ -141,27 +141,30 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
           list.refetch();
           overview.refetch();
         }}
+        meta={`${drafts.base.horizonMonths} months`}
         actions={<ProvenanceChip kind="forecast" />}
-        footer={<span>{noForecasts ? "No forecast saved yet: the lines show drivers seeded from today's cash, MRR and gross burn. Save a scenario to keep it." : `Latest versions: ${FORECAST_SCENARIOS.map((s) => `${SCENARIO_META[s].label} ${stored[s] ? (toDate(stored[s]!.createdAt)?.toISOString().slice(0, 10) ?? "unsaved") : "unsaved"}`).join(" · ")}.`} Every value is a forecast, not a measurement.</span>}
+        footer={<span>{noForecasts ? "No forecast saved yet: the lines show drivers seeded from today's cash, MRR and gross burn. Save a scenario to keep it." : `Latest versions: ${FORECAST_SCENARIOS.map((s) => `${SCENARIO_META[s].label} ${stored[s] ? formatDate(toDate(stored[s]!.createdAt) ?? "") : "not saved"}`).join(" · ")}.`} Every value is a forecast, not a measurement.</span>}
       >
-        <LineChart label="Cash forecast by scenario" series={series} height={260} yFormat={(v) => fmtMoney(v, cur, { compact: true })} provenance="forecast" zeroBased={false} markX={monthStart(now, 0)} markLabel="Now" />
+        <LineChart label="Cash forecast by scenario" series={series} height={320} yFormat={(v) => fmtAxisMoney(v, cur)} zeroBased={false} markX={monthStart(now, 0)} markLabel="Now" />
       </Panel>
       <Panel title="Runway warnings" span={4} loading={loading} error={error ? error.message : undefined} footer={<span>Warnings at 12, 9 and 6 months; under {RUNWAY_BLOCK_MONTHS} months is red and blocks Continue until acknowledged in the Inbox.</span>}>
         <ul className="flex flex-col gap-3" aria-label="Runway by scenario">
           {FORECAST_SCENARIOS.map((s) => {
             const months = projections[s].runwayMonths;
-            const tone = runwayTone(months ?? Number.POSITIVE_INFINITY);
+            const raw = runwayTone(months ?? Number.POSITIVE_INFINITY);
+            const tone = raw === "neutral" ? "good" : raw;
             const crossed = runwayWarnings(months);
             return (
               <li key={s} className="flex flex-col gap-1" data-scenario={s}>
                 <div className="flex items-center gap-2">
                   <Chip tone={s === "base" ? "kit" : s === "upside" ? "good" : "bad"}>{SCENARIO_META[s].label}</Chip>
-                  <StatusPill tone={tone === "neutral" ? "good" : tone} icon={tone === "good" ? TrendingUp : AlertTriangle}>
-                    {months === null ? `Beyond ${drafts[s].horizonMonths} months` : runwayWord(months)}
+                  <StatusPill tone={tone} icon={tone === "good" ? TrendingUp : AlertTriangle} className="whitespace-nowrap">
+                    {/* The judgement in words; the Runway row under it carries the figure. */}
+                    {months === null ? "Runway healthy" : runwayWord(months)}
                   </StatusPill>
                   {dirty.has(s) ? <span className="text-small text-secondary">unsaved changes</span> : !stored[s] ? <span className="text-small text-secondary">not saved yet</span> : null}
                 </div>
-                <KeyValueList dense items={summary(s)} labelClassName="w-28" />
+                <KeyValueList dense items={summary(s)} labelClassName="w-32" />
                 {crossed.length ? <span className="text-small text-secondary">Below the {crossed.join(", ")}-month threshold{crossed.length > 1 ? "s" : ""}.</span> : null}
               </li>
             );
@@ -181,14 +184,13 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
         span={12}
         loading={loading}
         actions={
-          <div role="group" aria-label="Scenario" className="flex items-center gap-1">
-            {FORECAST_SCENARIOS.map((s) => (
-              <Chip key={s} tone={scenario === s ? "kit" : "neutral"} selected={scenario === s} onClick={() => setScenario(s)} title={SCENARIO_META[s].hint}>
-                {SCENARIO_META[s].label}
-                {dirty.has(s) ? " •" : ""}
-              </Chip>
-            ))}
-          </div>
+          <SegmentedControl<ForecastScenario>
+            aria-label="Scenario"
+            size="sm"
+            value={scenario}
+            onValueChange={setScenario}
+            options={FORECAST_SCENARIOS.map((s) => ({ value: s, label: dirty.has(s) ? `${SCENARIO_META[s].label} · unsaved` : SCENARIO_META[s].label, title: SCENARIO_META[s].hint }))}
+          />
         }
         footer={<span>{SCENARIO_META[scenario].hint} Saving creates a new forecast version; the previous one is kept for the audit trail.</span>}
       >
@@ -203,7 +205,11 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
           <div className="grid grid-cols-6 gap-gutter">
             {DRIVER_FIELDS.map((f) => (
               <Field key={f.key} htmlFor={`${id}-${scenario}-${f.key}`} label={f.label} hint={f.hint}>
-                <Input id={`${id}-${scenario}-${f.key}`} numeric inputMode="decimal" controlSize="md" value={toField(draft, f.key, f.kind)} suffix={f.kind === "money" ? cur : f.kind === "percent" ? "%" : "months"} onChange={(e) => setDriver(f.key, fromField(e.target.value, f.kind, Number(draft[f.key] ?? 0)))} />
+                {f.kind === "money" ? (
+                  <MoneyInput id={`${id}-${scenario}-${f.key}`} controlSize="lg" currency={cur} value={toField(draft, f.key, f.kind)} onValueChange={(raw) => setDriver(f.key, fromField(raw, f.kind, Number(draft[f.key] ?? 0)))} />
+                ) : (
+                  <Input id={`${id}-${scenario}-${f.key}`} inputMode="decimal" controlSize="lg" className="tabular-nums" value={toField(draft, f.key, f.kind)} suffix={f.kind === "percent" ? "%" : "months"} onChange={(e) => setDriver(f.key, fromField(e.target.value, f.kind, Number(draft[f.key] ?? 0)))} />
+                )}
               </Field>
             ))}
           </div>

@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { applyDraftEvent, draftedCount, failRun, formatElapsed, gridEntries, prependIdea, progressLine, runIdeaIds, startRun, stopRun, type DraftEvent, type DraftRun, type DraftedIdea } from "../ideate/draft-run";
+import { applyDraftEvent, deckFromPages, draftItems, draftSteps, draftedCount, draftingNames, failRun, formatElapsed, gridEntries, prependIdea, prependIdeaToPages, progressLine, remainingEstimateMs, runIdeaIds, slateLine, startRun, stopRun, type DraftEvent, type DraftRun, type DraftedIdea } from "../ideate/draft-run";
 
 const idea = (id: string, title = id): DraftedIdea => ({ id, title }) as unknown as DraftedIdea;
 
@@ -71,6 +71,17 @@ describe("draft run (the Studio's streamed draft)", () => {
     expect(prependIdea(undefined, { id: "z" })).toBeUndefined();
   });
 
+  it("pages the deck: a saved idea goes on top of the first page and never shows twice; pages read newest first, once each", () => {
+    const data = { pages: [{ items: [{ id: "a" }, { id: "b" }], nextCursor: "c1" }, { items: [{ id: "c" }, { id: "z" }], nextCursor: null }], pageParams: [null, "c1"] };
+    const next = prependIdeaToPages(data, { id: "z" })!;
+    expect(next.pages.map((p) => p.items.map((i) => i.id))).toEqual([["z", "a", "b"], ["c"]]);
+    expect(next.pageParams).toEqual([null, "c1"]);
+    expect(prependIdeaToPages(undefined, { id: "z" })).toBeUndefined();
+    // A card that moved from page 2 onto page 1 between two fetches is shown once.
+    expect(deckFromPages([{ items: [{ id: "n" }, { id: "a" }] }, { items: [{ id: "a" }, { id: "b" }] }]).map((i) => i.id)).toEqual(["n", "a", "b"]);
+    expect(deckFromPages(undefined)).toEqual([]);
+  });
+
   it("lays the grid out as the run's slots in slate order, then the rest of the deck", () => {
     const deck = [{ id: "old1" }, { id: "b" }, { id: "old2" }];
     let run = fold([outline(0, "A"), outline(1, "B"), outline(2, "C"), saved(1, "b", "B"), { type: "card_failed", index: 2, name: "C", message: "x" }]);
@@ -80,5 +91,44 @@ describe("draft run (the Studio's streamed draft)", () => {
     run = stopRun(run, 9);
     expect(shape(run)).toEqual(["b*", "old1", "old2"]);
     expect(shape(null)).toEqual(["old1", "b", "old2"]);
+  });
+});
+
+describe("the live run (SPEC 'Live run panel')", () => {
+  const events = (list: DraftEvent[], run = startRun(0), now = 1) => list.reduce((r, e) => applyDraftEvent(r, e, now), run);
+
+  it("steps follow what the stream said: profile, slate, cards; ranking stays with Compare", () => {
+    const fresh = startRun(0);
+    expect(draftSteps(fresh).map((s) => s.state)).toEqual(["current", "pending", "pending", "pending"]);
+    const outlining = events([{ type: "outline", index: 0, name: "Ledgerly", archetype: "b2b_saas" }] as DraftEvent[]);
+    expect(draftSteps(outlining).map((s) => s.state)).toEqual(["done", "current", "pending", "pending"]);
+    expect(draftSteps(outlining)[1]!.label).toBe("Slate of 1+ angles");
+    const drafting = events([{ type: "outlined", total: 2 }, { type: "writing", index: 0, attempt: 1 }] as DraftEvent[], outlining);
+    const steps = draftSteps(drafting);
+    expect(steps.map((s) => s.state)).toEqual(["done", "done", "current", "pending"]);
+    expect(steps[1]!.label).toBe("Slate of 2 angles");
+    expect(steps[2]!.detail).toBe("0 landed · 1 in progress");
+    expect(steps[3]!.label).toBe("Rank in Compare");
+    const stopped = stopRun(drafting, 5);
+    expect(draftSteps(stopped)[2]!.state).toBe("failed");
+  });
+
+  it("one bar segment per concept, the time left from the pace so far, the slate's names and who is being drafted", () => {
+    const run = events([
+      { type: "outline", index: 0, name: "Ledgerly", archetype: "b2b_saas" },
+      { type: "outline", index: 1, name: "Quarloop", archetype: "services" },
+      { type: "outline", index: 2, name: "Fenwave", archetype: "marketplace" },
+      { type: "outlined", total: 4 },
+      { type: "writing", index: 1, attempt: 1 },
+      { type: "writing", index: 2, attempt: 2 },
+      { type: "idea", index: 0, idea: idea("a", "Ledgerly") },
+    ] as DraftEvent[]);
+    expect(draftItems(run).map((i) => i.state)).toEqual(["landed", "drafting", "drafting", "empty"]);
+    // 10 s for one finished card, three to come.
+    expect(remainingEstimateMs(run, 10_000)).toBe(30_000);
+    expect(remainingEstimateMs(startRun(0), 10_000)).toBeNull();
+    expect(slateLine(run)).toBe("Ledgerly · Quarloop · Fenwave");
+    expect(draftingNames(run)).toBe("Quarloop and Fenwave");
+    expect(draftingNames(run, 1)).toBe("Quarloop and 1 more");
   });
 });

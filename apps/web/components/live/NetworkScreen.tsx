@@ -6,6 +6,7 @@
  * agents never send a human-to-human message; only the founder's own Send does.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { StatusStrip, useToast, type MetricTileProps } from "@foundmill/dugout";
 import { counterpartId, findDirectThread, groupConnections, otherParticipants } from "@/lib/live";
@@ -20,6 +21,8 @@ import { VisibilityPanel } from "./VisibilityPanel";
 
 export function NetworkScreen() {
   const viewer = useLiveViewer();
+  const router = useRouter();
+  const findFounders = () => router.push("/communities");
   const trpc = useTRPC();
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -79,6 +82,7 @@ export function NetworkScreen() {
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="network-screen">
       <PersonalNotice className="col-span-12" />
       <StatusStrip className="col-span-12" tiles={tiles} aria-label="Network at a glance" data-testid="network-strip" />
+      {/* One way on from an empty network, not three: only Connections offers "Browse communities". */}
       <div className="col-span-4 flex min-w-0 flex-col gap-gutter">
         <RequestsPanel rows={groups.incoming} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} busyId={busyId} onAccept={handlers.onAccept} onBlock={handlers.onBlock} />
         <SentRequestsPanel rows={groups.outgoing} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} busyId={busyId} onRemove={handlers.onRemove} />
@@ -96,7 +100,7 @@ export function NetworkScreen() {
           error={threadsQ.error ? errorMessage(threadsQ.error) : undefined}
           onRetry={() => void threadsQ.refetch()}
         />
-        <ConnectionsPanel rows={[...groups.accepted, ...groups.blocked]} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} onBlock={handlers.onBlock} onRemove={handlers.onRemove} onMessage={handlers.onMessage} />
+        <ConnectionsPanel rows={[...groups.accepted, ...groups.blocked]} viewerId={viewer.userId} people={people} loading={loading} error={connectionsError} onRetry={() => void connectionsQ.refetch()} onBlock={handlers.onBlock} onRemove={handlers.onRemove} onMessage={handlers.onMessage} onFind={findFounders} />
       </div>
     </div>
   );

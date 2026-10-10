@@ -4,7 +4,8 @@ import { LONG, openBusiness } from "./helpers";
 /**
  * Specification tab with the host's spec editor (BUILD §11.5; the Tiptap editor apps/web hands to @foundmill/modules
  * through ModuleEnv). The local stack runs without a collab server (NEXT_PUBLIC_COLLAB_URL unset, e2e/README.md), so
- * the editor opens in local mode: status "Local edits", ⌘/Ctrl+S saves the whole block through product.spec.editBlock.
+ * the editor opens in local mode (status "Editing", no developer copy), ⌘/Ctrl+S saves the whole block through
+ * product.spec.editBlock.
  */
 test.describe("specification editor", () => {
   test("opens a block in the host editor; without a collab server it edits locally and saves the block", async ({ page }) => {
@@ -23,6 +24,10 @@ test.describe("specification editor", () => {
     const surface = page.locator("[data-spec-editor]");
     await expect(surface).toHaveAttribute("data-spec-editor", "local");
     await expect(page.getByTestId("spec-editor-save")).toBeDisabled();
+    // Founder copy only: no "collab server" and no internal document names.
+    await expect(page.getByTestId("module-screen")).not.toContainText(/collab server|spec:[0-9a-f]{8}/i);
+    // Outline items wrap to two lines rather than being cut to a stub.
+    await expect(firstBlock.locator("span.line-clamp-2")).toHaveCount(1);
     const marker = `Edited in the e2e run ${Date.now().toString(36)}.`;
     await surface.click();
     await page.keyboard.press("End");

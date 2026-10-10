@@ -25,9 +25,9 @@ describe("transforms", () => {
   it("counts tasks by status in a stable order", () => {
     const d = tasksByStatus({ items: [{ status: "done" }, { status: "running" }, { status: "done" }, { status: "weird" }] });
     expect(d.rows).toEqual([
-      { status: "running", count: 1 },
-      { status: "done", count: 2 },
-      { status: "weird", count: 1 },
+      { status: "In progress", count: 1 },
+      { status: "Done", count: 2 },
+      { status: "Weird", count: 1 },
     ]);
     expect(chartShape("chart", d)).toBe("bar");
     expect(chartShape("table", d)).toBe("table");

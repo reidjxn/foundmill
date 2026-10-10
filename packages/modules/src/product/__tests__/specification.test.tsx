@@ -15,8 +15,9 @@ describe("SpecificationScreen", () => {
     expect(within(outline).getByRole("button", { name: /Invoices go unpaid/ }).getAttribute("aria-current")).toBe("true");
     const editor = screen.getByLabelText("Block text") as HTMLTextAreaElement;
     expect(editor.value).toContain("# Invoices go unpaid");
-    expect(screen.getByText("Local edits")).toBeTruthy();
-    expect(screen.getByText(`spec:${BID}:${BLOCK.problem}`)).toBeTruthy();
+    expect(screen.getByText("Editing")).toBeTruthy();
+    // The internal document name is not founder copy.
+    expect(screen.queryByText(`spec:${BID}:${BLOCK.problem}`)).toBeNull();
   });
 
   it("moves through the outline with the keyboard and locks pinned blocks visibly", () => {
@@ -53,7 +54,8 @@ describe("SpecificationScreen", () => {
     renderScreen(fake, <SpecificationScreen businessId={BID} departmentId="d1" />, { SpecEditor: Host, collabUrl: "wss://collab.example", collabToken: "tok" });
     expect(screen.getByTestId("host-editor")).toBeTruthy();
     expect(seen[0]).toMatchObject({ businessId: BID, blockId: BLOCK.problem, documentName: `spec:${BID}:${BLOCK.problem}`, collabUrl: "wss://collab.example", collabToken: "tok", pinned: false });
-    expect(screen.getByText("Connecting")).toBeTruthy();
+    // The host editor shows its own live status; the panel footer does not repeat it.
+    expect(screen.queryByText("Connecting")).toBeNull();
   });
 
   it("lists versions, compares two of them in a diff and restores through product.spec.restore", async () => {

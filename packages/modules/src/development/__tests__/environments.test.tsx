@@ -2,9 +2,10 @@ import "./setup";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { EnvironmentsScreen, deploymentFromEvent, toEnvironmentRows, type Deployment } from "../EnvironmentsScreen";
+import { EnvironmentsScreen, deploymentFromEvent, providerLabel, toEnvironmentRows, type Deployment } from "../EnvironmentsScreen";
 import { BUSINESS_ID, createFakeSource, renderScreen } from "./fake-source";
 import { TASK_BUNDLE, TASK_DONE, TASK_INDEX, agents, agentsResponse, emptyPrsResponse, emptyTasksResponse, prsResponse, tasks, tasksResponse } from "./fixtures";
+import type { TaskRow } from "../types";
 
 const props = { businessId: BUSINESS_ID, departmentId: "d-dev" };
 const codeTasks = { ...tasksResponse, items: tasks.filter((t) => t.kind === "code") };
@@ -20,7 +21,7 @@ describe("EnvironmentsScreen", () => {
     expect(within(table).getAllByText("Awaiting deployment")).toHaveLength(2);
     expect(within(table).getByText("Merged")).toBeTruthy();
     expect(within(table).getByText(`agent/${TASK_DONE}`)).toBeTruthy();
-    expect(screen.getByTestId("env-counts").textContent).toBe("0 live · 3 without a deployment");
+    expect(screen.getByTestId("env-counts").textContent).toBe("0 live · 2 awaiting · 1 merged");
     expect(fake.queried.get("dev.tasks.list")).toEqual({ kind: "code", limit: 500 });
   });
 
@@ -33,8 +34,8 @@ describe("EnvironmentsScreen", () => {
     await waitFor(() => expect(within(table).getByText("Live")).toBeTruthy());
     expect(within(table).getByRole("link", { name: /bundle.preview.example/ }).getAttribute("href")).toBe("https://bundle.preview.example");
     expect(within(table).getByText("0123456")).toBeTruthy();
-    expect(within(table).getByText("vercel")).toBeTruthy();
-    expect(screen.getByTestId("env-counts").textContent).toBe("1 live · 2 without a deployment");
+    expect(within(table).getByText("Vercel")).toBeTruthy();
+    expect(screen.getByTestId("env-counts").textContent).toBe("1 live · 1 awaiting · 1 merged");
     fireEvent.contextMenu(within(table).getByText(`agent/${TASK_INDEX}`));
     const menu = await screen.findByRole("menu");
     expect(within(menu).getByRole("menuitem", { name: "Open preview" }).getAttribute("aria-disabled")).toBe("true");
@@ -75,6 +76,23 @@ describe("toEnvironmentRows", () => {
     const rows = toEnvironmentRows(tasks.filter((t) => t.id === TASK_BUNDLE), { open: [{ taskId: "pr-only", title: "PR only", status: "review", branch: "agent/pr-only", agentId: null }], merged: [] }, [newer, older], agentMap);
     expect(rows[0]).toMatchObject({ branch: `agent/${TASK_BUNDLE}`, state: "live", url: "https://new", agentName: "Juno" });
     expect(rows[1]).toMatchObject({ branch: "agent/pr-only", state: "awaiting", agentName: "Unassigned" });
+  });
+  it("puts what needs attention first: live, then awaiting, then merged and stopped, titles in number order", () => {
+    const base = tasks.find((t) => t.kind === "code")!;
+    const mk = (id: string, title: string, status: TaskRow["status"]) => ({ ...base, id, title, status });
+    const rows = toEnvironmentRows([mk("t-10", "Storefront fix #10", "done"), mk("t-2", "Storefront fix #2", "done"), mk("t-s", "Stopped work", "stopped"), mk("t-r", "Running work", "running")], undefined, [], agentMap);
+    expect(rows.map((r) => [r.title, r.state])).toEqual([
+      ["Running work", "awaiting"],
+      ["Storefront fix #2", "merged"],
+      ["Storefront fix #10", "merged"],
+      ["Stopped work", "stopped"],
+    ]);
+  });
+  it("names hosting providers in words and hides an unknown one", () => {
+    expect(providerLabel("vercel")).toBe("Vercel");
+    expect(providerLabel("fly")).toBe("Fly.io");
+    expect(providerLabel("unknown")).toBeNull();
+    expect(providerLabel("my_host")).toBe("My host");
   });
   it("marks done tasks merged and stopped tasks stopped regardless of deployments", () => {
     const rows = toEnvironmentRows([{ ...tasks[5]!, status: "stopped" }, tasks[5]!], undefined, [], agentMap);

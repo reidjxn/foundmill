@@ -37,6 +37,8 @@ describe("ConceptCard", () => {
     const c = concepts[0]!;
     render(<ConceptCard concept={c} onAction={onAction} />);
     expect(screen.getByRole("article", { name: `${c.name}: concept card` })).toBeTruthy();
+    // The name steps down, then wraps to two lines before it is ever cut.
+    expect(document.querySelector("h3 [data-fit-box]")?.getAttribute("data-lines")).toBe("2");
     expect(screen.getByRole("img", { name: `${c.name} logo` })).toBeTruthy();
     expect(screen.getByRole("img", { name: /Current ability: 3 of 5, potential 4.5/ })).toBeTruthy();
     expect(screen.getAllByRole("meter").length).toBe(10);

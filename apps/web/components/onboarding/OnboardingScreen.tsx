@@ -9,9 +9,9 @@
  * the mutation, the toast and the redirect.
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Check, Plus, UserRound } from "lucide-react";
+import { ArrowRight, Check, Lock, Plus, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { APP_NAME } from "@foundmill/config";
 import { Button, Chip, Field, Input, Kbd, MoneyInput, Panel, RadioCard, RadioGroup, RatingBandPill, SimpleSelect, SkillSlider, StatusPill, cn, ratingClass, useToast } from "@foundmill/dugout";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
@@ -104,6 +104,9 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
 
   const show = (key: keyof ProfileForm) => (touched ? errors[key] : undefined);
   const errorCount = Object.keys(errors).length;
+  const doneCount = PROFILE_SECTIONS.filter((s) => status[s.id]).length;
+  const timeAnswered = (form.timeCommitment ? 1 : 0) + (form.budget.trim() ? 1 : 0);
+  const inView = useSectionInView();
 
   return (
     <StudioFrame
@@ -119,34 +122,34 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
     >
       <form onSubmit={submit} className="grid grid-cols-12 gap-gutter" data-testid="onboarding-form" noValidate>
         <aside className="col-span-3">
-          <div className="sticky top-6 flex flex-col gap-4">
-            <nav aria-label="Profile sections" className="surface-panel overflow-hidden">
-              <div className="flex h-panel-header items-center border-b border-subtle bg-panel-alt px-panel-pad">
-                <span className="t-label">Sections</span>
-              </div>
-              <ol className="flex flex-col py-1">
-                {PROFILE_SECTIONS.map((s, i) => {
-                  const done = status[s.id];
-                  return (
-                    <li key={s.id}>
-                      <a href={`#section-${s.id}`} className={cn("flex h-8 items-center gap-2 px-panel-pad t-tab hover:bg-white/4 hover:no-underline", done ? "text-primary" : "text-secondary")} data-section-link={s.id} data-done={done || undefined}>
-                        <span className={cn("inline-flex size-4 items-center justify-center rounded-full border text-label tabular-nums", done ? "border-status-good text-status-good" : "border-subtle")} aria-hidden>
-                          {done ? <Check size={10} strokeWidth={2.5} /> : i + 1}
-                        </span>
-                        {s.label}
-                      </a>
-                    </li>
-                  );
-                })}
-              </ol>
-            </nav>
-            <div className="surface-panel overflow-hidden" data-testid="profile-summary">
-              <div className="flex h-panel-header items-center border-b border-subtle bg-panel-alt px-panel-pad">
-                <span className="t-label">How the team reads you</span>
-              </div>
-              <p className="p-panel-pad text-body text-secondary">{summary || "Pick your experience and time to see the one-line brief every agent starts from."}</p>
-            </div>
-            <p className="px-1 text-small text-secondary">Your profile is private. Agents read it as context; it is never shown in LIVE mode.</p>
+          <div className="sticky top-20 flex flex-col gap-gutter">
+            <Panel title="Sections" meta={`${doneCount} of ${PROFILE_SECTIONS.length} done`} flush>
+              <nav aria-label="Profile sections" className="py-1.5">
+                <ol className="flex flex-col gap-0.5">
+                  {PROFILE_SECTIONS.map((s, i) => {
+                    const done = status[s.id];
+                    return (
+                      <li key={s.id}>
+                        <a href={`#section-${s.id}`} className="sidebar-item hover:no-underline" data-active={inView === s.id || undefined} aria-current={inView === s.id ? "location" : undefined} data-section-link={s.id} data-done={done || undefined}>
+                          <span className={cn("inline-flex size-badge shrink-0 items-center justify-center rounded-pill font-mono text-micro tabular-nums", done ? "bg-status-good/12 text-status-good ring-1 ring-status-good/40" : "text-tertiary ring-1 ring-line-strong")} aria-hidden>
+                            {done ? <Check size={12} strokeWidth={2.5} /> : i + 1}
+                          </span>
+                          <span className="min-w-0 flex-1">{s.label}</span>
+                          {done ? <span className="sr-only">done</span> : null}
+                        </a>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </nav>
+            </Panel>
+            <Panel title="How the team reads you" data-testid="profile-summary">
+              <p className={cn("text-body", summary ? "text-primary" : "text-secondary")}>{summary || "Pick your experience and time to see the one-line brief every agent starts from."}</p>
+            </Panel>
+            <p className="flex items-start gap-2 px-1 text-small text-secondary">
+              <Lock size={14} className="mt-px shrink-0 text-tertiary" aria-hidden />
+              Your profile is private. Agents read it as context; it is never shown on the network, even when a business goes live.
+            </p>
           </div>
         </aside>
 
@@ -166,22 +169,22 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
             </Field>
           </Section>
 
-          <Section id="skills" title="Skills" hint="1 to 20. Honest ratings make the team cover the gaps; the Ideation agent scores founder fit from these.">
+          <Section id="skills" title="Skills" meta="1 – 20" hint="Honest ratings make the team cover the gaps; the Ideation agent scores founder fit from these.">
             <div className="flex flex-col gap-3">
               {SKILL_KEYS.map((key) => {
                 const value = form.skills[key];
                 return (
-                  <div key={key} className="grid grid-cols-[160px_1fr_56px_220px] items-center gap-4" data-skill={key}>
-                    <div className="min-w-0">
+                  <div key={key} className="grid grid-cols-12 items-center gap-4" data-skill={key}>
+                    <div className="col-span-3 min-w-0">
                       <div className="text-body-strong">{SKILL_LABELS[key].label}</div>
                       <div className="text-small text-tertiary">{SKILL_LABELS[key].hint}</div>
                     </div>
                     {/* One control (DESIGN §8 skill input): the 20 cells are the slider's track. */}
-                    <SkillSlider value={value} min={1} max={20} onValueChange={(v) => set("skills", { ...form.skills, [key]: v })} aria-label={`${SKILL_LABELS[key].label} rating`} />
-                    <div className={cn("t-display-md text-right tabular-nums", ratingClass(value))} aria-live="polite" data-skill-value={key}>
+                    <SkillSlider className="col-span-6" value={value} min={1} max={20} onValueChange={(v) => set("skills", { ...form.skills, [key]: v })} aria-label={`${SKILL_LABELS[key].label} rating`} />
+                    <div className={cn("col-span-1 t-display-md text-right tabular-nums", ratingClass(value))} aria-live="polite" data-skill-value={key}>
                       {value}
                     </div>
-                    <div className="flex items-center">
+                    <div className="col-span-2 flex items-center">
                       <RatingBandPill value={value} />
                     </div>
                   </div>
@@ -190,7 +193,7 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
             </div>
           </Section>
 
-          <Section id="time" title="Time and budget">
+          <Section id="time" title="Time and budget" meta={`${timeAnswered} of 2 answered`}>
             <Field htmlFor="profile-time" label="Time commitment" required error={show("timeCommitment")}>
               <RadioGroup id="profile-time" value={form.timeCommitment} onValueChange={(v) => set("timeCommitment", v)} className="grid-cols-4" aria-label="Time commitment">
                 {TIME_OPTIONS.map((o) => (
@@ -255,15 +258,38 @@ export function OnboardingForm({ profile, email, saving = false, error, onSubmit
   );
 }
 
-function Section({ id, title, hint, children }: { id: ProfileSectionId; title: string; hint?: string; children: ReactNode }) {
+function Section({ id, title, meta, hint, children }: { id: ProfileSectionId; title: string; meta?: ReactNode; hint?: string; children: ReactNode }) {
   return (
-    <Panel id={`section-${id}`} title={title} data-section={id} className="scroll-mt-6">
+    <Panel id={`section-${id}`} title={title} meta={meta} data-section={id} className="scroll-mt-20">
       <div className="flex flex-col gap-4">
         {hint ? <p className="text-body text-secondary">{hint}</p> : null}
         {children}
       </div>
     </Panel>
   );
+}
+
+/** The section the founder is reading: the topmost one whose panel crosses the upper third of the window. */
+function useSectionInView(): ProfileSectionId | null {
+  const [id, setId] = useState<ProfileSectionId | null>(PROFILE_SECTIONS[0].id);
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return;
+    const visible = new Map<string, boolean>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) visible.set((e.target as HTMLElement).dataset.section ?? "", e.isIntersecting);
+        const first = PROFILE_SECTIONS.find((s) => visible.get(s.id));
+        if (first) setId(first.id);
+      },
+      { rootMargin: "-20% 0px -60% 0px" },
+    );
+    for (const s of PROFILE_SECTIONS) {
+      const el = document.getElementById(`section-${s.id}`);
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+  }, []);
+  return id;
 }
 
 /** A radio option drawn as a selectable card (DESIGN §8 radio cards): the whole card is the radio. */

@@ -3,87 +3,179 @@
  * The Ideation Studio's dialogs (BUILD §11.1 actions, AC-11.1.3): Ask a question, Fork, Merge and the version History.
  * Each is a controlled Dialog; the studio owns the mutations and passes `busy` / `error` in.
  */
-import { ArrowLeft, ArrowRight, GitFork, GitMerge, History, MessageCircleQuestionMark, Send } from "lucide-react";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Button, Checkbox, Chip, BusinessLogo, ConceptCard, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Markdown, SkeletonText, StatusPill, Textarea, cn, formatDateTime } from "@foundmill/dugout";
-import { qaOf, toConcept, versionActionLabel, versionToConcept, type IdeaLike, type IdeaVersionLike } from "./concepts";
+import { ArrowLeft, ArrowRight, GitFork, GitMerge, History, MessageCircleQuestionMark } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { RETRY_REPLY_ID, deskFailureOf, failureQuickReplies, failureReply } from "@/components/conversation/logic";
+import { AgentDesk, Button, Checkbox, Chip, BusinessLogo, ConceptCard, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Markdown, SkeletonText, StatusPill, Textarea, cn, currentQuickReplies, formatDateTime, type DeskMessage, type DeskPersona, type QuickReplyItem } from "@foundmill/dugout";
+import { qaBubbles, qaOf, toConcept, versionActionLabel, versionToConcept, type IdeaLike, type IdeaVersionLike } from "./concepts";
 
 /* ---------- Ask ---------- */
 
-export interface AskDialogProps {
+/** The Research agent as the desk shows it (`idea.askDesk` / `idea.ask`); Ideation has no business, so no department. */
+export interface AskPersona {
+  name: string;
+  role: string;
+  avatarSeed: string;
+  voice?: { greeting?: string | null; thinking?: readonly string[]; ack?: readonly string[] } | null;
+  thinkingLine?: string | null;
+}
+
+/** One answered exchange of this sheet's session (the founder's words, the reply, the version it created). */
+export interface AskExchange {
+  id: string;
+  question: string;
+  bubbles: readonly string[];
+  quickReplies: readonly QuickReplyItem[];
+  reaction?: string | null;
+  at: Date;
+  /** "Saved as version 4"; plus any attribute the version moved. */
+  version?: number | null;
+  changes?: readonly { key: string; label: string; from: number; to: number }[];
+}
+
+/** What the founder asked: a starter or quick reply (by id, when the server issued it), or typed words. */
+export type AskInput = { quickReplyId: string; say: string } | { question: string };
+
+export interface AskSheetProps {
   idea: IdeaLike | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAsk: (question: string) => void;
+  persona: AskPersona | null;
+  starters: readonly QuickReplyItem[];
+  /** Ask; resolves when the answer has arrived (the Write field clears then), rejects when it failed. */
+  onAsk: (input: AskInput) => Promise<unknown>;
+  /** This session's answered exchanges, newest last (earlier ones come from the card's history). */
+  exchanges: readonly AskExchange[];
   busy?: boolean;
   error?: string | null;
-  /** The latest answer, shown under the thread once it arrives. */
-  answer?: string | null;
 }
 
-export function AskDialog({ idea, open, onOpenChange, onAsk, busy, error, answer }: AskDialogProps) {
-  const [question, setQuestion] = useState("");
+const RESEARCH_DEPT = "dept-1" as const;
+
+/** The stored history of a card's Ask, as desk messages (one founder bubble, then the agent's bubbles). */
+export function askHistory(idea: IdeaLike | null): DeskMessage[] {
+  if (!idea) return [];
+  const at = idea.current?.createdAt ?? new Date(0);
+  return qaOf(idea).flatMap((qa, i) => [
+    { id: `qa-${i}-q`, author: "founder" as const, bubbles: [qa.question], at, state: "seen" as const },
+    { id: `qa-${i}-a`, author: "agent" as const, bubbles: qaBubbles(qa), at, quickReplies: (qa.quick_replies ?? []) as QuickReplyItem[], reaction: (qa.reaction as DeskMessage["reaction"]) ?? null },
+  ]);
+}
+
+/**
+ * Ask on a concept (audit-conversation §4): the Research agent's desk as a sheet beside the deck. Starters are buttons,
+ * every answer comes with 2–4 quick replies, typing is optional (Write). Each answer is a new version of the card; the
+ * line under the band says which, and any rating it moved. When an answer does not come back (the api is down, the
+ * model failed, a limit), the founder's words stay ("Not sent") and the Research agent says so itself, with "Try again"
+ * first among the replies.
+ */
+export function AskDialog({ idea, open, onOpenChange, persona, starters, onAsk, exchanges, busy, error }: AskSheetProps) {
+  // The card's history as it was when the sheet opened; answers of this session follow it (never shown twice).
+  const [history, setHistory] = useState<DeskMessage[]>([]);
+  const [pending, setPending] = useState<{ id: string; words: string; failed: boolean; input: AskInput } | null>(null);
+  // Why the pending question failed, in the Research agent's own words (never stored).
+  const [failure, setFailure] = useState<{ bubbles: string[]; retry: boolean; at: Date } | null>(null);
   useEffect(() => {
-    if (!open) setQuestion("");
-  }, [open]);
-  const thread = idea ? qaOf(idea) : [];
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (question.trim().length === 0 || busy) return;
-    onAsk(question.trim());
-  };
+    if (open) setHistory(askHistory(idea));
+    else {
+      setPending(null);
+      setFailure(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot once per opening
+  }, [open, idea?.id]);
+
+  // One question at a time (a double press, a key held down): the ref answers before React does.
+  const inFlight = useRef(false);
+  const ask = useCallback(
+    async (input: AskInput, words: string) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
+      const id = `ask-${Date.now().toString(36)}`;
+      setFailure(null);
+      setPending({ id, words, failed: false, input });
+      try {
+        await onAsk(input);
+        setPending(null);
+      } catch (err) {
+        const f = deskFailureOf(err);
+        setFailure({ ...failureReply(f.kind, f.message), at: new Date() });
+        setPending((p) => (p && p.id === id ? { ...p, failed: true } : p));
+        throw err;
+      } finally {
+        inFlight.current = false;
+      }
+    },
+    [onAsk],
+  );
+
+  const messages = useMemo<DeskMessage[]>(() => {
+    const session = exchanges.flatMap((x) => [
+      { id: `${x.id}-q`, author: "founder" as const, bubbles: [x.question], at: x.at, state: "seen" as const },
+      { id: `${x.id}-a`, author: "agent" as const, bubbles: x.bubbles, at: x.at, quickReplies: x.quickReplies, reaction: (x.reaction as DeskMessage["reaction"]) ?? null },
+    ]);
+    const before = [...history, ...session];
+    const tail: DeskMessage[] = pending ? [{ id: pending.id, author: "founder", bubbles: [pending.words], at: new Date(), state: pending.failed ? "failed" : "sending" }] : [];
+    if (pending?.failed && failure) {
+      const failedId = "quickReplyId" in pending.input ? pending.input.quickReplyId : null;
+      tail.push({ id: `${pending.id}-failure`, author: "agent", bubbles: failure.bubbles, at: failure.at, reaction: "concerned", quickReplies: failureQuickReplies(failure.retry, currentQuickReplies(before, starters), failedId) });
+    }
+    return [...before, ...tail];
+  }, [history, exchanges, pending, failure, starters]);
+
+  const latest = exchanges[exchanges.length - 1];
+  const name = idea?.current?.title ?? idea?.title ?? "this concept";
+  const subjectLine = (
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid="ask-subject">
+      <span>
+        About <span className="text-primary">{name}</span>. Every answer is saved to the card's history.
+      </span>
+      {latest?.version ? (
+        <span className="inline-flex flex-wrap items-center gap-1.5" data-testid="ask-version">
+          <Chip icon={History}>Saved as version {latest.version}</Chip>
+          {(latest.changes ?? []).map((c) => (
+            <Chip key={c.key} tone={c.to > c.from ? "good" : "warn"}>
+              {c.label} {c.from} → {c.to}
+            </Chip>
+          ))}
+        </span>
+      ) : null}
+      {error && !pending?.failed ? (
+        <StatusPill tone="bad" role="alert">
+          {error}
+        </StatusPill>
+      ) : null}
+    </span>
+  );
+
+  if (!idea) return null;
+  const deskPersona: DeskPersona = persona
+    ? { id: `research-${idea.id}`, name: persona.name, role: persona.role, avatarSeed: persona.avatarSeed, dept: RESEARCH_DEPT, presence: "available", voice: persona.voice ?? null, thinkingLine: persona.thinkingLine ?? null }
+    : { id: `research-${idea.id}`, name: "Research agent", role: "Grounds concepts with evidence", avatarSeed: "research-agent", dept: RESEARCH_DEPT, presence: "available" };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="lg" aria-describedby="ask-description" data-testid="ask-dialog">
-        <DialogHeader>
-          <DialogTitle>Ask about {idea?.title ?? "this concept"}</DialogTitle>
-          <DialogDescription id="ask-description">The Research agent answers from the concept's evidence. Attribute changes it can justify become a new version.</DialogDescription>
-        </DialogHeader>
-        <DialogBody className="flex flex-col gap-3">
-          {thread.length > 0 ? (
-            <ol className="flex flex-col gap-2" aria-label="Earlier questions">
-              {thread.map((qa, i) => (
-                <li key={i} className="rounded-panel border border-subtle bg-panel-alt p-3">
-                  <p className="text-body-strong">{qa.question}</p>
-                  <Markdown variant="body" className="mt-1 text-secondary">
-                    {qa.answer}
-                  </Markdown>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="text-body text-secondary">No questions yet. Try "Who are the two closest competitors?" or "What would the first paying customer look like?"</p>
-          )}
-          {busy ? (
-            <div className="rounded-panel border border-subtle bg-panel-alt p-3" aria-busy="true" aria-label="Researching">
-              <SkeletonText lines={3} />
-            </div>
-          ) : answer ? (
-            <div className="rounded-panel border border-link/40 bg-panel-alt p-3" data-testid="ask-answer">
-              <Markdown variant="body">{answer}</Markdown>
-            </div>
-          ) : null}
-          <form onSubmit={submit} className="flex flex-col gap-2" data-testid="ask-form">
-            <Field htmlFor="ask-question" label="Your question">
-              <Textarea id="ask-question" value={question} onChange={(e) => setQuestion(e.target.value)} rows={3} maxLength={2000} placeholder="Ask anything the card leaves open" autoFocus />
-            </Field>
-            {error ? (
-              <StatusPill tone="bad" role="alert">
-                {error}
-              </StatusPill>
-            ) : null}
-          </form>
-        </DialogBody>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
-          <Button variant="primary" icon={Send} loading={busy} disabled={question.trim().length === 0} onClick={submit}>
-            Ask
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <AgentDesk
+      variant="sheet"
+      testId="ask-dialog"
+      label={`Ask the Research agent about ${name}`}
+      open={open}
+      onOpenChange={onOpenChange}
+      persona={deskPersona}
+      messages={messages}
+      starters={starters}
+      replying={busy}
+      thinkingPhrase={`reading ${name}'s card`}
+      pendingReplyId={pending && !pending.failed && "quickReplyId" in pending.input ? pending.input.quickReplyId : null}
+      renderBubble={(md) => <Markdown variant="body">{md}</Markdown>}
+      onQuickReply={(r) => {
+        // "Try again" resends the kept question as it was; anything else is a new question.
+        if (r.id === RETRY_REPLY_ID) return void (pending && ask(pending.input, pending.words).catch(() => undefined));
+        void ask({ quickReplyId: r.id, say: r.say?.trim() || r.label }, r.say?.trim() || r.label).catch(() => undefined);
+      }}
+      onSend={(text) => ask({ question: text }, text)}
+      disabled={!persona}
+      disabledNote={!persona ? <span aria-busy="true">Opening the Research agent's desk…</span> : undefined}
+      subject={subjectLine}
+    />
   );
 }
 

@@ -229,7 +229,7 @@ const STATUS_TONE: Record<SpecEditorStatus, { tone: "info" | "good" | "bad" | "n
   connecting: { tone: "info", word: "Connecting" },
   connected: { tone: "good", word: "Live" },
   disconnected: { tone: "bad", word: "Offline" },
-  local: { tone: "neutral", word: "Local edits" },
+  local: { tone: "neutral", word: "Editing" },
 };
 
 function EditorFrame({ status, pinned, readOnly, note, actions, error, children }: { status: SpecEditorStatus; pinned: boolean; readOnly?: boolean; note?: string; actions?: ReactNode; error?: string; children?: ReactNode }) {
@@ -237,7 +237,7 @@ function EditorFrame({ status, pinned, readOnly, note, actions, error, children 
   const hint = useMemo(() => {
     if (readOnly) return "Read only: viewers and advisors can read the specification but not change it.";
     if (status === "connected") return pinned ? "Human-edited block: agents propose changes here instead of writing." : "Edits sync live; the first human edit pins the block for agents.";
-    if (status === "local") return "No collab server: ⌘/Ctrl+S saves the whole block; Esc reverts.";
+    if (status === "local") return "⌘/Ctrl+S saves this block; Esc undoes your changes.";
     if (status === "disconnected") return "Connection lost; edits continue locally and sync when the server is back.";
     return "Loading the shared document…";
   }, [status, pinned, readOnly]);
@@ -247,8 +247,8 @@ function EditorFrame({ status, pinned, readOnly, note, actions, error, children 
         <StatusPill tone={st.tone} pulse={status === "connecting"}>
           {st.word}
         </StatusPill>
-        {pinned ? <StatusPill tone="neutral">Pinned</StatusPill> : null}
-        <span className="min-w-0 flex-1 truncate text-small text-secondary">{note ?? hint}</span>
+        {/* Pinned is said once, by the panel's own chip and notice above the editor. */}
+        <span className="min-w-0 flex-1 text-pretty text-small text-secondary">{note ?? hint}</span>
         {actions ? <span className="flex shrink-0 items-center gap-1">{actions}</span> : null}
       </div>
       {error ? (

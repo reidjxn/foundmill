@@ -6,7 +6,7 @@
  */
 import { useMemo, useState } from "react";
 import { ExternalLink, FileText, Inbox, Plus } from "lucide-react";
-import { Chip, DataTable, Panel, formatDate, formatRelative, type DataTableColumn, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, DataTable, Panel, formatDate, formatRelative, type DataTableColumn, type SavedView } from "@foundmill/dugout";
 import { SOURCE_KINDS, type SourceKind } from "@foundmill/shared";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
@@ -16,7 +16,8 @@ import { SOURCE_KIND_META, hostOf, isSourceKind, linkedBlocks, relevance, topics
 import type { SourceRow, SourcesListResponse, SpecBlockRow, SpecGetResponse } from "./types";
 
 export const SOURCE_VIEWS: SavedView[] = [
-  { id: "all", name: "All sources", builtIn: true, columns: ["title", "kind", "summary", "blocks", "topics", "fetchedAt", "createdAt"], sort: [{ id: "createdAt", desc: true }], filters: [] },
+  // The default view fits the panel at 1280 without a cut column; topics and fetch times live in the column menu.
+  { id: "all", name: "All sources", builtIn: true, columns: ["title", "kind", "summary", "blocks", "createdAt"], sort: [{ id: "createdAt", desc: true }], filters: [] },
   { id: "customers", name: "Customer voice", builtIn: true, columns: ["title", "kind", "summary", "blocks", "createdAt"], sort: [{ id: "createdAt", desc: true }], filters: [{ id: "f-cv", field: "kind", op: "in", value: ["transcript", "feedback"] }] },
   { id: "competitors", name: "Competitors", builtIn: true, columns: ["title", "host", "summary", "fetchedAt"], sort: [{ id: "fetchedAt", desc: true }], filters: [{ id: "f-comp", field: "kind", op: "eq", value: "competitor" }] },
   { id: "unlinked", name: "Not linked to the spec", builtIn: true, columns: ["title", "kind", "summary", "createdAt"], sort: [{ id: "createdAt", desc: true }], filters: [{ id: "f-unl", field: "blocks", op: "eq", value: 0 }] },
@@ -43,7 +44,7 @@ export function sourceColumns(blocks: readonly SpecBlockRow[], onOpenBlock: (id:
     {
       accessorKey: "title",
       header: "Source",
-      size: 280,
+      size: 240,
       cell: ({ row }) => (
         <span className="flex min-w-0 items-center gap-1">
           <span className="truncate text-body-strong text-primary">{row.original.title || row.original.uri || "Untitled"}</span>
@@ -68,12 +69,12 @@ export function sourceColumns(blocks: readonly SpecBlockRow[], onOpenBlock: (id:
       meta: { filter: "select", filterOptions: SOURCE_KINDS.map((k) => ({ value: k, label: SOURCE_KIND_META[k].word })) },
     },
     { id: "host", accessorFn: (r) => hostOf(r.uri) ?? "", header: "Site", size: 150, cell: ({ getValue }) => <span className="font-mono text-mono text-secondary">{String(getValue() ?? "")}</span> },
-    { id: "summary", accessorFn: (r) => relevance(r).summary ?? "", header: "What it says", size: 320, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "") || "—"}</span> },
+    { id: "summary", accessorFn: (r) => relevance(r).summary ?? "", header: "What it says", size: 290, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "") || "—"}</span> },
     {
       id: "blocks",
       accessorFn: (r) => linkedBlocks(r).length,
       header: "Spec blocks",
-      size: 200,
+      size: 180,
       cell: ({ row }) => {
         const linked = linkedBlocks(row.original)
           .map((l) => ({ ...l, block: blockById.get(l.blockId) }))
@@ -129,9 +130,9 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
         onRetry={list.refetch}
         empty={list.data && rows.length === 0 && !kind ? { icon: Inbox, title: "No sources yet", children: "Connected tools (GitHub issues, Drive, Notion, support mail) feed this list automatically; you can also add a link or a note by hand.", action: { label: "Add source", icon: Plus, onClick: () => setAdding(true) } } : undefined}
         actions={
-          <Chip tone="kit" icon={Plus} onClick={() => setAdding(true)}>
+          <Button size="sm" variant="primary" icon={Plus} onClick={() => setAdding(true)}>
             Add source
-          </Chip>
+          </Button>
         }
         footer={<span className="tabular-nums">{rows.length} sources{kind ? ` of kind ${SOURCE_KIND_META[kind].word}` : ""} · the Source Watcher scores relevance against every spec block and raises proposals from the Changes tab</span>}
         flush

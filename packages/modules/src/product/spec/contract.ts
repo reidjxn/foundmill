@@ -12,5 +12,5 @@ export const SPEC_EDITOR_STATUS_LABEL = {
   connecting: "Connecting",
   connected: "Live",
   disconnected: "Offline",
-  local: "Local edits",
+  local: "Editing",
 } as const;

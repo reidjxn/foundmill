@@ -15,7 +15,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
-import { AppShell, EntityLinkProvider, ShellLinkProvider, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
+import { AppShell, Avatar, EntityLinkProvider, ShellLinkProvider, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
 import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
 import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -36,6 +36,8 @@ import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from 
 import { useTRPC } from "@/lib/trpc-react";
 import { WidgetDataHost } from "@/lib/widget-data";
 import { SpecUserProvider } from "@/components/spec/spec-user";
+import { AgentDeskHost, type AgentDeskApi } from "@/components/conversation/DeskHost";
+import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { ShellChromeProvider, useShellChromeValue } from "./chrome";
 import { isShellLinkClick, renderNextShellLink } from "./NextShellLink";
@@ -358,6 +360,22 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     setParsed(q);
   }, []);
   const [searchOpen, setSearchOpen] = useState(false);
+  // Lead rows: "Ask <agent>" opens the agent's desk as a sheet (the typed words become the first message); "Generate…"
+  // goes to a surface where a real model call drafts something.
+  const deskApi = useRef<AgentDeskApi>(null);
+  const agents = useMemo(() => paletteAgents(departments), [departments]);
+  const askText = parsed?.text ?? searchText;
+  const askItems = useMemo(() => askPaletteItems(agents, askText, (a) => <Avatar size={20} name={a.name} agent={{ seed: a.avatarSeed, dept: a.dept }} />), [agents, askText]);
+  const generateItems = useMemo(() => generatePaletteItems(businessId, departments), [businessId, departments]);
+  const onAsk = useCallback(
+    (item: PaletteItem, text: string) => {
+      const a = agentOfAskItem(item, agents);
+      if (!a) return;
+      setSearchOpen(false);
+      deskApi.current?.open({ kind: "agent", id: a.id }, { persona: { name: a.name, role: a.role, avatarSeed: a.avatarSeed, dept: a.dept }, text: askQuestion(text, a) || null });
+    },
+    [agents],
+  );
   const onSelect = useCallback(
     (item: PaletteItem) => {
       setSearchOpen(false);
@@ -437,7 +455,10 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   onSelect,
                   open: searchOpen,
                   onOpenChange: setSearchOpen,
-                  placeholder: "Search people, organisations, agents, screens…",
+                  ask: askItems,
+                  generate: generateItems,
+                  onAsk,
+                  placeholder: "Search, ask an agent or generate…",
                 }}
                 date={new Date()}
                 runwayMonths={financeQ.data?.runway.months ?? null}
@@ -456,7 +477,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 data-business-id={businessId}
               >
                 {stopAllError ? <p className="sr-only" role="alert">{stopAllError}</p> : null}
-                {children}
+                <AgentDeskHost apiRef={deskApi}>{children}</AgentDeskHost>
               </AppShell>
             </ShellLinkProvider>
           </EntityLinkProvider>

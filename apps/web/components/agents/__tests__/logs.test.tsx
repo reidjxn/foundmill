@@ -35,7 +35,7 @@ describe("historyEvents", () => {
     } as never;
     const events = historyEvents(profile, "EUR");
     expect(events.map((e) => e.id)).toEqual(["session-s1", "run-r1", "version-v1"]);
-    expect(events[1]).toMatchObject({ title: "Training promoted", statusWord: "promoted", tone: "good" });
-    expect(events[2]).toMatchObject({ title: "Version 1 is live", statusWord: "live" });
+    expect(events[1]).toMatchObject({ title: "Training promoted", statusWord: "Promoted", tone: "good" });
+    expect(events[2]).toMatchObject({ title: "Version 1 is live", statusWord: "Live" });
   });
 });

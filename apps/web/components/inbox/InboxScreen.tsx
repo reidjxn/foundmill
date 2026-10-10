@@ -110,7 +110,9 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
     trpc.inbox.refresh.mutationOptions({
       onSuccess: (result) => {
         void invalidate(["inbox"]);
-        toast({ title: "One new note", description: result.item.subject, tone: "info" });
+        // Nothing new happened (the composer fell back to the next-best decision or an insight): say so, plainly.
+        const quiet = result.slot === "decision" || result.slot === "insight";
+        toast({ title: quiet ? "Nothing new since your last note" : "One new note", description: quiet ? `The next call instead: ${result.item.subject}` : result.item.subject, tone: "info" });
         if (tab === "all" || tab === "respond") select(result.item.id);
         else router.push(routes.inbox(businessId, result.item.id));
       },

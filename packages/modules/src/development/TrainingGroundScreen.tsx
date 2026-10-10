@@ -2,15 +2,18 @@
 /**
  * Development › Training Ground (BUILD §6.3, §11.6; DESIGN §9): the split-screen of AgentTiles fed by `dev.tasks.list`
  * + `as:<sessionId>` streams with focus-aware throttling, the Formation view (task graph), the session scrubber
- * replay, Shouts and the per-tile controls (Pause/Resume/Reassign/Upgrade/Stop/Open in Claude Code).
+ * replay, Nudges and the per-tile controls (Pause/Resume/Reassign/Upgrade/Stop/Open in Claude Code). The focused
+ * tile's strip offers the nudges that fit its agent (the persona's presets); after any nudge the tile shows the agent's
+ * one-bubble acknowledgement in its own voice (no model call), for a few seconds.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Radio, Rows3 } from "lucide-react";
 import { TIERS } from "@foundmill/config";
 import {
   AgentTile,
   Button,
   GroundViewToggle,
+  NudgeMenu,
   Panel,
   ProvenanceChip,
   SessionScrubber,
@@ -22,6 +25,7 @@ import {
   sessionLengthMs,
   type AgentTileSession,
   type GroundView,
+  type Nudge,
   type ScrubberSpeed,
   type Shout,
   type ShoutPreset,
@@ -35,6 +39,7 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { OpenInClaudeCodeDialog, ReassignDialog, StopDialog } from "./dialogs";
+import { TileNudgeAck, nudgeMenuPresets, nudgeShoutInput, useNudgePersona, type SentNudge } from "./nudges";
 import { useDevScreenOptions } from "./options";
 import { concurrencyHint, isPlaceholderSessionId, openSessionsByTask, seedFromRows } from "./session-store";
 import { InlineError, LIVE_TASK_STATUSES, Screen, liveTasks, taskHref, toTileAgent, useAction, useAgentIndex, useAgents } from "./shared";
@@ -50,6 +55,9 @@ export const SHOUT_PRESET_LABELS: Record<ShoutPreset, string> = {
   match_design_system: "Match the design system",
   hurry_up: "Hurry up",
 };
+
+/** How long a nudge's acknowledgement stays on the tile. */
+export const NUDGE_ACK_MS = 6_000;
 
 export function shoutInput(shout: Shout, taskId?: string): Record<string, unknown> {
   const base: Record<string, unknown> = taskId ? { taskId } : {};
@@ -74,7 +82,7 @@ export function toGraphNodes(tasks: readonly TaskRow[], edges: readonly { fromTa
 const GRID_HEIGHT = "calc(100vh - 232px)";
 
 export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps) {
-  const { navigate } = useWidgetData();
+  const { navigate, currency } = useWidgetData();
   const options = useDevScreenOptions();
   const tasks = useWidgetQuery<TasksListResponse>("dev.tasks.list", { status: [...LIVE_TASK_STATUSES], limit: 200 });
   const sessions = useWidgetQuery<SessionsListResponse>("dev.sessions.list", { openOnly: true, limit: 200 });
@@ -101,9 +109,10 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
       live.map((task) => {
         const session = openByTask.get(task.id) ?? null;
         const agent = toTileAgent(agentIndex.get(task.assigneeAgentId ?? ""), task.assigneeAgentId);
-        return { seed: seedFromRows({ task, session, agent, taskHref: taskHref(businessId, deptSlug, task.id) }), task, session };
+        // Costs in the business's currency (sessions carry none of their own), never a stray €.
+        return { seed: seedFromRows({ task, session, agent, taskHref: taskHref(businessId, deptSlug, task.id), currency }), task, session };
       }),
-    [live, openByTask, agentIndex, businessId, deptSlug],
+    [live, openByTask, agentIndex, businessId, deptSlug, currency],
   );
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -136,13 +145,26 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
     return action.run(path, { taskId: task.id, ...extra }, { key: `${path}:${task.id}`, then: refetchAll });
   };
 
+  // Nudges: the tile shows the agent's one-bubble acknowledgement for a few seconds after the nudge reaches the session.
+  const [acks, setAcks] = useState<Record<string, SentNudge>>({});
+  const nonce = useRef(0);
+  const acknowledge = useCallback((sessionId: string, agentId: string | null, text: string) => {
+    const n = ++nonce.current;
+    setAcks((a) => ({ ...a, [sessionId]: { agentId, text, nonce: n } }));
+    setTimeout(() => setAcks((a) => (a[sessionId]?.nonce === n ? Object.fromEntries(Object.entries(a).filter(([k]) => k !== sessionId)) : a)), NUDGE_ACK_MS);
+  }, []);
+  const sendNudge = (sessionId: string, input: Record<string, unknown>, text: string) => {
+    const task = taskOf(sessionId);
+    if (!task) return;
+    void action.run("dev.tasks.shout", { ...input, taskId: task.id }, { key: `shout:${task.id}`, then: () => acknowledge(sessionId, task.assigneeAgentId ?? null, text) });
+  };
+  const focusedAgentId = focusedSource?.task.assigneeAgentId ?? null;
+  const focusedPersona = useNudgePersona(focusedAgentId).persona;
+
   const controls: TileControls = {
     onPause: (id) => void runTask("dev.tasks.pause", id),
     onResume: (id) => void runTask("dev.tasks.resume", id),
-    onShout: (id, shout) => {
-      const task = taskOf(id);
-      if (task) void action.run("dev.tasks.shout", shoutInput(shout, task.id), { key: `shout:${task.id}` });
-    },
+    onShout: (id, shout) => sendNudge(id, shoutInput(shout), shout.text),
     onReassign: (id) => setReassign(id),
     onUpgradeModel: (id) => void runTask("dev.tasks.upgradeModel", id),
     onStop: (id) => setStop(id),
@@ -239,8 +261,15 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
               renderTile={(item, ctx) => {
                 const session = ctx.focused && replaySession ? replaySession : item.session;
                 const common = { session, focused: ctx.focused, compact: ctx.compact, controls, now: options.now, onFocus: (id: string) => setFocusedId(id), onOpenTask: (task: { href?: string }) => task.href && navigate(task.href) };
-                if (session.task.kind === "specialist") return <SpecialistTile {...common} data={specialistDataFromSession(session)} />;
-                return <AgentTile {...common} terminalRenderer={options.terminalRenderer} diffEngine={options.diffEngine} />;
+                const tile = session.task.kind === "specialist" ? <SpecialistTile {...common} data={specialistDataFromSession(session)} /> : <AgentTile {...common} terminalRenderer={options.terminalRenderer} diffEngine={options.diffEngine} />;
+                const ack = acks[item.id];
+                if (!ack) return tile;
+                return (
+                  <div className="relative flex h-full min-h-0 flex-col">
+                    {tile}
+                    <TileNudgeAck sent={ack} fallback={{ name: session.agent.name, seed: session.agent.seed, dept: session.agent.dept }} className="pointer-events-none absolute inset-x-2 bottom-8 z-10" />
+                  </div>
+                );
               }}
             />
             {focusedSource ? (
@@ -262,6 +291,13 @@ export function TrainingGroundScreen({ businessId, subView }: ModuleScreenProps)
                 <Button size="sm" variant={replay.live ? "default" : "primary"} icon={Rows3} disabled={replay.live} onClick={() => setReplay((r) => ({ ...r, live: true, playing: false }))}>
                   {replay.live ? "Live" : "Back to live"}
                 </Button>
+                <NudgeMenu
+                  target={focusedPersona?.name ?? focusedSource.seed.agent.name}
+                  presets={nudgeMenuPresets(focusedPersona)}
+                  labelled
+                  disabled={focusedSource.task.status !== "running"}
+                  onNudge={(n: Nudge) => focusedId && sendNudge(focusedId, nudgeShoutInput(n, focusedPersona), n.text)}
+                />
               </div>
             ) : null}
           </div>

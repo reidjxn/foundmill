@@ -20,6 +20,11 @@ import type { ApiLogger } from "./log";
 export interface ComposeResult {
   item: InboxItem;
   source: "composer" | "local";
+  /**
+   * Which Refresh rule wrote the note (the composer service's `slot`): `events` narrated new events; `insight` and
+   * `decision` mean nothing new happened, so the page can say so ("Nothing new since your last note").
+   */
+  slot?: "events" | "insight" | "decision" | "narrate";
 }
 
 export interface ComposerClient {
@@ -75,25 +80,27 @@ export function createComposerClient(opts: CreateComposerClientOptions): Compose
     return repos.inbox.get(opts.db, businessId, item.id);
   };
 
-  const viaService = async (path: string, body: Record<string, unknown>, businessId: string): Promise<ComposeResult> => ({
-    item: await itemFromResponse(businessId, await post(path, body)),
-    source: "composer",
-  });
+  const viaService = async (path: string, body: Record<string, unknown>, businessId: string): Promise<ComposeResult> => {
+    const json = await post(path, body);
+    const slot = typeof json.slot === "string" && ["events", "insight", "decision", "narrate"].includes(json.slot) ? (json.slot as ComposeResult["slot"]) : undefined;
+    return { item: await itemFromResponse(businessId, json), source: "composer", slot };
+  };
 
-  const run = async (path: string, body: Record<string, unknown>, businessId: string, local: () => Promise<InboxItem>): Promise<ComposeResult> => {
+  const run = async (path: string, body: Record<string, unknown>, businessId: string, local: () => Promise<LocalComposed>): Promise<ComposeResult> => {
     try {
       return await viaService(path, body, businessId);
     } catch (err) {
       if (!opts.allowFallback) throw new ComposerUnavailableError((err as Error).message);
       opts.log.debug({ err: (err as Error).message, path }, "composer unreachable; composing in-process");
-      return { item: await local(), source: "local" };
+      const composed = await local();
+      return { item: composed.item, source: "local", slot: composed.slot };
     }
   };
 
   return {
-    refresh: (businessId, o = {}) => run("/v1/refresh", { businessId }, businessId, () => composeLocally(opts.db, opts.models, businessId, { actorUserId: o.actorUserId ?? null })),
+    refresh: (businessId, o = {}) => run("/v1/refresh", { businessId }, businessId, () => composeLocallyWithSlot(opts.db, opts.models, businessId, { actorUserId: o.actorUserId ?? null })),
     narrate: (businessId, eventIds, o = {}) =>
-      run("/v1/narrate", { businessId, eventIds }, businessId, () => composeLocally(opts.db, opts.models, businessId, { eventIds, actorUserId: o.actorUserId ?? null })),
+      run("/v1/narrate", { businessId, eventIds }, businessId, () => composeLocallyWithSlot(opts.db, opts.models, businessId, { eventIds, actorUserId: o.actorUserId ?? null })),
     async reachable() {
       try {
         const controller = new AbortController();
@@ -124,8 +131,80 @@ function isNarratableEvent(type: string): boolean {
   return isEventType(type) && getEventDeclaration(type).narratable;
 }
 
+interface LocalComposed {
+  item: InboxItem;
+  slot: "events" | "decision";
+}
+
+export interface LocalDecisionState {
+  tasks: Partial<Record<string, number>>;
+  channelsEnabled: number;
+  customers30d: number;
+  signups30d: number;
+}
+
+export interface LocalDecision {
+  kind: "unblock_tasks" | "start_distribution" | "plan_next_cycle";
+  title: string;
+  facts: Record<string, number>;
+  options: Array<{ id: string; label: string; recommended: boolean; consequence: string; cost_minor: number; reversible: boolean }>;
+  exhibit: { kind: "table" | "chart"; spec_ref: (typeof NAMED_QUERIES)[number]["id"] };
+}
+
+/**
+ * The next-best decisions grounded in the current state, in priority order: the same candidates and wording as the
+ * composer service (apps/composer/src/decisions.ts) for the state the in-process path can read. The last one always
+ * applies, so Refresh still yields exactly one note (AC-11.3.2) and never a "nothing new" filler.
+ */
+export function localNextBestDecisions(s: LocalDecisionState): LocalDecision[] {
+  const n = (k: string) => s.tasks[k] ?? 0;
+  const out: LocalDecision[] = [];
+  if (n("blocked") > 0) {
+    out.push({
+      kind: "unblock_tasks",
+      title: "Blocked tasks need a call",
+      facts: { blocked_tasks: n("blocked"), running_tasks: n("running") },
+      options: [
+        { id: "review", label: "Review the blocked tasks now", recommended: true, consequence: "The team gets answers this cycle and work resumes.", cost_minor: 0, reversible: true },
+        { id: "reassign", label: "Reassign them to the department lead", recommended: false, consequence: "The lead triages and comes back only with hard gates.", cost_minor: 0, reversible: true },
+        { id: "park", label: "Park them until the next cycle", recommended: false, consequence: "Nothing moves on those tasks; dependents wait.", cost_minor: 0, reversible: true },
+      ],
+      exhibit: { kind: "table", spec_ref: "tasks_by_status" },
+    });
+  }
+  if (s.channelsEnabled === 0) {
+    out.push({
+      kind: "start_distribution",
+      title: "No distribution channel is live",
+      facts: { channels_enabled: s.channelsEnabled, signups_30d: s.signups30d, customers_30d: s.customers30d },
+      options: [
+        { id: "recommend", label: "Ask the strategist for a channel plan", recommended: true, consequence: "The Distribution Strategist scores all channels and proposes starters.", cost_minor: 0, reversible: true },
+        { id: "wait", label: "Hold until the product is further along", recommended: false, consequence: "No acquisition work; the pipeline stays empty.", cost_minor: 0, reversible: true },
+      ],
+      exhibit: { kind: "chart", spec_ref: "channel_cpa" },
+    });
+  }
+  const quiet = s.customers30d === 0 && s.signups30d === 0;
+  out.push({
+    kind: "plan_next_cycle",
+    title: "Set the focus for the next cycle",
+    facts: { planned_tasks: n("planned"), running_tasks: n("running"), done_tasks: n("done"), customers_30d: s.customers30d },
+    options: [
+      { id: "product", label: "Lead with product work", recommended: quiet, consequence: "The next cycle starts from the roadmap's now items.", cost_minor: 0, reversible: true },
+      { id: "distribution", label: "Lead with distribution", recommended: !quiet, consequence: "The next cycle prioritises enabled channels and follow-ups.", cost_minor: 0, reversible: true },
+      { id: "balanced", label: "Keep the current balance", recommended: false, consequence: "The Chief of Staff plans as usual within budget and capacity.", cost_minor: 0, reversible: true },
+    ],
+    exhibit: { kind: "table", spec_ref: "tasks_by_status" },
+  });
+  return out;
+}
+
 /** Compose one inbox item in-process (what the composer service does, without the buffer). */
 export async function composeLocally(db: Db, models: ModelClient, businessId: string, options: ComposeLocallyOptions = {}): Promise<InboxItem> {
+  return (await composeLocallyWithSlot(db, models, businessId, options)).item;
+}
+
+async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: string, options: ComposeLocallyOptions = {}): Promise<LocalComposed> {
   const business = await repos.businesses.get(db, businessId);
   const agentsPage = await repos.agents.list(db, businessId, { limit: 200 });
   const agents = agentsPage.items;
@@ -161,6 +240,16 @@ export async function composeLocally(db: Db, models: ModelClient, businessId: st
     { metric: "channels_enabled", value: String(channels.length), source: "channel_cpa" },
   ];
 
+  // No new event: the next-best decision grounded in the current state (composer service parity), skipping one the
+  // founder already has open so consecutive refreshes rotate instead of repeating the same note.
+  let grounded: LocalDecision | null = null;
+  if (events.length === 0) {
+    const candidates = localNextBestDecisions({ tasks: taskCounts, channelsEnabled: channels.length, customers30d: conversions.payment ?? 0, signups30d: conversions.signup ?? 0 });
+    const open = await repos.inbox.list(db, businessId, { type: "decision", state: ["unread", "read"], limit: 100 });
+    const openSubjects = new Set(open.items.map((i) => i.subject));
+    grounded = candidates.find((c) => !openSubjects.has(c.title)) ?? candidates[open.items.length % candidates.length]!;
+  }
+
   const input = {
     business: { id: business.id, name: business.name, archetype: business.archetype, business_mode: business.businessMode, glossary: business.glossary },
     business_name: business.name,
@@ -171,7 +260,15 @@ export async function composeLocally(db: Db, models: ModelClient, businessId: st
     events: events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt, payload: e.payload, entity_ids: e.entityIds })),
     metrics,
     named_queries: NAMED_QUERIES,
-    ...(events.length === 0 ? { decision_needed: true, note: "No new events. Offer an insight from the metrics or the next-best decision grounded in current state. Never invent an event." } : {}),
+    ...(grounded
+      ? {
+          type: "decision",
+          decision_needed: true,
+          next_best_decision: { kind: grounded.kind, title: grounded.title, facts: grounded.facts, exhibit: grounded.exhibit },
+          options: grounded.options,
+          note: "No new event and no data change. Offer the next-best decision grounded in the current state using the options given. Never invent an event.",
+        }
+      : {}),
   };
 
   const result = await models.complete({
@@ -204,7 +301,7 @@ export async function composeLocally(db: Db, models: ModelClient, businessId: st
     entity_ids: entityIds,
   };
 
-  return db.transaction(async (tx: DbTx) => {
+  const created = await db.transaction(async (tx: DbTx) => {
     const created = await repos.inbox.createItem(tx, businessId, item, { costMinor: result.cost.costMinorInt, currency: business.glossary.currency ?? "EUR" });
     if (eventIds.length) await repos.events.markNarrated(tx, businessId, eventIds);
     const createdEventId = await writeEventRow(tx, {
@@ -226,6 +323,7 @@ export async function composeLocally(db: Db, models: ModelClient, businessId: st
     await repos.events.markNarrated(tx, businessId, [createdEventId]);
     return created;
   });
+  return { item: created, slot: grounded ? "decision" : "events" };
 }
 
 function defaultDecision() {

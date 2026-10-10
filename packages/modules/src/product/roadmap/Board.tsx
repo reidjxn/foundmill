@@ -6,10 +6,11 @@
  */
 import { useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { ArrowLeftRight, Bot, FileText, Link2, Pencil, Workflow } from "lucide-react";
-import { Chip, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, EntityLink, Icon, StatusPill, cn, formatDate, useEntityLinkContext } from "@foundmill/dugout";
+import { Chip, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, DeptChip, EntityLink, Icon, StatusPill, cn, formatDate, useEntityLinkContext } from "@foundmill/dugout";
+import { useDepartments } from "@foundmill/widgets";
 import { ROADMAP_HORIZONS, type RoadmapHorizon } from "@foundmill/shared";
 import { HORIZON_LABEL, computeRoadmapStatus, taskSummary } from "../roadmap-status";
-import { blockTitle } from "../shared";
+import { blockTitle, useAgentNames } from "../shared";
 import type { RoadmapRow, SpecBlockRow } from "../types";
 import { adjacentHorizon, type Columns, type DependencyIndex } from "./board";
 
@@ -31,12 +32,22 @@ const HORIZON_HINT: Record<RoadmapHorizon, string> = {
   later: "Direction, not commitment. Dates here are estimates.",
 };
 
+/** The owner by name: the department's own chip, the agent's name, or nothing when it cannot be named (never a placeholder). */
 function Owner({ ownerRef }: { ownerRef: RoadmapRow["ownerRef"] }) {
   const ctx = useEntityLinkContext();
+  const departments = useDepartments();
+  const agents = useAgentNames();
   if (!ownerRef) return null;
-  if (ownerRef.kind === "department") return <Chip tone="neutral">{ctx.resolve?.(ownerRef.id)?.name ?? "Department"}</Chip>;
+  if (ownerRef.kind === "department") {
+    const d = departments.data?.find((x) => x.id === ownerRef.id);
+    const name = d?.name ?? ctx.resolve?.(ownerRef.id)?.name;
+    if (!name) return null;
+    return d ? <DeptChip dept={d.colourToken}>{name}</DeptChip> : <Chip tone="neutral">{name}</Chip>;
+  }
   const kind = ownerRef.kind === "agent" ? "agent" : "team_member";
-  return <EntityLink entity={{ id: ownerRef.id, kind, name: ctx.resolve?.(ownerRef.id)?.name ?? (kind === "agent" ? "Agent" : "Team member") }} className="text-small" />;
+  const name = (kind === "agent" ? agents.get(ownerRef.id) : undefined) ?? ctx.resolve?.(ownerRef.id)?.name;
+  if (!name) return null;
+  return <EntityLink entity={{ id: ownerRef.id, kind, name }} className="text-small" />;
 }
 
 function Card({ item, blocks, dependencies, titleById, moving, onMove, onEdit, onOpenBlock, onOpenTasks }: { item: RoadmapRow; blocks: readonly SpecBlockRow[]; dependencies: DependencyIndex; titleById: Map<string, string>; moving: boolean; onMove: (h: RoadmapHorizon) => void; onEdit: () => void; onOpenBlock: (id: string) => void; onOpenTasks: () => void }) {
@@ -100,16 +111,34 @@ function Card({ item, blocks, dependencies, titleById, moving, onMove, onEdit, o
             <Owner ownerRef={item.ownerRef} />
           </div>
           {linked.length || after.length ? (
-            <div className="flex flex-wrap items-center gap-1">
+            <div className="flex min-w-0 flex-col gap-1">
+              {/* Linked spec blocks read as quiet references (section, then two lines of the block), inside the card. */}
               {linked.map((b) => (
-                <Chip key={b.id} tone="neutral" icon={FileText} onClick={() => onOpenBlock(b.id)} title={`Open "${blockTitle(b)}" in the Specification`}>
-                  {blockTitle(b)}
-                </Chip>
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => onOpenBlock(b.id)}
+                  title={`Open "${blockTitle(b)}" in the Specification`}
+                  data-linked-block={b.id}
+                  className="flex w-full min-w-0 items-start gap-1.5 rounded-sm px-1 py-0.5 text-left text-small text-secondary outline-none transition-colors duration-micro ease-dugout hover:bg-white/4 hover:text-primary focus-visible:outline-2 focus-visible:outline-link"
+                >
+                  <Icon icon={FileText} size="inline" className="mt-0.5 shrink-0" />
+                  <span className="line-clamp-2 min-w-0 flex-1 break-words">
+                    {blockTitle(b).toLowerCase().startsWith(b.section.toLowerCase()) ? (
+                      blockTitle(b)
+                    ) : (
+                      <>
+                        <span className="font-medium text-primary">{b.section}:</span> {blockTitle(b)}
+                      </>
+                    )}
+                  </span>
+                </button>
               ))}
               {after.length ? (
-                <Chip tone="info" icon={Link2} title="Depends on">
-                  after {after.join(", ")}
-                </Chip>
+                <span className="flex min-w-0 items-start gap-1.5 px-1 text-small text-status-info" title="Depends on">
+                  <Icon icon={Link2} size="inline" className="mt-0.5 shrink-0" />
+                  <span className="min-w-0 break-words">After {after.join(", ")}</span>
+                </span>
               ) : null}
             </div>
           ) : null}

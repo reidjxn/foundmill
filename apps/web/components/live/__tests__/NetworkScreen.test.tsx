@@ -10,6 +10,7 @@ vi.mock("@/lib/trpc-react", async () => {
 });
 vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ businessId: "b1", data: { business: { name: "Ledgerly", gameMode: "live" } } }) }));
 vi.mock("@/components/shell/chrome", () => ({ useShellChrome: () => undefined }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => undefined }) }));
 
 import { NetworkScreen } from "../NetworkScreen";
 import { LiveViewerProvider } from "../viewer";
@@ -144,6 +145,8 @@ describe("/network", () => {
     expect(screen.getByText(/Requests you send wait here/)).toBeTruthy();
     expect(screen.getByText(/No conversations yet/)).toBeTruthy();
     expect(screen.getByText(/No connections yet/)).toBeTruthy();
+    // One way on from an empty network, not one per panel.
+    expect(screen.getAllByRole("button", { name: "Browse communities" })).toHaveLength(1);
     const strip = screen.getByTestId("network-strip");
     expect(within(strip).getByText("All read")).toBeTruthy();
     expect(within(strip).getByText("Nobody is waiting on you")).toBeTruthy();

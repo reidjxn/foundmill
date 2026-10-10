@@ -79,7 +79,9 @@ test.describe("onboarding", () => {
     if (await remoteOnly.count()) await remoteOnly.click();
     await expect(page.getByRole("list", { name: "Constraints chosen" })).toContainText("Remote only");
     await page.getByLabel("Medium").check();
-    await expect(page.getByTestId("profile-summary")).toContainText(/First-time founder · full time · EUR 25,000/);
+    // The currency is whatever the stored profile holds (the shared dev database may carry any of them): the summary
+    // names it by its ISO code before the grouped amount.
+    await expect(page.getByTestId("profile-summary")).toContainText(/First-time founder · full time · [A-Z]{3} 25,000/);
     await page.getByTestId("profile-submit-bottom").click();
     await expect(page).toHaveURL(/\/new$/, { timeout: LONG });
     await expect(page.getByTestId("doors")).toBeVisible();

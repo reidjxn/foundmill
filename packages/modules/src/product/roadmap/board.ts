@@ -73,6 +73,8 @@ export function parseDay(s: string | null | undefined): Date | null {
 }
 
 /** The axis for the scheduled items: from the earliest start to the latest end, padded a week each side, never shorter than 8 weeks. */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
 export function timelineScale(items: readonly RoadmapRow[], today: Date = new Date()): TimelineScale {
   const starts = items.map((i) => parseDay(i.targetStart)).filter((d): d is Date => d !== null);
   const ends = items.map((i) => parseDay(i.targetEnd)).filter((d): d is Date => d !== null);
@@ -86,7 +88,9 @@ export function timelineScale(items: readonly RoadmapRow[], today: Date = new Da
   const ticks: TimelineScale["ticks"] = [];
   const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
   while (cursor.getTime() <= end.getTime()) {
-    ticks.push({ at: (cursor.getTime() - start.getTime()) / (days * DAY_MS), label: cursor.toLocaleDateString("en-GB", { month: "short", year: cursor.getUTCMonth() === 0 ? "numeric" : undefined, timeZone: "UTC" }) });
+    // Fixed three-letter months ("Sep", never "Sept"): en-GB's short month is four letters for September only.
+    const month = MONTHS[cursor.getUTCMonth()]!;
+    ticks.push({ at: (cursor.getTime() - start.getTime()) / (days * DAY_MS), label: cursor.getUTCMonth() === 0 ? `${month} ${cursor.getUTCFullYear()}` : month });
     cursor.setUTCMonth(cursor.getUTCMonth() + 1);
   }
   const todayAt = (t.getTime() - start.getTime()) / (days * DAY_MS);

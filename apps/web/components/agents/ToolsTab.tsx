@@ -15,7 +15,7 @@ import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import type { TabProps } from "./AgentProfileScreen";
-import { currentVersion, grantedTools, grantsEqual, latestDraft, parseInstructions, parseToolGrants, toggleToolGrant, type ToolGrant } from "./logic";
+import { currentVersion, grantedTools, grantsEqual, humaniseKey, latestDraft, parseInstructions, parseToolGrants, toggleToolGrant, toolDisplay, type ToolGrant } from "./logic";
 
 type IntegrationsList = NonNullable<ReturnType<typeof useIntegrations>["data"]>;
 type CatalogueEntry = IntegrationsList["catalogue"][number];
@@ -64,7 +64,7 @@ export function ToolGrantsEditor({ businessId, value, onChange, readOnly }: Tool
     const entries = integrationsQ.data?.catalogue ?? [];
     const known = new Set(entries.map((c) => c.key));
     // Grants on connectors the catalogue does not list (phase-later connectors) still show, read-only.
-    const extra: CatalogueEntry[] = value.filter((g) => !known.has(g.connectorKey)).map((g) => ({ key: g.connectorKey, displayName: g.connectorKey, phase: 0, auth: { kind: "none" }, mode: "mock", tools: g.tools.map((t) => ({ name: t, description: "", inputSchema: { type: "object" } })), policyHints: {}, webhookPaths: [], rateLimits: undefined, simulations: [], integration: null }) as unknown as CatalogueEntry);
+    const extra: CatalogueEntry[] = value.filter((g) => !known.has(g.connectorKey)).map((g) => ({ key: g.connectorKey, displayName: humaniseKey(g.connectorKey), phase: 0, auth: { kind: "none" }, mode: "mock", tools: g.tools.map((t) => ({ name: t, description: "", inputSchema: { type: "object" } })), policyHints: {}, webhookPaths: [], rateLimits: undefined, simulations: [], integration: null }) as unknown as CatalogueEntry);
     return [...entries, ...extra].sort((a, b) => Number(!!b.integration) - Number(!!a.integration) || a.displayName.localeCompare(b.displayName));
   }, [integrationsQ.data, value]);
 
@@ -97,18 +97,25 @@ export function ToolGrantsEditor({ businessId, value, onChange, readOnly }: Tool
                 const id = `${c.key}-${t.name}`;
                 const checked = grant?.tools.includes(t.name) ?? false;
                 const hints = (c.policyHints as Record<string, Record<string, boolean | undefined>> | undefined)?.[t.name];
+                const shown = toolDisplay({ name: t.name, title: t.title, description: t.description });
                 return (
                   <li key={t.name} className="flex items-start gap-2">
                     <Checkbox id={id} checked={checked} disabled={readOnly} onCheckedChange={() => onChange(toggleToolGrant(value, c.key, t.name))} className="mt-0.5" aria-label={`${c.displayName}: ${t.title ?? t.name}`} />
-                    <label htmlFor={id} className="flex min-w-0 flex-col text-body text-primary">
+                    <label htmlFor={id} className="flex min-w-0 flex-col text-body text-primary" data-tool={t.name}>
                       <span className="inline-flex flex-wrap items-center gap-1.5">
-                        <span className="font-mono text-mono">{t.name}</span>
+                        {/* The tool's name in words; the id stays in the data attribute for support, not on screen. */}
+                        <span className="text-body-strong">{shown.label}</span>
+                        {shown.hardGate ? (
+                          <Chip tone="bad" icon={ShieldAlert}>
+                            Only you can do this
+                          </Chip>
+                        ) : null}
                         {hintChips(hints)}
                       </span>
-                      {t.description ? (
-                        <Tooltip content={t.description}>
-                          <span className="truncate text-small text-secondary" tabIndex={0}>
-                            {t.description}
+                      {shown.description ? (
+                        <Tooltip content={shown.description}>
+                          <span className="line-clamp-2 text-small text-secondary" tabIndex={0}>
+                            {shown.description}
                           </span>
                         </Tooltip>
                       ) : null}
@@ -193,7 +200,7 @@ export function ToolsTab({ businessId, profile, refetch }: TabProps) {
           </p>
           <p>
             <span className="t-label block">Per call</span>
-            A grant lets this agent see the tool. Every call still goes through the gateway: the policy engine answers allow, ask or deny from the business mode, this agent's autonomy and the tool's hints.
+            A grant lets this agent use the tool. Every use is still checked: it runs, asks you first, or is refused, depending on the business mode, this agent's autonomy and what the tool can do.
           </p>
           <div>
             <span className="t-label block">Hard gates (never lifted)</span>

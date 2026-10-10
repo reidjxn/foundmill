@@ -25,7 +25,7 @@ describe("IncorporateScreen", () => {
     expect(within(cards[0]!).getAllByText("Estimate").length).toBe(2);
     expect(within(cards[0]!).getByText(/permanent-establishment risk/)).toBeTruthy();
     expect(within(cards[0]!).getByText("Stripe Atlas")).toBeTruthy();
-    expect(within(cards[2]!).getByText("Kit")).toBeTruthy();
+    expect(within(cards[2]!).getByText("Document pack")).toBeTruthy();
     expect(screen.getAllByText("Information, not legal or tax advice").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText(/Partner professionals are available for a review/)).toBeTruthy();
   });
@@ -65,8 +65,8 @@ describe("IncorporateScreen", () => {
     expect(within(form).getByRole("radio", { name: /Stripe Atlas/ }).getAttribute("aria-checked")).toBe("true");
     fireEvent.change(within(form).getByLabelText("Jurisdiction"), { target: { value: "United Kingdom" } });
     expect(within(form).getByRole("radio", { name: /Companies House/ }).getAttribute("aria-checked")).toBe("true");
-    await user.click(within(form).getByRole("radio", { name: /Kit/ }));
-    expect(within(form).getByRole("radio", { name: /Kit/ }).getAttribute("aria-checked")).toBe("true");
+    await user.click(within(form).getByRole("radio", { name: /Document pack/ }));
+    expect(within(form).getByRole("radio", { name: /Document pack/ }).getAttribute("aria-checked")).toBe("true");
     fireEvent.change(within(form).getByLabelText("Entity type"), { target: { value: "Aktiebolag" } });
     fireEvent.change(within(form).getByLabelText("Legal name"), { target: { value: "Northwind AB" } });
     expect(start.hasAttribute("disabled")).toBe(false);

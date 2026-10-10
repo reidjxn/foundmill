@@ -6,7 +6,7 @@
  */
 import { useMemo } from "react";
 import { AlertTriangle, Inbox, Landmark } from "lucide-react";
-import { BarChart, Button, EmptyState, ErrorState, LineChart, MetricTile, Panel, StatusPill, type LineSeries, type MetricTileProps, type MetricProvenance } from "@foundmill/dugout";
+import { BarChart, Button, EmptyState, ErrorState, LineChart, MetricTile, Panel, ProvenanceChip, StatusPill, type LineSeries, type MetricTileProps, type MetricProvenance } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
@@ -29,11 +29,13 @@ import {
   RUNWAY_BLOCK_MONTHS,
   type MetricKey,
 } from "./metrics";
-import { Screen, fmtMoney, fmtMonths, useCurrency, useNow } from "./shared";
+import { Screen, fmtAxisMoney, fmtMoney, fmtMonths, useCurrency, useNow } from "./shared";
 import type { ChannelsListResponse, FinanceOverview, PnlResponse } from "./types";
 
 const TRAILING = 3;
 const HISTORY = 6;
+/** Charts fill the rest of a 900 px window under the ten tiles. */
+const CHART_HEIGHT = 320;
 
 export interface OverviewMetric extends MetricTileProps {
   key: MetricKey;
@@ -85,13 +87,13 @@ export function overviewTiles(args: { overview: FinanceOverview; pnl: PnlRespons
     { key: "cash", label: METRIC_DEFINITIONS.cash.label, value: { amountMinor: overview.cash.amountMinor, currency }, spark: cashHistory(overview.cash.amountMinor, monthly, months), provenance: prov("cash", `Bank balances, ${bank}`, "finance.overview.cash"), caption: bank },
     { key: "grossBurn", label: METRIC_DEFINITIONS.grossBurn.label, value: { amountMinor: overview.burn.grossBurnMinor, currency }, estimate: "estimate", spark: monthlySeries(monthly, months, (m) => m.outflowMinor), provenance: prov("grossBurn", "Bank transactions, operating outflows", "finance.overview.burn.grossBurnMinor"), caption: `per month, ${overview.burn.months}-month average` },
     { key: "netBurn", label: METRIC_DEFINITIONS.netBurn.label, value: { amountMinor: overview.burn.netBurnMinor, currency }, estimate: "estimate", delta: undefined, spark: monthlySeries(monthly, months, (m) => m.outflowMinor - m.inflowMinor), provenance: prov("netBurn", "Bank transactions, financing excluded", "finance.overview.burn.netBurnMinor"), caption: overview.burn.netBurnMinor <= 0 ? "Cash-flow positive" : `per month, ${overview.burn.months}-month average` },
-    { key: "runway", label: METRIC_DEFINITIONS.runway.label, value: overview.runway.months === null ? "—" : `${overview.runway.months}`, unit: overview.runway.months === null ? undefined : "mo", estimate: "estimate", provenance: prov("runway", "Cash ÷ net burn", "finance.overview.runway", fcRunway !== null ? `Base forecast: ${fmtMonths(fcRunway)}.` : undefined), caption: fcRunway !== null ? `Forecast: ${fmtMonths(fcRunway)}` : overview.runway.months === null ? "Needs a positive net burn" : runwayWord(overview.runway.months) },
+    { key: "runway", label: METRIC_DEFINITIONS.runway.label, value: overview.runway.months === null ? "—" : `${overview.runway.months}`, unit: overview.runway.months === null ? undefined : "mo", estimate: overview.runway.months === null ? undefined : "estimate", provenance: prov("runway", "Cash ÷ net burn", "finance.overview.runway", fcRunway !== null ? `Base forecast: ${fmtMonths(fcRunway)}.` : undefined), caption: fcRunway !== null ? `Forecast: ${fmtMonths(fcRunway)}` : overview.runway.months === null ? (overview.burn.netBurnMinor <= 0 ? "Cash-flow positive, so no limit yet" : "Appears once net burn is measured") : runwayWord(overview.runway.months) },
     { key: "revenue", label: METRIC_DEFINITIONS.revenue.label, value: { amountMinor: revenue, currency }, estimate: pnl?.source === "ledger" ? undefined : "estimate", spark: monthlySeries(monthly, months, (m) => m.inflowMinor), provenance: prov("revenue", pnlSource, "finance.pnl.categories[revenue]"), caption: `trailing ${TRAILING} months` },
     { key: "mrr", label: METRIC_DEFINITIONS.mrr.label, value: { amountMinor: mrr, currency }, estimate: "estimate", provenance: prov("mrr", pnlSource, `revenue ÷ ${TRAILING}`), caption: "per month" },
     { key: "arr", label: METRIC_DEFINITIONS.arr.label, value: { amountMinor: mrr * 12, currency }, estimate: "estimate", provenance: prov("arr", pnlSource, "MRR × 12"), caption: "annualised" },
-    { key: "grossMargin", label: METRIC_DEFINITIONS.grossMargin.label, value: gm === null ? "—" : gm / 100, format: "percent", estimate: "estimate", provenance: prov("grossMargin", pnlSource, "(revenue − cost of sales) ÷ revenue"), caption: gm === null ? "Needs revenue" : `trailing ${TRAILING} months` },
-    { key: "acquisitionCost", label: METRIC_DEFINITIONS.acquisitionCost.label, value: cpa === null ? "—" : { amountMinor: cpa, currency }, estimate: "estimate", provenance: prov("acquisitionCost", "Distribution board, channel spend and customers", "spend ÷ new customers", perChannelText), caption: blended ? `${blended.customers} customers, ${blended.days} days` : "Needs channel spend" },
-    { key: "payback", label: METRIC_DEFINITIONS.payback.label, value: payback === null ? "—" : `${payback}`, unit: payback === null ? undefined : "mo", estimate: "estimate", provenance: prov("payback", "Acquisition cost and gross profit per customer", "CPA ÷ (MRR × gross margin ÷ customers)"), caption: payback === null ? "Needs acquisition cost, margin and customers" : `${payingCustomers} paying customers` },
+    { key: "grossMargin", label: METRIC_DEFINITIONS.grossMargin.label, value: gm === null ? "—" : gm / 100, format: "percent", estimate: gm === null ? undefined : "estimate", provenance: prov("grossMargin", pnlSource, "(revenue − cost of sales) ÷ revenue"), caption: gm === null ? "Appears with the first revenue" : `trailing ${TRAILING} months` },
+    { key: "acquisitionCost", label: METRIC_DEFINITIONS.acquisitionCost.label, value: cpa === null ? "—" : { amountMinor: cpa, currency }, estimate: cpa === null ? undefined : "estimate", provenance: prov("acquisitionCost", "Distribution board, channel spend and customers", "spend ÷ new customers", perChannelText), caption: blended ? `${blended.customers} customer${blended.customers === 1 ? "" : "s"}, ${blended.days} days` : "Appears once a channel spends" },
+    { key: "payback", label: METRIC_DEFINITIONS.payback.label, value: payback === null ? "—" : `${payback}`, unit: payback === null ? undefined : "mo", estimate: payback === null ? undefined : "estimate", provenance: prov("payback", "Acquisition cost and gross profit per customer", "CPA ÷ (MRR × gross margin ÷ customers)"), caption: payback === null ? "Appears with acquisition cost, margin and customers" : `${payingCustomers} paying customer${payingCustomers === 1 ? "" : "s"}` },
   ];
   return tiles;
 }
@@ -175,11 +177,31 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
           </div>
         )}
       </section>
-      <Panel title={`Cash, last ${HISTORY} months`} span={8} loading={overview.isLoading} error={overview.error ? overview.error.message : undefined} onRetry={overview.refetch} empty={data && !hasData ? "Cash history appears once a bank account is connected." : undefined} footer={<span>Actuals from bank balances walked back through monthly net cash; the dashed line is the Base forecast.</span>}>
-        {cashSeries.length ? <LineChart label="Cash history and Base forecast" series={cashSeries} height={200} yFormat={(v) => fmtMoney(v, cur, { compact: true })} provenance={cashSeries.length > 1 ? "forecast" : undefined} zeroBased={false} markX={monthStart(now, 0)} markLabel="This month" /> : null}
+      <Panel
+        title="Cash"
+        meta={`last ${HISTORY} months and the Base forecast`}
+        span={8}
+        loading={overview.isLoading}
+        error={overview.error ? overview.error.message : undefined}
+        onRetry={overview.refetch}
+        actions={cashSeries.length > 1 ? <ProvenanceChip kind="forecast" /> : undefined}
+        empty={data && !hasData ? "Cash history appears once a bank account is connected." : undefined}
+        footer={<span>Actuals from bank balances walked back through monthly net cash; the dashed line is the Base forecast.</span>}
+      >
+        {cashSeries.length ? <LineChart label="Cash history and Base forecast" series={cashSeries} height={CHART_HEIGHT} yFormat={(v) => fmtAxisMoney(v, cur)} zeroBased={false} markX={monthStart(now, 0)} markLabel="This month" /> : null}
       </Panel>
-      <Panel title="Net cash change by month" span={4} loading={overview.isLoading} error={overview.error ? overview.error.message : undefined} onRetry={overview.refetch} empty={data && !hasData ? "Monthly inflows and outflows appear once transactions sync." : undefined} footer={<span>{pnl.data?.label ?? "Management P&L, unaudited, cash basis"}</span>}>
-        {flow.length ? <BarChart label="Net cash change by month" data={flow} height={200} format={(v) => fmtMoney(v, cur, { compact: true })} provenance="estimate" showValues /> : null}
+      <Panel
+        title="Net cash change"
+        meta="by month"
+        span={4}
+        loading={overview.isLoading}
+        error={overview.error ? overview.error.message : undefined}
+        onRetry={overview.refetch}
+        actions={flow.length ? <ProvenanceChip kind="estimate" /> : undefined}
+        empty={data && !hasData ? "Monthly inflows and outflows appear once transactions sync." : undefined}
+        footer={<span>{pnl.data?.label ?? "Management P&L, unaudited, cash basis"}</span>}
+      >
+        {flow.length ? <BarChart label="Net cash change by month" data={flow} height={CHART_HEIGHT} format={(v) => fmtAxisMoney(v, cur)} /> : null}
       </Panel>
     </Screen>
   );

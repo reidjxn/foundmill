@@ -2,13 +2,13 @@
 /**
  * Legal › Incorporate (BUILD §11.11): the jurisdiction recommender ("For your business, we recommend X or Y" with up
  * to six cards stamped with the date checked, always captioned "Information, not legal or tax advice"), the route
- * chooser (Stripe Atlas / Companies House / kit) that starts the supervised session, and the session panel with the
+ * chooser (Stripe Atlas / Companies House / document pack) that starts the supervised session, and the session panel with the
  * workflow's status steps. The final review, submit and payment are founder-only buttons that only open the external
  * page (AC-11.11.4); "I submitted" records the founder's click.
  */
 import { useId, useMemo, useState } from "react";
-import { Check, CheckCircle2, Circle, CircleDashed, Compass, Landmark, MonitorPlay, Play, Send, UserRound, XCircle } from "lucide-react";
-import { Button, Chip, Field, Input, Panel, ProvenanceChip, RadioGroup, RadioOption, SimpleSelect, StarRating, Timeline, cn, formatDate, type IconComponent, type TimelineEvent } from "@foundmill/dugout";
+import { Building2, Check, CheckCircle2, Circle, CircleDashed, Compass, FileStack, Landmark, MonitorPlay, Play, Send, UserRound, XCircle } from "lucide-react";
+import { Button, Chip, Field, Input, Panel, ProvenanceChip, RadioCard, RadioGroup, SimpleSelect, StarRating, Timeline, cn, formatDate, type IconComponent, type TimelineEvent } from "@foundmill/dugout";
 import { INCORPORATION_ROUTES, type IncorporationRoute } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
@@ -24,17 +24,20 @@ const FUNDRAISING_OPTIONS = [
 ];
 
 const STEP_ICON: Record<StepRow["state"], IconComponent> = { done: CheckCircle2, current: Play, todo: Circle, abandoned: XCircle };
+const ROUTE_ICON: Record<IncorporationRoute, IconComponent> = { stripe_atlas: Landmark, companies_house_web: Building2, kit: FileStack };
 
 export function JurisdictionCardView({ card, currency, onChoose, chosen }: { card: JurisdictionCard; currency: string; onChoose?: (card: JurisdictionCard) => void; chosen?: boolean }) {
   const route = ROUTE_META[card.route];
   return (
-    <article aria-label={`${card.jurisdiction} ${card.entity_type}`} className={cn("flex flex-col gap-2 rounded-panel border bg-panel-alt p-panel-pad", chosen ? "border-kit-primary" : "border-subtle")}>
+    <article aria-label={`${card.jurisdiction} ${card.entity_type}`} data-chosen={chosen || undefined} className={cn("surface-raised flex flex-col gap-2 rounded-md p-panel-pad", chosen && "row-selected")}>
       <header className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="t-display-sm text-primary">{card.jurisdiction}</p>
           <p className="t-small text-secondary">{card.entity_type}</p>
         </div>
-        <Chip tone={card.route === "kit" ? "neutral" : "info"}>{route.label}</Chip>
+        <Chip tone={card.route === "kit" ? "neutral" : "info"} className="shrink-0 whitespace-nowrap">
+          {route.label}
+        </Chip>
       </header>
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
         <div>
@@ -220,7 +223,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
         loading={status.isLoading}
         error={status.error ? status.error.message : undefined}
         onRetry={status.refetch}
-        footer={<span>Only Delaware (Stripe Atlas) and UK private limited companies (Companies House) have supervised routes; everything else is a kit of documents prepared for you.</span>}
+        footer={<span>Only Delaware (Stripe Atlas) and UK private limited companies (Companies House) have supervised routes; everything else is a document pack prepared for you to file.</span>}
       >
         <form
           className="flex flex-col gap-3"
@@ -233,7 +236,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
           <RadioGroup aria-label="Route" value={route} onValueChange={(v) => setRoute(v as IncorporationRoute)} disabled={active} className="flex flex-col gap-2">
             {ROUTE_ORDER.map((r) => {
               const meta = ROUTE_META[r];
-              return <RadioOption key={r} id={`${id}-route-${r}`} value={r} label={`${meta.label} · ${meta.jurisdictionLabel}`} description={meta.who} />;
+              return <RadioCard key={r} id={`${id}-route-${r}`} value={r} label={`${meta.label} · ${meta.jurisdictionLabel}`} description={meta.who} icon={ROUTE_ICON[r]} />;
             })}
           </RadioGroup>
           <div className="grid grid-cols-2 gap-3">
@@ -274,12 +277,12 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
               {steps.map((s) => {
                 const Icon = STEP_ICON[s.state];
                 return (
-                  <li key={s.key} data-step={s.key} data-state={s.state} className={cn("flex items-start gap-2 rounded-panel border px-2 py-1.5", s.state === "current" ? "border-kit-primary bg-panel-alt" : "border-subtle")}>
+                  <li key={s.key} data-step={s.key} data-state={s.state} className={cn("flex items-start gap-2 rounded-md px-2.5 py-2", s.state === "current" ? "surface-raised row-selected" : "edge")}>
                     <Icon size={16} aria-hidden className={cn("mt-0.5 shrink-0", s.state === "done" ? "text-status-good" : s.state === "current" ? "text-accent-link" : s.state === "abandoned" ? "text-status-bad" : "text-secondary")} />
                     <div className="min-w-0 flex-1">
-                      <p className={cn("t-body-strong", s.state === "todo" || s.state === "abandoned" ? "text-secondary" : "text-primary")}>
+                      <p className={cn("flex flex-wrap items-center gap-x-2 gap-y-1 t-body-strong", s.state === "todo" || s.state === "abandoned" ? "text-secondary" : "text-primary")}>
                         {s.title}
-                        {s.owner === "founder" ? <FounderOnlyChip className="ml-2" /> : null}
+                        {s.owner === "founder" ? <FounderOnlyChip /> : null}
                       </p>
                       <p className="t-small text-secondary">{s.state === "done" ? `${humanise(s.state)}${s.at ? ` · ${formatDate(s.at)}` : ""}` : s.state === "current" ? "In progress" : s.state === "abandoned" ? "Not reached" : "Next"}</p>
                     </div>
@@ -288,7 +291,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
               })}
             </ol>
             <div className="col-span-7 flex flex-col gap-3">
-              <section aria-label="Live view" className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-panel border border-subtle bg-ink p-panel-pad text-center">
+              <section aria-label="Live view" className="edge flex min-h-40 flex-col items-center justify-center gap-2 rounded-md bg-ink p-panel-pad text-center">
                 <MonitorPlay size={20} aria-hidden className="text-secondary" />
                 {incorporation.browserSessionId ? (
                   <>
@@ -308,7 +311,7 @@ export function IncorporateScreen({ businessId }: ModuleScreenProps) {
                 ) : (
                   <span className="inline-flex items-center gap-2">
                     <Button icon={Send} onClick={() => navigate(routes.inbox(businessId))} disabled={!canTakeOver}>
-                      Open the kit in the Inbox
+                      Open the documents in the Inbox
                     </Button>
                     <FounderOnlyChip />
                   </span>

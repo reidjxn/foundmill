@@ -33,7 +33,7 @@ describe("CreativeScreen", () => {
     const emails = screen.getByRole("region", { name: "Emails" });
     expect(within(emails).getByText("Author unknown")).toBeTruthy();
     expect(within(emails).getByText("drive://welcome-1")).toBeTruthy();
-    expect(screen.getByText(/4 assets · 1 awaiting approval · 1 approved · 1 rejected/)).toBeTruthy();
+    expect(screen.getByText("4 assets · 1 awaiting approval")).toBeTruthy();
   });
 
   it("filters by approval state with the chips", () => {
@@ -66,8 +66,11 @@ describe("CreativeScreen", () => {
 
   it("shows the empty state, the error and the loading skeleton", () => {
     const empty = createFakeSource({ businessId: BID, responses: emptyResponses });
-    renderScreen(empty, <CreativeScreen {...props} />);
+    const { unmount } = renderScreen(empty, <CreativeScreen {...props} />);
     expect(screen.getByText("No creative yet")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open campaigns" }));
+    expect(empty.navigations).toHaveLength(1);
+    unmount();
 
     const failing = createFakeSource({ businessId: BID, responses: { ...emptyResponses, "distribution.assets.list": new Error("assets down") } });
     renderScreen(failing, <CreativeScreen {...props} />);

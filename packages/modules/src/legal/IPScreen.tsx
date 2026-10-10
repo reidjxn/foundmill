@@ -11,7 +11,7 @@ import { Button, Chip, DataTable, Field, Input, KeyValueList, Panel, StarRating,
 import { useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { DISTINCTIVENESS_WORD, screenTrademark, type TrademarkScreen } from "./legal-data";
-import { InformationNotice, Screen, humanise, useLegalStatus, useNow, useOpenExternal } from "./shared";
+import { InformationNotice, Screen, archetypeLabel, useLegalStatus, useNow, useOpenExternal } from "./shared";
 import type { BusinessGetResponse, IntegrationsListResponse } from "./types";
 
 const BUSINESS_INPUT: Record<string, unknown> = {};
@@ -94,17 +94,21 @@ export function IPScreen({ businessId: _businessId }: ModuleScreenProps) {
             if (input.trim()) runScreen(input);
           }}
         >
-          <Field htmlFor={`${id}-mark`} label="Word mark" className="w-80" hint="The name as you would use it as a brand">
-            <Input id={`${id}-mark`} value={input} onChange={(e) => setInput(e.target.value)} placeholder={businessName || "Northwind"} maxLength={80} />
+          {/* The hint sits under the whole row, so both buttons line up with the field rather than with its hint. */}
+          <Field htmlFor={`${id}-mark`} label="Word mark" className="w-80">
+            <Input id={`${id}-mark`} value={input} onChange={(e) => setInput(e.target.value)} placeholder={businessName || "Northwind"} maxLength={80} aria-describedby={`${id}-mark-hint`} />
           </Field>
           <Button type="submit" variant="primary" icon={ScanSearch} disabled={!input.trim()}>
             Screen
           </Button>
           {businessName && !marks.some((m) => m.id === businessName.toLowerCase()) ? (
             <Button type="button" variant="ghost" onClick={() => runScreen(businessName)}>
-              Screen "{businessName}"
+              Screen “{businessName}”
             </Button>
           ) : null}
+          <p id={`${id}-mark-hint`} className="basis-full text-small text-secondary">
+            The name as you would use it as a brand.
+          </p>
         </form>
         {current ? (
           <section aria-label={`Screen of ${current.mark}`} className="mt-3 flex flex-col gap-3">
@@ -129,7 +133,7 @@ export function IPScreen({ businessId: _businessId }: ModuleScreenProps) {
               )}
             </div>
             <div>
-              <p className="t-label mb-1">Classes to consider{archetype ? ` for ${humanise(archetype)}` : ""}</p>
+              <p className="t-label mb-1">Classes to consider{archetype ? ` for ${archetypeLabel(archetype)}` : ""}</p>
               <div className="flex flex-wrap gap-1">
                 {current.classes.map((c) => (
                   <Chip key={c.number} tone="neutral" icon={Stamp}>

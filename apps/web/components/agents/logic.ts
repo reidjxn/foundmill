@@ -476,7 +476,8 @@ export function validateNegotiation(form: NegotiationForm): string | null {
 export function validateAutonomy(form: AutonomyForm): string | null {
   if (form.spendCapMinor !== null && form.spendCapMinor < 0) return "The spend cap cannot be negative.";
   if (form.approvalThresholdMinor !== null && form.approvalThresholdMinor < 0) return "The approval threshold cannot be negative.";
-  if (form.spendCapMinor !== null && form.approvalThresholdMinor !== null && form.approvalThresholdMinor > form.spendCapMinor) return "The approval threshold is above the spend cap, so it would never trigger.";
+  // A zero cap is the default "no spending of its own" (every spend asks), not a conflict with the threshold.
+  if (form.spendCapMinor !== null && form.spendCapMinor > 0 && form.approvalThresholdMinor !== null && form.approvalThresholdMinor > form.spendCapMinor) return "The approval threshold is above the spend cap, so it would never trigger.";
   return null;
 }
 
@@ -590,6 +591,12 @@ export function sessionRows(sessions: readonly SessionRecord[], now: Date = new 
     .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
 }
 
+/** "completed" → "Completed", "partially_accepted" → "Partially accepted": an outcome or state as a word. */
+export function outcomeWord(outcome: string): string {
+  const w = outcome.replace(/_/g, " ").trim();
+  return w ? w.charAt(0).toUpperCase() + w.slice(1) : "Ended";
+}
+
 export const OUTCOME_TONE: Record<string, "good" | "warn" | "bad" | "info" | "neutral"> = { success: "good", succeeded: "good", done: "good", partial: "warn", failure: "bad", failed: "bad", stopped: "warn", running: "info", ended: "neutral" };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -604,13 +611,132 @@ export function statusWord(status: AgentStatus): string {
   return ({ healthy: "Healthy", degraded: "Degraded", failing: "Failing", injured: "Down", paused: "Paused", idle: "Idle" } as Record<AgentStatus, string>)[status];
 }
 
-/** Lines of "What I do" from the template-derived description and the never-does list. */
+// ---------------------------------------------------------------------------------------------------------------------
+// Founder copy from instruction text (the instructions are written to the model; the profile speaks to the founder)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Ids the instructions name that read as plain words on the profile. */
+const PLAIN_IDS: Record<string, string> = {
+  request_human_action: "a task for you",
+  reply_only: "a clarifying question",
+  "cycle.completed": "a cycle summary",
+  "plans.compile": "plan compiling",
+  "inbox.decide": "your decision",
+};
+
+/**
+ * Instruction prose → founder prose: build references and ids out ("(BUILD §2.2)", `request_human_action` → "a task
+ * for you", other snake_case or dotted ids → words), and the model's jargon in plain words ("agent ids" → "agents").
+ */
+export function founderPlain(text: string): string {
+  return text
+    .replace(/`([^`]+)`/g, "$1")
+    // Build-plan references are for the team that builds the product, never the founder.
+    .replace(/\s*\(BUILD\s*§\s*[\d.]+\)/g, "")
+    .replace(/\(BUILD\s*§\s*[\d.]+\s*[:;,]\s*/g, "(")
+    .replace(/\s*(?:—|–|-)\s*BUILD\s*§\s*[\d.]+\s*\)/g, ")")
+    .replace(/\s*(?:—|–|-)\s*BUILD\s*§\s*[\d.]+\s*[:;,]?\s*/g, "; ")
+    .replace(/\s*BUILD\s*§\s*[\d.]+\s*[:;,]?/g, "")
+    .replace(/\b[a-z][a-z0-9]*(?:[_.][a-z0-9]+)+\b/g, (id) => PLAIN_IDS[id] ?? id.replace(/[_.]+/g, " "))
+    .replace(/\bagent ids\b/gi, "agents")
+    .replace(/\bevidence ids\b/gi, "evidence")
+    .replace(/\brecord ids?\b/gi, (m) => (m.toLowerCase().endsWith("s") ? "source records" : "source record"))
+    .replace(/\bthe Inbox Composer\b/g, "the Inbox")
+    .replace(/\btyped actions\b/g, "concrete actions")
+    .replace(/\btyped Plans\b/g, "plans")
+    .replace(/(?<=[a-z,] )Plan(s?)\b/g, "plan$1")
+    .replace(/\bper hunk\b/g, "change by change")
+    // The profile speaks to the founder: "the founder" is "you".
+    .replace(/\b(?:a|every|each) founder reply\b/gi, (m) => `${m.split(" ")[0]} reply from you`)
+    .replace(/\bfounder replies\b/gi, "replies from you")
+    .replace(/\bthe founder's\b/gi, "your")
+    .replace(/\bthe founder\b/gi, "you")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,;:])/g, "$1")
+    .trim();
+}
+
+/** Subordinating openers: the step's verb follows the first comma ("After leads report, collect…"). */
+const CLAUSE_OPENERS = new Set(["after", "when", "if", "once", "before", "while", "until", "as", "whenever"]);
+/** Prepositional openers: the verb follows the phrase ("For each department write…"). */
+const PHRASE_OPENERS = new Set(["for", "every", "each", "with", "within", "during", "on", "at", "in", "per"]);
+/** Verbs the playbooks open their steps with, to find where the agent's "I" goes after a leading phrase. */
+const STEP_VERBS = new Set(["write", "hand", "load", "score", "collect", "close", "compile", "publish", "notify", "review", "brief", "read", "attach", "draft", "send", "keep", "check", "run", "plan", "track", "update", "reply", "ask", "flag", "propose", "move", "create", "open", "start", "stop", "prepare", "report", "make", "set", "use", "pick", "rank", "test", "merge", "ship", "measure", "verify", "summarise", "tag", "turn", "log", "watch", "find", "map", "split", "design", "build", "fix", "schedule", "assign", "estimate", "post", "share", "record", "queue", "escalate", "decide", "choose", "list", "mark", "file", "price", "cost", "order", "pay", "invoice", "reconcile", "forecast", "categorise", "monitor"]);
+/** Words that follow a comma without being a verb ("…, the Planner…"). */
+const NOT_VERBS = new Set(["the", "a", "an", "and", "or", "but", "then", "it", "its", "this", "that", "these", "those", "every", "each", "all", "no", "any", "one", "two", "three", "if", "when", "so", "with", "within", "without", "not", "only", "also", "i", "you", "we", "they"]);
+
+/**
+ * A playbook step in the agent's own voice: "Load the brief…" → "I load the brief…"; "After leads report, collect…" →
+ * "After leads report, I collect…"; "Never …" → "I never …". Steps it cannot place a subject in stay as they are.
+ */
+export function firstPerson(step: string): string {
+  const s = founderPlain(step);
+  const m = /^([A-Z][a-z]+)\b(.*)$/s.exec(s);
+  if (!m) return s;
+  const first = m[1]!.toLowerCase();
+  if (first === "never" || first === "always") return `I ${first}${m[2]}`;
+  if (CLAUSE_OPENERS.has(first)) {
+    const comma = /,\s+([a-z]+)\b/.exec(s);
+    if (comma && !NOT_VERBS.has(comma[1]!)) return `${s.slice(0, comma.index)}, I ${s.slice(comma.index + 2)}`;
+    return s;
+  }
+  if (PHRASE_OPENERS.has(first)) {
+    const words = s.split(" ");
+    const at = words.findIndex((w, i) => i > 0 && STEP_VERBS.has(w.toLowerCase()));
+    return at > 0 ? [...words.slice(0, at), "I", ...words.slice(at)].join(" ") : s;
+  }
+  return `I ${first}${m[2]}`;
+}
+
+/** The first-person description up to its structured tail ("Inputs: … Outputs: … Tools: … Never does: …"). */
+export function plainDescription(description: string): string {
+  const head = description.split(/\s(?:Inputs|Outputs|Tools|Never does)\s*:/)[0] ?? description;
+  return founderPlain(head);
+}
+
+/** Lines of "What I do": the first-person description, goals and the playbook in the agent's voice, the never-does list. */
 export function whatIDo(profile: Pick<AgentProfile, "agent" | "neverDoes" | "current">): { description: string; inputs: string[]; outputs: string[]; neverDoes: string[] } {
   const instructions = profile.current ? parseInstructions(profile.current.instructions) : null;
+  const raw = profile.agent.descriptionMd?.trim() || instructions?.role || "";
   return {
-    description: profile.agent.descriptionMd?.trim() || instructions?.role || "",
-    inputs: instructions?.goals ?? [],
-    outputs: instructions?.playbook ?? [],
-    neverDoes: profile.neverDoes,
+    description: plainDescription(raw),
+    inputs: (instructions?.goals ?? []).map(founderPlain),
+    outputs: (instructions?.playbook ?? []).map(firstPerson),
+    neverDoes: profile.neverDoes.map(founderPlain),
   };
+}
+
+/** The header's chips, each said once (a Chief of Staff's role and layer are the same words). */
+export function profileChips(agent: Pick<AgentRow, "role" | "agentType" | "layer">, departments: readonly { name: string; colourToken: DeptColourToken }[]): { label: string; tone?: DeptColourToken }[] {
+  const out: { label: string; tone?: DeptColourToken }[] = [];
+  const seen = new Set<string>();
+  const add = (label: string, tone?: DeptColourToken) => {
+    const key = label.trim().toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(tone ? { label, tone } : { label });
+  };
+  add(agent.role || humaniseKey(agent.agentType));
+  add(agent.layer === "assistant" ? "Chief of Staff" : humaniseKey(agent.layer));
+  for (const d of departments) add(d.name, d.colourToken);
+  return out;
+}
+
+/** "2026-10" → "Wage this month" in October 2026, else "Wage in September 2026". */
+export function wageLabel(period: string, now: Date = new Date()): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(period);
+  if (!m) return "Wage";
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  if (y === now.getFullYear() && mo === now.getMonth()) return "Wage this month";
+  return `Wage in ${new Date(Date.UTC(y, mo, 1)).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" })}`;
+}
+
+/** A connector tool for the founder: "search_files" → "Search files", description without build references, hard gates flagged. */
+export function toolDisplay(tool: { name: string; title?: string; description?: string }): { label: string; description: string; hardGate: boolean } {
+  const rawDescription = tool.description ?? "";
+  const hardGate = /\bHARD GATE\b/i.test(rawDescription);
+  const description = founderPlain(rawDescription.replace(/^\s*HARD GATE\s*(?:\([^)]*\))?\s*:\s*/i, ""));
+  const label = tool.title?.trim() || humaniseKey(tool.name.replace(/\./g, "_"));
+  return { label, description: description.charAt(0).toUpperCase() + description.slice(1), hardGate };
 }

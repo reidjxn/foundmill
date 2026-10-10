@@ -17,19 +17,33 @@ const row = (over: Partial<InboxListRow>): InboxListRow => ({
   unread: true,
   tone: "info",
   typeWord: "Update",
+  tag: { word: "Update", tone: "info", icon: "update" },
   agent: { id: "a1", name: "Mara", role: "Lifecycle", seed: "s", dept: "dept-1", departmentId: "d1", departmentName: "Growth" },
   fromUser: false,
   ...over,
 });
 
 describe("InboxList (DESIGN §9 rows)", () => {
-  it("renders the subject, preview, the red dot for items needing an answer and the gold edge for won customers", () => {
+  it("renders the subject (wrapping, never ellipsised), an icon + word tag per row, the preview and the gold edge for won customers", () => {
     const onSelect = vi.fn();
-    const r = render(<InboxList rows={[row({}), row({ id: "i2", needsAnswer: true, typeWord: "Decision" }), row({ id: "i3", won: true, needsAnswer: true, typeWord: "Customer won" })]} selectedId="i2" onSelect={onSelect} loading={false} hasMore onLoadMore={vi.fn()} emptyText="" />);
+    const r = render(
+      <InboxList
+        rows={[row({}), row({ id: "i2", needsAnswer: true, typeWord: "Decision", tag: { word: "Respond", tone: "bad", icon: "respond" } }), row({ id: "i3", won: true, needsAnswer: true, typeWord: "Customer won", tag: { word: "Win", tone: "gold", icon: "win" } })]}
+        selectedId="i2"
+        onSelect={onSelect}
+        loading={false}
+        hasMore
+        onLoadMore={vi.fn()}
+        emptyText=""
+      />,
+    );
     expect(r.getAllByRole("option")).toHaveLength(3);
-    expect(r.getAllByTestId("needs-answer-dot")).toHaveLength(2);
+    expect(r.getAllByTestId("row-tag").map((t) => t.getAttribute("data-row-tag"))).toEqual(["Update", "Respond", "Win"]);
+    // Every tag carries an icon beside its word (colour is never the only signal).
+    for (const t of r.getAllByTestId("row-tag")) expect(t.querySelector("svg")).toBeTruthy();
+    for (const s of r.getAllByTestId("row-subject")) expect(s.className).not.toMatch(/\btruncate\b|line-clamp/);
     const won = r.container.querySelector("[data-inbox-row='i3']");
-    expect(won?.className).toContain("border-l-gold");
+    expect(won?.className).toContain("row-edge-gold");
     expect(r.container.querySelector("[data-inbox-row='i2']")?.getAttribute("aria-selected")).toBe("true");
     fireEvent.click(r.container.querySelector("[data-inbox-row='i1']")!);
     expect(onSelect).toHaveBeenCalledWith("i1");

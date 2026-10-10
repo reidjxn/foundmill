@@ -25,18 +25,18 @@ describe("CashScreen", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <CashScreen {...props} />);
     const ops = screen.getByRole("article", { name: "Ledgerly operating" });
-    expect(within(ops).getByText("€110,000.00")).toBeTruthy();
+    expect(ops.querySelector("[data-figure]")?.textContent).toBe("€110,000.00");
     expect(within(ops).getByText("Consent lapses in 5 days")).toBeTruthy();
     expect(within(ops).getByRole("button", { name: /Renew consent/ })).toBeTruthy();
     const savings = screen.getByRole("article", { name: "Ledgerly savings" });
     expect(within(savings).getByText(/Consent valid \d+ days/)).toBeTruthy();
     expect(within(savings).queryByRole("button", { name: /Renew consent/ })).toBeNull();
-    expect(screen.getByText("€150,000.00")).toBeTruthy(); // total across accounts
+    expect(screen.getByText(/2 connected · €150,000\.00/)).toBeTruthy(); // total across accounts, in the panel meta
     expect(screen.getByText("1 consent to renew")).toBeTruthy();
 
     const table = screen.getByRole("grid", { name: "Transactions" });
     expect(within(table).getByRole("link", { name: /Stripe/ }).getAttribute("href")).toBe(`/b/${BID}/crm/${ENTITY.stripe}/overview`);
-    expect(within(table).getByText("Revenue").closest("[title]")!.getAttribute("title")).toBe("Categorised by rule");
+    expect(within(table).getByText("Revenue").closest("[title]")!.getAttribute("title")).toBe("Categorised by a rule");
     expect(within(table).getByText("Uncategorised")).toBeTruthy();
     expect(within(table).getByText("+€7,400.00")).toBeTruthy();
     expect(within(table).getByText("−€2,100.00")).toBeTruthy();

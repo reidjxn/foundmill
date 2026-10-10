@@ -3,16 +3,19 @@
  * Team › Recruitment (BUILD §6.3, §11.9, §11.13): the catalogue of agent templates (team.agents.catalogue) with a
  * saved view per family and "Hire…" into a department (team.agents.hire); the agent builder entry (a sentence →
  * the closest templates, hired under a custom name; Opus drafting of instructions and skills runs on the first
- * training run); and squad moves: release, clone, loan between departments.
+ * training run); and team moves: release, clone, loan between departments.
  */
 import { useMemo, useState } from "react";
-import { ArrowLeftRight, Copy, ExternalLink, Sparkles, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, EntityLink, ModelChip, Panel, ProvenanceChip, Textarea, formatMoney, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
-import { useDepartments } from "@foundmill/widgets/shared/departments";
+import { ArrowLeftRight, Copy, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
+import { Button, Chip, DataTable, DeptChip, ModelChip, Panel, ProvenanceChip, Textarea, formatMoney, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import type { DepartmentRow } from "@foundmill/widgets/shared/types";
+import type { ModuleKey } from "@foundmill/shared/constants";
+import { fitColumns, humanise, plural, useTableWidth, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { CloneDialog, HireDialog, LoanDialog, ReleaseDialog } from "./dialogs";
-import { AgentStatusWordPill, FAMILY_LABELS, Screen, agentDept, agentEntity, agentHref, suggestTemplates, useAgents, useNow } from "./shared";
+import { AgentCell, AgentStatusWordPill, FAMILY_LABELS, Screen, agentDept, agentEntity, agentHref, suggestTemplates, useAgents, useNow } from "./shared";
 import type { AgentRow, TemplateRow } from "./types";
 
 export interface CatalogueRow extends TemplateRow {
@@ -36,6 +39,29 @@ export const MOVES_VIEWS: SavedView[] = [
   { id: "idle", name: "Idle or paused", builtIn: true, columns: ["name", "role", "departments", "status"], sort: [], filters: [{ id: "f-idle", field: "status", op: "in", value: ["idle", "paused"] }] },
 ];
 
+/** Column minimums and how the extra width is shared (see fit.ts). */
+export const CATALOGUE_FIT: Record<string, ColumnFit> = {
+  name: { min: 200, grow: 3 },
+  family: { min: 120 },
+  module: { min: 136, grow: 1 },
+  model: { min: 92 },
+  skills: { min: 140, grow: 4 },
+  wage: { min: 176 },
+  hired: { min: 80 },
+};
+export const MOVES_FIT: Record<string, ColumnFit> = {
+  name: { min: 220, grow: 2 },
+  role: { min: 180, grow: 2 },
+  departments: { min: 180, grow: 1 },
+  status: { min: 200, grow: 1 },
+};
+
+/** The department a template works in: the department over its module (departments are labels over modules). */
+export function moduleLabel(module: string | null | undefined, departments: readonly DepartmentRow[] | undefined): string {
+  if (!module) return "Any";
+  return departmentForModule(departments, module as ModuleKey)?.name ?? humanise(module);
+}
+
 const FAMILY_ORDER: Record<TemplateRow["family"], number> = { assistant: 0, lead: 1, worker: 2, channel: 3, specialist: 4, utility: 5 };
 
 export function toCatalogueRows(catalogue: readonly TemplateRow[] | undefined, agents: readonly AgentRow[] | undefined): CatalogueRow[] {
@@ -53,7 +79,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
   const agentsQuery = useAgents();
   const departments = useDepartments();
   const rows = useMemo(() => toCatalogueRows(catalogue.data, agentsQuery.data?.agents), [catalogue.data, agentsQuery.data]);
-  const squad = useMemo(() => (agentsQuery.data?.agents ?? []).filter((a) => !a.archivedAt), [agentsQuery.data]);
+  const team = useMemo(() => (agentsQuery.data?.agents ?? []).filter((a) => !a.archivedAt), [agentsQuery.data]);
   const [catalogueViews, setCatalogueViews] = useState<SavedView[]>(CATALOGUE_VIEWS);
   const [movesViews, setMovesViews] = useState<SavedView[]>(MOVES_VIEWS);
   const [hire, setHire] = useState<{ template: TemplateRow; name?: string } | null>(null);
@@ -63,8 +89,14 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
   const [sentence, setSentence] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const suggestions = useMemo(() => suggestTemplates(sentence, catalogue.data ?? []), [sentence, catalogue.data]);
+  const best = suggestions[0]?.template ?? null;
   const open = (agentId: string) => navigate(agentHref(businessId, agentId));
   const refetch = () => agentsQuery.refetch();
+  const draft = () => best && setHire({ template: best });
+  const [catalogueRef, catalogueWidth] = useTableWidth();
+  const [movesRef, movesWidth] = useTableWidth();
+  const catalogueSizes = useMemo(() => fitColumns(catalogueWidth, CATALOGUE_FIT, CATALOGUE_VIEWS[0]!.columns as string[]), [catalogueWidth]);
+  const movesSizes = useMemo(() => fitColumns(movesWidth, MOVES_FIT, MOVES_VIEWS[0]!.columns as string[]), [movesWidth]);
 
   const catalogueColumns = useMemo<DataTableColumn<CatalogueRow>[]>(
     () => [
@@ -72,36 +104,53 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         id: "name",
         accessorKey: "name",
         header: "Template",
-        size: 260,
+        size: catalogueSizes.name,
         meta: { locked: true },
         cell: ({ row }) => (
-          <span className="flex min-w-0 flex-col py-0.5">
-            <span className="truncate text-body-strong">{row.original.name}</span>
-            <span className="truncate text-small text-secondary" title={row.original.description}>
-              {row.original.role}
-            </span>
+          <span className="block min-w-0 truncate" title={row.original.description}>
+            <span className="text-body-strong">{row.original.name}</span>
+            {row.original.role && row.original.role.toLowerCase() !== row.original.name.toLowerCase() ? <span className="ml-2 text-secondary">{row.original.role}</span> : null}
           </span>
         ),
       },
-      { id: "family", accessorKey: "family", header: "Family", size: 140, cell: ({ row }) => <Chip>{row.original.familyLabel}</Chip>, meta: { filter: "select", filterOptions: (Object.keys(FAMILY_LABELS) as TemplateRow["family"][]).map((f) => ({ value: f, label: FAMILY_LABELS[f] })) }, sortingFn: (a, b) => FAMILY_ORDER[a.original.family] - FAMILY_ORDER[b.original.family] },
-      { id: "module", accessorFn: (r) => r.module ?? "", header: "Module", size: 120, cell: ({ row }) => <span className="text-secondary">{row.original.module ?? "Any"}</span> },
-      { id: "model", accessorKey: "modelKey", header: "Model", size: 100, cell: ({ row }) => <ModelChip model={row.original.modelKey} /> },
-      { id: "skills", accessorFn: (r) => r.skills.length, header: "Skills", size: 240, meta: { numeric: true, csv: (r) => r.skills.join("; ") }, cell: ({ row }) => (row.original.skills.length ? <span className="truncate text-secondary" title={row.original.skills.join(", ")}>{row.original.skills.length} · {row.original.skills.join(", ")}</span> : <span className="text-secondary">Set by training</span>) },
+      { id: "family", accessorKey: "family", header: "Family", size: catalogueSizes.family, cell: ({ row }) => <Chip>{row.original.familyLabel}</Chip>, meta: { filter: "select", filterOptions: (Object.keys(FAMILY_LABELS) as TemplateRow["family"][]).map((f) => ({ value: f, label: FAMILY_LABELS[f] })) }, sortingFn: (a, b) => FAMILY_ORDER[a.original.family] - FAMILY_ORDER[b.original.family] },
+      { id: "module", accessorFn: (r) => moduleLabel(r.module, departments.data), header: "Department", size: catalogueSizes.module, meta: { label: "Department" }, cell: ({ row }) => <span className={row.original.module ? "text-primary" : "text-secondary"}>{moduleLabel(row.original.module, departments.data)}</span> },
+      { id: "model", accessorKey: "modelKey", header: "Model", size: catalogueSizes.model, cell: ({ row }) => <ModelChip model={row.original.modelKey} /> },
+      {
+        id: "skills",
+        accessorFn: (r) => r.skills.length,
+        header: "Skills",
+        size: catalogueSizes.skills,
+        meta: { filter: "number", csv: (r) => r.skills.map(humanise).join("; ") },
+        cell: ({ row }) => {
+          const skills = row.original.skills.map(humanise);
+          if (!skills.length) return <span className="text-secondary">Set by training</span>;
+          return (
+            <span className="block min-w-0 truncate" title={skills.join(", ")}>
+              <span className="text-primary tabular-nums">{skills.length}</span>
+              <span className="text-tertiary"> · </span>
+              <span className="text-secondary">{skills.join(", ")}</span>
+            </span>
+          );
+        },
+      },
       {
         id: "wage",
         accessorKey: "wageCapMinor",
         header: "Wage cap",
-        size: 150,
+        size: catalogueSizes.wage,
         meta: { numeric: true, csv: (r) => r.wageCapMinor / 100 },
         cell: ({ row }) => (
-          <span className="inline-flex items-center gap-1.5 tabular-nums">
-            {formatMoney({ amountMinor: row.original.wageCapMinor, currency })}/mo <ProvenanceChip kind="estimate" />
+          <span className="inline-flex items-center gap-1.5 whitespace-nowrap tabular-nums">
+            {formatMoney({ amountMinor: row.original.wageCapMinor, currency })}
+            <span className="t-unit">/mo</span>
+            <ProvenanceChip kind="estimate" />
           </span>
         ),
       },
-      { id: "hired", accessorKey: "hired", header: "In team", size: 90, meta: { numeric: true } },
+      { id: "hired", accessorKey: "hired", header: "In team", size: catalogueSizes.hired, meta: { numeric: true }, cell: ({ row }) => (row.original.hired ? row.original.hired : <span className="text-tertiary">—</span>) },
     ],
-    [currency],
+    [currency, catalogueSizes, departments.data],
   );
   const catalogueActions = (row: CatalogueRow): RowAction<CatalogueRow>[] => [{ id: "hire", label: "Hire…", icon: UserRoundPlus, onSelect: () => setHire({ template: row }) }];
 
@@ -111,21 +160,33 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         id: "name",
         accessorKey: "name",
         header: "Agent",
-        size: 220,
+        size: movesSizes.name,
         meta: { locked: true },
-        cell: ({ row }) => (
-          <span className="inline-flex min-w-0 items-center gap-2">
-            <Avatar size={24} name={row.original.name} agent={{ seed: row.original.avatarSeed || row.original.id, dept: agentDept(row.original) }} status={row.original.status} />
-            <EntityLink entity={{ id: row.original.id, kind: "agent", name: row.original.name, href: agentHref(businessId, row.original.id) }} details={agentEntity(businessId, row.original, currency)} hideIcon className="text-body-strong" onOpen={(e) => open(e.id)} onVerb={(verb, e) => verb === "open_profile" && open(e.id)} />
-          </span>
-        ),
+        cell: ({ row }) => <AgentCell businessId={businessId} agent={{ id: row.original.id, name: row.original.name, seed: row.original.avatarSeed || row.original.id, dept: agentDept(row.original), status: row.original.status }} details={agentEntity(businessId, row.original, currency)} onOpen={open} />,
       },
-      { id: "role", accessorFn: (r) => r.role ?? "", header: "Role", size: 180 },
-      { id: "departments", accessorFn: (r) => (r.departments ?? []).map((d) => d.name).join(", "), header: "Department(s)", size: 220, cell: ({ row }) => <span className="flex flex-wrap gap-1">{(row.original.departments ?? []).map((d) => <Chip key={d.id} tone={d.colourToken}>{d.name}</Chip>)}</span> },
-      { id: "status", accessorKey: "status", header: "Status", size: 160, cell: ({ row }) => <AgentStatusWordPill status={row.original.status} expectedReturnAt={row.original.expectedReturnAt} now={now} /> },
+      { id: "role", accessorFn: (r) => r.role ?? "", header: "Role", size: movesSizes.role },
+      {
+        id: "departments",
+        accessorFn: (r) => (r.departments ?? []).map((d) => d.name).join(", "),
+        header: "Departments",
+        size: movesSizes.departments,
+        cell: ({ row }) => {
+          const [first, ...rest] = row.original.departments ?? [];
+          if (!first) return <span className="text-tertiary">—</span>;
+          return (
+            <span className="flex min-w-0 items-center gap-1.5" title={(row.original.departments ?? []).map((d) => d.name).join(", ")}>
+              <DeptChip dept={first.colourToken} fit>
+                {first.name}
+              </DeptChip>
+              {rest.length ? <span className="shrink-0 text-small text-secondary tabular-nums">+{rest.length}</span> : null}
+            </span>
+          );
+        },
+      },
+      { id: "status", accessorKey: "status", header: "Status", size: movesSizes.status, cell: ({ row }) => <AgentStatusWordPill status={row.original.status} expectedReturnAt={row.original.expectedReturnAt} now={now} /> },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `open` is stable per data source
-    [businessId, currency, now],
+    [businessId, currency, now, movesSizes],
   );
   const movesActions = (agent: AgentRow): RowAction<AgentRow>[] => [
     { id: "open", label: "Open profile", icon: ExternalLink, onSelect: () => open(agent.id) },
@@ -136,26 +197,58 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
 
   return (
     <Screen name="team/recruitment">
-      <Panel span={12} title="Agent builder" actions={<Chip icon={Sparkles}>Sentence to agent</Chip>} footer="The builder drafts the description, instructions, skills and tools from your sentence on the first training run; the closest template gives it a head start. Hiring is an approval-free action; the wage cap is an estimate until the first month closes.">
+      <Panel span={12} title="Agent builder" glow="brand" footer="The closest template gives the new agent a head start; its first training run drafts the description, instructions, skills and tools. Hiring needs no approval; the wage cap is an estimate until the first month closes.">
         <div className="flex flex-col gap-3">
-          <Textarea value={sentence} onChange={(e) => setSentence(e.target.value)} rows={2} placeholder="e.g. an agent who writes our weekly customer newsletter and asks before sending" aria-label="Describe the agent" maxLength={400} />
-          {sentence.trim() && !suggestions.length ? <p className="text-small text-secondary">No template matches those words yet; try naming the work (write, research, source, test, ads, email).</p> : null}
+          <Textarea
+            value={sentence}
+            onChange={(e) => setSentence(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && best) {
+                e.preventDefault();
+                draft();
+              }
+            }}
+            rows={2}
+            placeholder="Describe the agent in a sentence, e.g. an agent who writes our weekly customer newsletter and asks before sending"
+            aria-label="Describe the agent"
+            maxLength={400}
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="generate" size="md" disabled={!best} kbd="⌘↵" onClick={draft} data-testid="draft-agent">
+              Draft this agent
+            </Button>
+            <span className="min-w-0 text-small text-secondary" role="status">
+              {best ? (
+                <>
+                  Starts from <span className="text-primary">{best.name}</span>, the closest of {plural(suggestions.length, "template")}. Pick another below.
+                </>
+              ) : sentence.trim() ? (
+                "No template matches those words yet; try naming the work (write, research, source, test, ads, email)."
+              ) : (
+                "Say what the agent does and who it answers to; the closest templates appear as you type."
+              )}
+            </span>
+          </div>
           {suggestions.length ? (
-            <ul className="grid grid-cols-3 gap-gutter" aria-label="Suggested templates">
-              {suggestions.map((s) => (
-                <li key={s.template.key} className="flex flex-col gap-2 rounded-panel border border-subtle bg-panel-alt p-panel-pad" data-suggestion={s.template.key}>
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate text-body-strong">{s.template.name}</span>
-                    <Chip tone={s.score >= 0.5 ? "good" : "neutral"}>{Math.round(s.score * 100)} % fit</Chip>
+            <ul className="grid grid-cols-3 gap-3" aria-label="Suggested templates">
+              {suggestions.map((s, i) => (
+                <li key={s.template.key} className={i === 0 ? "edge edge-tint tone-kit-lift flex min-w-0 flex-col gap-2 rounded-md bg-surface-2 p-panel-pad" : "edge flex min-w-0 flex-col gap-2 rounded-md bg-surface-2 p-panel-pad"} data-suggestion={s.template.key}>
+                  <span className="flex min-w-0 items-start justify-between gap-2">
+                    <span className="min-w-0 text-body-strong">{s.template.name}</span>
+                    <Chip tone={s.score >= 0.5 ? "good" : "neutral"} className="shrink-0">
+                      {Math.round(s.score * 100)} % fit
+                    </Chip>
                   </span>
-                  <span className="text-small text-secondary">{s.template.role} · {FAMILY_LABELS[s.template.family]}</span>
+                  <span className="text-small text-secondary">
+                    {s.template.role} · {FAMILY_LABELS[s.template.family]}
+                  </span>
                   <span className="line-clamp-2 text-small text-secondary">{s.template.description}</span>
                   <span className="flex flex-wrap gap-1">
                     {s.matched.slice(0, 4).map((w) => (
                       <Chip key={w}>{w}</Chip>
                     ))}
                   </span>
-                  <Button size="sm" icon={UserRoundPlus} onClick={() => setHire({ template: s.template })} className="self-start">
+                  <Button size="sm" icon={UserRoundPlus} onClick={() => setHire({ template: s.template })} className="mt-auto self-start">
                     Hire from this template
                   </Button>
                 </li>
@@ -173,14 +266,18 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         error={catalogue.error ? catalogue.error.message : undefined}
         onRetry={catalogue.refetch}
         empty={catalogue.data && rows.length === 0 ? { icon: Users, children: "The catalogue lists every agent template with its role, model and wage cap once the agents package is loaded." } : undefined}
-        actions={
-          <span className="text-small text-secondary tabular-nums" data-testid="catalogue-summary">
-            {rows.length} templates · {squad.length} in the team
-          </span>
+        meta={
+          rows.length ? (
+            <span data-testid="catalogue-summary">
+              {plural(rows.length, "template")} · {team.length} in the team
+            </span>
+          ) : undefined
         }
-        footer={notice ? <span data-testid="recruitment-notice">{notice}</span> : "Double-click or right-click a template to hire it into a department. Wage caps are estimates."}
+        footer={notice ? <span data-testid="recruitment-notice" className="text-secondary">{notice}</span> : "Double-click or right-click a template to hire it into a department. Wage caps are estimates."}
       >
-        <DataTable<CatalogueRow> aria-label="Catalogue" data={rows} columns={catalogueColumns} views={catalogueViews} onViewsChange={setCatalogueViews} defaultViewId="all" rowActions={catalogueActions} onRowOpen={(row) => setHire({ template: row })} height={Math.min(480, Math.max(240, rows.length * 34 + 48))} density="comfortable" exportFileName="catalogue" className="border-0" />
+        <div ref={catalogueRef} className="min-w-0">
+          <DataTable<CatalogueRow> aria-label="Catalogue" data={rows} columns={catalogueColumns} views={catalogueViews} onViewsChange={setCatalogueViews} defaultViewId="all" rowActions={catalogueActions} onRowOpen={(row) => setHire({ template: row })} height={Math.min(480, Math.max(240, rows.length * 34 + 44))} density="comfortable" exportFileName="catalogue" className="border-0" />
+        </div>
       </Panel>
 
       <Panel
@@ -190,10 +287,12 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         loading={agentsQuery.isLoading && !agentsQuery.data}
         error={agentsQuery.error ? agentsQuery.error.message : undefined}
         onRetry={refetch}
-        empty={agentsQuery.data && squad.length === 0 ? { icon: Users, children: "Hired agents appear here; right-click one to clone it, loan it to another department or release it." } : undefined}
+        empty={agentsQuery.data && team.length === 0 ? { icon: Users, children: "Hired agents appear here; right-click one to clone it, loan it to another department or release it." } : undefined}
         footer="Release stops running tasks and keeps the history. Clone copies instructions, tools, model and skills. Loan adds a department; move replaces it."
       >
-        <DataTable<AgentRow> aria-label="Team moves" data={squad} columns={movesColumns} views={movesViews} onViewsChange={setMovesViews} defaultViewId="all" rowActions={movesActions} onRowOpen={(a) => open(a.id)} height={Math.min(420, Math.max(200, squad.length * 28 + 48))} exportFileName="squad-moves" className="border-0" />
+        <div ref={movesRef} className="min-w-0">
+          <DataTable<AgentRow> aria-label="Team moves" data={team} columns={movesColumns} views={movesViews} onViewsChange={setMovesViews} defaultViewId="all" rowActions={movesActions} onRowOpen={(a) => open(a.id)} height={Math.min(420, Math.max(200, team.length * 28 + 44))} exportFileName="team-moves" className="border-0" />
+        </div>
       </Panel>
 
       <HireDialog

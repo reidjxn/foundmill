@@ -134,7 +134,7 @@ describe("LIVE-only widgets in Personal mode", () => {
   it("explain that the widget needs LIVE instead of querying", () => {
     for (const key of ["league_table", "community_feed"]) {
       const { fake, unmount } = mount(getWidget(key)!, dataResponses(), { live: false });
-      expect(screen.getByText(/part of LIVE/)).toBeTruthy();
+      expect(screen.getByText(/once the business is live/)).toBeTruthy();
       expect(fake.queried.size).toBe(0);
       unmount();
     }

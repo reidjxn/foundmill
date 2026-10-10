@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CONCEPT_ATTRIBUTE_KEYS, isHexColour, kitOnPrimaryDetail } from "@foundmill/dugout";
-import { COMPARE_MAX, EMPTY_STUDIO_STATE, META_KIND, buildDeck, citationsOf, commitHref, compareHref, costLabel, discardLocally, kitFromSeed, lineageOf, orderDeck, parseCompareIds, parseStudioState, qaOf, readMeta, restoreLocally, toConcept, toggleSelection, versionToConcept, type IdeaLike, type IdeaVersionLike } from "../ideate/concepts";
+import { STEERING_CHIPS, steerBrief } from "../ideate/IdeationStudio";
+import { COMPARE_MAX, EMPTY_STUDIO_STATE, META_KIND, attributeChanges, buildDeck, citationsOf, commitHref, compareHref, costLabel, discardLocally, kitFromSeed, lineageOf, orderDeck, parseCompareIds, parseStudioState, qaBubbles, qaOf, readMeta, restoreLocally, toConcept, toggleSelection, versionToConcept, type IdeaLike, type IdeaVersionLike } from "../ideate/concepts";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -124,5 +125,28 @@ describe("studio state: discard is reversible (AC-11.1.3)", () => {
 
   it("labels model cost as money", () => {
     expect(costLabel(12)).toBe("€0.12");
+  });
+});
+
+describe("Ask history and version changes", () => {
+  it("shows a stored answer's conversation bubbles, else its single answer", () => {
+    expect(qaBubbles({ question: "Who pays?", answer: "Freelancers." })).toEqual(["Freelancers."]);
+    expect(qaBubbles({ question: "Who pays?", answer: "A\n\nB", bubbles: ["A", "B", " "] })).toEqual(["A", "B"]);
+  });
+
+  it("lists the attributes a version moved, labelled", () => {
+    const before = { market_size: { value: 12 }, competition: { value: 9 } };
+    expect(attributeChanges(before, { market_size: { value: 14 }, competition: { value: 9 } })).toEqual([{ key: "market_size", label: "Market size", from: 12, to: 14 }]);
+    expect(attributeChanges(before, before)).toEqual([]);
+    expect(attributeChanges(null, before)).toEqual([]);
+  });
+});
+
+describe("steering the next set", () => {
+  it("adds a steering sentence to the brief once", () => {
+    expect(steerBrief("", "Sell to businesses rather than consumers.")).toBe("Sell to businesses rather than consumers.");
+    expect(steerBrief("Pet care", "Sell to businesses rather than consumers.")).toBe("Pet care Sell to businesses rather than consumers.");
+    expect(steerBrief("Pet care Sell to businesses rather than consumers.", "Sell to businesses rather than consumers.")).toBe("Pet care Sell to businesses rather than consumers.");
+    expect(STEERING_CHIPS.map((c) => c.label)).toEqual(["Cheaper to start", "B2B instead", "More defensible"]);
   });
 });

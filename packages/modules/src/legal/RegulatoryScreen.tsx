@@ -2,7 +2,7 @@
 /**
  * Legal › Regulatory (BUILD §11.11, §15 "regulated-sector gates"): the sector gates (health, finance, legal
  * services, food, cosmetics, children's products) suggested from the business profile and confirmed by the founder,
- * each with a checklist. While a gate is open the squad does not perform the listed activities; identity-bound
+ * each with a checklist. While a gate is open the team does not perform the listed activities; identity-bound
  * steps are the founder's. Gate selections and ticks live in this window until the settings API carries them.
  */
 import { useMemo, useState } from "react";
@@ -11,10 +11,11 @@ import { Checkbox, Chip, KeyValueList, Label, Panel, StatusPill, Switch, cn, typ
 import { useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { SECTOR_GATES, SECTOR_KEYS, detectSectors, gateState, type GateState, type SectorKey } from "./legal-data";
-import { FounderOnlyChip, InformationNotice, Screen, humanise } from "./shared";
+import { FounderOnlyChip, InformationNotice, Screen, archetypeLabel } from "./shared";
 import type { BusinessGetResponse } from "./types";
 
 const BUSINESS_INPUT: Record<string, unknown> = {};
+const REGION_WORD: Record<string, string> = { eu: "European Union", us: "United States" };
 
 const GATE_PILL: Record<GateState, { tone: StatusTone; word: string }> = { open: { tone: "warn", word: "Gate open" }, clear: { tone: "good", word: "Cleared" }, not_applicable: { tone: "neutral", word: "Not applicable" } };
 
@@ -67,16 +68,27 @@ export function RegulatoryScreen({ businessId: _businessId }: ModuleScreenProps)
             return (
               <li key={key} className={cn("flex items-start gap-3 rounded-panel border p-2", on ? "border-subtle bg-panel-alt" : "border-subtle")}>
                 <Switch id={switchId} checked={on} onCheckedChange={(v) => toggle(key, v === true)} aria-label={gate.label} />
-                <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  {/* The switch says whether the sector applies; a gate that is on carries its state beside the name. */}
                   <div className="flex flex-wrap items-center gap-2">
-                    <Label htmlFor={switchId} className="t-body-strong text-primary">
+                    <Label htmlFor={switchId} className={cn("t-body-strong", on ? "text-primary" : "text-secondary")}>
                       {gate.label}
                     </Label>
-                    <StatusPill tone={GATE_PILL[state].tone}>{GATE_PILL[state].word}</StatusPill>
-                    {hit ? <Chip tone="info">Suggested</Chip> : null}
+                    {on ? (
+                      <StatusPill tone={GATE_PILL[state].tone} icon={state === "clear" ? ShieldCheck : ShieldAlert} className="whitespace-nowrap">
+                        {GATE_PILL[state].word}
+                      </StatusPill>
+                    ) : null}
                   </div>
                   <p className="t-small text-secondary">{gate.summary}</p>
-                  {hit ? <p className="t-small text-secondary">Why: {hit.reasons.join("; ")}</p> : null}
+                  {hit ? (
+                    <p className="t-small text-secondary">
+                      <Chip tone="info" className="mr-1.5 whitespace-nowrap">
+                        Suggested
+                      </Chip>
+                      Why: {hit.reasons.join("; ")}
+                    </p>
+                  ) : null}
                 </div>
               </li>
             );
@@ -87,10 +99,12 @@ export function RegulatoryScreen({ businessId: _businessId }: ModuleScreenProps)
       <Panel title="While a gate is open" span={8} empty={blocked.length === 0 ? { icon: ShieldCheck, children: "No regulated-sector gate is open. The team works under the platform's standard hard gates only." } : undefined} footer={<span>The team never performs these until the gate clears; the Chief of Staff routes them to you as decisions instead.</span>}>
         <ul aria-label="Blocked activities" className="flex flex-col gap-1">
           {blocked.map((b, i) => (
-            <li key={`${b.gate}-${i}`} className="flex items-center gap-2">
-              <ShieldOff size={14} aria-hidden className="text-status-warn" />
-              <span className="t-body text-primary">{b.text}</span>
-              <Chip tone="neutral">{b.gate}</Chip>
+            <li key={`${b.gate}-${i}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <ShieldOff size={14} aria-hidden className="shrink-0 text-status-warn" />
+              <span className="min-w-0 t-body text-primary">{b.text}</span>
+              <Chip tone="neutral" className="whitespace-nowrap">
+                {b.gate}
+              </Chip>
             </li>
           ))}
         </ul>
@@ -101,7 +115,7 @@ export function RegulatoryScreen({ businessId: _businessId }: ModuleScreenProps)
         const state = gateState(key, chosen, done);
         const doneCount = gate.checklist.filter((i) => done.has(`${key}:${i.id}`)).length;
         return (
-          <Panel key={key} title={`${gate.label} checklist`} span={6} actions={<StatusPill tone={GATE_PILL[state].tone}>{GATE_PILL[state].word}</StatusPill>} footer={<span className="tabular-nums">{doneCount} of {gate.checklist.length} done · founder steps are yours; the team prepares the rest</span>}>
+          <Panel key={key} title={`${gate.label} checklist`} meta={`${doneCount} of ${gate.checklist.length} done`} span={6} actions={<StatusPill tone={GATE_PILL[state].tone} icon={state === "clear" ? ShieldCheck : ShieldAlert} className="whitespace-nowrap">{GATE_PILL[state].word}</StatusPill>} footer={<span>Founder steps are yours; the team prepares the rest.</span>}>
             <ul aria-label={`${gate.label} checklist`} className="flex flex-col gap-2">
               {gate.checklist.map((item) => {
                 const itemId = `${key}:${item.id}`;
@@ -109,11 +123,13 @@ export function RegulatoryScreen({ businessId: _businessId }: ModuleScreenProps)
                 return (
                   <li key={item.id} className="flex items-start gap-2">
                     <Checkbox id={itemId} checked={checked} onCheckedChange={(v) => tick(itemId, v === true)} aria-label={item.title} />
-                    <div className="min-w-0 flex-1">
-                      <Label htmlFor={itemId} className={cn("t-body-strong", checked ? "text-secondary line-through" : "text-primary")}>
-                        {item.title}
-                      </Label>
-                      {item.owner === "founder" ? <FounderOnlyChip className="ml-2" /> : <Chip tone="neutral" className="ml-2">Team prepares</Chip>}
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <Label htmlFor={itemId} className={cn("t-body-strong", checked ? "text-secondary line-through" : "text-primary")}>
+                          {item.title}
+                        </Label>
+                        {item.owner === "founder" ? <FounderOnlyChip /> : <Chip tone="neutral" className="whitespace-nowrap">Team prepares</Chip>}
+                      </div>
                       <p className="t-small text-secondary">{item.detail}</p>
                     </div>
                     {checked ? <Check size={14} aria-hidden className="text-status-good" /> : null}
@@ -132,8 +148,8 @@ export function RegulatoryScreen({ businessId: _businessId }: ModuleScreenProps)
           layout="grid"
           items={[
             { label: "Business", value: business.data?.business.name ?? "—" },
-            { label: "Archetype", value: business.data?.business.archetype ? humanise(business.data.business.archetype) : "—" },
-            { label: "Data region", value: business.data?.business.region ? business.data.business.region.toUpperCase() : "—" },
+            { label: "Archetype", value: business.data?.business.archetype ? archetypeLabel(business.data.business.archetype) : "—" },
+            { label: "Data region", value: business.data?.business.region ? (REGION_WORD[business.data.business.region] ?? business.data.business.region.toUpperCase()) : "—" },
             { label: "Gates", value: `${SECTOR_KEYS.filter((k) => chosen.has(k)).length} selected · ${openGates.length} open` },
           ]}
         />

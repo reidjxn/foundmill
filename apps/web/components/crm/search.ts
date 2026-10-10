@@ -4,6 +4,7 @@
  * "churned customers in Growth owned by Mara" into editable filter chips. The chips map onto `crm.search`'s input;
  * when the box is empty the list falls back to role listings filtered client-side by the same chips.
  */
+import { plainWords } from "@/lib/format";
 import { newFilterChipId, parseSearchQuery, type FilterChipValue, type FilterField } from "@foundmill/dugout";
 import { ENTITY_KINDS, type EntityKind } from "@foundmill/shared/constants";
 
@@ -213,7 +214,7 @@ export function crmFilterFields(options: { roles?: readonly string[]; department
   const roles = [...new Set([...(options.roles ?? []), ...KNOWN_ROLES])];
   return [
     { id: "kind", label: "Kind", kind: "select", options: ENTITY_KINDS.map((k) => ({ value: k, label: KIND_LABELS[k] })) },
-    { id: "role", label: "Role", kind: "select", options: roles.map((r) => ({ value: r, label: r.replace(/_/g, " ") })) },
+    { id: "role", label: "Role", kind: "select", options: roles.map((r) => ({ value: r, label: plainWords(r) })) },
     { id: "stage", label: "Stage", kind: "text" },
     { id: "owner", label: "Owner", kind: options.owners?.length ? "select" : "text", options: options.owners?.map((o) => ({ value: o.name.toLowerCase(), label: o.name })) },
     { id: "department", label: "Department", kind: options.departments?.length ? "select" : "text", options: options.departments?.map((d) => ({ value: d.name.toLowerCase(), label: d.name })) },

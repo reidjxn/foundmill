@@ -4,6 +4,7 @@
  * edge width and label from the 1–20 strength, kind icon per node. Plain SVG on tokens (same approach as Dugout's
  * charts); clicks open the related profile. An sr-only list carries the same facts.
  */
+import { plainWords } from "@/lib/format";
 import { useMemo } from "react";
 import { ENTITY_KIND_ICONS, ENTITY_KIND_LABELS, Icon, initials, ratingClass } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
@@ -51,7 +52,7 @@ export function RelationshipGraph({ centre, nodes, onOpen, width = 640, height =
         })}
         <g transform={`translate(${cx} ${cy})`}>
           <circle r={28} className="fill-kit-primary" />
-          <text y={4} textAnchor="middle" className="fill-kit-on-primary font-display text-[12px] font-semibold">
+          <text y={4} textAnchor="middle" className="fill-kit-on-primary font-display text-small font-semibold">
             {initials(centre.name)}
           </text>
         </g>
@@ -59,16 +60,16 @@ export function RelationshipGraph({ centre, nodes, onOpen, width = 640, height =
           const p = positions[i]!;
           const label = n.name.length > 18 ? `${n.name.slice(0, 17)}…` : n.name;
           return (
-            <g key={n.id} transform={`translate(${p.x} ${p.y})`} className={onOpen ? "cursor-pointer" : undefined} onClick={onOpen ? () => onOpen(n.id) : undefined} role={onOpen ? "button" : undefined} tabIndex={onOpen ? 0 : undefined} onKeyDown={onOpen ? (e) => (e.key === "Enter" || e.key === " ") && onOpen(n.id) : undefined} aria-label={`${n.name}, ${ENTITY_KIND_LABELS[n.kind]}, ${n.type}, strength ${n.strength} of 20`}>
+            <g key={n.id} transform={`translate(${p.x} ${p.y})`} className={onOpen ? "cursor-pointer" : undefined} onClick={onOpen ? () => onOpen(n.id) : undefined} role={onOpen ? "button" : undefined} tabIndex={onOpen ? 0 : undefined} onKeyDown={onOpen ? (e) => (e.key === "Enter" || e.key === " ") && onOpen(n.id) : undefined} aria-label={`${n.name}, ${ENTITY_KIND_LABELS[n.kind]}, ${plainWords(n.type).toLowerCase()}, strength ${n.strength} of 20`}>
               <circle r={20} className="fill-panel-alt stroke-subtle" strokeWidth={1} />
-              <text y={4} textAnchor="middle" className="fill-primary font-display text-[11px] font-semibold">
+              <text y={4} textAnchor="middle" className="fill-primary font-display text-micro font-semibold">
                 {initials(n.name)}
               </text>
-              <text y={34} textAnchor="middle" className="fill-primary font-body text-[11px]">
+              <text y={34} textAnchor="middle" className="fill-primary font-body text-micro">
                 {label}
               </text>
-              <text y={46} textAnchor="middle" className="fill-secondary font-mono text-[10px] tabular-nums">
-                {n.strength}/20 · {n.type.replace(/_/g, " ")}
+              <text y={46} textAnchor="middle" className="fill-tertiary font-mono text-micro tabular-nums">
+                {n.strength}/20 · {plainWords(n.type).toLowerCase()}
               </text>
             </g>
           );

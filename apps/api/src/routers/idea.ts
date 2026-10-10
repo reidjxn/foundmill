@@ -7,6 +7,7 @@ import { ARCHETYPES, Archetype, BUSINESS_MODES, GAME_MODES, ValidationError } fr
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { commitIdea, squadPreview } from "../services/commit";
+import { conceptPersona, conceptStarters, replyAboutConcept } from "../services/conversation";
 import { linkableImportJob } from "../services/foundations";
 import { draftEventStream, draftIdeas, isMeta, readMeta, withMeta, type DraftEvent } from "../services/ideation";
 import { importJobKey } from "../services/import";
@@ -21,7 +22,6 @@ export type { DraftEvent } from "../services/ideation";
 const Hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
 const Verdict = z.object({ verdict_md: z.string().min(1), ranking: z.array(z.object({ idea_id: z.string(), rank: z.number().int().min(1), reason: z.string() })).min(1) });
-const Answer = z.object({ answer_md: z.string().min(1), attribute_adjustments: z.array(z.object({ key: z.string(), value: z.number().int().min(1).max(20), evidence: z.string() })).default([]) });
 
 type AttrMap = Record<string, { value: number; evidence?: string }>;
 type Research = { citations: unknown[] };
@@ -37,6 +37,26 @@ function mergeAttributes(sources: IdeaWithVersion[]): AttrMap {
     out[key] = { value: Math.round(vals.reduce((a, v) => a + v.value, 0) / vals.length), evidence: vals.map((v) => v.evidence).filter(Boolean).join(" / ") };
   }
   return out;
+}
+
+/** "market_pull" → "market pull" (the card's own words for its attributes). */
+const attributeWords = (key: string): string => key.replace(/_/g, " ").replace(/\bagent executability\b/, "agent-executability");
+
+/**
+ * Why a card ranks where it does when the model gave no ranking: where it leads the other cards outright and where it
+ * is weakest, from the cards' own ratings (never "no model ranking", never invented).
+ */
+export function attributeReason(idea: Pick<IdeaWithVersion, "current">, others: readonly Pick<IdeaWithVersion, "current">[]): string {
+  const attrs = (idea.current?.attributes as AttrMap | undefined) ?? {};
+  const keys = Object.keys(attrs).filter((k) => typeof attrs[k]?.value === "number");
+  if (keys.length === 0) return "Placed by its star ratings; this card has no attribute ratings yet.";
+  const otherValue = (o: Pick<IdeaWithVersion, "current">, k: string) => ((o.current?.attributes as AttrMap | undefined) ?? {})[k]?.value;
+  const margin = (k: string) => attrs[k]!.value - Math.max(...others.map((o) => otherValue(o, k) ?? -Infinity));
+  const leads = keys.filter((k) => margin(k) > 0).sort((a, b) => margin(b) - margin(a)).slice(0, 2);
+  const weakest = [...keys].sort((a, b) => attrs[a]!.value - attrs[b]!.value)[0]!;
+  const first = leads.length ? `Leads on ${leads.map((k) => `${attributeWords(k)} (${attrs[k]!.value})`).join(" and ")}` : "Leads on no attribute outright";
+  const last = leads.includes(weakest) ? "" : `; weakest on ${attributeWords(weakest)} (${attrs[weakest]!.value})`;
+  return `${first}${last}.`;
 }
 
 export { IDEATION_CARD_MAX_TOKENS, IDEATION_SLATE_MAX_TOKENS } from "@foundmill/agents";
@@ -108,7 +128,9 @@ export const ideaRouter = router({
     const versionIds = ideas.map((i) => i.current?.id).filter((v): v is string => Boolean(v));
     const comparison = await repos.ideas.compare(ctx.db, ctx.userId, { ideaVersionIds: versionIds, verdictMd: result.json.verdict_md });
     // A ranking that does not name the compared ideas (the mock model synthesises one from the schema) is replaced by the cards' own stars, so the Compare screen always has a leader to commit.
-    const ranking = result.json.ranking.every((r) => ideas.some((i) => i.id === r.idea_id)) ? result.json.ranking : [...ideas].sort((a, b) => num(b.current?.starsPotential) - num(a.current?.starsPotential) || num(b.current?.starsCurrent) - num(a.current?.starsCurrent)).map((i, n) => ({ idea_id: i.id, rank: n + 1, reason: "Ranked by potential, then current ability (no model ranking)." }));
+    const ranking = result.json.ranking.every((r) => ideas.some((i) => i.id === r.idea_id))
+      ? result.json.ranking
+      : [...ideas].sort((a, b) => num(b.current?.starsPotential) - num(a.current?.starsPotential) || num(b.current?.starsCurrent) - num(a.current?.starsCurrent)).map((i, n) => ({ idea_id: i.id, rank: n + 1, reason: attributeReason(i, ideas.filter((o) => o.id !== i.id)) }));
     return { comparison, ideas, verdict: { ...result.json, ranking } };
   }),
 
@@ -147,23 +169,50 @@ export const ideaRouter = router({
     return fork;
   }),
 
-  /** Ask a question about a card; the answer (and any attribute evidence) becomes a new version. */
-  ask: protectedProcedure.input(z.object({ ideaId: Id, question: z.string().min(1).max(2000) })).mutation(async ({ ctx, input }) => {
+  /**
+   * The Ask sheet before the first question (no model call): the Research agent who answers and the starters, so the
+   * founder can ask with one press.
+   */
+  askDesk: protectedProcedure.input(z.object({ ideaId: Id })).query(async ({ ctx, input }) => {
     const idea = await repos.ideas.get(ctx.db, ctx.userId, input.ideaId);
-    const result = await ctx.models.complete({
-      route: "ideation",
-      schema: Answer,
-      system: "Answer the founder's question about this concept card from the research; adjust attributes only with evidence.",
-      messages: [{ role: "user", content: "```json\n" + JSON.stringify({ concept: { id: idea.id, title: idea.title, pitch: idea.pitch, attributes: idea.current?.attributes ?? {}, research: idea.current?.research ?? {} }, question: input.question }) + "\n```" }],
-      attribution: { kind: "ideation_ask" },
-    });
-    const attributes = { ...((idea.current?.attributes as AttrMap | undefined) ?? {}) };
-    for (const adj of result.json.attribute_adjustments) if (attributes[adj.key]) attributes[adj.key] = { value: adj.value, evidence: adj.evidence };
-    const meta = readMeta(idea.current?.research);
-    const qa = Array.isArray(meta.qa) ? meta.qa : [];
-    const version = await repos.ideas.addVersion(ctx.db, ctx.userId, idea.id, { action: "edited", attributes, research: withMeta(idea.current?.research, { qa: [...qa, { question: input.question, answer: result.json.answer_md }] }), parentVersionId: idea.current?.id ?? null });
-    return { version, answer: result.json.answer_md };
+    return { persona: conceptPersona(idea.current?.title ?? idea.title), starters: conceptStarters() };
   }),
+
+  /**
+   * Ask the Research agent about a card (audit-conversation §4 "Ask on a concept"): a typed question or one of its quick
+   * replies → `replyAboutConcept` (the conversation route, house rules first; the card's own text travels only as
+   * untrusted data). The answer becomes a new version (its Q&A in `meta.qa`); `answer` keeps the single-answer shape,
+   * `bubbles` / `quickReplies` / `persona` / `reaction` are the conversation.
+   */
+  ask: protectedProcedure
+    .input(
+      z
+        .object({ ideaId: Id, question: z.string().trim().min(1).max(2000).optional(), quickReplyId: z.string().regex(/^[a-z0-9_-]{1,24}$/).optional() })
+        .refine((v) => (v.question ? 1 : 0) + (v.quickReplyId ? 1 : 0) === 1, { message: "Ask a question or pick a quick reply", path: ["question"] }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const idea = await repos.ideas.get(ctx.db, ctx.userId, input.ideaId);
+      const before = (idea.current?.attributes as AttrMap | undefined) ?? {};
+      const meta = readMeta(idea.current?.research);
+      const qa = Array.isArray(meta.qa) ? (meta.qa as unknown[]) : [];
+      const history = qa.flatMap((q) => (q && typeof q === "object" && typeof (q as { question?: unknown }).question === "string" && typeof (q as { answer?: unknown }).answer === "string" ? [{ question: (q as { question: string }).question, answer: (q as { answer: string }).answer }] : [])).slice(-6);
+      const reply = await replyAboutConcept(ctx.models, {
+        concept: { id: idea.id, title: idea.current?.title ?? idea.title, pitch: idea.current?.pitch ?? idea.pitch, attributes: before },
+        question: input.question,
+        quickReplyId: input.quickReplyId,
+        history,
+        userId: ctx.userId,
+      });
+      const question = input.question ?? conceptStarters().find((q) => q.id === input.quickReplyId)?.say ?? "";
+      // The conversation route answers from the card; it never moves a rating, so the attributes carry over unchanged.
+      const version = await repos.ideas.addVersion(ctx.db, ctx.userId, idea.id, {
+        action: "edited",
+        attributes: before,
+        research: withMeta(idea.current?.research, { qa: [...qa, { question, answer: reply.answerMd, bubbles: reply.bubbles, quick_replies: reply.quickReplies, quick_reply_id: input.quickReplyId ?? null, reaction: reply.reaction }] }),
+        parentVersionId: idea.current?.id ?? null,
+      });
+      return { version, answer: reply.answerMd, question, bubbles: reply.bubbles, quickReplies: reply.quickReplies, reaction: reply.reaction, persona: reply.persona };
+    }),
 
   /** Discard (reversible: archived, not deleted). */
   discard: protectedProcedure.input(z.object({ ideaId: Id })).mutation(({ ctx, input }) => repos.ideas.discard(ctx.db, ctx.userId, input.ideaId)),

@@ -80,7 +80,7 @@ export function AutonomyTab({ businessId, profile, currency, typeCount, allCount
           <span className="flex w-full items-center gap-2">
             <span>Hard gates (money, signing, identity, deletion, security) never lift, whatever the override.</span>
             <Button size="sm" variant="primary" className="ml-auto" disabled={!!autonomyError} loading={setAutonomyM.isPending} onClick={() => setScope("autonomy")} data-testid="save-autonomy">
-              Save…
+              Save autonomy
             </Button>
           </span>
         }
@@ -98,6 +98,11 @@ export function AutonomyTab({ businessId, profile, currency, typeCount, allCount
           {autonomyError ? (
             <p role="alert" className="text-small text-status-bad" data-testid="autonomy-error">
               {autonomyError}
+            </p>
+          ) : autonomy.spendCapMinor === 0 ? (
+            // The default: no spending of its own. Not an error; say what it means.
+            <p className="flex items-center gap-1 text-small text-secondary" data-testid="autonomy-note">
+              <Icon icon={ShieldCheck} size="inline" /> No spending of its own: the agent cannot spend, so anything that costs money comes to you.
             </p>
           ) : null}
         </form>
@@ -118,7 +123,7 @@ export function AutonomyTab({ businessId, profile, currency, typeCount, allCount
           <span className="flex w-full items-center gap-2">
             <span>Within these limits the agent negotiates without per-message approval. Final terms, signing and payment stay hard-gated; transcripts go on the counterparty's CRM profile; the other side always knows it is an agent.</span>
             <Button size="sm" variant="primary" className="ml-auto shrink-0" disabled={!!negotiationError} loading={setNegotiationM.isPending} onClick={() => setScope("negotiation")} data-testid="save-negotiation">
-              Save…
+              Save negotiation
             </Button>
           </span>
         }

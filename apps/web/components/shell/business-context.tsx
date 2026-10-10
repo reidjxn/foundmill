@@ -3,8 +3,10 @@
  * Business context for every page under /b/[bid]: the business row, the founder's role, departments (in order) and
  * helpers to resolve a department by slug. The layout seeds it from the server; the shell keeps it fresh.
  */
+import { useQuery } from "@tanstack/react-query";
 import { createContext, useContext, type ReactNode } from "react";
 import type { RouterOutputs } from "@/lib/trpc";
+import { useTRPC } from "@/lib/trpc-react";
 
 export type BusinessGet = RouterOutputs["business"]["get"];
 export type DepartmentList = RouterOutputs["department"]["list"];
@@ -43,4 +45,19 @@ export function makeBusinessContext(businessId: string, data: BusinessGet, depar
     isAdmin: data.role === "owner" || data.role === "admin",
     isOwner: data.role === "owner",
   };
+}
+
+/** Before finance has answered, and for a business with no money yet: the shell's own fallback. */
+export const FALLBACK_CURRENCY = "EUR";
+
+/**
+ * The business's currency: the one its money is kept in (finance.overview's cash currency), read from the query the
+ * shell already runs for the top bar, so it costs no request. Screens use it for every amount they format, never a
+ * hard-coded code or a glossary entry.
+ */
+export function useBusinessCurrency(): string {
+  const { businessId } = useBusiness();
+  const trpc = useTRPC();
+  const finance = useQuery(trpc.finance.overview.queryOptions({ businessId }, { staleTime: 60_000, retry: false }));
+  return finance.data?.cash.currency ?? FALLBACK_CURRENCY;
 }

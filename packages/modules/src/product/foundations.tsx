@@ -12,8 +12,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { CircleCheck, CircleDashed, Compass, LoaderCircle } from "lucide-react";
-import { Chip, EntityLink, FoundationsStatus, Icon, Panel, ProgressRing, ProvenanceChip, StatusPill, cn, foundationsNeedsAttention, type GridSpan } from "@foundmill/dugout";
-import type { RoadmapHorizon } from "@foundmill/shared";
+import { Avatar, Chip, EntityLink, FoundationsStatus, Icon, LiveRun, Panel, ProvenanceChip, StatusPill, cn, foundationsNeedsAttention, type GridSpan, type LiveRunItem, type LiveRunStep } from "@foundmill/dugout";
+import type { DeptColourToken, RoadmapHorizon } from "@foundmill/shared";
 import { moduleHref, routes, useDepartments, useHostStreamOpen, useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets";
 import { PlainDoc } from "./PlainDoc";
 import { errorMessage, useAction } from "./shared";
@@ -178,13 +178,43 @@ export interface FoundationsProgressPanelProps {
   className?: string;
 }
 
+/** The drafting's steps for the live run rail: the vision, the specification, the roadmap, then putting it in place. */
+export function foundationsSteps(p: Pick<FoundationsProgress, "stage" | "sectionsDone" | "sectionsTotal" | "roadmap" | "roadmapWritten" | "roadmapDone">): LiveRunStep[] {
+  const order: FoundationsProgress["stage"][] = ["vision", "specification", "roadmap", "finishing"];
+  const at = order.indexOf(p.stage);
+  const state = (i: number): LiveRunStep["state"] => (i < at ? "done" : i === at ? "current" : "pending");
+  const planned = p.roadmap.length;
+  return [
+    { id: "vision", label: "Vision", detail: at > 0 ? "Written" : "Who it is for, the problem, why now", state: state(0) },
+    { id: "specification", label: "Specification", detail: `${p.sectionsDone} of ${p.sectionsTotal} written`, state: state(1) },
+    { id: "roadmap", label: "Roadmap", detail: planned ? `${p.roadmapWritten} of ${planned} written` : "Now, Next and Later", state: state(2) },
+    { id: "finishing", label: "Into the tabs", detail: "Vision, Specification and Roadmap", state: state(3) },
+  ];
+}
+
+/** One bar segment per part: each specification section, then each roadmap item (written, being written, to come). */
+export function foundationsItems(p: Pick<FoundationsProgress, "stage" | "sections" | "roadmap">, dept?: DeptColourToken): LiveRunItem[] {
+  const writing = p.stage === "specification" ? p.sections.find((s) => !s.done) : undefined;
+  const sections: LiveRunItem[] = p.sections.map((s) => ({ id: `section-${s.section}`, label: s.title ?? s.section, state: s.done ? "landed" : s === writing ? "drafting" : "queued", dept }));
+  const firstPlanned = p.stage === "roadmap" ? p.roadmap.findIndex((r) => !r.written) : -1;
+  const roadmap: LiveRunItem[] = p.roadmap.map((r, i) => ({ id: `roadmap-${i}`, label: r.title, state: r.written ? "landed" : i === firstPlanned ? "drafting" : "queued", dept }));
+  return [...sections, ...roadmap];
+}
+
 /**
- * The drafting as it happens: who is writing what, how far it is, and the parts already written (the vision, each
- * section as it lands, the roadmap items as they arrive). Only the first line is a live region, so screen readers hear
- * the stage change, not every section.
+ * The drafting as it happens — the document writing itself: the Product lead's live portrait and who is writing what,
+ * the step rail (vision → specification → roadmap → into the tabs) with one segment per part, the thesis of the
+ * section being written streaming on the log line, and the parts already written (the vision, each section as it
+ * lands, the roadmap items as they arrive). Only the first line is a live region, so screen readers hear the stage
+ * change, not every section.
  */
 export function FoundationsProgressPanel({ progress: p, vision, state, span = 12, detail = {}, className }: FoundationsProgressPanelProps) {
   const writing = p.sections.find((s) => !s.done);
+  const departments = useDepartments();
+  const dept = (departments.data?.find((d) => d.moduleKeys.includes("product"))?.colourToken as DeptColourToken | undefined) ?? undefined;
+  const author = p.author;
+  const portraitSeed = author?.agentId ?? author?.name ?? "product-lead";
+  const thesis = p.stage === "specification" && writing?.thesis ? writing.thesis : null;
   return (
     <Panel
       title="Vision, specification and roadmap"
@@ -199,20 +229,28 @@ export function FoundationsProgressPanel({ progress: p, vision, state, span = 12
       }
       className={className}
     >
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-4">
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 shrink-0" aria-hidden>
-            <ProgressRing value={foundationsProgressFraction(p)} size={20} strokeWidth={2} tone="kit" label="Drafting" />
+          <span className="shrink-0" aria-hidden>
+            <Avatar size={36} name={author?.name ?? "Product lead"} agent={{ seed: portraitSeed, dept: dept ?? "dept-1" }} presence="live" surface="surface-1" />
           </span>
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <p role="status" aria-live="polite" className="text-body-strong text-primary" data-foundations-author>
               <Author author={p.author} /> {STAGE_VERB[p.stage]}.
             </p>
-            <p className="text-small text-secondary tabular-nums" data-foundations-progress>
+            <p className="font-mono text-mono text-tertiary tabular-nums" data-foundations-progress>
               {foundationsProgressLine(p)}
             </p>
           </div>
         </div>
+
+        <LiveRun
+          label="Drafting progress"
+          steps={foundationsSteps(p)}
+          items={foundationsItems(p, dept)}
+          itemNoun={["part", "parts"]}
+          log={thesis ? { text: thesis, person: { name: author?.name ?? "Product lead", avatarSeed: portraitSeed, dept }, open: true } : null}
+        />
 
         {detail.vision && vision ? (
           <p className="max-w-reading text-body text-primary" data-vision-statement>
@@ -250,7 +288,7 @@ export function FoundationsProgressPanel({ progress: p, vision, state, span = 12
             {p.roadmap.map((r, i) => (
               <li key={`${r.title}-${i}`} className={cn("flex items-center gap-2 text-body", r.written ? "text-primary" : "text-secondary")} data-roadmap-draft={r.written ? "written" : "planned"}>
                 <Icon icon={r.written ? CircleCheck : CircleDashed} size="inline" className={cn("shrink-0", r.written ? "text-status-good" : "text-secondary")} />
-                <span className="min-w-0 flex-1 truncate">{r.title}</span>
+                <span className="min-w-0 flex-1 text-pretty">{r.title}</span>
                 <Chip tone="neutral">{HORIZON_LABEL[r.horizon]}</Chip>
               </li>
             ))}

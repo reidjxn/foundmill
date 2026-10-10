@@ -7,16 +7,17 @@
  *   goes to the server's check (`actions.prepare`), and the preview shows exactly what that check returned.
  * - Generate: four marks from the logo designer (`actions.generate`), drawn in parallel (monogram, geometric, negative
  *   space, abstract) and streamed: each slot shows its direction while it is drawn and the mark the moment the server's
- *   check passes it, so the first can be picked before the others are ready. "Generate logos" is the panel's main
- *   action until a set exists; "Generate again" asks for a new set; the cost of each set is shown as an Estimate.
+ *   check passes it, so the first can be picked before the others are ready. The generate control (DIRECTION #14) is the
+ *   panel's main action: "Generate logos", then "Generate again"; while a set is drawn it shows the real count
+ *   ("2 of 4") with Stop beside it (the marks already drawn stay). The cost of each set is shown as an Estimate.
  * - Colours: once a logo is chosen, the two colours read from it are offered next to the current brand colours; the
  *   founder applies them with one click and can still edit them.
  *
  * Logos are only ever rendered through `<img src>` (Dugout `BusinessLogo`). Desktop only, Dugout components only.
  */
-import { Check, Eraser, Palette, RefreshCw, Sparkles, Upload } from "lucide-react";
+import { Check, Eraser, Palette, Upload } from "lucide-react";
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { BusinessLogo, Button, Chip, ProvenanceChip, Skeleton, StatusPill, cn, type Kit } from "@foundmill/dugout";
+import { BusinessLogo, Button, Chip, GenerateControl, ProvenanceChip, Skeleton, StatusPill, cn, type Kit } from "@foundmill/dugout";
 import { errorMessage } from "@/lib/trpc";
 import { LOGO_FILE_ACCEPT, LOGO_FILE_HINT, formatCostEstimate, readLogoFile, sameKit, suggestKit, type LogoDraft } from "@/lib/logo";
 
@@ -104,6 +105,8 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
   const [busy, setBusy] = useState<"upload" | "generate" | null>(null);
   const [note, setNote] = useState<{ tone: "info" | "bad"; text: string } | null>(null);
   const [set, setSet] = useState<GeneratedLogoSet | null>(null);
+  /** Marks drawn before Stop (the set was not finished, so it has no cost line). */
+  const [stopped, setStopped] = useState<GeneratedLogoOption[] | null>(null);
   const [slots, setSlots] = useState<LogoDraftSlot[] | null>(null);
   const [round, setRound] = useState(0);
   const [suggestion, setSuggestion] = useState<Kit | null>(null);
@@ -157,12 +160,26 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
     }
   }
 
+  /** Stop the set being drawn: the marks already drawn stay and can be picked. */
+  function stop() {
+    const controller = abortRef.current;
+    if (!controller) return;
+    abortRef.current = null;
+    controller.abort();
+    const drawn = (slots ?? []).flatMap((sl) => (sl.option ? [sl.option] : []));
+    setStopped(drawn.length ? drawn : null);
+    setSlots(null);
+    setBusy(null);
+    setNote({ tone: "info", text: drawn.length ? `Stopped. ${drawn.length === 1 ? "The mark already drawn stays" : `The ${drawn.length} marks already drawn stay`} here.` : "Stopped before a mark was drawn." });
+  }
+
   async function generate(next: number) {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setBusy("generate");
     setNote(null);
+    setStopped(null);
     setSlots(emptySlots());
     try {
       const result = await actions.generate(next, (progress) => {
@@ -186,7 +203,9 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
   const drafting = slots !== null;
   const ready = slots?.filter((sl) => sl.option).length ?? 0;
   // While a set is drawn its slots show (marks as they arrive); otherwise the last finished set.
-  const shown: LogoDraftSlot[] | null = slots ?? (set ? set.options.map((option, index) => ({ index, label: option.name, option, failed: false })) : null);
+  const finished = stopped ?? set?.options ?? null;
+  const shown: LogoDraftSlot[] | null = slots ?? (finished ? finished.map((option, index) => ({ index, label: option.name, option, failed: false })) : null);
+  const total = slots?.length ?? DEFAULT_LOGO_SLOTS.length;
 
   const showSuggestion = suggestion !== null && !sameKit(suggestion, kit);
 
@@ -205,12 +224,19 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
       <div className="flex min-w-0 flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <input ref={fileRef} type="file" accept={LOGO_FILE_ACCEPT} className="sr-only" onChange={onFile} aria-label="Upload a logo" data-testid="logo-file" disabled={locked} tabIndex={-1} />
-          {set ? null : (
-            // The panel's main action until a set exists: larger and in the brand colour.
-            <Button variant="primary" size="md" icon={Sparkles} loading={busy === "generate"} disabled={locked} onClick={() => void generate(0)} data-testid="logo-generate">
-              Generate logos
-            </Button>
-          )}
+          {/* The panel's main action: the generate control, with the real count and Stop while a set is drawn. */}
+          <GenerateControl
+            size={set ? "md" : "lg"}
+            label={set || stopped ? "Generate again" : "Generate logos"}
+            runningLabel="Drawing logos"
+            running={busy === "generate"}
+            count={busy === "generate" ? `${ready} of ${total}` : undefined}
+            progress={busy === "generate" ? ready / total : undefined}
+            onGenerate={() => void generate(set || stopped ? round + 1 : 0)}
+            onStop={stop}
+            disabled={locked && busy !== "generate"}
+            data-testid={set ? "logo-regenerate" : "logo-generate"}
+          />
           <Button size="sm" icon={Upload} loading={busy === "upload"} disabled={locked} onClick={() => fileRef.current?.click()} data-testid="logo-upload">
             Upload a logo
           </Button>
@@ -278,15 +304,12 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
                 );
               })}
             </div>
-            {set && !drafting ? (
+            {set && !drafting && !stopped ? (
               <div className="flex flex-wrap items-center gap-2 text-small text-secondary">
                 <Chip mono>Opus</Chip>
                 <span data-testid="logo-cost">This set: {formatCostEstimate(set.cost)}</span>
                 <ProvenanceChip kind="estimate" />
                 <span>· {set.remaining} more {set.remaining === 1 ? "set" : "sets"} this hour</span>
-                <Button size="sm" icon={RefreshCw} loading={busy === "generate"} disabled={locked} onClick={() => void generate(round + 1)} className="ml-auto" data-testid="logo-regenerate">
-                  Generate again
-                </Button>
               </div>
             ) : null}
           </div>

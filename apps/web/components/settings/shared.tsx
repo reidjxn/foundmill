@@ -6,10 +6,11 @@ import { Button, Panel, StatusPill, useToast, type GridSpan, type PanelProps } f
 import { errorMessage } from "@/lib/trpc";
 import { useBusiness } from "@/components/shell/business-context";
 
-export function SettingsSection({ title, children, span = 12, ...rest }: { title: ReactNode; children: ReactNode; span?: GridSpan } & Omit<PanelProps, "title" | "span" | "children">) {
+/** A settings panel. Forms keep the 640 px reading measure; lists and tables (`wide`) use the panel's full width. */
+export function SettingsSection({ title, children, span = 12, wide, ...rest }: { title: ReactNode; children: ReactNode; span?: GridSpan; wide?: boolean } & Omit<PanelProps, "title" | "span" | "children">) {
   return (
     <Panel title={title} span={span} {...rest}>
-      <div className="flex max-w-[640px] flex-col gap-4">{children}</div>
+      <div className={wide ? "flex flex-col gap-4" : "flex max-w-reading flex-col gap-4"}>{children}</div>
     </Panel>
   );
 }
@@ -20,7 +21,7 @@ export function FormRow({ children }: { children: ReactNode }) {
 
 export function SaveBar({ onSave, saving, disabled, label = "Save changes", children }: { onSave: () => void; saving?: boolean; disabled?: boolean; label?: string; children?: ReactNode }) {
   return (
-    <div className="flex items-center justify-end gap-2 border-t border-subtle pt-3">
+    <div className="flex items-center justify-end gap-2 border-t border-line pt-3">
       {children}
       <Button variant="primary" onClick={onSave} loading={saving} disabled={disabled}>
         {label}
@@ -30,6 +31,8 @@ export function SaveBar({ onSave, saving, disabled, label = "Save changes", chil
 }
 
 /** Admin-only notice for viewers/members (the API refuses the mutation too). */
+const ARTICLE: Record<string, string> = { owner: "an", admin: "an", advisor: "an", member: "a", viewer: "a" };
+
 export function AdminOnly({ children }: { children: ReactNode }) {
   const { isAdmin, data } = useBusiness();
   if (isAdmin) return <>{children}</>;
@@ -38,7 +41,7 @@ export function AdminOnly({ children }: { children: ReactNode }) {
       <StatusPill tone="neutral" icon={Lock}>
         Read only
       </StatusPill>
-      <p className="text-body text-secondary">Your role ({data.role}) can read these settings; an owner or admin changes them.</p>
+      <p className="text-body text-secondary">As {ARTICLE[data.role] ?? "a"} {(data.role ?? "member").toLowerCase()} you can read these settings; an owner or admin changes them.</p>
       <div className="pointer-events-none opacity-60" aria-disabled>
         {children}
       </div>

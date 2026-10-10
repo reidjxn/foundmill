@@ -89,6 +89,7 @@ export const SERVER_SAFE_FILES = [
   "components/conversation/DeskPresence.tsx",
   "components/conversation/LiveRun.tsx",
   "components/conversation/DraftingCard.tsx",
+  "components/conversation/NudgeAck.tsx",
 ];
 
 export function listSourceFiles(root = SRC): string[] {

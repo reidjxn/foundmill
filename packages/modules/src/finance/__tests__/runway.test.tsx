@@ -25,13 +25,14 @@ describe("RunwayScreen", () => {
     const list = screen.getByRole("list", { name: "Runway by scenario" });
     const base = list.querySelector("[data-scenario='base']") as HTMLElement;
     // €150,000 cash, €20,000 revenue growing 5 %, €35,000 costs growing 1 %: cash lasts into the second year.
-    expect(within(base).getByText(/Runway under 12 months|Runway under 9 months|Runway healthy|Beyond 24 months/)).toBeTruthy();
+    // The pill carries the judgement in words; the Runway row under it carries the figure (never both the same words).
+    expect(within(base).getByText(/^(Runway under 12 months|Runway under 9 months|Runway healthy)$/)).toBeTruthy();
     const downside = list.querySelector("[data-scenario='downside']") as HTMLElement;
     expect(within(downside).getByText("Runway under 9 months")).toBeTruthy(); // 150k ÷ 20k net burn growing 2 %/month
     expect(within(downside).getByText(/Below the 12, 9-month thresholds/)).toBeTruthy();
     const upside = list.querySelector("[data-scenario='upside']") as HTMLElement;
     expect(within(upside).getByText("not saved yet")).toBeTruthy();
-    expect(screen.getByText(/Upside unsaved/)).toBeTruthy(); // footer lists versions
+    expect(screen.getByText(/Upside not saved/)).toBeTruthy(); // footer lists versions
     expect(screen.queryByText(/Continue is blocked/)).toBeNull();
   });
 
@@ -73,8 +74,8 @@ describe("RunwayScreen", () => {
     renderScreen(fake, <RunwayScreen {...props} />);
     fireEvent.click(within(screen.getByRole("group", { name: "Scenario" })).getByRole("button", { name: "Upside" }));
     const form = screen.getByRole("form", { name: "Upside drivers" });
-    expect((within(form).getByLabelText("Starting cash") as HTMLInputElement).value).toBe("150000");
-    expect((within(form).getByLabelText("Monthly revenue") as HTMLInputElement).value).toBe("20000");
+    expect((within(form).getByLabelText("Starting cash") as HTMLInputElement).value).toBe("150,000");
+    expect((within(form).getByLabelText("Monthly revenue") as HTMLInputElement).value).toBe("20,000");
     expect((within(form).getByLabelText("Revenue growth") as HTMLInputElement).value).toBe("10");
     expect((within(form).getByRole("button", { name: "Save Upside forecast" }) as HTMLButtonElement).disabled).toBe(false); // nothing stored yet
   });

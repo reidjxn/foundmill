@@ -21,8 +21,24 @@ describe("SpecialistsScreen", () => {
     expect(within(tile).getByText(/funnel fills as RFQs go out/)).toBeTruthy();
     expect(fake.queried.get("dev.tasks.list")).toEqual({ kind: "specialist", limit: 200 });
     expect(fake.subscriberCount(`as:${SESSION_SOURCING}`)).toBe(1);
-    expect(screen.getByTestId("specialist-counts").textContent).toBe("1 specialists · 1 running · 0 reporting");
+    expect(screen.getByTestId("specialist-counts").textContent).toBe("1 specialist · 1 running · 0 reporting");
     expect(screen.getByText("Human gate on every purchase order")).toBeTruthy();
+  });
+
+  it("collapses finished specialists with no supplier records into one message and a list, never empty tiles", async () => {
+    const finished = { ...tasks[4]!, id: "sp-done", title: "Supplier quote comparison #1", status: "done" as const, startedAt: "2026-10-06T09:00:00Z", endedAt: "2026-10-06T11:20:00Z" };
+    const fake = createFakeSource({ responses: { ...responses(), "dev.tasks.list": { ...specialistResponse, items: [...specialistResponse.items, finished] } } });
+    renderScreen(fake, <SpecialistsScreen {...props} />);
+    const grid = await screen.findByRole("region", { name: "Specialist tiles" });
+    expect(within(grid).getAllByRole("article")).toHaveLength(1);
+    expect(within(grid).queryByRole("article", { name: /Supplier quote comparison/ })).toBeNull();
+    const quiet = screen.getByTestId("specialists-quiet");
+    expect(within(quiet).getByText("1 finished specialist task left no supplier records")).toBeTruthy();
+    const list = within(quiet).getByRole("table", { name: "Finished specialist tasks" });
+    expect(within(list).getByText("Supplier quote comparison #1")).toBeTruthy();
+    expect(within(list).getByText("Done")).toBeTruthy();
+    expect(within(list).getByText("2h 20m")).toBeTruthy();
+    expect(screen.getByTestId("specialist-counts").textContent).toBe("2 specialists · 1 running · 0 reporting");
   });
 
   it("fills the funnel, quotes, samples and shipments from the session's structured notes", async () => {

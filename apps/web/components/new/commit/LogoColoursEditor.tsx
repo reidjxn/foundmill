@@ -34,8 +34,8 @@ export function LogoColoursEditor({ name, kit, onKitChange, logo, onLogoChange, 
           <ColourField label="Secondary colour" hint="Celebrations and accents." value={kit.secondary} onChange={(v) => onKitChange({ ...kit, secondary: v })} testId="kit-secondary" />
         </div>
         <div className="flex flex-wrap items-center gap-2" data-testid="kit-contrast" data-passes={contrast.passes}>
-          <StatusPill tone={contrast.passes ? "good" : "warn"}>{contrast.passes ? `Text on primary passes · Lc ${contrast.lc}` : `Text on primary is weak · Lc ${contrast.lc}`}</StatusPill>
-          <StatusPill tone={contrast.distinct ? "good" : "warn"}>{contrast.distinct ? "Colours read as two" : "Colours too close"}</StatusPill>
+          <StatusPill tone={contrast.passes ? "good" : "warn"} title={`Contrast score ${contrast.lc} (75 or more reads well)`}>{contrast.passes ? "Text on it reads clearly" : "Text on it is hard to read"}</StatusPill>
+          <StatusPill tone={contrast.distinct ? "good" : "warn"}>{contrast.distinct ? "The two colours stand apart" : "The two colours are too close"}</StatusPill>
           <span className="text-small text-secondary">Text on the primary is {contrast.onPrimary === "#FFFFFF" ? "white" : "near-black"}, chosen automatically.</span>
         </div>
         {error ? (

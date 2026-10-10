@@ -5,14 +5,15 @@
  * reconnected. Live: `agent.health_changed` moves an agent between groups within 2 s (AC-11.9.1).
  */
 import { useMemo } from "react";
-import { Activity, ExternalLink, HeartPulse, UserRoundPlus } from "lucide-react";
-import { Avatar, Button, Chip, EntityLink, Panel, StatusStrip, cn, formatPercent, formatRelative, healthSummary, type HealthDetails, type MetricTileProps } from "@foundmill/dugout";
+import { Activity, CircleCheck, ExternalLink, HeartPulse, TriangleAlert, UserRoundPlus } from "lucide-react";
+import { Avatar, Button, Chip, DeptChip, EntityLink, Panel, StatusPill, StatusStrip, cn, formatPercent, formatRelative, type HealthDetails, type MetricTileProps } from "@foundmill/dugout";
 import { AGENT_STATUSES, type AgentStatus } from "@foundmill/shared/constants";
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
+import { plural } from "../fit";
 import type { ModuleScreenProps } from "../registry";
-import { AgentStatusWordPill, STATUS_DESCRIPTION, STATUS_ORDER, STATUS_WORD, Screen, agentDept, agentEntity, agentHref, taskHref, toIso, useAgents, useLiveAgentStatus, useNow, useTeamOptions, withLiveStatus } from "./shared";
+import { AgentStatusWordPill, STATUS_DESCRIPTION, STATUS_ORDER, STATUS_WORD, Screen, agentDept, agentRoleLine, agentEntity, agentHref, taskHref, toIso, useAgents, useLiveAgentStatus, useNow, useTeamOptions, withLiveStatus } from "./shared";
 import type { AgentRow } from "./types";
 
 export interface HealthGroup {
@@ -37,7 +38,38 @@ export function healthDetails(agent: AgentRow): HealthDetails {
   };
 }
 
+/**
+ * Why this agent is in its group, in one line: the expected return, the reason, a loop, or (degraded) the error rate.
+ * Empty when there is nothing beyond what the group's own description and the card's figures already say, so a card
+ * never repeats its panel header or its Heartbeat / Errors figures.
+ */
+export function healthReason(status: AgentStatus, details: HealthDetails, now: Date): string {
+  const parts: string[] = [];
+  if (status === "injured") parts.push(details.expectedReturnAt ? `Expected back ${formatRelative(details.expectedReturnAt, now)}` : "Reconnect the integration to see an expected return");
+  if (details.reason) parts.push(details.reason);
+  const loop = "Loop detected on the last session";
+  if (details.loopDetected && !parts.some((p) => p.toLowerCase().includes("loop"))) parts.push(loop);
+  if (status === "degraded" && typeof details.errorRate === "number" && !parts.some((p) => /error rate/i.test(p))) parts.push(`Error rate ${formatPercent(details.errorRate, { digits: 1 })} over 24 h`);
+  return parts.join(" · ");
+}
+
 const TONE_CLASS: Record<AgentStatus, string> = { failing: "text-status-bad", injured: "text-status-bad", degraded: "text-status-warn", paused: "text-secondary", idle: "text-secondary", healthy: "text-status-good" };
+
+/** One short line under each count in the strip. */
+export const STATUS_CAPTION: Record<AgentStatus, string> = {
+  healthy: "Heartbeat on time",
+  degraded: "Errors above 10 %",
+  failing: "Sessions stopped",
+  injured: "Back once reconnected",
+  paused: "By you or a holiday",
+  idle: "No task assigned",
+};
+
+/** Scroll a health group's panel into view (the strip's tiles are shortcuts to their group). */
+function showGroup(status: AgentStatus) {
+  if (typeof document === "undefined") return;
+  document.querySelector(`[data-health-group="${status}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
 export function HealthScreen({ businessId }: ModuleScreenProps) {
   const { navigate, currency = "EUR" } = useWidgetData();
@@ -52,12 +84,10 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
   const recruitHref = routes.department(businessId, teamDept?.slug ?? "team", "recruitment");
   const needsYou = agents.filter((a) => a.status === "failing" || a.status === "injured" || a.status === "degraded").length;
 
-  const tiles: MetricTileProps[] = AGENT_STATUSES.map((status) => ({
-    label: STATUS_WORD[status],
-    value: agents.filter((a) => a.status === status).length,
-    format: "integer",
-    caption: status === "injured" ? "Expected back once reconnected" : undefined,
-  }));
+  const tiles: MetricTileProps[] = AGENT_STATUSES.map((status) => {
+    const count = agents.filter((a) => a.status === status).length;
+    return { label: STATUS_WORD[status], value: count, format: "integer", caption: STATUS_CAPTION[status], onClick: count ? () => showGroup(status) : undefined };
+  });
 
   const loading = agentsQuery.isLoading && !agentsQuery.data;
   const error = agentsQuery.error ? agentsQuery.error.message : undefined;
@@ -72,9 +102,19 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
         error={error}
         onRetry={agentsQuery.refetch}
         actions={
-          <span className={cn("text-small tabular-nums", needsYou ? "text-status-warn" : "text-secondary")} data-testid="health-summary">
-            {needsYou ? `${needsYou} ${needsYou === 1 ? "agent needs" : "agents need"} you` : agents.length ? "Everyone is working" : "No agents yet"}
-          </span>
+          needsYou ? (
+            <StatusPill tone="warn" icon={TriangleAlert} data-testid="health-summary">
+              {needsYou === 1 ? "1 agent needs you" : `${needsYou} agents need you`}
+            </StatusPill>
+          ) : agents.length ? (
+            <StatusPill tone="good" icon={CircleCheck} data-testid="health-summary">
+              Everyone is working
+            </StatusPill>
+          ) : (
+            <span className="text-small text-secondary" data-testid="health-summary">
+              No agents yet
+            </span>
+          )
         }
         footer="Computed every minute: heartbeat, error rate over 24 h (above 10 % is degraded), loop detection (failing), credential status (down with an expected return), rate limits and budget."
       >
@@ -86,52 +126,68 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
       ) : null}
 
       {groups.map((group) => (
-        <Panel key={group.status} span={12} title={`${group.word} · ${group.agents.length}`} data-health-group={group.status} actions={<span className="text-small text-secondary">{group.description}</span>}>
-          <ul className="grid grid-cols-3 gap-gutter" aria-label={`${group.word} agents`}>
+        <Panel key={group.status} span={12} title={group.word} meta={plural(group.agents.length, "agent")} data-health-group={group.status} className="scroll-mt-4" actions={<span className="text-small text-secondary">{group.description}</span>}>
+          <ul className="grid grid-cols-3 gap-3" aria-label={`${group.word} agents`}>
             {group.agents.map((agent) => {
               const details = healthDetails(agent);
-              const summary = healthSummary(agent.status, details, now);
+              const reason = healthReason(agent.status, details, now);
+              const roleLine = agentRoleLine(agent);
               const back = details.expectedReturnAt;
               return (
-                <li key={agent.id} data-agent-id={agent.id} className="flex flex-col gap-2 rounded-panel border border-subtle bg-panel-alt p-panel-pad">
-                  <div className="flex items-center gap-2">
+                <li key={agent.id} data-agent-id={agent.id} className="edge flex min-w-0 flex-col gap-3 rounded-md bg-surface-2 p-panel-pad">
+                  <div className="flex min-w-0 items-center gap-2.5">
                     <Avatar size={32} name={agent.name} agent={{ seed: agent.avatarSeed || agent.id, dept: agentDept(agent) }} status={agent.status} />
                     <span className="flex min-w-0 flex-1 flex-col">
-                      <EntityLink entity={{ id: agent.id, kind: "agent", name: agent.name, href: agentHref(businessId, agent.id) }} details={agentEntity(businessId, agent, currency)} hideIcon className="text-body-strong" onOpen={(e) => e.href && navigate(e.href)} onVerb={(verb, e) => verb === "open_profile" && e.href && navigate(e.href)} />
-                      <span className="truncate text-small text-secondary">{agent.role ?? agent.agentType ?? "Agent"}</span>
+                      <EntityLink entity={{ id: agent.id, kind: "agent", name: agent.name, href: agentHref(businessId, agent.id) }} details={agentEntity(businessId, agent, currency)} hideIcon className="min-w-0 truncate text-body-strong" onOpen={(e) => e.href && navigate(e.href)} onVerb={(verb, e) => verb === "open_profile" && e.href && navigate(e.href)} />
+                      {roleLine ? <span className="truncate text-small text-secondary">{roleLine}</span> : null}
                     </span>
-                    <AgentStatusWordPill status={agent.status} expectedReturnAt={back} now={now} />
+                    <AgentStatusWordPill status={agent.status} expectedReturnAt={back} now={now} withReturn={false} className="shrink-0" />
                   </div>
-                  <p className={cn("flex items-start gap-1 text-small", TONE_CLASS[agent.status])}>
-                    <Activity size={14} className="mt-0.5 shrink-0" aria-hidden />
-                    <span>{summary || (agent.status === "healthy" ? "Heartbeat on time, errors low." : STATUS_DESCRIPTION[agent.status])}</span>
-                  </p>
-                  <dl className="grid grid-cols-3 gap-x-2 text-small">
-                    <dt className="t-label">Heartbeat</dt>
-                    <dt className="t-label">Errors 24 h</dt>
-                    <dt className="t-label">Task</dt>
-                    <dd className="truncate text-primary tabular-nums">{details.lastHeartbeatAt ? formatRelative(details.lastHeartbeatAt, now) : "—"}</dd>
-                    <dd className="truncate text-primary tabular-nums">{typeof details.errorRate === "number" ? formatPercent(details.errorRate, { digits: 1 }) : "—"}</dd>
-                    <dd className="truncate">
-                      {agent.currentTask ? (
-                        <a href={taskHref(businessId, agent.currentTask.id)} className="entity-link" onClick={(e) => { e.preventDefault(); navigate(taskHref(businessId, agent.currentTask!.id)); }}>
-                          {agent.currentTask.title}
-                        </a>
-                      ) : (
-                        <span className="text-secondary">None</span>
-                      )}
-                    </dd>
+                  {reason ? (
+                    <p className={cn("flex items-start gap-1.5 text-small", TONE_CLASS[agent.status])}>
+                      <Activity size={14} className="mt-0.5 shrink-0" aria-hidden />
+                      <span className="min-w-0">{reason}</span>
+                    </p>
+                  ) : null}
+                  <dl className="flex min-w-0 gap-4">
+                    <div className="flex shrink-0 flex-col gap-0.5">
+                      <dt className="t-data">Heartbeat</dt>
+                      <dd className="whitespace-nowrap text-body text-primary tabular-nums">{details.lastHeartbeatAt ? formatRelative(details.lastHeartbeatAt, now) : <span className="text-tertiary">—</span>}</dd>
+                    </div>
+                    <div className="flex shrink-0 flex-col gap-0.5">
+                      <dt className="t-data">Errors 24 h</dt>
+                      <dd className="whitespace-nowrap text-body text-primary tabular-nums">{typeof details.errorRate === "number" ? formatPercent(details.errorRate, { digits: 1 }) : <span className="text-tertiary">—</span>}</dd>
+                    </div>
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <dt className="t-data">Task</dt>
+                      <dd className="min-w-0 text-body">
+                        {agent.currentTask ? (
+                          <a
+                            href={taskHref(businessId, agent.currentTask.id)}
+                            className="entity-link line-clamp-2 break-words"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              navigate(taskHref(businessId, agent.currentTask!.id));
+                            }}
+                          >
+                            {agent.currentTask.title}
+                          </a>
+                        ) : (
+                          <span className="text-tertiary">None</span>
+                        )}
+                      </dd>
+                    </div>
                   </dl>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="flex flex-wrap gap-1">
+                  <div className="mt-auto flex items-center justify-between gap-2">
+                    <span className="flex min-w-0 flex-wrap gap-1">
                       {(agent.departments ?? []).map((d) => (
-                        <Chip key={d.id} tone={d.colourToken}>
+                        <DeptChip key={d.id} dept={d.colourToken}>
                           {d.name}
-                        </Chip>
+                        </DeptChip>
                       ))}
                       {details.loopDetected ? <Chip tone="warn">Loop</Chip> : null}
                     </span>
-                    <Button size="sm" variant="ghost" icon={ExternalLink} onClick={() => navigate(agentHref(businessId, agent.id))} aria-label={`Open ${agent.name}'s profile`}>
+                    <Button size="sm" variant="ghost" icon={ExternalLink} onClick={() => navigate(agentHref(businessId, agent.id))} aria-label={`Open ${agent.name}'s profile`} className="shrink-0">
                       Profile
                     </Button>
                   </div>

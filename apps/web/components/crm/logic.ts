@@ -6,6 +6,7 @@
 import type { FilterChipValue, SavedView } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
 import type { RouterOutputs } from "@/lib/trpc";
+import { plainWords } from "@/lib/format";
 import { chipValue, type CrmFilterField } from "./search";
 
 export type EntityGet = RouterOutputs["crm"]["entity"]["get"];
@@ -194,7 +195,7 @@ export function leadScore(roles: readonly Pick<EntityRoleRecord, "role" | "stage
   const stage = active.map((r) => r.stage ?? "").find((s) => STAGE_SCORE[s] !== undefined);
   if (stage) {
     score += STAGE_SCORE[stage]!;
-    reasons.push(`Stage ${stage.replace(/_/g, " ")}`);
+    reasons.push(`Stage: ${plainWords(stage).toLowerCase()}`);
   } else if (active.some((r) => r.role === "customer")) {
     score += 4;
     reasons.push("Customer");
@@ -237,9 +238,35 @@ export function primaryRole(roles: readonly EntityRoleRecord[]): EntityRoleRecor
 
 export const STAGE_TONE: Record<string, "good" | "warn" | "bad" | "info" | "neutral"> = { customer: "good", champion: "good", activated: "info", signed_up: "info", churned: "bad", negotiating: "warn", shortlisted: "info", qualified: "info" };
 
-export function stageWord(stage: string | null | undefined): string {
-  return stage ? stage.replace(/_/g, " ") : "no stage";
+/** Where a mention lives, in words ("inbox_item" → "an inbox note"). */
+const CONTAINER_WORDS: Record<string, string> = { inbox_item: "an inbox note", spec_block: "the specification", spec: "the specification", document: "a document", doc: "a document", contract: "a contract", proposal: "a proposal", task: "a task", note: "a note", roadmap_item: "the roadmap" };
+
+export function containerWord(kind: string): string {
+  return CONTAINER_WORDS[kind] ?? plainWords(kind).toLowerCase();
 }
+
+export function stageWord(stage: string | null | undefined): string {
+  return stage ? plainWords(stage) : "No stage";
+}
+
+/** A role in words: "design_partner" → "Design partner". */
+export function roleWord(role: string): string {
+  return plainWords(role);
+}
+
+/** One record's kind, singular, for a table cell or a profile chip ("Organisation", never "Organisations"). */
+export const KIND_WORD: Record<EntityKind, string> = { person: "Person", organisation: "Organisation", agent: "Agent", team_member: "Staff", platform_member: "Member", community: "Community", venue: "Venue" };
+
+/** Where a record came from, in words. The agents' own records were filed under "squad" before the rename. */
+const SOURCE_WORDS: Record<string, string> = { squad: "Your team", team: "Your team", manual: "Added by hand", import: "Import", agent: "An agent", membership: "Membership", conversions: "Payments", stripe: "Stripe", hubspot: "HubSpot", affinity: "Affinity", salesforce: "Salesforce", pipedrive: "Pipedrive", attio: "Attio", gmail: "Gmail", outlook: "Outlook" };
+
+export function sourceWord(source: string | null | undefined): string {
+  if (!source) return "";
+  return SOURCE_WORDS[source.toLowerCase()] ?? plainWords(source);
+}
+
+/** Who can see a record, in words. */
+export const VISIBILITY_WORD: Record<string, string> = { private: "Only this business", connections: "Connections", community: "Communities", public: "Public" };
 
 export interface ActivityItem {
   id: string;
@@ -258,7 +285,7 @@ export function activityItems(get: Pick<EntityGet, "interactions" | "mentions" |
     items.push({ id: `i-${i.id}`, at: toIso(i.occurredAt) ?? new Date(0).toISOString(), kind: i.kind, title: `${i.kind.charAt(0).toUpperCase() + i.kind.slice(1)}${i.direction ? ` · ${i.direction}` : ""}`, description: i.summary || undefined, direction: i.direction, agentId: i.agentId });
   }
   for (const m of get.mentions) {
-    items.push({ id: `m-${m.id}`, at: toIso(m.createdAt) ?? new Date(0).toISOString(), kind: "mention", title: `Mentioned in ${m.containerKind.replace(/_/g, " ")}`, href: m.containerKind === "inbox_item" ? links.inbox(m.containerId) : undefined });
+    items.push({ id: `m-${m.id}`, at: toIso(m.createdAt) ?? new Date(0).toISOString(), kind: "mention", title: `Mentioned in ${containerWord(m.containerKind)}`, href: m.containerKind === "inbox_item" ? links.inbox(m.containerId) : undefined });
   }
   for (const c of get.conversions) {
     items.push({ id: `c-${c.id}`, at: toIso(c.occurredAt) ?? new Date(0).toISOString(), kind: "conversion", title: c.kind === "payment" ? "Payment" : c.kind === "activation" ? "Activated" : "Signed up", description: c.kind === "payment" ? `${(Number(c.amountMinor) / 100).toFixed(2)} ${c.currency}` : undefined, href: links.journey(c.id) });
@@ -280,10 +307,10 @@ export function documentItems(get: Pick<EntityGet, "interactions" | "mentions">,
   const out: DocumentItem[] = [];
   for (const i of get.interactions) {
     if (!i.contentRef) continue;
-    out.push({ id: `i-${i.id}`, at: toIso(i.occurredAt) ?? new Date(0).toISOString(), title: i.summary || `${i.kind} body`, kind: i.kind, encrypted: true });
+    out.push({ id: `i-${i.id}`, at: toIso(i.occurredAt) ?? new Date(0).toISOString(), title: i.summary || `${plainWords(i.kind)} (content encrypted)`, kind: i.kind, encrypted: true });
   }
   for (const m of get.mentions) {
-    if (m.containerKind === "inbox_item" || /doc|spec|contract|proposal/.test(m.containerKind)) out.push({ id: `m-${m.id}`, at: toIso(m.createdAt) ?? new Date(0).toISOString(), title: `${m.containerKind.replace(/_/g, " ")} ${m.containerId.slice(0, 8)}`, kind: m.containerKind, encrypted: false, href: m.containerKind === "inbox_item" ? links.inbox(m.containerId) : undefined });
+    if (m.containerKind === "inbox_item" || /doc|spec|contract|proposal/.test(m.containerKind)) out.push({ id: `m-${m.id}`, at: toIso(m.createdAt) ?? new Date(0).toISOString(), title: plainWords(containerWord(m.containerKind)), kind: m.containerKind, encrypted: false, href: m.containerKind === "inbox_item" ? links.inbox(m.containerId) : undefined });
   }
   return out.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
@@ -348,7 +375,7 @@ export function deletionRequestNote(requestedBy: string, now: Date = new Date())
   return `Deletion requested by ${requestedBy} on ${now.toISOString().slice(0, 10)}. Runs in the scheduled, audited deletion job approved by the founder at setup; suppression entry kept so the person is not re-imported.`;
 }
 
-export const RETENTION_COPY = "Unconverted leads are deleted after 24 months by a scheduled job the founder approved at setup; every run is audited. Export and deletion requests per person are handled from the profile.";
+export const RETENTION_COPY = "Leads who never became customers are deleted after 24 months by a scheduled job you approved at setup, and every run is logged. Export and deletion requests for one person start from their profile.";
 
 /** The open (not reverted) merge that produced this record, if any, and the merges it absorbed. */
 export function mergeBanner(get: Pick<EntityGet, "entity" | "mergeHistory" | "redirectedFrom">): { redirected: boolean; absorbed: MergeLogRecord[]; open: MergeLogRecord[] } {
@@ -358,6 +385,6 @@ export function mergeBanner(get: Pick<EntityGet, "entity" | "mergeHistory" | "re
 
 /** Sort rows so grouped views read as groups: group key first, then name. Used by the group summary strip. */
 export function groupLabel(by: GroupBy, key: string): string {
-  if (by === "kind") return ({ person: "People", organisation: "Organisations", agent: "Agents", team_member: "Team", platform_member: "Members", community: "Communities", venue: "Venues" } as Record<string, string>)[key] ?? key;
-  return key.replace(/_/g, " ");
+  if (by === "kind") return ({ person: "People", organisation: "Organisations", agent: "Agents", team_member: "Staff", platform_member: "Members", community: "Communities", venue: "Venues" } as Record<string, string>)[key] ?? plainWords(key);
+  return plainWords(key);
 }

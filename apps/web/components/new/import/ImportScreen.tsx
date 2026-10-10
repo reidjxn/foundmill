@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ARCHETYPE_LABELS } from "@foundmill/shared";
 import { Button, Checkbox, Chip, Field, Input, Panel, ProgressRing, StatusPill, cn, usePrefersReducedMotion, useToast } from "@foundmill/dugout";
+import { plainWords } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
@@ -173,7 +174,7 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
                     const on = chosen.has(s.key);
                     const err = touched ? errors[s.key] : undefined;
                     return (
-                      <li key={s.key} className={cn("rounded-panel border border-subtle bg-panel-alt p-3 transition-colors duration-micro ease-dugout", on && "border-link")} data-source={s.key} data-selected={on || undefined}>
+                      <li key={s.key} className={cn("rounded-md bg-white/2 p-3 ring-1 ring-line transition-[box-shadow,background-color] duration-hover ease-out hover:ring-line-strong", on && "bg-accent/6 ring-accent/60 hover:ring-accent/70")} data-source={s.key} data-selected={on || undefined}>
                         <div className="flex items-start gap-3">
                           <Checkbox id={`src-${s.key}`} checked={on} onCheckedChange={() => toggle(s.key)} className="mt-0.5" aria-label={`Import from ${s.label}`} />
                           <div className="min-w-0 flex-1">
@@ -204,8 +205,8 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
             ))}
           </div>
           <aside className="col-span-4">
-            <div className="sticky top-6 flex flex-col gap-gutter">
-              <Panel title="Your import" footer={<span>Sources connect through the gateway with per-business credentials; the web app never sees a secret.</span>}>
+            <div className="sticky top-20 flex flex-col gap-gutter">
+              <Panel title="Your import" footer={<span>Each source connects with credentials kept for this business alone; this page never sees a password or key.</span>}>
                 {configs.length === 0 ? (
                   <p className="text-body text-secondary">Nothing chosen yet. A repository or a website is enough to start; revenue sources make the first forecast real.</p>
                 ) : (
@@ -239,7 +240,7 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
                 <ul className="flex flex-col gap-1 text-body text-secondary">
                   <li>Push to a repository or open a pull request</li>
                   <li>Move money, change settings or accept terms</li>
-                  <li>Crawl pages robots.txt excludes</li>
+                  <li>Read pages a website asks crawlers to skip</li>
                   <li>Keep credentials in the browser</li>
                 </ul>
               </Panel>
@@ -322,9 +323,9 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
           <ListPanel title="Strengths" items={report.strengths} tone="good" />
           <ListPanel title="Weaknesses" items={report.weaknesses} tone="bad" />
         </div>
-        <div className="grid grid-cols-[1fr_1fr] gap-gutter">
+        <div className="grid grid-cols-2 gap-gutter">
           <Panel title="Suggested first decisions" footer={<span>These arrive in the Inbox as the Board's first item once you take charge.</span>} data-testid="first-decisions">
-            <ol className="flex flex-col divide-y divide-subtle/50">
+            <ol className="flex flex-col divide-y divide-line-faint">
               {report.firstDecisions.map((d) => (
                 <li key={d.id} className="flex items-start gap-3 py-2 first:pt-0 last:pb-0" data-decision={d.id} data-recommended={d.recommended || undefined}>
                   <span className={cn("mt-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded-full border", d.recommended ? "border-kit-primary text-kit-primary" : "border-subtle text-secondary")} aria-hidden>
@@ -343,11 +344,11 @@ export function ImportFlow({ viewer, runner, onContinue, onReport, continuing, p
             </ol>
           </Panel>
           <Panel title={`Roadmap seeds · ${report.roadmapSeeds.length}`} empty={report.roadmapSeeds.length === 0 ? "No tracker or repository was imported, so the Board proposes the first roadmap." : undefined} data-testid="roadmap-seeds">
-            <ul className="flex flex-col divide-y divide-subtle/50">
+            <ul className="flex flex-col divide-y divide-line-faint">
               {report.roadmapSeeds.map((s, i) => (
                 <li key={`${s.source}-${i}`} className="flex items-center gap-3 py-1.5 first:pt-0 last:pb-0">
                   <span className="text-body">{s.title}</span>
-                  <span className="ml-auto shrink-0 font-mono text-mono text-secondary">{s.source}</span>
+                  <span className="ml-auto shrink-0 text-small text-tertiary">{sourceByKey(s.source)?.label ?? plainWords(s.source)}</span>
                 </li>
               ))}
             </ul>

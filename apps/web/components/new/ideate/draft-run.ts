@@ -129,6 +129,30 @@ export function prependIdea<P extends { items: { id: string }[]; nextCursor: str
 }
 
 /**
+ * The paged deck (`idea.list` as an infinite query, newest first) with a freshly saved idea on top of the first page;
+ * removed from any later page it was already on, so it never shows twice.
+ */
+export function prependIdeaToPages<P extends { items: { id: string }[]; nextCursor: string | null }, D extends { pages: P[]; pageParams: unknown[] }>(data: D | undefined, idea: P["items"][number]): D | undefined {
+  if (!data || data.pages.length === 0) return data;
+  const [first, ...rest] = data.pages;
+  return { ...data, pages: [prependIdea(first, idea)!, ...rest.map((p) => (p.items.some((i) => i.id === idea.id) ? { ...p, items: p.items.filter((i) => i.id !== idea.id) } : p))] };
+}
+
+/** Every card of the loaded pages once, newest first (a card can sit on two pages while the deck moves under it). */
+export function deckFromPages<I extends { id: string }>(pages: readonly { items: readonly I[] }[] | undefined): I[] {
+  const seen = new Set<string>();
+  const out: I[] = [];
+  for (const page of pages ?? []) {
+    for (const item of page.items) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+/**
  * What the grid shows, in order: the run's slots (a saved card, or a placeholder while its card is being written), then
  * the rest of the deck. Placeholders show only while the run is drafting; failed slots show nothing.
  */
@@ -148,4 +172,88 @@ export function gridEntries<I extends { id: string }>(deck: readonly I[], run: D
   }
   for (const idea of deck) if (!pinned.has(idea.id)) out.push({ kind: "idea", idea, fresh: false });
   return out;
+}
+
+// --- the live run panel (SPEC "Live run panel"): steps, the card bar, the time left -----------------------------------
+
+export type DraftStepState = "done" | "current" | "pending" | "failed";
+
+export interface DraftStep {
+  id: "profile" | "slate" | "cards" | "compare";
+  label: string;
+  detail: string;
+  state: DraftStepState;
+}
+
+const writingCount = (run: DraftRun) => slotsOf(run).filter((s) => s.status === "writing" || s.status === "retrying").length;
+
+/**
+ * The run's steps, from what the stream has actually said: the brief and profile are read (the draft started), the
+ * slate names its angles, each card is written and saved. Ranking is not part of a draft: the last step points at
+ * Compare, where the Research agent ranks the cards the founder ticks.
+ */
+export function draftSteps(run: DraftRun): DraftStep[] {
+  const named = slotsOf(run).length;
+  const drafted = draftedCount(run);
+  const failed = failedCount(run);
+  const writing = writingCount(run);
+  const ended = run.status !== "running";
+  const broken = run.status === "failed" || run.status === "stopped";
+  const total = run.total;
+  const outlined = total !== null;
+  const allCards = outlined && drafted + failed >= total;
+  const profile: DraftStepState = named > 0 || outlined ? "done" : broken ? "failed" : ended ? "done" : "current";
+  const slate: DraftStepState = outlined ? "done" : named > 0 ? (broken ? "failed" : "current") : "pending";
+  const cards: DraftStepState = allCards || (run.status === "done" && drafted > 0) ? "done" : drafted > 0 || writing > 0 ? (broken ? "failed" : "current") : "pending";
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  return [
+    { id: "profile", label: "Read your profile", detail: "Skills, time, budget and markets", state: profile },
+    { id: "slate", label: outlined ? `Slate of ${total} angles` : named ? `Slate of ${named}+ angles` : "Slate of angles", detail: outlined ? "One angle per card" : named ? `${plural(named, "angle")} named so far` : "Names each concept first", state: slate },
+    { id: "cards", label: "Drafting cards", detail: drafted || writing ? `${drafted} landed${writing ? ` · ${writing} in progress` : ""}${failed ? ` · ${failed} not finished` : ""}` : "Each card lands as soon as it is written", state: cards },
+    { id: "compare", label: "Rank in Compare", detail: run.status === "done" ? "Tick 2–4 cards to rank them" : "When you pick 2–4 cards", state: "pending" },
+  ];
+}
+
+export type DraftItemState = "landed" | "drafting" | "queued" | "empty" | "failed";
+
+/** One bar segment per concept of the set: landed, drafting, queued (named), empty (not named yet), failed. */
+export function draftItems(run: DraftRun): { id: string; state: DraftItemState; label: string }[] {
+  const slots = run.slots;
+  const size = Math.max(run.total ?? 0, slots.length);
+  return Array.from({ length: size }, (_, i) => {
+    const s = slots[i];
+    if (!s) return { id: `slot-${i}`, state: "empty" as const, label: `Concept ${i + 1}` };
+    const state: DraftItemState = s.status === "done" ? "landed" : s.status === "failed" ? "failed" : s.status === "writing" || s.status === "retrying" ? "drafting" : "queued";
+    return { id: `slot-${i}`, state, label: s.name };
+  });
+}
+
+/**
+ * Time left (an Estimate): the pace so far (elapsed per finished card) times the cards still to come. Null until the
+ * set's size is known and a card has finished.
+ */
+export function remainingEstimateMs(run: DraftRun, now: number): number | null {
+  if (run.status !== "running" || run.total === null) return null;
+  const finished = draftedCount(run) + failedCount(run);
+  if (finished === 0) return null;
+  const left = run.total - finished;
+  if (left <= 0) return null;
+  return Math.round(((now - run.startedAt) / finished) * left);
+}
+
+/** The names the slate has given so far, in order ("Patchwise · Northwind · Shelfproof"). */
+export function slateLine(run: DraftRun): string {
+  return slotsOf(run)
+    .map((s) => s.name)
+    .join(" · ");
+}
+
+/** The concepts being written right now, for "Ideation agent is drafting Shelfproof and Northwind". */
+export function draftingNames(run: DraftRun, max = 2): string | null {
+  const names = slotsOf(run)
+    .filter((s) => s.status === "writing" || s.status === "retrying")
+    .map((s) => s.name);
+  if (!names.length) return null;
+  if (names.length <= max) return names.join(" and ");
+  return `${names.slice(0, max).join(", ")} and ${names.length - max} more`;
 }

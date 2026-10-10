@@ -1,15 +1,16 @@
 "use client";
 /**
  * Agent profile (BUILD §11.10, DESIGN §9 "Agent profile"): ProfileHeader (avatar, name, role, departments, line
- * manager, model chip, status, wage, current/potential stars) above the six tabs overview | training | autonomy |
+ * manager, model chip, status, wage, current/potential stars; "Talk to <agent>" opens the agent's desk as a sheet,
+ * where "Take a break" pauses its running task through `dev.tasks.pause`) above the six tabs overview | training | autonomy |
  * tools | history | logs. The model chip anywhere on the screen opens ModelChangeDialog → ApplyScopeDialog →
  * `agent.model.set`. Data comes from `agent.profile.get`, polled every 5 s while a training run is active.
  */
 import { useQuery } from "@tanstack/react-query";
-import { Dumbbell } from "lucide-react";
+import { Dumbbell, MessageCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Avatar, Button, Chip, EntityLink, HealthBadge, ModelChip, ProfileHeader, formatMoney, type ProfileChip, type ProfileFact, type TabItem } from "@foundmill/dugout";
+import { Avatar, Button, EntityLink, HealthBadge, ModelChip, ProfileHeader, formatMoney, type ProfileChip, type ProfileFact, type TabItem } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -17,6 +18,7 @@ import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
+import { useAgentDesk } from "@/components/conversation/DeskHost";
 import { AutonomyTab } from "./AutonomyTab";
 import { HistoryTab } from "./HistoryTab";
 import { LogsTab } from "./LogsTab";
@@ -24,7 +26,7 @@ import { ModelChangeDialog } from "./ModelChangeDialog";
 import { OverviewTab } from "./OverviewTab";
 import { ToolsTab } from "./ToolsTab";
 import { TrainingTab } from "./TrainingTab";
-import { AGENT_TABS, departmentColour, humaniseKey, meanRating, starsFor, toSkillRows, trainingFlow, type AgentProfile, type AgentTab } from "./logic";
+import { AGENT_TABS, departmentColour, humaniseKey, meanRating, profileChips, starsFor, toSkillRows, trainingFlow, wageLabel, type AgentProfile, type AgentTab } from "./logic";
 
 export interface AgentProfileScreenProps {
   agentId: string;
@@ -46,6 +48,7 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
   const router = useRouter();
   const [modelOpen, setModelOpen] = useState(false);
   const currency = data.business.glossary?.currency ?? "EUR";
+  const desk = useAgentDesk();
 
   const profileQ = useQuery(
     trpc.agent.profile.get.queryOptions(
@@ -83,13 +86,14 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
   const skillRows = toSkillRows(profile.skills, profile.trainingRuns);
   const mean = meanRating(skillRows);
   const potential = meanRating(skillRows.map((s) => ({ value: s.potential ?? s.value })));
-  const chips: ProfileChip[] = [{ label: agent.role || humaniseKey(agent.agentType) }, { label: agent.layer === "assistant" ? "Chief of Staff" : humaniseKey(agent.layer) }, ...profile.departments.map((d) => ({ label: d.name, tone: d.colourToken }))];
+  // Each chip once: a Chief of Staff's role and layer are the same words.
+  const chips: ProfileChip[] = profileChips(agent, profile.departments);
   const facts: ProfileFact[] = [
     {
       label: "Line manager",
       value: profile.lineManager ? <EntityLink entity={{ id: profile.lineManager.id, kind: "agent", name: profile.lineManager.name, href: routes.agent(businessId, profile.lineManager.id) }} hoverCard={false} contextMenu={false} /> : <span className="text-secondary">You</span>,
     },
-    { label: `Wage · ${profile.wage.period}`, value: `${formatMoney({ amountMinor: profile.wage.costMinor, currency: agent.currency ?? currency })}${profile.wage.wageCapMinor !== null ? ` of ${formatMoney({ amountMinor: profile.wage.wageCapMinor, currency: agent.currency ?? currency })}` : ""}`, provenance: "estimate" },
+    { label: wageLabel(profile.wage.period), value: `${formatMoney({ amountMinor: profile.wage.costMinor, currency: agent.currency ?? currency })}${profile.wage.wageCapMinor !== null ? ` of ${formatMoney({ amountMinor: profile.wage.wageCapMinor, currency: agent.currency ?? currency })}` : ""}`, provenance: "estimate" },
     { label: "Tasks · 30 days", value: profile.metrics.reduce((s, m) => s + m.tasksDone, 0) },
   ];
   const typeCount = squadQ.data?.agents.filter((a) => a.agentType === agent.agentType).length;
@@ -107,11 +111,25 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
         stars={mean !== null ? { current: starsFor(mean) ?? 0, potential: starsFor(potential) } : undefined}
         actions={
           <>
-            <span data-testid="header-model-chip" className="inline-flex"><ModelChip model={agent.modelKey} locked={profile.modelLock} onClick={() => setModelOpen(true)} /></span>
-            {profile.modelLock ? null : <Chip tone="neutral">Click to change</Chip>}
+            {/* The model chip is the control (it opens the model dialog); its tooltip says so, no "Click to change" label. */}
+            <span data-testid="header-model-chip" className="inline-flex" title={profile.modelLock ? "This agent's model is fixed" : "Change the model"}>
+              <ModelChip model={agent.modelKey} locked={profile.modelLock} onClick={() => setModelOpen(true)} />
+            </span>
             <Button size="sm" icon={Dumbbell} onClick={() => router.push(routes.agent(businessId, agent.id, "training"))} data-testid="header-train">
               Train
             </Button>
+            {desk ? (
+              <Button
+                size="sm"
+                variant="primary"
+                icon={MessageCircle}
+                onClick={() => desk.open({ kind: "agent", id: agent.id }, { persona: { name: agent.name, role: agent.role || humaniseKey(agent.agentType), avatarSeed: agent.avatarSeed || agent.id, dept } })}
+                aria-haspopup="dialog"
+                data-testid="header-talk"
+              >
+                Talk to {agent.name}
+              </Button>
+            ) : null}
           </>
         }
       />

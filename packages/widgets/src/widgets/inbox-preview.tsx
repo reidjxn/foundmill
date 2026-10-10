@@ -4,10 +4,10 @@
  */
 import { useMemo } from "react";
 import { z } from "zod";
-import { Inbox } from "lucide-react";
+import { CircleAlert, Inbox, Trophy } from "lucide-react";
 import type { DeptColourToken } from "@foundmill/shared";
 import { APP_NAME } from "@foundmill/config";
-import { Avatar, Button, formatRelative } from "@foundmill/dugout";
+import { Avatar, Button, Chip, StatusPill, cn, formatRelative } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { useDepartments } from "../shared/departments";
@@ -59,31 +59,46 @@ function InboxPreviewWidget({ settings }: WidgetProps<InboxPreviewSettings>) {
           Open
         </Button>
       }
-      footer={blocking > 0 ? <span className="text-status-bad">Respond · {blocking}</span> : <span>Latest {items.length}</span>}
+      footer={blocking > 0 ? <span className="text-status-bad">{blocking === 1 ? "1 note needs you" : `${blocking} notes need you`}</span> : <span>Latest {items.length}</span>}
     >
-      <ul className="flex flex-col" aria-label="Latest inbox items">
+      {/* Rows never clip (DESIGN §9 Inbox rows): the subject wraps to two lines, the preview is one line that may end in
+          an ellipsis (a list convention), and the state is a word with an icon, never a dot alone. */}
+      <ul className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="Latest inbox items">
         {items.map((item) => {
           const agent = item.fromAgentId ? agentMeta.get(item.fromAgentId) : undefined;
           const won = item.type === "customer_won";
           return (
-            <li key={item.id} className="border-b hairline-50 last:border-b-0">
+            <li key={item.id} className="border-b border-line-faint last:border-b-0">
               <button
                 type="button"
                 onClick={() => navigate(routes.inbox(businessId, item.id))}
                 data-inbox-row={item.id}
                 data-type={item.type}
-                className={`flex h-14 w-full items-center gap-3 px-panel-pad text-left outline-none transition-colors duration-micro ease-dugout hover:bg-white/4 focus-visible:outline-2 focus-visible:outline-link ${won ? "border-l-[3px] border-l-gold" : "border-l-[3px] border-l-transparent"}`}
+                className={cn(
+                  "flex w-full items-start gap-3 px-panel-pad py-2.5 text-left outline-none transition-colors duration-hover ease-out hover:bg-white/4 focus-visible:shadow-ring",
+                  won && "row-edge-gold",
+                )}
                 aria-label={`${item.subject}${item.blocksContinue ? ", needs an answer" : ""}${won ? ", customer won" : ""}`}
               >
                 {agent ? <Avatar size={24} name={agent.name} agent={{ seed: agent.seed, dept: agent.dept }} /> : <Avatar size={24} name={item.fromUserId ? "You" : APP_NAME} />}
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className={`truncate text-body-strong ${item.state === "unread" ? "text-primary" : "text-secondary"}`}>{item.subject}</span>
-                  <span className="truncate text-small text-secondary">{previewLine(item.bodyMd)}</span>
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className={cn("line-clamp-2 break-words text-body-strong", item.state === "unread" ? "text-primary" : "text-secondary")}>{item.subject}</span>
+                  <span className="line-clamp-1 break-all text-small text-tertiary">{previewLine(item.bodyMd)}</span>
+                  {item.blocksContinue || won ? (
+                    <span className="mt-1 flex">
+                      {item.blocksContinue ? (
+                        <StatusPill tone="bad" icon={CircleAlert}>
+                          Needs you
+                        </StatusPill>
+                      ) : (
+                        <Chip tone="gold" icon={Trophy}>
+                          Customer
+                        </Chip>
+                      )}
+                    </span>
+                  ) : null}
                 </span>
-                <span className="flex shrink-0 items-center gap-2 text-small text-secondary tabular-nums">
-                  {item.blocksContinue ? <span aria-hidden className="inline-block size-1.5 rounded-full bg-status-bad" /> : null}
-                  {formatRelative(item.createdAt)}
-                </span>
+                <span className="shrink-0 pt-0.5 font-mono text-mono whitespace-nowrap text-tertiary">{formatRelative(item.createdAt, new Date(), { style: "short" })}</span>
               </button>
             </li>
           );
@@ -99,7 +114,8 @@ export const inboxPreviewWidget = registerWidget<InboxPreviewSettings>({
   description: "The latest notes from your team; click a row to open it.",
   icon: "inbox",
   surfaces: ["home", "department"],
-  defaultSize: { w: 4, h: 12, minW: 3, minH: 8 },
+  // Sized to its rows: a stored taller cell (the seeded Founder's view keeps h 32) is clamped instead of drawn empty.
+  defaultSize: { w: 4, h: 12, minW: 3, minH: 8, maxH: 16 },
   settingsSchema: InboxPreviewSettings,
   defaultSettings: InboxPreviewSettings.parse({}),
   Component: InboxPreviewWidget,

@@ -20,6 +20,10 @@ describe("PlanScreen", () => {
     expect(within(table).getByText("Review")).toBeTruthy();
     expect(within(table).getAllByRole("link", { name: "Pike" })).toHaveLength(2);
     expect(within(table).getByText("Unassigned")).toBeTruthy();
+    // Kinds read as words, never the API's keys.
+    expect(within(table).getAllByText("Code").length).toBe(5);
+    expect(within(table).getByText("Specialist")).toBeTruthy();
+    expect(within(table).queryByText("specialist")).toBeNull();
     expect(screen.getByTestId("plan-counts").textContent).toBe("3 in progress · 1 ready · 1 done");
     expect(fake.queried.get("dev.tasks.list")).toEqual({ limit: 500 });
     expect(PLAN_VIEWS.map((v) => v.id)).toEqual(["all", "ready", "in-progress", "blocked", "done"]);

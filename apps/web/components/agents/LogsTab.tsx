@@ -15,7 +15,7 @@ import { useStreamSubscription } from "@/lib/stream-client";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import type { TabProps } from "./AgentProfileScreen";
-import { OUTCOME_TONE, departmentColour, sessionRows, type SessionRow } from "./logic";
+import { OUTCOME_TONE, departmentColour, outcomeWord, sessionRows, type SessionRow } from "./logic";
 
 const VIEWS: SavedView[] = [
   { id: "recent", name: "Recent", builtIn: true, columns: ["startedAt", "duration", "model", "tokens", "cost", "outcome", "task"], sort: [{ id: "startedAt", desc: true }], filters: [] },
@@ -36,6 +36,16 @@ export function mergeSessionEvents(existing: readonly AgentSessionEvent[], incom
     out.push(e);
   }
   return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+}
+
+/**
+ * Why a replay is empty, for the founder. The api's reason is an internal message (a Redis client error, a missing
+ * recording key); it is never shown as is.
+ */
+export function replayReasonCopy(reason: string | null | undefined): string {
+  if (!reason) return "This session left no recording. The figures above come from the session itself.";
+  if (/stream|redis|offline|writeable|ECONN|connect/i.test(reason)) return "The live recording service is offline, so this session cannot be replayed right now. The figures above come from the session itself.";
+  return "This session left no recording to replay. The figures above come from the session itself.";
 }
 
 export function readSessionEvent(raw: unknown): AgentSessionEvent | null {
@@ -66,9 +76,10 @@ export function LogsTab({ businessId, profile }: TabProps) {
       { id: "startedAt", accessorKey: "startedAt", header: "Started", size: 160, cell: ({ getValue }) => <span className="tabular-nums">{formatDateTime(getValue() as string)}</span>, meta: { locked: true, filter: "date" } },
       { id: "duration", accessorKey: "durationMs", header: "Duration", size: 100, cell: ({ getValue }) => formatDuration(getValue() as number), meta: { numeric: true } },
       { id: "model", accessorKey: "model", header: "Model", size: 100, cell: ({ row }) => <ModelChip model={row.original.model} />, meta: { filter: "select", filterOptions: ["opus", "sonnet", "haiku"].map((v) => ({ value: v, label: v })) } },
-      { id: "tokens", accessorKey: "tokens", header: "Tokens", size: 90, cell: ({ getValue }) => formatTokens(getValue() as number), meta: { numeric: true } },
+      // The header says "Tokens": the cell is the figure alone, so it never truncates ("449K toke…").
+      { id: "tokens", accessorKey: "tokens", header: "Tokens", size: 100, cell: ({ getValue }) => <span className="tabular-nums">{formatTokens(getValue() as number).replace(/\s*tokens?$/i, "")}</span>, meta: { numeric: true } },
       { id: "cost", accessorKey: "costMinor", header: "Cost", size: 100, cell: ({ row }) => <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: row.original.costMinor, currency: row.original.currency })}</span>, meta: { numeric: true, csv: (r) => r.costMinor / 100 } },
-      { id: "outcome", accessorKey: "outcome", header: "Outcome", size: 120, cell: ({ row }) => <StatusPill tone={OUTCOME_TONE[row.original.outcome] ?? "neutral"} pulse={row.original.live}>{row.original.live ? "Running" : row.original.outcome}</StatusPill>, meta: { filter: "select", filterOptions: Object.keys(OUTCOME_TONE).map((v) => ({ value: v, label: v })) } },
+      { id: "outcome", accessorKey: "outcome", header: "Outcome", size: 130, cell: ({ row }) => <StatusPill tone={OUTCOME_TONE[row.original.outcome] ?? "neutral"} pulse={row.original.live}>{row.original.live ? "Running" : outcomeWord(row.original.outcome)}</StatusPill>, meta: { filter: "select", filterOptions: Object.keys(OUTCOME_TONE).map((v) => ({ value: v, label: outcomeWord(v) })) } },
       { id: "task", accessorKey: "taskId", header: "Task", size: 140, cell: ({ getValue }) => (getValue() ? <span className="font-mono text-mono text-secondary">{String(getValue()).slice(0, 8)}</span> : <span className="text-secondary">—</span>) },
     ],
     [],
@@ -136,7 +147,6 @@ function ReplayPanel({ businessId, profile, session }: { businessId: string; pro
         <span className="inline-flex items-center gap-2">
           {session.live ? <Chip tone="info">Live</Chip> : <Chip tone="neutral">{events.length} events</Chip>}
           {replayQ.data?.source === "recording" && replayQ.data.recording ? <Chip tone="neutral">Recording · {replayQ.data.recording.title}</Chip> : replayQ.data?.source === "stream" ? <Chip tone="neutral">From the stream</Chip> : null}
-          {session.recordingRef ? <Chip tone="neutral" mono>{session.recordingRef.slice(0, 24)}</Chip> : null}
         </span>
       }
       error={replayQ.error ? errorMessage(replayQ.error) : undefined}
@@ -145,7 +155,7 @@ function ReplayPanel({ businessId, profile, session }: { businessId: string; pro
     >
       {events.length === 0 ? (
         <EmptyState icon={Play} className="py-8">
-          {replayQ.isLoading ? "Loading the recording…" : session.live ? "Waiting for the first event on this session's stream." : replayQ.data?.reason ? `No events to replay: ${replayQ.data.reason}. The summary above is from the session row.` : "This session left no recording."}
+          {replayQ.isLoading ? "Loading the recording…" : session.live ? "Waiting for the first event on this session's stream." : replayReasonCopy(replayQ.data?.reason)}
         </EmptyState>
       ) : (
         <div className="flex flex-col">

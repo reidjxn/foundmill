@@ -5,9 +5,10 @@
  * delay, cancellable with `business.cancelDeletion`). Outlined in status-bad at 40 % (DESIGN §9).
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Archive, Download, Trash2, Undo2 } from "lucide-react";
+import { Archive, Download, Trash2, TriangleAlert, Undo2 } from "lucide-react";
 import { useState } from "react";
-import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, StatusPill } from "@foundmill/dugout";
+import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Icon, Input, Panel, StatusPill } from "@foundmill/dugout";
+import { formatDate } from "@/lib/format";
 import { errorMessage, trpcErrorCode, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
@@ -62,11 +63,8 @@ export function DangerTab() {
   const scheduled = data.deletion;
 
   return (
-    <section className="rounded-panel border border-status-bad/40 bg-panel" data-testid="danger-zone">
-      <div className="flex h-8 items-center gap-2 border-b border-status-bad/40 bg-panel-alt px-3">
-        <span className="t-label text-status-bad">Danger zone</span>
-      </div>
-      <div className="flex max-w-[640px] flex-col gap-6 p-3">
+    <Panel title={<span className="inline-flex items-center gap-1.5 text-status-bad"><Icon icon={TriangleAlert} size="inline" />Danger zone</span>} className="border-status-bad/40" data-testid="danger-zone">
+      <div className="flex max-w-reading flex-col gap-6">
         <div className="flex flex-col gap-2">
           <span className="t-display-sm">Export everything</span>
           <p className="text-body text-secondary">Spec, roadmap, tasks, CRM, journeys, finance, audit log and agent instructions as a portable archive. Credentials are never included.</p>
@@ -76,7 +74,7 @@ export function DangerTab() {
             </Button>
           </div>
         </div>
-        <div className="flex flex-col gap-2 border-t border-subtle pt-4">
+        <div className="flex flex-col gap-2 border-t border-line pt-4">
           <span className="t-display-sm">Archive business</span>
           <p className="text-body text-secondary">Stops every agent and hides the business. Data stays; an owner can restore it.</p>
           <div>
@@ -85,14 +83,14 @@ export function DangerTab() {
             </Button>
           </div>
         </div>
-        <div className="flex flex-col gap-2 border-t border-subtle pt-4">
+        <div className="flex flex-col gap-2 border-t border-line pt-4">
           <span className="t-display-sm text-status-bad">Delete permanently</span>
           <p className="text-body text-secondary">
-            Founder only. You re-authenticate, then everything is deleted after a {DELETION_DELAY_DAYS}-day delay during which you can cancel. Permanent deletion is a hard gate: no agent, mode or setting can trigger it.
+            Founder only. You sign in again, then everything is deleted after {DELETION_DELAY_DAYS} days, and you can cancel until then. Only you can do this: no agent, mode or setting can start it.
           </p>
           {scheduled ? (
             <div className="flex items-center gap-3" data-testid="deletion-scheduled">
-              <StatusPill tone="bad">Deletion scheduled{scheduled.scheduledFor ? ` · ${new Date(scheduled.scheduledFor).toLocaleDateString()}` : ""}</StatusPill>
+              <StatusPill tone="bad">Deletion scheduled{scheduled.scheduledFor ? ` · ${formatDate(scheduled.scheduledFor)}` : ""}</StatusPill>
               <Button icon={Undo2} variant="default" disabled={!isOwner} loading={cancelDeletion.isPending} onClick={() => cancelDeletion.mutate({ businessId })}>
                 Cancel deletion
               </Button>
@@ -148,6 +146,6 @@ export function DangerTab() {
         </DialogContent>
       </Dialog>
       {requestDeletion.error ? <p className="sr-only" role="alert">{errorMessage(requestDeletion.error)}</p> : null}
-    </section>
+    </Panel>
   );
 }
