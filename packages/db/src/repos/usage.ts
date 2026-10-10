@@ -219,6 +219,32 @@ export const usageRepo = {
     );
   },
 
+  /**
+   * Charges a metered cost to the period's credits after the fact (every sink that books a `credits` row). Unlike
+   * `debitCredits` it never refuses: the call already happened, so `spent` grows by the full amount and the balance
+   * stops at zero. Returns null when the business holds no balance row for the period (nothing granted yet: included
+   * credits are an open decision, BUILD §19), so nothing is enforced; otherwise whether this charge used the last
+   * credit (`exhausted: "now"`) or the balance was already empty (`"already"`).
+   */
+  async chargeCredits(db: Executor, businessId: string, period: string, amountMinor: number): Promise<{ balance: CreditBalance; exhausted: "now" | "already" | null } | null> {
+    const v = parseInput(z.object({ period: Period, amountMinor: MinorAmount.nonnegative() }), { period, amountMinor }, "credit charge");
+    return db.transaction(async (tx) => {
+      const before = await tx.select().from(creditBalances).where(and(eq(creditBalances.businessId, businessId), eq(creditBalances.period, v.period))).for("update").limit(1);
+      const current = before[0];
+      if (!current) return null;
+      const balanceBefore = Number(current.balanceMinor);
+      const balanceAfter = Math.max(0, balanceBefore - v.amountMinor);
+      const [row] = await tx
+        .update(creditBalances)
+        .set({ balanceMinor: balanceAfter, spentMinor: sql`${creditBalances.spentMinor} + ${v.amountMinor}` })
+        .where(eq(creditBalances.id, current.id))
+        .returning();
+      const balance = one(row ? [row] : [], "credit balance");
+      const exhausted = balanceAfter > 0 ? null : balanceBefore > 0 ? "now" : v.amountMinor > 0 ? "already" : null;
+      return { balance, exhausted };
+    });
+  },
+
   /** Debits credits for a period inside a transaction; refuses to go below zero (agents pause, BUILD §10.5). */
   async debitCredits(db: Executor, businessId: string, period: string, amountMinor: number): Promise<CreditBalance> {
     const v = parseInput(z.object({ period: Period, amountMinor: MinorAmount.nonnegative() }), { period, amountMinor }, "credit debit");

@@ -16,12 +16,11 @@
  */
 import { AgentInstructions, buildSystemPrompt, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
-import { repos, type Agent, type AgentVersion, type Task } from "@foundmill/db";
+import { bookUsage, loadByokApiKey, repos, type Agent, type AgentVersion, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { resolveModel, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox } from "@foundmill/sandbox";
 import { type AgentStatus, type ModelKey, type TaskStatus } from "@foundmill/shared";
-import { buildAad, decryptText } from "@foundmill/shared/crypto";
 import { Context } from "@temporalio/activity";
 import { z } from "zod";
 import type { SessionCommand } from "../control-bus";
@@ -283,20 +282,26 @@ export function createSessionActivities(deps: OrchestratorDeps) {
     return { agent, task, business, session, version, template: templateForAgent(agent) };
   }
 
+  /**
+   * The key a session runs on (BUILD §10.2 step 3: decrypted here, in memory, per session). A business on its own key
+   * runs on that key or not at all: when it cannot be read (no vault, revoked, never set, undecryptable) the session is
+   * blocked with reason `credential` instead of quietly spending the platform's credits, as the gateway refuses tool
+   * calls with `key-revoked`. Everyone else runs on the platform key.
+   */
   async function resolveApiKey(businessId: string, billing: "byok" | "credits"): Promise<{ apiKey: string | null; source: "byok" | "platform" | "none" }> {
-    if (billing === "byok" && deps.vault) {
-      try {
-        const integration = await repos.integrations.getByKey(deps.db, businessId, "anthropic");
-        if (integration) {
-          const loaded = await repos.credentials.latest(deps.db, businessId, integration.id);
-          if (loaded) {
-            const text = await decryptText(deps.vault, loaded.record, buildAad(businessId, "credentials", loaded.meta.id));
-            return { apiKey: text, source: "byok" };
-          }
-        }
-      } catch (err) {
-        deps.log.warn({ err: (err as Error).message }, "BYOK key unavailable; falling back to the platform key");
+    if (billing === "byok") {
+      if (!deps.vault) {
+        deps.log.warn({ businessId }, "business runs on its own key but this service has no vault; session blocked");
+        return { apiKey: null, source: "none" };
       }
+      try {
+        const key = await loadByokApiKey(deps.db, deps.vault, businessId);
+        if (key) return { apiKey: key.apiKey, source: "byok" };
+        deps.log.warn({ businessId }, "business runs on its own key but none is stored; session blocked");
+      } catch (err) {
+        deps.log.warn({ err: (err as Error).message, businessId }, "business's own key could not be read; session blocked");
+      }
+      return { apiKey: null, source: "none" };
     }
     return deps.env.ANTHROPIC_API_KEY ? { apiKey: deps.env.ANTHROPIC_API_KEY, source: "platform" } : { apiKey: null, source: "none" };
   }
@@ -389,9 +394,10 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       const endedAt = deps.clock.now();
       await repos.agents.endSession(db, input.businessId, input.sessionId, { endedAt, tokensIn: result.tokensIn, tokensOut: result.tokensOut, costMinor: Math.round(result.costMinor), outcome: result.outcome, recordingRef: launch.recordingKey });
       const minutes = Math.max(1, Math.round(result.durationMs / 60_000));
-      await repos.usage.record(db, input.businessId, { agentId: agent.id, sessionId: input.sessionId, kind: "sandbox", quantity: minutes, unit: "minutes", costMinor: 0, billedTo: launch.modelBilling, occurredAt: endedAt, details: { sandboxMode: launch.sandboxMode, label: "Estimate", recording: launch.recordingKey } });
+      await bookUsage(db, input.businessId, { agentId: agent.id, sessionId: input.sessionId, kind: "sandbox", quantity: minutes, unit: "minutes", costMinor: 0, billedTo: launch.modelBilling, occurredAt: endedAt, details: { sandboxMode: launch.sandboxMode, label: "Estimate", recording: launch.recordingKey } });
       if (result.tokensIn + result.tokensOut > 0 && launch.sandboxMode !== "mock") {
-        await repos.usage.record(db, input.businessId, { agentId: agent.id, sessionId: input.sessionId, kind: "tokens", modelKey: launch.modelKey, quantity: result.tokensIn + result.tokensOut, unit: "tokens", costMinor: Math.round(result.costMinor), billedTo: launch.modelBilling, occurredAt: endedAt, details: { source: "claude-agent-sdk", label: "Estimate" } });
+        // Settled against credits when the platform key ran the session (`bookUsage` pauses the team on the last credit).
+        await bookUsage(db, input.businessId, { agentId: agent.id, sessionId: input.sessionId, kind: "tokens", modelKey: launch.modelKey, quantity: result.tokensIn + result.tokensOut, unit: "tokens", costMinor: Math.round(result.costMinor), billedTo: launch.modelBilling, occurredAt: endedAt, details: { source: "claude-agent-sdk", label: "Estimate" } });
       }
 
       let taskStatus: TaskStatus;
@@ -595,7 +601,10 @@ class PromptQueue {
 async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder, sandbox: Sandbox, ctx: RunnerContext, live: LiveContext): Promise<RunOutcome> {
   const { input, launch, task, agent } = ctx;
   const key = await live.resolveApiKey(input.businessId, live.business.modelBilling);
-  if (!key.apiKey) return { outcome: "blocked", reason: "no Anthropic key: connect one in Settings or set the platform key", blockedReason: "credential", approvalId: null, summary: "Blocked: no model credential.", providerSessionId: null };
+  if (!key.apiKey) {
+    const reason = live.business.modelBilling === "byok" ? "no live Anthropic key for this business: set one in Settings → Keys" : "no Anthropic key: connect one in Settings or set the platform key";
+    return { outcome: "blocked", reason, blockedReason: "credential", approvalId: null, summary: "Blocked: no model credential.", providerSessionId: null };
+  }
 
   const grants = parseGrants(live.version, live.template);
   // Everything that can fail without a workspace runs before one exists (no restored code left on disk, no token).

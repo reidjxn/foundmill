@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { repos } from "@foundmill/db";
+import { loadByokApiKey, repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -36,6 +36,12 @@ describe("keys.setAnthropic / validate / rotate / revoke (BUILD §10.2)", () => 
     const status = await owner.keys.status({ businessId: hz.A.businessId });
     expect(status.configured).toBe(true);
     expect(status.integration?.accountLabel).toBe("sk-a***");
+
+    // The business now runs on its own key, and the orchestrator/gateway loader reads back exactly what was pasted.
+    expect(result.modelBilling).toBe("byok");
+    expect((await repos.businesses.get(hz.db, hz.A.businessId)).modelBilling).toBe("byok");
+    const key = await loadByokApiKey(hz.db, hz.deps.vault!, hz.A.businessId);
+    expect(key).toMatchObject({ apiKey: KEY, credentialId: result.credentialId, integrationId: result.integrationId, shape: "current" });
     const audit = await repos.audit.list(hz.db, hz.A.businessId, { action: "keys.set_anthropic" });
     expect(audit.items).toHaveLength(1);
     expect(JSON.stringify(audit.items[0]!.details)).not.toContain(KEY);
@@ -56,6 +62,7 @@ describe("keys.setAnthropic / validate / rotate / revoke (BUILD §10.2)", () => 
     const metas = await repos.credentials.listMetadata(hz.db, hz.A.businessId, { integrationId: rotated.integrationId });
     expect(metas).toHaveLength(1);
     expect(metas[0]!.id).toBe(rotated.credentialId);
+    expect((await loadByokApiKey(hz.db, hz.deps.vault!, hz.A.businessId))?.apiKey).toBe(`${KEY}-rotated`);
 
     await repos.agents.setStatus(hz.db, hz.A.businessId, hz.A.agentId, "healthy");
     const revoked = await owner.keys.revoke({ businessId: hz.A.businessId });
@@ -66,5 +73,29 @@ describe("keys.setAnthropic / validate / rotate / revoke (BUILD §10.2)", () => 
     expect(note.type).toBe("warning");
     expect((await owner.keys.status({ businessId: hz.A.businessId })).configured).toBe(false);
     expect((await repos.agents.get(hz.db, hz.A.businessId, hz.A.agentId)).status).toBe("paused");
+    expect(await loadByokApiKey(hz.db, hz.deps.vault!, hz.A.businessId)).toBeNull();
+    // The free tier has no credits to fall back to: the business stays on byok, paused until a new key is set.
+    expect((await repos.businesses.get(hz.db, hz.A.businessId)).planTier).toBe("free");
+    expect(revoked.modelBilling).toBe("byok");
+    expect((await repos.businesses.get(hz.db, hz.A.businessId)).modelBilling).toBe("byok");
+    expect(note.bodyMd).toMatch(/Set a new key/);
+  });
+
+  it("on a tier with credits, revoking the key moves the business back to credits", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    await owner.billing.changeTier({ businessId: hz.A.businessId, tier: "pro" });
+    try {
+      const stored = await owner.keys.setAnthropic({ businessId: hz.A.businessId, apiKey: KEY });
+      expect(stored.modelBilling).toBe("byok");
+      expect((await repos.businesses.get(hz.db, hz.A.businessId)).modelBilling).toBe("byok");
+      const revoked = await owner.keys.revoke({ businessId: hz.A.businessId });
+      expect(revoked.modelBilling).toBe("credits");
+      expect((await repos.businesses.get(hz.db, hz.A.businessId)).modelBilling).toBe("credits");
+      expect((await repos.inbox.get(hz.db, hz.A.businessId, revoked.noteId!)).bodyMd).toMatch(/plan's credits/);
+      const audit = await repos.audit.list(hz.db, hz.A.businessId, { action: "keys.revoke" });
+      expect(audit.items.find((e) => (e.details as { modelBilling?: { to?: string } }).modelBilling?.to === "credits")?.details).toMatchObject({ modelBilling: { from: "byok", to: "credits" } });
+    } finally {
+      await owner.billing.changeTier({ businessId: hz.A.businessId, tier: "free" });
+    }
   });
 });

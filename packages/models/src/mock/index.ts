@@ -39,7 +39,7 @@ import {
 } from "../schemas";
 import { JsonElementScanner } from "../stream-json";
 import { type StreamCallArgs, type StreamCallResult, runStructuredStream } from "../structured-stream";
-import type { CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelLogger, StreamStructuredRequest, StreamStructuredResult, TokenUsage, UsageEvent, UsageSink } from "../types";
+import type { BilledTo, CompleteRequest, CompleteResult, CompleteResultWithJson, ModelClient, ModelLogger, StreamStructuredRequest, StreamStructuredResult, TokenUsage, UsageEvent, UsageSink } from "../types";
 import { generateChiefOfStaff } from "./chiefOfStaff";
 import { generateCategoriser, generateClassifier } from "./classifier";
 import { generateCoach } from "./coach";
@@ -115,6 +115,8 @@ export function listMockRoutes(): MockRouteInfo[] {
 }
 
 export interface MockModelClientOptions {
+  /** Who pays for calls made through this client (default `credits`); see `LiveModelClientOptions.billedTo`. */
+  billedTo?: BilledTo;
   onUsage?: UsageSink;
   logger?: ModelLogger;
   /** Replace the generator for a route (tests, scenario fixtures, recorded sessions). */
@@ -276,6 +278,7 @@ export class MockModelClient implements ModelClient {
       model: resolution.modelId,
       modelKey: resolution.modelKey,
       mode: "mock",
+      billedTo: this.opts.billedTo ?? "credits",
       usage,
       cost,
       scope: req.scope,

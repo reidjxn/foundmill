@@ -66,6 +66,7 @@ describe("apiUsageSink", () => {
     model: MODELS.opus,
     modelKey: "opus",
     mode: "live",
+    billedTo: "credits",
     usage,
     cost: meter(usage, MODELS.opus),
     attribution,

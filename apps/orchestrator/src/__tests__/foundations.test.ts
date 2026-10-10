@@ -161,7 +161,7 @@ describe("the single-call drafting, kept for workflows started before the staged
 describe("usageSink", () => {
   it("books a call stopped in flight with its aborted flag (its tokens are an Estimate too)", async () => {
     const usage = { inputTokens: 800, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 };
-    const event: UsageEvent = { route: "foundations", model: MODELS.opus, modelKey: "opus", mode: "live", usage, cost: meter(usage, MODELS.opus), attribution: { businessId: t.businessId, kind: "foundations" }, durationMs: 10, occurredAt: new Date().toISOString(), attempt: 0, aborted: true };
+    const event: UsageEvent = { route: "foundations", model: MODELS.opus, modelKey: "opus", mode: "live", billedTo: "credits", usage, cost: meter(usage, MODELS.opus), attribution: { businessId: t.businessId, kind: "foundations" }, durationMs: 10, occurredAt: new Date().toISOString(), attempt: 0, aborted: true };
     const before = (await repos.usage.list(t.db, t.businessId, { limit: 500 })).items;
     await usageSink(t.db, t.deps.log)(event);
     const row = (await repos.usage.list(t.db, t.businessId, { limit: 500 })).items.find((u) => !before.some((b) => b.id === u.id));
