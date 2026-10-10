@@ -56,6 +56,7 @@ import type {
   StreamStructuredResult,
   TokenUsage,
   UsageEvent,
+  BilledTo,
   UsageSink,
 } from "./types";
 
@@ -65,6 +66,8 @@ export const REQUEST_TIMEOUT_MS = 600_000;
 
 export interface LiveModelClientOptions {
   apiKey: string;
+  /** Who pays for calls made through this client (default `credits`: the platform key). A client on a business's own key says `byok`. */
+  billedTo?: BilledTo;
   onUsage?: UsageSink;
   logger?: ModelLogger;
   /** Shared limiter (one per process is fine; buckets are keyed per API key). */
@@ -126,7 +129,7 @@ export function createModelClient(opts: CreateModelClientOptions = {}): ModelCli
     // Simulated latency is a dev knob (MOCK_MODEL_LATENCY_MS / MOCK_MODEL_STREAM_MS); both default to 0.
     const latencyMs = opts.mock?.latencyMs ?? env?.MOCK_MODEL_LATENCY_MS ?? 0;
     const streamElementMs = opts.mock?.streamElementMs ?? env?.MOCK_MODEL_STREAM_MS ?? 0;
-    return new MockModelClient({ ...opts.mock, latencyMs, streamElementMs, onUsage: opts.onUsage, logger: opts.logger });
+    return new MockModelClient({ ...opts.mock, latencyMs, streamElementMs, billedTo: opts.billedTo, onUsage: opts.onUsage, logger: opts.logger });
   }
   if (!opts.apiKey) throw new ModelRequestError("createModelClient: apiKey is required in live mode", undefined, "missing_api_key");
   return new LiveModelClient({ ...opts, apiKey: opts.apiKey, fastMode: opts.fastMode ?? env?.MODEL_FAST_MODE ?? false });
@@ -492,8 +495,9 @@ export class LiveModelClient implements ModelClient {
     });
   }
 
-  private async emit(event: UsageEvent): Promise<void> {
+  private async emit(partial: Omit<UsageEvent, "billedTo">): Promise<void> {
     if (!this.opts.onUsage) return;
+    const event: UsageEvent = { ...partial, billedTo: this.opts.billedTo ?? "credits" };
     try {
       await this.opts.onUsage(event);
     } catch (error) {

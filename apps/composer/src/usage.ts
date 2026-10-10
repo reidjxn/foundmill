@@ -2,9 +2,10 @@
  * Cost metering (BUILD §10.4 "Inbox Refresh … cost metered", §11.8 wage bill). Every model completion the composer
  * makes — the Opus note, the Haiku sweep, Sonnet commentary, chapter titles — reaches `usage_ledger` through this sink,
  * attached to the models client as `onUsage`. Costs are list-price arithmetic from @foundmill/models and therefore
- * labelled "Estimate" in `details`.
+ * labelled "Estimate" in `details`. Rows are billed to whoever's key the client ran on (`event.billedTo`; the composer
+ * runs on the platform key, so credits) and settled through `bookUsage`, which charges the period's balance.
  */
-import { repos, type Db } from "@foundmill/db";
+import { bookUsage, type Db } from "@foundmill/db";
 import type { ModelLogger, UsageEvent, UsageSink } from "@foundmill/models";
 
 export interface UsageSinkOptions {
@@ -21,7 +22,7 @@ export function createUsageSink(db: Db, log: ModelLogger, options: UsageSinkOpti
     }
     const quantity = event.usage.inputTokens + event.usage.outputTokens + event.usage.cacheCreationInputTokens + event.usage.cacheReadInputTokens;
     try {
-      await repos.usage.record(db, businessId, {
+      await bookUsage(db, businessId, {
         agentId: event.attribution?.agentId ?? null,
         kind: "tokens",
         modelKey: event.modelKey,
@@ -29,7 +30,7 @@ export function createUsageSink(db: Db, log: ModelLogger, options: UsageSinkOpti
         unit: "tokens",
         costMinor: event.cost.costMinorInt,
         currency: event.cost.currency,
-        billedTo: "credits",
+        billedTo: event.billedTo,
         occurredAt: new Date(event.occurredAt),
         details: {
           service: "composer",

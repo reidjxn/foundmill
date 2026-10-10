@@ -118,6 +118,7 @@ describe("LiveModelClient.complete", () => {
       scope: "session-1",
       attribution: { businessId: "b1" },
     });
+    expect(events[0]!.billedTo).toBe("credits"); // the default: a client on the platform key
 
     expect(result.json).toEqual(payload);
     expect(result.model).toBe(MODELS.opus);

@@ -11,7 +11,8 @@ import { createModelClient, effectiveModelMode, type ModelClient, type UsageEven
 import { MockSandboxProvider, resolveSandboxProvider, type SandboxMode, type SandboxProvider } from "@foundmill/sandbox";
 import { createLogger, type Logger } from "@foundmill/shared/logger";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
-import { repos } from "@foundmill/db";
+import { bookUsage } from "@foundmill/db";
+import { createBusinessModelClient } from "./models";
 import { systemClock, type Clock } from "./clock";
 import { createComposerClient, createOfflineComposerClient, type ComposerClient } from "./composer-client";
 import { MemoryControlBus, RedisControlBus, type SessionControlBus } from "./control-bus";
@@ -51,13 +52,17 @@ export interface CreateDepsOptions {
   log?: Logger;
 }
 
-/** Book every model call (tokens) to the usage ledger when it carries a business attribution (BUILD §9.3, §10.4). */
+/**
+ * Book every model call (tokens) to the usage ledger when it carries a business attribution (BUILD §9.3, §10.4): billed
+ * to whoever's key answered (`event.billedTo`, byok for a business routed onto its own key by `createBusinessModelClient`)
+ * and, for credits, charged to the period's balance through `bookUsage`.
+ */
 export function usageSink(db: Db, log: Logger): (event: UsageEvent) => Promise<void> {
   return async (event) => {
     const a = event.attribution;
     if (!a?.businessId) return;
     try {
-      await repos.usage.record(db, a.businessId, {
+      await bookUsage(db, a.businessId, {
         agentId: a.agentId ?? null,
         sessionId: a.sessionId ?? null,
         kind: "tokens",
@@ -66,7 +71,7 @@ export function usageSink(db: Db, log: Logger): (event: UsageEvent) => Promise<v
         unit: "tokens",
         costMinor: Math.max(0, event.cost.costMinorInt),
         currency: event.cost.currency,
-        billedTo: "credits",
+        billedTo: event.billedTo,
         occurredAt: event.occurredAt,
         // A call stopped in flight keeps `aborted`: its tokens are an Estimate as well as its price.
         details: { route: event.route, model: event.model, mode: event.mode, kind: a.kind ?? null, taskId: a.taskId ?? null, label: event.cost.label, attempt: event.attempt, ...(event.aborted ? { aborted: true } : {}) },
@@ -111,14 +116,27 @@ export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
     closers.push(() => client.quit().catch(() => undefined));
   }
 
-  const models =
+  let vault: Vault | null = options.vault === undefined ? null : options.vault;
+  if (options.vault === undefined) {
+    try {
+      vault = createVault(env);
+    } catch (err) {
+      log.warn({ err: (err as Error).message }, "vault not configured; businesses on their own key are refused until one is set");
+    }
+  }
+
+  // The platform client (platform key, books to credits), wrapped so a business on its own key runs on that key.
+  const modelMode = options.models?.mode ?? effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log);
+  const onUsage = usageSink(db, log);
+  const platformModels =
     options.models ??
     createModelClient({
-      mode: effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log),
+      mode: modelMode,
       apiKey: env.ANTHROPIC_API_KEY,
-      onUsage: usageSink(db, log),
+      onUsage,
       logger: log,
     });
+  const models = createBusinessModelClient(platformModels, { db, vault, mode: modelMode, onUsage, logger: log });
 
   const gateway =
     options.gateway ??
@@ -130,15 +148,6 @@ export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
         })());
 
   const composer = options.composer ?? (env.COMPOSER_URL ? createComposerClient({ baseUrl: env.COMPOSER_URL }) : createOfflineComposerClient());
-
-  let vault: Vault | null = options.vault === undefined ? null : options.vault;
-  if (options.vault === undefined) {
-    try {
-      vault = createVault(env);
-    } catch (err) {
-      log.warn({ err: (err as Error).message }, "vault not configured; bring-your-own-key sessions will use the platform key");
-    }
-  }
 
   let resolved: Promise<{ provider: SandboxProvider; mode: SandboxMode; fellBackFrom: string | null }> | null = null;
   const sandbox = () => {

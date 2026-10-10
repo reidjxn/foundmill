@@ -15,7 +15,7 @@
 import { createHash } from "node:crypto";
 import { AppError, BUSINESS_MODES, NotFoundError, type BusinessMode } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
-import { codeRepositoryOf, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
+import { bookUsage, codeRepositoryOf, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
 import { evaluate, getPolicyEngine, type AgentAutonomy, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
 import {
   canonicalJson,
@@ -552,7 +552,8 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
 
   const costMinor = Math.max(0, Math.round(result.costMinor ?? connector.costModel?.(tool.name, args) ?? 0));
   if (result.ok) {
-    await repos.usage.record(deps.db, session.businessId, {
+    // Billed to the business's own key or the platform's credits; a credits row is charged to the period's balance.
+    await bookUsage(deps.db, session.businessId, {
       agentId: session.agentId,
       sessionId: session.sessionId,
       kind: "tool",

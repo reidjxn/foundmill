@@ -8,7 +8,7 @@
  * call, as the orchestrator's usage sink does (review item 7). Calls with no business (Ideation drafting, Ask on a
  * concept, a logo before commit) are not booked: there is no ledger to book them to yet (DECISIONS 2026-10-09).
  */
-import { repos, type Db } from "@foundmill/db";
+import { bookUsage, type Db } from "@foundmill/db";
 import { createModelClient, type ModelClient, type UsageEvent, type UsageSink } from "@foundmill/models";
 import type { Env } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
@@ -22,15 +22,17 @@ export interface ApiModelClientOptions {
 
 /**
  * Books a model call to its business's usage ledger: tokens at list prices in the pricing currency (USD,
- * `PRICING_CURRENCY`), labelled Estimate, billed to credits (the API runs on the platform key). A call stopped in flight
- * keeps `aborted: true` (its tokens are estimated too). A failed write is logged and never fails the call.
+ * `PRICING_CURRENCY`), labelled Estimate, billed to whoever's key the client ran on (`event.billedTo`: credits for the
+ * API's process-wide client on the platform key) and, for credits, charged to the period's balance (`bookUsage`, which
+ * pauses the team on the last credit). A call stopped in flight keeps `aborted: true` (its tokens are estimated too). A
+ * failed write is logged and never fails the call.
  */
 export function apiUsageSink(db: Db, log: ApiLogger): UsageSink {
   return async (event) => {
     const a = event.attribution;
     if (!a?.businessId) return;
     try {
-      await repos.usage.record(db, a.businessId, {
+      await bookUsage(db, a.businessId, {
         agentId: a.agentId ?? null,
         sessionId: a.sessionId ?? null,
         kind: "tokens",
@@ -40,7 +42,7 @@ export function apiUsageSink(db: Db, log: ApiLogger): UsageSink {
         costMinor: Math.max(0, event.cost.costMinorInt),
         // The meter's currency (PRICING_CURRENCY): list prices are USD, never relabelled as the business's currency.
         currency: event.cost.currency,
-        billedTo: "credits",
+        billedTo: event.billedTo,
         occurredAt: event.occurredAt,
         details: {
           service: "api",

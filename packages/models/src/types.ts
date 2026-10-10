@@ -112,11 +112,19 @@ export interface CompleteResult<T = unknown> {
   speed?: Speed;
 }
 
+/** Who pays for a call: the business's own vendor key (`byok`) or the platform's key and credits (`credits`). */
+export type BilledTo = "byok" | "credits";
+
 export interface UsageEvent {
   route: RouteKey;
   model: ModelId;
   modelKey: ModelKey;
   mode: ModelMode;
+  /**
+   * Who pays for this call, decided by the key the client was built on (`CreateModelClientOptions.billedTo`): a client on
+   * the platform key books to `credits`, one on a business's own key to `byok`. Sinks copy it to `usage_ledger.billed_to`.
+   */
+  billedTo: BilledTo;
   usage: TokenUsage;
   cost: MeterResult;
   scope?: string;
