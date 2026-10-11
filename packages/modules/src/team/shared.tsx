@@ -9,6 +9,7 @@ import { Avatar, EntityLink, MODEL_LABELS, PageGrid, StatusPill, agentStatusTone
 import { MODULE_KEYS, type AgentStatus, type DecisionType, type DeptColourToken, type MembershipRole } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState, type WidgetEvent } from "@foundmill/widgets/data";
+import { usSpelling } from "@foundmill/shared/us-spelling";
 import { humanise } from "../fit";
 import type { AgentHealthChangedPayload, AgentRow, AgentsListResponse, FounderProfileResponse, MembershipRow, TemplateRow } from "./types";
 
@@ -166,7 +167,7 @@ export function toolKeys(agent: Pick<AgentRow, "tools">): string[] {
 
 /** The plural-ready noun ApplyScopeDialog uses for "Apply to all [type] agents". */
 export function agentTypeNoun(agent: Pick<AgentRow, "agentType" | "role" | "layer">): string {
-  if (agent.agentType) return agent.agentType.replace(/_/g, " ");
+  if (agent.agentType) return usSpelling(agent.agentType.replace(/_/g, " "));
   if (agent.role) return agent.role.toLowerCase();
   return agent.layer ?? "worker";
 }

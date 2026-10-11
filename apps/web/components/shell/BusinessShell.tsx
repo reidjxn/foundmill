@@ -32,6 +32,7 @@ import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } fr
 import { SIDEBAR_BRAND, activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
 import { useStreamSubscription } from "@/lib/stream-client";
 import { pollUnlessStreaming, useStreamOpen } from "@/lib/stream-status";
+import { useClientToday } from "@/lib/today";
 import { getBrowserAccessToken } from "@/lib/supabase/client";
 import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -144,6 +145,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
+  const today = useClientToday();
   const pathname = usePathname();
   const { toast } = useToast();
   const chrome = useShellChromeValue();
@@ -465,7 +467,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   onAsk,
                   placeholder: "Search, ask an agent or generate…",
                 }}
-                date={new Date()}
+                // The founder's own day, known only in the browser (null on the server: UTC is tomorrow on a US evening).
+                date={today}
                 runwayMonths={financeQ.data?.runway.months ?? null}
                 // Without a figure the chip says what Home's tiles say ("No limit", "Not known yet") with the reason.
                 runwayWords={runwayWords(financeQ.data)}

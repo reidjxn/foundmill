@@ -9,6 +9,7 @@
  * (a hydration mismatch) and differ between a laptop and CI. A time carries "UTC" so nobody reads it as local.
  */
 import type { Money } from "@foundmill/shared";
+import { usSpelling } from "@foundmill/shared/us-spelling";
 
 export const DISPLAY_LOCALE = "en-US";
 export const DISPLAY_TIME_ZONE = "UTC";
@@ -79,14 +80,19 @@ export function plural(n: number, one: string, many = `${one}s`): string {
 
 const WORDS: Record<string, string> = { api: "API", oauth: "OAuth", mrr: "MRR", arr: "ARR", b2b: "B2B", b2c: "B2C", saas: "SaaS", dtc: "DTC", eu: "EU", uk: "UK", us: "US", ai: "AI", ip: "IP", vat: "VAT", gdpr: "GDPR", id: "ID", url: "URL", seo: "SEO", cpa: "CPA", crm: "CRM" };
 
-/** A stored identifier in plain words: "private_limited_company" → "Private limited company", "api_key" → "API key". */
+/**
+ * A stored identifier in plain words: "private_limited_company" → "Private limited company", "api_key" → "API key".
+ * Keys keep their spelling; the words read US English ("organisation" → "Organization").
+ */
 export function plainWords(key: string | null | undefined): string {
   if (!key) return "";
-  return key
-    .split(/[_\s-]+/)
-    .filter(Boolean)
-    .map((w, i) => WORDS[w.toLowerCase()] ?? (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w.toLowerCase()))
-    .join(" ");
+  return usSpelling(
+    key
+      .split(/[_\s-]+/)
+      .filter(Boolean)
+      .map((w, i) => WORDS[w.toLowerCase()] ?? (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w.toLowerCase()))
+      .join(" "),
+  );
 }
 
 /** What the six modules are called on screen (departments are labels over modules; these name the capability). */

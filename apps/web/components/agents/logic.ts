@@ -7,6 +7,7 @@
 import type { AgentStatus, DeptColourToken, ModelKey, SkillGroup } from "@foundmill/shared";
 import type { AgentInstructions, InstructionVersion, InstructionViolation, ModelOption, PositionRole, SkillRow, Trait, TrainingSkillResult, TrainingSessionMark, SkillHistorySeries, InstructionSection } from "@foundmill/dugout";
 import { MODEL_LABELS, positionLevelFor } from "@foundmill/dugout";
+import { usSpelling } from "@foundmill/shared/us-spelling";
 import type { RouterOutputs } from "@/lib/trpc";
 import { formatMonthYear } from "@/lib/format";
 
@@ -48,16 +49,21 @@ export function toMillis(d: Iso): number {
 
 const ACRONYMS: Record<string, string> = { api: "API", seo: "SEO", ui: "UI", ux: "UX", sql: "SQL", rfq: "RFQ", qa: "QA", crm: "CRM", pr: "PR", ads: "Ads", a11y: "Accessibility" };
 
-/** `api_design` → "API design"; `knowing_when_to_ask` → "Knowing when to ask". */
+/**
+ * `api_design` → "API design"; `knowing_when_to_ask` → "Knowing when to ask". Keys keep their British spelling, the words
+ * read US English (`prioritisation` → "Prioritization", `categoriser` → "Categorizer"), and a `holiday` key is the
+ * founder's away mode, which reads "Vacation" (`holiday.read_authority` → "Vacation read authority").
+ */
 export function humaniseKey(key: string): string {
   const words = key.split(/[_\-\s]+/).filter(Boolean);
-  return words
+  const text = words
     .map((w, i) => {
       const lower = w.toLowerCase();
       if (ACRONYMS[lower]) return ACRONYMS[lower];
       return i === 0 ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower;
     })
     .join(" ");
+  return usSpelling(text).replace(/\b([Hh])olidays?\b/g, (m, h: string) => `${h === "H" ? "V" : "v"}acation${m.endsWith("s") ? "s" : ""}`);
 }
 
 export function clampRating(v: number): number {

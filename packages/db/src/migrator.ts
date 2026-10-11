@@ -67,23 +67,27 @@ export interface MigrationLockHolder {
 }
 
 /**
- * The migration lock (or a table lock a migration needed) was not granted within `timeoutMs`; nothing was applied.
- * Callers at boot exit non-zero so the platform restarts them instead of hanging the deploy.
+ * The migration lock (or a table lock a migration needed) was not granted within `timeoutMs`, or Postgres aborted the
+ * migration to break a deadlock with another connection; nothing was applied. All of these clear up once the other
+ * connection is done (the previous deployment keeps serving for a while during a redeploy), so callers at boot exit
+ * non-zero and the platform restarts them, instead of hanging the deploy or serving on the old schema.
  */
 export class MigrationLockTimeoutError extends Error {
   override readonly name = "MigrationLockTimeoutError";
   readonly code = "MIGRATION_LOCK_TIMEOUT";
   constructor(
     readonly timeoutMs: number,
-    /** `migration-lock`: another session holds the migration lock. `table-lock`: a migration waited on a table lock. `no-answer`: the server or pooler did not answer in time. */
-    readonly phase: "migration-lock" | "table-lock" | "no-answer",
+    /** `migration-lock`: another session holds the migration lock. `table-lock`: a migration waited on a table lock. `deadlock`: Postgres chose the migration as a deadlock victim. `no-answer`: the server or pooler did not answer in time. */
+    readonly phase: "migration-lock" | "table-lock" | "deadlock" | "no-answer",
     readonly holders: MigrationLockHolder[] = [],
     options?: { cause?: unknown },
   ) {
     super(
       phase === "table-lock"
         ? `a migration waited more than ${timeoutMs} ms for a table lock held by another connection; nothing was applied`
-        : phase === "no-answer"
+        : phase === "deadlock"
+          ? "a migration was aborted to break a deadlock with another connection; nothing was applied"
+          : phase === "no-answer"
           ? `the database did not answer within ${timeoutMs} ms while taking the migration lock; nothing was applied`
           : `the migration lock was not granted within ${timeoutMs} ms; nothing was applied`,
       options,
@@ -133,6 +137,7 @@ const sqlState = (err: unknown): string | undefined => {
   return undefined;
 };
 const LOCK_NOT_AVAILABLE = "55P03";
+const DEADLOCK_DETECTED = "40P01";
 
 async function migratePostgresLocked(db: ServiceDb, config: MigrationConfig, options: MigrateOptions): Promise<{ before: number; total: number }> {
   const lockTimeoutMs = Math.max(1, Math.round(options.lockTimeoutMs ?? DEFAULT_MIGRATION_LOCK_TIMEOUT_MS));
@@ -191,7 +196,10 @@ async function migratePostgresLocked(db: ServiceDb, config: MigrationConfig, opt
 }
 
 async function translate(err: unknown, db: ServiceDb, lockTimeoutMs: number, locked: boolean): Promise<unknown> {
-  if (sqlState(err) !== LOCK_NOT_AVAILABLE) return err;
+  const state = sqlState(err);
+  // A deadlock with the previous deployment's queries is as transient as a lock wait: retry on restart, never serve on the old schema.
+  if (state === DEADLOCK_DETECTED) return new MigrationLockTimeoutError(lockTimeoutMs, "deadlock", [], { cause: err });
+  if (state !== LOCK_NOT_AVAILABLE) return err;
   if (locked) return new MigrationLockTimeoutError(lockTimeoutMs, "table-lock", [], { cause: err });
   return new MigrationLockTimeoutError(lockTimeoutMs, "migration-lock", await lockHolders(db), { cause: err });
 }

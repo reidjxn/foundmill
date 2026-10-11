@@ -18,7 +18,7 @@ export function HowItWorks() {
         <Step n="01" icon={Lightbulb} title="Shape the idea" text="Start from a sentence, or import what already exists: your repository, documents, trackers, revenue and company registry. Concepts are drafted around your skills, time and money, and rated for fit." delay={0}>
           <ConceptStack />
         </Step>
-        <Step n="02" icon={Flag} title="Make it yours" text="Name it, choose a logo and brand colours, and decide how hands-on you want to be. Committing creates the departments, hires the team and drafts the first roadmap." delay={90}>
+        <Step n="02" icon={Flag} title="Make it yours" text="Name it, choose a logo and brand colors, and decide how hands-on you want to be. Committing creates the departments, hires the team and drafts the first roadmap." delay={90}>
           <BrandPicker />
         </Step>
         <Step n="03" icon={Play} title="Press Continue" text="Each cycle the Chief of Staff plans the work, agents do it in sandboxes, and your Inbox gets a short note with anything that needs your decision." delay={180}>

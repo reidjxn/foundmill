@@ -279,6 +279,16 @@ function defaultRowId<T>(row: T, index: number): string {
  * Esc clears), row selection with a 3 px kit-primary edge, right-click verbs, CSV export, column resizing (drag or
  * arrow keys on the handle), numeric columns right-aligned tabular, loading/empty/error states, zebra 2 % and hover 4 %.
  */
+/**
+ * The tooltip of a text cell: its whole value, so a row's long free text that ends in an ellipsis can still be read. A
+ * stored key ("organisation", "in_progress") is never the tooltip: the cell renders it in words (a chip, a label), and
+ * the key itself is not something the founder reads.
+ */
+export function cellTitle(value: unknown): string | undefined {
+  if (typeof value !== "string" || value === "") return undefined;
+  return /^[a-z0-9]+(?:[_-][a-z0-9]+)*$/.test(value) ? undefined : value;
+}
+
 export function DataTable<T>(props: DataTableProps<T>) {
   const {
     data,
@@ -935,7 +945,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                 className={numeric ? "whitespace-nowrap" : "truncate [&_a]:min-w-0 [&_a]:truncate [&_[data-chip]]:max-w-none [&_[data-status-pill]]:max-w-none"}
                 data-cell-content=""
                 data-allow-truncate={numeric ? undefined : ""}
-                title={!numeric && typeof cell.getValue() === "string" ? (cell.getValue() as string) : undefined}
+                title={!numeric ? cellTitle(cell.getValue()) : undefined}
               >
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
               </span>

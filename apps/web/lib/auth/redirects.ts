@@ -25,10 +25,23 @@ export function isFounderPath(pathname: string): boolean {
 
 export type RedirectDecision = { kind: "next" } | { kind: "redirect"; to: string };
 
-/** Clamp a `next` parameter to an in-app path so a magic link can never bounce the founder off-site. */
+const PATH_PROBE_ORIGIN = "https://next-path.invalid";
+
+/**
+ * Clamp a `next` parameter to an in-app path so a magic link can never bounce the founder off-site. URL parsers read
+ * "\" as "/" and drop tabs and newlines, so "/\evil.example" and "/<tab>/evil.example" resolve to another host: both
+ * are refused, and whatever is left must still resolve to the page's own origin.
+ */
 export function safeNextPath(next: string | null | undefined, fallback = "/"): string {
   if (!next) return fallback;
   if (!next.startsWith("/") || next.startsWith("//") || next.includes("://") || next.startsWith("/login")) return fallback;
+  // eslint-disable-next-line no-control-regex -- C0 controls and DEL are exactly what must be refused
+  if (/[\\\u0000-\u001f\u007f]/.test(next)) return fallback;
+  try {
+    if (new URL(next, PATH_PROBE_ORIGIN).origin !== PATH_PROBE_ORIGIN) return fallback;
+  } catch {
+    return fallback;
+  }
   return next;
 }
 

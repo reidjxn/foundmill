@@ -89,8 +89,11 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   search?: AppShellSearch;
   /** Fallback when `search` is absent: the app opens its own search. */
   onSearch?: () => void;
-  /** Today, runway and cash for the kit bar chip. */
-  date: Date | string | number;
+  /**
+   * Today, runway and cash for the kit bar chip. Today is null until the browser knows the founder's own day (the
+   * server's day is UTC, already tomorrow on a US evening), so server and browser render the same chip.
+   */
+  date: Date | string | number | null;
   runwayMonths: number | null | undefined;
   /** The words when there is no runway figure ("No limit", "Not known yet") and why; see RunwayChip. */
   runwayWords?: RunwayWords | null;

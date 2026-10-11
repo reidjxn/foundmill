@@ -44,8 +44,8 @@ export interface KitBarProps extends Omit<HTMLAttributes<HTMLElement>, "title"> 
   onSearch: () => void;
   /** The search's placeholder (default "Search or jump to…"). Keep it short: the search gives way first at 1280. */
   searchPlaceholder?: string;
-  /** Today, for the date + runway chip. */
-  date: Date | string | number;
+  /** Today, for the date + runway chip; null leaves the date out (see RunwayChip). */
+  date: Date | string | number | null;
   runwayMonths: number | null | undefined;
   /** The words when there is no runway figure (the app's shared wording, as on Home's tiles), with the reason. */
   runwayWords?: RunwayWords | null;
@@ -101,7 +101,7 @@ export function kitBarGradient(kit: Kit): string {
  * and, right: date + runway, the business-mode chip, Continue, Stop all agents — all glass, 34 px. Nothing is clipped at
  * 1280: the search gives way first (its placeholder shortens, then only the icon remains); then, while the bar still
  * cannot hold everything whole or the screen title would lose its room, the chips compact one step at a time
- * (KitBarFit: dates drop the year, the holiday caption shortens to "Until 21 Oct" and then its icon, LIVE and the mode
+ * (KitBarFit: dates drop the year, the vacation caption shortens to "Until Oct 21" and then its icon, LIVE and the mode
  * show their icons, the date leaves the runway chip); a long business name or screen title wraps to two lines and steps
  * its size down (FitText) before it would ever truncate.
  */

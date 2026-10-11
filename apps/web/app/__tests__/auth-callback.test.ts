@@ -58,6 +58,16 @@ describe("/auth/callback", () => {
     expect((await callback("?code=x&next=%2F%2Fevil.example")).location).toBe("https://foundmill.com/login?error=other_address");
   });
 
+  it("never leaves foundmill.com after signing in, even for a next that a URL parser reads as another host", async () => {
+    exchangeCodeForSession.mockResolvedValue({ error: null });
+    // "/\evil.example" and "/<tab>/evil.example" resolve to https://evil.example/ with `new URL(next, request.url)`.
+    for (const next of ["%2F%5Cevil.example", "%2F%5C%2Fevil.example", "%2F%09%2Fevil.example", "%2F%0A%2Fevil.example"]) {
+      expect((await callback(`?code=x&next=${next}`)).location, next).toBe("https://foundmill.com/");
+    }
+    exchangeCodeForSession.mockResolvedValue({ error: verifierMissing });
+    expect((await callback("?code=x&next=%2F%5Cevil.example")).location).toBe("https://foundmill.com/login?error=other_address");
+  });
+
   it("without Supabase configured says so", async () => {
     configured = false;
     expect((await callback("?code=x")).location).toBe("https://foundmill.com/login?error=not_configured");

@@ -172,6 +172,53 @@ describe.skipIf(!DIRECT)("migrateDb on Postgres", () => {
     await closeDb(db);
   });
 
+  it("a migration chosen as a deadlock victim (the old deployment still serving) is retryable, not a broken migration", async () => {
+    const name = await freshDatabase();
+    const db = createDb(withDb(DIRECT!, name), { max: 4 }) as ServiceDb;
+    await migrateDb(db, { migrationsFolder: migrationsFolder({ "0001_tables": "create table a (id int);\n--> statement-breakpoint\ncreate table b (id int);" }) });
+    // The old deployment's transaction holds b, then reads a; the migration alters a, then b: a lock cycle. Postgres
+    // aborts the side whose deadlock_timeout (1 s) runs out first, which is the migration (it started waiting first).
+    const old = postgres(withDb(DIRECT!, name), { max: 1, onnotice: () => undefined });
+    let releaseOld!: () => void;
+    const oldMayFinish = new Promise<void>((resolve) => (releaseOld = resolve));
+    let oldHolds!: () => void;
+    const oldHoldsB = new Promise<void>((resolve) => (oldHolds = resolve));
+    const oldTx = old
+      .begin(async (tx) => {
+        await tx`lock table b in access share mode`;
+        oldHolds();
+        await oldMayFinish;
+        await tx`select count(*) from a`;
+      })
+      .catch((e: unknown) => e);
+    await oldHoldsB;
+    const folder = migrationsFolder({
+      "0001_tables": "create table a (id int);\n--> statement-breakpoint\ncreate table b (id int);",
+      "0002_alter": "alter table a add column x int;\n--> statement-breakpoint\nalter table b add column y int;",
+    });
+    const migration = migrateDb(db, { migrationsFolder: folder, lockTimeoutMs: 20_000 }).catch((e: unknown) => e);
+    // Once the migration holds a and waits for b, the old transaction asks for a.
+    const deadline = Date.now() + 10_000;
+    for (;;) {
+      const [waiting] = await admin<{ n: number }[]>`select count(*)::int as n from pg_stat_activity where datname = ${name} and wait_event_type = 'Lock' and query like '%alter table b%'`;
+      if ((waiting?.n ?? 0) > 0) break;
+      if (Date.now() > deadline) throw new Error("the migration never waited for b");
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    releaseOld();
+    const err = (await migration) as MigrationLockTimeoutError;
+    expect(err).toBeInstanceOf(MigrationLockTimeoutError);
+    expect(isMigrationLockTimeout(err)).toBe(true);
+    expect(err.phase).toBe("deadlock");
+    expect(await oldTx).toBeUndefined();
+    expect((await bookkeeping(name)).rows).toBe(1);
+    expect(await migrationLocks(name)).toEqual([]);
+    await old.end({ timeout: 1 });
+    // The restarted boot applies it.
+    expect(await migrateDb(db, { migrationsFolder: folder })).toEqual({ applied: ["0002_alter"], total: 2 });
+    await closeDb(db);
+  }, 30_000);
+
   it("a failing migration rolls the whole run back (bookkeeping included) and releases the lock", async () => {
     const name = await freshDatabase();
     const folder = migrationsFolder({ "0001_first": "create table first_table (id int primary key);", "0002_broken": "select 1/0;" });

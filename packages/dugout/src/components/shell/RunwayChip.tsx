@@ -36,8 +36,11 @@ export interface RunwayWords {
 export const RUNWAY_UNKNOWN_WORDS: RunwayWords = { value: "Not known yet", caption: "Runway unknown until a bank or finance source is connected" };
 
 export interface RunwayChipProps {
-  /** Today, for the date part. */
-  date: Date | string | number;
+  /**
+   * Today, for the date part. Null leaves the date out: the app passes null until the browser knows the founder's own
+   * day, because the server renders in UTC and a US evening is already tomorrow there (a hydration mismatch).
+   */
+  date: Date | string | number | null;
   /** Months of runway; null when unknown (no bank or finance data yet). */
   runwayMonths: number | null | undefined;
   /**
@@ -66,9 +69,10 @@ export function RunwayChip({ date, runwayMonths, words, cash, estimate = true, o
   const runway = formatRunway(runwayMonths);
   const known = runwayMonths !== null && runwayMonths !== undefined && Number.isFinite(runwayMonths);
   const said = words ?? RUNWAY_UNKNOWN_WORDS;
-  const dateText = formatDate(date);
-  const dayMonth = formatDate(date, DATE_FORMATS.dayMonth);
-  const year = formatDate(date, "yyyy");
+  const hasDate = date !== null && date !== undefined;
+  const dateText = hasDate ? formatDate(date) : "";
+  const dayMonth = hasDate ? formatDate(date, DATE_FORMATS.dayMonth) : "";
+  const year = hasDate ? formatDate(date, "yyyy") : "";
   const tip = [
     cash ? `Cash ${formatMoney(cash)}` : null,
     known ? `Runway ${runway}${estimate ? " (Estimate)" : ""}` : said.caption,
@@ -76,20 +80,23 @@ export function RunwayChip({ date, runwayMonths, words, cash, estimate = true, o
   ]
     .filter(Boolean)
     .join(" · ");
-  const label = known ? `${dateText}. Runway ${runway}${estimate ? ", estimate" : ""}${tone === "bad" ? ", critical" : tone === "warn" ? ", low" : ""}` : `${dateText}. Runway: ${said.value}. ${said.caption}`;
+  const runwayLabel = known ? `Runway ${runway}${estimate ? ", estimate" : ""}${tone === "bad" ? ", critical" : tone === "warn" ? ", low" : ""}` : `Runway: ${said.value}. ${said.caption}`;
+  const label = hasDate ? `${dateText}. ${runwayLabel}` : runwayLabel;
   const content = (
     <>
       {/* The date gives way in the top bar's last compaction step; the year goes first (KitBarFit). */}
-      <span className="kitbar-date">
-        <Icon icon={Calendar} size="inline" />
-        <span className="tabular-nums">
-          {dayMonth}
-          <span className="kitbar-year">, {year}</span>
+      {hasDate ? (
+        <span className="kitbar-date">
+          <Icon icon={Calendar} size="inline" />
+          <span className="tabular-nums">
+            {dayMonth}
+            <span className="kitbar-year">, {year}</span>
+          </span>
+          <span aria-hidden className="opacity-45">
+            ·
+          </span>
         </span>
-        <span aria-hidden className="opacity-45">
-          ·
-        </span>
-      </span>
+      ) : null}
       <span className={cn("inline-flex items-center gap-1.5", TONE_TEXT[tone])}>
         <Icon icon={tone === "neutral" ? Hourglass : TriangleAlert} size="inline" className={tone === "neutral" ? undefined : "text-current"} />
         {known ? <span className="tabular-nums">{runway}</span> : <span data-runway-words="">{said.value}</span>}

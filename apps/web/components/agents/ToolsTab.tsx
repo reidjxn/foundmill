@@ -100,7 +100,7 @@ export function ToolGrantsEditor({ businessId, value, onChange, readOnly }: Tool
                 const shown = toolDisplay({ name: t.name, title: t.title, description: t.description });
                 return (
                   <li key={t.name} className="flex items-start gap-2">
-                    <Checkbox id={id} checked={checked} disabled={readOnly} onCheckedChange={() => onChange(toggleToolGrant(value, c.key, t.name))} className="mt-0.5" aria-label={`${c.displayName}: ${t.title ?? t.name}`} />
+                    <Checkbox id={id} checked={checked} disabled={readOnly} onCheckedChange={() => onChange(toggleToolGrant(value, c.key, t.name))} className="mt-0.5" aria-label={`${c.displayName}: ${shown.label}`} />
                     <label htmlFor={id} className="flex min-w-0 flex-col text-body text-primary" data-tool={t.name}>
                       <span className="inline-flex flex-wrap items-center gap-1.5">
                         {/* The tool's name in words; the id stays in the data attribute for support, not on screen. */}

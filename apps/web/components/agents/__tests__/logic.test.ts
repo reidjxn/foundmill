@@ -80,6 +80,10 @@ describe("skill rows", () => {
   it("humanises snake case with acronyms", () => {
     expect(humaniseKey("knowing_when_to_ask")).toBe("Knowing when to ask");
     expect(humaniseKey("seo_briefs")).toBe("SEO briefs");
+    // Keys keep their spelling; the words read US English, and the away mode reads "Vacation".
+    expect(humaniseKey("roadmap_prioritisation")).toBe("Roadmap prioritization");
+    expect(humaniseKey("categoriser")).toBe("Categorizer");
+    expect(humaniseKey("holiday_read_authority")).toBe("Vacation read authority");
   });
 });
 

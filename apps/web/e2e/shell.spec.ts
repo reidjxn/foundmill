@@ -40,6 +40,20 @@ test.describe("login", () => {
     await expect(page).toHaveURL(/\/login\?error=not_configured&next=%2Fb%2Fx$/);
     await expect(page.getByTestId("login-link-problem")).toContainText("Sign-in unavailable");
   });
+
+  test("signing in never leaves this origin, even for a next a browser reads as another host", async ({ page, baseURL }) => {
+    const origin = new URL(baseURL ?? "http://localhost:3000").origin;
+    // "/\evil.example" and "/<tab>/evil.example" resolve to https://evil.example/ with `new URL(next, here)`.
+    for (const next of ["%2F%5Cevil.example", "%2F%09%2Fevil.example"]) {
+      const signIn = await page.request.get(`/auth/dev?next=${next}`, { maxRedirects: 0 });
+      expect(signIn.status(), next).toBe(303);
+      expect(new URL(signIn.headers().location ?? "", origin).origin, next).toBe(origin);
+      // Signed in now (the dev cookie): the proxy sends /login on to next.
+      const signedIn = await page.request.get(`/login?next=${next}`, { maxRedirects: 0 });
+      expect(signedIn.status(), next).toBe(307);
+      expect(new URL(signedIn.headers().location ?? "", origin).origin, next).toBe(origin);
+    }
+  });
 });
 
 test.describe("not found", () => {

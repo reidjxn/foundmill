@@ -53,7 +53,7 @@ export async function migrateOnBoot(deps: ApiDeps, options: MigrateOnBootOptions
     if (isMigrationLockTimeout(err)) {
       deps.log.error(
         { driver, lockTimeoutMs, phase: err.phase, holders: err.holders, err: err.message },
-        `migration lock not granted within ${Math.round(lockTimeoutMs / 1000)} s; exiting with code 1 so the platform restarts this boot (docs/DEPLOY.md §3 "Migrations at boot")`,
+        `${err.phase === "deadlock" ? "migration aborted by a deadlock with another connection" : `migration lock not granted within ${Math.round(lockTimeoutMs / 1000)} s`}; exiting with code 1 so the platform restarts this boot (docs/DEPLOY.md §3 "Migrations at boot")`,
       );
       await flushLog(deps.log as Parameters<typeof flushLog>[0]);
       (options.exit ?? ((code: number) => process.exit(code)))(1);

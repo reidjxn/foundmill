@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { Mail, Trash2 } from "lucide-react";
 import { Chip } from "../foundation/Chip";
-import { DataTable, type DataTableColumn } from "./DataTable";
+import { DataTable, cellTitle, type DataTableColumn } from "./DataTable";
 import { generateLeads, LEAD_STAGE_LABELS, LEAD_VIEWS, type LeadRow } from "./fixtures";
 import type { SavedView } from "./types";
 
@@ -338,5 +338,17 @@ describe("DataTable", () => {
     handle.focus();
     await user.keyboard("{ArrowRight}{ArrowRight}");
     expect(Number(handle.getAttribute("aria-valuenow"))).toBe(before + 16);
+  });
+});
+
+describe("cell tooltips", () => {
+  it("carry a text cell's whole value but never a stored key the cell shows in words", () => {
+    expect(cellTitle("Summit Health Stores")).toBe("Summit Health Stores");
+    expect(cellTitle("Sep 28, 2026")).toBe("Sep 28, 2026");
+    expect(cellTitle("organisation")).toBeUndefined();
+    expect(cellTitle("in_progress")).toBeUndefined();
+    expect(cellTitle("wage-bill")).toBeUndefined();
+    expect(cellTitle(12)).toBeUndefined();
+    expect(cellTitle("")).toBeUndefined();
   });
 });

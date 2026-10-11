@@ -178,6 +178,22 @@ describe("code files", () => {
     scanCodeFile(p, again);
     assert.deepEqual(again.filter((h) => h.kind === "spelling"), []);
   });
+
+  it("reads copy assigned to a field and an agent template's name, role and tone", () => {
+    const form = write("c/naming.ts", ['errors.kit = "Both brand colours need a hex value.";', 'if (status === "cancelled") stop();'].join("\n"));
+    const formHits = [];
+    scanCodeFile(form, formHits);
+    assert.deepEqual(formHits.map((h) => `${h.line}:${h.match}`), ["1:colours"]);
+
+    const template = ['export const t = { key: "categoriser", name: "Categoriser", role: "Affiliate programme manager", tone: "Never apologise twice." };'].join("\n");
+    const agentHits = [];
+    scanCodeFile(write("packages/agents/src/templates/x.ts", template), agentHits);
+    assert.deepEqual(agentHits.map((h) => h.match), ["Categoriser", "programme", "apologise"]);
+    // Elsewhere `name` and `role` stay structural (an input's name, an ARIA role).
+    const otherHits = [];
+    scanCodeFile(write("packages/other/x.ts", template), otherHits);
+    assert.deepEqual(otherHits, []);
+  });
 });
 
 describe("prose files", () => {

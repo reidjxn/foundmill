@@ -42,6 +42,20 @@ describe("proxy redirect rules", () => {
     expect(safeNextPath(null, "/new")).toBe("/new");
   });
 
+  it("refuses paths that a URL parser resolves off-site (backslashes, tabs, newlines)", () => {
+    // `new URL("/\\evil.example", base)` is https://evil.example/: browsers and Node read "\" as "/" and drop tabs and
+    // newlines, so these passed the old checks and /auth/callback or the proxy redirected a founder off-site.
+    for (const raw of ["/\\evil.example", "/\\/evil.example", "/\t/evil.example", "/\n/evil.example", "/\r/evil.example", "\\\\evil.example", "/%5Cevil.example".replace("%5C", "\\")]) {
+      expect(safeNextPath(raw), JSON.stringify(raw)).toBe("/");
+      expect(new URL(safeNextPath(raw), "https://foundmill.com/auth/callback").origin, JSON.stringify(raw)).toBe("https://foundmill.com");
+    }
+    expect(decideRedirect({ pathname: "/login", search: "?next=%2F%5Cevil.example", authenticated: true })).toEqual({ kind: "redirect", to: "/" });
+    expect(decideRedirect({ pathname: "/login", search: "?next=%2F%09%2Fevil.example", authenticated: true })).toEqual({ kind: "redirect", to: "/" });
+    // In-app paths with a query keep working, spaces included (searchParams.get decodes %20).
+    expect(safeNextPath("/b/abc/inbox?q=a b")).toBe("/b/abc/inbox?q=a b");
+    expect(safeNextPath("/b/abc/team/agents")).toBe("/b/abc/team/agents");
+  });
+
   it("classifies paths", () => {
     expect(isPublicPath("/auth")).toBe(true);
     expect(isPublicPath("/b/x")).toBe(false);

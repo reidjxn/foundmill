@@ -203,6 +203,12 @@ describe("RunwayChip", () => {
     expect(screen.getByText(RUNWAY_UNKNOWN_WORDS.value)).toBeTruthy();
     expect(screen.queryByText("No runway yet")).toBeNull();
   });
+
+  it("leaves the date out while today is not known yet (server render and hydration)", () => {
+    const { container } = render(<RunwayChip date={null} runwayMonths={11} />);
+    expect(container.querySelector(".kitbar-date")).toBeNull();
+    expect(screen.getByLabelText("Runway 11 mo, estimate")).toBeTruthy();
+  });
 });
 
 describe("RightRail", () => {
