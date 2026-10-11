@@ -486,7 +486,12 @@ export function WidgetGrid({
     width: measured,
     containerRef,
     mounted,
-  } = useContainerWidth({ initialWidth: widthProp ?? 1280 });
+  } = useContainerWidth({
+    initialWidth: widthProp ?? 1280,
+    // Measure first: rendering at the 1280 px guess and then shrinking made the
+    // canvas overflow sideways for a moment on narrower windows.
+    measureBeforeMount: widthProp === undefined,
+  });
   const width = widthProp ?? measured;
   const ready = widthProp !== undefined || mounted;
 
