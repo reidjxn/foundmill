@@ -81,6 +81,21 @@ test.describe("shell", () => {
     await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Foundmill" })).toBeVisible();
   });
 
+  test("Sign out sits in the sidebar foot, ends the session and lands on the sign-in page", async ({ page }) => {
+    const nav = page.getByRole("navigation", { name: "Primary" });
+    await nav.getByRole("button", { name: "Sign out" }).click();
+    await expect(page).toHaveURL(/\/login$/, { timeout: LONG });
+    // Signed out for real: the business sends this visitor back to sign in.
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
+    await expect(page).toHaveURL(/\/login\?next=/, { timeout: LONG });
+  });
+
+  test("the command palette offers Sign out", async ({ page }) => {
+    await page.keyboard.press("Control+K");
+    await page.keyboard.type("log out");
+    await expect(page.getByRole("option", { name: /Sign out/ }).first()).toBeVisible({ timeout: LONG });
+  });
+
   test("the sidebar foot closes with the Foundmill wordmark alone: a link to /, aligned with the icons, hidden when collapsed, reachable by arrow keys (DESIGN §8a)", async ({ page }) => {
     const nav = page.getByRole("navigation", { name: "Primary" });
     const brand = nav.getByRole("link", { name: "Foundmill" });

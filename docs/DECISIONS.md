@@ -1163,3 +1163,7 @@ Found while researching per-agent model choice (the Opper evaluation); fixed bef
 - **Guard:** `scripts/us-english.mjs` (with a self-test) fails CI on British spellings or day-first dates in user-facing text, next to `banned-terms.mjs`.
 - **Dates that depend on today** (the top bar, "On vacation until …") render once the browser knows the founder's own day (`apps/web/lib/today.ts`), so a server in UTC never disagrees with an evening in the US.
 
+## 2026-10-11 — Where Sign out lives
+
+- **The sidebar foot and the command palette, not the Danger zone** (founder suggested the Danger zone). The Danger zone is per business and holds irreversible actions (archive, delete, export); signing out is account-wide and harmless, and founders look for it with the account items at the foot of the sidebar. It is a button that POSTs to `/auth/signout`, never a link, so a prefetch cannot sign anyone out. The GET route stays for the existing plain links on the new-business, unreachable and 404 pages.
+

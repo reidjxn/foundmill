@@ -3,7 +3,7 @@
  * founder's order (badge: unread items from that department's agents), CRM, the LIVE block, foot items.
  * Pure and unit-tested; the layout feeds it `department.list` + `inbox.list`.
  */
-import { Globe, Home, Inbox, KeyRound, Settings, Trophy, Users, Users2, type LucideIcon } from "lucide-react";
+import { Globe, Home, Inbox, KeyRound, LogOut, Settings, Trophy, Users, Users2, type LucideIcon } from "lucide-react";
 import type { SidebarBrand, SidebarItem } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -36,7 +36,7 @@ export interface SidebarInput {
   live: boolean;
 }
 
-export const SIDEBAR_IDS = { home: "home", inbox: "inbox", crm: "crm", milestones: "milestones", settings: "settings", keys: "keys", network: "network", communities: "communities", leaderboards: "leaderboards" } as const;
+export const SIDEBAR_IDS = { home: "home", inbox: "inbox", crm: "crm", milestones: "milestones", settings: "settings", keys: "keys", signOut: "sign-out", network: "network", communities: "communities", leaderboards: "leaderboards" } as const;
 
 /** The Foundmill wordmark closing the sidebar foot (DESIGN §8a). Not an item: Dugout draws it when the sidebar is expanded. */
 export const SIDEBAR_BRAND: SidebarBrand = { href: "/" };
@@ -84,6 +84,8 @@ export function buildSidebarItems(input: SidebarInput): SidebarItem[] {
   }
   items.push({ id: SIDEBAR_IDS.settings, label: "Settings", icon: Settings, href: routes.settings(bid, "business"), group: "foot" });
   items.push({ id: SIDEBAR_IDS.keys, label: "Anthropic key", icon: KeyRound, href: routes.settings(bid, "keys"), group: "foot" });
+  // A button, not a link: the shell signs out with a POST (lib/auth/sign-out.ts), so nothing can prefetch it.
+  items.push({ id: SIDEBAR_IDS.signOut, label: "Sign out", icon: LogOut, group: "foot" });
   return items;
 }
 

@@ -35,4 +35,12 @@ describe("universal search", () => {
     expect(filterLocal(items, "").length).toBe(items.length);
     expect(filterLocal(items, "zzzz")).toEqual([]);
   });
+
+  it("offers Sign out as a command with no link, found by its synonyms too", () => {
+    const items = localPaletteItems({ businessId: BID, departments, live: false });
+    const signOut = items.find((i) => i.id === "command:sign-out");
+    expect(signOut).toMatchObject({ kind: "command", label: "Sign out" });
+    expect(signOut?.href).toBeUndefined();
+    expect(filterLocal(items, "log out")[0]?.id).toBe("command:sign-out");
+  });
 });

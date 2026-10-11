@@ -21,7 +21,9 @@ describe("sidebar items", () => {
     expect(items.find((i) => i.id === "crm")?.fixed).toBe("crm");
     expect(items.some((i) => i.group === "live")).toBe(false);
     // The Foundmill wordmark is not an item (no icon): Dugout draws it from `SIDEBAR_BRAND` while expanded.
-    expect(items.filter((i) => i.group === "foot").map((i) => i.label)).toEqual(["Settings", "Anthropic key"]);
+    expect(items.filter((i) => i.group === "foot").map((i) => i.label)).toEqual(["Settings", "Anthropic key", "Sign out"]);
+    // Sign out is a button (no href), so no router prefetch can ever end the session.
+    expect(items.find((i) => i.id === "sign-out")?.href).toBeUndefined();
     expect(items.some((i) => i.id === "brand")).toBe(false);
     expect(SIDEBAR_BRAND).toEqual({ href: "/" });
   });

@@ -29,7 +29,8 @@ import { shellQueryInputs } from "@/lib/shell-queries";
 import { useBusinessLogoSrc } from "@/components/logo/useBusinessLogo";
 import { KeyboardRegistryProvider, createKeyboardRegistry, useRegisteredShortcuts } from "@/lib/keys";
 import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } from "@/lib/search";
-import { SIDEBAR_BRAND, activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
+import { SIDEBAR_BRAND, SIDEBAR_IDS, activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
+import { signOut } from "@/lib/auth/sign-out";
 import { useStreamSubscription } from "@/lib/stream-client";
 import { pollUnlessStreaming, useStreamOpen } from "@/lib/stream-status";
 import { useClientToday } from "@/lib/today";
@@ -238,6 +239,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   // without a link, so one click is one navigation.
   const onNavigate = useCallback(
     (item: SidebarItem) => {
+      if (item.id === SIDEBAR_IDS.signOut) return signOut();
       if (item.href && !isShellLinkClick()) router.push(item.href);
     },
     [router],
@@ -394,6 +396,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       if (item.id === "command:refresh-inbox") return refreshInbox.mutate({ businessId });
       if (item.id === "command:edit-layout") return shortcuts.onEditLayout?.();
       if (item.id === "command:stop-all") return document.querySelector<HTMLButtonElement>("[data-testid=stop-all-trigger]")?.click();
+      if (item.id === "command:sign-out") return signOut();
       if (item.href) router.push(item.href);
     },
     [router, refreshInbox, businessId, shortcuts],

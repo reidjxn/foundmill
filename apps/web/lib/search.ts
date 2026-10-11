@@ -55,6 +55,7 @@ export function localPaletteItems(input: { businessId: string; departments: read
   items.push({ id: "command:refresh-inbox", kind: "command", label: "Refresh Inbox", description: "Pull one new note", shortcut: ["R"] });
   items.push({ id: "command:edit-layout", kind: "command", label: "Edit layout", description: "Rearrange the widgets on this screen", shortcut: ["E"] });
   items.push({ id: "command:stop-all", kind: "command", label: "Stop all agents", description: "Kill switch: pause every workflow, engine and campaign" });
+  items.push({ id: "command:sign-out", kind: "command", label: "Sign out", description: "End your session on this device", keywords: ["log out", "logout", "sign off"] });
   items.push({ id: "command:holiday", kind: "command", label: "Go on vacation", description: "Hand the business to the Chief of Staff", href: routes.settings(bid, "mode") });
   for (const it of input.inboxItems ?? []) {
     if (it.state === "archived") continue;
