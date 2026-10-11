@@ -51,7 +51,7 @@ export const Person: Story = {
     chips: [{ label: "Person" }, { label: "Head of buying" }, { label: "Customer", tone: "good" }],
     status: undefined,
     facts: [
-      { label: "Organisation", value: "Nordic Beauty AB" },
+      { label: "Organization", value: "Nordic Beauty AB" },
       { label: "Relationship", value: "16 / 20" },
       { label: "Last touch", value: "2 days ago" },
     ],
@@ -64,11 +64,11 @@ export const Person: Story = {
     ),
   },
 };
-export const Organisation: Story = {
+export const Organization: Story = {
   args: {
     avatar: <BusinessLogo name="Nordic Beauty AB" primary="#2B6CB0" monogram="NB" size={64} />,
     name: "Nordic Beauty AB",
-    chips: [{ label: "Organisation" }, { label: "Retailer" }, { label: "Stockholm" }],
+    chips: [{ label: "Organization" }, { label: "Retailer" }, { label: "Stockholm" }],
     status: undefined,
     facts: [
       { label: "Orders", value: "4" },

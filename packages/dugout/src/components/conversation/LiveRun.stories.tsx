@@ -21,7 +21,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Under the generate control while it runs (SPEC \"Live run panel\"): the step rail, a segment per card (landed, drafting, queued, empty), a mono meter with Estimates spelled in full, who is doing what, and a one-line log on ink streaming the active drafter's reasoning. Props only; colours from each drafter's department or kit-lift.",
+          "Under the generate control while it runs (SPEC \"Live run panel\"): the step rail, a segment per card (landed, drafting, queued, empty), a mono meter with Estimates spelled in full, who is doing what, and a one-line log on ink streaming the active drafter's reasoning. Props only; colors from each drafter's department or kit-lift.",
       },
     },
   },
@@ -193,7 +193,7 @@ export const Live: Story = {
           }
           log={{
             person: who,
-            atLabel: `14:06:${String(10 + t).padStart(2, "0")}`,
+            atLabel: `2:06:${String(10 + t).padStart(2, "0")} PM`,
             text: `Concept ${t + 1}: weighing market pull against capital intensity for a UK and Ireland launch`,
             open: t < 12,
           }}

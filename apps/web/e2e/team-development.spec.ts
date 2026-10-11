@@ -114,10 +114,10 @@ for (const width of [1280, 1440]) {
       await expect(dialog.getByRole("heading", { name: /^Hire / })).toBeVisible();
       await dialog.getByRole("button", { name: "Cancel" }).click();
       await expect(dialog).toBeHidden();
-      const catalogue = page.getByRole("grid", { name: "Catalogue" });
+      const catalogue = page.getByRole("grid", { name: "Catalog" });
       await expect(catalogue.getByRole("row").nth(1)).toBeVisible();
       expect(await catalogue.getByRole("row").allTextContents(), "skills and departments read as words, never keys").not.toContainEqual(expect.stringMatching(/[a-z]_[a-z]/));
-      expect(await headersInside(page, "Catalogue")).toEqual([]);
+      expect(await headersInside(page, "Catalog")).toEqual([]);
     });
 
     test("Development: plan, pull requests, environments and specialists read as words and fit", async ({ page }) => {

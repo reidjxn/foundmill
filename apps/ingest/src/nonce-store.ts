@@ -19,6 +19,8 @@ export interface NonceStore {
   claim(key: string, ttlMs: number): Promise<boolean>;
   /** Forgets a claimed nonce (the write behind it failed, so the vendor's retry must be accepted). */
   release(key: string): Promise<void>;
+  /** Closes the connection behind the store, if any (shutdown). */
+  close?(): Promise<void>;
 }
 
 export interface MemoryNonceStoreOptions {
@@ -81,6 +83,9 @@ export interface RedisNonceClient {
   set(key: string, value: string, px: "PX", milliseconds: number, nx: "NX"): Promise<"OK" | null>;
   exists(...keys: string[]): Promise<number>;
   del(...keys: string[]): Promise<number>;
+  /** ioredis `quit` (graceful) and `disconnect`; optional so stubs need not implement them. */
+  quit?(): Promise<unknown>;
+  disconnect?(): void;
 }
 
 export interface RedisNonceStoreOptions {
@@ -138,6 +143,11 @@ export class RedisNonceStore implements NonceStore {
       this.degrade(e);
       await this.fallback.release(key);
     }
+  }
+
+  async close(): Promise<void> {
+    if (!this.redis.quit) return this.redis.disconnect?.();
+    await this.redis.quit().catch(() => this.redis.disconnect?.());
   }
 
   private degrade(error: unknown): void {

@@ -12,6 +12,7 @@
 import { LOGO_MAX_BYTES, LOGO_NORMALISED_PX, LOGO_UPLOAD_MAX_BYTES } from "@foundmill/shared/logo";
 import { hexToRgb, rgbToHsl, type Kit } from "@foundmill/dugout";
 import { extractPalette, normaliseHex } from "@/components/new/commit/naming";
+import { DISPLAY_LOCALE } from "@/lib/format";
 
 export const LOGO_FILE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"] as const;
 export const LOGO_FILE_ACCEPT = "image/png,image/jpeg,image/webp,image/svg+xml,.svg";
@@ -178,5 +179,5 @@ export function sameKit(a: Kit, b: Kit, tolerance = 12): boolean {
 export function formatCostEstimate(cost: { amountMinor: number; currency: string }): string {
   const amount = cost.amountMinor / 100;
   if (amount > 0 && amount < 0.01) return `under ${cost.currency === "USD" ? "US$" : `${cost.currency} `}0.01`;
-  return new Intl.NumberFormat("en-GB", { style: "currency", currency: cost.currency, currencyDisplay: "symbol", minimumFractionDigits: 2 }).format(amount).replace(/^\$/, "US$");
+  return new Intl.NumberFormat(DISPLAY_LOCALE, { style: "currency", currency: cost.currency, currencyDisplay: "symbol", minimumFractionDigits: 2 }).format(amount).replace(/^\$/, "US$");
 }

@@ -9,7 +9,7 @@ const meta = {
     docs: {
       description: {
         component:
-          'The agent at their desk: a live portrait on a halo of their colour, name, role, the "AI agent" marker, the state line ("Live · typing", "In a session", "Away", "Down · back 14:30") and the Now card with progress.',
+          'The agent at their desk: a live portrait on a halo of their color, name, role, the "AI agent" marker, the state line ("Live · typing", "In a session", "Away", "Down · back 2:30 PM") and the Now card with progress.',
       },
     },
   },

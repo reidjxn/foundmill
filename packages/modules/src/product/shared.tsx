@@ -26,10 +26,12 @@ export const SECTION_ORDER = [
   "Manufacturing",
   "Packaging",
   "Compliance",
-  "Fulfilment",
+  "Fulfillment",
 ] as const;
 
 const sectionRank = new Map<string, number>(SECTION_ORDER.map((s, i) => [s.toLowerCase(), i]));
+// Outlines written before the product read in US English still say "Fulfilment"; it keeps its place.
+sectionRank.set("fulfilment", sectionRank.get("fulfillment")!);
 
 export function compareSections(a: string, b: string): number {
   const ra = sectionRank.get(a.toLowerCase());

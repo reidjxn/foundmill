@@ -31,7 +31,7 @@ export const Organisation = z.object({
 export const bolagsverketTools = [
   defineTool({
     name: "get_organisation",
-    description: "Look up a Swedish organisation (company, association) by organisationsnummer in Bolagsverket's register.",
+    description: "Look up a Swedish organization (company, association) by organisationsnummer in Bolagsverket's register.",
     input: z.object({ organisationNumber: OrganisationNumber }),
     output: Organisation,
     hints: {},
@@ -41,7 +41,7 @@ export const bolagsverketTools = [
   }),
   defineTool({
     name: "list_documents",
-    description: "List registered documents (annual reports, articles of association) for a Swedish organisation.",
+    description: "List registered documents (annual reports, articles of association) for a Swedish organization.",
     input: z.object({ organisationNumber: OrganisationNumber }),
     output: z.object({ items: z.array(z.object({ documentId: z.string(), type: z.string(), period: z.string().nullable(), registeredAt: z.string().nullable() })) }),
     hints: {},

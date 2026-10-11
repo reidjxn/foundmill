@@ -147,7 +147,7 @@ describe("seedDemo on PGlite", () => {
     expect((await repos.campaigns.list(db, LEDGERLY_BUSINESS_ID, { limit: 50 })).items.length).toBeGreaterThan(5);
 
     const blocks = await repos.product.listBlocks(db, NORTHWIND_BUSINESS_ID);
-    expect(blocks.map((b) => b.section)).toEqual(expect.arrayContaining(["Formulation / BOM", "Manufacturing", "Packaging", "Compliance", "Fulfilment"]));
+    expect(blocks.map((b) => b.section)).toEqual(expect.arrayContaining(["Formulation / BOM", "Manufacturing", "Packaging", "Compliance", "Fulfillment"]));
     expect((await repos.product.listRoadmap(db, LEDGERLY_BUSINESS_ID)).length).toBe(8);
 
     // AC-11.5.2 needs one open proposal with three hunks and an interview source behind it (e2e/tests/golden-path.spec.ts).

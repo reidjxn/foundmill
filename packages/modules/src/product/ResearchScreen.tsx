@@ -6,7 +6,7 @@
  */
 import { useMemo } from "react";
 import { BookOpenText, ExternalLink, FileText, Swords } from "lucide-react";
-import { Button, Chip, EntityText, Icon, Panel, ProvenanceChip, formatDate, formatRelative } from "@foundmill/dugout";
+import { DATE_FORMATS, Button, Chip, EntityText, Icon, Panel, ProvenanceChip, formatDate, formatRelative } from "@foundmill/dugout";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
 import { Screen, blockTitle, findBlock } from "./shared";
@@ -90,7 +90,7 @@ function NoteRow({ source, blocks, onOpenBlock, onOpen }: { source: SourceRow; b
         <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-pretty break-words text-left text-body-strong text-primary hover:underline focus-visible:outline-2 focus-visible:outline-link">
           {source.title || source.uri || "Untitled"}
         </button>
-        <span className="shrink-0 text-small text-secondary tabular-nums">{formatDate(source.createdAt, "d MMM")}</span>
+        <span className="shrink-0 text-small text-secondary tabular-nums">{formatDate(source.createdAt, DATE_FORMATS.dayMonth)}</span>
       </div>
       {r.summary ? (
         <EntityText as="p" className="text-body text-primary">{String(r.summary)}</EntityText>

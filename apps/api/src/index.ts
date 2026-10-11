@@ -1,14 +1,19 @@
 /**
  * @foundmill/api — Hono + tRPC (docs/ARCHITECTURE.md §13).
  *
- * Boot: load env → build deps → run migrations under pg_advisory_lock(7461) (idempotent; keep serving if the db is
- * down) → listen on PORT (fallback API_PORT) on host "::" (Railway private network is IPv6-only, §17) → with
- * SEED_ON_BOOT, build the demo businesses in the background (services/seed-on-boot.ts) → start the outbox relay once
- * Redis answers PING → graceful shutdown on SIGTERM/SIGINT.
+ * Boot: load env → build deps → shutdown handlers → run migrations in one transaction under
+ * pg_advisory_xact_lock(7461, 1) (idempotent; exit 1 when the lock is not granted within MIGRATION_LOCK_TIMEOUT_MS;
+ * keep serving if the db is down) → listen on PORT (fallback API_PORT) on host "::" (Railway private network is
+ * IPv6-only, §17) → with SEED_ON_BOOT, build the demo businesses in the background (services/seed-on-boot.ts) → start
+ * the outbox relay once Redis answers PING. SIGTERM/SIGINT: stop accepting connections, let in-flight requests and
+ * streamed answers finish, stop the relay, close Temporal, Redis and the database pool, exit 0, all within
+ * SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3 "Redeploys and shutdown").
  */
 import { serve } from "@hono/node-server";
+import { closeDb, isMigrationLockTimeout, migrateDb } from "@foundmill/db";
 import { runOutboxRelay, type OutboxRelay } from "@foundmill/events";
 import { loadEnv, servicePort } from "@foundmill/shared";
+import { drainHttpServer, flushLog, onShutdown } from "@foundmill/shared/shutdown";
 import { createApp } from "./app";
 import { createApiDeps, type ApiDeps } from "./context";
 import { redisReachable, type ApiRedis } from "./services/redis";
@@ -18,68 +23,43 @@ export { createApp } from "./app";
 export { createApiDeps, createContextFactory, createTestContext, type ApiDeps, type Context } from "./context";
 export { appRouter, createCaller, type AppRouter, type RouterInputs, type RouterOutputs } from "./router";
 
-const MIGRATION_LOCK_KEY = 7461;
-
 /** `pglite:` / `pglite://` URLs select the embedded driver (packages/db `createDb`); everything else is postgres.js. */
 export const isPgliteUrl = (url: string): boolean => /^pglite:/i.test(url);
 
-type MigrateDbFn = (db: unknown) => Promise<{ applied?: string[]; total?: number } | void>;
+export interface MigrateOnBootOptions {
+  /** Called with 1 when the migration lock is not granted in time (default `process.exit`). */
+  exit?: (code: number) => void;
+}
 
 /**
- * Apply pending migrations; never throws (health reports an unreachable db).
- * - When packages/db exposes `migrateDb` (driver-aware: PGlite or postgres.js; PGlite holds its own directory lock),
- *   use it under `pg_advisory_lock(7461)` on postgres so several replicas never migrate at once.
- * - Otherwise run drizzle's migrator for the driver the URL selects (postgres.js under the advisory lock; PGlite
- *   without it: one process per directory).
+ * Apply pending migrations with packages/db `migrateDb`.
+ * - Postgres: one transaction under `pg_advisory_xact_lock(7461, 1)`, so the lock cannot outlive the migration on
+ *   Supabase's transaction pooler (or when this process dies); the wait is bounded by MIGRATION_LOCK_TIMEOUT_MS. When
+ *   the lock is not granted in time this logs who holds it and exits 1: Railway restarts the boot instead of the deploy
+ *   hanging before "api listening".
+ * - PGlite: no lock (one process per data directory).
+ * Any other failure (database unreachable, a migration error) is logged and the api keeps serving; /health reports the
+ * database.
  */
-export async function migrateOnBoot(deps: ApiDeps): Promise<boolean> {
+export async function migrateOnBoot(deps: ApiDeps, options: MigrateOnBootOptions = {}): Promise<boolean> {
   if (!deps.env.DATABASE_URL) return false;
-  const url = deps.env.DATABASE_URL;
-  const pglite = isPgliteUrl(url);
+  const driver = isPgliteUrl(deps.env.DATABASE_URL) ? "pglite" : "postgres";
+  const lockTimeoutMs = deps.env.MIGRATION_LOCK_TIMEOUT_MS;
   try {
-    const { sql } = await import("drizzle-orm");
-    const dbModule = (await import("@foundmill/db")) as Record<string, unknown> & { MIGRATIONS_DIR: string; MIGRATIONS_SCHEMA: string; MIGRATIONS_TABLE: string };
-    const { MIGRATIONS_DIR, MIGRATIONS_SCHEMA, MIGRATIONS_TABLE } = dbModule;
-    const migrateDb = typeof dbModule.migrateDb === "function" ? (dbModule.migrateDb as MigrateDbFn) : null;
-    const db = deps.db as unknown as { execute(q: unknown): Promise<unknown> };
-    if (migrateDb) {
-      if (pglite) {
-        const result = await migrateDb(deps.db);
-        deps.log.info({ driver: "pglite", applied: result?.applied?.length ?? null }, "migrations applied (migrateDb)");
-        return true;
-      }
-      // eslint-disable-next-line fm/no-raw-db -- advisory lock around the migrator (ARCHITECTURE §13)
-      await db.execute(sql`select pg_advisory_lock(${MIGRATION_LOCK_KEY})`);
-      try {
-        const result = await migrateDb(deps.db);
-        deps.log.info({ driver: "postgres", applied: result?.applied?.length ?? null, total: result?.total ?? null, latest: result?.applied?.at(-1) ?? null }, "migrations applied (migrateDb)");
-      } finally {
-        // eslint-disable-next-line fm/no-raw-db -- release the advisory lock
-        await db.execute(sql`select pg_advisory_unlock(${MIGRATION_LOCK_KEY})`);
-      }
-      return true;
-    }
-    const options = { migrationsFolder: MIGRATIONS_DIR, migrationsSchema: MIGRATIONS_SCHEMA, migrationsTable: MIGRATIONS_TABLE };
-    if (pglite) {
-      const { migrate } = await import("drizzle-orm/pglite/migrator");
-      await migrate(deps.db as unknown as Parameters<typeof migrate>[0], options);
-      deps.log.info({ driver: "pglite" }, "migrations applied");
-      return true;
-    }
-    const { migrate } = await import("drizzle-orm/postgres-js/migrator");
-    // Infrastructure statements (lock + migrator), not data queries.
-    // eslint-disable-next-line fm/no-raw-db -- advisory lock around the migrator (ARCHITECTURE §13)
-    await db.execute(sql`select pg_advisory_lock(${MIGRATION_LOCK_KEY})`);
-    try {
-      await migrate(deps.db as unknown as Parameters<typeof migrate>[0], options);
-    } finally {
-      // eslint-disable-next-line fm/no-raw-db -- release the advisory lock
-      await db.execute(sql`select pg_advisory_unlock(${MIGRATION_LOCK_KEY})`);
-    }
-    deps.log.info({ driver: "postgres" }, "migrations applied");
+    const result = await migrateDb(deps.db, { lockTimeoutMs });
+    deps.log.info({ driver, applied: result.applied.length, total: result.total, latest: result.applied.at(-1) ?? null }, "migrations applied");
     return true;
   } catch (err) {
-    deps.log.error({ err: (err as Error).message, driver: pglite ? "pglite" : "postgres" }, "migrations failed; serving anyway (health reports db status)");
+    if (isMigrationLockTimeout(err)) {
+      deps.log.error(
+        { driver, lockTimeoutMs, phase: err.phase, holders: err.holders, err: err.message },
+        `migration lock not granted within ${Math.round(lockTimeoutMs / 1000)} s; exiting with code 1 so the platform restarts this boot (docs/DEPLOY.md §3 "Migrations at boot")`,
+      );
+      await flushLog(deps.log as Parameters<typeof flushLog>[0]);
+      (options.exit ?? ((code: number) => process.exit(code)))(1);
+      return false;
+    }
+    deps.log.error({ err: (err as Error).message, driver }, "migrations failed; serving anyway (health reports db status)");
     return false;
   }
 }
@@ -125,36 +105,49 @@ export function listen(app: ReturnType<typeof createApp>, port: number, deps: Ap
 export async function main(): Promise<void> {
   const env = loadEnv();
   const deps = createApiDeps({ env });
+  let server: ReturnType<typeof serve> | null = null;
+  let relay: OutboxRelay | null = null;
+  // Installed before the migration: a SIGTERM during boot still closes the pool (the migration transaction rolls back).
+  const lifecycle = onShutdown({
+    service: "api",
+    log: deps.log,
+    timeoutMs: env.SHUTDOWN_TIMEOUT_MS,
+    steps: () => [
+      {
+        name: "drain http",
+        run: async ({ remainingMs }) => {
+          if (!server) return;
+          // Leave five seconds of the budget for the closers below.
+          const { forced } = await drainHttpServer(server, { timeoutMs: Math.max(0, remainingMs - 5_000) });
+          if (forced > 0) deps.log.warn({ forced }, "api: connections still open at the drain deadline were cut");
+        },
+      },
+      { name: "stop outbox relay", run: () => relay?.stop() },
+      { name: "close temporal", run: () => deps.temporal.close() },
+      {
+        name: "close redis",
+        run: async () => {
+          const redis = deps.redis as ApiRedis | null;
+          if (redis && redis.status !== "end") await redis.quit().catch(() => redis.disconnect());
+        },
+      },
+      { name: "close database", run: () => closeDb(deps.db) },
+    ],
+  });
+
   const migrated = await migrateOnBoot(deps);
+  if (lifecycle.stopping) return;
   const app = createApp(deps);
   const port = servicePort(env, "API_PORT");
 
-  const server = await listen(app, port, deps);
+  server = await listen(app, port, deps);
   if (migrated) void seedOnBoot(deps);
   if (env.APP_ENV === "development") void deps.temporal.reachable().then((ok) => !ok && deps.log.warn({ address: env.TEMPORAL_ADDRESS }, "Temporal is unreachable: start it with `temporal server start-dev` (workflows will report queued: false until then)"));
 
-  let relay: OutboxRelay | null = null;
-  void startRelay(deps).then((r) => (relay = r));
-
-  let stopping = false;
-  const shutdown = async (signal: string) => {
-    if (stopping) return;
-    stopping = true;
-    deps.log.info({ signal }, "shutting down");
-    const forced = setTimeout(() => process.exit(1), 10_000);
-    try {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      await relay?.stop();
-      await deps.temporal.close();
-      const redis = deps.redis as ApiRedis | null;
-      if (redis && redis.status !== "end") await redis.quit().catch(() => undefined);
-    } finally {
-      clearTimeout(forced);
-      process.exit(0);
-    }
-  };
-  process.on("SIGTERM", () => void shutdown("SIGTERM"));
-  process.on("SIGINT", () => void shutdown("SIGINT"));
+  void startRelay(deps).then((r) => {
+    relay = r;
+    if (lifecycle.stopping) void r?.stop();
+  });
 }
 
 const invokedDirectly = process.argv[1]?.endsWith("src/index.ts") || process.argv[1]?.endsWith("api/src/index.ts");

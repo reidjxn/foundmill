@@ -16,8 +16,8 @@ export const channelDirectMail = defineChannelTemplate({
     "Every mailer carries a unique response code or QR so the Customer Update can attribute; a mailing above threshold is an Inbox decision.",
   ],
   playbook: [
-    "Plan: select the audience from CRM with lawful basis; estimate cost per piece and the response rate needed to break even (labelled Estimate).",
-    "Create: design the mailer with the brand colours and a response code per recipient; verify addresses.",
+    "Plan: select the audience from CRM with lawful basis; estimate cost per piece and the response rate needed to break even (labeled Estimate).",
+    "Create: design the mailer with the brand colors and a response code per recipient; verify addresses.",
     "Approve: run suppression and postal-register checks; request approval for the batch cost.",
     "Launch: send a test batch, then the full run through the provider.",
     "Measure: response rate by code and QR scans.",

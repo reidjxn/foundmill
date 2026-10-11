@@ -232,7 +232,7 @@ describe("github live: connecting proves who installed the App", () => {
   it("refuses an org member who is not an admin, a non-member, someone else's installation, a bad code and a missing code", async () => {
     // Listed in /user/installations because they can read one of its repositories: not enough.
     const member = installer([INSTALLATION], { membership: { state: "active", role: "member" } });
-    await expect(member.connector.connect(TEST_BUSINESS_ID, { installationId: INSTALLATION, code: "c0de" })).rejects.toMatchObject({ code: "forbidden", message: "Only an owner of the acme organisation on GitHub can connect its installation" });
+    await expect(member.connector.connect(TEST_BUSINESS_ID, { installationId: INSTALLATION, code: "c0de" })).rejects.toMatchObject({ code: "forbidden", message: "Only an owner of the acme organization on GitHub can connect its installation" });
     const pending = installer([INSTALLATION], { membership: { state: "pending", role: "admin" } });
     await expect(pending.connector.connect(TEST_BUSINESS_ID, { installationId: INSTALLATION, code: "c0de" })).rejects.toMatchObject({ code: "forbidden" });
     const outsider = installer([INSTALLATION], { membership: null });

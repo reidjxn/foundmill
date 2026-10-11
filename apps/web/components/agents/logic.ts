@@ -8,6 +8,7 @@ import type { AgentStatus, DeptColourToken, ModelKey, SkillGroup } from "@foundm
 import type { AgentInstructions, InstructionVersion, InstructionViolation, ModelOption, PositionRole, SkillRow, Trait, TrainingSkillResult, TrainingSessionMark, SkillHistorySeries, InstructionSection } from "@foundmill/dugout";
 import { MODEL_LABELS, positionLevelFor } from "@foundmill/dugout";
 import type { RouterOutputs } from "@/lib/trpc";
+import { formatMonthYear } from "@/lib/format";
 
 export type AgentProfile = RouterOutputs["agent"]["profile"]["get"];
 export type AgentRow = AgentProfile["agent"];
@@ -271,7 +272,7 @@ export function trainingFlow(runs: readonly TrainingRunRecord[], now: Date = new
   return { phase, active, awaiting, watch, failed };
 }
 
-export const RUN_PHASE_LABEL: Record<string, string> = { queued: "Queued", running: "Running tests", grading: "Grading", awaiting_decision: "Awaiting your decision", done: "Done", failed: "Failed", cancelled: "Cancelled" };
+export const RUN_PHASE_LABEL: Record<string, string> = { queued: "Queued", running: "Running tests", grading: "Grading", awaiting_decision: "Awaiting your decision", done: "Done", failed: "Failed", cancelled: "Canceled" };
 
 /** Progress of an active run from its status and elapsed time against the estimate (Estimate; never token-based). */
 export function runProgress(run: Pick<TrainingRunRecord, "status" | "startedAt" | "createdAt">, estimateMinutes: number, now: Date = new Date()): number {
@@ -334,7 +335,7 @@ const PROPOSAL_TEMPLATES: Record<string, { section: CoachProposal["section"]; te
   debugging: [{ section: "playbook", text: "Reproduce the bug with a minimal failing case and record the root cause in the pull request description." }],
   speed: [{ section: "rules", text: "Time-box exploration to 15 minutes; after that, ask or ship the simplest safe version." }],
   reliability: [{ section: "rules", text: "Never report a task done until acceptance tests pass in a clean sandbox." }],
-  cost_efficiency: [{ section: "rules", text: "Reuse cached context and avoid re-reading files you already summarised in this session." }],
+  cost_efficiency: [{ section: "rules", text: "Reuse cached context and avoid re-reading files you already summarized in this session." }],
   communication: [{ section: "playbook", text: "End every session with a three-line note: what changed, what is risky, what you need from the founder." }],
   knowing_when_to_ask: [{ section: "rules", text: "Ask before any action that spends money, contacts a third party or changes a schema." }],
   risk_awareness: [{ section: "rules", text: "List the two most likely ways the change could break production before starting." }],
@@ -370,7 +371,7 @@ export function applyProposal(instructions: AgentInstructions, proposal: CoachPr
 // ---------------------------------------------------------------------------------------------------------------------
 
 export const MODEL_DESCRIPTIONS: Record<ModelKey, string> = {
-  opus: "Deepest judgement; the default for the Chief of Staff and leads.",
+  opus: "Deepest judgment; the default for the Chief of Staff and leads.",
   sonnet: "Fast and capable; the default for workers.",
   haiku: "Cheapest; classification, linking and other utility work.",
 };
@@ -407,7 +408,7 @@ export function modelOptions(compare: ModelCompare, currency: string): ModelOpti
 export function modelChangeWarnings(agent: Pick<AgentRow, "agentType" | "layer" | "modelKey">, route: string, candidate: ModelKey): string[] {
   const out: string[] = [];
   if (isComposerRoute(route)) out.push("The Inbox Composer is locked to Opus; this model cannot change.");
-  if (isChiefOfStaff(agent) && MODEL_RANK[candidate] < MODEL_RANK[agent.modelKey]) out.push(`Downgrading the Chief of Staff to ${MODEL_LABELS[candidate]} weakens cycle planning and every decision it makes for you. Expect lower Judgement ratings.`);
+  if (isChiefOfStaff(agent) && MODEL_RANK[candidate] < MODEL_RANK[agent.modelKey]) out.push(`Downgrading the Chief of Staff to ${MODEL_LABELS[candidate]} weakens cycle planning and every decision it makes for you. Expect lower Judgment ratings.`);
   return out;
 }
 
@@ -729,7 +730,7 @@ export function wageLabel(period: string, now: Date = new Date()): string {
   const y = Number(m[1]);
   const mo = Number(m[2]) - 1;
   if (y === now.getFullYear() && mo === now.getMonth()) return "Wage this month";
-  return `Wage in ${new Date(Date.UTC(y, mo, 1)).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" })}`;
+  return `Wage in ${formatMonthYear(new Date(Date.UTC(y, mo, 1)), { long: true })}`;
 }
 
 /** A connector tool for the founder: "search_files" → "Search files", description without build references, hard gates flagged. */

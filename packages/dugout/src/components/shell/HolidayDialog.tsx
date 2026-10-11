@@ -83,7 +83,7 @@ export function validateHolidaySettings(settings: HolidaySettings, today: Date =
     if (!settings.until.date || Number.isNaN(d.getTime())) errors.until = "Choose a return date.";
     else if (d.getTime() < start.getTime()) errors.until = "The return date is in the past.";
   } else if (settings.until.kind === "condition" && settings.until.condition.trim().length < 3) {
-    errors.until = "Describe the condition that ends the holiday.";
+    errors.until = "Describe the condition that ends the vacation.";
   }
   if (settings.budgetCeiling && (!Number.isFinite(settings.budgetCeiling.amountMinor) || settings.budgetCeiling.amountMinor < 0)) {
     errors.budget = "The budget ceiling must be zero or more.";
@@ -152,7 +152,7 @@ export function HolidayDialog({ open, onOpenChange, currency = "EUR", today = ne
     <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
       <DialogContent size="lg" data-testid="holiday-dialog">
         <DialogHeader>
-          <DialogTitle>Go on holiday</DialogTitle>
+          <DialogTitle>Go on vacation</DialogTitle>
           <DialogDescription>The business runs in Automated mode and Continue runs itself every 4 agent-hours. Hard gates still wait for you.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-4">
@@ -165,7 +165,7 @@ export function HolidayDialog({ open, onOpenChange, currency = "EUR", today = ne
                   <Input type="date" value={date} min={toDateInput(today)} onChange={(e) => setDate(e.target.value)} aria-label="Return date" aria-invalid={!!untilError} wrapperClassName="w-48" data-testid="holiday-date" />
                 </div>
               ) : null}
-              <RadioOption id={`${id}-condition`} value="condition" label="A condition" description="The Chief of Staff ends the holiday when it is met." />
+              <RadioOption id={`${id}-condition`} value="condition" label="A condition" description="The Chief of Staff ends the vacation when it is met." />
               {untilKind === "condition" ? (
                 <div className="ml-6">
                   <Textarea value={condition} onChange={(e) => setCondition(e.target.value)} rows={2} placeholder="e.g. when the launch ships or runway drops under 8 months" aria-label="Condition" aria-invalid={!!untilError} data-testid="holiday-condition" />
@@ -199,7 +199,7 @@ export function HolidayDialog({ open, onOpenChange, currency = "EUR", today = ne
             </div>
           </fieldset>
 
-          <Field htmlFor={`${id}-budget`} label={`Budget ceiling (${currency})`} hint="Total the team may spend during the holiday. Leave empty to keep the business cap." error={budgetError}>
+          <Field htmlFor={`${id}-budget`} label={`Budget ceiling (${currency})`} hint="Total the team may spend during the vacation. Leave empty to keep the business cap." error={budgetError}>
             <Input
               id={`${id}-budget`}
               inputMode="decimal"
@@ -236,7 +236,7 @@ export function HolidayDialog({ open, onOpenChange, currency = "EUR", today = ne
             Cancel
           </Button>
           <Button variant="primary" icon={TreePalm} onClick={submit} loading={busy} data-testid="holiday-submit">
-            Start holiday
+            Start vacation
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -6,6 +6,6 @@ export { BYOK_CONNECTOR_KEY, BYOK_CREDENTIAL_KIND, LEGACY_BYOK_CREDENTIAL_KIND, 
 export { bookUsage, CREDITS_EXHAUSTED_SUBJECT, type BookUsageResult, type CreditsOutcome } from "./billing";
 export { MIGRATIONS_DIR, MIGRATIONS_SCHEMA, MIGRATIONS_TABLE, readJournal, readMigrations } from "./migrations";
 export type { Journal, JournalEntry, MigrationFile } from "./migrations";
-export { appliedMigrationCount, migrateDb, type MigrateResult } from "./migrator";
+export { appliedMigrationCount, DEFAULT_MIGRATION_LOCK_TIMEOUT_MS, isMigrationLockTimeout, migrateDb, MIGRATION_LOCK, MigrationLockTimeoutError, type MigrateOptions, type MigrateResult, type MigrationLockHolder } from "./migrator";
 export { DEFAULT_PGLITE_DIR, PGLITE_BOOTSTRAP_SQL, findWorkspaceRoot, isPgliteDb, isPgliteUrl, parsePgliteUrl, pgliteUrl, resolvePgliteDir } from "./pglite";
 export type { LazyPgliteClient, PgliteTarget } from "./pglite";

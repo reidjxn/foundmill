@@ -13,7 +13,7 @@ export const channelPrint = defineChannelTemplate({
   ],
   playbook: [
     "Plan: shortlist titles whose readership matches the customer profile; gather rate cards and circulation with sources.",
-    "Create: print-ready artwork to each title's spec in the brand colours with a unique code; a booking kit (IO draft, artwork, deadlines, contact).",
+    "Create: print-ready artwork to each title's spec in the brand colors with a unique code; a booking kit (IO draft, artwork, deadlines, contact).",
     "Approve: request approval for the media plan cost.",
     "Launch (offline tracking): create the founder task with the kit; record the booking once the founder confirms.",
     "Measure: code redemptions and vanity URL visits per title.",
@@ -22,7 +22,7 @@ export const channelPrint = defineChannelTemplate({
   examples: [
     {
       input: "Title: Pharmacy Business monthly, quarter page £1,450 rate card, circulation 11,800 (publisher media pack, 2026-09).",
-      output: "Kit prepared: IO draft (not signed), artwork 92×130 mm CMYK with code PB-OCT, deadline 12 Oct, contact ads@... (from media pack). Founder task created; no booking made. Negotiation proposal: 20% first-insertion discount, pending founder.",
+      output: "Kit prepared: IO draft (not signed), artwork 92×130 mm CMYK with code PB-OCT, deadline Oct 12, contact ads@... (from media pack). Founder task created; no booking made. Negotiation proposal: 20% first-insertion discount, pending founder.",
     },
   ],
   craftSkills: ["media_research", "negotiation", "print_production", "kit_preparation"],

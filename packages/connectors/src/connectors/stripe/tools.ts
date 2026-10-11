@@ -61,12 +61,12 @@ export const stripeTools = [
   defineTool({ name: "get_invoice", description: "One invoice with its lines.", input: z.object({ invoiceId: StripeId("in") }), output: Invoice, hints: {}, untrusted: "api", untrustedRef: (a) => a.invoiceId, annotations: { readOnlyHint: true } }),
   defineTool({
     name: "create_invoice",
-    description: "Create and finalise an invoice for a customer (collection by email, due in N days). Nothing is sent until send_invoice.",
+    description: "Create and finalize an invoice for a customer (collection by email, due in N days). Nothing is sent until send_invoice.",
     input: z.object({ customerId: StripeId("cus"), currency: Currency, lines: z.array(LineItem).min(1).max(50), daysUntilDue: z.number().int().min(1).max(90).default(14), memo: z.string().max(2000).optional() }),
     output: Invoice,
     hints: {},
   }),
-  defineTool({ name: "send_invoice", description: "Email a finalised invoice to the customer (external message on behalf of the business; BUILD §2.3).", input: z.object({ invoiceId: StripeId("in") }), output: Invoice, hints: { contactsThirdParty: true, irreversible: true } }),
+  defineTool({ name: "send_invoice", description: "Email a finalized invoice to the customer (external message on behalf of the business; BUILD §2.3).", input: z.object({ invoiceId: StripeId("in") }), output: Invoice, hints: { contactsThirdParty: true, irreversible: true } }),
   defineTool({
     name: "create_checkout_session",
     description: "Hosted checkout link for a one-off payment or a subscription. The customer pays; the business spends nothing.",

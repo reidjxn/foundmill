@@ -42,7 +42,7 @@ describe("RecruitmentScreen", () => {
   it("renders the catalogue with model chips, wage caps labelled Estimate and the team moves table", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <RecruitmentScreen {...props} />);
-    const table = await screen.findByRole("grid", { name: "Catalogue" });
+    const table = await screen.findByRole("grid", { name: "Catalog" });
     expect(within(table).getAllByRole("row")).toHaveLength(catalogue.length + 1);
     expect(within(table).getAllByText("Estimate").length).toBe(catalogue.length);
     expect(within(table).getByText("Newsletter writer")).toBeTruthy();
@@ -58,7 +58,7 @@ describe("RecruitmentScreen", () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: (_p, input) => ({ id: "new-agent", name: input.name ?? "Newsletter writer", status: "idle", modelKey: "sonnet" }) });
     renderScreen(fake, <RecruitmentScreen {...props} />);
-    const table = await screen.findByRole("grid", { name: "Catalogue" });
+    const table = await screen.findByRole("grid", { name: "Catalog" });
     fireEvent.contextMenu(within(table).getByText("Newsletter writer"));
     await user.click(await screen.findByRole("menuitem", { name: "Hire…" }));
     const dialog = await screen.findByTestId("hire-dialog");
@@ -78,7 +78,7 @@ describe("RecruitmentScreen", () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: () => ({ id: "new-agent", name: "Newsletter writer" }) });
     renderScreen(fake, <RecruitmentScreen {...props} />);
-    await screen.findByRole("grid", { name: "Catalogue" });
+    await screen.findByRole("grid", { name: "Catalog" });
     await user.type(screen.getByRole("textbox", { name: "Describe the agent" }), "writes our weekly customer newsletter");
     const list = await screen.findByRole("list", { name: "Suggested templates" });
     const first = within(list).getAllByRole("listitem")[0]!;
@@ -97,7 +97,7 @@ describe("RecruitmentScreen", () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: () => ({ id: "new-agent", name: "Newsletter writer" }) });
     renderScreen(fake, <RecruitmentScreen {...props} />);
-    await screen.findByRole("grid", { name: "Catalogue" });
+    await screen.findByRole("grid", { name: "Catalog" });
     const draft = screen.getByTestId("draft-agent");
     expect(draft.textContent).toContain("Draft this agent");
     expect(draft.hasAttribute("disabled")).toBe(true);
@@ -121,7 +121,7 @@ describe("RecruitmentScreen", () => {
     const long = "Runs the e-mail channel end to end. ".repeat(12).trim();
     const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "team.agents.catalogue": catalogue.map((t) => (t.key === "channel_email" ? { ...t, description: long } : t)) } });
     renderScreen(fake, <RecruitmentScreen {...props} />);
-    const table = await screen.findByRole("grid", { name: "Catalogue" });
+    const table = await screen.findByRole("grid", { name: "Catalog" });
     fireEvent.contextMenu(within(table).getByText("Email engine"));
     await user.click(await screen.findByRole("menuitem", { name: "Hire…" }));
     const dialog = await screen.findByTestId("hire-dialog");
@@ -135,9 +135,9 @@ describe("RecruitmentScreen", () => {
   it("shows skills and departments in words, never keys or module slugs", async () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <RecruitmentScreen {...props} />);
-    const table = await screen.findByRole("grid", { name: "Catalogue" });
+    const table = await screen.findByRole("grid", { name: "Catalog" });
     expect(within(table).queryByText(/_/)).toBeNull();
-    expect(within(table).getByText("Planning, Prioritisation")).toBeTruthy();
+    expect(within(table).getByText("Planning, Prioritization")).toBeTruthy();
     expect(within(table).getAllByText("Development").length).toBe(3);
     expect(within(table).getByText("Any")).toBeTruthy();
     expect(within(table).queryByText("development")).toBeNull();
@@ -147,7 +147,7 @@ describe("RecruitmentScreen", () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: (path) => (path === "team.agents.clone" ? { id: "clone", name: "Juno II" } : {}) });
     renderScreen(fake, <RecruitmentScreen {...props} />);
-    await screen.findByRole("grid", { name: "Catalogue" });
+    await screen.findByRole("grid", { name: "Catalog" });
     const moves = screen.getByRole("grid", { name: "Team moves" });
     fireEvent.contextMenu(within(moves).getByText("Chief of Staff"));
     const cosMenu = await screen.findByRole("menu");
@@ -180,13 +180,13 @@ describe("RecruitmentScreen", () => {
   it("shows empty states, loading and an error with retry", async () => {
     const empty = createFakeSource({ businessId: BID, responses: emptyResponses });
     const { unmount } = renderScreen(empty, <RecruitmentScreen {...props} />);
-    expect(await screen.findByText(/The catalogue lists every agent template/)).toBeTruthy();
+    expect(await screen.findByText(/The catalog lists every agent template/)).toBeTruthy();
     expect(screen.getByText(/Hired agents appear here/)).toBeTruthy();
     unmount();
 
     const loading = createFakeSource({ businessId: BID, responses: { "department.list": [] } });
     const r2 = renderScreen(loading, <RecruitmentScreen {...props} />);
-    expect(screen.queryByRole("grid", { name: "Catalogue" })).toBeNull();
+    expect(screen.queryByRole("grid", { name: "Catalog" })).toBeNull();
     r2.unmount();
 
     const failing = createFakeSource({ businessId: BID, responses: { ...dataResponses, "team.agents.catalogue": new Error("tRPC: FORBIDDEN") } });

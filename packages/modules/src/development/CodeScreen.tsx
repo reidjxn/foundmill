@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { CircleCheck, ExternalLink, FileCode, FolderGit2, GitBranch, Network, Search, Trash2, TriangleAlert } from "lucide-react";
-import { Avatar, Button, Chip, CodeViewer, DataTable, EmptyState, ErrorState, Icon, Input, Panel, SimpleSelect, StatusPill, cn, formatBytes, formatDate, formatDateTime, formatNumber, formatRelative, type DataTableColumn, type SelectOption } from "@foundmill/dugout";
+import { DATE_FORMATS, Avatar, Button, Chip, CodeViewer, DataTable, EmptyState, ErrorState, Icon, Input, Panel, SimpleSelect, StatusPill, cn, formatBytes, formatDate, formatDateTime, formatNumber, formatRelative, type DataTableColumn, type SelectOption } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
@@ -51,7 +51,7 @@ const fileCount = (n: number) => `${formatNumber(n)} ${n === 1 ? "file" : "files
 
 /** One line per saved session for the selector: when and how many files (the footer says what changed). */
 export function sessionLabel(s: CodeSnapshotSummary, latest: boolean): string {
-  return `${latest ? "Latest · " : ""}${formatDate(s.createdAt, "d MMM, HH:mm")} · ${fileCount(s.fileCount)}`;
+  return `${latest ? "Latest · " : ""}${formatDate(s.createdAt, DATE_FORMATS.dayMonthTime)} · ${fileCount(s.fileCount)}`;
 }
 
 function splitPath(path: string): { dir: string; name: string } {

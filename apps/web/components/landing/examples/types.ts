@@ -148,7 +148,10 @@ export interface ExampleChannels {
   why: string;
 }
 
-/** How the design system's two-year Journey fixture is relabelled for this business. */
+/**
+ * The business's two years on the Journey: the design system's fixture relabeled (departments, pins, chapters,
+ * roadmap, agent hours) and its customers and money, which are the business's own (`customers`).
+ */
 export interface ExampleJourney {
   /** The Ribbon's departments: ids are the fixture's (`d-product` … `d-operations`), names and colours are this business's. */
   ribbonDepartments: readonly RibbonDepartment[];
@@ -156,35 +159,80 @@ export interface ExampleJourney {
   milestoneLabels: Readonly<Record<string, string>>;
   /** One title per chapter (quarter), oldest first. */
   chapterTitles: readonly string[];
-  /** Customer names for the Ribbon's conversions. */
+  /**
+   * Names for the Ribbon's signups, activations and first payments, in turn. A name a milestone card, the Customer
+   * Update or `customers.large` gives a payment is never used for anyone else.
+   */
   customerNames: readonly string[];
   /**
-   * Names for the fixture's large first payments (its wholesale-sized orders), in turn, so a consumer brand's big orders
-   * come from stores rather than shoppers. Absent: `customerNames`, like every other conversion.
+   * The Customer Update's customer on the Ribbon: a first payment on `day` (YYYY-MM-DD, when the update's customer
+   * paid), the last that day, at `amountMinor`. Leave them out of `customerNames`, so hovering the Ribbon never shows
+   * them signing up a year before the update says they first came.
    */
-  largeOrderNames?: readonly string[];
-  /**
-   * For a business sold on plans: each first payment on the Ribbon is a plan's price rather than the fixture's amount,
-   * and there is no revenue before the first payment. Payments take `pricesMinor` in turn (list a price more than once
-   * to weight it); the fixture's large first payments (`LARGE_ORDER_MINOR` and up) take `largeMinor`, a year up front,
-   * say. Absent: the fixture's amounts (see `revenueScale`).
-   */
-  planPrices?: { pricesMinor: readonly number[]; largeMinor: number };
-  /**
-   * The Customer Update's customer on the Ribbon: the last payment on `day` (YYYY-MM-DD, when the update's customer
-   * paid) is theirs. Leave them out of `customerNames`, so hovering the Ribbon never shows them signing up a year before
-   * the update says they first came. Absent: every conversion takes `customerNames` in turn.
-   */
-  updatePayment?: { name: string; day: string };
+  updatePayment: { name: string; day: string; amountMinor: number };
+  /** Who pays, when and how much: the Ribbon's paying customers, its revenue and its day card's payments. */
+  customers: ExampleCustomers;
   /** The three roadmap items after Today. */
   roadmap: readonly string[];
+}
+
+/** A value with a weight, for drawing one in proportion (a basket a shopper buys). */
+export interface ExampleWeighted {
+  minor: number;
+  weight: number;
+}
+
+/**
+ * A business sold on plans: a subscriber pays their first payment's amount every month until they cancel (a named or
+ * large customer's own amount: an agency's ten seats), and a customer who paid `yearlyMinor` pays it again each year.
+ */
+export interface ExampleSubscriptionBilling {
+  kind: "subscription";
+  /** Monthly plan prices, in turn for each new subscriber (list a price more than once to weight it). */
+  monthlyMinor: readonly number[];
+  /** A year up front (a year of the Team plan), billed yearly; absent when every plan is monthly. */
+  yearlyMinor?: number;
+  /** The share of monthly subscribers who cancel each month. */
+  monthlyChurn: number;
+  /** The share of yearly customers who renew for another year. */
+  yearlyRenewal?: number;
+}
+
+/** A business that sells goods: a shopper's first order is a basket, some come back; stores reorder every few weeks. */
+export interface ExampleOrderBilling {
+  kind: "orders";
+  /** A shopper's first order: a basket's value, by weight. */
+  firstOrders: readonly ExampleWeighted[];
   /**
-   * The business's own revenue scale: the fixture's revenue (daily rows, payments and the forecast) times a factor that
-   * grows geometrically from `start` on the first day to `end` today, so revenue milestones read true on the Ribbon.
-   * With `keepOrderSizes`, first payments keep the fixture's order sizes (a shopper's first order stays $29 to $149, a
-   * store's opening order $1,200 to $4,800) and only the daily revenue and the forecast grow. Absent: the fixture's scale.
+   * Shoppers who come back: the share who order a second time, the share who order again after each reorder (`keep`,
+   * and from `keepFrom.day` on `keepFrom.keep`, when refill subscriptions began, say), the days between orders and what
+   * a reorder is worth. The very first reorder comes on the "First reorder" milestone card's day when there is one.
    */
-  revenueScale?: { start: number; end: number; keepOrderSizes?: boolean };
+  reorders: { share: number; keep: number; keepFrom?: { day: string; keep: number }; days: readonly [number, number]; baskets: readonly ExampleWeighted[] };
+  /** A store reorders every `days` (from, to), a `share` (from, to) of its opening order. */
+  storeReorders: { days: readonly [number, number]; share: readonly [number, number] };
+}
+
+/**
+ * The business's customers on the Ribbon. The running count of paying customers passes through every `customer_N`
+ * milestone card (the Nth customer pays on the card's day) and through `counts`; between them it follows a smooth curve
+ * that the team's activity shapes from day to day. Revenue on a day is every charge that day (`billing`), so the
+ * revenue milestones are true of the same customers.
+ */
+export interface ExampleCustomers {
+  /**
+   * Paying customers so far at the end of a day (YYYY-MM-DD), besides the `customer_N` cards' own: the Nth customer pays
+   * on that day. The last one is today. Counts on a revenue milestone's day set when the month crosses its line.
+   */
+  counts: Readonly<Record<string, number>>;
+  /** Signups and activations on the Ribbon per new paying customer, and how many days a signup comes before paying. */
+  funnel: { signups: number; activations: number; leadDays: number };
+  /**
+   * Large first payments besides the milestone cards' and the Customer Update's, each on its day: an agency's ten seats,
+   * a year of the Team plan, a store's opening order. Their names are theirs alone.
+   */
+  large: ReadonlyArray<{ day: string; name: string; amountMinor: number }>;
+  billing: ExampleSubscriptionBilling | ExampleOrderBilling;
 }
 
 export interface ExampleCustomerUpdate {

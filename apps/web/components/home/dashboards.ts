@@ -6,6 +6,7 @@
 import type { TabItem, TrophyCard, WidgetPreset } from "@foundmill/dugout";
 import { TROPHIES } from "@foundmill/journey";
 import { DASHBOARD_PRESET_LIST, isDashboardPresetId, routes, toGridLayout, type DashboardPresetId } from "@foundmill/widgets";
+import { formatNumber } from "@/lib/format";
 
 export interface DashboardSummary {
   id: string;
@@ -74,7 +75,7 @@ export function isDayOne(input: DayOneInput): boolean {
 }
 
 function describeTrophy(t: (typeof TROPHIES)[number], currency: string): string {
-  if (t.metric === "customers") return t.threshold === 1 ? "The first paying customer." : `${t.threshold.toLocaleString("en-GB")} paying customers.`;
+  if (t.metric === "customers") return t.threshold === 1 ? "The first paying customer." : `${formatNumber(t.threshold)} paying customers.`;
   if (t.metric === "mrrMinor") return `Monthly recurring revenue reaches ${t.label(currency).replace(/^First /, "").replace(/ MRR$/, "")}.`;
   return "A signed contract above the enterprise threshold.";
 }

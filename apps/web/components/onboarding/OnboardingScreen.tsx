@@ -16,6 +16,7 @@ import { APP_NAME } from "@foundmill/config";
 import { Button, Chip, Field, Input, Kbd, MoneyInput, Panel, RadioCard, RadioGroup, RatingBandPill, SimpleSelect, SkillSlider, StatusPill, cn, ratingClass, useToast } from "@foundmill/dugout";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { DISPLAY_LOCALE } from "@/lib/format";
 import { StudioFrame } from "@/components/new/StudioFrame";
 import {
   CONSTRAINT_SUGGESTIONS,
@@ -300,7 +301,7 @@ export function OptionCard({ id, value, label, description, selected }: { id: st
 /** "GBP" → "British Pound" for the currency select (the code sits on its own chip before the name). */
 function currencyName(code: string): string {
   try {
-    return new Intl.DisplayNames(["en-GB"], { type: "currency" }).of(code) ?? code;
+    return new Intl.DisplayNames([DISPLAY_LOCALE], { type: "currency" }).of(code) ?? code;
   } catch {
     return code;
   }
@@ -311,7 +312,7 @@ export function countryNameOf(value: string): string | null {
   const code = value.trim().toUpperCase();
   if (!/^[A-Z]{2}$/.test(code)) return null;
   try {
-    const name = new Intl.DisplayNames(["en-GB"], { type: "region" }).of(code);
+    const name = new Intl.DisplayNames([DISPLAY_LOCALE], { type: "region" }).of(code);
     return name && name !== code ? name : null;
   } catch {
     return null;

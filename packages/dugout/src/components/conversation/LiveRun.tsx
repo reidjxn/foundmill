@@ -2,7 +2,7 @@ import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { Check, X } from "lucide-react";
 import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
-import { formatMoney, formatNumber } from "../../lib/format";
+import { DATE_FORMATS, formatDate, formatMoney, formatNumber } from "../../lib/format";
 import { Avatar } from "../foundation/Avatar";
 import { ProvenanceChip } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
@@ -70,7 +70,7 @@ export interface LiveRunActivity {
 export interface LiveRunLog {
   text: string;
   person?: LiveRunPerson;
-  /** Shown as HH:MM:SS. */
+  /** Shown as "2:06:21 PM". */
   at?: string | Date | number;
   /** A preformatted time instead of `at` (keeps server and client render identical). */
   atLabel?: string;
@@ -106,13 +106,11 @@ export function formatRunClock(ms: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 }
 
-/** "14:06:21". */
+/** "2:06:21 PM": a log line's local clock time, 12-hour with seconds. */
 export function formatLogTime(at: string | Date | number): string {
   const d = at instanceof Date ? at : new Date(at);
   if (Number.isNaN(d.getTime())) return "";
-  return [d.getHours(), d.getMinutes(), d.getSeconds()]
-    .map((n) => String(n).padStart(2, "0"))
-    .join(":");
+  return formatDate(d, DATE_FORMATS.timeSeconds);
 }
 
 /** Counts by state, and the bar's words: "2 of 12 cards landed, 1 drafting, 2 queued". */

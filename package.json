@@ -22,7 +22,8 @@
     "storybook:build": "pnpm --filter @foundmill/dugout storybook:build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "banned-terms": "node scripts/banned-terms.mjs"
+    "banned-terms": "node scripts/banned-terms.mjs",
+    "us-english": "node scripts/us-english.mjs"
   },
   "devDependencies": {
     "@eslint/js": "catalog:",

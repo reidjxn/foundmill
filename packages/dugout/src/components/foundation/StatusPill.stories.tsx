@@ -13,7 +13,7 @@ type Story = StoryObj<typeof meta>;
 
 export const Good: Story = {};
 
-/** Icon + word, 22 px, fully round, sentence case: the tone's text on its 12 % fill with a 30 % ring. */
+/** Icon + word, 22 px, fully round, sentence case: the tone's text on its 12% fill with a 30% ring. */
 export const AllTones: Story = {
   render: () => (
     <div className="flex gap-2">

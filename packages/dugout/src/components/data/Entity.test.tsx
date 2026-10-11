@@ -50,7 +50,7 @@ describe("EntityLink", () => {
     const card = await screen.findByText("Pipeline", {}, { timeout: 1500 });
     expect(card).toBeTruthy();
     expect(screen.getByText("€48,000")).toBeTruthy();
-    expect(screen.getByText("Organisation")).toBeTruthy();
+    expect(screen.getByText("Organization")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Assign agent" }));
     expect(assign).toHaveBeenCalled();
   });

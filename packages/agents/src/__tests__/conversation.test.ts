@@ -292,7 +292,7 @@ describe("quoted content and smuggled chips (adversarial)", () => {
     const text = JSON.stringify(r.reply.quick_replies) + JSON.stringify(r.reply.hand_off);
     expect(text).not.toMatch(/wire|5,000|4421|ignore previous/i);
     expect(r.reply.hand_off).toBeNull();
-    expect(r.repairs).toEqual(expect.arrayContaining(["dropped a hand-off that repeated quoted content", "dropped a quick reply that repeated quoted content", "named the option a choose_option decides", "labelled a gated quick reply with what it says"]));
+    expect(r.repairs).toEqual(expect.arrayContaining(["dropped a hand-off that repeated quoted content", "dropped a quick reply that repeated quoted content", "named the option a choose_option decides", "labeled a gated quick reply with what it says"]));
     expect(r.reply.bubbles[r.reply.bubbles.length - 1]).toMatch(/comes from the quoted note, not from you/);
     const chosen = r.reply.quick_replies.find((q) => q.kind === "choose_option")!;
     expect(chosen).toMatchObject({ option_id: "approve", label: "Go with: Approve the deposit", say: "Go with Approve the deposit." });
@@ -326,7 +326,7 @@ describe("quoted content and smuggled chips (adversarial)", () => {
       { guard },
     );
     expect(r.reply.quick_replies.map((q) => q.say)).toEqual(["Thanks.", "Not now."]);
-    expect(r.repairs).toContain("an acknowledgement says only what its label says");
+    expect(r.repairs).toContain("an acknowledgment says only what its label says");
   });
 
   it("a five-word run copied from the note is quoted content; a short phrase is not", () => {

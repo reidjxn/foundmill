@@ -13,7 +13,7 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {};
 export const Indeterminate: Story = { args: { indeterminate: true } };
 export const Large: Story = { args: { size: 48, strokeWidth: 4, value: 0.8, tone: "good" } };
-/** A running process is a light source: `glow` adds a soft glow in the ring's colour. */
+/** A running process is a light source: `glow` adds a soft glow in the ring's color. */
 export const Running: Story = { args: { size: 20, strokeWidth: 2.5, value: 0.35, tone: "kit", glow: true } };
 export const Steps: Story = {
   render: () => (

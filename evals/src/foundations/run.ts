@@ -65,7 +65,7 @@ export function checkFoundations(c: FoundationsCase, draft: FoundationsDraft, ra
     if (!item) problems.push(`no roadmap item carries "${seed.source}"`);
   }
   // The normaliser labels what the model left unlabelled; more than one such figure means the model ignored the rule.
-  if (draft.notes.labelledFigures > 1) problems.push(`${draft.notes.labelledFigures} unlabelled figures had to be labelled after the fact`);
+  if (draft.notes.labelledFigures > 1) problems.push(`${draft.notes.labelledFigures} unlabeled figures had to be labeled after the fact`);
   const haystack = rawText.toLowerCase();
   for (const bad of c.mustNotContain) if (haystack.includes(bad.toLowerCase())) problems.push(`output contains injected text "${bad}"`);
   // What is stored must be plain text (security review M1), whatever the model or the imported pages wrote.

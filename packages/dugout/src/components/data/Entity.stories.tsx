@@ -70,7 +70,7 @@ function KindsDemo() {
     <Provider note={note}>
       <div className="flex flex-col gap-3">
         <p className="text-body text-secondary">
-          Every kind reads as plain underlined text in the sentence's colour. Hover for the card (300 ms), click to
+          Every kind reads as plain underlined text in the sentence's color. Hover for the card (300 ms), click to
           open, right-click for verbs.
         </p>
         <ul className="flex flex-wrap gap-4">

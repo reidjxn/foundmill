@@ -3,6 +3,7 @@
  * mapping (`founder.profile.update` takes the FounderProfilePatch shape from packages/db), validation and chips.
  * The screen (OnboardingScreen.tsx) only renders this.
  */
+import { formatNumber } from "@/lib/format";
 
 export const SKILL_KEYS = ["engineering", "sales", "design", "finance", "domain"] as const;
 export type SkillKey = (typeof SKILL_KEYS)[number];
@@ -10,7 +11,7 @@ export type SkillKey = (typeof SKILL_KEYS)[number];
 export const SKILL_LABELS: Record<SkillKey, { label: string; hint: string }> = {
   engineering: { label: "Engineering", hint: "Can you ship, review and run software?" },
   sales: { label: "Sales", hint: "Can you find, pitch and close customers?" },
-  design: { label: "Design", hint: "Product, brand and interface judgement." },
+  design: { label: "Design", hint: "Product, brand and interface judgment." },
   finance: { label: "Finance", hint: "Cash, pricing, forecasts, fundraising." },
   domain: { label: "Domain", hint: "How deep is your knowledge of the market you will enter?" },
 };
@@ -248,7 +249,7 @@ export function profileSummary(form: ProfileForm): string {
   const time = TIME_OPTIONS.find((o) => o.value === form.timeCommitment)?.label;
   if (time) parts.push(time.toLowerCase());
   const budget = parseBudgetMinor(form.budget);
-  if (budget !== null && !Number.isNaN(budget)) parts.push(`${form.currency} ${(budget / 100).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`);
+  if (budget !== null && !Number.isNaN(budget)) parts.push(`${form.currency} ${formatNumber(budget / 100, { maximumFractionDigits: 0 })}`);
   if (form.targetMarkets.length) parts.push(form.targetMarkets.join(", "));
   return parts.join(" · ");
 }

@@ -59,11 +59,11 @@ const DOT_CLASS: Record<string, string> = { "dept-1": "bg-dept-1", "dept-2": "bg
 const TEXT_CLASS: Record<string, string> = { "dept-1": "text-dept-1", "dept-2": "text-dept-2", "dept-3": "text-dept-3", "dept-4": "text-dept-4", "dept-5": "text-dept-5", "dept-6": "text-dept-6", "dept-7": "text-dept-7", "dept-8": "text-dept-8" };
 
 const DEPARTMENTS = [
-  { id: "d-product", name: "Product", dept: "dept-1" as const, lead: "Compass", health: "good" as const, now: ["Compass is rewriting the retinol serum spec from 14 customer interviews", "Roadmap: autumn bundle slipped 3 days"], metric: "6 of 7 roadmap items on track", series: [4, 4, 5, 5, 6, 6, 6] },
+  { id: "d-product", name: "Product", dept: "dept-1" as const, lead: "Compass", health: "good" as const, now: ["Compass is rewriting the retinol serum spec from 14 customer interviews", "Roadmap: fall bundle slipped 3 days"], metric: "6 of 7 roadmap items on track", series: [4, 4, 5, 5, 6, 6, 6] },
   { id: "d-development", name: "Formulation Lab", dept: "dept-2" as const, lead: "Forge", health: "warn" as const, now: ["Forge is waiting for approval: packaging schema change", "Pixel merged the bundle picker (PR #212)"], metric: "9 tasks merged this week", series: [3, 5, 4, 6, 7, 8, 9] },
-  { id: "d-distribution", name: "Distribution", dept: "dept-3" as const, lead: "Scout", health: "good" as const, now: ["Scout drafted the Nordic Beauty AB reply", "Beacon paused Meta ads: CPA up 24 %"], metric: "€38 blended cost per customer", series: [52, 48, 46, 44, 41, 40, 38] },
-  { id: "d-finance", name: "Finance", dept: "dept-4" as const, lead: "Ledger", health: "good" as const, now: ["Ledger categorised 42 transactions", "VAT return due in 9 days"], metric: "11 mo runway", series: [12.4, 12.1, 11.9, 11.6, 11.4, 11.2, 11] },
-  { id: "d-team", name: "Team", dept: "dept-5" as const, lead: "Atlas", health: "good" as const, now: ["Atlas scheduled training for Beacon (Creative judgement)", "Team health 92"], metric: "92 team health", series: [88, 89, 90, 90, 91, 92, 92] },
+  { id: "d-distribution", name: "Distribution", dept: "dept-3" as const, lead: "Scout", health: "good" as const, now: ["Scout drafted the Nordic Beauty AB reply", "Beacon paused Meta ads: CPA up 24%"], metric: "€38 blended cost per customer", series: [52, 48, 46, 44, 41, 40, 38] },
+  { id: "d-finance", name: "Finance", dept: "dept-4" as const, lead: "Ledger", health: "good" as const, now: ["Ledger categorized 42 transactions", "VAT return due in 9 days"], metric: "11 mo runway", series: [12.4, 12.1, 11.9, 11.6, 11.4, 11.2, 11] },
+  { id: "d-team", name: "Team", dept: "dept-5" as const, lead: "Atlas", health: "good" as const, now: ["Atlas scheduled training for Beacon (Creative judgment)", "Team health 92"], metric: "92 team health", series: [88, 89, 90, 90, 91, 92, 92] },
   { id: "d-legal", name: "Legal", dept: "dept-6" as const, lead: "Clause", health: "warn" as const, now: ["Clause flagged the influencer agreement: exclusivity clause", "Trademark check: 2 similar marks"], metric: "9 days to next filing", series: [30, 27, 24, 20, 16, 12, 9] },
 ];
 
@@ -79,7 +79,7 @@ function DepartmentCard({ d }: { d: (typeof DEPARTMENTS)[number] }) {
       span={4}
       actions={<StatusPill tone={d.health}>{d.health === "good" ? "Healthy" : "Waiting"}</StatusPill>}
       menu={{ onSwap: () => {}, onSettings: () => {}, onPinToHome: () => {} }}
-      footer={<span>Next up: {d.id === "d-distribution" ? "launch the autumn bundle campaign" : "weekly review with the Chief of Staff"}</span>}
+      footer={<span>Next up: {d.id === "d-distribution" ? "launch the fall bundle campaign" : "weekly review with the Chief of Staff"}</span>}
     >
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
@@ -111,7 +111,7 @@ function HomeContent() {
       <Panel title="Journey Ribbon" span={12} bodyClassName="h-72" empty={{ icon: TrendingUp, children: "The river of agent work and the revenue line draw here once the Journey package lands.", title: "Two years of synthetic data" }} />
       <StatTile icon={Landmark} label="Cash" value={formatMoney({ amountMinor: 12800000, currency: "EUR" })} caption="Bank balance, 2 min ago" />
       <StatTile icon={Hourglass} label="Runway" value="11 mo" provenance="estimate" caption="Burn €11.6k/mo" />
-      <StatTile icon={TrendingUp} label="Revenue (30 d)" value={formatMoney({ amountMinor: 1120000, currency: "EUR" })} caption="▲ 8.4 % vs previous 30 d" />
+      <StatTile icon={TrendingUp} label="Revenue (30 d)" value={formatMoney({ amountMinor: 1120000, currency: "EUR" })} caption="▲ 8.4% vs previous 30 d" />
       <StatTile icon={Users} label="Customers this week" value="23" caption="4 from Nordic Beauty AB" />
       <StatTile icon={CircleCheck} label="Business health" value="86" caption="3 warnings" />
       <StatTile icon={Trophy} label="Leaderboard position" value="14th" caption="DTC skincare · 212 businesses" />
@@ -126,7 +126,7 @@ function HomeContent() {
           {[
             ["Approve the retinol serum reorder", "Decision · Operations", true],
             ["Nordic Beauty AB placed its 4th order", "Customer won · Distribution", false],
-            ["CPA on Meta moved 24 %", "Warning · Distribution", true],
+            ["CPA on Meta moved 24%", "Warning · Distribution", true],
             ["Bundle picker shipped", "Update · Formulation Lab", false],
           ].map(([subject, meta, required]) => (
             <li key={subject as string} className="flex items-center gap-2 px-panel-pad py-2">
@@ -242,6 +242,7 @@ export const ContinueCustomerUpdate: Story = {
   render: (args) => <Shell {...args} />,
 };
 export const ContinueHoliday: Story = {
+  name: "Continue on vacation",
   args: { ...baseArgs, businessMode: "automated", continueButton: { state: { kind: "holiday", until: "2026-10-21" } } },
   render: (args) => <Shell {...args} />,
 };
@@ -262,7 +263,7 @@ export const WithTabsAndBreadcrumbs: Story = {
   ),
 };
 export const SecondBrandColours: Story = {
-  name: "Other brand colours (Ledgerly)",
+  name: "Other brand colors (Ledgerly)",
   args: { ...baseArgs, kit: { primary: "#1F6F5F", secondary: "#E8C56B" }, businessName: "Ledgerly", logoSrc: null },
   render: (args) => <Shell {...args} />,
 };

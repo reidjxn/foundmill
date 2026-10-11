@@ -15,7 +15,7 @@ export const channelSeo = defineChannelTemplate({
   guardrails: [
     "No link schemes, paid links, doorway pages or hidden text; programmatic pages must each answer a distinct query with real data.",
     "On-page changes ship as pull requests through the Development merge flow, never directly to the live site.",
-    "Report organic signups, not rankings alone; rankings are a leading indicator and are labelled so.",
+    "Report organic signups, not rankings alone; rankings are a leading indicator and are labeled so.",
   ],
   playbook: [
     "Plan: cluster keywords by intent and business fit; pick the clusters with signup intent and achievable difficulty.",

@@ -18,9 +18,9 @@
  * Example and every money figure that is not a measurement is labelled Estimate where it appears. Loaded on demand (its
  * own chunk), never in the page's main bundle.
  */
-import type { MockSessionScript } from "@foundmill/dugout";
 import { conceptAttributes as attributes, leadSkill as skill } from "./helpers";
 import { EXAMPLE_IDENTITIES } from "./identity";
+import { NORTHWIND_SESSIONS } from "./sessions/northwind";
 import { TUTORLANE } from "./tutorlane";
 import type { ActivityLine, CycleOutcome, ExampleBusiness, ExampleCustomerUpdate, ExampleCyclePlanItem, ExampleDepartment, ExampleInboxNote, ExampleJourney, ExampleLead } from "./types";
 
@@ -179,131 +179,6 @@ const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
 ];
 
 // ---------------------------------------------------------------------------------------------------------------------
-// The live sessions: four Formulation Lab specialists on batch 007
-// ---------------------------------------------------------------------------------------------------------------------
-
-/** The purchase order pack the lab prepares for the founder: every line cites a quote. */
-const PO_PACK_DIFF = [
-  "diff --git a/lab/batches/batch-007/po-pack.md b/lab/batches/batch-007/po-pack.md",
-  "--- /dev/null",
-  "+++ b/lab/batches/batch-007/po-pack.md",
-  "@@ -0,0 +1,16 @@",
-  "+# Batch 007 purchase order pack, for your approval",
-  "+",
-  "+| # | Item | Supplier | Quote | Units | Unit | Total |",
-  "+| - | --- | --- | --- | ---: | ---: | ---: |",
-  "+| 1 | Calming serum, 30 ml, filled | Cranbury Contract Labs | CCL-4471 | 5,000 | $3.40 | $17,000 |",
-  "+| 2 | Gentle cleanser, 150 ml, filled | Cranbury Contract Labs | CCL-4472 | 5,000 | $2.10 | $10,500 |",
-  "+| 3 | Barrier moisturizer, 50 ml, filled | Cranbury Contract Labs | CCL-4473 | 5,000 | $2.90 | $14,500 |",
-  "+| 4 | Airless pump, 30 ml | Maumee Valley Packaging | MVP-2290 | 5,000 | $0.92 | $4,600 |",
-  "+| 5 | Squeeze tube, 150 ml | Maumee Valley Packaging | MVP-2291 | 5,000 | $0.48 | $2,400 |",
-  "+| 6 | Airless jar, 50 ml | Maumee Valley Packaging | MVP-2292 | 5,000 | $0.84 | $4,200 |",
-  "+| 7 | Cartons, three sizes | Maumee Valley Packaging | MVP-2293 | 15,000 | $0.21 | $3,150 |",
-  "+| 8 | Freight to the warehouse | Keystone Freight | KF-118 | 1 | $1,650 | $1,650 |",
-  "+| 9 | Release testing, three lots | Clearwell Testing Labs | CTL-532 | 3 | $300 | $900 |",
-  "+",
-  "+Deposit with the order: 50% of Cranbury's $42,000 = $21,000, paid by you.",
-  "+Landed cost per routine: $11.78 (Estimate)",
-].join("\n");
-
-/** After the founder's nudge: the 3,000-unit tier beside the 5,000-unit one. */
-const LANDED_COST_DIFF = [
-  "--- a/lab/batches/batch-007/landed-cost.md",
-  "+++ b/lab/batches/batch-007/landed-cost.md",
-  "@@ -1,6 +1,6 @@",
-  "-| Per routine | 5,000 units |",
-  "-| --- | ---: |",
-  "-| Fill, formula and QC | $8.40 |",
-  "-| Components and cartons | $2.87 |",
-  "-| Freight and release testing | $0.51 |",
-  "-| Landed (Estimate) | $11.78 |",
-  "+| Per routine | 5,000 units | 3,000 units |",
-  "+| --- | ---: | ---: |",
-  "+| Fill, formula and QC | $8.40 | $9.30 |",
-  "+| Components and cartons | $2.87 | $3.03 |",
-  "+| Freight and release testing | $0.51 | $0.77 |",
-  "+| Landed (Estimate) | $11.78 | $13.10 |",
-].join("\n");
-
-/**
- * Four lab specialists working toward the batch 007 order: the serum's week-12 stability readout, an RFQ for pumps,
- * the last batch's certificates of analysis and the purchase order pack itself, which waits for the founder's approval.
- * The sandbox holds the lab's batch records; its checks are the pack's acceptance tests.
- */
-const SESSION_SCRIPT: MockSessionScript = {
-  names: ["Aloe", "Reed", "Sorrel", "Fern"],
-  agents: [
-    { name: "Aloe", seed: "aloe", role: "Formulation chemist", dept: "dept-7", model: "opus", kind: "specialist" },
-    { name: "Reed", seed: "reed", role: "Sourcing and manufacturing", dept: "dept-7", model: "sonnet", kind: "specialist" },
-    { name: "Sorrel", seed: "sorrel", role: "Quality and release", dept: "dept-7", model: "sonnet", kind: "specialist" },
-    { name: "Fern", seed: "fern", role: "Formulation lead", dept: "dept-7", model: "opus", kind: "specialist" },
-  ],
-  tasks: [
-    "Week-12 stability readout: calming serum",
-    "RFQ: 30 ml airless pumps, three suppliers",
-    "Certificates of analysis for batch 006",
-    "Purchase order pack for batch 007",
-    "Preservative efficacy test: body lotion",
-    "Carton proof: net contents and lot code",
-    "Freight quotes: New Jersey to the warehouse",
-    "Landed cost at 3,000 and 5,000 units",
-  ],
-  plans: [
-    ["Pull the week-12 readings from Cranbury's report", "Compare pH, viscosity, color and odor with the spec", "Check the 40°C and freeze-thaw samples", "Flag any drift with its values", "Write the readout", "Attach it to the batch 007 pack"],
-    ["Send the RFQ to three pump suppliers", "Log each quote with its minimum order and lead time", "Request samples from the two closest", "Compare landed cost per unit", "Write the recommendation"],
-    ["Read batch 006's certificates of analysis", "Check every result against the release spec", "Match lot numbers to the batch record", "Flag anything out of spec", "File the release note"],
-    ["Collect the current quotes", "Write the order lines with quote numbers", "Work out landed cost at 3,000 and 5,000 units", "Attach the stability readout", "Check the deposit against Cranbury's terms", "Send the pack to you for approval"],
-  ],
-  stdout: [
-    "$ uv sync --frozen",
-    "Resolved 42 packages in 9ms",
-    "Installed 42 packages in 188ms",
-    "$ uv run pytest tests/test_landed_cost.py -q",
-    "...... [100%]",
-    "6 passed in 0.38s",
-    "$ uv run lab stability calming-serum --week 12",
-    "pH 5.3 (spec 5.0–5.8) · viscosity −3% · 40°C ✓ · freeze-thaw ✓",
-    "$ uv run lab check po-pack batch-007",
-    "  ✓  every line cites a quote (9 of 9)",
-    "  ✓  landed cost at 3,000 and 5,000 units",
-    "  ✘  stability readout for every product (serum missing)",
-    "  2 passed, 1 failed",
-    "$ git add -A && git commit -m \"batch-007: serum week 12\"",
-    "[agent/task-4 5e81c0a] batch-007: serum week 12",
-    " 3 files changed, 64 insertions(+), 2 deletions(-)",
-    "$ uv run ruff check lab",
-    "All checks passed!",
-    "$ uv run lab check po-pack batch-007",
-    "  3 passed (9 lines, deposit $21,000)",
-    "$ uv run lab pack export batch-007 --to drive",
-    "Saved: Drive › Lab › Batch 007 › PO pack, for your approval",
-  ],
-  readPath: "lab/batches/batch-006/batch-record.md",
-  file: { path: "lab/batches/batch-007/po-pack.md", diff: PO_PACK_DIFF, additions: 16, deletions: 0 },
-  styleFile: { path: "lab/batches/batch-007/landed-cost.md", diff: LANDED_COST_DIFF },
-  notes: [
-    "Reading Cranbury's quotes and the last batch record before writing a line.",
-    "Every order line carries its quote number, so each cost can be traced.",
-    "The serum's 40°C samples read in spec at week 12.",
-    "The pack is missing the serum's week-12 readout; pulling it from the lab report.",
-    "Review: Cranbury's serum quote had expired; Reed had it reissued at the same price.",
-  ],
-  unitCommand: "uv run pytest",
-  unitPassed: 6,
-  acceptanceCommand: "uv run lab check po-pack",
-  failingCheck: "stability readout for every product",
-  failure: "Error: quote CCL-4471 expired on Oct 2; ask Cranbury to reissue it",
-  nudge: { text: "Show the 3,000-unit price too", reply: "Adding the 3,000-unit tier beside each line." },
-  gate: {
-    connectorKey: "gmail",
-    tool: "send_email",
-    argsSummary: "Purchase order for batch 007 to Cranbury Contract Labs",
-    note: "Waiting for your decision: the batch 007 order and its $21,000 deposit.",
-  },
-  currency: CURRENCY,
-};
-
-// ---------------------------------------------------------------------------------------------------------------------
 // Distribution: how channels fit Northwind (the founder's Retail Partnerships department runs all fifteen)
 // ---------------------------------------------------------------------------------------------------------------------
 
@@ -320,12 +195,13 @@ const CHANNELS: ExampleBusiness["channels"] = {
 // ---------------------------------------------------------------------------------------------------------------------
 
 /**
- * Two years of Northwind, relabelled from the design system's fixture. Pin dates are the fixture's (Oct 8, 2024 to
- * Sep 18, 2026); the milestone cards below use the same dates, and the revenue scale makes the $10K and $50K months true
- * on the Ribbon: the 30 days to Mar 20, 2025 pass $10,000 and the 30 days to Sep 18, 2026 pass $50,000. First payments
- * keep the fixture's order sizes: a shopper's first order is $29 to $149, and the large ones are stores' opening orders
- * (`largeOrderNames`), the first of them Oak Hill Pharmacy's, the first retail partner. Pin labels stay within the
- * Ribbon's 28 characters and chapter titles within 17, so neither is cut off on the Ribbon or its day card.
+ * Two years of Northwind, relabeled from the design system's fixture. Pin dates are the fixture's (Oct 8, 2024 to
+ * Sep 18, 2026) and the milestone cards below use the same dates. The customers and the money are Northwind's own
+ * (`customers`): shoppers order from launch day, the first comes back for more on Nov 8, the 1,000th customer pays on
+ * Sep 25, 2025, and stores place opening orders and reorder every few weeks. Revenue on a day is every order that day,
+ * so the 30 days to Mar 20, 2025 are the first past $10,000 (Juniper Pharmacy's opening order tips them over) and the
+ * 30 days to Sep 18, 2026 the first past $50,000 (Cedar Row Market's). Pin labels stay within the Ribbon's 28
+ * characters and chapter titles within 17, so neither is cut off on the Ribbon or its day card.
  */
 const JOURNEY: ExampleJourney = {
   /** The Ribbon's departments (ids match the fixture's generator; names and colours are Northwind's). */
@@ -355,12 +231,61 @@ const JOURNEY: ExampleJourney = {
     "$10K MRR": "$50K month",
   },
   chapterTitles: ["First batch", "Refills begin", "Fragrance-free", "Results in public", "The angel round", "Cash in stock", "Bigger batches", "Ready for retail", "Into the chains"],
-  // Shoppers sign up and place first orders; stores place the large opening orders.
+  // Shoppers sign up and place first orders; stores (`customers.large`) place the large opening orders. Names read
+  // whole on the Ribbon's day card beside an order's value (17 characters at most).
   customerNames: ["Priya Raman", "Marcus Bell", "Elena Ortiz", "Sam Okoye", "Grace Whitfield", "Tom Alvarez", "Nadia Brooks", "Jenna Park", "Luis Moreno", "Hannah Cole"],
-  // Names read whole on the Ribbon's day card beside an order's value (17 characters at most).
-  largeOrderNames: ["Oak Hill Pharmacy", "Bayside Naturals", "Juniper Pharmacy", "Greenleaf Co-op", "Harbor Pharmacy", "Cedar Row Market", "Maple Apothecary", "Willow Naturals", "Brookside Grocers", "Old Mill Pharmacy", "Sandpiper Health", "Ridgeway Market"],
   roadmap: ["In 36 Larkfield stores", "Batch 007 lands", "Body lotion launch"],
-  revenueScale: { start: 1.11, end: 7.02, keepOrderSizes: true },
+  // Larkfield Market's opening order for its 36 stores, today: the Customer Update.
+  updatePayment: { name: "Larkfield Market", day: "2026-10-07", amountMinor: 1_663_200 },
+  customers: {
+    // Shoppers and stores together, with the 1,000th customer's card (Sep 25, 2025): nine orders on launch day from the
+    // waitlist, the serum sold out by New Year, and the counts on the $10K and $50K days that make those months true.
+    counts: { "2024-10-08": 9, "2024-11-08": 60, "2024-12-31": 150, "2025-03-20": 330, "2026-03-01": 2_050, "2026-09-18": 3_500, "2026-10-07": 3_650 },
+    // Shoppers join the list a few days before a first order; most order without an account.
+    funnel: { signups: 1.6, activations: 1.2, leadDays: 4 },
+    // Stores' opening orders (the first is on its milestone card, the chain's is the Customer Update's).
+    large: [
+      { day: "2025-02-11", name: "Bayside Naturals", amountMinor: 128_400 },
+      { day: "2025-03-20", name: "Juniper Pharmacy", amountMinor: 329_968 },
+      { day: "2025-06-17", name: "Greenleaf Co-op", amountMinor: 147_630 },
+      { day: "2025-08-26", name: "Harbor Pharmacy", amountMinor: 214_800 },
+      { day: "2025-11-04", name: "Maple Apothecary", amountMinor: 139_240 },
+      { day: "2026-01-21", name: "Willow Naturals", amountMinor: 161_820 },
+      { day: "2026-03-31", name: "Brookside Grocers", amountMinor: 451_260 },
+      { day: "2026-05-12", name: "Old Mill Pharmacy", amountMinor: 195_600 },
+      { day: "2026-07-14", name: "Sandpiper Health", amountMinor: 276_480 },
+      { day: "2026-08-11", name: "Ridgeway Market", amountMinor: 306_600 },
+      { day: "2026-09-18", name: "Cedar Row Market", amountMinor: 414_840 },
+    ],
+    billing: {
+      kind: "orders",
+      // The calming serum $38, the gentle cleanser $24, the barrier moisturizer $34, serum and moisturizer $72, and
+      // the routine of all three $84.
+      firstOrders: [
+        { minor: 3800, weight: 30 },
+        { minor: 8400, weight: 35 },
+        { minor: 7200, weight: 15 },
+        { minor: 2400, weight: 8 },
+        { minor: 3400, weight: 12 },
+      ],
+      // Over half come back within one to two months of a bottle; from Feb 16, 2025 refill subscriptions keep more of
+      // them coming back. The first reorder of all is on the "First reorder" card's day.
+      reorders: {
+        share: 0.55,
+        keep: 0.55,
+        keepFrom: { day: "2025-02-16", keep: 0.78 },
+        days: [31, 70],
+        baskets: [
+          { minor: 3800, weight: 40 },
+          { minor: 8400, weight: 30 },
+          { minor: 3400, weight: 18 },
+          { minor: 2400, weight: 12 },
+        ],
+      },
+      // Stores reorder every four to six weeks, a third to a half of their opening order.
+      storeReorders: { days: [28, 42], share: [0.3, 0.5] },
+    },
+  },
 };
 
 const LARKFIELD_ID = "18ab2feb-5195-460b-a91f-7a90914065ea";
@@ -397,10 +322,10 @@ const CUSTOMER_UPDATE: ExampleCustomerUpdate = {
 /** The milestones, on the same dates as their Ribbon pins (time-zone-safe: local noon). */
 const MILESTONES: ExampleBusiness["milestones"] = [
   { key: "first_batch", label: "First batch", description: "500 of each product from Cranbury Contract Labs.", achievedAt: "2024-10-08T12:00:00", shareable: true },
-  { key: "first_reorder", label: "First reorder", description: "A customer comes back for a second serum.", achievedAt: "2024-11-08T12:00:00", shareable: true },
+  { key: "first_reorder", label: "First reorder", description: "A launch-day customer comes back and orders again.", achievedAt: "2024-11-08T12:00:00", shareable: true },
   { key: "first_retail_partner", label: "First retail partner", description: "Oak Hill Pharmacy stocks the routine in its five New Jersey stores.", achievedAt: "2024-12-26T12:00:00", customerName: "Oak Hill Pharmacy", ...usd(378_260), shareable: true },
   { key: "month_10k", label: "$10K month", description: "Thirty days of sales pass $10,000.", achievedAt: "2025-03-20T12:00:00", shareable: true },
-  { key: "customer_1000", label: "1,000th customer", description: "One thousand people have bought the routine.", achievedAt: "2025-09-25T12:00:00", shareable: true },
+  { key: "customer_1000", label: "1,000th customer", description: "One thousand customers, shoppers and stores, have bought the routine.", achievedAt: "2025-09-25T12:00:00", shareable: true },
   { key: "month_50k", label: "$50K month", description: "Thirty days of sales pass $50,000.", achievedAt: "2026-09-18T12:00:00", shareable: true },
 ];
 
@@ -554,7 +479,7 @@ export const NORTHWIND: ExampleBusiness = {
   },
   activity: ACTIVITY,
   howItWorks: { concepts: CONCEPTS, brandOptions: BRAND_OPTIONS, firstCyclePlan: FIRST_CYCLE_PLAN },
-  sessions: SESSION_SCRIPT,
+  sessions: NORTHWIND_SESSIONS,
   channels: CHANNELS,
   journey: JOURNEY,
   customerUpdate: CUSTOMER_UPDATE,

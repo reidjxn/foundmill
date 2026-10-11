@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { APP_NAME } from "@foundmill/config";
-import { CLUB_RULES, clubRulesPrompt } from "../prompts/club-rules";
+import { CLUB_RULES, HOUSE_STYLE, clubRulesPrompt } from "../prompts/club-rules";
 import { CLUB_RULES_HEADER, INSTRUCTIONS_HEADER, buildSystemPrompt, detectClubRuleViolation, diffInstructions, flattenInstructions, hasClubRulesPrefix, renderInstructions } from "../club-rules";
 import { ALL_TEMPLATES, chiefOfStaff } from "../templates";
 import { type AgentInstructions } from "../types";
@@ -14,6 +14,19 @@ describe("house rules block (BUILD §12.1, §9.2)", () => {
     for (const r of CLUB_RULES) expect(text).toContain(`${r.id}. ${r.text.replace("{business_name}", BUSINESS)}`);
     expect(CLUB_RULES.length).toBe(7);
     expect(text).not.toContain("{business_name}");
+  });
+
+  it("tells every agent to write US English with US dates, after the seven rules and before the instructions", () => {
+    const text = clubRulesPrompt.render({ business_name: BUSINESS, APP_NAME });
+    expect(HOUSE_STYLE).toMatch(/^Write in US English/);
+    expect(HOUSE_STYLE).toContain("Oct 7, 2026");
+    expect(HOUSE_STYLE).toContain("3:45 PM");
+    expect(text.indexOf(HOUSE_STYLE)).toBeGreaterThan(text.indexOf(`7. ${CLUB_RULES[6]!.text}`));
+    for (const t of ALL_TEMPLATES) {
+      const prompt = buildSystemPrompt({ businessName: BUSINESS, appName: APP_NAME, template: t });
+      expect(prompt.indexOf(HOUSE_STYLE)).toBeGreaterThan(0);
+      expect(prompt.indexOf(HOUSE_STYLE)).toBeLessThan(prompt.indexOf(INSTRUCTIONS_HEADER));
+    }
   });
 
   it("buildSystemPrompt ALWAYS prepends the house rules before the instructions for every template", () => {

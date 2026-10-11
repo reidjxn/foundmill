@@ -67,7 +67,7 @@ describe("nudgePresets (audit-conversation finding 6)", () => {
     const sourcing = nudgePresets(getTemplate("sourcing_manufacturing").agentType).map((x) => x.label);
     expect(sourcing).not.toContain("Ask before schema changes");
     expect(sourcing).toContain("Get a second quote");
-    expect(nudgePresets("chief_of_staff").map((x) => x.label)).toContain("Prioritise customers");
+    expect(nudgePresets("chief_of_staff").map((x) => x.label)).toContain("Prioritize customers");
     expect(nudgePresets("custom_made_up_type").map((x) => x.label)).toContain("Cite your sources");
   });
 

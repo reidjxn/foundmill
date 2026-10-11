@@ -414,7 +414,7 @@ function tickLabel(day: DayKey, zoom: ZoomLevel): string {
   const mm = MONTHS_SHORT[d.getUTCMonth()] as string;
   if (zoom === "week") return `${DOW_SHORT[d.getUTCDay()]} ${dd}`;
   if (zoom === "all") return dd === 1 && d.getUTCMonth() === 0 ? String(d.getUTCFullYear()) : `${mm} ’${String(d.getUTCFullYear()).slice(2)}`;
-  return `${dd} ${mm}`;
+  return `${mm} ${dd}`;
 }
 
 /** "Mar 2027" for a day. */

@@ -259,12 +259,12 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
 
       <Panel
         span={12}
-        title="Catalogue"
+        title="Catalog"
         flush
         loading={catalogue.isLoading && !catalogue.data}
         error={catalogue.error ? catalogue.error.message : undefined}
         onRetry={catalogue.refetch}
-        empty={catalogue.data && rows.length === 0 ? { icon: Users, children: "The catalogue lists every agent template with its role, model and wage cap once the agents package is loaded." } : undefined}
+        empty={catalogue.data && rows.length === 0 ? { icon: Users, children: "The catalog lists every agent template with its role, model and wage cap once the agents package is loaded." } : undefined}
         meta={
           rows.length ? (
             <span data-testid="catalogue-summary">
@@ -275,7 +275,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         footer={notice ? <span data-testid="recruitment-notice" className="text-secondary">{notice}</span> : "Double-click or right-click a template to hire it into a department. Wage caps are estimates."}
       >
         <div className="min-w-0">
-          <DataTable<CatalogueRow> aria-label="Catalogue" data={rows} columns={catalogueColumns} views={catalogueViews} onViewsChange={setCatalogueViews} defaultViewId="all" rowActions={catalogueActions} onRowOpen={(row) => setHire({ template: row })} height={Math.min(480, Math.max(240, rows.length * 34 + 44))} density="comfortable" exportFileName="catalogue" className="border-0" />
+          <DataTable<CatalogueRow> aria-label="Catalog" data={rows} columns={catalogueColumns} views={catalogueViews} onViewsChange={setCatalogueViews} defaultViewId="all" rowActions={catalogueActions} onRowOpen={(row) => setHire({ template: row })} height={Math.min(480, Math.max(240, rows.length * 34 + 44))} density="comfortable" exportFileName="catalogue" className="border-0" />
         </div>
       </Panel>
 

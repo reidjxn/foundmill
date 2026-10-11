@@ -31,7 +31,7 @@ export const googleCalendarTools = [
   defineTool({ name: "list_calendars", description: "Calendars the connected account can see.", input: z.object({}), output: z.object({ items: z.array(z.object({ id: z.string(), summary: z.string(), primary: z.boolean(), timeZone: z.string().nullable() })) }), hints: {}, annotations: { readOnlyHint: true } }),
   defineTool({
     name: "list_events",
-    description: "Events in a time window (single instances, ordered by start). Descriptions may come from external organisers.",
+    description: "Events in a time window (single instances, ordered by start). Descriptions may come from external organizers.",
     input: z.object({ calendarId: CalendarId, timeMin: Iso, timeMax: Iso, maxResults: z.number().int().min(1).max(250).default(50), q: z.string().max(200).optional() }),
     output: z.object({ items: z.array(CalendarEvent) }),
     hints: {},

@@ -80,7 +80,7 @@ describe("CodeScreen", () => {
     await waitFor(() => expect(screen.getByRole("region", { name: "File picker.tsx" }).textContent).toContain("export {};"));
     // One saved session: its line instead of a picker.
     expect(screen.queryByRole("combobox", { name: "Saved session" })).toBeNull();
-    expect(screen.getByText(/^6 Oct, \d\d:00 · 1 file$/)).toBeTruthy();
+    expect(screen.getByText(/^Oct 6, \d{1,2}:00 [AP]M · 1 file$/)).toBeTruthy();
   });
 
   it("reads an earlier session and keeps the open file when it still exists", async () => {
@@ -90,7 +90,7 @@ describe("CodeScreen", () => {
     const files = await screen.findByRole("navigation", { name: "Files" });
     fireEvent.click(within(files).getByRole("button", { name: /index\.ts/ }));
     await user.click(screen.getByRole("combobox", { name: "Saved session" }));
-    await user.click(await screen.findByRole("option", { name: /^7 Oct, 0[89]:00 · 2 files$/ }));
+    await user.click(await screen.findByRole("option", { name: /^Oct 7, \d{1,2}:00 [AP]M · 2 files$/ }));
     await waitFor(() => expect(fake.queried.get("dev.code.files")).toEqual({ taskId: TASK_INDEX, snapshotId: SNAP_INDEX_1 }));
     await waitFor(() => expect(fake.queried.get("dev.code.file")).toEqual({ snapshotId: SNAP_INDEX_1, path: "src/index.ts" }));
     expect(within(screen.getByRole("navigation", { name: "Files" })).getAllByRole("button").map((b) => b.getAttribute("title"))).toEqual(["src/index.ts", "package.json"]);
@@ -214,7 +214,7 @@ describe("code helpers", () => {
     expect(firstFile([])).toBeNull();
   });
   it("sessionLabel marks the latest", () => {
-    expect(sessionLabel(indexLatest, true)).toMatch(/^Latest · 7 Oct, \d\d:30 · 3 files$/);
-    expect(sessionLabel(bundleLatest, false)).toMatch(/^6 Oct, \d\d:00 · 1 file$/);
+    expect(sessionLabel(indexLatest, true)).toMatch(/^Latest · Oct 7, \d{1,2}:30 [AP]M · 3 files$/);
+    expect(sessionLabel(bundleLatest, false)).toMatch(/^Oct 6, \d{1,2}:00 [AP]M · 1 file$/);
   });
 });

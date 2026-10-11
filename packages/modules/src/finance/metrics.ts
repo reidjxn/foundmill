@@ -4,6 +4,7 @@
  * conversion and the two share-register exports. No React, no I/O; every function is deterministic so the
  * AC-11.8.1 / AC-11.8.4 fixtures can assert to the minor unit.
  */
+import { usSpelling } from "@foundmill/shared/us-spelling";
 import type { CapTableEntryRow, CapTableSummary, CategoryTotal, ForecastDrivers, ForecastPoint, ForecastScenario, MonthlyTotal, SecurityRow } from "./types";
 
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -61,6 +62,7 @@ export const PNL_SECTION_LABELS: Record<PnlSection, string> = {
 export const CHART_OF_ACCOUNTS: readonly { category: string; section: PnlSection; aliases: readonly string[] }[] = [
   { category: "Revenue", section: "revenue", aliases: ["revenue", "sales", "subscriptions", "subscription revenue", "income", "stripe payout", "payouts"] },
   { category: "Refunds", section: "revenue", aliases: ["refunds", "refund", "chargebacks"] },
+  // us-english-allow: aliases match category keys as stored, so the British "fulfilment" key keeps matching.
   { category: "Cost of sales", section: "cogs", aliases: ["cost of sales", "cogs", "cost of goods", "cost of goods sold", "materials", "manufacturing", "fulfilment", "fulfillment", "shipping", "shipping and fulfilment", "stock purchases", "inventory"] },
   { category: "Hosting", section: "cogs", aliases: ["hosting", "infrastructure", "cloud", "aws", "servers"] },
   { category: "Payment fees", section: "cogs", aliases: ["payment fees", "stripe fees", "processing fees", "transaction fees"] },
@@ -109,12 +111,12 @@ export function chartEntry(category: string | null | undefined): (typeof CHART_O
 /** A stored key in plain words for display: "gross_profit" → "Gross profit", "costOfSales" → "Cost of sales". */
 export function plainWords(key: string): string {
   const words = key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_\-.]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  return usSpelling(words.charAt(0).toUpperCase() + words.slice(1));
 }
 
 /** The category's display name: its chart-of-accounts line, else the stored key in plain words ("rnd_materials" → "Rnd materials"). */
 export function categoryLabel(category: string | null | undefined): string {
-  if (isUncategorised(category)) return "Uncategorised";
+  if (isUncategorised(category)) return "Uncategorized";
   const entry = chartEntry(category);
   if (entry) return entry.category;
   return plainWords(categoryKey(category!));
@@ -227,8 +229,8 @@ export function buildPnl(categories: readonly CategoryTotal[]): PnlRow[] {
   if (lines("other").length) pushSection("other", "Total other", totals.otherMinor);
   const unc = lines("uncategorised");
   if (unc.length) {
-    rows.push({ id: "h-uncategorised", label: "Uncategorised", depth: 0, kind: "header", amountMinor: null, count: unc.reduce((n, l) => n + l.c.count, 0), pctOfRevenue: null, section: "uncategorised", warn: true });
-    for (const { c, net } of unc) rows.push({ id: "l-uncategorised", label: "Uncategorised transactions", depth: 1, kind: "line", amountMinor: net, count: c.count, pctOfRevenue: pct(net), category: null, section: "uncategorised", warn: true });
+    rows.push({ id: "h-uncategorised", label: "Uncategorized", depth: 0, kind: "header", amountMinor: null, count: unc.reduce((n, l) => n + l.c.count, 0), pctOfRevenue: null, section: "uncategorised", warn: true });
+    for (const { c, net } of unc) rows.push({ id: "l-uncategorised", label: "Uncategorized transactions", depth: 1, kind: "line", amountMinor: net, count: c.count, pctOfRevenue: pct(net), category: null, section: "uncategorised", warn: true });
   }
   rows.push({ id: "t-net", label: "Net cash change", depth: 0, kind: "total", amountMinor: totals.netMinor, count: categories.reduce((n, c) => n + c.count, 0), pctOfRevenue: pct(totals.netMinor) });
   return rows;
@@ -270,7 +272,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, { label: string; definition: 
   grossBurn: { label: "Gross burn", definition: "Operating outflows per month, trailing 3-month average." },
   netBurn: { label: "Net burn", definition: "Operating outflows minus operating inflows, trailing 3-month average, financing excluded." },
   runway: { label: "Runway", definition: "Cash divided by net burn, plus the forecast-based runway from the Base scenario." },
-  revenue: { label: "Revenue", definition: "From the ledger when one is connected, otherwise Stripe/Shopify and bank inflows labelled cash basis. Trailing 3 months." },
+  revenue: { label: "Revenue", definition: "From the ledger when one is connected, otherwise Stripe/Shopify and bank inflows labeled cash basis. Trailing 3 months." },
   mrr: { label: "MRR", definition: "Monthly recurring revenue: average monthly revenue over the trailing 3 months, cash basis." },
   arr: { label: "ARR", definition: "Annual recurring revenue: MRR × 12." },
   grossMargin: { label: "Gross margin", definition: "(Revenue − cost of sales) ÷ revenue over the trailing 3 months." },
@@ -658,7 +660,7 @@ export function delawareLedgerRows(entries: readonly CapTableEntryRow[], asOf: D
     .map((e, i) => {
       const q = qty(e.quantity);
       const v = vestingSummary(e.vesting, q, asOf);
-      return [`C-${String(i + 1).padStart(4, "0")}`, e.issuedAt ?? "", e.holder.displayName, e.holder.kind, e.security.class, e.security.kind, q, fmtMajor(e.priceMinor, e.currency), fmtMajor(e.priceMinor === null ? null : Math.round(e.priceMinor * q), e.currency), v ? v.text : "Fully vested", e.archivedAt ? "Cancelled" : "Outstanding"];
+      return [`C-${String(i + 1).padStart(4, "0")}`, e.issuedAt ?? "", e.holder.displayName, e.holder.kind, e.security.class, e.security.kind, q, fmtMajor(e.priceMinor, e.currency), fmtMajor(e.priceMinor === null ? null : Math.round(e.priceMinor * q), e.currency), v ? v.text : "Fully vested", e.archivedAt ? "Canceled" : "Outstanding"];
     });
   return [header, ...rows];
 }

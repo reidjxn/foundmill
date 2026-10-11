@@ -56,7 +56,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Delegating without micromanaging at {business}",
-      "The Distribution Strategist at {business} proposes a {channel} test. You disagree with one detail (audience too broad). Write the typed message you send: what you require (acceptance criteria), what you leave to their judgement, and the deadline.",
+      "The Distribution Strategist at {business} proposes a {channel} test. You disagree with one detail (audience too broad). Write the typed message you send: what you require (acceptance criteria), what you leave to their judgment, and the deadline.",
       [
         "States a precise requirement about the audience and leaves execution choices to the lead.",
         "Uses the typed message format with a deadline.",
@@ -113,7 +113,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       "The Engineering lead at {business} proposes hiring a second backend engineer agent because 5 code tasks have waited more than a cycle. Wage cap would rise by {currency} 150/month (Estimate). Frame it as an Inbox decision with options including a time-boxed trial.",
       [
         "Options include hire, time-boxed trial and do nothing, with one recommended.",
-        "Costs labelled Estimate; reversibility stated (an agent can be released).",
+        "Costs labeled Estimate; reversibility stated (an agent can be released).",
         "Consequence of not hiring is stated factually (queue length).",
       ],
       { checks: [CHECK.all("Estimate")] },
@@ -145,14 +145,14 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       "Tighten vague criteria for {business}",
       "Rewrite these acceptance criteria for {business} so a test can check them: 'The dashboard should be fast.' 'Users should like the onboarding.' 'Exports must be secure.' 'Emails go out quickly.' Explain each rewrite in one line.",
       [
-        "Each criterion becomes measurable (latency budget, completion rate, authorisation checks, delivery time).",
+        "Each criterion becomes measurable (latency budget, completion rate, authorization checks, delivery time).",
         "Rewrites preserve the intent and are realistic.",
         "One-line explanations are present and accurate.",
       ],
     ),
     bp(
       "Spec a physical requirement for {business}",
-      "{business} ({product}) needs a specification block for packaging and labelling for {market}. Write Problem, Requirements (mandatory label content, materials, compatibility), Acceptance criteria, Dependencies (specialists involved), Open questions. Cite {regulator} where relevant.",
+      "{business} ({product}) needs a specification block for packaging and labeling for {market}. Write Problem, Requirements (mandatory label content, materials, compatibility), Acceptance criteria, Dependencies (specialists involved), Open questions. Cite {regulator} where relevant.",
       [
         "Requirements cover mandatory label content and compatibility and name the regulation.",
         "Acceptance criteria are checkable (checklist passes, test results).",
@@ -192,7 +192,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
   ],
   evidence_synthesis: [
     bp(
-      "Synthesise interviews for {business}",
+      "Synthesize interviews for {business}",
       "Six interview summaries (fixture interviews_{business}) with {customer}. Produce up to 5 findings, each with: the claim, how many interviews support it, quotes under 15 words with interview ids, confidence, and the spec blocks it affects.",
       [
         "Findings cite interview ids and counts; no claim without support.",
@@ -203,7 +203,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Reconcile conflicting evidence at {business}",
-      "At {business} support tickets say {customer} want more notifications (31 tickets); interviews say they get too many (5 of 8). Synthesise: what is actually being asked, what you still need to know, and what you would not conclude.",
+      "At {business} support tickets say {customer} want more notifications (31 tickets); interviews say they get too many (5 of 8). Synthesize: what is actually being asked, what you still need to know, and what you would not conclude.",
       [
         "Identifies the likely reconciliation (relevance/control vs volume) without over-claiming.",
         "Lists the specific missing information.",
@@ -244,7 +244,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Batch vs immediate at {business}",
-      "Three sources arrived at {business} today: a typo report, a {regulator} guidance change affecting labelling, and a feature request. Decide which become proposals now, which batch daily, and which need no proposal; state severities.",
+      "Three sources arrived at {business} today: a typo report, a {regulator} guidance change affecting labeling, and a feature request. Decide which become proposals now, which batch daily, and which need no proposal; state severities.",
       [
         "Regulatory change is critical/immediate; typo is low and batched; the feature request becomes evidence, not a proposal, unless it changes a block.",
         "Severities follow the rule (legal/safety/security immediate).",
@@ -256,9 +256,9 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
   architecture: [
     bp(
       "Boundary decision for {business}",
-      "{business} ({stack}) must add webhook ingestion from {integration}. Propose where it lives (service boundary), how events are verified and normalised, how they reach the rest of the system (outbox), and what makes it tenant-safe. Under 250 words.",
+      "{business} ({stack}) must add webhook ingestion from {integration}. Propose where it lives (service boundary), how events are verified and normalized, how they reach the rest of the system (outbox), and what makes it tenant-safe. Under 250 words.",
       [
-        "Places ingestion in a dedicated receiver that verifies signatures and writes normalised events through the outbox.",
+        "Places ingestion in a dedicated receiver that verifies signatures and writes normalized events through the outbox.",
         "States how business_id is derived and enforced.",
         "Stays under 250 words and avoids unnecessary components.",
       ],
@@ -321,7 +321,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       "Score all 15 channels (lead_generation, email_automation, seo, geo, content, social, paid_ads, influencer, affiliate, direct_mail, print, broadcast, outdoor, pr, events) 1-20 for {business}: {product}, {price}, {customer}, {market}, budget {currency} 2,000/month, runway 12 months, founder strong at writing. Return JSON with fit, potential_stars, cpa_range (Estimate), why (three sentences) per channel, and 3-6 starters.",
       [
         "All 15 channels scored; starters are 3-6 and consistent with the highest fits.",
-        "CPA ranges labelled Estimate; 'why' is exactly three sentences.",
+        "CPA ranges labeled Estimate; 'why' is exactly three sentences.",
         "Channels the budget cannot sustain for 8 weeks score at most 8.",
       ],
       { checks: [CHECK.json("strategist"), CHECK.all("Estimate")] },
@@ -429,7 +429,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       "Read an experiment honestly for {business}",
       "Results for {business}: variant B converted 4.1% vs A 3.6% over 2 weeks with 410 and 398 visitors. Decide whether to ship B, say what the data does and does not support, and what you would do next.",
       [
-        "Recognises the small sample and does not over-claim significance.",
+        "Recognizes the small sample and does not over-claim significance.",
         "Recommends a proportionate next step (extend or ship with monitoring) with reasoning.",
         "States the uncertainty plainly.",
       ],
@@ -443,7 +443,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       [
         "Formulas match the definitions; financing rows are excluded from burn.",
         "Each number lists the transaction ids used.",
-        "Basis and rate are labelled.",
+        "Basis and rate are labeled.",
       ],
       { fixtures: { transactions: "fixtures/finance/{business}_transactions.json" }, mockTools: TOOLS.finance, checks: [CHECK.cites()] },
     ),
@@ -452,7 +452,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       "Build a 6-month driver model for {business}: drivers (new {customer} per month from the distribution plan, {price}, churn, fixed costs), outputs (revenue, burn, cash). State every assumption, label outputs Forecast, and show one sensitivity.",
       [
         "Drivers and assumptions are explicit and plausible for the business.",
-        "Outputs are labelled Forecast and reconcile arithmetically.",
+        "Outputs are labeled Forecast and reconcile arithmetically.",
         "Includes one sensitivity with its effect.",
       ],
       { checks: [CHECK.all("Forecast")] },
@@ -475,7 +475,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       [
         "Arithmetic is correct and drivers change burn plausibly per scenario.",
         "Names which thresholds each scenario crosses and when.",
-        "Labelled Forecast throughout.",
+        "Labeled Forecast throughout.",
       ],
       { checks: [CHECK.all("Forecast")] },
     ),
@@ -534,9 +534,9 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
   investor_reporting: [
     bp(
       "Monthly update draft for {business}",
-      "Draft {business}'s monthly investor update: {metric}; cash {currency} 142,000; runway 9.4 months (Forecast); 3 product releases; one risk ({supplier} delay). Sections: highlights, numbers, product, risks, asks. Under 300 words, no hype, every number labelled with its basis.",
+      "Draft {business}'s monthly investor update: {metric}; cash {currency} 142,000; runway 9.4 months (Forecast); 3 product releases; one risk ({supplier} delay). Sections: highlights, numbers, product, risks, asks. Under 300 words, no hype, every number labeled with its basis.",
       [
-        "All five sections present; numbers match the prompt and are labelled.",
+        "All five sections present; numbers match the prompt and are labeled.",
         "Risks are stated plainly; asks are specific.",
         "Under 300 words, no hype adjectives.",
       ],
@@ -553,10 +553,10 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Cap table summary for {business}",
-      "Summarise {business}'s cap table for an update (fixture cap_table): holders by class, option pool, outstanding SAFEs with caps, and the fully diluted ownership of the founders. Label the SAFE conversion as modelled, not actual.",
+      "Summarize {business}'s cap table for an update (fixture cap_table): holders by class, option pool, outstanding SAFEs with caps, and the fully diluted ownership of the founders. Label the SAFE conversion as modeled, not actual.",
       [
         "Numbers reconcile to the fixture; fully diluted math is correct.",
-        "SAFE conversion is labelled as modelled.",
+        "SAFE conversion is labeled as modeled.",
         "Clear and concise, no advice.",
       ],
       { fixtures: { cap_table: "fixtures/finance/{business}_cap_table.json" } },
@@ -638,7 +638,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Deadline collision at {business}",
-      "Two {business} deadlines fall in the same week: annual accounts filing and a {regulator} product notification. The accountant is unavailable. Prioritise, propose the plan, and write the Inbox warning with the consequences of missing each.",
+      "Two {business} deadlines fall in the same week: annual accounts filing and a {regulator} product notification. The accountant is unavailable. Prioritize, propose the plan, and write the Inbox warning with the consequences of missing each.",
       [
         "Correctly weighs penalties and reversibility of each deadline.",
         "Plan is actionable and names founder steps.",
@@ -678,9 +678,9 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Protect what {business} creates",
-      "{business} commissions artwork from a freelancer and open-source code is used in {product}. List the IP items to secure (assignments, licences, attribution), the documents needed, and which require the founder's signature.",
+      "{business} commissions artwork from a freelancer and open-source code is used in {product}. List the IP items to secure (assignments, licenses, attribution), the documents needed, and which require the founder's signature.",
       [
-        "Identifies assignment of freelancer work and open-source licence obligations.",
+        "Identifies assignment of freelancer work and open-source license obligations.",
         "Documents are specific and signature is a founder action.",
         "No invented legal certainty.",
       ],
@@ -694,7 +694,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       "Design the path from specification to first shipment for {business} ({product}): sourcing, samples, testing, certification, packaging, production, freight. Give the steps, dependencies, gates (founder decisions), durations (Estimate) and the critical path.",
       [
         "Dependencies and gates are correct (samples before certification, PO is a founder gate).",
-        "Durations are labelled Estimate and the critical path is identified.",
+        "Durations are labeled Estimate and the critical path is identified.",
         "Steps are owned by the right specialists.",
       ],
       { checks: [CHECK.all("Estimate")] },
@@ -709,10 +709,10 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       ],
     ),
     bp(
-      "Parallelise safely at {business}",
+      "Parallelize safely at {business}",
       "{business} wants to shorten time to launch by running packaging design in parallel with formulation. Say what can run in parallel, what must wait for a stable formulation or INCI, and the risk of starting too early.",
       [
-        "Correctly separates parallelisable work (structure, dieline) from dependent work (label content, compatibility).",
+        "Correctly separates parallelizable work (structure, dieline) from dependent work (label content, compatibility).",
         "Names the rework risk.",
         "Proposes a decision point.",
       ],
@@ -743,8 +743,8 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       "Vendor record hygiene for {business}",
       "After a week of emails with {supplier} for {business}, write what should exist in the CRM: entity fields, interactions, documents, open items. Identify what was missing in the fixture thread and fix it.",
       [
-        "Lists the right CRM artefacts and finds the gaps in the fixture.",
-        "Interactions summarised factually with dates.",
+        "Lists the right CRM artifacts and finds the gaps in the fixture.",
+        "Interactions summarized factually with dates.",
         "Open items have owners.",
       ],
       { fixtures: { thread: "fixtures/ops/supplier_thread.json" }, mockTools: TOOLS.crm },
@@ -789,7 +789,7 @@ export const LEAD_BLUEPRINTS: BlueprintSet = {
       [
         "Production and inventory plan respects MOQ, lead time and capacity.",
         "Reorder point computed from lead time and forecast demand.",
-        "Identifies the tightest constraint with numbers; forecasts labelled.",
+        "Identifies the tightest constraint with numbers; forecasts labeled.",
       ],
       { checks: [CHECK.all("Forecast")] },
     ),

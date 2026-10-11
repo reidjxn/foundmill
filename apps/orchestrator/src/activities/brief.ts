@@ -15,7 +15,7 @@ const CHARS_PER_TOKEN = 4;
 export const approxTokens = (text: string): number => Math.ceil(text.length / CHARS_PER_TOKEN);
 
 function formatMinor(amountMinor: number, currency: string): string {
-  return `${(amountMinor / 100).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+  return `${(amountMinor / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
 }
 
 /** Trim a section list to fit the remaining budget, keeping the first entries (callers pre-sort by importance). */
@@ -103,7 +103,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
 
       // ---- prose brief (≈ 4k tokens) ------------------------------------------------------------------------------
       const sections: string[] = [];
-      sections.push(`# ${business.name}\nMode: ${business.businessMode}${holiday ? " (founder on holiday; Chief of Staff decides within authority)" : ""}. Archetype: ${business.archetype ?? "not committed"}. Game mode: ${business.gameMode}. Plan tier: ${business.planTier}. Currency: ${currency}.`);
+      sections.push(`# ${business.name}\nMode: ${business.businessMode}${holiday ? " (founder on vacation; Chief of Staff decides within authority)" : ""}. Archetype: ${business.archetype ?? "not committed"}. Game mode: ${business.gameMode}. Plan tier: ${business.planTier}. Currency: ${currency}.`);
       if (Object.keys(business.glossary).length) sections.push(`## Glossary\n${Object.entries(business.glossary).map(([k, v]) => `- say "${v}" for "${k}"`).join("\n")}`);
       sections.push(`## Departments\n${fit(departments.map((d) => `- ${d.name} (${d.id}): modules ${d.moduleKeys.join(", ") || "none"}; lead ${d.leadAgentId ?? "none"}; budget ${d.budgetMinor === null ? "unset" : formatMinor(d.budgetMinor, currency) + " (Estimate)"}`), 400).join("\n")}`);
       sections.push(`## Team (${agents.length})\n${fit(agents.map((a) => `- ${a.name} — ${a.role || a.agentType} [${a.layer}, ${a.modelKey}, ${a.status}] id ${a.id}`), 900).join("\n")}`);

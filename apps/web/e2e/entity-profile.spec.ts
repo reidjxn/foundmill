@@ -13,9 +13,9 @@ interface CrmRowRef {
 
 /**
  * The Kind column is a chip with one record's kind in words, singular (components/crm/logic.ts KIND_WORD: Person,
- * Organisation, Agent, …); the match ignores case and the ref keeps the lower-cased word.
+ * Organization, Agent, …); the match ignores case and the ref keeps the lower-cased word.
  */
-const KIND_CHIP = /^(Person|Organisation|Agent|Staff|Member|Community|Venue)$/i;
+const KIND_CHIP = /^(Person|Organization|Agent|Staff|Member|Community|Venue)$/i;
 
 /** The first visible CRM rows: name, kind chip label and profile link. */
 async function crmRows(page: Page, limit = 12): Promise<CrmRowRef[]> {
@@ -83,14 +83,14 @@ test.describe("entity profile", () => {
     await openBusiness(page, "crm");
     // The duplicate candidate must be another record of the same kind (the dialog searches by name, email or domain
     // within the source's kind). The listing also carries the agents as records, so the pair is taken from the
-    // people and organisations: the first person or organisation that has a second row of its kind.
+    // people and organizations: the first person or organization that has a second row of its kind.
     const rows = await crmRows(page);
     const pair = rows.flatMap((source) => {
-      if (!source.kind || !/^(person|organisation)$/.test(source.kind)) return [];
+      if (!source.kind || !/^(person|organization)$/.test(source.kind)) return [];
       const other = rows.find((r) => r.kind === source.kind && r.name !== source.name);
       return other ? [{ source, other }] : [];
     })[0];
-    expect(pair, "the seed gives Northwind two people or two organisations to merge").toBeTruthy();
+    expect(pair, "the seed gives Northwind two people or two organizations to merge").toBeTruthy();
     const { source, other } = pair!;
     const url = source.href;
     await page.goto(url);

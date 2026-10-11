@@ -136,7 +136,7 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
             layout="rows"
             labelClassName="w-40"
             items={[
-              { label: "Labelled wins", value: formatNumber(paying, { digits: 0 }), numeric: true },
+              { label: "Labeled wins", value: formatNumber(paying, { digits: 0 }), numeric: true },
               { label: "Data-driven from", value: `${formatNumber(model.threshold, { digits: 0 })} wins`, numeric: true },
               { label: "Partial journeys", value: `${partialWins} of ${wins.length}`, numeric: true },
             ]}

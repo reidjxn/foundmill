@@ -231,7 +231,7 @@ export const Exhibit: Story = {
             header: "Option",
             cell: (r: { o: string; u: number; c: string; w: number }) => r.o,
           },
-          { id: "u", header: "Units", numeric: true, cell: (r) => r.u.toLocaleString("en-GB") },
+          { id: "u", header: "Units", numeric: true, cell: (r) => r.u.toLocaleString("en-US") },
           { id: "c", header: "Cost", numeric: true, cell: (r) => r.c },
           { id: "w", header: "Covers", numeric: true, cell: (r) => `${r.w} wk` },
         ]}
@@ -341,7 +341,7 @@ export const TightStrip: Story = {
     <div style={{ width: 640 }}>
       <StatusStrip
         tiles={[
-          { label: "Cash in bank", value: { amountMinor: 123_456_700, currency: "SEK" }, caption: "3 connected accounts, synced 09:12", spark: SPARK, provenance: { source: "Bank balances" } },
+          { label: "Cash in bank", value: { amountMinor: 123_456_700, currency: "SEK" }, caption: "3 connected accounts, synced 9:12 AM", spark: SPARK, provenance: { source: "Bank balances" } },
           { label: "Net burn", value: { amountMinor: -1_512_300, currency: "GBP" }, estimate: "estimate", caption: "Cash-flow positive" },
           { label: "Customers this week", value: 20, format: "integer", delta: { value: -1, label: "vs last week" }, spark: [12, 14, 13, 18, 21, 20] },
           { label: "Payback", value: 0.1, format: "decimal", unit: "mo", estimate: "estimate", caption: "141 paying customers" },

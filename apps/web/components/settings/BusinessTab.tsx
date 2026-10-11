@@ -38,7 +38,7 @@ export function BusinessTab() {
     trpc.business.update.mutationOptions({
       onSuccess: () => {
         void invalidate(["business"]);
-        t.saved("Business saved", "The top bar and the initials mark follow the new brand colours.");
+        t.saved("Business saved", "The top bar and the initials mark follow the new brand colors.");
       },
       onError: (e) => t.failed(e),
     }),
@@ -105,7 +105,7 @@ export function BusinessTab() {
           <SimpleSelect id="biz-archetype" value={archetype} onValueChange={(v) => setArchetype(v as Archetype)} placeholder="Choose an archetype" options={ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))} />
         </Field>
       </SettingsSection>
-      <SettingsSection title="Logo and brand colours" data-testid="settings-logo">
+      <SettingsSection title="Logo and brand colors" data-testid="settings-logo">
         <LogoPicker
           name={name || b.name}
           kit={kit}
@@ -119,14 +119,14 @@ export function BusinessTab() {
           }}
         />
         <FormRow>
-          <Field htmlFor="kit-primary" label="Primary colour" error={HEX_RE.test(primary) ? undefined : "Use a 6-digit hex colour"}>
+          <Field htmlFor="kit-primary" label="Primary color" error={HEX_RE.test(primary) ? undefined : "Use a 6-digit hex color"}>
             <Input id="kit-primary" mono value={primary} onChange={(e) => setPrimary(e.target.value)} trailing={<span aria-hidden className="inline-block size-4 rounded-xs ring-1 ring-line-strong" style={{ background: HEX_RE.test(primary) ? primary : "transparent" }} />} data-testid="kit-primary-hex" />
           </Field>
-          <Field htmlFor="kit-secondary" label="Secondary colour" error={HEX_RE.test(secondary) ? undefined : "Use a 6-digit hex colour"}>
+          <Field htmlFor="kit-secondary" label="Secondary color" error={HEX_RE.test(secondary) ? undefined : "Use a 6-digit hex color"}>
             <Input id="kit-secondary" mono value={secondary} onChange={(e) => setSecondary(e.target.value)} trailing={<span aria-hidden className="inline-block size-4 rounded-xs ring-1 ring-line-strong" style={{ background: HEX_RE.test(secondary) ? secondary : "transparent" }} />} data-testid="kit-secondary-hex" />
           </Field>
         </FormRow>
-        <Hint>The logo is saved as soon as you choose it. Brand colours are saved with the button below; text on the primary colour is picked for you so it always stays readable.</Hint>
+        <Hint>The logo is saved as soon as you choose it. Brand colors are saved with the button below; text on the primary color is picked for you so it always stays readable.</Hint>
         <SaveBar
           onSave={() => update.mutate({ businessId, name: name.trim(), slug, archetype: archetype || null, kitPrimary: primary, kitSecondary: secondary })}
           saving={update.isPending}

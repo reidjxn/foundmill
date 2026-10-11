@@ -51,7 +51,7 @@ export const ENTITY_KIND_ICONS: Record<EntityKind, LucideIcon> = {
 
 export const ENTITY_KIND_LABELS: Record<EntityKind, string> = {
   person: "Person",
-  organisation: "Organisation",
+  organisation: "Organization",
   agent: "Agent",
   team_member: "Team member",
   platform_member: "Member",

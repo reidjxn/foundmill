@@ -13,7 +13,7 @@ import { InlineError, agentTypeNoun, errorMessage, useAction } from "./shared";
 import type { AgentRow, ModelCompareResponse, ModelSetResponse } from "./types";
 
 const MODEL_DESCRIPTIONS: Record<ModelKey, string> = {
-  opus: "Deepest judgement; the default for the Chief of Staff and leads.",
+  opus: "Deepest judgment; the default for the Chief of Staff and leads.",
   sonnet: "Fast and capable; the default for workers.",
   haiku: "Cheapest; classification, linking and other utility work.",
 };

@@ -6,7 +6,7 @@ import { NORTHWIND_KIT } from "./fixtures";
 const meta = {
   title: "Shell/StopAllAgents",
   component: StopAllAgents,
-  parameters: { backgrounds: { value: "panel" }, docs: { description: { component: "The kill switch (BUILD §5.4): visible on every screen — on the top bar a 34 px glass square with the octagon in a light red that warms towards red on hover — confirms in a dialog, shows loading until onConfirm settles, keeps the dialog open with the error if it fails. Nothing is deleted." } } },
+  parameters: { backgrounds: { value: "panel" }, docs: { description: { component: "The kill switch (BUILD §5.4): visible on every screen — on the top bar a 34 px glass square with the octagon in a light red that warms toward red on hover — confirms in a dialog, shows loading until onConfirm settles, keeps the dialog open with the error if it fails. Nothing is deleted." } } },
   args: { onConfirm: () => new Promise<void>((r) => setTimeout(r, 1200)), runningCount: 7 },
 } satisfies Meta<typeof StopAllAgents>;
 export default meta;

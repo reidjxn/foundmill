@@ -14,7 +14,7 @@ export interface MoneyInputProps extends Omit<InputProps, "prefix" | "suffix" | 
   currency?: string;
   /** The symbol before the value. Default: the currency's narrow symbol in `locale` ("£"); false for none. */
   symbol?: ReactNode | false;
-  /** Grouping and the symbol follow this locale. Default en-GB. */
+  /** Grouping and the symbol follow this locale. Default en-US. */
   locale?: string;
   /** md 32 (a toolbar or table), lg 36, xl 46 (forms; the default): the value in Barlow 600 22 with the symbol at 18. */
   controlSize?: Exclude<InputSize, "sm">;

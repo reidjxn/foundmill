@@ -23,7 +23,7 @@ env:
 
 jobs:
   banned-terms:
-    name: Banned terms and vocabulary
+    name: Banned terms, vocabulary and US English
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -39,6 +39,12 @@ jobs:
         run: node --test scripts/banned-terms.test.mjs
       - name: Brand scan (Football Manager / SI / SEGA) and vocabulary scan (football-only words in user-facing text)
         run: node scripts/banned-terms.mjs --sweep docs/VOCAB_SWEEP.md
+      - name: US English self-test
+        if: ${{ !cancelled() }}
+        run: node --test scripts/us-english.test.mjs
+      - name: US English and US dates (British spellings, day-first dates, en-GB locales in user-facing text and code)
+        if: ${{ !cancelled() }}
+        run: node scripts/us-english.mjs
       - name: Upload the vocabulary sweep
         if: ${{ always() }}
         uses: actions/upload-artifact@v4

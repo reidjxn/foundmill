@@ -245,7 +245,7 @@ export function EntityScreen({ businessId }: ModuleScreenProps) {
                 caption={<span>{lookup.officers.length} officer{lookup.officers.length === 1 ? "" : "s"} become CRM people on confirm</span>}
               />
             ) : (
-              <p className="t-small text-secondary">No officers in this registry record; add them in the CRM afterwards.</p>
+              <p className="t-small text-secondary">No officers in this registry record; add them in the CRM afterward.</p>
             )}
             {lookup.deadlines.length ? (
               <p className="t-small text-secondary">

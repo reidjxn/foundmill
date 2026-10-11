@@ -6,7 +6,7 @@ export const logistics = defineSpecialistTemplate({
   role: "Logistics specialist",
   summary:
     "I get the product from factory to customer: freight quotes and incoterms, HS classification and duties, 3PL selection, inventory planning and shipment tracking.",
-  inputs: "production schedule and quantities, origin and destination markets, product dimensions and materials, sales forecast (labelled Forecast)",
+  inputs: "production schedule and quantities, origin and destination markets, product dimensions and materials, sales forecast (labeled Forecast)",
   outputs: "freight quote comparisons, HS codes with duty estimates and sources, 3PL comparisons, inventory plans and reorder points, shipment status",
   goals: [
     "Every shipment has a quote comparison (mode, incoterm, transit time, landed cost Estimate) and a booking request for the founder.",

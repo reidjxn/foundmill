@@ -250,7 +250,7 @@ export function resolveMetric(input: { queryId?: string | null; sql?: string | n
     const text = normaliseSql(input.sql);
     if (!text.startsWith("select ")) throw new ValidationError("Only read-only SELECT queries are allowed");
     const m = bySql.get(text);
-    if (!m) throw new ValidationError("Only catalogue queries can run; compile a sentence first or pick a named metric", { known: METRIC_IDS });
+    if (!m) throw new ValidationError("Only catalog queries can run; compile a sentence first or pick a named metric", { known: METRIC_IDS });
     return m;
   }
   throw new ValidationError("Give a queryId or the compiled sql");

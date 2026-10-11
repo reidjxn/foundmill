@@ -4,12 +4,12 @@ import { chipsToOperators, crmFilterFields, mergeChips, parseCrmQuery, parseNatu
 const values = (chips: { field: string; value?: unknown }[]) => Object.fromEntries(chips.map((c) => [c.field, c.value]));
 
 describe("natural-language filters → chips", () => {
-  it("recognises roles, kinds, stages, owners and departments", () => {
+  it("recognizes roles, kinds, stages, owners and departments", () => {
     const r = parseNaturalLanguage("churned customers in Growth owned by Mara", { departments: ["Growth", "Product"] });
     expect(values(r.chips)).toEqual({ owner: "mara", department: "growth", stage: "churned", role: "customer" });
     expect(r.text).toBe("");
   });
-  it("keeps free text that is not a recognised phrase", () => {
+  it("keeps free text that is not a recognized phrase", () => {
     const r = parseNaturalLanguage("organisations called acme skincare");
     expect(values(r.chips)).toEqual({ kind: "organisation" });
     expect(r.text).toBe("called acme skincare");
@@ -29,6 +29,12 @@ describe("operators", () => {
   it("round-trips chips to operator text", () => {
     const r = parseCrmQuery("kind:person role:customer");
     expect(chipsToOperators(r.chips)).toBe("kind:person role:customer");
+  });
+  it("prints the organization kind in US English and parses it back to the stored key", () => {
+    const r = parseCrmQuery("kind:organization role:supplier");
+    expect(values(r.chips)).toEqual({ kind: "organisation", role: "supplier" });
+    expect(chipsToOperators(r.chips)).toBe("kind:organization role:supplier");
+    expect(chipsToOperators(parseCrmQuery(chipsToOperators(r.chips)).chips)).toBe("kind:organization role:supplier");
   });
   it("mergeChips replaces a field's chip instead of duplicating it", () => {
     const a = parseCrmQuery("role:lead").chips;

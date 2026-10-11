@@ -84,7 +84,7 @@ const FAMILIES: Family[] = [
   {
     key: "matrix",
     name: "Dot matrix",
-    concept: (n) => `The first letter of ${n} set in a five-by-five grid of rounded cells, one cell lifted in the second colour.`,
+    concept: (n) => `The first letter of ${n} set in a five-by-five grid of rounded cells, one cell lifted in the second color.`,
     draw: (p, rng, initial) => {
       const rows = GLYPHS[initial] ?? GLYPHS.O!;
       const cells: string[] = [];
@@ -101,7 +101,7 @@ const FAMILIES: Family[] = [
   {
     key: "orbit",
     name: "Orbit",
-    concept: (n) => `A ring with one point travelling on it: ${n} keeping something moving in a steady loop.`,
+    concept: (n) => `A ring with one point traveling on it: ${n} keeping something moving in a steady loop.`,
     draw: (p, rng) => {
       const angle = (rng.int(20, 70) * Math.PI) / 180;
       const cx = 50 + 26 * Math.cos(-angle);
@@ -112,7 +112,7 @@ const FAMILIES: Family[] = [
   {
     key: "stack",
     name: "Stack",
-    concept: (n) => `Three bars stacked like layers of work, the middle one in the accent colour: ${n} building in steps.`,
+    concept: (n) => `Three bars stacked like layers of work, the middle one in the accent color: ${n} building in steps.`,
     draw: (p, rng) => {
       const widths = rng.shuffle([60, 46, 34]);
       const centred = rng.chance(0.5);
@@ -138,13 +138,13 @@ const FAMILIES: Family[] = [
   {
     key: "split",
     name: "Split disc",
-    concept: (n) => `A disc cut in two and offset, the halves in both brand colours: ${n} bringing two sides together.`,
+    concept: (n) => `A disc cut in two and offset, the halves in both brand colors: ${n} bringing two sides together.`,
     draw: (p) => svg(tile(INK) + `<path d="M47 22 A28 28 0 0 0 47 78 Z" fill="${p.primary}"/>` + `<path d="M53 22 A28 28 0 0 1 53 78 Z" fill="${p.secondary}" transform="translate(0 6)"/>`),
   },
   {
     key: "wave",
     name: "Signal",
-    concept: (n) => `Two parallel waves, one in each colour: a clear signal from ${n}.`,
+    concept: (n) => `Two parallel waves, one in each color: a clear signal from ${n}.`,
     draw: (p) => svg(tile(p.primary) + `<path d="M18 42 C30 28 42 28 50 42 S70 56 82 42" fill="none" stroke="${p.onPrimary}" stroke-width="8" stroke-linecap="round"/>` + `<path d="M18 62 C30 48 42 48 50 62 S70 76 82 62" fill="none" stroke="${p.secondary}" stroke-width="8" stroke-linecap="round"/>`),
   },
   {

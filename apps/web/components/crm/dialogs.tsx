@@ -18,7 +18,7 @@ import { KNOWN_ROLES } from "./search";
 
 const CREATE_KINDS: { value: EntityKind; label: string }[] = [
   { value: "person", label: "Person" },
-  { value: "organisation", label: "Organisation" },
+  { value: "organisation", label: "Organization" },
   { value: "venue", label: "Venue" },
 ];
 

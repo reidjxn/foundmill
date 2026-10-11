@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currencySymbol, formatCompact, formatDate, formatDelta, formatDuration, formatMoney, formatMoneyDelta, formatMoneyInput, formatNumber, formatOrdinal, formatPercent, formatRelative, initials, truncate } from "./format";
+import { DATE_FORMATS, DEFAULT_LOCALE, currencySymbol, formatCompact, formatDate, formatDateRange, formatDateTime, formatDelta, formatHourOfDay, formatDuration, formatMoney, formatMoneyDelta, formatMoneyInput, formatNumber, formatOrdinal, formatPercent, formatRelative, formatTime, initials, truncate } from "./format";
 
 describe("formatNumber", () => {
   it("groups thousands and caps decimals at 2", () => {
@@ -40,6 +40,12 @@ describe("money", () => {
     expect(formatMoney({ amountMinor: 123456, currency: "EUR" })).toBe("€1,234.56");
     expect(formatMoney({ amountMinor: 1_250_000_00, currency: "GBP" }, { compact: true })).toMatch(/^£1[mM]$/);
   });
+  it("keeps each business's own currency with its narrow symbol, formatted en-US", () => {
+    expect(formatMoney({ amountMinor: 123456, currency: "GBP" })).toBe("£1,234.56");
+    expect(formatMoney({ amountMinor: 123456, currency: "USD" })).toBe("$1,234.56");
+    expect(formatMoney({ amountMinor: -123456, currency: "EUR" })).toBe("-€1,234.56");
+    expect(formatMoney({ amountMinor: 1_600_000, currency: "GBP" }, { compact: true })).toBe("£16K");
+  });
   it("signs deltas", () => {
     expect(formatMoneyDelta({ amountMinor: 120000, currency: "EUR" })).toBe("+€1,200.00");
     expect(formatMoneyDelta({ amountMinor: -30000, currency: "EUR" })).toBe("−€300.00");
@@ -49,9 +55,34 @@ describe("money", () => {
 
 describe("dates", () => {
   const d = new Date(2026, 9, 5, 14, 5);
-  it("formats dates", () => {
-    expect(formatDate(d)).toBe("5 Oct 2026");
+  it("formats dates the US way", () => {
+    expect(DEFAULT_LOCALE).toBe("en-US");
+    expect(formatDate(d)).toBe("Oct 5, 2026");
+    expect(formatDate(d, DATE_FORMATS.dayMonth)).toBe("Oct 5");
+    expect(formatDate(d, DATE_FORMATS.weekdayDayMonth)).toBe("Mon, Oct 5");
+    expect(formatDate(d, DATE_FORMATS.weekdayDate)).toBe("Mon, Oct 5, 2026");
+    expect(formatDate(d, DATE_FORMATS.longDate)).toBe("Monday, October 5, 2026");
+    expect(formatDate(d, DATE_FORMATS.monthYear)).toBe("Oct 2026");
+    expect(formatDate(new Date(2026, 8, 21), DATE_FORMATS.dayMonth)).toBe("Sep 21"); // three letters, never "Sept"
     expect(formatDate("not a date")).toBe("—");
+  });
+  it("formats times on a 12-hour clock", () => {
+    expect(formatTime(d)).toBe("2:05 PM");
+    expect(formatTime(new Date(2026, 9, 5, 0, 30))).toBe("12:30 AM");
+    expect(formatTime(new Date(2026, 9, 5, 12, 0))).toBe("12:00 PM");
+    expect(formatDateTime(d)).toBe("Oct 5, 2026, 2:05 PM");
+    expect(formatDate(d, DATE_FORMATS.dayMonthTime)).toBe("Oct 5, 2:05 PM");
+    expect([0, 3, 9, 12, 15, 23].map(formatHourOfDay)).toEqual(["12 AM", "3 AM", "9 AM", "12 PM", "3 PM", "11 PM"]);
+  });
+  it("formats ranges with an en dash", () => {
+    expect(formatDateRange(new Date(2026, 9, 7), new Date(2026, 9, 21))).toBe("Oct 7 – 21");
+    expect(formatDateRange(new Date(2026, 9, 7), new Date(2026, 9, 21), { withYear: true })).toBe("Oct 7 – 21, 2026");
+    expect(formatDateRange(new Date(2026, 9, 28), new Date(2026, 10, 3))).toBe("Oct 28 – Nov 3");
+    expect(formatDateRange(new Date(2026, 7, 6), new Date(2026, 10, 8), { withYear: true })).toBe("Aug 6 – Nov 8, 2026");
+    expect(formatDateRange(new Date(2026, 11, 28), new Date(2027, 0, 4))).toBe("Dec 28, 2026 – Jan 4, 2027");
+    expect(formatDateRange(new Date(2026, 9, 7), new Date(2026, 9, 7))).toBe("Oct 7");
+    expect(formatDateRange(new Date(2026, 9, 7), new Date(2026, 9, 7), { withYear: true })).toBe("Oct 7, 2026");
+    expect(formatDateRange("nope", new Date(2026, 9, 7))).toBe("—");
   });
   it("formats relative time deterministically", () => {
     const now = new Date(2026, 9, 5, 14, 5, 0);
@@ -60,6 +91,12 @@ describe("dates", () => {
     expect(formatRelative(new Date(now.getTime() + 2 * 3600_000), now)).toBe("in 2 hr");
     expect(formatRelative(new Date(now.getTime() - 24 * 3600_000), now)).toBe("yesterday");
     expect(formatRelative(new Date(now.getTime() - 4 * 24 * 3600_000), now)).toBe("4 days ago");
+    // Relative times keep their words through the switch to US English (US CLDR would print "2 wk. ago" and "4d ago").
+    expect(formatRelative(new Date(now.getTime() - 5 * 3600_000), now)).toBe("5 hr ago");
+    expect(formatRelative(new Date(now.getTime() - 14 * 24 * 3600_000), now)).toBe("2 wk ago");
+    expect(formatRelative(new Date(now.getTime() - 90 * 24 * 3600_000), now)).toBe("3 mo ago");
+    expect(formatRelative(new Date(now.getTime() - 4 * 24 * 3600_000), now, { style: "narrow" })).toBe("4 days ago");
+    expect(formatRelative(new Date(now.getTime() - 3 * 60_000), now, { style: "narrow" })).toBe("3 min ago");
   });
   it("formats durations", () => {
     expect(formatDuration(42_000)).toBe("42s");

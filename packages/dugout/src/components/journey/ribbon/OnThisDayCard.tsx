@@ -3,7 +3,7 @@ import { Banknote, Diamond, Flag, Landmark, Rocket, Trophy } from "lucide-react"
 import type { MilestoneKind } from "@foundmill/shared";
 import { cn } from "../../../lib/cn";
 import { FitText } from "../../foundation/FitText";
-import { formatDate, formatMoney, formatNumber } from "../../../lib/format";
+import { DATE_FORMATS, formatDate, formatMoney, formatNumber } from "../../../lib/format";
 import { ProvenanceChip } from "../../foundation/Chip";
 import { Icon, type IconComponent } from "../../foundation/Icon";
 import type { ForecastPoint } from "../types";
@@ -44,7 +44,7 @@ export function OnThisDayCard({ summary, forecastPoint, currency = "EUR", onOpen
   return (
     <div className={cn("surface-overlay w-72 p-3 text-body text-primary", className)} data-on-this-day={summary.day}>
       <div className="flex items-baseline justify-between gap-2">
-        <span className="t-display-sm">{summary.isToday ? "Today" : formatDate(summary.day, "EEE d MMM yyyy")}</span>
+        <span className="t-display-sm">{summary.isToday ? "Today" : formatDate(summary.day, DATE_FORMATS.weekdayDate)}</span>
         {summary.chapter ? <span className="t-label truncate">{summary.chapter.title ?? summary.chapter.provisionalTitle}</span> : null}
       </div>
       {summary.isFuture ? (

@@ -118,7 +118,7 @@ export const businessRouter = router({
       // Signing is a hard gate: never part of the Chief of Staff's authority, whatever the dialog sent.
       const authority = input.authority.filter((d) => d !== "sign_contracts");
       const existing = await repos.holidays.current(ctx.db, ctx.businessId);
-      if (existing) return { holiday: existing, workflow: { queued: false, workflowId: workflowIds.holiday(existing.id), reason: "a holiday is already running" } };
+      if (existing) return { holiday: existing, workflow: { queued: false, workflowId: workflowIds.holiday(existing.id), reason: "a vacation is already running" } };
       const holiday = await ctx.rls(async (tx) => {
         const h = await repos.holidays.start(tx, ctx.businessId, {
           untilAt: input.until.kind === "date" ? input.until.date : null,
@@ -152,7 +152,7 @@ export const businessRouter = router({
 
   endHoliday: adminProcedure.input(z.object({ reason: z.enum(["founder_returned", "kill_switch"]).default("founder_returned") })).mutation(async ({ ctx, input }) => {
     const current = await repos.holidays.current(ctx.db, ctx.businessId);
-    if (!current) return { holiday: null, workflow: { queued: false, workflowId: "", reason: "no holiday is running" } };
+    if (!current) return { holiday: null, workflow: { queued: false, workflowId: "", reason: "no vacation is running" } };
     const workflow = await ctx.temporal.signal(workflowIds.holiday(current.id), "stop", { reason: input.reason, by: ctx.userId });
     const holiday = await ctx.rls(async (tx) => {
       const endedAt = new Date();

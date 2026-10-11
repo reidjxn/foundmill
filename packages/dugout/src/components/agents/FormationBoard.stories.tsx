@@ -52,7 +52,7 @@ type Story = StoryObj;
 
 /** On load all 15 fade in off the board; the four recommended channels join the board one by one. Drag or press Enter to move a token; O opens it. */
 export const RecommendationsWalkingOn: Story = { render: () => <Board /> };
-export const SecondBrandColours: Story = { name: "Second brand colours", render: () => <Board kit={{ primary: "#B8303A", secondary: "#F2E8C9" }} /> };
+export const SecondBrandColours: Story = { name: "Second brand colors", render: () => <Board kit={{ primary: "#B8303A", secondary: "#F2E8C9" }} /> };
 export const StaticNoEntrance: Story = { render: () => <Board animateEntrance={false} /> };
 /** Every channel running, one paused: the densest the map gets. */
 export const AllRunning: Story = {

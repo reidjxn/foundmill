@@ -143,7 +143,7 @@ function sectionDoc(section: string, b: Brief): TiptapDoc {
   if (key.includes("problem"))
     return doc(text(`${sentenceCase(b.audience)} cannot ${b.outcome} without slow, manual work today. ${b.pitch}`), bullets([`The job is done by hand or with tools that were not built for it`, `Mistakes are found late, when they are expensive`, ...(b.imported && b.missing.length ? [`From the import: ${b.missing[0]}`] : [])]));
   if (key.includes("customer"))
-    return doc(lead("Primary segment:", `${b.audience} in ${b.markets}.`), bullets([`Early adopters: the ones who already pay for a workaround`, `Buyer and user are the same person at first`, `Not for: large organisations with their own team for this`]));
+    return doc(lead("Primary segment:", `${b.audience} in ${b.markets}.`), bullets([`Early adopters: the ones who already pay for a workaround`, `Buyer and user are the same person at first`, `Not for: large organizations with their own team for this`]));
   if (key.includes("value"))
     return doc(text(`${b.name} helps ${b.audience} ${b.outcome}.`), bullets([...b.strengths.slice(0, 3), "Agents do the repetitive work; the customer keeps every decision"]));
   if (key.includes("feature"))
@@ -174,7 +174,7 @@ function sectionDoc(section: string, b: Brief): TiptapDoc {
   if (key.includes("manufactur")) return doc(bullets(["Samples before the first production run", "A minimum order quantity the budget can carry", "Quality checks agreed in writing"]));
   if (key.includes("packag")) return doc(bullets(["Packaging that survives the post without a second box", "Labels that meet the rules of every target market, checked before printing", "Recyclable materials where the unit cost allows it"]));
   if (key.includes("complian")) return doc(bullets(["List the regulations per target market before launch", "Keep test reports and declarations with their dates"]));
-  if (key.includes("fulfil")) return doc(bullets(["One fulfilment partner at launch, chosen on quotes the founder approves", "The delivery promise is shown at checkout", "Returns are accepted for thirty days"]));
+  if (key.includes("fulfil")) return doc(bullets(["One fulfillment partner at launch, chosen on quotes the founder approves", "The delivery promise is shown at checkout", "Returns are accepted for thirty days"]));
   if (key.includes("firmware") || key.includes("app")) return doc(bullets(["Updates over the air with a rollback", "The app works offline and syncs later"]));
   return doc(text(`What ${b.name} needs for ${section.toLowerCase()} at launch.`), bullets(["Decide the minimum for the first customer", "List the open questions as research tasks"]));
 }
@@ -234,7 +234,7 @@ function roadmapOf(b: Brief, outline: string[]): FoundationsRoadmapItem[] {
     { title: `Instrument ${ns.metric.toLowerCase()}`, description: `Record the events behind the north-star metric so progress is measured from day one.`, horizon: "now", sections: metrics ? [metrics] : [], acceptance_criteria: ["The metric is computed daily from real events", "The Home dashboard shows it with its definition"], source_ref: null, confidence: 4 },
   ];
   b.seeds.slice(0, 12).forEach((s, i) =>
-    items.push({ title: s.title, description: `Imported from ${s.source}. Confirm the scope before it moves to Now.`, horizon: i < 2 ? "now" : "next", sections: [features], acceptance_criteria: [`The issue's expected behaviour is covered by a test`, `${s.source} can be closed with a link to the change`], source_ref: s.source, confidence: 3 }),
+    items.push({ title: s.title, description: `Imported from ${s.source}. Confirm the scope before it moves to Now.`, horizon: i < 2 ? "now" : "next", sections: [features], acceptance_criteria: [`The issue's expected behavior is covered by a test`, `${s.source} can be closed with a link to the change`], source_ref: s.source, confidence: 3 }),
   );
   items.push(
     { title: f3!.title, description: f3!.story, horizon: "next", sections: [features], acceptance_criteria: f3!.criteria, source_ref: null, confidence: 3 },

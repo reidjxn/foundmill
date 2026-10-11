@@ -32,10 +32,10 @@ export const CONTRACT_FIT = {
   counterparty: { min: 170, grow: 2 },
   status: { min: 160 },
   value: { min: 104 },
-  startsAt: { min: 100 },
-  endsAt: { min: 100 },
+  startsAt: { min: 112 },
+  endsAt: { min: 112 },
   obligations: { min: 136 },
-  updatedAt: { min: 100 },
+  updatedAt: { min: 112 },
 } satisfies Record<string, ColumnFit>;
 export type ContractColumnId = keyof typeof CONTRACT_FIT;
 

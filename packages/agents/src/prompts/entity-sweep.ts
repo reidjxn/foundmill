@@ -15,7 +15,7 @@ export const entitySweepPrompt = definePrompt({
   variables: EntitySweepVariables,
   text: `Find proper nouns in the text that are not already written as [[ent:<id>|Name]] and resolve each against the manifest.
 Manifest: {manifest}
-Match in this order: exact name, then alias, then fuzzy (same organisation or person with a spelling variant). Return JSON {{"links": [{{"span", "entity_id", "confidence": 0-1}}], "ambiguous": [{{"span", "candidate_ids": [...]}}], "unknown": [{{"span", "kind_guess": "person|organisation|venue|community|other"}}]}}.
+Match in this order: exact name, then alias, then fuzzy (same organization or person with a spelling variant). Return JSON {{"links": [{{"span", "entity_id", "confidence": 0-1}}], "ambiguous": [{{"span", "candidate_ids": [...]}}], "unknown": [{{"span", "kind_guess": "person|organization|venue|community|other"}}]}}.
 Rules:
 - Only link with confidence >= 0.9; between 0.6 and 0.9 with more than one candidate report ambiguous; otherwise unknown.
 - Never link common nouns, job titles, product categories or the business's own name when it is used generically.

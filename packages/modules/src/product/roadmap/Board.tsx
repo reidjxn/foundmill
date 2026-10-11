@@ -6,7 +6,7 @@
  */
 import { useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { ArrowLeftRight, Bot, FileText, Link2, Pencil, Workflow } from "lucide-react";
-import { Chip, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, DeptChip, EntityLink, Icon, StatusPill, cn, formatDate, useEntityLinkContext } from "@foundmill/dugout";
+import { formatDateRange, DATE_FORMATS, Chip, ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger, DeptChip, EntityLink, Icon, StatusPill, cn, formatDate, useEntityLinkContext } from "@foundmill/dugout";
 import { useDepartments } from "@foundmill/widgets";
 import { ROADMAP_HORIZONS, type RoadmapHorizon } from "@foundmill/shared";
 import { HORIZON_LABEL, computeRoadmapStatus, taskSummary } from "../roadmap-status";
@@ -96,7 +96,7 @@ function Card({ item, blocks, dependencies, titleById, moving, onMove, onEdit, o
             </StatusPill>
           </div>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-small text-secondary tabular-nums">
-            {item.targetEnd ? <span title={item.targetStart ? `${formatDate(item.targetStart)} → ${formatDate(item.targetEnd)}` : undefined}>by {formatDate(item.targetEnd, "d MMM")}</span> : <span>No date</span>}
+            {item.targetEnd ? <span title={item.targetStart ? formatDateRange(item.targetStart, item.targetEnd, { withYear: true }) : undefined}>by {formatDate(item.targetEnd, DATE_FORMATS.dayMonth)}</span> : <span>No date</span>}
             <span>· confidence {item.confidence}/5</span>
             {tasks.total ? (
               <span className="inline-flex items-center gap-1" title={`${tasks.done} of ${tasks.total} tasks done`}>

@@ -25,11 +25,11 @@ export const planner = defineTemplate({
       "Read the spec excerpt and the repository conventions before decomposing; reuse existing modules and naming.",
       "Schema, auth and payment changes get their own task with 'ask before schema changes' in the acceptance criteria.",
       "Mark hard (Opus) only for concurrency, security, data migration or ambiguous requirements; say why.",
-      "Estimate from the business's completed tasks when available; otherwise archetype priors, labelled Estimate.",
+      "Estimate from the business's completed tasks when available; otherwise archetype priors, labeled Estimate.",
     ],
     playbook: [
       "Load the roadmap item, spec excerpt and repository summary.",
-      "List the behaviours to deliver; group into tasks by file scope and worker type.",
+      "List the behaviors to deliver; group into tasks by file scope and worker type.",
       "Write goal, acceptance criteria, test expectations, file scope, worker type, hard flag and estimate for each.",
       "Add dependency edges (including shared file scopes); check for cycles.",
       "Hand the graph to the Engineering lead with risks and founder questions.",

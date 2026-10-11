@@ -31,7 +31,7 @@ export function Exhibit({ exhibit, entityIds, fromAgentId, currency }: ExhibitPr
   if (ref.kind === "entity_card") return <EntityExhibit entityId={entityIds[0] ?? (ref.specRef && UUID_RE.test(ref.specRef) ? ref.specRef : null)} />;
   if (ref.kind === "diff") return <DiffExhibit proposalId={ref.specRef && UUID_RE.test(ref.specRef) ? ref.specRef : null} />;
   if (ref.kind === "agent_tile") return <AgentExhibit agentId={ref.specRef && UUID_RE.test(ref.specRef) ? ref.specRef : fromAgentId} />;
-  if (!isNamedQueryId(ref.specRef)) return <Unavailable title="Exhibit" reason="This note references a query that is not in the catalogue." />;
+  if (!isNamedQueryId(ref.specRef)) return <Unavailable title="Exhibit" reason="This note references a query that is not in the catalog." />;
   return <NamedQueryExhibit id={ref.specRef} kind={ref.kind} currency={currency} />;
 }
 

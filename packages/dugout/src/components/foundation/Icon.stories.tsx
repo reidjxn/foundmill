@@ -31,7 +31,7 @@ export const EntityKinds: Story = {
         <Icon icon={User} size="inline" /> Person
       </span>
       <span className="inline-flex items-center gap-1">
-        <Icon icon={Building2} size="inline" /> Organisation
+        <Icon icon={Building2} size="inline" /> Organization
       </span>
       <span className="inline-flex items-center gap-1">
         <Icon icon={Bot} size="inline" /> Agent

@@ -81,7 +81,7 @@ const CHANNEL_SYNONYMS: Array<[ChannelKey, RegExp]> = [
   ["geo", /\b(?:geo|ai\s+search|ai\s+answers?|llms?\.txt|answer\s+share|chatgpt\s+visibility|perplexity|generative\s+engine)\b/i],
   ["content", /\b(?:content(?:\s+marketing)?|blog(?:s|ging|\s+posts?)?|articles?|guides?|e-?books?|whitepapers?|case\s+stud(?:y|ies)|youtube\s+videos?|video\s+content)\b/i],
   ["social", /\b(?:social(?:\s+media)?|instagram|tiktok|linkedin\s+(?:posts?|page|presence)|twitter|threads|pinterest|youtube\s+channel|facebook\s+page|posting\s+schedule)\b/i],
-  ["influencer", /\b(?:influencers?|creators?|kols?|seeding\s+(?:campaign|programme))\b/i],
+  ["influencer", /\b(?:influencers?|creators?|kols?|seeding\s+(?:campaign|program(?:me)?))\b/i],
   ["affiliate", /\b(?:affiliates?|referral\s+program(?:me)?|partner\s+program(?:me)?|commissions?)\b/i],
   ["direct_mail", /\b(?:direct\s+mail|postcards?|mailers?|letter\s+campaign|lob)\b/i],
   ["print", /\b(?:print(?:\s+ads?|\s+advertising)?|magazines?|newspapers?|flyers?|brochures?|leaflets?)\b/i],

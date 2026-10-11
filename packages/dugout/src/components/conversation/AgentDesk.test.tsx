@@ -75,7 +75,7 @@ describe("AgentDesk", () => {
       name: "Juno reacted: noted",
     });
     expect(reaction.getAttribute("data-reaction")).toBe("noted");
-    expect(screen.getByTestId("read-receipt").textContent).toBe("Read 14:02");
+    expect(screen.getByTestId("read-receipt").textContent).toBe("Read 2:02 PM");
     expect(screen.getByTestId("read-receipt").getAttribute("data-state")).toBe("read");
   });
 
@@ -132,7 +132,7 @@ describe("AgentDesk", () => {
   it("opens an empty thread with the agent's greeting and the starters", () => {
     desk({ messages: [] });
     expect(screen.getByTestId("agent-bubble").textContent).toContain(
-      "I've modelled the Boots UK trial",
+      "I've modeled the Boots UK trial",
     );
     expect(replyButtons().map((b) => b.textContent)).toEqual([
       "1Go with: Approve the trial",
@@ -271,7 +271,7 @@ describe("AgentDesk", () => {
       label: "Conversation with the Certification Specialist",
     });
     expect(screen.getByTestId("desk-presence").getAttribute("data-layout")).toBe("head");
-    expect(screen.getByTestId("desk-state").textContent).toBe("Down · back 14:30");
+    expect(screen.getByTestId("desk-state").textContent).toBe("Down · back 2:30 PM");
     const rows = screen.getAllByTestId("agent-bubble").map((b) => b.parentElement!);
     expect(rows[0]!.querySelector('[role="img"]')).toBeNull();
     expect(rows[1]!.querySelector('[role="img"]')).not.toBeNull();

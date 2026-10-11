@@ -17,7 +17,7 @@ describe("VisionScreen", () => {
     expect(within(narrative).queryByText(/Monthly plan/)).toBeNull(); // Pricing is not narrative
     const pinned = screen.getByRole("list", { name: "Pinned blocks" });
     expect(within(pinned).getAllByRole("listitem")).toHaveLength(2);
-    expect(screen.getByText("Version 3 · published 4 Oct 2026 · 5 blocks · 2 pinned")).toBeTruthy();
+    expect(screen.getByText("Version 3 · published Oct 4, 2026 · 5 blocks · 2 pinned")).toBeTruthy();
     const now = screen.getByRole("list", { name: "Roadmap items in Now" });
     expect(within(now).getByText("Usage-based billing")).toBeTruthy();
     expect(within(now).getByText("In progress")).toBeTruthy();

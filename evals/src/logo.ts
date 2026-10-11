@@ -169,7 +169,7 @@ export function checkLogoSet(output: unknown, requested: number): LogoSetCheck {
     const clean = sanitiseSvg(m.svg);
     const forbidden = forbiddenShapes(m.svg, `${m.name} ${m.concept}`);
     const check: MarkCheck = { name: m.name, valid: clean.ok, shapes: clean.ok ? clean.shapes : 0, removed: clean.ok ? clean.removed : [], forbidden };
-    if (!clean.ok) problems.push(`${m.name}: invalid after sanitising (${clean.reason})`);
+    if (!clean.ok) problems.push(`${m.name}: invalid after sanitizing (${clean.reason})`);
     else if (clean.shapes < 2) problems.push(`${m.name}: draws ${clean.shapes} shape(s); a tile and a symbol need two`);
     if (forbidden.length) problems.push(`${m.name}: ${forbidden.join(", ")}`);
     return check;

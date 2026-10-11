@@ -10,7 +10,7 @@ import { FIXTURE_TODAY, NORTHWIND_KIT } from "./fixtures";
 const meta = {
   title: "Shell/Chips and Breadcrumbs",
   component: ModeChip,
-  parameters: { docs: { description: { component: "The top bar's chips are glass on the brand slab (black at 30 % over a 14 px blur, an 11 % ring, a 10 % top light; 34 px, 8 px radius): icon + word, so a mode never rests on colour. The breadcrumbs trail sits under the tab bar." } } },
+  parameters: { docs: { description: { component: "The top bar's chips are glass on the brand slab (black at 30% over a 14 px blur, an 11% ring, a 10% top light; 34 px, 8 px radius): icon + word, so a mode never rests on color. The breadcrumbs trail sits under the tab bar." } } },
   args: { mode: "assisted" },
   decorators: [
     (Story) => (
@@ -48,7 +48,7 @@ export const Runway: Story = {
       <RunwayChip date={FIXTURE_TODAY} runwayMonths={null} words={{ value: "Not known yet", caption: "Needs three months of bank history" }} />
     </div>
   ),
-  parameters: { docs: { description: { story: "Neutral, amber under 9 months, red under 6, with a warning icon and a tinted ring (DESIGN §8). Modelled runway carries the dashed “Estimate” tag (DESIGN §10). Without a figure it says what Home's tiles say, from the app's shared runway wording: “No limit” when cash-flow positive, “Not known yet” without a bank or with too little history, the reason as its tooltip." } } },
+  parameters: { docs: { description: { story: "Neutral, amber under 9 months, red under 6, with a warning icon and a tinted ring (DESIGN §8). Modeled runway carries the dashed “Estimate” tag (DESIGN §10). Without a figure it says what Home's tiles say, from the app's shared runway wording: “No limit” when cash-flow positive, “Not known yet” without a bank or with too little history, the reason as its tooltip." } } },
 };
 export const Trail: Story = {
   name: "Breadcrumbs",

@@ -65,7 +65,7 @@ describe("EntityScreen", () => {
     expect(within(result).getByText("Untrusted until confirmed")).toBeTruthy();
     expect(within(result).getByText("From Companies House")).toBeTruthy();
     expect(within(within(result).getByRole("table", { name: "Officers found" })).getAllByRole("row")).toHaveLength(3);
-    expect(within(result).getByText(/Deadlines found: Annual accounts 31 Mar 2027 · Confirmation statement 14 Mar 2027/)).toBeTruthy();
+    expect(within(result).getByText(/Deadlines found: Annual accounts Mar 31, 2027 · Confirmation statement Mar 14, 2027/)).toBeTruthy();
     fireEvent.change(within(result).getByLabelText("Share capital"), { target: { value: "25000" } });
     fireEvent.click(within(result).getByRole("button", { name: "Confirm and import" }));
     await waitFor(() => expect(fake.mutations).toHaveLength(2));

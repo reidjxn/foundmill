@@ -8,7 +8,7 @@ import { useMemo } from "react";
 import { z } from "zod";
 import { Trophy } from "lucide-react";
 import { TROPHIES, type TrophyDefinition } from "@foundmill/journey";
-import { TrophyCabinet, formatMoney, type TrophyCard } from "@foundmill/dugout";
+import { TrophyCabinet, formatMoney, formatNumber, type TrophyCard } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
@@ -24,7 +24,7 @@ export const TrophyCabinetSettings = z.object({
 export type TrophyCabinetSettings = z.infer<typeof TrophyCabinetSettings>;
 
 function describe(t: TrophyDefinition, currency: string): string {
-  if (t.metric === "customers") return t.threshold === 1 ? "The first paying customer." : `${t.threshold.toLocaleString("en-GB")} paying customers.`;
+  if (t.metric === "customers") return t.threshold === 1 ? "The first paying customer." : `${formatNumber(t.threshold, { maxDigits: 0 })} paying customers.`;
   if (t.metric === "mrrMinor") return `Monthly recurring revenue reaches ${formatMoney({ amountMinor: t.threshold, currency })}.`;
   return "A signed contract above the enterprise threshold.";
 }

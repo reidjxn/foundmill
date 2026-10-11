@@ -87,7 +87,7 @@ export const STAGE_WORDS: Record<string, string> = {
   negotiating: "negotiating",
 };
 
-export const KIND_LABELS: Record<EntityKind, string> = { person: "People", organisation: "Organisations", agent: "Agents", team_member: "Team", platform_member: "Members", community: "Communities", venue: "Venues" };
+export const KIND_LABELS: Record<EntityKind, string> = { person: "People", organisation: "Organizations", agent: "Agents", team_member: "Team", platform_member: "Members", community: "Communities", venue: "Venues" };
 
 export function chip(field: CrmFilterField, value: string): FilterChipValue {
   return { id: newFilterChipId(), field, op: "eq", value };
@@ -222,11 +222,22 @@ export function crmFilterFields(options: { roles?: readonly string[]; department
 }
 
 /** The box text that reproduces a chip set (so the chips stay editable as text too). */
+/**
+ * A chip value as the founder reads and types it. Stored kinds are enum keys ("organisation"); the operator text says
+ * "organization" (US English), which `KIND_WORDS` parses back to the same key.
+ */
+const OPERATOR_WORDS: Partial<Record<CrmFilterField, Record<string, string>>> = { kind: { organisation: "organization" } };
+
+export function operatorValueWord(field: string, value: string): string {
+  return OPERATOR_WORDS[field as CrmFilterField]?.[value] ?? value;
+}
+
 export function chipsToOperators(chips: readonly FilterChipValue[]): string {
   return chips
     .map((c) => {
-      const v = chipValue([c], c.field as CrmFilterField);
-      if (!v) return "";
+      const raw = chipValue([c], c.field as CrmFilterField);
+      if (!raw) return "";
+      const v = operatorValueWord(c.field, raw);
       return `${c.field}:${/\s/.test(v) ? `"${v}"` : v}`;
     })
     .filter(Boolean)

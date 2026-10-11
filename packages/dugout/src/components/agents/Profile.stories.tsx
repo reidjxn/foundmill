@@ -28,7 +28,7 @@ export const Positions: Story = {
 
 export const Traits: Story = { render: () => <TraitChips traits={mockTraits()} /> };
 
-/** Skill history lines in the department colour; training sessions as diamonds (filled when promoted). */
+/** Skill history lines in the department color; training sessions as diamonds (filled when promoted). */
 export const Development: Story = {
   render: () => {
     const { series, sessions } = mockDevelopmentSeries();

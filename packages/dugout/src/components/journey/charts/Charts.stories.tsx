@@ -16,7 +16,7 @@ const money = (v: number) => formatMoney({ amountMinor: Math.round(v), currency:
 
 const meta = {
   title: "Journey/Charts",
-  parameters: { docs: { description: { component: "The chart set used by Inbox exhibits and Finance (BUILD §11.3, §11.8): visx, tokens only, hover tooltips, legends, and Forecast / Estimate labelling on every non-real value." } } },
+  parameters: { docs: { description: { component: "The chart set used by Inbox exhibits and Finance (BUILD §11.3, §11.8): visx, tokens only, hover tooltips, legends, and Forecast / Estimate labeling on every non-real value." } } },
 } satisfies Meta;
 export default meta;
 type Story = StoryObj<typeof meta>;

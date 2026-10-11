@@ -5,7 +5,7 @@
  * listed under the chart so nothing disappears when a date is missing. Dates in Later are estimates and say so.
  */
 import { CalendarOff } from "lucide-react";
-import { Chip, Icon, ProvenanceChip, cn, formatDate } from "@foundmill/dugout";
+import { DATE_FORMATS, Chip, Icon, ProvenanceChip, cn, formatDate } from "@foundmill/dugout";
 import { HORIZON_LABEL, computeRoadmapStatus, type RoadmapStatusKey } from "../roadmap-status";
 import type { RoadmapRow } from "../types";
 import { barSpan, timelineScale } from "./board";
@@ -41,7 +41,7 @@ export function Timeline({ items, today = new Date(), onOpen }: { items: readonl
         <div className="relative h-control-xs" aria-hidden>
           {scale.today !== null ? (
             <span className={cn("today-pill absolute top-0 whitespace-nowrap", scale.today > 0.85 ? "-translate-x-full" : scale.today < 0.15 ? "" : "-translate-x-1/2")} style={{ left: pct(scale.today) }} data-today-tag>
-              Today · {formatDate(today, "d MMM")}
+              Today · {formatDate(today, DATE_FORMATS.dayMonth)}
             </span>
           ) : null}
         </div>
@@ -98,7 +98,7 @@ export function Timeline({ items, today = new Date(), onOpen }: { items: readonl
         })}
       </div>
       <p className="text-small text-secondary">
-        Today is the glowing line. Bars take the colour of the computed status; items in Later carry an <ProvenanceChip kind="estimate" /> chip because their dates are not commitments.
+        Today is the glowing line. Bars take the color of the computed status; items in Later carry an <ProvenanceChip kind="estimate" /> chip because their dates are not commitments.
       </p>
       {undated.length ? (
         <section aria-label="Unscheduled items" className="flex flex-col gap-1">

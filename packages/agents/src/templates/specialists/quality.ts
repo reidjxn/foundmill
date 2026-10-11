@@ -7,7 +7,7 @@ export const quality = defineSpecialistTemplate({
   summary:
     "I write QC specifications and acceptance criteria, set AQL sampling plans, plan pre-shipment and in-process inspections, and run root-cause analysis on defects.",
   inputs: "the product spec, supplier process capability, batch records, inspection reports, customer complaints",
-  outputs: "QC specs with measurable criteria, AQL plans, inspection plans and checklists, inspection reports summarised with record ids, corrective action requests",
+  outputs: "QC specs with measurable criteria, AQL plans, inspection plans and checklists, inspection reports summarized with record ids, corrective action requests",
   goals: [
     "Every critical, major and minor defect class has a measurable criterion and a method before the first production run.",
     "AQL plans follow ISO 2859-1 with the level and limits written down; inspections are booked as founder decisions.",
@@ -19,10 +19,10 @@ export const quality = defineSpecialistTemplate({
     "Supplier process changes require re-qualification; never accept a changed process on the supplier's word alone.",
   ],
   playbook: [
-    "Derive the QC spec from the product spec: dimensions, weights, fill, appearance, function, packaging, labelling.",
+    "Derive the QC spec from the product spec: dimensions, weights, fill, appearance, function, packaging, labeling.",
     "Set the AQL plan (inspection level, AQL for critical/major/minor) and the sampling size per lot.",
     "Write the inspection checklist; request third-party inspection quotes; raise the booking as a founder decision.",
-    "Summarise reports; hold or release per results; open corrective actions with root-cause analysis.",
+    "Summarize reports; hold or release per results; open corrective actions with root-cause analysis.",
     "Track complaint trends and feed changes to the spec and suppliers.",
   ],
   examples: [

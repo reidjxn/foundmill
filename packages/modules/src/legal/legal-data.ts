@@ -5,6 +5,7 @@
  * here files, signs, pays or accepts terms (BUILD §11.11, AC-11.11.4).
  */
 import { ARCHETYPE_LABELS, type Archetype, type IncorporationRoute } from "@foundmill/shared/constants";
+import { usSpelling } from "@foundmill/shared/us-spelling";
 import type { ComplianceEventRow, ComplianceListResponse, ContractRow, FilingRow, FilingStatus, IncorporationRow, IncorporationStepRecord, IntegrationRow, LegalEntityRow, OfficerEntityRow } from "./types";
 
 export const DAY_MS = 86_400_000;
@@ -15,7 +16,7 @@ export const DAY_MS = 86_400_000;
 export function plainWords(key: string | null | undefined): string {
   if (!key) return "";
   const words = key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  return usSpelling(words.charAt(0).toUpperCase() + words.slice(1));
 }
 
 /** Contract kinds as words; an agreement's acronym keeps its capitals ("nda" → "NDA", "customer_msa" → "Customer"). */
@@ -76,7 +77,7 @@ export function jurisdictionName(jurisdiction: string | null | undefined): strin
   if (/^[A-Za-z]{2}$/.test(j)) {
     const code = j.toUpperCase() === "UK" ? "GB" : j.toUpperCase();
     try {
-      const name = new Intl.DisplayNames(["en-GB"], { type: "region" }).of(code);
+      const name = new Intl.DisplayNames(["en-US"], { type: "region" }).of(code);
       if (name && name !== code) return name;
     } catch {
       // Fall through to the code itself.
@@ -465,9 +466,9 @@ export interface DataFlow {
 
 /** What each connected integration implies for the data map. Unknown connectors get a generic entry. */
 export const DATA_FLOWS: Record<string, Omit<DataFlow, "connectorKey">> = {
-  stripe: { processor: "Stripe", purpose: "Payments, invoicing and subscription billing", data: ["name", "email", "billing address", "payment card (tokenised by Stripe)", "transaction history"], cookies: [{ name: "__stripe_mid", purpose: "Fraud prevention during checkout", duration: "1 year", category: "necessary" }, { name: "__stripe_sid", purpose: "Fraud prevention during checkout", duration: "30 minutes", category: "necessary" }] },
+  stripe: { processor: "Stripe", purpose: "Payments, invoicing and subscription billing", data: ["name", "email", "billing address", "payment card (tokenized by Stripe)", "transaction history"], cookies: [{ name: "__stripe_mid", purpose: "Fraud prevention during checkout", duration: "1 year", category: "necessary" }, { name: "__stripe_sid", purpose: "Fraud prevention during checkout", duration: "30 minutes", category: "necessary" }] },
   sendgrid: { processor: "Twilio SendGrid", purpose: "Transactional and marketing email", data: ["email", "name", "email engagement (opens, clicks)"], cookies: [] },
-  shopify: { processor: "Shopify", purpose: "Online store, orders and fulfilment", data: ["name", "email", "shipping address", "order history"], cookies: [{ name: "_shopify_y", purpose: "Shop analytics", duration: "1 year", category: "analytics" }, { name: "cart", purpose: "Keeps the basket between pages", duration: "2 weeks", category: "necessary" }] },
+  shopify: { processor: "Shopify", purpose: "Online store, orders and fulfillment", data: ["name", "email", "shipping address", "order history"], cookies: [{ name: "_shopify_y", purpose: "Shop analytics", duration: "1 year", category: "analytics" }, { name: "cart", purpose: "Keeps the basket between pages", duration: "2 weeks", category: "necessary" }] },
   github: { processor: "GitHub", purpose: "Source code hosting and issue tracking", data: ["GitHub account name", "issue and pull request content"], cookies: [] },
   gmail: { processor: "Google (Gmail)", purpose: "Email correspondence synced into the CRM", data: ["email address", "message content", "attachments"], cookies: [] },
   google_calendar: { processor: "Google Calendar", purpose: "Meeting scheduling", data: ["email address", "meeting times and attendees"], cookies: [] },
@@ -540,12 +541,12 @@ function controller(p: PolicyInput): string {
   return `${bits.join(", ")}${place ? ` (${place})` : ""}`;
 }
 
-/** "2026-10-09" → "9 October 2026": a policy's date reads as a date, never an ISO key. */
+/** "2026-10-09" → "October 9, 2026": a policy's date reads as a date, never an ISO key. */
 export function policyDate(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
   if (!m) return iso;
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(d);
+  return new Intl.DateTimeFormat("en-US", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(d);
 }
 
 /** A place mid-sentence: "the United Kingdom", "the Netherlands", "Delaware", "Sweden". */
@@ -587,7 +588,7 @@ export function generateTerms(p: PolicyInput): string {
   const lines: string[] = [];
   lines.push(`# Terms of service`, ``, `Last updated ${policyDate(p.today)}`, ``);
   lines.push(`These terms are an agreement between you and ${controller(p)} ("${p.businessName}") for ${p.archetype ? ARCHETYPE_SERVICE[p.archetype] : "our products and services"}.`, ``);
-  lines.push(`## Your account`, ``, `Keep your credentials safe and tell us about any unauthorised use. You are responsible for activity under your account.`, ``);
+  lines.push(`## Your account`, ``, `Keep your credentials safe and tell us about any unauthorized use. You are responsible for activity under your account.`, ``);
   if (p.flows.some((f) => f.connectorKey === "stripe" || f.connectorKey === "shopify")) lines.push(`## Payment`, ``, `Prices are shown before you buy. Payments are processed by ${p.flows.filter((f) => f.connectorKey === "stripe" || f.connectorKey === "shopify").map((f) => f.processor).join(" and ")}; we never store full card numbers.`, ``);
   if (p.archetype === "marketplace") lines.push(`## Marketplace`, ``, `We connect buyers and sellers and are not a party to the contracts between them, except where these terms say otherwise.`, ``);
   if (p.archetype === "dtc_physical" || p.archetype === "hardware") lines.push(`## Delivery and returns`, ``, `Delivery times are estimates. You may return unused goods within 14 days of delivery for a refund where the law requires it.`, ``);
@@ -752,10 +753,10 @@ export const SECTOR_GATES: Record<SectorKey, SectorGate> = {
     summary: "Holding, moving or advising on other people's money: payments, lending, investments, crypto.",
     keywords: ["bank", "banking", "lending", "loan", "invest", "payment", "wallet", "crypto", "insurance", "credit", "fintech", "trading", "remittance"],
     archetypes: [],
-    blocked: ["Taking customer funds before a licence or an agent arrangement exists", "Marketing regulated products", "Giving investment advice"],
+    blocked: ["Taking customer funds before a license or an agent arrangement exists", "Marketing regulated products", "Giving investment advice"],
     checklist: [
-      { id: "perimeter", title: "Map the activity against the licensing perimeter", owner: "squad", detail: "Prepares a perimeter memo: which activities need authorisation (payments, e-money, lending, advice) and which can run under a partner's licence." },
-      { id: "partner", title: "Choose a licensed partner or apply for authorisation", owner: "founder", detail: "Applications and agent agreements are filed and signed by the founder." },
+      { id: "perimeter", title: "Map the activity against the licensing perimeter", owner: "squad", detail: "Prepares a perimeter memo: which activities need authorization (payments, e-money, lending, advice) and which can run under a partner's license." },
+      { id: "partner", title: "Choose a licensed partner or apply for authorization", owner: "founder", detail: "Applications and agent agreements are filed and signed by the founder." },
       { id: "aml", title: "Write the AML/KYC policy and appoint an MLRO", owner: "founder", detail: "The team drafts; the founder appoints the officer and adopts the policy." },
       { id: "promotions", title: "Financial promotions sign-off", owner: "founder", detail: "Every public claim about returns, rates or safety is approved by a person before publication." },
     ],
@@ -777,15 +778,15 @@ export const SECTOR_GATES: Record<SectorKey, SectorGate> = {
   food: {
     key: "food",
     label: "Food and drink",
-    summary: "Making, labelling or selling food, drink or supplements.",
+    summary: "Making, labeling or selling food, drink or supplements.",
     keywords: ["food", "drink", "beverage", "snack", "coffee", "tea", "meal", "kitchen", "restaurant", "grocery", "nutrition"],
     archetypes: ["dtc_physical"],
     blocked: ["Selling before registration with the food authority", "Publishing nutrition or health claims that are not on the permitted list"],
     checklist: [
       { id: "registration", title: "Register the food business with the local authority", owner: "founder", detail: "Registration is in the founder's name; the team prepares the form." },
-      { id: "labelling", title: "Labelling check: allergens, ingredients, nutrition, origin", owner: "squad", detail: "Prepares a label checklist per product against the rules of each target market." },
+      { id: "labelling", title: "Labeling check: allergens, ingredients, nutrition, origin", owner: "squad", detail: "Prepares a label checklist per product against the rules of each target market." },
       { id: "haccp", title: "Food safety plan (HACCP)", owner: "squad", detail: "Drafts the hazard analysis for the founder to adopt and train staff on." },
-      { id: "claims", title: "Nutrition and health claims review", owner: "squad", detail: "Flags claims that need authorisation before use." },
+      { id: "claims", title: "Nutrition and health claims review", owner: "squad", detail: "Flags claims that need authorization before use." },
     ],
   },
   cosmetics: {
@@ -797,9 +798,9 @@ export const SECTOR_GATES: Record<SectorKey, SectorGate> = {
     blocked: ["Selling before the product information file and safety assessment exist", "Claims that imply a medicinal effect"],
     checklist: [
       { id: "safety", title: "Cosmetic product safety report by a qualified assessor", owner: "founder", detail: "The team briefs the assessor; the founder engages them and signs the responsible-person declaration." },
-      { id: "pif", title: "Product information file", owner: "squad", detail: "Assembles formulation, manufacturing method, safety report and labelling evidence per product." },
+      { id: "pif", title: "Product information file", owner: "squad", detail: "Assembles formulation, manufacturing method, safety report and labeling evidence per product." },
       { id: "notification", title: "Notify the product (CPNP / SCPN / FDA listing)", owner: "founder", detail: "Portal accounts and notifications are in the responsible person's name." },
-      { id: "claims", title: "Claims and labelling review", owner: "squad", detail: "INCI list, warnings, period after opening, and substantiation for every claim." },
+      { id: "claims", title: "Claims and labeling review", owner: "squad", detail: "INCI list, warnings, period after opening, and substantiation for every claim." },
     ],
   },
   children: {
@@ -808,12 +809,12 @@ export const SECTOR_GATES: Record<SectorKey, SectorGate> = {
     summary: "Products or services for children, or an audience that includes under-16s.",
     keywords: ["kids", "child", "children", "toy", "toys", "school", "teen", "baby", "infant", "parent", "family"],
     archetypes: [],
-    blocked: ["Collecting personal data from children without verified parental consent", "Behavioural advertising to children", "Selling toys before safety testing and marking"],
+    blocked: ["Collecting personal data from children without verified parental consent", "Behavioral advertising to children", "Selling toys before safety testing and marking"],
     checklist: [
       { id: "age", title: "Age gate and parental consent flow", owner: "squad", detail: "Designs the age check and consent flow; the founder decides the age threshold per market (13 to 16)." },
-      { id: "data", title: "Children's data: minimise, no profiling, age-appropriate design", owner: "squad", detail: "Checks every data flow against the age-appropriate design code and COPPA." },
+      { id: "data", title: "Children's data: minimize, no profiling, age-appropriate design", owner: "squad", detail: "Checks every data flow against the age-appropriate design code and COPPA." },
       { id: "safety", title: "Toy or product safety testing and marking (CE/UKCA/ASTM)", owner: "founder", detail: "Test reports are commissioned and the declaration of conformity is signed by the founder." },
-      { id: "marketing", title: "No behavioural advertising to children", owner: "squad", detail: "Campaign agents are configured with the restriction." },
+      { id: "marketing", title: "No behavioral advertising to children", owner: "squad", detail: "Campaign agents are configured with the restriction." },
     ],
   },
 };

@@ -14,6 +14,7 @@ import { writeEventRow } from "./events";
 import { buildManifest, checkComposerText, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { ComposerOutput, type ModelClient } from "@foundmill/models";
 import { APP_NAME } from "@foundmill/config";
+import { HOUSE_STYLE } from "@foundmill/agents";
 import { AppError, type EntityKind } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
 
@@ -191,7 +192,7 @@ export function localNextBestDecisions(s: LocalDecisionState): LocalDecision[] {
     facts: { planned_tasks: n("planned"), running_tasks: n("running"), done_tasks: n("done"), customers_30d: s.customers30d },
     options: [
       { id: "product", label: "Lead with product work", recommended: quiet, consequence: "The next cycle starts from the roadmap's now items.", cost_minor: 0, reversible: true },
-      { id: "distribution", label: "Lead with distribution", recommended: !quiet, consequence: "The next cycle prioritises enabled channels and follow-ups.", cost_minor: 0, reversible: true },
+      { id: "distribution", label: "Lead with distribution", recommended: !quiet, consequence: "The next cycle prioritizes enabled channels and follow-ups.", cost_minor: 0, reversible: true },
       { id: "balanced", label: "Keep the current balance", recommended: false, consequence: "The Chief of Staff plans as usual within budget and capacity.", cost_minor: 0, reversible: true },
     ],
     exhibit: { kind: "table", spec_ref: "tasks_by_status" },
@@ -274,7 +275,7 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
   const result = await models.complete({
     route: "inboxComposer",
     schema: ComposerOutput,
-    system: `You are the Inbox Composer for ${business.name} on ${APP_NAME}. Write fact → why it matters → ask in 60-180 words. Mention entities only as [[ent:<id>|Name]] using manifest ids.`,
+    system: `You are the Inbox Composer for ${business.name} on ${APP_NAME}. Write fact → why it matters → ask in 60-180 words. Mention entities only as [[ent:<id>|Name]] using manifest ids. ${HOUSE_STYLE}`,
     messages: [{ role: "user", content: "```json\n" + JSON.stringify(input) + "\n```" }],
     attribution: { businessId, kind: "inbox_composer" },
     cacheSystem: true,

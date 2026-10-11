@@ -14,11 +14,11 @@ export const bolagsverketMock = buildMockConnector({
   handlers: {
     get_organisation: async ({ organisationNumber }) => {
       const o = BV_ORGANISATIONS[organisationNumber];
-      if (!o) throw Object.assign(new Error(`organisation ${organisationNumber} not found`), { status: 404 });
+      if (!o) throw Object.assign(new Error(`organization ${organisationNumber} not found`), { status: 404 });
       return mapOrganisation(o, organisationNumber);
     },
     list_documents: async ({ organisationNumber }) => {
-      if (!BV_ORGANISATIONS[organisationNumber]) throw Object.assign(new Error(`organisation ${organisationNumber} not found`), { status: 404 });
+      if (!BV_ORGANISATIONS[organisationNumber]) throw Object.assign(new Error(`organization ${organisationNumber} not found`), { status: 404 });
       return { items: (BV_DOCUMENTS[organisationNumber] ?? []).map(mapDocument) };
     },
   },

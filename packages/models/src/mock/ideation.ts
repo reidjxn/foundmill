@@ -120,7 +120,7 @@ function draftCard(ctx: MockContext, i: number, inputs: DraftInputs, usedNames: 
   const citations = Array.from({ length: citationCount }, (_, c) => ({
     title: c === 0 ? `Market note: ${keyword ?? ARCHETYPE_LABELS[archetype].toLowerCase()} (${ARCHETYPE_LABELS[archetype]})` : c === 1 ? `Pricing comparables for ${audience}` : `Competitor scan: ${name}`,
     url: `https://research.mock.invalid/${slug}/${c + 1}`,
-    note: "Mock citation — replace with Research agent output in live mode. Labelled estimate.",
+    note: "Mock citation — replace with Research agent output in live mode. Labeled estimate.",
   }));
 
   return {

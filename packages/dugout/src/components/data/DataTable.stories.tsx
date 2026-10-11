@@ -282,7 +282,7 @@ interface UsageRow {
 }
 const usageColumns: DataTableColumn<UsageRow>[] = [
   { id: "item", accessorKey: "item", header: "Item", size: 220 },
-  { id: "quantity", accessorKey: "quantity", header: "Quantity", size: 64, meta: { numeric: true }, cell: ({ getValue }) => (getValue() as number).toLocaleString("en-GB") },
+  { id: "quantity", accessorKey: "quantity", header: "Quantity", size: 64, meta: { numeric: true }, cell: ({ getValue }) => (getValue() as number).toLocaleString("en-US") },
   { id: "amount", accessorKey: "amount", header: "Amount", size: 64, meta: { numeric: true }, cell: ({ getValue }) => formatMoney({ amountMinor: getValue() as number, currency: "GBP" }) },
   { id: "note", accessorKey: "note", header: "Note", size: 160 },
 ];

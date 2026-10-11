@@ -18,10 +18,10 @@
  * (the fixture's euro MRR pins print in dollars without a mapping here, so no euro sign is in this data). Loaded on
  * demand (its own chunk), never in the page's main bundle.
  */
-import type { MockSessionScript } from "@foundmill/dugout";
 import type { ChannelKey } from "@foundmill/shared/constants";
 import { conceptAttributes as attributes, leadSkill as skill } from "./helpers";
 import { EXAMPLE_IDENTITIES } from "./identity";
+import { GLITCHWICK_SESSIONS } from "./sessions/glitchwick";
 // Only for the brand picker's five shared marks (each drawn in its own brand colours) and the runner-up concept's mark.
 import { TUTORLANE } from "./tutorlane";
 import type { ActivityLine, CycleOutcome, ExampleBusiness, ExampleCustomerUpdate, ExampleCyclePlanItem, ExampleDepartment, ExampleInboxNote, ExampleJourney, ExampleLead } from "./types";
@@ -187,131 +187,6 @@ const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
 ];
 
 // ---------------------------------------------------------------------------------------------------------------------
-// The live sessions: a playtest run in a sandbox, then the eval
-// ---------------------------------------------------------------------------------------------------------------------
-
-/** The play loop change the session makes: routine screens on the small model, a save-and-reload probe after autosaves. */
-const PLAY_LOOP_DIFF = [
-  "diff --git a/src/playtest/play-loop.ts b/src/playtest/play-loop.ts",
-  "--- a/src/playtest/play-loop.ts",
-  "+++ b/src/playtest/play-loop.ts",
-  "@@ -1,6 +1,18 @@",
-  ' import { models } from "@/lib/models";',
-  '+import { probeSave } from "@/playtest/probes";',
-  ' import type { GameState, RunContext, Turn } from "@/playtest/types";',
-  " ",
-  "-export async function nextTurn(state: GameState): Promise<Turn> {",
-  "-  return models.large.decide(state);",
-  "+/** Screens the small model plays as well as the large one, measured on the 120-bug eval. */",
-  '+const ROUTINE = new Set(["menu", "map", "cleared_level"]);',
-  "+",
-  "+export async function nextTurn(state: GameState, run: RunContext): Promise<Turn> {",
-  "+  const routine = ROUTINE.has(state.screen) && !state.firstVisit;",
-  "+  const turn = await (routine ? models.small : models.large).decide(state);",
-  '+  run.cost.add(routine ? "small" : "large", turn.usage);',
-  "+  // Saves are where these games break: after every autosave, quit and reload once.",
-  "+  if (turn.autosaved) {",
-  "+    const probe = await probeSave(run.sandbox, turn.saveSlot);",
-  "+    if (probe.crashed) await run.fileBug({ ...probe.bug, replay: run.replay.last(20) });",
-  "+  }",
-  "+  return turn;",
-  " }",
-].join("\n");
-
-/** After the founder's nudge: the replay leads the bug card, above the stack trace. */
-const BUG_CARD_CSS = [
-  "--- a/src/report/bug-card.css",
-  "+++ b/src/report/bug-card.css",
-  "@@ -1,6 +1,11 @@",
-  " .bug-card {",
-  "   display: flex;",
-  "   flex-direction: column;",
-  "-  padding: 13px;",
-  "+  padding: var(--space-3);",
-  " }",
-  "+",
-  "+.bug-card__replay {",
-  "+  order: -1;",
-  "+  border-radius: var(--radius-md);",
-  "+}",
-].join("\n");
-
-/**
- * Four Development agents on the play loop. The terminal follows one change end to end: a WebGL build launched headless
- * in a sandbox, played turn by turn with the new save probe, a crash reproduced and filed with a replay, then the
- * 120-bug eval (cost per run misses its budget once, shops move to the small model, and every threshold passes).
- */
-const SESSION_SCRIPT: MockSessionScript = {
-  names: ["Rune", "Vex", "Sprite", "Bolt"],
-  // The orbit's own Development agents, so the tiles show the same portraits as the team.
-  agents: [
-    { name: "Rune", seed: "rune", role: "Play loop engineer", dept: "dept-2", model: "sonnet", kind: "code" },
-    { name: "Vex", seed: "vex", role: "Crash triage", dept: "dept-2", model: "sonnet", kind: "code" },
-    { name: "Sprite", seed: "sprite", role: "Card-game playtester", dept: "dept-2", model: "sonnet", kind: "code" },
-    { name: "Bolt", seed: "bolt", role: "Lead developer", dept: "dept-2", model: "sonnet", kind: "code" },
-  ],
-  tasks: [
-    "Route routine levels to a smaller model",
-    "Reload probe after every autosave",
-    "Card-game playtests: 40 known bugs",
-    "Post replays on pull request reviews",
-    "Eval: 120 known bugs across 14 games",
-    "Unity WebGL crash log parser",
-    "Merge duplicate bugs across nightly runs",
-    "Pull request check reruns the failing seed",
-  ],
-  plans: [
-    ["Read the 120-bug eval", "Route routine screens to the small model", "Add a reload probe after autosaves", "Play deckhold headless, seed 7731", "Run the 120-bug eval", "Open the pull request"],
-    ["Collect the save crashes in the eval", "Write the reload probe", "Reproduce the deckhold crash 3 of 3", "File it with a 20-second replay", "Run the 120-bug eval", "Open the pull request"],
-    ["Read the 40 known card-game bugs", "Learn deckhold's rules from its tutorial", "Play three seeds, 60 turns each", "File each bug with its replay", "Score recall against the 40", "Hand the results to Harbor"],
-    ["Read the pull request check", "Render the replay as a review comment", "Ask for the pull requests permission", "Run the 120-bug eval", "Open the pull request"],
-  ],
-  nudge: { text: "Put the replay first on the bug card", reply: "Moving the replay above the stack trace before the next build." },
-  // The blocked tile: posting on reviews needs a GitHub app permission studios have not granted, so the founder decides.
-  gate: { connectorKey: "github", tool: "request_app_permission", argsSummary: "pull requests: write, to post replays on reviews", note: "Waiting for a founder decision: a new GitHub app permission needs approval." },
-  stdout: [
-    "$ gw sandbox up --image webgl-chromium --gpu spot",
-    "sbx-41c9 ready · headless Chromium · WebGL 2 · spot GPU",
-    "deckhold 0.4 (Godot 4.3 web) · first frame 3.1s",
-    "$ gw play deckhold --seed 7731 --turns 40 --record",
-    "turn 11 · Ember Shield, Riptide · enemy 4/31 hp",
-    "turn 12 · Tidecaller triggers · autosave · reload probe",
-    "crash: Invalid get index 'charges' (on base: 'Nil')",
-    "repro 3/3 · filed #57 · replay glitchwick.dev/r/7731",
-    "$ pnpm evals run bugs --cases 120",
-    "Running 120 known bugs across 14 games in 12 sandboxes",
-    "  ✓  recall 97/120 (80.8%), threshold 75%",
-    "  ✓  false reports 3, limit 5",
-    "  ✘  cost per run $0.14, over the $0.12 budget",
-    '$ git commit -am "feat(play): small model for shops"',
-    "[agent/task-1 3a9d0c4] feat(play): small model for shops",
-    " 2 files changed, 9 insertions(+), 2 deletions(-)",
-    "$ pnpm tsc --noEmit && pnpm eslint src",
-    "$ pnpm evals run bugs --cases 120",
-    "  ✓  recall 80.8% · false reports 3 · $0.11 a run",
-    "  3 of 3 met · main was 58.3% recall, $0.18 a run",
-    "$ gh pr create --fill --base main",
-    "https://github.com/foundmill-demo/glitchwick/pull/318",
-  ],
-  readPath: "evals/bugs/known-bugs.json",
-  file: { path: "src/playtest/play-loop.ts", diff: PLAY_LOOP_DIFF, additions: 14, deletions: 2 },
-  styleFile: { path: "src/report/bug-card.css", diff: BUG_CARD_CSS },
-  notes: [
-    "Reading the 120-bug eval before touching the play loop.",
-    "Menus, maps and cleared levels go to the small model; new levels and every save stay on the large one.",
-    "A probe quits and reloads after every autosave: saves are where these games break.",
-    "Cost per run missed its budget: shop screens still go to the large model. Routing them too.",
-    "Review: one finding, a build's signed download link in the run log, now redacted.",
-  ],
-  unitCommand: "gw play deckhold --seed 7731 --repro 3",
-  unitPassed: 3,
-  acceptanceCommand: "pnpm evals run bugs",
-  failingCheck: "cost per run within $0.12",
-  failure: "Error: deckhold-0.4 did not reach its first frame in 60 s (WebGL context lost)",
-  currency: CURRENCY,
-};
-
-// ---------------------------------------------------------------------------------------------------------------------
 // Distribution: how channels fit Glitchwick
 // ---------------------------------------------------------------------------------------------------------------------
 
@@ -337,11 +212,11 @@ const CHANNELS: ExampleBusiness["channels"] = {
  * (launch 2024-10-08, incorporation Oct 20, first customer Nov 8, first large contract Dec 26, 10th customer Dec 31,
  * releases 2025-02-16, 2025-08-03, 2026-01-10 and 2026-06-27, decisions 2025-05-15 and 2026-04-01, funding 2025-10-22,
  * $1K MRR 2025-03-20, 100th customer 2025-09-25, $10K MRR 2026-09-18); the labels below say what happened on each.
- * Conversions take their names from `customerNames` in turn: the first payment is the seventh name and the first large
- * payment the third, so the day under each of those pins names the studio its milestone card names. Kettlebird Games,
- * the Customer Update's studio, is named only on its own payment (Oct 5: first seen Sep 24, eleven days to convert).
- * Every payment is a plan's price ($29 for Indie; the fixture's rare large payment is a year of Team up front), and
- * there is no revenue before the first paying studio.
+ * The studios and their money are Glitchwick's own (`customers`): the first, the 10th and the 100th paying studio pay
+ * on their pins' days, the studios the milestone cards name pay there at the cards' values, and Kettlebird Games, the
+ * Customer Update's studio, is named only on its own payment (Oct 5: first seen Sep 24, eleven days to convert). Every
+ * payment is a plan's price ($29 a month for Indie, $1,490 for a year of Team up front), revenue is every payment on
+ * its day, and there is none before the first paying studio.
  */
 const JOURNEY: ExampleJourney = {
   ribbonDepartments: [
@@ -369,10 +244,22 @@ const JOURNEY: ExampleJourney = {
   chapterTitles: ["First playthrough", "First studios", "Studios first", "Pull requests", "The pre-seed", "The Marketplace", "Unity joins Godot", "Five figures", "Demo deadlines"],
   customerNames: ["Brineling Studio", "Lampwick Interactive", "Hollow Pine Games", "Oddacre Games", "Puddlejump Studio", "Saltgrass Games", "Gravelmoth Games", "Mossgate Games", "Thistlewing Studio", "Quarry Lane Studio"],
   roadmap: ["Windows desktop builds", "Publisher dashboard", "Localization playtests"],
-  // Revenue per day near MRR / 30 at each MRR pin: about $37 at $1K MRR (Mar 2025), $330 at $10K (Sep 2026).
-  revenueScale: { start: 0.1, end: 1.35 },
-  planPrices: { pricesMinor: [2900], largeMinor: 149_000 },
-  updatePayment: { name: KETTLEBIRD.name, day: "2026-10-05" },
+  updatePayment: { name: KETTLEBIRD.name, day: "2026-10-05", amountMinor: 2900 },
+  customers: {
+    // With the cards' first and 100th studios: 10 studios on Dec 31, 2024 (its pin), and MRR passes $1,000 on
+    // Mar 20, 2025 and $10,000 on Sep 18, 2026.
+    counts: { "2024-12-31": 10, "2025-03-20": 33, "2026-01-10": 185, "2026-09-18": 433, "2026-10-07": 449 },
+    // Studios start the 14-day trial about two weeks before they pay; about one in four goes on to pay.
+    funnel: { signups: 4.2, activations: 2.4, leadDays: 14 },
+    // Studios that pay for a year of Team up front (the first is on its milestone card).
+    large: [
+      { day: "2025-10-14", name: "Cobble & Crow", amountMinor: 149_000 },
+      { day: "2026-04-21", name: "Brambleforge", amountMinor: 149_000 },
+      { day: "2026-07-07", name: "Kiln & Comet Games", amountMinor: 149_000 },
+    ],
+    // Indie is $29 a month; about 3.5 in 100 studios cancel each month (a game ships), and most Team years renew.
+    billing: { kind: "subscription", monthlyMinor: [2900], yearlyMinor: 149_000, monthlyChurn: 0.035, yearlyRenewal: 0.8 },
+  },
 };
 
 /** The Customer Update the deck's gold card opens: how Kettlebird Games became a paying studio. */
@@ -562,7 +449,7 @@ export const GLITCHWICK: ExampleBusiness = {
   },
   activity: ACTIVITY,
   howItWorks: { concepts: CONCEPTS, brandOptions: BRAND_OPTIONS, firstCyclePlan: FIRST_CYCLE_PLAN },
-  sessions: SESSION_SCRIPT,
+  sessions: GLITCHWICK_SESSIONS,
   channels: CHANNELS,
   journey: JOURNEY,
   customerUpdate: CUSTOMER_UPDATE,

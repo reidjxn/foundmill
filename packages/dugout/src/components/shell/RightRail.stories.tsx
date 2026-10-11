@@ -7,18 +7,18 @@ import { RightRail } from "./RightRail";
 const meta = {
   title: "Shell/RightRail",
   component: RightRail,
-  parameters: { layout: "fullscreen", docs: { description: { component: "Optional 320 px rail for hover-card details, the agent log or a decision preview. On the rail colour with a hairline on its inner edge that catches light at the top; a 40 px header on its own surface (title style, a rule fading out under it). Collapses to a 32 px handle; 200 ms width transition." } } },
+  parameters: { layout: "fullscreen", docs: { description: { component: "Optional 320 px rail for hover-card details, the agent log or a decision preview. On the rail color with a hairline on its inner edge that catches light at the top; a 40 px header on its own surface (title style, a rule fading out under it). Collapses to a 32 px handle; 200 ms width transition." } } },
   args: { title: "Agent log", open: true, onOpenChange: () => {} },
 } satisfies Meta<typeof RightRail>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 
 const LOG = [
-  ["09:31:02", "Forge", "Running packaging migration tests (12/40)"],
-  ["09:30:48", "Scout", "Drafted reply to Sara Lindqvist"],
-  ["09:30:12", "Beacon", "Paused Meta ad set: CPA +24 %"],
-  ["09:29:55", "Ledger", "Categorised 42 transactions"],
-  ["09:29:10", "Clause", "Flagged exclusivity clause in influencer agreement"],
+  ["9:31:02 AM", "Forge", "Running packaging migration tests (12/40)"],
+  ["9:30:48 AM", "Scout", "Drafted reply to Sara Lindqvist"],
+  ["9:30:12 AM", "Beacon", "Paused Meta ad set: CPA +24%"],
+  ["9:29:55 AM", "Ledger", "Categorized 42 transactions"],
+  ["9:29:10 AM", "Clause", "Flagged exclusivity clause in influencer agreement"],
 ];
 
 function Frame(args: Story["args"]) {

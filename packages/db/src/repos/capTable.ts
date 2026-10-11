@@ -130,7 +130,7 @@ export const capTableRepo = {
           .from(capTableEntries)
           .where(and(eq(capTableEntries.businessId, businessId), eq(capTableEntries.securityId, v.securityId), isNull(capTableEntries.archivedAt)));
         const total = issued.reduce((n, r) => n + Number(r.q), 0) + v.quantity;
-        if (total > Number(security.authorisedQuantity)) throw new ValidationError("Issuance exceeds the authorised quantity", { securityId: v.securityId, authorised: security.authorisedQuantity, wouldBe: total });
+        if (total > Number(security.authorisedQuantity)) throw new ValidationError("Issuance exceeds the authorized quantity", { securityId: v.securityId, authorised: security.authorisedQuantity, wouldBe: total });
       }
       return one(
         await tx

@@ -40,7 +40,7 @@ export interface ModeChipProps extends Omit<ChipProps, "children" | "tone" | "ic
 export function ModeChip({ mode, description, onClick, holiday, className, mono: _mono, dot: _dot, fit: _fit, onRemove: _onRemove, removeLabel: _removeLabel, selected: _selected, ...rest }: ModeChipProps) {
   const info = BUSINESS_MODE_INFO[mode];
   const common = {
-    "aria-label": `Business mode: ${info.word}${holiday ? ", on holiday" : ""}`,
+    "aria-label": `Business mode: ${info.word}${holiday ? ", on vacation" : ""}`,
     "data-mode": mode,
     "data-chip": "",
     className: cn("kitbar-glass", className),
@@ -52,7 +52,7 @@ export function ModeChip({ mode, description, onClick, holiday, className, mono:
     </>
   );
   return (
-    <Tooltip content={description ?? (holiday ? `On holiday: ${info.summary}` : info.summary)}>
+    <Tooltip content={description ?? (holiday ? `On vacation: ${info.summary}` : info.summary)}>
       {onClick ? (
         <button type="button" onClick={onClick} {...common}>
           {content}

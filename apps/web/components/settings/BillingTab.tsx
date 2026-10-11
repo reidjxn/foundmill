@@ -9,7 +9,7 @@ import { useState } from "react";
 import { APP_NAME, PRICE_TBA_LABEL, TIERS, type TierKey } from "@foundmill/config";
 import { Button, Chip, KeyValueList, MiniTable, ProvenanceChip, SimpleSelect, formatCompact } from "@foundmill/dugout";
 import { PLAN_TIERS } from "@foundmill/shared/constants";
-import { formatMoney, plainWords, plural } from "@/lib/format";
+import { formatMoney, formatMonthYear, formatNumber, plainWords, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
@@ -39,7 +39,7 @@ export const MODEL_BILLING_WORD: Record<string, string> = {
 export function periodLabel(period: string): string {
   const m = /^(\d{4})-(\d{2})$/.exec(period);
   if (!m) return period;
-  return new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1)));
+  return formatMonthYear(new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1)), { long: true });
 }
 
 /** What a tier includes, in plain words with correct plurals ("1 business", "3 seats", "Unlimited businesses"). */
@@ -115,7 +115,7 @@ export function BillingTab() {
             Top up
           </Button>
         </div>
-        <Hint>Paying is always yours to do: you complete the payment yourself and the credits arrive once it clears. In test mode no money moves: credits are granted at once and labelled as such.</Hint>
+        <Hint>Paying is always yours to do: you complete the payment yourself and the credits arrive once it clears. In test mode no money moves: credits are granted at once and labeled as such.</Hint>
       </SettingsSection>
 
       <SettingsSection wide title="Usage" meta={usage.data ? periodLabel(usage.data.period) : undefined} loading={usage.isLoading} error={usage.error ? errorMessage(usage.error) : undefined} onRetry={() => void usage.refetch()} actions={<ProvenanceChip kind="estimate" />}>
@@ -128,7 +128,7 @@ export function BillingTab() {
               columns={[
                 { id: "agent", header: "Agent", cell: (r) => <span title={r.name ?? "Platform"}>{r.name ?? "Platform"}</span> },
                 { id: "tokens", header: "Tokens", numeric: true, cell: (r) => formatCompact(r.tokens) },
-                { id: "calls", header: "Tool calls", numeric: true, cell: (r) => r.toolCalls.toLocaleString("en-GB") },
+                { id: "calls", header: "Tool calls", numeric: true, cell: (r) => formatNumber(r.toolCalls) },
                 { id: "cost", header: "Cost", numeric: true, cell: (r) => formatMoney({ amountMinor: r.costMinor, currency }) },
               ]}
               rows={usage.data.byAgent}

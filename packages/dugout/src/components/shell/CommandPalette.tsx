@@ -147,7 +147,7 @@ export const PALETTE_KIND_INFO: Record<PaletteKind, { label: string; icon: Lucid
   department: { label: "Departments", icon: LayoutGrid },
   inbox: { label: "Inbox", icon: Inbox },
   person: { label: "People", icon: User },
-  organisation: { label: "Organisations", icon: Building2 },
+  organisation: { label: "Organizations", icon: Building2 },
   agent: { label: "Agents", icon: Bot },
   team_member: { label: "Staff", icon: UserCog },
   platform_member: { label: "Members", icon: Users },

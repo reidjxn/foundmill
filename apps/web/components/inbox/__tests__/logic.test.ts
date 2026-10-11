@@ -200,7 +200,7 @@ describe("status strip (AC-11.3.6: numbers come from live queries, never the not
     expect(parseFreeMetric("Revenue 30d £57,552.75")).toEqual({ label: "Revenue 30 days", value: "£57,552.75", estimate: undefined });
     expect(parseFreeMetric("Activation 35%")).toMatchObject({ label: "Activation", value: "35%" });
     expect(parseFreeMetric("Runway 4.2 mo (Estimate)")).toMatchObject({ label: "Runway", value: "4.2 mo", estimate: "estimate" });
-    expect(parseFreeMetric("Holiday spend £324.00")).toMatchObject({ label: "Holiday spend", value: "£324.00" });
+    expect(parseFreeMetric("Vacation spend £324.00")).toMatchObject({ label: "Vacation spend", value: "£324.00" });
     expect(parseFreeMetric("made_up")).toMatchObject({ label: "Made up", value: null });
     expect(metricKey("Cash £1")).toBe("cash");
     expect(metricKey("Cash after deposit £1")).toBeNull();

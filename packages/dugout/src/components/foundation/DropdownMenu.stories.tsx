@@ -66,6 +66,6 @@ function PanelMenu({ open }: { open?: boolean }) {
   );
 }
 
-/** Glass on r-lg, 32 px items with an 8 % highlight; the trigger's chevron turns over while the menu is open. */
+/** Glass on r-lg, 32 px items with an 8% highlight; the trigger's chevron turns over while the menu is open. */
 export const PanelCaretMenu: Story = { render: () => <PanelMenu /> };
 export const Open: Story = { render: () => <PanelMenu open /> };

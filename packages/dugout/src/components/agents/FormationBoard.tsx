@@ -472,7 +472,7 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
             )}
           </div>
 
-          <p className="text-small text-secondary">Closer to the centre means a stronger fit. Rings mark the bands: Excellent 16–20, Good 11–15, Fair 6–10, Weak 1–5. A moving line is a running channel; a dashed one is paused.</p>
+          <p className="text-small text-secondary">Closer to the center means a stronger fit. Rings mark the bands: Excellent 16–20, Good 11–15, Fair 6–10, Weak 1–5. A moving line is a running channel; a dashed one is paused.</p>
         </section>
       </LayoutGroup>
     </MotionConfig>

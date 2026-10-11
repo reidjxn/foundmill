@@ -58,10 +58,10 @@ const TONE_CLASS: Record<AgentStatus, string> = { failing: "text-status-bad", in
 /** One short line under each count in the strip. */
 export const STATUS_CAPTION: Record<AgentStatus, string> = {
   healthy: "Heartbeat on time",
-  degraded: "Errors above 10 %",
+  degraded: "Errors above 10%",
   failing: "Sessions stopped",
   injured: "Back once reconnected",
-  paused: "By you or a holiday",
+  paused: "By you or a vacation",
   idle: "No task assigned",
 };
 
@@ -116,7 +116,7 @@ export function HealthScreen({ businessId }: ModuleScreenProps) {
             </span>
           )
         }
-        footer="Computed every minute: heartbeat, error rate over 24 h (above 10 % is degraded), loop detection (failing), credential status (down with an expected return), rate limits and budget."
+        footer="Computed every minute: heartbeat, error rate over 24 h (above 10% is degraded), loop detection (failing), credential status (down with an expected return), rate limits and budget."
       >
         <StatusStrip tiles={tiles} className="rounded-none border-0" aria-label="Agents by health" />
       </Panel>

@@ -33,9 +33,9 @@ describe("milestones (BUILD §11.4 trophy cabinet)", () => {
     expect(replayRefOf(rows[2])).toBeNull();
     expect(milestoneForTrophy("nope", rows, "EUR")).toBeUndefined();
   });
-  it("share text anonymises the customer unless permission is recorded", () => {
+  it("share text anonymizes the customer unless permission is recorded", () => {
     const cards = trophyCards(rows, "EUR", true);
-    expect(shareText(cards.find((c) => c.key === "customer_1")!, "Northwind")).toBe("Northwind · First customer with Acme · 1 Mar 2026");
+    expect(shareText(cards.find((c) => c.key === "customer_1")!, "Northwind")).toBe("Northwind · First customer with Acme · Mar 1, 2026");
     expect(shareText(cards.find((c) => c.key === "mrr_1k")!, "Northwind")).not.toContain("Secret");
   });
 

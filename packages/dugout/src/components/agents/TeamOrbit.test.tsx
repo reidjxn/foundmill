@@ -5,7 +5,7 @@ import { DEFAULT_ORBIT_DEPARTMENTS, TeamOrbit } from "./TeamOrbit";
 describe("TeamOrbit", () => {
   it("is one decorative image with a name that describes the team", () => {
     render(<TeamOrbit />);
-    const img = screen.getByRole("img", { name: /Your team: you at the centre, a Chief of Staff, and 6 departments with 6 leads and 10 agents/ });
+    const img = screen.getByRole("img", { name: /Your team: you at the center, a Chief of Staff, and 6 departments with 6 leads and 10 agents/ });
     expect(img.querySelectorAll("[aria-hidden] [role='img']").length).toBeGreaterThan(0);
   });
 

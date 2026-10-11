@@ -5,7 +5,7 @@ import { WidgetDataProvider } from "../data";
 import { getWidget, parseWidgetSettings } from "../registry";
 import { createFakeSource } from "../testing";
 import "../widgets";
-import { formatDate } from "@foundmill/dugout";
+import { DATE_FORMATS, formatDate } from "@foundmill/dugout";
 import { departmentHealth, headlineMetric, metricKeyFor, nowLines, quietLine, toSquad } from "../widgets/department-card";
 import { addDays } from "../shared/time";
 import type { InboxItemRow } from "../shared/types";
@@ -167,14 +167,15 @@ describe("quiet department line", () => {
     const answered = inbox.items.map((n) => (n.id === decision.id ? { ...n, state: "answered" as const } : n.id === update.id ? { ...n, state: "unread" as const } : n));
     expect(quietLine({ ...base, inbox: answered, done: tasks.items })).toMatchObject({ kind: "inbox", label: "New in your Inbox", text: update.subject, inboxItemId: update.id });
     const finished = tasks.items.find((t) => t.status === "done")!;
-    expect(quietLine({ ...base, inbox: [], done: tasks.items })).toEqual({ kind: "finished", label: "Last finished", text: finished.title, detail: formatDate(finished.endedAt!, "d MMM") });
+    expect(quietLine({ ...base, inbox: [], done: tasks.items })).toEqual({ kind: "finished", label: "Last finished", text: finished.title, detail: formatDate(finished.endedAt!, DATE_FORMATS.dayMonth) });
+    expect(formatDate(finished.endedAt!, DATE_FORMATS.dayMonth)).toMatch(/^[A-Z][a-z]{2} \d{1,2}$/); // "Oct 5": month first, US style
     expect(quietLine({ ...base, inbox: [], done: [] })).toEqual({ kind: "clear", label: "All clear", text: "Nothing in progress, and nothing waiting on you." });
   });
 
   it("reads timestamps as the API sends them (Dates through superjson) as well as ISO strings", () => {
     const finished = tasks.items.find((t) => t.status === "done")!;
     const asDates = tasks.items.map((t) => ({ ...t, endedAt: t.endedAt ? (new Date(t.endedAt) as unknown as string) : t.endedAt }));
-    expect(quietLine({ ...base, inbox: [], done: asDates })).toMatchObject({ kind: "finished", text: finished.title, detail: formatDate(finished.endedAt!, "d MMM") });
+    expect(quietLine({ ...base, inbox: [], done: asDates })).toMatchObject({ kind: "finished", text: finished.title, detail: formatDate(finished.endedAt!, DATE_FORMATS.dayMonth) });
     const older: InboxItemRow = { ...decision, id: "older", subject: "An older call", createdAt: new Date(`${addDays(TODAY, -3)}T08:00:00.000Z`) as unknown as string };
     const newer: InboxItemRow = { ...decision, createdAt: new Date(decision.createdAt) as unknown as string };
     expect(quietLine({ ...base, inbox: [older, newer], done: [] })).toMatchObject({ text: decision.subject, detail: "1 more in the Inbox" });

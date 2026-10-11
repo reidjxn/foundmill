@@ -12,7 +12,7 @@ import type { SkillRow } from "./types";
 
 export const SKILL_GROUP_LABELS: Record<SkillGroup, string> = {
   craft: "Craft",
-  judgement: "Judgement",
+  judgement: "Judgment",
   execution: "Execution",
 };
 export const MAX_FOCUS_SKILLS = 3;

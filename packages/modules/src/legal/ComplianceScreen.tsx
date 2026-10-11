@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { CalendarDays, CalendarRange, Inbox, List, Repeat } from "lucide-react";
-import { Chip, DataTable, Panel, SegmentedControl, StatusStrip, cn, formatDate, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
+import { DATE_FORMATS, Chip, DataTable, Panel, SegmentedControl, StatusStrip, cn, formatDate, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
@@ -127,7 +127,7 @@ export function ComplianceScreen({ businessId, subView }: ModuleScreenProps) {
                       <li key={`${r.kind}-${r.id}`} className={cn("flex flex-col gap-1 rounded-sm px-1.5 py-1", r.id === highlight && "row-selected")}>
                         <span className="t-body text-primary">{r.title}</span>
                         <span className="flex flex-wrap items-center gap-2">
-                          <span className="t-mono text-tertiary">{r.dueAt ? formatDate(r.dueAt, "d MMM") : ""}</span>
+                          <span className="t-mono text-tertiary">{r.dueAt ? formatDate(r.dueAt, DATE_FORMATS.dayMonth) : ""}</span>
                           <Pill {...CALENDAR_PILL[r.status]} />
                         </span>
                       </li>

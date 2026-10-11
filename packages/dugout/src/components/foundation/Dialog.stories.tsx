@@ -10,7 +10,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Glass on a 14 px radius with elev-3 over the canvas at 66 % and a 6 px blur; it scales .98 → 1 from its centre as it fades in. The header keeps a long title clear of the close button; the footer is a darker strip under a hairline. Esc closes; focus is trapped.",
+          "Glass on a 14 px radius with elev-3 over the canvas at 66% and a 6 px blur; it scales .98 → 1 from its center as it fades in. The header keeps a long title clear of the close button; the footer is a darker strip under a hairline. Esc closes; focus is trapped.",
       },
     },
   },

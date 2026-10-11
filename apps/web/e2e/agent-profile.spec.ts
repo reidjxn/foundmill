@@ -144,7 +144,7 @@ test.describe("agent profile", () => {
     await page.keyboard.press("1");
     await expect(desk.getByTestId("founder-bubble").last()).toBeVisible();
     await expect.poll(() => agentBubbles.count(), { timeout: LONG }).toBeGreaterThan(before);
-    await expect(desk.getByTestId("read-receipt").last()).toContainText(/Read \d\d:\d\d/);
+    await expect(desk.getByTestId("read-receipt").last()).toContainText(/Read \d{1,2}:\d\d [AP]M/);
     const after = desk.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write])");
     await expect(after.first()).toBeVisible({ timeout: LONG });
     expect(await after.count()).toBeGreaterThanOrEqual(2);

@@ -11,9 +11,9 @@ describe("ContinueButton", () => {
     expect(continueButtonLabel({ kind: "processing" })).toBe("Pause");
     expect(continueButtonLabel({ kind: "matchday" })).toBe("Go to Journey");
     expect(continueButtonLabel({ kind: "holiday", until: null })).toBe("Come back");
-    expect(holidayCaption({ kind: "holiday", until: "2026-10-14" })).toBe("On holiday until 14 Oct 2026");
-    expect(holidayCaption({ kind: "holiday", until: null, untilLabel: "the launch ships" })).toBe("On holiday until the launch ships");
-    expect(holidayCaption({ kind: "holiday", until: null })).toBe("On holiday");
+    expect(holidayCaption({ kind: "holiday", until: "2026-10-14" })).toBe("On vacation until Oct 14, 2026");
+    expect(holidayCaption({ kind: "holiday", until: null, untilLabel: "the launch ships" })).toBe("On vacation until the launch ships");
+    expect(holidayCaption({ kind: "holiday", until: null })).toBe("On vacation");
   });
 
   it("routes click and Space to the state's action", async () => {
@@ -34,7 +34,7 @@ describe("ContinueButton", () => {
     await user.keyboard(" ");
     expect(handlers.onRespond).toHaveBeenCalledTimes(1);
     rerender(<ContinueButton state={{ kind: "holiday", until: "2026-10-14" }} bindSpace {...handlers} />);
-    expect(screen.getByText("On holiday until 14 Oct 2026")).toBeTruthy();
+    expect(screen.getByText("On vacation until Oct 14, 2026")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Come back" }));
     expect(handlers.onComeBack).toHaveBeenCalledTimes(1);
   });

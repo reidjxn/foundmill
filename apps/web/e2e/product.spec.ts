@@ -65,7 +65,7 @@ test.describe("product", () => {
     for (const row of await coverage.all()) await expect(row.locator("span").last()).toHaveText(/^\d+$/);
     const notes = page.getByRole("list", { name: "Research notes" });
     await expect(notes).toBeVisible();
-    await expect(notes).not.toContainText("Not summarised yet");
+    await expect(notes).not.toContainText(/Not summari[sz]ed yet/);
     const unsummarised = notes.locator("[data-read-source]");
     if (await unsummarised.count()) await expect(unsummarised.first()).toHaveText(/Read the source/);
   });

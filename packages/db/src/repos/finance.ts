@@ -257,7 +257,7 @@ export const financeRepo = {
 
   /** Applies a category to every transaction of a counterparty that was not set by the founder (a rule). */
   async recategoriseCounterparty(db: Executor, businessId: string, counterparty: string, category: string, source: (typeof CATEGORY_SOURCES)[number] = "rule"): Promise<number> {
-    const v = parseInput(z.object({ counterparty: z.string().min(1), category: z.string().min(1).max(80), source: z.enum(CATEGORY_SOURCES) }), { counterparty, category, source }, "recategorise rule");
+    const v = parseInput(z.object({ counterparty: z.string().min(1), category: z.string().min(1).max(80), source: z.enum(CATEGORY_SOURCES) }), { counterparty, category, source }, "recategorize rule");
     const rows = await db
       .update(transactions)
       .set({ category: v.category, categorySource: v.source })

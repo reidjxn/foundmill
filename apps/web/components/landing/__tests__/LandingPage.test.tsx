@@ -81,7 +81,7 @@ describe("LandingPage (signed-out /)", () => {
     }
     expect(document.getElementById("channels")).toBeTruthy();
     // One team orbit is announced (the hero's); the closing one is decoration.
-    expect(screen.getAllByRole("img", { name: /Your team: you at the centre/ })).toHaveLength(1);
+    expect(screen.getAllByRole("img", { name: /Your team: you at the center/ })).toHaveLength(1);
   });
 
   it("runs a cycle in the hero deck: a decision comes back, then a customer", async () => {
@@ -197,7 +197,7 @@ describe("LandingPage (signed-out /)", () => {
     for (const tile of tiles) expect(within(tile).getByText(/^\$\d+\.\d\d$/)).toBeTruthy();
     // Milestone values (TrophyCabinet) and the DecisionBar's cost line for screen readers.
     expect(screen.getByText("$29.00")).toBeTruthy();
-    expect(screen.getByText("$3,480.00")).toBeTruthy();
+    expect(screen.getByText("$290.00")).toBeTruthy();
     expect(screen.getByText(/^Recommended\. Scout books the sponsorship and the copy runs next week\. \$480\.00\. Not reversible\.$/)).toBeTruthy();
     expect(document.body.textContent).not.toContain("US$");
     for (const el of document.body.querySelectorAll("[aria-label], [title]")) expect(`${el.getAttribute("aria-label")} ${el.getAttribute("title")}`).not.toContain("US$");
@@ -312,8 +312,8 @@ describe("LandingPage server render", () => {
     const original = process.env.TZ;
     try {
       const utc = await markupIn("UTC");
-      expect(utc).toContain("7 Oct 2026");
-      expect(utc).toContain("25 Sep 2025");
+      expect(utc).toContain("Oct 7, 2026");
+      expect(utc).toContain("Sep 25, 2025");
       for (const zone of ["America/Los_Angeles", "Pacific/Honolulu", "Asia/Tokyo", "Pacific/Auckland"]) expect(await markupIn(zone), zone).toBe(utc);
     } finally {
       process.env.TZ = original;

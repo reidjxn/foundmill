@@ -9,7 +9,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "The agent's reaction to a founder message: a Lucide icon disc in the agent's colour on the bubble's corner, never an emoji. Concerned always uses the warning tone.",
+          "The agent's reaction to a founder message: a Lucide icon disc in the agent's color on the bubble's corner, never an emoji. Concerned always uses the warning tone.",
       },
     },
   },

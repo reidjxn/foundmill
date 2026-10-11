@@ -36,9 +36,12 @@ function formatCompactMoney(major: number, currency: string, locale: string): st
   return standard.format(major);
 }
 
+/** The product reads in US English: grouping and the sign follow en-US, the symbol is the currency's own ("£", "€", "$"). */
+export const MONEY_LOCALE = "en-US";
+
 export function formatMoney(m: Money, opts: { compact?: boolean; locale?: string } = {}): string {
   const major = minorToMajor(m.amountMinor, m.currency);
-  const locale = opts.locale ?? "en-GB";
+  const locale = opts.locale ?? MONEY_LOCALE;
   if (opts.compact && Math.abs(major) >= 10_000) return formatCompactMoney(major, m.currency, locale);
   return new Intl.NumberFormat(locale, {
     style: "currency", currency: m.currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: opts.compact ? 0 : 2,

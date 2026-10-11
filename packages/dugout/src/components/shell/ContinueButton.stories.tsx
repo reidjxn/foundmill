@@ -10,7 +10,7 @@ import type { ContinueState } from "./types";
 const meta = {
   title: "Shell/ContinueButton",
   component: ContinueButton,
-  parameters: { backgrounds: { value: "panel" }, docs: { description: { component: "At rest the brand primary with its light. Blocked is a solid red with ink text “Respond” and the count in a capsule, a 4 px red halo, and one 600 ms ring pulse when it turns blocked. Processing is a dark slab with a light arc orbiting its edge and “Pause”. A Customer Update is gold. Holiday is neutral with the caption and “Come back”. It keeps one width through its states. One pulse when pulseKey changes, never a loop; Space triggers the state's action." } } },
+  parameters: { backgrounds: { value: "panel" }, docs: { description: { component: "At rest the brand primary with its light. Blocked is a solid red with ink text “Respond” and the count in a capsule, a 4 px red halo, and one 600 ms ring pulse when it turns blocked. Processing is a dark slab with a light arc orbiting its edge and “Pause”. A Customer Update is gold. Vacation is neutral with the caption and “Come back”. It keeps one width through its states. One pulse when pulseKey changes, never a loop; Space triggers the state's action." } } },
   args: { state: { kind: "idle" }, bindSpace: true },
 } satisfies Meta<typeof ContinueButton>;
 export default meta;
@@ -21,15 +21,15 @@ const STATES: Array<[string, ContinueState]> = [
   ["Blocked", { kind: "blocked", count: 3 }],
   ["Processing", { kind: "processing" }],
   ["Customer Update", { kind: "matchday" }],
-  ["Holiday (date)", { kind: "holiday", until: "2026-10-21" }],
-  ["Holiday (condition)", { kind: "holiday", until: null, untilLabel: "the launch ships" }],
+  ["Vacation (date)", { kind: "holiday", until: "2026-10-21" }],
+  ["Vacation (condition)", { kind: "holiday", until: null, untilLabel: "the launch ships" }],
 ];
 
 export const Idle: Story = {};
 export const Blocked: Story = { args: { state: { kind: "blocked", count: 3 } } };
 export const Processing: Story = { args: { state: { kind: "processing" } } };
 export const CustomerUpdate: Story = { args: { state: { kind: "matchday" } } };
-export const Holiday: Story = { args: { state: { kind: "holiday", until: "2026-10-21" } } };
+export const Holiday: Story = { name: "Vacation", args: { state: { kind: "holiday", until: "2026-10-21" } } };
 export const AllStates: Story = {
   render: () => (
     <div className="grid grid-cols-[auto_1fr] items-center gap-x-6 gap-y-3">

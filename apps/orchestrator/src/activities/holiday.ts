@@ -116,7 +116,7 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
           actor: { kind: "agent", id: chiefId },
           payload: { decisionId: made.id, inboxItemId: item.id, chosenOption: recommended.id, freeText: null, decidedBy: "chief_of_staff", planId: null, planActionCount: 0, hardGateActions: 0 },
         });
-        await repos.audit.append(db, input.businessId, { actorKind: "agent", actorId: chiefId, action: "holiday.decide", target: { kind: "inbox_item", id: item.id }, details: { option: recommended.id, kind, reason: `within holiday authority (${kind ?? "safe reversible default"})` } });
+        await repos.audit.append(db, input.businessId, { actorKind: "agent", actorId: chiefId, action: "holiday.decide", target: { kind: "inbox_item", id: item.id }, details: { option: recommended.id, kind, reason: `within vacation authority (${kind ?? "safe reversible default"})` } });
         decided += 1;
         inboxItemIds.push(item.id);
       }
@@ -144,10 +144,10 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       const gatedItemsQueued = pendingApprovals + founderTasks.length;
       const days = Math.max(1, Math.round((now.getTime() - since.getTime()) / 86_400_000));
       const lines = [
-        `You were away ${days} day${days === 1 ? "" : "s"}; the team ran ${input.cyclesRun} cycle${input.cyclesRun === 1 ? "" : "s"} and the holiday ended because ${describeReason(input.reason, input.wakeEventType)}.`,
+        `You were away ${days} day${days === 1 ? "" : "s"}; the team ran ${input.cyclesRun} cycle${input.cyclesRun === 1 ? "" : "s"} and the vacation ended because ${describeReason(input.reason, input.wakeEventType)}.`,
         ``,
         `**Decisions I took (${chiefDecisions.length})** — each one inside the authority you set; open any item to see the option and the reason.`,
-        ...chiefDecisions.slice(0, 10).map((e) => `- ${new Date(e.occurredAt).toISOString().slice(0, 10)}: option "${(e.payload as { chosenOption?: string }).chosenOption ?? "free text"}" on inbox item ${(e.payload as { inboxItemId?: string }).inboxItemId ?? ""}`),
+        ...chiefDecisions.slice(0, 10).map((e) => `- ${new Date(e.occurredAt).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}: option "${(e.payload as { chosenOption?: string }).chosenOption ?? "free text"}" on inbox item ${(e.payload as { inboxItemId?: string }).inboxItemId ?? ""}`),
         ``,
         `**Customer Updates (${conversions.items.length})** — ${conversions.items.length ? "the replays are in the Customers tab, newest first." : "no customers won while you were away."}`,
         ``,

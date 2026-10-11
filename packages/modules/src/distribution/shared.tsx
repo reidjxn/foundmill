@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { PageGrid, ProvenanceChip, cn, formatMoney } from "@foundmill/dugout";
 import { CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared/constants";
+import { usSpelling } from "@foundmill/shared/us-spelling";
 import { useWidgetData } from "@foundmill/widgets/data";
 
 /* ---------- Vocabulary (CLAUDE.md: channel lines read Acquisition / Engagement / Organic / Offline) ---------- */
@@ -114,7 +115,7 @@ export function parseMajor(raw: string): number | null {
 export function plainWords(key: string | null | undefined): string {
   if (!key) return "";
   const words = key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  return usSpelling(words.charAt(0).toUpperCase() + words.slice(1));
 }
 
 /** A source key as words: a channel key reads as its channel's name ("paid_ads" → "Paid advertising"). */

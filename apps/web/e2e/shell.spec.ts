@@ -25,6 +25,21 @@ test.describe("login", () => {
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
     await expect(page).toHaveURL(/\/login\?next=/);
   });
+
+  test("a link opened on a different address says so above a form that can send a new one", async ({ page }) => {
+    await page.goto("/login?error=other_address&next=%2Fb%2Fx");
+    const notice = page.getByTestId("login-link-problem");
+    await expect(notice).toContainText("Link opened on a different address");
+    await expect(notice).toContainText("Send a new link from this page and open it in this browser.");
+    await expect(page.getByRole("button", { name: "Send sign-in link" })).toBeVisible();
+  });
+
+  test("/auth/callback with a code it cannot use lands on the login notice, not a bare form", async ({ page }) => {
+    // The e2e stack has no Supabase, so the callback reports that; production reports the reason Supabase gave.
+    await page.goto("/auth/callback?code=x&next=%2Fb%2Fx");
+    await expect(page).toHaveURL(/\/login\?error=not_configured&next=%2Fb%2Fx$/);
+    await expect(page.getByTestId("login-link-problem")).toContainText("Sign-in unavailable");
+  });
 });
 
 test.describe("not found", () => {

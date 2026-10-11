@@ -116,7 +116,7 @@ export function proseDoc(...paragraphs: string[]): Record<string, unknown> {
 export function money(amountMinor: number, currency: string): string {
   const symbol = currency === "GBP" ? "£" : currency === "EUR" ? "€" : currency === "USD" ? "$" : `${currency} `;
   const major = Math.round(amountMinor) / 100;
-  return `${symbol}${major.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${symbol}${major.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /** `[[ent:<id>|Name]]` mention markup (BUILD §11.3). */

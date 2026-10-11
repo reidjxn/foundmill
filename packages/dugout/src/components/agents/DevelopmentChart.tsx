@@ -4,7 +4,7 @@ import { curveMonotoneX, line as d3Line } from "d3-shape";
 import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { deptColourVar } from "../../lib/colour";
-import { formatDate } from "../../lib/format";
+import { DATE_FORMATS, formatDate } from "../../lib/format";
 import type { SkillHistorySeries, TrainingSessionMark } from "./types";
 
 export interface DevelopmentChartProps {
@@ -60,7 +60,7 @@ export function DevelopmentChart({ series, sessions = [], dept, width = 640, hei
             ))}
             {ticks.map((t) => (
               <text key={t.getTime()} x={x(t)} y={innerH + 18} textAnchor="middle" className="chart-tick">
-                {formatDate(t, "d MMM")}
+                {formatDate(t, DATE_FORMATS.dayMonth)}
               </text>
             ))}
             {sessions.map((s) => {

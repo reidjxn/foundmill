@@ -8,7 +8,7 @@ const meta = {
     docs: {
       description: {
         component:
-          'Shown only while a reply is genuinely in flight. It always names what the agent is looking at, in the agent\'s colour (SPEC "Typing line").',
+          'Shown only while a reply is genuinely in flight. It always names what the agent is looking at, in the agent\'s color (SPEC "Typing line").',
       },
     },
   },

@@ -16,12 +16,35 @@ import { appRouter } from "./router";
 
 export type AppVariables = { requestId: string };
 
+/**
+ * The www twin of an https web origin (https://www.foundmill.com for https://foundmill.com, and back). The web app
+ * redirects www to the apex (apps/web next.config.ts), so the twin is a safety net: a page someone still has open on
+ * www, or a Vercel domain setting that serves it again, keeps reaching the API. Never for http, localhost or an IP.
+ */
+export function wwwTwinOrigin(origin: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return null;
+  }
+  const host = url.hostname;
+  if (url.protocol !== "https:" || !host.includes(".") || host.startsWith("[") || /^[\d.]+$/.test(host)) return null;
+  const twin = host.startsWith("www.") ? host.slice(4) : `www.${host}`;
+  if (!twin.includes(".")) return null;
+  url.hostname = twin;
+  return url.origin;
+}
+
 export function allowedOrigins(env: { APP_URL: string }): string[] {
   const origins = new Set<string>(["http://localhost:3000", "http://127.0.0.1:3000"]);
   for (const raw of [env.APP_URL, process.env.NEXT_PUBLIC_APP_URL]) {
     if (!raw) continue;
     try {
-      origins.add(new URL(raw).origin);
+      const origin = new URL(raw).origin;
+      origins.add(origin);
+      const twin = wwwTwinOrigin(origin);
+      if (twin) origins.add(twin);
     } catch {
       /* ignore malformed origins */
     }

@@ -6,6 +6,7 @@
 import { APP_NAME } from "@foundmill/config";
 import { ARCHETYPE_LABELS, WRITE_ROLES, type Archetype, type Visibility } from "@foundmill/shared/constants";
 import type { FormResult } from "@foundmill/dugout";
+import { formatNumber } from "@/lib/format";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Profile visibility
@@ -190,8 +191,8 @@ export function describeMetric(metric: string): { label: string; format: MetricF
 export function formatMetricValue(value: string | number, format: MetricFormat): string {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return "—";
-  if (format === "percent") return `${new Intl.NumberFormat("en-GB", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(n)}%`;
-  return new Intl.NumberFormat("en-GB", { maximumFractionDigits: format === "integer" ? 0 : 2 }).format(n);
+  if (format === "percent") return `${formatNumber(n, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+  return formatNumber(n, { maximumFractionDigits: format === "integer" ? 0 : 2 });
 }
 
 /** A board's title: its kind and who it compares ("Growth · B2B SaaS · EU"). */

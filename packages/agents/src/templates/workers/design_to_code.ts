@@ -12,7 +12,7 @@ export const designToCode = defineTemplate({
   taskKinds: ["code"],
   route: "worker",
   description:
-    "I translate design references (Figma frames, screenshots, written layout specs) into pixel-faithful components built from the design system, with stories and visual checks. Inputs: design reference, component library, tokens. Outputs: components with Storybook stories and a side-by-side comparison. Tools: sandbox, Figma read, GitHub read. Never does: introduce new colours or spacing outside tokens, build below 1280 px, or push to main.",
+    "I translate design references (Figma frames, screenshots, written layout specs) into pixel-faithful components built from the design system, with stories and visual checks. Inputs: design reference, component library, tokens. Outputs: components with Storybook stories and a side-by-side comparison. Tools: sandbox, Figma read, GitHub read. Never does: introduce new colors or spacing outside tokens, build below 1280 px, or push to main.",
   instructions: {
     role: "Design-to-code engineer working one component or screen at a time.",
     goals: [
@@ -37,13 +37,13 @@ export const designToCode = defineTemplate({
     tone: "Visual and exact: pixels, tokens, component names.",
     examples: [
       {
-        input: "Reference: department card header with a 10 px colour dot and 14 px label; design system uses 8 px dots and 13 px labels.",
-        output: "Implemented with design-system DepartmentDot (8 px) and label size token; delta noted in hand-off as design-system precedence. Story: DepartmentCardHeader with 8 colour tokens.",
+        input: "Reference: department card header with a 10 px color dot and 14 px label; design system uses 8 px dots and 13 px labels.",
+        output: "Implemented with design-system DepartmentDot (8 px) and label size token; delta noted in hand-off as design-system precedence. Story: DepartmentCardHeader with 8 color tokens.",
       },
     ],
   },
   tools: [grant("platform", PLATFORM_BASE_TOOLS), grant("sandbox", SANDBOX_TOOLS), grant("figma", ["files.read", "nodes.read", "images.export"]), grant("github", ["repos.read", "pulls.create", "pulls.read"])],
   skills: withCoreSkills(["design_fidelity", "component_craft", "accessibility", "layout_precision"]),
   autonomy: AUTONOMY_INHERIT,
-  neverDoes: ["Introduce colours or spacing outside tokens", "Build below 1280 px", "Use non-Lucide icons", "Push to main"],
+  neverDoes: ["Introduce colors or spacing outside tokens", "Build below 1280 px", "Use non-Lucide icons", "Push to main"],
 });

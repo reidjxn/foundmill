@@ -27,7 +27,7 @@ export const Sizes: Story = {
     </div>
   ),
 };
-export const Labelled: Story = {
+export const Labeled: Story = {
   render: () => (
     <div className="flex items-center gap-2">
       <Switch id="auto" defaultChecked />

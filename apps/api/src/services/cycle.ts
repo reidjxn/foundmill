@@ -144,7 +144,7 @@ export class ContinueBlockedError extends AppError {
 /** One press of Continue. Refuses while blocked or on holiday; resumes a paused cycle; otherwise starts the next one. */
 export async function startCycle(ctx: BusinessContext): Promise<StartCycleResult> {
   const before = await continueStateFor(ctx);
-  if (before.kind === "holiday") throw new ContinueBlockedError("The Chief of Staff is running the business while you are away. End the holiday to take over.", { continueState: before });
+  if (before.kind === "holiday") throw new ContinueBlockedError("The Chief of Staff is running the business while you are away. End the vacation to take over.", { continueState: before });
   if (before.kind === "blocked") throw new ContinueBlockedError(`Respond to ${before.count} item${before.count === 1 ? "" : "s"} in the Inbox before the next cycle.`, { continueState: before });
 
   const status = await cycleStatus(ctx);

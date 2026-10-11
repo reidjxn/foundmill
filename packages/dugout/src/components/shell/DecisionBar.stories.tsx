@@ -6,13 +6,13 @@ import { REORDER_OPTIONS } from "./fixtures";
 const meta = {
   title: "Shell/DecisionBar",
   component: DecisionBar,
-  parameters: { layout: "fullscreen", docs: { description: { component: "Sticky at the bottom of the reading pane, at least 64 px, glass (surface 2 at 86 % over a 16 px blur) with a top light line and an upward shadow. Left: “Your call” and the deadline (above the options in a narrow pane). 2–4 options on an even grid of two-line buttons, each with its own consequence line; the recommended one is primary with a thumbs-up and a Recommended tag. Options wrap and the bar grows — nothing truncates or overlaps. Hover or focus shows consequence, cost and reversibility; 1–4 choose. With `onAsk`, “Ask <agent>” opens the conversation in place of the free-text box; without it, free text + Execute compiles a Plan (BUILD §11.3)." } } },
+  parameters: { layout: "fullscreen", docs: { description: { component: "Sticky at the bottom of the reading pane, at least 64 px, glass (surface 2 at 86% over a 16 px blur) with a top light line and an upward shadow. Left: “Your call” and the deadline (above the options in a narrow pane). 2–4 options on an even grid of two-line buttons, each with its own consequence line; the recommended one is primary with a thumbs-up and a Recommended tag. Options wrap and the bar grows — nothing truncates or overlaps. Hover or focus shows consequence, cost and reversibility; 1–4 choose. With `onAsk`, “Ask <agent>” opens the conversation in place of the free-text box; without it, free text + Execute compiles a Plan (BUILD §11.3)." } } },
   args: { options: REORDER_OPTIONS, onChoose: () => {}, onExecute: () => {} },
   decorators: [
     (Story) => (
       <div className="flex h-72 flex-col justify-end bg-panel">
         <div className="t-reading flex-1 p-gutter text-secondary">
-          Stock of the retinol serum covers 11 days at the current run rate. Meridian Labs quoted €9.20 a unit at 2,000 units (−8 % on the last order). Reordering now keeps the autumn bundle on sale; waiting costs about €1,100 a day in missed orders.
+          Stock of the retinol serum covers 11 days at the current run rate. Meridian Labs quoted €9.20 a unit at 2,000 units (−8% on the last order). Reordering now keeps the fall bundle on sale; waiting costs about €1,100 a day in missed orders.
         </div>
         <Story />
       </div>

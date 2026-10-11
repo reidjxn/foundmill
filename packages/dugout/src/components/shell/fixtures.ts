@@ -52,7 +52,7 @@ export const PALETTE_ITEMS: PaletteItem[] = [
   { id: "cmd-continue", kind: "command", label: "Continue", description: "Advance a business cycle", shortcut: ["Space"] },
   { id: "cmd-refresh", kind: "command", label: "Refresh Inbox", description: "One new note", shortcut: ["R"] },
   { id: "cmd-stop", kind: "command", label: "Stop all agents", description: "Kill switch" },
-  { id: "cmd-holiday", kind: "command", label: "Go on holiday", description: "Hand the business to the Chief of Staff" },
+  { id: "cmd-holiday", kind: "command", label: "Go on vacation", description: "Hand the business to the Chief of Staff" },
   { id: "cmd-edit", kind: "command", label: "Edit layout", shortcut: ["E"] },
   { id: "scr-home", kind: "screen", label: "Home", href: "/b/northwind", shortcut: ["G", "H"] },
   { id: "scr-inbox", kind: "screen", label: "Inbox", href: "/b/northwind/inbox", shortcut: ["G", "I"] },
@@ -78,7 +78,7 @@ export const RECENT_PALETTE_ITEMS: PaletteItem[] = [PALETTE_ITEMS[13] as Palette
 
 export const REORDER_OPTIONS: DecisionOption[] = [
   { id: "a", label: "Reorder 2,000 units", recommended: true, consequence: "Meridian Labs ships in 12 days; stock covers 9 weeks at the current run rate.", cost: { amountMinor: 1840000, currency: "EUR" }, reversible: false },
-  { id: "b", label: "Reorder 1,000 units", consequence: "Covers 4 weeks; unit cost rises 8 %.", cost: { amountMinor: 994000, currency: "EUR" }, reversible: false },
+  { id: "b", label: "Reorder 1,000 units", consequence: "Covers 4 weeks; unit cost rises 8%.", cost: { amountMinor: 994000, currency: "EUR" }, reversible: false },
   { id: "c", label: "Ask for a quote first", consequence: "Scout requests a fresh quote; decide again in 2 days.", cost: null, reversible: true },
   { id: "d", label: "Pause the serum", consequence: "Hide the product and pause its campaigns until stock is planned.", cost: null, reversible: true },
 ];

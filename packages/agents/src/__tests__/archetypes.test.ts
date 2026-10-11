@@ -63,7 +63,7 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
   it("physical archetypes add the physical outline sections and an Operations department with specialists", () => {
     for (const a of ["dtc_physical", "hardware"] as const) {
       const seed = getArchetypeSeed(a);
-      for (const s of ["Formulation / BOM", "Manufacturing", "Packaging", "Compliance", "Fulfilment"]) expect(seed.specOutline).toContain(s);
+      for (const s of ["Formulation / BOM", "Manufacturing", "Packaging", "Compliance", "Fulfillment"]) expect(seed.specOutline).toContain(s);
       const ops = seed.departments.find((d) => d.slug === "operations");
       expect(ops).toBeDefined();
       expect(ops!.leadTemplateKey).toBe("operations_lead");

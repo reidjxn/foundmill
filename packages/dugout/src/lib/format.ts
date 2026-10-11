@@ -1,11 +1,40 @@
 /**
- * Formatting helpers. Locale defaults to en-GB (matches @foundmill/shared money formatting).
- * Everything is pure; pass `now` where time is involved so tests and stories are deterministic.
+ * Formatting helpers. The product reads in US English: numbers and money default to en-US (matching
+ * @foundmill/shared), dates read "Oct 7, 2026" and times "3:45 PM" (DATE_FORMATS below). Money keeps each business's own
+ * currency with its narrow symbol. Everything is pure; pass `now` where time is involved so tests and stories are
+ * deterministic.
  */
 import { formatMoney as sharedFormatMoney, type Money } from "@foundmill/shared";
 import { format as dfFormat, isValid } from "date-fns";
 
-export const DEFAULT_LOCALE = "en-GB";
+export const DEFAULT_LOCALE = "en-US";
+
+/**
+ * The date and time patterns (date-fns tokens) every screen uses, so a person reads one convention everywhere. Pass one
+ * to `formatDate` instead of spelling a pattern at the call site.
+ */
+export const DATE_FORMATS = {
+  /** "Oct 7, 2026" */
+  date: "MMM d, yyyy",
+  /** "Oct 7": the year is implied (this year, or a column of one year). */
+  dayMonth: "MMM d",
+  /** "Wed, Oct 7" */
+  weekdayDayMonth: "EEE, MMM d",
+  /** "Wed, Oct 7, 2026" */
+  weekdayDate: "EEE, MMM d, yyyy",
+  /** "Wednesday, October 7, 2026" */
+  longDate: "EEEE, MMMM d, yyyy",
+  /** "Oct 2026" */
+  monthYear: "MMM yyyy",
+  /** "3:45 PM" */
+  time: "h:mm a",
+  /** "3:45:09 PM" */
+  timeSeconds: "h:mm:ss a",
+  /** "Oct 7, 2026, 3:45 PM" */
+  dateTime: "MMM d, yyyy, h:mm a",
+  /** "Oct 7, 3:45 PM": the year is implied. */
+  dayMonthTime: "MMM d, h:mm a",
+} as const;
 
 type DateInput = Date | string | number;
 
@@ -71,20 +100,46 @@ export function formatMoneyDelta(m: Money, opts: { compact?: boolean; locale?: s
   return s;
 }
 
-/** date-fns `format` with Dugout defaults: "5 Oct 2026". */
-export function formatDate(d: DateInput, pattern = "d MMM yyyy"): string {
+/** date-fns `format` with Dugout defaults: "Oct 5, 2026". Prefer a `DATE_FORMATS` pattern over a literal one. */
+export function formatDate(d: DateInput, pattern: string = DATE_FORMATS.date): string {
   const date = toDate(d);
   return isValid(date) ? dfFormat(date, pattern) : "—";
 }
 
-/** "5 Oct 2026, 14:05" */
+/** "Oct 5, 2026, 2:05 PM" */
 export function formatDateTime(d: DateInput): string {
-  return formatDate(d, "d MMM yyyy, HH:mm");
+  return formatDate(d, DATE_FORMATS.dateTime);
 }
 
-/** "14:05" */
+/** "2:05 PM" */
 export function formatTime(d: DateInput): string {
-  return formatDate(d, "HH:mm");
+  return formatDate(d, DATE_FORMATS.time);
+}
+
+/** An hour of the day on a 24-cell axis, 12-hour: 0 → "12 AM", 9 → "9 AM", 12 → "12 PM", 15 → "3 PM". */
+export function formatHourOfDay(hour: number): string {
+  if (!Number.isFinite(hour)) return "—";
+  const h = ((Math.trunc(hour) % 24) + 24) % 24;
+  return `${h % 12 === 0 ? 12 : h % 12} ${h < 12 ? "AM" : "PM"}`;
+}
+
+/**
+ * A date range, US style with an en dash: "Oct 7 – 21" within a month, "Oct 28 – Nov 3" within a year, "Dec 28, 2026 –
+ * Jan 4, 2027" across years, and a single date when both ends fall on the same day. `withYear` appends the shared year
+ * ("Oct 7 – 21, 2026"); a range across years always carries both.
+ */
+export function formatDateRange(start: DateInput, end: DateInput, opts: { withYear?: boolean } = {}): string {
+  const a = toDate(start);
+  const b = toDate(end);
+  if (!isValid(a) || !isValid(b)) return "—";
+  const year = opts.withYear ? `, ${dfFormat(a, "yyyy")}` : "";
+  const sameYear = a.getFullYear() === b.getFullYear();
+  if (!sameYear) return `${dfFormat(a, DATE_FORMATS.date)} – ${dfFormat(b, DATE_FORMATS.date)}`;
+  if (a.getMonth() === b.getMonth()) {
+    if (a.getDate() === b.getDate()) return dfFormat(a, opts.withYear ? DATE_FORMATS.date : DATE_FORMATS.dayMonth);
+    return `${dfFormat(a, DATE_FORMATS.dayMonth)} – ${dfFormat(b, "d")}${year}`;
+  }
+  return `${dfFormat(a, DATE_FORMATS.dayMonth)} – ${dfFormat(b, DATE_FORMATS.dayMonth)}${year}`;
 }
 
 const REL_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
@@ -97,6 +152,14 @@ const REL_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
 ];
 
 /**
+ * Relative times keep the words they always had ("3 min ago", "in 2 hr", "4 days ago"): the founder's switch to US
+ * English left them unchanged. CLDR's US data abbreviates differently ("3 min. ago" in short style, "4d ago" in narrow),
+ * so relative time alone reads from the British CLDR data, whose words are the same plain English in both countries.
+ */
+// us-english-allow: relative-time wording only (no spelling or date format comes from this locale).
+const RELATIVE_TIME_LOCALE = "en-GB";
+
+/**
  * Relative time, short and plain: "just now", "3 min ago", "in 2 hr", "yesterday", "4 days ago".
  * Pass `now` for deterministic output.
  */
@@ -106,7 +169,7 @@ export function formatRelative(d: DateInput, now: DateInput = new Date(), opts: 
   if (!isValid(date) || !isValid(ref)) return "—";
   const diffSec = Math.round((date.getTime() - ref.getTime()) / 1000);
   if (Math.abs(diffSec) < 45) return "just now";
-  const rtf = new Intl.RelativeTimeFormat(opts.locale ?? DEFAULT_LOCALE, { numeric: "auto", style: opts.style ?? "short" });
+  const rtf = new Intl.RelativeTimeFormat(opts.locale ?? RELATIVE_TIME_LOCALE, { numeric: "auto", style: opts.style ?? "short" });
   for (const [unit, secs] of REL_UNITS) {
     if (Math.abs(diffSec) >= secs || unit === "minute") {
       const value = Math.round(diffSec / secs);

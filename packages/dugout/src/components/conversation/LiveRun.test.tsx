@@ -124,6 +124,7 @@ describe("live run helpers", () => {
     expect(formatRunClock(19_000)).toBe("0:19");
     expect(formatRunClock(64_000)).toBe("1:04");
     expect(formatRunClock(3_725_000)).toBe("1:02:05");
-    expect(formatLogTime(new Date(2026, 9, 9, 14, 6, 21))).toBe("14:06:21");
+    expect(formatLogTime(new Date(2026, 9, 9, 14, 6, 21))).toBe("2:06:21 PM");
+    expect(formatLogTime(new Date(2026, 9, 9, 0, 5, 9))).toBe("12:05:09 AM");
   });
 });

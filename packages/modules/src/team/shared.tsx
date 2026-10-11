@@ -200,8 +200,8 @@ export const STATUS_ORDER: readonly AgentStatus[] = ["failing", "injured", "degr
 export const STATUS_DESCRIPTION: Record<AgentStatus, string> = {
   failing: "Loop detected or repeated errors. Sessions are stopped until you look.",
   injured: "A credential expired or a rate limit hit. Back once the integration is reconnected.",
-  degraded: "Error rate above 10 % over the last day. Still working, watch the next tasks.",
-  paused: "Paused by you or by a holiday rule. Resume from the profile.",
+  degraded: "Error rate above 10% over the last day. Still working, watch the next tasks.",
+  paused: "Paused by you or by a vacation rule. Resume from the profile.",
   idle: "No task assigned. The Chief of Staff routes work on the next cycle.",
   healthy: "Heartbeat on time, errors low, budget available.",
 };
@@ -429,7 +429,7 @@ export function agentEntity(businessId: string, agent: AgentRow, currency = "EUR
     chips: [{ label: STATUS_WORD[agent.status], tone: agentStatusTone(agent.status).tone }, { label: MODEL_LABELS[agent.modelKey] ?? agent.modelKey }],
     facts: [
       { label: "Departments", value: (agent.departments ?? []).map((d) => d.name).join(", ") || "—" },
-      { label: "Wage (Estimate)", value: `${new Intl.NumberFormat("en-GB", { style: "currency", currency: agent.currency ?? currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 }).format(wage / 100)}/mo` },
+      { label: "Wage (Estimate)", value: `${new Intl.NumberFormat("en-US", { style: "currency", currency: agent.currency ?? currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 }).format(wage / 100)}/mo` },
       { label: "Current task", value: agent.currentTask?.title ?? "None" },
     ],
     verbs: ["open_profile", "message"],

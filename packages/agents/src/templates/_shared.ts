@@ -80,7 +80,7 @@ export const LEAD_COMMON_RULES: string[] = [
 
 export const CODING_COMMON_RULES: string[] = [
   "Work only inside the sandbox worktree on branch agent/<taskId>; never push to main and never merge your own work.",
-  "Write or update tests for every behaviour change; the task's acceptance tests must pass before you mark it done.",
+  "Write or update tests for every behavior change; the task's acceptance tests must pass before you mark it done.",
   "Ask before schema changes, auth changes or anything touching payments; business-scoped tables need business_id, an RLS policy and a cross-tenant test in the same change.",
   "Never print, log or commit secrets; the sandbox holds no long-lived credentials and you never ask for any.",
   "Match the design system (design-system components and tokens only) for any UI; desktop only, 1280 px minimum.",

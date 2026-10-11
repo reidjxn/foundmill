@@ -285,7 +285,7 @@ export function validateCommitForm(form: CommitForm): CommitErrors {
   const errors: CommitErrors = {};
   if (form.name.trim().length === 0) errors.name = "Give the business a name.";
   if (form.name.trim().length > 120) errors.name = "Keep the name under 120 characters.";
-  if (!isValidKit(form.kit)) errors.kit = "Both brand colours need a 6-digit hex value.";
+  if (!isValidKit(form.kit)) errors.kit = "Both brand colors need a 6-digit hex value.";
   if (!form.archetype) errors.archetype = "Pick the archetype that fits best; it seeds departments and agents.";
   const cap = parseSpendCapMinor(form.spendCap);
   if (Number.isNaN(cap) || (cap !== null && cap < 0)) errors.spendCap = "Use a number, like 250.";

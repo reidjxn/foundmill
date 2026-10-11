@@ -41,7 +41,7 @@ function Row({ name, hint, initial }: { name: string; hint: string; initial: num
 
 /**
  * The founder profile's skills: the 20 cells are the track; the thumb springs cell to cell; focus shows "← → to
- * adjust". The figure and the band word carry the value with the colour.
+ * adjust". The figure and the band word carry the value with the color.
  */
 export const ProfileSkills: Story = {
   render: () => (

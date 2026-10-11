@@ -39,7 +39,7 @@ export const JUNO: DeskPersona = {
   doingNow: "Boots UK trial model, v3",
   progress: 0.62,
   voice: {
-    greeting: "I've modelled the Boots UK trial. Ask me anything about it before you decide.",
+    greeting: "I've modeled the Boots UK trial. Ask me anything about it before you decide.",
     thinking: ["Reading Boots UK's supplier terms", "Rerunning the December cash line"],
     ack: ["Noted.", "On it once you confirm."],
   },
@@ -294,7 +294,7 @@ export const CERTIFICATION: DeskPersona = {
   dept: "dept-7",
   status: "injured",
   presence: "down",
-  expectedBack: "14:30",
+  expectedBack: "2:30 PM",
   doingNow: "Serum stability, day 21 of 28",
   progress: 0.75,
   voice: { thinking: ["Pulling up the stability log"] },
@@ -312,8 +312,8 @@ export const CERTIFICATION_MESSAGES: DeskMessage[] = [
     id: "c2",
     author: "agent",
     bubbles: [
-      "Day 21 of 28. If the last week holds, the results are ready on 16 October (Forecast).",
-      "I'm down until 14:30; the log keeps running without me.",
+      "Day 21 of 28. If the last week holds, the results are ready on October 16 (Forecast).",
+      "I'm down until 2:30 PM; the log keeps running without me.",
     ],
     at: deskAt(-39),
     quickReplies: [

@@ -2,7 +2,7 @@
  * Builder for the 15 channel engine agents (BUILD §11.7 channel table). Each channel file supplies the specifics; this
  * composes the description, goals around the channel's core metric, the shared engine-loop rules and the tool grants.
  */
-import { CHANNEL_META, type ChannelKey, type EventType } from "@foundmill/shared";
+import { CHANNEL_META, type ChannelKey, type ChannelLine, type EventType } from "@foundmill/shared";
 import { grant, PLATFORM_BASE_TOOLS, QUARANTINE_TOOLS, type ConnectorKey } from "../../connectors";
 import { type AgentExample, type AgentTemplate, type ToolGrant } from "../../types";
 import { CHANNEL_COMMON_RULES, defineTemplate, spendingAutonomy, WORKER_COMMON_RULES, withCoreSkills } from "../_shared";
@@ -48,11 +48,14 @@ export const CHANNEL_PLATFORM_TOOLS = [
   "crm.interactions.append",
 ];
 
+/** What the founder reads for a channel's line (CLAUDE.md: Acquisition / Engagement / Organic / Offline); the key stays internal. */
+const LINE_WORDS: Record<ChannelLine, string> = { attack: "Acquisition", midfield: "Engagement", defence: "Organic", wings: "Offline" };
+
 export function defineChannelTemplate(init: ChannelTemplateInit): AgentTemplate {
   const meta = CHANNEL_META[init.channelKey];
   const kit = init.kitMode ?? meta.kitModeByDefault;
   const description = [
-    `I run the ${meta.label} channel engine for this business (${meta.line} line). What I do: ${init.work.join("; ")}.`,
+    `I run the ${meta.label} channel engine for this business (${LINE_WORDS[meta.line]} line). What I do: ${init.work.join("; ")}.`,
     `Core metric: ${meta.coreMetric}. I run the full loop — Plan → Create → Approve → Launch → Measure → Learn → Report — and report attributed results to the Inbox with record ids.`,
     kit
       ? "This channel runs in offline tracking by default: I prepare every material and a founder task; the founder books and signs."

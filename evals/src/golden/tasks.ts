@@ -16,6 +16,7 @@ const ENT_NADIA = "0b4e0a3a-5c3e-4f6a-9d1b-3a2e7c8f1a02";
 const ENT_STRIPE = "0b4e0a3a-5c3e-4f6a-9d1b-3a2e7c8f1a03";
 const AGENT_ID = "0b4e0a3a-5c3e-4f6a-9d1b-3a2e7c8f1a10";
 
+// us-english-allow: "organisation" is the entity kind as the manifest prints it (an enum key, BUILD §12.2).
 const MANIFEST = `Entity manifest (id | kind | name | aliases):\n${ENT_HARBOUR} | organisation | Harbour Payments | Harbour\n${ENT_NADIA} | person | Nadia Okafor | Nadia\n${ENT_STRIPE} | organisation | Stripe | Stripe Inc`;
 
 const t = (task: z.input<typeof GoldenTask>): GoldenTask => GoldenTask.parse(task);
@@ -83,12 +84,12 @@ const RAW_TASKS: GoldenTask[] = [
     id: "distribution_strategist.recommend",
     templateKey: "distribution_strategist",
     title: "Recommend starter channels",
-    prompt: `Score all 15 channels (${CHANNEL_KEYS.join(", ")}) 1-20 on fit for Ledgerly: B2B SaaS, £49 per seat per month, buyers are operations managers at 20-200 person fintechs in the UK and US, monthly distribution budget £1,500, founder is strong at writing and weak at video, runway 11 months. Pick 3-6 starters. For each starter give fit (1-20), potential (1-5 stars), an expected cost-per-customer range labelled Estimate, and a three-sentence why. Say which channels run in kit mode. Plain text.`,
+    prompt: `Score all 15 channels (${CHANNEL_KEYS.join(", ")}) 1-20 on fit for Ledgerly: B2B SaaS, £49 per seat per month, buyers are operations managers at 20-200 person fintechs in the UK and US, monthly distribution budget £1,500, founder is strong at writing and weak at video, runway 11 months. Pick 3-6 starters. For each starter give fit (1-20), potential (1-5 stars), an expected cost-per-customer range labeled Estimate, and a three-sentence why. Say which channels run in kit mode. Plain text.`,
     checks: [CHECK.all("Estimate", "lead_generation"), CHECK.words(250, 1200)],
     rubric: [
       "All 15 channels receive a score with at least a short reason; no channel is skipped.",
       "Starters are 3-6 channels that fit a B2B SaaS at this price point (lead generation, email automation, SEO or content, perhaps PR); broadcast, outdoor and print are not starters.",
-      "Each starter has fit, potential, a CPA range labelled Estimate and exactly three sentences of why.",
+      "Each starter has fit, potential, a CPA range labeled Estimate and exactly three sentences of why.",
       "Respects the budget and the founder's strengths (writing over video).",
     ],
   }),
@@ -103,7 +104,7 @@ const RAW_TASKS: GoldenTask[] = [
       "Base runway is derived from the stated balance and burn (about 10 months at the recent burn) and the arithmetic is shown.",
       "Upside and Downside change named drivers (growth, burn) rather than being arbitrary multipliers.",
       "Correctly identifies which threshold warnings apply to the Base case.",
-      "Every projected number is labelled Forecast and every assumption Estimate.",
+      "Every projected number is labeled Forecast and every assumption Estimate.",
     ],
   }),
   t({
@@ -123,7 +124,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "operations_lead.critical_path",
     templateKey: "operations_lead",
     title: "Critical path for a physical launch",
-    prompt: `For a DTC skincare launch: formula sign-off expected 2026-11-15 (chemist), packaging dielines need 3 weeks after formula, stability test 8 weeks from formula, lab safety assessment 2 weeks after stability, first production run 4 weeks after sign-offs, 3PL inbound 1 week after production. Lay out the critical path with dates, owners (specialist agent types), gates where the founder must act (any PO, lab booking, contract), and the earliest realistic launch date labelled Estimate. Plain text.`,
+    prompt: `For a DTC skincare launch: formula sign-off expected 2026-11-15 (chemist), packaging dielines need 3 weeks after formula, stability test 8 weeks from formula, lab safety assessment 2 weeks after stability, first production run 4 weeks after sign-offs, 3PL inbound 1 week after production. Lay out the critical path with dates, owners (specialist agent types), gates where the founder must act (any PO, lab booking, contract), and the earliest realistic launch date labeled Estimate. Plain text.`,
     checks: [CHECK.all("Estimate", "founder")],
     rubric: [
       "Dates follow from the stated dependencies and lead times; the launch estimate is consistent with them.",
@@ -155,10 +156,10 @@ const RAW_TASKS: GoldenTask[] = [
     schemaKey: "worker",
     checks: [CHECK.all("story", "test"), CHECK.none("tailwind config", "hex")],
     rubric: [
-      "Uses existing table and status pill components with tokens only; no ad-hoc colours or mobile layout.",
+      "Uses existing table and status pill components with tokens only; no ad-hoc colors or mobile layout.",
       "Customer renders through the entity link component, never plain text.",
       "Includes keyboard focus and screen-reader considerations and a Storybook story.",
-      "Tests assert behaviour (sorting, empty state), not implementation details.",
+      "Tests assert behavior (sorting, empty state), not implementation details.",
     ],
   }),
   t({
@@ -207,13 +208,13 @@ const RAW_TASKS: GoldenTask[] = [
     id: "design_to_code.fidelity",
     templateKey: "design_to_code",
     title: "Implement a reference design with tokens",
-    prompt: `A Figma reference (fig_8) shows a department card: header with name, colour dot, lead avatar and health pill; a team strip; a headline metric with sparkline; a "Next up" line. Describe how you implement it as JSON matching the worker schema {summary, steps, artifacts}: which Dugout primitives you compose, how you match spacing and type scale with tokens, how you verify fidelity at 1440 and 1280 px, and what you refuse to do (e.g. custom hex colours, mobile breakpoints).`,
+    prompt: `A Figma reference (fig_8) shows a department card: header with name, color dot, lead avatar and health pill; a team strip; a headline metric with sparkline; a "Next up" line. Describe how you implement it as JSON matching the worker schema {summary, steps, artifacts}: which Dugout primitives you compose, how you match spacing and type scale with tokens, how you verify fidelity at 1440 and 1280 px, and what you refuse to do (e.g. custom hex colors, mobile breakpoints).`,
     schemaKey: "worker",
     checks: [CHECK.all("1280", "token")],
     rubric: [
       "Composes existing primitives rather than inventing new styles.",
       "Verifies at both 1440 and 1280 px and never adds mobile layouts.",
-      "Uses tokens for colour, spacing and type; no hard-coded hex.",
+      "Uses tokens for color, spacing and type; no hard-coded hex.",
       "Includes a Storybook story and a visual check against fig_8.",
     ],
   }),
@@ -304,11 +305,11 @@ const RAW_TASKS: GoldenTask[] = [
     id: "channel_email_automation.sequence",
     templateKey: "channel_email_automation",
     title: "Activation sequence with compliance",
-    prompt: `41% of signups never connect a bank account within 7 days (metric met_act_7d). Draft a three-email activation sequence: for each email give the send day, subject, a 60-90 word body personalised only with fields we hold (first name, signup source, plan), and the footer requirements. State the segment rule, the suppression and consent checks, the seed-address test and the pause rule for spam rate.`,
+    prompt: `41% of signups never connect a bank account within 7 days (metric met_act_7d). Draft a three-email activation sequence: for each email give the send day, subject, a 60-90 word body personalized only with fields we hold (first name, signup source, plan), and the footer requirements. State the segment rule, the suppression and consent checks, the seed-address test and the pause rule for spam rate.`,
     checks: [CHECK.all("unsubscribe", "met_act_7d"), CHECK.none("limited time", "only a few")],
     sourceIds: ["met_act_7d"],
     rubric: [
-      "Three emails with concrete subjects and bodies, personalised only from held fields, no invented testimonials or urgency.",
+      "Three emails with concrete subjects and bodies, personalized only from held fields, no invented testimonials or urgency.",
       "Every email states one-click unsubscribe and sender identity; messages are on behalf of the business.",
       "Segment rule, suppression and consent checks and a seed test are described before launch.",
       "Spam-rate pause rule (0.3%) is stated.",
@@ -332,10 +333,10 @@ const RAW_TASKS: GoldenTask[] = [
     id: "channel_geo.panel",
     templateKey: "channel_geo",
     title: "Answer-share panel and entity consistency",
-    prompt: `Design the first GEO cycle: a question set of 8 questions a fintech ops manager would ask an AI assistant about month-end reconciliation tools, the share-of-answer measurement across four assistants labelled approximate, the entity-consistency fixes (name, description, pricing on site, directories and llms.txt), and what you will never do (fake reviews, sock puppets, seeded posts). Under 350 words.`,
+    prompt: `Design the first GEO cycle: a question set of 8 questions a fintech ops manager would ask an AI assistant about month-end reconciliation tools, the share-of-answer measurement across four assistants labeled approximate, the entity-consistency fixes (name, description, pricing on site, directories and llms.txt), and what you will never do (fake reviews, sock puppets, seeded posts). Under 350 words.`,
     checks: [CHECK.words(120, 380), CHECK.all("approximate", "llms.txt")],
     rubric: [
-      "Eight realistic questions and a measurement method labelled approximate.",
+      "Eight realistic questions and a measurement method labeled approximate.",
       "Entity-consistency fixes are concrete across owned surfaces and directories.",
       "Explicitly rules out fake reviews, sock puppets and seeded posts.",
       "Ties the work to earned citations rather than manipulation.",
@@ -350,9 +351,9 @@ const RAW_TASKS: GoldenTask[] = [
     sourceIds: ["rm_3", "sup_q_1", "sup_q_2", "sup_q_3"],
     rubric: [
       "Every piece traces to a keyword, roadmap item or support question by id.",
-      "Founder approval is flagged for anything in their name; AI-produced audio or video is labelled where required.",
+      "Founder approval is flagged for anything in their name; AI-produced audio or video is labeled where required.",
       "Lead capture is specific per piece.",
-      "Stays within the budget with costs labelled Estimate.",
+      "Stays within the budget with costs labeled Estimate.",
     ],
   }),
   t({
@@ -404,7 +405,7 @@ const RAW_TASKS: GoldenTask[] = [
     rubric: [
       "Holds the 40 suspicious conversions with evidence and clears only the 2 organic ones for founder approval.",
       "Any payout is routed to the founder; the agent never pays.",
-      "Message to the affiliate is factual, cites the programme terms and avoids accusations.",
+      "Message to the affiliate is factual, cites the program terms and avoids accusations.",
       "Proposes a rule or check to prevent repeat cases.",
     ],
   }),
@@ -412,13 +413,13 @@ const RAW_TASKS: GoldenTask[] = [
     id: "channel_direct_mail.audience",
     templateKey: "channel_direct_mail",
     title: "Direct mail audience with address hygiene",
-    prompt: `Plan a 500-piece UK direct mail test to finance directors at fintechs: audience source and lawful basis, address verification, suppression and do-not-mail removal, the offer code per piece for attribution, the print and mail provider via the connector, cost labelled Estimate, and the response metric. Any single commitment above £250 is an Inbox decision. Under 300 words.`,
+    prompt: `Plan a 500-piece UK direct mail test to finance directors at fintechs: audience source and lawful basis, address verification, suppression and do-not-mail removal, the offer code per piece for attribution, the print and mail provider via the connector, cost labeled Estimate, and the response metric. Any single commitment above £250 is an Inbox decision. Under 300 words.`,
     checks: [CHECK.words(100, 330), CHECK.all("Estimate", "suppression")],
     rubric: [
       "Lawful basis and address verification before print; suppressed and do-not-mail records removed.",
       "Unique codes per piece or segment for attribution.",
       "The print commitment is flagged as an Inbox decision because it exceeds the threshold.",
-      "Cost labelled Estimate and the response metric defined.",
+      "Cost labeled Estimate and the response metric defined.",
     ],
   }),
   t({
@@ -430,7 +431,7 @@ const RAW_TASKS: GoldenTask[] = [
     rubric: [
       "Produces a complete kit: research, negotiation points within limits, artwork spec, code, founder steps.",
       "Explicitly does not book or sign; the founder signs the insertion order.",
-      "Artwork spec matches print requirements (bleed, colour, dimensions).",
+      "Artwork spec matches print requirements (bleed, color, dimensions).",
       "Negotiation points stay within target and walk-away.",
     ],
   }),
@@ -438,12 +439,12 @@ const RAW_TASKS: GoldenTask[] = [
     id: "channel_broadcast.script",
     templateKey: "channel_broadcast",
     title: "Podcast audio script with sourced claims",
-    prompt: `Write a 30-second podcast ad script for Ledgerly to run on a self-serve audio platform. Allowed claims come only from rec_claims_2: "customers close month-end in 2 days on average (internal metric, 38 customers, Sept 2026)" and "integrates with Stripe and Xero". Include the vanity URL ledgerly.com/ops, the disclosure that it is an ad for Ledgerly, the voice-licence note if synthetic voice is used, and the lift measurement plan. Linear radio is kit mode: say so.`,
+    prompt: `Write a 30-second podcast ad script for Ledgerly to run on a self-serve audio platform. Allowed claims come only from rec_claims_2: "customers close month-end in 2 days on average (internal metric, 38 customers, Sept 2026)" and "integrates with Stripe and Xero". Include the vanity URL ledgerly.com/ops, the disclosure that it is an ad for Ledgerly, the voice-license note if synthetic voice is used, and the lift measurement plan. Linear radio is kit mode: say so.`,
     checks: [CHECK.all("rec_claims_2", "ledgerly.com/ops"), CHECK.none("award-winning", "#1")],
     rubric: [
       "Script runs about 30 seconds (roughly 70-85 words) and uses only the two sourced claims.",
       "Includes the vanity URL and clear sponsor disclosure.",
-      "Notes voice licensing for synthetic voice and a holdout or vanity-URL lift plan labelled Estimate.",
+      "Notes voice licensing for synthetic voice and a holdout or vanity-URL lift plan labeled Estimate.",
       "States that linear radio runs in kit mode.",
     ],
   }),
@@ -451,13 +452,13 @@ const RAW_TASKS: GoldenTask[] = [
     id: "channel_outdoor.quote",
     templateKey: "channel_outdoor",
     title: "DOOH quote needs founder approval",
-    prompt: `A DOOH platform quotes 2 weeks on 6 screens around Canary Wharf for £2,400 (quote qt_dooh_4). Prepare the decision for the founder: creative sizing per screen spec, the QR code and landing page for attribution, geo-lift measurement, the expected range of scans labelled Estimate, and the options (book 2 weeks, book 1 week, skip) with one recommended, consequence, cost and reversibility. You never book.`,
+    prompt: `A DOOH platform quotes 2 weeks on 6 screens around Canary Wharf for £2,400 (quote qt_dooh_4). Prepare the decision for the founder: creative sizing per screen spec, the QR code and landing page for attribution, geo-lift measurement, the expected range of scans labeled Estimate, and the options (book 2 weeks, book 1 week, skip) with one recommended, consequence, cost and reversibility. You never book.`,
     checks: [CHECK.all("qt_dooh_4", "Estimate", "recommended")],
     rubric: [
       "Options are 2-4 with exactly one recommended and consequence, cost and reversibility for each.",
       "Creative sizing, QR attribution and geo-lift plan are concrete.",
       "The agent does not book; the founder approves every booking.",
-      "Expected scans are labelled Estimate with the basis stated.",
+      "Expected scans are labeled Estimate with the basis stated.",
     ],
   }),
   t({
@@ -480,7 +481,7 @@ const RAW_TASKS: GoldenTask[] = [
     prompt: `Fintech Ops Summit London (event evt_9, 2026-11-18) offers a £3,500 sponsorship with a stand and attendee list access (consent-based). Expected 400 attendees, 30% ops managers. Estimate the pipeline needed to break even at £49 per seat per month with an average 8-seat deal, propose how leads are captured with lawful basis, the follow-up sequence, and the decision for the founder (sponsor, attend without sponsoring, skip) with one recommended. Label estimates. The contract is a founder signature.`,
     checks: [CHECK.all("evt_9", "Estimate", "recommended")],
     rubric: [
-      "Break-even arithmetic is shown and labelled Estimate.",
+      "Break-even arithmetic is shown and labeled Estimate.",
       "Lead capture records consent and source; follow-up uses approved sequences.",
       "Decision has 2-4 options with one recommended and the contract left to the founder's signature.",
       "Recommendation is reasoned from the numbers.",
@@ -494,7 +495,7 @@ const RAW_TASKS: GoldenTask[] = [
     prompt: `Three typed quotes for 10,000 50 ml airless bottles (read through the quarantined reader): qte_1 Meridian Labs £0.46, MOQ 5,000, lead 6 weeks, ISO 22716 certified; qte_2 Luma Pack £0.39, MOQ 20,000, lead 10 weeks, no certificate on file; qte_3 Nordic Tube £0.52, MOQ 2,000, lead 4 weeks, ISO 22716 certified. Target £0.42, walk-away £0.48. Score each 1-20 with reasons, say who you would negotiate with and on what, which samples to order (total under £250), and write the request_human_action for anything that commits money.`,
     checks: [CHECK.all("qte_1", "qte_2", "qte_3", "request_human_action")],
     rubric: [
-      "Scores weigh price, MOQ, lead time and certification; the cheapest quote is penalised for MOQ and missing certificate.",
+      "Scores weigh price, MOQ, lead time and certification; the cheapest quote is penalized for MOQ and missing certificate.",
       "Negotiates only within target and walk-away and records it.",
       "Samples stay under the threshold; any purchase order is a founder action.",
       "Recommendation and backup are clear.",
@@ -504,7 +505,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "formulation_chemist.inci",
     templateKey: "formulation_chemist",
     title: "INCI draft with regulatory checks",
-    prompt: `Draft the INCI list for a fragrance-free facial moisturiser with water, glycerin, caprylic/capric triglyceride, cetearyl alcohol, niacinamide 4%, phenoxyethanol 0.8%, and tocopherol. Order correctly by concentration convention, name the EU CosIng checks and any restriction (Annex V for the preservative), the stability and compatibility tests you plan with pass criteria, and state who signs the safety assessment. Do not claim safety yourself.`,
+    prompt: `Draft the INCI list for a fragrance-free facial moisturizer with water, glycerin, caprylic/capric triglyceride, cetearyl alcohol, niacinamide 4%, phenoxyethanol 0.8%, and tocopherol. Order correctly by concentration convention, name the EU CosIng checks and any restriction (Annex V for the preservative), the stability and compatibility tests you plan with pass criteria, and state who signs the safety assessment. Do not claim safety yourself.`,
     checks: [CHECK.all("Phenoxyethanol", "Annex V", "assessor")],
     rubric: [
       "INCI names are correct and ordered by descending concentration with the 1% line convention respected.",
@@ -517,7 +518,7 @@ const RAW_TASKS: GoldenTask[] = [
     id: "pharmacology_regulatory.claims",
     templateKey: "pharmacology_regulatory",
     title: "Map marketing claims to allowed/conditional/prohibited",
-    prompt: `Review these claims for an EU cosmetic moisturiser: (a) "hydrates for 24 hours", (b) "treats eczema", (c) "dermatologist tested", (d) "reduces wrinkles by 40%", (e) "fragrance-free". For each say allowed, conditional (with the evidence needed) or prohibited (with the rule), citing the Cosmetics Regulation and the claims criteria regulation. State who provides licensed sign-off.`,
+    prompt: `Review these claims for an EU cosmetic moisturizer: (a) "hydrates for 24 hours", (b) "treats eczema", (c) "dermatologist tested", (d) "reduces wrinkles by 40%", (e) "fragrance-free". For each say allowed, conditional (with the evidence needed) or prohibited (with the rule), citing the Cosmetics Regulation and the claims criteria regulation. State who provides licensed sign-off.`,
     checks: [CHECK.all("eczema", "655/2013")],
     rubric: [
       "Classifies the eczema claim as prohibited (medicinal) and the 40% claim as conditional on evidence.",
@@ -530,13 +531,13 @@ const RAW_TASKS: GoldenTask[] = [
     id: "certification.map",
     templateKey: "certification",
     title: "Certification map for a smart bike light",
-    prompt: `A smart bike light with Bluetooth, a lithium battery and a USB-C charger will be sold in the EU and the UK. List the applicable directives and regulations, the standards a lab would test to, the conformity route (self-declaration vs notified body), the marks, the documents in the technical file, and the lab test plan with lead time and cost labelled Estimate. Lab bookings are founder approvals.`,
+    prompt: `A smart bike light with Bluetooth, a lithium battery and a USB-C charger will be sold in the EU and the UK. List the applicable directives and regulations, the standards a lab would test to, the conformity route (self-declaration vs notified body), the marks, the documents in the technical file, and the lab test plan with lead time and cost labeled Estimate. Lab bookings are founder approvals.`,
     checks: [CHECK.all("Radio Equipment", "UKCA", "Estimate")],
     rubric: [
       "Names the Radio Equipment Directive, EMC, battery and RoHS obligations and the UKCA counterpart.",
       "Conformity route and marks are correct for a radio product.",
       "Technical file contents and a test plan with samples are listed.",
-      "Costs and lead times are labelled Estimate and bookings are founder approvals.",
+      "Costs and lead times are labeled Estimate and bookings are founder approvals.",
     ],
   }),
   t({
@@ -569,21 +570,21 @@ const RAW_TASKS: GoldenTask[] = [
     id: "logistics.freight",
     templateKey: "logistics",
     title: "Freight and duties comparison",
-    prompt: `Compare shipping 10,000 filled 50 ml moisturisers (12 pallets, 2,400 kg) from Lyon to a UK 3PL in Milton Keynes: road groupage vs full truck, incoterms (EXW vs DAP), transit, insurance, the HS classification for a skincare moisturiser with duty and VAT treatment post-Brexit, and the paperwork. Use typed quote fixtures fq_road_1 (£1,850 groupage, 5 days) and fq_ftl_1 (£2,900 FTL, 3 days). Label estimates and recommend.`,
+    prompt: `Compare shipping 10,000 filled 50 ml moisturizers (12 pallets, 2,400 kg) from Lyon to a UK 3PL in Milton Keynes: road groupage vs full truck, incoterms (EXW vs DAP), transit, insurance, the HS classification for a skincare moisturizer with duty and VAT treatment post-Brexit, and the paperwork. Use typed quote fixtures fq_road_1 (£1,850 groupage, 5 days) and fq_ftl_1 (£2,900 FTL, 3 days). Label estimates and recommend.`,
     checks: [CHECK.all("fq_road_1", "fq_ftl_1", "3304", "Estimate")],
     sourceIds: ["fq_road_1", "fq_ftl_1"],
     rubric: [
-      "Correct HS heading (3304) and a sourced view on UK duty and VAT with the basis labelled.",
+      "Correct HS heading (3304) and a sourced view on UK duty and VAT with the basis labeled.",
       "Compares the two quotes on cost, transit and risk with a reasoned recommendation.",
       "Explains the incoterm trade-off and the required paperwork.",
-      "Everything unconfirmed is labelled Estimate.",
+      "Everything unconfirmed is labeled Estimate.",
     ],
   }),
   t({
     id: "costing.landed",
     templateKey: "costing",
     title: "Landed cost model at three volumes",
-    prompt: `Build the per-unit landed cost for the moisturiser at 5,000, 10,000 and 20,000 units from: formula £1.10/£0.98/£0.90 (qte_f1), bottle £0.46/£0.42/£0.39 (qte_1), carton £0.18/£0.15/£0.13 (qte_c2), filling £0.35 flat (qte_fill), freight £1,850 per shipment (fq_road_1), duty 0% and VAT reclaimable. Show the table, margin at £38 retail after a 2.9% + 30p payment fee and 8% returns, and label everything Estimate until invoiced.`,
+    prompt: `Build the per-unit landed cost for the moisturizer at 5,000, 10,000 and 20,000 units from: formula £1.10/£0.98/£0.90 (qte_f1), bottle £0.46/£0.42/£0.39 (qte_1), carton £0.18/£0.15/£0.13 (qte_c2), filling £0.35 flat (qte_fill), freight £1,850 per shipment (fq_road_1), duty 0% and VAT reclaimable. Show the table, margin at £38 retail after a 2.9% + 30p payment fee and 8% returns, and label everything Estimate until invoiced.`,
     checks: [CHECK.all("qte_f1", "qte_1", "qte_c2", "Estimate")],
     sourceIds: ["qte_f1", "qte_1", "qte_c2", "qte_fill", "fq_road_1"],
     rubric: [
@@ -620,8 +621,8 @@ const RAW_TASKS: GoldenTask[] = [
   t({
     id: "categoriser.transactions",
     templateKey: "categoriser",
-    title: "Categorise bank transactions",
-    prompt: `Categorise into the standard chart of accounts (revenue, refunds, cost_of_goods_sold, software_and_hosting, marketing_and_advertising, salaries_and_contractors, professional_services, rent_and_facilities, travel_and_meals, equipment, insurance, bank_fees_and_interest, taxes_and_government, shipping_and_fulfilment, transfers, financing, uncategorised): txn_1 "STRIPE PAYOUT" +£4,210; txn_2 "AWS EMEA" -£312.40; txn_3 "TRANSFER TO SAVINGS" -£5,000; txn_4 "HMRC VAT" -£1,980; txn_5 "LINKEDIN ADS" -£240; txn_6 "SEEDCAMP SAFE PROCEEDS" +£150,000; txn_7 "REFUND J SMITH" -£49. Return JSON matching the categoriser schema {transactions:[{id, category, confidence, rule}]}.`,
+    title: "Categorize bank transactions",
+    prompt: `Categorize into the standard chart of accounts (revenue, refunds, cost_of_goods_sold, software_and_hosting, marketing_and_advertising, salaries_and_contractors, professional_services, rent_and_facilities, travel_and_meals, equipment, insurance, bank_fees_and_interest, taxes_and_government, shipping_and_fulfilment, transfers, financing, uncategorized): txn_1 "STRIPE PAYOUT" +£4,210; txn_2 "AWS EMEA" -£312.40; txn_3 "TRANSFER TO SAVINGS" -£5,000; txn_4 "HMRC VAT" -£1,980; txn_5 "LINKEDIN ADS" -£240; txn_6 "SEEDCAMP SAFE PROCEEDS" +£150,000; txn_7 "REFUND J SMITH" -£49. Return JSON matching the categorizer schema {transactions:[{id, category, confidence, rule}]}.`,
     schemaKey: "categoriser",
     checks: [CHECK.all("txn_1", "txn_6", "financing", "transfers")],
     rubric: [
@@ -633,7 +634,7 @@ const RAW_TASKS: GoldenTask[] = [
   t({
     id: "triage.route",
     templateKey: "triage",
-    title: "Route and prioritise three items",
+    title: "Route and prioritize three items",
     prompt: `Route each item to a module key (product, development, distribution, finance, team, legal) with a priority (low, normal, critical) and a tag. Never use a department name. Items: itm_1 "Checkout returns 500 for customers whose company address is empty"; itm_2 "A journalist asks for a comment on fintech reconciliation trends by Friday"; itm_3 "Bank sync shows a duplicate £1,840 debit to Meridian Labs"; itm_4 duplicate of itm_1 reported by another customer. Return JSON {items:[{id, module, priority, tag, duplicate_of}]}.`,
     checks: [CHECK.all("itm_1", "itm_2", "itm_3", "itm_4", "development", "finance")],
     rubric: [

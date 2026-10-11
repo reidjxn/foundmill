@@ -3,6 +3,7 @@
  * Information, not legal or tax advice; signing and submission are founder clicks (AC-11.11.4).
  */
 import { mockIntegrationRecord, type ToolContext } from "@foundmill/connectors";
+import { HOUSE_STYLE } from "@foundmill/agents";
 import { CreateContractInput, UpdateContractInput, repos } from "@foundmill/db";
 import { INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
@@ -76,7 +77,7 @@ export const legalRouter = router({
     const result = await ctx.models.complete({
       route: "departmentLead",
       schema: JurisdictionRecommendation,
-      system: "You are the Legal agent. Recommend two jurisdictions for this founder and business with up to six cards. Information only, never legal or tax advice.",
+      system: `You are the Legal agent. Recommend two jurisdictions for this founder and business with up to six cards. Information only, never legal or tax advice. ${HOUSE_STYLE}`,
       messages: [{ role: "user", content: "```json\n" + JSON.stringify({ founder: profile ? { citizenship: profile.citizenship, residence: profile.residence, target_markets: profile.targetMarkets, budget_minor: profile.budgetMinor } : null, business: { archetype: ctx.business.archetype, name: ctx.business.name }, fundraising: input.fundraising, co_founders: input.coFounders }) + "\n```" }],
       attribution: { businessId: ctx.businessId, kind: "jurisdiction_recommender" },
     });

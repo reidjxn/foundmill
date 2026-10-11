@@ -88,7 +88,7 @@ export function timelineScale(items: readonly RoadmapRow[], today: Date = new Da
   const ticks: TimelineScale["ticks"] = [];
   const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
   while (cursor.getTime() <= end.getTime()) {
-    // Fixed three-letter months ("Sep", never "Sept"): en-GB's short month is four letters for September only.
+    // Fixed three-letter months ("Sep", never "Sept"): some ICU builds print a four-letter short month for September.
     const month = MONTHS[cursor.getUTCMonth()]!;
     ticks.push({ at: (cursor.getTime() - start.getTime()) / (days * DAY_MS), label: cursor.getUTCMonth() === 0 ? `${month} ${cursor.getUTCFullYear()}` : month });
     cursor.setUTCMonth(cursor.getUTCMonth() + 1);

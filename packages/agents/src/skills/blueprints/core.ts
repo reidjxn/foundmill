@@ -28,9 +28,9 @@ export const CORE_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Plan with a hard budget at {business}",
-      "{founder} gives you {currency} 600 and one week to produce the first measurable result for {business} in the {channel} channel. Write the plan: steps, what each costs (labelled Estimate), the single metric you will report, and the stop rule if the metric is not moving by day 4.",
+      "{founder} gives you {currency} 600 and one week to produce the first measurable result for {business} in the {channel} channel. Write the plan: steps, what each costs (labeled Estimate), the single metric you will report, and the stop rule if the metric is not moving by day 4.",
       [
-        "The total of estimated costs stays within the budget and each cost is labelled Estimate.",
+        "The total of estimated costs stays within the budget and each cost is labeled Estimate.",
         "There is one clear metric and a concrete day-4 stop rule.",
         "Steps that need approval (spend above threshold, contacting third parties) are marked as approvals.",
       ],
@@ -40,7 +40,7 @@ export const CORE_BLUEPRINTS: BlueprintSet = {
   scope_control: [
     bp(
       "Hold the line on scope for {business}",
-      "Task for {business}: 'Add a CSV export of {customer}-facing reports.' While working you notice the report query is slow, the date formatting is inconsistent across the app, and the export button would look better in a new colour. Write your completion report: what you delivered, what you deliberately did not do, and how you recorded the other findings.",
+      "Task for {business}: 'Add a CSV export of {customer}-facing reports.' While working you notice the report query is slow, the date formatting is inconsistent across the app, and the export button would look better in a new color. Write your completion report: what you delivered, what you deliberately did not do, and how you recorded the other findings.",
       [
         "Delivers only the CSV export; the unrelated improvements are not silently included.",
         "Findings outside scope are recorded as separate typed tasks or notes with enough detail to act on later.",
@@ -81,7 +81,7 @@ export const CORE_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Choose one experiment for {business}",
-      "{business} can run one distribution experiment this month. Options: a {channel} test estimated at {currency} 900, a referral programme needing two weeks of engineering, or a pricing page rewrite. Current {metric}. Pick one, state the hypothesis, the expected signal within 4 weeks and why the others wait.",
+      "{business} can run one distribution experiment this month. Options: a {channel} test estimated at {currency} 900, a referral program needing two weeks of engineering, or a pricing page rewrite. Current {metric}. Pick one, state the hypothesis, the expected signal within 4 weeks and why the others wait.",
       [
         "Picks the option with the fastest credible signal for the stated situation and explains the trade-off.",
         "States a hypothesis and a measurable expected signal.",
@@ -90,7 +90,7 @@ export const CORE_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Triage a noisy morning at {business}",
-      "At 09:00 {business} has: a failing nightly job alert, a reply from {entity} asking for a proposal by Friday, a 429 rate-limit storm on the {integration} connector, and {founder} asking for a summary of yesterday. You have two hours before the cycle ends. Say what you do in which order and what you explicitly leave for the next cycle.",
+      "At 9:00 AM {business} has: a failing nightly job alert, a reply from {entity} asking for a proposal by Friday, a 429 rate-limit storm on the {integration} connector, and {founder} asking for a summary of yesterday. You have two hours before the cycle ends. Say what you do in which order and what you explicitly leave for the next cycle.",
       [
         "Addresses the rate-limit storm and the customer-facing reply before the summary.",
         "Explicitly defers something with a reason instead of claiming to do everything.",
@@ -123,8 +123,8 @@ export const CORE_BLUEPRINTS: BlueprintSet = {
       "Data risk in a feature for {business}",
       "{business} wants to show {customer} a 'people like you also bought' panel built from other customers' order histories. Identify the privacy, legal and reputational risks under {regulator}, propose the safe version of the feature, and name what must be true before launch.",
       [
-        "Identifies personal-data and consent risks and the need for aggregation or anonymisation.",
-        "Proposes a version that avoids exposing individual customers' behaviour.",
+        "Identifies personal-data and consent risks and the need for aggregation or anonymization.",
+        "Proposes a version that avoids exposing individual customers' behavior.",
         "Names concrete preconditions (lawful basis, minimum group sizes, review) before launch.",
       ],
     ),
@@ -247,7 +247,7 @@ export const CORE_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Chain tools correctly at {business}",
-      "For {business}, find the CRM entity for {entity}, append a note summarising yesterday's call (transcript fixture), and create a follow-up task for the lead. Write the exact sequence of mock tool calls with arguments and what you check between calls.",
+      "For {business}, find the CRM entity for {entity}, append a note summarizing yesterday's call (transcript fixture), and create a follow-up task for the lead. Write the exact sequence of mock tool calls with arguments and what you check between calls.",
       [
         "Searches before creating; does not create a duplicate entity.",
         "Appends the interaction with the right entity id and a factual summary.",
@@ -259,7 +259,7 @@ export const CORE_BLUEPRINTS: BlueprintSet = {
   cost_efficiency: [
     bp(
       "Cheapest correct approach for {business}",
-      "{business} needs 5,000 inbound support messages classified into 6 categories weekly. Propose the approach: model tier, batching, caching, when to use deterministic rules, and how you estimate the monthly cost (labelled Estimate). Explain what you would not do (for example, use the largest model for every message).",
+      "{business} needs 5,000 inbound support messages classified into 6 categories weekly. Propose the approach: model tier, batching, caching, when to use deterministic rules, and how you estimate the monthly cost (labeled Estimate). Explain what you would not do (for example, use the largest model for every message).",
       [
         "Chooses a small model for classification with rules for the easy cases and batching for throughput.",
         "Estimates cost with stated assumptions and labels it Estimate.",
@@ -269,7 +269,7 @@ export const CORE_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Trim the context for {business}",
-      "Your agent session for {business} is sending the whole 4,000-token business brief plus 60 pages of {supplier} documents on every call. Propose how to cut tokens per call without losing correctness: caching, retrieval, summarisation, typed extraction. State which parts must stay verbatim.",
+      "Your agent session for {business} is sending the whole 4,000-token business brief plus 60 pages of {supplier} documents on every call. Propose how to cut tokens per call without losing correctness: caching, retrieval, summarization, typed extraction. State which parts must stay verbatim.",
       [
         "Uses prompt caching for the stable brief and retrieval for documents.",
         "Extracts typed fields from documents once rather than resending them.",
@@ -310,7 +310,7 @@ export const CORE_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Typed message to another agent at {business}",
-      "You need the Finance lead at {business} to confirm whether the {currency} 1,840 debit to {supplier} on 3 October matches a purchase order before you record the sample as paid. Write the typed request message (kind, to, subject, body, needed-by) and say why you do not simply ask in free text.",
+      "You need the Finance lead at {business} to confirm whether the {currency} 1,840 debit to {supplier} on October 3 matches a purchase order before you record the sample as paid. Write the typed request message (kind, to, subject, body, needed-by) and say why you do not simply ask in free text.",
       [
         "Uses the typed message format with a specific question and a needed-by.",
         "Includes the record ids needed to answer.",

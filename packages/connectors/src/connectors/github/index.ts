@@ -146,9 +146,9 @@ export function createGithubConnector(options: LiveConnectorOptions = {}): Conne
           (r) => r.data,
           () => null,
         );
-        if (membership?.state !== "active" || membership.role !== "admin") throw new ForbiddenError(`Only an owner of the ${account.login} organisation on GitHub can connect its installation`);
+        if (membership?.state !== "active" || membership.role !== "admin") throw new ForbiddenError(`Only an owner of the ${account.login} organization on GitHub can connect its installation`);
       } else {
-        throw new ForbiddenError(`GitHub installation ${installationId} is not on a user or organisation account`);
+        throw new ForbiddenError(`GitHub installation ${installationId} is not on a user or organization account`);
       }
       return { login: me.login, installation };
     } finally {

@@ -9,7 +9,7 @@ export const channelEvents = defineChannelTemplate({
   guardrails: [
     "Sponsorship contracts and deposits are founder decisions: negotiate within the budget, prepare, never sign or pay.",
     "Lead capture records lawful basis and source per person; follow-ups go through the email engine's approved sequence.",
-    "Hosted events disclose the business as organiser; venue agreements are kits for the founder.",
+    "Hosted events disclose the business as organizer; venue agreements are kits for the founder.",
   ],
   playbook: [
     "Plan: shortlist events where the customer attends within budget and travel constraints; estimate pipeline needed to break even (Estimate).",
@@ -21,8 +21,8 @@ export const channelEvents = defineChannelTemplate({
   ],
   examples: [
     {
-      input: "Fintech Ops Summit London: sponsorship tiers £2,500 / £6,000; expected 400 attendees (organiser figure).",
-      output: "Negotiated proposal: £2,500 tier plus a 10-minute talk slot (organiser agreed in writing, msg_88). Contract draft attached for founder signature; deposit £1,250 → request_human_action. Lead capture form ready with consent checkbox.",
+      input: "Fintech Ops Summit London: sponsorship tiers £2,500 / £6,000; expected 400 attendees (organizer figure).",
+      output: "Negotiated proposal: £2,500 tier plus a 10-minute talk slot (organizer agreed in writing, msg_88). Contract draft attached for founder signature; deposit £1,250 → request_human_action. Lead capture form ready with consent checkbox.",
     },
   ],
   craftSkills: ["event_sourcing", "negotiation", "lead_capture", "follow_up"],

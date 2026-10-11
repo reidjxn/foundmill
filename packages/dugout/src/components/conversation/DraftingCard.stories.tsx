@@ -23,7 +23,7 @@ const meta = {
     docs: {
       description: {
         component:
-          'The streaming card frame for the Ideation grid (SPEC "Skeleton and streaming"): queued (a skeleton named for its drafter and its place), drafting (a live edge and a travelling light in the drafter\'s colour, the pitch streaming, actions locked), landed (rises, a lit kit-lift edge that settles, "Just in"). For a ConceptCard, pass landedCardClass() as its className.',
+          'The streaming card frame for the Ideation grid (SPEC "Skeleton and streaming"): queued (a skeleton named for its drafter and its place), drafting (a live edge and a traveling light in the drafter\'s color, the pitch streaming, actions locked), landed (rises, a lit kit-lift edge that settles, "Just in"). For a ConceptCard, pass landedCardClass() as its className.',
       },
     },
   },

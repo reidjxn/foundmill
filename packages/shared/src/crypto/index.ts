@@ -70,7 +70,7 @@ export function generateMasterKey(): string {
 /** Encrypts `JSON.stringify(value)`. */
 export async function encryptJson(vault: Vault, value: unknown, aad: string): Promise<EncryptedRecord> {
   const json = JSON.stringify(value);
-  if (json === undefined) throw new VaultError("invalid_record", "value is not JSON-serialisable");
+  if (json === undefined) throw new VaultError("invalid_record", "value is not JSON-serializable");
   return vault.encrypt(json, aad);
 }
 

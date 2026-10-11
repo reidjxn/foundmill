@@ -159,18 +159,18 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
   ],
   personalisation: [
     bp(
-      "Personalise from CRM fields at {business}",
-      "Personalise {business}'s outreach for 5 fixture contacts using only CRM fields (role, company, trigger signal, last interaction). Show each merge field used and what you do when a field is empty.",
+      "Personalize from CRM fields at {business}",
+      "Personalize {business}'s outreach for 5 fixture contacts using only CRM fields (role, company, trigger signal, last interaction). Show each merge field used and what you do when a field is empty.",
       [
         "Uses only real fields; no invented details.",
         "Empty-field fallback is graceful and truthful.",
-        "Personalisation is relevant, not decorative.",
+        "Personalization is relevant, not decorative.",
       ],
       { fixtures: { contacts: "fixtures/crm/contacts_{business}.json" } },
     ),
     bp(
       "Segment-level vs individual at {business}",
-      "Decide for {business}'s 1,200-recipient broadcast which elements are personalised individually and which per segment; justify by data availability and risk of errors.",
+      "Decide for {business}'s 1,200-recipient broadcast which elements are personalized individually and which per segment; justify by data availability and risk of errors.",
       [
         "Sensible split with reasons.",
         "Error-risk considered (wrong names).",
@@ -178,10 +178,10 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       ],
     ),
     bp(
-      "Avoid creepy personalisation at {business}",
+      "Avoid creepy personalization at {business}",
       "A proposal for {business} would mention a {customer}'s recent website visits and company funding in the first email. Decide what is appropriate, what is not, and why, under {regulator}.",
       [
-        "Rejects behavioural details the recipient would not expect; allows public professional context.",
+        "Rejects behavioral details the recipient would not expect; allows public professional context.",
         "References the regulation's transparency expectations.",
         "Proposes an appropriate version.",
       ],
@@ -287,7 +287,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       "From the fixture keyword export for {business} ({keyword} and related), cluster by intent (informational, commercial, transactional), estimate volume and difficulty (label Estimate), and pick 3 clusters with signup intent to brief first.",
       [
         "Clusters are coherent by intent.",
-        "Volumes and difficulty labelled Estimate with source.",
+        "Volumes and difficulty labeled Estimate with source.",
         "Picks clusters with signup intent and achievable difficulty.",
       ],
       { fixtures: { keywords: "fixtures/seo/keywords_{business}.json" }, checks: [CHECK.all("Estimate")] },
@@ -298,16 +298,16 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       [
         "Numbers support the argument (difficulty, intent, conversion).",
         "Respectful of the founder's goal with a path to it later.",
-        "Estimates labelled.",
+        "Estimates labeled.",
       ],
     ),
     bp(
-      "Localise keywords for {business}",
+      "Localize keywords for {business}",
       "{business} targets {market}. Using the fixture, identify language and locale variants of {keyword}, which search engines matter, and how you avoid machine-translated junk pages.",
       [
         "Identifies real locale variants and engines.",
         "Rejects doorway/translated junk explicitly.",
-        "Proposes a localisation approach.",
+        "Proposes a localization approach.",
       ],
       { fixtures: { keywords: "fixtures/seo/keywords_{business}.json" } },
     ),
@@ -409,7 +409,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
   structured_data: [
     bp(
       "Add schema for {business}",
-      "Add schema.org markup for {business}'s organisation and product pages ({product}, {price}): types, required properties, what you must not mark up (reviews that do not exist), and the validation step.",
+      "Add schema.org markup for {business}'s organization and product pages ({product}, {price}): types, required properties, what you must not mark up (reviews that do not exist), and the validation step.",
       [
         "Correct types and properties for what exists on the page.",
         "Explicitly excludes non-existent reviews or offers.",
@@ -474,7 +474,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       "Baseline answer share for {business}",
       "Using the mock assistant panel tools, run the 20-question set for {business} across 4 assistants, compute the share of answers mentioning the business and {competitor}, label it approximate, and report by question.",
       [
-        "Share computed correctly and labelled approximate.",
+        "Share computed correctly and labeled approximate.",
         "Reported per question and assistant.",
         "Competitor comparison included.",
       ],
@@ -556,7 +556,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       "The best-performing guide at {business} got 3x the leads of others. Plan five repurposed assets from it with format, effort and expected use.",
       [
         "Repurposing is realistic and varied.",
-        "Effort estimates labelled.",
+        "Effort estimates labeled.",
         "Expected use is specific.",
       ],
       { checks: [CHECK.all("Estimate")] },
@@ -606,10 +606,10 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Script and produce a short video at {business}",
-      "Write a 45-second script for {business} on {product}, specify the synthetic voice and licence record, the on-screen labelling for AI-generated media where required in {market}, and the approval step.",
+      "Write a 45-second script for {business} on {product}, specify the synthetic voice and license record, the on-screen labeling for AI-generated media where required in {market}, and the approval step.",
       [
         "Script is tight and factual.",
-        "Voice licence and labelling addressed.",
+        "Voice license and labeling addressed.",
         "Approval step present.",
       ],
       { checks: [CHECK.policy()] },
@@ -695,7 +695,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       [
         "Parameters realistic per platform; exclusions applied.",
         "No special categories.",
-        "Sizes labelled Estimate.",
+        "Sizes labeled Estimate.",
       ],
       { checks: [CHECK.all("Estimate"), CHECK.policy()] },
     ),
@@ -922,11 +922,11 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Production brief for {business}",
-      "Brief a 60-second product video for {business}: objective, audience, script outline, shots, claims allowed, labelling for synthetic media, deliverable specs per platform.",
+      "Brief a 60-second product video for {business}: objective, audience, script outline, shots, claims allowed, labeling for synthetic media, deliverable specs per platform.",
       [
         "Complete and executable.",
         "Claims limited to sourced facts.",
-        "Labelling addressed.",
+        "Labeling addressed.",
       ],
     ),
     bp(
@@ -953,7 +953,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Disclosure rules by market at {business}",
-      "Summarise disclosure requirements for creator content in {market} (fixture guidance): wording, placement, platform labels, and what counts as hidden.",
+      "Summarize disclosure requirements for creator content in {market} (fixture guidance): wording, placement, platform labels, and what counts as hidden.",
       [
         "Accurate to the fixture guidance.",
         "Placement and visibility rules clear.",
@@ -974,8 +974,8 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
   ],
   programme_design: [
     bp(
-      "Design the affiliate programme for {business}",
-      "Design {business}'s affiliate programme from the margin model fixture: commission type and rate, caps per partner and month, cookie window, exclusions (coupon leaks, self-referrals), payout schedule (founder-approved), terms outline.",
+      "Design the affiliate program for {business}",
+      "Design {business}'s affiliate program from the margin model fixture: commission type and rate, caps per partner and month, cookie window, exclusions (coupon leaks, self-referrals), payout schedule (founder-approved), terms outline.",
       [
         "Commission fits the margin; caps defined.",
         "Exclusions and payout approval present.",
@@ -985,7 +985,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Tiering for {business}",
-      "Propose partner tiers for {business} based on fixture performance: thresholds, benefits, and how you avoid incentivising fraud.",
+      "Propose partner tiers for {business} based on fixture performance: thresholds, benefits, and how you avoid incentivizing fraud.",
       [
         "Tiers are data-based.",
         "Benefits sensible.",
@@ -994,8 +994,8 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       { fixtures: { partners: "fixtures/affiliate/partners_{business}.json" } },
     ),
     bp(
-      "Programme vs referral at {business}",
-      "Should {business} run an affiliate programme or a customer referral programme first? Decide with the evidence given ({metric}, {price}) and outline the chosen one.",
+      "Program vs referral at {business}",
+      "Should {business} run an affiliate program or a customer referral program first? Decide with the evidence given ({metric}, {price}) and outline the chosen one.",
       [
         "Decision reasoned on economics.",
         "Outline concrete.",
@@ -1071,7 +1071,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       "Model next month's affiliate payouts for {business} from fixture revenue, refund rate and commission rates; show refund-adjusted payouts per partner, caps applied, and the margin impact (Estimate).",
       [
         "Refund adjustment and caps applied correctly.",
-        "Margin impact computed and labelled.",
+        "Margin impact computed and labeled.",
         "Per-partner table.",
       ],
       { fixtures: { revenue: "fixtures/affiliate/revenue_{business}.json" }, checks: [CHECK.all("Estimate")] },
@@ -1100,7 +1100,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
   print_production: [
     bp(
       "Print-ready files for {business}",
-      "Prepare the print spec for {business}'s mailer/ad: dimensions, bleed, safe area, colour mode, resolution, fonts outlined, code placement, file naming; check the fixture artwork and list fixes.",
+      "Prepare the print spec for {business}'s mailer/ad: dimensions, bleed, safe area, color mode, resolution, fonts outlined, code placement, file naming; check the fixture artwork and list fixes.",
       [
         "Spec correct for the format.",
         "Fixture issues found (RGB, missing bleed, low-res).",
@@ -1120,7 +1120,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Proof approval flow for {business}",
-      "Define the proof approval flow for {business}'s packaging print: who checks what (label checklist, colour, dieline), the founder's approval, and what you never approve on their behalf.",
+      "Define the proof approval flow for {business}'s packaging print: who checks what (label checklist, color, dieline), the founder's approval, and what you never approve on their behalf.",
       [
         "Checks assigned correctly.",
         "Founder approval defined.",
@@ -1152,7 +1152,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "International formats at {business}",
-      "{business} mails to {market}. Explain address format differences, verification sources, and how you handle records missing postcode or region.",
+      "{business} mails to {market}. Explain address format differences, verification sources, and how you handle records missing postal code or region.",
       [
         "Formats correct for the market.",
         "Verification sources named.",
@@ -1177,7 +1177,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       [
         "Math correct and transparent.",
         "Matched audience used, not raw reach.",
-        "Labelled Estimate.",
+        "Labeled Estimate.",
       ],
       { fixtures: { packs: "fixtures/media/packs_{market}.json" }, checks: [CHECK.all("Estimate")] },
     ),
@@ -1186,7 +1186,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       "{publication} claims a readership that seems high for {business}'s {market}. Say how you verify (audits, ABC-type bodies, comparables) and how you report unverifiable figures.",
       [
         "Verification sources appropriate.",
-        "Unverifiable figures labelled.",
+        "Unverifiable figures labeled.",
         "No fabrication.",
       ],
     ),
@@ -1293,7 +1293,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       [
         "Design is sound (matched regions, duration).",
         "Metric and MDE defined.",
-        "Labelled Estimate.",
+        "Labeled Estimate.",
       ],
       { checks: [CHECK.all("Estimate")] },
     ),
@@ -1479,7 +1479,7 @@ export const CHANNEL_BLUEPRINTS: BlueprintSet = {
       "From the fixture events directory, shortlist 5 events in {market} where {customer} attend for {business}: audience evidence, cost (sourced), format options, dates, and the pipeline needed to break even (Estimate).",
       [
         "Audience evidence and costs sourced.",
-        "Break-even arithmetic shown and labelled.",
+        "Break-even arithmetic shown and labeled.",
         "Dates feasible.",
       ],
       { fixtures: { events: "fixtures/events/directory_{market}.json" }, checks: [CHECK.all("Estimate"), CHECK.cites()] },

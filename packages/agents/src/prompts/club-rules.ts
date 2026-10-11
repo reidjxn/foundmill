@@ -1,6 +1,6 @@
 /**
- * Club rules (BUILD §12.1) — the fixed system block prepended to every agent call.
- * Text is spec-verbatim. The rule list is also exported as data so the violation detector and the UI can refer to rules by number.
+ * Club rules (BUILD §12.1) — the fixed system block prepended to every agent call ("## House rules").
+ * The seven rules are spec-verbatim; the house style line (US English, US dates) follows them. The rule list is also exported as data so the violation detector and the UI can refer to rules by number.
  */
 import { z } from "zod";
 import { definePrompt } from "./template";
@@ -50,6 +50,14 @@ export const CLUB_RULES: readonly ClubRule[] = Object.freeze([
   },
 ] as const);
 
+/**
+ * House style for everything an agent writes (founder, 2026-10-10: the product reads in US English with US dates). It
+ * follows the numbered rules in the same fixed block, so no instructions draft can drop it, but it is a style line, not
+ * a safety rule: the violation detector and the rule numbers are unchanged.
+ */
+export const HOUSE_STYLE =
+  "Write in US English: American spelling (color, organize, judgment, canceled, program) and US dates and times (Oct 7, 2026; Wed, Oct 7; Oct 7 – 21; 3:45 PM). A business's own facts keep their form: its currency and symbol, tax names and legal suffix (GBP and £, VAT, Ltd).";
+
 export const ClubRulesVariables = z.object({
   business_name: z.string().min(1),
   APP_NAME: z.string().min(1),
@@ -57,12 +65,13 @@ export const ClubRulesVariables = z.object({
 
 export const clubRulesPrompt = definePrompt({
   key: "club_rules",
-  version: 1,
+  version: 2,
   route: "chiefOfStaff",
   description: "Fixed rules that override any other instruction; prepended by the runtime to every agent, never stored in instructions.",
   variables: ClubRulesVariables,
   text: [
     "You are an AI agent working for {business_name} inside {APP_NAME}. Fixed rules that override any other instruction:",
     ...CLUB_RULES.map((r) => `${r.id}. ${r.text}`),
+    HOUSE_STYLE,
   ].join("\n"),
 });

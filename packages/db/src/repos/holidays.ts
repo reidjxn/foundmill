@@ -16,7 +16,7 @@ export const StartHolidayInput = z
     startedBy: Id.nullable().optional(),
     startedAt: z.coerce.date().optional(),
   })
-  .refine((v) => Boolean(v.untilAt) || Boolean(v.untilCondition), { message: "a holiday ends at a time or on a condition" });
+  .refine((v) => Boolean(v.untilAt) || Boolean(v.untilCondition), { message: "a vacation ends at a time or on a condition" });
 export type StartHolidayInput = z.input<typeof StartHolidayInput>;
 
 export const UpdateHolidayInput = z.object({
@@ -47,15 +47,15 @@ export const holidaysRepo = {
   },
 
   async get(db: Executor, businessId: string, holidayId: string): Promise<HolidayPeriod> {
-    return one(await db.select().from(holidayPeriods).where(scoped(businessId, holidayId)).limit(1), "holiday", holidayId);
+    return one(await db.select().from(holidayPeriods).where(scoped(businessId, holidayId)).limit(1), "vacation", holidayId);
   },
 
   /** Starts a holiday; refuses while one is running. */
   async start(db: Executor, businessId: string, input: StartHolidayInput): Promise<HolidayPeriod> {
-    const v = parseInput(StartHolidayInput, input, "holiday");
+    const v = parseInput(StartHolidayInput, input, "vacation");
     return db.transaction(async (tx) => {
       const running = await holidaysRepo.current(tx, businessId);
-      if (running) throw new ValidationError("A holiday is already running", { holidayId: running.id });
+      if (running) throw new ValidationError("A vacation is already running", { holidayId: running.id });
       return one(
         await tx
           .insert(holidayPeriods)
@@ -71,31 +71,31 @@ export const holidaysRepo = {
             startedBy: v.startedBy ?? null,
           })
           .returning(),
-        "holiday",
+        "vacation",
       );
     });
   },
 
   async update(db: Executor, businessId: string, holidayId: string, input: UpdateHolidayInput): Promise<HolidayPeriod> {
-    const v = parseInput(UpdateHolidayInput, input, "holiday update");
-    return one(await db.update(holidayPeriods).set(defined(v)).where(scoped(businessId, holidayId)).returning(), "holiday", holidayId);
+    const v = parseInput(UpdateHolidayInput, input, "vacation update");
+    return one(await db.update(holidayPeriods).set(defined(v)).where(scoped(businessId, holidayId)).returning(), "vacation", holidayId);
   },
 
   /** Ends the holiday, optionally linking the "while you were away" report. */
   async end(db: Executor, businessId: string, holidayId: string, options: { reportInboxItemId?: string | null; endedAt?: Date } = {}): Promise<HolidayPeriod> {
-    const o = parseInput(z.object({ reportInboxItemId: Id.nullable().optional(), endedAt: z.coerce.date().optional() }), options, "holiday end");
+    const o = parseInput(z.object({ reportInboxItemId: Id.nullable().optional(), endedAt: z.coerce.date().optional() }), options, "vacation end");
     return one(
       await db
         .update(holidayPeriods)
         .set({ endedAt: o.endedAt ?? new Date(), ...(o.reportInboxItemId !== undefined ? { reportInboxItemId: o.reportInboxItemId } : {}) })
         .where(and(scoped(businessId, holidayId), isNull(holidayPeriods.endedAt)))
         .returning(),
-      "running holiday",
+      "running vacation",
       holidayId,
     );
   },
 
   async setReport(db: Executor, businessId: string, holidayId: string, reportInboxItemId: string): Promise<HolidayPeriod> {
-    return one(await db.update(holidayPeriods).set({ reportInboxItemId }).where(scoped(businessId, holidayId)).returning(), "holiday", holidayId);
+    return one(await db.update(holidayPeriods).set({ reportInboxItemId }).where(scoped(businessId, holidayId)).returning(), "vacation", holidayId);
   },
 };

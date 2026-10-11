@@ -49,7 +49,7 @@ export function createDropboxSignMock() {
       cancel_signature_request: async ({ signatureRequestId }) => {
         const r = requests.get(signatureRequestId);
         if (!r) throw notFound(signatureRequestId);
-        if (r.is_complete) throw Object.assign(new Error("completed requests cannot be cancelled"), { status: 409 });
+        if (r.is_complete) throw Object.assign(new Error("completed requests cannot be canceled"), { status: 409 });
         requests.delete(signatureRequestId);
         return { cancelled: true as const, signatureRequestId };
       },

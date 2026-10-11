@@ -4,7 +4,7 @@ import { ChevronLeft, Pause, Play, RotateCcw, Star, Trophy, VolumeX } from "luci
 import { CHANNEL_META, type ChannelKey, type EntityKind, type MatchdayLevel } from "@foundmill/shared/constants";
 import { cn } from "../../../lib/cn";
 import { FitText } from "../../foundation/FitText";
-import { formatDate, formatDateTime, formatDuration, formatMoney, formatNumber, formatOrdinal, formatPercent } from "../../../lib/format";
+import { DATE_FORMATS, formatDate, formatDateTime, formatDuration, formatMoney, formatNumber, formatOrdinal, formatPercent } from "../../../lib/format";
 import { ratingClass } from "../../../lib/rating";
 import { usePrefersReducedMotion } from "../../../lib/reducedMotion";
 import { Avatar } from "../../foundation/Avatar";
@@ -95,7 +95,7 @@ function offsetLabel(iso: string, kickoffIso: string | null): string {
   if (!kickoffIso) return formatDateTime(iso);
   const ms = Date.parse(iso) - Date.parse(kickoffIso);
   const day = Math.floor(ms / 86_400_000) + 1;
-  return `Day ${day} · ${formatDate(iso, "HH:mm")}`;
+  return `Day ${day} · ${formatDate(iso, DATE_FORMATS.time)}`;
 }
 
 function channelLabel(key: ChannelKey | null): string {
@@ -238,7 +238,7 @@ function MatchFeed({ journey, touches, playedIds, commentaryShown, agents, onOpe
             return (
               <li key={t.id} className={cn("flex flex-col gap-1", !reduced && idx === rows.length - 1 && "animate-rise-in")} data-touch-row={t.id}>
                 <div className="flex items-center gap-2">
-                  <span className="w-28 shrink-0 font-mono text-mono text-secondary">{offsetLabel(t.occurredAt, kickoff)}</span>
+                  <span className="w-36 shrink-0 whitespace-nowrap font-mono text-mono text-secondary">{offsetLabel(t.occurredAt, kickoff)}</span>
                   <Chip tone={isCaptain ? "gold" : "neutral"} icon={isCaptain ? Star : undefined}>
                     {channelLabel(t.channelKey)}
                   </Chip>

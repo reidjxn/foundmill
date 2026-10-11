@@ -34,13 +34,13 @@ describe("WageBillScreen", () => {
     expect(fake.queried.get("finance.wages")).toEqual({ period: "2026-10" });
     expect(fake.queried.get("dev.tasks.list")).toEqual({ status: "done", limit: 500 });
     expect(fake.queried.get("finance.pnl")).toEqual({ from: "2026-10-01T00:00:00.000Z", to: "2026-11-01T00:00:00.000Z" });
-    const strip = screen.getByRole("region", { name: "Wage bill summary" });
-    expect(within(strip).getByText("Team wage bill").parentElement!.parentElement!.textContent).toContain("€545.00"); // 420 + 125 + 5 (unattributed)
+    const strip = screen.getByRole("region", { name: "Payroll summary" });
+    expect(within(strip).getByText("Team payroll").parentElement!.parentElement!.textContent).toContain("€545.00"); // 420 + 125 + 5 (unattributed)
     expect(within(strip).getByText("Human payroll").parentElement!.parentElement!.textContent).toContain("€16K");
-    expect(within(strip).getByText("Total wage bill").parentElement!.parentElement!.textContent).toContain("€17K"); // €16,545 compacted
+    expect(within(strip).getByText("Total payroll").parentElement!.parentElement!.textContent).toContain("€17K"); // €16,545 compacted
     expect(within(strip).getAllByText("Estimate").length).toBe(4);
 
-    const table = screen.getByRole("grid", { name: "Team wage bill" });
+    const table = screen.getByRole("grid", { name: "Team payroll" });
     expect(within(table).getByRole("link", { name: /Atlas/ }).getAttribute("href")).toBe(`/b/${BID}/agents/${AGENT.atlas}/overview`);
     expect(within(table).getByText("84%")).toBeTruthy();
     expect(within(table).getByText("Uncapped")).toBeTruthy();
@@ -57,7 +57,7 @@ describe("WageBillScreen", () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <WageBillScreen {...props} />);
-    const table = screen.getByRole("grid", { name: "Team wage bill" });
+    const table = screen.getByRole("grid", { name: "Team payroll" });
     fireEvent.contextMenu(within(table).getByRole("link", { name: /Nova/ }));
     const menu = await screen.findByRole("menu");
     await user.click(within(menu).getByRole("menuitem", { name: "Adjust wage cap" }));

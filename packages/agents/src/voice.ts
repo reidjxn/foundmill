@@ -22,7 +22,7 @@ const REGISTER_VOICES: Record<VoiceRegister, AgentVoice> = {
   numerate: {
     greeting: "Hi. Which figures shall we look at?",
     thinking: ["Pulling the figures…", "Checking the basis…", "Reconciling the records…"],
-    ack: ["Noted.", "Understood. I'll keep the figures labelled.", "Clear."],
+    ack: ["Noted.", "Understood. I'll keep the figures labeled.", "Clear."],
   },
   measured: {
     greeting: "Hello. What would you like me to look at?",

@@ -352,7 +352,7 @@ test.describe("seeded business (Northwind Skincare)", () => {
     await page.getByRole("button", { name: "Clear all" }).click();
     const t1 = Date.now();
     await input.fill("Pennine");
-    await expect(typeahead.locator("section[aria-label=Organisations]")).toContainText("Pennine Contract Cosmetics", { timeout: LONG });
+    await expect(typeahead.locator("section[aria-label=Organizations]")).toContainText("Pennine Contract Cosmetics", { timeout: LONG });
     test.info().annotations.push({ type: "organisation-typeahead-ms", description: String(Date.now() - t1) });
     await input.press("Enter");
     await expect(page.getByTestId("crm-table-panel")).toContainText("Pennine Contract Cosmetics", { timeout: LONG });

@@ -13,7 +13,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Customer Update (BUILD §11.4): Who was involved → First touch → Touches → Rails → Win moment → Debrief. Frames come from a deterministic schedule of the journey record (same record, same replay). Full 54 s, Highlights 12.5 s, Instant. The Goal moment is a 1.2 s kit-colour wipe with a PixiJS particle burst in kit-secondary and gold, sound off. Reduced motion renders the static summary.",
+          "Customer Update (BUILD §11.4): Who was involved → First touch → Touches → Rails → Win moment → Debrief. Frames come from a deterministic schedule of the journey record (same record, same replay). Full 54 s, Highlights 12.5 s, Instant. The Goal moment is a 1.2 s kit-color wipe with a PixiJS particle burst in kit-secondary and gold, sound off. Reduced motion renders the static summary.",
       },
     },
   },
@@ -29,7 +29,7 @@ export const Highlights: Story = { name: "Replay · Highlights (12.5 s)", args: 
 export const FullMatch: Story = { name: "Replay · Full match (54 s)", args: { defaultSpeed: "full" }, render: Highlights.render };
 export const Instant: Story = { name: "Instant result", args: { defaultSpeed: "instant" }, render: Highlights.render };
 export const Paused: Story = { name: "Paused on Who was involved (step through)", args: { defaultSpeed: "full", autoplay: false }, render: Highlights.render };
-export const SecondBrandColours: Story = { name: "Ledgerly brand colours", args: { defaultSpeed: "highlights", kit: LEDGERLY_KIT }, render: Highlights.render };
+export const SecondBrandColours: Story = { name: "Ledgerly brand colors", args: { defaultSpeed: "highlights", kit: LEDGERLY_KIT }, render: Highlights.render };
 export const ReducedMotion: Story = { name: "Reduced motion (static summary)", args: { defaultSpeed: "full", overlay: "none" }, parameters: { docs: { description: { story: "Enable reduced motion in the OS (or the a11y addon) to see the static summary: Win moment, Debrief, Who was involved and Rails at once." } } }, render: Highlights.render };
 
 const roundup: RoundupRow[] = [

@@ -497,12 +497,12 @@ export function finaliseAgentReply(draft: unknown, options: FinaliseReplyOptions
     }
     if (kind === "hand_off" && detectHardGates(sayText).length > 0 && detectHardGates(rawLabel).length === 0) {
       rawLabel = sayText;
-      repairs.push("labelled a gated quick reply with what it says");
+      repairs.push("labeled a gated quick reply with what it says");
     }
     // "Thanks" / "Not now" chips only ever say a thanks or a "not now": pressing one can never send an instruction.
     if ((kind === "acknowledge" || kind === "decline") && !["acknowledge", "decline", "greeting"].includes(founderIntent(sayText, null))) {
       sayText = `${rawLabel.replace(/[.!…]+$/, "")}.`;
-      repairs.push("an acknowledgement says only what its label says");
+      repairs.push("an acknowledgment says only what its label says");
     }
     const label = trimLabel(sentenceCase(rawLabel));
     if (label !== rawLabel) repairs.push("trimmed a quick reply label");

@@ -5,6 +5,7 @@
  * Training Ground reflects the intent.
  */
 import { FLAGS, isSimulateEnv } from "@foundmill/config";
+import { HOUSE_STYLE } from "@foundmill/agents";
 import { TaskListFilter, codeRepositoryOf, repos, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
 import { TaskGraphOutput } from "@foundmill/models";
@@ -77,7 +78,7 @@ export const devRouter = router({
       const result = await ctx.models.complete({
         route: "planner",
         schema: TaskGraphOutput,
-        system: "You are the Planner. Build a task graph with goals, acceptance criteria, test expectations, file-scope hints and dependencies.",
+        system: `You are the Planner. Build a task graph with goals, acceptance criteria, test expectations, file-scope hints and dependencies. ${HOUSE_STYLE}`,
         messages: [{ role: "user", content: "```json\n" + JSON.stringify({ goal, roadmap_item: roadmapItem, spec_sections: blocks.map((b) => b.section) }) + "\n```" }],
         attribution: { businessId: ctx.businessId, kind: "planner" },
       });

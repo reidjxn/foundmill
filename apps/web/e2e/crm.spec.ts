@@ -18,10 +18,10 @@ test.describe("crm", () => {
     const grid = page.getByRole("grid", { name: "CRM records" });
     await expect(grid).toBeVisible({ timeout: LONG });
     await expect(grid.getByRole("row").nth(1)).toBeVisible({ timeout: LONG });
-    // Plain words in the cells: a record's kind is singular ("Organisation", never the "Organisations" group name),
+    // Plain words in the cells: a record's kind is singular ("Organization", never the "Organizations" group name),
     // and the agents' old "squad" source never reaches the founder.
-    await expect(grid.locator('[data-col="kind"]').filter({ hasText: /^(Organisation|Person|Agent|Staff|Member|Community|Venue)$/ }).first()).toBeVisible();
-    await expect(grid.locator('[data-col="kind"]').filter({ hasText: /Organisations|People/ })).toHaveCount(0);
+    await expect(grid.locator('[data-col="kind"]').filter({ hasText: /^(Organization|Person|Agent|Staff|Member|Community|Venue)$/ }).first()).toBeVisible();
+    await expect(grid.locator('[data-col="kind"]').filter({ hasText: /Organizations|People/ })).toHaveCount(0);
     await expect(grid).not.toContainText(/\bsquad\b/);
     await page.getByRole("button", { name: /^View: / }).click();
     await page.getByRole("menuitemradio", { name: "By kind" }).click();
@@ -39,10 +39,10 @@ test.describe("crm", () => {
     await expect(page.getByTestId("crm-screen")).toHaveAttribute("data-mode", "list");
     await page.getByRole("button", { name: "Clear all" }).click();
     await expect(page.getByTestId("crm-search")).not.toContainText("role:customer");
-    await input.fill("kind:organisation a");
+    await input.fill("kind:organization a");
     await expect(page.getByTestId("crm-typeahead")).toBeVisible();
     await input.press("Enter");
-    await expect(page.getByTestId("crm-search")).toContainText("kind:organisation");
+    await expect(page.getByTestId("crm-search")).toContainText("kind:organization");
     await expect(page.getByTestId("crm-screen")).toHaveAttribute("data-mode", "search");
   });
 

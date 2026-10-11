@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { FileCode, FileWarning } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { formatBytes } from "../../lib/format";
+import { formatBytes, formatNumber } from "../../lib/format";
 import { EmptyState } from "../foundation/EmptyState";
 import { Icon } from "../foundation/Icon";
 import { SkeletonText } from "../foundation/Skeleton";
@@ -33,7 +33,7 @@ export function CodeViewer({ path, text, size, binary, truncated, loading, class
       <header className="flex h-control-lg shrink-0 items-center gap-2 border-b border-line bg-surface-1 px-3">
         <Icon icon={FileCode} size="inline" className="text-secondary" />
         <span className="min-w-0 flex-1 truncate font-mono text-mono text-primary">{path}</span>
-        {binary ? null : <span className="text-small tabular-nums text-secondary">{lines.toLocaleString("en-GB")} lines</span>}
+        {binary ? null : <span className="text-small tabular-nums text-secondary">{formatNumber(lines, { maxDigits: 0 })} lines</span>}
         {size !== undefined ? <span className="text-small tabular-nums text-secondary">{formatBytes(size)}</span> : null}
       </header>
       {loading ? (

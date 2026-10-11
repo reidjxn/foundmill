@@ -393,14 +393,14 @@ function skill(
 /** Backend engineer (BUILD §11.10 craft table). */
 export const BACKEND_SKILLS: SkillRow[] = [
   skill("api", "API design", "craft", 15, { delta: 2 }),
-  skill("data", "Data modelling", "craft", 13, { delta: 0 }),
+  skill("data", "Data modeling", "craft", 13, { delta: 0 }),
   skill("testing", "Testing", "craft", 17, { delta: 1 }),
   skill("debug", "Debugging", "craft", 12, { delta: -2 }),
   skill("sec", "Security awareness", "craft", 9, { delta: 1 }),
   skill("perf", "Performance", "craft", 7, { delta: -1 }),
   skill("plan", "Planning", "judgement", 14, { delta: 1 }),
   skill("scope", "Scope control", "judgement", 11, { delta: 0 }),
-  skill("prio", "Prioritisation", "judgement", 12, { delta: 3 }),
+  skill("prio", "Prioritization", "judgement", 12, { delta: 3 }),
   skill("risk", "Risk awareness", "judgement", 16, { delta: 0 }),
   skill("ask", "Knowing when to ask", "judgement", 18, { delta: 1 }),
   skill("speed", "Speed", "execution", 13, { delta: -1 }),

@@ -69,7 +69,7 @@ export function ToolGrantsEditor({ businessId, value, onChange, readOnly }: Tool
   }, [integrationsQ.data, value]);
 
   if (integrationsQ.error) return <p className="text-small text-status-bad">{errorMessage(integrationsQ.error)}</p>;
-  if (!integrationsQ.data) return <p className="text-small text-secondary">Loading the connector catalogue…</p>;
+  if (!integrationsQ.data) return <p className="text-small text-secondary">Loading the connector catalog…</p>;
 
   return (
     <ul className="flex flex-col divide-y divide-subtle" data-testid="tool-grants">

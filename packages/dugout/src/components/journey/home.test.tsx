@@ -62,9 +62,9 @@ describe("DepartmentCard · quiet", () => {
   });
 
   it("states a finished task as plain text, and says only what it knows without a line", () => {
-    const { container, unmount } = render(<DepartmentCard department={{ ...quiet, quiet: { kind: "finished", label: "Last finished", text: "Customer interview synthesis", detail: "31 Aug" } }} onOpenQuiet={() => {}} />);
+    const { container, unmount } = render(<DepartmentCard department={{ ...quiet, quiet: { kind: "finished", label: "Last finished", text: "Customer interview synthesis", detail: "Aug 31" } }} onOpenQuiet={() => {}} />);
     expect(screen.getByText("Last finished")).toBeTruthy();
-    expect(screen.getByText("31 Aug")).toBeTruthy();
+    expect(screen.getByText("Aug 31")).toBeTruthy();
     // A task is not something to open from Home: no button.
     expect(screen.queryByRole("button", { name: /Last finished/ })).toBeNull();
     expect(container.querySelector("[data-now-quiet-line]")?.getAttribute("data-now-quiet-line")).toBe("finished");
@@ -119,7 +119,7 @@ describe("TrophyCabinet", () => {
     expect(screen.getByText("6 of 8 reached")).toBeTruthy();
     expect(container.querySelectorAll("[data-trophy][data-achieved]").length).toBe(6);
     expect(screen.getAllByText("Not yet").length).toBe(2);
-    await user.click(screen.getByRole("button", { name: /First enterprise contract, reached 1 Oct 2026/ }));
+    await user.click(screen.getByRole("button", { name: /First enterprise contract, reached Oct 1, 2026/ }));
     expect(onOpen).toHaveBeenCalledWith("first_enterprise_contract");
     await user.click(screen.getByRole("button", { name: "Share First customer" }));
     expect(onShare).toHaveBeenCalledWith("customer_1");

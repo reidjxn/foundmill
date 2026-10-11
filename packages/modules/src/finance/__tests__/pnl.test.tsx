@@ -38,8 +38,8 @@ describe("ProfitAndLossScreen", () => {
     expect(within(table).getByText("Payroll").parentElement!.className).toContain("pl-4");
     expect(screen.getByText("Management P&L, unaudited, cash basis")).toBeTruthy();
     expect(screen.getByText("Jul 2026 – Sep 2026")).toBeTruthy();
-    expect(screen.getByText(/Uncategorised −€3,000/)).toBeTruthy();
-    expect(within(table).getAllByLabelText("Needs categorising")).toHaveLength(2); // header and line
+    expect(screen.getByText(/Uncategorized −€3,000/)).toBeTruthy();
+    expect(within(table).getAllByLabelText("Needs categorizing")).toHaveLength(2); // header and line
     expect(screen.queryByRole("region", { name: /Transactions ·/ })).toBeNull();
   });
 
@@ -57,8 +57,8 @@ describe("ProfitAndLossScreen", () => {
     expect(fake.queried.get("finance.transactions.list")).toEqual({ from: "2026-07-01T00:00:00.000Z", to: "2026-10-01T00:00:00.000Z", limit: 500 });
     expect(within(panel).getByRole("link", { name: /Amazon Web Services/ })).toBeTruthy();
     expect(within(panel).queryByText(/Stripe/)).toBeNull();
-    await user.click(within(panel).getByRole("button", { name: "Recategorise Amazon Web Services" }));
-    const dialog = await screen.findByRole("dialog", { name: "Recategorise transaction" });
+    await user.click(within(panel).getByRole("button", { name: "Recategorize Amazon Web Services" }));
+    const dialog = await screen.findByRole("dialog", { name: "Recategorize transaction" });
     expect(within(dialog).getAllByText(/Amazon Web Services/).length).toBeGreaterThan(0);
     const rule = within(dialog).getByRole("checkbox", { name: "Apply to every transaction of this counterparty" });
     expect(rule.getAttribute("aria-checked")).toBe("true");
@@ -76,10 +76,10 @@ describe("ProfitAndLossScreen", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <ProfitAndLossScreen {...props} />);
     const table = screen.getByRole("grid", { name: "Profit and loss" });
-    fireEvent.contextMenu(within(table).getByText("Uncategorised transactions"));
+    fireEvent.contextMenu(within(table).getByText("Uncategorized transactions"));
     await user.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: "Show transactions" }));
-    const panel = await screen.findByRole("region", { name: "Transactions · Uncategorised transactions" });
-    await user.click(within(panel).getByRole("button", { name: "Recategorise Figma Inc" }));
+    const panel = await screen.findByRole("region", { name: "Transactions · Uncategorized transactions" });
+    await user.click(within(panel).getByRole("button", { name: "Recategorize Figma Inc" }));
     const dialog = await screen.findByRole("dialog");
     const rule = within(dialog).getByRole("checkbox", { name: "Apply to every transaction of this counterparty" });
     expect(rule.getAttribute("aria-disabled")).not.toBe("true"); // disabled only while the category is Uncategorised

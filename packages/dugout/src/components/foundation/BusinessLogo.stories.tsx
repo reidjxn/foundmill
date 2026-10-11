@@ -9,7 +9,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "The business's logo (DESIGN §8). A stored logo (uploaded, or picked from generated marks) is an image of its data URL on a white tile; without one, the neutral mark is a rounded square in the primary brand colour with the business's initials in the computed on-primary colour. Sizes 20, 24, 32, 48, 64, 96.",
+          "The business's logo (DESIGN §8). A stored logo (uploaded, or picked from generated marks) is an image of its data URL on a white tile; without one, the neutral mark is a rounded square in the primary brand color with the business's initials in the computed on-primary color. Sizes 20, 24, 32, 48, 64, 96.",
       },
     },
   },
@@ -42,7 +42,7 @@ export const Sizes: Story = {
   ),
 };
 
-/** The fallback across brand colours: letters switch between white and near-black to keep APCA Lc ≥ 75. */
+/** The fallback across brand colors: letters switch between white and near-black to keep APCA Lc ≥ 75. */
 export const FallbackColours: Story = {
   render: () => (
     <div className="grid grid-cols-6 gap-4">
@@ -69,7 +69,7 @@ export const FallbackColours: Story = {
   ),
 };
 
-/** On the three surfaces it meets: a panel, the ink and the brand-colour top bar. */
+/** On the three surfaces it meets: a panel, the ink and the brand-color top bar. */
 export const OnSurfaces: Story = {
   render: () => (
     <div className="flex gap-4">

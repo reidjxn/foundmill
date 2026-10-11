@@ -63,8 +63,8 @@ export function createShopifyMock() {
       cancel_order: async ({ orderId }) => {
         const o = orders.get(orderId);
         if (!o) throw notFound(`order ${orderId}`);
-        if (o.cancelled_at) throw Object.assign(new Error(`order ${orderId} is already cancelled`), { status: 422 });
-        if (o.fulfillment_status === "fulfilled") throw Object.assign(new Error(`order ${orderId} is fulfilled and cannot be cancelled`), { status: 422 });
+        if (o.cancelled_at) throw Object.assign(new Error(`order ${orderId} is already canceled`), { status: 422 });
+        if (o.fulfillment_status === "fulfilled") throw Object.assign(new Error(`order ${orderId} is fulfilled and cannot be canceled`), { status: 422 });
         o.cancelled_at = MOCK_NOW.toISOString();
         return { cancelled: true as const, orderId, cancelledAt: o.cancelled_at };
       },

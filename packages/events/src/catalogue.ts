@@ -593,7 +593,7 @@ const runwayThresholdCrossed = declareEvent(
     blocksContinue: z.boolean(),
   }),
   {
-    doc: "Forecast runway crossed a warning threshold (12/9/6 months) or the 3-month block. Warning inbox item; also a holiday wake event.",
+    doc: "Forecast runway crossed a warning threshold (12/9/6 months) or the 3-month block. Warning inbox item; also a vacation wake event.",
     consumers: ["composer", "metrics", "health", "playbooks"],
   },
 );
@@ -643,7 +643,7 @@ const credentialExpiring = declareEvent(
     expired: z.boolean(),
   }),
   {
-    doc: "A connector credential or open-banking consent is about to expire (nightly credentialExpiryScan) or has expired. Warning inbox item with a reconnect action; a holiday wake event when expired.",
+    doc: "A connector credential or open-banking consent is about to expire (nightly credentialExpiryScan) or has expired. Warning inbox item with a reconnect action; a vacation wake event when expired.",
     consumers: ["composer", "health", "playbooks"],
   },
 );
@@ -789,7 +789,7 @@ const holidayStarted = declareEvent(
     cadenceAgentHours: z.number().positive(),
   }),
   {
-    doc: "The founder went on holiday (Automated mode): Continue runs itself on the cadence; the Chief of Staff decides within authority; gated items queue.",
+    doc: "The founder went on vacation (Automated mode): Continue runs itself on the cadence; the Chief of Staff decides within authority; gated items queue.",
     consumers: ["composer", "metrics", "playbooks"],
   },
 );
@@ -824,7 +824,7 @@ const holidayEnded = declareEvent(
     reportInboxItemId: Id.nullable().default(null),
   }),
   {
-    doc: "The holiday ended (date, condition, founder return, wake event, budget, kill switch). The Inbox opens on the While-you-were-away report.",
+    doc: "The vacation ended (date, condition, founder return, wake event, budget, kill switch). The Inbox opens on the While-you-were-away report.",
     consumers: ["composer", "metrics", "playbooks"],
   },
 );
@@ -848,7 +848,7 @@ const filingDue = declareEvent(
     estimatedFee: Money.nullable().default(null),
   }),
   {
-    doc: "A compliance filing is approaching, due today or overdue (compliance calendar scan). Warning inbox item; legal deadlines are holiday wake events.",
+    doc: "A compliance filing is approaching, due today or overdue (compliance calendar scan). Warning inbox item; legal deadlines are vacation wake events.",
     consumers: ["composer", "playbooks"],
   },
 );
@@ -1290,5 +1290,5 @@ export function isEventOfType<T extends EventTypeT>(
 // Keep the vocabulary and the catalogue in lock-step at runtime too (the `satisfies` above covers compile time).
 for (const t of EVENT_TYPES) {
   if (!Object.prototype.hasOwnProperty.call(EVENTS, t))
-    throw new Error(`packages/events catalogue is missing a declaration for "${t}"`);
+    throw new Error(`packages/events catalog is missing a declaration for "${t}"`);
 }

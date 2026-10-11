@@ -5,7 +5,7 @@ import { z } from "zod";
 import { businesses, memberships, type Business } from "../schema";
 import { defined, Id, IsoDateInput, maybeOne, one, parseInput, type Executor } from "./_shared";
 
-const HexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "kit colours are #RRGGBB");
+const HexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "brand colors are #RRGGBB");
 
 export const CreateBusinessInput = z.object({
   /** Supply the id when the caller must know it before RETURNING is possible (RLS bootstrap, seeds). */

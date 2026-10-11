@@ -192,6 +192,8 @@ export interface PreviewState {
   /** Latest Playwright screenshot. */
   screenshotUrl?: string | null;
   capturedAt?: string | null;
+  /** What the view says before there is anything to show. Default: the first build's preview and its Playwright screenshots. */
+  emptyNote?: string | null;
 }
 
 export interface ProgressCounts {

@@ -77,9 +77,23 @@ export function mockAgent(i: number, script: MockSessionScript = STOREFRONT_SESS
   return { id: `agent-${i + 1}`, name: script.names[i % script.names.length]!, seed: `agent-${i + 1}`, dept: r.dept, status: "healthy", model: r.model, role: r.role };
 }
 
-export function mockTask(i: number, script: MockSessionScript = STOREFRONT_SESSION_SCRIPT): TileTask {
+/** The task script's own recording of task `i`, when the script has one per task. */
+function taskScript(i: number, script: MockSessionScript | undefined): MockTaskScript | undefined {
+  return script?.taskScripts?.length ? script.taskScripts[i % script.taskScripts.length] : undefined;
+}
+
+/**
+ * Task `taskIndex` (default `i`) as agent `i` works on it: the agent's kind, the task's title and goal. The task's id and
+ * branch follow the task, so a tile that picks up its next task shows that task's own branch.
+ */
+export function mockTask(i: number, script: MockSessionScript = STOREFRONT_SESSION_SCRIPT, taskIndex: number = i): TileTask {
   const kind = scriptAgent(i, script)?.kind ?? ROLES[i % ROLES.length]!.kind;
-  return { id: `task-${i + 1}`, title: script.tasks[i % script.tasks.length]!, href: `#task-${i + 1}`, kind, branch: `agent/task-${i + 1}` };
+  const own = taskScript(taskIndex, script);
+  // A task recording is task k of the script; shared titles round again, but every session keeps its own task number.
+  const n = script.taskScripts?.length ? (taskIndex % script.taskScripts.length) + 1 : taskIndex + 1;
+  const task: TileTask = { id: `task-${n}`, title: own?.title ?? script.tasks[taskIndex % script.tasks.length]!, href: `#task-${n}`, kind, branch: `agent/task-${n}` };
+  if (own?.goal) task.goal = own.goal;
+  return task;
 }
 
 const PLAN_TEMPLATES = [
@@ -88,16 +102,18 @@ const PLAN_TEMPLATES = [
   ["Collect sources", "Extract typed facts through the quarantined reader", "Score and rank", "Write the brief", "Link entities"],
 ];
 
+/** The plan of task `i`: the task script's own steps, else the script's plans in turn, else the engineering plans. */
 export function mockPlan(i: number, script?: MockSessionScript): PlanStep[] {
-  const t = script?.plans?.length ? script.plans[i % script.plans.length]! : PLAN_TEMPLATES[i % PLAN_TEMPLATES.length]!;
+  const t = taskScript(i, script)?.plan ?? (script?.plans?.length ? script.plans[i % script.plans.length]! : PLAN_TEMPLATES[i % PLAN_TEMPLATES.length]!);
   return t.map((text, k) => ({ id: `step-${k + 1}`, text, state: "todo" as const }));
 }
 
 /**
  * What a replayed session is about: who works, on what, and what their terminal, diff and notes show. The generator's
  * shape (phases, progress, tests, review, merge) is the same for every script; the default is the storefront example.
- * `stdout` is played in order: 0–2 install, 3–7 unit tests, 8–12 acceptance run with one failure (lines with ✘ go to
- * stderr), 13–19 commit, typecheck, lint and a passing acceptance run, 20–21 the pull request.
+ * A script with `taskScripts` gives every task its own recording; without them every session shares `stdout`, played
+ * in order: 0–2 install, 3–7 unit tests, 8–12 acceptance run with one failure (lines with ✘ go to stderr), 13–19 commit,
+ * typecheck, lint and a passing acceptance run, 20–21 the pull request (whose number the done note names).
  */
 export interface MockSessionScript {
   names: readonly string[];
@@ -123,7 +139,85 @@ export interface MockSessionScript {
   /** The founder's nudge mid-session and the agent's answer before it changes `styleFile`. Absent: "Match the design system". */
   nudge?: { text: string; reply: string };
   /** What a blocked session waits for: the tool call that needs approval and the note under the tile. Absent: a schema change. */
-  gate?: { connectorKey: string; tool: string; argsSummary: string; note: string };
+  gate?: MockSessionGate;
+  /**
+   * Each task's own recording, in task order (round again past the end): its title, terminal, diff, plan, notes, checks
+   * and preview. When given, a session plays its own task's recording and only falls back to the fields above for what
+   * the task leaves out; when absent, every session replays the shared `stdout`, `file` and `notes`.
+   */
+  taskScripts?: readonly MockTaskScript[];
+  /** What the Preview view says before a session has anything to show. Absent: the first build and its Playwright screenshots. */
+  previewNote?: string;
+}
+
+/** A tool call that waits for the founder: who it goes to, what it does, the note under the tile. */
+export interface MockSessionGate {
+  connectorKey: string;
+  tool: string;
+  argsSummary: string;
+  note: string;
+  /**
+   * When the session stops: `check` (default) after the failing acceptance run, `end` once the work is reviewed and
+   * ready (a merge the founder decides, an order only the founder places).
+   */
+  at?: "check" | "end";
+}
+
+/** A session's terminal in five acts, played in order (lines with ✘ go to stderr). */
+export interface MockTerminalActs {
+  /** Implementing starts: install, open the sandbox. */
+  setup: readonly string[];
+  /** The agent's own checks (unit tests, a reproduction); they pass. */
+  unit: readonly string[];
+  /** The acceptance run, with one failing check. */
+  check: readonly string[];
+  /** The fix: commit, typecheck, lint and the acceptance run, now passing. */
+  fix: readonly string[];
+  /** Shipping: the pull request, or where the work was filed. */
+  ship: readonly string[];
+}
+
+/** A picture of the work, drawn from the task's own data (the Preview view's screenshot). */
+export interface MockPreview {
+  /** The window's address line: where the preview runs ("staging.tutorlane.com/practice/4417"). */
+  address: string;
+  title: string;
+  /** Up to six rows: a label, an optional value at the right, an optional status dot. */
+  rows: ReadonlyArray<{ label: string; value?: string; tone?: "good" | "warn" | "bad" }>;
+  /** One line under the rows: the state of the work. */
+  footer?: string;
+}
+
+/**
+ * One task's own recording: what a session on it shows in every view. The session's shape (phases, progress, one
+ * failing acceptance check, the fix, review and, with a pull request, the merge) is the same for every task.
+ */
+export interface MockTaskScript {
+  title: string;
+  /** The task's goal in one plain sentence: an empty terminal shows it while the session starts. */
+  goal?: string;
+  plan?: readonly string[];
+  terminal: MockTerminalActs;
+  /** Read first, with the connector the work lives in. Default: the script's `readPath`. */
+  readPath?: string;
+  file: { path: string; diff: string; additions: number; deletions: number };
+  /** In order: on starting, after the first change, after the agent's own checks, on the failing check (a warning), the reviewer's note. */
+  notes: readonly string[];
+  unitCommand?: string;
+  unitPassed?: number;
+  acceptanceCommand?: string;
+  /** How many acceptance checks the task has (default 3); one fails before the fix. */
+  acceptanceTests?: number;
+  failingCheck: string;
+  /** The pull request the session opens and merges. Absent: no merge phase (lab, research and channel work is filed, not merged). */
+  pullRequest?: number;
+  /** The last note of a finished session. Default: "Done. Pull request #N merged." with a pull request, else "Done." */
+  doneNote?: string;
+  /** A founder's nudge mid-session, the agent's answer and the file it changes. */
+  nudge?: { text: string; reply: string; file: { path: string; diff: string; additions: number; deletions: number } };
+  /** The session stops for a founder decision. */
+  gate?: MockSessionGate;
+  preview?: MockPreview;
 }
 
 /** One member of a script's crew: a specialist rather than an engineer, say (a lab's chemist in the lab's colour). */
@@ -234,15 +328,88 @@ export interface MockSessionOptions {
   durationSec?: number;
   /** Outcome of the script. */
   outcome?: "done" | "blocked" | "failed" | "running";
-  /** Include a founder Shout mid-session. */
+  /** Include a founder nudge mid-session. */
   shout?: boolean;
   /** What the session works on. Default: the storefront script. */
   script?: MockSessionScript;
+  /** Which task's own recording to play when the script has one per task (`taskScripts`). Default 0. */
+  taskIndex?: number;
+}
+
+const DEFAULT_GATE: MockSessionGate = { connectorKey: "github", tool: "merge_pull_request", argsSummary: "schema change in migrations/0013.sql", note: "Waiting for a founder decision: schema change needs approval." };
+
+/** What one session replays: the task's own recording, over the script's shared fields for anything it leaves out. */
+export interface MockRecording {
+  terminal: MockTerminalActs;
+  readPath: string;
+  file: { path: string; diff: string; additions: number; deletions: number };
+  notes: readonly string[];
+  unitCommand: string;
+  unitPassed: number;
+  acceptanceCommand: string;
+  acceptanceTests: number;
+  failingCheck: string;
+  failure: string;
+  /** The pull request the session opens; null when the work is filed rather than merged. */
+  pullRequest: number | null;
+  doneNote: string;
+  nudge: { text: string; reply: string; file: { path: string; diff: string; additions: number; deletions: number } };
+  /** The task's own founder decision, when it has one. */
+  gate: MockSessionGate | null;
+  /** Steps in the task's own plan (progress counts them); null when the plan is not the task's own. */
+  planSteps: number | null;
+  preview: MockPreview | null;
+}
+
+/** The shared `stdout` of a script without task recordings, cut into its five acts (see `MockSessionScript`). */
+export function terminalActs(stdout: readonly string[]): MockTerminalActs {
+  return { setup: stdout.slice(0, 3), unit: stdout.slice(3, 8), check: stdout.slice(8, 13), fix: stdout.slice(13, 20), ship: stdout.slice(20) };
+}
+
+/** The last pull request a terminal links to ("…/pull/41" is 41), or null. */
+export function pullRequestIn(lines: readonly string[]): number | null {
+  let found: number | null = null;
+  for (const line of lines) {
+    const m = /\/pull\/(\d+)/.exec(line);
+    if (m) found = Number(m[1]);
+  }
+  return found;
+}
+
+/** The recording a session on task `taskIndex` of `script` plays. */
+export function mockRecording(script: MockSessionScript = STOREFRONT_SESSION_SCRIPT, taskIndex = 0): MockRecording {
+  const own = taskScript(taskIndex, script);
+  const terminal = own?.terminal ?? terminalActs(script.stdout);
+  const pullRequest = own ? (own.pullRequest ?? null) : pullRequestIn(script.stdout);
+  return {
+    terminal,
+    readPath: own?.readPath ?? script.readPath,
+    file: own?.file ?? script.file,
+    notes: own?.notes ?? script.notes,
+    unitCommand: own?.unitCommand ?? script.unitCommand,
+    unitPassed: own?.unitPassed ?? script.unitPassed,
+    acceptanceCommand: own?.acceptanceCommand ?? script.acceptanceCommand,
+    acceptanceTests: Math.max(2, own?.acceptanceTests ?? 3),
+    failingCheck: own?.failingCheck ?? script.failingCheck,
+    failure: script.failure,
+    pullRequest,
+    doneNote: own?.doneNote ?? (pullRequest !== null ? `Done. Pull request #${pullRequest} merged.` : "Done."),
+    nudge: own?.nudge ?? {
+      text: script.nudge?.text ?? "Match the design system",
+      reply: script.nudge?.reply ?? "Swapping ad-hoc spacing for tokens before the next build.",
+      file: { ...script.styleFile, additions: 8, deletions: 1 },
+    },
+    gate: own ? (own.gate ?? null) : (script.gate ?? null),
+    planSteps: own?.plan?.length ?? null,
+    preview: own?.preview ?? null,
+  };
 }
 
 /**
  * A plausible session script: phases, stdout, tool calls, file diffs, test runs, progress and notes, all with
- * `at` timestamps spread over `durationSec` from `startedAt`. Progress values are computed with the §11.6 formula.
+ * `at` timestamps spread over `durationSec` from `startedAt` (terminal lines a moment apart, so they stream). Progress
+ * values are computed with the §11.6 formula, and every progress event's ETA is the end of the span, which a finished
+ * or waiting session always reaches before. With task recordings (`taskScripts`), the session plays task `taskIndex`.
  */
 export function generateMockSessionEvents(seedKey: string | number, startedAt: string, opts: MockSessionOptions = {}): AgentSessionEvent[] {
   const rng = createRng(`session:${seedKey}`);
@@ -250,9 +417,13 @@ export function generateMockSessionEvents(seedKey: string | number, startedAt: s
   const duration = (opts.durationSec ?? 540) * 1000;
   const outcome = opts.outcome ?? "done";
   const sc = opts.script ?? STOREFRONT_SESSION_SCRIPT;
-  const STDOUT = sc.stdout;
-  const planSteps = 5 + rng.int(0, 2);
-  const acceptanceTests = 3;
+  const rec = mockRecording(sc, opts.taskIndex ?? 0);
+  const acts = rec.terminal;
+  const planSteps = rec.planSteps ?? 5 + rng.int(0, 2);
+  const acceptanceTests = rec.acceptanceTests;
+  const lineCount = acts.setup.length + acts.unit.length + acts.check.length + acts.fix.length + acts.ship.length;
+  // Lines arrive a moment apart; all of them together take at most an eighth of the span.
+  const lineGap = Math.min(duration * 0.004, (duration * 0.12) / Math.max(1, lineCount));
   const events: AgentSessionEvent[] = [];
   let t = 0;
   const at = () => new Date(start + Math.min(duration, t)).toISOString();
@@ -265,91 +436,112 @@ export function generateMockSessionEvents(seedKey: string | number, startedAt: s
     events.push({ kind: "progress", at: at(), progress: computeProgress(counts), ...counts, etaAt: eta });
   };
   const out = (text: string, channel: "stdout" | "stderr" = "stdout") => events.push({ kind: "stdout", at: at(), channel, text: `${text}\r\n`, command: null });
+  const play = (lines: readonly string[]) => {
+    for (const line of lines) {
+      out(line, line.includes("✘") ? "stderr" : "stdout");
+      tick(lineGap);
+    }
+  };
+  const note = (text: string | undefined, source: "agent" | "reviewer" | "system", level: "info" | "warn" = "info") => {
+    if (text) events.push({ kind: "note", at: at(), level, source, text });
+  };
 
   events.push({ kind: "phase_changed", at: at(), from: null, to: "planning", reason: null });
-  events.push({ kind: "note", at: at(), level: "info", source: "agent", text: sc.notes[0]! });
+  note(rec.notes[0], "agent");
   tick(duration * 0.04);
-  events.push({ kind: "tool_call", at: at(), callId: `c-${seedKey}-1`, connectorKey: "github", tool: "get_file", status: "succeeded", argsSummary: sc.readPath, durationMs: 420, costMinor: 0 });
+  events.push({ kind: "tool_call", at: at(), callId: `c-${seedKey}-1`, connectorKey: "github", tool: "get_file", status: "succeeded", argsSummary: rec.readPath, durationMs: 420, costMinor: 0 });
   counts = { ...counts, planStepsDone: 1 };
   progress();
   tick(duration * 0.04);
   events.push({ kind: "phase_changed", at: at(), from: "planning", to: "implementing", reason: null });
-  out(STDOUT[0]!);
-  out(STDOUT[1]!);
-  out(STDOUT[2]!);
+  play(acts.setup);
   tick(duration * 0.08);
-  events.push({ kind: "file_changed", at: at(), path: sc.file.path, change: "created", additions: sc.file.additions, deletions: sc.file.deletions, diff: sc.file.diff });
+  events.push({ kind: "file_changed", at: at(), path: rec.file.path, change: "created", additions: rec.file.additions, deletions: rec.file.deletions, diff: rec.file.diff });
   counts = { ...counts, planStepsDone: 2 };
   progress();
-  events.push({ kind: "note", at: at(), level: "info", source: "agent", text: sc.notes[1]! });
+  note(rec.notes[1], "agent");
   tick(duration * 0.08);
-  for (const line of STDOUT.slice(3, 8)) out(line);
-  events.push({ kind: "test_result", at: at(), suite: "unit", command: sc.unitCommand, passed: sc.unitPassed, failed: 0, acceptance: false });
-  counts = { ...counts, planStepsDone: 3 };
+  play(acts.unit);
+  events.push({ kind: "test_result", at: at(), suite: "unit", command: rec.unitCommand, passed: rec.unitPassed, failed: 0, acceptance: false });
+  counts = { ...counts, planStepsDone: Math.min(planSteps, 3) };
   progress();
+  // The third note (an insight from the agent's own checks) is a task recording's; shared scripts never showed it.
+  if (rec.planSteps !== null) note(rec.notes[2], "agent");
   if (opts.shout) {
     tick(duration * 0.04);
-    events.push({ kind: "note", at: at(), level: "info", source: "shout", text: sc.nudge?.text ?? "Match the design system" });
+    events.push({ kind: "note", at: at(), level: "info", source: "shout", text: rec.nudge.text });
     tick(duration * 0.02);
-    events.push({ kind: "note", at: at(), level: "info", source: "agent", text: sc.nudge?.reply ?? "Swapping ad-hoc spacing for tokens before the next build." });
-    events.push({ kind: "file_changed", at: at(), path: sc.styleFile.path, change: "modified", additions: 8, deletions: 1, diff: sc.styleFile.diff });
+    note(rec.nudge.reply, "agent");
+    events.push({ kind: "file_changed", at: at(), path: rec.nudge.file.path, change: "modified", additions: rec.nudge.file.additions, deletions: rec.nudge.file.deletions, diff: rec.nudge.file.diff });
   }
   tick(duration * 0.1);
   events.push({ kind: "phase_changed", at: at(), from: "implementing", to: "testing", reason: null });
-  for (const line of STDOUT.slice(8, 13)) out(line, line.includes("✘") ? "stderr" : "stdout");
-  events.push({ kind: "test_result", at: at(), suite: "e2e", command: sc.acceptanceCommand, passed: 2, failed: 1, acceptance: true, failures: [sc.failingCheck] });
-  counts = { ...counts, planStepsDone: 4, acceptanceTestsPassing: 2 };
+  play(acts.check);
+  events.push({ kind: "test_result", at: at(), suite: "e2e", command: rec.acceptanceCommand, passed: acceptanceTests - 1, failed: 1, acceptance: true, failures: [rec.failingCheck] });
+  counts = { ...counts, planStepsDone: Math.min(planSteps, 4), acceptanceTestsPassing: acceptanceTests - 1 };
   progress();
-  events.push({ kind: "note", at: at(), level: "warn", source: "agent", text: sc.notes[3]! });
+  note(rec.notes[3], "agent", "warn");
 
-  if (outcome === "blocked") {
+  const gate = outcome === "blocked" ? (rec.gate ?? sc.gate ?? DEFAULT_GATE) : null;
+  const wait = (g: MockSessionGate) => {
+    events.push({ kind: "tool_call", at: at(), callId: `c-${seedKey}-9`, connectorKey: g.connectorKey, tool: g.tool, status: "awaiting_approval", argsSummary: g.argsSummary, policyOutcome: "ask", approvalId: `appr-${seedKey}` });
+    events.push({ kind: "note", at: at(), level: "warn", source: "system", text: g.note });
+  };
+  if (gate && gate.at !== "end") {
     tick(duration * 0.05);
-    const gate = sc.gate ?? { connectorKey: "github", tool: "merge_pull_request", argsSummary: "schema change in migrations/0013.sql", note: "Waiting for a founder decision: schema change needs approval." };
-    events.push({ kind: "tool_call", at: at(), callId: `c-${seedKey}-9`, connectorKey: gate.connectorKey, tool: gate.tool, status: "awaiting_approval", argsSummary: gate.argsSummary, policyOutcome: "ask", approvalId: `appr-${seedKey}` });
-    events.push({ kind: "note", at: at(), level: "warn", source: "system", text: gate.note });
+    wait(gate);
     return events;
   }
   if (outcome === "failed") {
     tick(duration * 0.05);
-    out(sc.failure, "stderr");
-    out(sc.failure, "stderr");
+    out(rec.failure, "stderr");
+    out(rec.failure, "stderr");
     events.push({ kind: "note", at: at(), level: "error", source: "system", text: "Loop detected: the same failing command ran four times. Session stopped." });
     return events;
   }
 
   tick(duration * 0.12);
-  for (const line of STDOUT.slice(13, 20)) out(line);
-  events.push({ kind: "test_result", at: at(), suite: "e2e", command: sc.acceptanceCommand, passed: 3, failed: 0, acceptance: true, failures: [] });
-  counts = { ...counts, planStepsDone: 5, acceptanceTestsPassing: 3 };
+  play(acts.fix);
+  events.push({ kind: "test_result", at: at(), suite: "e2e", command: rec.acceptanceCommand, passed: acceptanceTests, failed: 0, acceptance: true, failures: [] });
+  counts = { ...counts, planStepsDone: Math.min(planSteps, 5), acceptanceTestsPassing: acceptanceTests };
   progress();
   if (outcome === "running") return events;
 
   tick(duration * 0.12);
   events.push({ kind: "phase_changed", at: at(), from: "testing", to: "review", reason: null });
-  events.push({ kind: "note", at: at(), level: "info", source: "reviewer", text: sc.notes[4]! });
+  note(rec.notes[4], "reviewer");
   tick(duration * 0.1);
   counts = { ...counts, planStepsDone: planSteps, reviewPassed: true };
   progress();
-  events.push({ kind: "phase_changed", at: at(), from: "review", to: "merge", reason: null });
-  out(STDOUT[20]!);
-  out(STDOUT[21]!);
-  events.push({ kind: "tool_call", at: at(), callId: `c-${seedKey}-7`, connectorKey: "github", tool: "create_pull_request", status: "succeeded", argsSummary: "agent/task → main", durationMs: 1800, costMinor: 0 });
+  const merges = rec.pullRequest !== null;
+  if (merges) events.push({ kind: "phase_changed", at: at(), from: "review", to: "merge", reason: null });
+  play(acts.ship);
+  if (merges) events.push({ kind: "tool_call", at: at(), callId: `c-${seedKey}-7`, connectorKey: "github", tool: "create_pull_request", status: "succeeded", argsSummary: `pull request #${rec.pullRequest} → main`, durationMs: 1800, costMinor: 0 });
+  if (gate) {
+    tick(duration * 0.04);
+    wait(gate);
+    return events;
+  }
   tick(duration * 0.1);
   counts = { ...counts, merged: true };
   progress();
-  events.push({ kind: "phase_changed", at: at(), from: "merge", to: "done", reason: "Merged after green CI" });
-  events.push({ kind: "note", at: at(), level: "info", source: "system", text: "Done. Pull request #41 merged." });
+  events.push({ kind: "phase_changed", at: at(), from: merges ? "merge" : "review", to: "done", reason: merges ? "Merged after green CI" : "Filed after review" });
+  events.push({ kind: "note", at: at(), level: "info", source: "system", text: rec.doneNote });
   return events;
 }
 
-export function mockSessionSeed(i: number, startedAt: string, script: MockSessionScript = STOREFRONT_SESSION_SCRIPT): SessionSeed {
-  const rng = createRng(`seed:${i}`);
+/**
+ * The static facts of agent `i`'s session on task `taskIndex` (default `i`): the agent, the task, its plan, the token
+ * and cost estimates (seeded by `seedKey`, default `i`).
+ */
+export function mockSessionSeed(i: number, startedAt: string, script: MockSessionScript = STOREFRONT_SESSION_SCRIPT, taskIndex: number = i, seedKey: string | number = i): SessionSeed {
+  const rng = createRng(`seed:${seedKey}`);
   return {
     id: `session-${i + 1}`,
     agent: mockAgent(i, script),
-    task: mockTask(i, script),
+    task: mockTask(i, script, taskIndex),
     startedAt,
-    plan: mockPlan(i, script),
+    plan: mockPlan(taskIndex, script),
     tokens: 40_000 + rng.int(0, 180_000),
     cost: { amountMinor: 60 + rng.int(0, 900), currency: script.currency },
     preview: i % 3 === 0 ? { screenshotUrl: null, url: null, capturedAt: null } : {},
@@ -361,7 +553,7 @@ export function mockSessions(n: number, now: Date = new Date("2026-10-07T09:30:0
   return Array.from({ length: n }, (_, i) => {
     const startedAt = new Date(now.getTime() - (4 + (i * 37) % 11) * 60_000).toISOString();
     const outcome = i % 7 === 3 ? "blocked" : i % 11 === 5 ? "failed" : i % 5 === 4 ? "done" : "running";
-    return { seed: mockSessionSeed(i, startedAt, script), events: generateMockSessionEvents(i, startedAt, { outcome, shout: i % 4 === 0, durationSec: 480 + (i % 5) * 60, script }) };
+    return { seed: mockSessionSeed(i, startedAt, script), events: generateMockSessionEvents(i, startedAt, { outcome, shout: i % 4 === 0, durationSec: 480 + (i % 5) * 60, script, taskIndex: i }) };
   });
 }
 
@@ -481,7 +673,7 @@ export function mockInstructions(): AgentInstructions {
   return {
     role: "Frontend engineer for a direct-to-consumer skincare storefront built with Next.js.",
     goals: ["Ship accessible, tested UI that matches the design tokens.", "Keep bundle size flat; measure before adding a dependency.", "Leave the codebase easier to change than you found it."],
-    rules: ["Write the Playwright test before the component.", "Never introduce a hex colour outside tokens.css.", "Ask before changing a shared component's props.", "Keep pull requests under 400 changed lines."],
+    rules: ["Write the Playwright test before the component.", "Never introduce a hex color outside tokens.css.", "Ask before changing a shared component's props.", "Keep pull requests under 400 changed lines."],
     playbook: ["Read the task and its acceptance tests.", "Sketch the component API in a comment.", "Implement with tokens only.", "Run unit, type and e2e checks.", "Open a pull request with a screenshot."],
     tone: "Plain and specific. Short sentences. No exclamation marks.",
     examples: [
@@ -495,7 +687,7 @@ export function mockInstructionVersions(): InstructionVersion[] {
   const previous: AgentInstructions = {
     ...live,
     goals: live.goals.slice(0, 2),
-    rules: ["Write tests after the component.", "Never introduce a hex colour outside tokens.css.", "Keep pull requests under 600 changed lines."],
+    rules: ["Write tests after the component.", "Never introduce a hex color outside tokens.css.", "Keep pull requests under 600 changed lines."],
     playbook: live.playbook.filter((p) => !p.startsWith("Sketch")),
     tone: "Plain and specific.",
     examples: [],
@@ -527,7 +719,7 @@ export const MOCK_COACH_EXPLANATION =
 
 export function mockModelOptions(current: ModelKey = "sonnet", opts: { chiefOfStaff?: boolean; lockedToOpus?: boolean } = {}): ModelOption[] {
   const base: Record<ModelKey, Omit<ModelOption, "skillDelta" | "wageDelta">> = {
-    opus: { key: "opus", label: "Opus", description: "Deepest judgement; best for planning, review and hard tasks." },
+    opus: { key: "opus", label: "Opus", description: "Deepest judgment; best for planning, review and hard tasks." },
     sonnet: { key: "sonnet", label: "Sonnet", description: "The default for coding, channels and specialists." },
     haiku: { key: "haiku", label: "Haiku", description: "Fast and cheap; utilities and classification." },
   };
@@ -536,7 +728,7 @@ export function mockModelOptions(current: ModelKey = "sonnet", opts: { chiefOfSt
     const step = rank[key] - rank[current];
     const option: ModelOption = { ...base[key], skillDelta: step * 2.5, wageDelta: { amountMinor: step * 9_000, currency: "EUR" } };
     if (opts.lockedToOpus && key !== "opus") option.lockedReason = "The Inbox Composer is locked to Opus.";
-    if (opts.chiefOfStaff && step < 0) option.warning = "Downgrading the Chief of Staff affects every cycle plan and every holiday decision.";
+    if (opts.chiefOfStaff && step < 0) option.warning = "Downgrading the Chief of Staff affects every cycle plan and every vacation decision.";
     return option;
   });
 }
@@ -559,7 +751,7 @@ export function mockTraits(): Trait[] {
     { id: "tests_first", label: "Writes tests first", derivedFrom: "Write the Playwright test before the component.", tone: "good" },
     { id: "asks_before_props", label: "Asks before changing shared props", derivedFrom: "Ask before changing a shared component's props.", tone: "good" },
     { id: "small_prs", label: "Small pull requests", derivedFrom: "Keep pull requests under 400 changed lines." },
-    { id: "tokens_only", label: "Tokens only", derivedFrom: "Never introduce a hex colour outside tokens.css." },
+    { id: "tokens_only", label: "Tokens only", derivedFrom: "Never introduce a hex color outside tokens.css." },
     { id: "slow_on_e2e", label: "Slower on e2e-heavy tasks", derivedFrom: "Runs the e2e suite twice per task", tone: "warn" },
   ];
 }

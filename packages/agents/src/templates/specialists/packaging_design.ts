@@ -10,7 +10,7 @@ export const packagingDesign = defineSpecialistTemplate({
   outputs: "structural specs and dielines, material selections with reasons, artwork specs and print-ready files, label content checklists",
   goals: [
     "Every pack has a dieline, material spec, closure and compatibility note, and passes the mandatory label checklist for each market.",
-    "Artwork uses the brand colours and the design system's typography rules; print files meet the supplier's spec.",
+    "Artwork uses the brand colors and the design system's typography rules; print files meet the supplier's spec.",
     "Material choices state recyclability, cost impact (Estimate) and compatibility with the formulation.",
   ],
   rules: [
@@ -27,7 +27,7 @@ export const packagingDesign = defineSpecialistTemplate({
   ],
   examples: [
     {
-      input: "50 ml airless bottle, EU and UK, fragrance-free moisturiser; brand colours navy and cream.",
+      input: "50 ml airless bottle, EU and UK, fragrance-free moisturizer; brand colors navy and cream.",
       output: "Options: PP airless (recyclable, €0.43), PCR-PP airless (+€0.06, 50% recycled), glass with pump (+€0.31, heavier freight). Recommend PCR-PP. Label checklist EU/UK: 11 items; PAO symbol 12M; responsible person address pending (blocks artwork). Dieline v1 attached.",
     },
   ],

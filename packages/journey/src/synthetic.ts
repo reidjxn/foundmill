@@ -326,7 +326,7 @@ function makeCampaigns(rng: SeededRng, siteHost: string): { campaigns: Synthetic
     { id: rng.uuid(), channelKey: "outdoor", name: "Station billboard", code: "QR-STATION", vanityPath: null, trackingNumber: null },
     { id: rng.uuid(), channelKey: "outdoor", name: "Bus shelter", code: "QR-SHELTER", vanityPath: null, trackingNumber: null },
     { id: rng.uuid(), channelKey: "influencer", name: "Creator seeding", code: "INF-MIRA", vanityPath: null, trackingNumber: null },
-    { id: rng.uuid(), channelKey: "affiliate", name: "Partner programme", code: "AFF-TOOLSTACK", vanityPath: null, trackingNumber: null },
+    { id: rng.uuid(), channelKey: "affiliate", name: "Partner program", code: "AFF-TOOLSTACK", vanityPath: null, trackingNumber: null },
     { id: rng.uuid(), channelKey: "paid_ads", name: "Search · brand", code: null, vanityPath: null, trackingNumber: null },
     { id: rng.uuid(), channelKey: "paid_ads", name: "Social · prospecting", code: null, vanityPath: null, trackingNumber: null },
     { id: rng.uuid(), channelKey: "email_automation", name: "Onboarding sequence", code: null, vanityPath: null, trackingNumber: null },

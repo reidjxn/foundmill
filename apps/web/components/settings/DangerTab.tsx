@@ -55,7 +55,7 @@ export function DangerTab() {
     trpc.business.cancelDeletion.mutationOptions({
       onSuccess: () => {
         void refreshBusiness();
-        t.saved("Deletion cancelled", "Nothing will be deleted.");
+        t.saved("Deletion canceled", "Nothing will be deleted.");
       },
       onError: (err) => t.failed(err, "Could not cancel the deletion"),
     }),
@@ -128,7 +128,7 @@ export function DangerTab() {
         <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Delete {data.business.name} permanently?</DialogTitle>
-            <DialogDescription>Type the business name to continue. You will be asked to sign in again, then deletion runs in {DELETION_DELAY_DAYS} days unless cancelled from the Inbox.</DialogDescription>
+            <DialogDescription>Type the business name to continue. You will be asked to sign in again, then deletion runs in {DELETION_DELAY_DAYS} days unless canceled from the Inbox.</DialogDescription>
           </DialogHeader>
           <DialogBody>
             <Field htmlFor="delete-confirm" label="Business name">

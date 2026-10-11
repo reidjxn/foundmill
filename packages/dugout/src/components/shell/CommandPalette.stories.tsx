@@ -75,7 +75,7 @@ const ASK = [
 ];
 const GENERATE = [
   { id: "gen-concepts", kind: "generate" as const, label: "Draft 12 concepts", description: "Ideation Studio" },
-  { id: "gen-cover", kind: "generate" as const, label: "Draft a cover plan", description: "While you are away", keywords: ["holiday"] },
+  { id: "gen-cover", kind: "generate" as const, label: "Draft a cover plan", description: "While you are away", keywords: ["vacation", "holiday"] },
 ];
 /** Ask and Generate lead; Recent follows; then where to go. */
 export const AskAndGenerate: Story = { name: "Ask and Generate lead", args: { ask: ASK, generate: GENERATE, onAsk: () => {} } };

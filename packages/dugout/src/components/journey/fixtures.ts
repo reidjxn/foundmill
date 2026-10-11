@@ -185,7 +185,7 @@ export function generateJourneyFixture(opts: { days?: number; today?: string; se
   const horizon = addDays(todayDate, 183);
   let cursor = startOfQuarter(kickoffDate);
   let index = 0;
-  const titles = ["Finding the formula", "First customers", "The bundle chapter", "Scaling the lab", "Retail on the horizon", "Steady state", "Second summer", "Northern expansion", "Autumn push"];
+  const titles = ["Finding the formula", "First customers", "The bundle chapter", "Scaling the lab", "Retail on the horizon", "Steady state", "Second summer", "Northern expansion", "Fall push"];
   while (cursor <= horizon) {
     const start = cursor;
     const end = endOfQuarter(cursor);
@@ -218,7 +218,7 @@ export function generateJourneyFixture(opts: { days?: number; today?: string; se
   const roadmap: RoadmapFlag[] = [
     { id: "r1", label: "Night cream launch", plannedOn: day(addDays(todayDate, 24)) },
     { id: "r2", label: "Nordic Beauty listing", plannedOn: day(addDays(todayDate, 58)) },
-    { id: "r3", label: "Refill programme", plannedOn: day(addDays(todayDate, 121)) },
+    { id: "r3", label: "Refill program", plannedOn: day(addDays(todayDate, 121)) },
   ];
   return { rows, conversions, milestones, chapters, forecast, roadmap, kickoff: day(kickoffDate), today };
 }
@@ -335,7 +335,7 @@ export function matchDayFixture(seed = "matchday"): MatchDayFixture {
     facts: [
       { label: "Segment", value: "Retail · Stockholm" },
       { label: "Plan", value: "Wholesale starter · €1,860 / yr" },
-      { label: "First seen", value: "14 Sep 2026" },
+      { label: "First seen", value: "Sep 14, 2026" },
       { label: "Contact", value: "Sara Lindqvist, Head of buying" },
       { label: "Consent", value: "Granted" },
     ],
@@ -454,7 +454,7 @@ export function departmentCardFixtures(): DepartmentCardData[] {
         ["Ledger", "Finance lead", "opus", "failing", "Bank sync failed 3× (Tink consent expired)"],
         ["Tally", "Bookkeeping", "haiku", "injured", "Loop detected; stopped"],
       ]),
-      now: ["Bank sync has failed three times since 06:10", "Tink consent expired; a reconnect is waiting in your Inbox"],
+      now: ["Bank sync has failed three times since 6:10 AM", "Tink consent expired; a reconnect is waiting in your Inbox"],
       metric: { label: "Runway", value: "7.5 mo", series: series(9, -0.12), delta: "▼ 0.4 mo", deltaTone: "bad", provenance: "estimate" },
       nextUp: "Reconnect the bank (2 min) so the P&L closes",
     },

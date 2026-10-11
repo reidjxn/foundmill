@@ -15,9 +15,9 @@ import { RUNWAY_BLOCK_MONTHS, formatMonth, monthKey, monthStart, pnlTotals, proj
 import { InlineError, Screen, fmtAxisMoney, fmtMoney, fmtMonths, parseAmount, toDate, useAction, useCurrency, useNow } from "./shared";
 
 export const SCENARIO_META: Record<ForecastScenario, { label: string; tone: SeriesTone; hint: string }> = {
-  base: { label: "Base", tone: "kit", hint: "What the plan says: current MRR, 5 % monthly growth, costs up 1 % a month." },
-  upside: { label: "Upside", tone: "good", hint: "Distribution lands: 10 % monthly growth on the same cost line." },
-  downside: { label: "Downside", tone: "bad", hint: "Flat revenue and costs creeping up 2 % a month." },
+  base: { label: "Base", tone: "kit", hint: "What the plan says: current MRR, 5% monthly growth, costs up 1% a month." },
+  upside: { label: "Upside", tone: "good", hint: "Distribution lands: 10% monthly growth on the same cost line." },
+  downside: { label: "Downside", tone: "bad", hint: "Flat revenue and costs creeping up 2% a month." },
 };
 
 export const DRIVER_FIELDS: readonly { key: keyof ForecastDrivers; label: string; kind: "money" | "percent" | "months"; hint: string }[] = [

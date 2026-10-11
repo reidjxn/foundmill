@@ -17,7 +17,7 @@ import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
 
 /** What a game-mode switch changes (BUILD §7.3, §11.14); the wizard shows it before the switch. */
 export const GAME_MODE_REVIEW: Record<GameMode, string[]> = {
-  live: ["Your business profile and logo become visible on the network.", "Verified metrics can rank on leaderboards; self-reported numbers never rank.", "Connections, communities and human messages open up.", "Search also shows public profiles, labelled with the product name."],
+  live: ["Your business profile and logo become visible on the network.", "Verified metrics can rank on leaderboards; self-reported numbers never rank.", "Connections, communities and human messages open up.", "Search also shows public profiles, labeled with the product name."],
   personal: ["The business leaves search and leaderboards within 15 minutes.", "Connections and communities are hidden; nothing is deleted.", "Agents keep working exactly as before."],
 };
 
@@ -32,7 +32,7 @@ export function ModeTab() {
 
   const setGameMode = useMutation(trpc.business.setGameMode.mutationOptions({ onSuccess: (_r, v) => (void invalidate(["business", "live"]), setReviewTarget(null), t.saved(v.gameMode === "live" ? "The business is live" : "The business is personal again")), onError: (e) => t.failed(e) }));
   const setBusinessMode = useMutation(trpc.business.setBusinessMode.mutationOptions({ onSuccess: () => (void invalidate(["business"]), t.saved("Business mode changed")), onError: (e) => t.failed(e) }));
-  const startHoliday = useMutation(trpc.business.startHoliday.mutationOptions({ onSuccess: (r) => (void invalidate(["business", "inbox"]), setHolidayOpen(false), t.saved("Holiday started", r.workflow.queued ? "The Chief of Staff is in charge." : `Recorded; the workflow is not running: ${r.workflow.reason ?? "orchestrator unavailable"}.`)), onError: (e) => t.failed(e) }));
+  const startHoliday = useMutation(trpc.business.startHoliday.mutationOptions({ onSuccess: (r) => (void invalidate(["business", "inbox"]), setHolidayOpen(false), t.saved("Vacation started", r.workflow.queued ? "The Chief of Staff is in charge." : `Recorded; the workflow is not running: ${r.workflow.reason ?? "orchestrator unavailable"}.`)), onError: (e) => t.failed(e) }));
   const endHoliday = useMutation(trpc.business.endHoliday.mutationOptions({ onSuccess: () => (void invalidate(["business", "inbox"]), t.saved("Welcome back")), onError: (e) => t.failed(e) }));
 
   const holiday = data.holiday;
@@ -82,11 +82,11 @@ export function ModeTab() {
         <Hint>Hard gates (money, signatures, filings, legal terms, permanent deletion, security settings, acting on untrusted content) always need you, whatever the mode.</Hint>
       </SettingsSection>
 
-      <SettingsSection title="Holiday">
+      <SettingsSection title="Vacation">
         {holiday ? (
           <div className="flex flex-col gap-3" data-testid="holiday-active">
             <StatusPill tone="info" icon={Palmtree}>
-              On holiday
+              On vacation
             </StatusPill>
             <KeyValueList
               items={[
@@ -106,7 +106,7 @@ export function ModeTab() {
             <p className="text-body text-secondary">Hand the business to the Chief of Staff: cycles run on their own, decisions within the authority you set, gated items queue in the Inbox.</p>
             <div>
               <Button variant="default" icon={Palmtree} onClick={() => setHolidayOpen(true)} data-testid="start-holiday">
-                Go on holiday
+                Go on vacation
               </Button>
             </div>
           </div>

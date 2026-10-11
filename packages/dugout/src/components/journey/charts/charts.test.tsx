@@ -51,7 +51,7 @@ describe("LineChart", () => {
     hit.getBoundingClientRect = () => ({ left: 40, top: 8, width: 548, height: 128, right: 588, bottom: 136, x: 40, y: 8, toJSON: () => ({}) }) as DOMRect;
     fireEvent.pointerMove(hit, { clientX: 40, clientY: 50 });
     const tip = container.querySelector("[data-chart-tooltip]");
-    expect(tip?.textContent).toContain("1 Sep 2026");
+    expect(tip?.textContent).toContain("Sep 1, 2026");
     expect(tip?.textContent).toContain("100");
     fireEvent.pointerLeave(hit);
     expect(container.querySelector("[data-chart-tooltip]")).toBeNull();

@@ -296,7 +296,7 @@ export function createModelScorer(client: LinkerModelClient, attribution?: { bus
       const result = await client.complete({
         route: "linker",
         system:
-          "You judge whether two CRM records describe the same real-world person or organisation. Use only the fields given; " +
+          "You judge whether two CRM records describe the same real-world person or organization. Use only the fields given; " +
           "do not assume. Return JSON {\"same_entity_probability\": 0-1, \"reason\": string} only.",
         messages: [{ role: "user", content: JSON.stringify({ a: publicFields(candidate), b: publicFields(existing) }, null, 2) }],
         schema: IdentityScore,

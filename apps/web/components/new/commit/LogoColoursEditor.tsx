@@ -30,12 +30,12 @@ export function LogoColoursEditor({ name, kit, onKitChange, logo, onLogoChange, 
       <LogoPicker name={name} kit={safe} value={logo} onChange={onLogoChange} actions={logoActions} onUseColours={onKitChange} />
       <div className="flex flex-col gap-3 border-t border-subtle pt-3">
         <div className="grid grid-cols-2 gap-gutter">
-          <ColourField label="Primary colour" hint="Top bar, Continue button, revenue line, the initials mark." value={kit.primary} onChange={(v) => onKitChange({ ...kit, primary: v })} testId="kit-primary" />
-          <ColourField label="Secondary colour" hint="Celebrations and accents." value={kit.secondary} onChange={(v) => onKitChange({ ...kit, secondary: v })} testId="kit-secondary" />
+          <ColourField label="Primary color" hint="Top bar, Continue button, revenue line, the initials mark." value={kit.primary} onChange={(v) => onKitChange({ ...kit, primary: v })} testId="kit-primary" />
+          <ColourField label="Secondary color" hint="Celebrations and accents." value={kit.secondary} onChange={(v) => onKitChange({ ...kit, secondary: v })} testId="kit-secondary" />
         </div>
         <div className="flex flex-wrap items-center gap-2" data-testid="kit-contrast" data-passes={contrast.passes}>
           <StatusPill tone={contrast.passes ? "good" : "warn"} title={`Contrast score ${contrast.lc} (75 or more reads well)`}>{contrast.passes ? "Text on it reads clearly" : "Text on it is hard to read"}</StatusPill>
-          <StatusPill tone={contrast.distinct ? "good" : "warn"}>{contrast.distinct ? "The two colours stand apart" : "The two colours are too close"}</StatusPill>
+          <StatusPill tone={contrast.distinct ? "good" : "warn"}>{contrast.distinct ? "The two colors stand apart" : "The two colors are too close"}</StatusPill>
           <span className="text-small text-secondary">Text on the primary is {contrast.onPrimary === "#FFFFFF" ? "white" : "near-black"}, chosen automatically.</span>
         </div>
         {error ? (
@@ -59,7 +59,7 @@ export function ColourField({ label, hint, value, onChange, testId }: { label: s
   const valid = normaliseHex(draft) !== null;
   const swatch = normaliseHex(value) ?? DEFAULT_KIT.primary;
   return (
-    <Field htmlFor={id} label={label} hint={hint} error={valid ? undefined : "Use a 6-digit hex colour."}>
+    <Field htmlFor={id} label={label} hint={hint} error={valid ? undefined : "Use a 6-digit hex color."}>
       <div className="flex items-center gap-2">
         <label className={cn("relative inline-flex size-8 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-panel border border-subtle")} style={{ backgroundColor: swatch }} aria-label={`${label} picker`} data-testid={`${testId}-swatch`}>
           <input

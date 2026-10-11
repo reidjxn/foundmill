@@ -87,7 +87,7 @@ export function nextBestDecision(s: MetricsSnapshot, variant = 0): NextBestDecis
       title: "Choose a runway plan",
       facts: { runway_months: s.runwayMonths, cash_minor: s.cashMinor, net_burn_monthly_minor: s.netBurnMonthlyMinor, currency: s.currency, label: "Estimate" },
       options: [
-        { id: "trim", label: "Trim spend to extend runway", recommended: true, consequence: "The Finance lead proposes cuts for your approval; nothing is paid or cancelled by agents.", cost_minor: 0, reversible: true },
+        { id: "trim", label: "Trim spend to extend runway", recommended: true, consequence: "The Finance lead proposes cuts for your approval; nothing is paid or canceled by agents.", cost_minor: 0, reversible: true },
         { id: "raise", label: "Prepare an investor update", recommended: false, consequence: "A draft update is written for you to send; no outreach in your name.", cost_minor: 0, reversible: true },
         { id: "hold", label: "Hold course", recommended: false, consequence: "No change; the warning stays on the board.", cost_minor: 0, reversible: true },
       ],
@@ -102,7 +102,7 @@ export function nextBestDecision(s: MetricsSnapshot, variant = 0): NextBestDecis
     facts: { planned_tasks: s.tasks.planned, running_tasks: s.tasks.running, done_tasks: s.tasks.done, customers_week: s.customersWeek, signups_week: s.signupsWeek },
     options: [
       { id: "product", label: "Lead with product work", recommended: s.customers30d === 0 && s.signups30d === 0, consequence: "The next cycle starts from the roadmap's now items.", cost_minor: 0, reversible: true },
-      { id: "distribution", label: "Lead with distribution", recommended: !(s.customers30d === 0 && s.signups30d === 0), consequence: "The next cycle prioritises enabled channels and follow-ups.", cost_minor: 0, reversible: true },
+      { id: "distribution", label: "Lead with distribution", recommended: !(s.customers30d === 0 && s.signups30d === 0), consequence: "The next cycle prioritizes enabled channels and follow-ups.", cost_minor: 0, reversible: true },
       { id: "balanced", label: "Keep the current balance", recommended: false, consequence: "The Chief of Staff plans as usual within budget and capacity.", cost_minor: 0, reversible: true },
     ],
     exhibit: { kind: "table", spec_ref: "tasks_by_status" },

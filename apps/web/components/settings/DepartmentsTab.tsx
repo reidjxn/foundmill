@@ -154,7 +154,7 @@ export function DepartmentsTab() {
         <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Reset departments to the archetype defaults?</DialogTitle>
-            <DialogDescription>Names, icons, colours, order and modules go back to the seed. Custom departments stay; nothing is deleted.</DialogDescription>
+            <DialogDescription>Names, icons, colors, order and modules go back to the seed. Custom departments stay; nothing is deleted.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setConfirmReset(false)}>

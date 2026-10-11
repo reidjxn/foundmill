@@ -49,13 +49,13 @@ describe("KitBarFit", () => {
         <ContinueButton state={{ kind: "holiday", until: "2026-10-21" }} />
       </header>,
     );
-    expect(document.querySelector(".kitbar-date .kitbar-year")?.textContent).toBe(" 2026");
+    expect(document.querySelector(".kitbar-date .kitbar-year")?.textContent).toBe(", 2026");
     // The mode chip says the mode once; the holiday is in its label (and beside Continue).
-    expect(screen.getByRole("group", { name: "Business mode: Automated, on holiday" }).textContent).toBe("Automated");
+    expect(screen.getByRole("group", { name: "Business mode: Automated, on vacation" }).textContent).toBe("Automated");
     expect(document.querySelectorAll(".kitbar-chip-word")).toHaveLength(2);
-    expect(document.querySelector(".kitbar-holiday-full")?.textContent).toBe("On holiday until 21 Oct 2026");
-    expect(document.querySelector(".kitbar-holiday-short")?.textContent).toBe("Until 21 Oct");
-    expect(screen.getByText("On holiday until 21 Oct 2026", { selector: ".sr-only" })).toBeTruthy();
-    expect(holidayCaptionParts({ kind: "holiday", until: null, untilLabel: "the launch ships" })).toEqual({ full: "On holiday until the launch ships", year: "", short: "Until the launch ships" });
+    expect(document.querySelector(".kitbar-holiday-full")?.textContent).toBe("On vacation until Oct 21, 2026");
+    expect(document.querySelector(".kitbar-holiday-short")?.textContent).toBe("Until Oct 21");
+    expect(screen.getByText("On vacation until Oct 21, 2026", { selector: ".sr-only" })).toBeTruthy();
+    expect(holidayCaptionParts({ kind: "holiday", until: null, untilLabel: "the launch ships" })).toEqual({ full: "On vacation until the launch ships", year: "", short: "Until the launch ships" });
   });
 });

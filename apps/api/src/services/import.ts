@@ -164,7 +164,7 @@ export interface ImportJob {
 export function stepsFor(key: ImportSourceKey, value: string): string[] {
   switch (key) {
     case "github":
-      return [`Clone ${value} into the sandbox (read only)`, "Summarise the file tree", "Read the top 200 files by importance", "Run the test suite if one exists", "Turn open issues into roadmap seeds", "Confirm nothing was pushed"];
+      return [`Clone ${value} into the sandbox (read only)`, "Summarize the file tree", "Read the top 200 files by importance", "Run the test suite if one exists", "Turn open issues into roadmap seeds", "Confirm nothing was pushed"];
     case "google_drive":
       return ["List the folder", "Read decks and plans", "Extract positioning and numbers"];
     case "notion":
@@ -379,7 +379,7 @@ export interface ScoutingReport {
 const CODE_SOURCES: ImportSourceKey[] = ["github"];
 const REVENUE_SOURCES: ImportSourceKey[] = ["stripe", "shopify", "bank"];
 const TRACKING_SOURCES: ImportSourceKey[] = ["linear", "jira", "notion"];
-const ISSUE_TITLES = ["Onboarding drop-off after sign-up", "Export to CSV", "Billing page shows stale invoice totals", "Slow dashboard query for large accounts", "Mobile layout of the pricing page", "Webhook retries on timeout", "Team invitations by link", "Audit log for admin actions", "SSO for enterprise plan", "Localise dates and currencies", "Flaky integration test in checkout", "Rate limit public API"];
+const ISSUE_TITLES = ["Onboarding drop-off after sign-up", "Export to CSV", "Billing page shows stale invoice totals", "Slow dashboard query for large accounts", "Mobile layout of the pricing page", "Webhook retries on timeout", "Team invitations by link", "Audit log for admin actions", "SSO for enterprise plan", "Localize dates and currencies", "Flaky integration test in checkout", "Rate limit public API"];
 
 export function titleCase(s: string): string {
   return s
@@ -455,7 +455,7 @@ export function buildScoutingReport(configs: readonly SourceConfig[], job?: Impo
     strengths.push("Real revenue history: forecasts start from actuals rather than archetype priors.");
     if (has("bank")) strengths.push("Cash position is known, so runway is a measurement, not an estimate.");
     else whatIsMissing.push("No bank connection: runway stays an estimate until one is added.");
-  } else whatIsMissing.push("No revenue source: Finance starts with a management P&L and labelled estimates.");
+  } else whatIsMissing.push("No revenue source: Finance starts with a management P&L and labeled estimates.");
   if (any(TRACKING_SOURCES)) strengths.push("A backlog exists: the first roadmap is seeded from your open issues.");
   else whatIsMissing.push("No work tracking: the first roadmap comes from the Board's proposals.");
   if (has("website")) strengths.push("Public positioning and pricing exist and can be tested against competitors.");
@@ -472,7 +472,7 @@ export function buildScoutingReport(configs: readonly SourceConfig[], job?: Impo
       : { id: "roadmap", label: "Let the Board propose a first roadmap", recommended: false, consequence: "Three proposals arrive in the Inbox for you to accept or edit.", reversible: true },
     any(REVENUE_SOURCES)
       ? { id: "finance", label: "Build the management P&L from revenue history", recommended: false, consequence: "Finance reconciles the imported revenue into a cash-basis P&L.", reversible: true }
-      : { id: "finance", label: "Connect a revenue or bank source later", recommended: false, consequence: "Finance works from labelled estimates until then.", reversible: true },
+      : { id: "finance", label: "Connect a revenue or bank source later", recommended: false, consequence: "Finance works from labeled estimates until then.", reversible: true },
   ];
   const roadmapSeeds = seedsFor(configs, rng);
   const summary = `${name}: ${whatExists.length} source${whatExists.length === 1 ? "" : "s"} imported. ${strengths[0] ?? ""} ${whatIsMissing[0] ?? ""}`.trim();

@@ -20,7 +20,7 @@ export interface FoundationsCase {
 const BLOCK = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const outline = (sections: string[], pinned: Record<string, string> = {}) => sections.map((section, i) => ({ section, blockId: BLOCK(i + 1), pinned: section in pinned, currentText: pinned[section] ?? null }));
 const SAAS = ["Problem", "Customers", "Value proposition", "Features", "Non-functional requirements", "Data", "Integrations", "Pricing", "Metrics", "Risks"];
-const DTC = ["Problem", "Customers", "Value proposition", "Features", "Formulation / BOM", "Manufacturing", "Packaging", "Compliance", "Fulfilment", "Non-functional requirements", "Data", "Integrations", "Pricing", "Metrics", "Risks"];
+const DTC = ["Problem", "Customers", "Value proposition", "Features", "Formulation / BOM", "Manufacturing", "Packaging", "Compliance", "Fulfillment", "Non-functional requirements", "Data", "Integrations", "Pricing", "Metrics", "Risks"];
 
 const FOUNDER = { experience: "operator", skills: { engineering: 14, sales: 9, design: 8, finance: 11, domain: 15 }, timeCommitment: "Full time", budget: { amountMinor: 2_500_000, currency: "EUR" }, citizenship: "SE", residence: "SE", targetMarkets: ["Nordics", "Germany"], constraints: ["bootstrapped", "no cold calling"], riskAppetite: "medium" };
 
@@ -76,7 +76,7 @@ export const FOUNDATIONS_CASES: FoundationsCase[] = [
       "Every specification section is specific to this business and grounded in the idea's attributes, research and the founder profile; nothing is invented as fact (no made-up customers, quotes or revenue).",
       "Features are written as user stories with acceptance criteria a test could check.",
       "The roadmap puts a small, startable set of items in Now and orders the rest sensibly in Next and Later, respecting the founder's constraints (bootstrapped, no cold calling).",
-      "Every price, target or market figure that is not quoted from the inputs is labelled Estimate or Forecast.",
+      "Every price, target or market figure that is not quoted from the inputs is labeled Estimate or Forecast.",
     ],
   },
   {
@@ -178,10 +178,10 @@ export const FOUNDATIONS_CASES: FoundationsCase[] = [
     mustNotContain: [],
     mustNotStore: [],
     rubric: [
-      "The physical sections (formulation, manufacturing, packaging, compliance, fulfilment) are concrete and name what must be verified before sale.",
+      "The physical sections (formulation, manufacturing, packaging, compliance, fulfillment) are concrete and name what must be verified before sale.",
       "The roadmap sequences samples, the safety assessment and costing before scaling spend, within a 10,000 euro budget.",
       "No claim of medical efficacy is made; compliance steps that need the founder's identity are left to the founder.",
-      "Figures not from the inputs (unit costs, prices, minimum order quantities) are labelled Estimate or Forecast.",
+      "Figures not from the inputs (unit costs, prices, minimum order quantities) are labeled Estimate or Forecast.",
     ],
   },
   {

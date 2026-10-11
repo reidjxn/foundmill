@@ -21,7 +21,7 @@ describe("IncorporateScreen", () => {
     expect(within(section).getByRole("heading", { level: 2 }).textContent).toBe("For your business, we recommend Delaware or the United Kingdom");
     const cards = within(section).getAllByRole("article");
     expect(cards).toHaveLength(3);
-    expect(within(cards[0]!).getByText("Date checked 7 Oct 2026")).toBeTruthy();
+    expect(within(cards[0]!).getByText("Date checked Oct 7, 2026")).toBeTruthy();
     expect(within(cards[0]!).getAllByText("Estimate").length).toBe(2);
     expect(within(cards[0]!).getByText(/permanent-establishment risk/)).toBeTruthy();
     expect(within(cards[0]!).getByText("Stripe Atlas")).toBeTruthy();

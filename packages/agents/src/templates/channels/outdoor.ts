@@ -8,7 +8,7 @@ export const channelOutdoor = defineChannelTemplate({
   connectors: [grant("vistar", ["inventory.search", "campaigns.create", "campaigns.pause", "reports.read"]), grant("adquick", ["inventory.search", "quotes.read"]), grant("google_drive", ["files.read", "files.write"])],
   guardrails: [
     "The founder approves every booking, digital or static; nothing is committed without the decision record.",
-    "Creative carries a QR code and a short URL; geo-lift uses a holdout region and is labelled Estimate.",
+    "Creative carries a QR code and a short URL; geo-lift uses a holdout region and is labeled Estimate.",
     "Static site contracts are kits: quotes, artwork and the contract draft for the founder to sign.",
   ],
   playbook: [

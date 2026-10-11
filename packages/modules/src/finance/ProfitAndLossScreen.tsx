@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { AlertTriangle, Landmark, Receipt, Tag, X } from "lucide-react";
-import { Button, DataTable, EntityLink, MiniTable, Panel, SegmentedControl, StatusPill, cn, formatDate, formatPercent, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { DATE_FORMATS, Button, DataTable, EntityLink, MiniTable, Panel, SegmentedControl, StatusPill, cn, formatDate, formatPercent, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
@@ -37,7 +37,7 @@ export function periodRange(period: PnlPeriod, now: Date): { from: string; to: s
 export const PNL_VIEWS: SavedView[] = [
   { id: "all", name: "Management P&L", builtIn: true, columns: ["label", "amount", "pct", "count"], sort: [], filters: [] },
   { id: "operating", name: "Operating only", builtIn: true, columns: ["label", "amount", "pct", "count"], sort: [], filters: [{ id: "f-op", field: "section", op: "in", value: ["revenue", "cogs", "opex", "gross", "operating"] }] },
-  { id: "uncategorised", name: "Needs categorising", builtIn: true, columns: ["label", "amount", "count"], sort: [], filters: [{ id: "f-unc", field: "section", op: "eq", value: "uncategorised" }] },
+  { id: "uncategorised", name: "Needs categorizing", builtIn: true, columns: ["label", "amount", "count"], sort: [], filters: [{ id: "f-unc", field: "section", op: "eq", value: "uncategorised" }] },
 ];
 
 /** The number columns keep their width; the line column takes the rest, so the figures sit together at the right. */
@@ -51,7 +51,7 @@ export const PNL_FIT = {
 export type PnlColumnId = keyof typeof PNL_FIT;
 
 /** Section keys as the chart of accounts names them (the filter and the CSV never show "cogs" or "opex"). */
-const SECTION_WORDS: Record<string, string> = { ...PNL_SECTION_LABELS, uncategorised: "Uncategorised", gross: "Gross profit", operating: "Operating result", net: "Net cash change" };
+const SECTION_WORDS: Record<string, string> = { ...PNL_SECTION_LABELS, uncategorised: "Uncategorized", gross: "Gross profit", operating: "Operating result", net: "Net cash change" };
 
 export function pnlColumns(currency: string, sizes: Record<PnlColumnId, number> = fitColumns<PnlColumnId>(null, PNL_FIT, [])): DataTableColumn<PnlRow>[] {
   return [
@@ -66,7 +66,7 @@ export function pnlColumns(currency: string, sizes: Record<PnlColumnId, number> 
         return (
           <span className={cn("flex min-w-0 items-center gap-1.5", r.depth === 1 && "pl-4", r.kind === "header" && "t-label", (r.kind === "subtotal" || r.kind === "total") && "text-body-strong text-primary")}>
             <span className="truncate">{r.label}</span>
-            {r.warn ? <AlertTriangle size={12} className="shrink-0 text-status-warn" aria-label="Needs categorising" /> : null}
+            {r.warn ? <AlertTriangle size={12} className="shrink-0 text-status-warn" aria-label="Needs categorizing" /> : null}
           </span>
         );
       },
@@ -155,7 +155,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
     const isLine = row.kind === "line";
     return [
       { id: "show", label: "Show transactions", icon: Receipt, disabled: !isLine, onSelect: (r) => setSelected(r) },
-      { id: "recat", label: "Recategorise a transaction…", icon: Tag, disabled: !isLine, onSelect: (r) => setSelected(r) },
+      { id: "recat", label: "Recategorize a transaction…", icon: Tag, disabled: !isLine, onSelect: (r) => setSelected(r) },
       { id: "cash", label: "Open in Cash", icon: Landmark, separatorBefore: true, onSelect: () => navigate(routes.department(businessId, "finance", "cash")) },
     ];
   };
@@ -169,7 +169,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
         loading={pnl.isLoading}
         error={pnl.error ? pnl.error.message : undefined}
         onRetry={pnl.refetch}
-        empty={empty ? { icon: Landmark, title: "No transactions in this period", children: "Connect a bank account and the finance lead categorises every transaction into the standard chart of accounts.", action: { label: "Connect a bank", icon: Landmark, onClick: () => navigate(routes.settings(businessId, "integrations")) } } : undefined}
+        empty={empty ? { icon: Landmark, title: "No transactions in this period", children: "Connect a bank account and the finance lead categorizes every transaction into the standard chart of accounts.", action: { label: "Connect a bank", icon: Landmark, onClick: () => navigate(routes.settings(businessId, "integrations")) } } : undefined}
         meta={pnl.data ? (ledger ? `Ledger · ${ledger.basis} basis` : pnl.data.label) : undefined}
         actions={<SegmentedControl<PnlPeriod> aria-label="Period" size="sm" value={period} onValueChange={setPeriod} options={PNL_PERIODS.map((p) => ({ value: p.value, label: p.short, title: p.label }))} />}
         footer={
@@ -183,13 +183,13 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
                 <span className="tabular-nums">Operating result {fmtSigned(totals.operatingResultMinor, currency, { compact: true })}</span>
                 {totals.uncategorisedMinor !== 0 ? (
                   <StatusPill tone="warn" icon={AlertTriangle} className="whitespace-nowrap">
-                    Uncategorised {fmtSigned(totals.uncategorisedMinor, currency, { compact: true })}
+                    Uncategorized {fmtSigned(totals.uncategorisedMinor, currency, { compact: true })}
                   </StatusPill>
                 ) : null}
               </>
             ) : null}
             <span aria-hidden>·</span>
-            {ledger ? <span>Ledger snapshot {ledger.period}{ledger.source ? ` from ${ledger.source}` : ""}; bank categorisation is not shown while a ledger is connected.</span> : <span>Right-click a line to see its transactions or recategorise one.</span>}
+            {ledger ? <span>Ledger snapshot {ledger.period}{ledger.source ? ` from ${ledger.source}` : ""}; bank categorization is not shown while a ledger is connected.</span> : <span>Right-click a line to see its transactions or recategorize one.</span>}
           </>
         }
       >
@@ -225,7 +225,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
             </Button>
           }
           empty={transactions.data && lineTransactions.length === 0 ? "No transactions in this line for the period." : undefined}
-          footer={<span>Pick a transaction to recategorise it. Applying to a counterparty creates a rule for future syncs.</span>}
+          footer={<span>Pick a transaction to recategorize it. Applying to a counterparty creates a rule for future syncs.</span>}
         >
           <MiniTable<TransactionRow>
             aria-label={`Transactions in ${selected.label}`}
@@ -234,7 +234,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
             getRowKey={(t) => t.id}
             onRowClick={(t) => setRecat(t)}
             columns={[
-              { id: "date", header: "Date", width: 84, cell: (t) => <span className="tabular-nums">{formatDate(t.bookedAt, "d MMM")}</span> },
+              { id: "date", header: "Date", width: 84, cell: (t) => <span className="tabular-nums">{formatDate(t.bookedAt, DATE_FORMATS.dayMonth)}</span> },
               {
                 id: "who",
                 header: "Counterparty",
@@ -246,7 +246,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
                 header: "",
                 width: 32,
                 cell: (t) => (
-                  <Button size="sm" variant="ghost" icon={Tag} aria-label={`Recategorise ${t.counterparty ?? t.description}`} onClick={(e) => (e.stopPropagation(), setRecat(t))}>
+                  <Button size="sm" variant="ghost" icon={Tag} aria-label={`Recategorize ${t.counterparty ?? t.description}`} onClick={(e) => (e.stopPropagation(), setRecat(t))}>
                     Edit
                   </Button>
                 ),

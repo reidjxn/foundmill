@@ -53,7 +53,7 @@ export const SPECIALIST_NUDGES: readonly NudgePreset[] = Object.freeze([
 ]);
 
 export const LEAD_NUDGES: readonly NudgePreset[] = Object.freeze([
-  preset("customers_first", "Prioritise customers", "Work that unblocks a customer goes first.", "Put work that unblocks a customer ahead of everything else."),
+  preset("customers_first", "Prioritize customers", "Work that unblocks a customer goes first.", "Put work that unblocks a customer ahead of everything else."),
   preset("keep_it_small", "Keep it small", "Smaller tasks, shorter sessions.", "Keep tasks small and sessions short."),
   preset("ask_before_spending", "Ask before spending", "Bring anything that costs money to me first.", "Ask me before anything that costs money."),
   HURRY_UP,

@@ -9,6 +9,7 @@
  */
 import { serverApi } from "@/lib/trpc-server";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
+import { formatNumber } from "@/lib/format";
 
 export type FounderProfileGet = RouterOutputs["founder"]["profile"]["get"];
 
@@ -41,7 +42,7 @@ export function profileLineOf(profile: StudioViewer["profile"]): string | null {
   const parts: string[] = [];
   if (profile.experience) parts.push(humanise(profile.experience));
   if (profile.timeCommitment) parts.push(humanise(profile.timeCommitment).toLowerCase());
-  if (typeof profile.budgetMinor === "number") parts.push(`${profile.currency} ${(profile.budgetMinor / 100).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`);
+  if (typeof profile.budgetMinor === "number") parts.push(`${profile.currency} ${formatNumber(profile.budgetMinor / 100, { maximumFractionDigits: 0 })}`);
   if (profile.targetMarkets?.length) parts.push(profile.targetMarkets.slice(0, 3).join(", "));
   return parts.length ? parts.join(" · ") : null;
 }

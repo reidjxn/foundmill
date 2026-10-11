@@ -14,6 +14,7 @@ import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, Dia
 import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { formatDayMonth } from "@/lib/format";
 import type { TabProps } from "./AgentProfileScreen";
 import { ModelChangeDialog } from "./ModelChangeDialog";
 import { ToolGrantsEditor } from "./ToolsTab";
@@ -176,7 +177,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-body text-primary">
-              Promoted {formatRelative(flow.watch.run.endedAt ?? flow.watch.run.createdAt)}. Watching live outcomes until {new Date(flow.watch.until).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}.
+              Promoted {formatRelative(flow.watch.run.endedAt ?? flow.watch.run.createdAt)}. Watching live outcomes until {formatDayMonth(flow.watch.until)}.
             </p>
             <Button variant="danger" icon={Undo2} loading={rollback.isPending} onClick={() => rollback.mutate({ businessId, agentId: agent.id })} data-testid="rollback">
               Roll back to the previous version

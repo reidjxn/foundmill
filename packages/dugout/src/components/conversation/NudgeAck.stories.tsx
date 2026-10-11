@@ -8,7 +8,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "One bubble from the agent after a nudge: its portrait and a short acknowledgement in its own voice (`voice.ack`), in its department's tint. Instant and deterministic: no model call.",
+          "One bubble from the agent after a nudge: its portrait and a short acknowledgment in its own voice (`voice.ack`), in its department's tint. Instant and deterministic: no model call.",
       },
     },
   },

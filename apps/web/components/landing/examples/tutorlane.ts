@@ -6,16 +6,17 @@
  * GitHub, sandboxes, Dropbox Sign, Cloudflare DNS, OpenCorporates). It is a US business: prices are in US dollars and its
  * copy is in US English (the product's own vocabulary, such as "Brand colours", stays as the product spells it).
  *
- * Brand colours and the two-year Journey come from the design system's fixtures (relabelled here); nothing is presented
- * as real traction: every example is labelled Example and every money figure that is not a measurement is labelled
- * Estimate where it appears. This module is in the landing page's main bundle; the other examples load on demand.
+ * Brand colours and the two-year Journey come from the design system's fixtures (relabeled here; the Journey's tutors
+ * and money are Tutorlane's own); nothing is presented as real traction: every example is labeled Example and every
+ * money figure that is not a measurement is labeled Estimate where it appears. This module is in the landing page's
+ * main bundle; the other examples load on demand.
  */
-import { STOREFRONT_SESSION_SCRIPT, type MockSessionScript } from "@foundmill/dugout";
 import type { ChannelKey } from "@foundmill/shared/constants";
 import { conceptFixtures } from "@foundmill/dugout/components/journey/fixtures";
 import { LANDING_LOGOS } from "../logos";
 import { conceptAttributes as attributes, leadSkill as skill } from "./helpers";
 import { EXAMPLE_IDENTITIES } from "./identity";
+import { TUTORLANE_SESSIONS } from "./sessions/tutorlane";
 import type { ActivityLine, CycleOutcome, ExampleBusiness, ExampleCustomerUpdate, ExampleCyclePlanItem, ExampleDepartment, ExampleInboxNote, ExampleJourney, ExampleLead } from "./types";
 
 const IDENTITY = EXAMPLE_IDENTITIES.tutorlane;
@@ -167,104 +168,6 @@ const CYCLE_OUTCOMES: readonly CycleOutcome[] = [
 ];
 
 // ---------------------------------------------------------------------------------------------------------------------
-// The live sessions: what the replayed agents are building
-// ---------------------------------------------------------------------------------------------------------------------
-
-const PRACTICE_SET_DIFF = [
-  "diff --git a/src/recap/practice.ts b/src/recap/practice.ts",
-  "--- a/src/recap/practice.ts",
-  "+++ b/src/recap/practice.ts",
-  "@@ -1,6 +1,20 @@",
-  ' import { models } from "@/lib/models";',
-  '+import { tutorMethod } from "@/recap/method";',
-  " ",
-  "-export async function practiceSet(transcript: string) {",
-  "-  return models.generate({ prompt: transcript });",
-  "+export type Question = { prompt: string; skill: string; difficulty: 1 | 2 | 3 };",
-  "+",
-  "+export async function practiceSet(lesson: LessonRecap, student: StudentProfile): Promise<Question[]> {",
-  "+  const method = await tutorMethod(lesson.tutorId);",
-  "+  // Only what this lesson taught, weighted to the mistakes this student keeps making.",
-  "+  const gaps = student.mistakes.filter((m) => lesson.skills.includes(m.skill));",
-  "+  return models.generateJson<Question[]>({",
-  "+    system: method.instructions,",
-  "+    prompt: renderPracticePrompt(lesson, gaps),",
-  "+    schema: QUESTION_SCHEMA,",
-  "+  });",
-  " }",
-].join("\n");
-
-const PROGRESS_NOTE_CSS = [
-  "--- a/src/emails/progress-note.css",
-  "+++ b/src/emails/progress-note.css",
-  "@@ -2,5 +2,10 @@",
-  " .note {",
-  "-  padding: 13px;",
-  "+  padding: var(--space-3);",
-  " }",
-  "+",
-  "+.note__skill {",
-  "+  display: flex;",
-  "+  gap: var(--space-2);",
-  "+}",
-].join("\n");
-
-/** Four engineers on Tutorlane's AI product: the recap pipeline, photo grading, progress notes and the test set. */
-const SESSION_SCRIPT: MockSessionScript = {
-  ...STOREFRONT_SESSION_SCRIPT,
-  tasks: [
-    "Practice sets in the tutor's own method",
-    "Grade handwritten work from photos",
-    "Parent progress note after each lesson",
-    "Test set: 200 graded homework answers",
-    "Voice companion: latency under 800 ms",
-    "Lesson recap from Drive recordings",
-    "Curriculum search over state standards",
-    "Stripe billing for the companion add-on",
-  ],
-  stdout: [
-    "$ pnpm install --frozen-lockfile",
-    "Lockfile is up to date, resolution step is skipped",
-    "Progress: resolved 388, reused 388, downloaded 0, added 0",
-    "$ pnpm vitest run src/recap/practice.test.ts",
-    " RUN  v5.0.3 /workspace/tutorlane",
-    " ✓ src/recap/practice.test.ts (6 tests) 241ms",
-    " Test Files  1 passed (1)",
-    "      Tests  6 passed (6)",
-    "$ pnpm evals run grading --cases 200",
-    "Running 200 cases (graded SAT math homework)",
-    "  ✓  agreement with tutors' grades 186/200 (93.0%)",
-    "  ✘  partial credit on two-step problems 7/12 (58%)",
-    "  1 threshold missed (partial credit ≥ 75%)",
-    "$ git add -A && git commit -m \"feat(recap): practice sets follow the tutor's method\"",
-    "[agent/task-1 7c1e2b9] feat(recap): practice sets follow the tutor's method",
-    " 4 files changed, 212 insertions(+), 18 deletions(-)",
-    "$ pnpm tsc --noEmit",
-    "$ pnpm eslint src",
-    "$ pnpm evals run grading --cases 200",
-    "  all thresholds met (agreement 93.0%, partial credit 83%)",
-    "$ gh pr create --fill --base main",
-    "https://github.com/foundmill-demo/tutorlane/pull/148",
-  ],
-  readPath: "src/recap/pipeline.ts",
-  file: { path: "src/recap/practice.ts", diff: PRACTICE_SET_DIFF, additions: 16, deletions: 2 },
-  styleFile: { path: "src/emails/progress-note.css", diff: PROGRESS_NOTE_CSS },
-  notes: [
-    "Reading the test set before touching the prompt.",
-    "Practice questions now come only from the skills this lesson covered.",
-    "Partial credit follows the tutor's rubric; the model only explains it.",
-    "Partial credit on two-step problems missed its threshold; adding worked examples to the prompt.",
-    "Review: one finding about a student's name in the prompt log, redacted.",
-  ],
-  unitCommand: "pnpm vitest run",
-  unitPassed: 6,
-  acceptanceCommand: "pnpm evals run grading",
-  failingCheck: "partial credit on two-step problems",
-  failure: "Error: grading agreement 61.0%, below the 90% threshold",
-  currency: CURRENCY,
-};
-
-// ---------------------------------------------------------------------------------------------------------------------
 // Distribution: how channels fit Tutorlane
 // ---------------------------------------------------------------------------------------------------------------------
 
@@ -282,7 +185,12 @@ const CHANNELS: ExampleBusiness["channels"] = {
 // The journey: two years on the Ribbon, one Customer Update and the milestones
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** Two years of the example's history, relabelled from the design system's fixture for Tutorlane. */
+/**
+ * Two years of the example's history: the days, pins and chapters relabeled from the design system's fixture for
+ * Tutorlane, and the tutors and their money Tutorlane's own (`customers`). The 1st, 10th and 100th tutors pay on their
+ * cards' days, every payment is Pro at $29 a month (an agency's ten tutors $290), and revenue is every payment on its
+ * day, so MRR passes $1,000 and $10,000 on the days its pins say.
+ */
 const JOURNEY: ExampleJourney = {
   /** The Ribbon's departments (ids match the fixture's generator; names and colours are Tutorlane's). */
   ribbonDepartments: [
@@ -306,12 +214,23 @@ const JOURNEY: ExampleJourney = {
   chapterTitles: ["First lessons", "First tutors", "Recaps catch on", "Parents join in", "The companion", "Steady state", "Exam season", "Agencies", "Fall semester"],
   customerNames: ["Bright Path Tutoring", "Hale Science Tutoring", "Rivera Languages", "Brook Lane Tutors", "Amari Chemistry", "Second Look English", "Patel Physics", "Linden Music Theory", "North Harbor Tutoring", "Ellis Test Prep"],
   roadmap: ["Voice companion", "Agency dashboard", "Adult learners"],
-  // Revenue per day near MRR / 30 at each MRR pin: about $37 at $1K MRR (Mar 2025), $330 at $10K (Sep 2026).
-  revenueScale: { start: 0.1, end: 1.35 },
-  // Pro is $29 a month; the fixture's rare large payment is an agency paying a year up front for its 10 tutors.
-  planPrices: { pricesMinor: [2900], largeMinor: 348_000 },
-  // Okafor Math Tutoring pays on Friday, Oct 2 (first seen Sunday, Sep 20: twelve days), and on no other day.
-  updatePayment: { name: "Okafor Math Tutoring", day: "2026-10-02" },
+  // Okafor Math Tutoring pays for Pro on Friday, Oct 2 (first seen Sunday, Sep 20: twelve days), and on no other day.
+  updatePayment: { name: "Okafor Math Tutoring", day: "2026-10-02", amountMinor: 2900 },
+  customers: {
+    // With the cards' 1st, 10th and 100th tutors: MRR passes $1,000 on Mar 20, 2025 and $10,000 on Sep 18, 2026.
+    counts: { "2025-03-20": 26, "2026-03-01": 200, "2026-09-18": 416, "2026-10-07": 433 },
+    // Tutors sign up for the free recap about ten days before they pay; about one in five goes on to pay.
+    funnel: { signups: 4.6, activations: 2.2, leadDays: 10 },
+    // Agencies put their ten tutors on Pro, $290 a month (the first is on its milestone card).
+    large: [
+      { day: "2025-06-10", name: "Summit Tutoring Co", amountMinor: 29_000 },
+      { day: "2025-11-18", name: "Lakeside Learning", amountMinor: 29_000 },
+      { day: "2026-02-24", name: "Keystone Tutors", amountMinor: 29_000 },
+      { day: "2026-06-02", name: "Crescent Academy", amountMinor: 29_000 },
+    ],
+    // Pro is $29 a month a tutor; about 3 in 100 cancel each month.
+    billing: { kind: "subscription", monthlyMinor: [2900], monthlyChurn: 0.03 },
+  },
 };
 
 /** The Customer Update the deck's gold card opens: how Okafor Math Tutoring became a paying customer. */
@@ -346,7 +265,7 @@ const usd = (amountMinor: number) => ({ amountMinor, currency: CURRENCY });
  */
 const MILESTONES: ExampleBusiness["milestones"] = [
   { key: "customer_1", label: "First customer", description: "The first paying tutor.", achievedAt: "2024-11-08T12:00:00", customerName: "Patel Physics", ...usd(2900), shareable: true },
-  { key: "first_agency", label: "First tutoring agency", description: "An agency pays a year up front for its 10 tutors.", achievedAt: "2024-12-26T12:00:00", customerName: "Rivera Languages", ...usd(348000), shareable: true },
+  { key: "first_agency", label: "First tutoring agency", description: "An agency puts its 10 tutors on Pro, $290 a month.", achievedAt: "2024-12-26T12:00:00", customerName: "Rivera Languages", ...usd(29_000), shareable: true },
   { key: "customer_10", label: "10th customer", description: "Ten paying tutors.", achievedAt: "2024-12-31T12:00:00", shareable: true },
   { key: "mrr_1k", label: "$1K MRR", description: "Monthly recurring revenue crosses $1,000.", achievedAt: "2025-03-20T12:00:00", shareable: true },
   { key: "customer_100", label: "100th customer", description: "One hundred paying tutors.", achievedAt: "2025-09-25T12:00:00", shareable: true },
@@ -501,7 +420,7 @@ export const TUTORLANE: ExampleBusiness = {
   },
   activity: ACTIVITY,
   howItWorks: { concepts: CONCEPTS, brandOptions: BRAND_OPTIONS, firstCyclePlan: FIRST_CYCLE_PLAN },
-  sessions: SESSION_SCRIPT,
+  sessions: TUTORLANE_SESSIONS,
   channels: CHANNELS,
   journey: JOURNEY,
   customerUpdate: CUSTOMER_UPDATE,

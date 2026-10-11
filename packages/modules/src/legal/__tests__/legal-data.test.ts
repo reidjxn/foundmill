@@ -151,7 +151,7 @@ describe("plain words for registry keys", () => {
 
   it("dates the policies in words, names the governing law's place and cites the UK GDPR for a UK company", () => {
     const uk = generatePolicies({ businessName: "Northwind Skincare", legalName: "Northwind Skincare Ltd", jurisdiction: "GB", entityType: "private_limited_company", regNo: "15432198", address: "", region: "eu", archetype: "dtc_physical", flows: [], today: "2026-10-09" });
-    expect(uk.privacy).toContain("Last updated 9 October 2026");
+    expect(uk.privacy).toContain("Last updated October 9, 2026");
     expect(uk.privacy).not.toContain("2026-10-09");
     expect(uk.privacy).toContain("UK General Data Protection Regulation (UK GDPR)");
     expect(uk.terms).toContain("The law of the United Kingdom applies");

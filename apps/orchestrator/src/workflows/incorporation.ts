@@ -32,7 +32,7 @@ export async function incorporation(input: IncorporationInput): Promise<Incorpor
   await condition(() => (state.founder !== null && state.founder.kind !== "takeover") || state.stopped !== null);
   const f = state.founder;
   if (state.stopped || !f || f.kind === "cancel") {
-    await acts.abandonIncorporation({ businessId: input.businessId, incorporationId: input.incorporationId, reason: state.stopped ?? "cancelled by the founder" });
+    await acts.abandonIncorporation({ businessId: input.businessId, incorporationId: input.incorporationId, reason: state.stopped ?? "canceled by the founder" });
     await condition(allHandlersFinished);
     return { incorporationId: input.incorporationId, status: "abandoned", submittedBy: null };
   }

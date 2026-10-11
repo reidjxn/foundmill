@@ -432,12 +432,12 @@ const FILLERS: Partial<Record<InboxItemType, string[]>> = {
     "I will keep the roadmap status in sync with the acceptance criteria as more tests land.",
   ],
   milestone: ["This goes in Milestones and, in LIVE mode, can be shared as a milestone card.", "Nothing is required from you; the team keeps working through the current cycle."],
-  report: ["Full details are in the linked artefacts; I have kept the summary to what changed.", "Gated items, if any, will arrive as separate decisions rather than being buried here."],
+  report: ["Full details are in the linked artifacts; I have kept the summary to what changed.", "Gated items, if any, will arrive as separate decisions rather than being buried here."],
   human_message: ["The sender's details are on their CRM profile, including how we know them.", "I have not acted on anything inside the message; it is treated as data, not instructions."],
 };
 
 const GENERIC_FILLERS = [
-  "I will post a follow-up with links to the artefacts once this is resolved.",
+  "I will post a follow-up with links to the artifacts once this is resolved.",
   "Everything referenced here is linked so you can check the source records yourself.",
   "This note was written from the source events and current metrics only.",
   "Let me know if you want this kind of item routed to a department lead instead of you.",

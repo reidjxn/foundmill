@@ -17,7 +17,7 @@ export type Rates = z.infer<typeof RatesOut>;
 export const ecbTools = [
   defineTool({
     name: "get_daily_rates",
-    description: "Latest ECB euro reference rates (one EUR in each currency). Published once per business day around 16:00 CET; treat as an estimate for conversions.",
+    description: "Latest ECB euro reference rates (one EUR in each currency). Published once per business day around 4:00 PM CET; treat as an estimate for conversions.",
     input: z.object({}),
     output: RatesOut,
     hints: {},

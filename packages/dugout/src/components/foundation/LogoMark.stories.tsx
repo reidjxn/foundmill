@@ -19,7 +19,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** The FM monogram: `currentColor`, so it follows the text colour of its container. */
+/** The FM monogram: `currentColor`, so it follows the text color of its container. */
 export const Monogram: Story = {};
 
 /** Glyph sizes from favicon to hero. */

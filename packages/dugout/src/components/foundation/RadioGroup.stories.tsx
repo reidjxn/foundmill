@@ -34,8 +34,8 @@ export const Horizontal: Story = {
 };
 
 /**
- * Radio cards: the whole card is the target. Selected: an accent fill, a 55 % ring with a halo and glow, and the
- * filled radio with its ink centre, so shape and colour both carry the state.
+ * Radio cards: the whole card is the target. Selected: an accent fill, a 55% ring with a halo and glow, and the
+ * filled radio with its ink center, so shape and color both carry the state.
  */
 export const Cards: Story = {
   render: () => (

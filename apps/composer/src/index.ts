@@ -3,13 +3,16 @@
  *
  * Boot: load env → service database (repositories only) → models client (mock or live, usage metered into
  * usage_ledger) → Hono app → listen on PORT (fallback COMPOSER_PORT) on host "::" (Railway's private network is
- * IPv6-only, §17; falls back to 0.0.0.0 where IPv6 is unavailable) → drain buffer refills on SIGTERM/SIGINT.
+ * IPv6-only, §17; falls back to 0.0.0.0 where IPv6 is unavailable). SIGTERM/SIGINT: stop accepting connections, let
+ * in-flight requests finish, drain buffer refills, close the database pool, exit 0, within SHUTDOWN_TIMEOUT_MS
+ * (docs/DEPLOY.md §3).
  */
 import { serve } from "@hono/node-server";
 import { createServiceDb, closeDb } from "@foundmill/db";
 import { createModelClient, effectiveModelMode } from "@foundmill/models";
 import { loadEnv, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
+import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
 import { createApp } from "./app";
 import { prepareDb } from "./db-boot";
 import { createComposerService } from "./service";
@@ -38,24 +41,35 @@ export async function main(): Promise<void> {
     process.exit(1);
   }
   const db = createServiceDb();
+  let server: ReturnType<typeof serve> | null = null;
+  let service: ReturnType<typeof createComposerService> | null = null;
+  const lifecycle = onShutdown({
+    service: "composer",
+    log,
+    timeoutMs: env.SHUTDOWN_TIMEOUT_MS,
+    steps: () => [
+      {
+        name: "drain http",
+        run: async ({ remainingMs }) => {
+          if (!server) return;
+          const { forced } = await drainHttpServer(server, { timeoutMs: Math.max(0, remainingMs - 10_000) });
+          if (forced > 0) log.warn({ forced }, "composer: connections still open at the drain deadline were cut");
+        },
+      },
+      { name: "drain buffer refills", run: () => service?.drain() },
+      { name: "close database", run: () => closeDb(db) },
+    ],
+  });
   // PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line and /health says db:false.
   const readiness = await prepareDb(db, log, { service: "composer" });
   const models = createModelClient({ mode: effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log), apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage: createUsageSink(db, log) });
-  const service = createComposerService({ db, models, log });
+  service = createComposerService({ db, models, log });
   const app = createApp(service, { env, log });
   const port = servicePort(env, "COMPOSER_PORT");
 
-  const server = await listen(app, port, log);
+  if (lifecycle.stopping) return;
+  server = await listen(app, port, log);
   log.info({ db: readiness.ok, driver: readiness.driver, modes: { integrations: env.INTEGRATIONS_MODE, models: env.MODEL_MODE } }, "composer ready (refresh debounce and buffer refills are in-process; no Redis needed)");
-  const shutdown = async (signal: string) => {
-    log.info({ signal }, "composer shutting down");
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await service.drain();
-    await closeDb(db);
-    process.exit(0);
-  };
-  process.once("SIGTERM", () => void shutdown("SIGTERM"));
-  process.once("SIGINT", () => void shutdown("SIGINT"));
 }
 
 export function listen(app: ReturnType<typeof createApp>, port: number, log: { info(o: unknown, m?: string): void; warn(o: unknown, m?: string): void }, hosts: readonly string[] = ["::", "0.0.0.0"]): Promise<ReturnType<typeof serve>> {

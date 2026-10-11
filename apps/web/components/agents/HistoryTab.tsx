@@ -10,6 +10,7 @@ import { Panel, StatusStrip, Timeline, formatMoney, type MetricTileProps, type T
 import type { TabProps } from "./AgentProfileScreen";
 import { MODEL_LABELS } from "@foundmill/dugout";
 import { RUN_PHASE_LABEL, outcomeWord, sessionRows, toIso } from "./logic";
+import { formatNumber } from "@/lib/format";
 
 /** "opus" → "Opus" (the model's display name). */
 const modelWord = (key: string): string => (MODEL_LABELS as Record<string, string>)[key] ?? key.charAt(0).toUpperCase() + key.slice(1);
@@ -44,7 +45,7 @@ export function historyEvents(profile: TabProps["profile"], currency: string): T
       id: `session-${s.id}`,
       at: s.startedAt,
       title: s.live ? "Session running" : `Session ${outcomeWord(s.outcome).toLowerCase()}`,
-      description: `${modelWord(s.model)} · ${s.tokens.toLocaleString("en-GB")} tokens · ${formatMoney({ amountMinor: s.costMinor, currency: s.currency })}`,
+      description: `${modelWord(s.model)} · ${formatNumber(s.tokens)} tokens · ${formatMoney({ amountMinor: s.costMinor, currency: s.currency })}`,
       icon: Play,
       tone: s.live ? "info" : s.outcome === "failure" || s.outcome === "failed" ? "bad" : "neutral",
       statusWord: outcomeWord(s.outcome),

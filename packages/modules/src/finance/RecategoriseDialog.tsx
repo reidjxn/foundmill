@@ -34,7 +34,7 @@ export function RecategoriseDialog({ transaction, onClose, onSaved }: Recategori
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transaction?.id]);
 
-  const options = [{ value: UNCATEGORISED, label: "Uncategorised" }, ...PNL_CATEGORY_OPTIONS.map((c) => ({ value: c, label: c }))];
+  const options = [{ value: UNCATEGORISED, label: "Uncategorized" }, ...PNL_CATEGORY_OPTIONS.map((c) => ({ value: c, label: c }))];
   if (transaction?.category && !isUncategorised(transaction.category) && !PNL_CATEGORY_OPTIONS.includes(transaction.category) && !chartEntry(transaction.category)) options.push({ value: transaction.category, label: categoryLabel(transaction.category) });
 
   const save = async () => {
@@ -54,7 +54,7 @@ export function RecategoriseDialog({ transaction, onClose, onSaved }: Recategori
     <Dialog open={!!transaction} onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent size="sm" aria-describedby={`${id}-desc`}>
         <DialogHeader>
-          <DialogTitle>Recategorise transaction</DialogTitle>
+          <DialogTitle>Recategorize transaction</DialogTitle>
           <DialogDescription id={`${id}-desc`}>
             {transaction ? (
               <>

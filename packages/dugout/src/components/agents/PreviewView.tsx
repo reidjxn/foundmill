@@ -24,7 +24,7 @@ export function PreviewView({ preview, agentName, now = new Date(), className }:
   if (!hasUrl && !hasShot) {
     return (
       <div className={cn("flex h-full items-center justify-center bg-base", className)}>
-        <EmptyState icon={MonitorPlay}>A preview appears after the first successful build; screenshots arrive with each Playwright run.</EmptyState>
+        <EmptyState icon={MonitorPlay}>{preview.emptyNote || "A preview appears after the first successful build; screenshots arrive with each Playwright run."}</EmptyState>
       </div>
     );
   }

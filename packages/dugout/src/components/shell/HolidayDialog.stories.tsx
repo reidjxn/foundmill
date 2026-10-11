@@ -6,7 +6,7 @@ import { HolidayDialog, type HolidaySettings } from "./HolidayDialog";
 import { FIXTURE_TODAY } from "./fixtures";
 
 const meta = {
-  title: "Shell/HolidayDialog",
+  title: "Shell/VacationDialog",
   component: HolidayDialog,
   parameters: { docs: { description: { component: "BUILD §9.6: until (date / condition / until I return), the Chief of Staff's authority as decision types (hard gates locked), a budget ceiling and the events that wake the founder. Defaults: all non-gated types; kill switch, credential failure, legal deadline, runway warning." } } },
   args: { open: true, onOpenChange: () => {}, onSubmit: () => {}, today: FIXTURE_TODAY, currency: "EUR" },
@@ -20,7 +20,7 @@ function Frame(args: Story["args"]) {
   return (
     <div className="flex flex-col gap-3">
       <Button icon={TreePalm} onClick={() => setOpen(true)}>
-        Go on holiday
+        Go on vacation
       </Button>
       {result ? <pre className="t-mono rounded-panel bg-ink p-2 text-secondary">{JSON.stringify(result, null, 2)}</pre> : null}
       <HolidayDialog {...args} onSubmit={(s) => setResult(s)} open={open} onOpenChange={setOpen} />
@@ -30,7 +30,7 @@ function Frame(args: Story["args"]) {
 
 export const Open: Story = { render: (args) => <Frame {...args} /> };
 export const WithInitial: Story = {
-  args: { initial: { until: { kind: "condition", condition: "when the autumn bundle ships" }, budgetCeiling: { amountMinor: 250000, currency: "EUR" }, authority: ["publish_content", "message_customers"] } },
+  args: { initial: { until: { kind: "condition", condition: "when the fall bundle ships" }, budgetCeiling: { amountMinor: 250000, currency: "EUR" }, authority: ["publish_content", "message_customers"] } },
   render: (args) => <Frame {...args} />,
 };
 export const Closed: Story = { args: { open: false }, render: (args) => <Frame {...args} /> };

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 /**
  * The signed-out landing page at `/` (it needs no api and no session). Runs in a fresh browser context, so the dev
@@ -12,7 +12,7 @@ test.describe("landing page", () => {
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByTestId("landing")).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Build a real business with a team of AI agents.");
-    await expect(page.getByRole("img", { name: /Your team: you at the centre/ })).toBeVisible();
+    await expect(page.getByRole("img", { name: /Your team: you at the center/ })).toBeVisible();
 
     // The header is anchored by the Foundmill wordmark alone; the FM monogram is the favicon only.
     const home = page.getByRole("banner").getByRole("link", { name: "Foundmill home" });
@@ -44,7 +44,7 @@ test.describe("landing page", () => {
     // The product's own parts print the example's dollars as "$" too, never en-GB's "US$": the ribbon's revenue scale,
     // the milestone values and the live tiles' costs.
     await expect(ribbon).toContainText(/\$\d{3}\.00\/day/);
-    await expect(page.getByText("$3,480.00", { exact: true })).toBeVisible();
+    await expect(page.getByText("$290.00", { exact: true })).toBeVisible();
     await expect(page.getByTestId("landing")).not.toContainText("US$");
     await expect(page.getByRole("region", { name: "Customer Update" })).toBeVisible();
     // The example is a US business: its own figures print as dollars.
@@ -140,7 +140,7 @@ test.describe("landing page", () => {
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
   });
 
-  test("Northwind's Ribbon agrees with its milestone cards, and its long department names read whole", async ({ page }) => {
+  test("Northwind's Ribbon agrees with its milestone cards and its Customer Update, and its long department names read whole", async ({ page }) => {
     await page.goto("/?example=northwind");
     await page.locator("#journey").scrollIntoViewIfNeeded();
     const ribbon = page.locator("[aria-roledescription='journey ribbon']");
@@ -148,29 +148,97 @@ test.describe("landing page", () => {
     await ribbon.evaluate((el) => el.scrollIntoView({ block: "center" }));
     const box = (await ribbon.boundingBox())!;
     const y = box.y + box.height * 0.6;
-    // The day card names the hovered day: find the first retail partner's day (Dec 26, 2024) by halving the distance.
+    // The day card names the hovered day. The pointer leaves the Ribbon between moves, so a card left over from the last
+    // day never sits under it.
     const card = page.locator("[data-on-this-day]");
     const dayAt = async (x: number) => {
+      await page.mouse.move(1, 1);
       await page.mouse.move(x, y);
       return (await card.count()) ? await card.getAttribute("data-on-this-day") : null;
     };
-    let lo = box.x;
-    while (!(await dayAt(lo)) && lo < box.x + box.width / 2) lo += 8;
-    let hi = box.x + box.width - 8;
-    for (let i = 0; i < 24 && hi - lo > 0.25; i++) {
-      const mid = (lo + hi) / 2;
-      if (((await dayAt(mid)) ?? "") < "2024-12-26") lo = mid;
-      else hi = mid;
-    }
-    await expect.poll(() => dayAt(hi)).toBe("2024-12-26");
-    // The pharmacy's opening order on the Ribbon is the milestone card's customer and value.
+    let first = box.x;
+    while (!(await dayAt(first)) && first < box.x + box.width / 2) first += 8;
+    // Find a day by halving the distance.
+    const hoverDay = async (day: string) => {
+      let lo = first;
+      let hi = box.x + box.width - 8;
+      for (let i = 0; i < 24 && hi - lo > 0.25; i++) {
+        const mid = (lo + hi) / 2;
+        if (((await dayAt(mid)) ?? "") < day) lo = mid;
+        else hi = mid;
+      }
+      await expect.poll(() => dayAt(hi)).toBe(day);
+    };
+    // The first retail partner's day (Dec 26, 2024): the pharmacy's opening order is the milestone card's customer and
+    // value.
+    await hoverDay("2024-12-26");
     await expect(card).toContainText("First retail partner");
     await expect(card).toContainText("Oak Hill Pharmacy");
     await expect(card).toContainText("$3,782.60");
     // "Retail Partnerships" and "Formulation Lab" fit the card's department column (scaled at most, never cut).
     await expect(card.locator('[data-fit="truncated"]')).toHaveCount(0);
+    // The 1,000th customer's day has paying customers on it, and two years add up to thousands of them, not hundreds.
+    await hoverDay("2025-09-25");
+    await expect(card).toContainText("1,000th customer");
+    expect(Number(/Paying\s*(\d+)/i.exec(await card.innerText())?.[1])).toBeGreaterThan(0);
+    expect(Number(/(\d+) payments/.exec((await ribbon.getAttribute("aria-label")) ?? "")?.[1])).toBeGreaterThan(3000);
+    // Today the chain's opening order is on the Ribbon, at the Customer Update's value.
+    await hoverDay("2026-10-07");
+    await expect(card).toContainText("Larkfield Market");
+    await expect(card).toContainText("$16,632.00");
     await page.mouse.move(1, 1);
     const partner = page.locator("#journey").getByText("First retail partner", { exact: true }).locator("xpath=ancestor::*[contains(., '$3,782.60')][1]");
     await expect(partner).toContainText("Oak Hill Pharmacy");
+    await expect(page.getByRole("region", { name: "Customer Update" })).toContainText("$16,632");
+  });
+
+  /** What each live tile shows: agent, task, phase pill, footer and the end of its terminal. */
+  async function liveTiles(page: Page) {
+    return page.locator("[data-session-id]").evaluateAll((els) =>
+      els.map((el) => ({
+        name: el.querySelector("[data-tile-name]")?.textContent ?? "",
+        task: el.querySelector("[data-tile-task]")?.textContent ?? "",
+        phase: (el.querySelector("[data-tile-status]")?.textContent ?? "").replace(/\d+%.*$/, "").trim(),
+        footer: el.querySelector("[data-testid=tile-footer]")?.textContent ?? "",
+        terminal: (el.querySelector(".xterm-rows, [role=log]")?.textContent ?? "").replace(/\s+/g, " ").trim(),
+      })),
+    );
+  }
+
+  for (const example of ["tutorlane", "glitchwick", "northwind"]) {
+    test(`${example}: the four live tiles keep working, each on its own task, and never read overdue`, async ({ page }) => {
+      await page.goto(example === "tutorlane" ? "/" : `/?example=${example}`);
+      await page.locator("#live").scrollIntoViewIfNeeded();
+      const grid = page.getByRole("region", { name: "Example agent sessions" });
+      await expect(grid.getByRole("group")).toHaveCount(4);
+      await expect.poll(async () => (await liveTiles(page)).every((t) => t.terminal.length > 0), { timeout: 15_000 }).toBe(true);
+      const first = await liveTiles(page);
+      expect(new Set(first.map((t) => t.name)).size).toBe(4);
+      const changed = new Set<number>();
+      for (let i = 0; i < 20; i++) {
+        await page.waitForTimeout(1000);
+        const now = await liveTiles(page);
+        for (const t of now) expect(t.footer, `${t.name}: ${t.footer}`).not.toMatch(/overdue/i);
+        // Each tile plays its own task's terminal.
+        const terminals = now.map((t) => t.terminal).filter(Boolean);
+        expect(new Set(terminals).size).toBe(terminals.length);
+        now.forEach((t, k) => {
+          if (t.phase !== first[k]!.phase || t.task !== first[k]!.task) changed.add(k);
+        });
+      }
+      expect(changed.size, "tiles move on to their next phase or task within 20 seconds").toBeGreaterThanOrEqual(2);
+    });
+  }
+
+  test("under reduced motion the live tiles hold one legible frame", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/?example=northwind");
+    await page.locator("#live").scrollIntoViewIfNeeded();
+    await expect(page.getByRole("region", { name: "Example agent sessions" }).getByRole("group")).toHaveCount(4);
+    await expect.poll(async () => (await liveTiles(page)).every((t) => t.terminal.length > 0), { timeout: 15_000 }).toBe(true);
+    const frame = await liveTiles(page);
+    await page.waitForTimeout(5000);
+    expect(await liveTiles(page)).toEqual(frame);
+    for (const t of frame) expect(t.footer).toMatch(/ETA \d/);
   });
 });

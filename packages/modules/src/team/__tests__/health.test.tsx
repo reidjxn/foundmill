@@ -26,7 +26,7 @@ describe("card lines", () => {
   it("says why an agent is in its group without repeating the group or the card's figures", () => {
     expect(healthReason("healthy", { errorRate: 0.01, lastHeartbeatAt: "2026-10-07T11:59:00Z" }, now)).toBe("");
     expect(healthReason("degraded", { errorRate: 0.14 }, now)).toMatch(/^Error rate 14(\.0)? ?% over 24 h$/);
-    expect(healthReason("degraded", { errorRate: 0.14, reason: "Error rate 14 % over the last day" }, now)).toBe("Error rate 14 % over the last day");
+    expect(healthReason("degraded", { errorRate: 0.14, reason: "Error rate 14% over the last day" }, now)).toBe("Error rate 14% over the last day");
     expect(healthReason("injured", { expectedReturnAt: "2026-10-07T14:00:00Z", reason: "SendGrid credential expired" }, now)).toBe("Expected back in 2 hr · SendGrid credential expired");
     expect(healthReason("failing", { loopDetected: true, reason: "Loop detected on the last session" }, now)).toBe("Loop detected on the last session");
   });

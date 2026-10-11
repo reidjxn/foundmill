@@ -42,7 +42,7 @@ export function CategoryChip({ category, source }: { category: string | null; so
   const section = sectionOf(category);
   const label = categoryLabel(category);
   return (
-    <Chip tone={SECTION_TONE[section]} icon={section === "uncategorised" ? AlertTriangle : undefined} title={source ? `Categorised ${SOURCE_WORD[source]}` : "Not categorised yet"}>
+    <Chip tone={SECTION_TONE[section]} icon={section === "uncategorised" ? AlertTriangle : undefined} title={source ? `Categorized ${SOURCE_WORD[source]}` : "Not categorized yet"}>
       {label}
     </Chip>
   );
@@ -50,7 +50,7 @@ export function CategoryChip({ category, source }: { category: string | null; so
 
 export const TRANSACTION_VIEWS: SavedView[] = [
   { id: "all", name: "All transactions", builtIn: true, columns: ["bookedAt", "counterparty", "description", "category", "amount", "account"], sort: [{ id: "bookedAt", desc: true }], filters: [] },
-  { id: "uncategorised", name: "Uncategorised", builtIn: true, columns: ["bookedAt", "counterparty", "description", "category", "amount"], sort: [{ id: "bookedAt", desc: true }], filters: [{ id: "f-unc", field: "categoryText", op: "eq", value: "Uncategorised" }] },
+  { id: "uncategorised", name: "Uncategorized", builtIn: true, columns: ["bookedAt", "counterparty", "description", "category", "amount"], sort: [{ id: "bookedAt", desc: true }], filters: [{ id: "f-unc", field: "categoryText", op: "eq", value: "Uncategorized" }] },
   { id: "in", name: "Money in", builtIn: true, columns: ["bookedAt", "counterparty", "category", "amount", "account"], sort: [{ id: "amount", desc: true }], filters: [{ id: "f-in", field: "amount", op: "gt", value: 0 }] },
   { id: "out", name: "Money out", builtIn: true, columns: ["bookedAt", "counterparty", "category", "amount", "account"], sort: [{ id: "amount", desc: false }], filters: [{ id: "f-out", field: "amount", op: "lt", value: 0 }] },
   { id: "month", name: "This month", builtIn: true, columns: ["bookedAt", "counterparty", "description", "category", "amount"], sort: [{ id: "bookedAt", desc: true }], filters: [{ id: "f-month", field: "thisMonth", op: "eq", value: true }] },
@@ -58,7 +58,7 @@ export const TRANSACTION_VIEWS: SavedView[] = [
 
 /** What each column's content needs and its share of the spare width: every view fits the 980 px table at 1280. */
 export const TRANSACTION_FIT = {
-  bookedAt: { min: 100 },
+  bookedAt: { min: 112 },
   counterparty: { min: 150, grow: 2 },
   description: { min: 180, grow: 3 },
   category: { min: 140, grow: 1 },
@@ -91,7 +91,7 @@ export function transactionColumns(accounts: readonly AccountRow[], businessId: 
       header: "Category",
       size: sizes.category,
       cell: ({ row }) => <CategoryChip category={row.original.category} source={row.original.categorySource} />,
-      meta: { filter: "select", filterOptions: [{ value: "Uncategorised", label: "Uncategorised" }, ...PNL_CATEGORY_OPTIONS.map((c) => ({ value: c, label: c }))] },
+      meta: { filter: "select", filterOptions: [{ value: "Uncategorized", label: "Uncategorized" }, ...PNL_CATEGORY_OPTIONS.map((c) => ({ value: c, label: c }))] },
     },
     { id: "categoryText", accessorFn: (r) => categoryLabel(r.category), header: "Category name", size: sizes.categoryText, cell: ({ getValue }) => String(getValue()), meta: { filter: "text" } },
     {
@@ -168,7 +168,7 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
   const reconnect = () => navigate(routes.settings(businessId, "integrations"));
 
   const rowActions = (row: TransactionRow): RowAction<TransactionRow>[] => [
-    { id: "recat", label: "Recategorise…", icon: Tag, onSelect: (r) => setRecat(r) },
+    { id: "recat", label: "Recategorize…", icon: Tag, onSelect: (r) => setRecat(r) },
     { id: "crm", label: row.counterpartyEntityId ? "Open counterparty in CRM" : "Counterparty not linked", icon: ExternalLink, disabled: !row.counterpartyEntityId, onSelect: (r) => (r.counterpartyEntityId ? navigate(routes.crm(businessId, r.counterpartyEntityId)) : undefined) },
   ];
 
@@ -207,9 +207,9 @@ export function CashScreen({ businessId }: ModuleScreenProps) {
         loading={txQ.isLoading}
         error={txQ.error ? txQ.error.message : undefined}
         onRetry={txQ.refetch}
-        empty={txQ.data && rows.length === 0 && !accountId ? { icon: Landmark, title: "No transactions yet", children: "Transactions sync from your connected accounts; the finance lead categorises them into the standard chart of accounts." } : undefined}
+        empty={txQ.data && rows.length === 0 && !accountId ? { icon: Landmark, title: "No transactions yet", children: "Transactions sync from your connected accounts; the finance lead categorizes them into the standard chart of accounts." } : undefined}
         actions={<Input icon={Search} controlSize="sm" placeholder="Search transactions" aria-label="Search transactions" title="Search counterparty or description" value={search} onChange={(e) => setSearch(e.target.value)} wrapperClassName="w-64" />}
-        footer={<span className="tabular-nums">Latest {rows.length} transactions{accountId ? ` in ${accounts.find((a) => a.id === accountId)?.name ?? "this account"}` : ""} · right-click a row to recategorise · base currency {currency}</span>}
+        footer={<span className="tabular-nums">Latest {rows.length} transactions{accountId ? ` in ${accounts.find((a) => a.id === accountId)?.name ?? "this account"}` : ""} · right-click a row to recategorize · base currency {currency}</span>}
       >
         {accounts.length > 1 ? (
           <div role="group" aria-label="Filter by account" className="flex flex-wrap items-center gap-1 border-b border-subtle px-panel-pad py-2">

@@ -137,7 +137,7 @@ test.describe("distribution, finance and legal read in plain words", () => {
     await expect(page.getByText(/private limited company, registration number \d+ \(United Kingdom\)/)).toBeVisible();
     // A UK company's policy cites the UK GDPR and is dated in words, never an ISO key.
     await expect(page.getByText(/UK General Data Protection Regulation \(UK GDPR\)/)).toBeVisible();
-    await expect(page.getByText(/^Last updated \d{1,2} [A-Z][a-z]+ \d{4}$/)).toBeVisible();
+    await expect(page.getByText(/^Last updated [A-Z][a-z]+ \d{1,2}, \d{4}$/)).toBeVisible();
     await openTab(page, "legal", "incorporate");
     await expect(page.getByRole("radio", { name: /Document pack · Any other jurisdiction/ })).toBeVisible();
     await expect(page.getByRole("radio", { name: /^Kit\b/ })).toHaveCount(0);

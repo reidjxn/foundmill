@@ -17,7 +17,7 @@ export const Horizontal: Story = {
     </div>
   ),
 };
-/** Hairlines fade out towards their end ("end", the default), at both ends, or not at all ("none", tables). */
+/** Hairlines fade out toward their end ("end", the default), at both ends, or not at all ("none", tables). */
 export const Fades: Story = {
   render: () => (
     <div className="surface-panel flex w-96 flex-col gap-4 p-4 text-small text-tertiary">

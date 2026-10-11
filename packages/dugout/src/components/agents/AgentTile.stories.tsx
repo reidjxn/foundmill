@@ -112,7 +112,7 @@ export const SpecialistEmpty: Story = {
     const tiles = [
       { status: "running" as const, name: "Sourcing and Manufacturing Specialist", title: "Second batch purchase order pack", goal: "Assemble the PO pack for batch 002 across three SKUs with quote ids and the landed-cost model; the founder signs." },
       { status: "review" as const, name: "Formulation Chemist", title: "Stability data for serum reformulation", goal: "Collate 12-week stability results for serum v3 and flag any drift beyond spec." },
-      { status: "paused" as const, name: "Packaging and Industrial Design Specialist", title: "Carton artwork proof round 2", goal: "Review the second proof for the refill carton against the labelling checklist." },
+      { status: "paused" as const, name: "Packaging and Industrial Design Specialist", title: "Carton artwork proof round 2", goal: "Review the second proof for the refill carton against the labeling checklist." },
     ];
     return (
       <div className="grid grid-cols-3 gap-2" style={{ width: 1000, height: 320 }}>

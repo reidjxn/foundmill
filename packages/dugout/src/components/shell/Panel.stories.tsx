@@ -9,7 +9,7 @@ import { Panel } from "./Panel";
 const meta = {
   title: "Shell/Panel",
   component: Panel,
-  parameters: { docs: { description: { component: "A machined plate: surface 1, 10 px radius, a 1 px gradient edge that catches light at the top left and bottom right, a faint top light, elev-1; optionally lit from its corner by a department colour or the brand (`glow`). The 40 px header sits on the panel's own surface — no band: the title in Inter 600 sentence case, optional mono meta, the actions and a ghost “…” menu (swap content, settings, Pin to Home), and a rule fading out under it. Header actions wrap under the title before they squeeze it. Loading shows a skeleton, never a spinner; empty and error states replace the body." } } },
+  parameters: { docs: { description: { component: "A machined plate: surface 1, 10 px radius, a 1 px gradient edge that catches light at the top left and bottom right, a faint top light, elev-1; optionally lit from its corner by a department color or the brand (`glow`). The 40 px header sits on the panel's own surface — no band: the title in Inter 600 sentence case, optional mono meta, the actions and a ghost “…” menu (swap content, settings, Pin to Home), and a rule fading out under it. Header actions wrap under the title before they squeeze it. Loading shows a skeleton, never a spinner; empty and error states replace the body." } } },
   args: { title: "Channel performance", span: 6, children: <p className="text-body">Body content.</p>, menu: { onSwap: () => {}, onSettings: () => {}, onPinToHome: () => {} } },
   argTypes: { span: { control: "select", options: [3, 4, 6, 8, 12] } },
   decorators: [
@@ -54,13 +54,13 @@ export const Spans: Story = {
     </>
   ),
 };
-export const WithMeta: Story = { args: { title: "Journey", meta: "6 Aug – 8 Nov 2026", actions: <ProvenanceChip kind="forecast" />, span: 12 } };
+export const WithMeta: Story = { args: { title: "Journey", meta: "Aug 6 – Nov 8, 2026", actions: <ProvenanceChip kind="forecast" />, span: 12 } };
 export const DepartmentGlow: Story = {
   name: "Department and brand light",
   render: () => (
     <>
       <Panel title="Product" glow="dept-1" span={4} actions={<StatusPill tone="good">Healthy</StatusPill>}>
-        <p className="text-body text-secondary">The roadmap's next release lands on 21 Oct.</p>
+        <p className="text-body text-secondary">The roadmap's next release lands on Oct 21.</p>
       </Panel>
       <Panel title="Formulation Lab" glow="dept-2" span={4} actions={<StatusPill tone="warn">Degraded</StatusPill>}>
         <p className="text-body text-secondary">Stability data for the serum reformulation is in review.</p>

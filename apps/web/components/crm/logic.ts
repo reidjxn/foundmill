@@ -6,7 +6,7 @@
 import type { FilterChipValue, SavedView } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
 import type { RouterOutputs } from "@/lib/trpc";
-import { plainWords } from "@/lib/format";
+import { formatDate, plainWords } from "@/lib/format";
 import { chipValue, type CrmFilterField } from "./search";
 
 export type EntityGet = RouterOutputs["crm"]["entity"]["get"];
@@ -255,7 +255,7 @@ export function roleWord(role: string): string {
 }
 
 /** One record's kind, singular, for a table cell or a profile chip ("Organisation", never "Organisations"). */
-export const KIND_WORD: Record<EntityKind, string> = { person: "Person", organisation: "Organisation", agent: "Agent", team_member: "Staff", platform_member: "Member", community: "Community", venue: "Venue" };
+export const KIND_WORD: Record<EntityKind, string> = { person: "Person", organisation: "Organization", agent: "Agent", team_member: "Staff", platform_member: "Member", community: "Community", venue: "Venue" };
 
 /** Where a record came from, in words. The agents' own records were filed under "squad" before the rename. */
 const SOURCE_WORDS: Record<string, string> = { squad: "Your team", team: "Your team", manual: "Added by hand", import: "Import", agent: "An agent", membership: "Membership", conversions: "Payments", stripe: "Stripe", hubspot: "HubSpot", affinity: "Affinity", salesforce: "Salesforce", pipedrive: "Pipedrive", attio: "Attio", gmail: "Gmail", outlook: "Outlook" };
@@ -372,7 +372,7 @@ export function exportEntityJson(get: EntityGet, exportedAt: Date = new Date()):
 }
 
 export function deletionRequestNote(requestedBy: string, now: Date = new Date()): string {
-  return `Deletion requested by ${requestedBy} on ${now.toISOString().slice(0, 10)}. Runs in the scheduled, audited deletion job approved by the founder at setup; suppression entry kept so the person is not re-imported.`;
+  return `Deletion requested by ${requestedBy} on ${formatDate(now)}. Runs in the scheduled, audited deletion job approved by the founder at setup; suppression entry kept so the person is not re-imported.`;
 }
 
 export const RETENTION_COPY = "Leads who never became customers are deleted after 24 months by a scheduled job you approved at setup, and every run is logged. Export and deletion requests for one person start from their profile.";
@@ -385,6 +385,6 @@ export function mergeBanner(get: Pick<EntityGet, "entity" | "mergeHistory" | "re
 
 /** Sort rows so grouped views read as groups: group key first, then name. Used by the group summary strip. */
 export function groupLabel(by: GroupBy, key: string): string {
-  if (by === "kind") return ({ person: "People", organisation: "Organisations", agent: "Agents", team_member: "Staff", platform_member: "Members", community: "Communities", venue: "Venues" } as Record<string, string>)[key] ?? plainWords(key);
+  if (by === "kind") return ({ person: "People", organisation: "Organizations", agent: "Agents", team_member: "Staff", platform_member: "Members", community: "Communities", venue: "Venues" } as Record<string, string>)[key] ?? plainWords(key);
   return plainWords(key);
 }

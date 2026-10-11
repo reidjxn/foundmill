@@ -145,7 +145,7 @@ export const RatingRamp: Story = {
           </div>
         ))}
       </div>
-      <p className="mt-3 t-small text-tertiary">1–5 red · 6–10 amber · 11–15 light green · 16–20 bold green, weight 600. Numbers always accompany the colour.</p>
+      <p className="mt-3 t-small text-tertiary">1–5 red · 6–10 amber · 11–15 light green · 16–20 bold green, weight 600. Numbers always accompany the color.</p>
     </Section>
   ),
 };
@@ -160,12 +160,12 @@ const TYPE: Array<{ cls: string; spec: string; where: string; sample: ReactNode 
   { cls: "t-action", spec: "Inter 500, 13/16, sentence case (alias t-tab)", where: "Buttons, tabs, sidebar, quick replies", sample: "Live sessions" },
   { cls: "t-label", spec: "Inter 500, 12/16, text-2", where: "Form labels, table headers, chips", sample: "Budget you can commit" },
   { cls: "t-data", spec: "Barlow 600, 10.5/14, caps +0.09em, text-3", where: "The only caps: data labels", sample: "Last 7 days" },
-  { cls: "t-body", spec: "Inter 400, 13/19", where: "Everything else", sample: "Juno modelled it: 2,400 units on sale-or-return at a 33% margin." },
-  { cls: "t-reading", spec: "Inter 400, 15/24, −0.006em, reading colour", where: "Inbox note body (640 px measure)", sample: "The catch is 60-day payment terms. Cash dips to £41K in December, then recovers by February." },
+  { cls: "t-body", spec: "Inter 400, 13/19", where: "Everything else", sample: "Juno modeled it: 2,400 units on sale-or-return at a 33% margin." },
+  { cls: "t-reading", spec: "Inter 400, 15/24, −0.006em, reading color", where: "Inbox note body (640 px measure)", sample: "The catch is 60-day payment terms. Cash dips to £41K in December, then recovers by February." },
   { cls: "t-chat", spec: "Inter 400, 13.5/20", where: "Conversation bubbles", sample: "Still positive. At 40% we clear £6,100 and the unsold units come back in time for Ireland." },
-  { cls: "t-small", spec: "Inter 400, 12/16", where: "Captions, metadata", sample: "1 account · synced 09:12" },
+  { cls: "t-small", spec: "Inter 400, 12/16", where: "Captions, metadata", sample: "1 account · synced 9:12 AM" },
   { cls: "t-mono", spec: "JetBrains Mono 450, 12/18, tabular", where: "Timestamps, tokens, provenance", sample: "14:06:21 · 4,812 tokens · 0:19" },
-  { cls: "t-micro", spec: "JetBrains Mono 500, 11/12", where: "Axis ticks, kbd", sample: "13 Aug  27 Aug  10 Sep" },
+  { cls: "t-micro", spec: "JetBrains Mono 500, 11/12", where: "Axis ticks, kbd", sample: "Aug 13  Aug 27  Sep 10" },
 ];
 
 export const TypeScale: Story = {
@@ -254,10 +254,10 @@ export const Light: Story = {
           <p className="t-body text-secondary">Surface 1, a 1 px gradient edge lit at the top left, a top light, elev-1.</p>
         </Section>
         <Section title="glow-dept + edge-tint" className="glow-dept edge-tint tone-dept-2">
-          <p className="t-body text-secondary">A department panel: the department colour as light from the lit corner (tone-dept-2).</p>
+          <p className="t-body text-secondary">A department panel: the department color as light from the lit corner (tone-dept-2).</p>
         </Section>
         <Section title="glow-brand" className="glow-brand" meta="the Journey, the brief">
-          <p className="t-body text-secondary">Brand light from the lit corner, in the business&apos;s aura colour.</p>
+          <p className="t-body text-secondary">Brand light from the lit corner, in the business&apos;s aura color.</p>
         </Section>
       </div>
       <Section title="Controls and wells">
@@ -275,7 +275,7 @@ export const Light: Story = {
         <span aria-hidden className="specular pointer-events-none absolute inset-0" />
         <span className="t-display-sm">Northwind Skincare</span>
         <span className="glass relative inline-flex h-control-md items-center rounded-sm px-3 t-action">glass chip</span>
-        <span className="glass relative inline-flex h-control-md items-center rounded-sm px-3 t-action">9 Oct 2026 · 14 mo</span>
+        <span className="glass relative inline-flex h-control-md items-center rounded-sm px-3 t-action">Oct 9, 2026 · 14 mo</span>
       </section>
       <Section title="Generate: sheen at rest, orbit while running">
         <div className="flex items-center gap-4">

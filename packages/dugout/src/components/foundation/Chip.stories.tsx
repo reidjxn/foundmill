@@ -14,7 +14,7 @@ type Story = StoryObj<typeof meta>;
 
 export const Neutral: Story = {};
 
-/** 22 px, sentence case, Inter 500 12: neutral on a 3.5 % plate; tones on their 12 % fill with a 30 % ring. */
+/** 22 px, sentence case, Inter 500 12: neutral on a 3.5% plate; tones on their 12% fill with a 30% ring. */
 export const Tones: Story = {
   render: () => (
     <div className="flex flex-wrap gap-2">
@@ -67,7 +67,7 @@ export const Provenance: Story = {
         <ProvenanceChip kind="forecast" showIcon className="ml-6" />
       </div>
       <p className="t-reading">
-        At 60 % sell-through we clear £18,900 <ProvenanceChip kind="estimate" appearance="word" />, and batch 002 already covers the units.
+        At 60% sell-through we clear £18,900 <ProvenanceChip kind="estimate" appearance="word" />, and batch 002 already covers the units.
       </p>
     </div>
   ),
@@ -80,14 +80,14 @@ export const InATightCell: Story = {
       <div className="flex w-28 flex-col gap-2 border border-dashed border-line p-2">
         <span className="t-data">Wraps</span>
         <DeptChip dept="dept-3">Retail Partnerships</DeptChip>
-        <Chip>Organisations</Chip>
+        <Chip>Organizations</Chip>
       </div>
       <div className="flex w-28 flex-col gap-2 border border-dashed border-line p-2">
         <span className="t-data">Fit</span>
         <DeptChip dept="dept-3" fit>
           Retail Partnerships
         </DeptChip>
-        <Chip fit>Organisations</Chip>
+        <Chip fit>Organizations</Chip>
       </div>
     </div>
   ),

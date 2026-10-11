@@ -20,6 +20,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
 import { Button, Chip, BusinessLogo, ConceptCard, EmptyState, GenerateControl, IconButton, JustInTag, Kbd, Panel, SimpleSelect, Skeleton, SkeletonText, StatusPill, Textarea, Tooltip, cn, landedCardClass, useToast, type ConceptAction, type QuickReplyItem } from "@foundmill/dugout";
 import { useKeyboardMap } from "@/lib/keys";
+import { formatDayMonth } from "@/lib/format";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
@@ -44,7 +45,7 @@ const SURPRISE = "surprise me within my constraints";
 export const STEERING_CHIPS: readonly { id: string; label: string; text: string }[] = [
   { id: "cheaper", label: "Cheaper to start", text: "Cheaper to start: little upfront cost, no stock to buy before the first sale." },
   { id: "b2b", label: "B2B instead", text: "Sell to businesses rather than consumers." },
-  { id: "defensible", label: "More defensible", text: "More defensible: favour data, network effects, regulation or supply that others cannot copy quickly." },
+  { id: "defensible", label: "More defensible", text: "More defensible: favor data, network effects, regulation or supply that others cannot copy quickly." },
 ];
 
 /** The brief with a steering sentence added once (pressing the same chip twice changes nothing). */
@@ -369,7 +370,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
                   <BusinessLogo name={c.name} primary={c.kit.primary} size={32} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-body-strong">{c.name}</div>
-                    <div className="text-small text-secondary">Discarded {new Date(discardedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</div>
+                    <div className="text-small text-secondary">Discarded {formatDayMonth(discardedAt)}</div>
                   </div>
                   <Button size="sm" icon={RotateCcw} onClick={() => restore(idea.id)} data-testid="restore-button">
                     Restore

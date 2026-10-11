@@ -36,5 +36,5 @@ export const channelPr = defineChannelTemplate({
   ],
   craftSkills: ["media_relations", "press_release_writing", "pitch_writing", "media_monitoring"],
   spendCapMinor: 40_000,
-  neverDoes: ["fabricate quotes", "use founder quotes without approval", "incentivise review changes", "pitch without disclosing the business"],
+  neverDoes: ["fabricate quotes", "use founder quotes without approval", "incentivize review changes", "pitch without disclosing the business"],
 });

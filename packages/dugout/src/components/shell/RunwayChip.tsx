@@ -1,7 +1,7 @@
 import { Calendar, Hourglass, TriangleAlert } from "lucide-react";
 import type { Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
-import { formatDate, formatMoney, formatNumber } from "../../lib/format";
+import { DATE_FORMATS, formatDate, formatMoney, formatNumber } from "../../lib/format";
 import { Icon } from "../foundation/Icon";
 import { Tooltip } from "../foundation/Tooltip";
 
@@ -56,9 +56,9 @@ export interface RunwayChipProps {
 const TONE_TEXT: Record<RunwayTone, string> = { neutral: "", warn: "text-status-warn", bad: "text-status-bad" };
 
 /**
- * The date + runway chip on the brand slab (DESIGN §8): glass, 34 px — "9 Oct 2026 · 14 mo" with the dashed "Estimate"
+ * The date + runway chip on the brand slab (DESIGN §8): glass, 34 px — "Oct 9, 2026 · 14 mo" with the dashed "Estimate"
  * tag (a dashed edge always means "not measured"). The runway follows the horizon rule: amber under 9 months, red under
- * 6, with a warning icon and a tinted ring, so the state never rests on colour alone. Without a figure it says why in
+ * 6, with a warning icon and a tinted ring, so the state never rests on color alone. Without a figure it says why in
  * words, the same words as Home's tiles ("No limit", "Not known yet"), with the reason as its tooltip; never a bare dash.
  */
 export function RunwayChip({ date, runwayMonths, words, cash, estimate = true, onClick, className }: RunwayChipProps) {
@@ -67,7 +67,7 @@ export function RunwayChip({ date, runwayMonths, words, cash, estimate = true, o
   const known = runwayMonths !== null && runwayMonths !== undefined && Number.isFinite(runwayMonths);
   const said = words ?? RUNWAY_UNKNOWN_WORDS;
   const dateText = formatDate(date);
-  const dayMonth = formatDate(date, "d MMM");
+  const dayMonth = formatDate(date, DATE_FORMATS.dayMonth);
   const year = formatDate(date, "yyyy");
   const tip = [
     cash ? `Cash ${formatMoney(cash)}` : null,
@@ -84,7 +84,7 @@ export function RunwayChip({ date, runwayMonths, words, cash, estimate = true, o
         <Icon icon={Calendar} size="inline" />
         <span className="tabular-nums">
           {dayMonth}
-          <span className="kitbar-year"> {year}</span>
+          <span className="kitbar-year">, {year}</span>
         </span>
         <span aria-hidden className="opacity-45">
           ·

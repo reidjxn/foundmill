@@ -1,16 +1,20 @@
 "use client";
 /**
- * Magic-link sign-in (Supabase `signInWithOtp` with `emailRedirectTo` → /auth/callback) and, in development/test
- * only, the dev bypass button (POST /auth/dev sets the cookie apps/api and apps/stream map to DEV_AUTH_USER_ID).
+ * Magic-link sign-in (Supabase `signInWithOtp` with `emailRedirectTo` → /auth/callback on the canonical origin, never
+ * this page's own host) and, in development/test only, the dev bypass button (POST /auth/dev sets the cookie apps/api
+ * and apps/stream map to DEV_AUTH_USER_ID). A link that /auth/callback could not use comes back as `?error=<reason>`,
+ * shown above the form with what to do next.
  */
-import { Mail, Send, Wrench } from "lucide-react";
+import { Mail, Send, Unlink, Wrench } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { APP_NAME } from "@foundmill/config";
 import { Button, Field, Input, StatusPill } from "@foundmill/dugout";
+import { magicLinkCallbackUrl } from "@/lib/auth/canonical-origin";
 import { NEXT_PARAM } from "@/lib/auth/constants";
 import { safeNextPath } from "@/lib/auth/redirects";
-import { hasSupabase, isDevLike } from "@/lib/env";
+import { parseSignInError, SIGN_IN_ERROR_PARAM, signInErrorCopy } from "@/lib/auth/sign-in-errors";
+import { hasSupabase, isDevLike, publicEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
 import { BrandFrame } from "@/components/shell/BrandFrame";
 
@@ -19,6 +23,8 @@ type Phase = { kind: "idle" } | { kind: "sending" } | { kind: "sent"; email: str
 export function LoginForm() {
   const params = useSearchParams();
   const next = safeNextPath(params.get(NEXT_PARAM));
+  const linkError = parseSignInError(params.get(SIGN_IN_ERROR_PARAM));
+  const linkProblem = linkError ? signInErrorCopy(linkError) : null;
   const [email, setEmail] = useState("");
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const supabaseReady = hasSupabase();
@@ -36,9 +42,9 @@ export function LoginForm() {
       return;
     }
     setPhase({ kind: "sending" });
-    const callback = new URL("/auth/callback", window.location.origin);
-    callback.searchParams.set(NEXT_PARAM, next);
-    const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: callback.toString() } });
+    const env = publicEnv();
+    const emailRedirectTo = magicLinkCallbackUrl({ appUrl: env.appUrl, appEnv: env.appEnv, currentOrigin: window.location.origin, next });
+    const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo } });
     if (error) setPhase({ kind: "error", message: error.message });
     else setPhase({ kind: "sent", email: email.trim() });
   }
@@ -52,7 +58,7 @@ export function LoginForm() {
               Link sent
             </StatusPill>
             <p className="text-body">
-              Check <span className="font-medium text-primary">{phase.email}</span> for a sign-in link. It opens {APP_NAME} on this device.
+              Check <span className="font-medium text-primary">{phase.email}</span> for a sign-in link and open it in this browser: it signs you in to {APP_NAME} here.
             </p>
             <Button variant="ghost" size="sm" onClick={() => setPhase({ kind: "idle" })}>
               Use a different address
@@ -60,6 +66,14 @@ export function LoginForm() {
           </div>
         ) : (
           <form onSubmit={submit} className="flex flex-col gap-3" data-testid="login-form">
+            {linkProblem ? (
+              <div className="flex flex-col gap-2" role="alert" data-testid="login-link-problem">
+                <StatusPill tone="warn" icon={Unlink}>
+                  {linkProblem.title}
+                </StatusPill>
+                <p className="text-body">{linkProblem.body}</p>
+              </div>
+            ) : null}
             <Field htmlFor="login-email" label="Work email" hint={supabaseReady ? "We email you a one-time link. No password to remember." : "Email sign-in is not set up on this server yet."}>
               <Input id="login-email" controlSize="lg" type="email" name="email" autoComplete="email" required icon={Mail} placeholder="founder@company.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!supabaseReady || phase.kind === "sending"} />
             </Field>

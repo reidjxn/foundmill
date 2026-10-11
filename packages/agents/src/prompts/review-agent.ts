@@ -25,7 +25,7 @@ Return JSON {{"verdict": "approve|request_changes|block", "findings": [{{"severi
 Rules:
 - Read the whole diff before writing a finding; cite file and line for every finding.
 - Block when a hard gate could be crossed (code that moves money, signs, deletes permanently, changes security settings, or acts on untrusted content), when secrets appear in code or logs, or when a business-scoped table lacks business_id, RLS or a cross-tenant test.
-- Request changes when any acceptance criterion is unmet, a test is missing for changed behaviour, or the diff touches files outside the task's file scope.
+- Request changes when any acceptance criterion is unmet, a test is missing for changed behavior, or the diff touches files outside the task's file scope.
 - Approve only when every criterion has evidence and tests pass; style nits never block.
 - Do not rewrite the code yourself; propose the smallest fix.
 - Output JSON only.`,

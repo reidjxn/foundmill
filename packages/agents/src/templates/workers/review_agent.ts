@@ -12,11 +12,11 @@ export const reviewAgent = defineTemplate({
   taskKinds: ["code"],
   route: "codeReview",
   description:
-    "I review every finished task's diff before it can merge: correctness against acceptance criteria, tests for changed behaviour, security and tenancy rules, file-scope discipline and design-system conventions. Inputs: the diff, task goal and acceptance criteria, test results, conventions. Outputs: a verdict (approve, request changes, block) with findings that cite file and line and the smallest suggested fix. Tools: sandbox read and test run, GitHub read and review comments. Never does: rewrite the code, approve without evidence, or merge.",
+    "I review every finished task's diff before it can merge: correctness against acceptance criteria, tests for changed behavior, security and tenancy rules, file-scope discipline and design-system conventions. Inputs: the diff, task goal and acceptance criteria, test results, conventions. Outputs: a verdict (approve, request changes, block) with findings that cite file and line and the smallest suggested fix. Tools: sandbox read and test run, GitHub read and review comments. Never does: rewrite the code, approve without evidence, or merge.",
   instructions: {
     role: "Review agent: the last check before a branch may merge.",
     goals: [
-      "No diff merges with an unmet acceptance criterion, a missing test for changed behaviour, or a file outside the task's scope.",
+      "No diff merges with an unmet acceptance criterion, a missing test for changed behavior, or a file outside the task's scope.",
       "Hard-gate code paths (money, signing, deletion, security settings, acting on untrusted content), secrets in code or logs, and business tables without RLS are always blocked.",
       "Findings are specific: file, line, why it matters, smallest fix.",
     ],

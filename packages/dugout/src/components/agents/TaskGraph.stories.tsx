@@ -23,7 +23,7 @@ function FormationDemo(args: TaskGraphProps) {
   );
 }
 
-/** Formation view: the Planner's task graph coloured by status (icon + word), layered locally. Wheel zooms, drag pans, + − 0 and arrows on the keyboard. */
+/** Formation view: the Planner's task graph colored by status (icon + word), layered locally. Wheel zooms, drag pans, + − 0 and arrows on the keyboard. */
 export const Formation: Story = { render: (args) => <FormationDemo {...args} /> };
 
 export const Linear: Story = {

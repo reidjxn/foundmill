@@ -6,7 +6,7 @@ import { FIXTURE_TODAY, LEDGERLY_KIT, NORTHWIND_KIT } from "./fixtures";
 const meta = {
   title: "Shell/Top bar",
   component: KitBar,
-  parameters: { layout: "fullscreen", docs: { description: { component: "56 px glass slab in the brand colour: gloss, a brand gradient from 92 % to 38 % over a brand-tinted near-black, a fixed specular streak, a light top edge, a kit-lift line under it and the brand's light cast onto the canvas. Left: the logo tile, the business name, back/forward, a hairline, the screen title. Then the universal search and, right: date + runway (dashed Estimate tag), the mode chip, Continue and Stop all agents — all glass, 34 px. At 1280 the search gives way first (placeholder → “Search” → icon); the name and the title step their size down before they would ever truncate." } } },
+  parameters: { layout: "fullscreen", docs: { description: { component: "56 px glass slab in the brand color: gloss, a brand gradient from 92% to 38% over a brand-tinted near-black, a fixed specular streak, a light top edge, a kit-lift line under it and the brand's light cast onto the canvas. Left: the logo tile, the business name, back/forward, a hairline, the screen title. Then the universal search and, right: date + runway (dashed Estimate tag), the mode chip, Continue and Stop all agents — all glass, 34 px. At 1280 the search gives way first (placeholder → “Search” → icon); the name and the title step their size down before they would ever truncate." } } },
   args: {
     kit: NORTHWIND_KIT,
     logoSrc: SAMPLE_LOGOS.stack,
@@ -32,9 +32,9 @@ export const Idle: Story = {};
 export const Blocked: Story = { args: { continueButton: { state: { kind: "blocked", count: 3 } }, runwayMonths: 5.5 } };
 export const Processing: Story = { args: { continueButton: { state: { kind: "processing" } } } };
 export const CustomerUpdate: Story = { args: { continueButton: { state: { kind: "matchday" } } } };
-export const Holiday: Story = { args: { businessMode: "automated", continueButton: { state: { kind: "holiday", until: "2026-10-21" } } } };
+export const Holiday: Story = { name: "Vacation", args: { businessMode: "automated", continueButton: { state: { kind: "holiday", until: "2026-10-21" } } } };
 export const LightBrandColour: Story = {
-  name: "Light brand colour → dark text",
+  name: "Light brand color → dark text",
   args: { kit: { primary: "#F5B841", secondary: "#0F1318" }, businessName: "Aurora Candles", logoSrc: null, businessMode: "augmented", gameMode: "personal", runwayMonths: 8 },
 };
 export const Ledgerly: Story = { args: { kit: LEDGERLY_KIT, businessName: "Ledgerly", logoSrc: SAMPLE_LOGOS.orbit, screenTitle: "Finance · Runway", runwayMonths: null, runwayWords: { value: "No limit", caption: "Cash-flow positive, so no limit yet" } } };
@@ -64,12 +64,12 @@ export const LongTitleAndName: Story = {
   ],
 };
 /**
- * Ledgerly on holiday in a 1280 px window: the search is down to its icon and the bar still cannot hold everything, so
+ * Ledgerly on vacation in a 1280 px window: the search is down to its icon and the bar still cannot hold everything, so
  * the chips compact one step at a time (KitBarFit) until every control is whole and the title has its room: the year
- * leaves the dates first, then the holiday caption shortens to "Until 21 Oct".
+ * leaves the dates first, then the vacation caption shortens to "Until Oct 21".
  */
 export const HolidayAt1280: Story = {
-  name: "Holiday at 1280: the chips compact",
+  name: "Vacation at 1280: the chips compact",
   args: { kit: LEDGERLY_KIT, businessName: "Ledgerly", logoSrc: null, screenTitle: "Distribution", runwayMonths: null, businessMode: "automated", gameMode: "live", continueButton: { state: { kind: "holiday", until: "2026-10-21" } } },
   decorators: [
     (Story) => (

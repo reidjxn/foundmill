@@ -42,7 +42,7 @@ describe("filterPaletteItems", () => {
     expect(filterPaletteItems(PALETTE_ITEMS, parseSearchQuery("kind:agent")).every((i) => i.kind === "agent")).toBe(true);
     expect(filterPaletteItems(PALETTE_ITEMS, parseSearchQuery("kind:agent")).length).toBe(3);
     expect(filterPaletteItems(PALETTE_ITEMS, parseSearchQuery(">")).every((i) => i.kind === "command")).toBe(true);
-    expect(filterPaletteItems(PALETTE_ITEMS, parseSearchQuery("> hol")).map((i) => i.id)).toEqual(["cmd-holiday"]);
+    expect(filterPaletteItems(PALETTE_ITEMS, parseSearchQuery("> vac")).map((i) => i.id)).toEqual(["cmd-holiday"]);
     expect(filterPaletteItems(PALETTE_ITEMS, parseSearchQuery("zzz"), { remote: true }).length).toBe(PALETTE_ITEMS.length);
     expect(filterPaletteItems(PALETTE_ITEMS, parseSearchQuery("kind:unknown zzz"), { remote: true }).length).toBe(PALETTE_ITEMS.length);
   });
@@ -197,7 +197,7 @@ describe("CommandPalette", () => {
     // The CRM answers: the record leads and is what Enter opens.
     const hits = PALETTE_ITEMS.filter((i) => i.id === "o-meridian");
     rerender(<CommandPalette {...props} items={hits} />);
-    expect(headings()).toEqual(["Organisations", "Ask"]);
+    expect(headings()).toEqual(["Organizations", "Ask"]);
     await waitFor(() => expect(selectedRow()).toContain("Meridian Labs"));
     await user.keyboard("{Enter}");
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "o-meridian" }));
@@ -207,7 +207,7 @@ describe("CommandPalette", () => {
     await user.keyboard("{ArrowDown}");
     await waitFor(() => expect(selectedRow()).toContain("Ask the Chief of Staff"));
     rerender(<CommandPalette {...props} items={[...PALETTE_ITEMS.filter((i) => i.id === "inbox-2"), ...hits]} />);
-    expect(headings()).toEqual(["Inbox", "Organisations", "Ask"]);
+    expect(headings()).toEqual(["Inbox", "Organizations", "Ask"]);
     await waitFor(() => expect(selectedRow()).toContain("Ask the Chief of Staff"));
     await user.keyboard("{Enter}");
     expect(onAsk).toHaveBeenCalledWith(expect.objectContaining({ id: "ask:cos" }), "meridian");

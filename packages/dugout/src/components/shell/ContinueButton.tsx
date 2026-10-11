@@ -3,7 +3,7 @@ import { forwardRef, useCallback, useEffect, useRef, useState, type ReactNode } 
 import { useHotkeys } from "react-hotkeys-hook";
 import { ArrowRight, CircleAlert, Pause, Play, TreePalm, Undo2 } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { formatDate } from "../../lib/format";
+import { DATE_FORMATS, formatDate } from "../../lib/format";
 import { usePrefersReducedMotion } from "../../lib/reducedMotion";
 import { Button, type ButtonSize } from "../foundation/Button";
 import { Icon } from "../foundation/Icon";
@@ -54,21 +54,21 @@ export function continueButtonLabel(state: ContinueState): string {
   }
 }
 
-/** "On holiday until 14 Oct 2026" / "On holiday until the launch ships" / "On holiday". */
+/** "On vacation until Oct 14, 2026" / "On vacation until the launch ships" / "On vacation". */
 export function holidayCaption(state: Extract<ContinueState, { kind: "holiday" }>): string {
-  if (state.untilLabel) return `On holiday until ${state.untilLabel}`;
-  if (state.until) return `On holiday until ${formatDate(state.until)}`;
-  return "On holiday";
+  if (state.untilLabel) return `On vacation until ${state.untilLabel}`;
+  if (state.until) return `On vacation until ${formatDate(state.until)}`;
+  return "On vacation";
 }
 
 /**
  * The caption in parts, for a top bar that has to compact (KitBarFit): the full caption without its year, the year on
- * its own (it goes first), and the short form ("Until 14 Oct"). Exported for tests.
+ * its own (it goes first), and the short form ("Until Oct 14"). Exported for tests.
  */
 export function holidayCaptionParts(state: Extract<ContinueState, { kind: "holiday" }>): { full: string; year: string; short: string } {
-  if (state.untilLabel) return { full: `On holiday until ${state.untilLabel}`, year: "", short: `Until ${state.untilLabel}` };
-  if (state.until) return { full: `On holiday until ${formatDate(state.until, "d MMM")}`, year: formatDate(state.until, "yyyy"), short: `Until ${formatDate(state.until, "d MMM")}` };
-  return { full: "On holiday", year: "", short: "On holiday" };
+  if (state.untilLabel) return { full: `On vacation until ${state.untilLabel}`, year: "", short: `Until ${state.untilLabel}` };
+  if (state.until) return { full: `On vacation until ${formatDate(state.until, DATE_FORMATS.dayMonth)}`, year: formatDate(state.until, "yyyy"), short: `Until ${formatDate(state.until, DATE_FORMATS.dayMonth)}` };
+  return { full: "On vacation", year: "", short: "On vacation" };
 }
 
 /** The callback Space (and a click) should run for a state. */
@@ -91,7 +91,7 @@ export function continueButtonAction(state: ContinueState, handlers: ContinueHan
  * The Continue button (BUILD §5.4, DESIGN §7). At rest the brand primary with its light (Play, "Continue"). Blocked is
  * a solid red with ink text "Respond" and the count in a capsule, a 4 px red halo, and one 600 ms ring pulse when it
  * turns blocked. Processing is a dark slab with a light arc orbiting its edge and "Pause". A Customer Update is gold.
- * Holiday is neutral with the caption and "Come back". It keeps one width through its states, so the bar never jumps.
+ * Vacation is neutral with the caption and "Come back". It keeps one width through its states, so the bar never jumps.
  */
 export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>(function ContinueButton(
   { state, pulseKey, bindSpace = false, disabled, size = "md", className, ...handlers },
@@ -203,7 +203,7 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
             <span className="sr-only">{holidayCaption(state)}</span>
             <span aria-hidden className="kitbar-holiday-full">
               {holidayCaptionParts(state).full}
-              {holidayCaptionParts(state).year ? <span className="kitbar-year"> {holidayCaptionParts(state).year}</span> : null}
+              {holidayCaptionParts(state).year ? <span className="kitbar-year">, {holidayCaptionParts(state).year}</span> : null}
             </span>
             <span aria-hidden className="kitbar-holiday-short">
               {holidayCaptionParts(state).short}

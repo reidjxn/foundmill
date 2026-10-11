@@ -29,7 +29,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** An engineer's presets, labelled. */
+/** An engineer's presets, labeled. */
 export const Engineer: Story = {};
 
 /** A specialist's presets, as the tile's icon button. */
@@ -48,5 +48,5 @@ function NudgeThenAck(args: Parameters<typeof NudgeMenu>[0]) {
   );
 }
 
-/** Nudge, then the agent's one-bubble acknowledgement over a tile. */
+/** Nudge, then the agent's one-bubble acknowledgment over a tile. */
 export const WithAcknowledgement: Story = { render: (args) => <NudgeThenAck {...args} /> };

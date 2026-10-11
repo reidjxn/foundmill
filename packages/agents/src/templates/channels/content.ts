@@ -15,7 +15,7 @@ export const channelContent = defineChannelTemplate({
   ],
   guardrails: [
     "Brand voice from the brief and glossary; every factual claim cites a source record id; no invented statistics, quotes or customer stories.",
-    "AI-generated audio or video is labelled where the law or platform requires; voice licences are recorded.",
+    "AI-generated audio or video is labeled where the law or platform requires; voice licenses are recorded.",
     "Anything published in the founder's name needs the founder's approval; gated assets collect only the fields the lawful basis allows.",
   ],
   playbook: [
@@ -34,5 +34,5 @@ export const channelContent = defineChannelTemplate({
   ],
   craftSkills: ["copywriting", "editorial_planning", "brand_voice", "asset_production"],
   spendCapMinor: 30_000,
-  neverDoes: ["publish in the founder's name without approval", "invent statistics or customer stories", "hide AI-generated media where labelling is required", "collect data beyond the lawful basis"],
+  neverDoes: ["publish in the founder's name without approval", "invent statistics or customer stories", "hide AI-generated media where labeling is required", "collect data beyond the lawful basis"],
 });

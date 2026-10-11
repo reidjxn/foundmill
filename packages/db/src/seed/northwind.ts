@@ -21,15 +21,15 @@ import type { SeededBusiness } from "./types";
 const CURRENCY = "GBP";
 
 const SPEC_TEXT: Record<string, string[]> = {
-  Problem: ["People with reactive skin cannot tell which products are safe for them: ingredient lists are opaque and marketing claims are unverifiable.", "Northwind sells a short routine (cleanser, serum, moisturiser) formulated without the twelve most common irritants, with every batch's test results published."],
+  Problem: ["People with reactive skin cannot tell which products are safe for them: ingredient lists are opaque and marketing claims are unverifiable.", "Northwind sells a short routine (cleanser, serum, moisturizer) formulated without the twelve most common irritants, with every batch's test results published."],
   Customers: ["Adults 25-45 in the UK and Ireland with sensitive or reactive skin, buying online, who already read ingredient lists.", "Secondary: independent pharmacies and refill stores as retail partners."],
   "Value proposition": ["Fewer reactions, proven: published patch-test and stability results per batch; a 60-day reaction-free promise."],
   Features: ["Three-step routine in refillable glass; subscription with pause; batch results page per product; ingredient explainer per SKU."],
   "Formulation / BOM": ["Base formulas from the formulation chemist with INCI lists; preservative system reviewed for Annex V; fragrance-free.", "Bill of materials per SKU with quote ids from the contract manufacturer (Estimate until the first purchase order)."],
   Manufacturing: ["Contract manufacturing in the UK; MOQ 2,000 units per SKU; 6-week lead time (Estimate)."],
-  Packaging: ["Refillable glass with aluminium caps; FSC outer cartons; UKCA-compliant labelling with batch and PAO marks."],
+  Packaging: ["Refillable glass with aluminum caps; FSC outer cartons; UKCA-compliant labeling with batch and PAO marks."],
   Compliance: ["UK Cosmetics Regulation: CPSR per product, SCPN notification, responsible person named; EU CPNP for Ireland."],
-  Fulfilment: ["Third-party logistics in the Midlands; 48-hour dispatch; subscription refills shipped monthly."],
+  Fulfillment: ["Third-party logistics in the Midlands; 48-hour dispatch; subscription refills shipped monthly."],
   "Non-functional requirements": ["Storefront loads under two seconds; checkout through the commerce connector; order webhooks reach the journey model within a minute."],
   Data: ["Orders, customers, refunds from Shopify; batch results from the lab; consent recorded at signup."],
   Integrations: ["Shopify, SendGrid, open banking (Tink), Google Drive for lab documents."],
@@ -52,7 +52,7 @@ const ROADMAP: RoadmapSpec[] = [
   { title: "Retail partner wholesale price list", horizon: "next", status: "planned", confidence: 3, startOffsetDays: 21, durationDays: 14, section: "Pricing", ownerDepartmentSlug: "distribution" },
   { title: "Ireland launch (CPNP notification)", horizon: "next", status: "planned", confidence: 2, startOffsetDays: 45, durationDays: 60, section: "Compliance", ownerDepartmentSlug: "legal" },
   { title: "Fragrance-free body range", horizon: "later", status: "planned", confidence: 2, startOffsetDays: 120, durationDays: 90, section: "Formulation / BOM", ownerDepartmentSlug: "operations" },
-  { title: "Pharmacy pop-up programme", horizon: "later", status: "planned", confidence: 2, startOffsetDays: 150, durationDays: 60, ownerDepartmentSlug: "distribution" },
+  { title: "Pharmacy pop-up program", horizon: "later", status: "planned", confidence: 2, startOffsetDays: 150, durationDays: 60, ownerDepartmentSlug: "distribution" },
   { title: "Refill-at-home concentrate", horizon: "later", status: "idea", confidence: 1, startOffsetDays: 240, durationDays: 120, section: "Packaging", ownerDepartmentSlug: "operations" },
 ];
 
@@ -65,7 +65,7 @@ const HISTORY_TITLES = [
   { kind: "channel" as const, departmentSlug: "distribution", assigneeTemplateKey: "channel_influencer", title: "Creator seeding round" },
   { kind: "research" as const, departmentSlug: "product", assigneeTemplateKey: "researcher", title: "Customer interview synthesis" },
   { kind: "finance" as const, departmentSlug: "finance", assigneeTemplateKey: "finance_lead", title: "Monthly management accounts" },
-  { kind: "legal" as const, departmentSlug: "legal", assigneeTemplateKey: "legal_lead", title: "Labelling review" },
+  { kind: "legal" as const, departmentSlug: "legal", assigneeTemplateKey: "legal_lead", title: "Labeling review" },
   { kind: "specialist" as const, departmentSlug: "operations", assigneeTemplateKey: "logistics", title: "3PL dispatch audit" },
 ];
 
@@ -190,7 +190,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   const proposal = await repos.product.createProposal(db, businessId, {
     title: "Interview panel: refill pricing, a reaction diary and clinic referrals",
     rationaleMd: [
-      `${researcher ? agentMention(agentEntities, researcher) : "The researcher"} synthesised the reactive-skin panel (six participants, read through the quarantined reader). Three claims touch the specification:`,
+      `${researcher ? agentMention(agentEntities, researcher) : "The researcher"} synthesized the reactive-skin panel (six participants, read through the quarantined reader). Three claims touch the specification:`,
       "- Four of six would switch to a quarterly refill under £35; two called £38 \"a stretch\" (Estimate of price sensitivity, n=6).",
       "- Five of six keep a private note of which products caused a reaction; none of them trust the brand's own claims without it.",
       "- Two participants were referred by an online dermatology clinic, a channel the spec does not name.",
@@ -209,17 +209,17 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   // --- tasks in mixed states ------------------------------------------------------------------------------------------
   const taskSpecs: TaskSpec[] = [
     { kind: "specialist", title: "Second batch purchase order pack", goal: "Assemble the PO pack for batch 002 across three SKUs with quote ids and the landed-cost model; the founder signs.", acceptance: ["Every line cites a quote id", "Landed cost per unit at 2,000 and 5,000 units", "No PO sent"], status: "running", departmentSlug: "operations", assigneeTemplateKey: "sourcing_manufacturing", roadmapTitle: "Second production batch (3 SKUs)", startedDaysAgo: 0, durationHours: 3, progress: 0.55, phase: "implementing" },
-    { kind: "specialist", title: "Stability data for serum reformulation", goal: "Collate 12-week stability results for serum v3 and flag any drift beyond spec.", acceptance: ["All three storage conditions reported", "Drift flagged with values", "Recommendation labelled Estimate"], status: "review", departmentSlug: "operations", assigneeTemplateKey: "formulation_chemist", roadmapTitle: "Second production batch (3 SKUs)", startedDaysAgo: 1, durationHours: 2.5, phase: "review" },
+    { kind: "specialist", title: "Stability data for serum reformulation", goal: "Collate 12-week stability results for serum v3 and flag any drift beyond spec.", acceptance: ["All three storage conditions reported", "Drift flagged with values", "Recommendation labeled Estimate"], status: "review", departmentSlug: "operations", assigneeTemplateKey: "formulation_chemist", roadmapTitle: "Second production batch (3 SKUs)", startedDaysAgo: 1, durationHours: 2.5, phase: "review" },
     { kind: "code", title: "Subscription pause and skip", goal: "Add pause and skip to the refill subscription through the commerce connector, against the test store.", acceptance: ["Pause and skip through the Shopify connector (test store)", "Webhook events reach the journey model", "Playwright test for the account page"], status: "running", departmentSlug: "development", assigneeTemplateKey: "backend_engineer", roadmapTitle: "Subscription refills v2 (pause and skip)", startedDaysAgo: 0, durationHours: 4, progress: 0.35, phase: "implementing", fileScope: ["apps/storefront/account/**"] },
     { kind: "code", title: "Account page: refill schedule UI", goal: "Show the next refill date with pause/skip controls.", acceptance: ["Matches the design", "Accessible controls", "Storybook story"], status: "ready", departmentSlug: "development", assigneeTemplateKey: "frontend_engineer", roadmapTitle: "Subscription refills v2 (pause and skip)", dependsOn: ["Subscription pause and skip"] },
     { kind: "code", title: "Batch results page", goal: "Render published batch results per product from the lab documents.", acceptance: ["One page per SKU", "Results cite the lab report"], status: "planned", departmentSlug: "development", assigneeTemplateKey: "planner", roadmapTitle: "Batch results page per product" },
     { kind: "channel", title: "Creator seeding wave 4", goal: "Brief and seed ten creators with codes; disclosure checked before any payout.", acceptance: ["Ten briefs sent", "Codes registered for attribution", "No payout without disclosure check"], status: "blocked", departmentSlug: "distribution", assigneeTemplateKey: "channel_influencer", startedDaysAgo: 2, durationHours: 1.5, phase: "implementing" },
     { kind: "channel", title: "Winter paid test (hard CPA cap)", goal: "Run a two-week paid test with a hard cost-per-customer cap; pause if over cap for 48 hours.", acceptance: ["Daily and lifetime caps set", "Kill switch tested", "Report to the Inbox"], status: "running", departmentSlug: "distribution", assigneeTemplateKey: "channel_paid_ads", startedDaysAgo: 0, durationHours: 1, progress: 0.2 },
-    { kind: "research", title: "Reaction report synthesis Q3", goal: "Synthesise the twelve reaction reports into claims with sources and confidence.", acceptance: ["Every claim cites a ticket", "Confidence stated"], status: "done", departmentSlug: "product", assigneeTemplateKey: "researcher", startedDaysAgo: 3, durationHours: 2 },
-    { kind: "finance", title: "Landed cost model v2", goal: "Update the landed-cost model from batch 002 quotes at three volumes, labelled Estimate.", acceptance: ["Three volume tiers", "Margin per channel"], status: "done", departmentSlug: "finance", assigneeTemplateKey: "finance_lead", startedDaysAgo: 4, durationHours: 1.5 },
-    { kind: "legal", title: "CPNP notification plan for Ireland", goal: "List the steps, responsible person and costs to notify three SKUs on CPNP, labelled Estimate.", acceptance: ["Steps with dated sources", "Costs labelled Estimate"], status: "planned", departmentSlug: "legal", assigneeTemplateKey: "legal_lead", roadmapTitle: "Ireland launch (CPNP notification)" },
+    { kind: "research", title: "Reaction report synthesis Q3", goal: "Synthesize the twelve reaction reports into claims with sources and confidence.", acceptance: ["Every claim cites a ticket", "Confidence stated"], status: "done", departmentSlug: "product", assigneeTemplateKey: "researcher", startedDaysAgo: 3, durationHours: 2 },
+    { kind: "finance", title: "Landed cost model v2", goal: "Update the landed-cost model from batch 002 quotes at three volumes, labeled Estimate.", acceptance: ["Three volume tiers", "Margin per channel"], status: "done", departmentSlug: "finance", assigneeTemplateKey: "finance_lead", startedDaysAgo: 4, durationHours: 1.5 },
+    { kind: "legal", title: "CPNP notification plan for Ireland", goal: "List the steps, responsible person and costs to notify three SKUs on CPNP, labeled Estimate.", acceptance: ["Steps with dated sources", "Costs labeled Estimate"], status: "planned", departmentSlug: "legal", assigneeTemplateKey: "legal_lead", roadmapTitle: "Ireland launch (CPNP notification)" },
     { kind: "ops", title: "3PL dispatch SLA review", goal: "Review last month's dispatch times against the 48-hour SLA.", acceptance: ["Breaches listed with order ids"], status: "failed", departmentSlug: "operations", assigneeTemplateKey: "logistics", startedDaysAgo: 6, durationHours: 1 },
-    { kind: "specialist", title: "Carton artwork proof round 2", goal: "Review the second proof for the refill carton against the labelling checklist.", acceptance: ["PAO and batch marks present", "Barcode verified"], status: "paused", departmentSlug: "operations", assigneeTemplateKey: "packaging_design", startedDaysAgo: 5, durationHours: 0.5 },
+    { kind: "specialist", title: "Carton artwork proof round 2", goal: "Review the second proof for the refill carton against the labeling checklist.", acceptance: ["PAO and batch marks present", "Barcode verified"], status: "paused", departmentSlug: "operations", assigneeTemplateKey: "packaging_design", startedDaysAgo: 5, durationHours: 0.5 },
   ];
   const tasks = await seedTasks(ctx, businessId, taskSpecs, squad, roadmapIds, CURRENCY);
   const historical = await seedHistoricalTasks(ctx, businessId, squad, HISTORY_TITLES, 90, CURRENCY);
@@ -286,7 +286,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     contracts: [
       { kind: "supply", title: "Manufacturing agreement - Pennine Contract Cosmetics", status: "active", counterpartyEntityId: suppliers[0]!.id, valueMinor: 4_800_000, signedDaysAgo: 400, obligations: ["MOQ 2,000 units per SKU", "6-week lead time"] },
       { kind: "supply", title: "Packaging supply - Glassworks Packaging Co", status: "active", counterpartyEntityId: suppliers[1]!.id, valueMinor: 1_200_000, signedDaysAgo: 380 },
-      { kind: "services", title: "Fulfilment agreement - Fjord Logistics 3PL", status: "active", counterpartyEntityId: suppliers[5]!.id, valueMinor: 1_440_000, signedDaysAgo: 300, obligations: ["48-hour dispatch SLA"] },
+      { kind: "services", title: "Fulfillment agreement - Fjord Logistics 3PL", status: "active", counterpartyEntityId: suppliers[5]!.id, valueMinor: 1_440_000, signedDaysAgo: 300, obligations: ["48-hour dispatch SLA"] },
       { kind: "wholesale", title: "Wholesale terms - Lumen Pharmacy Group", status: "awaiting_signature", counterpartyEntityId: retailPartners[0]!.id, valueMinor: 900_000 },
       { kind: "testing", title: "Testing services - Meridian Labs", status: "review", counterpartyEntityId: suppliers[3]!.id, valueMinor: 240_000 },
     ],
@@ -387,7 +387,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
           type: "milestone",
           fromAgentId: chief.agent.id,
           subject: `Milestone: ${trophy.label}`,
-          bodyMd: `${trophy.label} reached on ${new Date(trophy.achievedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole team gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
+          bodyMd: `${trophy.label} reached on ${new Date(trophy.achievedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole team gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
           createdDaysAgo: 2,
           state: "read",
         }

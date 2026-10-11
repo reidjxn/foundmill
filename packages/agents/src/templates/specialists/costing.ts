@@ -7,9 +7,9 @@ export const costing = defineSpecialistTemplate({
   summary:
     "I keep the landed-cost model: bill of materials, manufacturing, packaging, freight, duties, 3PL and payment fees per unit, margins at each price point and scenarios for volume and currency moves.",
   inputs: "quotes from sourcing and logistics, the BOM, pricing plans, forecast volumes (Forecast), exchange rates",
-  outputs: "the landed-cost model with every line traced to a quote id and labelled Estimate until invoiced, margin analysis per channel, scenario tables",
+  outputs: "the landed-cost model with every line traced to a quote id and labeled Estimate until invoiced, margin analysis per channel, scenario tables",
   goals: [
-    "Every cost line has a source quote or invoice id and a date; estimates are labelled Estimate and replaced by actuals when invoices land.",
+    "Every cost line has a source quote or invoice id and a date; estimates are labeled Estimate and replaced by actuals when invoices land.",
     "Margins are shown per channel (DTC, marketplace, wholesale) after fees and returns, at the current price points.",
     "Scenarios show the effect of volume tiers, currency moves and freight mode on unit cost and runway.",
   ],

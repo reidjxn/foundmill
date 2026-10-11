@@ -41,7 +41,7 @@ const ROADMAP: RoadmapSpec[] = [
   { title: "US bank coverage through Plaid", horizon: "next", status: "planned", confidence: 3, startOffsetDays: 40, durationDays: 30, section: "Integrations", ownerDepartmentSlug: "development" },
   { title: "SSO and audit export for enterprise", horizon: "later", status: "planned", confidence: 2, startOffsetDays: 90, durationDays: 60, section: "Pricing", ownerDepartmentSlug: "development" },
   { title: "Close checklist templates by industry", horizon: "later", status: "idea", confidence: 2, startOffsetDays: 120, durationDays: 40, section: "Features", ownerDepartmentSlug: "product" },
-  { title: "Partner programme for accountants", horizon: "later", status: "idea", confidence: 1, startOffsetDays: 180, durationDays: 90, ownerDepartmentSlug: "distribution" },
+  { title: "Partner program for accountants", horizon: "later", status: "idea", confidence: 1, startOffsetDays: 180, durationDays: 90, ownerDepartmentSlug: "distribution" },
 ];
 
 const HISTORY_TITLES = [
@@ -105,7 +105,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     kitMode: { print: true, broadcast: true, outdoor: true },
     why: {
       lead_generation: "Operations managers at 20-200 person fintechs are a narrow, reachable list; outbound with a lawful basis per country gives signal in weeks (Estimate).",
-      geo: "Month-end questions are already asked of AI assistants; share-of-answer panels are labelled approximate.",
+      geo: "Month-end questions are already asked of AI assistants; share-of-answer panels are labeled approximate.",
     },
   });
 
@@ -187,7 +187,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     { kind: "channel", title: "ICP outbound batch 14", goal: "Source, verify and score 60 contacts; exclude personal addresses and suppressed contacts.", acceptance: ["Lawful basis per country", "Suppression respected"], status: "running", departmentSlug: "distribution", assigneeTemplateKey: "channel_lead_generation", startedDaysAgo: 0, durationHours: 2, progress: 0.7 },
     { kind: "finance", title: "Q3 investor update", goal: "Draft the Q3 update with real numbers, labels and the asks.", acceptance: ["Every number cites a record", "Asks listed"], status: "review", departmentSlug: "finance", assigneeTemplateKey: "finance_lead", startedDaysAgo: 1, durationHours: 1.5 },
     { kind: "legal", title: "Renew ICO data protection fee", goal: "Prepare the renewal for the founder to pay (payment is a founder action).", acceptance: ["Amount and deadline stated", "No payment made"], status: "ready", departmentSlug: "legal", assigneeTemplateKey: "legal_lead" },
-    { kind: "ops", title: "Holiday daily digest", goal: "Summarise the day's decisions taken under the holiday authority.", acceptance: ["Every decision cites its reason"], status: "done", departmentSlug: "team", assigneeTemplateKey: "chief_of_staff", startedDaysAgo: 1, durationHours: 0.5 },
+    { kind: "ops", title: "Vacation daily digest", goal: "Summarize the day's decisions taken under the vacation authority.", acceptance: ["Every decision cites its reason"], status: "done", departmentSlug: "team", assigneeTemplateKey: "chief_of_staff", startedDaysAgo: 1, durationHours: 0.5 },
   ];
   const tasks = await seedTasks(ctx, businessId, taskSpecs, squad, roadmapIds, CURRENCY);
   const historical = await seedHistoricalTasks(ctx, businessId, squad, HISTORY_TITLES, 140, CURRENCY);
@@ -311,8 +311,8 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
 
   await repos.policies.create(db, businessId, {
     scope: "business",
-    name: "Automated mode: holiday authority",
-    cedarText: `// During a holiday the Chief of Staff may approve spend up to the per-decision cap; contracts and hires always ask.\n@outcome("ask")\npermit(principal, action == Action::"call", resource) when { context.capability == "sign_contract" || context.capability == "hire_agent" };`,
+    name: "Automated mode: vacation authority",
+    cedarText: `// During a vacation the Chief of Staff may approve spend up to the per-decision cap; contracts and hires always ask.\n@outcome("ask")\npermit(principal, action == Action::"call", resource) when { context.capability == "sign_contract" || context.capability == "hire_agent" };`,
     createdBy: ctx.owner.userId,
   });
   await repos.playbooks.create(db, businessId, {
@@ -328,7 +328,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   const paidAds = squad.byTemplate.get("channel_paid_ads");
   const plan = await repos.plans.create(db, businessId, {
     origin: "holiday",
-    summaryMd: "Raise the search campaign budget for the month-end close keyword cluster (above the holiday per-decision cap).",
+    summaryMd: "Raise the search campaign budget for the month-end close keyword cluster (above the vacation per-decision cap).",
     status: "executing",
     actions: [
       { type: "set_budget", params: { channelKey: "paid_ads", budgetMinor: 60_000 }, agentId: paidAds?.agent.id ?? null, policyOutcome: "ask", status: "awaiting_approval" },
@@ -342,7 +342,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     connectorKey: "platform",
     tool: "set_budget",
     args: { channelKey: "paid_ads", budgetMinor: 60_000, currency: CURRENCY },
-    reasons: ["spend above the holiday per-decision cap (£500.00)", "assisted-caps rule"],
+    reasons: ["spend above the vacation per-decision cap (£500.00)", "assisted-caps rule"],
   });
 
   // --- social: community and leaderboard (LIVE) ----------------------------------------------------------------------
@@ -376,17 +376,17 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     {
       type: "report",
       fromAgentId: chief.agent.id,
-      subject: "Holiday report: day 3",
+      subject: "Vacation report: day 3",
       bodyMd: [
-        `You are away until ${addDays(ctx.today, 11).toISOString().slice(0, 10)}. Within the authority grant I took two decisions today and queued one.`,
+        `You are away until ${addDays(ctx.today, 11).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}. Within the authority grant I took two decisions today and queued one.`,
         `Decided: published the month-end close checklist article by ${agentMention(agentEntities, squad.byTemplate.get("channel_seo")!)} (publish_content; reason: founder-approved outline, no claims in your name); merged the invoice PDF fix by ${agentMention(agentEntities, backend)} after ${agentMention(agentEntities, squad.byTemplate.get("review_agent")!)} cleared it (merge_to_main).`,
-        `Queued for you: the paid search budget increase to ${money(60_000, CURRENCY)} per month is above the per-decision cap. Spend so far this holiday: ${money(32_400, CURRENCY)} of the ${money(250_000, CURRENCY)} ceiling (Estimate).`,
+        `Queued for you: the paid search budget increase to ${money(60_000, CURRENCY)} per month is above the per-decision cap. Spend so far this vacation: ${money(32_400, CURRENCY)} of the ${money(250_000, CURRENCY)} ceiling (Estimate).`,
         `${agentMention(agentEntities, dataEngineer)} is down (sandbox crashes on the backfill job); expected back tomorrow. MRR ${money(journey.mrrMinorNow, CURRENCY)} (synthetic).`,
       ].join("\n\n"),
       statusStrip: [
         { metric: `MRR ${money(journey.mrrMinorNow, CURRENCY)}`, source: "conversions" },
         { metric: `Runway ${finance.runwayMonths ?? "n/a"} mo (Estimate)`, source: "forecasts" },
-        { metric: `Holiday spend ${money(32_400, CURRENCY)}`, source: "usage_ledger" },
+        { metric: `Vacation spend ${money(32_400, CURRENCY)}`, source: "usage_ledger" },
       ],
       exhibit: { kind: "table", spec_ref: "tasks_by_status" },
       sourceEventIds: [evHoliday.id],
@@ -396,7 +396,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     {
       type: "decision",
       fromAgentId: chief.agent.id,
-      subject: "Raise the search budget above the holiday cap?",
+      subject: "Raise the search budget above the vacation cap?",
       bodyMd: [
         `${agentMention(agentEntities, paidAds!)} wants to raise the month-end close search campaign to ${money(60_000, CURRENCY)} per month: cost per customer over the last 14 days is ${money(4_100, CURRENCY)} (Estimate), under the ${money(6_000, CURRENCY)} cap.`,
         "This is above my per-decision authority, so it waits for you. Nothing is spent until you decide.",
@@ -469,7 +469,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
       type: "decision",
       fromAgentId: chief.agent.id,
       subject: "Publish the month-end close article?",
-      bodyMd: `${agentMention(agentEntities, squad.byTemplate.get("channel_seo")!)} drafted the article from the approved brief; no claims in your name. Publishing is inside the holiday authority, so I decided: publish.`,
+      bodyMd: `${agentMention(agentEntities, squad.byTemplate.get("channel_seo")!)} drafted the article from the approved brief; no claims in your name. Publishing is inside the vacation authority, so I decided: publish.`,
       decision: {
         options: [
           { id: "publish", label: "Publish now", recommended: true, consequence: "Article goes live; internal links added by SEO.", cost_minor: 0, reversible: true },

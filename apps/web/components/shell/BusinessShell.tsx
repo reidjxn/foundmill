@@ -262,7 +262,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
         void invalidate(["business", "inbox"]);
         toast({ title: "Welcome back", description: "The Chief of Staff handed the business back to you.", tone: "good" });
       },
-      onError: (err) => toast({ title: "Could not end the holiday", description: errorMessage(err), tone: "bad" }),
+      onError: (err) => toast({ title: "Could not end the vacation", description: errorMessage(err), tone: "bad" }),
     }),
   );
   const stopAll = useMutation(

@@ -33,7 +33,7 @@ export function createBolagsverketConnector(options: LiveConnectorOptions = {}):
         get_organisation: async ({ organisationNumber }) => {
           const res = await api.json<BvOrganisationResponse>("POST", "/organisationer", { body: { identitetsbeteckning: organisationNumber }, headers: await authed() });
           const org = res.organisationer?.[0];
-          if (!org) throw Object.assign(new Error(`organisation ${organisationNumber} not found`), { status: 404 });
+          if (!org) throw Object.assign(new Error(`organization ${organisationNumber} not found`), { status: 404 });
           return mapOrganisation(org, organisationNumber);
         },
         list_documents: async ({ organisationNumber }) => {

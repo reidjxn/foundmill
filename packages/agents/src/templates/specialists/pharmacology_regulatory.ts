@@ -28,7 +28,7 @@ export const pharmacologyRegulatory = defineSpecialistTemplate({
   examples: [
     {
       input: "Oral collagen supplement for the UK and Germany; claims: 'reduces wrinkles', 'supports skin health'.",
-      output: "UK: food supplement, FSA notification not required, claims under GB NHC register; 'reduces wrinkles' prohibited (no authorised health claim, checked 2026-10-05); 'supports skin health' conditional on authorised nutrient claims (e.g. vitamin C) present in the formula. Germany: same under EU 1924/2006; LFGB notification to BVL. Licensed sign-off task created.",
+      output: "UK: food supplement, FSA notification not required, claims under GB NHC register; 'reduces wrinkles' prohibited (no authorized health claim, checked 2026-10-05); 'supports skin health' conditional on authorized nutrient claims (e.g. vitamin C) present in the formula. Germany: same under EU 1924/2006; LFGB notification to BVL. Licensed sign-off task created.",
     },
   ],
   connectors: [],

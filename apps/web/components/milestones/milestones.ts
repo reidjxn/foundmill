@@ -6,6 +6,7 @@
 import type { TrophyCard } from "@foundmill/dugout";
 import { TROPHIES, type TrophyDefinition } from "@foundmill/journey";
 import type { MilestoneKind } from "@foundmill/shared";
+import { formatDate, formatNumber } from "@/lib/format";
 
 export interface MilestoneRowLike {
   id: string;
@@ -19,7 +20,7 @@ export interface MilestoneRowLike {
 }
 
 export function describeTrophy(t: TrophyDefinition, currency: string): string {
-  if (t.metric === "customers") return t.threshold === 1 ? "The first paying customer." : `${t.threshold.toLocaleString("en-GB")} paying customers.`;
+  if (t.metric === "customers") return t.threshold === 1 ? "The first paying customer." : `${formatNumber(t.threshold)} paying customers.`;
   if (t.metric === "mrrMinor") return `Monthly recurring revenue reaches ${t.label(currency).replace(/^First /, "").replace(/ MRR$/, "")}.`;
   return "A signed contract above the enterprise threshold.";
 }
@@ -89,7 +90,7 @@ export function replayRefOf(m: MilestoneRowLike | undefined): { journeyId?: stri
 
 /** The text of a shareable milestone card (LIVE, BUILD §11.4): the customer is anonymised unless permission is recorded. */
 export function shareText(card: TrophyCard, businessName: string): string {
-  const when = card.achievedAt ? new Date(card.achievedAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
+  const when = card.achievedAt ? formatDate(card.achievedAt) : "";
   const who = card.customerName ? ` with ${card.customerName}` : "";
   return `${businessName} · ${card.label}${who}${when ? ` · ${when}` : ""}`;
 }

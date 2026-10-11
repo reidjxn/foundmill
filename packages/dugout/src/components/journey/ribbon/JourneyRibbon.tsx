@@ -3,7 +3,7 @@ import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useLayo
 import { ArrowDownRight, ArrowUpRight, Banknote, CalendarDays, Diamond, Flag, Landmark, Rocket, Trophy } from "lucide-react";
 import { ParentSize } from "@visx/responsive";
 import { cn } from "../../../lib/cn";
-import { formatDate, formatMoney, formatNumber } from "../../../lib/format";
+import { DATE_FORMATS, formatDate, formatDateRange, formatMoney, formatNumber } from "../../../lib/format";
 import { usePrefersReducedMotion } from "../../../lib/reducedMotion";
 import { Button } from "../../foundation/Button";
 import { FitText } from "../../foundation/FitText";
@@ -137,7 +137,7 @@ function money(amountMinor: number, currency: string): string {
 }
 
 function barLabel(kind: TrackKind, bar: TrackBar): string {
-  const when = bar.day === bar.dayEnd ? formatDate(bar.day) : `${formatDate(bar.day)} to ${formatDate(bar.dayEnd)}`;
+  const when = bar.day === bar.dayEnd ? formatDate(bar.day) : formatDateRange(bar.day, bar.dayEnd, { withYear: true });
   if (kind === "payments") {
     const what = bar.value === 1 ? "1 paying customer" : `${formatNumber(bar.value, { digits: 0 })} paying customers`;
     return bar.value === 1 && bar.ids.length === 1 ? `${what} on ${when}. Opens the Customer Update` : `${what}, ${when}. Opens the day`;
@@ -479,7 +479,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
   const hoverPoint = hoverDay && hoverDay <= today ? (index.byDay.get(hoverDay) ?? null) : null;
   const readout = hoverDay
     ? {
-        when: hoverDay === today ? "Today" : formatDate(hoverDay, "EEE d MMM yyyy"),
+        when: hoverDay === today ? "Today" : formatDate(hoverDay, DATE_FORMATS.weekdayDate),
         revenue: hoverPoint ? money(hoverPoint.revenue7, currency) : hoverForecast ? money(hoverForecast.baseMinor, currency) : "—",
         revenueCaption: hoverPoint ? "per day, 7-day average" : hoverForecast ? "per day, forecast" : "",
         revenueDay: hoverPoint ? `${money(hoverPoint.revenueMinor, currency)} on the day` : null,
@@ -505,7 +505,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
     else onOpenDay?.(bar.day);
   };
 
-  const todayTag = `Today · ${formatDate(today, "d MMM")}${liveCount > 0 ? ` · ${liveCount} live` : ""}`;
+  const todayTag = `Today · ${formatDate(today, DATE_FORMATS.dayMonth)}${liveCount > 0 ? ` · ${liveCount} live` : ""}`;
   // A chip is drawn while its day is in the window; the drop line carries it to the edge as it scrolls out.
   const inView = (p: { x: number }) => p.x - scrollX >= 0 && p.x - scrollX <= plotW;
   // The Today tag in window pixels: centred on Today, kept inside the plot. Its width is measured once drawn (an

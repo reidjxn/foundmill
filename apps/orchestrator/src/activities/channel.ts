@@ -30,7 +30,7 @@ export function createChannelActivities(deps: OrchestratorDeps) {
       const business = await repos.businesses.get(db, businessId);
       const owner = channel.ownerAgentId ? await repos.agents.get(db, businessId, channel.ownerAgentId) : null;
       const template = getChannelTemplate(key);
-      const weekLabel = `${clock.now().toISOString().slice(0, 10)} w${input.weekIndex + 1}`;
+      const weekLabel = `week ${input.weekIndex + 1}, ${clock.now().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}`;
 
       switch (input.step) {
         case "plan": {

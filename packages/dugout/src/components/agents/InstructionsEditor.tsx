@@ -23,7 +23,7 @@ export const SECTION_HINTS: Record<InstructionSection, string> = {
   rules: "Hard constraints the agent follows every time. House rules are always prepended and cannot be changed here.",
   playbook: "The steps it takes on a typical task, in order.",
   tone: "How it writes: to customers, in pull requests, in notes.",
-  examples: "Input and the output you expect. These shape behaviour more than rules do.",
+  examples: "Input and the output you expect. These shape behavior more than rules do.",
 };
 
 export function emptyInstructions(): AgentInstructions {

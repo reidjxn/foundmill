@@ -16,7 +16,7 @@ export const backendEngineer = defineTemplate({
   instructions: {
     role: "Backend engineer working one task at a time in a sandbox.",
     goals: [
-      "The acceptance tests named in the task pass, and new behaviour has its own tests.",
+      "The acceptance tests named in the task pass, and new behavior has its own tests.",
       "APIs are typed end to end (Zod input, typed output), errors are explicit, and nothing reads process.env outside the env module.",
       "Data access goes through repositories with businessId first; every business-scoped table has RLS and a cross-tenant test.",
     ],
@@ -37,7 +37,7 @@ export const backendEngineer = defineTemplate({
     tone: "Terse engineering notes. Names files, functions and tests.",
     examples: [
       {
-        input: "Task T-21: add repos.leads.markReplied(db, businessId, leadId) and emit lead.replied; acceptance: unit test for repo, event declared in catalogue.",
+        input: "Task T-21: add repos.leads.markReplied(db, businessId, leadId) and emit lead.replied; acceptance: unit test for repo, event declared in catalog.",
         output:
           "Plan: 1) failing test packages/db/src/repos/__tests__/leads.test.ts 2) implement markReplied with businessId guard 3) writeEvent('lead.replied') inside the same tx 4) typecheck+lint+test. Blocked: lead.replied payload schema lives in packages/events (outside file scope) → request to lead.",
       },

@@ -44,7 +44,7 @@ describe("category names", () => {
     expect(categoryLabel("professional_fees")).toBe("Professional services");
     expect(categoryLabel("software_and_hosting")).toBe("Software");
     expect(categoryLabel("rnd_materials")).toBe("Rnd materials");
-    expect(categoryLabel(null)).toBe("Uncategorised");
+    expect(categoryLabel(null)).toBe("Uncategorized");
     expect(isUncategorised("uncategorised")).toBe(true);
     const rows = buildPnl([
       { category: "cost_of_goods", inflowMinor: 0, outflowMinor: 1000, count: 2 },
@@ -107,8 +107,8 @@ describe("management P&L (AC-11.8.1 hand-computed fixture)", () => {
       "header:Taxes",
       "line:Taxes",
       "subtotal:Total taxes",
-      "header:Uncategorised",
-      "line:Uncategorised transactions",
+      "header:Uncategorized",
+      "line:Uncategorized transactions",
       "total:Net cash change",
     ]);
     const gross = rows.find((r) => r.id === "t-gross")!;
@@ -116,7 +116,7 @@ describe("management P&L (AC-11.8.1 hand-computed fixture)", () => {
     expect(gross.pctOfRevenue).toBe(87.5);
     expect(rows.find((r) => r.id === "t-operating")!.pctOfRevenue).toBe(-22.5);
     expect(rows.find((r) => r.label === "Payroll")!.depth).toBe(1);
-    expect(rows.find((r) => r.label === "Uncategorised transactions")!.warn).toBe(true);
+    expect(rows.find((r) => r.label === "Uncategorized transactions")!.warn).toBe(true);
     expect(rows.at(-1)!.count).toBe(177);
     expect(rows.at(-1)!.amountMinor).toBe(8_150_000);
   });

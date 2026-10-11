@@ -55,8 +55,8 @@ export const CAMPAIGN_FIT = {
   channel: { min: 128, grow: 1 },
   status: { min: 116 },
   budget: { min: 96 },
-  starts: { min: 100 },
-  ends: { min: 100 },
+  starts: { min: 112 },
+  ends: { min: 112 },
   assets: { min: 110, grow: 1 },
   pendingAssets: { min: 128 },
 } satisfies Record<string, ColumnFit>;

@@ -4,12 +4,15 @@
  *
  * Boot: load env → service database (repositories only, for membership checks) → ioredis → token verifier
  * (Supabase JWKS, or the dev bypass in development/test) → stream server listening on PORT (fallback STREAM_PORT)
- * on host "::" (Railway's private network is IPv6-only, §17; falls back to 0.0.0.0) → graceful shutdown on
- * SIGTERM/SIGINT. The browser client lives in `./client` (`@foundmill/stream/client`) and pulls in none of this.
+ * on host "::" (Railway's private network is IPv6-only, §17; falls back to 0.0.0.0). SIGTERM/SIGINT: refuse new
+ * upgrades, close every socket with 1001 "going away" (clients reconnect, to the new deployment), stop the Redis
+ * readers, close Redis and the database pool, exit 0, within SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3). The browser
+ * client lives in `./client` (`@foundmill/stream/client`) and pulls in none of this.
  */
 import { createServiceDb, closeDb } from "@foundmill/db";
 import { loadEnv, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
+import { onShutdown } from "@foundmill/shared/shutdown";
 import { createTokenVerifier } from "./auth";
 import { createCachedAuthorizer, createRepoAuthorizer } from "./authorize";
 import { prepareDb } from "./db-boot";
@@ -35,13 +38,27 @@ export async function main(): Promise<void> {
     process.exit(1);
   }
   const db = createServiceDb({ max: 4 });
+  let redis: ReturnType<typeof createStreamRedis> | null = null;
+  let server: ReturnType<typeof createStreamServer> | null = null;
+  const lifecycle = onShutdown({
+    service: "stream",
+    log,
+    timeoutMs: env.SHUTDOWN_TIMEOUT_MS,
+    steps: () => [
+      // Refuses new upgrades, sends 1001 to every socket, waits for the close handshakes, stops the readers and the HTTP server.
+      { name: "close sockets", run: () => server?.close() },
+      { name: "close redis", run: () => redis?.quit().catch(() => redis?.disconnect()) },
+      { name: "close database", run: () => closeDb(db) },
+    ],
+  });
   const readiness = await prepareDb(db, log, { service: "stream" });
   // Redis is required for fan-out: one bounded probe, one clear line when it is down, then stay up and unhealthy.
   const probe = await probeRedis(env.REDIS_URL);
   if (!probe.ok) log.error({ reason: probe.reason }, unreachableMessage(env.REDIS_URL, probe));
   // Blocking XREADs run on duplicated connections; the base one only duplicates and answers /health pings.
-  const redis = createStreamRedis(env.REDIS_URL, log);
+  redis = createStreamRedis(env.REDIS_URL, log);
   redis.connect().catch(() => undefined); // failures are logged (de-duplicated) by the client's error handler
+  const client = redis;
 
   const auth = createTokenVerifier({
     supabaseUrl: env.SUPABASE_URL,
@@ -51,30 +68,18 @@ export async function main(): Promise<void> {
   });
   if (auth.devUserId) log.warn({ userId: auth.devUserId }, "DEV_AUTH_USER_ID is set: tokens are not verified (development/test only)");
 
-  const server = createStreamServer({
-    redis,
+  if (lifecycle.stopping) return;
+  server = createStreamServer({
+    redis: client,
     auth,
     authorizer: createCachedAuthorizer(createRepoAuthorizer(db, { log })),
     log,
     options: {
-      checkRedis: async () => redis.status === "ready" && (await redis.ping()) === "PONG",
+      checkRedis: async () => client.status === "ready" && (await client.ping()) === "PONG",
     },
   });
   const address = await server.listen(servicePort(env, "STREAM_PORT"));
   log.info({ port: address.port, host: address.address, db: readiness.ok, driver: readiness.driver, redis: probe.ok }, "stream listening");
-
-  let stopping = false;
-  const shutdown = async (signal: string) => {
-    if (stopping) return;
-    stopping = true;
-    log.info({ signal }, "stream shutting down");
-    await server.close();
-    await redis.quit().catch(() => redis.disconnect());
-    await closeDb(db);
-    process.exit(0);
-  };
-  process.once("SIGTERM", () => void shutdown("SIGTERM"));
-  process.once("SIGINT", () => void shutdown("SIGINT"));
 }
 
 const entry = process.argv[1] ?? "";

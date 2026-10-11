@@ -1,13 +1,18 @@
 "use client";
 /**
- * Two of the product's own screens on example data: four live agent tiles replaying recorded sessions (they open
- * mid-session, so no tile starts empty) and the Channel Board, which is interactive.
+ * Two of the product's own screens on example data: four live agent tiles replaying recorded sessions and the Channel
+ * Board, which is interactive. Each tile is one of the business's agents playing its own task's recording (terminal,
+ * diff, preview, plan and notes from the example's data), opening mid-session in a different phase; when a session ends
+ * it settles on its done state for a few seconds, or a session waiting for the founder is parked, and the agent picks up
+ * its next task, for as long as the page is open. The ETA counts down against the replay's own clock, so it never reads
+ * overdue. Under reduced motion the tiles hold one static frame.
  */
 import { useState } from "react";
 import { Radio } from "lucide-react";
-import { AgentTile, Chip, FormationBoard, ProvenanceChip, TileGrid, toggleChannel, useLiveMockSessions, type AgentTileSession, type ChannelTokenData, type TileGridItem } from "@foundmill/dugout";
+import { AgentTile, Chip, FormationBoard, ProvenanceChip, TileGrid, toggleChannel, useLiveMockSessions, usePrefersReducedMotion, type AgentTileSession, type ChannelTokenData, type TileGridItem } from "@foundmill/dugout";
 import { useExample } from "./examples/context";
 import { exampleChannels } from "./examples/helpers";
+import { LIVE_REPLAY } from "./examples/sessions/shared";
 import { ProductWindow, Reveal, Section, SectionHeading, useMounted, useSeen } from "./parts";
 
 type TileItem = TileGridItem & { session: AgentTileSession };
@@ -42,7 +47,8 @@ export function LiveSessions({ terminalRenderer }: { terminalRenderer?: "plain" 
 
 function LiveTiles({ terminalRenderer }: { terminalRenderer?: "plain" | "xterm" }) {
   const { sessions } = useExample();
-  const live = useLiveMockSessions(4, { intervalMs: 500, prefill: 0.45, script: sessions });
+  const reduced = usePrefersReducedMotion();
+  const live = useLiveMockSessions(4, { ...LIVE_REPLAY, script: sessions, running: !reduced });
   const [focused, setFocused] = useState<string | null>(null);
   const items: TileItem[] = live.sessions.map((s) => ({ id: s.id, label: `${s.agent.name}: ${s.task.title}`, avatar: { name: s.agent.name, seed: s.agent.seed, dept: s.agent.dept, status: s.agent.status }, session: s }));
   const noop = () => {};

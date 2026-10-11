@@ -5,7 +5,9 @@
  * Boot: load env → service database (repositories only) → vault (per-business webhook secrets; optional) →
  * connector registry (`createDefaultRegistry` with platform secrets, business resolver and secret lookup) →
  * nonce store (Redis in staging/production when `REDIS_URL` is set, memory otherwise) → Hono app → listen on
- * `PORT` (fallback `INGEST_PORT`) on host `::` with a 0.0.0.0 fallback where IPv6 is unavailable.
+ * `PORT` (fallback `INGEST_PORT`) on host `::` with a 0.0.0.0 fallback where IPv6 is unavailable. SIGTERM/SIGINT:
+ * stop accepting connections, let in-flight deliveries finish (a vendor whose request is cut retries it), close the
+ * nonce store and the database pool, exit 0, within SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3).
  */
 import { serve, type ServerType } from "@hono/node-server";
 import { APP_NAME, FLAGS } from "@foundmill/config";
@@ -14,6 +16,7 @@ import { closeDb, createServiceDb, type Db } from "@foundmill/db";
 import { loadEnv, servicePort, type Env } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
+import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
 import { createIngestApp, type CreatedIngestApp, type IngestApp } from "./app";
 import { prepareDb } from "./db-boot";
 import { MemoryNonceStore, RedisNonceStore, type NonceStore, type RedisNonceClient } from "./nonce-store";
@@ -184,22 +187,33 @@ export async function main(): Promise<void> {
     process.exit(1);
   }
   const db = createServiceDb();
+  let running: RunningIngest | null = null;
+  let nonces: NonceStore | null = null;
+  const lifecycle = onShutdown({
+    service: "ingest",
+    log,
+    timeoutMs: env.SHUTDOWN_TIMEOUT_MS,
+    steps: () => [
+      {
+        name: "drain http",
+        run: async ({ remainingMs }) => {
+          if (!running) return;
+          const { forced } = await drainHttpServer(running.server, { timeoutMs: Math.max(0, remainingMs - 5_000) });
+          if (forced > 0) log.warn({ forced }, "ingest: connections still open at the drain deadline were cut");
+        },
+      },
+      { name: "close nonce store", run: () => nonces?.close?.() },
+      { name: "close database", run: () => closeDb(db) },
+    ],
+  });
   // PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line and /health says db:false.
   const readiness = await prepareDb(db, log, { service: "ingest" });
-  const nonces = await createNonceStore(env, log);
+  nonces = await createNonceStore(env, log);
   const built = buildIngest({ env, db, nonces, log });
   const port = servicePort(env, "INGEST_PORT");
-  const running = await listenIngest(built.app, port, log);
+  if (lifecycle.stopping) return;
+  running = await listenIngest(built.app, port, log);
   log.info({ port: running.port, db: readiness.ok, driver: readiness.driver, mode: built.deps.mode, nonceStore: nonces.kind, simulate: built.deps.simulateEnabled, webhooks: built.mounted.map((m) => m.path) }, `${APP_NAME} ingest listening`);
-
-  const shutdown = async (signal: string) => {
-    log.info({ signal }, "ingest shutting down");
-    await running.stop();
-    await closeDb(db);
-    process.exit(0);
-  };
-  process.once("SIGTERM", () => void shutdown("SIGTERM"));
-  process.once("SIGINT", () => void shutdown("SIGINT"));
 }
 
 const entry = process.argv[1] ?? "";

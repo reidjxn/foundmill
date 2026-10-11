@@ -3,8 +3,8 @@ import { defineChannelTemplate, grant } from "./_channel";
 export const channelAffiliate = defineChannelTemplate({
   channelKey: "affiliate",
   name: "Affiliate Engine",
-  role: "Affiliate programme manager",
-  work: ["programme setup", "partner recruitment", "commission rules", "fraud detection", "payout reconciliation"],
+  role: "Affiliate program manager",
+  work: ["program setup", "partner recruitment", "commission rules", "fraud detection", "payout reconciliation"],
   connectors: [
     grant("rewardful", ["affiliates.list", "affiliates.invite", "commissions.list", "payouts.list"]),
     grant("partnerstack", ["partners.list", "partners.invite", "commissions.list"]),
@@ -19,7 +19,7 @@ export const channelAffiliate = defineChannelTemplate({
   ],
   playbook: [
     "Plan: set the commission structure and caps from the margin model; define the partner profile.",
-    "Create: programme terms, partner page copy and the recruitment list with reasons.",
+    "Create: program terms, partner page copy and the recruitment list with reasons.",
     "Approve: request approval for terms and for any payout batch.",
     "Launch: invite partners through the network; issue tracked links and codes.",
     "Measure: affiliate revenue, refund-adjusted; fraud holds.",

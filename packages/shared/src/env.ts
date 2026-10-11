@@ -31,6 +31,10 @@ const Env = z.object({
   SUPABASE_ANON_KEY: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
   DATABASE_URL: z.string().optional(),
+  /** apps/api: longest wait at boot for the migration lock (and for table locks a migration needs) before exiting 1 (docs/DEPLOY.md §3). */
+  MIGRATION_LOCK_TIMEOUT_MS: z.coerce.number().int().min(100).max(600_000).catch(60_000).default(60_000),
+  /** Every Node service: time from SIGTERM to exit, draining requests, sockets and workers; keep below railway.toml `drainingSeconds`. */
+  SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).catch(45_000).default(45_000),
   ANTHROPIC_API_KEY: z.string().optional(),
   VOYAGE_API_KEY: z.string().optional(),
   REDIS_URL: z.string().default("redis://localhost:6379"),

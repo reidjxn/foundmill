@@ -11,6 +11,7 @@
  */
 import { useCallback, useLayoutEffect, useRef, useState, type RefCallback } from "react";
 import type { DataTableColumn } from "@foundmill/dugout";
+import { usSpelling } from "@foundmill/shared/us-spelling";
 
 export interface ColumnFit {
   /** The width its content needs (px, including the cell padding). */
@@ -105,7 +106,7 @@ export function humanise(s: string | null | undefined): string {
     .map((w) => (INITIALISMS.has(w) ? w.toUpperCase() : w))
     .join(" ")
     .replace(/\bCI CD\b/, "CI/CD");
-  return words ? words[0]!.toUpperCase() + words.slice(1) : "";
+  return words ? usSpelling(words[0]!.toUpperCase() + words.slice(1)) : "";
 }
 
 /** "1 agent", "3 agents"; pass `many` for irregular nouns ("1 person", "2 people"). */

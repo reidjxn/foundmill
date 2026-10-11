@@ -1,5 +1,6 @@
 /** distribution.recommend / channels.* / campaigns.* / assets.* (BUILD §11.7; AC-11.7.2 enable/disable re-scores). */
 import { CreateCampaignInput, UpdateCampaignInput, repos } from "@foundmill/db";
+import { HOUSE_STYLE } from "@foundmill/agents";
 import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, ChannelKey, type ChannelLine } from "@foundmill/shared";
 import { z } from "zod";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
@@ -31,7 +32,7 @@ export const distributionRouter = router({
     const result = await ctx.models.complete({
       route: "departmentLead",
       schema: Recommendation,
-      system: "You are the Distribution Strategist. Score all 15 channels 1-20 on fit and pick 3-6 starters with potential, a cost-per-customer range (minor units, Estimate) and a three-sentence why.",
+      system: `You are the Distribution Strategist. Score all 15 channels 1-20 on fit and pick 3-6 starters with potential, a cost-per-customer range (minor units, Estimate) and a three-sentence why. ${HOUSE_STYLE}`,
       messages: [{ role: "user", content: "```json\n" + JSON.stringify({ business: { name: ctx.business.name, archetype: ctx.business.archetype, business_mode: ctx.business.businessMode }, founder: profile ? { skills: profile.skills, budget_minor: profile.budgetMinor, target_markets: profile.targetMarkets } : null, channels: CHANNEL_KEYS, currently_enabled: enabled.filter((c) => c.enabled).map((c) => c.channelKey) }) + "\n```" }],
       attribution: { businessId: ctx.businessId, kind: "distribution_strategist" },
     });

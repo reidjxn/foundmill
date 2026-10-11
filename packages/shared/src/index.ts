@@ -2,6 +2,7 @@ export * from "./types";
 export * from "./errors";
 export * from "./result";
 export * from "./money";
+export * from "./us-spelling";
 export * from "./ids";
 export * from "./env";
 // Server-only code is not in this barrel, so a browser import of the vocabulary never pulls it in:

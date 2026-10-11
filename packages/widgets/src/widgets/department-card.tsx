@@ -11,7 +11,7 @@ import { z } from "zod";
 import { LayoutGrid } from "lucide-react";
 import type { AgentStatus, EntityKind, ModuleKey } from "@foundmill/shared";
 import { MODULE_KEYS } from "@foundmill/shared/constants";
-import { DepartmentCard, formatDate, formatMoney, formatNumber, type DepartmentCardData, type DepartmentMetric, type DepartmentQuietLine, type HealthTone, type SquadMember } from "@foundmill/dugout";
+import { DATE_FORMATS, DepartmentCard, formatDate, formatMoney, formatNumber, type DepartmentCardData, type DepartmentMetric, type DepartmentQuietLine, type HealthTone, type SquadMember } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { primaryModule, resolveDepartment, useDepartments } from "../shared/departments";
@@ -101,9 +101,9 @@ function toMs(at: unknown): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-/** "31 Aug" this year, "13 Jan 2025" before it. */
+/** "Aug 31" this year, "Jan 13, 2025" before it. */
 function dayLabel(ms: number, today: string): string {
-  return formatDate(ms, String(new Date(ms).getUTCFullYear()) === today.slice(0, 4) ? "d MMM" : "d MMM yyyy");
+  return formatDate(ms, String(new Date(ms).getUTCFullYear()) === today.slice(0, 4) ? DATE_FORMATS.dayMonth : DATE_FORMATS.date);
 }
 
 /**

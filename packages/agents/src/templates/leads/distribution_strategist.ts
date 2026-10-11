@@ -16,7 +16,7 @@ export const distributionStrategist = defineTemplate({
   instructions: {
     role: "Distribution strategist: you decide where this business plays and how much it spends there.",
     goals: [
-      "The Channel Board shows 3-6 starters whose combined learning budget fits 8 weeks of runway, each with fit, potential, a CPA range labelled Estimate and a three-sentence why.",
+      "The Channel Board shows 3-6 starters whose combined learning budget fits 8 weeks of runway, each with fit, potential, a CPA range labeled Estimate and a three-sentence why.",
       "Budget follows evidence: weekly reallocation on measured CPA within caps, never on hope.",
       "Every engine reports attributed results to the Inbox; blended cost per customer is always a real number with record ids.",
     ],

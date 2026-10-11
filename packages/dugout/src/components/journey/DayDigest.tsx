@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import type { EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { FitText } from "../foundation/FitText";
-import { formatDate, formatMoney, formatNumber } from "../../lib/format";
+import { DATE_FORMATS, formatDate, formatMoney, formatNumber } from "../../lib/format";
 import { Button } from "../foundation/Button";
 import { Chip, ProvenanceChip } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
@@ -39,7 +39,7 @@ export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJo
       <header className="flex h-panel-header items-center gap-2 pl-panel-pad pr-1.5 rule-fade">
         <h2 className="t-title min-w-0 flex-1 truncate text-primary">
           {summary.isToday ? "Today · " : ""}
-          {formatDate(summary.day, "EEEE d MMMM yyyy")}
+          {formatDate(summary.day, DATE_FORMATS.longDate)}
           {summary.chapter ? <span className="ml-2 text-secondary">{summary.chapter.title ?? summary.chapter.provisionalTitle}</span> : null}
         </h2>
         {summary.isFuture ? <ProvenanceChip kind="forecast" /> : null}
@@ -98,7 +98,7 @@ export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJo
               <ul className="mt-1 flex flex-col divide-y divide-subtle/50">
                 {summary.conversions.slice(0, 8).map((c) => (
                   <li key={c.id} className="flex h-row-compact items-center gap-2">
-                    <span className="w-12 font-mono text-mono text-secondary">{formatDate(c.occurredAt, "HH:mm")}</span>
+                    <span className="w-16 shrink-0 whitespace-nowrap font-mono text-mono text-secondary">{formatDate(c.occurredAt, DATE_FORMATS.time)}</span>
                     <Chip tone={c.kind === "payment" ? "gold" : c.kind === "activation" ? "info" : "neutral"}>{KIND_WORD[c.kind]}</Chip>
                     <span className="min-w-0 flex-1 truncate">{c.entityId && c.entityName ? <EntityText text={`[[ent:${c.entityId}|${c.entityName}]]`} kinds={entityKinds} onOpenEntity={onOpenEntity} /> : (c.entityName ?? "Anonymous")}</span>
                     {c.kind === "payment" ? <span className="tabular-nums">{formatMoney({ amountMinor: c.amountMinor, currency: c.currency })}</span> : null}

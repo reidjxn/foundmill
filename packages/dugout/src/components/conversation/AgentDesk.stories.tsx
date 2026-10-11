@@ -147,7 +147,7 @@ const ANSWERS: Record<
 > = {
   go_with: {
     bubbles: [
-      "Approved. 2,400 units ship by 28 October.",
+      "Approved. 2,400 units ship by October 28.",
       "Nothing is paid until Boots UK's first invoice in December.",
     ],
     reaction: "pleased",
@@ -159,7 +159,7 @@ const ANSWERS: Record<
   },
   why_that_one: {
     bubbles: [
-      "Approve ships 2,400 units by 28 October and nothing is paid now.",
+      "Approve ships 2,400 units by October 28 and nothing is paid now.",
       "Holding a week risks a stock-out in November, just as Ireland opens.",
     ],
     reaction: "noted",

@@ -7,10 +7,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { eq, sql } from "drizzle-orm";
-import { migrate as postgresJsMigrate } from "drizzle-orm/postgres-js/migrator";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { closeDb, createDb, withRls, type Db, type PgliteDb, type ServiceDb } from "../client";
-import { MIGRATIONS_DIR, MIGRATIONS_SCHEMA, MIGRATIONS_TABLE, readMigrations } from "../migrations";
+import { closeDb, createDb, withRls, type Db, type PgliteDb } from "../client";
+import { readMigrations } from "../migrations";
 import { appliedMigrationCount, migrateDb } from "../migrator";
 import { DEFAULT_PGLITE_DIR, PGLITE_LOCK_FILE, findWorkspaceRoot, isPgliteDb, isPgliteUrl, parsePgliteUrl, pgliteUrl, resolvePgliteDir } from "../pglite";
 import { repos } from "../repos";
@@ -161,15 +160,9 @@ describe("createDb over an in-memory PGlite", () => {
     expect((await repos.businesses.get(db, bizA))?.slug).toBe("tenant-a");
   });
 
-  it("the apps/api boot path (advisory lock + drizzle's postgres-js migrator) works on the PGlite db", async () => {
-    // apps/api casts its Db to the postgres-js migrator's parameter type the same way.
-    const api = db as unknown as ServiceDb;
-    await api.execute(sql`select pg_advisory_lock(7461)`);
-    try {
-      await postgresJsMigrate(api, { migrationsFolder: MIGRATIONS_DIR, migrationsSchema: MIGRATIONS_SCHEMA, migrationsTable: MIGRATIONS_TABLE });
-    } finally {
-      await api.execute(sql`select pg_advisory_unlock(7461)`);
-    }
+  it("the apps/api boot path (migrateDb with a lock timeout) works on the PGlite db, where no lock is taken", async () => {
+    // apps/api's migrateOnBoot passes MIGRATION_LOCK_TIMEOUT_MS; on PGlite (one process per directory) it is unused.
+    expect(await migrateDb(db, { lockTimeoutMs: 1_000 })).toEqual({ applied: [], total: MIGRATION_TAGS.length });
     expect(await appliedMigrationCount(db)).toBe(MIGRATION_TAGS.length);
   });
 });

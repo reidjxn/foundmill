@@ -67,8 +67,8 @@ describe("presence and typing words", () => {
         .words,
     ).toBe("In a session · Carton proof");
     expect(presenceWords({ presence: "away" }, false).words).toBe("Away");
-    expect(presenceWords({ presence: "down", expectedBack: "14:30" }, false).words).toBe(
-      "Down · back 14:30",
+    expect(presenceWords({ presence: "down", expectedBack: "2:30 PM" }, false).words).toBe(
+      "Down · back 2:30 PM",
     );
     expect(presenceWords({ presence: "available" }, false).words).toBe("Available");
   });
@@ -122,7 +122,7 @@ describe("read receipts", () => {
   it("says sending, seen, read with a time, and not sent", () => {
     expect(receiptWords(receiptState("sending", null))).toBe("Sending…");
     expect(receiptWords(receiptState("seen", null))).toBe("Seen");
-    expect(receiptWords(receiptState("seen", deskAt(1)), deskAt(1))).toBe("Read 14:02");
+    expect(receiptWords(receiptState("seen", deskAt(1)), deskAt(1))).toBe("Read 2:02 PM");
     expect(receiptWords(receiptState("failed", deskAt(1)))).toBe("Not sent");
     expect(receiptState(undefined, undefined)).toBe("seen");
   });

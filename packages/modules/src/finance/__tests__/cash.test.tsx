@@ -36,8 +36,8 @@ describe("CashScreen", () => {
 
     const table = screen.getByRole("grid", { name: "Transactions" });
     expect(within(table).getByRole("link", { name: /Stripe/ }).getAttribute("href")).toBe(`/b/${BID}/crm/${ENTITY.stripe}/overview`);
-    expect(within(table).getByText("Revenue").closest("[title]")!.getAttribute("title")).toBe("Categorised by a rule");
-    expect(within(table).getByText("Uncategorised")).toBeTruthy();
+    expect(within(table).getByText("Revenue").closest("[title]")!.getAttribute("title")).toBe("Categorized by a rule");
+    expect(within(table).getByText("Uncategorized")).toBeTruthy();
     expect(within(table).getByText("+€7,400.00")).toBeTruthy();
     expect(within(table).getByText("−€2,100.00")).toBeTruthy();
     expect(within(table).getAllByText("Ledgerly operating").length).toBeGreaterThan(0);
@@ -65,8 +65,8 @@ describe("CashScreen", () => {
     fireEvent.contextMenu(within(table).getByText("September salaries"));
     const menu = await screen.findByRole("menu");
     expect(within(menu).getByRole("menuitem", { name: "Counterparty not linked" }).getAttribute("aria-disabled")).toBe("true");
-    await user.click(within(menu).getByRole("menuitem", { name: "Recategorise…" }));
-    const dialog = await screen.findByRole("dialog", { name: "Recategorise transaction" });
+    await user.click(within(menu).getByRole("menuitem", { name: "Recategorize…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Recategorize transaction" });
     await act(async () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "Save category" }));
     });

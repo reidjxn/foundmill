@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { FlaskConical, Funnel, ReceiptText, Ship } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { formatDate, formatMoney } from "../../lib/format";
+import { formatDate, formatMoney, formatNumber } from "../../lib/format";
 import { ratingClass } from "../../lib/rating";
 import { Chip, ProvenanceChip } from "../foundation/Chip";
 import { EmptyState } from "../foundation/EmptyState";
@@ -120,7 +120,7 @@ export function QuoteTable({ quotes }: { quotes: readonly SupplierQuote[] }) {
                   {q.country ? <span className="ml-1 text-secondary">{q.country}</span> : null}
                 </td>
                 <td className="px-2 text-right tabular-nums">{formatMoney(q.unitPrice)}</td>
-                <td className="px-2 text-right tabular-nums">{q.moq.toLocaleString("en-GB")}</td>
+                <td className="px-2 text-right tabular-nums">{formatNumber(q.moq, { maxDigits: 0 })}</td>
                 <td className="px-2 text-right tabular-nums">{q.leadTimeDays} d</td>
                 <td className={cn("px-2 text-right", ratingClass(q.score))}>{q.score}</td>
                 <td className="px-2">

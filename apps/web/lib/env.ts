@@ -14,6 +14,8 @@ export interface PublicEnv {
   supabaseUrl: string;
   supabaseAnonKey: string;
   integrationsMode: "mock" | "live";
+  /** NEXT_PUBLIC_APP_URL: the canonical web origin magic links return to; empty means APP_ORIGIN outside development (lib/auth/canonical-origin.ts). */
+  appUrl: string;
 }
 
 const APP_ENVS: readonly PublicAppEnv[] = ["development", "test", "staging", "production"];
@@ -35,6 +37,7 @@ export function parsePublicEnv(raw: Record<string, string | undefined>): PublicE
     supabaseUrl: trimSlash(raw.NEXT_PUBLIC_SUPABASE_URL ?? ""),
     supabaseAnonKey: raw.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
     integrationsMode: raw.NEXT_PUBLIC_INTEGRATIONS_MODE === "live" ? "live" : "mock",
+    appUrl: trimSlash(raw.NEXT_PUBLIC_APP_URL ?? ""),
   };
 }
 
@@ -52,6 +55,7 @@ export function publicEnv(): PublicEnv {
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     NEXT_PUBLIC_INTEGRATIONS_MODE: process.env.NEXT_PUBLIC_INTEGRATIONS_MODE,
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
   });
   return cached;
 }

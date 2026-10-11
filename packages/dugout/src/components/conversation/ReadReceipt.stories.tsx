@@ -9,7 +9,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Under the founder's last bubble: an icon and a word in mono text-3, so the state never rests on colour.",
+          "Under the founder's last bubble: an icon and a word in mono text-3, so the state never rests on color.",
       },
     },
   },

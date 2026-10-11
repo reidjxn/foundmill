@@ -54,7 +54,7 @@ export const StatusRings: Story = {
     </div>
   ),
 };
-/** Presence is shape and words as well as colour: live and working breathe, away is hollow, down carries a bar. */
+/** Presence is shape and words as well as color: live and working breathe, away is hollow, down carries a bar. */
 export const Presence: Story = {
   render: () => (
     <div className="flex flex-col gap-6">

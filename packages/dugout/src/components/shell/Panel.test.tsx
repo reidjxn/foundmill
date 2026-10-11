@@ -100,7 +100,7 @@ describe("Panel", () => {
 
   it("draws the 40 px header on the panel's own surface: title style, mono meta, actions that wrap before the title is squeezed", () => {
     render(
-      <Panel title="A long title the actions never squeeze" meta="6 Aug – 8 Nov 2026" actions={<button type="button">Forecast</button>}>
+      <Panel title="A long title the actions never squeeze" meta="Aug 6 – Nov 8, 2026" actions={<button type="button">Forecast</button>}>
         x
       </Panel>,
     );
@@ -112,7 +112,7 @@ describe("Panel", () => {
     const title = screen.getByRole("heading", { name: "A long title the actions never squeeze" });
     expect(title.className).toContain("t-title");
     expect(title.className).not.toContain("truncate");
-    expect(screen.getByText("6 Aug – 8 Nov 2026").className).toContain("t-mono");
+    expect(screen.getByText("Aug 6 – Nov 8, 2026").className).toContain("t-mono");
   });
 
   it("lights the panel from its corner in a department colour or the brand", () => {
@@ -179,7 +179,7 @@ describe("RunwayChip", () => {
     expect(formatRunway(5.5)).toBe("5.5 mo");
     expect(formatRunway(undefined)).toBe("—");
     render(<RunwayChip date="2026-10-07" runwayMonths={5.5} cash={{ amountMinor: 18200000, currency: "EUR" }} />);
-    const chip = screen.getByLabelText(/7 Oct 2026\. Runway 5\.5 mo, estimate, critical/);
+    const chip = screen.getByLabelText(/Oct 7, 2026\. Runway 5\.5 mo, estimate, critical/);
     expect(chip.getAttribute("data-runway-tone")).toBe("bad");
     // The dashed "not measured" tag, the word in full.
     expect(screen.getByText("Estimate").className).toContain("kitbar-est");
@@ -190,7 +190,7 @@ describe("RunwayChip", () => {
     expect(screen.getByText("No limit")).toBeTruthy();
     expect(screen.queryByText("Estimate")).toBeNull();
     expect(screen.queryByText("—")).toBeNull();
-    const chip = screen.getByLabelText("7 Oct 2026. Runway: No limit. Cash-flow positive, so no limit yet");
+    const chip = screen.getByLabelText("Oct 7, 2026. Runway: No limit. Cash-flow positive, so no limit yet");
     expect(chip.getAttribute("data-runway-tone")).toBe("neutral");
     unmount();
     render(<RunwayChip date="2026-10-07" runwayMonths={null} words={{ value: "Not known yet", caption: "Connect a bank to estimate it" }} />);

@@ -307,7 +307,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
             </div>
           </Panel>
 
-          <Panel title="Logo and brand colours" data-testid="logo-panel">
+          <Panel title="Logo and brand colors" data-testid="logo-panel">
             <LogoColoursEditor name={form.name} kit={form.kit} onKitChange={(kit: Kit) => set("kit", kit)} logo={form.logo} onLogoChange={(logo) => set("logo", logo)} logoActions={logoActions} error={show("kit")} />
           </Panel>
 
@@ -402,7 +402,7 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
             </Panel>
             <Panel title="What happens next">
               <ol className="flex flex-col gap-1.5 text-body">
-                {["Business, departments and team are created", "The logo and brand colours go on the top bar", "The first cycle starts", "The Board's first item lands in your Inbox: vision and three decisions"].map((s, i) => (
+                {["Business, departments and team are created", "The logo and brand colors go on the top bar", "The first cycle starts", "The Board's first item lands in your Inbox: vision and three decisions"].map((s, i) => (
                   <li key={s} className="flex items-start gap-2">
                     <span className="inline-flex size-badge shrink-0 items-center justify-center rounded-pill font-mono text-micro text-tertiary ring-1 ring-line-strong">{i + 1}</span>
                     <span>{s}</span>

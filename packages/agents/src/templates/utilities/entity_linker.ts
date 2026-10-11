@@ -28,6 +28,7 @@ export const entityLinker = defineTemplate({
     tone: "Silent. JSON only.",
     examples: [
       {
+        // us-english-allow: "organisation" is the entity kind as the manifest prints it (an enum key).
         input: "Text: 'Meridian Labs confirmed the quote; Sara will follow up.' Manifest: ent_1 organisation 'Meridian Labs' aliases ['Meridian']; ent_2 person 'Sara Lindqvist'; ent_3 person 'Sara Novak'.",
         output: '{"links":[{"span":"Meridian Labs","entity_id":"ent_1","confidence":1}],"ambiguous":[{"span":"Sara","candidate_ids":["ent_2","ent_3"]}],"unknown":[]}',
       },

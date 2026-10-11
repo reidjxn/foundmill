@@ -114,7 +114,7 @@ export function MatchdayRoundupTable({ rows, day, onOpenReplay, onOpenEntity, en
           <tbody>
             {sorted.map((r) => (
               <tr key={r.conversionId} className={cn("h-row-compact border-b border-line-faint transition-colors odd:bg-white/1.5 hover:bg-white/4", r.kind === "payment" && "row-edge-gold")} data-roundup-row={r.conversionId}>
-                <td className="px-2 font-mono text-mono text-secondary tabular-nums">{formatTime(r.occurredAt)}</td>
+                <td className="whitespace-nowrap px-2 font-mono text-mono text-secondary tabular-nums">{formatTime(r.occurredAt)}</td>
                 <td className="px-2">
                   <span className="inline-flex items-center gap-1.5">
                     <span className="text-body-strong">{KIND_WORD[r.kind]}</span>

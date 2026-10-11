@@ -27,7 +27,7 @@ export const formulationChemist = defineSpecialistTemplate({
   ],
   examples: [
     {
-      input: "Concept: fragrance-free facial moisturiser for the EU, claim 'suitable for sensitive skin'.",
+      input: "Concept: fragrance-free facial moisturizer for the EU, claim 'suitable for sensitive skin'.",
       output: "Draft F-03: 18 ingredients, INCI generated; niacinamide 4% (no EU restriction, CosIng checked 2026-10-05); phenoxyethanol 0.9% (Annex V limit 1.0%, checked). Claim 'sensitive skin' needs a 48 h patch test plan → added to test plan. Safety assessment: qualified assessor task created.",
     },
   ],

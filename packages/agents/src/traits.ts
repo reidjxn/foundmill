@@ -30,7 +30,7 @@ const TRAIT_RULES: TraitRule[] = [
   { label: "Protects the schema", patterns: [/\bask before schema changes\b/i, /\bschema change/i, /\bmigration/i] },
   { label: "Escalates when unsure", patterns: [/\bwhen (unsure|uncertain|in doubt)\b[^.]{0,30}\b(ask|escalate)/i, /\bask (your lead|the founder)\b/i, /\bescalat/i] },
   { label: "Respects rate limits", patterns: [/\brate limit/i, /\bback ?off\b/i, /\bthrottl/i] },
-  { label: "Labels estimates", patterns: [/\b(label|labelled|mark|marked)\b[^.]{0,20}\b(estimate|forecast)/i, /\b"estimate"\b/i] },
+  { label: "Labels estimates", patterns: [/\b(label|labell?ed|mark|marked)\b[^.]{0,20}\b(estimate|forecast)/i, /\b"estimate"\b/i] },
   { label: "Discloses AI involvement", patterns: [/\bon behalf of\b/i, /\bdisclos/i, /\bnever claim to be human\b/i] },
   { label: "Prefers primary sources", patterns: [/\bprimary sources?\b/i, /\bofficial sources?\b/i, /\bregulator/i] },
   { label: "Protects secrets", patterns: [/\bsecrets?\b/i, /\bcredentials?\b[^.]{0,30}\b(never|not)\b/i, /\bno long-lived credentials\b/i] },

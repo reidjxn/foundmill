@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "../../lib/cn";
-import { formatDate, formatNumber } from "../../lib/format";
+import { DATE_FORMATS, formatDate, formatHourOfDay, formatNumber } from "../../lib/format";
 import { Tooltip } from "../foundation/Tooltip";
 import { DEPT_BG } from "./ribbon/OnThisDayCard";
 import type { RibbonDepartment, SquadPulseCell } from "./types";
@@ -76,8 +76,8 @@ export function SquadPulse({ departments, days, cells, onSelect, className }: Sq
       <div ref={gridRef} role="grid" aria-label={`Team pulse: ${formatNumber(total, { maxDigits: 0 })} agent hours over the last 7 days, by hour and department`} aria-rowcount={7} aria-colcount={24} className="flex flex-col gap-px" onKeyDown={onKeyDown}>
         <div role="row" className="flex items-center gap-px pl-12">
           {HOURS.map((h) => (
-            <span key={h} role="columnheader" className={cn("flex-1 overflow-visible whitespace-nowrap text-center font-mono text-micro text-tertiary", h % 3 !== 0 && "invisible")} aria-label={`${h}:00`}>
-              {String(h).padStart(2, "0")}
+            <span key={h} role="columnheader" className={cn("min-w-0 flex-1 overflow-visible whitespace-nowrap text-left font-mono text-micro text-tertiary", h % 3 !== 0 && "invisible")} aria-label={formatHourOfDay(h)}>
+              {formatHourOfDay(h)}
             </span>
           ))}
         </div>
@@ -88,7 +88,7 @@ export function SquadPulse({ departments, days, cells, onSelect, className }: Sq
             </span>
             {row.map((cell) => {
               const alpha = cell.total <= 0 || max <= 0 ? 0 : 0.15 + 0.85 * Math.min(1, cell.total / max);
-              const label = `${days[d] ? formatDate(days[d] as string, "EEE d MMM") : `Day ${d + 1}`} ${String(cell.hour).padStart(2, "0")}:00 — ${cell.total > 0 ? `${formatNumber(cell.total, { maxDigits: 1 })} agent hours` : "no activity"}`;
+              const label = `${days[d] ? formatDate(days[d] as string, DATE_FORMATS.weekdayDayMonth) : `Day ${d + 1}`}, ${formatHourOfDay(cell.hour)} — ${cell.total > 0 ? `${formatNumber(cell.total, { maxDigits: 1 })} agent hours` : "no activity"}`;
               const isFocus = focus.d === d && focus.h === cell.hour;
               return (
                 <Tooltip

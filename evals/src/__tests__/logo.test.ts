@@ -64,7 +64,7 @@ describe("logo eval checker", () => {
   });
 
   it("fails invalid SVG, too few shapes, the wrong count and duplicates", () => {
-    expect(checkLogoSet({ marks: [{ name: "Broken", concept: "x", svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><script>alert(1)</script><g></svg>' }, ...GOOD.slice(1)] }, 4).problems.join(" ")).toMatch(/invalid after sanitising/);
+    expect(checkLogoSet({ marks: [{ name: "Broken", concept: "x", svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><script>alert(1)</script><g></svg>' }, ...GOOD.slice(1)] }, 4).problems.join(" ")).toMatch(/invalid after sanitizing/);
     expect(checkLogoSet({ marks: [{ name: "Bare", concept: "x", svg: svg(tile) }, ...GOOD.slice(1)] }, 4).problems.join(" ")).toMatch(/a tile and a symbol need two/);
     expect(checkLogoSet({ marks: GOOD.slice(0, 3) }, 4).problems).toContain("asked for 4 marks, got 3");
     expect(checkLogoSet({ marks: [GOOD[0]!, GOOD[0]!, GOOD[1]!, GOOD[2]!] }, 4).problems).toContain("two marks are the same");

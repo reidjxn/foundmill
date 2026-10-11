@@ -220,7 +220,7 @@ export function SimulatePanel({ businessId, connectors }: { businessId: string; 
   );
   return (
     <SettingsSection title="Simulate" actions={<Chip tone="warn" icon={FlaskConical}>Development only</Chip>} data-testid="simulate-panel">
-      <Hint>Fires a mock platform event through the API and apps/ingest exactly as a vendor webhook would: it is labelled “Simulated”, costs nothing and never leaves this environment. Owners and admins only.</Hint>
+      <Hint>Fires a mock platform event through the API and apps/ingest exactly as a vendor webhook would: it is labeled “Simulated”, costs nothing and never leaves this environment. Owners and admins only.</Hint>
       <div className="flex items-center gap-3">
         <span className="t-label">Connector</span>
         <SimpleSelect aria-label="Connector" controlSize="sm" value={connector} onValueChange={setConnector} placeholder="Default per event" options={[{ value: "", label: "Default per event" }, ...connectors.map((c) => ({ value: c.key, label: c.label }))]} className="w-56" />

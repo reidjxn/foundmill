@@ -47,7 +47,7 @@ export const QuietCards: Story = {
         <DepartmentCard department={{ ...quietBase, id: "q-inbox", name: "Finance", dept: "dept-4", quiet: { kind: "inbox", label: "New in your Inbox", text: "VAT return due in nine days" } }} className="h-full" onOpen={() => {}} onOpenQuiet={() => {}} />
       </div>
       <div className="grid h-[368px] grid-cols-3 gap-gutter">
-        <DepartmentCard department={{ ...quietBase, quiet: { kind: "finished", label: "Last finished", text: "Customer interview synthesis #8", detail: "31 Aug" } }} className="h-full" onOpen={() => {}} />
+        <DepartmentCard department={{ ...quietBase, quiet: { kind: "finished", label: "Last finished", text: "Customer interview synthesis #8", detail: "Aug 31" } }} className="h-full" onOpen={() => {}} />
         <DepartmentCard department={{ ...quietBase, id: "q-clear", name: "Legal", dept: "dept-7", quiet: { kind: "clear", label: "All clear", text: "Nothing in progress, and nothing waiting on you." } }} className="h-full" onOpen={() => {}} />
         <DepartmentCard department={{ ...quietBase, id: "q-loading", name: "Development", dept: "dept-2", nowLoading: true }} className="h-full" onOpen={() => {}} />
       </div>

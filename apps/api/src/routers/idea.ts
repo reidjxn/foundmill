@@ -3,6 +3,7 @@
  * Ideation is account-scoped and private (no business yet); every action creates an `idea_version` (AC-11.1.3).
  */
 import { repos, type IdeaWithVersion } from "@foundmill/db";
+import { HOUSE_STYLE } from "@foundmill/agents";
 import { ARCHETYPES, Archetype, BUSINESS_MODES, GAME_MODES, ValidationError } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -121,7 +122,7 @@ export const ideaRouter = router({
     const result = await ctx.models.complete({
       route: "ideation",
       schema: Verdict,
-      system: "Compare the concept cards attribute by attribute and give an agent verdict with a ranking.",
+      system: `Compare the concept cards attribute by attribute and give an agent verdict with a ranking. ${HOUSE_STYLE}`,
       messages: [{ role: "user", content: "```json\n" + JSON.stringify({ concepts: ideas.map((i) => ({ id: i.id, title: i.title, pitch: i.pitch, attributes: i.current?.attributes ?? {} })) }) + "\n```" }],
       attribution: { kind: "ideation_compare" },
     });

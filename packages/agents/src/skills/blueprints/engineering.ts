@@ -68,7 +68,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
   testing: [
     bp(
       "Test-first fix for {business}",
-      "In the fixture repo for {business}, invoices for cancelled {customer} show a negative total. Write the failing test first, then the smallest fix, then run the suite. Report the test name, the diff summary and the results.",
+      "In the fixture repo for {business}, invoices for canceled {customer} show a negative total. Write the failing test first, then the smallest fix, then run the suite. Report the test name, the diff summary and the results.",
       [
         "A failing test is written before the fix and passes after.",
         "The fix is minimal and the suite passes.",
@@ -78,19 +78,19 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Edge-case coverage for {business}",
-      "Write the test list for {business}'s discount function (percentage or fixed, caps, currency {currency}, stacking rules in fixture): name each test and the behaviour it asserts, including boundaries and invalid input.",
+      "Write the test list for {business}'s discount function (percentage or fixed, caps, currency {currency}, stacking rules in fixture): name each test and the behavior it asserts, including boundaries and invalid input.",
       [
         "Covers boundaries (0%, 100%, cap equal to total), stacking and invalid input.",
-        "Each test name states the behaviour.",
+        "Each test name states the behavior.",
         "No redundant tests.",
       ],
       { fixtures: REPO("discounts") },
     ),
     bp(
       "Replace a brittle test at {business}",
-      "A test in {business}'s repo asserts on an exact HTML string and breaks on every copy change. Rewrite it to assert behaviour (roles, text content, state) and explain the principle in two lines.",
+      "A test in {business}'s repo asserts on an exact HTML string and breaks on every copy change. Rewrite it to assert behavior (roles, text content, state) and explain the principle in two lines.",
       [
-        "New test asserts behaviour via accessible roles and content.",
+        "New test asserts behavior via accessible roles and content.",
         "Explanation is correct and concise.",
         "Test remains deterministic.",
       ],
@@ -151,9 +151,9 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Untrusted content in code at {business}",
-      "A feature for {business} renders {customer}-submitted markdown and lets an agent summarise it. List the risks (XSS, prompt injection into the agent, data exfiltration) and the mitigations at each layer.",
+      "A feature for {business} renders {customer}-submitted markdown and lets an agent summarize it. List the risks (XSS, prompt injection into the agent, data exfiltration) and the mitigations at each layer.",
       [
-        "Covers rendering sanitisation and prompt-injection handling via the quarantined reader.",
+        "Covers rendering sanitization and prompt-injection handling via the quarantined reader.",
         "Mitigations are layered and concrete.",
         "Mentions tenancy of stored content.",
       ],
@@ -161,12 +161,12 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
   ],
   performance: [
     bp(
-      "Measure before optimising at {business}",
-      "{business}'s {customer} list page takes 3.8 s. Using the fixture profile, identify the real bottleneck, propose the fix, estimate the gain (labelled Estimate), and say how you verify it.",
+      "Measure before optimizing at {business}",
+      "{business}'s {customer} list page takes 3.8 s. Using the fixture profile, identify the real bottleneck, propose the fix, estimate the gain (labeled Estimate), and say how you verify it.",
       [
         "Identifies the bottleneck from the profile (N+1 query / missing index), not a guess.",
-        "Fix is targeted; gain is labelled Estimate; verification is a measurement.",
-        "Does not propose unrelated micro-optimisations.",
+        "Fix is targeted; gain is labeled Estimate; verification is a measurement.",
+        "Does not propose unrelated micro-optimizations.",
       ],
       { fixtures: { profile: "fixtures/perf/list_page_profile.json" }, checks: [CHECK.all("Estimate")] },
     ),
@@ -175,7 +175,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       "Define performance budgets for {business}'s dashboard (first render, interaction latency, payload size) and how CI enforces them. Explain how you keep the Ribbon at 60 fps with two years of data.",
       [
         "Budgets are numeric and enforced in CI with a method.",
-        "Rendering strategy for large data is credible (virtualisation, canvas layer).",
+        "Rendering strategy for large data is credible (virtualization, canvas layer).",
         "Budgets are realistic.",
       ],
     ),
@@ -197,7 +197,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       [
         "Props are typed; all states covered; uses tokens only.",
         "Story and test exist and pass.",
-        "No ad-hoc colours or sizes.",
+        "No ad-hoc colors or sizes.",
       ],
       { fixtures: REPO("dugout-storybook"), mockTools: TOOLS.sandbox, checks: [CHECK.testsPass()] },
     ),
@@ -205,7 +205,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       "Refactor duplication at {business}",
       "Three screens in {business}'s app each hand-roll a metric tile. Extract a MetricTile component: API design, how variants map, what stays screen-specific, and the migration order.",
       [
-        "API covers the three usages without over-generalising.",
+        "API covers the three usages without over-generalizing.",
         "Migration order is safe and incremental.",
         "Explains what remains screen-specific.",
       ],
@@ -213,10 +213,10 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Compose, do not fork, at {business}",
-      "A product request for {business} needs a dropdown with a search box. The design system has Select and Input. Explain how you compose them (or extend Select) rather than copying code, and the accessibility behaviour you must keep.",
+      "A product request for {business} needs a dropdown with a search box. The design system has Select and Input. Explain how you compose them (or extend Select) rather than copying code, and the accessibility behavior you must keep.",
       [
         "Chooses composition/extension with clear reasoning.",
-        "Keeps keyboard and ARIA behaviour of the base components.",
+        "Keeps keyboard and ARIA behavior of the base components.",
         "Adds a story for the new composition.",
       ],
     ),
@@ -234,7 +234,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Spot fidelity drift at {business}",
-      "Compare the rendered screenshot and the reference for {business}'s inbox row (fixture). List every visible difference (spacing, type, colour, alignment) with the token or value to change.",
+      "Compare the rendered screenshot and the reference for {business}'s inbox row (fixture). List every visible difference (spacing, type, color, alignment) with the token or value to change.",
       [
         "Finds the planted differences and no imaginary ones.",
         "Each difference names a token or value.",
@@ -255,7 +255,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
   accessibility: [
     bp(
       "Make a dialog accessible for {business}",
-      "{business}'s HolidayDialog (fixture) traps focus incorrectly and has no labels. Fix: focus management, labelled controls, keyboard close, screen-reader announcements. Provide the test that proves it.",
+      "{business}'s HolidayDialog (fixture) traps focus incorrectly and has no labels. Fix: focus management, labeled controls, keyboard close, screen-reader announcements. Provide the test that proves it.",
       [
         "Focus trap, labels, Escape handling and announcements are implemented.",
         "A test asserts the keyboard path.",
@@ -265,9 +265,9 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Audit a screen for {business}",
-      "Audit {business}'s team table (fixture DOM) for accessibility: roles, names, contrast against tokens, keyboard order, status conveyed by colour only. List findings with severity and fix.",
+      "Audit {business}'s team table (fixture DOM) for accessibility: roles, names, contrast against tokens, keyboard order, status conveyed by color only. List findings with severity and fix.",
       [
-        "Finds colour-only status, missing names and keyboard order issues.",
+        "Finds color-only status, missing names and keyboard order issues.",
         "Fixes are concrete (text alternatives, aria attributes, order).",
         "Severity is sensible.",
       ],
@@ -275,7 +275,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Reduced motion for {business}",
-      "The Journey Ribbon for {business} animates in over 1.2 s. Specify the reduced-motion behaviour, how it is detected, what remains identical in information, and the test.",
+      "The Journey Ribbon for {business} animates in over 1.2 s. Specify the reduced-motion behavior, how it is detected, what remains identical in information, and the test.",
       [
         "Static rendering under prefers-reduced-motion with identical information.",
         "Detection and test are specified.",
@@ -364,7 +364,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       ],
     ),
     bp(
-      "Daily materialised view for {business}",
+      "Daily materialized view for {business}",
       "Define journey_daily for {business}: grain, columns (agent_hours, tasks_done, spend, revenue, signups, activations, payments, decisions), refresh strategy, and the fixture test with hand-computed values.",
       [
         "Grain and columns correct; refresh strategy stated.",
@@ -389,7 +389,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       "Label uncertain data at {business}",
       "Some of {business}'s {customer} journeys lack consent and show first-party events only. Specify how the data model and UI mark them ('partial journey'), how aggregates treat them, and the test.",
       [
-        "Partial journeys are labelled and handled in aggregates explicitly.",
+        "Partial journeys are labeled and handled in aggregates explicitly.",
         "No mixing of partial and full without labels.",
         "Test specified.",
       ],
@@ -427,7 +427,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Debug a wrong number at {business}",
-      "{business}'s MRR query (fixture) returns 12% higher than Stripe. Find the bug (duplicated join / cancelled subscriptions included), fix it, and add the fixture test.",
+      "{business}'s MRR query (fixture) returns 12% higher than Stripe. Find the bug (duplicated join / canceled subscriptions included), fix it, and add the fixture test.",
       [
         "Finds the actual bug in the fixture query.",
         "Fix is minimal; test added and passing.",
@@ -541,10 +541,10 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "BYOK handling for {business}",
-      "Explain how {business} stores a founder's Anthropic key: encryption, who decrypts, where it must never appear, rotation and revoke behaviour. Point out two common mistakes.",
+      "Explain how {business} stores a founder's Anthropic key: encryption, who decrypts, where it must never appear, rotation and revoke behavior. Point out two common mistakes.",
       [
         "Envelope encryption, gateway/orchestrator-only decryption, never in logs/sandboxes/bundles.",
-        "Rotation/revoke behaviour correct (pause agents, Inbox note).",
+        "Rotation/revoke behavior correct (pause agents, Inbox note).",
         "Mistakes are realistic.",
       ],
     ),
@@ -575,7 +575,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       [
         "Covers the 99th, 100th, 101st and percentile boundaries.",
         "Expected outcomes are correct.",
-        "Includes the round-up behaviour.",
+        "Includes the round-up behavior.",
       ],
     ),
     bp(
@@ -605,7 +605,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       [
         "Covers rapid toggles, concurrent edits, expired sessions, partial failures.",
         "Findings are reproducible steps.",
-        "Prioritised by severity.",
+        "Prioritized by severity.",
       ],
     ),
     bp(
@@ -613,7 +613,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       "Convert this note into a defect report for {business}: 'pressing R twice fast gives two items sometimes'. Include title, severity, environment, steps, expected vs actual, evidence, and the failing test name you would write.",
       [
         "Report is complete and reproducible.",
-        "Severity justified; expected behaviour cites the rule.",
+        "Severity justified; expected behavior cites the rule.",
         "Failing test name carries the criterion.",
       ],
     ),
@@ -654,7 +654,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       "Document a feature for {business}",
       "Write the in-product help for {business}'s Refresh button: what it does, what it never does, what happens when nothing changed. Verify against the fixture tests. Under 120 words, plain language.",
       [
-        "Accurate to the behaviour in the fixture tests.",
+        "Accurate to the behavior in the fixture tests.",
         "Plain, short sentences; under 120 words.",
         "States what it never does (invent events).",
       ],
@@ -666,7 +666,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       [
         "Steps are correct and ordered; founder action identified.",
         "Verification step present.",
-        "Down-state behaviour accurate.",
+        "Down-state behavior accurate.",
       ],
     ),
     bp(
@@ -682,7 +682,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
   ],
   information_architecture: [
     bp(
-      "Organise docs for {business}",
+      "Organize docs for {business}",
       "{business}'s docs have 38 pages with duplicates. Propose the structure: top-level sections, one home per topic, redirects for duplicates, and a rule for where new pages go.",
       [
         "Structure gives each topic one home.",
@@ -776,7 +776,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
   ],
   synthesis: [
     bp(
-      "Synthesise research for {business}",
+      "Synthesize research for {business}",
       "From the fixture notes (12 sources) write the findings for {business} on {keyword}: up to 5 findings with confidence, the citations supporting each, and what remains unknown. Under 300 words.",
       [
         "Findings are supported by multiple citations where possible.",
@@ -796,7 +796,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Executive summary for {business}",
-      "Summarise the fixture research pack on {market} for {founder} in 5 bullets, each with one citation id, and one sentence on what to do next.",
+      "Summarize the fixture research pack on {market} for {founder} in 5 bullets, each with one citation id, and one sentence on what to do next.",
       [
         "Five bullets, each cited.",
         "Next step is concrete.",
@@ -828,7 +828,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
     ),
     bp(
       "Primary over secondary at {business}",
-      "For {business}'s research on {regulator} rules, a blog summarises a regulation. Explain why you cite the regulation text, how you find it, and how you handle a summary you cannot verify.",
+      "For {business}'s research on {regulator} rules, a blog summarizes a regulation. Explain why you cite the regulation text, how you find it, and how you handle a summary you cannot verify.",
       [
         "Prefers primary text with a method to find it.",
         "Handles unverifiable summaries honestly.",
@@ -842,7 +842,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       "Size the market for {business} ({product}, {customer}, {market}) bottom-up: segments, counts from fixture sources, penetration assumptions, {price}. Show the arithmetic, label Estimate, cite sources, give a range.",
       [
         "Arithmetic is transparent and correct.",
-        "Every input cited; result labelled Estimate with a range.",
+        "Every input cited; result labeled Estimate with a range.",
         "Assumptions stated.",
       ],
       { mockTools: TOOLS.web, checks: [CHECK.cites(), CHECK.all("Estimate")] },
@@ -862,7 +862,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       "From the total market for {business}, derive the serviceable and obtainable market given {market}, {price} and the distribution plan. State each filter and label the outputs.",
       [
         "Filters are explicit and reasonable.",
-        "Outputs labelled Estimate.",
+        "Outputs labeled Estimate.",
         "Tied to the distribution plan.",
       ],
       { checks: [CHECK.all("Estimate")] },
@@ -944,7 +944,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       "Return a semantic conflict at {business}",
       "The fixture rebase for {business} conflicts in a function both branches changed logically. Explain why you do not resolve it, and write the message to the author with the hunks.",
       [
-        "Recognises the semantic conflict and declines to guess.",
+        "Recognizes the semantic conflict and declines to guess.",
         "Message includes hunks and a clear ask.",
         "Branch left in a safe state.",
       ],
@@ -966,7 +966,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       "Open the PR for fixture branch agent/T-21 at {business}: title, task link, acceptance tests passed, review verdict, screenshots if UI, merge mode per business mode (assisted). Write the PR body and the merge log entry.",
       [
         "PR body complete and accurate.",
-        "Merge behaviour matches assisted mode.",
+        "Merge behavior matches assisted mode.",
         "Log entry traceable.",
       ],
       { fixtures: REPO("rebase-trivial") },
@@ -1047,7 +1047,7 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       [
         "Criteria are countable and typed (number of quotes, fields present, ids).",
         "Includes timing and no-PO rule.",
-        "Checkable without judgement.",
+        "Checkable without judgment.",
       ],
       { checks: [CHECK.policy()] },
     ),
@@ -1077,8 +1077,8 @@ export const ENGINEERING_BLUEPRINTS: BlueprintSet = {
       "External dependencies at {business}",
       "A task for {business} depends on a founder action ({integration} credential) and a specialist deliverable. Model these in the graph and describe how the scheduler treats them.",
       [
-        "External and human dependencies modelled explicitly.",
-        "Scheduler behaviour (blocked state) described.",
+        "External and human dependencies modeled explicitly.",
+        "Scheduler behavior (blocked state) described.",
         "No workaround that bypasses the founder action.",
       ],
       { checks: [CHECK.policy()] },

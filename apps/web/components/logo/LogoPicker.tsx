@@ -321,7 +321,7 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
         {showSuggestion && onUseColours ? (
           <div className="flex flex-wrap items-center gap-2 border-t border-subtle pt-3" data-testid="logo-colour-suggestion">
             <Palette size={14} aria-hidden className="text-secondary" />
-            <span className="text-small text-secondary">Colours from the logo:</span>
+            <span className="text-small text-secondary">Colors from the logo:</span>
             {[suggestion!.primary, suggestion!.secondary].map((c, i) => (
               <span key={i} className="inline-flex items-center gap-1 font-mono text-mono text-primary" data-colour={c}>
                 <span aria-hidden className="inline-block size-4 rounded-chip border border-subtle" style={{ backgroundColor: c }} />
@@ -329,7 +329,7 @@ export function LogoPicker({ name, kit, value, onChange, actions, onUseColours, 
               </span>
             ))}
             <Button size="sm" disabled={choosing} onClick={() => onUseColours(suggestion!)} data-testid="logo-use-colours">
-              Use these colours
+              Use these colors
             </Button>
           </div>
         ) : null}

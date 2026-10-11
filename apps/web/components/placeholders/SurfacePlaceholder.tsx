@@ -10,7 +10,7 @@ const COPY: Record<PlaceholderSurface, { title: string; description: string; ico
   inbox: { title: "Inbox", icon: Inbox, description: "A 380 px list with Respond, Customers, Updates and Archive tabs, the reading pane with the note, status strip, exhibit and the DecisionBar. The Inbox build renders it here." },
   journey: { title: "Customer Update", icon: Route, description: "The replay of a won customer: first touch, who was involved, the win moment and the debrief. The Journey build renders it here." },
   agent: { title: "Agent profile", icon: Bot, description: "Profile header, skill grid, position map, traits, coach report and training. The agents build renders it here." },
-  crm: { title: "CRM", icon: Users, description: "Every person and organisation with saved views, filters and universal search. The CRM build renders it here." },
+  crm: { title: "CRM", icon: Users, description: "Every person and organization with saved views, filters and universal search. The CRM build renders it here." },
   entity: { title: "Entity profile", icon: Users, description: "Overview, activity, relationships, commercial, documents, notes and journey tabs. The CRM build renders it here." },
   milestones: { title: "Milestones", icon: Trophy, description: "Customer and revenue milestones, releases, decisions, incorporation and launches. The Home build renders the cabinet here." },
 };

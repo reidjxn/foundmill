@@ -76,7 +76,7 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
         </div>
       </Panel>
 
-      <Panel title="Position map" span={6} loading={catalogueQ.isLoading && !catalogueQ.data} empty={!catalogueQ.isLoading && roles.length === 0 ? { children: "Roles this agent could play appear once the template catalogue loads." } : undefined} footer="Fit per role from the agent's ratings over that role's skills. Estimate." data-testid="position-map">
+      <Panel title="Position map" span={6} loading={catalogueQ.isLoading && !catalogueQ.data} empty={!catalogueQ.isLoading && roles.length === 0 ? { children: "Roles this agent could play appear once the template catalog loads." } : undefined} footer="Fit per role from the agent's ratings over that role's skills. Estimate." data-testid="position-map">
         <PositionMap roles={roles} currentRoleId={agent.agentType} columns={2} />
       </Panel>
 

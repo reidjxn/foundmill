@@ -66,7 +66,7 @@ describe("agent.conversation.get", () => {
     expect(view.persona).toMatchObject({ id: hz.A.agentId, isAgent: true, presence: "available", presenceLabel: "Available" });
     expect(view.persona.voice.thinking.length).toBeGreaterThanOrEqual(2);
     expect(view.persona.thinkingLine.endsWith("…")).toBe(true);
-    expect(view.persona.nudges.map((n) => n.label)).toContain("Prioritise customers");
+    expect(view.persona.nudges.map((n) => n.label)).toContain("Prioritize customers");
     expect(view.starters.map((q) => q.label)).toEqual(["What are you working on?", "What's blocking you?", "What's next?"]);
     expect(view.quickReplies).toEqual(view.starters);
   });

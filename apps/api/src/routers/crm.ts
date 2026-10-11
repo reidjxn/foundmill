@@ -7,6 +7,8 @@ const read = sectionRead("crm");
 /** Deletion requests complete no earlier than this (matches Settings › Danger zone). */
 const DELETION_DELAY_DAYS = 7;
 const write = sectionWrite("crm");
+/** "Oct 7, 2026" (US English, UTC so the note reads the same wherever it is written). */
+const usDate = (d: Date): string => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
 export const crmRouter = router({
   /** Hybrid typeahead (pg_trgm names, tsvector notes, pgvector meaning) with the BUILD §11.12 operators. */
@@ -24,7 +26,7 @@ export const crmRouter = router({
         const entity = await repos.entities.resolve(tx, ctx.businessId, input.entityId);
         const requestedAt = new Date();
         const earliestAt = new Date(requestedAt.getTime() + DELETION_DELAY_DAYS * 86_400_000);
-        const note = `Deletion requested by ${ctx.email ?? ctx.userId} on ${requestedAt.toISOString().slice(0, 10)}; earliest completion ${earliestAt.toISOString().slice(0, 10)}.${input.reason ? ` Reason: ${input.reason}` : ""}`;
+        const note = `Deletion requested by ${ctx.email ?? ctx.userId} on ${usDate(requestedAt)}; earliest completion ${usDate(earliestAt)}.${input.reason ? ` Reason: ${input.reason}` : ""}`;
         const interaction = await repos.entities.addNote(tx, ctx.businessId, entity.id, note);
         await audit(tx, ctx, { action: "crm.entity.request_deletion", target: { kind: "entity", id: entity.id }, details: { reason: input.reason ?? null, requestedAt: requestedAt.toISOString(), earliestAt: earliestAt.toISOString(), interactionId: interaction.id } });
         return { entityId: entity.id, status: "requested" as const, requestedAt: requestedAt.toISOString(), earliestAt: earliestAt.toISOString(), delayDays: DELETION_DELAY_DAYS, interactionId: interaction.id };

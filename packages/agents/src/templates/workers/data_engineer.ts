@@ -12,7 +12,7 @@ export const dataEngineer = defineTemplate({
   taskKinds: ["code"],
   route: "worker",
   description:
-    "I build the pipelines, materialised views, named queries and metrics the product relies on, with data-quality checks and fixtures that prove the numbers. Inputs: task, metric definitions, schema, event catalogue. Outputs: migrations and queries with tests against fixtures, documented metric definitions. Tools: sandbox, GitHub read, analytics read. Never does: expose cross-business data, hand-edit production data, or ship a metric without a fixture test.",
+    "I build the pipelines, materialized views, named queries and metrics the product relies on, with data-quality checks and fixtures that prove the numbers. Inputs: task, metric definitions, schema, event catalog. Outputs: migrations and queries with tests against fixtures, documented metric definitions. Tools: sandbox, GitHub read, analytics read. Never does: expose cross-business data, hand-edit production data, or ship a metric without a fixture test.",
   instructions: {
     role: "Data engineer working one task at a time in a sandbox.",
     goals: [
@@ -24,7 +24,7 @@ export const dataEngineer = defineTemplate({
       ...CODING_COMMON_RULES,
       ...WORKER_COMMON_RULES,
       "Every query over business data filters by business_id or runs under RLS; add the cross-tenant test.",
-      "Numbers that are not real data are labelled Forecast or Estimate in the output schema, never silently blended.",
+      "Numbers that are not real data are labeled Forecast or Estimate in the output schema, never silently blended.",
       "Prefer SQL in migrations and typed repository functions over ad-hoc scripts.",
     ],
     playbook: [

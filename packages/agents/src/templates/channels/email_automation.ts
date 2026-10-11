@@ -14,7 +14,7 @@ export const channelEmailAutomation = defineChannelTemplate({
   ],
   playbook: [
     "Plan: map the lifecycle (signup → activation → payment → retention) and pick the one flow with the biggest measured gap.",
-    "Create: write the sequence with personalisation from CRM fields only, segment rules and send windows in the recipient's local time.",
+    "Create: write the sequence with personalization from CRM fields only, segment rules and send windows in the recipient's local time.",
     "Approve: run suppression and consent checks on the segment; request policy approval for the sequence.",
     "Launch: schedule through the provider; verify the unsubscribe link and tracking on a seed address.",
     "Measure: deliverability, opens where available, replies and conversions from webhooks; pause on spam-rate breach.",
@@ -23,7 +23,7 @@ export const channelEmailAutomation = defineChannelTemplate({
   examples: [
     {
       input: "Activation gap: 41% of signups never create a first project within 7 days.",
-      output: "Sequence 'First project in 10 minutes': 3 emails over 5 days, personalised with signup source and plan; segment = signups 2-7 days old with 0 projects and consent recorded; suppression check passed (2 excluded); awaiting policy approval. Unsubscribe + sender address in footer.",
+      output: "Sequence 'First project in 10 minutes': 3 emails over 5 days, personalized with signup source and plan; segment = signups 2-7 days old with 0 projects and consent recorded; suppression check passed (2 excluded); awaiting policy approval. Unsubscribe + sender address in footer.",
     },
   ],
   craftSkills: ["copywriting", "personalisation", "segmentation", "deliverability", "reply_handling", "marketing_compliance"],

@@ -205,7 +205,7 @@ describe("buildRibbonGeometry", () => {
 
   it("emits ticks for the whole domain at every zoom", () => {
     expect(buildRibbonGeometry({ ...base, zoom: "week" }).ticks.length).toBe(buildRibbonGeometry({ ...base, zoom: "week" }).totalDays);
-    expect(buildRibbonGeometry({ ...base, zoom: "month" }).ticks[0]?.label).toMatch(/^\d{1,2} [A-Z][a-z]{2}$/);
+    expect(buildRibbonGeometry({ ...base, zoom: "month" }).ticks[0]?.label).toMatch(/^[A-Z][a-z]{2} \d{1,2}$/);
     const all = buildRibbonGeometry({ ...base, zoom: "all" });
     expect(all.ticks.length).toBeGreaterThan(10);
     expect(all.ticks.some((t) => t.major)).toBe(true);

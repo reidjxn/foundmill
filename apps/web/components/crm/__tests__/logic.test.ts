@@ -92,7 +92,7 @@ describe("data duties and merges", () => {
     expect(json.merges).toHaveLength(1);
   });
   it("writes the deletion request for the scheduled job", () => {
-    expect(deletionRequestNote("the founder", new Date("2026-10-07T10:00:00Z"))).toMatch(/^Deletion requested by the founder on 2026-10-07\. Runs in the scheduled, audited deletion job/);
+    expect(deletionRequestNote("the founder", new Date("2026-10-07T10:00:00Z"))).toMatch(/^Deletion requested by the founder on Oct 7, 2026\. Runs in the scheduled, audited deletion job/);
   });
   it("describes open merges and redirects", () => {
     expect(mergeBanner(get)).toMatchObject({ redirected: false, absorbed: [{ id: "ml" }] });

@@ -1,5 +1,7 @@
 // @foundmill/gateway — the only process that holds vendor secrets (docs/ARCHITECTURE.md §9).
 // Session tokens, Cedar policy, connectors (real or mock), metering, audit, MCP endpoints.
+// SIGTERM/SIGINT: stop accepting connections, let in-flight connector calls finish, close the rate-limit Redis client and
+// the database pool, exit 0, within SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3).
 import { pathToFileURL } from "node:url";
 import { serve, type ServerType } from "@hono/node-server";
 import { Redis } from "ioredis";
@@ -7,6 +9,7 @@ import { APP_NAME } from "@foundmill/config";
 import { loadEnv, type Env } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
+import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
 import { closeDb, createServiceDb, repos, type Db } from "@foundmill/db";
 import { createDefaultRegistry, platformSecretsFromEnv, type ConnectorRegistry } from "@foundmill/connectors";
 import { createGatewayApp, type GatewayApp } from "./app";
@@ -45,6 +48,8 @@ export interface BuiltGateway {
   rateLimitStoreKind: "memory" | "redis";
   /** Settles database readiness once (PGlite boot + migrations, or a Postgres probe); `/health` reads the result. */
   prepare(): Promise<DbReadiness>;
+  /** Closes the clients this graph opened itself (the rate-limit Redis connection); the database is the caller's. */
+  close(): Promise<void>;
 }
 
 /** Assembles the production dependency graph; every piece can be replaced (tests pass PGlite + a custom registry). */
@@ -73,10 +78,12 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
 
   let rateLimitStoreKind: "memory" | "redis" = "memory";
   let rateLimits: RateLimitStore;
+  let redisClient: Redis | null = null;
   if (options.rateLimits) {
     rateLimits = options.rateLimits;
   } else if (config.redisUrl && config.appEnv !== "test" && config.appEnv !== "development") {
     const redis = new Redis(config.redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1, enableOfflineQueue: false });
+    redisClient = redis;
     redis.on("error", (e) => log.warn({ err: e }, "redis error (rate limiting falls back to memory)"));
     rateLimits = new RedisRateLimitStore(redis, { onFallback: (e) => log.warn({ err: e }, "rate limiting fell back to the in-memory store") });
     rateLimitStoreKind = "redis";
@@ -98,7 +105,11 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
     readiness = await prepareDb(db, log, { service: "gateway" });
     return readiness;
   };
-  return { app, deps, config, rateLimitStoreKind, prepare };
+  const close = async () => {
+    const redis = redisClient;
+    if (redis && redis.status !== "end") await redis.quit().catch(() => redis.disconnect());
+  };
+  return { app, deps, config, rateLimitStoreKind, prepare, close };
 }
 
 /** Hosts tried in order: `::` (Railway's IPv6-only private network, ARCHITECTURE §17) then `0.0.0.0` where IPv6 is unavailable. */
@@ -174,17 +185,29 @@ export async function startGateway(options: BuildDepsOptions = {}): Promise<Runn
 
 const isMain = typeof process !== "undefined" && process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
-  startGateway()
+  const env = loadEnv();
+  const log = createLogger("gateway", env.LOG_LEVEL) as unknown as GatewayLogger;
+  let gateway: (RunningGateway & BuiltGateway) | null = null;
+  onShutdown({
+    service: "gateway",
+    log,
+    timeoutMs: env.SHUTDOWN_TIMEOUT_MS,
+    steps: () => [
+      {
+        name: "drain http",
+        run: async ({ remainingMs }) => {
+          if (!gateway) return;
+          const { forced } = await drainHttpServer(gateway.server, { timeoutMs: Math.max(0, remainingMs - 5_000) });
+          if (forced > 0) log.warn({ forced }, "gateway: connections still open at the drain deadline were cut");
+        },
+      },
+      { name: "close redis", run: () => gateway?.close() },
+      { name: "close database", run: () => gateway && closeDb(gateway.deps.db) },
+    ],
+  });
+  startGateway({ env, log })
     .then((g) => {
-      const shutdown = () => {
-        g.deps.log.info("gateway shutting down");
-        void g
-          .stop()
-          .then(() => closeDb(g.deps.db))
-          .finally(() => process.exit(0));
-      };
-      process.once("SIGINT", shutdown);
-      process.once("SIGTERM", shutdown);
+      gateway = g;
     })
     .catch((e) => {
       console.error("gateway failed to start:", e instanceof Error ? e.message : e);

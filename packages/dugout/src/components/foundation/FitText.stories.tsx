@@ -34,7 +34,7 @@ export const Names: Story = {
   ),
 };
 
-/** Titles in display type step down to 75 % (20 px → 15 px) before truncating. */
+/** Titles in display type step down to 75% (20 px → 15 px) before truncating. */
 export const ScreenTitle: Story = {
   render: () => (
     <div className="flex flex-col gap-2">

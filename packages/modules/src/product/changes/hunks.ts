@@ -96,7 +96,7 @@ export function impactLines(impact: ProposalImpact | null | undefined, currency 
   }
   if (typeof costMinor === "number") {
     const cur = typeof impact.currency === "string" ? impact.currency : currency;
-    out.push({ label: "Cost", value: new Intl.NumberFormat("en-GB", { style: "currency", currency: cur, currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 }).format(costMinor / 100), estimate: true });
+    out.push({ label: "Cost", value: new Intl.NumberFormat("en-US", { style: "currency", currency: cur, currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 }).format(costMinor / 100), estimate: true });
   }
   return out;
 }

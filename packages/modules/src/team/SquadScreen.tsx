@@ -149,7 +149,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
         loading={agentsQuery.isLoading && !agentsQuery.data}
         error={agentsQuery.error ? agentsQuery.error.message : undefined}
         onRetry={refetch}
-        empty={agentsQuery.data && agents.length === 0 ? { icon: Users, title: "No agents yet", children: "The team table lists every agent with its status, form, rating, model and wage once the first one is hired. Hire from the catalogue on the Recruitment tab.", action: { label: "Go to Recruitment", icon: UserRoundPlus, onClick: () => navigate(recruitHref) } } : undefined}
+        empty={agentsQuery.data && agents.length === 0 ? { icon: Users, title: "No agents yet", children: "The team table lists every agent with its status, form, rating, model and wage once the first one is hired. Hire from the catalog on the Recruitment tab.", action: { label: "Go to Recruitment", icon: UserRoundPlus, onClick: () => navigate(recruitHref) } } : undefined}
         meta={agents.length ? <span data-testid="squad-summary">{squadSummary(agents)}</span> : undefined}
         actions={
           <Button size="sm" icon={UserRoundPlus} onClick={() => navigate(recruitHref)}>

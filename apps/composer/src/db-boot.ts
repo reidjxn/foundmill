@@ -10,7 +10,8 @@
  *   (idempotent: a directory seeded by `pnpm db:seed` has nothing left to apply). This process owns the directory, so
  *   no advisory lock is needed.
  * - Postgres: a bounded connectivity probe through drizzle's migrations bookkeeping (`appliedMigrationCount`), no
- *   migration: apps/api runs the migrator for Postgres under `pg_advisory_lock(7461)` (ARCHITECTURE §13).
+ *   migration: apps/api runs the migrator for Postgres in one transaction under `pg_advisory_xact_lock(7461, 1)`
+ *   (packages/db migrator.ts; ARCHITECTURE §13).
  *
  * The same file lives in every service under apps/ until packages/db exports it (docs/WAVE3 open issue).
  */

@@ -97,7 +97,7 @@ export async function handleWebhook(deps: IngestDeps, mounted: readonly MountedW
     const foreign = events.find((e) => e.businessId !== ctx.businessId);
     if (foreign) {
       await deps.nonces.release(nonce);
-      return { status: 422, body: { ok: false, error: "business_mismatch", message: "Normalised events must belong to the business in the URL", connector: target.connector } };
+      return { status: 422, body: { ok: false, error: "business_mismatch", message: "Normalized events must belong to the business in the URL", connector: target.connector } };
     }
   }
 

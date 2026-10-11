@@ -19,7 +19,7 @@ export interface Hsl {
 export function hexToRgb(hex: string): Rgb {
   const h = hex.trim().replace(/^#/, "");
   const m = h.length === 3 ? h.split("").map((c) => c + c) : h.length === 6 || h.length === 8 ? [h.slice(0, 2), h.slice(2, 4), h.slice(4, 6)] : null;
-  if (!m || m.some((p) => !/^[0-9a-fA-F]{2}$/.test(p))) throw new Error(`Invalid hex colour: ${hex}`);
+  if (!m || m.some((p) => !/^[0-9a-fA-F]{2}$/.test(p))) throw new Error(`Invalid hex color: ${hex}`);
   const [r, g, b] = m.map((p) => parseInt(p, 16)) as [number, number, number];
   return { r, g, b };
 }

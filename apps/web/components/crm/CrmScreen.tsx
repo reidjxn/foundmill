@@ -19,7 +19,7 @@ import { useShellChrome } from "@/components/shell/chrome";
 import { MergeDialog, NewEntityDialog } from "./dialogs";
 import { CRM_VIEWS, KIND_WORD, LAWFUL_BASIS_LABEL, RETENTION_COPY, STAGE_TONE, groupByForView, groupCounts, groupLabel, roleWord, sourceWord, stageWord, type CrmRow, type OwnerRef } from "./logic";
 import { plainWords } from "@/lib/format";
-import { KIND_LABELS, chip, chipsToOperators, crmFilterFields, mergeChips, parseCrmQuery, type CrmFilterField } from "./search";
+import { KIND_LABELS, chip, chipsToOperators, crmFilterFields, mergeChips, operatorValueWord, parseCrmQuery, type CrmFilterField } from "./search";
 import { useEntityIndex } from "./useEntityIndex";
 
 const IMPORTERS = [
@@ -156,7 +156,7 @@ export function CrmScreen() {
                     if (!raw) clear();
                   }
                 }}
-                placeholder='Search people and organisations · try "churned customers owned by Mara" or kind:organisation role:supplier'
+                placeholder='Search people and organizations · try "churned customers owned by Mara" or kind:organization role:supplier'
                 aria-label="Search the CRM"
                 wrapperClassName="flex-1"
                 trailing={
@@ -176,7 +176,7 @@ export function CrmScreen() {
               <Icon icon={Sparkles} size="inline" />
               {parsedLive.chips.length ? (
                 <span>
-                  Press Enter to filter by {parsedLive.chips.map((c) => `${c.field}: ${String(c.value)}`).join(", ")}
+                  Press Enter to filter by {parsedLive.chips.map((c) => `${c.field}: ${operatorValueWord(c.field, String(c.value))}`).join(", ")}
                   {parsedLive.text ? ` and search "${parsedLive.text}"` : ""}
                 </span>
               ) : (
@@ -203,7 +203,7 @@ export function CrmScreen() {
                 </ul>
               </section>
             ))}
-            {live ? <p className="border-t border-subtle px-3 py-1.5 text-small text-secondary">Public profiles on the network appear here labelled "On Foundmill".</p> : null}
+            {live ? <p className="border-t border-subtle px-3 py-1.5 text-small text-secondary">Public profiles on the network appear here labeled "On Foundmill".</p> : null}
           </PopoverContent>
         </Popover>
         <div className="flex flex-wrap items-center gap-2">
@@ -237,7 +237,7 @@ export function CrmScreen() {
         loading={index.loading && index.rows.length === 0}
         error={index.error ? errorMessage(index.error) : undefined}
         onRetry={index.refetch}
-        empty={!index.loading && !index.error && index.rows.length === 0 ? { icon: Database, children: index.mode === "search" ? "Nothing matches. Try fewer words, an email or a domain, or clear the filters." : "People and organisations arrive from imports, integrations and agents' work. Add one by hand or connect an importer.", action: { label: "New record", icon: UserRoundPlus, onClick: () => setNewOpen(true) } } : undefined}
+        empty={!index.loading && !index.error && index.rows.length === 0 ? { icon: Database, children: index.mode === "search" ? "Nothing matches. Try fewer words, an email or a domain, or clear the filters." : "People and organizations arrive from imports, integrations and agents' work. Add one by hand or connect an importer.", action: { label: "New record", icon: UserRoundPlus, onClick: () => setNewOpen(true) } } : undefined}
         footer={index.mode === "search" ? "Matches names, emails and domains, notes and documents, and meaning." : "Everyone the business works with. Type above to search names, emails, notes and documents."}
         data-testid="crm-table-panel"
       >

@@ -61,7 +61,7 @@ export const sendgridTools = [
     hints: {},
     annotations: { readOnlyHint: true },
   }),
-  defineTool({ name: "add_suppression", description: "Add an address to the global unsubscribe list (honours an opt-out received elsewhere).", input: z.object({ emails: z.array(z.email()).min(1).max(100) }), output: z.object({ added: z.array(z.string()) }), hints: {}, annotations: { idempotentHint: true } }),
+  defineTool({ name: "add_suppression", description: "Add an address to the global unsubscribe list (honors an opt-out received elsewhere).", input: z.object({ emails: z.array(z.email()).min(1).max(100) }), output: z.object({ added: z.array(z.string()) }), hints: {}, annotations: { idempotentHint: true } }),
   defineTool({
     name: "send_mail",
     description: "Send an email on behalf of the business (never claiming to be human — BUILD §2.3). Refused when the sender is not verified, when marketing mail has no unsubscribe, or when any recipient is on the suppression list.",

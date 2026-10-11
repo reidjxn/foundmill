@@ -87,7 +87,7 @@ const channelMembers = (channels: ChannelKey[]): string[] => channels.map((c) =>
 // ---------------------------------------------------------------------------------------------------------------------
 
 const BASE_OUTLINE = ["Problem", "Customers", "Value proposition", "Features", "Non-functional requirements", "Data", "Integrations", "Pricing", "Metrics", "Risks"];
-const PHYSICAL_OUTLINE = [...BASE_OUTLINE.slice(0, 4), "Formulation / BOM", "Manufacturing", "Packaging", "Compliance", "Fulfilment", ...BASE_OUTLINE.slice(4)];
+const PHYSICAL_OUTLINE = [...BASE_OUTLINE.slice(0, 4), "Formulation / BOM", "Manufacturing", "Packaging", "Compliance", "Fulfillment", ...BASE_OUTLINE.slice(4)];
 
 // ---------------------------------------------------------------------------------------------------------------------
 // First-cycle tasks and Board decisions
@@ -108,7 +108,7 @@ const SPEC_TASK = (assignee = "product_lead"): FirstCycleTask =>
 const CHANNEL_TASK = task({
   kind: "channel",
   title: "Score the 15 channels and propose 3-6 starters",
-  goal: "Score every channel 1-20 on fit for this business and propose the starting formation with cost-per-customer ranges labelled Estimate.",
+  goal: "Score every channel 1-20 on fit for this business and propose the starting formation with cost-per-customer ranges labeled Estimate.",
   acceptance: ["All 15 channels scored with a reason", "3-6 starters with fit, potential, CPA range and a three-sentence why", "Budget split proposed within the monthly distribution budget"],
   assigneeTemplateKey: "distribution_strategist",
   departmentSlug: "distribution",
@@ -117,8 +117,8 @@ const CHANNEL_TASK = task({
 const FINANCE_TASK = task({
   kind: "finance",
   title: "Set up the first runway forecast",
-  goal: "Build the first cash and runway forecast from the founder's budget and the archetype's cost priors, labelled Forecast.",
-  acceptance: ["Base, upside and downside scenarios", "Every driver labelled Forecast or Estimate", "Runway warning thresholds configured"],
+  goal: "Build the first cash and runway forecast from the founder's budget and the archetype's cost priors, labeled Forecast.",
+  acceptance: ["Base, upside and downside scenarios", "Every driver labeled Forecast or Estimate", "Runway warning thresholds configured"],
   assigneeTemplateKey: "finance_lead",
   departmentSlug: "finance",
 });
@@ -171,7 +171,7 @@ const b2bSaas = ArchetypeSeed.parse({
     LEGAL_TASK("Recommend an incorporation jurisdiction and list the first compliance obligations for a software business selling to businesses.", [
       "Three jurisdictions compared with dated sources",
       "Data-protection obligations for the target markets listed",
-      "Recommendation labelled as a screen, not legal advice",
+      "Recommendation labeled as a screen, not legal advice",
     ]),
   ],
   boardDecision: board(
@@ -364,7 +364,7 @@ const dtcPhysical = ArchetypeSeed.parse({
     ),
     SPECIALIST_TASK(
       "Landed cost model v1",
-      "Model per-unit landed cost from the first quotes and freight estimates at three volumes, labelled Estimate.",
+      "Model per-unit landed cost from the first quotes and freight estimates at three volumes, labeled Estimate.",
       ["Every line cites a quote id or is marked Estimate", "Three volume tiers", "Margin per channel at the planned price"],
       "costing",
     ),
@@ -375,9 +375,9 @@ const dtcPhysical = ArchetypeSeed.parse({
     ]),
     CHANNEL_TASK,
     FINANCE_TASK,
-    LEGAL_TASK("List product compliance, labelling and consumer obligations for the target markets and recommend a jurisdiction.", [
+    LEGAL_TASK("List product compliance, labeling and consumer obligations for the target markets and recommend a jurisdiction.", [
       "Product regulation named per market with dates",
-      "Labelling requirements listed",
+      "Labeling requirements listed",
       "Jurisdiction recommendation with dated sources",
     ]),
   ],
@@ -435,7 +435,7 @@ const hardware = ArchetypeSeed.parse({
     SPEC_TASK(),
     SPECIALIST_TASK(
       "Certification map",
-      "Identify the directives, standards and conformity routes for the target markets and the tests a lab must run, with lead times and costs labelled Estimate.",
+      "Identify the directives, standards and conformity routes for the target markets and the tests a lab must run, with lead times and costs labeled Estimate.",
       ["Every directive and standard cited with date", "Test plan with sample counts", "No lab booked; the founder approves bookings"],
       "certification",
     ),
@@ -523,7 +523,7 @@ const services = ArchetypeSeed.parse({
   ],
   boardDecision: board(
     "services",
-    "Productised package or bespoke engagements first?",
+    "Productized package or bespoke engagements first?",
     [
       "A services business scales through repeatable delivery. The Board asks whether the first clients buy a fixed package or bespoke work.",
     ],
@@ -568,7 +568,7 @@ const contentMedia = ArchetypeSeed.parse({
     { base: DEPARTMENT_DEFAULTS.legal, members: [] },
   ]),
   defaultChannels: ["content", "social", "email_automation", "seo", "geo"],
-  specOutline: [...BASE_OUTLINE.slice(0, 3), "Editorial formats and cadence", "Audience and membership", "Sponsorship and monetisation", ...BASE_OUTLINE.slice(3)],
+  specOutline: [...BASE_OUTLINE.slice(0, 3), "Editorial formats and cadence", "Audience and membership", "Sponsorship and monetization", ...BASE_OUTLINE.slice(3)],
   firstCycleTasks: [
     SPEC_TASK(),
     CODE_TASK("Plan the publication site and membership", "Build the task graph for the site, newsletter signup with consent, paid membership through the billing connector and sponsorship tracking links.", [

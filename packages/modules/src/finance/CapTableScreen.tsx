@@ -26,7 +26,7 @@ export function holderKind(kind: string): EntityKind {
 
 export type HolderRow = CapTableSummary["byHolder"][number] & { kind: string };
 
-const HOLDER_KIND_WORD: Record<string, string> = { person: "Person", organisation: "Organisation", team_member: "Team member", agent: "Agent" };
+const HOLDER_KIND_WORD: Record<string, string> = { person: "Person", organisation: "Organization", team_member: "Team member", agent: "Agent" };
 
 export function holderRows(data: CapTableResponse | undefined): HolderRow[] {
   if (!data) return [];
@@ -38,7 +38,7 @@ export const HOLDER_VIEWS: SavedView[] = [
   { id: "all", name: "All holders", builtIn: true, columns: ["name", "quantity", "pct", "positions"], sort: [{ id: "quantity", desc: true }], filters: [] },
   { id: "kinds", name: "Holders by kind", builtIn: true, columns: ["name", "kind", "quantity", "pct"], sort: [{ id: "kind", desc: false }], filters: [] },
   { id: "people", name: "People", builtIn: true, columns: ["name", "quantity", "pct", "positions"], sort: [{ id: "quantity", desc: true }], filters: [{ id: "f-p", field: "kind", op: "in", value: ["person", "team_member"] }] },
-  { id: "orgs", name: "Organisations", builtIn: true, columns: ["name", "quantity", "pct", "positions"], sort: [{ id: "quantity", desc: true }], filters: [{ id: "f-o", field: "kind", op: "eq", value: "organisation" }] },
+  { id: "orgs", name: "Organizations", builtIn: true, columns: ["name", "quantity", "pct", "positions"], sort: [{ id: "quantity", desc: true }], filters: [{ id: "f-o", field: "kind", op: "eq", value: "organisation" }] },
 ];
 
 export const ISSUANCE_VIEWS: SavedView[] = [
@@ -65,7 +65,7 @@ export const ISSUANCE_FIT = {
   quantity: { min: 100 },
   price: { min: 80 },
   consideration: { min: 130 },
-  issuedAt: { min: 100 },
+  issuedAt: { min: 112 },
   vesting: { min: 176, grow: 1 },
   vestedPct: { min: 90 },
   principal: { min: 110 },
@@ -171,8 +171,8 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
   const tiles: MetricTileProps[] = [
     { label: "Fully diluted shares", value: data?.summary.totalQuantity ?? null, format: "integer", provenance: { source: "Cap table entries, every live position including options and converted instruments", query: "finance.capTable.get" } },
     { label: "Holders", value: holders.length, format: "integer", provenance: { source: "Distinct holder entities in the CRM" } },
-    { label: "Option pool", value: pool.authorised ? pool.available / pool.authorised : "—", format: "percent", caption: pool.authorised ? `${fmtQuantity(pool.available)} of ${fmtQuantity(pool.authorised)} unallocated` : "No option class yet", provenance: { source: "Authorised option classes minus issued options", note: "The share of the pool still available to grant." } },
-    { label: "Convertibles", value: { amountMinor: convertiblePrincipal, currency: cur }, caption: `${convertibles.length} SAFE${convertibles.length === 1 ? "" : "s"} or note${convertibles.length === 1 ? "" : "s"} outstanding`, provenance: { source: "Principal of post-money SAFEs and convertible notes", note: "Converts into shares at the next priced round (see round modelling)." } },
+    { label: "Option pool", value: pool.authorised ? pool.available / pool.authorised : "—", format: "percent", caption: pool.authorised ? `${fmtQuantity(pool.available)} of ${fmtQuantity(pool.authorised)} unallocated` : "No option class yet", provenance: { source: "Authorized option classes minus issued options", note: "The share of the pool still available to grant." } },
+    { label: "Convertibles", value: { amountMinor: convertiblePrincipal, currency: cur }, caption: `${convertibles.length} SAFE${convertibles.length === 1 ? "" : "s"} or note${convertibles.length === 1 ? "" : "s"} outstanding`, provenance: { source: "Principal of post-money SAFEs and convertible notes", note: "Converts into shares at the next priced round (see round modeling)." } },
   ];
 
   const holderActions = (row: HolderRow): RowAction<HolderRow>[] => [
@@ -214,7 +214,7 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
                 </span>
               </div>
               <p className="text-small text-secondary tabular-nums">
-                {fmtQuantity(c.quantity)} issued{c.authorisedQuantity === null ? "" : ` of ${fmtQuantity(c.authorisedQuantity)} authorised`} · {c.holders} holder{c.holders === 1 ? "" : "s"}
+                {fmtQuantity(c.quantity)} issued{c.authorisedQuantity === null ? "" : ` of ${fmtQuantity(c.authorisedQuantity)} authorized`} · {c.holders} holder{c.holders === 1 ? "" : "s"}
               </p>
             </li>
           ))}
@@ -253,7 +253,7 @@ export function CapTableScreen({ businessId }: ModuleScreenProps) {
           </div>
         )}
       </Panel>
-      <Panel title="Round modelling" span={12} loading={cap.isLoading} actions={empty ? undefined : <ProvenanceChip kind="estimate" />} footer={empty ? undefined : <span>Post-money SAFEs convert first at principal ÷ cap (or at the discount when it gives more shares), the pool is topped up to the target, then new shares are priced at pre-money ÷ pre-round fully diluted. An estimate for discussion, not a term sheet.</span>}>
+      <Panel title="Round modeling" span={12} loading={cap.isLoading} actions={empty ? undefined : <ProvenanceChip kind="estimate" />} footer={empty ? undefined : <span>Post-money SAFEs convert first at principal ÷ cap (or at the discount when it gives more shares), the pool is topped up to the target, then new shares are priced at pre-money ÷ pre-round fully diluted. An estimate for discussion, not a term sheet.</span>}>
         {empty ? (
           quiet("Model a priced round here once the first shares are recorded.")
         ) : (

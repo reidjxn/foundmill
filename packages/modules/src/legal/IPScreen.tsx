@@ -80,7 +80,7 @@ export function IPScreen({ businessId: _businessId }: ModuleScreenProps) {
     { label: "Word mark", value: businessName || "—", hint: legalName && legalName !== businessName ? `Legal name ${legalName}` : "The trading name; screen it above before spending on brand" },
     { label: "Source code", value: connected.some((i) => i.connectorKey === "github") ? <span className="inline-flex items-center gap-1"><Code2 size={14} aria-hidden /> GitHub connected</span> : "No repository connected", hint: "Copyright is yours when written by employees; contractors and agents need an assignment clause (see Contracts)" },
     { label: "Domains", value: connected.some((i) => i.connectorKey === "cloudflare_dns") ? <span className="inline-flex items-center gap-1"><Globe size={14} aria-hidden /> Cloudflare DNS connected</span> : "No DNS connected", hint: "Register the mark in the classes you trade in before buying more domains" },
-    { label: "Content", value: connected.some((i) => i.connectorKey === "notion" || i.connectorKey === "google_drive") ? "Documents connected" : "—", hint: "Templates, copy and designs the team produces are owned by the company; keep the licence terms of fonts and stock assets" },
+    { label: "Content", value: connected.some((i) => i.connectorKey === "notion" || i.connectorKey === "google_drive") ? "Documents connected" : "—", hint: "Templates, copy and designs the team produces are owned by the company; keep the license terms of fonts and stock assets" },
   ];
 
   return (

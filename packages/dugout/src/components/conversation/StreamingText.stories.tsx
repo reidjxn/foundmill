@@ -14,7 +14,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Agent words arriving at 22–34 ms per character with a 120 ms pause at commas; the newest words in text-2 until they settle; a caret in the agent's colour while the stream is open. Mentions arrive whole. Reduced motion renders the text whole.",
+          "Agent words arriving at 22–34 ms per character with a 120 ms pause at commas; the newest words in text-2 until they settle; a caret in the agent's color while the stream is open. Mentions arrive whole. Reduced motion renders the text whole.",
       },
     },
   },

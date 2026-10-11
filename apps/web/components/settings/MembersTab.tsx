@@ -15,7 +15,7 @@ import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
 
 const ROLE_HELP: Record<MembershipRole, string> = {
   owner: "Everything, including tier changes and permanent actions.",
-  admin: "Modes, holiday, the stop switch, staff, keys, billing, integrations and structure.",
+  admin: "Modes, vacation, the stop switch, staff, keys, billing, integrations and structure.",
   member: "Day-to-day work: inbox decisions, tasks, channels and departments.",
   viewer: "Read only.",
   advisor: "Read only, invited for advice.",

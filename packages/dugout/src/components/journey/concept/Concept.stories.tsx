@@ -9,7 +9,7 @@ const concepts = conceptFixtures();
 const meta = {
   title: "Journey/ConceptCard",
   component: ConceptCard,
-  parameters: { docs: { description: { component: "Ideation Studio player cards (BUILD §11.1, DESIGN §9): logo, name, pitch, current and potential stars, ten attributes as 20-cell ramp bars with evidence on hover, and the Shortlist / Merge / Fork / Ask / Discard actions. Compare lays 2–4 cards side by side with a radar in department colours and the agent verdict." } } },
+  parameters: { docs: { description: { component: "Ideation Studio player cards (BUILD §11.1, DESIGN §9): logo, name, pitch, current and potential stars, ten attributes as 20-cell ramp bars with evidence on hover, and the Shortlist / Merge / Fork / Ask / Discard actions. Compare lays 2–4 cards side by side with a radar in department colors and the agent verdict." } } },
   args: { concept: concepts[0]! },
 } satisfies Meta<typeof ConceptCard>;
 export default meta;
@@ -47,7 +47,7 @@ export const CompareTwo: Story = { name: "Compare · 2", render: () => <ConceptC
 export const CompareThree: Story = { name: "Compare · 3", render: () => <ConceptCompare concepts={concepts.slice(0, 3)} /> };
 export const CompareFour: Story = { name: "Compare · 4", render: () => <ConceptCompare concepts={concepts} /> };
 
-/** A narrow card: Shortlist and Ask become icon buttons with tooltips, "More like this" stays a labelled generate pill, Merge and Discard are in More. */
+/** A narrow card: Shortlist and Ask become icon buttons with tooltips, "More like this" stays a labeled generate pill, Merge and Discard are in More. */
 export const Narrow: Story = {
   render: (args) => (
     <div style={{ width: 300 }}>

@@ -8,6 +8,7 @@ import type { InboxItemType, InboxState, Money } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { runwayWords } from "@foundmill/widgets/shared/runway";
 import { NOTE_TYPE_TAGS, noteRowTag, type NoteTag as SharedNoteTag, type NoteTagIcon, type NoteTagTone } from "@foundmill/widgets/shared/note-tags";
+import { formatNumber } from "@/lib/format";
 
 // --- tabs --------------------------------------------------------------------------------------------------------------
 
@@ -329,7 +330,7 @@ export function parseFreeMetric(raw: string): FreeMetric {
   }
   const figure = m[0].trim();
   // "1101" → "1,101": figures written without grouping read like ids.
-  const value = /^\d{4,}$/.test(figure) ? Number(figure).toLocaleString("en-GB") : figure;
+  const value = /^\d{4,}$/.test(figure) ? formatNumber(Number(figure)) : figure;
   const rest = (text.slice(0, m.index) + " " + text.slice(m.index + m[0].length)).replace(/\b(\d+)d\b/g, "$1 days").replace(/\s+/g, " ");
   const label = tidy(rest) || "Figure";
   return { label: label.charAt(0).toUpperCase() + label.slice(1), value, estimate };
