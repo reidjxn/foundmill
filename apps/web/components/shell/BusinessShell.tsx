@@ -245,8 +245,13 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
 
   // --- Continue ------------------------------------------------------------------------------------------------
   const continueState = useMemo(
-    () => computeContinueState({ blocking: inboxQ.data?.blocking ?? data.blockingItems ?? 0, items: inboxQ.data?.items, holiday: data.holiday, cycle }),
-    [inboxQ.data?.blocking, inboxQ.data?.items, data.blockingItems, data.holiday, cycle],
+    () => {
+      const state = computeContinueState({ blocking: inboxQ.data?.blocking ?? data.blockingItems ?? 0, items: inboxQ.data?.items, holiday: data.holiday, cycle });
+      // "On vacation until Oct 21" is the founder's own day, known only in the browser (see `today`): until then the
+      // caption reads "On vacation", so the server's UTC day never mismatches the browser's on hydration.
+      return state.kind === "holiday" && today === null ? { ...state, until: null } : state;
+    },
+    [inboxQ.data?.blocking, inboxQ.data?.items, data.blockingItems, data.holiday, cycle, today],
   );
 
   const refreshInbox = useMutation(

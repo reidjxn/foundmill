@@ -101,7 +101,7 @@ describe("capTable", () => {
     await repos.capTable.createEntry(r.db, A, { holderEntityId: founder.id, securityId: common.id, quantity: 7000, issuedAt: "2026-01-01" });
     await repos.capTable.createEntry(r.db, A, { holderEntityId: angel.id, securityId: common.id, quantity: 1000, priceMinor: 500 });
     await repos.capTable.createEntry(r.db, A, { holderEntityId: founder.id, securityId: pool.id, quantity: 500, vesting: { cliffMonths: 12, months: 48 } });
-    await expect(repos.capTable.createEntry(r.db, A, { holderEntityId: angel.id, securityId: common.id, quantity: 2500 })).rejects.toThrow(/exceeds the authorised/);
+    await expect(repos.capTable.createEntry(r.db, A, { holderEntityId: angel.id, securityId: common.id, quantity: 2500 })).rejects.toThrow(/exceeds the authorized/);
     await expect(repos.capTable.createEntry(r.db, A, { holderEntityId: r.B.entityId, securityId: common.id, quantity: 1 })).rejects.toThrow(/not an entity of this business/);
     await expect(repos.capTable.createEntry(r.db, r.B.businessId, { holderEntityId: r.B.entityId, securityId: common.id, quantity: 1 })).rejects.toThrow(/not found/);
 
