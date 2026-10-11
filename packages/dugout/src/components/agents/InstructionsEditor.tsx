@@ -2,10 +2,10 @@
 import { useId, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, GitCompareArrows, MessageSquare, PenLine, Plus, ShieldAlert, X } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { formatDateTime } from "../../lib/format";
 import { DiffView } from "../data/DiffView";
 import { Button } from "../foundation/Button";
 import { Chip } from "../foundation/Chip";
+import { useFormatters } from "../foundation/DateFormatProvider";
 import { Icon } from "../foundation/Icon";
 import { IconButton } from "../foundation/IconButton";
 import { Field } from "../foundation/Label";
@@ -178,6 +178,7 @@ function Section({ id, section, children }: { id: string; section: InstructionSe
  */
 export function InstructionsEditor({ value, onChange, previous, versions = [], violations = [], comments = [], onComment, readOnly, mode: modeProp, defaultMode = "edit", onModeChange, className }: InstructionsEditorProps) {
   const id = useId();
+  const { formatDateTime } = useFormatters();
   const [modeState, setModeState] = useState<"edit" | "diff">(defaultMode);
   const mode = modeProp ?? modeState;
   const setMode = (m: "edit" | "diff") => {

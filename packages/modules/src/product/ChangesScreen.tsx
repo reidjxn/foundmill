@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCheck, FileDiff, FolderOpen, X } from "lucide-react";
-import { Chip, DataTable, EntityLink, Panel, StatusPill, formatDate, useEntityLinkContext, type DataTableColumn, type SavedView } from "@foundmill/dugout";
+import { Chip, DataTable, EntityLink, Panel, StatusPill, useEntityLinkContext, type DataTableColumn, type SavedView } from "@foundmill/dugout";
 import { PROPOSAL_STATUSES, SEVERITIES } from "@foundmill/shared";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
@@ -14,6 +14,7 @@ import { ProposalDetail } from "./changes/ProposalDetail";
 import { PROPOSAL_STATUS_PILL, SEVERITY_CHIP, decisionProgress, impactLines } from "./changes/hunks";
 import { InlineError, Screen, useAction, useAgentNames } from "./shared";
 import type { ProposalRow, ProposalWithHunks, ProposalsListResponse, RoadmapResponse, SourceRow, SourcesListResponse, SpecGetResponse, SpecVersionRow } from "./types";
+import { DateText } from "../dates";
 
 export const PROPOSAL_VIEWS: SavedView[] = [
   // The list sits in a third of the screen: the Open view keeps to what fits (the rest is in the detail and in All).
@@ -72,8 +73,8 @@ export function proposalColumns(currency: string): DataTableColumn<ProposalRow>[
     { id: "proposedBy", accessorFn: (r) => r.proposedByAgentId ?? "", header: "Proposed by", size: 150, cell: ({ row }) => <ProposerCell id={row.original.proposedByAgentId} />, meta: { filter: false } },
     { id: "evidence", accessorFn: (r) => r.evidence.length, header: "Evidence", size: 90, meta: { numeric: true } },
     { id: "impact", accessorFn: (r) => r.impact?.summary ?? impactLines(r.impact, currency).map((l) => `${l.label} ${l.value}`).join(" · "), header: "Impact", size: 220, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "")}</span> },
-    { accessorKey: "createdAt", header: "Raised", size: 110, cell: ({ getValue }) => <span className="tabular-nums">{formatDate(getValue() as string)}</span>, meta: { filter: "date" } },
-    { id: "resolvedAt", accessorFn: (r) => r.resolvedAt ?? "", header: "Resolved", size: 110, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(getValue() as string) : "—"}</span>, meta: { filter: "date" } },
+    { accessorKey: "createdAt", header: "Raised", size: 110, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() as string} />, meta: { filter: "date" } },
+    { id: "resolvedAt", accessorFn: (r) => r.resolvedAt ?? "", header: "Resolved", size: 110, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() as string} />, meta: { filter: "date" } },
   ];
 }
 

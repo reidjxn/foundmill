@@ -10,7 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Dumbbell, MessageCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Avatar, Button, EntityLink, HealthBadge, ModelChip, ProfileHeader, formatMoney, type ProfileChip, type ProfileFact, type TabItem } from "@foundmill/dugout";
+import { Avatar, Button, EntityLink, HealthBadge, ModelChip, ProfileHeader, formatMoney, useDateFormat, type ProfileChip, type ProfileFact, type TabItem } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -43,6 +43,7 @@ export interface TabProps {
 }
 
 export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
+  const datePrefs = useDateFormat();
   const { businessId, data, departments } = useBusiness();
   const trpc = useTRPC();
   const router = useRouter();
@@ -93,7 +94,7 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
       label: "Line manager",
       value: profile.lineManager ? <EntityLink entity={{ id: profile.lineManager.id, kind: "agent", name: profile.lineManager.name, href: routes.agent(businessId, profile.lineManager.id) }} hoverCard={false} contextMenu={false} /> : <span className="text-secondary">You</span>,
     },
-    { label: wageLabel(profile.wage.period), value: `${formatMoney({ amountMinor: profile.wage.costMinor, currency: agent.currency ?? currency })}${profile.wage.wageCapMinor !== null ? ` of ${formatMoney({ amountMinor: profile.wage.wageCapMinor, currency: agent.currency ?? currency })}` : ""}`, provenance: "estimate" },
+    { label: wageLabel(profile.wage.period, undefined, datePrefs), value: `${formatMoney({ amountMinor: profile.wage.costMinor, currency: agent.currency ?? currency })}${profile.wage.wageCapMinor !== null ? ` of ${formatMoney({ amountMinor: profile.wage.wageCapMinor, currency: agent.currency ?? currency })}` : ""}`, provenance: "estimate" },
     { label: "Tasks · 30 days", value: profile.metrics.reduce((s, m) => s + m.tasksDone, 0) },
   ];
   const typeCount = squadQ.data?.agents.filter((a) => a.agentType === agent.agentType).length;

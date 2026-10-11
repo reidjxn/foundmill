@@ -36,6 +36,15 @@ export const Development: Story = {
   },
 };
 
+/** Server-safe, so the caller passes the signed-in person's date format (`useDateFormat()`): ISO axis labels. */
+export const DevelopmentIsoDates: Story = {
+  name: "Development · ISO dates",
+  render: () => {
+    const { series, sessions } = mockDevelopmentSeries();
+    return <DevelopmentChart series={series} sessions={sessions} dept="dept-2" width={760} aria-label="Juno: skill development since July" datePrefs={{ date: "iso", time: "24h" }} />;
+  },
+};
+
 export const Health: Story = {
   render: () => (
     <div className="flex flex-col gap-3">

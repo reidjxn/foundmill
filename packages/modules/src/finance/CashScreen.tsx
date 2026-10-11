@@ -6,13 +6,14 @@
  */
 import { useMemo, useState } from "react";
 import { AlertTriangle, CalendarClock, ExternalLink, Landmark, Search, ShieldCheck, Tag } from "lucide-react";
-import { Button, Chip, DataTable, EntityLink, Figure, Input, Panel, StatusPill, cn, formatDate, formatRelative, type ChipTone, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, DataTable, EntityLink, Figure, Input, Panel, StatusPill, cn, formatRelative, useFormatters, type ChipTone, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { daysUntil } from "@foundmill/widgets/shared/time";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { PNL_CATEGORY_OPTIONS, categoryLabel, monthStart, plainWords, sectionOf, type PnlSection } from "./metrics";
 import { RecategoriseDialog } from "./RecategoriseDialog";
+import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
 import { Screen, fmtMoney, fmtSigned, useCurrency, useNow } from "./shared";
 import type { AccountRow, AccountsListResponse, CategorySource, TransactionRow, TransactionsListResponse } from "./types";
@@ -72,7 +73,7 @@ export type TransactionColumnId = keyof typeof TRANSACTION_FIT;
 export function transactionColumns(accounts: readonly AccountRow[], businessId: string, monthStartIso: string, sizes: Record<TransactionColumnId, number> = fitColumns<TransactionColumnId>(null, TRANSACTION_FIT, [])): DataTableColumn<TransactionRow>[] {
   const accountName = new Map(accounts.map((a) => [a.id, a.name]));
   return [
-    { id: "bookedAt", accessorKey: "bookedAt", header: "Date", size: sizes.bookedAt, cell: ({ getValue }) => <span className="tabular-nums">{formatDate(getValue() as string)}</span>, meta: { filter: "date", locked: true } },
+    { id: "bookedAt", accessorKey: "bookedAt", header: "Date", size: sizes.bookedAt, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() as string} />, meta: { filter: "date", locked: true } },
     {
       id: "counterparty",
       accessorFn: (r) => r.counterparty ?? "",
@@ -116,6 +117,7 @@ export function providerName(provider: string | null | undefined): string {
 }
 
 export function AccountCard({ account, now, onReconnect }: { account: AccountRow; now: Date; onReconnect: () => void }) {
+  const { formatDate } = useFormatters();
   const consent = consentState(account.consentExpiresAt, now);
   return (
     <article aria-label={account.name} className="flex min-w-0 flex-col gap-2 bg-panel p-panel-pad">

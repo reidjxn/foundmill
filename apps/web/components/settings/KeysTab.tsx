@@ -7,7 +7,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import type { IntegrationStatus } from "@foundmill/shared";
 import { KeyRound, RefreshCw, ShieldOff } from "lucide-react";
 import { useState } from "react";
-import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, StatusPill } from "@foundmill/dugout";
+import { Button, Chip, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, StatusPill, useDateFormat } from "@foundmill/dugout";
 import { formatDateTime, plainWords } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -20,6 +20,7 @@ import { AdminOnly, Hint, SettingsSection, useSettingsToast } from "./shared";
 export const SPEND_LIMIT_ADVICE = "Also set a monthly spend limit in your Anthropic Console: the key is yours, and the limit there is the ceiling no agent can exceed.";
 
 export function KeysTab() {
+  const datePrefs = useDateFormat();
   const { businessId } = useBusiness();
   const trpc = useTRPC();
   const invalidate = useInvalidateRouters();
@@ -51,8 +52,8 @@ export function KeysTab() {
         {configured && latest ? (
           <KeyValueList
             items={[
-              { label: "Stored", value: formatDateTime(latest.createdAt) },
-              { label: "Expires", value: latest.expiresAt ? formatDateTime(latest.expiresAt) : "No expiry" },
+              { label: "Stored", value: formatDateTime(latest.createdAt, datePrefs) },
+              { label: "Expires", value: latest.expiresAt ? formatDateTime(latest.expiresAt, datePrefs) : "No expiry" },
               { label: "Credentials", value: String(status.data?.credentials.length ?? 0), numeric: true },
             ]}
           />
@@ -85,7 +86,7 @@ export function KeysTab() {
               </ul>
             ) : null}
             <Hint>
-              Checked {formatDateTime(validation.checkedAt)}{validation.mode === "mock" ? " in test mode" : ""}.
+              Checked {formatDateTime(validation.checkedAt, datePrefs)}{validation.mode === "mock" ? " in test mode" : ""}.
             </Hint>
           </div>
         ) : null}

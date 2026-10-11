@@ -6,7 +6,7 @@
  */
 import { useMemo, useState } from "react";
 import { AlertTriangle, Bot, GraduationCap, UserRound, Users } from "lucide-react";
-import { AgentStatusPill, Chip, DataTable, DeptChip, EntityLink, MiniTable, Panel, StatusPill, StatusStrip, SimpleSelect, DATE_FORMATS, currencySymbol, formatCompact, formatDate, formatNumber, formatPercent, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
+import { AgentStatusPill, Chip, DataTable, DeptChip, EntityLink, MiniTable, Panel, StatusPill, StatusStrip, SimpleSelect, currencySymbol, formatCompact, formatNumber, formatPercent, useFormatters, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
@@ -162,6 +162,7 @@ export function wageColumns(businessId: string, currency: string, sizes: Record<
 
 export function WageBillScreen({ businessId }: ModuleScreenProps) {
   const now = useNow();
+  const { prefs: datePrefs, formatMonthYear } = useFormatters();
   const currency = useCurrency();
   const { navigate } = useWidgetData();
   const periods = useMemo(() => [monthKey(now), ...trailingMonths(now, 6).reverse()], [now]);
@@ -190,9 +191,9 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
   const overCap = rows.filter((r) => (r.capUsedPct ?? 0) >= CAP_WARN_PCT);
 
   const tiles: MetricTileProps[] = [
-    { label: "Team payroll", value: { amountMinor: squadMinor, currency }, estimate: "estimate", provenance: { source: "Usage ledger: tokens, sandbox minutes, tool calls, training", query: "finance.wages", note: "Metered at list prices; the Anthropic invoice is the only real cost." }, caption: `${rows.filter((r) => r.costMinor > 0).length} agents with usage in ${formatMonth(period)}` },
+    { label: "Team payroll", value: { amountMinor: squadMinor, currency }, estimate: "estimate", provenance: { source: "Usage ledger: tokens, sandbox minutes, tool calls, training", query: "finance.wages", note: "Metered at list prices; the Anthropic invoice is the only real cost." }, caption: `${rows.filter((r) => r.costMinor > 0).length} agents with usage in ${formatMonth(period, datePrefs)}` },
     { label: "Human payroll", value: { amountMinor: payrollMinor, currency }, estimate: "estimate", provenance: { source: pnl.data?.label ?? "Management P&L, unaudited, cash basis", query: "finance.pnl categories Payroll, Contractors", note: "Bank outflows categorized as payroll or contractors in the month." }, caption: `${staff.length} staff member${staff.length === 1 ? "" : "s"}` },
-    { label: "Total payroll", value: { amountMinor: squadMinor + payrollMinor, currency }, estimate: "estimate", provenance: { source: "Team payroll + human payroll", note: "Team and staff together for the month." }, caption: formatMonth(period) },
+    { label: "Total payroll", value: { amountMinor: squadMinor + payrollMinor, currency }, estimate: "estimate", provenance: { source: "Team payroll + human payroll", note: "Team and staff together for the month." }, caption: formatMonth(period, datePrefs) },
     { label: perHundredLabel(currency), value: outputPerHundred(tasksDone, squadMinor) ?? "—", format: "decimal", estimate: outputPerHundred(tasksDone, squadMinor) === null ? undefined : "estimate", provenance: { source: "Tasks completed ÷ team payroll", query: "dev.tasks.list status=done", note: `Tasks marked done in the month for every ${perHundredLabel(currency).replace("Tasks per ", "")} of team cost.` }, caption: `${tasksDone} task${tasksDone === 1 ? "" : "s"} done` },
   ];
 
@@ -227,10 +228,10 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
                 {overCap.length} near or over cap
               </StatusPill>
             ) : null}
-            <SimpleSelect aria-label="Period" controlSize="sm" value={period} onValueChange={setPeriod} options={periods.map((p) => ({ value: p, label: formatMonth(p) }))} />
+            <SimpleSelect aria-label="Period" controlSize="sm" value={period} onValueChange={setPeriod} options={periods.map((p) => ({ value: p, label: formatMonth(p, datePrefs) }))} />
           </div>
         }
-        footer={<span className="tabular-nums">{rows.length} agents · {fmtMoney(squadMinor, currency)} in {formatMonth(period)} · Estimate: metered usage at list prices</span>}
+        footer={<span className="tabular-nums">{rows.length} agents · {fmtMoney(squadMinor, currency)} in {formatMonth(period, datePrefs)} · Estimate: metered usage at list prices</span>}
       >
         <div className="min-w-0">
           <DataTable<WageBillRow> aria-label="Team payroll" data={rows} columns={columns} getRowId={(r) => r.agentId} views={views} onViewsChange={setViews} defaultViewId="all" height={480} exportFileName={`wage-bill-${period}`} rowActions={rowActions} onRowOpen={(r) => navigate(routes.agent(businessId, r.agentId))} />
@@ -245,7 +246,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
           columns={[
             { id: "who", header: "Member", cell: (m) => <EntityLink entity={{ id: m.userId, kind: "team_member", name: m.displayName ?? m.email ?? "Team member" }} hoverCard={false} /> },
             { id: "role", header: "Role", width: 84, cell: (m) => <Chip tone="neutral">{memberRoleWord(m.role)}</Chip> },
-            { id: "since", header: "Since", width: 80, cell: (m) => <span className="tabular-nums">{m.createdAt ? formatDate(m.createdAt, DATE_FORMATS.monthYear) : "—"}</span> },
+            { id: "since", header: "Since", width: 80, cell: (m) => <span className="tabular-nums">{m.createdAt ? formatMonthYear(m.createdAt) : "—"}</span> },
           ]}
           caption={<span className="tabular-nums">Payroll {fmtMoney(payrollMinor, currency)} · Estimate</span>}
         />

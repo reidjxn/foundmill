@@ -4,7 +4,8 @@ import { curveMonotoneX, line as d3Line } from "d3-shape";
 import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { deptColourVar } from "../../lib/colour";
-import { DATE_FORMATS, formatDate } from "../../lib/format";
+import type { DateFormatPrefs } from "../../lib/date-preferences";
+import { bindFormatters } from "../../lib/format";
 import type { SkillHistorySeries, TrainingSessionMark } from "./types";
 
 export interface DevelopmentChartProps {
@@ -16,6 +17,11 @@ export interface DevelopmentChartProps {
   height?: number;
   className?: string;
   "aria-label"?: string;
+  /**
+   * The signed-in person's date format (Settings › Preferences): pass `useDateFormat()` from the caller. Server-safe,
+   * so the chart cannot read it itself; US dates without it.
+   */
+  datePrefs?: DateFormatPrefs | null;
 }
 
 const DASHES = ["", "6 3", "2 3", "8 3 2 3"];
@@ -30,8 +36,9 @@ export function chartDomain(series: readonly SkillHistorySeries[], sessions: rea
 }
 
 /** Skill history lines in the department colour with training sessions as diamonds (DESIGN §9 Agent profile). */
-export function DevelopmentChart({ series, sessions = [], dept, width = 640, height = 220, className, "aria-label": ariaLabel = "Development chart" }: DevelopmentChartProps) {
+export function DevelopmentChart({ series, sessions = [], dept, width = 640, height = 220, className, "aria-label": ariaLabel = "Development chart", datePrefs }: DevelopmentChartProps) {
   const id = useId();
+  const { formatDate, formatDateShort } = bindFormatters(datePrefs);
   const margin = { top: 20, right: 16, bottom: 28, left: 28 };
   const innerW = width - margin.left - margin.right;
   const innerH = height - margin.top - margin.bottom;
@@ -60,7 +67,7 @@ export function DevelopmentChart({ series, sessions = [], dept, width = 640, hei
             ))}
             {ticks.map((t) => (
               <text key={t.getTime()} x={x(t)} y={innerH + 18} textAnchor="middle" className="chart-tick">
-                {formatDate(t, DATE_FORMATS.dayMonth)}
+                {formatDateShort(t)}
               </text>
             ))}
             {sessions.map((s) => {

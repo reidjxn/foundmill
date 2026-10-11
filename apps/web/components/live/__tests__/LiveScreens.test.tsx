@@ -5,6 +5,8 @@ import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/re
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FakeApi } from "./fake-trpc";
+import { format } from "date-fns";
+import { DateFormatProvider } from "@foundmill/dugout";
 
 const api = vi.hoisted(() => ({ handlers: {}, calls: [] }) as FakeApi);
 const ctx = vi.hoisted(() => ({ gameMode: "live" as "live" | "personal", role: "owner", sectionPermissions: {} as Record<string, string>, committed: true, push: vi.fn() }));
@@ -140,6 +142,23 @@ describe("/communities/[id]", () => {
     expect(await within(thread).findByText("We tried that too.")).toBeTruthy();
     expect(callsTo(api, "live.communities.posts").at(-1)).toMatchObject({ communityId: ids.community, parentPostId: "p1" });
     expect(await within(thread).findByText("Ben Okoye")).toBeTruthy();
+  });
+
+  it("dates the community in the person's own format (Settings › Preferences: ISO)", async () => {
+    memberView();
+    mount(
+      <DateFormatProvider value={{ date: "iso", time: "24h" }}>
+        <CommunityScreen communityId={ids.community} />
+      </DateFormatProvider>,
+    );
+    await screen.findByRole("heading", { name: "Fintech ops founders" });
+    const iso = AT(1000).toISOString().slice(0, 10);
+    const local = format(AT(1000), "yyyy-MM-dd");
+    expect(screen.getByText(new RegExp(`^(${iso}|${local})$`))).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}, \d{4}/);
+    // Each post's moment on hover, on a 24-hour clock.
+    const post = (await within(await screen.findByTestId("community-feed")).findAllByTestId("feed-post"))[0]!;
+    expect(post.querySelector("time")!.getAttribute("title")).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   });
 
   it("posts as the person by default, and replies under the post they belong to", async () => {

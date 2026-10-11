@@ -8,7 +8,7 @@
  */
 import { useId, useMemo, useState } from "react";
 import { Building2, Check, CheckCircle2, Circle, CircleDashed, Compass, FileStack, Landmark, MonitorPlay, Play, Send, UserRound, XCircle } from "lucide-react";
-import { Button, Chip, Field, Input, Panel, ProvenanceChip, RadioCard, RadioGroup, SimpleSelect, StarRating, Timeline, cn, formatDate, type IconComponent, type TimelineEvent } from "@foundmill/dugout";
+import { Button, Chip, Field, Input, Panel, ProvenanceChip, RadioCard, RadioGroup, SimpleSelect, StarRating, Timeline, cn, useFormatters, type IconComponent, type TimelineEvent } from "@foundmill/dugout";
 import { INCORPORATION_ROUTES, type IncorporationRoute } from "@foundmill/shared/constants";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData } from "@foundmill/widgets/data";
@@ -27,6 +27,7 @@ const STEP_ICON: Record<StepRow["state"], IconComponent> = { done: CheckCircle2,
 const ROUTE_ICON: Record<IncorporationRoute, IconComponent> = { stripe_atlas: Landmark, companies_house_web: Building2, kit: FileStack };
 
 export function JurisdictionCardView({ card, currency, onChoose, chosen }: { card: JurisdictionCard; currency: string; onChoose?: (card: JurisdictionCard) => void; chosen?: boolean }) {
+  const { formatDate } = useFormatters();
   const route = ROUTE_META[card.route];
   return (
     <article aria-label={`${card.jurisdiction} ${card.entity_type}`} data-chosen={chosen || undefined} className={cn("surface-raised flex flex-col gap-2 rounded-md p-panel-pad", chosen && "row-selected")}>
@@ -108,6 +109,7 @@ export function JurisdictionCardView({ card, currency, onChoose, chosen }: { car
 }
 
 export function IncorporateScreen({ businessId }: ModuleScreenProps) {
+  const { formatDate } = useFormatters();
   const now = useNow();
   const currency = useCurrency();
   const { navigate } = useWidgetData();

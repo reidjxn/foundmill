@@ -2,6 +2,8 @@
  * Filter chips model (BUILD §5.4 DataTable "filter chips", §11.12 "natural-language filters → editable chips").
  * Pure: chips are data, `matchesFilter` is the predicate DataTable's filterFn and tests share.
  */
+import type { DateFormatPrefs } from "../../lib/date-preferences";
+import { formatDate } from "../../lib/format";
 
 export type FilterFieldKind = "text" | "number" | "select" | "date" | "boolean";
 
@@ -229,6 +231,8 @@ export function matchesAllFilters<T extends Record<string, unknown>>(
 export function describeFilter(
   chip: FilterChipValue,
   fields: readonly FilterField[],
+  /** The signed-in person's date format (Settings › Preferences) for a date chip's value; US without it. */
+  prefs?: DateFormatPrefs | null,
 ): { field: string; op: string; value: string } {
   const field = fields.find((f) => f.id === chip.field);
   const label = field?.label ?? chip.field;
@@ -238,6 +242,11 @@ export function describeFilter(
     if (field?.kind === "select")
       return field.options?.find((o) => o.value === String(v))?.label ?? String(v);
     if (field?.kind === "boolean") return v === true || v === "true" ? "yes" : "no";
+    // A date chip holds the date input's machine value ("2026-10-07"); it reads in the person's format.
+    if (field?.kind === "date" && v !== "") {
+      const text = formatDate(v as string | number, "date", prefs);
+      return text === "—" ? String(v) : text;
+    }
     return String(v);
   };
   const v = chip.value;

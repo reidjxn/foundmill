@@ -1,6 +1,6 @@
 /**
  * Repositories (docs/ARCHITECTURE.md §4). Every function takes `(db, businessId, …)` with the business id first
- * and filters on `business_id` in SQL; account-scoped repos (founders, ideas before commit, memberships-by-user,
+ * and filters on `business_id` in SQL; account-scoped repos (founders, preferences, ideas before commit, memberships-by-user,
  * social connections/messages) take `userId` first instead. Service code reaches the database only through
  * `repos` (ESLint `fm/no-raw-db`).
  */
@@ -39,6 +39,7 @@ import { trainingRepo } from "./training";
 import { usageRepo } from "./usage";
 import { workspacesRepo } from "./workspaces";
 import { conversationsRepo } from "./conversations";
+import { preferencesRepo } from "./preferences";
 
 export const repos = {
   businesses: businessesRepo,
@@ -76,6 +77,7 @@ export const repos = {
   logos: logosRepo,
   foundations: foundationsRepo,
   conversations: conversationsRepo,
+  preferences: preferencesRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -118,3 +120,4 @@ export * from "./usage";
 export * from "./workspaces";
 export * from "./logos";
 export * from "./conversations";
+export * from "./preferences";

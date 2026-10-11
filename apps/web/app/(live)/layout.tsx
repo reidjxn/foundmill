@@ -12,11 +12,13 @@ import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { pickCurrentBusiness } from "@/lib/auth/current-business";
 import { getLastBusinessId } from "@/lib/auth/server";
+import { getServerDateFormat } from "@/lib/date-format.server";
 import { Prefetched } from "@/lib/hydrate.server";
 import { startBusinessShell } from "@/lib/shell-data.server";
 import { errorMessage } from "@/lib/trpc";
 import { serverApi } from "@/lib/trpc-server";
 import { LiveViewerProvider } from "@/components/live/viewer";
+import { DateFormatHost } from "@/components/providers/DateFormatHost";
 import { BusinessShell } from "@/components/shell/BusinessShell";
 import { UnreachablePage } from "@/components/shell/UnreachablePage";
 
@@ -29,6 +31,8 @@ export default async function LiveLayout({ children }: { children: ReactNode }) 
 
   const lastBusinessId = await getLastBusinessId();
   const likely = lastBusinessId ? startBusinessShell(server, lastBusinessId) : null;
+  const dateFormat = getServerDateFormat();
+  dateFormat.catch(() => undefined);
 
   let profile;
   try {
@@ -45,12 +49,14 @@ export default async function LiveLayout({ children }: { children: ReactNode }) 
   const shell = likely && likely.businessId === current.id ? likely : startBusinessShell(server, current.id);
 
   try {
-    const [business, departments] = await shell.data;
+    const [[business, departments], date] = await Promise.all([shell.data, dateFormat]);
     return (
       <Prefetched queryClient={shell.prefetch()}>
-        <BusinessShell businessId={current.id} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId }}>
-          <LiveViewerProvider value={{ userId: founder.userId, displayName: founder.displayName }}>{children}</LiveViewerProvider>
-        </BusinessShell>
+        <DateFormatHost initial={date.prefs} owner={date.owner}>
+          <BusinessShell businessId={current.id} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId }}>
+            <LiveViewerProvider value={{ userId: founder.userId, displayName: founder.displayName }}>{children}</LiveViewerProvider>
+          </BusinessShell>
+        </DateFormatHost>
       </Prefetched>
     );
   } catch (err) {

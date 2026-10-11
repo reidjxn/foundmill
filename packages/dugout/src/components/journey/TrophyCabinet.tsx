@@ -1,9 +1,10 @@
 "use client";
 import { Lock, Share2, Trophy } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { formatDate, formatMoney } from "../../lib/format";
+import { formatMoney } from "../../lib/format";
 import { Button } from "../foundation/Button";
 import { Chip } from "../foundation/Chip";
+import { useFormatters } from "../foundation/DateFormatProvider";
 import { Icon } from "../foundation/Icon";
 import type { TrophyCard } from "./types";
 
@@ -21,6 +22,7 @@ const COLS = { 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-4" } as const;
 
 /** Milestone cards with the gold treatment for reached milestones (DESIGN §5: gold is reserved for Customer Updates and milestones). */
 export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, className }: TrophyCabinetProps) {
+  const { formatDate } = useFormatters();
   const won = trophies.filter((t) => t.achievedAt).length;
   return (
     <div className={cn("flex flex-col gap-2", className)} data-trophy-cabinet>

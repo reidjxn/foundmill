@@ -5,8 +5,9 @@ import { Group } from "@visx/group";
 import { scaleLinear, scaleTime } from "@visx/scale";
 import { AreaClosed, LinePath } from "@visx/shape";
 import { cn } from "../../../lib/cn";
-import { formatDate, formatNumber } from "../../../lib/format";
+import { formatNumber } from "../../../lib/format";
 import { ProvenanceChip } from "../../foundation/Chip";
+import { useFormatters } from "../../foundation/DateFormatProvider";
 import { AxisX, AxisY, ChartLegend, ChartTooltip, countTicks, DEFAULT_MARGIN, extent, nearestIndex, placeTicks, Responsive, signFix, toNumber, toneVar, useChartTooltip, yAxisMargin, type ChartMargin, type SeriesTone } from "./common";
 
 export interface LinePoint {
@@ -68,6 +69,7 @@ export function LineChart({ series, label, width, height = 160, xType, yFormat, 
 }
 
 function LineChartSvg({ series, label, width, height, xType, yFormat = (v) => formatNumber(v, { maxDigits: 1 }), xFormat, yDomain, zeroBased, margin: marginProp, linear, markX, markLabel }: Required<Pick<LineChartProps, "series" | "label" | "height">> & Omit<LineChartProps, "className" | "legend" | "provenance"> & { width: number }) {
+  const { formatDate } = useFormatters();
   const isTime = xType ? xType === "time" : series[0]?.data[0]?.x instanceof Date;
   const xs = useMemo(() => series.flatMap((s) => s.data.map((d) => toNumber(d.x))), [series]);
   const ys = useMemo(() => series.flatMap((s) => s.data.map((d) => d.y)), [series]);

@@ -1,5 +1,5 @@
-/** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses). */
-import { ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, GAME_MODES, MODEL_BILLING, PLAN_TIERS, VISIBILITY } from "@foundmill/shared";
+/** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences. */
+import { ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, GAME_MODES, MODEL_BILLING, PLAN_TIERS, TIME_FORMAT_PREFERENCES, VISIBILITY } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
@@ -27,6 +27,20 @@ export const founderProfiles = pgTable(
 );
 export type FounderProfile = typeof founderProfiles.$inferSelect;
 export type NewFounderProfile = typeof founderProfiles.$inferInsert;
+
+/**
+ * 0022 — one row per signed-in account: how that person reads dates and times, in every business. Beside
+ * founder_profiles (not on it) so a preference never creates a profile (the onboarding gate); no row reads the defaults.
+ */
+export const accountPreferences = pgTable("account_preferences", {
+  id: id(),
+  userId: uuid("user_id").notNull().unique().references(() => authUsers.id, { onDelete: "cascade" }),
+  dateFormat: text("date_format", { enum: DATE_FORMAT_PREFERENCES }).notNull().default("us"),
+  timeFormat: text("time_format", { enum: TIME_FORMAT_PREFERENCES }).notNull().default("12h"),
+  ...timestamps(),
+});
+export type AccountPreferences = typeof accountPreferences.$inferSelect;
+export type NewAccountPreferences = typeof accountPreferences.$inferInsert;
 
 export const businesses = pgTable(
   "businesses",

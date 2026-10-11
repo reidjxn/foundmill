@@ -7,7 +7,14 @@
  * Dates and times are printed in UTC (DISPLAY_TIME_ZONE), never in the process's own zone: the server renders in UTC
  * and the browser hydrates in the visitor's zone, so a local-time format would print different characters on each side
  * (a hydration mismatch) and differ between a laptop and CI. A time carries "UTC" so nobody reads it as local.
+ *
+ * Every date helper takes the signed-in person's date format as an optional last argument (Settings › Preferences;
+ * read it with `useDateFormat()` from @foundmill/dugout): "7 Oct 2026" or "2026-10-07", "15:45 UTC". Without it they
+ * read US and 12-hour. The patterns are the design system's (lib/date-preferences.ts), so these and `useFormatters()`
+ * always agree.
  */
+import { format as dfFormat } from "date-fns";
+import { dateFormatKeyOf, datePatternFor, normalizeDateFormatPrefs, type DateFormatKey, type DateFormatPrefs } from "@foundmill/dugout/lib/date-preferences";
 import type { Money } from "@foundmill/shared";
 import { usSpelling } from "@foundmill/shared/us-spelling";
 
@@ -22,13 +29,44 @@ function toDate(value: DateValue): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** ICU versions differ on the space before AM/PM (U+202F in some): one plain space everywhere, so server and browser agree. */
-function plainSpaces(s: string): string {
-  return s.replace(/[\u202f\u00a0]/g, " ");
+/**
+ * A Date whose own fields read as UTC, so date-fns prints the UTC wall clock in any process and any browser (date-fns
+ * builds every intermediate date with the input's constructor, so the reading holds through the whole format).
+ */
+class UtcWallClock extends Date {
+  override getFullYear() {
+    return this.getUTCFullYear();
+  }
+  override getMonth() {
+    return this.getUTCMonth();
+  }
+  override getDate() {
+    return this.getUTCDate();
+  }
+  override getDay() {
+    return this.getUTCDay();
+  }
+  override getHours() {
+    return this.getUTCHours();
+  }
+  override getMinutes() {
+    return this.getUTCMinutes();
+  }
+  override getSeconds() {
+    return this.getUTCSeconds();
+  }
+  override getMilliseconds() {
+    return this.getUTCMilliseconds();
+  }
+  override getTimezoneOffset() {
+    return 0;
+  }
 }
 
-function dateFormat(options: Intl.DateTimeFormatOptions, locale: string): Intl.DateTimeFormat {
-  return new Intl.DateTimeFormat(locale, { timeZone: DISPLAY_TIME_ZONE, ...options });
+/** A named form (or a literal pattern) printed in UTC under the person's choice. */
+function utc(d: Date, pattern: DateFormatKey | string, prefs: DateFormatPrefs | null | undefined): string {
+  const key = dateFormatKeyOf(pattern);
+  return dfFormat(new UtcWallClock(d.getTime()), key ? datePatternFor(key, prefs) : pattern);
 }
 
 export function formatMoney(money: Money | { amountMinor: number; currency: string } | null | undefined, locale = DISPLAY_LOCALE): string {
@@ -45,32 +83,30 @@ export function formatNumber(n: number, options: Intl.NumberFormatOptions = {}):
   return new Intl.NumberFormat(DISPLAY_LOCALE, options).format(n);
 }
 
-/** "Oct 7, 2026" */
-export function formatDate(value: DateValue, locale = DISPLAY_LOCALE): string {
+/** "Oct 7, 2026" ("7 Oct 2026", "2026-10-07" by choice). */
+export function formatDate(value: DateValue, prefs?: DateFormatPrefs | null): string {
   const d = toDate(value);
-  if (!d) return "—";
-  return dateFormat({ month: "short", day: "numeric", year: "numeric" }, locale).format(d);
+  return d ? utc(d, "date", prefs) : "—";
 }
 
-/** "Oct 7": the year is implied (this year, or a list of one year). */
-export function formatDayMonth(value: DateValue, locale = DISPLAY_LOCALE): string {
+/** "Oct 7": the year is implied (this year, or a list of one year); "7 Oct", "10-07" by choice. */
+export function formatDayMonth(value: DateValue, prefs?: DateFormatPrefs | null): string {
   const d = toDate(value);
-  if (!d) return "—";
-  return dateFormat({ month: "short", day: "numeric" }, locale).format(d);
+  return d ? utc(d, "dayMonth", prefs) : "—";
 }
 
-/** "Oct 2026", or "October 2026" with `long`. */
-export function formatMonthYear(value: DateValue, opts: { long?: boolean } = {}, locale = DISPLAY_LOCALE): string {
+/** "Oct 2026", or "October 2026" with `long`; ISO reads "2026-10" either way. */
+export function formatMonthYear(value: DateValue, opts: { long?: boolean } = {}, prefs?: DateFormatPrefs | null): string {
   const d = toDate(value);
   if (!d) return "—";
-  return dateFormat({ month: opts.long ? "long" : "short", year: "numeric" }, locale).format(d);
+  if (opts.long && normalizeDateFormatPrefs(prefs).date !== "iso") return utc(d, "MMMM yyyy", prefs);
+  return utc(d, "monthYear", prefs);
 }
 
-/** "Oct 7, 3:45 PM UTC" (the year is implied; times are UTC, see the note at the top). */
-export function formatDateTime(value: DateValue, locale = DISPLAY_LOCALE): string {
+/** "Oct 7, 3:45 PM UTC" (the year is implied; times are UTC, see the note at the top); "7 Oct, 15:45 UTC" by choice. */
+export function formatDateTime(value: DateValue, prefs?: DateFormatPrefs | null): string {
   const d = toDate(value);
-  if (!d) return "—";
-  return `${plainSpaces(dateFormat({ month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }, locale).format(d))} UTC`;
+  return d ? `${utc(d, "dayMonthTime", prefs)} UTC` : "—";
 }
 
 /** "1 business", "3 businesses": a count with its noun, never "1 businesses" (pass the plural when it is irregular). */

@@ -3,7 +3,7 @@
  * trophies from `@foundmill/journey` matched to stored milestones, plus the timeline of every other milestone
  * (releases, decisions, incorporation, funding, launch). Pure and unit-tested; the screen feeds it `journey.ribbon`.
  */
-import type { TrophyCard } from "@foundmill/dugout";
+import type { DateFormatPrefs, TrophyCard } from "@foundmill/dugout";
 import { TROPHIES, type TrophyDefinition } from "@foundmill/journey";
 import type { MilestoneKind } from "@foundmill/shared";
 import { formatDate, formatNumber } from "@/lib/format";
@@ -88,9 +88,12 @@ export function replayRefOf(m: MilestoneRowLike | undefined): { journeyId?: stri
   return journeyId || conversionId ? { journeyId, conversionId } : null;
 }
 
-/** The text of a shareable milestone card (LIVE, BUILD §11.4): the customer is anonymised unless permission is recorded. */
-export function shareText(card: TrophyCard, businessName: string): string {
-  const when = card.achievedAt ? formatDate(card.achievedAt) : "";
+/**
+ * The text of a shareable milestone card (LIVE, BUILD §11.4): the customer is anonymised unless permission is recorded.
+ * The date reads in the founder's own format (`prefs`), like the card they are looking at.
+ */
+export function shareText(card: TrophyCard, businessName: string, prefs?: DateFormatPrefs | null): string {
+  const when = card.achievedAt ? formatDate(card.achievedAt, prefs) : "";
   const who = card.customerName ? ` with ${card.customerName}` : "";
   return `${businessName} · ${card.label}${who}${when ? ` · ${when}` : ""}`;
 }

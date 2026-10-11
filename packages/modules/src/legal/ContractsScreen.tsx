@@ -6,11 +6,12 @@
  */
 import { useId, useMemo, useState } from "react";
 import { ArrowRight, Ban, CheckCircle2, ExternalLink, FileSignature, FileText, Plus, UserRound } from "lucide-react";
-import { Button, Chip, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, SimpleSelect, formatDate, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, SimpleSelect, useFormatters, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { CONTRACT_NEXT, CONTRACT_STATUS_WORD, contractKindLabel, isExternalHref, readObligations, type Obligation } from "./legal-data";
+import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
 import { CONTRACT_PILL, FounderLinkOut, FounderOnlyChip, InlineError, Pill, Screen, fitTableHeight, fmtMoney, useAction, useCurrency, useNow } from "./shared";
 import type { BusinessGetResponse, ContractRow, ContractStatus, ContractsListResponse } from "./types";
@@ -74,10 +75,10 @@ export function contractColumns(businessId: string, currency: string, now: Date,
     },
     { id: "status", accessorKey: "status", header: "Status", size: sizes.status, cell: ({ row }) => <Pill {...CONTRACT_PILL[row.original.status]} />, meta: { filter: "select", filterOptions: Object.entries(CONTRACT_STATUS_WORD).map(([value, label]) => ({ value, label })) } },
     { id: "value", accessorFn: (r) => r.valueMinor ?? 0, header: "Value", size: sizes.value, cell: ({ row }) => <span className="tabular-nums">{row.original.valueMinor === null ? "—" : fmtMoney(row.original.valueMinor, row.original.currency || currency)}</span>, meta: { numeric: true } },
-    { id: "startsAt", accessorFn: (r) => r.startsAt ?? "", header: "Starts", size: sizes.startsAt, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
-    { id: "endsAt", accessorFn: (r) => r.endsAt ?? "", header: "Ends", size: sizes.endsAt, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
+    { id: "startsAt", accessorFn: (r) => r.startsAt ?? "", header: "Starts", size: sizes.startsAt, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() ? String(getValue()) : null} />, meta: { filter: "date" } },
+    { id: "endsAt", accessorFn: (r) => r.endsAt ?? "", header: "Ends", size: sizes.endsAt, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() ? String(getValue()) : null} />, meta: { filter: "date" } },
     { id: "obligations", accessorFn: (r) => readObligations(r.obligations, now).filter((o) => o.status !== "met").length, header: "Open obligations", size: sizes.obligations, cell: ({ getValue }) => <span className="tabular-nums">{String(getValue())}</span>, meta: { numeric: true } },
-    { id: "updatedAt", accessorFn: (r) => (r.updatedAt ? new Date(r.updatedAt).toISOString() : ""), header: "Updated", size: sizes.updatedAt, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
+    { id: "updatedAt", accessorFn: (r) => (r.updatedAt ? new Date(r.updatedAt).toISOString() : ""), header: "Updated", size: sizes.updatedAt, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() ? String(getValue()) : null} />, meta: { filter: "date" } },
   ];
 }
 
@@ -85,12 +86,13 @@ export function obligationColumns() {
   return [
     { id: "title", header: "Obligation", cell: (o: Obligation) => <span className="t-body-strong text-primary">{o.title}</span> },
     { id: "party", header: "Owed by", width: 100, cell: (o: Obligation) => <span className="text-secondary">{o.party === "us" ? "Us" : o.party === "them" ? "Counterparty" : "Both"}</span> },
-    { id: "due", header: "Due", width: 110, cell: (o: Obligation) => <span className="tabular-nums">{o.dueAt ? formatDate(o.dueAt) : "—"}</span> },
+    { id: "due", header: "Due", width: 110, cell: (o: Obligation) => <DateText className="tabular-nums" value={o.dueAt} /> },
     { id: "status", header: "Status", width: 110, cell: (o: Obligation) => <Pill tone={o.status === "met" ? "good" : o.status === "overdue" ? "bad" : "neutral"} word={o.status === "met" ? "Met" : o.status === "overdue" ? "Overdue" : "Open"} /> },
   ];
 }
 
 export function ContractsScreen({ businessId }: ModuleScreenProps) {
+  const { formatDate } = useFormatters();
   const now = useNow();
   const currency = useCurrency();
   const { navigate } = useWidgetData();

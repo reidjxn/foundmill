@@ -6,7 +6,7 @@
  */
 import { useMemo } from "react";
 import { AlertTriangle, Inbox, Landmark } from "lucide-react";
-import { BarChart, Button, EmptyState, ErrorState, LineChart, MetricTile, Panel, ProvenanceChip, StatusPill, type LineSeries, type MetricTileProps, type MetricProvenance } from "@foundmill/dugout";
+import { BarChart, Button, EmptyState, ErrorState, LineChart, MetricTile, Panel, ProvenanceChip, StatusPill, useDateFormat, type LineSeries, type MetricTileProps, type MetricProvenance } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
@@ -122,6 +122,7 @@ export function RunwayWarning({ months, warnings, blocksContinue, onOpenInbox }:
 
 export function OverviewScreen({ businessId }: ModuleScreenProps) {
   const now = useNow();
+  const datePrefs = useDateFormat();
   const currency = useCurrency();
   const { navigate } = useWidgetData();
   const range = useMemo(() => ({ from: monthStart(now, -TRAILING).toISOString(), to: monthStart(now, 0).toISOString() }), [now]);
@@ -152,9 +153,9 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
     return months.map((m) => {
       const row = monthly.find((x) => x.month === m);
       const net = row ? row.netMinor : 0;
-      return { label: formatMonth(m), value: net, tone: net >= 0 ? ("good" as const) : ("bad" as const) };
+      return { label: formatMonth(m, datePrefs), value: net, tone: net >= 0 ? ("good" as const) : ("bad" as const) };
     });
-  }, [data, months]);
+  }, [data, months, datePrefs]);
 
   const openInbox = () => navigate(routes.inbox(businessId));
 

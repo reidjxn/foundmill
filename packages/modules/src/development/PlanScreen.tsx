@@ -6,10 +6,11 @@
  */
 import { useId, useMemo, useState } from "react";
 import { ArrowUpCircle, Bot, ExternalLink, ListTree, Network, Pause, Play, Radio, Square } from "lucide-react";
-import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, TASK_STATUS_META, TaskGraph, Textarea, SimpleSelect, formatDate, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DataTable, EntityLink, Field, GenerateControl, KeyValueList, Panel, ProgressRing, ProvenanceChip, TASK_STATUS_META, TaskGraph, Textarea, SimpleSelect, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, humanise, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { OpenInClaudeCodeDialog, ReassignDialog, StopDialog } from "./dialogs";
@@ -170,7 +171,7 @@ export function PlanScreen({ businessId, departmentId }: ModuleScreenProps) {
           </span>
         ),
       },
-      { id: "startedDate", accessorFn: (r) => r.startedDate?.getTime() ?? 0, header: "Started", size: sizes.startedDate, meta: { filter: "date", label: "Started" }, cell: ({ row }) => (row.original.startedDate ? <span className="text-secondary" title={formatDate(row.original.startedDate)}>{formatRelative(row.original.startedDate, options.now ?? new Date())}</span> : <span className="text-tertiary">—</span>) },
+      { id: "startedDate", accessorFn: (r) => r.startedDate?.getTime() ?? 0, header: "Started", size: sizes.startedDate, meta: { filter: "date", label: "Started" }, cell: ({ row }) => (row.original.startedDate ? <RelativeDateText className="text-secondary" value={row.original.startedDate} now={options.now ?? new Date()} /> : <span className="text-tertiary">—</span>) },
       { id: "dependsOn", accessorFn: (r) => r.dependsOn.join(", "), header: "Depends on", size: sizes.dependsOn, meta: { label: "Depends on" }, cell: ({ row }) => (row.original.dependsOn.length ? <span className="block min-w-0 truncate text-secondary" title={row.original.dependsOn.join(", ")}>{row.original.dependsOn.join(", ")}</span> : <span className="text-tertiary">—</span>) },
       { id: "priority", accessorKey: "priority", header: "Priority", size: sizes.priority, meta: { numeric: true } },
     ], PLAN_FIT),

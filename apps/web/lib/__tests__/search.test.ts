@@ -36,6 +36,15 @@ describe("universal search", () => {
     expect(filterLocal(items, "zzzz")).toEqual([]);
   });
 
+  it("offers Preferences (the person's own date and time format), found by what it changes", () => {
+    const items = localPaletteItems({ businessId: BID, departments, live: false });
+    const prefs = items.find((i) => i.id === "command:preferences");
+    expect(prefs).toMatchObject({ kind: "command", label: "Preferences", href: `/b/${BID}/settings/preferences` });
+    for (const q of ["Preferences", "date format", "time format", "24-hour"]) expect(filterLocal(items, q)[0]?.id, q).toBe("command:preferences");
+    // One row for it, not a second "Settings · Preferences".
+    expect(items.filter((i) => i.href === `/b/${BID}/settings/preferences`)).toHaveLength(1);
+  });
+
   it("offers Sign out as a command with no link, found by its synonyms too", () => {
     const items = localPaletteItems({ businessId: BID, departments, live: false });
     const signOut = items.find((i) => i.id === "command:sign-out");

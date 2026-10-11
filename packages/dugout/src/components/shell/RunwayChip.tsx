@@ -1,7 +1,9 @@
+"use client";
 import { Calendar, Hourglass, TriangleAlert } from "lucide-react";
 import type { Money } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
-import { DATE_FORMATS, formatDate, formatMoney, formatNumber } from "../../lib/format";
+import { formatMoney, formatNumber } from "../../lib/format";
+import { useFormatters } from "../foundation/DateFormatProvider";
 import { Icon } from "../foundation/Icon";
 import { Tooltip } from "../foundation/Tooltip";
 
@@ -59,7 +61,8 @@ export interface RunwayChipProps {
 const TONE_TEXT: Record<RunwayTone, string> = { neutral: "", warn: "text-status-warn", bad: "text-status-bad" };
 
 /**
- * The date + runway chip on the brand slab (DESIGN §8): glass, 34 px — "Oct 9, 2026 · 14 mo" with the dashed "Estimate"
+ * The date + runway chip on the brand slab (DESIGN §8): glass, 34 px — "Oct 9, 2026 · 14 mo" (the date in the signed-in
+ * person's format: "9 Oct 2026", "2026-10-09"; DateFormatProvider) with the dashed "Estimate"
  * tag (a dashed edge always means "not measured"). The runway follows the horizon rule: amber under 9 months, red under
  * 6, with a warning icon and a tinted ring, so the state never rests on color alone. Without a figure it says why in
  * words, the same words as Home's tiles ("No limit", "Not known yet"), with the reason as its tooltip; never a bare dash.
@@ -69,10 +72,11 @@ export function RunwayChip({ date, runwayMonths, words, cash, estimate = true, o
   const runway = formatRunway(runwayMonths);
   const known = runwayMonths !== null && runwayMonths !== undefined && Number.isFinite(runwayMonths);
   const said = words ?? RUNWAY_UNKNOWN_WORDS;
+  const { formatDate, formatDateYearParts } = useFormatters();
   const hasDate = date !== null && date !== undefined;
   const dateText = hasDate ? formatDate(date) : "";
-  const dayMonth = hasDate ? formatDate(date, DATE_FORMATS.dayMonth) : "";
-  const year = hasDate ? formatDate(date, "yyyy") : "";
+  // The year sits apart so the top bar can drop it first: "Oct 9" + ", 2026", "9 Oct" + " 2026", "2026-" + "10-09".
+  const parts = hasDate ? formatDateYearParts(date) : null;
   const tip = [
     cash ? `Cash ${formatMoney(cash)}` : null,
     known ? `Runway ${runway}${estimate ? " (Estimate)" : ""}` : said.caption,
@@ -88,9 +92,10 @@ export function RunwayChip({ date, runwayMonths, words, cash, estimate = true, o
       {hasDate ? (
         <span className="kitbar-date">
           <Icon icon={Calendar} size="inline" />
-          <span className="tabular-nums">
-            {dayMonth}
-            <span className="kitbar-year">, {year}</span>
+          <span className="tabular-nums" data-testid="kitbar-date">
+            {parts?.lead ? <span className="kitbar-year">{parts.lead}</span> : null}
+            {parts?.core}
+            {parts?.tail ? <span className="kitbar-year">{parts.tail}</span> : null}
           </span>
           <span aria-hidden className="opacity-45">
             ·

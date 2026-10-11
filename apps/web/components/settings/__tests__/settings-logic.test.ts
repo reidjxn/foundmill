@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { PRICE_TBA_LABEL } from "@foundmill/config";
-import { tierPriceLabel } from "../BillingTab";
+import { periodLabel, tierPriceLabel } from "../BillingTab";
 import { glossaryRows, rowsToGlossary } from "../GlossaryTab";
-import { formatSimulateResult, simulateInput, simulateRefusalMessage, SIMULATIONS } from "../IntegrationsTab";
+import { connectorDetail, formatSimulateResult, simulateInput, simulateRefusalMessage, SIMULATIONS } from "../IntegrationsTab";
 import { GAME_MODE_REVIEW } from "../ModeTab";
 
 describe("settings logic", () => {
@@ -10,6 +10,17 @@ describe("settings logic", () => {
     expect(tierPriceLabel("free")).toBe("Free");
     expect(tierPriceLabel("pro")).toBe(PRICE_TBA_LABEL);
     expect(tierPriceLabel("scale")).toBe(PRICE_TBA_LABEL);
+  });
+
+  it("dates billing periods and connector checks in the person's own format (Settings › Preferences)", () => {
+    expect(periodLabel("2026-10")).toBe("October 2026");
+    expect(periodLabel("2026-10", { date: "day_first", time: "24h" })).toBe("October 2026");
+    expect(periodLabel("2026-10", { date: "iso", time: "24h" })).toBe("2026-10");
+    expect(periodLabel("this month")).toBe("this month");
+    const integ = { accountLabel: "acct_1", scopes: ["read"], lastHealthAt: "2026-10-07T15:45:00Z" };
+    expect(connectorDetail({ tools: [1, 2] }, integ)).toBe("acct_1 · 2 agent actions · 1 permission · checked Oct 7, 3:45 PM UTC");
+    expect(connectorDetail({ tools: [1, 2] }, integ, { date: "iso", time: "24h" })).toBe("acct_1 · 2 agent actions · 1 permission · checked 10-07 15:45 UTC");
+    expect(connectorDetail({ tools: [1, 2] }, integ, { date: "day_first", time: "24h" })).toBe("acct_1 · 2 agent actions · 1 permission · checked 7 Oct, 15:45 UTC");
   });
 
   it("round-trips the glossary and drops blank rows", () => {

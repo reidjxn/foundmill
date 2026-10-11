@@ -6,8 +6,9 @@ import { scaleLinear, scaleTime } from "@visx/scale";
 import { Area, LinePath } from "@visx/shape";
 import { LinearGradient } from "@visx/gradient";
 import { cn } from "../../../lib/cn";
-import { formatDate, formatNumber } from "../../../lib/format";
+import { formatNumber } from "../../../lib/format";
 import { ProvenanceChip } from "../../foundation/Chip";
+import { useFormatters } from "../../foundation/DateFormatProvider";
 import { AxisX, AxisY, ChartLegend, ChartTooltip, countTicks, DEFAULT_MARGIN, extent, nearestIndex, placeTicks, Responsive, signFix, toNumber, toneVar, useChartTooltip, yAxisMargin, type ChartMargin, type SeriesTone } from "./common";
 import type { LinePoint } from "./LineChart";
 
@@ -58,6 +59,7 @@ export function AreaChart({ series, label, width, height = 160, stacked, xType, 
 }
 
 function AreaChartSvg({ series, label, width, height, stacked, xType, yFormat = (v) => formatNumber(v, { maxDigits: 1 }), xFormat, margin: marginProp }: Omit<AreaChartProps, "className" | "legend" | "provenance"> & { width: number; height: number }) {
+  const { formatDate } = useFormatters();
   const top = marginProp?.top ?? DEFAULT_MARGIN.top + 4;
   const bottom = marginProp?.bottom ?? DEFAULT_MARGIN.bottom + 2;
   const innerH = Math.max(1, height - top - bottom);

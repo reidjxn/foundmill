@@ -6,7 +6,7 @@
  */
 import { useEffect, useId, useMemo, useState } from "react";
 import { AlertTriangle, Inbox, Save, TrendingUp, Undo2 } from "lucide-react";
-import { Button, Chip, Field, Input, KeyValueList, LineChart, MoneyInput, Panel, ProvenanceChip, SegmentedControl, StatusPill, formatDate, type LineSeries, type SeriesTone } from "@foundmill/dugout";
+import { Button, Chip, Field, Input, KeyValueList, LineChart, MoneyInput, Panel, ProvenanceChip, SegmentedControl, StatusPill, useFormatters, type LineSeries, type SeriesTone } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
@@ -55,6 +55,7 @@ export function fromField(raw: string, kind: "money" | "percent" | "months", pre
 
 export function RunwayScreen({ businessId }: ModuleScreenProps) {
   const now = useNow();
+  const { prefs: datePrefs, formatDate } = useFormatters();
   const currency = useCurrency();
   const { navigate } = useWidgetData();
   const id = useId();
@@ -125,8 +126,8 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
     const last = p.series.at(-1);
     return [
       { label: "Runway", value: <span className="flex items-center gap-1 tabular-nums">{p.runwayMonths === null ? `Beyond ${drafts[s].horizonMonths} months` : fmtMonths(p.runwayMonths)} <ProvenanceChip kind="forecast" /></span>, numeric: true },
-      { label: "Cash out", value: p.zeroMonth ? formatMonth(p.zeroMonth) : "Not within horizon", numeric: true },
-      { label: last ? `Cash, ${formatMonth(last.month)}` : "Cash at horizon", value: fmtMoney(last?.cashMinor ?? null, cur, { compact: true }), numeric: true },
+      { label: "Cash out", value: p.zeroMonth ? formatMonth(p.zeroMonth, datePrefs) : "Not within horizon", numeric: true },
+      { label: last ? `Cash, ${formatMonth(last.month, datePrefs)}` : "Cash at horizon", value: fmtMoney(last?.cashMinor ?? null, cur, { compact: true }), numeric: true },
     ];
   };
 

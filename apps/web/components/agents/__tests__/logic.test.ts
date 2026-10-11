@@ -256,6 +256,9 @@ describe("founder copy on the profile (the instructions are written to the model
     expect(wageLabel("2026-10", new Date("2026-10-10T12:00:00Z"))).toBe("Wage this month");
     expect(wageLabel("2026-09", new Date("2026-10-10T12:00:00Z"))).toBe("Wage in September 2026");
     expect(wageLabel("garbage")).toBe("Wage");
+    // In the person's own date format (Settings › Preferences): ISO reads the month as 2026-09.
+    expect(wageLabel("2026-09", new Date("2026-10-10T12:00:00Z"), { date: "iso", time: "24h" })).toBe("Wage in 2026-09");
+    expect(wageLabel("2026-09", new Date("2026-10-10T12:00:00Z"), { date: "day_first", time: "24h" })).toBe("Wage in September 2026");
   });
   it("keeps the first-person description and drops its structured tail and ids", () => {
     expect(plainDescription("I plan each cycle and compile replies into typed Plans. Inputs: the brief. Outputs: a plan. Tools: x. Never does: spend.")).toBe("I plan each cycle and compile replies into plans.");

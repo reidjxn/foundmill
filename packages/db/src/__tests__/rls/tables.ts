@@ -153,6 +153,7 @@ export const NON_TENANT_TABLES = [
   "memberships",
   "businesses",
   "founder_profiles",
+  "account_preferences",
   "ideas",
   "idea_versions",
   "idea_comparisons",

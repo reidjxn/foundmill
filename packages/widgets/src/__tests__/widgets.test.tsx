@@ -5,11 +5,13 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import type { ReactElement } from "react";
+import { DateFormatProvider, formatDateShort } from "@foundmill/dugout";
 import { WidgetDataProvider } from "../data";
 import { getWidget, listWidgets, parseWidgetSettings, type AnyWidgetDefinition } from "../registry";
 import { createFakeSource, type FakeResponse } from "../testing";
 import "../widgets";
-import { BID, dataResponses, emptyResponses } from "./fixtures";
+import { BID, TODAY, dataResponses, emptyResponses } from "./fixtures";
+import { addDays } from "../shared/time";
 
 /** A figure (dugout `Figure`) splits its currency, digits and decimals into spans; match the whole figure's text. */
 function byFigure(text: string) {
@@ -163,5 +165,24 @@ describe("navigation", () => {
     const { fake, container } = mount(getWidget("inbox_preview")!, dataResponses());
     (container.querySelector("[data-inbox-row]") as HTMLButtonElement).click();
     expect(fake.navigations[0]).toMatch(new RegExp(`^/b/${BID}/inbox/`));
+  });
+});
+
+describe("dates in the signed-in person's format", () => {
+  it("the roadmap timeline gives each target date in it", () => {
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses() });
+    const def = getWidget("roadmap_timeline")!;
+    const Component = def.Component;
+    render(
+      <DateFormatProvider value={{ date: "iso", time: "24h" }}>
+        <WidgetDataProvider source={fake.source}>
+          <Component businessId={BID} instanceId="roadmap_timeline-1" settings={parseWidgetSettings(def, {})} />
+        </WidgetDataProvider>
+      </DateFormatProvider>,
+    );
+    const target = formatDateShort(addDays(TODAY, 12), { date: "iso", time: "24h" });
+    expect(target).toMatch(/^\d{2}-\d{2}$/);
+    expect(screen.getByText(`Target ${target}`)).toBeTruthy();
+    expect(screen.queryByText(/^Target [A-Z][a-z]{2} \d/)).toBeNull();
   });
 });

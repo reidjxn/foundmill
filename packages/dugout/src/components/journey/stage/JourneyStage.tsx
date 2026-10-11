@@ -4,12 +4,13 @@ import { ChevronLeft, Pause, Play, RotateCcw, Star, Trophy, VolumeX } from "luci
 import { CHANNEL_META, type ChannelKey, type EntityKind, type MatchdayLevel } from "@foundmill/shared/constants";
 import { cn } from "../../../lib/cn";
 import { FitText } from "../../foundation/FitText";
-import { DATE_FORMATS, formatDate, formatDateTime, formatDuration, formatMoney, formatNumber, formatOrdinal, formatPercent } from "../../../lib/format";
+import { formatDuration, formatMoney, formatNumber, formatOrdinal, formatPercent, type DateFormatters } from "../../../lib/format";
 import { ratingClass } from "../../../lib/rating";
 import { usePrefersReducedMotion } from "../../../lib/reducedMotion";
 import { Avatar } from "../../foundation/Avatar";
 import { Button } from "../../foundation/Button";
 import { Chip, ProvenanceChip } from "../../foundation/Chip";
+import { useFormatters } from "../../foundation/DateFormatProvider";
 import { Icon } from "../../foundation/Icon";
 import { IconButton } from "../../foundation/IconButton";
 import { ProgressRing } from "../../foundation/ProgressRing";
@@ -91,11 +92,11 @@ function useReplayClock(durationMs: number, autoplay: boolean, resetKey: string)
 
 /* ---------- Helpers ---------- */
 
-function offsetLabel(iso: string, kickoffIso: string | null): string {
-  if (!kickoffIso) return formatDateTime(iso);
+function offsetLabel(iso: string, kickoffIso: string | null, f: DateFormatters): string {
+  if (!kickoffIso) return f.formatDateTime(iso);
   const ms = Date.parse(iso) - Date.parse(kickoffIso);
   const day = Math.floor(ms / 86_400_000) + 1;
-  return `Day ${day} · ${formatDate(iso, DATE_FORMATS.time)}`;
+  return `Day ${day} · ${f.formatTime(iso)}`;
 }
 
 function channelLabel(key: ChannelKey | null): string {
@@ -176,6 +177,7 @@ function TeamSheet({ journey, agents }: { journey: Journey; agents?: readonly St
 }
 
 function KickOff({ journey, touches }: { journey: Journey; touches: readonly Touch[] }) {
+  const f = useFormatters();
   const start = journey.stats.firstTouchAt ? Date.parse(journey.stats.firstTouchAt) : Date.parse(journey.convertedAt);
   const end = Date.parse(journey.convertedAt);
   const span = Math.max(1, end - start);
@@ -184,8 +186,8 @@ function KickOff({ journey, touches }: { journey: Journey; touches: readonly Tou
     <Panelette title="First touch" className="h-full" data-stage-panel="kick_off">
       <div className="flex flex-col gap-4" data-stage-panel="kick_off">
         <div className="flex items-baseline gap-3">
-          <span className="t-display-md">{journey.stats.firstTouchAt ? formatDateTime(journey.stats.firstTouchAt) : "First touch"}</span>
-          <span className="text-small text-secondary">to {formatDateTime(journey.convertedAt)} · {formatDuration(span)}</span>
+          <span className="t-display-md">{journey.stats.firstTouchAt ? f.formatDateTime(journey.stats.firstTouchAt) : "First touch"}</span>
+          <span className="text-small text-secondary">to {f.formatDateTime(journey.convertedAt)} · {formatDuration(span)}</span>
         </div>
         <div className="relative h-10">
           <div className="absolute inset-x-0 top-1/2 h-px bg-subtle" />
@@ -193,7 +195,7 @@ function KickOff({ journey, touches }: { journey: Journey; touches: readonly Tou
             const x = ((Date.parse(t.occurredAt) - start) / span) * 100;
             const isCaptain = t.id === captain;
             return (
-              <span key={t.id} className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ left: `${x}%` }} title={`${channelLabel(t.channelKey)} · ${formatDateTime(t.occurredAt)}`}>
+              <span key={t.id} className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ left: `${x}%` }} title={`${channelLabel(t.channelKey)} · ${f.formatDateTime(t.occurredAt)}`}>
                 <span className={cn("block rounded-full", isCaptain ? "size-3 bg-gold" : "size-2 border border-primary bg-panel")} />
               </span>
             );
@@ -211,6 +213,7 @@ function KickOff({ journey, touches }: { journey: Journey; touches: readonly Tou
 }
 
 function MatchFeed({ journey, touches, playedIds, commentaryShown, agents, onOpenEntity, entityKinds, reduced }: { journey: Journey; touches: readonly Touch[]; playedIds: string[]; commentaryShown: number[]; agents?: readonly StageAgentMeta[]; onOpenEntity?: (id: string) => void; entityKinds?: Record<string, EntityKind>; reduced: boolean }) {
+  const f = useFormatters();
   const kickoff = journey.stats.firstTouchAt;
   const played = new Set(playedIds);
   const shownComm = new Set(commentaryShown);
@@ -238,7 +241,7 @@ function MatchFeed({ journey, touches, playedIds, commentaryShown, agents, onOpe
             return (
               <li key={t.id} className={cn("flex flex-col gap-1", !reduced && idx === rows.length - 1 && "animate-rise-in")} data-touch-row={t.id}>
                 <div className="flex items-center gap-2">
-                  <span className="w-36 shrink-0 whitespace-nowrap font-mono text-mono text-secondary">{offsetLabel(t.occurredAt, kickoff)}</span>
+                  <span className="w-36 shrink-0 whitespace-nowrap font-mono text-mono text-secondary">{offsetLabel(t.occurredAt, kickoff, f)}</span>
                   <Chip tone={isCaptain ? "gold" : "neutral"} icon={isCaptain ? Star : undefined}>
                     {channelLabel(t.channelKey)}
                   </Chip>
@@ -285,6 +288,7 @@ function paybackMonths(journey: Journey): number | null {
 }
 
 function Rails({ journey, customer, touches, currency, onOpenEntity, entityKinds }: { journey: Journey; customer: CustomerFacts; touches: readonly Touch[]; currency: string; onOpenEntity?: (id: string) => void; entityKinds?: Record<string, EntityKind> }) {
+  const f = useFormatters();
   const [panel, setPanel] = useState<RailPanel>("attribution");
   const maxW = Math.max(1e-9, ...journey.channels.map((c) => c.weight));
   const byKind = touches.reduce<Record<string, number>>((acc, t) => ((acc[t.kind] = (acc[t.kind] ?? 0) + 1), acc), {});
@@ -362,7 +366,7 @@ function Rails({ journey, customer, touches, currency, onOpenEntity, entityKinds
             <div className="flex flex-col gap-1">
               <span className="t-display-xl tabular-nums">{journey.stats.timeToConvertHours === null ? "—" : formatDuration(journey.stats.timeToConvertHours * 3_600_000)}</span>
               <span className="text-small text-secondary">
-                First touch {journey.stats.firstTouchAt ? formatDateTime(journey.stats.firstTouchAt) : "—"} · converted {formatDateTime(journey.convertedAt)}
+                First touch {journey.stats.firstTouchAt ? f.formatDateTime(journey.stats.firstTouchAt) : "—"} · converted {f.formatDateTime(journey.convertedAt)}
               </span>
             </div>
           ) : null}
@@ -396,6 +400,7 @@ function Rails({ journey, customer, touches, currency, onOpenEntity, entityKinds
 }
 
 function GoalMoment({ journey, customer, kit, currency, reduced, overlay }: { journey: Journey; customer: CustomerFacts; kit: Kit; currency: string; reduced: boolean; overlay: "pixi" | "none" }) {
+  const f = useFormatters();
   const [wiped, setWiped] = useState(reduced);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const ref = useRef<HTMLDivElement>(null);
@@ -417,7 +422,7 @@ function GoalMoment({ journey, customer, kit, currency, reduced, overlay }: { jo
         <span className="t-display-xl">{customer.name}</span>
         {amount ? <span className="t-display-lg tabular-nums text-gold">{amount}</span> : null}
         <span className="text-small text-secondary">
-          {formatOrdinal(journey.nthOfKind)} {journey.kind} · {formatDateTime(journey.convertedAt)}
+          {formatOrdinal(journey.nthOfKind)} {journey.kind} · {f.formatDateTime(journey.convertedAt)}
         </span>
       </div>
     );
@@ -442,6 +447,7 @@ function GoalMoment({ journey, customer, kit, currency, reduced, overlay }: { jo
 }
 
 function FullTime({ journey, customer, agents, currency, onReplay, onClose, closeLabel }: { journey: Journey; customer: CustomerFacts; agents?: readonly StageAgentMeta[]; currency: string; onReplay: () => void; onClose?: () => void; closeLabel: string }) {
+  const f = useFormatters();
   const payback = paybackMonths(journey);
   const potm = journey.agents.find((a) => a.agentId === journey.playerOfTheMatch) ?? null;
   const sorted = [...journey.agents].sort((a, b) => b.rating - a.rating || b.contribution - a.contribution);
@@ -453,7 +459,7 @@ function FullTime({ journey, customer, agents, currency, onReplay, onClose, clos
             <span className="t-label">{KIND_RESULT[journey.kind]}</span>
             <p className="t-display-md">{customer.name}</p>
             <p className="text-small text-secondary">
-              {formatOrdinal(journey.nthOfKind)} {journey.kind} · {LEVEL_WORD[journey.matchdayLevel]} · {formatDateTime(journey.convertedAt)}
+              {formatOrdinal(journey.nthOfKind)} {journey.kind} · {LEVEL_WORD[journey.matchdayLevel]} · {f.formatDateTime(journey.convertedAt)}
             </p>
           </div>
           <dl className="grid grid-cols-2 gap-3">

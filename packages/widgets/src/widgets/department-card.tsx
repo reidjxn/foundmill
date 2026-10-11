@@ -11,7 +11,7 @@ import { z } from "zod";
 import { LayoutGrid } from "lucide-react";
 import type { AgentStatus, EntityKind, ModuleKey } from "@foundmill/shared";
 import { MODULE_KEYS } from "@foundmill/shared/constants";
-import { DATE_FORMATS, DepartmentCard, formatDate, formatMoney, formatNumber, type DepartmentCardData, type DepartmentMetric, type DepartmentQuietLine, type HealthTone, type SquadMember } from "@foundmill/dugout";
+import { DepartmentCard, formatDate, formatMoney, formatNumber, useDateFormat, type DateFormatPrefs, type DepartmentCardData, type DepartmentMetric, type DepartmentQuietLine, type HealthTone, type SquadMember } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { primaryModule, resolveDepartment, useDepartments } from "../shared/departments";
@@ -101,9 +101,9 @@ function toMs(at: unknown): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-/** "Aug 31" this year, "Jan 13, 2025" before it. */
-function dayLabel(ms: number, today: string): string {
-  return formatDate(ms, String(new Date(ms).getUTCFullYear()) === today.slice(0, 4) ? DATE_FORMATS.dayMonth : DATE_FORMATS.date);
+/** "Aug 31" this year, "Jan 13, 2025" before it (in the signed-in person's format when `prefs` is given). */
+function dayLabel(ms: number, today: string, prefs?: DateFormatPrefs | null): string {
+  return formatDate(ms, String(new Date(ms).getUTCFullYear()) === today.slice(0, 4) ? "dayMonth" : "date", prefs);
 }
 
 /**
@@ -112,7 +112,7 @@ function dayLabel(ms: number, today: string): string {
  * the last task it finished (with the day), else "All clear" once both the Inbox and the finished tasks have answered.
  * Null while that is not known, so the card never claims "nothing waiting" on missing data.
  */
-export function quietLine(input: { agentIds: ReadonlySet<string>; departmentId: string; inbox: readonly InboxItemRow[] | undefined; done: readonly TaskRow[] | undefined; today: string }): QuietLine | null {
+export function quietLine(input: { agentIds: ReadonlySet<string>; departmentId: string; inbox: readonly InboxItemRow[] | undefined; done: readonly TaskRow[] | undefined; today: string; datePrefs?: DateFormatPrefs | null }): QuietLine | null {
   const notes = (input.inbox ?? [])
     .filter((n) => n.fromAgentId !== null && input.agentIds.has(n.fromAgentId) && n.state !== "archived")
     .sort((a, b) => (toMs(b.createdAt) ?? 0) - (toMs(a.createdAt) ?? 0));
@@ -127,7 +127,7 @@ export function quietLine(input: { agentIds: ReadonlySet<string>; departmentId: 
       return t.departmentId === input.departmentId && t.status === "done" && ended !== null ? [{ title: t.title, ended }] : [];
     })
     .sort((a, b) => b.ended - a.ended)[0];
-  if (finished) return { kind: "finished", label: "Last finished", text: finished.title, detail: dayLabel(finished.ended, input.today) };
+  if (finished) return { kind: "finished", label: "Last finished", text: finished.title, detail: dayLabel(finished.ended, input.today, input.datePrefs) };
   if (input.inbox && input.done) return { kind: "clear", label: "All clear", text: "Nothing in progress, and nothing waiting on you." };
   return null;
 }
@@ -214,6 +214,7 @@ export function toSquad(dept: DepartmentRow, overrides: Record<string, AgentStat
 function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>) {
   const { businessId, navigate, currency = "EUR" } = useWidgetData();
   const today = dayKey();
+  const datePrefs = useDateFormat();
   const departments = useDepartments();
   const dept = resolveDepartment(departments.data, settings);
   const enabled = !!dept;
@@ -270,12 +271,12 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
       squad,
       now,
       nowLoading: !tasks.data && tasks.isLoading,
-      quiet: now.length === 0 ? quietLine({ agentIds, departmentId: dept.id, inbox: inbox.data?.items, done: done.data?.items, today }) : null,
+      quiet: now.length === 0 ? quietLine({ agentIds, departmentId: dept.id, inbox: inbox.data?.items, done: done.data?.items, today, datePrefs }) : null,
       metric: headlineMetric({ key: metricKey, rows, days: lastDays(14, today), squad, roadmap: roadmap.data, channels: channels.data, finance: finance.data, compliance: compliance.data, currency, today }),
       // A short status, not an instruction: every quiet card would otherwise repeat the same sentence.
       nextUp: next ? next.title : "Nothing queued",
     };
-  }, [dept, overrides, taskItems, tasks.data, tasks.isLoading, inbox.data, done.data, metricKey, rows, roadmap.data, channels.data, finance.data, compliance.data, currency, today]);
+  }, [dept, overrides, taskItems, tasks.data, tasks.isLoading, inbox.data, done.data, metricKey, rows, roadmap.data, channels.data, finance.data, compliance.data, currency, today, datePrefs]);
 
   const entityKinds = useMemo(() => Object.fromEntries([...squadIds].map((id) => [id, "agent" as EntityKind])), [squadIds]);
   const openEntity = (id: string) => navigate(squadIds.has(id) ? routes.agent(businessId, id) : routes.crm(businessId, id));

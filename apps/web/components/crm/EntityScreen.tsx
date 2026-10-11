@@ -9,7 +9,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, Download, GitMerge, Handshake, Mail, MessageSquare, Pencil, Phone, Play, ScrollText, StickyNote, Trash2, Undo2, UserRoundPlus, Users } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Avatar, Button, Chip, ENTITY_KIND_ICONS, ENTITY_KIND_LABELS, EntityLink, Icon, KeyValueList, Panel, ProfileHeader, ProvenanceChip, RatingBar, StarRating, StatusPill, StatusStrip, Textarea, Timeline, formatDate, formatDateTime, formatMoney, formatRelative, useToast, type MetricTileProps, type ProfileChip, type ProfileFact, type TabItem, type TimelineEvent } from "@foundmill/dugout";
+import { Avatar, Button, Chip, ENTITY_KIND_ICONS, ENTITY_KIND_LABELS, EntityLink, Icon, KeyValueList, Panel, ProfileHeader, ProvenanceChip, RatingBar, StarRating, StatusPill, StatusStrip, Textarea, Timeline, formatMoney, formatRelative, useToast, useFormatters, type MetricTileProps, type ProfileChip, type ProfileFact, type TabItem, type TimelineEvent } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { errorMessage, trpcErrorCode } from "@/lib/trpc";
@@ -39,6 +39,7 @@ function identifier(value: unknown): ReactNode {
 const ACTIVITY_ICON = { email: Mail, meeting: Users, call: Phone, message: MessageSquare, note: StickyNote, mention: ScrollText, conversion: Play } as const;
 
 export function EntityScreen({ entityId, tab }: EntityScreenProps) {
+  const { formatDate, formatDateTime } = useFormatters();
   const { businessId, departments } = useBusiness();
   const trpc = useTRPC();
   const router = useRouter();
@@ -301,6 +302,7 @@ function RelationshipsTab({ get, businessId }: { get: EntityGet; businessId: str
 }
 
 function CommercialTab({ get, currency }: { get: EntityGet; currency: string }) {
+  const { formatDate, formatDateTime } = useFormatters();
   const s = commercialSummary(get.conversions, currency);
   const payments = get.conversions.filter((c) => c.kind === "payment");
   return (
@@ -356,6 +358,7 @@ function DocumentsTab({ get, businessId }: { get: EntityGet; businessId: string 
 }
 
 function NotesTab({ get, businessId }: { get: EntityGet; businessId: string }) {
+  const { formatDateTime } = useFormatters();
   const trpc = useTRPC();
   const { toast } = useToast();
   const invalidate = useCrmInvalidate();
@@ -406,6 +409,7 @@ function NotesTab({ get, businessId }: { get: EntityGet; businessId: string }) {
 }
 
 function JourneyTab({ get, businessId }: { get: EntityGet; businessId: string }) {
+  const { formatDateTime } = useFormatters();
   const router = useRouter();
   const wins = get.conversions.slice().sort((a, b) => Date.parse(String(b.occurredAt)) - Date.parse(String(a.occurredAt)));
   return (

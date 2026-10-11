@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 const SLUGS = SETTINGS_TABS.map((t) => t.slug) as readonly string[];
 
-/** /b/[bid]/settings/[tab] — business | mode | departments | glossary | members | integrations | keys | billing | danger (BUILD §11.15). */
+/** /b/[bid]/settings/[tab] — business | mode | departments | glossary | members | integrations | keys | billing | preferences | danger (BUILD §11.15; preferences is the signed-in person's own, in every business). */
 export default async function SettingsPage({ params }: { params: Promise<{ bid: string; tab: string }> }) {
   const { tab } = await params;
   if (!SLUGS.includes(tab)) notFound();

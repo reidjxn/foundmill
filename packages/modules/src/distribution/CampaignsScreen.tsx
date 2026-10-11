@@ -16,8 +16,8 @@ import {
   Panel,
   ProvenanceChip,
   StatusPill,
-  formatDate,
   formatMoney,
+  useFormatters,
   type DataTableColumn,
   type RowAction,
   type SavedView,
@@ -28,6 +28,7 @@ import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/wid
 import type { ModuleScreenProps } from "../registry";
 import { APPROVAL_WORDS, CAMPAIGN_STATUS_WORDS, assetCounts, canTransition } from "./channel-data";
 import { ASSET_KIND_WORD } from "./channel-data";
+import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
 import { InlineError, Screen, channelLabel, fitTableHeight, searchParam, useAction } from "./shared";
 import type { AgentRow, AssetRow, CampaignRow, ChannelsListResponse, Page } from "./types";
@@ -81,8 +82,8 @@ export function campaignColumns(sizes: Record<CampaignColumnId, number> = fitCol
       meta: { filter: "select", filterOptions: STATUS_OPTIONS },
     },
     { id: "budget", accessorFn: (r) => r.budgetMinor, header: "Budget", size: sizes.budget, cell: ({ row }) => <span className="tabular-nums">{formatMoney({ amountMinor: row.original.budgetMinor, currency: row.original.currency })}</span>, meta: { numeric: true } },
-    { id: "starts", accessorFn: (r) => r.startsAt ?? "", header: "Starts", size: sizes.starts, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
-    { id: "ends", accessorFn: (r) => r.endsAt ?? "", header: "Ends", size: sizes.ends, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
+    { id: "starts", accessorFn: (r) => r.startsAt ?? "", header: "Starts", size: sizes.starts, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() ? String(getValue()) : null} />, meta: { filter: "date" } },
+    { id: "ends", accessorFn: (r) => r.endsAt ?? "", header: "Ends", size: sizes.ends, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() ? String(getValue()) : null} />, meta: { filter: "date" } },
     {
       id: "assets",
       accessorFn: (r) => r.assets.length,
@@ -213,6 +214,7 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
 }
 
 function CampaignDetail({ row, agents, businessId, pending, onStatus, onDecide }: { row: CampaignTableRow; agents: readonly AgentRow[] | undefined; businessId: string; pending: string | null; onStatus: (s: CampaignStatus) => void; onDecide: (a: AssetRow, d: "approve" | "reject") => void; onOpenAsset: (a: AssetRow) => void }) {
+  const { formatDate } = useFormatters();
   const counts = assetCounts(row.assets);
   const launchBlocked = canTransition(row.status, "live") && counts.total > 0 && counts.approved === 0;
   const agentName = (id: string) => agents?.find((a) => a.id === id)?.name ?? "Agent";

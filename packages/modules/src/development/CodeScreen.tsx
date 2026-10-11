@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { CircleCheck, ExternalLink, FileCode, FolderGit2, GitBranch, Network, Search, Trash2, TriangleAlert } from "lucide-react";
-import { DATE_FORMATS, Avatar, Button, Chip, CodeViewer, DataTable, EmptyState, ErrorState, Icon, Input, Panel, SimpleSelect, StatusPill, cn, formatBytes, formatDate, formatDateTime, formatNumber, formatRelative, type DataTableColumn, type SelectOption } from "@foundmill/dugout";
+import { Avatar, Button, Chip, CodeViewer, DataTable, EmptyState, ErrorState, Icon, Input, Panel, SimpleSelect, StatusPill, cn, formatBytes, formatDate, formatNumber, formatRelative, useFormatters, type DataTableColumn, type DateFormatPrefs, type SelectOption } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
@@ -49,9 +49,12 @@ export function firstFile(files: readonly CodeManifestEntry[]): string | null {
 
 const fileCount = (n: number) => `${formatNumber(n)} ${n === 1 ? "file" : "files"}`;
 
-/** One line per saved session for the selector: when and how many files (the footer says what changed). */
-export function sessionLabel(s: CodeSnapshotSummary, latest: boolean): string {
-  return `${latest ? "Latest · " : ""}${formatDate(s.createdAt, DATE_FORMATS.dayMonthTime)} · ${fileCount(s.fileCount)}`;
+/**
+ * One line per saved session for the selector: when (in the person's date format, `prefs`) and how many files (the
+ * footer says what changed).
+ */
+export function sessionLabel(s: CodeSnapshotSummary, latest: boolean, prefs?: DateFormatPrefs | null): string {
+  return `${latest ? "Latest · " : ""}${formatDate(s.createdAt, "dayMonthTime", prefs)} · ${fileCount(s.fileCount)}`;
 }
 
 function splitPath(path: string): { dir: string; name: string } {
@@ -181,7 +184,8 @@ export function CodeScreen({ businessId, departmentId }: ModuleScreenProps) {
 
   const historyData = files.data?.history;
   const history = useMemo(() => historyData ?? [], [historyData]);
-  const sessionOptions = useMemo<SelectOption[]>(() => history.map((s, i) => ({ value: s.id, label: sessionLabel(s, i === 0), textValue: formatDateTime(s.createdAt) })), [history]);
+  const { prefs: datePrefs, formatDateTime } = useFormatters();
+  const sessionOptions = useMemo<SelectOption[]>(() => history.map((s, i) => ({ value: s.id, label: sessionLabel(s, i === 0, datePrefs), textValue: formatDateTime(s.createdAt) })), [history, datePrefs, formatDateTime]);
 
   const columns = useMemo<DataTableColumn<CodeTaskTableRow>[]>(
     () => [
@@ -205,7 +209,7 @@ export function CodeScreen({ businessId, departmentId }: ModuleScreenProps) {
       { id: "fileCount", accessorKey: "fileCount", header: "Files", size: 64, meta: { numeric: true }, cell: ({ row }) => <span className="tabular-nums">{formatNumber(row.original.fileCount)}</span> },
       { id: "savedAt", accessorFn: (r) => r.savedAt?.getTime() ?? 0, header: "Saved", size: 96, meta: { filter: "date", label: "Saved" }, cell: ({ row }) => (row.original.savedAt ? <span className="truncate" title={formatDateTime(row.original.savedAt)}>{formatRelative(row.original.savedAt, now, { style: "narrow" })}</span> : "—") },
     ],
-    [now],
+    [now, formatDateTime],
   );
 
   const goToPlan = () => navigate(routes.department(businessId, deptSlug ?? "development", "plan"));
@@ -337,7 +341,7 @@ export function CodeScreen({ businessId, departmentId }: ModuleScreenProps) {
             {sessionOptions.length > 1 ? (
               <SimpleSelect controlSize="sm" options={sessionOptions} value={snapshot?.id ?? sessionOptions[0]?.value} onValueChange={(v) => setSnapshotId(v === history[0]?.id ? null : v)} aria-label="Saved session" className="w-80" />
             ) : history[0] ? (
-              <span className="text-small text-secondary">{sessionLabel(history[0], false)}</span>
+              <span className="text-small text-secondary">{sessionLabel(history[0], false, datePrefs)}</span>
             ) : null}
           </div>
         ) : null}

@@ -9,7 +9,7 @@
  */
 import { useMemo, useState } from "react";
 import { Cookie, FileDiff, FileText, RefreshCw, Scale, ShieldCheck } from "lucide-react";
-import { Button, Chip, DiffView, Markdown, MiniTable, Panel, applyDecisions, formatDate, buildHunks, diffLines, summariseDiff, type HunkDecisionState, type HunkDecisions, type IconComponent } from "@foundmill/dugout";
+import { Button, Chip, DiffView, Markdown, MiniTable, Panel, applyDecisions, buildHunks, diffLines, summariseDiff, useFormatters, type HunkDecisionState, type HunkDecisions, type IconComponent } from "@foundmill/dugout";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -31,6 +31,7 @@ const POLICY_RE = /polic|privacy|terms|cookie|gdpr/i;
 const SEVERITY_WORD: Record<string, string> = { critical: "Critical", normal: "Normal", minor: "Minor", low: "Minor" };
 
 export function PoliciesScreen({ businessId }: ModuleScreenProps) {
+  const { formatDate } = useFormatters();
   const now = useNow();
   const { navigate } = useWidgetData();
   const integrations = useWidgetQuery<IntegrationsListResponse>("integrations.list", INTEGRATIONS_INPUT);

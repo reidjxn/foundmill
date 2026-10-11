@@ -1,7 +1,8 @@
 "use client";
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "../../lib/cn";
-import { DATE_FORMATS, formatDate, formatHourOfDay, formatNumber } from "../../lib/format";
+import { formatNumber } from "../../lib/format";
+import { useFormatters } from "../foundation/DateFormatProvider";
 import { Tooltip } from "../foundation/Tooltip";
 import { DEPT_BG } from "./ribbon/OnThisDayCard";
 import type { RibbonDepartment, SquadPulseCell } from "./types";
@@ -55,6 +56,7 @@ const HOURS = Array.from({ length: 24 }, (_, h) => h);
  */
 export function SquadPulse({ departments, days, cells, onSelect, className }: SquadPulseProps) {
   const { grid, max } = useMemo(() => buildPulseGrid(departments, cells), [departments, cells]);
+  const { formatDate, formatHourOfDay } = useFormatters();
   const [focus, setFocus] = useState<{ d: number; h: number }>({ d: 6, h: 9 });
   const gridRef = useRef<HTMLDivElement>(null);
   const total = grid.flat().reduce((s, c) => s + c.total, 0);
@@ -88,7 +90,7 @@ export function SquadPulse({ departments, days, cells, onSelect, className }: Sq
             </span>
             {row.map((cell) => {
               const alpha = cell.total <= 0 || max <= 0 ? 0 : 0.15 + 0.85 * Math.min(1, cell.total / max);
-              const label = `${days[d] ? formatDate(days[d] as string, DATE_FORMATS.weekdayDayMonth) : `Day ${d + 1}`}, ${formatHourOfDay(cell.hour)} — ${cell.total > 0 ? `${formatNumber(cell.total, { maxDigits: 1 })} agent hours` : "no activity"}`;
+              const label = `${days[d] ? formatDate(days[d] as string, "weekdayDayMonth") : `Day ${d + 1}`}, ${formatHourOfDay(cell.hour)} — ${cell.total > 0 ? `${formatNumber(cell.total, { maxDigits: 1 })} agent hours` : "no activity"}`;
               const isFocus = focus.d === d && focus.h === cell.hour;
               return (
                 <Tooltip

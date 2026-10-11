@@ -2,9 +2,10 @@
 import { useState } from "react";
 import { FlaskConical, Funnel, ReceiptText, Ship } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { formatDate, formatMoney, formatNumber } from "../../lib/format";
+import { formatMoney, formatNumber } from "../../lib/format";
 import { ratingClass } from "../../lib/rating";
 import { Chip, ProvenanceChip } from "../foundation/Chip";
+import { useFormatters } from "../foundation/DateFormatProvider";
 import { EmptyState } from "../foundation/EmptyState";
 import { Icon, type IconComponent } from "../foundation/Icon";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
@@ -136,6 +137,7 @@ export function QuoteTable({ quotes }: { quotes: readonly SupplierQuote[] }) {
 }
 
 export function SampleTracker({ samples }: { samples: readonly SampleItem[] }) {
+  const { formatDate } = useFormatters();
   if (samples.length === 0) return <EmptyState icon={FlaskConical}>Sample requests show here with their stage and expected arrival.</EmptyState>;
   return (
     <ul className="flex flex-col divide-y divide-subtle/50" aria-label="Sample tracker">
@@ -163,6 +165,7 @@ export function SampleTracker({ samples }: { samples: readonly SampleItem[] }) {
 }
 
 export function ShipmentList({ shipments }: { shipments: readonly Shipment[] }) {
+  const { formatDate } = useFormatters();
   if (shipments.length === 0) return <EmptyState icon={Ship}>Freight quotes and bookings appear here with carrier, route and landed cost.</EmptyState>;
   return (
     <ul className="flex flex-col divide-y divide-subtle/50" aria-label="Shipments">

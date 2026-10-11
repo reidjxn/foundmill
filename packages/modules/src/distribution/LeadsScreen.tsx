@@ -22,8 +22,6 @@ import {
   SimpleSelect,
   StatusPill,
   Textarea,
-  formatDate,
-  formatRelative,
   type DataTableColumn,
   type RowAction,
   type SavedView,
@@ -33,6 +31,7 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { LAWFUL_BASES, lawfulBasisLabel, suppressionOf } from "./channel-data";
+import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
 import { InlineError, Screen, fitTableHeight, plainWords, sourceLabel, useAction } from "./shared";
 import type { AgentRow, LeadRow, Page } from "./types";
@@ -119,7 +118,7 @@ export function leadColumns(businessId: string, agents: readonly AgentRow[] | un
         return <span className="text-secondary">{o.kind === "user" ? "Team member" : "Department"}</span>;
       },
     },
-    { id: "added", accessorFn: (r) => r.role.startedAt, header: "Added", size: sizes.added, cell: ({ getValue }) => <span className="tabular-nums" title={formatDate(String(getValue()))}>{formatRelative(String(getValue()))}</span>, meta: { filter: "date" } },
+    { id: "added", accessorFn: (r) => r.role.startedAt, header: "Added", size: sizes.added, cell: ({ getValue }) => <RelativeDateText className="tabular-nums" value={String(getValue())} />, meta: { filter: "date" } },
   ];
 }
 

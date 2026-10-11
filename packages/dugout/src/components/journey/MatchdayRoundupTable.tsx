@@ -3,9 +3,10 @@ import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Play, Trophy } from "lucide-react";
 import { CHANNEL_META, type ChannelKey, type ConversionKind, type EntityKind, type MatchdayLevel } from "@foundmill/shared/constants";
 import { cn } from "../../lib/cn";
-import { formatDate, formatMoney, formatTime } from "../../lib/format";
+import { formatMoney } from "../../lib/format";
 import { Button } from "../foundation/Button";
 import { Chip, type ChipTone } from "../foundation/Chip";
+import { useFormatters } from "../foundation/DateFormatProvider";
 import { EmptyState } from "../foundation/EmptyState";
 import { Icon } from "../foundation/Icon";
 import { EntityText } from "./EntityText";
@@ -57,6 +58,7 @@ export function sortRoundupRows(rows: readonly RoundupRow[], key: SortKey, dir: 
 
 /** The daily results table (DESIGN §3 rows: 28 px, label headers, zebra, hover). Each row opens its replay. */
 export function MatchdayRoundupTable({ rows, day, onOpenReplay, onOpenEntity, entityKinds, className }: MatchdayRoundupTableProps) {
+  const { formatDate, formatTime } = useFormatters();
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "time", dir: "desc" });
   const sorted = useMemo(() => sortRoundupRows(rows, sort.key, sort.dir), [rows, sort]);
   // First click: newest first, biggest first, payments first.

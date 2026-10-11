@@ -351,4 +351,11 @@ describe("cell tooltips", () => {
     expect(cellTitle(12)).toBeUndefined();
     expect(cellTitle("")).toBeUndefined();
   });
+
+  it("never carry a machine date or moment: the cell prints it in the person's own format", () => {
+    expect(cellTitle("2026-10-10T05:16:57.031Z")).toBeUndefined();
+    expect(cellTitle("2026-10-10T05:16:57+01:00")).toBeUndefined();
+    expect(cellTitle("2026-10-07")).toBeUndefined();
+    expect(cellTitle("Due 2026-10-07 at the latest")).toBe("Due 2026-10-07 at the latest");
+  });
 });

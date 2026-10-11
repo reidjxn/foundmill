@@ -7,13 +7,14 @@
  */
 import { useMemo, useState } from "react";
 import { CalendarDays, CalendarRange, Inbox, List, Repeat } from "lucide-react";
-import { DATE_FORMATS, Chip, DataTable, Panel, SegmentedControl, StatusStrip, cn, formatDate, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Chip, DataTable, Panel, SegmentedControl, StatusStrip, cn, useFormatters, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { DUE_WINDOW_DAYS, calendarMonths, calendarRows, daysToNextDeadline, type CalendarRow } from "./legal-data";
 import { CALENDAR_PILL, Pill, Screen, fitTableHeight, humanise, useNow } from "./shared";
 import type { ComplianceListResponse } from "./types";
+import { DateText } from "../dates";
 
 const COMPLIANCE_INPUT = { pendingOnly: false, days: 365 } as const;
 
@@ -43,11 +44,11 @@ export function complianceColumns(): DataTableColumn<CalendarRow>[] {
     { id: "title", accessorKey: "title", header: "Deadline", size: 260, cell: ({ row }) => <span className="t-body-strong text-primary">{row.original.title}</span>, meta: { locked: true } },
     { id: "kind", accessorKey: "kind", header: "Kind", size: 130, cell: ({ getValue }) => <Chip tone={getValue() === "filing" ? "info" : "neutral"} className="whitespace-nowrap">{getValue() === "filing" ? "Filing" : "Compliance"}</Chip>, meta: { filter: "select", filterOptions: [{ value: "filing", label: "Filing" }, { value: "compliance", label: "Compliance" }] } },
     { id: "category", accessorKey: "category", header: "Category", size: 160, cell: ({ getValue }) => <span className="text-secondary">{humanise(String(getValue()))}</span>, meta: { filter: "text" } },
-    { id: "dueAt", accessorFn: (r) => r.dueAt ?? "", header: "Due", size: 120, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
+    { id: "dueAt", accessorFn: (r) => r.dueAt ?? "", header: "Due", size: 120, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() ? String(getValue()) : null} />, meta: { filter: "date" } },
     { id: "daysLeft", accessorFn: (r) => r.daysLeft ?? Number.POSITIVE_INFINITY, header: "Days left", size: 120, cell: ({ row }) => <span className={cn("tabular-nums", row.original.daysLeft !== null && row.original.daysLeft < 0 && "text-status-bad")}>{daysLeftText(row.original.daysLeft)}</span>, meta: { numeric: true } },
     { id: "status", accessorKey: "status", header: "Status", size: 140, cell: ({ row }) => <Pill {...CALENDAR_PILL[row.original.status]} />, meta: { filter: "select", filterOptions: Object.entries(CALENDAR_PILL).map(([value, p]) => ({ value, label: p.word })) } },
     { id: "recurrence", accessorFn: (r) => r.recurrence ?? "", header: "Recurs", size: 100, cell: ({ getValue }) => (getValue() ? <span className="inline-flex items-center gap-1 text-secondary"><Repeat size={14} aria-hidden /> {humanise(String(getValue()))}</span> : <span className="text-secondary">Once</span>) },
-    { id: "completedAt", accessorFn: (r) => r.completedAt ?? "", header: "Done on", size: 120, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
+    { id: "completedAt", accessorFn: (r) => r.completedAt ?? "", header: "Done on", size: 120, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() ? String(getValue()) : null} />, meta: { filter: "date" } },
     { id: "ref", accessorFn: (r) => r.ref ?? "", header: "Reference", size: 160, cell: ({ getValue }) => <span className="t-mono text-secondary">{String(getValue()) || "—"}</span> },
   ];
 }
@@ -61,7 +62,8 @@ export function ComplianceScreen({ businessId, subView }: ModuleScreenProps) {
   const [highlight, setHighlight] = useState<string | null>(null);
 
   const rows = useMemo(() => calendarRows(query.data, now), [query.data, now]);
-  const months = useMemo(() => calendarMonths(rows, now, 12), [rows, now]);
+  const { prefs: datePrefs, formatDateShort } = useFormatters();
+  const months = useMemo(() => calendarMonths(rows, now, 12, datePrefs), [rows, now, datePrefs]);
   const columns = useMemo(() => complianceColumns(), []);
   const next = daysToNextDeadline(rows);
   const overdue = rows.filter((r) => r.status === "overdue").length;
@@ -127,7 +129,7 @@ export function ComplianceScreen({ businessId, subView }: ModuleScreenProps) {
                       <li key={`${r.kind}-${r.id}`} className={cn("flex flex-col gap-1 rounded-sm px-1.5 py-1", r.id === highlight && "row-selected")}>
                         <span className="t-body text-primary">{r.title}</span>
                         <span className="flex flex-wrap items-center gap-2">
-                          <span className="t-mono text-tertiary">{r.dueAt ? formatDate(r.dueAt, DATE_FORMATS.dayMonth) : ""}</span>
+                          <span className="t-mono text-tertiary">{r.dueAt ? formatDateShort(r.dueAt) : ""}</span>
                           <Pill {...CALENDAR_PILL[r.status]} />
                         </span>
                       </li>

@@ -6,6 +6,8 @@
  */
 import { ARCHETYPE_LABELS, type Archetype, type IncorporationRoute } from "@foundmill/shared/constants";
 import { usSpelling } from "@foundmill/shared/us-spelling";
+import { formatDate } from "@foundmill/dugout/lib/format";
+import type { DateFormatPrefs } from "@foundmill/dugout/lib/date-preferences";
 import type { ComplianceEventRow, ComplianceListResponse, ContractRow, FilingRow, FilingStatus, IncorporationRow, IncorporationStepRecord, IntegrationRow, LegalEntityRow, OfficerEntityRow } from "./types";
 
 export const DAY_MS = 86_400_000;
@@ -376,17 +378,15 @@ export function monthKey(d: string | Date): string {
   return date ? `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}` : "";
 }
 
-/** Twelve month buckets from `from` (inclusive), each with the rows due in it. */
-const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
-
-export function calendarMonths(rows: readonly CalendarRow[], from: Date, months = 12): { key: string; label: string; rows: CalendarRow[] }[] {
+/** Twelve month buckets from `from` (inclusive), each with the rows due in it; labeled in the person's date format (`prefs`). */
+export function calendarMonths(rows: readonly CalendarRow[], from: Date, months = 12, prefs?: DateFormatPrefs | null): { key: string; label: string; rows: CalendarRow[] }[] {
   const out: { key: string; label: string; rows: CalendarRow[] }[] = [];
   const start = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1));
   for (let i = 0; i < months; i++) {
     const d = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i, 1));
     const key = monthKey(d);
-    // "Sep 2027", never ICU's "Sept 2027": the same three-letter months as every other date in the product.
-    out.push({ key, label: `${MONTH_ABBR[d.getUTCMonth()]} ${d.getUTCFullYear()}`, rows: rows.filter((r) => r.dueAt && monthKey(r.dueAt) === key) });
+    // "Sep 2027" (date-fns, never ICU's "Sept 2027"), "2027-09" in ISO: the same month form as every other screen.
+    out.push({ key, label: formatDate(`${key}-01`, "monthYear", prefs), rows: rows.filter((r) => r.dueAt && monthKey(r.dueAt) === key) });
   }
   return out;
 }

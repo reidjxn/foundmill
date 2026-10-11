@@ -9,7 +9,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Play, ScrollText } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AGENT_SESSION_EVENT_KINDS, AgentTile, Chip, DataTable, EmptyState, ModelChip, Panel, SessionScrubber, StatusPill, eventsUntil, formatDateTime, formatDuration, formatMoney, formatTokens, reduceSessionEvents, type AgentSessionEvent, type DataTableColumn, type SavedView, type ScrubberSpeed, type SessionSeed } from "@foundmill/dugout";
+import { AGENT_SESSION_EVENT_KINDS, AgentTile, Chip, DataTable, EmptyState, ModelChip, Panel, SessionScrubber, StatusPill, eventsUntil, formatDuration, formatMoney, formatTokens, reduceSessionEvents, useFormatters, type AgentSessionEvent, type DataTableColumn, type SavedView, type ScrubberSpeed, type SessionSeed } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useStreamSubscription } from "@/lib/stream-client";
 import { errorMessage } from "@/lib/trpc";
@@ -66,6 +66,7 @@ function safeParse(s: string): unknown {
 }
 
 export function LogsTab({ businessId, profile }: TabProps) {
+  const { formatDateTime } = useFormatters();
   const rows = useMemo(() => sessionRows(profile.sessions), [profile.sessions]);
   const [selectedId, setSelectedId] = useState<string | null>(rows[0]?.id ?? null);
   const selected = rows.find((r) => r.id === selectedId) ?? null;
@@ -82,7 +83,7 @@ export function LogsTab({ businessId, profile }: TabProps) {
       { id: "outcome", accessorKey: "outcome", header: "Outcome", size: 130, cell: ({ row }) => <StatusPill tone={OUTCOME_TONE[row.original.outcome] ?? "neutral"} pulse={row.original.live}>{row.original.live ? "Running" : outcomeWord(row.original.outcome)}</StatusPill>, meta: { filter: "select", filterOptions: Object.keys(OUTCOME_TONE).map((v) => ({ value: v, label: outcomeWord(v) })) } },
       { id: "task", accessorKey: "taskId", header: "Task", size: 140, cell: ({ getValue }) => (getValue() ? <span className="font-mono text-mono text-secondary">{String(getValue()).slice(0, 8)}</span> : <span className="text-secondary">—</span>) },
     ],
-    [],
+    [formatDateTime],
   );
 
   return (
@@ -96,6 +97,7 @@ export function LogsTab({ businessId, profile }: TabProps) {
 }
 
 function ReplayPanel({ businessId, profile, session }: { businessId: string; profile: TabProps["profile"]; session: SessionRow }) {
+  const { formatDateTime } = useFormatters();
   const trpc = useTRPC();
   const replayQ = useQuery(trpc.dev.sessions.replay.queryOptions({ businessId, sessionId: session.id }, { staleTime: 30_000, retry: false }));
   const [events, setEvents] = useState<AgentSessionEvent[]>([]);

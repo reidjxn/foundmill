@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { Bot, FileText, GitCompare, History, Lock, LockOpen, Pin, RotateCcw, Upload, UserRound } from "lucide-react";
-import { DATE_FORMATS, Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DiffView, Icon, Panel, StatusPill, Textarea, cn, formatDate, formatDateTime, formatRelative, type StatusTone } from "@foundmill/dugout";
+import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DiffView, Icon, Panel, StatusPill, Textarea, cn, formatRelative, useFormatters, type StatusTone } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetQuery } from "@foundmill/widgets";
 import { useModuleEnv, type SpecEditorStatus } from "../env";
 import type { ModuleScreenProps } from "../registry";
@@ -165,6 +165,7 @@ function EditorPanel({ businessId, block, onChanged }: { businessId: string; blo
 /* ---------- History panel ---------- */
 
 function HistoryPanel({ versions, onRestored, onPublished }: { versions: ReturnType<typeof useWidgetQuery<SpecVersionRow[]>>; onRestored: () => void; onPublished: () => void }) {
+  const { formatDate, formatDateShort, formatDateTime } = useFormatters();
   const [from, setFrom] = useState<number | null>(null);
   const [to, setTo] = useState<number | null>(null);
   const [compareOpen, setCompareOpen] = useState(false);
@@ -241,7 +242,7 @@ function HistoryPanel({ versions, onRestored, onPublished }: { versions: ReturnT
                   {i === 0 ? <Chip tone="good">Latest</Chip> : null}
                   <span className="flex-1" />
                   <time dateTime={new Date(v.publishedAt).toISOString()} title={formatDateTime(v.publishedAt)} className="text-small text-secondary tabular-nums">
-                    {formatDate(v.publishedAt, DATE_FORMATS.dayMonth)}
+                    {formatDateShort(v.publishedAt)}
                   </time>
                 </div>
                 <p className="line-clamp-2 break-words text-small text-secondary" title={v.changelogMd}>

@@ -7,12 +7,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { BookOpenText, CalendarClock, ShieldOff } from "lucide-react";
 import { useMemo } from "react";
-import { Chip, DevelopmentChart, Icon, KeyValueList, Markdown, Panel, PositionMap, ProvenanceChip, SkillGrid, TraitChips, formatDateTime, formatMoney, formatRelative } from "@foundmill/dugout";
+import { Chip, DevelopmentChart, Icon, KeyValueList, Markdown, Panel, PositionMap, ProvenanceChip, SkillGrid, TraitChips, formatMoney, formatRelative, useFormatters } from "@foundmill/dugout";
 import { useTRPC } from "@/lib/trpc-react";
 import type { TabProps } from "./AgentProfileScreen";
 import { autonomyFromAgent, currentVersion, departmentColour, developmentSeries, humaniseKey, latestPromotedRun, negotiationFromAgent, parseInstructions, positionFits, toSkillRows, traitsFor, trainingSessionMarks, wageLabel, whatIDo } from "./logic";
 
 export function OverviewTab({ businessId, profile, currency }: TabProps) {
+  const { prefs: datePrefs, formatDateTime } = useFormatters();
   const trpc = useTRPC();
   const catalogueQ = useQuery(trpc.team.agents.catalogue.queryOptions({ businessId }, { staleTime: 300_000 }));
   const agent = profile.agent;
@@ -85,7 +86,7 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
       </Panel>
 
       <Panel title="Development" span={8} empty={series.every((s) => s.points.length < 2) ? { children: "Skill history draws here after the first training run; sessions are marked as diamonds." } : undefined} data-testid="development-chart">
-        <DevelopmentChart series={series} sessions={sessions} dept={departmentColour(profile)} width={820} height={240} aria-label={`${agent.name} development`} />
+        <DevelopmentChart series={series} sessions={sessions} dept={departmentColour(profile)} width={820} height={240} aria-label={`${agent.name} development`} datePrefs={datePrefs} />
       </Panel>
 
       <Panel title="Contract" span={4} data-testid="contract-panel">
@@ -94,7 +95,7 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
           labelClassName="w-36"
           items={[
             { label: "Wage cap", value: money(agent.wageCapMinor === null ? null : Number(agent.wageCapMinor)), numeric: true },
-            { label: wageLabel(profile.wage.period).replace(/^Wage/, "Spent"), value: <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: profile.wage.costMinor, currency })} <ProvenanceChip kind="estimate" /></span>, numeric: true },
+            { label: wageLabel(profile.wage.period, undefined, datePrefs).replace(/^Wage/, "Spent"), value: <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: profile.wage.costMinor, currency })} <ProvenanceChip kind="estimate" /></span>, numeric: true },
             { label: "Spend cap per action", value: money(autonomy.spendCapMinor), numeric: true },
             { label: "Asks above", value: money(autonomy.approvalThresholdMinor), numeric: true },
             { label: "Autonomy", value: autonomy.mode === "inherit" ? "Business mode" : autonomy.mode === "lower" ? "Asks more often" : "Acts more freely" },

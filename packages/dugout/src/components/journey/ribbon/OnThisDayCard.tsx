@@ -3,7 +3,8 @@ import { Banknote, Diamond, Flag, Landmark, Rocket, Trophy } from "lucide-react"
 import type { MilestoneKind } from "@foundmill/shared";
 import { cn } from "../../../lib/cn";
 import { FitText } from "../../foundation/FitText";
-import { DATE_FORMATS, formatDate, formatMoney, formatNumber } from "../../../lib/format";
+import { formatMoney, formatNumber } from "../../../lib/format";
+import { useFormatters } from "../../foundation/DateFormatProvider";
 import { ProvenanceChip } from "../../foundation/Chip";
 import { Icon, type IconComponent } from "../../foundation/Icon";
 import type { ForecastPoint } from "../types";
@@ -38,13 +39,14 @@ const KIND_WORD = { signup: "Signup", activation: "Activation", payment: "Paymen
 
 /** The Ribbon's hover scrubber card (BUILD §11.2 "On this day"). Compact; the click target opens the DayDigest. */
 export function OnThisDayCard({ summary, forecastPoint, currency = "EUR", onOpenJourney, className }: OnThisDayCardProps) {
+  const { formatDate } = useFormatters();
   const p = summary.point;
   const top = summary.departments.filter((d) => d.hours > 0).slice(0, 4);
   const maxHours = top[0]?.hours ?? 1;
   return (
     <div className={cn("surface-overlay w-72 p-3 text-body text-primary", className)} data-on-this-day={summary.day}>
       <div className="flex items-baseline justify-between gap-2">
-        <span className="t-display-sm">{summary.isToday ? "Today" : formatDate(summary.day, DATE_FORMATS.weekdayDate)}</span>
+        <span className="t-display-sm">{summary.isToday ? "Today" : formatDate(summary.day, "weekdayDate")}</span>
         {summary.chapter ? <span className="t-label truncate">{summary.chapter.title ?? summary.chapter.provisionalTitle}</span> : null}
       </div>
       {summary.isFuture ? (

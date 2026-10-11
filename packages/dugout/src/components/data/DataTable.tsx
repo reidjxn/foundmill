@@ -282,12 +282,19 @@ function defaultRowId<T>(row: T, index: number): string {
 /**
  * The tooltip of a text cell: its whole value, so a row's long free text that ends in an ellipsis can still be read. A
  * stored key ("organisation", "in_progress") is never the tooltip: the cell renders it in words (a chip, a label), and
- * the key itself is not something the founder reads.
+ * the key itself is not something the founder reads. Nor is a machine date: the cell formats it.
  */
 export function cellTitle(value: unknown): string | undefined {
   if (typeof value !== "string" || value === "") return undefined;
+  if (MACHINE_DATE_RE.test(value)) return undefined;
   return /^[a-z0-9]+(?:[_-][a-z0-9]+)*$/.test(value) ? undefined : value;
 }
+
+/**
+ * A date or a moment on the wire ("2026-10-07", "2026-10-07T15:45:00.000Z"): the cell prints it in the person's own
+ * date format (Settings › Preferences), so the raw value is never its tooltip.
+ */
+const MACHINE_DATE_RE = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
 
 export function DataTable<T>(props: DataTableProps<T>) {
   const {

@@ -5,7 +5,7 @@
  * listed under the chart so nothing disappears when a date is missing. Dates in Later are estimates and say so.
  */
 import { CalendarOff } from "lucide-react";
-import { DATE_FORMATS, Chip, Icon, ProvenanceChip, cn, formatDate } from "@foundmill/dugout";
+import { Chip, Icon, ProvenanceChip, cn, useFormatters } from "@foundmill/dugout";
 import { HORIZON_LABEL, computeRoadmapStatus, type RoadmapStatusKey } from "../roadmap-status";
 import type { RoadmapRow } from "../types";
 import { barSpan, timelineScale } from "./board";
@@ -20,9 +20,10 @@ const BAR_CLASS: Record<RoadmapStatusKey, string> = {
 };
 
 export function Timeline({ items, today = new Date(), onOpen }: { items: readonly RoadmapRow[]; today?: Date; onOpen: (item: RoadmapRow) => void }) {
+  const { prefs: datePrefs, formatDate, formatDateShort } = useFormatters();
   const scheduled = items.filter((i) => i.targetStart || i.targetEnd).slice().sort((a, b) => (a.targetStart ?? a.targetEnd ?? "").localeCompare(b.targetStart ?? b.targetEnd ?? ""));
   const undated = items.filter((i) => !i.targetStart && !i.targetEnd);
-  const scale = timelineScale(scheduled, today);
+  const scale = timelineScale(scheduled, today, datePrefs);
   const pct = (v: number) => `${(v * 100).toFixed(2)}%`;
 
   return (
@@ -41,7 +42,7 @@ export function Timeline({ items, today = new Date(), onOpen }: { items: readonl
         <div className="relative h-control-xs" aria-hidden>
           {scale.today !== null ? (
             <span className={cn("today-pill absolute top-0 whitespace-nowrap", scale.today > 0.85 ? "-translate-x-full" : scale.today < 0.15 ? "" : "-translate-x-1/2")} style={{ left: pct(scale.today) }} data-today-tag>
-              Today · {formatDate(today, DATE_FORMATS.dayMonth)}
+              Today · {formatDateShort(today)}
             </span>
           ) : null}
         </div>

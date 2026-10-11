@@ -10,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Building2, Info, LogIn, LogOut, Lock, MessageSquare, UsersRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Avatar, Button, Chip, Composer, FeedPost, Label, Markdown, Panel, ProfileHeader, StatusPill, Switch, formatDate, useToast, type ProfileChip, type ProfileFact } from "@foundmill/dugout";
+import { Avatar, Button, Chip, Composer, FeedPost, Label, Markdown, Panel, ProfileHeader, StatusPill, Switch, useToast, useFormatters, useDateFormat, type ProfileChip, type ProfileFact } from "@foundmill/dugout";
 import { canSpeakAsBusiness } from "@/lib/live";
 import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -39,6 +39,7 @@ function PostText({ children }: { children: string }) {
 }
 
 export function CommunityScreen({ communityId }: { communityId: string }) {
+  const { formatDate } = useFormatters();
   const { businessId, data } = useBusiness();
   const viewer = useLiveViewer();
   const trpc = useTRPC();
@@ -219,11 +220,13 @@ export function CommunityScreen({ communityId }: { communityId: string }) {
 }
 
 function FeedPostItem({ post, people, open, onToggle, onReply, communityId, onWrite }: { post: PostRow; people: People; open: boolean; onToggle: () => void; onReply: () => void; communityId: string; onWrite: (body: string, parentPostId?: string) => Promise<unknown> }) {
+  const datePrefs = useDateFormat();
   return (
     <FeedPost
       author={people.name(post.authorUserId)}
       badge={<BusinessBadge people={people} businessId={post.businessId} />}
       at={post.createdAt}
+      datePrefs={datePrefs}
       replyCount={post.replyCount}
       repliesOpen={open}
       onToggleReplies={onToggle}
@@ -239,6 +242,7 @@ function FeedPostItem({ post, people, open, onToggle, onReply, communityId, onWr
 
 /** The replies under one post, oldest first, and a box to add one. */
 function ReplyThread({ communityId, parentId, onWrite }: { communityId: string; parentId: string; onWrite: (body: string, parentPostId?: string) => Promise<unknown> }) {
+  const datePrefs = useDateFormat();
   const trpc = useTRPC();
   const q = useQuery(trpc.live.communities.posts.queryOptions({ communityId, parentPostId: parentId, limit: 100 }, { staleTime: 10_000, retry: false }));
   const replies = useMemo(() => [...(q.data?.items ?? [])].reverse(), [q.data]);
@@ -251,7 +255,7 @@ function ReplyThread({ communityId, parentId, onWrite }: { communityId: string; 
       {q.isLoading ? <p className="px-panel-pad py-2 text-small text-secondary">Loading replies…</p> : null}
       {q.error ? <p className="px-panel-pad py-2 text-small text-status-bad" role="alert">{errorMessage(q.error)}</p> : null}
       {replies.map((r) => (
-        <FeedPost key={r.id} author={people.name(r.authorUserId)} badge={<BusinessBadge people={people} businessId={r.businessId} />} at={r.createdAt} data-testid="feed-reply">
+        <FeedPost key={r.id} author={people.name(r.authorUserId)} badge={<BusinessBadge people={people} businessId={r.businessId} />} at={r.createdAt} datePrefs={datePrefs} data-testid="feed-reply">
           <PostText>{r.bodyMd}</PostText>
         </FeedPost>
       ))}

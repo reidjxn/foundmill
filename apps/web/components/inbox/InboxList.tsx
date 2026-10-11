@@ -1,15 +1,16 @@
 "use client";
 /**
  * The 380 px Inbox list (DESIGN §9 Inbox, DIRECTION #8): avatar 32, the subject in body-strong wrapping to as many
- * lines as it needs (never ellipsised), the time right, then one status tag (icon + word: "Respond", "Customer",
+ * lines as it needs (never ellipsised), the time right (relative; the moment in the person's date format on hover), then one status tag (icon + word: "Respond", "Customer",
  * "Milestone", "Update"…) before a one-line preview. A won customer keeps the gold left edge.
  */
 import { Inbox } from "lucide-react";
 import { NOTE_TAG_ICONS } from "@foundmill/widgets/shared/note-tags";
 import { useEffect, useRef } from "react";
 import { APP_NAME } from "@foundmill/config";
-import { Avatar, Button, Chip, EmptyState, Skeleton, formatRelative, type ChipTone, type IconComponent } from "@foundmill/dugout";
+import { Avatar, Button, Chip, EmptyState, Skeleton, formatRelative, useFormatters, type ChipTone, type IconComponent } from "@foundmill/dugout";
 import type { DeptColourToken } from "@foundmill/shared";
+import { useHydrated } from "@/lib/today";
 import type { InboxRowModel, NoteTag, TagIcon } from "./logic";
 
 /** Lucide glyph per tag (the word carries the meaning; the icon and the tone repeat it). Shared with Home's preview. */
@@ -55,6 +56,10 @@ export interface InboxListProps {
 
 export function InboxList({ rows, selectedId, onSelect, loading, hasMore, loadingMore, onLoadMore, emptyText, founderName }: InboxListProps) {
   const listRef = useRef<HTMLUListElement>(null);
+  // The row time stays relative ("3 min ago"); its tooltip is the moment in the person's own date format, printed only
+  // once the browser knows the reader's time zone (the server renders in UTC).
+  const { formatDateTime } = useFormatters();
+  const hydrated = useHydrated();
   useEffect(() => {
     if (!selectedId) return;
     listRef.current?.querySelector<HTMLElement>(`[data-inbox-row="${CSS.escape(selectedId)}"]`)?.scrollIntoView({ block: "nearest" });
@@ -113,7 +118,7 @@ export function InboxList({ rows, selectedId, onSelect, loading, hasMore, loadin
                     <span className={`min-w-0 flex-1 text-pretty break-words text-body-strong ${row.unread ? "text-primary" : "text-secondary"}`} data-testid="row-subject">
                       {row.subject}
                     </span>
-                    <time className="shrink-0 pt-px text-small text-secondary tabular-nums" dateTime={new Date(row.createdAt).toISOString()}>
+                    <time className="shrink-0 pt-px text-small text-secondary tabular-nums" dateTime={new Date(row.createdAt).toISOString()} title={hydrated ? formatDateTime(row.createdAt) : undefined} data-testid="row-time">
                       {formatRelative(row.createdAt)}
                     </time>
                   </span>

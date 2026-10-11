@@ -12,7 +12,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { CircleCheck, CircleDashed, Compass, LoaderCircle } from "lucide-react";
-import { Avatar, Chip, EntityLink, FoundationsStatus, Icon, LiveRun, Panel, ProvenanceChip, StatusPill, cn, foundationsNeedsAttention, type GridSpan, type LiveRunItem, type LiveRunStep } from "@foundmill/dugout";
+import { Avatar, Chip, EntityLink, FoundationsStatus, Icon, LiveRun, Panel, ProvenanceChip, StatusPill, cn, foundationsNeedsAttention, useDateFormat, type GridSpan, type LiveRunItem, type LiveRunStep } from "@foundmill/dugout";
 import type { DeptColourToken, RoadmapHorizon } from "@foundmill/shared";
 import { moduleHref, routes, useDepartments, useHostStreamOpen, useWidgetData, useWidgetQuery, type QueryState } from "@foundmill/widgets";
 import { PlainDoc } from "./PlainDoc";
@@ -209,6 +209,7 @@ export function foundationsItems(p: Pick<FoundationsProgress, "stage" | "section
  * change, not every section.
  */
 export function FoundationsProgressPanel({ progress: p, vision, state, span = 12, detail = {}, className }: FoundationsProgressPanelProps) {
+  const datePrefs = useDateFormat();
   const writing = p.sections.find((s) => !s.done);
   const departments = useDepartments();
   const dept = (departments.data?.find((d) => d.moduleKeys.includes("product"))?.colourToken as DeptColourToken | undefined) ?? undefined;
@@ -250,6 +251,7 @@ export function FoundationsProgressPanel({ progress: p, vision, state, span = 12
           items={foundationsItems(p, dept)}
           itemNoun={["part", "parts"]}
           log={thesis ? { text: thesis, person: { name: author?.name ?? "Product lead", avatarSeed: portraitSeed, dept }, open: true } : null}
+          datePrefs={datePrefs}
         />
 
         {detail.vision && vision ? (

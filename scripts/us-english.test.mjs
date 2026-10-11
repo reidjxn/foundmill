@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 
-import { findDateHits, findLocaleHits, findSpellingHits, fix, scanCodeFile, scanProseFile } from "./us-english.mjs";
+import { DATE_PREFERENCE_FILE, findDateHits, findLocaleHits, findSpellingHits, fix, scanCodeFile, scanProseFile } from "./us-english.mjs";
 
 let dir;
 before(() => {
@@ -193,6 +193,38 @@ describe("code files", () => {
     const otherHits = [];
     scanCodeFile(write("packages/other/x.ts", template), otherHits);
     assert.deepEqual(otherHits, []);
+  });
+});
+
+describe("the opt-in date formats (Settings › Preferences)", () => {
+  const mapping = [
+    'const LABEL = "Pick a colour";',
+    "// us-english-date-preferences: begin (the patterns a person may choose)",
+    'const DAY_FIRST = { date: "d MMM yyyy", weekday: "EEE d MMM", note: "the colour of 7 Oct" };',
+    'const CLOCK = { time: "HH:mm" };',
+    "// us-english-date-preferences: end",
+    'const AFTER = "d MMM";',
+  ].join("\n");
+
+  it("allows day-first and 24-hour patterns inside the mapping's marked block, and nothing else there", () => {
+    const hits = [];
+    scanCodeFile(write(DATE_PREFERENCE_FILE, mapping), hits);
+    // Spelling and dates in text are still read inside the block; patterns after it are not allowed.
+    assert.deepEqual(hits.map((h) => `${h.line}:${h.kind}:${h.match}`).sort(), ["1:spelling:colour", "3:spelling:colour", "3:date:7 Oct", "6:locale:d MMM"].sort());
+  });
+
+  it("refuses the marker anywhere else, so the allowance cannot spread", () => {
+    const hits = [];
+    scanCodeFile(write("packages/dugout/src/lib/other.ts", mapping), hits);
+    const locale = hits.filter((h) => h.kind === "locale").map((h) => `${h.line}:${h.match}`);
+    assert.deepEqual(locale.sort(), ["2:us-english-date-preferences", "3:EEE d MMM", "3:d MMM", "4:HH:mm", "5:us-english-date-preferences", "6:d MMM"].sort());
+  });
+
+  it("allows nothing after a block left open, and reports it", () => {
+    const open = ["// us-english-date-preferences: begin", 'const P = "d MMM";'].join("\n");
+    const hits = [];
+    scanCodeFile(write(`open/${DATE_PREFERENCE_FILE}`, open), hits);
+    assert.deepEqual(hits.map((h) => `${h.line}:${h.match}`).sort(), ["1:us-english-date-preferences", "2:d MMM"].sort());
   });
 });
 

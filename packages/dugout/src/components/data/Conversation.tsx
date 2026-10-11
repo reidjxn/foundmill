@@ -2,7 +2,8 @@
 import { useEffect, useRef, type HTMLAttributes, type ReactNode } from "react";
 import { MessageSquare } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { formatDateTime, formatRelative } from "../../lib/format";
+import { formatRelative } from "../../lib/format";
+import { useFormatters } from "../foundation/DateFormatProvider";
 import { Avatar } from "../foundation/Avatar";
 import { EmptyState } from "../foundation/EmptyState";
 import { ErrorState } from "../foundation/ErrorState";
@@ -43,6 +44,7 @@ export interface ConversationProps extends Omit<HTMLAttributes<HTMLDivElement>, 
  * The log is a polite live region, focusable so the arrow keys scroll it. Messages are plain text.
  */
 export function Conversation({ messages, onSend, label, sending, loading, error, onRetry, empty, placeholder = "Write a message", note, disabled, className, ...rest }: ConversationProps) {
+  const { formatDateTime } = useFormatters();
   const logRef = useRef<HTMLDivElement>(null);
   const last = messages[messages.length - 1]?.id;
   useEffect(() => {

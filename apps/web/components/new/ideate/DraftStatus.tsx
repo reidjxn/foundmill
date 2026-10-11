@@ -9,7 +9,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { ARCHETYPE_LABELS, type DeptColourToken } from "@foundmill/shared";
-import { Avatar, DraftingByline, DraftingCardFrame, DraftingLockedNote, DraftingSkeleton, LiveRun, type LiveRunItem, type LiveRunPerson, type LiveRunStep } from "@foundmill/dugout";
+import { Avatar, DraftingByline, DraftingCardFrame, DraftingLockedNote, DraftingSkeleton, LiveRun, useDateFormat, type LiveRunItem, type LiveRunPerson, type LiveRunStep } from "@foundmill/dugout";
 import { costLabel } from "./concepts";
 import { draftItems, draftSteps, draftingNames, formatElapsed, progressLine, remainingEstimateMs, slateLine, slotsOf, type DraftRun, type DraftSlot } from "./draft-run";
 
@@ -56,6 +56,7 @@ export function useNow(ticking: boolean, tickMs = 250): number {
 
 /** The live run under the brief: progress line, steps, the card bar, elapsed / time left / cost, the slate log. `now` pins the clock (tests). */
 export function DraftStatus({ run, now: pinnedNow }: { run: DraftRun; now?: number }) {
+  const datePrefs = useDateFormat();
   const tickingNow = useNow(run.status === "running" && pinnedNow === undefined);
   const now = pinnedNow ?? tickingNow;
   const running = run.status === "running";
@@ -91,6 +92,7 @@ export function DraftStatus({ run, now: pinnedNow }: { run: DraftRun; now?: numb
         meter={{ remainingMs: remaining, costLabel: run.costMinor !== null ? costLabel(run.costMinor) : null }}
         activity={running ? [{ id: "drafter", person: drafter, verb: writing ? "drafting" : slotsOf(run).length ? "outlining" : "reading", object: writing ?? (slotsOf(run).length ? "the set" : "your brief and profile") }] : []}
         log={slate ? { text: slate, person: { ...drafter, name: "slate" }, open: running && run.total === null } : null}
+        datePrefs={datePrefs}
       />
     </section>
   );

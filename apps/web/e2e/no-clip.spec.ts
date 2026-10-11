@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, signIn } from "./helpers";
+import { devApi, LONG, NORTHWIND_BUSINESS_ID, signIn } from "./helpers";
 
 /**
  * Nothing the founder reads is ever cut off (founder, 2026-10-09: "some buttons cut off text ... make sure the spacing
@@ -17,6 +17,10 @@ import { LONG, NORTHWIND_BUSINESS_ID, signIn } from "./helpers";
  *
  * Long free text in a row (a note preview, a long name in a table cell) may still end in an ellipsis: that is a list
  * convention, not a clipped control.
+ *
+ * Dates change width with the person's date format (Settings › Preferences: "Oct 7, 2026", "7 Oct 2026", "2026-10-07",
+ * "3:45 PM" or "15:45"). `E2E_DATE_FORMATS=us.12h,day_first.24h,iso.24h` measures every screen under each choice (the
+ * dev founder's preference is set through the API for the run and put back after); the default measures US, 12-hour.
  */
 
 const B = `/b/${NORTHWIND_BUSINESS_ID}`;
@@ -25,7 +29,7 @@ const FIXED_ROUTES = [
   `${B}/inbox`,
   `${B}/crm`,
   `${B}/milestones`,
-  ...["business", "members", "departments", "mode", "integrations", "keys", "glossary", "billing", "danger"].map((t) => `${B}/settings/${t}`),
+  ...["business", "members", "departments", "mode", "integrations", "keys", "glossary", "billing", "preferences", "danger"].map((t) => `${B}/settings/${t}`),
   "/network",
   "/communities",
   "/leaderboards",
@@ -132,20 +136,51 @@ async function screensUnder(page: Page): Promise<string[]> {
   return [...routes];
 }
 
-for (const width of [1280, 1440]) {
-  test(`no text is clipped and no field overlaps at ${width} px`, async ({ page }) => {
-    test.setTimeout(20 * 60_000);
-    await page.setViewportSize({ width, height: 900 });
-    await signIn(page);
-    const routes = await screensUnder(page);
-    const found: string[] = [];
-    for (const route of routes) {
-      await page.goto(route);
-      await page.waitForLoadState("networkidle", { timeout: LONG }).catch(() => undefined);
-      await page.waitForTimeout(600);
-      const violations = await page.evaluate(measure);
-      for (const v of violations) found.push(`${route} · ${v.kind} · ${v.where} · "${v.text}" ${v.px ?? ""}`);
-    }
-    expect(found, `${found.length} clipped or overlapping elements at ${width} px:\n${found.join("\n")}`).toEqual([]);
+type DatePrefs = { date: string; time: string };
+const DATE_FORMAT_RUNS: DatePrefs[] = (process.env.E2E_DATE_FORMATS ?? "us.12h")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean)
+  .map((s) => {
+    const [date = "us", time = "12h"] = s.split(".");
+    return { date, time };
   });
+
+async function setDatePrefs(playwright: Parameters<typeof devApi>[0], prefs: DatePrefs): Promise<DatePrefs> {
+  const api = await devApi(playwright);
+  const before = ((await (await api.get("/trpc/founder.preferences.get")).json()) as { result: { data: { json: DatePrefs } } }).result.data.json;
+  const res = await api.post("/trpc/founder.preferences.update", { data: { json: prefs } });
+  expect(res.ok(), await res.text()).toBe(true);
+  await api.dispose();
+  return before;
+}
+
+async function measureEveryScreen(page: Page, width: number) {
+  await page.setViewportSize({ width, height: 900 });
+  await signIn(page);
+  const routes = await screensUnder(page);
+  const found: string[] = [];
+  for (const route of routes) {
+    await page.goto(route);
+    await page.waitForLoadState("networkidle", { timeout: LONG }).catch(() => undefined);
+    await page.waitForTimeout(600);
+    const violations = await page.evaluate(measure);
+    for (const v of violations) found.push(`${route} · ${v.kind} · ${v.where} · "${v.text}" ${v.px ?? ""}`);
+  }
+  expect(found, `${found.length} clipped or overlapping elements at ${width} px:\n${found.join("\n")}`).toEqual([]);
+}
+
+for (const prefs of DATE_FORMAT_RUNS) {
+  const label = DATE_FORMAT_RUNS.length > 1 || prefs.date !== "us" || prefs.time !== "12h" ? ` (dates ${prefs.date}, ${prefs.time})` : "";
+  for (const width of [1280, 1440]) {
+    test(`no text is clipped and no field overlaps at ${width} px${label}`, async ({ page, playwright }) => {
+      test.setTimeout(20 * 60_000);
+      const before = await setDatePrefs(playwright, prefs);
+      try {
+        await measureEveryScreen(page, width);
+      } finally {
+        await setDatePrefs(playwright, before);
+      }
+    });
+  }
 }

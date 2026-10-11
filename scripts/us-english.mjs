@@ -21,6 +21,12 @@
 // purpose (a glossary entry, an enum key quoted in a prompt example), never to hide copy. Tests, e2e specs, fixtures,
 // test helpers (`testing/`) and .d.ts files are excluded by path, as in banned-terms.
 //
+// The opt-in date formats (founder, 2026-10-11: a signed-in person may choose day-first or ISO dates and a 24-hour
+// clock in Settings › Preferences) are spelled in one place: the preference mapping, DATE_PREFERENCE_FILE. Between its
+// `us-english-date-preferences: begin` and `... end` markers, and nowhere else, day-first and 24-hour date-fns patterns
+// are allowed; spelling and dates written in text are still read there. The marker in any other file, or a block left
+// open, is itself a hit, so the allowance cannot spread.
+//
 // Usage:
 //   node scripts/us-english.mjs                    full scan, file:line:kind per hit, exit 1 on hits
 //   node scripts/us-english.mjs apps/web docs/X.md  spelling + date scan limited to the given roots (files or dirs)
@@ -71,6 +77,9 @@ const PROSE_EXT = /\.(md|mdx)$/;
 // Developer-facing or historical documents that quote British forms on purpose (and the build plan, written before the switch).
 const SKIP_FILES = /^(CLAUDE\.md|BUILD\.md|BUILD_RUNBOOK\.md|DECISIONS\.md|PROGRESS\.md|NEEDED_DEPS\.md|VOCAB_SWEEP\.md|WAVE\d+_REPORTS\.md)$/;
 const ALLOW_MARKER = /us-english-allow/;
+/** The preference mapping, the only file whose marked block may spell the opt-in day-first and 24-hour patterns. */
+const DATE_PREFERENCE_FILE = "packages/dugout/src/lib/date-preferences.ts";
+const DATE_PREFERENCE_MARKER = /us-english-date-preferences:\s*(begin|end)\b/;
 
 // ---------------------------------------------------------------------------------------------------------------
 // The curated spelling list. Each family is a regex (word-bounded, case-insensitive) and a function that gives the US
@@ -471,6 +480,39 @@ function lineHasAllowMarker(lines, i) {
   return ALLOW_MARKER.test(lines[i] ?? "") || ALLOW_MARKER.test(lines[i - 1] ?? "");
 }
 
+/**
+ * The lines (0-based) inside the preference mapping's marked block, where locale hits are allowed, and the markers that
+ * allow nothing: any marker outside DATE_PREFERENCE_FILE, an `end` without a `begin`, a `begin` inside a block or one
+ * never closed.
+ */
+function datePreferenceBlock(lines, abs) {
+  const inMapping = abs.replace(/\\/g, "/").endsWith(`/${DATE_PREFERENCE_FILE}`);
+  const allowed = new Set();
+  const stray = [];
+  let open = -1;
+  lines.forEach((line, i) => {
+    const m = DATE_PREFERENCE_MARKER.exec(line);
+    if (!m) {
+      if (open >= 0) allowed.add(i);
+      return;
+    }
+    if (!inMapping) return stray.push(i);
+    if (m[1] === "begin") {
+      if (open >= 0) stray.push(i);
+      else open = i;
+      return;
+    }
+    if (open < 0) return stray.push(i);
+    open = -1;
+  });
+  if (open >= 0) {
+    // Never closed: allow nothing after it.
+    for (let i = open + 1; i < lines.length; i++) allowed.delete(i);
+    stray.push(open);
+  }
+  return { allowed, stray };
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // File scans
 // ---------------------------------------------------------------------------------------------------------------
@@ -483,10 +525,15 @@ function scanCodeFile(abs, hits, { spelling = true, locale = true } = {}) {
   const file = rel(abs);
   const lines = text.split("\n");
   const sf = ts.createSourceFile(abs, text, ts.ScriptTarget.Latest, true, scriptKindFor(abs));
+  const preferences = datePreferenceBlock(lines, abs);
+  for (const i of preferences.stray) {
+    hits.push({ file, abs, line: i + 1, offset: 0, kind: "locale", match: "us-english-date-preferences", us: `a closed block in ${DATE_PREFERENCE_FILE} only`, snippet: (lines[i] ?? "").trim().slice(0, 140) });
+  }
 
   function record(pos, h) {
     const { line } = sf.getLineAndCharacterOfPosition(pos);
     if (lineHasAllowMarker(lines, line)) return;
+    if (h.kind === "locale" && preferences.allowed.has(line)) return;
     hits.push({ file, abs, line: line + 1, offset: pos, kind: h.kind, match: h.match, us: h.us, snippet: (lines[line] ?? "").trim().slice(0, 140) });
   }
 
@@ -674,6 +721,6 @@ function report(hits, jsonPath) {
   process.stdout.write("US English and US dates throughout the user-facing text.\n");
 }
 
-export { findSpellingHits, findDateHits, findLocaleHits, scanCodeFile, scanProseFile, scan, fix, SPELLING_ROOTS, LOCALE_ROOTS, EXTRA_ROOTS };
+export { findSpellingHits, findDateHits, findLocaleHits, scanCodeFile, scanProseFile, scan, fix, SPELLING_ROOTS, LOCALE_ROOTS, EXTRA_ROOTS, DATE_PREFERENCE_FILE };
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main(process.argv.slice(2));

@@ -3,6 +3,8 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
+import { DateFormatProvider } from "@foundmill/dugout";
+import { DAY_FIRST_24H, ISO_24H, usDatesIn } from "../../dates.testing";
 import { CodeScreen, PushStatus, firstFile, sessionLabel, toCodeRows } from "../CodeScreen";
 import type { CodeFileResponse, CodeFilesResponse, CodeSnapshotSummary, CodeTaskRow } from "../types";
 import { BUSINESS_ID, createFakeSource, renderScreen } from "./fake-source";
@@ -216,5 +218,16 @@ describe("code helpers", () => {
   it("sessionLabel marks the latest", () => {
     expect(sessionLabel(indexLatest, true)).toMatch(/^Latest · Oct 7, \d{1,2}:30 [AP]M · 3 files$/);
     expect(sessionLabel(bundleLatest, false)).toMatch(/^Oct 6, \d{1,2}:00 [AP]M · 1 file$/);
+  });
+  it("sessionLabel and the session picker follow the person's date format (ISO, 24-hour)", async () => {
+    expect(sessionLabel(indexLatest, true, ISO_24H)).toMatch(/^Latest · 10-07 \d{2}:30 · 3 files$/);
+    expect(sessionLabel(bundleLatest, false, DAY_FIRST_24H)).toMatch(/^6 Oct, \d{2}:00 · 1 file$/);
+    const user = userEvent.setup();
+    const fake = createFakeSource({ responses: responses() });
+    const { container } = renderScreen(fake, <DateFormatProvider value={ISO_24H}><CodeScreen {...props} /></DateFormatProvider>);
+    await screen.findByRole("navigation", { name: "Files" });
+    await user.click(screen.getByRole("combobox", { name: "Saved session" }));
+    expect(await screen.findByRole("option", { name: /^10-07 \d{2}:00 · 2 files$/ })).toBeTruthy();
+    expect(usDatesIn(container)).toEqual([]);
   });
 });

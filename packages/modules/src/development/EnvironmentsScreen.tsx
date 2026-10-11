@@ -7,10 +7,11 @@
  */
 import { useMemo, useState } from "react";
 import { Boxes, CircleStop, ExternalLink, GitBranch, GitMerge, Hourglass, MonitorPlay, Network, Radio } from "lucide-react";
-import { DataTable, FitText, Panel, StatusPill, formatDate, formatRelative, type DataTableColumn, type IconComponent, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
+import { DataTable, FitText, Panel, StatusPill, type DataTableColumn, type IconComponent, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "@foundmill/widgets/data";
+import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { useDevScreenOptions } from "./options";
@@ -293,7 +294,7 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
       },
       { id: "provider", accessorFn: (r) => providerLabel(r.provider) ?? "", header: "Provider", size: sizes.provider, cell: ({ row }) => (providerLabel(row.original.provider) ? <span className="text-secondary">{providerLabel(row.original.provider)}</span> : <span className="text-tertiary">—</span>) },
       { id: "commitSha", accessorFn: (r) => r.commitSha ?? "", header: "Commit", size: sizes.commitSha, cell: ({ row }) => <span className="font-mono text-mono text-secondary">{shortSha(row.original.commitSha) || "—"}</span> },
-      { id: "deployedAt", accessorFn: (r) => r.deployedAt?.getTime() ?? null, header: "Deployed", size: sizes.deployedAt, meta: { filter: "date", label: "Deployed" }, cell: ({ row }) => (row.original.deployedAt ? <span className="text-secondary" title={formatDate(row.original.deployedAt)}>{formatRelative(row.original.deployedAt, now)}</span> : <span className="text-tertiary">Not yet</span>) },
+      { id: "deployedAt", accessorFn: (r) => r.deployedAt?.getTime() ?? null, header: "Deployed", size: sizes.deployedAt, meta: { filter: "date", label: "Deployed" }, cell: ({ row }) => (row.original.deployedAt ? <RelativeDateText className="text-secondary" value={row.original.deployedAt} now={now} /> : <span className="text-tertiary">Not yet</span>) },
     ], ENVIRONMENT_FIT),
     [now, sizes],
   );

@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Flag, Gem, Rocket, Trophy } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, StatusPill, Timeline, TrophyCabinet, useToast, type TimelineEvent, type TrophyCard } from "@foundmill/dugout";
+import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Panel, StatusPill, Timeline, TrophyCabinet, useToast, useDateFormat, type TimelineEvent, type TrophyCard } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { plainWords, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
@@ -119,8 +119,9 @@ export function MilestonesScreen() {
 }
 
 function ShareDialog({ card, businessName, onClose }: { card: TrophyCard | undefined; businessName: string; onClose: () => void }) {
+  const datePrefs = useDateFormat();
   const { toast } = useToast();
-  const text = card ? shareText(card, businessName) : "";
+  const text = card ? shareText(card, businessName, datePrefs) : "";
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);

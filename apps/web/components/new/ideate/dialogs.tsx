@@ -6,7 +6,7 @@
 import { ArrowLeft, ArrowRight, GitFork, GitMerge, History, MessageCircleQuestionMark } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { RETRY_REPLY_ID, deskFailureOf, failureQuickReplies, failureReply } from "@/components/conversation/logic";
-import { AgentDesk, Button, Checkbox, Chip, BusinessLogo, ConceptCard, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Markdown, SkeletonText, StatusPill, Textarea, cn, currentQuickReplies, formatDateTime, type DeskMessage, type DeskPersona, type QuickReplyItem } from "@foundmill/dugout";
+import { AgentDesk, Button, Checkbox, Chip, BusinessLogo, ConceptCard, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, Markdown, SkeletonText, StatusPill, Textarea, cn, currentQuickReplies, useFormatters, type DeskMessage, type DeskPersona, type QuickReplyItem } from "@foundmill/dugout";
 import { qaBubbles, qaOf, toConcept, versionActionLabel, versionToConcept, type IdeaLike, type IdeaVersionLike } from "./concepts";
 
 /* ---------- Ask ---------- */
@@ -349,6 +349,7 @@ export interface HistoryDialogProps {
 
 /** Every version of a card, newest first, with a stepper and the card as it looked then (AC-11.1.3: history navigable). */
 export function HistoryDialog({ idea, versions, loading, open, onOpenChange, onOpenIdea, lineage, titleOf }: HistoryDialogProps) {
+  const { formatDateTime } = useFormatters();
   const ordered = useMemo(() => [...(versions ?? [])].sort((a, b) => b.version - a.version), [versions]);
   const [index, setIndex] = useState(0);
   useEffect(() => {

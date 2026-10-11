@@ -148,6 +148,13 @@
       "when": 1791893520000,
       "tag": "0021_us_english_copy",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791979920000,
+      "tag": "0022_account_preferences",
+      "breakpoints": true
     }
   ]
 }

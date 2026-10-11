@@ -31,3 +31,38 @@ export function useClientToday(): Date | null {
   const key = useSyncExternalStore(subscribe, localDayKey, getServerDay);
   return useMemo(() => (key ? dateOfDayKey(key) : null), [key]);
 }
+
+const MINUTE_MS = 60_000;
+
+function subscribeTenSeconds(onChange: () => void): () => void {
+  const id = setInterval(onChange, 10_000);
+  return () => clearInterval(id);
+}
+
+/** The start of the current minute (stable between checks, so React sees no change until the minute turns). */
+const currentMinute = (): number => Math.floor(Date.now() / MINUTE_MS) * MINUTE_MS;
+const noMinute = (): number | null => null;
+
+/**
+ * Now, to the minute, in the browser only: null on the server and while hydrating (a time printed on both sides would
+ * differ by zone and by the seconds between them), then the current minute, moving on within ten seconds of each turn.
+ * For live examples such as Settings › Preferences.
+ */
+export function useClientNow(): Date | null {
+  const ms = useSyncExternalStore(subscribeTenSeconds, currentMinute, noMinute);
+  return useMemo(() => (ms === null ? null : new Date(ms)), [ms]);
+}
+
+const subscribeNever = (): (() => void) => () => undefined;
+
+/**
+ * False on the server and during hydration, true once the browser has taken over: for absolute times that depend on
+ * the reader's time zone (an Inbox note's "Oct 7, 3:45 PM"), which the server, rendering in UTC, cannot print the same.
+ */
+export function useHydrated(): boolean {
+  return useSyncExternalStore(
+    subscribeNever,
+    () => true,
+    () => false,
+  );
+}

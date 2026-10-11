@@ -5,7 +5,7 @@
  * and the autonomy/negotiation forms. Everything here is deterministic and unit-tested; the screens only render.
  */
 import type { AgentStatus, DeptColourToken, ModelKey, SkillGroup } from "@foundmill/shared";
-import type { AgentInstructions, InstructionVersion, InstructionViolation, ModelOption, PositionRole, SkillRow, Trait, TrainingSkillResult, TrainingSessionMark, SkillHistorySeries, InstructionSection } from "@foundmill/dugout";
+import type { AgentInstructions, DateFormatPrefs, InstructionVersion, InstructionViolation, ModelOption, PositionRole, SkillRow, Trait, TrainingSkillResult, TrainingSessionMark, SkillHistorySeries, InstructionSection } from "@foundmill/dugout";
 import { MODEL_LABELS, positionLevelFor } from "@foundmill/dugout";
 import { usSpelling } from "@foundmill/shared/us-spelling";
 import type { RouterOutputs } from "@/lib/trpc";
@@ -729,14 +729,14 @@ export function profileChips(agent: Pick<AgentRow, "role" | "agentType" | "layer
   return out;
 }
 
-/** "2026-10" → "Wage this month" in October 2026, else "Wage in September 2026". */
-export function wageLabel(period: string, now: Date = new Date()): string {
+/** "2026-10" → "Wage this month" in October 2026, else "Wage in September 2026" ("Wage in 2026-09" for ISO `prefs`). */
+export function wageLabel(period: string, now: Date = new Date(), prefs?: DateFormatPrefs | null): string {
   const m = /^(\d{4})-(\d{2})$/.exec(period);
   if (!m) return "Wage";
   const y = Number(m[1]);
   const mo = Number(m[2]) - 1;
   if (y === now.getFullYear() && mo === now.getMonth()) return "Wage this month";
-  return `Wage in ${formatMonthYear(new Date(Date.UTC(y, mo, 1)), { long: true })}`;
+  return `Wage in ${formatMonthYear(new Date(Date.UTC(y, mo, 1)), { long: true }, prefs)}`;
 }
 
 /** A connector tool for the founder: "search_files" → "Search files", description without build references, hard gates flagged. */

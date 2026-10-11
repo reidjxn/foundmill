@@ -4,7 +4,7 @@
  * plate with its lit edge), right panel forms, the danger zone outlined in status-bad at 40 %. Each tab is its own component; admin-only sections say so.
  */
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Briefcase, Building2, CreditCard, KeyRound, LayoutList, Plug, SlidersHorizontal, SpellCheck, Users, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Briefcase, Building2, CalendarClock, CreditCard, KeyRound, LayoutList, Plug, SlidersHorizontal, SpellCheck, Users, type LucideIcon } from "lucide-react";
 import { useCallback, type ReactNode } from "react";
 import { Icon, ShellLink } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -21,6 +21,7 @@ import { IntegrationsTab } from "./IntegrationsTab";
 import { KeysTab } from "./KeysTab";
 import { MembersTab } from "./MembersTab";
 import { ModeTab } from "./ModeTab";
+import { PreferencesTab } from "./PreferencesTab";
 
 const ICONS: Record<SettingsTabSlug, LucideIcon> = {
   business: Building2,
@@ -31,6 +32,7 @@ const ICONS: Record<SettingsTabSlug, LucideIcon> = {
   integrations: Plug,
   keys: KeyRound,
   billing: CreditCard,
+  preferences: CalendarClock,
   danger: AlertTriangle,
 };
 
@@ -43,6 +45,7 @@ const TABS: Record<SettingsTabSlug, () => ReactNode> = {
   integrations: () => <IntegrationsTab />,
   keys: () => <KeysTab />,
   billing: () => <BillingTab />,
+  preferences: () => <PreferencesTab />,
   danger: () => <DangerTab />,
 };
 

@@ -7,7 +7,7 @@
 import { useMemo } from "react";
 import { z } from "zod";
 import { CircleCheck, CircleDashed, CircleX, Map as MapIcon, Play, TriangleAlert, type LucideIcon } from "lucide-react";
-import { DATE_FORMATS, StatusPill, formatDate, formatNumber, type StatusTone } from "@foundmill/dugout";
+import { StatusPill, formatNumber, useFormatters, type StatusTone } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { moduleHref, useDepartments } from "../shared/departments";
@@ -69,6 +69,7 @@ function RoadmapTimelineWidget({ settings }: WidgetProps<RoadmapTimelineSettings
   const departments = useDepartments();
   useBusinessEvents(() => roadmap.refetch(), ["task.completed", "pr.merged", "spec.version_published"]);
   const groups = useMemo(() => groupByHorizon(roadmap.data?.items ?? [], settings), [roadmap.data, settings]);
+  const { formatDateShort } = useFormatters();
   const shown = settings.horizons.reduce((n, h) => n + groups[h].length, 0);
   const open = () => navigate(moduleHref(businessId, departments.data, "product", "roadmap") ?? `/b/${businessId}/home`);
   return (
@@ -100,7 +101,7 @@ function RoadmapTimelineWidget({ settings }: WidgetProps<RoadmapTimelineSettings
                         </StatusPill>
                       </span>
                       <span className="flex items-center justify-between gap-2 text-small text-secondary tabular-nums">
-                        <span>{it.targetEnd ? `Target ${formatDate(it.targetEnd, DATE_FORMATS.dayMonth)}` : it.targetStart ? `From ${formatDate(it.targetStart, DATE_FORMATS.dayMonth)}` : "No date"}</span>
+                        <span>{it.targetEnd ? `Target ${formatDateShort(it.targetEnd)}` : it.targetStart ? `From ${formatDateShort(it.targetStart)}` : "No date"}</span>
                         <span>{tp.total ? `${tp.done}/${tp.total} tasks · ${Math.round(tp.progress * 100)}%` : "No tasks yet"}</span>
                       </span>
                       {tp.total ? (

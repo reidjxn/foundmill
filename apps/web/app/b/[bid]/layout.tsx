@@ -10,10 +10,12 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
+import { getServerDateFormat } from "@/lib/date-format.server";
 import { Prefetched } from "@/lib/hydrate.server";
 import { startBusinessShell } from "@/lib/shell-data.server";
 import { serverApi, serverBusiness } from "@/lib/trpc-server";
 import { errorMessage, trpcErrorCode } from "@/lib/trpc";
+import { DateFormatHost } from "@/components/providers/DateFormatHost";
 import { BusinessShell } from "@/components/shell/BusinessShell";
 import { UnreachablePage } from "@/components/shell/UnreachablePage";
 
@@ -45,6 +47,9 @@ export default async function BusinessLayout({ params, children }: { params: Par
   // One round of requests: the profile gate, the business and its departments (the shell's first-screen queries follow
   // once these are in, see lib/shell-data.server.ts).
   const shell = startBusinessShell(server, bid);
+  // The person's date format (the cookie, else the API), so the shell renders in it on the first byte.
+  const dateFormat = getServerDateFormat();
+  dateFormat.catch(() => undefined);
   let profile;
   try {
     profile = await api.founder.profile.get.query();
@@ -55,12 +60,14 @@ export default async function BusinessLayout({ params, children }: { params: Par
   if (!profile.complete) redirect("/onboarding");
 
   try {
-    const [business, departments] = await shell.data;
+    const [[business, departments], date] = await Promise.all([shell.data, dateFormat]);
     return (
       <Prefetched queryClient={shell.prefetch()}>
-        <BusinessShell businessId={bid} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId }}>
-          {children}
-        </BusinessShell>
+        <DateFormatHost initial={date.prefs} owner={date.owner}>
+          <BusinessShell businessId={bid} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId }}>
+            {children}
+          </BusinessShell>
+        </DateFormatHost>
       </Prefetched>
     );
   } catch (err) {

@@ -13,6 +13,7 @@ import { cn } from "../../lib/cn";
 import { usePrefersReducedMotion } from "../../lib/reducedMotion";
 import { Avatar } from "../foundation/Avatar";
 import { Button } from "../foundation/Button";
+import { useDateFormat } from "../foundation/DateFormatProvider";
 import { Skeleton } from "../foundation/Skeleton";
 import { Icon } from "../foundation/Icon";
 import { DeskPresence } from "./DeskPresence";
@@ -289,6 +290,7 @@ function DeskThread({
   threadRef,
 }: AgentDeskProps & { variant: AgentDeskVariant; threadRef: RefObject<HTMLDivElement | null> }) {
   const reduced = usePrefersReducedMotion();
+  const datePrefs = useDateFormat();
   const ref = threadRef;
   // Messages already here when the desk opened are history: they render settled. Later ones arrive.
   const initial = useRef<Set<string> | null>(null);
@@ -438,6 +440,7 @@ function DeskThread({
                       <ReadReceipt
                         state={row.message.state ?? "seen"}
                         readAt={readTimes.get(row.message.id) ?? null}
+                        datePrefs={datePrefs}
                       />
                     </div>
                   ) : null}

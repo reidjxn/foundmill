@@ -8,7 +8,7 @@
  */
 import { useMemo } from "react";
 import { BookOpen, Lock, Map as MapIcon } from "lucide-react";
-import { DATE_FORMATS, Chip, Panel, StatusPill, formatDate, formatNumber, formatRelative } from "@foundmill/dugout";
+import { Chip, Panel, StatusPill, formatNumber, formatRelative, useFormatters } from "@foundmill/dugout";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
 import { FoundationsBanner, VisionPanels, useFoundations } from "./foundations";
@@ -22,6 +22,7 @@ import type { RoadmapResponse, SpecGetResponse } from "./types";
 export const NARRATIVE_SECTIONS = ["vision", "problem", "customers", "value proposition"] as const;
 
 export function VisionScreen({ businessId }: ModuleScreenProps) {
+  const { formatDate, formatDateShort } = useFormatters();
   const { navigate } = useWidgetData();
   const spec = useWidgetQuery<SpecGetResponse>("product.spec.get", {});
   const roadmap = useWidgetQuery<RoadmapResponse>("product.roadmap.list", {});
@@ -193,7 +194,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
                       </button>
                       <span className="flex shrink-0 items-center gap-3">
                         <span className="text-small text-secondary tabular-nums">{ts.total ? `${ts.done} of ${ts.total} task${ts.total === 1 ? "" : "s"}` : "No tasks yet"}</span>
-                        {item.targetEnd ? <span className="text-small text-secondary tabular-nums">by {formatDate(item.targetEnd, DATE_FORMATS.dayMonth)}</span> : null}
+                        {item.targetEnd ? <span className="text-small text-secondary tabular-nums">by {formatDateShort(item.targetEnd)}</span> : null}
                         <StatusPill tone={st.tone} icon={st.icon}>
                           {st.word}
                         </StatusPill>

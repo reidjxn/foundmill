@@ -4,6 +4,8 @@
  * conversion and the two share-register exports. No React, no I/O; every function is deterministic so the
  * AC-11.8.1 / AC-11.8.4 fixtures can assert to the minor unit.
  */
+import { formatDate } from "@foundmill/dugout/lib/format";
+import type { DateFormatPrefs } from "@foundmill/dugout/lib/date-preferences";
 import { usSpelling } from "@foundmill/shared/us-spelling";
 import type { CapTableEntryRow, CapTableSummary, CategoryTotal, ForecastDrivers, ForecastPoint, ForecastScenario, MonthlyTotal, SecurityRow } from "./types";
 
@@ -27,13 +29,9 @@ export function addMonths(month: string, n: number): string {
   return monthKey(new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1 + n, 1)));
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** "2026-09" → "Sep 2026". */
-export function formatMonth(month: string): string {
-  const [y, m] = month.split("-");
-  const idx = Number(m) - 1;
-  return `${MONTHS[idx] ?? m} ${y}`;
+/** "2026-09" → "Sep 2026" ("2026-09" for a person who reads ISO dates: pass their `prefs`). */
+export function formatMonth(month: string, prefs?: DateFormatPrefs | null): string {
+  return formatDate(`${month.slice(0, 7)}-01`, "monthYear", prefs);
 }
 
 /** The last `n` full months before `now`'s month, oldest first. */

@@ -32,6 +32,8 @@ export const SETTINGS_TABS = [
   { slug: "integrations", label: "Integrations" },
   { slug: "keys", label: "Keys" },
   { slug: "billing", label: "Billing" },
+  // Personal, not the business's: the signed-in person's date and time format, in every business (founder, 2026-10-11).
+  { slug: "preferences", label: "Preferences" },
   { slug: "danger", label: "Danger zone" },
 ] as const;
 export type SettingsTabSlug = (typeof SETTINGS_TABS)[number]["slug"];
@@ -51,7 +53,18 @@ export function localPaletteItems(input: { businessId: string; departments: read
     items.push({ id: `department:${d.id}`, kind: "department", label: d.name, dept: d.colourToken, href: first ? routes.department(bid, d.slug, first.slug) : undefined, keywords: [d.slug] });
     for (const t of tabs) items.push({ id: `screen:${d.id}:${t.slug}`, kind: "screen", label: `${d.name} · ${t.title}`, dept: d.colourToken, href: routes.department(bid, d.slug, t.slug), keywords: [d.slug, t.slug] });
   }
-  for (const t of SETTINGS_TABS) items.push({ id: `command:settings:${t.slug}`, kind: "command", label: `Settings · ${t.label}`, href: routes.settings(bid, t.slug), keywords: ["settings", t.slug] });
+  for (const t of SETTINGS_TABS) {
+    if (t.slug === "preferences") continue;
+    items.push({ id: `command:settings:${t.slug}`, kind: "command", label: `Settings · ${t.label}`, href: routes.settings(bid, t.slug), keywords: ["settings", t.slug] });
+  }
+  items.push({
+    id: "command:preferences",
+    kind: "command",
+    label: "Preferences",
+    description: "Your date and time format, in every business",
+    href: routes.settings(bid, "preferences"),
+    keywords: ["settings", "date format", "time format", "24-hour", "12-hour", "clock", "day first", "ISO 8601"],
+  });
   items.push({ id: "command:refresh-inbox", kind: "command", label: "Refresh Inbox", description: "Pull one new note", shortcut: ["R"] });
   items.push({ id: "command:edit-layout", kind: "command", label: "Edit layout", description: "Rearrange the widgets on this screen", shortcut: ["E"] });
   items.push({ id: "command:stop-all", kind: "command", label: "Stop all agents", description: "Kill switch: pause every workflow, engine and campaign" });

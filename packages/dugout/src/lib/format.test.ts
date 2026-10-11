@@ -72,7 +72,7 @@ describe("dates", () => {
     expect(formatTime(new Date(2026, 9, 5, 12, 0))).toBe("12:00 PM");
     expect(formatDateTime(d)).toBe("Oct 5, 2026, 2:05 PM");
     expect(formatDate(d, DATE_FORMATS.dayMonthTime)).toBe("Oct 5, 2:05 PM");
-    expect([0, 3, 9, 12, 15, 23].map(formatHourOfDay)).toEqual(["12 AM", "3 AM", "9 AM", "12 PM", "3 PM", "11 PM"]);
+    expect([0, 3, 9, 12, 15, 23].map((h) => formatHourOfDay(h))).toEqual(["12 AM", "3 AM", "9 AM", "12 PM", "3 PM", "11 PM"]);
   });
   it("formats ranges with an en dash", () => {
     expect(formatDateRange(new Date(2026, 9, 7), new Date(2026, 9, 21))).toBe("Oct 7 – 21");

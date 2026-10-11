@@ -3,15 +3,22 @@
  * @foundmill/shared), dates read "Oct 7, 2026" and times "3:45 PM" (DATE_FORMATS below). Money keeps each business's own
  * currency with its narrow symbol. Everything is pure; pass `now` where time is involved so tests and stories are
  * deterministic.
+ *
+ * A signed-in person may choose day-first or ISO dates and a 24-hour clock (Settings › Preferences). Every date helper
+ * takes that choice as an optional last argument (`prefs`) and reads US and 12-hour without it; in a component, use
+ * `useFormatters()` (DateFormatProvider) instead, which binds the current person's choice. Relative times ("3 min ago")
+ * and numbers never change with it.
  */
 import { formatMoney as sharedFormatMoney, type Money } from "@foundmill/shared";
 import { format as dfFormat, isValid } from "date-fns";
+import { datePatternFor, dateFormatKeyOf, normalizeDateFormatPrefs, type DateFormatKey, type DateFormatPrefs } from "./date-preferences";
 
 export const DEFAULT_LOCALE = "en-US";
 
 /**
  * The date and time patterns (date-fns tokens) every screen uses, so a person reads one convention everywhere. Pass one
- * to `formatDate` instead of spelling a pattern at the call site.
+ * (or its name: `"dayMonth"`) to `formatDate` instead of spelling a pattern at the call site. These are the US forms;
+ * with a person's `prefs` each one becomes its day-first or ISO and 24-hour equivalent (lib/date-preferences.ts).
  */
 export const DATE_FORMATS = {
   /** "Oct 7, 2026" */
@@ -38,8 +45,26 @@ export const DATE_FORMATS = {
 
 type DateInput = Date | string | number;
 
+const DAY_KEY_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * A date-only string ("2026-10-07", a calendar day such as a Journey day) is that day wherever the reader is, so it is
+ * read as local midnight; `new Date("2026-10-07")` would be UTC midnight, the day before west of Greenwich.
+ */
 function toDate(d: DateInput): Date {
-  return d instanceof Date ? d : new Date(d);
+  if (d instanceof Date) return d;
+  if (typeof d === "string") {
+    const m = DAY_KEY_RE.exec(d);
+    if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  }
+  return new Date(d);
+}
+
+/** The pattern to print: a named form (or its US pattern) under the person's choice; any other pattern unchanged. */
+function patternFor(pattern: unknown, prefs: DateFormatPrefs | null | undefined): string {
+  if (typeof pattern !== "string" || pattern === "") return datePatternFor("date", prefs);
+  const key = dateFormatKeyOf(pattern);
+  return key ? datePatternFor(key, prefs) : pattern;
 }
 
 /** Integer or decimal with grouping. `digits` fixes the fraction digits; otherwise up to 2. */
@@ -100,46 +125,129 @@ export function formatMoneyDelta(m: Money, opts: { compact?: boolean; locale?: s
   return s;
 }
 
-/** date-fns `format` with Dugout defaults: "Oct 5, 2026". Prefer a `DATE_FORMATS` pattern over a literal one. */
-export function formatDate(d: DateInput, pattern: string = DATE_FORMATS.date): string {
+/**
+ * date-fns `format` with Dugout defaults: "Oct 5, 2026". Prefer a `DATE_FORMATS` pattern or its name (`"dayMonth"`)
+ * over a literal one: those follow the person's choice when `prefs` is given ("5 Oct 2026", "2026-10-05"); a literal
+ * pattern ("yyyy", "EEE") prints as written.
+ */
+export function formatDate(d: DateInput, pattern: DateFormatKey | (string & {}) = "date", prefs?: DateFormatPrefs | null): string {
   const date = toDate(d);
-  return isValid(date) ? dfFormat(date, pattern) : "—";
+  return isValid(date) ? dfFormat(date, patternFor(pattern, prefs)) : "—";
 }
 
-/** "Oct 5, 2026, 2:05 PM" */
-export function formatDateTime(d: DateInput): string {
-  return formatDate(d, DATE_FORMATS.dateTime);
+/** "Oct 5, 2026, 2:05 PM" ("5 Oct 2026, 14:05", "2026-10-05 14:05" by choice). */
+export function formatDateTime(d: DateInput, prefs?: DateFormatPrefs | null): string {
+  return formatDate(d, "dateTime", prefs);
 }
 
-/** "2:05 PM" */
-export function formatTime(d: DateInput): string {
-  return formatDate(d, DATE_FORMATS.time);
+/** "2:05 PM" ("14:05" on a 24-hour clock). */
+export function formatTime(d: DateInput, prefs?: DateFormatPrefs | null): string {
+  return formatDate(d, "time", prefs);
 }
 
-/** An hour of the day on a 24-cell axis, 12-hour: 0 → "12 AM", 9 → "9 AM", 12 → "12 PM", 15 → "3 PM". */
-export function formatHourOfDay(hour: number): string {
+/** "Oct 5": the year is implied ("5 Oct", "10-05" by choice). */
+export function formatDateShort(d: DateInput, prefs?: DateFormatPrefs | null): string {
+  return formatDate(d, "dayMonth", prefs);
+}
+
+/** "Oct 2026" ("2026-10" in ISO). */
+export function formatMonthYear(d: DateInput, prefs?: DateFormatPrefs | null): string {
+  return formatDate(d, "monthYear", prefs);
+}
+
+/**
+ * An hour of the day on a 24-cell axis. 12-hour: 0 → "12 AM", 9 → "9 AM", 12 → "12 PM", 15 → "3 PM"; 24-hour:
+ * "00:00", "09:00", "12:00", "15:00".
+ */
+export function formatHourOfDay(hour: number, prefs?: DateFormatPrefs | null): string {
   if (!Number.isFinite(hour)) return "—";
   const h = ((Math.trunc(hour) % 24) + 24) % 24;
+  if (normalizeDateFormatPrefs(prefs).time === "24h") return `${String(h).padStart(2, "0")}:00`;
   return `${h % 12 === 0 ? 12 : h % 12} ${h < 12 ? "AM" : "PM"}`;
 }
 
 /**
- * A date range, US style with an en dash: "Oct 7 – 21" within a month, "Oct 28 – Nov 3" within a year, "Dec 28, 2026 –
- * Jan 4, 2027" across years, and a single date when both ends fall on the same day. `withYear` appends the shared year
- * ("Oct 7 – 21, 2026"); a range across years always carries both.
+ * A date with its year apart, for a slot that drops the year first when space runs out (the top bar): `lead` and
+ * `tail` hold the year with its separator, `core` the rest. "Oct 7" + ", 2026"; day first "7 Oct" + " 2026"; ISO
+ * "2026-" + "10-07".
  */
-export function formatDateRange(start: DateInput, end: DateInput, opts: { withYear?: boolean } = {}): string {
+export interface DateYearParts {
+  lead: string;
+  core: string;
+  tail: string;
+}
+
+export function formatDateYearParts(d: DateInput, prefs?: DateFormatPrefs | null): DateYearParts {
+  const date = toDate(d);
+  if (!isValid(date)) return { lead: "", core: "—", tail: "" };
+  const p = normalizeDateFormatPrefs(prefs);
+  const year = dfFormat(date, "yyyy");
+  const core = dfFormat(date, datePatternFor("dayMonth", p));
+  if (p.date === "iso") return { lead: `${year}-`, core, tail: "" };
+  return { lead: "", core, tail: p.date === "us" ? `, ${year}` : ` ${year}` };
+}
+
+/**
+ * A date range with an en dash. US: "Oct 7 – 21" within a month, "Oct 28 – Nov 3" within a year, "Dec 28, 2026 –
+ * Jan 4, 2027" across years, and a single date when both ends fall on the same day; `withYear` adds the shared year
+ * ("Oct 7 – 21, 2026"), and a range across years always carries both. Day first: "7 – 21 Oct", "28 Oct – 3 Nov",
+ * "28 Dec 2026 – 4 Jan 2027", "7 – 21 Oct 2026". ISO keeps both ends whole: "10-07 – 10-21", "2026-10-07 – 2026-10-21".
+ */
+export function formatDateRange(start: DateInput, end: DateInput, opts: { withYear?: boolean; prefs?: DateFormatPrefs | null } = {}): string {
   const a = toDate(start);
   const b = toDate(end);
   if (!isValid(a) || !isValid(b)) return "—";
-  const year = opts.withYear ? `, ${dfFormat(a, "yyyy")}` : "";
+  const p = normalizeDateFormatPrefs(opts.prefs);
+  const fmt = (d: Date, key: DateFormatKey) => dfFormat(d, datePatternFor(key, p));
   const sameYear = a.getFullYear() === b.getFullYear();
-  if (!sameYear) return `${dfFormat(a, DATE_FORMATS.date)} – ${dfFormat(b, DATE_FORMATS.date)}`;
-  if (a.getMonth() === b.getMonth()) {
-    if (a.getDate() === b.getDate()) return dfFormat(a, opts.withYear ? DATE_FORMATS.date : DATE_FORMATS.dayMonth);
-    return `${dfFormat(a, DATE_FORMATS.dayMonth)} – ${dfFormat(b, "d")}${year}`;
+  const sameDay = sameYear && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const short: DateFormatKey = opts.withYear || !sameYear ? "date" : "dayMonth";
+  if (sameDay) return fmt(a, short);
+  if (p.date === "iso" || !sameYear) return `${fmt(a, short)} – ${fmt(b, short)}`;
+  const sameMonth = a.getMonth() === b.getMonth();
+  if (p.date === "day_first") {
+    const year = opts.withYear ? ` ${dfFormat(a, "yyyy")}` : "";
+    return sameMonth ? `${dfFormat(a, "d")} – ${fmt(b, "dayMonth")}${year}` : `${fmt(a, "dayMonth")} – ${fmt(b, "dayMonth")}${year}`;
   }
-  return `${dfFormat(a, DATE_FORMATS.dayMonth)} – ${dfFormat(b, DATE_FORMATS.dayMonth)}${year}`;
+  const year = opts.withYear ? `, ${dfFormat(a, "yyyy")}` : "";
+  return sameMonth ? `${fmt(a, "dayMonth")} – ${dfFormat(b, "d")}${year}` : `${fmt(a, "dayMonth")} – ${fmt(b, "dayMonth")}${year}`;
+}
+
+/** Every date helper bound to one person's choice: what `useFormatters()` returns, and what a server component builds. */
+export interface DateFormatters {
+  prefs: DateFormatPrefs;
+  /** "Oct 7, 2026"; pass a form's name or US pattern for another form ("dayMonth", DATE_FORMATS.weekdayDate). */
+  formatDate(d: DateInput, pattern?: DateFormatKey | (string & {})): string;
+  /** "Oct 7" */
+  formatDateShort(d: DateInput): string;
+  /** "Oct 2026" */
+  formatMonthYear(d: DateInput): string;
+  /** "3:45 PM" */
+  formatTime(d: DateInput): string;
+  /** "Oct 7, 2026, 3:45 PM" */
+  formatDateTime(d: DateInput): string;
+  /** "Oct 7 – 21" (see formatDateRange) */
+  formatRange(start: DateInput, end: DateInput, opts?: { withYear?: boolean }): string;
+  /** "3 PM" / "15:00" */
+  formatHourOfDay(hour: number): string;
+  /** The date with its year apart (the top bar). */
+  formatDateYearParts(d: DateInput): DateYearParts;
+}
+
+/** Binds every date helper to `prefs` (US and 12-hour when none is given). Safe to pass to `Array.map`. */
+export function bindFormatters(prefs?: DateFormatPrefs | null): DateFormatters {
+  const p = normalizeDateFormatPrefs(prefs);
+  return {
+    prefs: p,
+    formatDate: (d, pattern) => formatDate(d, typeof pattern === "string" ? pattern : "date", p),
+    formatDateShort: (d) => formatDate(d, "dayMonth", p),
+    formatMonthYear: (d) => formatDate(d, "monthYear", p),
+    formatTime: (d) => formatDate(d, "time", p),
+    formatDateTime: (d) => formatDate(d, "dateTime", p),
+    formatRange: (start, end, opts) => formatDateRange(start, end, { withYear: opts?.withYear, prefs: p }),
+    formatHourOfDay: (hour) => formatHourOfDay(hour, p),
+    formatDateYearParts: (d) => formatDateYearParts(d, p),
+  };
 }
 
 const REL_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [

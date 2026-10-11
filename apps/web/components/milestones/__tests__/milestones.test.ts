@@ -37,6 +37,9 @@ describe("milestones (BUILD §11.4 trophy cabinet)", () => {
     const cards = trophyCards(rows, "EUR", true);
     expect(shareText(cards.find((c) => c.key === "customer_1")!, "Northwind")).toBe("Northwind · First customer with Acme · Mar 1, 2026");
     expect(shareText(cards.find((c) => c.key === "mrr_1k")!, "Northwind")).not.toContain("Secret");
+    // The date reads in the founder's own format (Settings › Preferences).
+    expect(shareText(cards.find((c) => c.key === "customer_1")!, "Northwind", { date: "iso", time: "24h" })).toBe("Northwind · First customer with Acme · 2026-03-01");
+    expect(shareText(cards.find((c) => c.key === "customer_1")!, "Northwind", { date: "day_first", time: "12h" })).toBe("Northwind · First customer with Acme · 1 Mar 2026");
   });
 
   it("looks a conversion's journey up a day either side of the milestone (journey.list has no conversion filter)", () => {

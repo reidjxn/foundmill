@@ -3,7 +3,9 @@ import { forwardRef, useCallback, useEffect, useRef, useState, type ReactNode } 
 import { useHotkeys } from "react-hotkeys-hook";
 import { ArrowRight, CircleAlert, Pause, Play, TreePalm, Undo2 } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { DATE_FORMATS, formatDate } from "../../lib/format";
+import type { DateFormatPrefs } from "../../lib/date-preferences";
+import { formatDate, formatDateYearParts, type DateYearParts } from "../../lib/format";
+import { useDateFormat } from "../foundation/DateFormatProvider";
 import { usePrefersReducedMotion } from "../../lib/reducedMotion";
 import { Button, type ButtonSize } from "../foundation/Button";
 import { Icon } from "../foundation/Icon";
@@ -54,21 +56,25 @@ export function continueButtonLabel(state: ContinueState): string {
   }
 }
 
-/** "On vacation until Oct 14, 2026" / "On vacation until the launch ships" / "On vacation". */
-export function holidayCaption(state: Extract<ContinueState, { kind: "holiday" }>): string {
+/**
+ * "On vacation until Oct 14, 2026" / "On vacation until the launch ships" / "On vacation". The date follows the
+ * signed-in person's format when `prefs` is given ("14 Oct 2026", "2026-10-14").
+ */
+export function holidayCaption(state: Extract<ContinueState, { kind: "holiday" }>, prefs?: DateFormatPrefs | null): string {
   if (state.untilLabel) return `On vacation until ${state.untilLabel}`;
-  if (state.until) return `On vacation until ${formatDate(state.until)}`;
+  if (state.until) return `On vacation until ${formatDate(state.until, "date", prefs)}`;
   return "On vacation";
 }
 
 /**
- * The caption in parts, for a top bar that has to compact (KitBarFit): the full caption without its year, the year on
- * its own (it goes first), and the short form ("Until Oct 14"). Exported for tests.
+ * The caption in parts, for a top bar that has to compact (KitBarFit): the words before the date, the date with its
+ * year apart (the year goes first: "Oct 14" + ", 2026", "14 Oct" + " 2026", "2026-" + "10-14"), and the short form
+ * ("Until Oct 14"). Exported for tests.
  */
-export function holidayCaptionParts(state: Extract<ContinueState, { kind: "holiday" }>): { full: string; year: string; short: string } {
-  if (state.untilLabel) return { full: `On vacation until ${state.untilLabel}`, year: "", short: `Until ${state.untilLabel}` };
-  if (state.until) return { full: `On vacation until ${formatDate(state.until, DATE_FORMATS.dayMonth)}`, year: formatDate(state.until, "yyyy"), short: `Until ${formatDate(state.until, DATE_FORMATS.dayMonth)}` };
-  return { full: "On vacation", year: "", short: "On vacation" };
+export function holidayCaptionParts(state: Extract<ContinueState, { kind: "holiday" }>, prefs?: DateFormatPrefs | null): { full: string; date: DateYearParts | null; short: string } {
+  if (state.untilLabel) return { full: `On vacation until ${state.untilLabel}`, date: null, short: `Until ${state.untilLabel}` };
+  if (state.until) return { full: "On vacation until ", date: formatDateYearParts(state.until, prefs), short: `Until ${formatDate(state.until, "dayMonth", prefs)}` };
+  return { full: "On vacation", date: null, short: "On vacation" };
 }
 
 /** The callback Space (and a click) should run for a state. */
@@ -98,6 +104,7 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
   ref,
 ) {
   const reduced = usePrefersReducedMotion();
+  const datePrefs = useDateFormat();
   const [pulsing, setPulsing] = useState(false);
   const firstPulse = useRef(true);
   const lastKind = useRef(state.kind);
@@ -193,20 +200,23 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
         </Button>
       );
       break;
-    case "holiday":
+    case "holiday": {
+      const holidayParts = holidayCaptionParts(state, datePrefs);
       button = (
         <span className="inline-flex items-center gap-2" data-continue-state="holiday">
           <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-small text-kit-on-primary/80" data-holiday-caption>
             <Icon icon={TreePalm} size="inline" />
             {/* In a crowded top bar the caption shortens, then leaves only its icon (KitBarFit); the words stay for
                 screen readers and in the tooltip. */}
-            <span className="sr-only">{holidayCaption(state)}</span>
+            <span className="sr-only">{holidayCaption(state, datePrefs)}</span>
             <span aria-hidden className="kitbar-holiday-full">
-              {holidayCaptionParts(state).full}
-              {holidayCaptionParts(state).year ? <span className="kitbar-year">, {holidayCaptionParts(state).year}</span> : null}
+              {holidayParts.full}
+              {holidayParts.date?.lead ? <span className="kitbar-year">{holidayParts.date.lead}</span> : null}
+              {holidayParts.date?.core}
+              {holidayParts.date?.tail ? <span className="kitbar-year">{holidayParts.date.tail}</span> : null}
             </span>
             <span aria-hidden className="kitbar-holiday-short">
-              {holidayCaptionParts(state).short}
+              {holidayParts.short}
             </span>
           </span>
           <Button {...common} variant="default" icon={Undo2} className={cn(skin, pulseClass, className)}>
@@ -215,13 +225,14 @@ export const ContinueButton = forwardRef<HTMLButtonElement, ContinueButtonProps>
         </span>
       );
       break;
+    }
   }
 
   return (
     <Tooltip
       content={
         <span className="inline-flex items-center gap-1.5">
-          {state.kind === "idle" ? "Advance a business cycle" : state.kind === "blocked" ? "Continue is blocked until you respond" : state.kind === "processing" ? "A cycle is running" : state.kind === "matchday" ? "A customer was won" : holidayCaption(state)}
+          {state.kind === "idle" ? "Advance a business cycle" : state.kind === "blocked" ? "Continue is blocked until you respond" : state.kind === "processing" ? "A cycle is running" : state.kind === "matchday" ? "A customer was won" : holidayCaption(state, datePrefs)}
           <Kbd>Space</Kbd>
         </span>
       }

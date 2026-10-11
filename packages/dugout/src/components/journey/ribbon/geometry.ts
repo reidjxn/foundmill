@@ -9,6 +9,8 @@
  */
 import { area, curveMonotoneX, line } from "d3-shape";
 import type { DeptColourToken, MilestoneKind } from "@foundmill/shared";
+import type { DateFormatPrefs } from "../../../lib/date-preferences";
+import { formatDate } from "../../../lib/format";
 import type { Chapter, Conversion, DayKey, ForecastPoint, JourneyDailyRow, Milestone, RibbonDepartment, RoadmapFlag, ZoomLevel } from "../types";
 
 export const DAY_MS = 86_400_000;
@@ -385,6 +387,8 @@ export interface RibbonGeometryInput {
   width: number;
   /** Plot height (the ribbon minus its toolbar). */
   height: number;
+  /** The signed-in person's date format, for the axis and runway labels (US when absent). */
+  datePrefs?: DateFormatPrefs | null;
 }
 
 export const MILESTONE_GLYPH: Record<MilestoneKind, MilestoneGlyphKind> = {
@@ -408,19 +412,25 @@ export function runwayToneFor(months: number): RunwayHorizonTone {
 const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function tickLabel(day: DayKey, zoom: ZoomLevel): string {
+/**
+ * An axis label in the signed-in person's date format: "Wed 7" at week zoom (no month, so the same in every format);
+ * "Oct 7" / "7 Oct" / "10-07" at month and quarter zoom; "Oct ’26" (ISO "2026-10") at the whole span, a January the
+ * bare year.
+ */
+export function ribbonTickLabel(day: DayKey, zoom: ZoomLevel, prefs?: DateFormatPrefs | null): string {
   const d = new Date(dayToMs(day));
   const dd = d.getUTCDate();
-  const mm = MONTHS_SHORT[d.getUTCMonth()] as string;
   if (zoom === "week") return `${DOW_SHORT[d.getUTCDay()]} ${dd}`;
-  if (zoom === "all") return dd === 1 && d.getUTCMonth() === 0 ? String(d.getUTCFullYear()) : `${mm} ’${String(d.getUTCFullYear()).slice(2)}`;
-  return `${mm} ${dd}`;
+  if (zoom === "all") {
+    if (dd === 1 && d.getUTCMonth() === 0) return String(d.getUTCFullYear());
+    return prefs?.date === "iso" ? formatDate(day, "monthYear", prefs) : `${MONTHS_SHORT[d.getUTCMonth()]} ’${String(d.getUTCFullYear()).slice(2)}`;
+  }
+  return formatDate(day, "dayMonth", prefs);
 }
 
-/** "Mar 2027" for a day. */
-export function monthYear(day: DayKey): string {
-  const d = new Date(dayToMs(day));
-  return `${MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+/** "Mar 2027" for a day ("2027-03" in ISO). */
+export function monthYear(day: DayKey, prefs?: DateFormatPrefs | null): string {
+  return formatDate(day, "monthYear", prefs);
 }
 
 /** "2026-Q3" → "Q3 2026"; anything else unchanged. */
@@ -705,7 +715,7 @@ export function buildRibbonGeometry(input: RibbonGeometryInput): RibbonGeometry 
     const endDay = addDaysKey(today, Math.round(months * MONTH_DAYS));
     const x = xOfDay(endDay);
     const monthsText = months < 10 ? months.toFixed(1).replace(/\.0$/, "") : String(Math.round(months));
-    runway = { months, endDay, x, inRange: endDay <= horizon, tone: runwayToneFor(months), label: endDay <= horizon ? `Cash runs out ~${monthYear(endDay)}` : `Cash lasts ${monthsText} months` };
+    runway = { months, endDay, x, inRange: endDay <= horizon, tone: runwayToneFor(months), label: endDay <= horizon ? `Cash runs out ~${monthYear(endDay, input.datePrefs)}` : `Cash lasts ${monthsText} months` };
   }
 
   // Axis ticks for the whole domain; the component culls to the visible window.
@@ -715,7 +725,7 @@ export function buildRibbonGeometry(input: RibbonGeometryInput): RibbonGeometry 
     for (let i = 0; i < totalDays; i += step) {
       const day = msToDay(kickoffMs + i * DAY_MS);
       const d = new Date(dayToMs(day));
-      axisTicks.push({ x: xOfDay(day), label: tickLabel(day, zoom), major: step === 1 ? d.getUTCDay() === 1 : d.getUTCDate() <= step, day });
+      axisTicks.push({ x: xOfDay(day), label: ribbonTickLabel(day, zoom, input.datePrefs), major: step === 1 ? d.getUTCDay() === 1 : d.getUTCDate() <= step, day });
     }
   } else {
     // Month starts.
@@ -727,7 +737,7 @@ export function buildRibbonGeometry(input: RibbonGeometryInput): RibbonGeometry 
     let k = 0;
     while (d.getTime() <= horizonMs) {
       const day = msToDay(d.getTime());
-      if (k % everyN === 0 || d.getUTCMonth() === 0) axisTicks.push({ x: xOfDay(day), label: tickLabel(day, zoom), major: d.getUTCMonth() === 0, day });
+      if (k % everyN === 0 || d.getUTCMonth() === 0) axisTicks.push({ x: xOfDay(day), label: ribbonTickLabel(day, zoom, input.datePrefs), major: d.getUTCMonth() === 0, day });
       d.setUTCMonth(d.getUTCMonth() + 1);
       k += 1;
     }

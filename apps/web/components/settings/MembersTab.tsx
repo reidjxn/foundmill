@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { UserPlus, UserX } from "lucide-react";
 import { useState } from "react";
-import { Avatar, Button, Chip, Field, IconButton, Input, SimpleSelect } from "@foundmill/dugout";
+import { Avatar, Button, Chip, Field, IconButton, Input, SimpleSelect, useDateFormat } from "@foundmill/dugout";
 import { MEMBERSHIP_ROLES, type MembershipRole } from "@foundmill/shared/constants";
 import { formatDate, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
@@ -32,6 +32,7 @@ export function shortId(id: string): string {
 }
 
 export function MembersTab() {
+  const datePrefs = useDateFormat();
   const { businessId, data, isOwner } = useBusiness();
   const trpc = useTRPC();
   const invalidate = useInvalidateRouters();
@@ -64,7 +65,7 @@ export function MembersTab() {
                     {isSelf && viewerName ? <Chip tone="kit">You</Chip> : null}
                   </span>
                   <span className="font-mono text-mono text-tertiary" title={m.userId}>
-                    Account {shortId(m.userId)} · since {formatDate(m.createdAt)}
+                    Account {shortId(m.userId)} · since {formatDate(m.createdAt, datePrefs)}
                   </span>
                 </span>
                 <SimpleSelect aria-label={`Role of ${isSelf ? "you" : shortId(m.userId)}`} controlSize="sm" className="w-32" value={m.role} disabled={m.role === "owner" || (!isOwner && m.role === "admin")} onValueChange={(v) => setRole.mutate({ businessId, userId: m.userId, role: v as MembershipRole })} options={MEMBERSHIP_ROLES.map((r) => ({ value: r, label: ROLE_WORD[r], disabled: r === "owner" }))} />

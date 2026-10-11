@@ -47,6 +47,8 @@ export const SERVER_SAFE_FILES = [
   "lib/colour.ts",
   "lib/motion.ts",
   "lib/format.ts",
+  // The date-format choice (Settings › Preferences): the patterns and their names; DateFormatProvider is the client piece.
+  "lib/date-preferences.ts",
   "lib/rating.ts",
   "lib/seed.ts",
   "version.ts",

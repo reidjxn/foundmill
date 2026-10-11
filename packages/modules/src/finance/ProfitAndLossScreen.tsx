@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { AlertTriangle, Landmark, Receipt, Tag, X } from "lucide-react";
-import { DATE_FORMATS, Button, DataTable, EntityLink, MiniTable, Panel, SegmentedControl, StatusPill, cn, formatDate, formatPercent, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, DataTable, EntityLink, MiniTable, Panel, SegmentedControl, StatusPill, cn, formatPercent, useFormatters, type DataTableColumn, type DateFormatPrefs, type RowAction, type SavedView } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
@@ -25,13 +25,13 @@ export const PNL_PERIODS = [
 ] as const;
 export type PnlPeriod = (typeof PNL_PERIODS)[number]["value"];
 
-/** ISO range for a period key: full months before this month, or this month to date. */
-export function periodRange(period: PnlPeriod, now: Date): { from: string; to: string; label: string } {
+/** ISO range for a period key: full months before this month, or this month to date (the label in the person's `prefs`). */
+export function periodRange(period: PnlPeriod, now: Date, prefs?: DateFormatPrefs | null): { from: string; to: string; label: string } {
   const p = PNL_PERIODS.find((x) => x.value === period) ?? PNL_PERIODS[1];
-  if (p.months === 0) return { from: monthStart(now, 0).toISOString(), to: monthStart(now, 1).toISOString(), label: `${formatMonth(now.toISOString().slice(0, 7))} to date` };
+  if (p.months === 0) return { from: monthStart(now, 0).toISOString(), to: monthStart(now, 1).toISOString(), label: `${formatMonth(now.toISOString().slice(0, 7), prefs)} to date` };
   const from = monthStart(now, -p.months);
   const to = monthStart(now, 0);
-  return { from: from.toISOString(), to: to.toISOString(), label: `${formatMonth(from.toISOString().slice(0, 7))} – ${formatMonth(monthStart(now, -1).toISOString().slice(0, 7))}` };
+  return { from: from.toISOString(), to: to.toISOString(), label: `${formatMonth(from.toISOString().slice(0, 7), prefs)} – ${formatMonth(monthStart(now, -1).toISOString().slice(0, 7), prefs)}` };
 }
 
 export const PNL_VIEWS: SavedView[] = [
@@ -132,7 +132,8 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
   const currency = useCurrency();
   const { navigate } = useWidgetData();
   const [period, setPeriod] = useState<PnlPeriod>("3m");
-  const range = useMemo(() => periodRange(period, now), [period, now]);
+  const { prefs: datePrefs, formatDateShort } = useFormatters();
+  const range = useMemo(() => periodRange(period, now, datePrefs), [period, now, datePrefs]);
   const pnl = useWidgetQuery<PnlResponse>("finance.pnl", { from: range.from, to: range.to });
   const [views, setViews] = useState<SavedView[]>(PNL_VIEWS);
   const [selected, setSelected] = useState<PnlRow | null>(null);
@@ -234,7 +235,7 @@ export function ProfitAndLossScreen({ businessId }: ModuleScreenProps) {
             getRowKey={(t) => t.id}
             onRowClick={(t) => setRecat(t)}
             columns={[
-              { id: "date", header: "Date", width: 84, cell: (t) => <span className="tabular-nums">{formatDate(t.bookedAt, DATE_FORMATS.dayMonth)}</span> },
+              { id: "date", header: "Date", width: 84, cell: (t) => <span className="tabular-nums">{formatDateShort(t.bookedAt)}</span> },
               {
                 id: "who",
                 header: "Counterparty",

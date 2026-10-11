@@ -250,3 +250,23 @@ export type AgentReaction = (typeof AGENT_REACTIONS)[number];
 /** Where an agent is, for the conversation header: in a session, free, paused, or down. */
 export const AGENT_PRESENCES = ["working", "available", "away", "down"] as const;
 export type AgentPresence = (typeof AGENT_PRESENCES)[number];
+
+/**
+ * How a signed-in person reads dates and times (founder, 2026-10-11): a personal preference of the account, applied in
+ * every business. The date format is US (the default, "Oct 7, 2026"), day first or ISO; the time is 12-hour (the
+ * default, "3:45 PM") or 24-hour. The patterns behind each live in @foundmill/dugout (lib/date-preferences.ts).
+ */
+export const DATE_FORMAT_PREFERENCES = ["us", "day_first", "iso"] as const;
+export type DateFormatPreference = (typeof DATE_FORMAT_PREFERENCES)[number];
+
+export const TIME_FORMAT_PREFERENCES = ["12h", "24h"] as const;
+export type TimeFormatPreference = (typeof TIME_FORMAT_PREFERENCES)[number];
+
+/** One person's choice of date and time format. */
+export interface DateFormatPrefs {
+  date: DateFormatPreference;
+  time: TimeFormatPreference;
+}
+
+/** What everyone reads until they choose: US dates, 12-hour times (also the signed-out pages). */
+export const DEFAULT_DATE_FORMAT_PREFS: Readonly<DateFormatPrefs> = Object.freeze({ date: "us", time: "12h" });

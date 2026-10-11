@@ -7,7 +7,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Archive, Download, Trash2, TriangleAlert, Undo2 } from "lucide-react";
 import { useState } from "react";
-import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Icon, Input, Panel, StatusPill } from "@foundmill/dugout";
+import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Icon, Input, Panel, StatusPill, useDateFormat } from "@foundmill/dugout";
 import { formatDate } from "@/lib/format";
 import { errorMessage, trpcErrorCode, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -17,6 +17,7 @@ import { Hint, useSettingsToast } from "./shared";
 export const DELETION_DELAY_DAYS = 7;
 
 export function DangerTab() {
+  const datePrefs = useDateFormat();
   const { businessId, data, isOwner, isAdmin } = useBusiness();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -90,7 +91,7 @@ export function DangerTab() {
           </p>
           {scheduled ? (
             <div className="flex items-center gap-3" data-testid="deletion-scheduled">
-              <StatusPill tone="bad">Deletion scheduled{scheduled.scheduledFor ? ` · ${formatDate(scheduled.scheduledFor)}` : ""}</StatusPill>
+              <StatusPill tone="bad">Deletion scheduled{scheduled.scheduledFor ? ` · ${formatDate(scheduled.scheduledFor, datePrefs)}` : ""}</StatusPill>
               <Button icon={Undo2} variant="default" disabled={!isOwner} loading={cancelDeletion.isPending} onClick={() => cancelDeletion.mutate({ businessId })}>
                 Cancel deletion
               </Button>

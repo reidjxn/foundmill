@@ -10,7 +10,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Dumbbell, Eye, FlaskConical, History, Save, Sparkles, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, InstructionsEditor, KeyValueList, MODEL_LABELS, ModelPicker, Panel, ProgressRing, ProvenanceChip, SkillGrid, TabBar, TrainingResults, formatDuration, formatMoney, formatRelative, instructionsEqual, type AgentInstructions, type InstructionComment, type InstructionViolation, type TabItem } from "@foundmill/dugout";
+import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, InstructionsEditor, KeyValueList, MODEL_LABELS, ModelPicker, Panel, ProgressRing, ProvenanceChip, SkillGrid, TabBar, TrainingResults, formatDuration, formatMoney, formatRelative, instructionsEqual, useDateFormat, type AgentInstructions, type InstructionComment, type InstructionViolation, type TabItem } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -42,6 +42,7 @@ import {
 } from "./logic";
 
 export function TrainingTab({ businessId, profile, currency, refetch }: TabProps) {
+  const datePrefs = useDateFormat();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const agent = profile.agent;
@@ -177,7 +178,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-body text-primary">
-              Promoted {formatRelative(flow.watch.run.endedAt ?? flow.watch.run.createdAt)}. Watching live outcomes until {formatDayMonth(flow.watch.until)}.
+              Promoted {formatRelative(flow.watch.run.endedAt ?? flow.watch.run.createdAt)}. Watching live outcomes until {formatDayMonth(flow.watch.until, datePrefs)}.
             </p>
             <Button variant="danger" icon={Undo2} loading={rollback.isPending} onClick={() => rollback.mutate({ businessId, agentId: agent.id })} data-testid="rollback">
               Roll back to the previous version

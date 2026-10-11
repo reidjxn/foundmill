@@ -5,7 +5,6 @@ import { Info, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "../../lib/cn";
 import {
   formatCompact,
-  formatDateTime,
   formatMoney,
   formatNumber,
   formatPercent,
@@ -13,6 +12,7 @@ import {
 import { ProvenanceChip, type ProvenanceKind } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
 import { Skeleton } from "../foundation/Skeleton";
+import { useFormatters } from "../foundation/DateFormatProvider";
 import { FitText } from "../foundation/FitText";
 import { Tooltip } from "../foundation/Tooltip";
 import { Figure } from "./Figure";
@@ -112,6 +112,7 @@ export function DeltaBadge({ delta, className }: { delta: MetricDelta; className
 }
 
 function ProvenanceTip({ p }: { p: MetricProvenance }) {
+  const { formatDateTime } = useFormatters();
   return (
     <div className="flex flex-col gap-0.5">
       <span className="t-label">Source</span>

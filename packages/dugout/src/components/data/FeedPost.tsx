@@ -1,6 +1,7 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { ChevronDown, ChevronRight, MessageSquareReply } from "lucide-react";
 import { cn } from "../../lib/cn";
+import type { DateFormatPrefs } from "../../lib/date-preferences";
 import { formatDateTime, formatRelative } from "../../lib/format";
 import { Avatar } from "../foundation/Avatar";
 import { Button } from "../foundation/Button";
@@ -22,13 +23,18 @@ export interface FeedPostProps extends Omit<HTMLAttributes<HTMLElement>, "childr
   repliesOpen?: boolean;
   /** Replies and the reply box, indented under the post. */
   thread?: ReactNode;
+  /**
+   * The signed-in person's date format for the full moment on hover (Settings › Preferences): pass `useDateFormat()`
+   * from the caller. Server-safe, so the post cannot read it itself; US without it. The relative time never changes.
+   */
+  datePrefs?: DateFormatPrefs | null;
 }
 
 /**
  * One post in a community feed: avatar, author, business badge, relative time, the text, a Reply button and a
  * replies toggle (a disclosure: `aria-expanded`). Replies nest one level under `thread`.
  */
-export function FeedPost({ author, badge, at, children, replyCount, onReply, onToggleReplies, repliesOpen, thread, className, ...rest }: FeedPostProps) {
+export function FeedPost({ author, badge, at, children, replyCount, onReply, onToggleReplies, repliesOpen, thread, datePrefs, className, ...rest }: FeedPostProps) {
   const count = replyCount ?? 0;
   return (
     <article className={cn("flex flex-col gap-1.5 border-b border-subtle/50 px-panel-pad py-2.5 last:border-b-0", className)} data-feed-post {...rest}>
@@ -36,7 +42,7 @@ export function FeedPost({ author, badge, at, children, replyCount, onReply, onT
         <Avatar size={24} name={author} />
         <span className="t-body-strong min-w-0 truncate text-primary">{author}</span>
         {badge}
-        <time dateTime={new Date(at).toISOString()} title={formatDateTime(at)} className="ml-auto shrink-0 text-small text-secondary">
+        <time dateTime={new Date(at).toISOString()} title={formatDateTime(at, datePrefs)} className="ml-auto shrink-0 text-small text-secondary">
           {formatRelative(at)}
         </time>
       </header>

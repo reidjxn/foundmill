@@ -7,12 +7,13 @@
  */
 import { useId, useMemo, useState } from "react";
 import { Code2, ExternalLink, Globe, RefreshCw, ScanSearch, Stamp, Trash2 } from "lucide-react";
-import { Button, Chip, DataTable, Field, Input, KeyValueList, Panel, StarRating, StatusPill, formatDate, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
+import { Button, Chip, DataTable, Field, Input, KeyValueList, Panel, StarRating, StatusPill, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
 import { useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { DISTINCTIVENESS_WORD, screenTrademark, type TrademarkScreen } from "./legal-data";
 import { InformationNotice, Screen, archetypeLabel, useLegalStatus, useNow, useOpenExternal } from "./shared";
 import type { BusinessGetResponse, IntegrationsListResponse } from "./types";
+import { DateText } from "../dates";
 
 const BUSINESS_INPUT: Record<string, unknown> = {};
 const INTEGRATIONS_INPUT: Record<string, unknown> = {};
@@ -36,7 +37,7 @@ export function markColumns(): DataTableColumn<ScreenedMark>[] {
     { id: "distinctiveness", accessorKey: "distinctiveness", header: "Distinctiveness", size: 220, cell: ({ row }) => <Chip tone={row.original.distinctiveness === "generic" ? "bad" : row.original.distinctiveness === "descriptive" ? "warn" : "neutral"}>{DISTINCTIVENESS_WORD[row.original.distinctiveness]}</Chip>, meta: { filter: "select", filterOptions: Object.entries(DISTINCTIVENESS_WORD).map(([value, label]) => ({ value, label })) } },
     { id: "strength", accessorKey: "strength", header: "Strength", size: 140, cell: ({ row }) => <StarRating value={row.original.strength} label="Strength" showValue />, meta: { numeric: true, filter: "number" } },
     { id: "issues", accessorFn: (r) => r.issues.length, header: "Objections", size: 110, cell: ({ getValue }) => <span className="tabular-nums">{String(getValue())}</span>, meta: { numeric: true, filter: "number" } },
-    { id: "screenedAt", accessorKey: "screenedAt", header: "Screened", size: 120, cell: ({ getValue }) => <span className="tabular-nums">{formatDate(String(getValue()))}</span>, meta: { filter: "date" } },
+    { id: "screenedAt", accessorKey: "screenedAt", header: "Screened", size: 120, cell: ({ getValue }) => <DateText className="tabular-nums" value={String(getValue())} />, meta: { filter: "date" } },
   ];
 }
 

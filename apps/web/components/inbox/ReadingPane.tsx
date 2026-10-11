@@ -1,6 +1,7 @@
 "use client";
 /**
- * The reading pane (BUILD §11.3 "Anatomy", DESIGN §9 Inbox): 64 px header (persona EntityLink, date, department chip,
+ * The reading pane (BUILD §11.3 "Anatomy", DESIGN §9 Inbox): 64 px header (persona EntityLink, date in the signed-in
+ * person's own format with the relative time beside it, department chip,
  * related entities), the note in reading style (Markdown with entity markup → EntityLinks), a status strip of up to
  * four live metrics with provenance, the exhibit, the conversation with the agent who wrote it (DIRECTION #6: quick
  * replies on Alt+1–4, T to talk; typed text goes through `agent.conversation.inboxReply`, so a question never uses up
@@ -25,9 +26,9 @@ import {
   Panel,
   StatusPill,
   StatusStrip,
-  formatDateTime,
   formatRelative,
   isTypingTarget,
+  useFormatters,
   useToast,
   type DecisionAnswer,
   type DecisionOption,
@@ -35,6 +36,7 @@ import {
 import type { DeptColourToken, EntityKind } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { usePageShortcuts } from "@/lib/keys";
+import { useHydrated } from "@/lib/today";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
@@ -120,6 +122,8 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const persona = fromAgent ? agents.get(fromAgent.id) : undefined;
   const department = persona ? departments.find((d) => d.id === persona.departmentId) : undefined;
   const dates = headerDates(item, decisions[0]?.decidedAt ?? null);
+  const { formatDate, formatDateTime } = useFormatters();
+  const hydrated = useHydrated();
 
   // --- status strip sources (only what the note needs) ---------------------------------------------------------------
   const needs = useMemo(() => stripSources(item.statusStrip), [item.statusStrip]);
@@ -260,7 +264,10 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
                 {department.name}
               </DeptChip>
             ) : null}
-            <time dateTime={dates.created.toISOString()} title={formatDateTime(dates.created)} className="tabular-nums">
+            <time dateTime={dates.created.toISOString()} title={hydrated ? formatDateTime(dates.created) : undefined} className="tabular-nums" data-testid="item-date">
+              {/* The date in the person's own format ("Oct 7, 3:45 PM", "7 Oct, 15:45", "10-07 15:45"), once the browser
+                  knows their time zone; the relative time beside it never changes with the format. */}
+              {hydrated ? <span data-testid="item-date-absolute">{formatDate(dates.created, dates.created.getFullYear() === new Date().getFullYear() ? "dayMonthTime" : "dateTime")} · </span> : null}
               {formatRelative(dates.created)}
             </time>
             {dates.decided ? <span className="tabular-nums">· decided {formatRelative(dates.decided)}</span> : null}

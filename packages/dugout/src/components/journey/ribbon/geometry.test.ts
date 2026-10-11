@@ -15,7 +15,9 @@ import {
   msToDay,
   niceTicks,
   NO_DEPARTMENT_ID,
+  monthYear,
   revealWidth,
+  ribbonTickLabel,
   runwayToneFor,
   scrollForToday,
   scrollKeepingDay,
@@ -36,6 +38,31 @@ describe("dates", () => {
     expect(runwayToneFor(5.9)).toBe("bad");
     expect(zoomSpanDays("week", 900)).toBe(7);
     expect(zoomSpanDays("all", 900)).toBe(900);
+  });
+});
+
+describe("labels in the signed-in person's date format", () => {
+  it("axis ticks and the runway month follow the choice (US without one)", () => {
+    const dayFirst = { date: "day_first", time: "24h" } as const;
+    const iso = { date: "iso", time: "24h" } as const;
+    expect(["month", "quarter"].map((z) => ribbonTickLabel("2026-10-07", z as "month"))).toEqual(["Oct 7", "Oct 7"]);
+    expect(ribbonTickLabel("2026-10-07", "month", dayFirst)).toBe("7 Oct");
+    expect(ribbonTickLabel("2026-10-07", "quarter", iso)).toBe("10-07");
+    // Week zoom names no month, so it reads the same in every format.
+    expect([undefined, dayFirst, iso].map((p) => ribbonTickLabel("2026-10-07", "week", p))).toEqual(["Wed 7", "Wed 7", "Wed 7"]);
+    expect([undefined, dayFirst, iso].map((p) => ribbonTickLabel("2026-10-01", "all", p))).toEqual(["Oct ’26", "Oct ’26", "2026-10"]);
+    expect(ribbonTickLabel("2027-01-01", "all", iso)).toBe("2027");
+    expect([monthYear("2027-03-14"), monthYear("2027-03-14", iso)]).toEqual(["Mar 2027", "2027-03"]);
+  });
+  it("buildRibbonGeometry passes the choice to every tick and the runway label", () => {
+    const idx = indexDailyRows(small.rows, RIBBON_DEPARTMENTS);
+    const input = { index: idx, departments: RIBBON_DEPARTMENTS, conversions: [], milestones: [], chapters: [], runwayMonths: 2, today: small.today, zoom: "month" as const, width: 900, height: 300 };
+    const us = buildRibbonGeometry(input);
+    const iso = buildRibbonGeometry({ ...input, datePrefs: { date: "iso", time: "24h" } });
+    expect(us.ticks.length).toBe(iso.ticks.length);
+    expect(us.ticks.every((t) => /^[A-Z][a-z]{2} \d{1,2}$/.test(t.label))).toBe(true);
+    expect(iso.ticks.every((t) => /^\d{2}-\d{2}$/.test(t.label))).toBe(true);
+    expect(iso.runway?.label).toMatch(/^Cash runs out ~\d{4}-\d{2}$/);
   });
 });
 

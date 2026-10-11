@@ -6,7 +6,7 @@
  */
 import { useCallback, useMemo, useState } from "react";
 import { ExternalLink, Route, Trophy } from "lucide-react";
-import { Button, Chip, DataTable, FunnelChart, KeyValueList, Panel, ProvenanceChip, StatusPill, formatDate, formatMoney, formatNumber, formatPercent, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, DataTable, FunnelChart, KeyValueList, Panel, ProvenanceChip, StatusPill, formatMoney, formatNumber, formatPercent, useFormatters, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { CHANNEL_LINES, type ChannelKey, type MatchdayLevel } from "@foundmill/shared/constants";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
@@ -88,6 +88,7 @@ export function attributionColumns(currency: string, sizes: Record<AttributionCo
 }
 
 export function AttributionScreen({ businessId }: ModuleScreenProps) {
+  const { formatDate } = useFormatters();
   const { navigate, currency } = useWidgetData();
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
   const journeys = useWidgetQuery<Page<JourneyRow>>("journey.list", { limit: 200 });

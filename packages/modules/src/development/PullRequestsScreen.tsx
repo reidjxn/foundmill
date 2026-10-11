@@ -5,10 +5,11 @@
  */
 import { useMemo, useState } from "react";
 import { ExternalLink, GitMerge, GitPullRequest, MonitorPlay, Network, SearchCheck } from "lucide-react";
-import { Avatar, DataTable, EntityLink, FitText, Panel, StatusPill, formatDate, formatNumber, formatRelative, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
+import { Avatar, DataTable, EntityLink, FitText, Panel, StatusPill, formatNumber, type DataTableColumn, type RowAction, type SavedView, type StatusTone } from "@foundmill/dugout";
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "@foundmill/widgets/data";
+import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { OpenInClaudeCodeDialog } from "./dialogs";
@@ -208,7 +209,7 @@ export function PullRequestsScreen({ businessId, departmentId }: ModuleScreenPro
       { id: "additions", accessorKey: "additions", header: "Added", size: mergedSizes.additions, meta: { numeric: true, label: "Lines added" }, cell: ({ row }) => <span className="text-status-good tabular-nums">+{formatNumber(row.original.additions ?? 0)}</span> },
       { id: "deletions", accessorKey: "deletions", header: "Removed", size: mergedSizes.deletions, meta: { numeric: true, label: "Lines removed" }, cell: ({ row }) => <span className="text-status-bad tabular-nums">−{formatNumber(row.original.deletions ?? 0)}</span> },
       { id: "sha", accessorKey: "mergeCommitSha", header: "Commit", size: mergedSizes.sha, cell: ({ row }) => <span className="font-mono text-mono text-secondary">{shortSha(row.original.mergeCommitSha) || "—"}</span> },
-      { id: "mergedAt", accessorFn: (r) => r.mergedAt?.getTime() ?? 0, header: "Merged", size: mergedSizes.mergedAt, meta: { filter: "date", label: "Merged" }, cell: ({ row }) => (row.original.mergedAt ? <span className="text-secondary" title={formatDate(row.original.mergedAt)}>{formatRelative(row.original.mergedAt, now)}</span> : <span className="text-tertiary">—</span>) },
+      { id: "mergedAt", accessorFn: (r) => r.mergedAt?.getTime() ?? 0, header: "Merged", size: mergedSizes.mergedAt, meta: { filter: "date", label: "Merged" }, cell: ({ row }) => (row.original.mergedAt ? <RelativeDateText className="text-secondary" value={row.original.mergedAt} now={now} /> : <span className="text-tertiary">—</span>) },
     ], MERGED_PR_FIT),
     [now, mergedSizes],
   );

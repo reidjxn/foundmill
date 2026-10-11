@@ -6,7 +6,7 @@
  */
 import { useMemo, useState } from "react";
 import { ExternalLink, FileText, Inbox, Plus } from "lucide-react";
-import { Button, Chip, DataTable, Panel, formatDate, formatRelative, type DataTableColumn, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, DataTable, Panel, formatRelative, type DataTableColumn, type SavedView } from "@foundmill/dugout";
 import { SOURCE_KINDS, type SourceKind } from "@foundmill/shared";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
 import type { ModuleScreenProps } from "../registry";
@@ -14,6 +14,7 @@ import { Screen, blockTitle } from "./shared";
 import { AddSourceDialog } from "./sources/AddSourceDialog";
 import { SOURCE_KIND_META, hostOf, isSourceKind, linkedBlocks, relevance, topics } from "./sources/kinds";
 import type { SourceRow, SourcesListResponse, SpecBlockRow, SpecGetResponse } from "./types";
+import { DateText } from "../dates";
 
 export const SOURCE_VIEWS: SavedView[] = [
   // The default view fits the panel at 1280 without a cut column; topics and fetch times live in the column menu.
@@ -95,7 +96,7 @@ export function sourceColumns(blocks: readonly SpecBlockRow[], onOpenBlock: (id:
     },
     { id: "topics", accessorFn: (r) => topics(r).join(", "), header: "Topics", size: 180, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "") || "—"}</span> },
     { accessorKey: "fetchedAt", header: "Fetched", size: 110, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatRelative(getValue() as string) : "Not fetched"}</span>, meta: { filter: "date" } },
-    { accessorKey: "createdAt", header: "Added", size: 110, cell: ({ getValue }) => <span className="tabular-nums">{formatDate(getValue() as string)}</span>, meta: { filter: "date" } },
+    { accessorKey: "createdAt", header: "Added", size: 110, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() as string} />, meta: { filter: "date" } },
   ];
 }
 

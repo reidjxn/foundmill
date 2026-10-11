@@ -123,7 +123,8 @@ test.describe("shell", () => {
     await expect(nav.locator("[data-sidebar-item=brand]")).toHaveCount(0);
     await home.focus();
     await page.keyboard.press("ArrowUp");
-    await expect(nav.getByRole("link", { name: "Anthropic key" })).toBeFocused();
+    // The last stop is the foot's Sign out (c9dd4bb), a button: it posts to /auth/signout rather than navigating.
+    await expect(nav.getByRole("button", { name: "Sign out" })).toBeFocused();
     // Leave the stored preference as it was found. From the keyboard: collapsed, the toggle sits where the Next.js
     // development indicator floats over the bottom-left corner in `next dev`, which would swallow a pointer click.
     await page.getByTestId("sidebar-toggle").press("Enter");
@@ -165,7 +166,7 @@ test.describe("shell", () => {
     await page.keyboard.press(letter!.toLowerCase());
     await expect(page).toHaveURL(new RegExp(`${target.replace(/\/[^/]+$/, "")}(/|$)`));
     await expect(page).toHaveURL(/\/d\//);
-    for (const tab of ["business", "mode", "departments", "glossary", "members", "integrations", "keys", "billing", "danger"]) {
+    for (const tab of ["business", "mode", "departments", "glossary", "members", "integrations", "keys", "billing", "preferences", "danger"]) {
       await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/settings/${tab}`);
       await expect(page.getByTestId("settings-screen")).toHaveAttribute("data-tab", tab, { timeout: LONG });
     }

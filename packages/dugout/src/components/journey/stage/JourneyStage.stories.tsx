@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { DateFormatProvider } from "../../foundation/DateFormatProvider";
 import { LEDGERLY_KIT, matchDayFixture, NORTHWIND_KIT } from "../fixtures";
 import { MatchdayRoundupTable, type RoundupRow } from "../MatchdayRoundupTable";
 import { JourneyStage } from "./JourneyStage";
@@ -41,13 +42,27 @@ const roundup: RoundupRow[] = [
   { conversionId: "r6", kind: "signup", level: "friendly", customerName: "Birch & Fern", channelKey: "content", amountMinor: 0, currency: "EUR", occurredAt: "2026-10-07T18:44:00.000Z", touchCount: 1, replayAvailable: false },
 ];
 
+const roundupView = () => (
+  <div className="p-gutter">
+    <div className="surface-panel w-[960px] overflow-hidden">
+      <MatchdayRoundupTable rows={roundup} day="2026-10-07" onOpenReplay={() => {}} />
+    </div>
+  </div>
+);
+
 export const Roundup: Story = {
   name: "Customer update round-up table",
-  render: () => (
-    <div className="p-gutter">
-      <div className="surface-panel w-[960px] overflow-hidden">
-        <MatchdayRoundupTable rows={roundup} day="2026-10-07" onOpenReplay={() => {}} />
-      </div>
-    </div>
-  ),
+  render: roundupView,
+};
+
+/** The signed-in person's choice (Settings › Preferences): the Time column on a 24-hour clock, the day in ISO. */
+export const RoundupIso24h: Story = {
+  name: "Customer update round-up · ISO, 24-hour",
+  render: () => <DateFormatProvider value={{ date: "iso", time: "24h" }}>{roundupView()}</DateFormatProvider>,
+};
+
+export const PausedDayFirst24h: Story = {
+  name: "Paused · Day first, 24-hour",
+  args: { defaultSpeed: "full", autoplay: false },
+  render: (args) => <DateFormatProvider value={{ date: "day_first", time: "24h" }}>{frame(<JourneyStage {...args} />)}</DateFormatProvider>,
 };

@@ -460,7 +460,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
           type: "milestone",
           fromAgentId: chief.agent.id,
           subject: `Milestone: ${trophy.label}`,
-          bodyMd: `${trophy.label} on ${trophy.achievedAt.slice(0, 10)} (synthetic demo data). ${journey.paidCustomers} paying accounts; MRR ${money(journey.mrrMinorNow, CURRENCY)}. Standout agent: ${agentMention(agentEntities, outbound!)}, most first touches this quarter.`,
+          bodyMd: `${trophy.label} on ${new Date(trophy.achievedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })} (synthetic demo data). ${journey.paidCustomers} paying accounts; MRR ${money(journey.mrrMinorNow, CURRENCY)}. Standout agent: ${agentMention(agentEntities, outbound!)}, most first touches this quarter.`,
           createdDaysAgo: 2,
           state: "read",
         }

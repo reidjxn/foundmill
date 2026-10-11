@@ -8,7 +8,7 @@
  */
 import { useMemo, useState } from "react";
 import { Check, CheckCheck, ExternalLink, FileText, GitCommitVertical, Map as MapIcon, Save, X } from "lucide-react";
-import { Button, Chip, DiffView, EntityLink, Icon, KeyValueList, Markdown, Panel, ProvenanceChip, StatusPill, cn, formatDate, formatDateTime, useEntityLinkContext, type HunkDecisionState, type HunkDecisions } from "@foundmill/dugout";
+import { Button, Chip, DiffView, EntityLink, Icon, KeyValueList, Markdown, Panel, ProvenanceChip, StatusPill, cn, useEntityLinkContext, useFormatters, type HunkDecisionState, type HunkDecisions } from "@foundmill/dugout";
 import { textToPm } from "../prosemirror";
 import { InlineError, PinnedChip, blockTitle, findBlock, useAction, useAgentNames } from "../shared";
 import type { ProposalHunkRow, ProposalWithHunks, RoadmapRow, SourceRow, SpecBlockRow, SpecVersionRow } from "../types";
@@ -107,6 +107,7 @@ function HunkCard({ hunk, index, blocks, roadmapItems, settled, onChanged, onOpe
 }
 
 export function ProposalDetail({ proposal, blocks, roadmapItems, sources, latestVersion, currency, onChanged, onOpenBlock, onOpenRoadmapItem, onOpenSource }: ProposalDetailProps) {
+  const { formatDate, formatDateTime } = useFormatters();
   const action = useAction();
   const settled = isSettled(proposal);
   const progress = decisionProgress(proposal.hunks);

@@ -18,7 +18,7 @@ import { ArrowRight, Bookmark, CircleAlert, CircleCheck, Columns3, FileText, His
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
-import { Button, Chip, BusinessLogo, ConceptCard, EmptyState, GenerateControl, IconButton, JustInTag, Kbd, Panel, SimpleSelect, Skeleton, SkeletonText, StatusPill, Textarea, Tooltip, cn, landedCardClass, useToast, type ConceptAction, type QuickReplyItem } from "@foundmill/dugout";
+import { Button, Chip, BusinessLogo, ConceptCard, EmptyState, GenerateControl, IconButton, JustInTag, Kbd, Panel, SimpleSelect, Skeleton, SkeletonText, StatusPill, Textarea, Tooltip, cn, landedCardClass, useToast, useDateFormat, type ConceptAction, type QuickReplyItem } from "@foundmill/dugout";
 import { useKeyboardMap } from "@/lib/keys";
 import { formatDayMonth } from "@/lib/format";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
@@ -66,6 +66,7 @@ const ARCHETYPE_OPTIONS = [{ value: "any", label: "Any archetype" }, ...ARCHETYP
 type DialogKind = "ask" | "fork" | "merge" | "history" | null;
 
 export function IdeationStudio({ viewer, profileLine, constraints = [] }: IdeationStudioProps) {
+  const datePrefs = useDateFormat();
   const trpc = useTRPC();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -370,7 +371,7 @@ export function IdeationStudio({ viewer, profileLine, constraints = [] }: Ideati
                   <BusinessLogo name={c.name} primary={c.kit.primary} size={32} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-body-strong">{c.name}</div>
-                    <div className="text-small text-secondary">Discarded {formatDayMonth(discardedAt)}</div>
+                    <div className="text-small text-secondary">Discarded {formatDayMonth(discardedAt, datePrefs)}</div>
                   </div>
                   <Button size="sm" icon={RotateCcw} onClick={() => restore(idea.id)} data-testid="restore-button">
                     Restore

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { DateFormatProvider } from "../foundation/DateFormatProvider";
 import { ContinueButton, holidayCaptionParts } from "./ContinueButton";
 import { fitKitBar, KITBAR_COMPACT_STEPS, kitBarFits, setKitBarCompact } from "./KitBarFit";
 import { GameModeChip, ModeChip } from "./ModeChip";
@@ -56,6 +57,35 @@ describe("KitBarFit", () => {
     expect(document.querySelector(".kitbar-holiday-full")?.textContent).toBe("On vacation until Oct 21, 2026");
     expect(document.querySelector(".kitbar-holiday-short")?.textContent).toBe("Until Oct 21");
     expect(screen.getByText("On vacation until Oct 21, 2026", { selector: ".sr-only" })).toBeTruthy();
-    expect(holidayCaptionParts({ kind: "holiday", until: null, untilLabel: "the launch ships" })).toEqual({ full: "On vacation until the launch ships", year: "", short: "Until the launch ships" });
+    expect(holidayCaptionParts({ kind: "holiday", until: null, untilLabel: "the launch ships" })).toEqual({ full: "On vacation until the launch ships", date: null, short: "Until the launch ships" });
+  });
+
+  it("drops the year first in the signed-in person's own date format (DateFormatProvider)", () => {
+    const { unmount } = render(
+      <DateFormatProvider value={{ date: "day_first", time: "24h" }}>
+        <header>
+          <RunwayChip date="2026-10-10" runwayMonths={null} />
+          <ContinueButton state={{ kind: "holiday", until: "2026-10-21" }} />
+        </header>
+      </DateFormatProvider>,
+    );
+    expect(screen.getByTestId("kitbar-date").textContent).toBe("10 Oct 2026");
+    expect(document.querySelector(".kitbar-date .kitbar-year")?.textContent).toBe(" 2026");
+    expect(document.querySelector(".kitbar-holiday-full")?.textContent).toBe("On vacation until 21 Oct 2026");
+    expect(document.querySelector(".kitbar-holiday-short")?.textContent).toBe("Until 21 Oct");
+    unmount();
+    render(
+      <DateFormatProvider value={{ date: "iso", time: "24h" }}>
+        <header>
+          <RunwayChip date="2026-10-10" runwayMonths={null} />
+          <ContinueButton state={{ kind: "holiday", until: "2026-10-21" }} />
+        </header>
+      </DateFormatProvider>,
+    );
+    // ISO puts the year first, so the part that goes is a lead: "2026-" + "10-10".
+    expect(screen.getByTestId("kitbar-date").textContent).toBe("2026-10-10");
+    expect(document.querySelector(".kitbar-date .kitbar-year")?.textContent).toBe("2026-");
+    expect(document.querySelector(".kitbar-holiday-full")?.textContent).toBe("On vacation until 2026-10-21");
+    expect(holidayCaptionParts({ kind: "holiday", until: "2026-10-21" }, { date: "iso", time: "12h" })).toEqual({ full: "On vacation until ", date: { lead: "2026-", core: "10-21", tail: "" }, short: "Until 10-21" });
   });
 });

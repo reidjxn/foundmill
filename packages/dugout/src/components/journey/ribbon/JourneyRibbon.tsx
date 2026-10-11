@@ -3,7 +3,8 @@ import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useLayo
 import { ArrowDownRight, ArrowUpRight, Banknote, CalendarDays, Diamond, Flag, Landmark, Rocket, Trophy } from "lucide-react";
 import { ParentSize } from "@visx/responsive";
 import { cn } from "../../../lib/cn";
-import { DATE_FORMATS, formatDate, formatDateRange, formatMoney, formatNumber } from "../../../lib/format";
+import { formatMoney, formatNumber, type DateFormatters } from "../../../lib/format";
+import { useFormatters } from "../../foundation/DateFormatProvider";
 import { usePrefersReducedMotion } from "../../../lib/reducedMotion";
 import { Button } from "../../foundation/Button";
 import { FitText } from "../../foundation/FitText";
@@ -136,8 +137,8 @@ function money(amountMinor: number, currency: string): string {
   return formatMoney({ amountMinor: Math.round(amountMinor), currency }, { compact: amountMinor >= 100_000 });
 }
 
-function barLabel(kind: TrackKind, bar: TrackBar): string {
-  const when = bar.day === bar.dayEnd ? formatDate(bar.day) : formatDateRange(bar.day, bar.dayEnd, { withYear: true });
+function barLabel(kind: TrackKind, bar: TrackBar, f: DateFormatters): string {
+  const when = bar.day === bar.dayEnd ? f.formatDate(bar.day) : f.formatRange(bar.day, bar.dayEnd, { withYear: true });
   if (kind === "payments") {
     const what = bar.value === 1 ? "1 paying customer" : `${formatNumber(bar.value, { digits: 0 })} paying customers`;
     return bar.value === 1 && bar.ids.length === 1 ? `${what} on ${when}. Opens the Customer Update` : `${what}, ${when}. Opens the day`;
@@ -201,9 +202,12 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
   const todayKey = useMemo(() => (props.today ? toDayKey(props.today) : null), [props.today]);
   const index = useMemo(() => indexDailyRows(rows, departments, { kickoff: props.kickoff, last: todayKey ?? undefined }), [rows, departments, props.kickoff, todayKey]);
   const today = todayKey ?? index.last;
+  // Every date the ribbon prints (axis, Today tag, tooltips, runway) follows the signed-in person's format.
+  const f = useFormatters();
+  const datePrefs = f.prefs;
   const geometry: RibbonGeometry = useMemo(
-    () => buildRibbonGeometry({ index, departments, conversions, milestones, chapters, forecast, roadmap, runwayMonths, today, horizonMonths, zoom, width: plotW, height: plotH }),
-    [index, departments, conversions, milestones, chapters, forecast, roadmap, runwayMonths, today, horizonMonths, zoom, plotW, plotH],
+    () => buildRibbonGeometry({ index, departments, conversions, milestones, chapters, forecast, roadmap, runwayMonths, today, horizonMonths, zoom, width: plotW, height: plotH, datePrefs }),
+    [index, departments, conversions, milestones, chapters, forecast, roadmap, runwayMonths, today, horizonMonths, zoom, plotW, plotH, datePrefs],
   );
   const { layout } = geometry;
 
@@ -467,7 +471,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
     return { hours, signups, activations, payments };
   }, [index]);
   const recent = useMemo(() => windowTotals(index, today), [index, today]);
-  const summaryText = `${label ?? "Journey ribbon"}: ${formatDate(geometry.kickoff)} to ${formatDate(geometry.horizon)}. Revenue per day, new signups, paying customers and agent hours over time. ${departments.length} departments, ${formatNumber(totals.hours, { digits: 0 })} agent hours, ${totals.signups} signups, ${totals.activations} activations, ${totals.payments} payments, ${geometry.milestones.length} milestones. Zoom ${ZOOM_LABELS[zoom]}. Arrow keys scroll, plus and minus zoom, Home returns to today, Enter opens the day.`;
+  const summaryText = `${label ?? "Journey ribbon"}: ${f.formatDate(geometry.kickoff)} to ${f.formatDate(geometry.horizon)}. Revenue per day, new signups, paying customers and agent hours over time. ${departments.length} departments, ${formatNumber(totals.hours, { digits: 0 })} agent hours, ${totals.signups} signups, ${totals.activations} activations, ${totals.payments} payments, ${geometry.milestones.length} milestones. Zoom ${ZOOM_LABELS[zoom]}. Arrow keys scroll, plus and minus zoom, Home returns to today, Enter opens the day.`;
 
   const todayVisible = geometry.todayX >= vis0 && geometry.todayX <= vis1;
   const todayPoint = index.byDay.get(today);
@@ -479,7 +483,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
   const hoverPoint = hoverDay && hoverDay <= today ? (index.byDay.get(hoverDay) ?? null) : null;
   const readout = hoverDay
     ? {
-        when: hoverDay === today ? "Today" : formatDate(hoverDay, DATE_FORMATS.weekdayDate),
+        when: hoverDay === today ? "Today" : f.formatDate(hoverDay, "weekdayDate"),
         revenue: hoverPoint ? money(hoverPoint.revenue7, currency) : hoverForecast ? money(hoverForecast.baseMinor, currency) : "—",
         revenueCaption: hoverPoint ? "per day, 7-day average" : hoverForecast ? "per day, forecast" : "",
         revenueDay: hoverPoint ? `${money(hoverPoint.revenueMinor, currency)} on the day` : null,
@@ -505,7 +509,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
     else onOpenDay?.(bar.day);
   };
 
-  const todayTag = `Today · ${formatDate(today, DATE_FORMATS.dayMonth)}${liveCount > 0 ? ` · ${liveCount} live` : ""}`;
+  const todayTag = `Today · ${f.formatDateShort(today)}${liveCount > 0 ? ` · ${liveCount} live` : ""}`;
   // A chip is drawn while its day is in the window; the drop line carries it to the edge as it scrolls out.
   const inView = (p: { x: number }) => p.x - scrollX >= 0 && p.x - scrollX <= plotW;
   // The Today tag in window pixels: centred on Today, kept inside the plot. Its width is measured once drawn (an
@@ -729,7 +733,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
                 <g key={kind} data-track={kind} fill={TRACK_FILL[kind].fill} fillOpacity={TRACK_FILL[kind].opacity}>
                   {visibleBars(kind).map((b) => (
                     <rect key={b.key} x={b.x} y={b.y} width={b.w} height={b.h} rx={b.w >= 4 ? 1.5 : 0} data-bar={kind} data-count={b.value}>
-                      <title>{barLabel(kind, b)}</title>
+                      <title>{barLabel(kind, b, f)}</title>
                     </rect>
                   ))}
                 </g>
@@ -742,7 +746,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
                     tabIndex={0}
                     data-marker="payment"
                     data-count={b.value}
-                    aria-label={barLabel("payments", b)}
+                    aria-label={barLabel("payments", b, f)}
                     className="cursor-pointer outline-none focus-visible:[&>rect]:stroke-accent"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -756,7 +760,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
                       }
                     }}
                   >
-                    <title>{barLabel("payments", b)}</title>
+                    <title>{barLabel("payments", b, f)}</title>
                     <rect x={b.x} y={layout.tracks.payments.top} width={b.w} height={layout.tracks.payments.bottom - layout.tracks.payments.top} fill="transparent" />
                     <rect x={b.x} y={b.y} width={b.w} height={b.h} rx={b.w >= 4 ? 1.5 : 0} fill={TRACK_FILL.payments.fill} strokeWidth={1.5} />
                   </g>
@@ -769,7 +773,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
             {/* Milestones: drop lines from their chips (drawn in HTML above) to the revenue baseline, with node dots */}
             {visibleMilestones.map((m) => (
               <g key={m.id} data-milestone={m.glyph}>
-                <title>{`${m.label} · ${formatDate(m.day)}`}</title>
+                <title>{`${m.label} · ${f.formatDate(m.day)}`}</title>
                 <line x1={m.x} x2={m.x} y1={pinY(m) + PIN_HEIGHT} y2={m.stemTo} stroke={m.glyph === "trophy" ? "var(--gold)" : "var(--text-2)"} strokeOpacity={m.glyph === "trophy" ? 0.55 : 0.4} strokeWidth={1} strokeDasharray="1 3" strokeLinecap="round" />
                 <circle cx={m.x} cy={pinY(m) + PIN_HEIGHT + 1} r={2} fill={m.glyph === "trophy" ? "var(--gold)" : "var(--text-1)"} />
                 <circle cx={m.x} cy={m.stemTo} r={2.25} fill={m.glyph === "trophy" ? "var(--gold)" : "var(--text-2)"} stroke="var(--surface-1)" strokeWidth={1.5} />
@@ -778,7 +782,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
             {/* Planned roadmap items: dashed (not measured), ghosted */}
             {visibleRoadmap.map((r) => (
               <g key={r.id} data-roadmap>
-                <title>{`Planned: ${r.label} · ${formatDate(r.day)}`}</title>
+                <title>{`Planned: ${r.label} · ${f.formatDate(r.day)}`}</title>
                 <line x1={r.x} x2={r.x} y1={pinY(r) + PIN_HEIGHT} y2={layout.revenueBottom} stroke="var(--text-2)" strokeOpacity={0.35} strokeWidth={1} strokeDasharray="1 3" strokeLinecap="round" />
                 <circle cx={r.x} cy={pinY(r) + PIN_HEIGHT + 1} r={2} fill="none" stroke="var(--text-2)" strokeWidth={1} />
               </g>

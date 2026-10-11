@@ -20,6 +20,23 @@ describe("US English formats (founder, 2026-10-10)", () => {
     expect(formatDateTime(LATE)).not.toMatch(/[\u202f\u00a0]/);
   });
 
+  it("prints the signed-in person's own format, still in UTC (Settings › Preferences)", () => {
+    const dayFirst = { date: "day_first", time: "24h" } as const;
+    const iso = { date: "iso", time: "12h" } as const;
+    expect(formatDate(LATE, dayFirst)).toBe("7 Oct 2026");
+    expect(formatDate(LATE, iso)).toBe("2026-10-07");
+    expect(formatDayMonth(LATE, dayFirst)).toBe("7 Oct");
+    expect(formatDayMonth(LATE, iso)).toBe("10-07");
+    expect(formatDateTime(LATE, dayFirst)).toBe("7 Oct, 23:45 UTC");
+    expect(formatDateTime("2026-10-07T00:05:00Z", { date: "iso", time: "24h" })).toBe("10-07 00:05 UTC");
+    expect(formatDateTime(LATE, iso)).toBe("10-07 11:45 PM UTC");
+    expect(formatMonthYear(LATE, {}, iso)).toBe("2026-10");
+    expect(formatMonthYear(new Date(Date.UTC(2026, 8, 1)), { long: true }, dayFirst)).toBe("September 2026");
+    expect(formatMonthYear(new Date(Date.UTC(2026, 8, 1)), { long: true }, iso)).toBe("2026-09");
+    // Without a choice: US and 12-hour, as before.
+    expect(formatDateTime(LATE, null)).toBe("Oct 7, 11:45 PM UTC");
+  });
+
   it("dashes out missing or invalid values", () => {
     for (const v of [null, undefined, "", "not a date"]) {
       expect(formatDate(v)).toBe("—");

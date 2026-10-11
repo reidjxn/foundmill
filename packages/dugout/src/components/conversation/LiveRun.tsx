@@ -2,7 +2,8 @@ import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { Check, X } from "lucide-react";
 import type { DeptColourToken } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
-import { DATE_FORMATS, formatDate, formatMoney, formatNumber } from "../../lib/format";
+import type { DateFormatPrefs } from "../../lib/date-preferences";
+import { formatDate, formatMoney, formatNumber } from "../../lib/format";
 import { Avatar } from "../foundation/Avatar";
 import { ProvenanceChip } from "../foundation/Chip";
 import { Icon } from "../foundation/Icon";
@@ -94,6 +95,11 @@ export interface LiveRunProps {
   renderName?: (person: LiveRunPerson) => ReactNode;
   /** The region's accessible name. Default "Live run". */
   label?: string;
+  /**
+   * The signed-in person's time format for the log's clock (Settings › Preferences): pass `useDateFormat()` from the
+   * caller. Server-safe, so the run cannot read it itself; 12-hour without it.
+   */
+  datePrefs?: DateFormatPrefs | null;
   className?: string;
 }
 
@@ -106,11 +112,11 @@ export function formatRunClock(ms: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${sec}` : `${m}:${sec}`;
 }
 
-/** "2:06:21 PM": a log line's local clock time, 12-hour with seconds. */
-export function formatLogTime(at: string | Date | number): string {
+/** "2:06:21 PM": a log line's local clock time with seconds, on the person's clock when `prefs` is given. */
+export function formatLogTime(at: string | Date | number, prefs?: DateFormatPrefs | null): string {
   const d = at instanceof Date ? at : new Date(at);
   if (Number.isNaN(d.getTime())) return "";
-  return formatDate(d, DATE_FORMATS.timeSeconds);
+  return formatDate(d, "timeSeconds", prefs);
 }
 
 /** Counts by state, and the bar's words: "2 of 12 cards landed, 1 drafting, 2 queued". */
@@ -163,6 +169,7 @@ export function LiveRun({
   itemNoun = ["card", "cards"],
   renderName,
   label = "Live run",
+  datePrefs,
   className,
 }: LiveRunProps) {
   const name = (p: LiveRunPerson) => (renderName ? renderName(p) : p.name);
@@ -346,7 +353,7 @@ export function LiveRun({
         <div className={cn("run-log", toneClass(log.person?.dept))} data-testid="live-run-log">
           {log.atLabel || log.at !== undefined ? (
             <span className="flex-none" suppressHydrationWarning>
-              {log.atLabel ?? formatLogTime(log.at!)}
+              {log.atLabel ?? formatLogTime(log.at!, datePrefs)}
             </span>
           ) : null}
           {log.person ? (

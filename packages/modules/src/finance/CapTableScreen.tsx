@@ -7,12 +7,13 @@
  */
 import { useId, useMemo, useState } from "react";
 import { Calculator, Download, ExternalLink, FileSpreadsheet, Landmark, PieChart, Users } from "lucide-react";
-import { Button, Chip, DataTable, cn, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, ProvenanceChip, StatusStrip, Textarea, formatDate, formatPercent, type ChipTone, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Button, Chip, DataTable, cn, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, ProvenanceChip, StatusStrip, Textarea, formatPercent, useFormatters, type ChipTone, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { aktiebokRows, delawareLedgerRows, modelRound, plainWords, safeTerms, toCsv, vestingSummary, type RoundInput } from "./metrics";
+import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
 import { Screen, downloadText, fmtMoney, fmtQuantity, parseAmount, useCurrency, useNow } from "./shared";
 import type { CapTableEntryRow, CapTableResponse, CapTableSummary, SecurityRow } from "./types";
@@ -110,7 +111,7 @@ export function issuanceColumns(businessId: string, securities: readonly Securit
     { id: "quantity", accessorFn: (r) => Number(r.quantity), header: "Quantity", size: sizes.quantity, cell: ({ getValue }) => <span className="tabular-nums">{fmtQuantity(getValue() as number)}</span>, meta: { numeric: true } },
     { id: "price", accessorFn: (r) => r.priceMinor ?? 0, header: "Price", size: sizes.price, cell: ({ row }) => <span className="tabular-nums">{row.original.priceMinor === null ? "—" : fmtMoney(row.original.priceMinor, entryCurrency(row.original))}</span>, meta: { numeric: true } },
     { id: "consideration", accessorFn: (r) => (r.priceMinor === null ? 0 : Math.round(r.priceMinor * Number(r.quantity))), header: "Consideration", size: sizes.consideration, cell: ({ row }) => <span className="tabular-nums">{row.original.priceMinor === null ? "—" : fmtMoney(Math.round(row.original.priceMinor * Number(row.original.quantity)), entryCurrency(row.original))}</span>, meta: { numeric: true } },
-    { id: "issuedAt", accessorFn: (r) => r.issuedAt ?? "", header: "Issued", size: sizes.issuedAt, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
+    { id: "issuedAt", accessorFn: (r) => r.issuedAt ?? "", header: "Issued", size: sizes.issuedAt, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() ? String(getValue()) : null} />, meta: { filter: "date" } },
     { id: "vesting", accessorFn: (r) => vestingSummary(r.vesting, r.quantity, now)?.text ?? "", header: "Vesting", size: sizes.vesting, cell: ({ getValue }) => <span className="text-secondary">{String(getValue()) || "Fully vested"}</span> },
     { id: "vestedPct", accessorFn: (r) => vestingSummary(r.vesting, r.quantity, now)?.vestedPct ?? 100, header: "Vested", size: sizes.vestedPct, cell: ({ getValue }) => <span className="tabular-nums">{formatPercent(getValue() as number, { ofHundred: true, digits: 0 })}</span>, meta: { numeric: true } },
     { id: "principal", accessorFn: (r) => safeTerms(r, byId.get(r.securityId))?.principalMinor ?? 0, header: "Principal", size: sizes.principal, cell: ({ row }) => { const t = safeTerms(row.original, byId.get(row.original.securityId)); return <span className="tabular-nums">{t ? fmtMoney(t.principalMinor, row.original.currency) : "—"}</span>; }, meta: { numeric: true } },
@@ -121,6 +122,7 @@ export function issuanceColumns(businessId: string, securities: readonly Securit
 
 export function CapTableScreen({ businessId }: ModuleScreenProps) {
   const now = useNow();
+  const { formatDate } = useFormatters();
   const currency = useCurrency();
   const { navigate } = useWidgetData();
   const id = useId();

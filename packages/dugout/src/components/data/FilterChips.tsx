@@ -4,6 +4,7 @@ import { ListFilter, Plus, X } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { Button } from "../foundation/Button";
 import { Checkbox } from "../foundation/Checkbox";
+import { useDateFormat } from "../foundation/DateFormatProvider";
 import { Icon } from "../foundation/Icon";
 import { Input } from "../foundation/Input";
 import { Label } from "../foundation/Label";
@@ -280,6 +281,7 @@ export function FilterChips({
   className,
 }: FilterChipsProps) {
   const [editing, setEditing] = useState<string | "new" | null>(null);
+  const datePrefs = useDateFormat();
   const editingChip =
     editing && editing !== "new" ? (chips.find((c) => c.id === editing) ?? null) : null;
 
@@ -304,7 +306,7 @@ export function FilterChips({
         <span className="text-small text-secondary">{emptyText}</span>
       ) : null}
       {chips.map((chip) => {
-        const d = describeFilter(chip, fields);
+        const d = describeFilter(chip, fields, datePrefs);
         const text = `${d.field} ${d.op}${d.value ? ` ${d.value}` : ""}`;
         const body = (
           <span className="inline-flex max-w-full items-center gap-1">

@@ -2,7 +2,8 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { Circle } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { formatDateTime, formatRelative } from "../../lib/format";
+import { formatRelative } from "../../lib/format";
+import { useFormatters } from "../foundation/DateFormatProvider";
 import { Avatar, type AvatarProps } from "../foundation/Avatar";
 import { Icon, type IconComponent } from "../foundation/Icon";
 import { StatusPill, type StatusTone } from "../foundation/StatusPill";
@@ -148,6 +149,7 @@ export function Timeline({
   className,
   ...rest
 }: TimelineProps) {
+  const { formatDateTime } = useFormatters();
   const sorted = [...events].sort((a, b) => {
     const d = new Date(a.at).getTime() - new Date(b.at).getTime();
     return order === "desc" ? -d : d;

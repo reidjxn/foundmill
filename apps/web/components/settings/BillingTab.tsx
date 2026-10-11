@@ -7,7 +7,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Coins } from "lucide-react";
 import { useState } from "react";
 import { APP_NAME, PRICE_TBA_LABEL, TIERS, type TierKey } from "@foundmill/config";
-import { Button, Chip, KeyValueList, MiniTable, ProvenanceChip, SimpleSelect, formatCompact } from "@foundmill/dugout";
+import { Button, Chip, KeyValueList, MiniTable, ProvenanceChip, SimpleSelect, formatCompact, useDateFormat, type DateFormatPrefs } from "@foundmill/dugout";
 import { PLAN_TIERS } from "@foundmill/shared/constants";
 import { formatMoney, formatMonthYear, formatNumber, plainWords, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
@@ -35,11 +35,11 @@ export const MODEL_BILLING_WORD: Record<string, string> = {
   credits_or_byok: "Credits or your Anthropic key",
 };
 
-/** "2026-10" → "October 2026"; anything else is shown as it is. */
-export function periodLabel(period: string): string {
+/** "2026-10" → "October 2026" ("2026-10" for ISO `prefs`); anything else is shown as it is. */
+export function periodLabel(period: string, prefs?: DateFormatPrefs | null): string {
   const m = /^(\d{4})-(\d{2})$/.exec(period);
   if (!m) return period;
-  return formatMonthYear(new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1)), { long: true });
+  return formatMonthYear(new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1)), { long: true }, prefs);
 }
 
 /** What a tier includes, in plain words with correct plurals ("1 business", "3 seats", "Unlimited businesses"). */
@@ -50,6 +50,7 @@ export function tierFacts(tier: TierKey): string[] {
 }
 
 export function BillingTab() {
+  const datePrefs = useDateFormat();
   const { businessId, isOwner } = useBusiness();
   const trpc = useTRPC();
   const invalidate = useInvalidateRouters();
@@ -68,7 +69,7 @@ export function BillingTab() {
 
   return (
     <>
-      <SettingsSection wide title="Plan" meta={p ? periodLabel(p.period) : undefined} loading={plan.isLoading}>
+      <SettingsSection wide title="Plan" meta={p ? periodLabel(p.period, datePrefs) : undefined} loading={plan.isLoading}>
         {p ? (
           <>
             <KeyValueList
@@ -118,13 +119,13 @@ export function BillingTab() {
         <Hint>Paying is always yours to do: you complete the payment yourself and the credits arrive once it clears. In test mode no money moves: credits are granted at once and labeled as such.</Hint>
       </SettingsSection>
 
-      <SettingsSection wide title="Usage" meta={usage.data ? periodLabel(usage.data.period) : undefined} loading={usage.isLoading} error={usage.error ? errorMessage(usage.error) : undefined} onRetry={() => void usage.refetch()} actions={<ProvenanceChip kind="estimate" />}>
+      <SettingsSection wide title="Usage" meta={usage.data ? periodLabel(usage.data.period, datePrefs) : undefined} loading={usage.isLoading} error={usage.error ? errorMessage(usage.error) : undefined} onRetry={() => void usage.refetch()} actions={<ProvenanceChip kind="estimate" />}>
         {usage.data ? (
           <div className="grid grid-cols-12 items-start gap-4">
             <MiniTable
               className="col-span-7"
               aria-label="Usage by agent"
-              caption={`By agent · ${periodLabel(usage.data.period)} · Estimate`}
+              caption={`By agent · ${periodLabel(usage.data.period, datePrefs)} · Estimate`}
               columns={[
                 { id: "agent", header: "Agent", cell: (r) => <span title={r.name ?? "Platform"}>{r.name ?? "Platform"}</span> },
                 { id: "tokens", header: "Tokens", numeric: true, cell: (r) => formatCompact(r.tokens) },
@@ -139,7 +140,7 @@ export function BillingTab() {
             <MiniTable
               className="col-span-5"
               aria-label="Usage by department"
-              caption={`By department · ${periodLabel(usage.data.period)} · Estimate`}
+              caption={`By department · ${periodLabel(usage.data.period, datePrefs)} · Estimate`}
               columns={[
                 { id: "dept", header: "Department", cell: (r) => r.name },
                 { id: "cost", header: "Cost", numeric: true, cell: (r) => formatMoney({ amountMinor: r.costMinor, currency }) },

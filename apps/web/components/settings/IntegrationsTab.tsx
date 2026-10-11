@@ -10,7 +10,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Activity, ExternalLink, FlaskConical, FolderGit2, Plug, Unplug } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { Button, Chip, IconButton, SimpleSelect, StatusPill, type StatusTone } from "@foundmill/dugout";
+import { Button, Chip, IconButton, SimpleSelect, StatusPill, useDateFormat, type StatusTone, type DateFormatPrefs } from "@foundmill/dugout";
 import type { IntegrationStatus } from "@foundmill/shared";
 import { simulatePanelAvailable } from "@/lib/env";
 import { formatDateTime, plainWords, plural } from "@/lib/format";
@@ -76,13 +76,13 @@ export function modeLabel(mode: string, rows: readonly { displayName: string; li
   return live.length ? `Test mode · ${live.join(", ")} live` : "Test mode";
 }
 
-/** The line under a connector: its account, what agents can do with it, when it was last checked. */
-export function connectorDetail(c: { tools: readonly unknown[] }, integ: { accountLabel?: string | null; scopes: readonly string[]; lastHealthAt?: string | Date | null } | null): string {
+/** The line under a connector: its account, what agents can do with it, when it was last checked (in the person's `prefs`). */
+export function connectorDetail(c: { tools: readonly unknown[] }, integ: { accountLabel?: string | null; scopes: readonly string[]; lastHealthAt?: string | Date | null } | null, prefs?: DateFormatPrefs | null): string {
   const parts: string[] = [];
   if (integ?.accountLabel) parts.push(integ.accountLabel);
   parts.push(`${plural(c.tools.length, "agent action")}`);
   if (integ?.scopes.length) parts.push(plural(integ.scopes.length, "permission"));
-  if (integ?.lastHealthAt) parts.push(`checked ${formatDateTime(integ.lastHealthAt)}`);
+  if (integ?.lastHealthAt) parts.push(`checked ${formatDateTime(integ.lastHealthAt, prefs)}`);
   return parts.join(" · ");
 }
 
@@ -91,6 +91,7 @@ export const navigation = { assign: (url: string) => window.location.assign(url)
 const navigateTo = (url: string) => navigation.assign(url);
 
 export function IntegrationsTab() {
+  const datePrefs = useDateFormat();
   const { businessId } = useBusiness();
   const trpc = useTRPC();
   const invalidate = useInvalidateRouters();
@@ -174,7 +175,7 @@ export function IntegrationsTab() {
                     {list.data?.mode === "mock" && c.live ? <Chip tone="good">Live</Chip> : null}
                   </span>
                   <span className="break-words text-small text-secondary" title={integ?.scopes.length ? `Permissions: ${integ.scopes.join(", ")}` : undefined}>
-                    {connectorDetail(c, integ)}
+                    {connectorDetail(c, integ, datePrefs)}
                   </span>
                   {integ?.lastError ? <span className="break-words text-small text-status-bad">{integ.lastError}</span> : null}
                 </span>

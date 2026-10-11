@@ -7,11 +7,12 @@
  */
 import { useId, useMemo, useState } from "react";
 import { Building2, Download, ExternalLink, Landmark, Search, Users } from "lucide-react";
-import { Button, Chip, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, SimpleSelect, Timeline, formatDate, type DataTableColumn, type RowAction, type SavedView, type TimelineEvent } from "@foundmill/dugout";
+import { Button, Chip, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, SimpleSelect, Timeline, useFormatters, type DataTableColumn, type RowAction, type SavedView, type TimelineEvent } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { INCORPORATION_STATUS_WORD, ROUTE_META, entityTypeLabel, formatAddress, jurisdictionName, officerRows, readSteps, type OfficerRow } from "./legal-data";
+import { DateText } from "../dates";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
 import { ENTITY_STATUS_PILL, Fact, InlineError, Pill, Screen, fitTableHeight, fmtMoney, humanise, useAction, useCurrency, useLegalStatus, useNow } from "./shared";
 import type { IncorporationRow, LookupResult, OfficersResponse } from "./types";
@@ -49,7 +50,7 @@ export function officerColumns(businessId: string, sizes: Record<OfficerColumnId
       meta: { locked: true },
     },
     { id: "role", accessorKey: "role", header: "Role", size: sizes.role, cell: ({ getValue }) => <span className="text-secondary">{humanise(String(getValue()))}</span>, meta: { filter: "text" } },
-    { id: "appointedOn", accessorFn: (r) => r.appointedOn ?? "", header: "Appointed", size: sizes.appointedOn, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatDate(String(getValue())) : "—"}</span>, meta: { filter: "date" } },
+    { id: "appointedOn", accessorFn: (r) => r.appointedOn ?? "", header: "Appointed", size: sizes.appointedOn, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() ? String(getValue()) : null} />, meta: { filter: "date" } },
     {
       id: "crm",
       accessorFn: (r) => (r.entityId ? "yes" : "no"),
@@ -80,6 +81,7 @@ export function historyEvents(history: readonly IncorporationRow[]): TimelineEve
 }
 
 export function EntityScreen({ businessId }: ModuleScreenProps) {
+  const { formatDate } = useFormatters();
   const now = useNow();
   const currency = useCurrency();
   const { navigate } = useWidgetData();

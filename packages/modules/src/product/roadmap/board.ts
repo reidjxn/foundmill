@@ -2,6 +2,8 @@
  * Pure helpers for the Roadmap tab (BUILD §11.5): grouping by horizon, the upsert payload for a move between columns,
  * dependency lookups and the timeline scale. Kept free of React so the tests pin the behaviour directly.
  */
+import { formatDate } from "@foundmill/dugout/lib/format";
+import type { DateFormatPrefs } from "@foundmill/dugout/lib/date-preferences";
 import { ROADMAP_HORIZONS, type RoadmapHorizon } from "@foundmill/shared";
 import type { RoadmapResponse, RoadmapRow } from "../types";
 import { draftFrom, upsertInput } from "./ItemDialog";
@@ -72,10 +74,14 @@ export function parseDay(s: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** The axis for the scheduled items: from the earliest start to the latest end, padded a week each side, never shorter than 8 weeks. */
+/**
+ * The axis for the scheduled items: from the earliest start to the latest end, padded a week each side, never shorter
+ * than 8 weeks. A tick names its month ("Feb", in every date format); January carries the year in the person's month
+ * form (`prefs`): "Jan 2027", or "2027-01" for ISO.
+ */
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
 
-export function timelineScale(items: readonly RoadmapRow[], today: Date = new Date()): TimelineScale {
+export function timelineScale(items: readonly RoadmapRow[], today: Date = new Date(), prefs?: DateFormatPrefs | null): TimelineScale {
   const starts = items.map((i) => parseDay(i.targetStart)).filter((d): d is Date => d !== null);
   const ends = items.map((i) => parseDay(i.targetEnd)).filter((d): d is Date => d !== null);
   const t = utcDay(today);
@@ -90,7 +96,7 @@ export function timelineScale(items: readonly RoadmapRow[], today: Date = new Da
   while (cursor.getTime() <= end.getTime()) {
     // Fixed three-letter months ("Sep", never "Sept"): some ICU builds print a four-letter short month for September.
     const month = MONTHS[cursor.getUTCMonth()]!;
-    ticks.push({ at: (cursor.getTime() - start.getTime()) / (days * DAY_MS), label: cursor.getUTCMonth() === 0 ? `${month} ${cursor.getUTCFullYear()}` : month });
+    ticks.push({ at: (cursor.getTime() - start.getTime()) / (days * DAY_MS), label: cursor.getUTCMonth() === 0 ? formatDate(`${cursor.getUTCFullYear()}-01-01`, "monthYear", prefs) : month });
     cursor.setUTCMonth(cursor.getUTCMonth() + 1);
   }
   const todayAt = (t.getTime() - start.getTime()) / (days * DAY_MS);

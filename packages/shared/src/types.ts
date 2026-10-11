@@ -61,6 +61,8 @@ import {
   QUICK_REPLY_KINDS,
   AGENT_REACTIONS,
   AGENT_PRESENCES,
+  DATE_FORMAT_PREFERENCES,
+  TIME_FORMAT_PREFERENCES,
 } from "./constants";
 import type * as C from "./constants";
 
@@ -184,3 +186,10 @@ export const AgentReaction = z.enum(AGENT_REACTIONS);
 export type AgentReaction = C.AgentReaction;
 export const AgentPresence = z.enum(AGENT_PRESENCES);
 export type AgentPresence = C.AgentPresence;
+export const DateFormatPreference = z.enum(DATE_FORMAT_PREFERENCES);
+export type DateFormatPreference = C.DateFormatPreference;
+export const TimeFormatPreference = z.enum(TIME_FORMAT_PREFERENCES);
+export type TimeFormatPreference = C.TimeFormatPreference;
+/** A signed-in person's date and time format (both fields required). */
+export const DateFormatPrefs = z.object({ date: DateFormatPreference, time: TimeFormatPreference });
+export type DateFormatPrefs = C.DateFormatPrefs;
