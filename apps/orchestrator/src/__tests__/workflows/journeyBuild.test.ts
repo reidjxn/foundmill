@@ -1,4 +1,5 @@
 /** journeyBuild: refines the record, and narrates the win only when ingest asked it to (its own narration failed). */
+import { ApplicationFailure } from "@temporalio/common";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Activities, JourneyBuildInput } from "../../activities";
 import { journeyBuild } from "../../workflows";
@@ -53,6 +54,18 @@ describe("journeyBuild workflow", () => {
     const m = mockActivities({ narrateFails: 2 });
     await run(m, { businessId: BUSINESS, conversionId: CONVERSION, convertedEventId: EVENT, narrate: true });
     expect(m.narrated).toEqual([EVENT]);
+  });
+
+  it("tries a refused narration once and still completes (the event is left to Refresh)", async () => {
+    const m = mockActivities();
+    let attempts = 0;
+    m.acts.narrateConversion = async () => {
+      attempts += 1;
+      throw ApplicationFailure.create({ message: "Composer /v1/narrate returned 422", type: "composer_refused", nonRetryable: true });
+    };
+    const result = await run(m, { businessId: BUSINESS, conversionId: CONVERSION, convertedEventId: EVENT, narrate: true });
+    expect(result.journeyId).toBeTruthy();
+    expect(attempts).toBe(1);
   });
 
   it("does not narrate a conversion that rolls into the daily round-up", async () => {
