@@ -114,6 +114,38 @@ describe("memberships: a business always keeps an owner", () => {
     expect((await repos.memberships.get(db, A.businessId, A.memberId))?.sectionPermissions).toEqual({});
   });
 
+  it("the trigger and the repos hold the business's owner lock before they count owners (0035, security review S9)", async () => {
+    // Two concurrent sessions cannot be opened on PGlite; owner-lock.test.ts races two real transactions on Postgres.
+    const ownerLocks = (tx: { execute: typeof h.db.execute }, businessId: string) =>
+      tx
+        .execute(
+          sql`select count(*)::int as n from pg_locks where locktype = 'advisory' and granted and pid = pg_backend_pid()
+                 and classid = (hashtext('memberships_owner')::bigint & 4294967295)::oid and objid = (hashtext(${businessId}::text)::bigint & 4294967295)::oid and objsubid = 2`,
+        )
+        .then((r) => Number((r as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0));
+    const definition = await h.db.execute(sql`select pg_get_functiondef('fm_memberships_keep_owner'::regproc) as def`);
+    expect((definition as unknown as { rows: { def: string }[] }).rows[0]!.def).toMatch(/perform pg_advisory_xact_lock\(hashtext\('memberships_owner'\), hashtext\(old\.business_id::text\)\);\s+if exists/);
+
+    await h.db.update(s.memberships).set({ role: "owner" }).where(row(A.businessId, A.adminId));
+    // The trigger: demoting one of two owners takes the lock and keeps it until the transaction ends.
+    await h.db.transaction(async (tx) => {
+      expect(await ownerLocks(tx, A.businessId)).toBe(0);
+      await tx.update(s.memberships).set({ role: "admin" }).where(row(A.businessId, A.adminId));
+      expect(await ownerLocks(tx, A.businessId)).toBe(1);
+      expect(await ownerLocks(tx, B.businessId)).toBe(0);
+    });
+    // The repos: setRole and remove lock before they read, even when the row they change is not an owner's.
+    await h.db.transaction(async (tx) => {
+      await repos.memberships.setRole(tx as unknown as Db, A.businessId, A.viewerId, "viewer");
+      expect(await ownerLocks(tx, A.businessId)).toBe(1);
+    });
+    await h.db.transaction(async (tx) => {
+      await repos.memberships.remove(tx as unknown as Db, A.businessId, "00000000-0000-4000-8000-000000000000");
+      expect(await ownerLocks(tx, A.businessId)).toBe(1);
+    });
+    expect(await roleOf(A.businessId, A.adminId)).toBe("admin");
+  });
+
   it("deleting the business or the owner's account still cascades", async () => {
     const founder = await h.createUser("guard-founder@test.local");
     const [biz] = await h.db.insert(s.businesses).values({ name: "Short lived", slug: "short-lived", createdBy: founder }).returning({ id: s.businesses.id });
