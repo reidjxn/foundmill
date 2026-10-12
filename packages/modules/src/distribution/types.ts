@@ -129,6 +129,8 @@ export interface AssetRow {
   kind: AssetKind;
   title: string;
   contentRef: string | null;
+  /** The drafted copy or brief (0028); a mock draft says so in its first line. */
+  body?: string | null;
   approvalState: ApprovalState;
   authoredByAgentId: string | null;
   createdAt?: Iso;

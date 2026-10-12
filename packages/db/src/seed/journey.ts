@@ -6,6 +6,7 @@
  * agent_sessions per department per day (what `journey_daily_mv` rolls into agent hours and spend) and
  * channel_metrics per channel per day. Every number is synthetic; `meta.label` and the `label` fields say so.
  */
+import { createHash } from "node:crypto";
 import {
   buildJourney, buildMarkovModel, conversionPathsFromTouches, generateSyntheticJourneyData, percentile75, selectXcModel, syntheticConversionGroups, trainXcModel,
   xcSamplesFromPaths, type Conversion as JourneyConversion, type JourneyAgentInput, type MarkovModel, type SyntheticCustomer, type SyntheticJourneyData,
@@ -19,6 +20,15 @@ import {
 } from "../schema";
 import { addDays, atHour, bulkInsert, DAY_MS, dayKey, HOUR_MS, mention, money, monthKey, type SeedCtx } from "./context";
 import { agentsInDepartment, type SeededAgent, type SquadResult } from "./squad";
+
+/** Channels whose engine counts leads (the orchestrator's `LEAD_CHANNELS`): a signup through one was its lead. */
+const SEED_LEAD_CHANNELS: ReadonlySet<ChannelKey> = new Set<ChannelKey>(["lead_generation", "content", "events"]);
+
+/** A stable UUID from a key (sha256), for rows added without drawing from the seeded RNG, so every other id stays put. */
+function derivedUuid(key: string): string {
+  const h = createHash("sha256").update(key).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-${((parseInt(h.slice(16, 17), 16) & 0x3) | 0x8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
 
 export interface JourneySeedOptions {
   businessId: string;
@@ -171,6 +181,12 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
     channelKeys: [channelKey],
   }));
 
+  // First-touch channel per visitor (lead roles below, channel metrics further down).
+  const firstChannelByVisitor = new Map<string, ChannelKey | null>();
+  for (const t of data.touches) {
+    if (t.visitorId && !firstChannelByVisitor.has(t.visitorId)) firstChannelByVisitor.set(t.visitorId, t.channelKey);
+  }
+
   // --- customers → entities + roles ----------------------------------------------------------------------------------
   const customersByEntityId = new Map(data.customers.map((c) => [c.entityId, c]));
   const distributionDept = opts.departments.find((d) => d.moduleKeys.includes("distribution")) ?? null;
@@ -203,6 +219,22 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
       startedAt: new Date(c.signupAt),
       endedAt: stage === "churned" && c.churnedAt ? new Date(c.churnedAt) : null,
     });
+    // A signup that came through a lead channel was that engine's lead (audit GTM-02): the Leads tab lists the ones who
+    // have not paid, and the channel's lead count is these records. The id is derived (no draw from the seeded RNG).
+    const firstChannel = firstChannelByVisitor.get(c.visitorId) ?? null;
+    if (firstChannel && SEED_LEAD_CHANNELS.has(firstChannel)) {
+      const owner = realByChannel.get(firstChannel)?.agent.id ?? null;
+      roleRows.push({
+        id: derivedUuid(`lead:${c.entityId}`),
+        businessId,
+        entityId: c.entityId,
+        role: "lead",
+        stage: c.paidAt ? "converted" : "qualified",
+        ownerRef: owner ? { kind: "agent", id: owner } : distributionDept ? { kind: "department", id: distributionDept.id } : null,
+        startedAt: new Date(c.signupAt),
+        endedAt: c.paidAt ? new Date(c.paidAt) : null,
+      });
+    }
   }
   await bulkInsert(db, entities, entityRows);
   await bulkInsert(db, entityRoles, roleRows);
@@ -447,10 +479,6 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
   log(`inserted ${sessionRows.length} agent sessions`);
 
   // --- channel metrics per day -----------------------------------------------------------------------------------------
-  const firstChannelByVisitor = new Map<string, ChannelKey | null>();
-  for (const t of data.touches) {
-    if (t.visitorId && !firstChannelByVisitor.has(t.visitorId)) firstChannelByVisitor.set(t.visitorId, t.channelKey);
-  }
   type DayMetric = { spend: number; leads: number; signups: number; activations: number; customers: number; impressions: number };
   const metric = new Map<string, DayMetric>();
   const metricKey = (day: string, channel: ChannelKey) => `${day}|${channel}`;
@@ -466,7 +494,8 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
     const customer = c.entityId ? customersByEntityId.get(c.entityId) : undefined;
     const channel = customer ? (firstChannelByVisitor.get(customer.visitorId) ?? null) : null;
     const day = c.occurredAt.slice(0, 10);
-    if (c.kind === "signup") bump(day, channel, { signups: 1, leads: channel === "lead_generation" || channel === "content" || channel === "events" ? 2 : 0 });
+    // One lead per lead role written above (the Leads tab and the Attribution counts are the same records).
+    if (c.kind === "signup") bump(day, channel, { signups: 1, leads: channel && SEED_LEAD_CHANNELS.has(channel) ? 1 : 0 });
     else if (c.kind === "activation") bump(day, channel, { activations: 1 });
     else {
       bump(day, channel, { customers: 1 });

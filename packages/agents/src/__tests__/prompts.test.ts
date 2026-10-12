@@ -117,7 +117,8 @@ describe("prompt templates (BUILD §12)", () => {
       const vars = samples[p.key] ?? sampleFor(p.variables);
       const out = p.render(vars as never);
       expect(out.length, p.key).toBeGreaterThan(20);
-      expect(out, p.key).not.toMatch(/\{[A-Za-z_][A-Za-z0-9_]*\}/);
+      // Merge tags the text asks the model to write ({{first_name}}, SendGrid's {{{unsubscribe}}}) are literal output.
+      expect(out.replace(/\{\{\{?[A-Za-z_][A-Za-z0-9_]*\}\}\}?/g, ""), p.key).not.toMatch(/\{[A-Za-z_][A-Za-z0-9_]*\}/);
     }
   });
 });

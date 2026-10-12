@@ -137,6 +137,20 @@ describe("seedDemo on PGlite", () => {
     expect(await repos.inbox.countBlocking(db, NORTHWIND_BUSINESS_ID)).toBe(1);
   });
 
+  it("counts a lead for every lead record: the Leads tab lists the leads who have not paid (audit GTM-02)", async () => {
+    for (const businessId of [LEDGERLY_BUSINESS_ID, NORTHWIND_BUSINESS_ID]) {
+      const counted = (await repos.channels.metricsSummary(db, businessId, { from: "2000-01-01", to: "2100-01-01" })).channels.reduce((n, c) => n + c.leads, 0);
+      const records = Number(
+        ((await db.execute(sql`select count(*)::int as n from entity_roles where business_id = ${businessId}::uuid and role = 'lead'`)) as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0,
+      );
+      expect(records).toBe(counted);
+      const open = await repos.entities.listByRole(db, businessId, "lead", { limit: 500 });
+      // Open leads are the ones who never paid; a lead who paid became a customer and its lead role ended then.
+      for (const lead of open.items) expect(lead.role.stage).toBe("qualified");
+      if (records > 0) expect(open.items.length).toBeGreaterThan(0);
+    }
+  });
+
   it("fills the modules: channels, campaigns, spec, roadmap, tasks with sessions, finance, legal, integrations, dashboards", async () => {
     const nwChannels = await repos.channels.list(db, NORTHWIND_BUSINESS_ID);
     expect(nwChannels).toHaveLength(CHANNEL_KEYS.length);

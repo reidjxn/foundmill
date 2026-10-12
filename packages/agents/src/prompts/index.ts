@@ -22,6 +22,7 @@ import { agentBuilderPrompt } from "./agent-builder";
 import { customSkillTestsPrompt } from "./custom-skill-tests";
 import { foundationsBriefPrompt, foundationsPrompt, foundationsRoadmapPrompt, foundationsSectionsPrompt, foundationsSkeletonPrompt } from "./foundations";
 import { agentConversationPrompt } from "./agent-conversation";
+import { channelCreativePrompt } from "./channel-creative";
 
 export * from "./template";
 export * from "./club-rules";
@@ -46,6 +47,7 @@ export * from "./agent-builder";
 export * from "./custom-skill-tests";
 export * from "./foundations";
 export * from "./agent-conversation";
+export * from "./channel-creative";
 
 export const PROMPT_LIST = [
   clubRulesPrompt,
@@ -76,6 +78,7 @@ export const PROMPT_LIST = [
   foundationsSectionsPrompt,
   foundationsRoadmapPrompt,
   agentConversationPrompt,
+  channelCreativePrompt,
 ] as const;
 
 export type PromptKey = (typeof PROMPT_LIST)[number]["key"];
