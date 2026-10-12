@@ -132,4 +132,29 @@ describe("Connect with the founder's own key (live API-key connectors)", () => {
     });
     expect(onConnect).toHaveBeenCalledWith({ apiKey: "SG.founder-key" });
   });
+
+  it("forgets the typed key once the dialog closes or opens for another connector, so it is never offered to the next vendor", async () => {
+    const dialog = (connector: { key: string; displayName: string; connectFields: ConnectFieldView[] } | null) => (
+      <QueryClientProvider client={new QueryClient()}>
+        <TooltipProvider>
+          <ConnectFieldsDialog connector={connector} pending={false} onConnect={() => undefined} onClose={() => undefined} />
+        </TooltipProvider>
+      </QueryClientProvider>
+    );
+    const sendgrid = { key: "sendgrid", displayName: "SendGrid", connectFields: FIELDS };
+    const dropboxSign = { key: "dropbox_sign", displayName: "Dropbox Sign", connectFields: [FIELDS[0]!] };
+    const { rerender } = render(dialog(sendgrid));
+    await act(async () => {
+      fireEvent.change(document.getElementById("connect-sendgrid-apiKey")!, { target: { value: "SG.founder-key" } });
+    });
+    expect((document.getElementById("connect-sendgrid-apiKey") as HTMLInputElement).value).toBe("SG.founder-key");
+    // Straight to another connector: its key field starts empty.
+    await act(async () => rerender(dialog(dropboxSign)));
+    expect((document.getElementById("connect-dropbox_sign-apiKey") as HTMLInputElement).value).toBe("");
+    // A successful connect closes the dialog from outside; opening it again starts empty too.
+    await act(async () => rerender(dialog(null)));
+    await act(async () => rerender(dialog(sendgrid)));
+    expect((document.getElementById("connect-sendgrid-apiKey") as HTMLInputElement).value).toBe("");
+    expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(true);
+  });
 });

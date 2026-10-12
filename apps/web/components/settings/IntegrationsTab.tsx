@@ -122,6 +122,13 @@ export function connectInputFrom(fields: readonly ConnectFieldView[], values: Re
  */
 export function ConnectFieldsDialog({ connector, pending, onConnect, onClose }: { connector: { key: string; displayName: string; connectFields: readonly ConnectFieldView[] } | null; pending: boolean; onConnect: (input: Record<string, string>) => void; onClose: () => void }) {
   const [values, setValues] = useState<Record<string, string>>({});
+  // What was typed belongs to one opening of the dialog: when it closes (a successful connect closes it from outside)
+  // or opens for another connector, the key is forgotten, never offered to the next vendor or kept in memory.
+  const [openFor, setOpenFor] = useState<string | null>(connector?.key ?? null);
+  if ((connector?.key ?? null) !== openFor) {
+    setOpenFor(connector?.key ?? null);
+    setValues({});
+  }
   const input = connector ? connectInputFrom(connector.connectFields, values) : null;
   const close = () => {
     setValues({});
