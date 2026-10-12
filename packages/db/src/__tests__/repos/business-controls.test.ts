@@ -115,6 +115,43 @@ describe("stopBusinessAgents / resumeBusinessAgents", () => {
   });
 });
 
+describe("what a stop covers beyond the agents it paused (SEC3)", () => {
+  it("an agent hired, cloned or created in bulk while the team is stopped starts paused with the stop's reason and comes back with the others", async () => {
+    await stopBusinessAgents(r.db, A(), { reason: "credits_exhausted" });
+    const hired = await repos.agents.create(r.db, A(), { name: "Hired During Stop", agentType: "copywriter" });
+    expect(hired).toMatchObject({ status: "paused", pausedReason: "credits_exhausted" });
+    const cloned = await repos.agents.clone(r.db, A(), r.A.agentId, { name: "Cloned During Stop" });
+    expect(cloned).toMatchObject({ status: "paused", pausedReason: "credits_exhausted" });
+    const [bulk] = await repos.agents.createMany(r.db, A(), [{ id: "5e55e55e-0000-4000-8000-0000000000b1", name: "Bulk During Stop", agentType: "copywriter", status: "healthy" }]);
+    expect(bulk).toMatchObject({ status: "paused", pausedReason: "credits_exhausted" });
+    // The other business is not stopped: its hires start as asked.
+    expect(await repos.agents.create(r.db, B(), { name: "Hired Elsewhere", agentType: "copywriter" })).toMatchObject({ status: "idle", pausedReason: null });
+
+    const back = await resumeBusinessAgents(r.db, A());
+    expect(back.agentIds).toEqual(expect.arrayContaining([hired.id, cloned.id, bulk!.id]));
+    for (const id of [hired.id, cloned.id, bulk!.id]) expect(await repos.agents.get(r.db, A(), id)).toMatchObject({ status: "idle", pausedReason: null });
+    // Running again: a hire starts as asked.
+    expect(await repos.agents.create(r.db, A(), { name: "Hired After Resume", agentType: "copywriter" })).toMatchObject({ status: "idle" });
+    for (const id of [hired.id, cloned.id, bulk!.id]) await repos.agents.release(r.db, A(), id);
+  });
+
+  it("cancelActive cancels every run still in flight with the reason, and only this business's", async () => {
+    const draft = await repos.agents.createVersion(r.db, A(), r.A.agentId, { state: "draft" });
+    const queued = await repos.training.create(r.db, A(), { agentId: r.A.agentId, toVersionId: draft.id, status: "queued" });
+    const running = await repos.training.create(r.db, A(), { agentId: r.A.agentId, toVersionId: draft.id, status: "running" });
+    const done = await repos.training.create(r.db, A(), { agentId: r.A.agentId, toVersionId: draft.id, status: "awaiting_decision" });
+    const otherDraft = await repos.agents.createVersion(r.db, B(), r.B.agentId, { state: "draft" });
+    const other = await repos.training.create(r.db, B(), { agentId: r.B.agentId, toVersionId: otherDraft.id, status: "queued" });
+
+    const cancelled = await repos.training.cancelActive(r.db, A(), { coachSummaryMd: "Training canceled: Stop all agents." });
+    expect(cancelled.map((c) => c.id).sort()).toEqual([queued.id, running.id].sort());
+    for (const id of [queued.id, running.id]) expect(await repos.training.get(r.db, A(), id)).toMatchObject({ status: "cancelled", coachSummaryMd: "Training canceled: Stop all agents.", endedAt: expect.any(Date) });
+    expect((await repos.training.get(r.db, A(), done.id)).status).toBe("awaiting_decision");
+    expect((await repos.training.get(r.db, B(), other.id)).status).toBe("queued");
+    expect(await repos.training.cancelActive(r.db, A(), { coachSummaryMd: "again" })).toEqual([]);
+  });
+});
+
 describe("the stop flag under RLS (a column of businesses)", () => {
   it("members read it; members and viewers cannot change it, admins can; nobody touches another business", async () => {
     await stopBusinessAgents(r.db, A(), { reason: "kill_switch" });

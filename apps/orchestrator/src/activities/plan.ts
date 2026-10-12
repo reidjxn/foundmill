@@ -110,6 +110,16 @@ export function createPlanActivities(deps: OrchestratorDeps) {
       const empty: PlanActionResult = { actionId: action.id, status: "skipped", outcome: action.policyOutcome, approvalId: null, result: null, spawn: [] };
       if (action.status !== "pending" && action.status !== "awaiting_approval") return { ...empty, status: action.status === "done" ? "done" : action.status === "denied" ? "denied" : action.status === "failed" ? "failed" : "skipped" };
       const params = (action.params ?? {}) as Record<string, unknown>;
+
+      // While the team is stopped (Stop all agents, a revoked key, used-up credits) nothing goes out on the business's
+      // behalf: a message or a meeting the plan holds fails with the reason instead of being sent or asked about, even
+      // if Stop all agents' signal never reached this plan. Internal actions (tasks, specs, a founder task) still run.
+      if (business.agentsStoppedAt && ACTION_TOOLS[action.type].contactsThirdParty) {
+        const error = "agents are stopped; nothing is sent until an owner or admin resumes them";
+        await repos.plans.finishAction(db, businessId, action.id, { status: "failed", result: { error, agentsStopped: true } });
+        return { ...empty, status: "failed", result: { error } };
+      }
+
       const verdict = evaluateAction({ type: action.type, params, agentId: action.agentId }, { business, agents, holidayActive: holiday !== null });
 
       // Hard gates: a founder task + inbox item, never the action itself.

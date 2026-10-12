@@ -5,7 +5,7 @@
 import { AGENT_LAYERS, AGENT_PAUSE_REASONS, AGENT_STATUSES, AGENT_STOP_REASONS, AGENT_VERSION_STATES, MODEL_KEYS, uuid, ValidationError, type AgentPauseReason, type AgentStatus } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { agentMetrics, agentSessions, agentVersions, agents, CREATED_BY_KINDS, type Agent, type AgentMetric, type AgentSession, type AgentVersion } from "../schema";
+import { agentMetrics, agentSessions, agentVersions, agents, businesses, CREATED_BY_KINDS, type Agent, type AgentMetric, type AgentSession, type AgentVersion } from "../schema";
 import { Currency, DayRange, dayRange, defined, Id, JsonArray, JsonObject, MinorAmount, numericText, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
 
 export const AgentInstructions = z.object({
@@ -105,6 +105,18 @@ export type AgentRosterRow = Pick<Agent, "id" | "name" | "role" | "status" | "mo
 
 const scoped = (businessId: string, agentId: string) => and(eq(agents.businessId, businessId), eq(agents.id, agentId));
 
+/**
+ * The status a new agent starts with. While the team is stopped (0023: Stop all agents, a revoked key, used-up credits)
+ * it starts paused with the stop's reason, like every agent `stopBusinessAgents` paused: a hire, a clone or a plan's
+ * hire during a stop never adds an agent that can work, and Resume agents brings it back with the others.
+ */
+async function startingStatus(db: Executor, businessId: string, requested: AgentStatus): Promise<{ status: AgentStatus; pausedReason: AgentPauseReason | null }> {
+  const rows = await db.select({ stoppedAt: businesses.agentsStoppedAt, reason: businesses.agentsStoppedReason }).from(businesses).where(eq(businesses.id, businessId)).limit(1);
+  const stop = rows[0];
+  if (!stop?.stoppedAt) return { status: requested, pausedReason: null };
+  return { status: "paused", pausedReason: stop.reason ?? "kill_switch" };
+}
+
 export const agentsRepo = {
   async list(db: Executor, businessId: string, filter: AgentListFilter = {}): Promise<Page<Agent>> {
     const f = parseInput(AgentListFilter, filter, "agent filter");
@@ -159,10 +171,14 @@ export const agentsRepo = {
     return rows[0] ?? null;
   },
 
-  /** Hire: inserts the agent (+ optional live version 1) in one transaction. */
+  /**
+   * Hire: inserts the agent (+ optional live version 1) in one transaction. While the team is stopped the agent starts
+   * paused (`startingStatus`), whatever status was asked for.
+   */
   async create(db: Executor, businessId: string, input: CreateAgentInput): Promise<Agent & { currentVersion: AgentVersion | null }> {
     const v = parseInput(CreateAgentInput, input, "agent");
     return db.transaction(async (tx) => {
+      const start = await startingStatus(tx, businessId, v.status);
       const agent = one(
         await tx
           .insert(agents)
@@ -176,7 +192,8 @@ export const agentsRepo = {
             departmentIds: v.departmentIds,
             lineManagerId: v.lineManagerId ?? null,
             modelKey: v.modelKey,
-            status: v.status,
+            status: start.status,
+            pausedReason: start.pausedReason,
             autonomy: v.autonomy,
             negotiation: v.negotiation,
             schedule: v.schedule,
@@ -213,11 +230,12 @@ export const agentsRepo = {
   /**
    * Many agents at once, each with its id chosen by the caller (so line managers can point at agents created in the
    * same call): one insert for the agents, one for their first versions, one update linking them. Three round trips
-   * however large the team (commit hires about 26). Results come back in the order given.
+   * however large the team (commit hires about 26), plus the read of the stop flag. Results come back in the order given.
    */
   async createMany(db: Executor, businessId: string, inputs: (CreateAgentInput & { id: string })[]): Promise<(Agent & { currentVersion: AgentVersion | null })[]> {
     if (inputs.length === 0) return [];
     const list = inputs.map((i) => ({ ...parseInput(CreateAgentInput, i, "agent"), id: parseInput(Id, i.id, "agent id") }));
+    const stopped = await startingStatus(db, businessId, "idle");
     const created = await db
       .insert(agents)
       .values(
@@ -232,7 +250,7 @@ export const agentsRepo = {
           departmentIds: v.departmentIds,
           lineManagerId: v.lineManagerId ?? null,
           modelKey: v.modelKey,
-          status: v.status,
+          ...(stopped.status === "paused" ? stopped : { status: v.status }),
           autonomy: v.autonomy,
           negotiation: v.negotiation,
           schedule: v.schedule,

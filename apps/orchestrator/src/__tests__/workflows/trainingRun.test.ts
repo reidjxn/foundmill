@@ -3,7 +3,7 @@
  * copy on the new model and ends awaiting a decision; a run that cannot start (its candidate is the live version, as
  * the old retests were, or it was canceled) ends failed or stays canceled at once, never queued for good.
  */
-import { repos } from "@foundmill/db";
+import { repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { MODEL_KEYS, type ModelKey } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Activities, TrainingRunInput } from "../../activities";
@@ -102,6 +102,21 @@ describe("trainingRun workflow", () => {
     const stored = await repos.training.get(t.db, t.businessId, run.id);
     expect(stored).toMatchObject({ status: "failed", toVersionId: draft.id });
     expect(stored.coachSummaryMd).not.toMatch(/10\.0\.0\.7/);
+  });
+
+  it("a run that starts while the team is stopped ends canceled with the reason, not run and not queued (SEC3)", async () => {
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const { run } = (await repos.training.createModelRetest(t.db, t.businessId, agent.id, { modelKey: "haiku" }))!;
+    await stopBusinessAgents(t.db, t.businessId, { reason: "key_revoked" });
+    try {
+      const { acts, calls } = activities();
+      const result = await execute(acts, { businessId: t.businessId, trainingRunId: run.id });
+      expect(result.status).toBe("cancelled");
+      expect(calls.load).toBe(1);
+      expect(await repos.training.get(t.db, t.businessId, run.id)).toMatchObject({ status: "cancelled", coachSummaryMd: "Training canceled: the Anthropic key was revoked. Train again once the agents resume." });
+    } finally {
+      await resumeBusinessAgents(t.db, t.businessId);
+    }
   });
 
   it("a run the founder canceled before it started stays canceled", async () => {

@@ -4,7 +4,7 @@
  * build and the credential expiry scan. Everything runs in mock mode without a network.
  */
 import { getSkillTests } from "@foundmill/agents";
-import { repos } from "@foundmill/db";
+import { repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
 import { createHealthActivities } from "../activities/health";
@@ -94,6 +94,65 @@ describe("training run (BUILD §11.10)", () => {
     expect(await repos.training.get(t.db, t.businessId, run.id)).toMatchObject({ status: "cancelled", costMinor: 7, results: {} });
     const events = await repos.events.list(t.db, t.businessId, { type: "training.completed", limit: 20 });
     expect(events.items.find((e) => (e.payload as { trainingRunId: string }).trainingRunId === run.id)?.payload).toMatchObject({ status: "cancelled", recommendation: null });
+  });
+});
+
+describe("training honours the team-wide stop (SEC3)", () => {
+  it("a run that loads while the team is stopped ends canceled with the reason before anything is spent", async () => {
+    const acts = createTrainingActivities(t.deps);
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const { run } = (await repos.training.createModelRetest(t.db, t.businessId, agent.id, { modelKey: "haiku" }))!;
+    const usageBefore = (await repos.usage.list(t.db, t.businessId, { agentId: agent.id, kind: "training", limit: 200 })).items.length;
+    await stopBusinessAgents(t.db, t.businessId, { reason: "credits_exhausted" });
+    try {
+      await expect(acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: run.id })).rejects.toMatchObject({ type: "TrainingRunError", nonRetryable: true, message: expect.stringMatching(/credits ran out/) });
+      expect(await repos.training.get(t.db, t.businessId, run.id)).toMatchObject({ status: "cancelled", coachSummaryMd: "Training canceled: the credits ran out. Train again once the agents resume." });
+      // The workflow's failTrainingRun then finds it ended and leaves it canceled.
+      expect(await acts.failTrainingRun({ businessId: t.businessId, trainingRunId: run.id, error: "x" })).toMatchObject({ status: "cancelled" });
+      expect((await repos.usage.list(t.db, t.businessId, { agentId: agent.id, kind: "training", limit: 200 })).items.length).toBe(usageBefore);
+    } finally {
+      await resumeBusinessAgents(t.db, t.businessId);
+    }
+  });
+
+  it("a stop while a skill's tests run: no further test starts, the run ends canceled, the tests that ran are booked, the next skill runs none", async () => {
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    let answers = 0;
+    // Stop all agents lands as soon as the first model answer is back (no signal reaches the activity).
+    const models = new Proxy(t.deps.models, {
+      get(target, prop, receiver) {
+        if (prop !== "complete") return Reflect.get(target, prop, receiver);
+        return async (...args: Parameters<typeof target.complete>) => {
+          const result = await target.complete(...args);
+          if (++answers === 1) await stopBusinessAgents(t.db, t.businessId, { reason: "kill_switch" });
+          return result;
+        };
+      },
+    });
+    const acts = createTrainingActivities({ ...t.deps, models });
+    const { run, draft } = (await repos.training.createModelRetest(t.db, t.businessId, agent.id, { modelKey: "opus" }))!;
+    const loaded = await acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: run.id });
+    const sized = loaded.skillKeys.map((skillKey) => ({ skillKey, tests: getSkillTests(skillKey, { includeHeldOut: true }).length })).sort((a, b) => b.tests - a.tests);
+    const [big, next] = sized;
+    // Four tests run at once, so a skill with more than four shows the stop.
+    expect(big!.tests).toBeGreaterThan(4);
+    const usageBefore = (await repos.usage.list(t.db, t.businessId, { agentId: agent.id, kind: "training", limit: 200 })).items;
+    try {
+      const outcome = await acts.runSkillTests({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, skillKey: big!.skillKey, modelKey: "opus" });
+      expect(outcome.testsRun).toBeGreaterThan(0);
+      expect(outcome.testsRun).toBeLessThan(big!.tests);
+      expect(await repos.training.get(t.db, t.businessId, run.id)).toMatchObject({ status: "cancelled", coachSummaryMd: expect.stringMatching(/^Training canceled: Stop all agents\./) });
+      const usage = (await repos.usage.list(t.db, t.businessId, { agentId: agent.id, kind: "training", limit: 200 })).items.filter((u) => !usageBefore.some((b) => b.id === u.id));
+      expect(usage).toHaveLength(1);
+      expect(Number(usage[0]!.quantity)).toBe(outcome.testsRun);
+
+      const calls = answers;
+      const rest = await acts.runSkillTests({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, skillKey: (next ?? big)!.skillKey, modelKey: "opus" });
+      expect(rest.testsRun).toBe(0);
+      expect(answers).toBe(calls);
+    } finally {
+      await resumeBusinessAgents(t.db, t.businessId);
+    }
   });
 });
 

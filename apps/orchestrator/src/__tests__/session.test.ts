@@ -7,11 +7,11 @@
  * a long pause parks the run (the next run continues the replay where it stopped). Nothing a session does un-pauses an
  * agent, and a Redis outage never takes a session (or the worker) down.
  */
-import { repos } from "@foundmill/db";
+import { repos, resumeBusinessAgents } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
 import { LongLivedCredentialError, MockSandboxProvider, RECORDINGS, findRecording } from "@foundmill/sandbox";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { buildSandboxEnv, createSessionActivities, mcpToolNames, recordingForTask, toolRefs } from "../activities/session";
+import { AGENTS_STOPPED_REASON, buildSandboxEnv, createSessionActivities, mcpToolNames, recordingForTask, STOP_CHECK_MS, toolRefs } from "../activities/session";
 import type { SessionResult } from "../activities/types";
 import { FakeClock } from "../clock";
 import type { SessionControlBus } from "../control-bus";
@@ -385,6 +385,55 @@ describe("a paused agent stays paused (O-06)", () => {
     } finally {
       create.mockRestore();
       await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
+    }
+  });
+
+  it("a run whose team was stopped while it waited for a slot ends stopped before creating anything, even with its agent not paused (SEC3)", async () => {
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = await acts.prepareSession(input);
+    const create = vi.spyOn(t.sandbox, "create");
+    // Stop all agents committed after prepareSession; its signal never reached this session.
+    await repos.businesses.setAgentsStopped(t.db, t.businessId, { reason: "kill_switch" });
+    try {
+      const result = await acts.runAgentSession(input, launch);
+      expect(result).toMatchObject({ outcome: "stopped", reason: AGENTS_STOPPED_REASON, blockedReason: "stopped" });
+      expect(create).not.toHaveBeenCalled();
+      expect((await repos.agents.get(t.db, t.businessId, t.workerId)).status).toBe("idle");
+    } finally {
+      create.mockRestore();
+      await resumeBusinessAgents(t.db, t.businessId);
+    }
+  });
+
+  it("a running session re-reads the stop flag and stops itself once the team is stopped, with no signal; the task waits paused (SEC3)", async () => {
+    const clock = new FakeClock();
+    const deps = { ...t.deps, clock, sandbox: async () => ({ provider: clockedProvider(clock), mode: "mock" as const, fellBackFrom: null }) };
+    const localActs = createSessionActivities(deps);
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = { ...(await localActs.prepareSession(input)), recordingKey: "ledgerly-webhook-retry" };
+    const recording = findRecording("ledgerly-webhook-retry")!;
+    expect(recording.events.at(-1)!.tMs).toBeGreaterThan(2 * STOP_CHECK_MS);
+    const run = localActs.runAgentSession(input, launch);
+    await vi.waitFor(async () => {
+      if ((await readSessionEvents(t.redis, sessionId)).length < 2) throw new Error("not started");
+    }, { timeout: 5_000, interval: 25 });
+    // A credits stop (or a revoked key) signals nothing: only the flag changes.
+    await repos.businesses.setAgentsStopped(t.db, t.businessId, { reason: "credits_exhausted" });
+    try {
+      await clock.advance(STOP_CHECK_MS);
+      await wait(600); // two control polls: the check is due
+      const result = await drive(clock, run);
+      expect(result).toMatchObject({ outcome: "stopped", reason: AGENTS_STOPPED_REASON });
+      // Stopped at the first check, about 5 s into a 19 s recording: most of it never played.
+      expect(result.eventsEmitted).toBeLessThan(recording.events.length / 2);
+      await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "running", { force: true });
+      const finish = await localActs.finishSession(input, launch, result);
+      expect(finish.taskStatus).toBe("paused");
+    } finally {
+      await resumeBusinessAgents(t.db, t.businessId);
+      await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "ready", { force: true });
     }
   });
 

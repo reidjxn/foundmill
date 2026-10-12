@@ -15,6 +15,10 @@
  * workflow starts a new run on Resume. Control commands are polled without overlap, and a failed poll (Redis down) is
  * logged and retried, never left as an unhandled rejection.
  *
+ * The team-wide stop (0023: Stop all agents, a revoked key, used-up credits) reaches a session even when no signal does:
+ * a run does not start while the business is stopped, and a running one re-reads the flag every STOP_CHECK_MS and
+ * stops itself as if the founder had pressed Stop.
+ *
  * The live SDK process is confined by ./sdk-isolation (SECURITY_REVIEW SEC-3): from-scratch environment, private
  * per-session workspace deleted in `finally`, built-in tools by task kind and a path guard on every file-tool call.
  * A code task's acceptance tests run in a sandbox created for them on a copy of that workspace (./workspace-sync):
@@ -47,6 +51,10 @@ import type { AgentSessionInput, SessionFinish, SessionLaunch, SessionParked, Se
 
 const ToolGrants = z.array(ToolGrant);
 const CONTROL_POLL_MS = 250;
+/** How often a running session re-reads its business's stop flag (one indexed read per session). */
+export const STOP_CHECK_MS = 5_000;
+/** The stop a running session gives itself when it finds the team stopped. */
+export const AGENTS_STOPPED_REASON = "agents stopped";
 const DEFAULT_MAX_TURNS = 60;
 const SESSION_TOKEN_TTL_SECONDS = 4 * 60 * 60;
 /** After a stop, a loop or a park, how long the SDK gets to end its turn and report its usage before it is aborted. */
@@ -241,6 +249,28 @@ function withPrefetched(first: SessionCommand[], pull: () => Promise<SessionComm
     const before = head;
     head = [];
     return before.length > 0 ? [...before, ...(await pull())] : pull();
+  };
+}
+
+/**
+ * The business's stop flag as a control command: every STOP_CHECK_MS the feed re-reads it and, once the team is
+ * stopped, adds one `stop`. A session opened while Stop all agents was being pulled, one its signal never reached
+ * (Temporal slow or down) and one running when the credits ran out or the key was revoked (no signal at all) all stop
+ * within seconds. A failed read is logged and retried on the next check.
+ */
+function withStopWatch(deps: OrchestratorDeps, businessId: string, pull: () => Promise<SessionCommand[]>): () => Promise<SessionCommand[]> {
+  let nextCheckMs = deps.clock.nowMs() + STOP_CHECK_MS;
+  let stopped = false;
+  return async () => {
+    const commands = await pull();
+    if (stopped || deps.clock.nowMs() < nextCheckMs) return commands;
+    nextCheckMs = deps.clock.nowMs() + STOP_CHECK_MS;
+    try {
+      stopped = await repos.businesses.agentsStopped(deps.db, businessId);
+    } catch (err) {
+      deps.log.warn({ err: (err as Error).message, businessId }, "stop flag read failed; retrying on the next check");
+    }
+    return stopped ? [...commands, { kind: "stop", reason: AGENTS_STOPPED_REASON, by: null }] : commands;
   };
 }
 
@@ -559,13 +589,19 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       const stoppedBeforeStart = (reason: string, summary: string): SessionResult => ({ ...base(), outcome: "stopped", reason, blockedReason: "stopped", approvalId: null, summary, providerSessionId: null });
 
       // Commands posted while the run waited for a slot (the list is never cleared at start, so none is lost). A stop
-      // among them, or an agent paused meanwhile, ends the run before anything starts.
+      // among them, a team stopped meanwhile (its signal may never come) or an agent paused meanwhile ends the run
+      // before anything starts.
       const pull = commandFeed(deps, input.sessionId, run.fromSeq);
       const waiting = await pull();
       const earlyStop = waiting.find((c): c is Extract<SessionCommand, { kind: "stop" }> => c.kind === "stop");
       if (earlyStop) {
         await clearControl(input.sessionId);
         return stoppedBeforeStart(earlyStop.reason, `Stopped before it started: ${earlyStop.reason}.`);
+      }
+      if (business.agentsStoppedAt) {
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: "Not started: agents are stopped for this business." });
+        await clearControl(input.sessionId);
+        return stoppedBeforeStart(AGENTS_STOPPED_REASON, "Not started: agents are stopped for this business.");
       }
       if (agent.status === "paused") {
         await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Not started: ${agent.name} is paused.` });
@@ -588,7 +624,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         const where = launch.sandboxMode === "mock" ? "mock sandbox" : acceptanceCommandFor(task) ? `${launch.sandboxMode} sandbox for the acceptance tests` : "no sandbox needed";
         await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Session ${run.resume ? "resumed" : "started"} for ${agent.name} on "${task.title}" (${where}${launch.fellBackFrom ? `, fell back from ${launch.fellBackFrom}` : ""}, ${launch.modelKey}).` });
 
-        const feed = withPrefetched(waiting, pull);
+        const feed = withStopWatch(deps, input.businessId, withPrefetched(waiting, pull));
         if (sandbox instanceof MockSandbox) {
           const r = await runMockSession(deps, recorder, sandbox, input, signal, feed);
           return { ...base(), ...r };

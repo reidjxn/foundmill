@@ -5,9 +5,9 @@
  * policy id, an audit row and HTTP 403, and session-token minting is refused for the same reasons.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { repos } from "@foundmill/db";
+import { repos, resumeBusinessAgents } from "@foundmill/db";
 import { storeCredential } from "../credentials";
-import { AGENT_ARCHIVED_POLICY_ID, AGENT_PAUSED_POLICY_ID, BUSINESS_ARCHIVED_POLICY_ID, KEY_REVOKED_POLICY_ID } from "../pipeline";
+import { AGENT_ARCHIVED_POLICY_ID, AGENT_PAUSED_POLICY_ID, AGENTS_STOPPED_POLICY_ID, BUSINESS_ARCHIVED_POLICY_ID, KEY_REVOKED_POLICY_ID } from "../pipeline";
 import { ANTHROPIC_CONNECTOR_KEY, SessionStateCache, STATE_CACHE_TTL_MS, stateDenial, toolNeedsByokKey } from "../state";
 import { setupGateway, type GatewayFixture } from "./harness";
 import type { AllowResponse, CallResponse, DenyResponse } from "../types";
@@ -120,6 +120,43 @@ describe("agent state (kill switch, release)", () => {
   });
 });
 
+describe("business stop flag (0023, SEC3 S8)", () => {
+  let g: GatewayFixture;
+  beforeAll(async () => {
+    g = await setupGateway();
+  }, 120_000);
+  afterAll(async () => {
+    await g.close();
+  });
+
+  it("while the business is stopped an agent that is not paused (hired during the stop, set idle by a missed path) is refused with agents-stopped + 403 + audit, and minting is refused; resume lets it work again", async () => {
+    const token = await g.token();
+    asAllow(await g.client.call(token, { connector: "test", tool: "note", args: { text: "before" } }));
+    await repos.businesses.setAgentsStopped(g.db, g.businessId, { reason: "kill_switch" });
+    // The agent itself is not paused: only the business flag says the team is stopped.
+    await repos.agents.setStatus(g.db, g.businessId, g.agentId, "idle");
+    try {
+      for (const tool of ["note", "send_message"]) {
+        const res = await rawCall(g, token, { connector: "test", tool, args: tool === "note" ? { text: "after" } : { to: "x@example.com" } });
+        expect(res.status).toBe(403);
+        const r = asDeny((await res.json()) as CallResponse);
+        expect(r.policyIds).toEqual([AGENTS_STOPPED_POLICY_ID]);
+        expect(r.reasons[0]).toMatch(/Agents are stopped for this business \(Stop all agents\)/);
+        const audit = await repos.audit.get(g.db, g.businessId, r.auditId);
+        expect(audit.details).toMatchObject({ outcome: "deny", policyIds: [AGENTS_STOPPED_POLICY_ID], sessionId: g.sessionId });
+      }
+      expect(g.seen.map((s) => s.args)).toEqual([{ text: "before" }]);
+      await expect(g.client.mintSessionToken({ businessId: g.businessId, agentId: g.agentId, sessionId: g.sessionId, allowedTools: ["test:*"] })).rejects.toMatchObject({ status: 403, code: "agents_stopped" });
+      const refused = await repos.audit.list(g.db, g.businessId, { action: "gateway.session_token.refused" });
+      expect(refused.items.some((a) => (a.details as { policyIds?: string[] }).policyIds?.[0] === AGENTS_STOPPED_POLICY_ID)).toBe(true);
+    } finally {
+      await resumeBusinessAgents(g.db, g.businessId);
+    }
+    asAllow(await g.client.call(token, { connector: "test", tool: "note", args: { text: "resumed" } }));
+    expect(g.seen.at(-1)?.args).toEqual({ text: "resumed" });
+  });
+});
+
 describe("club state (archive)", () => {
   it("an archived club: every call is business-archived + 403 + audit and no token can be minted", async () => {
     const g = await setupGateway();
@@ -212,15 +249,18 @@ describe("BYOK key revoked", () => {
 });
 
 describe("state helpers", () => {
-  const live = { archivedAt: null };
+  const live = { archivedAt: null, agentsStoppedAt: null, agentsStoppedReason: null };
   const agent = { name: "A", status: "healthy" as const, archivedAt: null };
 
-  it("stateDenial orders club > release > pause and allows a working agent", () => {
+  it("stateDenial orders club (archived, stopped) > release > pause and allows a working agent", () => {
     expect(stateDenial(live, agent)).toBeNull();
     expect(stateDenial(live, { ...agent, status: "idle" })).toBeNull();
     expect(stateDenial(live, { ...agent, status: "paused" })?.policyId).toBe(AGENT_PAUSED_POLICY_ID);
     expect(stateDenial(live, { ...agent, status: "paused", archivedAt: new Date() })?.policyId).toBe(AGENT_ARCHIVED_POLICY_ID);
-    expect(stateDenial({ archivedAt: new Date() }, { ...agent, status: "paused", archivedAt: new Date() })?.policyId).toBe(BUSINESS_ARCHIVED_POLICY_ID);
+    const stopped = { ...live, agentsStoppedAt: new Date(), agentsStoppedReason: "credits_exhausted" as const };
+    expect(stateDenial(stopped, { ...agent, status: "idle" })).toMatchObject({ policyId: AGENTS_STOPPED_POLICY_ID, reasons: [expect.stringMatching(/credits ran out/)] });
+    expect(stateDenial(stopped, { ...agent, status: "paused", archivedAt: new Date() })?.policyId).toBe(AGENTS_STOPPED_POLICY_ID);
+    expect(stateDenial({ ...stopped, archivedAt: new Date() }, { ...agent, status: "paused", archivedAt: new Date() })?.policyId).toBe(BUSINESS_ARCHIVED_POLICY_ID);
   });
 
   it("toolNeedsByokKey is true only for a BYOK club on the key-bearing connector", () => {
