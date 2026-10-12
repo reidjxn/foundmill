@@ -16,7 +16,7 @@ import { AppError, ValidationError, type AgentStopReason, type ModelBilling } fr
 import { buildAad, encryptJson, redactSecret } from "@foundmill/shared/crypto";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
-import { emitResumed, restartEngines } from "./killswitch";
+import { emitResumed, restartAfterResume } from "./killswitch";
 
 export interface KeyValidationResult {
   valid: boolean;
@@ -101,7 +101,7 @@ export async function storeAnthropicKey(ctx: BusinessContext, apiKey: string, ac
     await audit(tx, ctx, { action, target: { kind: "credential", id: rotated.id }, details: { connector: ANTHROPIC, fingerprint, integrationId: integration.id, mode: validation.mode, modelBilling: { from: billingBefore, to: "byok" }, resumedAgents: resumed.resumed ? resumed.agentIds.length : null } });
     return { credentialId: rotated.id, integrationId: integration.id, resumed: resumed.resumed ? { reason: resumed.reason, agents: resumed.agentIds.length } : null };
   });
-  if (stored.resumed) await restartEngines(ctx);
+  if (stored.resumed) await restartAfterResume(ctx);
   return { ...stored, fingerprint, validation, modelBilling: "byok" };
 }
 

@@ -4,6 +4,7 @@ import {
   autonomyDraft,
   autonomyFromAgent,
   autonomyToInput,
+  describeModelSet,
   formatMajor,
   latestDraft,
   negotiationDraft,
@@ -47,6 +48,7 @@ import {
   type AgentSkillRecord,
   type CatalogueTemplate,
   type ModelCompare,
+  type ModelSetResult,
   type TrainingRunRecord,
 } from "../logic";
 
@@ -211,6 +213,13 @@ describe("model", () => {
     expect(modelChangeWarnings({ agentType: "chief_of_staff", layer: "assistant", modelKey: "opus" }, "chiefOfStaff", "haiku")[0]).toMatch(/Downgrading the Chief of Staff/);
     expect(modelChangeWarnings({ agentType: "chief_of_staff", layer: "assistant", modelKey: "sonnet" }, "chiefOfStaff", "opus")).toEqual([]);
     expect(modelChangeWarnings({ agentType: "composer", layer: "utility", modelKey: "opus" }, "inboxComposer", "sonnet")[0]).toMatch(/locked to Opus/);
+  });
+  it("says the retests wait for Resume agents while the team is stopped", () => {
+    const result = (over: Partial<ModelSetResult>): ModelSetResult => ({ updated: ["a1", "a2"], skipped: [], warnings: [], retests: [], superseded: [], retestsWaitForResume: false, ...over }) as ModelSetResult;
+    const retest = (runId: string) => ({ runId, workflow: { queued: true, workflowId: `training:${runId}` } });
+    expect(describeModelSet(result({ retests: [retest("r1"), retest("r2")] }), "haiku")).toBe("Model set to Haiku for 2 agents · 2 retests queued");
+    expect(describeModelSet(result({ retests: [retest("r1")], retestsWaitForResume: true }), "haiku")).toBe("Model set to Haiku for 2 agents · 1 retest queued (starts when the agents resume)");
+    expect(describeModelSet(result({ retests: [retest("r1"), retest("r2")], retestsWaitForResume: true }), "opus")).toMatch(/2 retests queued \(start when the agents resume\)$/);
   });
 });
 

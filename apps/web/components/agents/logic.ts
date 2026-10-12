@@ -436,7 +436,8 @@ export function modelChangeWarnings(agent: Pick<AgentRow, "agentType" | "layer" 
 export function describeModelSet(result: ModelSetResult, modelKey: ModelKey): string {
   const parts = [`Model set to ${MODEL_LABELS[modelKey]} for ${result.updated.length} ${result.updated.length === 1 ? "agent" : "agents"}`];
   if (result.skipped.length) parts.push(`${result.skipped.length} skipped (${[...new Set(result.skipped.map((s) => s.reason))].join("; ")})`);
-  if (result.retests.length) parts.push(`${result.retests.length} ${result.retests.length === 1 ? "retest" : "retests"} queued`);
+  // While the team is stopped the retests wait for Resume agents (they spend credits); the model changes at once.
+  if (result.retests.length) parts.push(`${result.retests.length} ${result.retests.length === 1 ? "retest" : "retests"} queued${result.retestsWaitForResume ? ` (${result.retests.length === 1 ? "starts" : "start"} when the agents resume)` : ""}`);
   if (result.warnings.length) parts.push(result.warnings.join("; "));
   return parts.join(" · ");
 }

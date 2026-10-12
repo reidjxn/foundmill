@@ -2,18 +2,23 @@
  * business.stopAllAgents — the kill switch (BUILD §14: ≤ 30 s; pauses workflows, engines and campaigns) — and
  * business.resumeAgents, its only way back.
  *
- * Stop signals every running workflow of the business within the budget: each open session by its computed id
- * `session:<id>` (never a stored placeholder), the running business cycle (whose children it fans out to, a vacation's
- * cycle included), every enabled channel's engine `engine:<channelId>`, executing plans and the vacation. It then sets
- * the business's stop flag (0023), marks every agent paused with the reason, pauses running tasks and live campaigns,
- * writes the audit entry and one `agent.health_changed` per agent that changed. While the flag is set every path that
- * starts work refuses (`assertAgentsRunning` in stop-guard.ts; the orchestrator's dispatch guard), so a task start, a
- * channel toggle or a cycle cannot undo it. Works without Temporal: the local state is always written; the signal
- * result reports `{ queued: false, reason }`.
+ * Stop writes first, then signals. One transaction sets the business's stop flag (0023), marks every agent paused with
+ * the reason, pauses running tasks and live campaigns, cancels the training runs in flight and writes one
+ * `agent.health_changed` per agent that changed. From that commit on every path that starts work refuses
+ * (`assertAgentsRunning` in stop-guard.ts; the orchestrator's dispatch guard; a session's own start and its periodic
+ * re-check; the training activity; the gateway's `agents-stopped` denial), so nothing can start in the seconds the
+ * signals take. Only then does it signal every running workflow of the business within the budget: each open session
+ * by its computed id `session:<id>` (never a stored placeholder), the running business cycle (whose children it fans
+ * out to, a vacation's cycle included), every enabled channel's engine `engine:<channelId>`, executing plans, the
+ * vacation and the canceled training runs. It lists open sessions once more afterwards and signals any opened while it
+ * worked, then writes the audit entry with what reached Temporal. Works without Temporal: the local state is always
+ * written; the signal result reports `{ queued: false, reason }`.
  *
- * Resume (owner or admin) lifts the flag, sets the agents the stop paused back to idle and restarts the channel engines
- * that were running. It refuses while the team could not run anyway: a business on its own key with no key stored, or
- * a credit balance used up. Live campaigns the stop paused stay paused (they spend money; Distribution resumes them).
+ * Resume (owner or admin) lifts the flag, sets the agents the stop paused back to idle, restarts the channel engines
+ * that were running and starts the model-change retests queued while the team was stopped. It refuses while the team
+ * could not run anyway: a business on its own key with no key stored, or a credit balance used up. Live campaigns the
+ * stop paused stay paused (they spend money; Distribution resumes them), and training runs the stop canceled stay
+ * canceled (Train again from the Training tab).
  */
 import { LIMITS } from "@foundmill/config";
 import { periodOf, repos, resumeBusinessAgents, stopBusinessAgents, type Executor } from "@foundmill/db";
@@ -30,45 +35,26 @@ export interface StopAllResult {
   pausedAgents: number;
   pausedTasks: number;
   pausedCampaigns: number;
+  /** Training runs in flight the stop canceled (their workflows are signalled with the rest). */
+  cancelledTraining: number;
   workflows: SignalManyResult;
   elapsedMs: number;
   budgetMs: number;
   stoppedAt: Date;
 }
 
+/** The summary a training run canceled by a stop carries (Training tab, `training.completed`). */
+export const TRAINING_STOPPED_SUMMARY = "Training canceled: Stop all agents. Train again once the agents resume.";
+
 export async function stopAllAgents(ctx: BusinessContext, reason = "kill_switch"): Promise<StopAllResult> {
   const started = Date.now();
   const budgetMs = LIMITS.killSwitchSeconds * 1000;
   const { businessId } = ctx;
 
-  const [sessions, channels, plans, holiday, runningTasks, campaigns, cycle] = await Promise.all([
-    repos.agents.listSessions(ctx.db, businessId, { openOnly: true, limit: 500 }),
-    repos.channels.list(ctx.db, businessId, { enabled: true }),
-    repos.plans.list(ctx.db, businessId, { status: "executing", limit: 500 }),
-    repos.holidays.current(ctx.db, businessId),
-    repos.tasks.list(ctx.db, businessId, { status: "running", limit: 500 }),
-    repos.campaigns.active(ctx.db, businessId),
-    cycleStatus(ctx),
-  ]);
-
-  const ids = new Set<string>();
-  // Always the computed id: rows written before 0023 may still say `session:pending`, a workflow that never existed.
-  for (const s of sessions.items) ids.add(workflowIds.session(s.id));
-  // The running cycle stops dispatching and fans the stop out to its sessions (a vacation's cycle included).
-  if (cycle.running) ids.add(cycle.workflowId ?? workflowIds.cycle(businessId, cycle.cycleNumber ?? cycle.nextCycleNumber - 1));
-  // Every enabled channel's engine by its deterministic id, whether or not its start was recorded.
-  for (const c of channels) {
-    ids.add(workflowIds.engine(c.id));
-    if (c.engineWorkflowId) ids.add(c.engineWorkflowId);
-  }
-  for (const p of plans.items) if (p.workflowId) ids.add(p.workflowId);
-  if (holiday) ids.add(workflowIds.holiday(holiday.id));
-
-  // Signals first (the clock is running), with most of the budget; local writes follow and are fast.
-  const workflows = await ctx.temporal.signalMany([...ids], "stop", [{ reason, by: ctx.userId }], Math.max(1_000, budgetMs - 8_000));
-
+  // 1. The flag and every pause first, in one transaction: from its commit nothing new starts while the signals go out.
   const local = await ctx.rls(async (tx) => {
     const stop = await stopBusinessAgents(tx, businessId, { reason: "kill_switch" });
+    const [runningTasks, campaigns] = await Promise.all([repos.tasks.list(tx, businessId, { status: "running", limit: 500 }), repos.campaigns.active(tx, businessId)]);
     let pausedTasks = 0;
     for (const task of runningTasks.items) {
       await repos.tasks.setStatus(tx, businessId, task.id, "paused");
@@ -81,21 +67,58 @@ export async function stopAllAgents(ctx: BusinessContext, reason = "kill_switch"
         pausedCampaigns++;
       }
     }
+    // Training spends model credits too: runs in flight end canceled (a late worker write never undoes it).
+    const training = await repos.training.cancelActive(tx, businessId, { coachSummaryMd: TRAINING_STOPPED_SUMMARY });
     for (const a of stop.paused) {
       await emit(tx, ctx, {
         type: "agent.health_changed",
         payload: { agentId: a.id, from: a.from, to: "paused", reason: "Stop all agents (kill switch)", signals: {}, expectedReturnAt: null, sessionId: null },
       });
     }
-    await audit(tx, ctx, {
-      action: "business.stop_all_agents",
-      target: { kind: "business", id: businessId },
-      details: { reason, pausedAgents: stop.paused.length, pausedTasks, pausedCampaigns, signalled: workflows.signalled.length, failed: workflows.failed.length, temporalQueued: workflows.queued, temporalReason: workflows.reason ?? null, cycleWorkflowId: cycle.running ? cycle.workflowId : null },
-    });
-    return { pausedAgents: stop.paused.length, pausedTasks, pausedCampaigns, stoppedAt: stop.stoppedAt };
+    return { pausedAgents: stop.paused.length, pausedTasks, pausedCampaigns, cancelledTraining: training.map((r) => r.id), stoppedAt: stop.stoppedAt };
   });
 
-  return { ...local, workflows, elapsedMs: Date.now() - started, budgetMs };
+  // 2. Then every workflow that is still running, by its deterministic id.
+  const [sessions, channels, plans, holiday, cycle] = await Promise.all([
+    repos.agents.listSessions(ctx.db, businessId, { openOnly: true, limit: 500 }),
+    repos.channels.list(ctx.db, businessId, { enabled: true }),
+    repos.plans.list(ctx.db, businessId, { status: "executing", limit: 500 }),
+    repos.holidays.current(ctx.db, businessId),
+    cycleStatus(ctx),
+  ]);
+  const ids = new Set<string>();
+  // Always the computed id: rows written before 0023 may still say `session:pending`, a workflow that never existed.
+  for (const s of sessions.items) ids.add(workflowIds.session(s.id));
+  // The running cycle stops dispatching and fans the stop out to its sessions (a vacation's cycle included).
+  if (cycle.running) ids.add(cycle.workflowId ?? workflowIds.cycle(businessId, cycle.cycleNumber ?? cycle.nextCycleNumber - 1));
+  // Every enabled channel's engine by its deterministic id, whether or not its start was recorded.
+  for (const c of channels) {
+    ids.add(workflowIds.engine(c.id));
+    if (c.engineWorkflowId) ids.add(c.engineWorkflowId);
+  }
+  for (const p of plans.items) if (p.workflowId) ids.add(p.workflowId);
+  if (holiday) ids.add(workflowIds.holiday(holiday.id));
+  for (const runId of local.cancelledTraining) ids.add(workflowIds.training(runId));
+
+  const signal = (list: readonly string[], ms: number) => ctx.temporal.signalMany(list, "stop", [{ reason, by: ctx.userId }], Math.max(1_000, ms));
+  const first = await signal([...ids], budgetMs - 8_000 - (Date.now() - started));
+  // 3. A session opened by a dispatch that read the flag just before it was written: signalled too (its own start
+  // re-checks the flag as well).
+  const again = await repos.agents.listSessions(ctx.db, businessId, { openOnly: true, limit: 500 });
+  const late = again.items.map((s) => workflowIds.session(s.id)).filter((id) => !ids.has(id));
+  const second = late.length ? await signal(late, budgetMs - 4_000 - (Date.now() - started)) : null;
+  const unreachable = first.reason ?? second?.reason;
+  const workflows: SignalManyResult = second ? { queued: first.queued || second.queued, signalled: [...first.signalled, ...second.signalled], failed: [...first.failed, ...second.failed], ...(unreachable ? { reason: unreachable } : {}) } : first;
+
+  await ctx.rls((tx) =>
+    audit(tx, ctx, {
+      action: "business.stop_all_agents",
+      target: { kind: "business", id: businessId },
+      details: { reason, pausedAgents: local.pausedAgents, pausedTasks: local.pausedTasks, pausedCampaigns: local.pausedCampaigns, cancelledTraining: local.cancelledTraining.length, signalled: workflows.signalled.length, failed: workflows.failed.length, lateSessions: late.length, temporalQueued: workflows.queued, temporalReason: workflows.reason ?? null, cycleWorkflowId: cycle.running ? cycle.workflowId : null },
+    }),
+  );
+
+  return { pausedAgents: local.pausedAgents, pausedTasks: local.pausedTasks, pausedCampaigns: local.pausedCampaigns, cancelledTraining: local.cancelledTraining.length, stoppedAt: local.stoppedAt, workflows, elapsedMs: Date.now() - started, budgetMs };
 }
 
 /** Write one `agent.health_changed` per agent a resume set back to idle. */
@@ -110,6 +133,8 @@ export interface ResumeAgentsResult {
   resumedAgents: number;
   /** Channel engines started again (those the stop ended). */
   engines: TemporalResult[];
+  /** Training runs left queued while the team was stopped (a model change's retests), started now. */
+  training: TemporalResult[];
 }
 
 /** Why the team cannot run right now (no key on a business that runs on its own key, used-up credits), or null. */
@@ -134,12 +159,32 @@ export async function resumeAgents(ctx: BusinessContext): Promise<ResumeAgentsRe
     await audit(tx, ctx, { action: "business.resume_agents", target: { kind: "business", id: ctx.businessId }, details: { reason: resumed.reason, stoppedAt: resumed.stoppedAt?.toISOString() ?? null, resumedAgents: resumed.agentIds.length } });
     return resumed;
   });
-  const engines = result.resumed ? await restartEngines(ctx) : [];
-  return { resumed: result.resumed, reason: result.reason, resumedAgents: result.agentIds.length, engines };
+  const restarted = result.resumed ? await restartAfterResume(ctx) : { engines: [], training: [] };
+  return { resumed: result.resumed, reason: result.reason, resumedAgents: result.agentIds.length, ...restarted };
+}
+
+type RestartScope = Pick<BusinessContext, "db" | "businessId" | "temporal">;
+
+/**
+ * What every way back (Resume agents, a new key, a top-up) starts again once the stop is lifted: the channel engines
+ * the stop ended and the training runs left queued while the team was stopped.
+ */
+export async function restartAfterResume(ctx: RestartScope): Promise<{ engines: TemporalResult[]; training: TemporalResult[] }> {
+  const [engines, training] = await Promise.all([restartEngines(ctx), startQueuedTraining(ctx)]);
+  return { engines, training };
 }
 
 /** Start again the engines of enabled channels that had one running when the team stopped (deterministic ids). */
-export async function restartEngines(ctx: BusinessContext): Promise<TemporalResult[]> {
+export async function restartEngines(ctx: RestartScope): Promise<TemporalResult[]> {
   const channels = await repos.channels.list(ctx.db, ctx.businessId, { enabled: true });
   return Promise.all(channels.filter((c) => c.engineWorkflowId).map((c) => ctx.temporal.start(WORKFLOWS.channelEngine, { workflowId: workflowIds.engine(c.id), args: [{ businessId: ctx.businessId, channelId: c.id, channelKey: c.channelKey }] })));
+}
+
+/**
+ * Start every queued training run of the business: a model change made while the team was stopped queues its retests
+ * without starting them (`agent.model.set`). A run whose workflow is already running answers "already running".
+ */
+export async function startQueuedTraining(ctx: RestartScope): Promise<TemporalResult[]> {
+  const queued = await repos.training.list(ctx.db, ctx.businessId, { status: "queued", limit: 100 });
+  return Promise.all(queued.items.map((run) => ctx.temporal.start(WORKFLOWS.trainingRun, { workflowId: workflowIds.training(run.id), args: [{ businessId: ctx.businessId, trainingRunId: run.id }] })));
 }
