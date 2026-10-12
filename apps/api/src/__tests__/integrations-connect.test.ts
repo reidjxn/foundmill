@@ -64,10 +64,11 @@ describe("integrations.connect with the founder's own key", () => {
     const r = await hz.caller({ userId: hz.A.ownerId }).integrations.connect({ businessId: hz.A.businessId, connectorKey: KEY, input: { apiKey: secret } });
     expect(r.integration).toMatchObject({ connectorKey: KEY, status: "connected" });
     expect(JSON.stringify(r)).not.toContain(secret);
-    const metas = await repos.credentials.listMetadata(hz.db, hz.A.businessId, { integrationId: r.integration.id });
+    const integrationId = r.integration!.id;
+    const metas = await repos.credentials.listMetadata(hz.db, hz.A.businessId, { integrationId });
     expect(metas.map((m) => m.kind)).toEqual([INTEGRATION_CREDENTIAL_KIND]);
     // What the gateway's loader does: the newest live row of that kind, opened with the row-bound AAD.
-    const loaded = await repos.credentials.latest(hz.db, hz.A.businessId, r.integration.id);
+    const loaded = await repos.credentials.latest(hz.db, hz.A.businessId, integrationId);
     expect(loaded).not.toBeNull();
     const credential = await decryptJson(hz.deps.vault!, loaded!.record, buildAad(hz.A.businessId, "credentials", loaded!.meta.id));
     expect(credential).toEqual({ kind: "api_key", secret });
