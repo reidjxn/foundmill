@@ -84,8 +84,11 @@ export function readForQuarantine<T>(wrapped: Untrusted<T>): { content: T; sourc
 }
 
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
-const URL_RE = /\bhttps?:\/\/[^\s<>"')\]]+/gi;
+// No leading word boundary: "linkhttps://evil.example" still yields the URL (recording too much only asks the founder more).
+const URL_RE = /https?:\/\/[^\s<>"')\]\\]+/gi;
 const PHONE_RE = /(?:(?<=\s)|^)\+?\d[\d\s().-]{7,}\d/g;
+/** JSON-style escapes left inside a string (double-encoded JSON, a body pasted as a literal): read as a separator too. */
+const ESCAPE_RE = /\\(?:[nrtbf"\\/]|u[0-9a-fA-F]{4})/g;
 
 export interface CandidateRecipients {
   emails: string[];
@@ -93,17 +96,41 @@ export interface CandidateRecipients {
   phones: string[];
 }
 
+/** Every string (and number) inside `value`, keys included, as the raw text a reader of the content would see. */
+function textLeaves(value: unknown, out: string[] = [], depth = 0): string[] {
+  if (typeof value === "string") out.push(value);
+  else if (typeof value === "number" && Number.isFinite(value)) out.push(String(value));
+  else if (value instanceof Date) out.push(value.toISOString());
+  else if (value && typeof value === "object" && depth < 64) {
+    if (Array.isArray(value)) for (const v of value) textLeaves(v, out, depth + 1);
+    else
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+        out.push(k);
+        textLeaves(v, out, depth + 1);
+      }
+  }
+  return out;
+}
+
 /**
- * Recipients and URLs that appear inside untrusted content. The gateway records them per business so
- * policy can set `recipientFirstSeenInUntrusted` on later outbound calls (BUILD §9.8 step 4).
+ * Recipients and URLs that appear inside untrusted content (and, for the comparison, inside tool arguments). The gateway
+ * records them per session so policy can set `recipientFirstSeenInUntrusted` on later outbound calls (BUILD §9.8 step 4).
+ *
+ * The patterns run over each string of the content as it reads, never over its JSON: in JSON a line break is the two
+ * characters `\n`, whose "n" joined the address that started the next line (`nap@evil.example`) and hid a URL there
+ * entirely. A string that itself holds escapes is read both ways, so nothing is lost either way.
  */
 export function extractCandidateRecipients(content: unknown): CandidateRecipients {
-  const text = typeof content === "string" ? content : canonicalJson(content);
+  const texts = textLeaves(content).flatMap((t) => {
+    const unescaped = t.replace(ESCAPE_RE, " ");
+    return unescaped === t ? [t] : [t, unescaped];
+  });
+  const all = (re: RegExp) => texts.flatMap((t) => t.match(re) ?? []);
   const uniq = (xs: string[]) => [...new Set(xs.map((x) => x.trim()))];
   return {
-    emails: uniq((text.match(EMAIL_RE) ?? []).map((e) => e.toLowerCase())),
-    urls: uniq((text.match(URL_RE) ?? []).map((u) => u.replace(/[.,;:!?]+$/, ""))),
-    phones: uniq((text.match(PHONE_RE) ?? []).map((p) => p.replace(/[\s().-]/g, ""))).filter((p) => p.replace(/\D/g, "").length >= 8),
+    emails: uniq(all(EMAIL_RE).map((e) => e.toLowerCase())),
+    urls: uniq(all(URL_RE).map((u) => u.replace(/[.,;:!?]+$/, ""))),
+    phones: uniq(all(PHONE_RE).map((p) => p.replace(/[\s().-]/g, ""))).filter((p) => p.replace(/\D/g, "").length >= 8),
   };
 }
 
