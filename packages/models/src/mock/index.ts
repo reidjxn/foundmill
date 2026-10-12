@@ -58,6 +58,7 @@ import { generatePlanCompiler } from "./planCompiler";
 import { generatePlanner } from "./planner";
 import { generateQuarantinedReader } from "./quarantinedReader";
 import { generateSkillGrader } from "./skillGrader";
+import { generateSourceProposal, generateSourceRelevance, isSourceProposalRequest, isSourceRelevanceRequest } from "./sourceWatcher";
 import { synthesizeFromZod } from "./synth";
 import { generateNightlyBatch, generateWorker } from "./worker";
 import { generateConversation } from "./conversation";
@@ -76,7 +77,7 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   inboxComposer: { route: "inboxComposer", description: "One inbox note (fact → why → ask) in the from-agent's voice; Composer schema; manifest-only mentions; no invented numbers.", schema: ComposerOutput, generate: generateInboxComposer },
   planCompiler: { route: "planCompiler", description: "Founder free text → Plan of typed actions; hard gates → request_human_action; ambiguous → reply_only.", schema: PlanOutput, generate: generatePlanCompiler },
   chiefOfStaff: { route: "chiefOfStaff", description: "Cycle plan from open tasks within concurrency, budget and capacity; customer-unblocking work first.", schema: CyclePlanOutput, generate: generateChiefOfStaff },
-  departmentLead: { route: "departmentLead", description: "Department task assignments, blockers and a short report.", schema: DepartmentLeadOutput, generate: generateDepartmentLead },
+  departmentLead: { route: "departmentLead", description: "Department task assignments, blockers and a short report; drafts a spec change from a source for the Source Watcher.", schema: DepartmentLeadOutput, generate: (ctx) => (isSourceProposalRequest(ctx) ? generateSourceProposal(ctx) : generateDepartmentLead(ctx)) },
   planner: { route: "planner", description: "Roadmap items → task graph with acceptance criteria, test expectations, file-scope hints and dependencies.", schema: TaskGraphOutput, generate: generatePlanner },
   codeReview: { route: "codeReview", description: "Deterministic review of a unified diff against the platform rules.", schema: CodeReviewOutput, generate: generateCodeReview },
   ideation: { route: "ideation", description: "6–12 concept cards with 10 attributes (1–20), evidence and ≥ 2 citations, seeded by the prompt; one card (keeping the slate item's name, archetype and angle) when the schema is a single card.", schema: IdeationOutput, generate: generateIdeationRoute },
@@ -90,7 +91,7 @@ export const MOCK_ROUTES: Record<RouteKey, MockRouteDefinition> = {
   journeyCommentary: { route: "journeyCommentary", description: "Customer Update narration: one line per touch, entities linked from the manifest.", schema: CommentaryOutput, generate: generateJourneyCommentary },
   nightlyBatch: { route: "nightlyBatch", description: "Nightly batch job summary with one result per item.", schema: NightlyBatchOutput, generate: generateNightlyBatch },
   linker: { route: "linker", description: "Proper-noun sweep: exact → alias → fuzzy against the manifest; ambiguous and unknown flagged.", schema: LinkerOutput, generate: generateLinker },
-  classifier: { route: "classifier", description: "Picks one of the supplied labels by keyword overlap with a confidence.", schema: ClassifierOutput, generate: generateClassifier },
+  classifier: { route: "classifier", description: "Picks one of the supplied labels by keyword overlap with a confidence; scores a source against spec blocks for the Source Watcher.", schema: ClassifierOutput, generate: (ctx) => (isSourceRelevanceRequest(ctx) ? generateSourceRelevance(ctx) : generateClassifier(ctx)) },
   categoriser: { route: "categoriser", description: "Bank transactions → standard chart of accounts with the rule that fired.", schema: CategoriserOutput, generate: generateCategoriser },
   quarantinedReader: { route: "quarantinedReader", description: "Extracts only the requested fields from untrusted content; instructions inside the content are ignored.", schema: QuarantinedReaderOutput, generate: generateQuarantinedReader },
   moderation: { route: "moderation", description: "Honest-agent and marketing-law pre-send check with flags and an allow/block verdict.", schema: ModerationOutput, generate: generateModeration },

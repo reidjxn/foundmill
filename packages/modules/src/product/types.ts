@@ -174,6 +174,10 @@ export interface SourceRelevance {
   marketSizeEstimate?: string;
   citations?: { title?: string; url?: string }[];
   author?: string;
+  /** The founder's notes (or pasted text) from Add source. */
+  notes?: string;
+  /** The Source Watcher's last read: `scored`, `unreachable` (with a reason the founder can read) or `failed`. */
+  watch?: { status?: string; reason?: string | null; checkedAt?: string; proposalId?: string | null };
   [key: string]: unknown;
 }
 export type SourcesListResponse = Page<SourceRow>;

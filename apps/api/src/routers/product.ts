@@ -2,14 +2,55 @@
  * product.foundations.* / product.spec.* / product.roadmap.* / product.proposals.* / product.sources.* (BUILD §11.1
  * first open, §11.5; AC-11.5.2, AC-11.5.3).
  */
-import { CreateSourceInput, EditSpecBlockInput, UpsertRoadmapItemInput, repos } from "@foundmill/db";
+import { EditSpecBlockInput, UpsertRoadmapItemInput, repos, type AppliedHunk, type Executor, type ProposalDecisionResult } from "@foundmill/db";
 import { HUNK_DECISIONS, SOURCE_KINDS, ValidationError, WRITE_ROLES } from "@foundmill/shared";
 import { z } from "zod";
 import { ensureFoundations, foundationsView, isStale, retryFoundations } from "../services/foundations";
-import { Id, audit, businessProcedure, effectivePermission, emit, router, sectionRead, sectionWrite } from "../trpc";
+import { WORKFLOWS, workflowIds } from "../services/temporal";
+import { Id, audit, businessProcedure, effectivePermission, emit, router, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
 const read = sectionRead("product");
 const write = sectionWrite("product");
+
+/** How much of the founder's notes reads as the summary before the Source Watcher writes its own. */
+const SUMMARY_PREVIEW_CHARS = 400;
+
+/**
+ * What a member may say about a source they add: its kind, link, title and notes (or pasted text). Relevance, fetch
+ * times and embeddings are the Source Watcher's to write, never the client's.
+ */
+const AddSourceInput = z.object({
+  kind: z.enum(SOURCE_KINDS),
+  uri: z
+    .string()
+    .trim()
+    .max(2048)
+    .refine((u) => !u || /^https?:\/\//i.test(u), "Links must start with http:// or https://")
+    .nullish(),
+  title: z.string().max(400).default(""),
+  contentRef: z.string().max(2048).nullish(),
+  relevance: z.object({ notes: z.string().max(20_000).optional(), summary: z.string().max(20_000).optional() }).optional(),
+});
+
+/** What each accepted hunk did, for the audit row (merged into edits made since the proposal, archived target...). */
+function appliedDetails(applied: readonly AppliedHunk[]) {
+  return applied.map((a) => ({ hunkId: a.hunkId, target: a.target, changed: a.changed, merged: a.merged, conflicts: a.conflicts, skipped: a.skipped }));
+}
+
+/**
+ * A decision that settled the proposal with accepted hunks published a version: announce it through the outbox in the
+ * same transaction (Development re-plans and Distribution reviews messaging from it) and audit the publish. Returns the
+ * proposal with the version it published, if any.
+ */
+async function settleResult(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "userId">, result: ProposalDecisionResult) {
+  const { applied: _applied, published, ...proposal } = result;
+  if (published) {
+    const { version, previousVersion, changedBlockIds, counts } = published;
+    await emit(tx, ctx, { type: "spec.version_published", payload: { specVersionId: version.id, version: version.version, previousVersion, proposalId: proposal.id, changedBlockIds, changelog: version.changelogMd.slice(0, 4000), hunksAccepted: counts.accepted, hunksRejected: counts.rejected, hunksEdited: counts.edited } });
+    await audit(tx, ctx, { action: "product.spec.publish", target: { kind: "spec_version", id: version.id }, details: { version: version.version, proposalId: proposal.id } });
+  }
+  return { ...proposal, publishedVersion: published?.version ?? null };
+}
 
 export const productRouter = router({
   /**
@@ -109,16 +150,31 @@ export const productRouter = router({
   sources: router({
     list: read.input(z.object({ kind: z.enum(SOURCE_KINDS).optional(), limit: z.number().int().min(1).max(500).default(100), cursor: z.string().nullish() })).query(({ ctx, input }) => ctx.rls((tx) => repos.product.listSources(tx, ctx.businessId, input ?? {}))),
     get: read.input(z.object({ sourceId: Id })).query(({ ctx, input }) => ctx.rls((tx) => repos.product.getSource(tx, ctx.businessId, input.sourceId))),
-    /** Add by hand (a link, a pasted note, a competitor page); the title falls back to the uri. */
-    add: write.input(CreateSourceInput).mutation(({ ctx, input }) =>
-      ctx.rls(async (tx) => {
-        const title = input.title?.trim() || input.uri?.trim() || "";
-        if (!title) throw new ValidationError("Give the source a title or a link");
-        const source = await repos.product.createSource(tx, ctx.businessId, { ...input, title: title.slice(0, 400), relevance: { ...(input.relevance ?? {}), addedBy: "user" } });
-        await audit(tx, ctx, { action: "product.sources.add", target: { kind: "source", id: source.id }, details: { kind: source.kind, uri: source.uri } });
-        return source;
-      }),
-    ),
+    /**
+     * Add by hand (a link, a pasted note, a competitor page); the title falls back to the uri. The founder's notes are
+     * kept as `notes` and read as the summary until the Source Watcher has read the source: `source.added` goes through
+     * the outbox with the row, then the `sourceWatch` workflow fetches it through the gateway, scores it against the
+     * spec and may raise a change proposal. When Temporal is unreachable the nightly sweep picks the source up instead.
+     */
+    add: write.input(AddSourceInput).mutation(async ({ ctx, input }) => {
+      const title = input.title?.trim() || input.uri?.trim() || "";
+      if (!title) throw new ValidationError("Give the source a title or a link");
+      const notes = (input.relevance?.notes ?? input.relevance?.summary ?? "").trim();
+      const source = await ctx.rls(async (tx) => {
+        const row = await repos.product.createSource(tx, ctx.businessId, {
+          kind: input.kind,
+          uri: input.uri?.trim() || null,
+          title: title.slice(0, 400),
+          contentRef: input.contentRef ?? null,
+          relevance: { ...(notes ? { notes, summary: notes.slice(0, SUMMARY_PREVIEW_CHARS) } : {}), addedBy: "user" },
+        });
+        await emit(tx, ctx, { type: "source.added", payload: { sourceId: row.id, kind: row.kind, title: row.title, uri: row.uri, addedBy: "user" } });
+        await audit(tx, ctx, { action: "product.sources.add", target: { kind: "source", id: row.id }, details: { kind: row.kind, uri: row.uri } });
+        return row;
+      });
+      const watch = await ctx.temporal.start(WORKFLOWS.sourceWatch, { workflowId: workflowIds.sourceWatch(source.id), args: [{ businessId: ctx.businessId, sourceIds: [source.id], reason: "added" }] });
+      return { ...source, watch: { queued: watch.queued, ...(watch.reason ? { reason: watch.reason } : {}) } };
+    }),
     remove: write.input(z.object({ sourceId: Id })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const source = await repos.product.archiveSource(tx, ctx.businessId, input.sourceId);
@@ -131,26 +187,30 @@ export const productRouter = router({
   proposals: router({
     list: read.input(z.object({ status: z.enum(["open", "accepted", "partially_accepted", "rejected"]).optional(), limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() })).query(({ ctx, input }) => ctx.rls((tx) => repos.product.listProposals(tx, ctx.businessId, input ?? {}))),
     get: read.input(z.object({ proposalId: Id })).query(({ ctx, input }) => ctx.rls((tx) => repos.product.getProposal(tx, ctx.businessId, input.proposalId))),
+    /**
+     * Accepting (or saving an edit of) a hunk writes it into its block or roadmap item; deciding the last pending hunk
+     * settles the proposal and, when anything was accepted, publishes the next spec version (`spec.version_published`).
+     */
     decideHunk: write.input(z.object({ hunkId: Id, decision: z.enum(HUNK_DECISIONS), edited: z.record(z.string(), z.unknown()).optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         if (input.decision === "pending") throw new ValidationError("Choose accept, reject or edited");
-        const proposal = await repos.product.decideHunk(tx, ctx.businessId, input.hunkId, input.decision, input.edited);
-        await audit(tx, ctx, { action: "product.proposals.decide_hunk", target: { kind: "proposal_hunk", id: input.hunkId }, details: { decision: input.decision, proposalId: proposal.id } });
-        return proposal;
+        const result = await repos.product.decideHunk(tx, ctx.businessId, input.hunkId, input.decision, input.edited, { decidedBy: ctx.userId });
+        await audit(tx, ctx, { action: "product.proposals.decide_hunk", target: { kind: "proposal_hunk", id: input.hunkId }, details: { decision: input.decision, proposalId: result.id, applied: appliedDetails(result.applied) } });
+        return settleResult(tx, ctx, result);
       }),
     ),
     acceptAll: write.input(z.object({ proposalId: Id })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
-        const proposal = await repos.product.acceptAll(tx, ctx.businessId, input.proposalId);
-        await audit(tx, ctx, { action: "product.proposals.accept_all", target: { kind: "proposal", id: proposal.id } });
-        return proposal;
+        const result = await repos.product.acceptAll(tx, ctx.businessId, input.proposalId, { decidedBy: ctx.userId });
+        await audit(tx, ctx, { action: "product.proposals.accept_all", target: { kind: "proposal", id: result.id }, details: { applied: appliedDetails(result.applied) } });
+        return settleResult(tx, ctx, result);
       }),
     ),
     reject: write.input(z.object({ proposalId: Id })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
-        const proposal = await repos.product.rejectProposal(tx, ctx.businessId, input.proposalId);
-        await audit(tx, ctx, { action: "product.proposals.reject", target: { kind: "proposal", id: proposal.id } });
-        return proposal;
+        const result = await repos.product.rejectProposal(tx, ctx.businessId, input.proposalId, { decidedBy: ctx.userId });
+        await audit(tx, ctx, { action: "product.proposals.reject", target: { kind: "proposal", id: result.id } });
+        return settleResult(tx, ctx, result);
       }),
     ),
   }),

@@ -68,6 +68,30 @@ test.describe("product", () => {
     await expect(notes).not.toContainText(/Not summari[sz]ed yet/);
     const unsummarised = notes.locator("[data-read-source]");
     if (await unsummarised.count()) await expect(unsummarised.first()).toHaveText(/Read the source/);
+    // The seeded sources carry what the Source Watcher writes: sections they back and the topics they raise.
+    const counts = await coverage.locator("span:last-child").allInnerTexts();
+    expect(counts.some((c) => Number(c) > 0), "at least one spec section is backed by a source").toBe(true);
+    await expect(page.getByRole("list", { name: "Topics" }).getByRole("listitem").first()).toBeVisible();
+  });
+
+  test("Sources: seeded sources say what they say and link spec blocks; a new link is read by the Source Watcher", async ({ page }) => {
+    await openProductTab(page, "sources");
+    const table = page.getByRole("grid", { name: "Sources" }).or(page.getByLabel("Sources", { exact: true })).first();
+    await expect(table).toBeVisible({ timeout: LONG });
+    // The seeded interview reads as the Source Watcher wrote it: a summary and the spec blocks it touches.
+    const interview = table.getByRole("row").filter({ hasText: "Customer interview: reactive-skin panel" });
+    await expect(interview).toContainText(/quarterly refill under £35/, { timeout: LONG });
+    expect(await interview.getByRole("button").count(), "the interview links spec blocks").toBeGreaterThan(0);
+    // Adding a link shows it at once, waiting for (or already read by) the Source Watcher; read, it says what the page says.
+    const suffix = Date.now().toString(36);
+    await page.getByRole("button", { name: "Add source" }).first().click();
+    const dialog = page.getByRole("dialog", { name: "Add a source" });
+    await dialog.getByLabel(/Link/).fill(`https://example.com/e2e-pricing-${suffix}`);
+    await dialog.getByRole("button", { name: "Add source" }).click();
+    await expect(dialog).toBeHidden({ timeout: LONG });
+    const added = table.getByRole("row").filter({ hasText: new RegExp(suffix, "i") });
+    await expect(added).toBeVisible({ timeout: LONG });
+    await expect(added).toContainText(/Waiting for the Source Watcher|per month/, { timeout: LONG });
   });
 
   test("Sources: the default view fits the panel at 1280", async ({ page }) => {

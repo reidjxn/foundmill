@@ -33,6 +33,28 @@ export function linkedBlocks(s: Pick<SourceRow, "relevance">): { blockId: string
   return Array.isArray(blocks) ? blocks.filter((b) => b && typeof b.blockId === "string").map((b) => ({ blockId: b.blockId, score: Number(b.score) || 0 })).sort((a, b) => b.score - a.score) : [];
 }
 
+export type ReadState = "read" | "waiting" | "unreachable" | "failed";
+
+/** Where the Source Watcher is with a source: read, still waiting, unreadable (with the reason) or failed (retried later). */
+export function readState(s: Pick<SourceRow, "relevance" | "fetchedAt">): { state: ReadState; reason: string | null } {
+  const watch = relevance(s).watch;
+  if (watch?.status === "unreachable") return { state: "unreachable", reason: typeof watch.reason === "string" ? watch.reason : null };
+  if (watch?.status === "failed") return { state: "failed", reason: typeof watch.reason === "string" ? watch.reason : null };
+  if (watch?.status === "scored" || s.fetchedAt) return { state: "read", reason: null };
+  return { state: "waiting", reason: null };
+}
+
+/** The "What it says" line: the summary, or where the read stands when there is none yet. */
+export function summaryLine(s: Pick<SourceRow, "relevance" | "fetchedAt">): string {
+  const summary = relevance(s).summary;
+  if (typeof summary === "string" && summary.trim()) return summary;
+  const { state, reason } = readState(s);
+  if (state === "unreachable") return `Could not read it: ${reason ?? "the page is not readable."}`;
+  if (state === "failed") return "The read did not finish; the Source Watcher tries again on the next sweep.";
+  if (state === "waiting") return "Waiting for the Source Watcher to read it";
+  return "";
+}
+
 export function topics(s: Pick<SourceRow, "relevance">): string[] {
   const t = relevance(s).topics;
   return Array.isArray(t) ? t.filter((x): x is string => typeof x === "string") : [];

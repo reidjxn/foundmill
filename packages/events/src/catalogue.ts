@@ -31,6 +31,7 @@ import {
   Money,
   Severity,
   SkillGroup,
+  SourceKind,
   TaskKind,
   TaskPhase,
   ValidationError,
@@ -175,6 +176,43 @@ const specVersionPublished = declareEvent(
   {
     doc: "An immutable spec version was published (after accepting proposal hunks or a manual publish). Development re-plans and Distribution reviews messaging when relevant.",
     consumers: ["composer", "source-watcher", "playbooks"],
+  },
+);
+
+const sourceAdded = declareEvent(
+  "source.added",
+  z.object({
+    sourceId: Id,
+    kind: SourceKind,
+    title: z.string().max(400),
+    uri: z.string().max(2048).nullable(),
+    /** Who added it: the founder by hand, an import, or a connector feeding the Sources tab. */
+    addedBy: z.enum(["user", "import", "connector", "agent"]),
+  }),
+  {
+    doc: "A source joined Product › Sources. The Source Watcher reads it (public pages through the gateway's web connector), scores it against the spec and may raise a change proposal.",
+    consumers: ["source-watcher", "stream"],
+    narratable: false,
+  },
+);
+
+const sourceScored = declareEvent(
+  "source.scored",
+  z.object({
+    sourceId: Id,
+    kind: SourceKind,
+    /** `scored`: read and scored; `unreachable`: the page could not be read (robots.txt, a login, an error); `failed`: the read did not finish (retried on the next sweep). */
+    status: z.enum(["scored", "unreachable", "failed"]),
+    /** Spec blocks the source is relevant to (score at or above the watcher's threshold), best first. */
+    relevantBlockIds: z.array(Id),
+    /** Best relevance score across the spec, 0 to 1 (an Estimate from the classifier); null when nothing was scored. */
+    topScore: Fraction.nullable(),
+    severity: Severity.nullable(),
+  }),
+  {
+    doc: "The Source Watcher read a source and wrote its relevance (summary, spec blocks, topics) so Sources and Research fill in; when a block is out of date because of it, `spec.proposal_created` follows.",
+    consumers: ["stream"],
+    narratable: false,
   },
 );
 
@@ -1112,6 +1150,8 @@ export const EVENTS = {
   "idea.committed": ideaCommitted,
   "spec.proposal_created": specProposalCreated,
   "spec.version_published": specVersionPublished,
+  "source.added": sourceAdded,
+  "source.scored": sourceScored,
   "task.started": taskStarted,
   "task.progressed": taskProgressed,
   "task.completed": taskCompleted,

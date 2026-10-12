@@ -116,6 +116,6 @@ describe("source helpers", () => {
     expect(validateSourceDraft({ kind: "doc", title: "", uri: "ftp://x", notes: "" })).toMatch(/http/);
     expect(validateSourceDraft({ kind: "doc", title: "", uri: "not a url", notes: "" })).toMatch(/URL/);
     expect(validateSourceDraft({ kind: "doc", title: "A note", uri: "", notes: "" })).toBeNull();
-    expect(sourceInput({ kind: "competitor", title: "", uri: " https://x.example ", notes: "cheap" })).toEqual({ kind: "competitor", uri: "https://x.example", title: "https://x.example", contentRef: null, relevance: { summary: "cheap" } });
+    expect(sourceInput({ kind: "competitor", title: "", uri: " https://x.example ", notes: "cheap" })).toEqual({ kind: "competitor", uri: "https://x.example", title: "https://x.example", contentRef: null, relevance: { notes: "cheap" } });
   });
 });

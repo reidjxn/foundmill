@@ -16,6 +16,7 @@ import { createMiscActivities } from "./misc";
 import { createPlanActivities } from "./plan";
 import { createScheduleActivities } from "./schedules";
 import { createSessionActivities } from "./session";
+import { createSourceWatcherActivities } from "./source-watcher";
 import { createTrainingActivities } from "./training";
 
 export function createActivities(deps: OrchestratorDeps) {
@@ -37,8 +38,10 @@ export function createActivities(deps: OrchestratorDeps) {
     ...createMiscActivities(deps),
     ...createFoundationsActivities(deps),
     ...createScheduleActivities(deps),
+    ...createSourceWatcherActivities(deps),
   };
 }
 
 export type Activities = ReturnType<typeof createActivities>;
 export * from "./types";
+export type { SourceWatchInput, SourceWatchReason, SourceWatchResult, SourceWatchSweepInput, SourceWatchWorkflowInput, SourceWatchWorkflowResult } from "./source-watcher";

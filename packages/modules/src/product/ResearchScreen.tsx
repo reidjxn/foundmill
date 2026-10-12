@@ -127,7 +127,7 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
   const list = useWidgetQuery<SourcesListResponse>("product.sources.list", { limit: 200 });
   const spec = useWidgetQuery<SpecGetResponse>("product.spec.get", {});
   const departments = useDepartments();
-  useBusinessEvents(() => list.refetch(), ["source.added", "spec.proposal_created"]);
+  useBusinessEvents(() => list.refetch(), ["source.added", "source.scored", "spec.proposal_created"]);
 
   const sources = useMemo(() => list.data?.items ?? [], [list.data]);
   const blocks = useMemo(() => spec.data?.blocks ?? [], [spec.data]);
