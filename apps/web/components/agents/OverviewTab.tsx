@@ -7,13 +7,17 @@
 import { useQuery } from "@tanstack/react-query";
 import { BookOpenText, CalendarClock, ShieldOff } from "lucide-react";
 import { useMemo } from "react";
+import { effectiveApprovalThresholdMinor } from "@foundmill/config";
 import { Chip, DevelopmentChart, Icon, KeyValueList, Markdown, Panel, PositionMap, ProvenanceChip, SkillGrid, TraitChips, formatMoney, formatRelative, useFormatters } from "@foundmill/dugout";
 import { useTRPC } from "@/lib/trpc-react";
+import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import type { TabProps } from "./AgentProfileScreen";
 import { autonomyFromAgent, currentVersion, departmentColour, developmentSeries, humaniseKey, latestPromotedRun, negotiationFromAgent, parseInstructions, positionFits, toSkillRows, traitsFor, trainingSessionMarks, wageLabel, whatIDo } from "./logic";
 
 export function OverviewTab({ businessId, profile, currency }: TabProps) {
   const { prefs: datePrefs, formatDateTime } = useFormatters();
+  const business = useBusiness();
+  const businessCurrency = useBusinessCurrency();
   const trpc = useTRPC();
   const catalogueQ = useQuery(trpc.team.agents.catalogue.queryOptions({ businessId }, { staleTime: 300_000 }));
   const agent = profile.agent;
@@ -30,6 +34,16 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
   const negotiation = negotiationFromAgent(agent.negotiation);
   const schedule = (agent.schedule ?? {}) as { cron?: string; triggers?: string[] };
   const money = (minor: number | null) => (minor === null ? "No cap" : formatMoney({ amountMinor: minor, currency }));
+  // The founder's "Spend cap per action" (Settings › Mode) lowers every agent's ask line, as the gateway applies it.
+  const businessCapMinor = business.data.business.spendCapMinor;
+  const capBinds = businessCapMinor !== null && effectiveApprovalThresholdMinor(autonomy.approvalThresholdMinor, businessCapMinor) === businessCapMinor && businessCapMinor !== autonomy.approvalThresholdMinor;
+  const asksAbove = capBinds ? (
+    <span className="inline-flex items-center gap-1.5" data-testid="asks-above-business-cap">
+      {formatMoney({ amountMinor: businessCapMinor, currency: businessCurrency })} <span className="text-small text-secondary">business cap</span>
+    </span>
+  ) : (
+    money(autonomy.approvalThresholdMinor)
+  );
 
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="agent-overview">
@@ -94,10 +108,11 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
           layout="rows"
           labelClassName="w-36"
           items={[
-            { label: "Wage cap", value: money(agent.wageCapMinor === null ? null : Number(agent.wageCapMinor)), numeric: true },
+            // A wage cap caps the agent's metered cost, so it is in US dollars like that cost (`profile.wage.currency`).
+            { label: "Wage cap", value: agent.wageCapMinor === null ? "No cap" : formatMoney({ amountMinor: Number(agent.wageCapMinor), currency: profile.wage.currency }), numeric: true },
             { label: wageLabel(profile.wage.period, undefined, datePrefs).replace(/^Wage/, "Spent"), value: <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: profile.wage.costMinor, currency: profile.wage.currency })} <ProvenanceChip kind="estimate" /></span>, numeric: true },
             { label: "Spend cap per action", value: money(autonomy.spendCapMinor), numeric: true },
-            { label: "Asks above", value: money(autonomy.approvalThresholdMinor), numeric: true },
+            { label: "Asks above", value: asksAbove, numeric: true },
             { label: "Autonomy", value: autonomy.mode === "inherit" ? "Business mode" : autonomy.mode === "lower" ? "Asks more often" : "Acts more freely" },
             { label: "Negotiation", value: negotiation.enabled ? `On · walk-away ${money(negotiation.walkAwayMinor)}` : "Off" },
             { label: "Schedule", value: schedule.cron ? <span className="font-mono text-mono">{schedule.cron}</span> : schedule.triggers?.length ? `${schedule.triggers.length} ${schedule.triggers.length === 1 ? "trigger" : "triggers"}` : <span className="inline-flex items-center gap-1 text-secondary"><Icon icon={CalendarClock} size="inline" /> On demand</span> },

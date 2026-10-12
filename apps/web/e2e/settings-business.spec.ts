@@ -75,4 +75,30 @@ test.describe("settings › mode: the spend cap per action", () => {
     await page.getByTestId("spend-cap-form").getByRole("button", { name: "Save cap" }).click();
     await expect(page.getByText("Spend cap removed")).toBeVisible({ timeout: LONG });
   });
+
+  test("a cap below an agent's own ask line is the line the agent's profile shows", async ({ page }) => {
+    await openBusiness(page, "settings/mode");
+    const form = page.getByTestId("spend-cap-form");
+    await expect(form).toBeVisible({ timeout: LONG });
+    await form.getByLabel("Spend cap per action").fill("50");
+    await form.getByRole("button", { name: "Save cap" }).click();
+    await expect(page.getByText("Spend cap saved")).toBeVisible({ timeout: LONG });
+    try {
+      // The Chief of Staff's template asks above 250, so the founder's 50 is the line the gateway applies.
+      await openBusiness(page, "d/team/squad");
+      const chief = page.locator("[data-testid=module-screen] a[href*='/agents/']").filter({ hasText: "Chief of Staff" }).first();
+      await expect(chief).toBeVisible({ timeout: LONG });
+      await page.goto((await chief.getAttribute("href"))!);
+      const line = page.getByTestId("contract-panel").getByTestId("asks-above-business-cap");
+      await expect(line).toContainText("50.00", { timeout: LONG });
+      await expect(line).toContainText("business cap");
+    } finally {
+      await openBusiness(page, "settings/mode");
+      const again = page.getByTestId("spend-cap-form");
+      await expect(again).toBeVisible({ timeout: LONG });
+      await again.getByLabel("Spend cap per action").fill("");
+      await again.getByRole("button", { name: "Save cap" }).click();
+      await expect(page.getByText("Spend cap removed")).toBeVisible({ timeout: LONG });
+    }
+  });
 });

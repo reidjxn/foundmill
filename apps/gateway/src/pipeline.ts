@@ -13,7 +13,7 @@
  * `/v1/call` and `/mcp/:connector` both run this function; nothing reaches a vendor any other way.
  */
 import { createHash } from "node:crypto";
-import { LIMITS } from "@foundmill/config";
+import { effectiveApprovalThresholdMinor } from "@foundmill/config";
 import { AppError, BUSINESS_MODES, NotFoundError, type BusinessMode } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import { bookUsage, codeRepositoryOf, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
@@ -177,8 +177,7 @@ export function agentAutonomy(agent: Pick<Agent, "autonomy">, businessMode: Busi
  * "caps copied from the business"). Undefined leaves the policy default.
  */
 export function businessApprovalThreshold(agentThresholdMinor: number | undefined, businessCapMinor: number | null): number | undefined {
-  if (businessCapMinor === null) return agentThresholdMinor;
-  return Math.min(agentThresholdMinor ?? LIMITS.approvalThresholdMinorDefault, businessCapMinor);
+  return effectiveApprovalThresholdMinor(agentThresholdMinor, businessCapMinor);
 }
 
 const argsHash = (args: unknown): string => createHash("sha256").update(canonical(args), "utf8").digest("hex").slice(0, 32);
