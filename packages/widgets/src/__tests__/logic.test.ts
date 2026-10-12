@@ -255,5 +255,8 @@ describe("text helpers", () => {
     expect(describeEvent({ type: "task.completed", payload: { title: "X", outcome: "partial" } })).toMatchObject({ title: "Done: X", statusWord: "Partial", tone: "warn" });
     expect(describeEvent({ type: "payment.received", payload: { amount: { amountMinor: 4900, currency: "EUR" }, firstPayment: true } }).title).toBe("Payment received · €49.00");
     expect(describeEvent({ type: "something.odd", payload: {} }).title).toBe("something odd");
+    // Another member archived a note or confirmed its plan (audit RUI-09): plain words, not the raw event type.
+    expect(describeEvent({ type: "inbox.item_updated", payload: { change: "archived" } })).toMatchObject({ title: "Inbox note archived", tone: "neutral" });
+    expect(describeEvent({ type: "inbox.item_updated", payload: { change: "plan_confirmed" } })).toMatchObject({ title: "Plan confirmed", statusWord: "Confirmed", tone: "good" });
   });
 });

@@ -216,7 +216,7 @@ export const EVENT_TYPES = [
   "mode.changed", "holiday.started", "holiday.ended",
   "filing.due", "contract.signed",
   "connection.requested", "message.received", "negotiation.message",
-  "cycle.started", "cycle.completed", "inbox.item_created", "decision.made",
+  "cycle.started", "cycle.completed", "inbox.item_created", "inbox.item_updated", "decision.made",
   "foundations.progressed",
   "conversation.message_posted",
 ] as const;

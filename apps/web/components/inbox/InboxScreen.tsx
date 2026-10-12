@@ -61,7 +61,7 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
 
   // --- list --------------------------------------------------------------------------------------------------------
   // The shell refetches the inbox on every event that adds or settles an item; polling every 30 s while the business's
-  // channel is not live, and a slow safety net while it is (an archive or a read by another member publishes no event).
+  // channel is not live, and a slow safety net while it is (a read by another member publishes no event).
   const streamLive = useBusinessLive(businessId);
   const listQ = useInfiniteQuery(
     trpc.inbox.list.infiniteQueryOptions(

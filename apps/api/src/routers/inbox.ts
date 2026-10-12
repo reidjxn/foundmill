@@ -3,7 +3,7 @@ import { InboxListFilter, repos } from "@foundmill/db";
 import { z } from "zod";
 import { confirmPlan, decideInboxItem, planContextFor } from "../services/decide";
 import { compilePlan, evaluatePlan, requiresConfirmation } from "../services/plans";
-import { Id, audit, router, sectionRead, sectionWrite } from "../trpc";
+import { Id, audit, emit, router, sectionRead, sectionWrite } from "../trpc";
 
 const inboxRead = sectionRead("inbox");
 const inboxWrite = sectionWrite("inbox");
@@ -43,6 +43,8 @@ export const inboxRouter = router({
   archive: inboxWrite.input(z.object({ itemId: Id })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const item = await repos.inbox.archive(tx, ctx.businessId, input.itemId);
+      // Other members' open Inbox refetches on it (audit RUI-09: they acted on an item that was already gone).
+      await emit(tx, ctx, { type: "inbox.item_updated", payload: { inboxItemId: item.id, change: "archived" } });
       await audit(tx, ctx, { action: "inbox.archive", target: { kind: "inbox_item", id: item.id } });
       return item;
     }),

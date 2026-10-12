@@ -73,6 +73,9 @@ export function describeEvent(e: WidgetEvent): Described {
       return { title: `Cycle ${String(p.cycleNumber ?? "")} ${str(p.outcome) ?? "completed"}`.replace("  ", " "), description: `${String(p.tasksCompleted ?? 0)} tasks done`, icon: CircleCheck, tone: "good" };
     case "inbox.item_created":
       return { title: str(p.subject) ?? "New inbox note", icon: MessageSquare, tone: p.blocksContinue ? "bad" : "neutral", statusWord: p.blocksContinue ? "Respond" : undefined };
+    case "inbox.item_updated":
+      // Ids only (no subject), so a member walled from the item learns nothing beyond the change itself.
+      return p.change === "plan_confirmed" ? { title: "Plan confirmed", icon: CircleCheck, tone: "good", statusWord: "Confirmed" } : { title: "Inbox note archived", icon: MessageSquare, tone: "neutral" };
     default:
       return { title: e.type.replace(/[._]/g, " "), icon: Radio, tone: "neutral" };
   }

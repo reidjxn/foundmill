@@ -3,7 +3,7 @@
  * registry/presets agree on keys, surfaces and LIVE-only rules.
  */
 import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { DateFormatProvider, formatDateShort } from "@foundmill/dugout";
 import { WidgetDataProvider } from "../data";
@@ -165,6 +165,21 @@ describe("navigation", () => {
     const { fake, container } = mount(getWidget("inbox_preview")!, dataResponses());
     (container.querySelector("[data-inbox-row]") as HTMLButtonElement).click();
     expect(fake.navigations[0]).toMatch(new RegExp(`^/b/${BID}/inbox/`));
+  });
+});
+
+describe("events", () => {
+  it("the inbox preview refetches when another member archives an item or confirms its plan (audit RUI-09)", () => {
+    const { fake } = mount(getWidget("inbox_preview")!, dataResponses());
+    const before = fake.refetches["inbox.list"] ?? 0;
+    act(() => {
+      fake.emit({ type: "inbox.item_updated", payload: { inboxItemId: "00000000-0000-4000-8000-000000000002", change: "archived", planId: null, followUpItemId: null } });
+    });
+    expect(fake.refetches["inbox.list"]).toBe(before + 1);
+    act(() => {
+      fake.emit({ type: "task.progressed", payload: {} });
+    });
+    expect(fake.refetches["inbox.list"]).toBe(before + 1);
   });
 });
 
