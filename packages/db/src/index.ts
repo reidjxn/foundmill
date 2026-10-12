@@ -5,6 +5,7 @@ export * from "./repos";
 export { BYOK_CONNECTOR_KEY, BYOK_CREDENTIAL_KIND, LEGACY_BYOK_CREDENTIAL_KIND, StoredApiKeySchema, loadByokApiKey, type ByokApiKey } from "./byok";
 export { bookUsage, chargesCredits, creditsState, CREDITS_EXHAUSTED_SUBJECT, type BookUsageResult, type CreditsOutcome } from "./billing";
 export { resumeBusinessAgents, stopBusinessAgents, type ResumeBusinessResult, type StopBusinessResult } from "./controls";
+export { APPROVAL_OPTIONS, approvalAction, approvalAmount, approvalArgsText, approvalItem, approvalOutcomeOf, approvalSection, approvalTaskTitle, closeApprovalItem, connectorLabel, isApprovalOption, openApprovalItem, toolWords, type ApprovalItemDetails, type ApprovalOptionId } from "./approvals";
 export { MOCK_TOP_UP_LABEL, settleCreditCheckout, type SettleCheckoutInput, type SettleCheckoutResult } from "./payments";
 export { assertBusinessAllowance, assertSeatAvailable, businessAllowance, concurrencyAllowance, OPEN_SESSION_WINDOW_HOURS, seatAllowance, type BusinessAllowance, type ConcurrencyAllowance } from "./tiers";
 export { MIGRATIONS_DIR, MIGRATIONS_SCHEMA, MIGRATIONS_TABLE, readJournal, readMigrations } from "./migrations";
