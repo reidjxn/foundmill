@@ -85,6 +85,46 @@ describe("deciding an approval's Inbox item", () => {
     expect(temporal.signals).toHaveLength(1);
   });
 
+  it("stores the answer even when the session cannot be told, and says so instead of claiming it carries on", async () => {
+    const g = await gatedCall({ title: "Backfill the usage table" });
+    const getHandle = temporal.workflow.getHandle;
+    temporal.workflow.getHandle = () => ({
+      async signal() {
+        throw new Error("temporal is down");
+      },
+    });
+    try {
+      const result = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: g.itemId, chosenOption: APPROVAL_OPTIONS.approve });
+      expect(result.approval).toMatchObject({ outcome: "approved", sessionWaiting: true, signalled: [{ queued: false, workflowId: `session:${g.sessionId}` }] });
+      expect(result.approval?.summary).toMatch(/could not be told right now: the answer is saved/);
+      expect(result.approval?.summary).not.toMatch(/carries on\.$/);
+      expect((await repos.approvals.get(hz.db, hz.A.businessId, g.approval.id)).outcome).toBe("approved");
+      expect(result.item).toMatchObject({ state: "answered", blocksContinue: false });
+    } finally {
+      temporal.workflow.getHandle = getHandle;
+    }
+  });
+
+  it("an open request cannot be archived away: an agent waits on it", async () => {
+    const g = await gatedCall({ title: "Tag the release" });
+    await expect(owner().inbox.archive({ businessId: hz.A.businessId, itemId: g.itemId })).rejects.toThrow(/Approve or reject this request/);
+    expect((await repos.inbox.get(hz.db, hz.A.businessId, g.itemId)).state).not.toBe("archived");
+    await owner().inbox.decide({ businessId: hz.A.businessId, itemId: g.itemId, chosenOption: APPROVAL_OPTIONS.reject });
+    // Answered, it files away like any other note.
+    expect(await owner().inbox.archive({ businessId: hz.A.businessId, itemId: g.itemId })).toMatchObject({ state: "archived" });
+  });
+
+  it("an approval settled some other way stops blocking Continue when someone tries to answer it", async () => {
+    const g = await gatedCall({ title: "Rotate the webhook secret" });
+    // A recorded hold that went on by itself, before its item was closed.
+    await repos.approvals.resolve(hz.db, hz.A.businessId, g.approval.id, { outcome: "expired", byKind: "system" });
+    const blockingBefore = await repos.inbox.countBlocking(hz.db, hz.A.businessId);
+    await expect(owner().inbox.decide({ businessId: hz.A.businessId, itemId: g.itemId, chosenOption: APPROVAL_OPTIONS.approve })).rejects.toThrow(/already expired/);
+    expect((await repos.inbox.get(hz.db, hz.A.businessId, g.itemId)).state).toBe("archived");
+    expect(await repos.inbox.countBlocking(hz.db, hz.A.businessId)).toBe(blockingBefore - 1);
+    expect(temporal.signals).toEqual([]);
+  });
+
   it("free text alone decides nothing on an approval's item, and never calls the plan compiler", async () => {
     const g = await gatedCall();
     await expect(owner().inbox.decide({ businessId: hz.A.businessId, itemId: g.itemId, freeText: "Go ahead and run the migration tonight" })).rejects.toThrow(/Choose Approve or Reject/);
@@ -126,6 +166,29 @@ describe("an answer that comes after the session ended", () => {
     expect(result.approval?.summary).toBe(`You approved ${agentName}'s request to run GitHub › run migration. “Index the usage events” runs again on the next cycle.`);
   });
 
+  it("no cycle starts over another note that still blocks Continue, or while the Chief of Staff runs the vacation; the task is ready for the next one", async () => {
+    await answerOtherBlockingNotes("");
+    const other = await repos.inbox.createItem(hz.db, hz.A.businessId, { type: "decision", from_agent_id: hz.A.agentId, subject: "Pick the launch week", body_md: "Which week?", status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: "w1", label: "Week 1", recommended: true, consequence: "Launch early", cost_minor: 0, reversible: true }, { id: "w2", label: "Week 2", recommended: false, consequence: "Launch later", cost_minor: 0, reversible: true }], free_text: false, expires_at: null }, blocks_continue: true, source_event_ids: [], entity_ids: [] });
+    const first = await gatedCall({ sessionEnded: true, title: "Wire the usage dashboard" });
+    const waiting = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: first.itemId, chosenOption: APPROVAL_OPTIONS.approve });
+    expect(temporal.starts).toEqual([]);
+    expect(waiting.approval?.cycle).toMatchObject({ started: false, reason: expect.stringMatching(/other Inbox item/) });
+    expect((await repos.tasks.get(hz.db, hz.A.businessId, first.taskId)).status).toBe("ready");
+    await repos.inbox.archive(hz.db, hz.A.businessId, other.id);
+
+    const started = new Date();
+    const vacation = await repos.holidays.start(hz.db, hz.A.businessId, { untilAt: new Date(started.getTime() + 86_400_000), authority: { decisionTypes: [] }, wakeEvents: [], startedAt: started, currency: "USD" });
+    try {
+      const second = await gatedCall({ sessionEnded: true, title: "Wire the churn dashboard" });
+      const away = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: second.itemId, chosenOption: APPROVAL_OPTIONS.approve });
+      expect(temporal.starts).toEqual([]);
+      expect(away.approval?.cycle).toMatchObject({ started: false, reason: expect.stringMatching(/vacation/) });
+      expect((await repos.tasks.get(hz.db, hz.A.businessId, second.taskId)).status).toBe("ready");
+    } finally {
+      await repos.holidays.end(hz.db, hz.A.businessId, vacation.id, { endedAt: new Date() });
+    }
+  });
+
   it("while the agents are stopped the answer is stored and nothing starts until they are resumed", async () => {
     await stopBusinessAgents(hz.db, hz.A.businessId, { reason: "kill_switch" });
     try {
@@ -139,6 +202,19 @@ describe("an answer that comes after the session ended", () => {
     } finally {
       await resumeBusinessAgents(hz.db, hz.A.businessId);
     }
+  });
+
+  it("a task already running again in another session is left to it: no block, no note, no cycle", async () => {
+    const g = await gatedCall({ sessionEnded: true, title: "Ship the export button" });
+    // Started again by hand before the founder answered the first session's request.
+    await repos.tasks.setStatus(hz.db, hz.A.businessId, g.taskId, "running", { force: true });
+    await repos.agents.createSession(hz.db, hz.A.businessId, { agentId: hz.A.agentId, taskId: g.taskId, modelKey: "sonnet" });
+    const result = await owner().inbox.decide({ businessId: hz.A.businessId, itemId: g.itemId, chosenOption: APPROVAL_OPTIONS.reject, freeText: "Not this sprint" });
+    expect((await repos.tasks.get(hz.db, hz.A.businessId, g.taskId)).status).toBe("running");
+    expect(result.followUp).toBeNull();
+    expect(result.approval).toMatchObject({ sessionWaiting: false, cycle: null, task: { id: g.taskId, status: "running" } });
+    expect(temporal.starts).toEqual([]);
+    expect(temporal.signals).toEqual([]);
   });
 
   it("Reject keeps the task blocked on the founder's answer and the Chief of Staff says so", async () => {
@@ -175,6 +251,13 @@ describe("who may answer", () => {
       await expect(member().inbox.decide({ businessId: hz.A.businessId, itemId: g.itemId, chosenOption: APPROVAL_OPTIONS.approve })).rejects.toThrow(/write access to finance/);
       expect((await repos.approvals.get(hz.db, hz.A.businessId, g.approval.id)).outcome).toBeNull();
       expect((await member().inbox.get({ businessId: hz.A.businessId, itemId: g.itemId })).approval?.canAnswer).toBe(false);
+      // Reading Finance, the member sees what the request is about in Team › approvals, without Approve and Reject.
+      expect((await member().team.approvals.pending({ businessId: hz.A.businessId })).find((a) => a.id === g.approval.id)).toMatchObject({ amountMinor: 1_000, currency: "USD", argsHidden: false, canAnswer: false });
+      // Walled from Finance altogether, neither the amount nor what the Stripe call would send.
+      await repos.memberships.setSectionPermissions(hz.db, hz.A.businessId, hz.A.memberId, { finance: "none" });
+      const listed = (await member().team.approvals.pending({ businessId: hz.A.businessId })).find((a) => a.id === g.approval.id);
+      expect(listed).toMatchObject({ amountMinor: null, currency: null, amountHidden: true, args: {}, argsHidden: true, canAnswer: false, section: "finance" });
+      expect(JSON.stringify(listed)).not.toContain("0019_idx.sql");
       // The same member answers a GitHub call.
       const gh = await gatedCall();
       await member().inbox.decide({ businessId: hz.A.businessId, itemId: gh.itemId, chosenOption: APPROVAL_OPTIONS.approve });

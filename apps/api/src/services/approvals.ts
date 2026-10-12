@@ -70,6 +70,9 @@ export function assertApprovalAccess(membership: SectionMembership, approval: Pi
 
 const quoted = (title: string) => `“${title.length > 80 ? `${title.slice(0, 77)}...` : title}”`;
 
+/** A task no longer waiting on the answer: running again in another session, or finished another way. */
+const MOVED_ON: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["running", "review", "merging", "done", "stopped"]);
+
 export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, approval: Approval, outcome: ApprovalOutcome, note: string | null): Promise<RecordedAnswer> {
   const resolved = await repos.approvals.resolve(tx, ctx.businessId, approval.id, { outcome, byKind: "user", byId: ctx.userId });
   const [agent, session, stop] = await Promise.all([
@@ -91,12 +94,16 @@ export async function recordApprovalAnswer(tx: DbTx, ctx: BusinessContext, appro
   let next: string;
   if (sessionWaiting) {
     next = outcome === "approved" ? `${who} carries on.` : `Nothing runs; ${who} is told not to retry it.`;
+  } else if (task && MOVED_ON.has(task.status)) {
+    // Another session already runs the task (started by hand), or it finished another way: it is left as it is. An
+    // approved call goes on under this approval when that session makes it; a rejected one asks again.
+    next = outcome === "approved" ? "It runs once, exactly as asked." : "Nothing runs.";
   } else if (task && outcome === "approved") {
     // The session's wait ran out before the answer: the task runs again, and its gated call goes on under this approval.
     if (task.status === "blocked") task = await repos.tasks.setStatus(tx, ctx.businessId, task.id, "ready", { force: true });
     wantsCycle = task.status === "ready";
     next = stop.stopped ? `${quoted(task.title)} runs again once the agents are resumed.` : `${quoted(task.title)} runs again on the next cycle.`;
-  } else if (task && outcome === "rejected" && task.status !== "done" && task.status !== "stopped") {
+  } else if (task && outcome === "rejected") {
     task = await repos.tasks.setStatus(tx, ctx.businessId, task.id, "blocked", { force: true });
     followUp = await rejectionNote(tx, ctx, approval, task, agent, action, note);
     next = `${quoted(task.title)} stays blocked until you start it again.`;
@@ -135,11 +142,14 @@ export async function deliverApprovalAnswer(ctx: BusinessContext, recorded: Reco
   const { approval, outcome } = recorded;
   const decision = { approvalId: approval.id, planActionId: approval.planActionId, outcome, by: ctx.userId, byKind: "user" as const, note: recorded.note };
   const signalled: TemporalResult[] = [];
-  if (recorded.sessionWaiting && approval.sessionId) signalled.push(await ctx.temporal.signal(workflowIds.session(approval.sessionId), SIGNALS.decision, decision));
+  const toSession = recorded.sessionWaiting && approval.sessionId ? await ctx.temporal.signal(workflowIds.session(approval.sessionId), SIGNALS.decision, decision) : null;
+  if (toSession) signalled.push(toSession);
   // A plan action or a channel launch waits in its own approvalWait (`approval:<id>`), not in a session.
   if (approval.planActionId || !approval.sessionId) signalled.push(await ctx.temporal.signal(workflowIds.approval(approval.id), SIGNALS.decision, decision));
   const cycle = recorded.wantsCycle ? await cycleForApprovedTask(ctx, recorded.stopped) : null;
-  return { approvalId: approval.id, outcome, summary: recorded.summary, signalled, sessionWaiting: recorded.sessionWaiting, task: recorded.task, cycle, note: recorded.followUp };
+  // The answer is stored either way; do not claim the session carries on when it could not be told.
+  const summary = toSession && !toSession.queued ? `${recorded.summary} The team could not be told right now: the answer is saved and the task goes on at the next cycle.` : recorded.summary;
+  return { approvalId: approval.id, outcome, summary, signalled, sessionWaiting: recorded.sessionWaiting, task: recorded.task, cycle, note: recorded.followUp };
 }
 
 /**
@@ -180,11 +190,36 @@ export async function resolveApproval(ctx: BusinessContext, input: { approvalId:
   return { ...recorded.approval, answer: await deliverApprovalAnswer(ctx, recorded) };
 }
 
-/** Team › approvals: the open approvals with who asks, for which task, and what. */
-export async function pendingApprovals(tx: DbTx, ctx: Pick<BusinessContext, "businessId">) {
+/**
+ * Team › approvals: the open approvals with who asks, for which task, and what. The walls of `approvalView` hold here
+ * too: a reader walled from Finance sees no amount (nor the arguments of a call that spends), and one who cannot read
+ * the section the call changes sees no arguments.
+ */
+export async function pendingApprovals(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "membership">) {
   const rows = await repos.approvals.pending(tx, ctx.businessId);
   const agents = new Map((await repos.agents.list(tx, ctx.businessId, { limit: 500 })).items.map((a) => [a.id, a.name]));
-  return Promise.all(rows.map(async (a) => ({ ...a, agentName: a.agentId ? (agents.get(a.agentId) ?? null) : null, taskTitle: await approvalTaskTitle(tx, ctx.businessId, a), action: approvalAction(a), section: approvalSection(a) })));
+  const financeWalled = !hasSectionAccess(ctx.membership, "finance", "read");
+  return Promise.all(
+    rows.map(async (a) => {
+      const section = approvalSection(a);
+      const spends = (a.amountMinor ?? 0) > 0;
+      const argsHidden = (section !== null && !hasSectionAccess(ctx.membership, section, "read")) || (financeWalled && spends);
+      return {
+        ...a,
+        args: argsHidden ? {} : a.args,
+        argsHidden,
+        amountMinor: financeWalled ? null : a.amountMinor,
+        currency: financeWalled ? null : a.currency,
+        amountHidden: financeWalled && spends,
+        reasons: financeWalled ? a.reasons.map(maskFinance) : a.reasons,
+        agentName: a.agentId ? (agents.get(a.agentId) ?? null) : null,
+        taskTitle: await approvalTaskTitle(tx, ctx.businessId, a),
+        action: approvalAction(a),
+        section,
+        canAnswer: hasSectionAccess(ctx.membership, section ?? "inbox", "write"),
+      };
+    }),
+  );
 }
 
 /**
@@ -216,7 +251,8 @@ export async function approvalView(tx: DbTx, ctx: Pick<BusinessContext, "busines
     argsHidden: argsWalled,
     amount: spends && !financeWalled ? { amountMinor: approval.amountMinor!, currency: approval.currency! } : null,
     amountHidden: spends && financeWalled,
-    reasons: approval.reasons,
+    // "spend above the per-decision cap (£500.00)" is a figure too.
+    reasons: financeWalled ? approval.reasons.map(maskFinance) : approval.reasons,
     agent: agent ? { id: agent.id, name: agent.name } : null,
     task: task ? { id: task.id, title: task.title, status: task.status } : null,
     sessionWaiting: session !== null && session.endedAt === null,

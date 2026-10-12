@@ -11,7 +11,7 @@
  * decision reaches the session or wait that asked.
  */
 import { classifyFounderText } from "@foundmill/agents";
-import { approvalOutcomeOf, repos, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
+import { approvalOutcomeOf, closeApprovalItem, repos, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
 import { ValidationError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
@@ -150,7 +150,12 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
 async function decideApprovalItem(ctx: BusinessContext, item: InboxItem, approval: Approval, input: { chosenOption: string | null; freeText: string | null }): Promise<DecideItemResult> {
   const outcome = approvalOutcomeOf(input.chosenOption);
   if (!outcome) throw new ValidationError("Choose Approve or Reject: this note asks about one call an agent wants to make.", { itemId: item.id, approvalId: approval.id });
-  if (approval.outcome !== null) throw new ValidationError(`This request was already ${approval.outcome}`, { itemId: item.id, approvalId: approval.id });
+  if (approval.outcome !== null) {
+    // Settled some other way (a hold that went on by itself, an expiry, a plan): the note stops asking and stops
+    // blocking Continue, instead of waiting for an answer nobody can give any more.
+    await ctx.rls((tx) => closeApprovalItem(tx, ctx.businessId, approval));
+    throw new ValidationError(`This request was already ${approval.outcome}`, { itemId: item.id, approvalId: approval.id });
+  }
   // Section walls hold here too: approving a Stripe call needs Finance write, a GitHub call Development write.
   assertApprovalAccess(ctx.membership, approval);
   const note = input.freeText?.slice(0, 2000) ?? null;

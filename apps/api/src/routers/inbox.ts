@@ -1,5 +1,6 @@
 /** inbox.list/get/refresh/decide/markRead/archive + plan.preview/confirm/status (BUILD §11.3). */
 import { InboxListFilter, isApprovalOption, repos } from "@foundmill/db";
+import { ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { approvalView } from "../services/approvals";
 import { confirmPlan, decideInboxItem, planContextFor } from "../services/decide";
@@ -62,6 +63,10 @@ export const inboxRouter = router({
 
   archive: inboxWrite.input(z.object({ itemId: Id })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
+      // An agent's request still waiting for an answer is answered, not filed away: archived, nobody could approve or
+      // reject it any more, and its task would wait on it for good.
+      const approval = await repos.approvals.forInboxItem(tx, ctx.businessId, input.itemId);
+      if (approval && approval.outcome === null) throw new ValidationError("Approve or reject this request: an agent is waiting on it.", { itemId: input.itemId, approvalId: approval.id });
       const item = await repos.inbox.archive(tx, ctx.businessId, input.itemId);
       await audit(tx, ctx, { action: "inbox.archive", target: { kind: "inbox_item", id: item.id } });
       return item;
