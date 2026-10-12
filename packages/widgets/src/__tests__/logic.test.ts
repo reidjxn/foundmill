@@ -16,6 +16,7 @@ import { groupByHorizon, roadmapStatus, taskProgress } from "../widgets/roadmap-
 import { sessionsToPulseCells } from "../widgets/squad-pulse";
 import { boardWords, runwayTile, squadHealth, statusTiles } from "../widgets/status-strip";
 import { milestoneKey, trophyCards } from "../widgets/trophy-cabinet";
+import { moduleHref } from "../shared/departments";
 import { routes } from "../shared/routes";
 import { BID, TODAY, channelMetrics, channels, departments, finance, leaderboardEntries, leaderboards, ribbon, roadmap, sessions, team } from "./fixtures";
 
@@ -255,5 +256,17 @@ describe("text helpers", () => {
     expect(describeEvent({ type: "task.completed", payload: { title: "X", outcome: "partial" } })).toMatchObject({ title: "Done: X", statusWord: "Partial", tone: "warn" });
     expect(describeEvent({ type: "payment.received", payload: { amount: { amountMinor: 4900, currency: "EUR" }, firstPayment: true } }).title).toBe("Payment received · €49.00");
     expect(describeEvent({ type: "something.odd", payload: {} }).title).toBe("something odd");
+  });
+});
+
+describe("moduleHref", () => {
+  it("links a tab to the first department over the module that shows it (Operations shows only Specialists and Plan)", () => {
+    const dev = departments[0]!;
+    const ops = { ...dev, id: "ops", slug: "operations", name: "Formulation Lab", position: -1, tabs: [{ id: "s", slug: "specialists", title: "Specialists", position: 0 }, { id: "p", slug: "plan", title: "Plan", position: 1 }] };
+    const rows = [ops, dev];
+    expect(moduleHref(BID, rows, "development", "training-ground")).toBe(routes.department(BID, dev.slug, "training-ground"));
+    expect(moduleHref(BID, rows, "development", "specialists")).toBe(routes.department(BID, "operations", "specialists"));
+    // Without a tab, the first department over the module and its first tab.
+    expect(moduleHref(BID, rows, "development")).toBe(routes.department(BID, "operations", "specialists"));
   });
 });

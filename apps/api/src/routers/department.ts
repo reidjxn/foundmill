@@ -1,5 +1,5 @@
 /** department.list/create/update/merge/split/reorder/archive/resetDefaults + screen.* + dashboard.* (BUILD §11.2, §11.13). */
-import { getArchetypeSeed } from "@foundmill/agents";
+import { departmentTabs, getArchetypeSeed } from "@foundmill/agents";
 import { CreateDepartmentInput, repos, ScreenLayout, UpdateDepartmentInput } from "@foundmill/db";
 import { MODULE_KEYS, MODULE_TABS, ValidationError, type ModuleKey } from "@foundmill/shared";
 
@@ -115,8 +115,8 @@ export const departmentRouter = router({
           restored.push(match.id);
         } else {
           const created = await repos.departments.create(tx, ctx.businessId, { name: d.name, slug, icon: d.icon, colourToken: d.colourToken, position: d.position, moduleKeys: d.moduleKeys, budgetMinor: d.budgetMinor });
-          let position = 0;
-          for (const moduleKey of d.moduleKeys) for (const tab of tabsFor(moduleKey)) await repos.screens.upsert(tx, ctx.businessId, { departmentId: created.id, tabSlug: tab.slug, title: tab.title, position: position++, layout: { widgets: [{ key: `module:${moduleKey}/${tab.slug}`, x: 0, y: 0, w: 12, h: 60, settings: {} }] } });
+          // The archetype's own tabs (Operations: Specialists and Plan only), as at Commit.
+          for (const [position, tab] of departmentTabs(d).entries()) await repos.screens.upsert(tx, ctx.businessId, { departmentId: created.id, tabSlug: tab.slug, title: tab.title, position, layout: { widgets: [{ key: `module:${tab.moduleKey}/${tab.slug}`, x: 0, y: 0, w: 12, h: 60, settings: {} }] } });
           restored.push(created.id);
         }
       }

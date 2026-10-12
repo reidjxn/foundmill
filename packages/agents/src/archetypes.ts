@@ -7,7 +7,7 @@
  * founder can rename (AC-11.13.1); code routes by `slug`, `moduleKeys` and template keys, never by name.
  */
 import { LIMITS } from "@foundmill/config";
-import { ARCHETYPES, type Archetype, ARCHETYPE_LABELS, type ChannelKey, type DeptColourToken, type ModuleKey } from "@foundmill/shared";
+import { ARCHETYPES, type Archetype, ARCHETYPE_LABELS, type ChannelKey, type DeptColourToken, MODULE_TABS, type ModuleKey } from "@foundmill/shared";
 import { ArchetypeSeed, type BoardDecision, type DepartmentSeed, type FirstCycleTask } from "./types";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -20,6 +20,8 @@ interface DepartmentDefault {
   icon: string;
   colourToken: DeptColourToken;
   moduleKeys: ModuleKey[];
+  /** A subset of the modules' tabs, in order (see `DepartmentSeed.tabSlugs`); absent: every tab. */
+  tabSlugs?: string[];
   leadTemplateKey: string;
 }
 
@@ -32,15 +34,29 @@ export const DEPARTMENT_DEFAULTS: Readonly<Record<ModuleKey, DepartmentDefault>>
   legal: { slug: "legal", name: "Legal", icon: "scale", colourToken: "dept-6", moduleKeys: ["legal"], leadTemplateKey: "legal_lead" },
 });
 
-/** Physical-product archetypes get an Operations department (specialists lead) over the development module's Specialists tab. */
+/**
+ * Physical-product archetypes get an Operations department (specialists lead) over the development module's Specialists
+ * and Plan tabs only: Live sessions, Pull requests, Code and Environments are Development's (DB-11).
+ */
 const OPERATIONS_DEPARTMENT: DepartmentDefault = {
   slug: "operations",
   name: "Operations",
   icon: "factory",
   colourToken: "dept-7",
   moduleKeys: ["development"],
+  tabSlugs: ["specialists", "plan"],
   leadTemplateKey: "operations_lead",
 };
+
+/**
+ * The module tabs a department shows, in order: every tab of each of its modules, or the department's own subset
+ * (`tabSlugs`, a slug no module of the department has is skipped). Seeds and Commit build screens from this.
+ */
+export function departmentTabs(dept: Pick<DepartmentSeed, "moduleKeys" | "tabSlugs">): { moduleKey: ModuleKey; slug: string; title: string }[] {
+  const all = dept.moduleKeys.flatMap((moduleKey) => (MODULE_TABS[moduleKey] ?? []).map((tab) => ({ moduleKey, slug: tab.slug, title: tab.title })));
+  if (!dept.tabSlugs) return all;
+  return dept.tabSlugs.flatMap((slug) => all.filter((t) => t.slug === slug).slice(0, 1));
+}
 
 /** Utilities every business runs; they are hired into Team so the squad table shows them, but they belong to no department screen. */
 export const UTILITY_TEMPLATE_KEYS: readonly string[] = Object.freeze(["entity_linker", "classifier", "categoriser", "triage", "moderation"]);
@@ -74,6 +90,7 @@ function departments(specs: DeptSpec[]): DepartmentSeed[] {
     colourToken: s.base.colourToken,
     position: i,
     moduleKeys: s.base.moduleKeys,
+    ...(s.base.tabSlugs ? { tabSlugs: s.base.tabSlugs } : {}),
     leadTemplateKey: s.base.leadTemplateKey,
     memberTemplateKeys: s.members,
     budgetMinor: s.budgetMinor ?? DEFAULT_BUDGET_MINOR[s.base.slug] ?? 10_000,

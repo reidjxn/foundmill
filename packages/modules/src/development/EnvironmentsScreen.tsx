@@ -186,7 +186,8 @@ export function toEnvironmentRows(tasks: readonly TaskRow[], prs: PrsListRespons
     rows.set(branch, { id: branch, branch, branchName: readableBranch(branch, t.title), taskId: t.id, title: t.title, taskStatus: t.status, agentName: agent?.name ?? "Unassigned", environment: d?.environment ?? "preview", state: stateFor(t.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });
   }
   for (const pr of prs?.open ?? []) {
-    if (rows.has(pr.branch)) continue;
+    // A non-code task never has a branch to preview, whatever the API sends.
+    if (rows.has(pr.branch) || (pr.kind !== undefined && pr.kind !== "code")) continue;
     const d = latest.get(pr.branch);
     const agent = pr.agentId ? agents.get(pr.agentId) : undefined;
     rows.set(pr.branch, { id: pr.branch, branch: pr.branch, branchName: readableBranch(pr.branch, pr.title), taskId: pr.taskId, title: pr.title, taskStatus: pr.status, agentName: agent?.name ?? "Unassigned", environment: d?.environment ?? "preview", state: stateFor(pr.status, d), url: d?.url ?? null, provider: d?.provider ?? null, commitSha: d?.commitSha ?? null, deployedAt: d?.occurredAt ?? null });

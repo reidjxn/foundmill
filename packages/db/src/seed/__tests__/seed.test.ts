@@ -50,7 +50,7 @@ describe("seedDemo on PGlite", () => {
     expect(await repos.founders.get(db, result.owner.userId)).not.toBeNull();
   });
 
-  it("builds the departments of each archetype, renamed for Northwind, each with every module tab", async () => {
+  it("builds the departments of each archetype, renamed for Northwind, each with its module tabs", async () => {
     const nw = await repos.departments.list(db, NORTHWIND_BUSINESS_ID);
     const lg = await repos.departments.list(db, LEDGERLY_BUSINESS_ID);
     expect(nw).toHaveLength(7);
@@ -60,9 +60,13 @@ describe("seedDemo on PGlite", () => {
     for (const d of [...nw, ...lg]) {
       expect(d.leadAgentId).toBeTruthy();
       const screens = await repos.screens.list(db, d.businessId, d.id);
-      expect(screens.length).toBeGreaterThanOrEqual(5);
+      // Operations runs on the development module but only needs its Specialists and Plan tabs (DB-11).
+      expect(screens.length).toBeGreaterThanOrEqual(d.slug === "operations" ? 2 : 5);
       expect(screens.every((sc) => (sc.layout.widgets[0] as { key: string }).key.startsWith("module:"))).toBe(true);
     }
+    // The Formulation Lab does not duplicate Development's six tabs.
+    const labScreens = await repos.screens.list(db, NORTHWIND_BUSINESS_ID, nw.find((d) => d.slug === "operations")!.id);
+    expect(labScreens.map((s) => s.tabSlug)).toEqual(["specialists", "plan"]);
     // Formulation Lab holds the sourcing and formulation specialists.
     const lab = nw.find((d) => d.slug === "operations")!;
     const labAgents = await repos.agents.list(db, NORTHWIND_BUSINESS_ID, { departmentId: lab.id, limit: 50 });

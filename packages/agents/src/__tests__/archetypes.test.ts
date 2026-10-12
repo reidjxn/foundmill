@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ARCHETYPES, CHANNEL_KEYS, MODULE_KEYS } from "@foundmill/shared";
-import { ARCHETYPE_SEEDS, ARCHETYPE_SEED_LIST, DEPARTMENT_DEFAULTS, getArchetypeSeed, templateKeysForArchetype } from "../archetypes";
+import { ARCHETYPES, CHANNEL_KEYS, MODULE_KEYS, MODULE_TABS } from "@foundmill/shared";
+import { ARCHETYPE_SEEDS, ARCHETYPE_SEED_LIST, DEPARTMENT_DEFAULTS, departmentTabs, getArchetypeSeed, templateKeysForArchetype } from "../archetypes";
 import { ArchetypeSeed } from "../types";
 import { getTemplate, hasTemplate } from "../registry";
 
@@ -75,6 +75,22 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
       expect(seed.departments.some((d) => d.slug === "operations")).toBe(false);
       expect(seed.specOutline).not.toContain("Manufacturing");
     }
+  });
+
+  it("Operations shows the development module's Specialists and Plan, never a second copy of Development (DB-11)", () => {
+    for (const a of ["dtc_physical", "hardware"] as const) {
+      const seed = getArchetypeSeed(a);
+      const ops = seed.departments.find((d) => d.slug === "operations")!;
+      expect(departmentTabs(ops)).toEqual([
+        { moduleKey: "development", slug: "specialists", title: "Specialists" },
+        { moduleKey: "development", slug: "plan", title: "Plan" },
+      ]);
+      const dev = seed.departments.find((d) => d.slug === "development")!;
+      expect(departmentTabs(dev).map((t) => t.slug)).toEqual(MODULE_TABS.development.map((t) => t.slug));
+    }
+    // Every other department shows all of its modules' tabs; an unknown slug in a subset is skipped.
+    for (const seed of ARCHETYPE_SEED_LIST) for (const d of seed.departments.filter((x) => x.slug !== "operations")) expect(departmentTabs(d)).toHaveLength(d.moduleKeys.reduce((n, k) => n + MODULE_TABS[k].length, 0));
+    expect(departmentTabs({ moduleKeys: ["development"], tabSlugs: ["plan", "nope"] }).map((t) => t.slug)).toEqual(["plan"]);
   });
 
   it("every seed has the base outline, a spec task, a channel scoring task, a finance forecast and a legal scan", () => {

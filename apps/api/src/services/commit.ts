@@ -14,11 +14,11 @@
  * answers with the business the first commit created (`alreadyCommitted: true`), read back from that commit's audit row.
  */
 import { randomUUID } from "node:crypto";
-import { getArchetypeSeed, getTemplate } from "@foundmill/agents";
+import { departmentTabs, getArchetypeSeed, getTemplate } from "@foundmill/agents";
 import { includedCreditsMinor, initialModelBilling } from "@foundmill/config";
 import { assertBusinessAllowance, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
-import { CHANNEL_KEYS, CHANNEL_META, DEFAULT_BUSINESS_MODE, MODULE_TABS, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, DEFAULT_BUSINESS_MODE, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import { PRESET_LAYOUTS } from "../presets";
 import { checkLogoChoice, type LogoChoice } from "./logo";
 import { hireMany, type PlannedHire } from "./squad";
@@ -193,19 +193,17 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     await repos.departments.addMembers(tx, businessId, members);
     for (const [departmentId, leadId] of leadByDepartment) await repos.departments.setLead(tx, businessId, departmentId, leadId);
 
-    // Module screens: one tab per module default (BUILD §6.3) rendered by the module's full-screen widget.
+    // Module screens: one tab per module default (BUILD §6.3) rendered by the module's full-screen widget, or the
+    // department's own subset (Operations: Specialists and Plan, not a copy of Development).
     const screens = seed.departments.flatMap((d) => {
       const departmentId = departmentIdBySlug.get(d.slug)!;
-      let position = 0;
-      return d.moduleKeys.flatMap((moduleKey) =>
-        MODULE_TABS[moduleKey].map((tab) => ({
-          departmentId,
-          tabSlug: tab.slug,
-          title: tab.title,
-          position: position++,
-          layout: { widgets: [{ key: `module:${moduleKey}/${tab.slug}`, x: 0, y: 0, w: 12, h: 60, settings: {} }] },
-        })),
-      );
+      return departmentTabs(d).map((tab, position) => ({
+        departmentId,
+        tabSlug: tab.slug,
+        title: tab.title,
+        position,
+        layout: { widgets: [{ key: `module:${tab.moduleKey}/${tab.slug}`, x: 0, y: 0, w: 12, h: 60, settings: {} }] },
+      }));
     });
     await repos.screens.upsertMany(tx, businessId, screens);
 

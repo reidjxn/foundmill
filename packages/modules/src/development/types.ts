@@ -102,10 +102,14 @@ export interface OpenPrRow {
   status: TaskStatus;
   branch: string;
   agentId: string | null;
+  /** Always "code" from the API; anything else has no branch and is never shown as a pull request. */
+  kind?: TaskKind;
 }
 
 export interface MergedPrRow {
-  eventId: string;
+  /** The `pr.merged` event GitHub reported; null for a merge the platform's own merge queue landed (a done code task). */
+  eventId: string | null;
+  source?: "github" | "merge_queue";
   occurredAt: Iso;
   taskId?: string | null;
   repo?: string;
