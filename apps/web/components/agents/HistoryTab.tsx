@@ -9,7 +9,7 @@ import { useMemo } from "react";
 import { Panel, StatusStrip, Timeline, formatMoney, type MetricTileProps, type TimelineEvent } from "@foundmill/dugout";
 import type { TabProps } from "./AgentProfileScreen";
 import { MODEL_LABELS } from "@foundmill/dugout";
-import { RUN_PHASE_LABEL, isRetestVersion, outcomeWord, sessionRows, toIso } from "./logic";
+import { RUN_PHASE_LABEL, isRetestRun, isRetestVersion, outcomeWord, sessionRows, toIso } from "./logic";
 import { formatNumber } from "@/lib/format";
 
 /** "opus" → "Opus" (the model's display name). */
@@ -30,8 +30,7 @@ export function historyEvents(profile: TabProps["profile"], currency: string): T
   }
   for (const r of profile.trainingRuns) {
     const n = Object.keys(r.results ?? {}).length;
-    const candidate = profile.versions.find((v) => v.id === r.toVersionId);
-    const kind = r.fromVersionId === r.toVersionId || (candidate && isRetestVersion(candidate)) ? "Retest" : "Training";
+    const kind = isRetestRun(r, profile.versions) ? "Retest" : "Training";
     events.push({
       id: `run-${r.id}`,
       at: toIso(r.endedAt ?? r.startedAt ?? r.createdAt) ?? new Date(0),

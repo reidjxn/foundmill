@@ -26,7 +26,7 @@ import {
   currentVersion,
   grantsEqual,
   instructionVersions,
-  isRetestVersion,
+  isRetestRun,
   latestDraft,
   modelOptions,
   parseInstructions,
@@ -136,8 +136,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
     trpc.agent.training.discard.mutationOptions({
       onSuccess: (r) => {
         // A model change applies at once; discarding its retest keeps the live version but not the old model.
-        const candidate = profile.versions.find((v) => v.id === r.toVersionId);
-        setNotice({ tone: "info", text: candidate && isRetestVersion(candidate) ? `Retest discarded. The live version is unchanged; ${agent.name} keeps working on ${MODEL_LABELS[agent.modelKey]} until you change the model back.` : "Draft discarded. The live version is unchanged." });
+        setNotice({ tone: "info", text: isRetestRun(r, profile.versions) ? `Retest discarded. The live version is unchanged; ${agent.name} keeps working on ${MODEL_LABELS[agent.modelKey]} until you change the model back.` : "Draft discarded. The live version is unchanged." });
         void invalidateAgent();
         refetch();
       },
@@ -146,8 +145,9 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
   );
   const cancel = useMutation(
     trpc.agent.training.cancel.mutationOptions({
-      onSuccess: () => {
-        setNotice({ tone: "info", text: "Training canceled. The live version is unchanged." });
+      onSuccess: (r) => {
+        // Canceling a retest does not undo the model change it was scoring; say so, as Discard does.
+        setNotice({ tone: "info", text: isRetestRun(r.run, profile.versions) ? `Retest canceled. The live version is unchanged; ${agent.name} keeps working on ${MODEL_LABELS[agent.modelKey]}.` : "Training canceled. The live version is unchanged." });
         void invalidateAgent();
         refetch();
       },

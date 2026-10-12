@@ -5,6 +5,7 @@ import {
   autonomyFromAgent,
   autonomyToInput,
   formatMajor,
+  isRetestRun,
   latestDraft,
   negotiationDraft,
   parsePercent,
@@ -162,6 +163,12 @@ describe("training flow", () => {
     expect(latestDraft([v(1, "live", "system"), v(2, "draft", "user"), v(3, "draft", "system")])).toMatchObject({ id: "v2" });
     expect(latestDraft([v(1, "live", "system"), v(2, "draft", "system")])).toBeNull();
     expect(latestDraft([v(1, "live", "system"), v(2, "draft", "agent")])).toMatchObject({ id: "v2" });
+    // A retest scores a retest copy, or (the stuck old shape) the live version itself; a founder's draft run is training.
+    const versions = [v(1, "live", "system"), v(2, "draft", "user"), v(3, "draft", "system")];
+    expect(isRetestRun({ fromVersionId: "v1", toVersionId: "v3" }, versions)).toBe(true);
+    expect(isRetestRun({ fromVersionId: "v1", toVersionId: "v1" }, versions)).toBe(true);
+    expect(isRetestRun({ fromVersionId: "v1", toVersionId: "v2" }, versions)).toBe(false);
+    expect(isRetestRun({ fromVersionId: null, toVersionId: null }, versions)).toBe(false);
   });
   it("progress is phase-based, never token-based", () => {
     expect(runProgress({ status: "queued", startedAt: null, createdAt: now }, 3, now)).toBe(0.05);
@@ -178,6 +185,9 @@ describe("training flow", () => {
     const series = developmentSeries(toSkillRows([skill({ skillKey: "testing", displayed: 12 })]), runs, now);
     expect(series[0]!.points.map((p) => p.value)).toEqual([10, 12, 12, 12]);
     expect(trainingSessionMarks(runs).map((m) => m.promoted)).toEqual([true, false]);
+    // A retest withdrawn by a later model change keeps its results but never applied: drawn like a discard.
+    const withdrawn = run({ id: "r3", status: "cancelled", results: { testing: { old: 12, new: 16 } }, endedAt: new Date("2026-09-25") });
+    expect(developmentSeries(toSkillRows([skill({ skillKey: "testing", displayed: 12 })]), [...runs, withdrawn], now)[0]!.points.map((p) => p.value)).toEqual([10, 12, 12, 12, 12]);
   });
 });
 

@@ -174,7 +174,8 @@ export function developmentSeries(skills: readonly SkillRow[], runs: readonly Tr
       const at = toIso(r.endedAt ?? r.createdAt);
       if (!res || !at) continue;
       if (points.length === 0) points.push({ at: toIso(r.startedAt ?? r.createdAt) ?? at, value: clampRating(res.old) });
-      points.push({ at, value: clampRating(r.decision === "promoted" || r.decision === null ? res.new : res.old) });
+      // A canceled run never applied, like a discarded one: a retest withdrawn by a later model change keeps its results.
+      points.push({ at, value: clampRating(r.decision === "promoted" || (r.decision === null && r.status !== "cancelled") ? res.new : res.old) });
     }
     points.push({ at: now.toISOString(), value: s.value });
     return { skillId: s.id, name: s.name, points };
@@ -225,6 +226,13 @@ export function currentVersion(profile: Pick<AgentProfile, "agent" | "versions">
  */
 export function isRetestVersion(v: Pick<AgentVersionRecord, "createdByKind" | "version">): boolean {
   return v.createdByKind === "system" && v.version > 1;
+}
+
+/** A run that retests a model change: it scores a retest copy, or (the old shape, never started) the live version itself. */
+export function isRetestRun(run: Pick<TrainingRunRecord, "fromVersionId" | "toVersionId">, versions: readonly AgentVersionRecord[]): boolean {
+  if (run.toVersionId && run.fromVersionId === run.toVersionId) return true;
+  const candidate = versions.find((v) => v.id === run.toVersionId);
+  return !!candidate && isRetestVersion(candidate);
 }
 
 /** The newest draft the founder or the Coach wrote: the editing base. A retest copy never is, so it cannot replace a draft in progress. */

@@ -57,7 +57,8 @@ test.describe("agent profile", () => {
         await expect(page.locator(`[data-testid=training-progress][data-run-id="${runId}"]`)).toHaveCount(0, { timeout: LONG });
       }
       await expect(progress).toHaveCount(0);
-      await expect(page.getByTestId("training-notice")).toContainText("Training canceled. The live version is unchanged.");
+      // Canceling the retest does not undo the model change it was scoring; the notice says so.
+      await expect(page.getByTestId("training-notice")).toContainText("Retest canceled. The live version is unchanged;");
     };
     const applyModel = async (pick: "other" | string, outcome: RegExp) => {
       await page.getByTestId("header-model-chip").click();
