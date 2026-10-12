@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chipFilters, chipsToOperators, crmFilterFields, mergeChips, parseCrmQuery, parseNaturalLanguage, toListFilter, toSearchInput } from "../search";
+import { chip, chipFilters, chipsToOperators, crmFilterFields, mergeChips, parseCrmQuery, parseNaturalLanguage, roleKey, toListFilter, toSearchInput } from "../search";
 
 const values = (chips: { field: string; value?: unknown }[]) => Object.fromEntries(chips.map((c) => [c.field, c.value]));
 
@@ -71,6 +71,12 @@ describe("crm.entity.list filters (chips without text)", () => {
     expect(chipFilters(parseCrmQuery("customers").chips).filters).toEqual({ role: "customer" });
     const owned = chipFilters(parseCrmQuery("people owned by Mara").chips, { ownerId: (n) => (n === "mara" ? "a1" : undefined) });
     expect(owned.filters).toEqual({ kinds: ["person"], ownerId: "a1" });
+  });
+  it("normalizes a role or stage typed as words or picked from a group the way the API compares them", () => {
+    expect(roleKey(" Account  manager ")).toBe("account_manager");
+    expect(roleKey("signed-up")).toBe("signed_up");
+    expect(roleKey("supplier_contact")).toBe("supplier_contact");
+    expect(chipFilters([chip("stage", "Account manager"), chip("role", "Supplier contact")]).filters).toEqual({ stage: "account_manager", role: "supplier_contact" });
   });
   it("keeps an owner or kind the API cannot take as a client-side chip", () => {
     const { filters, unresolved } = chipFilters(parseCrmQuery("owner:nobody kind:spaceship role:lead").chips, {});

@@ -189,8 +189,11 @@ export interface SearchResolvers {
   departmentId?: (nameOrSlug: string) => string | undefined;
 }
 
-/** A role or stage as stored ("Signed up" → "signed_up"); the API compares them case-insensitively. */
-const storedKey = (v: string) => v.trim().toLowerCase().replace(/[\s-]+/g, "_");
+/**
+ * A role or stage as the filters compare it ("Signed up" → "signed_up", "Account manager" → "account_manager"). The API
+ * normalizes stored values the same way, so a chip matches whether it holds the key or the words.
+ */
+export const roleKey = (v: string) => v.trim().toLowerCase().replace(/[\s_-]+/g, "_");
 
 /**
  * Chips → the API's filters. A chip the API cannot take (an owner or department name that resolves to no id, a kind
@@ -205,8 +208,8 @@ export function chipFilters(chips: readonly FilterChipValue[], resolvers: Search
     const ownerId = c.field === "owner" ? resolvers.ownerId?.(v) : undefined;
     const departmentId = c.field === "department" ? resolvers.departmentId?.(v) : undefined;
     if (c.field === "kind" && (ENTITY_KINDS as readonly string[]).includes(v)) filters.kinds = [v as EntityKind];
-    else if (c.field === "role") filters.role = storedKey(v);
-    else if (c.field === "stage") filters.stage = storedKey(v);
+    else if (c.field === "role") filters.role = roleKey(v);
+    else if (c.field === "stage") filters.stage = roleKey(v);
     else if (ownerId) filters.ownerId = ownerId;
     else if (departmentId) filters.departmentId = departmentId;
     else unresolved.push(c);

@@ -18,7 +18,7 @@ import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { MergeDialog, NewEntityDialog } from "./dialogs";
 import { CRM_VIEWS, KIND_WORD, LAWFUL_BASIS_LABEL, RETENTION_COPY, STAGE_TONE, groupByForView, groupCounts, groupLabel, roleWord, sourceWord, stageWord, type CrmRow, type OwnerRef } from "./logic";
-import { plainWords } from "@/lib/format";
+import { formatNumber, plainWords } from "@/lib/format";
 import { KIND_LABELS, chip, chipsToOperators, crmFilterFields, mergeChips, operatorValueWord, parseCrmQuery, type CrmFilterField } from "./search";
 import { CRM_LIST_LIMIT, useEntityIndex } from "./useEntityIndex";
 
@@ -31,6 +31,8 @@ const IMPORTERS = [
 ] as const;
 const SYNCS = ["Gmail", "Outlook", "Google Calendar"];
 const DEBOUNCE_MS = 150;
+/** Group keys for records without a role or stage (`groupCounts`). */
+const NO_GROUP_KEYS = new Set(["no role", "no stage"]);
 
 export function CrmScreen() {
   const { businessId, departments, data } = useBusiness();
@@ -239,11 +241,20 @@ export function CrmScreen() {
         onRetry={index.refetch}
         empty={!index.loading && !index.error && index.rows.length === 0 ? { icon: Database, children: index.mode === "search" ? "Nothing matches. Try fewer words, an email or a domain, or clear the filters." : "People and organizations arrive from imports, integrations and agents' work. Add one by hand or connect an importer.", action: { label: "New record", icon: UserRoundPlus, onClick: () => setNewOpen(true) } } : undefined}
         footer={
-          index.mode === "search"
-            ? "Matches names, emails and domains, notes and documents, and meaning."
-            : index.truncated
-              ? `The ${CRM_LIST_LIMIT.toLocaleString("en-US")} newest records${chips.length ? " that match the filters" : ""}. Filter by role, stage or owner, or type above to search, to reach the rest.`
-              : "Everyone the business works with. Type above to search names, emails, notes and documents."
+          index.mode === "search" ? (
+            "Matches names, emails and domains, notes and documents, and meaning."
+          ) : index.hasMore ? (
+            <>
+              <span data-testid="crm-list-count">
+                The {formatNumber(index.rows.length)} newest{index.total !== null ? ` of ${formatNumber(index.total)}` : ""} records{chips.length ? " that match the filters" : ""}. Filter by role, stage or owner, or type above to search.
+              </span>
+              <Button size="sm" variant="ghost" className="ml-auto" loading={index.loadingMore} onClick={index.loadMore} data-testid="crm-load-more">
+                Load {formatNumber(CRM_LIST_LIMIT)} more
+              </Button>
+            </>
+          ) : (
+            "Everyone the business works with. Type above to search names, emails, notes and documents."
+          )
         }
         data-testid="crm-table-panel"
       >
@@ -251,10 +262,12 @@ export function CrmScreen() {
           <div className="flex flex-wrap items-center gap-1.5 border-b border-subtle bg-panel-alt px-panel-pad py-1.5" data-testid="crm-groups">
             <span className="t-label">By {groupBy}</span>
             {groups.map((g) => (
-              <Chip key={g.key} tone="neutral" onClick={() => setChips((c) => mergeChips(c, [chip(groupBy as CrmFilterField, g.key)]))} selected={chips.some((c) => c.field === groupBy && String(c.value) === g.key)}>
-                {groupLabel(groupBy, g.key)} <span className="ml-1 tabular-nums text-secondary">{g.count}</span>
+              // "No role" and "No stage" are not values a filter can hold, so those counts are not clickable.
+              <Chip key={g.key} tone="neutral" onClick={NO_GROUP_KEYS.has(g.key) ? undefined : () => setChips((c) => mergeChips(c, [chip(groupBy as CrmFilterField, g.key)]))} selected={chips.some((c) => c.field === groupBy && String(c.value) === g.key)}>
+                {groupLabel(groupBy, g.key)} <span className="ml-1 tabular-nums text-secondary">{formatNumber(g.count)}</span>
               </Chip>
             ))}
+            {index.hasMore ? <span className="ml-auto text-small text-tertiary">Counts cover the {formatNumber(index.rows.length)} records loaded.</span> : null}
           </div>
         ) : null}
         <DataTable<CrmRow> aria-label="CRM records" data={index.rows} columns={columns} views={views} onViewsChange={setViews} activeViewId={activeViewId} onActiveViewChange={setActiveViewId} rowActions={rowActions} onRowOpen={(r) => open_(r.id)} height={typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 360)} exportFileName="crm" className="border-0" hideEmptyColumns hideFilter />

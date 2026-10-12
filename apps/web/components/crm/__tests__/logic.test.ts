@@ -17,6 +17,10 @@ describe("rows", () => {
     expect(rowFromEntity(entity() as never, roles as never, { role: "lead" })).toMatchObject({ stage: "qualified", owner: { kind: "department", id: "d1" } });
     expect(rowFromEntity(entity() as never, roles as never, { stage: "QUALIFIED" })).toMatchObject({ stage: "qualified" });
     expect(rowFromEntity(entity() as never, roles as never, { role: "partner" })).toMatchObject({ stage: "activated" });
+    // A stage stored as words ("Account manager") is the one a normalized chip ("account_manager") names.
+    const contact = [role({ role: "supplier_contact", stage: "Sales lead" }), role({ id: "r4", role: "Supplier contact", stage: "Account manager", ownerRef: null, startedAt: new Date("2026-01-01") })];
+    expect(rowFromEntity(entity() as never, contact as never, { stage: "account_manager" })).toMatchObject({ stage: "Account manager" });
+    expect(rowFromEntity(entity() as never, contact as never, { role: "supplier_contact", stage: "sales-lead" })).toMatchObject({ stage: "Sales lead" });
   });
   it("keeps search scores and roles, and filters client-side by chips with resolvers", () => {
     const rows = rowsFromSearch([{ entity: entity() as never, roles: [role({ role: "supplier", stage: "shortlisted" })], score: 0.9, matchedOn: "name" }] as never);
@@ -25,6 +29,7 @@ describe("rows", () => {
     const owner = applyChipFilters(listed, parseCrmQuery("owner:Mara").chips, { ownerName: (ref) => (ref.id === "a1" ? "Mara" : undefined) });
     expect(owner.map((r) => r.id)).toEqual(["e1"]);
     expect(applyChipFilters(listed, parseCrmQuery("kind:organisation stage:shortlisted").chips).map((r) => r.id)).toEqual(["e2"]);
+    expect(applyChipFilters(listed, parseCrmQuery("stage:SHORTLISTED role:Supplier").chips).map((r) => r.id)).toEqual(["e2"]);
     expect(applyChipFilters(listed, parseCrmQuery("department:Growth").chips, { departmentName: (id) => (id === "d1" ? "Growth" : undefined) }).map((r) => r.id)).toEqual(["e2"]);
   });
   it("counts groups and reads the grouping from the saved view", () => {

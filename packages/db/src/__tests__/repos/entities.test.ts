@@ -128,6 +128,36 @@ describe("list, manifest, enrichment", () => {
     expect(await repos.entities.activeRoles(r.db, r.B.businessId, [ids.sara!])).toEqual(new Map());
   });
 
+  it("matches a role or stage stored with spaces from its group key or a typed chip, and counts every match", async () => {
+    const A = r.A.businessId;
+    // Seeded and imported stages are free text ("Account manager"); the list groups by that text and a chip may
+    // arrive as the stored key ("account_manager") or as typed ("Account Manager").
+    const hana = await repos.entities.create(r.db, A, { kind: "person", displayName: "Hana Brandt" });
+    const ivo = await repos.entities.create(r.db, A, { kind: "person", displayName: "Ivo Castel" });
+    await repos.entities.addRole(r.db, A, hana.id, { role: "Supplier contact", stage: "Account manager" });
+    await repos.entities.addRole(r.db, A, ivo.id, { role: "supplier_contact", stage: "Sales lead" });
+    const only = async (filter: Parameters<typeof repos.entities.listWithRoles>[2]) => (await repos.entities.listWithRoles(r.db, A, filter)).items.map((e) => e.id).sort();
+    expect(await only({ stage: "Account manager" })).toEqual([hana.id]);
+    expect(await only({ stage: "account_manager" })).toEqual([hana.id]);
+    expect(await only({ stage: " ACCOUNT-manager " })).toEqual([hana.id]);
+    expect(await only({ role: "supplier_contact" })).toEqual([hana.id, ivo.id].sort());
+    expect(await only({ role: "Supplier Contact", stage: "sales lead" })).toEqual([ivo.id]);
+    expect(await only({ stage: "account" })).toEqual([]);
+    expect((await repos.entities.search(r.db, A, { q: "Hana", stage: "account_manager" })).hits.map((h) => h.entity.id)).toEqual([hana.id]);
+
+    // `total` is every match, not just the page.
+    const first = await repos.entities.listWithRoles(r.db, A, { role: "supplier_contact", limit: 1 });
+    expect(first).toMatchObject({ total: 2, nextCursor: expect.any(String) });
+    expect(first.items).toHaveLength(1);
+    const rest = await repos.entities.listWithRoles(r.db, A, { role: "supplier_contact", limit: 1, cursor: first.nextCursor });
+    expect(rest).toMatchObject({ total: 2, nextCursor: null });
+    expect([...first.items, ...rest.items].map((e) => e.id).sort()).toEqual([hana.id, ivo.id].sort());
+    const all = await repos.entities.list(r.db, A, { limit: 500 });
+    expect((await repos.entities.listWithRoles(r.db, A, { limit: 500 })).total).toBe(all.items.length);
+    await repos.entities.archive(r.db, A, hana.id);
+    await repos.entities.archive(r.db, A, ivo.id);
+  });
+
   it("enrich fills empty fields only", async () => {
     const before = await repos.entities.get(r.db, r.A.businessId, ids.northstar!);
     const after = await repos.entities.enrich(r.db, r.A.businessId, ids.northstar!, { identifiers: { domain: "evil.example", linkedin: "https://linkedin.com/company/northstar" }, aliases: ["NSL"], avatarUrl: "https://img.example/ns.png" });

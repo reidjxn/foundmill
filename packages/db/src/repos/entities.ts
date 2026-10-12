@@ -353,46 +353,60 @@ const toArray = <T>(v: T | T[] | undefined): T[] | undefined => (v === undefined
 const uniq = (xs: string[]) => [...new Set(xs)];
 const vectorLiteral = (v: number[]) => `[${v.join(",")}]`;
 
-/** An active role matching every given filter (role and stage case-insensitively, as the founder types them). */
+/**
+ * A role or stage as the CRM filters compare it: case, spaces, hyphens and underscores do not matter, so "Signed up"
+ * finds signed_up and a stage stored as "Account manager" is found again from its group key or a typed chip.
+ */
+const roleKey = (v: string) => v.trim().toLowerCase().replace(/[\s_-]+/g, "_");
+const roleKeyOf = (column: SQL) => sql`regexp_replace(lower(btrim(${column})), '[[:space:]_-]+', '_', 'g')`;
+
+/** An active role matching every given filter (role and stage by `roleKey`, as the founder types them). */
 function roleFilter(businessId: string, f: { role?: string; stage?: string; ownerId?: string; departmentId?: string }): SQL | undefined {
   if (!f.role && !f.stage && !f.ownerId && !f.departmentId) return undefined;
   const conds: SQL[] = [sql`r.business_id = ${businessId}::uuid`, sql`r.entity_id = ${entities.id}`, sql`r.ended_at is null`];
-  if (f.role) conds.push(sql`lower(r.role) = lower(${f.role})`);
-  if (f.stage) conds.push(sql`lower(r.stage) = lower(${f.stage})`);
+  if (f.role) conds.push(sql`${roleKeyOf(sql`r.role`)} = ${roleKey(f.role)}`);
+  if (f.stage) conds.push(sql`${roleKeyOf(sql`r.stage`)} = ${roleKey(f.stage)}`);
   if (f.ownerId) conds.push(sql`r.owner_ref ->> 'id' = ${f.ownerId}`);
   if (f.departmentId) conds.push(sql`r.owner_ref ->> 'kind' = 'department' and r.owner_ref ->> 'id' = ${f.departmentId}`);
   return sql`exists (select 1 from entity_roles r where ${sql.join(conds, sql` and `)})`;
+}
+
+/** The records an `EntityListFilter` matches, before paging. */
+function listWhere(businessId: string, f: z.output<typeof EntityListFilter>): SQL | undefined {
+  const kinds = toArray(f.kind);
+  return and(
+    eq(entities.businessId, businessId),
+    f.includeArchived ? undefined : isNull(entities.archivedAt),
+    f.includeMerged ? undefined : isNull(entities.mergedIntoId),
+    kinds?.length ? inArray(entities.kind, kinds) : undefined,
+    f.visibility ? eq(entities.visibility, f.visibility) : undefined,
+    roleFilter(businessId, f),
+  );
 }
 
 export const entitiesRepo = {
   async list(db: Executor, businessId: string, filter: EntityListFilter = {}): Promise<Page<Entity>> {
     const f = parseInput(EntityListFilter, filter, "entity filter");
     const ks = timeKeyset<Entity>(entities.createdAt, entities.id, (r) => ({ at: r.createdAt, id: r.id }));
-    const kinds = toArray(f.kind);
     const rows = await db
       .select()
       .from(entities)
-      .where(
-        and(
-          eq(entities.businessId, businessId),
-          f.includeArchived ? undefined : isNull(entities.archivedAt),
-          f.includeMerged ? undefined : isNull(entities.mergedIntoId),
-          kinds?.length ? inArray(entities.kind, kinds) : undefined,
-          f.visibility ? eq(entities.visibility, f.visibility) : undefined,
-          roleFilter(businessId, f),
-          ks.after(f.cursor),
-        ),
-      )
+      .where(and(listWhere(businessId, f), ks.after(f.cursor)))
       .orderBy(...ks.orderBy)
       .limit(f.limit + 1);
     return toPage(rows, f, ks);
   },
 
-  /** `list` with each entity's active roles (role, stage, owner): what the CRM list, its views and its filters read. */
-  async listWithRoles(db: Executor, businessId: string, filter: EntityListFilter = {}): Promise<Page<EntityWithRoles>> {
-    const page = await entitiesRepo.list(db, businessId, filter);
+  /**
+   * `list` with each entity's active roles (role, stage, owner): what the CRM list, its views and its filters read.
+   * `total` counts every record the filters match (not just this page), so the list can say how many it has not loaded.
+   */
+  async listWithRoles(db: Executor, businessId: string, filter: EntityListFilter = {}): Promise<Page<EntityWithRoles> & { total: number }> {
+    const f = parseInput(EntityListFilter, filter, "entity filter");
+    const page = await entitiesRepo.list(db, businessId, f);
     const roles = await entitiesRepo.activeRoles(db, businessId, page.items.map((e) => e.id));
-    return { ...page, items: page.items.map((e) => ({ ...e, roles: roles.get(e.id) ?? [] })) };
+    const total = !f.cursor && !page.nextCursor ? page.items.length : Number((await db.select({ n: sql<number>`count(*)::int` }).from(entities).where(listWhere(businessId, f)))[0]?.n ?? 0);
+    return { ...page, items: page.items.map((e) => ({ ...e, roles: roles.get(e.id) ?? [] })), total };
   },
 
   /** Active roles of many entities in one query, newest first per entity. */
