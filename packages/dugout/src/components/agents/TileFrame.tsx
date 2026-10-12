@@ -41,8 +41,12 @@ export interface TileViewOption {
   icon: IconComponent;
 }
 
-/** Pill tone, word and icon for a session: status wins over phase (a blocked testing session reads "Waiting"). */
-export function sessionPill(session: Pick<AgentTileSession, "status" | "phase">): { tone: StatusTone; word: string; icon: IconComponent } {
+/**
+ * Pill tone, word and icon for a session: status wins over phase (a blocked testing session reads "Waiting"), and a
+ * started session no worker has picked up yet reads "Queued" whatever its stored phase.
+ */
+export function sessionPill(session: Pick<AgentTileSession, "status" | "phase" | "queued">): { tone: StatusTone; word: string; icon: IconComponent } {
+  if (session.queued && session.status === "running") return { tone: "neutral", word: "Queued", icon: Clock };
   switch (session.status) {
     case "blocked":
       return { tone: "warn", word: "Waiting", icon: Hourglass };
@@ -107,7 +111,7 @@ export interface TileFrameProps {
   onViewChange: (id: string) => void;
   /** Focused tile: two-thirds width with a rail (TileGrid). Labels and controls stay visible. */
   focused?: boolean;
-  /** Small tile (16 or 24 on screen): labels collapse to icons, the footer keeps elapsed, cost and ETA. */
+  /** Small tile (16 or 24 on screen): labels collapse to icons, the footer keeps elapsed and the cost with its Estimate label. */
   compact?: boolean;
   controls?: TileControls;
   /** Click on the header or body (not on a control). */
@@ -128,9 +132,11 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
   const id = useId();
   const pill = sessionPill(session);
   const pct = Math.round(session.progress * 100);
-  const elapsed = elapsedLabel(session, now);
-  const eta = etaLabel(session.etaAt, now);
-  const live = session.status === "running" || session.status === "review" || session.status === "merging";
+  // A queued session has not started for real: no clock runs and nothing pulses until a worker picks it up.
+  const queued = Boolean(session.queued) && session.status === "running";
+  const elapsed = queued ? null : elapsedLabel(session, now);
+  const eta = queued ? null : etaLabel(session.etaAt, now);
+  const live = !queued && (session.status === "running" || session.status === "review" || session.status === "merging");
   const canPause = live && !!controls.onPause;
   const canResume = (session.status === "paused" || session.status === "blocked") && !!controls.onResume;
   const over = session.status === "done" || session.status === "failed" || session.status === "stopped";
@@ -301,18 +307,27 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
           {controls.onStop ? <IconButton icon={Square} label="Stop and discard" size="sm" variant="ghost" className="text-status-bad hover:bg-status-bad/12" disabled={over} onClick={() => controls.onStop?.(session.id)} /> : null}
         </div>
 
-        <div id={`${id}-panel`} role="tabpanel" aria-labelledby={tabIds[views.findIndex((v) => v.id === view)] ?? tabIds[0]} className="min-h-0 flex-1 bg-ink">
+        {/* The body clips: an empty terminal's prompt in a small tile never grows over the header. */}
+        <div id={`${id}-panel`} role="tabpanel" aria-labelledby={tabIds[views.findIndex((v) => v.id === view)] ?? tabIds[0]} className="min-h-0 flex-1 overflow-hidden bg-ink">
           {children}
         </div>
       </div>
 
       {/* Footer: one line that never wraps. Items drop out by priority as the tile narrows (tokens first, then the
-          note); elapsed, cost with its Estimate chip and ETA always stay. */}
+          note, then the ETA and the icons); elapsed and the cost with its Estimate label always stay, the label as a
+          chip where there is room and as the plain word in the smallest tiles. */}
       <footer className="@container/foot flex h-control-sm shrink-0 items-center gap-3 overflow-hidden whitespace-nowrap border-t border-line px-2.5 text-small text-secondary tabular-nums" data-testid="tile-footer">
-        <span className="inline-flex shrink-0 items-center gap-1" title="Elapsed">
-          <Icon icon={Clock} size={12} className="text-tertiary" />
-          {elapsed}
-        </span>
+        {elapsed === null ? (
+          <span className="inline-flex shrink-0 items-center gap-1" title="Waiting for a worker to pick the session up" data-tile-queued>
+            <Icon icon={Clock} size={12} className="hidden text-tertiary @xs/foot:inline" />
+            Queued
+          </span>
+        ) : (
+          <span className="inline-flex shrink-0 items-center gap-1" title="Elapsed">
+            <Icon icon={Clock} size={12} className="hidden text-tertiary @xs/foot:inline" />
+            {elapsed}
+          </span>
+        )}
         {!compact || focused ? (
           <span className="hidden shrink-0 items-center gap-1 @xl/foot:inline-flex" title="Tokens">
             <Icon icon={CircleDot} size={12} className="text-tertiary" />
@@ -321,13 +336,14 @@ export function TileFrame({ session, views, view, onViewChange, focused, compact
           </span>
         ) : null}
         <span className="inline-flex shrink-0 items-center gap-1.5" title="Cost (estimate)">
-          <Icon icon={Coins} size={12} className="text-tertiary" />
+          <Icon icon={Coins} size={12} className="hidden text-tertiary @xs/foot:inline" />
           {formatMoney(session.cost)}
-          {/* The Estimate label stays wherever the footer has room for it (the focus rail included), not only on big tiles. */}
+          {/* Every cost carries its Estimate label at every width: the chip where it fits, the word in the smallest tiles. */}
           <ProvenanceChip kind="estimate" className="hidden @xs/foot:inline-flex" />
+          <ProvenanceChip kind="estimate" appearance="word" className="@xs/foot:hidden" />
         </span>
         {eta && !over ? (
-          <span className="inline-flex shrink-0 items-center gap-1" title="Estimated time remaining">
+          <span className="hidden shrink-0 items-center gap-1 @xs/foot:inline-flex" title="Estimated time remaining">
             <Icon icon={Hourglass} size={12} className="text-tertiary" />
             <span className="text-tertiary">ETA</span> {eta}
           </span>

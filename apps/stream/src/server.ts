@@ -66,7 +66,7 @@ export interface StreamServer {
   readonly http: HttpServer;
   readonly connections: number;
   /** Channels subscribed per open socket (tests). */
-  subscriptions(): { userId: string; channels: string[] }[];
+  subscriptions(): { userId: string; channels: string[]; focused: string[] }[];
 }
 
 interface Client {
@@ -232,7 +232,9 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
         else client.queue.focused.delete(frame.ch);
         return;
       case "sub":
-        return subscribe(client, frame.ch, frame.focus === true);
+        // A channel is focused unless the client says otherwise: both clients (apps/web, ./client.ts) send `focus:false`
+        // for an unfocused tile and leave the field out for a focused one (RES-12).
+        return subscribe(client, frame.ch, frame.focus !== false);
     }
   }
 
@@ -318,7 +320,7 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
       return clients.size;
     },
     subscriptions() {
-      return [...clients].map((c) => ({ userId: c.user.userId, channels: [...c.subs.keys()] }));
+      return [...clients].map((c) => ({ userId: c.user.userId, channels: [...c.subs.keys()], focused: [...c.queue.focused] }));
     },
     address() {
       const a = http.address();

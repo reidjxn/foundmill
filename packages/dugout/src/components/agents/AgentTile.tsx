@@ -35,6 +35,22 @@ export interface AgentTileProps {
 }
 
 /**
+ * What a session has done that is not terminal output, for an empty terminal (TPD-35): a tool call waiting for the
+ * founder's approval first, then the latest note, then the latest tool call. Null when it has done nothing yet.
+ */
+export function sessionActivity(session: Pick<AgentTileSession, "toolCalls" | "notes" | "awaitingApprovalId" | "files">): string | null {
+  const waiting = session.toolCalls.findLast((c) => c.status === "awaiting_approval");
+  if (waiting || session.awaitingApprovalId) return `Waiting for your approval${waiting ? `: ${waiting.tool}` : ""}`;
+  // The founder's own nudges are not the agent's activity.
+  const note = session.notes.findLast((n) => n.source !== "shout");
+  if (note) return note.text;
+  const call = session.toolCalls.at(-1);
+  if (call) return `Called ${call.tool}${call.argsSummary ? ` (${call.argsSummary})` : ""}`;
+  const file = session.files.at(-1);
+  return file ? `Changed ${file.path}` : null;
+}
+
+/**
  * AgentTile (BUILD §5.4, §11.6; DESIGN §8): header, switchable body (Terminal on bg-ink, Diff, Preview, Plan),
  * footer and hover controls. State comes from `reduceSessionEvents` or the app's store.
  */
@@ -47,7 +63,19 @@ export function AgentTile({ session, view: viewProp, defaultView = "terminal", o
   };
   return (
     <TileFrame session={session} views={AGENT_TILE_VIEWS} view={view} onViewChange={setView} focused={focused} compact={compact} controls={controls} onFocus={onFocus} onOpenTask={onOpenTask} now={now} className={className}>
-      {view === "terminal" ? <TerminalView chunks={session.stdout} label={`Terminal output for ${session.agent.name}`} renderer={terminalRenderer} agentName={session.agent.name} brief={session.task.goal} compact={compact && !focused} live={session.status === "running" || session.status === "review" || session.status === "merging"} /> : null}
+      {view === "terminal" ? (
+        <TerminalView
+          chunks={session.stdout}
+          label={`Terminal output for ${session.agent.name}`}
+          renderer={terminalRenderer}
+          agentName={session.agent.name}
+          brief={session.task.goal}
+          compact={compact && !focused}
+          queued={Boolean(session.queued) && session.status === "running"}
+          live={!session.queued && (session.status === "running" || session.status === "review" || session.status === "merging")}
+          activity={sessionActivity(session)}
+        />
+      ) : null}
       {view === "diff" ? <DiffPane files={session.files} engine={diffEngine} hideFiles={compact && !focused} /> : null}
       {view === "preview" ? <PreviewView preview={session.preview} agentName={session.agent.name} now={now} /> : null}
       {view === "plan" ? <PlanView plan={session.plan} tests={session.tests} /> : null}

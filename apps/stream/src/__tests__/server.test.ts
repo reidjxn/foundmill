@@ -10,7 +10,7 @@ import { EVENT_FIXTURES, FIXTURE_ENTITY_ID, fixtureId } from "@foundmill/events/
 import { afterEach, describe, expect, it } from "vitest";
 import { createTokenVerifier } from "../auth";
 import { businessChannel, CLOSE_CODES, sessionChannel } from "../protocol";
-import { BUSINESS_A, BUSINESS_B, devToken, openSocket, SESSION_A, SESSION_B, sleep, startTestServer, USER_A, USER_B, waitFor, type TestServer, type TestSocket } from "./helpers";
+import { BUSINESS_A, BUSINESS_B, devToken, openSocket, SESSION_A, SESSION_A2, SESSION_B, sleep, startTestServer, USER_A, USER_B, waitFor, type TestServer, type TestSocket } from "./helpers";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -165,6 +165,18 @@ describe("protocol handling", () => {
     await sleep(60);
     expect(sock.events).toHaveLength(1);
     expect(t.metrics.get("subscriptions_open")).toBe(0);
+  });
+
+  it("counts a sub without a focus field as focused, focus:false as unfocused, and follows focus frames (RES-12)", async () => {
+    const t = await boot();
+    const sock = await connect(t);
+    sock.sub(sessionChannel(SESSION_A)); // what both clients send for the focused tile
+    sock.sub(sessionChannel(SESSION_A2), false);
+    await waitFor(() => t.server.subscriptions()[0]?.channels.length === 2, 2_000, "both subscribed");
+    expect(t.server.subscriptions()[0]!.focused).toEqual([sessionChannel(SESSION_A)]);
+    sock.send({ t: "focus", ch: sessionChannel(SESSION_A), focused: false });
+    sock.send({ t: "focus", ch: sessionChannel(SESSION_A2), focused: true });
+    await waitFor(() => t.server.subscriptions()[0]!.focused.join() === sessionChannel(SESSION_A2), 2_000, "focus moved");
   });
 
   it("reports malformed frames and closes the socket after too many", async () => {
