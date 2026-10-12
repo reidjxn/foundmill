@@ -173,6 +173,13 @@
     {
       "idx": 24,
       "version": "7",
+      "when": 1792325520000,
+      "tag": "0026_membership_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
       "when": 1792930320000,
       "tag": "0033_payments",
       "breakpoints": true

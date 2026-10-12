@@ -8,6 +8,7 @@ export class NotFoundError extends AppError { constructor(what: string, id?: str
 export class ForbiddenError extends AppError { constructor(message = "Forbidden") { super("forbidden", message, 403); } }
 export class UnauthorizedError extends AppError { constructor(message = "Unauthorized") { super("unauthorized", message, 401); } }
 export class ValidationError extends AppError { constructor(message: string, details?: unknown) { super("validation", message, 400, details); } }
+export class ConflictError extends AppError { constructor(message: string, details?: unknown) { super("conflict", message, 409, details); } }
 export class HardGateError extends AppError { constructor(action: string) { super("hard_gate", `"${action}" always requires a human action (BUILD §2.2)`, 403); } }
 export class PolicyDeniedError extends AppError { constructor(reason: string) { super("policy_denied", reason, 403); } }
 /**

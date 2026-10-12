@@ -63,9 +63,10 @@ import {
 } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { audit, effectivePermission, emit, Id, type BusinessContext, type Section } from "../trpc";
+import { audit, effectivePermission, emit, hasSectionAccess, Id, type BusinessContext, type Section } from "../trpc";
 import { decideInboxItem, planContextFor, type DecideItemResult } from "./decide";
-import { compilePlan, evaluatePlan, requiresConfirmation, type ActionEvaluation } from "./plans";
+import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactText, redactValue } from "./inbox-redaction";
+import { assertPlanSectionAccess, compilePlan, evaluatePlan, requiresConfirmation, type ActionEvaluation } from "./plans";
 import { takeOrThrow, type RateLimitStore, type WindowLimit } from "./rate-limit";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -346,9 +347,12 @@ async function instructionsOf(tx: DbTx, ctx: BusinessContext, agent: Agent): Pro
   };
 }
 
-/** Manifest of the business (CRM entities + agents) and the entity-linker guard bound to it. */
-async function manifestFor(tx: DbTx, ctx: BusinessContext): Promise<{ entries: ManifestEntityInput[]; guard: MentionGuard }> {
-  const [crm, agents] = await Promise.all([repos.entities.manifest(tx, ctx.businessId, { limit: 300 }), repos.agents.list(tx, ctx.businessId, { limit: 200 })]);
+/**
+ * Manifest of the business (CRM entities + agents) and the entity-linker guard bound to it. The CRM half only for a
+ * person who may read the CRM (audit RUI-02): otherwise the agent knows no customer names to say to them.
+ */
+export async function manifestFor(tx: DbTx, ctx: Pick<BusinessContext, "businessId" | "membership">): Promise<{ entries: ManifestEntityInput[]; guard: MentionGuard }> {
+  const [crm, agents] = await Promise.all([hasSectionAccess(ctx.membership, "crm", "read") ? repos.entities.manifest(tx, ctx.businessId, { limit: 300 }) : Promise.resolve([]), repos.agents.list(tx, ctx.businessId, { limit: 200 })]);
   const entries: ManifestEntityInput[] = [
     ...crm.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, aliases: e.aliases })),
     ...agents.items.map((a) => ({ id: a.id, kind: "agent" as const, name: a.name, aliases: [], role: a.role })),
@@ -459,13 +463,39 @@ export function withoutStaleOptions(messages: ConversationMessageView[], answere
 
 export async function getConversation(ctx: BusinessContext, subject: ConversationSubject): Promise<ConversationView> {
   return ctx.rls(async (tx) => {
-    const r = await resolve(tx, ctx, subject);
-    const thread = await repos.conversations.findThread(tx, ctx.businessId, { agentId: r.agent.id, subjectKind: subject.kind, subjectId: r.subject.id });
+    const resolved = await resolve(tx, ctx, subject);
+    const thread = await repos.conversations.findThread(tx, ctx.businessId, { agentId: resolved.agent.id, subjectKind: subject.kind, subjectId: resolved.subject.id });
     const rows = thread ? await repos.conversations.listMessages(tx, ctx.businessId, thread.id, { limit: 50 }) : [];
-    const messages = withoutStaleOptions(toMessageViews(rows), r.subject.answered, r.starters);
-    const persona = await personaOf(tx, ctx, r, thread?.id ?? r.subject.id);
-    return { subject: r.subject, thread, messages, persona, starters: r.starters, quickReplies: activeQuickReplies(messages, r.starters) };
+    const seen = await seenAtDesk(tx, ctx, resolved, withoutStaleOptions(toMessageViews(rows), resolved.subject.answered, resolved.starters));
+    const persona = await personaOf(tx, ctx, seen.r, thread?.id ?? seen.r.subject.id);
+    return { subject: seen.r.subject, thread, messages: seen.messages, persona, starters: seen.r.starters, quickReplies: activeQuickReplies(seen.messages, seen.r.starters) };
   });
+}
+
+/**
+ * The desk as a person walled from Finance or the CRM may read it (audit RUI-02): the note's title, options and figures,
+ * and every message (a thread is shared, so a reply written for the owner may name a customer or quote cash) come
+ * masked the way inbox.get masks a note. `r.item` becomes the masked note, so a prompt built from it carries nothing the
+ * person could not read.
+ */
+async function seenAtDesk(tx: DbTx, ctx: BusinessContext, r: Resolved, messages: ConversationMessageView[]): Promise<{ r: Resolved; messages: ConversationMessageView[] }> {
+  const walls = inboxWalls(ctx.membership);
+  if (!isWalled(walls)) return { r, messages };
+  const ids = [...(r.item ? idsOfItem(r.item) : []), ...messages.flatMap((m) => mentionIds(JSON.stringify([m.bubbles, m.quickReplies, m.handOff])))];
+  const source = await loadRedactionSource(tx, ctx.businessId, walls, ids);
+  const mask = r.item ? noteMask(r.item) : {};
+  const item = r.item ? redactInboxItem(r.item, source) : null;
+  const shown: Resolved = {
+    ...r,
+    item,
+    subject: { ...r.subject, title: item ? item.subject : r.subject.title, options: r.subject.options.map((o) => ({ ...o, label: redactText(o.label, source, mask) })) },
+    options: item ? itemOptions(item) : r.options,
+    starters: redactValue(r.starters, source, mask),
+  };
+  return {
+    r: shown,
+    messages: messages.map((m) => ({ ...m, bubbles: m.bubbles.map((b) => redactText(b, source, mask)), quickReplies: redactValue(m.quickReplies, source, mask), handOff: m.handOff ? { ...m.handOff, instruction: redactText(m.handOff.instruction, source, mask) } : null })),
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -593,8 +623,10 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
 
   // 3. Everything else → the conversation route, then the server-side checks.
   const ctxData = await ctx.rls(async (tx) => {
-    const [ins, manifest, persona] = await Promise.all([instructionsOf(tx, ctx, r.agent), manifestFor(tx, ctx), personaOf(tx, ctx, r, seed)]);
-    return { ins, manifest, persona };
+    // The prompt carries only what this person may read: the masked note and thread, and no CRM names without CRM read.
+    const seen = await seenAtDesk(tx, ctx, r, toMessageViews(p.history));
+    const [ins, manifest, persona] = await Promise.all([instructionsOf(tx, ctx, r.agent), manifestFor(tx, ctx), personaOf(tx, ctx, seen.r, seed)]);
+    return { ins, manifest, persona, seen };
   });
   const requestInput: ConversationRequestInput = {
     businessName: ctx.business.name,
@@ -602,8 +634,8 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
     agent: { id: r.agent.id, name: r.agent.name, role: ctxData.persona.role, instructions: ctxData.ins.instructions, description: ctxData.ins.description, voice },
     glossary: Object.fromEntries(Object.entries(ctx.business.glossary ?? {}).filter(([from]) => from !== "currency")),
     currentWork: { task: taskInput(r.currentTask), nextTask: taskInput(r.nextTask), status: r.agent.status, presence: ctxData.persona.presence },
-    subject: promptSubject(r, "EUR"),
-    thread: p.history.map((m) => ({ author: m.authorKind, text: m.bubbles.join("\n") })),
+    subject: promptSubject(ctxData.seen.r, "EUR"),
+    thread: ctxData.seen.messages.map((m) => ({ author: m.author, text: m.bubbles.join("\n") })),
     manifest: ctxData.manifest.entries.map((e) => ({ id: e.id, kind: e.kind, name: e.name, aliases: e.aliases ?? [] })),
     founderMessage: { text: p.founderText, quickReply: chip ? { id: chip.id, kind: chip.kind, option_id: chip.option_id } : null },
   };
@@ -643,6 +675,25 @@ class HandOffRaced extends Error {
  * (idempotent: a message staged before returns its plan). The founder runs it with `plan.confirm`.
  */
 export async function stageHandOff(ctx: BusinessContext, messageId: string, opts: { allowanceTaken?: boolean } = {}): Promise<HandOffPreview> {
+  return handOffAsSeen(ctx, await stageHandOffPlan(ctx, messageId, opts));
+}
+
+/** The staged hand-off as the person may read it (summary, plan and evaluations masked behind their walls). */
+async function handOffAsSeen(ctx: BusinessContext, preview: HandOffPreview): Promise<HandOffPreview> {
+  const walls = inboxWalls(ctx.membership);
+  if (!isWalled(walls)) return preview;
+  const ids = [...mentionIds(preview.summary), ...mentionIds(preview.instruction), ...mentionIds(JSON.stringify(preview.plan.actions.map((a) => a.params)))];
+  const source = await ctx.rls((tx) => loadRedactionSource(tx, ctx.businessId, walls, ids));
+  return {
+    ...preview,
+    instruction: redactText(preview.instruction, source),
+    summary: redactText(preview.summary, source),
+    plan: redactPlan(preview.plan, source),
+    evaluations: preview.evaluations.map((e) => ({ ...e, action: { ...e.action, params: redactValue(e.action.params, source) } })),
+  };
+}
+
+async function stageHandOffPlan(ctx: BusinessContext, messageId: string, opts: { allowanceTaken?: boolean }): Promise<HandOffPreview> {
   const { message, thread } = await ctx.rls(async (tx) => {
     const m = await repos.conversations.getMessage(tx, ctx.businessId, messageId);
     return { message: m, thread: await repos.conversations.getThread(tx, ctx.businessId, m.threadId) };
@@ -667,6 +718,8 @@ export async function stageHandOff(ctx: BusinessContext, messageId: string, opts
   if (!opts.allowanceTaken) await takeConversationAllowance(ctx.limits, { userId: ctx.userId, businessId: ctx.businessId });
   const compiled = await compilePlan(ctx.models, instruction, planCtx);
   const evaluations = evaluatePlan(compiled.actions, planCtx);
+  // Nobody stages work in a section they cannot write to (audit RUI-01); `plan.confirm` checks the confirmer again.
+  assertPlanSectionAccess(ctx.membership, evaluations.map((e) => ({ type: e.action.type, params: e.action.params, denied: e.outcome === "deny" })));
   const plan = await ctx
     .rls(async (tx) => {
       // Not linked to the Inbox item: a staged hand-off is not the item's decision (that stays with the founder).

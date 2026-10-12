@@ -11,7 +11,8 @@ import { repos, type DbTx, type Decision, type InboxItem, type PlanWithActions }
 import { ValidationError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
-import { compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type PlanContext } from "./plans";
+import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
+import { assertPlanSectionAccess, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type PlanContext } from "./plans";
 
 export interface DecideItemInput {
   itemId: string;
@@ -72,6 +73,9 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   // never waits on a model call for a pre-written answer.
   const compiled = freeText ? await compilePlan(ctx.models, freeText, planCtx) : compileOptionPlan(option!, item, planCtx);
   const evaluations = evaluatePlan(compiled.actions, planCtx);
+  // Section walls hold in the Inbox too (audit RUI-01): a plan that changes a section the decider cannot write to is
+  // refused before anything is written, and the item stays open for someone who can.
+  assertPlanSectionAccess(ctx.membership, evaluations.map((e) => ({ type: e.action.type, params: e.action.params, denied: e.outcome === "deny" })));
   const confirm = requiresConfirmation(evaluations);
 
   const written = await ctx.rls(async (tx) => {
@@ -113,7 +117,7 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   if (dispatch?.queued) await repos.plans.setWorkflowId(ctx.db, ctx.businessId, written.plan.id, dispatch.workflowId);
   await syncChannelEngines(ctx, written.exec.channels);
 
-  return {
+  return asSeenBy(ctx, item, {
     item: written.decided.item,
     decision: written.decided.decision,
     plan: written.plan,
@@ -124,7 +128,7 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
     denied: written.exec.denied,
     dispatch,
     followUp: written.followUp,
-  };
+  });
 }
 
 /** Confirm a plan that policy flagged (BUILD §11.3 "Here is what will happen"). */
@@ -133,6 +137,8 @@ export async function confirmPlan(ctx: BusinessContext, planId: string) {
   const written = await ctx.rls(async (tx) => {
     const plan = await repos.plans.get(tx, ctx.businessId, planId);
     if (plan.status !== "pending_confirmation") throw new ValidationError(`Plan is ${plan.status}, not awaiting confirmation`, { planId });
+    // The confirmer needs write on every section the plan changes, whoever staged it (audit RUI-01).
+    assertPlanSectionAccess(ctx.membership, plan.actions.filter((a) => a.status === "pending").map((a) => ({ type: a.type, params: a.params, denied: a.policyOutcome === "deny" })));
     await repos.plans.confirm(tx, ctx.businessId, planId);
     const confirmed = await repos.plans.get(tx, ctx.businessId, planId);
     const exec = await executePlanActions(tx, ctx.businessId, confirmed, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency });
@@ -144,7 +150,26 @@ export async function confirmPlan(ctx: BusinessContext, planId: string) {
   const dispatch = written.exec.needsOrchestrator ? await dispatchPlan(ctx.temporal, ctx.businessId, planId) : null;
   if (dispatch?.queued) await repos.plans.setWorkflowId(ctx.db, ctx.businessId, planId, dispatch.workflowId);
   await syncChannelEngines(ctx, written.exec.channels);
-  return { ...written, dispatch };
+  return asSeenBy(ctx, null, { ...written, dispatch });
+}
+
+/**
+ * The result as the person who decided may read it (audit RUI-02): someone walled from Finance or the CRM may still
+ * answer a note, but the note, the plan and the follow-up come back masked the way inbox.get masks them.
+ */
+async function asSeenBy<R extends { item?: InboxItem; plan: PlanWithActions; followUp: InboxItem | null; evaluations?: ActionEvaluation[] }>(ctx: BusinessContext, note: InboxItem | null, result: R): Promise<R> {
+  const walls = inboxWalls(ctx.membership);
+  if (!isWalled(walls)) return result;
+  const ids = [...(note ? idsOfItem(note) : []), ...(result.followUp ? idsOfItem(result.followUp) : []), ...mentionIds(result.plan.summaryMd), ...mentionIds(JSON.stringify(result.plan.actions.map((a) => a.params)))];
+  const source = await ctx.rls((tx) => loadRedactionSource(tx, ctx.businessId, walls, ids));
+  const mask = note ? noteMask(note) : result.followUp ? noteMask(result.followUp) : {};
+  return {
+    ...result,
+    ...(result.item ? { item: redactInboxItem(result.item, source) } : {}),
+    plan: redactPlan(result.plan, source, mask),
+    followUp: result.followUp ? redactInboxItem(result.followUp, source) : null,
+    ...(result.evaluations ? { evaluations: result.evaluations.map((e) => ({ ...e, action: { ...e.action, params: redactValue(e.action.params, source, mask) } })) } : {}),
+  };
 }
 
 async function writeFollowUp(tx: DbTx, ctx: BusinessContext, item: InboxItem, plan: PlanWithActions, summary: string, executed: number, deferred: number): Promise<InboxItem | null> {

@@ -109,6 +109,32 @@ describe("consumer procedure gaps", () => {
     await expect(owner.dashboard.compileMetric({ businessId, sentence: "zebras per fortnight" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
+  it("custom metrics follow section permissions (RA-02): staff walled from Finance get no cash, burn, runway or spend", async () => {
+    const { businessId } = hz.A;
+    await repos.memberships.setSectionPermissions(hz.db, businessId, hz.A.memberId, { finance: "none", development: "none", distribution: "none" });
+    try {
+      const member = hz.caller({ userId: hz.A.memberId });
+      await expect(member.finance.overview({ businessId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      for (const queryId of ["cash", "net_burn", "runway_months", "revenue_30d", "spend_30d", "tasks_running", "tasks_done", "cpa_blended", "channels_enabled", "customers_30d"]) {
+        await expect(member.dashboard.customMetric.get({ businessId, queryId }), queryId).rejects.toMatchObject({ code: "FORBIDDEN" });
+      }
+      // The catalogue SQL text is the same metric: no way around the wall.
+      const cashSql = (await hz.caller({ userId: hz.A.ownerId }).dashboard.compileMetric({ businessId, sentence: "cash in bank" })).sql;
+      await expect(member.dashboard.customMetric.get({ businessId, sql: cashSql })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(member.dashboard.compileMetric({ businessId, sentence: "cash in bank" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(member.dashboard.compileMetric({ businessId, sentence: "agent spend cost" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+      // What the member may read still works, and the catalogue offers only that.
+      expect((await member.dashboard.customMetric.list({ businessId })).map((m) => m.id)).toEqual(["agents_active"]);
+      expect((await member.dashboard.customMetric.get({ businessId, queryId: "agents_active" })).format).toBe("integer");
+      // Read access is enough to read (a viewer reads everything by default).
+      await repos.memberships.setSectionPermissions(hz.db, businessId, hz.A.memberId, { finance: "read" });
+      expect((await member.dashboard.customMetric.get({ businessId, queryId: "cash" })).label).toBe("Cash in bank");
+      expect((await hz.caller({ userId: hz.A.viewerId }).dashboard.customMetric.list({ businessId })).map((m) => m.id)).toEqual(METRIC_IDS);
+    } finally {
+      await repos.memberships.setSectionPermissions(hz.db, businessId, hz.A.memberId, {});
+    }
+  });
+
   it("dev.sessions.replay returns the recorded events: from the session stream when Redis has them, else from the mock recording", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const { businessId, sessionId, agent2Id, taskId } = hz.A;

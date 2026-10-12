@@ -6,6 +6,8 @@
  * evaluatePlan:  every action is checked against the Cedar policies (packages/policy) with the Chief of Staff as the
  *                principal and the business mode in force; `allow` executes, `ask` needs the founder's confirmation,
  *                `deny` is recorded and skipped.
+ * sections:      a plan runs as the person who decided (or confirmed) it, so `assertPlanSectionAccess` refuses one that
+ *                changes a section they cannot write to (BUILD §11.9), before anything is written.
  * executePlan:   actions the API can carry out itself run in-process (tasks, channels, budgets, models, founder
  *                actions); the rest are dispatched to the orchestrator's `planExecution` workflow and stay pending
  *                when Temporal is unreachable, which the caller reports as `{ queued: false, reason }`.
@@ -15,7 +17,7 @@ import { APP_NAME, LIMITS } from "@foundmill/config";
 import { repos, type Agent, type Business, type Executor, type PlanAction as PlanActionRow, type PlanWithActions } from "@foundmill/db";
 import { compilePlanRuleBased, PlanOutput, type ModelClient, type PlanAction } from "@foundmill/models";
 import { evaluate, type EvaluateResult, type ToolCtxInput } from "@foundmill/policy";
-import { CHANNEL_META, CHANNEL_KEYS, MODEL_KEYS, TASK_KINDS, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
+import { CHANNEL_META, CHANNEL_KEYS, ForbiddenError, MODEL_KEYS, TASK_KINDS, hasSectionAccess, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type Section, type SectionMembership, type TaskKind } from "@foundmill/shared";
 import type { TemporalService } from "./temporal";
 import { WORKFLOWS, workflowIds } from "./temporal";
 
@@ -114,6 +116,86 @@ export const ACTION_TOOLS: Record<PlanActionType, ToolCtxInput & { internal?: bo
   request_human_action: { connector: "platform", name: "request_human_action", internal: true },
   reply_only: { connector: "platform", name: "reply_only", internal: true },
 };
+
+/**
+ * The section each plan action changes (BUILD §11.9; audit RUI-01). A plan compiled from an Inbox decision, a confirmation
+ * or an agent's hand-off runs as the person who decided it, so they need write access to every section it changes,
+ * exactly as that section's own screen requires (distribution.channels.*, finance, team.agents.*, product.spec.*, crm).
+ * Null: nothing beyond Inbox write (a reply, a founder task, a plain task for the agent who asked).
+ */
+export function sectionForAction(action: { type: PlanActionType; params?: unknown }): Section | null {
+  const p = (action.params ?? {}) as Record<string, unknown>;
+  switch (action.type) {
+    case "enable_channel":
+    case "disable_channel":
+      return "distribution";
+    case "set_budget":
+      // A channel's budget is set on the Distribution screen; a department's or the business's is Finance's.
+      return isChannelKey(p.channel) ? "distribution" : "finance";
+    case "approve_spend":
+      return "finance";
+    case "create_task":
+      return isChannelKey(p.channel) ? "distribution" : p.kind === "code" ? "development" : null;
+    case "update_spec":
+    case "update_roadmap":
+      return "product";
+    case "send_message":
+    case "schedule_meeting":
+      return "crm";
+    case "hire_agent":
+    case "train_agent":
+    case "set_agent_model":
+    case "create_playbook":
+      return "team";
+    case "request_human_action":
+    case "reply_only":
+      return null;
+  }
+}
+
+const ACTION_WORDS: Record<PlanActionType, string> = {
+  create_task: "start a task",
+  enable_channel: "turn on a channel",
+  disable_channel: "turn off a channel",
+  set_budget: "set a budget",
+  approve_spend: "approve spending",
+  update_spec: "change the specification",
+  update_roadmap: "change the roadmap",
+  send_message: "message a contact",
+  schedule_meeting: "schedule a meeting",
+  hire_agent: "hire an agent",
+  train_agent: "train an agent",
+  set_agent_model: "change an agent's model",
+  create_playbook: "create a playbook",
+  request_human_action: "ask you to act",
+  reply_only: "reply",
+};
+
+/** The sections a plan's actions change that this person cannot write to, with the actions that need each. */
+export function sectionWalls(membership: SectionMembership, actions: readonly { type: PlanActionType; params?: unknown }[]): { section: Section; actionTypes: PlanActionType[] }[] {
+  const walls = new Map<Section, PlanActionType[]>();
+  for (const action of actions) {
+    const section = sectionForAction(action);
+    if (!section || hasSectionAccess(membership, section, "write")) continue;
+    const types = walls.get(section) ?? [];
+    if (!types.includes(action.type)) types.push(action.type);
+    walls.set(section, types);
+  }
+  return [...walls].map(([section, actionTypes]) => ({ section, actionTypes }));
+}
+
+/**
+ * Refuses (403, before anything is written) a plan that changes a section the person cannot write to: the item stays
+ * open for someone who can. Policy-denied actions never run, so they are not counted.
+ */
+export function assertPlanSectionAccess(membership: SectionMembership, actions: readonly { type: PlanActionType; params?: unknown; denied?: boolean }[]): void {
+  const walls = sectionWalls(membership, actions.filter((a) => !a.denied));
+  if (walls.length === 0) return;
+  const sections = walls.map((w) => w.section);
+  const doing = [...new Set(walls.flatMap((w) => w.actionTypes))].map((t) => ACTION_WORDS[t]);
+  const list = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+  throw new ForbiddenError(`You do not have write access to ${list(sections)}, and this plan would ${list(doing)}. Someone with that access can decide it.`);
+}
 
 export interface ActionEvaluation {
   action: PlanAction;

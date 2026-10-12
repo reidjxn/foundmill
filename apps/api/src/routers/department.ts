@@ -8,8 +8,11 @@ const isModuleKey = (v: string): v is ModuleKey => (MODULE_KEYS as readonly stri
 const tabsFor = (moduleKey: string) => (isModuleKey(moduleKey) ? MODULE_TABS[moduleKey] : []);
 import { z } from "zod";
 import { DASHBOARD_PRESETS, PRESET_LAYOUTS } from "../presets";
-import { compileMetric, listMetrics, runMetric } from "../services/metrics";
-import { Id, adminProcedure, audit, businessProcedure, router, writeProcedure } from "../trpc";
+import { compileMetric, listMetrics, runMetric, type MetricReader } from "../services/metrics";
+import { Id, adminProcedure, audit, businessProcedure, hasSectionAccess, router, writeProcedure, type BusinessContext } from "../trpc";
+
+/** The custom-metric catalogue as the caller may see it: only sections they can read (BUILD §11.9). */
+const metricReader = (ctx: Pick<BusinessContext, "membership">): MetricReader => ({ canRead: (section) => hasSectionAccess(ctx.membership, section, "read") });
 
 export const departmentRouter = router({
   list: businessProcedure.input(z.object({ includeHidden: z.boolean().default(false), includeArchived: z.boolean().default(false) })).query(({ ctx, input }) =>
@@ -142,15 +145,18 @@ export const screenRouter = router({
 
 export const dashboardRouter = router({
   presets: businessProcedure.query(() => DASHBOARD_PRESETS.map((id) => ({ id, layout: PRESET_LAYOUTS[id] }))),
-  /** Custom metric widget (BUILD §11.2, AC-11.2.5): catalogue queries only, run under the caller's RLS transaction. */
+  /**
+   * Custom metric widget (BUILD §11.2, AC-11.2.5): catalogue queries only, run under the caller's RLS transaction, and
+   * only from sections the caller may read (each catalogue entry names its section; BUILD §11.9).
+   */
   customMetric: router({
-    list: businessProcedure.query(() => listMetrics()),
-    get: businessProcedure.input(z.object({ queryId: z.string().max(80).nullish(), sql: z.string().max(4000).nullish() })).query(({ ctx, input }) => ctx.rls((tx) => runMetric(tx, ctx.businessId, input))),
+    list: businessProcedure.query(({ ctx }) => listMetrics(metricReader(ctx))),
+    get: businessProcedure.input(z.object({ queryId: z.string().max(80).nullish(), sql: z.string().max(4000).nullish() })).query(({ ctx, input }) => ctx.rls((tx) => runMetric(tx, ctx.businessId, input, metricReader(ctx)))),
   }),
   /** A sentence → the catalogue metric it means, with a preview. Deterministic; nothing the founder types is executed. */
   compileMetric: businessProcedure.input(z.object({ sentence: z.string().min(1).max(400) })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const compiled = await compileMetric(tx, ctx.businessId, input.sentence);
+      const compiled = await compileMetric(tx, ctx.businessId, input.sentence, metricReader(ctx));
       await audit(tx, ctx, { action: "dashboard.compile_metric", target: { kind: "metric", id: compiled.queryId }, details: { sentence: input.sentence.slice(0, 200) } });
       return compiled;
     }),

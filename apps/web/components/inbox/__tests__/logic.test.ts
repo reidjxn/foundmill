@@ -10,6 +10,7 @@ import {
   followUpLinks,
   freeTextAllowed,
   hasAgentDesk,
+  hiddenNotice,
   headerDates,
   inboxTabs,
   itemIdFromPath,
@@ -309,5 +310,15 @@ describe("the agent's opener under a note (DESIGN §8 Conversation)", () => {
     expect(noteOpener("update", [], false)).toMatch(/what's blocking it/);
     expect(noteOpener("customer_won", [], false)).toMatch(/new customer/);
     expect(noteOpener("human_message", [], false)).toBeNull();
+  });
+});
+
+describe("section walls (inbox.get item.redacted)", () => {
+  it("says which parts of the note the reader's access hides, and nothing when none", () => {
+    expect(hiddenNotice([])).toBeNull();
+    expect(hiddenNotice(undefined)).toBeNull();
+    expect(hiddenNotice(["finance"])).toBe("Figures from Finance are hidden: your access does not include Finance.");
+    expect(hiddenNotice(["crm"])).toBe("Customer details from the CRM are hidden: your access does not include the CRM.");
+    expect(hiddenNotice(["crm", "finance"])).toMatch(/^Figures from Finance and customer details from the CRM are hidden/);
   });
 });

@@ -558,6 +558,21 @@ export function agentIndex(departments: readonly DepartmentLike[]): Map<string, 
   return out;
 }
 
+// --- section walls -----------------------------------------------------------------------------------------------------
+
+/**
+ * The line under a note's title when the server masked part of it (inbox.get `item.redacted`): the reader has no access
+ * to Finance or the CRM, so its figures or customer details read "(amount hidden)" / "a customer". Null when nothing was.
+ */
+export function hiddenNotice(redacted: readonly string[] | undefined): string | null {
+  const finance = redacted?.includes("finance") ?? false;
+  const crm = redacted?.includes("crm") ?? false;
+  if (finance && crm) return "Figures from Finance and customer details from the CRM are hidden: your access does not include them.";
+  if (finance) return "Figures from Finance are hidden: your access does not include Finance.";
+  if (crm) return "Customer details from the CRM are hidden: your access does not include the CRM.";
+  return null;
+}
+
 // --- status strip sources -----------------------------------------------------------------------------------------
 
 export type StripSource = "finance" | "conversions" | "tasks" | "channels";

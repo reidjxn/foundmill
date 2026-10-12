@@ -56,6 +56,9 @@ test.describe("inbox", () => {
     await expect(page.getByTestId("inbox-item-header")).toBeVisible({ timeout: LONG });
     await expect(page.getByTestId("type-pill")).toBeVisible();
     await expect(page.getByTestId("inbox-note")).toBeVisible();
+    // The owner is walled from nothing: no figure or customer detail of the note is hidden (inbox.get item.redacted).
+    await expect(page.getByTestId("redacted-notice")).toHaveCount(0);
+    await expect(page.getByTestId("inbox-note")).not.toContainText("(amount hidden)");
   });
 
   test("AC-11.3.2: R adds exactly one new item; a second R inside the debounce only shows the wait", async ({ page }) => {

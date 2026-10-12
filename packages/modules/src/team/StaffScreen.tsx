@@ -47,6 +47,16 @@ const ROW_PX = 28;
 
 const ROLE_ORDER: Record<MembershipRole, number> = { owner: 0, admin: 1, member: 2, advisor: 3, viewer: 4 };
 const INVITABLE_ROLES = MEMBERSHIP_ROLES.filter((r) => r !== "owner");
+
+/**
+ * Why the viewer may not change this member's role and permissions (team.humans.role, 0026_membership_guards), or null:
+ * nobody edits their own row, and only an owner changes an owner's.
+ */
+export function roleLockReason(row: Pick<StaffRow, "isMe" | "role">, viewerRole: MembershipRole | null): string | null {
+  if (row.isMe) return "You cannot change your own role or permissions; another owner or admin can.";
+  if (row.role === "owner" && viewerRole !== "owner") return "Only an owner can change an owner's role or permissions.";
+  return null;
+}
 const PERMISSION_OPTIONS: { value: SectionPermission; label: string }[] = [
   { value: "none", label: "No access" },
   { value: "read", label: "Read" },
@@ -71,12 +81,13 @@ interface PermissionGridProps {
   id: string;
   value: Record<string, SectionPermission>;
   onChange: (next: Record<string, SectionPermission>) => void;
+  disabled?: boolean;
 }
 
 /** One select per section (modules plus the fixed surfaces). A section left out inherits the role's default. */
-function PermissionGrid({ id, value, onChange }: PermissionGridProps) {
+function PermissionGrid({ id, value, onChange, disabled }: PermissionGridProps) {
   return (
-    <fieldset className="grid grid-cols-2 gap-x-4 gap-y-2">
+    <fieldset className="grid grid-cols-2 gap-x-4 gap-y-2" disabled={disabled}>
       <legend className="t-label mb-1 col-span-2">Section permissions</legend>
       {STAFF_SECTIONS.map((section) => {
         const sid = `${id}-perm-${section}`;
@@ -85,7 +96,7 @@ function PermissionGrid({ id, value, onChange }: PermissionGridProps) {
             <label htmlFor={sid} className="min-w-0 text-body text-primary">
               {sectionLabel(section)}
             </label>
-            <SimpleSelect id={sid} aria-label={`${sectionLabel(section)} permission`} controlSize="sm" className="w-40 shrink-0" options={[{ value: "inherit", label: "Role default" }, ...PERMISSION_OPTIONS]} value={value[section] ?? "inherit"} onValueChange={(v) => {
+            <SimpleSelect id={sid} aria-label={`${sectionLabel(section)} permission`} controlSize="sm" className="w-40 shrink-0" options={[{ value: "inherit", label: "Role default" }, ...PERMISSION_OPTIONS]} value={value[section] ?? "inherit"} disabled={disabled} onValueChange={(v) => {
               const next = { ...value };
               if (v === "inherit") delete next[section];
               else next[section] = v as SectionPermission;
@@ -138,7 +149,7 @@ export function InviteDialog({ open, onOpenChange, onInvited }: InviteDialogProp
       <DialogContent size="lg" aria-describedby={`${id}-desc`} data-testid="invite-dialog">
         <DialogHeader>
           <DialogTitle>Invite staff</DialogTitle>
-          <DialogDescription id={`${id}-desc`}>A person with a Foundmill account joins this business with a role and, where needed, per-section permissions. Ownership is transferred from Settings, not granted here.</DialogDescription>
+          <DialogDescription id={`${id}-desc`}>A person with a Foundmill account joins this business with a role and, where needed, per-section permissions. Ownership is never granted by invitation: an owner grants it from Role and permissions.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
           <Field htmlFor={`${id}-user`} label="Account id" required hint="Find it in Settings › Members or on the person's profile." error={userId && !validId ? "That is not an account id; it has 36 letters, digits and dashes." : undefined}>
@@ -168,12 +179,17 @@ export function InviteDialog({ open, onOpenChange, onInvited }: InviteDialogProp
 
 export interface RoleDialogProps {
   row: StaffRow | null;
+  /** The signed-in person's role here (null while unknown): only an owner sees Owner in the list. */
+  viewerRole: MembershipRole | null;
   onOpenChange: (open: boolean) => void;
   onSaved: (membership: MembershipRow) => void;
 }
 
-/** Change a member's role and section permissions (team.humans.role). Your own role cannot be changed here. */
-export function RoleDialog({ row, onOpenChange, onSaved }: RoleDialogProps) {
+/**
+ * Change another member's role and section permissions (team.humans.role). Nobody edits their own row; only an owner
+ * edits an owner's or grants ownership (the role list offers Owner to owners only).
+ */
+export function RoleDialog({ row, viewerRole, onOpenChange, onSaved }: RoleDialogProps) {
   const id = useId();
   const action = useAction();
   const [role, setRole] = useState<MembershipRole>("member");
@@ -186,11 +202,12 @@ export function RoleDialog({ row, onOpenChange, onSaved }: RoleDialogProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset per member
   }, [row?.userId]);
-  const roleLocked = !!row && (row.isMe || row.role === "owner");
+  const locked = row ? roleLockReason(row, viewerRole) : null;
+  const roleOptions = viewerRole === "owner" ? MEMBERSHIP_ROLES : INVITABLE_ROLES;
   const confirm = async () => {
-    if (!row) return;
+    if (!row || locked) return;
     const input: Record<string, unknown> = { userId: row.userId, sectionPermissions: perms };
-    if (!roleLocked && role !== row.role) input.role = role;
+    if (role !== row.role) input.role = role;
     const m = await action.run<MembershipRow>("team.humans.role", input, { key: `role:${row.userId}` });
     if (m) {
       onSaved(m);
@@ -202,20 +219,20 @@ export function RoleDialog({ row, onOpenChange, onSaved }: RoleDialogProps) {
       <DialogContent size="lg" aria-describedby={`${id}-desc`} data-testid="role-dialog">
         <DialogHeader>
           <DialogTitle>Role and permissions for {row?.name}</DialogTitle>
-          <DialogDescription id={`${id}-desc`}>{roleLocked ? (row?.isMe ? "You cannot change your own role; permissions still apply." : "The owner's role is fixed; transfer ownership from Settings.") : "Changes apply on the member's next request and are logged."}</DialogDescription>
+          <DialogDescription id={`${id}-desc`}>{locked ?? (row?.role === "owner" ? "A business always keeps at least one owner; changes are logged." : "Changes apply on the member's next request and are logged.")}</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
           <Field htmlFor={`${id}-role`} label="Role">
-            <SimpleSelect id={`${id}-role`} aria-label="Role" options={(roleLocked ? MEMBERSHIP_ROLES : INVITABLE_ROLES).map((r) => ({ value: r, label: ROLE_LABELS[r] }))} value={role} onValueChange={(v) => setRole(v as MembershipRole)} disabled={roleLocked} />
+            <SimpleSelect id={`${id}-role`} aria-label="Role" options={(locked ? MEMBERSHIP_ROLES : roleOptions).map((r) => ({ value: r, label: ROLE_LABELS[r] }))} value={role} onValueChange={(v) => setRole(v as MembershipRole)} disabled={!!locked} />
           </Field>
-          <PermissionGrid id={id} value={perms} onChange={setPerms} />
+          <PermissionGrid id={id} value={perms} onChange={setPerms} disabled={!!locked} />
           <InlineError error={action.error} />
         </DialogBody>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button variant="primary" icon={ShieldCheck} loading={action.pending !== null} onClick={() => void confirm()} data-testid="role-confirm">
+          <Button variant="primary" icon={ShieldCheck} disabled={!!locked} loading={action.pending !== null} onClick={() => void confirm()} data-testid="role-confirm">
             Save
           </Button>
         </DialogFooter>
@@ -281,7 +298,8 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
   const [edit, setEdit] = useState<StaffRow | null>(null);
   const [remove, setRemove] = useState<StaffRow | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const canAdmin = rows.find((r) => r.isMe)?.role === "owner" || rows.find((r) => r.isMe)?.role === "admin" || !me.userId;
+  const myRole = rows.find((r) => r.isMe)?.role ?? null;
+  const canAdmin = myRole === "owner" || myRole === "admin" || !me.userId;
   // Each column at its minimum; the table shares the spare width by STAFF_FIT's weights itself (DataTable `meta.grow`).
   const sizes = useMemo(() => fitColumns(null, STAFF_FIT, []), []);
   const onlyMe = rows.length > 0 && rows.every((r) => r.isMe);
@@ -338,7 +356,7 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
 
   const rowActions = (row: StaffRow): RowAction<StaffRow>[] => [
     { id: "profile", label: "Open profile", icon: ExternalLink, disabled: !row.membership.entityId, onSelect: () => row.membership.entityId && navigate(`/b/${businessId}/crm/${row.membership.entityId}/overview`) },
-    { id: "role", label: "Role and permissions…", icon: ShieldCheck, separatorBefore: true, onSelect: () => setEdit(row) },
+    { id: "role", label: "Role and permissions…", icon: ShieldCheck, separatorBefore: true, disabled: !canAdmin || roleLockReason(row, myRole) !== null, onSelect: () => setEdit(row) },
     { id: "remove", label: "Remove", icon: UserRoundMinus, variant: "danger", disabled: row.isMe || row.role === "owner", onSelect: () => setRemove(row) },
   ];
 
@@ -401,6 +419,7 @@ export function StaffScreen({ businessId }: ModuleScreenProps) {
       />
       <RoleDialog
         row={edit}
+        viewerRole={myRole}
         onOpenChange={(o) => !o && setEdit(null)}
         onSaved={(m) => {
           setNotice(`${memberName(m, me)} is now ${ROLE_LABELS[m.role]}.`);

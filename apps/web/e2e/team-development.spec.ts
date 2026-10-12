@@ -77,6 +77,10 @@ for (const width of [1280, 1440]) {
 
       await openTab(page, team, "staff", "team/staff");
       await expect(page.getByRole("grid", { name: "Staff" })).toBeVisible({ timeout: LONG });
+      // Nobody edits their own role or permissions (team.humans.role refuses it): the founder's own row offers neither.
+      await page.getByRole("grid", { name: "Staff" }).getByRole("row").filter({ hasText: "You" }).first().click({ button: "right" });
+      await expect(page.getByRole("menuitem", { name: "Role and permissions…" })).toHaveAttribute("aria-disabled", "true");
+      await page.keyboard.press("Escape");
     });
 
     test("Team: signing is never offered to agents, and Recruitment drafts an agent with the generate action", async ({ page }) => {

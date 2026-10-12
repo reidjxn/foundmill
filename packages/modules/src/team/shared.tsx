@@ -6,7 +6,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CircleAlert, CircleDashed, CirclePause } from "lucide-react";
 import { Avatar, EntityLink, MODEL_LABELS, PageGrid, StatusPill, agentStatusTone, cn, formatRelative, type EntityDetails, type IconComponent, type SquadRow } from "@foundmill/dugout";
-import { MODULE_KEYS, type AgentStatus, type DecisionType, type DeptColourToken, type MembershipRole } from "@foundmill/shared/constants";
+import { type AgentStatus, type DecisionType, type DeptColourToken, type MembershipRole } from "@foundmill/shared/constants";
+import { SECTIONS } from "@foundmill/shared/permissions";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState, type WidgetEvent } from "@foundmill/widgets/data";
 import { usSpelling } from "@foundmill/shared/us-spelling";
@@ -373,8 +374,8 @@ export function toSquadRow(agent: AgentRow, currency = "EUR"): SquadRow {
 
 export const ROLE_LABELS: Record<MembershipRole, string> = { owner: "Owner", admin: "Admin", member: "Member", viewer: "Viewer", advisor: "Advisor" };
 
-/** Sections a membership can carry per-section permissions for (apps/api `SECTIONS`): the modules plus the fixed surfaces. */
-export const STAFF_SECTIONS: readonly string[] = [...MODULE_KEYS, "inbox", "crm", "settings", "billing", "live"];
+/** Sections a membership can carry per-section permissions for (`SECTIONS`, @foundmill/shared): the modules plus the fixed surfaces. */
+export const STAFF_SECTIONS: readonly string[] = SECTIONS;
 
 export const SECTION_LABELS: Record<string, string> = { product: "Product", development: "Development", distribution: "Distribution", finance: "Finance", team: "Team", legal: "Legal", inbox: "Inbox", crm: "CRM", settings: "Settings", billing: "Billing", live: "LIVE" };
 
