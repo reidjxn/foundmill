@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TRPCClientError } from "@trpc/client";
-import { apiTrpcUrl, appErrorCode, createApiLinks, createUntypedApiClient, errorMessage, isNotInvited, isStreamingOperation, RATE_LIMITED_MESSAGE, resolveBearer, STREAMING_PROCEDURES, tierLimitOf, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
+import { apiTrpcUrl, appErrorCode, createApiLinks, createUntypedApiClient, errorMessage, isNotInvited, isStreamingOperation, notInvitedReason, RATE_LIMITED_MESSAGE, resolveBearer, STREAMING_PROCEDURES, tierLimitOf, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
 import { makeQueryClient } from "../query-client";
 import { routersToInvalidate, withBusiness } from "../widget-data";
 
@@ -60,7 +60,17 @@ describe("trpc helpers", () => {
     const retry = makeQueryClient().getDefaultOptions().queries?.retry as (count: number, err: unknown) => boolean;
     expect(retry(0, { data: { code: "TOO_MANY_REQUESTS" } })).toBe(false);
     expect(retry(0, { data: { code: "FORBIDDEN" } })).toBe(false);
+    // Used-up credits (SEC2): a retry is refused the same way.
+    expect(retry(0, { data: { code: "PAYMENT_REQUIRED" } })).toBe(false);
     expect(retry(0, { data: { code: "INTERNAL_SERVER_ERROR" } })).toBe(true);
+  });
+
+  it("tells a listed address that is not confirmed yet from one that is not on the list (SEC2 S11)", () => {
+    const err = (details?: Record<string, unknown>) => new TRPCClientError("x", { result: { error: { code: -32003, message: "x", data: { code: "FORBIDDEN", httpStatus: 403, appCode: "not_invited", ...(details ? { details } : {}) } } } } as never);
+    expect(notInvitedReason(err({ reason: "email_unconfirmed" }))).toBe("email_unconfirmed");
+    expect(notInvitedReason(err({ reason: "not_listed" }))).toBe("not_listed");
+    expect(notInvitedReason(err())).toBe("not_listed");
+    expect(notInvitedReason(new Error("x"))).toBe("not_listed");
   });
 
   it("derives the tRPC url", () => {

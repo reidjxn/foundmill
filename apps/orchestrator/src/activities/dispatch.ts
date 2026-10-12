@@ -2,22 +2,23 @@
  * Dispatch guard: the one place the orchestrator opens an agent session (a cycle's `openSession`, a plan's
  * `create_task`). Before the row exists it refuses work while the team is stopped (Stop all agents, a revoked key,
  * used-up credits; 0023), for a paused or released agent, for a task that already has an open session (no duplicate
- * sessions on one task) and for an agent at its wage cap, which it pauses until the next period with one Inbox note
- * (BUILD §10.4: alerts at 50 and 80 %, pause at 100 %). The row is created with its real workflow id (`session:<id>`)
- * before the workflow starts, so every pause, nudge, stop and the kill switch reach the session.
+ * sessions on one task), when every concurrent agent the plan tier holds is working (`concurrencyAllowance`, the count
+ * the cycle and dev.tasks.start use) and for an agent at its wage cap, which it pauses until the next period with one
+ * Inbox note (BUILD §10.4: alerts at 50 and 80 %, pause at 100 %). The row is created with its real workflow id
+ * (`session:<id>`) before the workflow starts, so every pause, nudge, stop and the kill switch reach the session.
  *
  * `recoverAgents` is the other half of the loop: before each cycle plans, an agent that failed rests (`retry.ts`) and
  * then goes back to idle, and an agent paused for its wage cap comes back once it is under the cap again (a new
  * period, or a higher cap). Neither touches any other pause.
  */
 import { LIMITS } from "@foundmill/config";
-import { periodOf, periodRange, repos, type Agent } from "@foundmill/db";
+import { concurrencyAllowance, periodOf, periodRange, repos, type Agent } from "@foundmill/db";
 import { formatMoney } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { agentActor, emitEvent, systemActor } from "../events";
 import { agentCooldown, failureStreak } from "../retry";
 
-export type DispatchRefusal = "agents_stopped" | "agent_paused" | "agent_archived" | "wage_cap" | "open_session";
+export type DispatchRefusal = "agents_stopped" | "agent_paused" | "agent_archived" | "wage_cap" | "open_session" | "concurrency_limit";
 
 export type OpenSessionResult = { sessionId: string; workflowId: string; refused: null; detail: null } | { sessionId: null; workflowId: null; refused: DispatchRefusal; detail: string };
 
@@ -38,10 +39,14 @@ export async function openAgentSession(deps: OrchestratorDeps, input: { business
   const businessId = input.businessId;
   const stop = await repos.businesses.stopState(db, businessId);
   if (stop.stopped) return refuse("agents_stopped", stop.archived ? "the business is archived" : `agents are stopped (${(stop.reason ?? "kill_switch").replace(/_/g, " ")}); an owner or admin resumes them`);
-  const [agent, task, open] = await Promise.all([repos.agents.get(db, businessId, input.agentId), repos.tasks.get(db, businessId, input.taskId), repos.agents.listSessions(db, businessId, { taskId: input.taskId, openOnly: true, limit: 1 })]);
+  const [agent, task, open, business] = await Promise.all([repos.agents.get(db, businessId, input.agentId), repos.tasks.get(db, businessId, input.taskId), repos.agents.listSessions(db, businessId, { taskId: input.taskId, openOnly: true, limit: 1 }), repos.businesses.get(db, businessId)]);
   if (agent.archivedAt) return refuse("agent_archived", `${agent.name} has left the team`);
   if (agent.status === "paused") return refuse("agent_paused", `${agent.name} is paused${agent.pausedReason === "wage_cap" ? " (wage cap reached)" : ""}`);
   if (open.items.length > 0) return refuse("open_session", `"${task.title}" already has a session running`);
+  // The plan tier's concurrent agents, counted as the cycle and dev.tasks.start count them (SEC2 S2): a plan's task or a
+  // playbook never runs past the limit because it did not come through a cycle.
+  const concurrency = await concurrencyAllowance(db, business, clock.now());
+  if (concurrency.room <= 0) return refuse("concurrency_limit", `every agent the ${business.planTier} plan runs at once is working (${concurrency.running} of ${concurrency.limit}); it starts when one finishes`);
   const capped = await checkWageCap(deps, businessId, agent);
   if (capped) return refuse("wage_cap", capped);
 

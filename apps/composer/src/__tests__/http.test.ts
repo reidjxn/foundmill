@@ -1,14 +1,17 @@
 /**
  * HTTP surface on an ephemeral port: /health, /v1/narrate, /v1/refresh, /v1/commentary, /v1/chapter-title,
- * /v1/exhibits, validation and error mapping. The server is stopped after the suite.
+ * /v1/exhibits, validation and error mapping, and the credits gate's 402. The server is stopped after the suite.
  */
 import { serve } from "@hono/node-server";
-import { repos } from "@foundmill/db";
+import { periodOf, repos } from "@foundmill/db";
 import { validateMarkup } from "@foundmill/entity-linker";
+import { gateModelClient } from "@foundmill/models";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../app";
 import { parseQuarter, provisionalTitle, quarterOf, titleAcceptable, type QuarterFacts } from "../chapter";
+import { createComposerService } from "../service";
+import { creditsGate } from "../usage";
 import { createComposerHarness, type ComposerHarness } from "./harness";
 
 let hz: ComposerHarness;
@@ -141,6 +144,28 @@ describe("composer HTTP", () => {
     const byChapterId = await post("/v1/chapter-title", { businessId: hz.A.businessId, chapterId: "2025-Q1" });
     expect(((await byChapterId.json()) as { quarter: string }).quarter).toBe("2025-Q1");
     expect((await post("/v1/chapter-title", { businessId: hz.A.businessId, quarter: "Q3" })).status).toBe(400);
+  });
+});
+
+describe("the credits gate (SEC2 S2)", () => {
+  it("a note for a business whose credits are used up is refused with 402 credits_exhausted before any model call; nothing is booked", async () => {
+    const B = hz.B.businessId;
+    const gated = createComposerService({ db: hz.db, models: gateModelClient(hz.models, creditsGate(hz.db, false)), log: hz.log }, { debounceMs: 0, persistDrafts: false });
+    const app = createApp(gated, { env: { APP_ENV: "test", INTEGRATIONS_MODE: "mock", MODEL_MODE: "mock" } });
+    const narrate = async (eventId: string) => app.request("/v1/narrate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ businessId: B, eventIds: [eventId] }) });
+    // While credits are left the note is written and booked.
+    const first = await hz.writeEvent(B, "payment.received", { amount: { amountMinor: 900, currency: "EUR" } }, [hz.B.entityId]);
+    expect((await narrate(first.id)).status).toBe(200);
+
+    await repos.usage.chargeCredits(hz.db, B, periodOf(new Date()), 10_000_000, { includedMinor: 500 });
+    const booked = hz.usage.length;
+    const notes = (await repos.inbox.list(hz.db, B, { limit: 500 })).items.length;
+    const event = await hz.writeEvent(B, "payment.received", { amount: { amountMinor: 1200, currency: "EUR" } }, [hz.B.entityId]);
+    const res = await narrate(event.id);
+    expect(res.status).toBe(402);
+    expect(await res.json()).toMatchObject({ error: "credits_exhausted", message: expect.stringMatching(/^This month's credits are used up/), details: { reason: "exhausted", businessId: B } });
+    expect(hz.usage.length).toBe(booked);
+    expect((await repos.inbox.list(hz.db, B, { limit: 500 })).items.length).toBe(notes);
   });
 });
 

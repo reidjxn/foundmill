@@ -17,6 +17,7 @@ import { APP_NAME, LIMITS } from "@foundmill/config";
 import { HOUSE_STYLE } from "@foundmill/agents";
 import { AppError, type EntityKind } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
+import { noteModelCall } from "./model-calls";
 
 export interface ComposeResult {
   item: InboxItem;
@@ -118,6 +119,9 @@ export function createComposerClient(opts: CreateComposerClientOptions): Compose
   };
 
   const run = async (path: string, body: Record<string, unknown>, businessId: string, local: () => Promise<LocalComposed>): Promise<ComposeResult> => {
+    // The composer service may call a model for this request (its own credits gate decides): the request's allowance
+    // is spent from here on (services/model-calls.ts). The in-process path notes its calls through the api's client.
+    noteModelCall();
     try {
       return await viaService(path, body, businessId);
     } catch (err) {

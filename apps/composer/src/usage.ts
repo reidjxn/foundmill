@@ -4,9 +4,20 @@
  * attached to the models client as `onUsage`. Costs are list-price arithmetic from @foundmill/models and therefore
  * labelled "Estimate" in `details`. Rows are billed to whoever's key the client ran on (`event.billedTo`; the composer
  * runs on the platform key, so credits) and settled through `bookUsage`, which charges the period's balance.
+ *
+ * Every call also asks first (`creditsGate`, SEC2 S2): a note, a sweep, commentary or a chapter title for a business whose
+ * credits for the month are used up is refused before the request leaves (`credits_exhausted`, 402, which the api
+ * passes through), whatever the business's model billing; a pre-written note from the buffer still serves Refresh.
  */
-import { bookUsage, type Db } from "@foundmill/db";
-import type { ModelLogger, UsageEvent, UsageSink } from "@foundmill/models";
+import { assertPlatformCredits, bookUsage, type Db } from "@foundmill/db";
+import type { ModelCallGate, ModelLogger, UsageEvent, UsageSink } from "@foundmill/models";
+
+/** The composer's check before every model call: the business's credits must allow it (`live`: simulated credits do not count). */
+export function creditsGate(db: Db, live: boolean): ModelCallGate {
+  return async ({ attribution }) => {
+    if (attribution?.businessId) await assertPlatformCredits(db, attribution.businessId, { live });
+  };
+}
 
 export interface UsageSinkOptions {
   /** Called after each ledger write (tests). */

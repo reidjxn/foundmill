@@ -64,6 +64,11 @@ export interface Context extends ApiDeps {
   email: string | null;
   /** When the signed-in user last authenticated (token `amr`/`iat`); null when anonymous or unknown. */
   authenticatedAt: Date | null;
+  /**
+   * The token shows the user controls `email` (auth.ts `emailConfirmedFromPayload`): what SIGNUP_ALLOWLIST requires
+   * before it trusts the address (SEC2 S11). False when the token did not say.
+   */
+  emailConfirmed: boolean;
   requestId: string;
   /**
    * The membership and business lookups `businessProcedure` made in this HTTP request (trpc.ts), keyed by user and
@@ -79,6 +84,8 @@ export interface CallerUser {
   userId: string;
   email?: string | null;
   authenticatedAt?: Date | null;
+  /** Defaults to true: the in-process caller names a user it already trusts. */
+  emailConfirmed?: boolean;
 }
 
 export interface CreateApiDepsOptions {
@@ -170,11 +177,11 @@ export function createContextFactory(deps: ApiDeps) {
     const authorization = opts.req.headers.get("authorization");
     const user = await deps.auth.resolve(authorization);
     const requestId = c?.get("requestId") ?? requestIdFrom(opts.req.headers.get("x-request-id"));
-    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, requestId, accessMemo: new Map() };
+    return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user?.authenticatedAt ?? null, emailConfirmed: user?.emailConfirmed === true, requestId, accessMemo: new Map() };
   };
 }
 
 /** Context for tests and the in-process caller (`authenticatedAt` defaults to now for a signed-in user). */
 export function createTestContext(deps: ApiDeps, user: CallerUser | null): Context {
-  return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user ? (user.authenticatedAt === undefined ? new Date() : user.authenticatedAt) : null, requestId: crypto.randomUUID() };
+  return { ...deps, userId: user?.userId ?? null, email: user?.email ?? null, authenticatedAt: user ? (user.authenticatedAt === undefined ? new Date() : user.authenticatedAt) : null, emailConfirmed: user ? user.emailConfirmed !== false : false, requestId: crypto.randomUUID() };
 }

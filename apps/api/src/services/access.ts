@@ -6,7 +6,8 @@
  *
  * `protectedProcedure` (trpc.ts) checks it on every signed-in request, so an account that is not on the list can sign in
  * but reaches nothing: no founder profile, no Ideation, no business. The answer is FORBIDDEN with `appCode`
- * `not_invited`, which the web turns into its invite-only page (components/shell/NotInvitedPage.tsx).
+ * `not_invited`, which the web turns into its invite-only page (components/shell/NotInvitedPage.tsx). A listed address
+ * counts only once confirmed: Supabase's "Confirm email" must stay on (docs/DEPLOY.md §4).
  */
 import { AppError } from "@foundmill/shared";
 
@@ -54,13 +55,19 @@ function listFor(raw: string | undefined): SignupAllowlist | null {
   return memo.list;
 }
 
+export const EMAIL_UNCONFIRMED_MESSAGE = "This address is not confirmed yet. Open the link we sent to it, then sign in again.";
+
 /**
- * Refuses a signed-in account that the allow-list does not name. The development bypass user (`DEV_AUTH_USER_ID`, which
- * `loadEnv` clears outside development and test) is always admitted: it carries no email.
+ * Refuses a signed-in account that the allow-list does not name. An address counts only when the token shows it is
+ * confirmed (auth.ts `emailConfirmedFromPayload`; SEC2 S11): an anonymous sign-in, or an account whose address nobody
+ * proved they read, could otherwise claim a listed address. That refusal carries `details.reason: "email_unconfirmed"`.
+ * The development bypass user (`DEV_AUTH_USER_ID`, which `loadEnv` clears outside development and test) is always
+ * admitted: it carries no email.
  */
-export function assertAllowlisted(env: { SIGNUP_ALLOWLIST?: string; DEV_AUTH_USER_ID?: string }, user: { userId: string; email: string | null }): void {
+export function assertAllowlisted(env: { SIGNUP_ALLOWLIST?: string; DEV_AUTH_USER_ID?: string }, user: { userId: string; email: string | null; emailConfirmed?: boolean }): void {
   const list = listFor(env.SIGNUP_ALLOWLIST);
   if (!list) return;
   if (env.DEV_AUTH_USER_ID && user.userId === env.DEV_AUTH_USER_ID) return;
-  if (!allowlisted(list, user.email)) throw new AppError(NOT_INVITED_CODE, NOT_INVITED_MESSAGE, 403);
+  if (!allowlisted(list, user.email)) throw new AppError(NOT_INVITED_CODE, NOT_INVITED_MESSAGE, 403, { reason: "not_listed" });
+  if (user.emailConfirmed !== true) throw new AppError(NOT_INVITED_CODE, EMAIL_UNCONFIRMED_MESSAGE, 403, { reason: "email_unconfirmed" });
 }

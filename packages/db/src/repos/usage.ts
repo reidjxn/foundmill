@@ -14,9 +14,9 @@
  */
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { MODEL_BILLING, MODEL_KEYS, USAGE_KINDS, ValidationError, type UsageKind } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { agents, creditBalances, usageLedger, type CreditBalance, type UsageEntry } from "../schema";
+import { agents, businesses, creditBalances, usageLedger, type CreditBalance, type UsageEntry } from "../schema";
 import { Currency, DateRange, Id, IsoDateInput, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page } from "./_shared";
 
 export const RecordUsageInput = z.object({
@@ -215,6 +215,18 @@ export const usageRepo = {
     return { costMinor: cost, wageCapMinor: cap, remainingMinor: cap === null ? null : Math.max(0, cap - cost) };
   },
 
+  /**
+   * Model tokens already booked for one agent session, cost in USD: a live session on the platform key books as it goes
+   * (so concurrent sessions and the api see one balance), and the session's finish books only what is left.
+   */
+  async sessionTokens(db: Executor, businessId: string, sessionId: string): Promise<{ costMinor: number; quantity: number }> {
+    const [row] = await db
+      .select({ cost: sql<number>`coalesce(sum(${usageLedger.costMinor}), 0)::bigint`, quantity: sql<number>`coalesce(sum(${usageLedger.quantity}), 0)::bigint` })
+      .from(usageLedger)
+      .where(and(eq(usageLedger.businessId, businessId), eq(usageLedger.sessionId, sessionId), eq(usageLedger.kind, "tokens"), eq(usageLedger.currency, CREDITS_CURRENCY)));
+    return { costMinor: Number(row?.cost ?? 0), quantity: Number(row?.quantity ?? 0) };
+  },
+
   // credits -----------------------------------------------------------------------------------------------------------
   async creditBalance(db: Executor, businessId: string, period: string): Promise<CreditBalance | null> {
     const p = parseInput(Period, period, "period");
@@ -263,21 +275,48 @@ export const usageRepo = {
   },
 
   /**
+   * Serializes the included-credit grants of one founder's businesses (../billing.ts `includedCreditsFor`), so two of
+   * their businesses opening the same month at once cannot both take the pool's last place. Transaction-scoped.
+   */
+  async lockIncludedCredits(db: Executor, creatorId: string): Promise<void> {
+    const id = parseInput(Id, creatorId, "user id");
+    await db.execute(sql`select pg_advisory_xact_lock(hashtext('included_credits'), hashtext(${id}::text))`);
+  },
+
+  /**
+   * Businesses `creatorId` took charge of, archived ones included, other than `exceptBusinessId`, that were granted
+   * credits for `period` (a balance row with something granted): the places of the founder's monthly pool of included
+   * credits already taken. A row granted only by a top-up counts too (the ledger cannot tell them apart), which errs
+   * toward granting less.
+   */
+  async includedCreditPlacesTaken(db: Executor, creatorId: string, period: string, options: { exceptBusinessId?: string } = {}): Promise<number> {
+    const v = parseInput(z.object({ creatorId: Id, period: Period }), { creatorId, period }, "included credits");
+    const [row] = await db
+      .select({ n: sql<number>`count(distinct ${creditBalances.businessId})::int` })
+      .from(creditBalances)
+      .innerJoin(businesses, eq(businesses.id, creditBalances.businessId))
+      .where(and(eq(businesses.createdBy, v.creatorId), eq(creditBalances.period, v.period), sql`${creditBalances.grantedMinor} > 0`, options.exceptBusinessId ? ne(creditBalances.businessId, options.exceptBusinessId) : undefined));
+    return Number(row?.n ?? 0);
+  },
+
+  /**
    * Charges a metered USD cost to the period's credits after the fact (every sink that books a `credits` row). Unlike
    * `debitCredits` it never refuses: the call already happened, so `spent` grows by the full amount and the balance
    * stops at zero. With `includedMinor` (what `bookUsage` always passes) a period without a row starts with the tier's
-   * included credits, so a business on credits is always enforced; without it, a period with no row returns null.
-   * `exhausted` says whether this charge used the last credit (`"now"`, also when the period started with nothing
-   * included) or the balance was already empty (`"already"`).
+   * included credits, so a business on credits is always enforced; without it, a period with no row returns null. A
+   * function is asked inside the charge's transaction, only when the row is missing (the owner's monthly pool,
+   * ../billing.ts `includedCreditsFor`). `exhausted` says whether this charge used the last credit (`"now"`, also when the
+   * period started with nothing included) or the balance was already empty (`"already"`).
    */
-  async chargeCredits(db: Executor, businessId: string, period: string, amountMinor: number, options: { includedMinor?: number } = {}): Promise<{ balance: CreditBalance; exhausted: "now" | "already" | null } | null> {
+  async chargeCredits(db: Executor, businessId: string, period: string, amountMinor: number, options: { includedMinor?: number | ((tx: Executor) => Promise<number>) } = {}): Promise<{ balance: CreditBalance; exhausted: "now" | "already" | null } | null> {
     const v = parseInput(z.object({ period: Period, amountMinor: MinorAmount.nonnegative() }), { period, amountMinor }, "credit charge");
     return db.transaction(async (tx) => {
       const lockRow = async () => (await tx.select().from(creditBalances).where(and(eq(creditBalances.businessId, businessId), eq(creditBalances.period, v.period))).for("update").limit(1))[0];
       let current = await lockRow();
       let created = false;
       if (!current && options.includedMinor !== undefined) {
-        created = (await usageRepo.ensurePeriodCredits(tx, businessId, v.period, options.includedMinor)).created;
+        const included = typeof options.includedMinor === "function" ? await options.includedMinor(tx) : options.includedMinor;
+        created = (await usageRepo.ensurePeriodCredits(tx, businessId, v.period, included)).created;
         current = await lockRow();
       }
       if (!current) return null;

@@ -16,3 +16,8 @@ export class PolicyDeniedError extends AppError { constructor(reason: string) { 
  * the web turns the code into an upgrade prompt rather than a plain failure.
  */
 export class TierLimitError extends AppError { constructor(message: string, details: { limit: "businesses" | "seats" | "concurrent_agents"; tier: string; allowed: number; used: number } & Record<string, unknown>) { super("tier_limit", message, 403, details); } }
+/**
+ * A model call on the platform's Anthropic key refused before it was made (402): the business's credits for the month
+ * are used up, or only simulated credits are left where model calls are live. `details.reason` says which.
+ */
+export class CreditsExhaustedError extends AppError { constructor(message: string, details: { reason: "exhausted" | "mock_only"; businessId: string; period: string; balanceMinor: number } & Record<string, unknown>) { super("credits_exhausted", message, 402, details); } }

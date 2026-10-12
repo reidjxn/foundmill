@@ -1,10 +1,11 @@
 /**
  * Paying Foundmill (audit 2026-10-12 #22): a top-up opens a real checkout through the gateway and grants nothing by
- * itself; a mock checkout is completed on the Billing tab (labeled) exactly once; mock payments never fund live model
- * calls outside development and test; a live checkout cannot be completed from the api; a gateway failure closes the
- * row with a sentence the founder can act on; a paid tier cannot be chosen while its price is to be announced.
+ * itself; a mock checkout is completed on the Billing tab (labeled) exactly once; simulated payments exist only where
+ * ALLOW_MOCK_PAYMENTS allows them (by default development and test) and their credits never fund a live model call
+ * (SEC2 S10); a live checkout cannot be completed from the api; a gateway failure closes the row with a sentence the
+ * founder can act on; a paid tier cannot be chosen while its price is to be announced.
  */
-import { repos } from "@foundmill/db";
+import { assertPlatformCredits, repos } from "@foundmill/db";
 import { TRPCError } from "@trpc/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { ApiDeps, CallerUser } from "../context";
@@ -103,8 +104,26 @@ describe("billing.topUp (mock)", () => {
     // A mock checkout opened earlier cannot be completed there either.
     const r = await owner().billing.topUp({ businessId: hz.A.businessId, amountMinor: 2500 });
     expect(await code(staging.billing.checkout.completeMock({ businessId: hz.A.businessId, checkoutId: r.checkout.id }))).toBe("PRECONDITION_FAILED");
-    // Staging on mock models may simulate payments (they pay for nothing real).
-    expect((await callerWith({ APP_ENV: "staging", MODEL_MODE: "mock" }, { userId: hz.A.ownerId }).billing.plan({ businessId: hz.A.businessId })).topUp.available).toBe(true);
+    // The api's own MODEL_MODE is not the test (the orchestrator may run live sessions on the platform key): outside
+    // development and test simulated payments need ALLOW_MOCK_PAYMENTS (SEC2 S10).
+    expect((await callerWith({ APP_ENV: "staging", MODEL_MODE: "mock" }, { userId: hz.A.ownerId }).billing.plan({ businessId: hz.A.businessId })).topUp.available).toBe(false);
+    expect((await callerWith({ APP_ENV: "staging", MODEL_MODE: "mock", ALLOW_MOCK_PAYMENTS: true }, { userId: hz.A.ownerId }).billing.plan({ businessId: hz.A.businessId })).topUp.available).toBe(true);
+    expect((await callerWith({ APP_ENV: "test", ALLOW_MOCK_PAYMENTS: false }, { userId: hz.A.ownerId }).billing.plan({ businessId: hz.A.businessId })).topUp.available).toBe(false);
+  });
+
+  it("where simulated payments are on, their credits never pay for a live model call (SEC2 S10)", async () => {
+    const userId = await hz.h.createUser("mock-only@test.local");
+    const business = await repos.businesses.create(hz.db, { name: "Mock Only Credits", createdBy: userId, planTier: "scale" });
+    await repos.memberships.add(hz.db, business.id, { userId, role: "owner" });
+    const flagged = callerWith({ APP_ENV: "staging", MODEL_MODE: "live", ALLOW_MOCK_PAYMENTS: true }, { userId });
+    const r = await flagged.billing.topUp({ businessId: business.id, amountMinor: 2500 });
+    expect(r).toMatchObject({ mode: "mock", label: "Mock checkout (no money moves)" });
+    await flagged.billing.checkout.completeMock({ businessId: business.id, checkoutId: r.checkout.id });
+    // The only credits this month came from the simulation: labeled on the plan, refused for a live call, fine for a mock one.
+    const plan = await flagged.billing.plan({ businessId: business.id });
+    expect(plan.credits).toMatchObject({ balanceMinor: 2500, mockMinor: 2500 });
+    await expect(assertPlatformCredits(hz.db, business.id, { live: true })).rejects.toMatchObject({ code: "credits_exhausted", details: { reason: "mock_only" } });
+    await expect(assertPlatformCredits(hz.db, business.id, { live: false })).resolves.toMatchObject({ ok: true });
   });
 });
 

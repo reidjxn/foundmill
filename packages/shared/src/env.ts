@@ -75,6 +75,18 @@ const Env = z.object({
    * that can sign in. Staging sets it while sign-up is open (docs/DEPLOY.md §4).
    */
   SIGNUP_ALLOWLIST: z.string().optional(),
+  /**
+   * apps/api: whether a credit top-up may be paid by simulation (the Billing tab's mock checkout, no money moves) when
+   * Stripe is not live. "1"/"true" or "0"/"false"; unset allows it only when APP_ENV is development or test
+   * (`allowMockPayments`). Simulated credits never pay for live model calls whatever this says (docs/DEPLOY.md §4).
+   */
+  ALLOW_MOCK_PAYMENTS: z
+    .string()
+    .optional()
+    .transform((v) => {
+      const s = v?.trim().toLowerCase();
+      return s === undefined || s === "" ? undefined : s === "1" || s === "true";
+    }),
   /** apps/api: build the demo businesses once at boot and give SEED_OWNER_EMAILS owner memberships (docs/DEPLOY.md §3). */
   SEED_ON_BOOT: z.string().optional(),
   /** Seed data volume multiplier (1 = the full two years of history). */
@@ -106,4 +118,6 @@ export const liveConnectorKeys = (env: Pick<Env, "LIVE_CONNECTORS">): string[] =
 /** The mode one connector runs in: live everywhere in live mode, or when LIVE_CONNECTORS names it. */
 export const connectorMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">, connectorKey: string): "mock" | "live" => (env.INTEGRATIONS_MODE === "live" || liveConnectorKeys(env).includes(connectorKey) ? "live" : "mock");
 export const isMockModels = (env = loadEnv()) => env.MODEL_MODE === "mock";
+/** ALLOW_MOCK_PAYMENTS, or by default only in development and test: may a top-up be paid by simulation here? */
+export const allowMockPayments = (env: Pick<Env, "APP_ENV" | "ALLOW_MOCK_PAYMENTS">): boolean => env.ALLOW_MOCK_PAYMENTS ?? (env.APP_ENV === "development" || env.APP_ENV === "test");
 export const servicePort = (env: Env, named: "API_PORT" | "GATEWAY_PORT" | "COMPOSER_PORT" | "STREAM_PORT" | "COLLAB_PORT" | "INGEST_PORT" | "SOCIAL_PORT"): number => env.PORT ?? env[named];

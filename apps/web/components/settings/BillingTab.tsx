@@ -11,6 +11,9 @@
  * Credits and model costs are US dollars (`CREDITS_CURRENCY`, the model price list's currency), whatever the business's
  * own currency: they are never shown with the business's symbol. Third-party spend booked in another currency (tool
  * calls billed by each provider) is listed apart, never added to the US dollar total.
+ *
+ * Every business holds credits (SEC2): on its own key they pay only for conversations, Refresh and planning, which run
+ * on the platform's key, and the tab says so; credits from a mock top-up are labeled and never pay for live calls.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Coins, CreditCard, X } from "lucide-react";
@@ -198,13 +201,12 @@ export function BillingTab() {
                 { label: "Model calls", value: MODEL_BILLING_WORD[p.modelBilling] ?? plainWords(p.modelBilling) },
                 {
                   label: "Credits",
-                  value: p.credits ? (
+                  value: (
                     <span className="inline-flex flex-wrap items-center gap-2" data-testid="credits-balance">
                       {money(p.credits.balanceMinor)} left of {money(p.credits.grantedMinor)} <ProvenanceChip kind="estimate" />
-                      {p.credits.exhausted ? <Chip tone="bad">Used up: team paused</Chip> : null}
+                      {p.credits.mockMinor > 0 ? <Chip tone="info">{money(p.credits.mockMinor)} from mock top-ups</Chip> : null}
+                      {p.credits.exhausted ? <Chip tone="bad">{p.modelBilling === "byok" ? "Used up: conversations and Refresh paused" : "Used up: team paused"}</Chip> : null}
                     </span>
-                  ) : (
-                    "Not used: your own key pays for model calls"
                   ),
                   numeric: true,
                 },
@@ -246,6 +248,11 @@ export function BillingTab() {
               })}
             </div>
             {closedTiers.length ? <Hint>{tierChange(closedTiers[0]!)?.reason}</Hint> : null}
+            {p.modelBilling === "byok" ? (
+              <Hint>Your agents run on your own Anthropic key. Conversations, Refresh and planning run on {APP_NAME}&apos;s key and use these credits; when they run out, those wait for a top-up or next month&apos;s credits.</Hint>
+            ) : null}
+            {p.credits.includedMinor === 0 && includedCreditsMinor(p.tier) > 0 ? <Hint>This month&apos;s included credits already went to another business you took charge of: your plan includes them for as many businesses a month as it holds.</Hint> : null}
+            {p.credits.mockMinor > 0 ? <Hint>Credits from mock top-ups pay for simulated model calls only, never for live ones.</Hint> : null}
             <Hint>Third-party spend (ads, postage, email sending, registry fees) is billed by each provider to your own accounts and never resold.</Hint>
           </>
         ) : null}

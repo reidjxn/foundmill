@@ -14,6 +14,7 @@
 import { TRPCError } from "@trpc/server";
 import type { Context } from "../context";
 import { middleware, toTRPCError } from "../trpc";
+import { withModelCallScope } from "./model-calls";
 import { RateLimitedError, type LimitEntry, type WindowLimit } from "./rate-limit";
 
 const MINUTE = 60_000;
@@ -74,8 +75,11 @@ export function modelLimitEntries(name: ModelLimitName, scope: { userId: string;
   return entries;
 }
 
-/** Refused before any model call (another limit, bad input, no access, a conflict): the hit is given back. */
-const REFUNDED_CODES = new Set(["TOO_MANY_REQUESTS", "BAD_REQUEST", "FORBIDDEN", "NOT_FOUND", "CONFLICT", "PRECONDITION_FAILED", "UNAUTHORIZED"]);
+/**
+ * Refusals that give the hit back (another limit, bad input, no access, a conflict, used-up credits), and only when the
+ * request reached no model: a plan compiled before a section wall refused it was paid for (services/model-calls.ts).
+ */
+const REFUNDED_CODES = new Set(["TOO_MANY_REQUESTS", "BAD_REQUEST", "FORBIDDEN", "NOT_FOUND", "CONFLICT", "PRECONDITION_FAILED", "UNAUTHORIZED", "PAYMENT_REQUIRED"]);
 
 export interface ModelLimitOptions {
   /** Only requests whose input this accepts spend the allowance (a decision with free text compiles a plan; an option does not). */
@@ -85,7 +89,8 @@ export interface ModelLimitOptions {
 /**
  * Middleware for a model-backed procedure: spends one hit of `name` (and of the shared ceiling) for the signed-in person and,
  * inside a business, for the business; refuses with TOO_MANY_REQUESTS when any window is full. Use it after
- * `protectedProcedure` / `businessProcedure`. A request refused before reaching the model gets its hit back.
+ * `protectedProcedure` / `businessProcedure`. A request refused before reaching any model gets its hit back; one that
+ * started a model call keeps it spent, whatever refused it afterwards.
  */
 export function modelLimited(name: ModelLimitName, options: ModelLimitOptions = {}) {
   return middleware(async ({ ctx, next, getRawInput }) => {
@@ -94,8 +99,8 @@ export function modelLimited(name: ModelLimitName, options: ModelLimitOptions = 
     if (options.when && !options.when(await getRawInput())) return next();
     const taken = await c.limits.take(modelLimitEntries(name, { userId: c.userId, businessId: c.businessId ?? null }));
     if (!taken.ok) throw new RateLimitedError(MODEL_LIMITS[name].what, taken.retryAfterMs);
-    const result = await next();
-    if (!result.ok && REFUNDED_CODES.has(toTRPCError(result.error).code)) await c.limits.refund(taken.ticket);
+    const { result, scope } = await withModelCallScope(() => next());
+    if (!result.ok && scope.calls === 0 && REFUNDED_CODES.has(toTRPCError(result.error).code)) await c.limits.refund(taken.ticket);
     return result;
   });
 }

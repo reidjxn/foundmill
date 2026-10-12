@@ -90,6 +90,15 @@ export function isNotInvited(err: unknown): boolean {
   return appErrorCode(err) === "not_invited";
 }
 
+/**
+ * Why an invite-only refusal happened: the address is not on the list, or it is but the sign-in did not show it is
+ * confirmed yet (the API's `details.reason`, SEC2 S11).
+ */
+export function notInvitedReason(err: unknown): "not_listed" | "email_unconfirmed" {
+  const details = err instanceof TRPCClientError ? (err.data as { details?: { reason?: unknown } } | undefined)?.details : undefined;
+  return details?.reason === "email_unconfirmed" ? "email_unconfirmed" : "not_listed";
+}
+
 /** What a refused TOO_MANY_REQUESTS says when the API sent no sentence of its own. */
 export const RATE_LIMITED_MESSAGE = "That's a lot of requests in a short time. Wait a minute, then try again.";
 

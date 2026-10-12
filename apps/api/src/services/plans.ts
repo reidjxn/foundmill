@@ -197,6 +197,19 @@ export function assertPlanSectionAccess(membership: SectionMembership, actions: 
   throw new ForbiddenError(`You do not have write access to ${list(sections)}, and this plan would ${list(doing)}. Someone with that access can decide it.`);
 }
 
+/**
+ * The section walls of a free-text instruction, checked before the plan compiler (Opus) is asked (SEC2 S3): the rule
+ * engine reads the instruction in-process (no model call), and when what it finds already changes a section this person
+ * cannot write to, the request is refused (403) before anything is spent. The compiled plan is checked again afterwards,
+ * since the model may find more than the rules do.
+ */
+export function assertInstructionSectionAccess(membership: SectionMembership, text: string, ctx: PlanContext): void {
+  const agents = ctx.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, department_id: a.departmentIds[0] ?? undefined }));
+  const rules = compilePlanRuleBased(text, { agents, defaultCurrency: ctx.currency });
+  const evaluations = evaluatePlan(rules.actions, ctx);
+  assertPlanSectionAccess(membership, evaluations.map((e) => ({ type: e.action.type, params: e.action.params, denied: e.outcome === "deny" })));
+}
+
 export interface ActionEvaluation {
   action: PlanAction;
   outcome: PolicyOutcome;

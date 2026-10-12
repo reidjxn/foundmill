@@ -2,9 +2,10 @@
  * `createBusinessModelClient` (BUILD §10.2 step 3, §10.4): a business on credits runs on the platform client; a business on
  * its own key runs on a client built from that key (decrypted here, cached per key, re-read after the ttl) and books to
  * `byok`; in live mode a business on its own key with no readable key is refused rather than run on the platform's
- * credits; under MODEL_MODE=mock it gets a mock client that books to `byok`.
+ * credits; under MODEL_MODE=mock it gets a mock client that books to `byok`. A platform-key call for a business whose
+ * credits are used up is refused before it is made (SEC2 S2).
  */
-import { BYOK_CREDENTIAL_KIND, repos } from "@foundmill/db";
+import { BYOK_CREDENTIAL_KIND, periodOf, repos } from "@foundmill/db";
 import { createModelClient, ModelRequestError, type ModelClient, type UsageEvent } from "@foundmill/models";
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -93,6 +94,29 @@ describe("createBusinessModelClient", () => {
       await expect(platform.complete(ask(t.businessId))).resolves.toBeTruthy();
     } finally {
       await repos.businesses.update(t.db, t.businessId, { modelBilling: "credits" });
+    }
+  });
+
+  it("a platform-key call for a business whose credits are used up is refused before it is made, as a non-retryable request error (SEC2 S2)", async () => {
+    const events: UsageEvent[] = [];
+    const platform = createModelClient({ mode: "mock", onUsage: (e) => void events.push(e) });
+    const client = createBusinessModelClient(platform, { db: t.db, vault: null, mode: "mock", onUsage: (e) => void events.push(e), ttlMs: 0 });
+    const period = periodOf(new Date());
+    await repos.usage.chargeCredits(t.db, t.businessId, period, 10_000_000, { includedMinor: 500 });
+    try {
+      const refused = await client.complete(ask(t.businessId)).catch((e: unknown) => e);
+      expect(refused).toBeInstanceOf(ModelRequestError);
+      expect(refused).toMatchObject({ code: "request", status: 402, apiErrorType: "credits_exhausted", message: expect.stringMatching(/credits are used up/) });
+      expect(events).toHaveLength(0);
+      // A call with no business has nothing to charge; a business on its own key runs on its key, credits or not.
+      await client.complete(ask(undefined));
+      expect(events).toHaveLength(1);
+      await repos.businesses.update(t.db, t.businessId, { modelBilling: "byok" });
+      await client.complete(ask(t.businessId));
+      expect(events.at(-1)?.billedTo).toBe("byok");
+    } finally {
+      await repos.businesses.update(t.db, t.businessId, { modelBilling: "credits" });
+      await repos.usage.grantCredits(t.db, t.businessId, period, 100_000);
     }
   });
 });

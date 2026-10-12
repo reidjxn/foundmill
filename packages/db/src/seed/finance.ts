@@ -68,6 +68,8 @@ export interface FinanceSeedResult {
 }
 
 const round = (n: number): number => Math.round(n);
+/** USD cents a demo business on its own key holds for the platform key's calls this month. */
+const SEEDED_PLATFORM_CREDITS_MINOR = 20_000;
 
 export async function seedFinance(ctx: SeedCtx, opts: FinanceSeedOptions): Promise<FinanceSeedResult> {
   const rng = ctx.rng.fork(`finance:${opts.slug}`);
@@ -202,7 +204,8 @@ export async function seedFinance(ctx: SeedCtx, opts: FinanceSeedOptions): Promi
 
   // Usage ledger (last 30 days of sessions): model costs are US cents, billed the way the business pays for models.
   // A business on credits holds this month's balance (USD) with this month's spend already charged; a business on its
-  // own key never touches credits.
+  // own key runs its agents on that key and holds credits only for the platform key's calls (conversations, Refresh,
+  // planning; SEC2), granted here so a demo is not stopped by its included credit.
   const period = monthKey(ctx.today);
   const usageRows: NewUsageEntry[] = opts.recentSessions.map((s) => ({
     id: rng.uuid(),
@@ -224,7 +227,7 @@ export async function seedFinance(ctx: SeedCtx, opts: FinanceSeedOptions): Promi
     const spentThisPeriod = usageRows.filter((u) => monthKey(u.occurredAt as Date) === period).reduce((s, u) => s + (u.costMinor as number), 0);
     await repos.usage.grantCredits(db, opts.businessId, period, Math.max(spentThisPeriod + 50_000, 100_000));
     if (spentThisPeriod > 0) await repos.usage.debitCredits(db, opts.businessId, period, spentThisPeriod);
-  }
+  } else await repos.usage.grantCredits(db, opts.businessId, period, SEEDED_PLATFORM_CREDITS_MINOR);
 
   return { accountId: account.id, balanceMinor, netBurnMinor, runwayMonths, transactions: rows.length, usageRows: usageRows.length, monthlyNet };
 }

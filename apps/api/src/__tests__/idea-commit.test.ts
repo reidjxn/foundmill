@@ -1,6 +1,6 @@
 import { getArchetypeSeed } from "@foundmill/agents";
 import { includedCreditsMinor } from "@foundmill/config";
-import { repos } from "@foundmill/db";
+import { CREDITS_EXHAUSTED_SUBJECT, repos } from "@foundmill/db";
 import { CHANNEL_KEYS } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
@@ -166,6 +166,13 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     await caller.business.archive({ businessId: bid, reason: "trying another idea" });
     const again = await caller.idea.commit({ ideaId: second!.id, name: "Tier Two", archetype: "b2b_saas", gameMode: "personal" });
     expect(again.business).toMatchObject({ planTier: "free", spendCapMinor: null });
+    // It frees the place, never a second included credit in the same month (SEC2 S6): the new business starts with
+    // nothing included, stopped like any team whose credits ran out, and the Inbox says why and what to do.
+    expect(await repos.usage.creditBalance(hz.db, again.business.id, period)).toMatchObject({ grantedMinor: 0, balanceMinor: 0 });
+    expect(await repos.businesses.stopState(hz.db, again.business.id)).toMatchObject({ stopped: true, reason: "credits_exhausted" });
+    const warning = (await repos.inbox.list(hz.db, again.business.id, { limit: 50 })).items.find((i) => i.subject === CREDITS_EXHAUSTED_SUBJECT);
+    expect(warning?.bodyMd).toMatch(/this month's already went to another business you took charge of\. Add your own Anthropic key in Settings → Keys/);
+    expect((await caller.billing.plan({ businessId: again.business.id })).includedCreditsMinor).toBe(0);
   });
 
   it("preview lists what an archetype seeds, labelled Estimate", async () => {
