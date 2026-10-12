@@ -1,11 +1,11 @@
 /** Live Dropbox Sign connector: Basic auth with the API key (per business or platform), form-encoded sends, verified callbacks. */
 import { uuid } from "@foundmill/shared";
-import { ConfigError, type Connector, type ToolContext } from "../../contract";
+import { ConfigError, ConnectInputError, connectInputValue, type Connector, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { basicAuth, createHttp, type HttpClient } from "../../http";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { dropboxSignMock } from "./mock";
-import { DROPBOX_SIGN_BASE_URL, DROPBOX_SIGN_KEY, DROPBOX_SIGN_RATE_LIMITS, dropboxSignTools, mapSignatureRequest, sendRequestForm, type HsListResponse, type HsSignatureRequest } from "./tools";
+import { DROPBOX_SIGN_BASE_URL, DROPBOX_SIGN_CONNECT_FIELDS, DROPBOX_SIGN_KEY, DROPBOX_SIGN_RATE_LIMITS, dropboxSignTools, mapSignatureRequest, sendRequestForm, type HsListResponse, type HsSignatureRequest } from "./tools";
 import { createDropboxSignWebhook } from "./webhooks";
 
 export function createDropboxSignConnector(options: LiveConnectorOptions = {}): Connector {
@@ -43,13 +43,16 @@ export function createDropboxSignConnector(options: LiveConnectorOptions = {}): 
           return { cancelled: true as const, signatureRequestId };
         },
       },
+      connectFields: DROPBOX_SIGN_CONNECT_FIELDS,
+      // The founder's own key only: signature requests are billed to their plan, never to the platform's (BUILD §10).
       connect: async (businessId, input) => {
-        const apiKey = typeof input === "object" && input && typeof (input as { apiKey?: unknown }).apiKey === "string" ? (input as { apiKey: string }).apiKey : undefined;
-        const account = await http(apiKey ?? secrets.dropboxSignApiKey).json<{ account: { account_id: string; email_address: string } }>("GET", "/account");
+        const apiKey = connectInputValue(input, "apiKey");
+        if (!apiKey) throw new ConnectInputError(DROPBOX_SIGN_KEY, "apiKey", "Enter your Dropbox Sign API key to connect Dropbox Sign");
+        const account = await http(apiKey).json<{ account: { account_id: string; email_address: string } }>("GET", "/account");
         const createdAt = now().toISOString();
         return {
           id: uuid(), businessId, connectorKey: DROPBOX_SIGN_KEY, status: "connected", scopes: [], accountLabel: account.account.email_address, externalAccountId: account.account.account_id, config: {}, credentialRef: null, expiresAt: null, lastHealthAt: createdAt, createdAt,
-          ...(apiKey ? { credentialToStore: { kind: "api_key" as const, secret: apiKey } } : {}),
+          credentialToStore: { kind: "api_key" as const, secret: apiKey },
         };
       },
       healthcheck: async () => {

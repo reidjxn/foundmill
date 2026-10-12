@@ -7,9 +7,15 @@
  */
 import { z } from "zod";
 import { AppError } from "@foundmill/shared";
+import type { ConnectField } from "../../contract";
 import { defineTool } from "../../define";
 
 export const SENDGRID_KEY = "sendgrid";
+
+/** What the founder enters in Settings › Integrations to connect SendGrid live: their own account's key. */
+export const SENDGRID_CONNECT_FIELDS: ConnectField[] = [
+  { name: "apiKey", label: "API key", secret: true, required: true, placeholder: "SG.…", hint: "A key from your SendGrid account with Mail Send, Suppressions, Marketing and Stats access. Sending is billed to your SendGrid account." },
+];
 export const SENDGRID_BASE_URL = "https://api.sendgrid.com";
 /** Substitution SendGrid replaces with the recipient's unsubscribe link when an ASM group is set. */
 export const UNSUBSCRIBE_TAG = "<%asm_group_unsubscribe_raw_url%>";

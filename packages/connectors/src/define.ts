@@ -112,6 +112,8 @@ export interface ConnectorSpec<S extends readonly AnyToolSpec[]> {
   handlers: NoInfer<ToolHandlers<S>>;
   rateLimits: Connector["rateLimits"];
   costModel?: Connector["costModel"];
+  /** Live side: what the founder enters to connect (Settings › Integrations renders it). */
+  connectFields?: Connector["connectFields"];
   webhooks?: ConnectorWebhook[];
   connect(businessId: string, input: unknown): Promise<IntegrationRecord>;
   healthcheck(integration: IntegrationRecord): Promise<HealthResult>;
@@ -231,6 +233,7 @@ function assemble<S extends readonly AnyToolSpec[]>(spec: ConnectorSpec<S>, mode
     policyHints: policyHintsFor(spec.tools),
   };
   if (spec.costModel) base.costModel = spec.costModel;
+  if (spec.connectFields) base.connectFields = spec.connectFields;
   if (spec.webhooks) base.webhooks = spec.webhooks;
   return base;
 }

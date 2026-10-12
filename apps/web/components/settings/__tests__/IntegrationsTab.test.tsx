@@ -26,7 +26,7 @@ vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ bu
 vi.mock("../shared", async (importOriginal) => ({ ...(await importOriginal<typeof SharedModule>()), useSettingsToast: () => toast }));
 vi.mock("../SettingsScreen", () => ({ useInvalidateRouters: () => invalidate }));
 
-import { SimulatePanel } from "../IntegrationsTab";
+import { ConnectFieldsDialog, connectInputFrom, needsConnectFields, SimulatePanel, type ConnectFieldView } from "../IntegrationsTab";
 
 const BUSINESS = "6f1d2c3b-4a5e-4f60-8a71-0b2c3d4e5f60";
 
@@ -86,5 +86,50 @@ describe("SimulatePanel (Settings › Integrations › Simulate)", () => {
     expect(toast.failed).toHaveBeenCalledTimes(2);
     expect(toast.failed.mock.calls[1]![1]).toBe("Simulation failed");
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("Connect with the founder's own key (live API-key connectors)", () => {
+  const FIELDS: ConnectFieldView[] = [
+    { name: "apiKey", label: "API key", secret: true, required: true, placeholder: "SG.…", hint: "Sending is billed to your SendGrid account." },
+    { name: "subuser", label: "Subuser", secret: false, required: false },
+  ];
+
+  it("asks for a key only when the connector runs live and declares fields to enter", () => {
+    expect(needsConnectFields({ live: true, connectFields: FIELDS })).toBe(true);
+    expect(needsConnectFields({ live: false, connectFields: FIELDS })).toBe(false);
+    expect(needsConnectFields({ live: true, connectFields: [] })).toBe(false);
+  });
+
+  it("builds the connect input from what was typed: trimmed, optional blanks left out, nothing while a required field is empty", () => {
+    expect(connectInputFrom(FIELDS, {})).toBeNull();
+    expect(connectInputFrom(FIELDS, { apiKey: "   " })).toBeNull();
+    expect(connectInputFrom(FIELDS, { apiKey: " SG.key ", subuser: "" })).toEqual({ apiKey: "SG.key" });
+    expect(connectInputFrom(FIELDS, { apiKey: "SG.key", subuser: "eu" })).toEqual({ apiKey: "SG.key", subuser: "eu" });
+  });
+
+  it("masks the key and connects with exactly what was entered", async () => {
+    const onConnect = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <TooltipProvider>
+          <ConnectFieldsDialog connector={{ key: "sendgrid", displayName: "SendGrid", connectFields: FIELDS }} pending={false} onConnect={onConnect} onClose={() => undefined} />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("Connect SendGrid")).toBeTruthy();
+    expect(screen.getByText(/SendGrid bills it for what agents do/)).toBeTruthy();
+    const key = document.getElementById("connect-sendgrid-apiKey") as HTMLInputElement;
+    expect(key.type).toBe("password");
+    const submit = screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    await act(async () => {
+      fireEvent.change(key, { target: { value: "SG.founder-key" } });
+    });
+    expect(submit.disabled).toBe(false);
+    await act(async () => {
+      fireEvent.click(submit);
+    });
+    expect(onConnect).toHaveBeenCalledWith({ apiKey: "SG.founder-key" });
   });
 });

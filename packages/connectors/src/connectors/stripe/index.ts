@@ -6,11 +6,11 @@
  */
 import Stripe from "stripe";
 import { uuid } from "@foundmill/shared";
-import { ConfigError, type Connector, type IntegrationRecord, type ToolContext } from "../../contract";
+import { ConfigError, ConnectInputError, connectInputValue, type Connector, type IntegrationRecord, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { stripeMock } from "./mock";
-import { mapAccount, mapBalance, mapCheckoutSession, mapCustomer, mapInvoice, mapPayout, STRIPE_API_VERSION, STRIPE_KEY, STRIPE_RATE_LIMITS, stripeTools, type StAccount, type StBalance, type StCheckoutSession, type StCustomer, type StInvoice, type StPayout } from "./tools";
+import { mapAccount, mapBalance, mapCheckoutSession, mapCustomer, mapInvoice, mapPayout, STRIPE_API_VERSION, STRIPE_CONNECT_FIELDS, STRIPE_KEY, STRIPE_RATE_LIMITS, stripeTools, type StAccount, type StBalance, type StCheckoutSession, type StCustomer, type StInvoice, type StPayout } from "./tools";
 import { createStripeWebhook } from "./webhooks";
 
 export function createStripeConnector(options: LiveConnectorOptions = {}): Connector {
@@ -37,6 +37,7 @@ export function createStripeConnector(options: LiveConnectorOptions = {}): Conne
       auth: { kind: "oauth", scopes: ["read_write"] },
       tools: stripeTools,
       rateLimits: STRIPE_RATE_LIMITS,
+      connectFields: STRIPE_CONNECT_FIELDS,
       now,
       webhooks: [webhook],
       handlers: {
@@ -107,10 +108,9 @@ export function createStripeConnector(options: LiveConnectorOptions = {}): Conne
         },
       },
       connect: async (businessId, input) => {
-        const i = typeof input === "object" && input ? (input as { accountId?: unknown; apiKey?: unknown }) : {};
-        const apiKey = typeof i.apiKey === "string" ? i.apiKey : undefined;
-        const accountId = typeof i.accountId === "string" ? i.accountId : undefined;
-        if (!apiKey && !accountId) throw new ConfigError(STRIPE_KEY, "account", "connect() expects { accountId } (Connect) or { apiKey } (own account); Connect onboarding itself is a hard gate the founder completes");
+        const apiKey = connectInputValue(input, "apiKey");
+        const accountId = connectInputValue(input, "accountId");
+        if (!apiKey && !accountId) throw new ConnectInputError(STRIPE_KEY, "apiKey", "Enter a restricted key from your Stripe account to connect Stripe");
         const stripe = client(apiKey ?? secrets.stripeSecretKey);
         const acct = (accountId ? await stripe.accounts.retrieve(accountId) : await stripe.accounts.retrieve(null)) as unknown as StAccount;
         const createdAt = now().toISOString();

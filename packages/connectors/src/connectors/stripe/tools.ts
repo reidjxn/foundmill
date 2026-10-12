@@ -5,9 +5,18 @@
  * onboarding) is a hard gate (BUILD §2.2): the tool exists only as a human-action descriptor.
  */
 import { z } from "zod";
+import type { ConnectField } from "../../contract";
 import { defineTool } from "../../define";
 
 export const STRIPE_KEY = "stripe";
+
+/**
+ * What the founder enters in Settings › Integrations to connect their own Stripe account live (a Connect account comes
+ * from the `start_connect_onboarding` hard gate instead).
+ */
+export const STRIPE_CONNECT_FIELDS: ConnectField[] = [
+  { name: "apiKey", label: "Restricted key", secret: true, required: true, placeholder: "rk_live_…", hint: "A restricted key from your Stripe dashboard with read access plus write access to customers, invoices and Checkout. Stripe fees stay on your account." },
+];
 export const STRIPE_API_VERSION = "2025-09-30.clover";
 export const STRIPE_DASHBOARD_URL = "https://dashboard.stripe.com";
 

@@ -61,6 +61,39 @@ test.describe("settings, plain words", () => {
     await expect(list).toContainText(/API key|Sign in with the vendor|Install the app|No sign-in needed/);
   });
 
+  test("Integrations: a live API-key connector asks for the founder's own key (masked) and connects with it", async ({ page }) => {
+    // The e2e stack runs connectors in mock mode; the list answer is replayed with SendGrid marked live, as with LIVE_CONNECTORS.
+    await page.route(/\/trpc\/[^?]*integrations\.list/, async (route) => {
+      const response = await route.fetch();
+      const procedures = decodeURIComponent(new URL(route.request().url()).pathname.split("/trpc/")[1] ?? "").split(",");
+      const body = (await response.json()) as { result?: { data?: { json?: { catalogue?: { key: string; live?: boolean; connectFields?: unknown[] }[] } } } }[];
+      const list = body[procedures.indexOf("integrations.list")]?.result?.data?.json;
+      for (const c of list?.catalogue ?? []) if (c.key === "sendgrid") c.live = true;
+      await route.fulfill({ response, json: body });
+    });
+    let sent: Record<string, unknown> | null = null;
+    await page.route(/\/trpc\/[^?]*integrations\.connect/, async (route) => {
+      const body = JSON.parse(route.request().postData() ?? "{}") as Record<string, { json?: Record<string, unknown> }>;
+      sent = Object.values(body)[0]?.json ?? null;
+      await route.abort();
+    });
+    await page.goto(`${B}/settings/integrations`);
+    const row = page.locator('[data-connector="sendgrid"]');
+    await expect(row).toBeVisible({ timeout: LONG });
+    await row.getByRole("button", { name: "Connect" }).click();
+    const dialog = page.getByTestId("connect-fields-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("Connect SendGrid");
+    await expect(dialog).toContainText("billed to your SendGrid account");
+    const key = dialog.getByLabel("API key");
+    await expect(key).toHaveAttribute("type", "password");
+    await expect(dialog.getByRole("button", { name: "Connect" })).toBeDisabled();
+    await key.fill("SG.e2e-founder-key");
+    await dialog.getByRole("button", { name: "Connect" }).click();
+    await expect.poll(() => sent, { timeout: LONG }).not.toBeNull();
+    expect(sent).toMatchObject({ connectorKey: "sendgrid", input: { apiKey: "SG.e2e-founder-key" } });
+  });
+
   test("Glossary and Departments: no retired default words, modules named in words", async ({ page }) => {
     await page.goto(`${B}/settings/glossary`);
     await expect(page.getByTestId("glossary-rows")).toBeVisible({ timeout: LONG });
