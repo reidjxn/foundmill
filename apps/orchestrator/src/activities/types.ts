@@ -274,6 +274,8 @@ export interface LoadedTrainingRun {
   modelKey: ModelKey;
   /** The draft tried to contradict a club rule; the rule still applies (AC-11.10.4). */
   clubRuleFlags: { ruleId: string; line: string; reason: string }[];
+  /** A model change's retest (AC-11.10.5): the live version copied onto another model. Absent on runs loaded before it existed. */
+  retest?: { fromModelKey: ModelKey; toModelKey: ModelKey } | null;
 }
 
 export interface SkillTestsOutcome {

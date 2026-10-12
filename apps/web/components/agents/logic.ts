@@ -219,8 +219,17 @@ export function currentVersion(profile: Pick<AgentProfile, "agent" | "versions">
   return profile.versions.find((v) => v.id === profile.agent.currentVersionId) ?? profile.versions.find((v) => v.state === "live") ?? null;
 }
 
+/**
+ * A model change's retest copy (agent.model.set): the live version copied by the system onto the new model. The
+ * system's only other versions are an agent's first (version 1, set up with the business or a clone).
+ */
+export function isRetestVersion(v: Pick<AgentVersionRecord, "createdByKind" | "version">): boolean {
+  return v.createdByKind === "system" && v.version > 1;
+}
+
+/** The newest draft the founder or the Coach wrote: the editing base. A retest copy never is, so it cannot replace a draft in progress. */
 export function latestDraft(versions: readonly AgentVersionRecord[]): AgentVersionRecord | null {
-  return versions.filter((v) => v.state === "draft").sort((a, b) => b.version - a.version)[0] ?? null;
+  return versions.filter((v) => v.state === "draft" && !isRetestVersion(v)).sort((a, b) => b.version - a.version)[0] ?? null;
 }
 
 /** Map the API's club-rule violations (offending line + reason) onto the editor's section/index flags (AC-11.10.4). */
@@ -279,6 +288,12 @@ export function trainingFlow(runs: readonly TrainingRunRecord[], now: Date = new
 }
 
 export const RUN_PHASE_LABEL: Record<string, string> = { queued: "Queued", running: "Running tests", grading: "Grading", awaiting_decision: "Awaiting your decision", done: "Done", failed: "Failed", cancelled: "Canceled" };
+
+/** A run still queued after this long has most likely lost its worker; the tab says so next to Cancel. */
+export const STALLED_RUN_MINUTES = 10;
+export function runStalled(run: Pick<TrainingRunRecord, "status" | "createdAt">, now: Date = new Date()): boolean {
+  return run.status === "queued" && now.getTime() - toMillis(run.createdAt) > STALLED_RUN_MINUTES * 60_000;
+}
 
 /** Progress of an active run from its status and elapsed time against the estimate (Estimate; never token-based). */
 export function runProgress(run: Pick<TrainingRunRecord, "status" | "startedAt" | "createdAt">, estimateMinutes: number, now: Date = new Date()): number {
@@ -471,16 +486,58 @@ export const AUTONOMY_MODE_COPY: Record<AutonomyMode, { label: string; descripti
   higher: { label: "Act more freely", description: "One notch more autonomous than the business mode, within the caps below. Hard gates still apply." },
 };
 
+/**
+ * What the Autonomy tab edits. Money and the percentage stay the text the founder typed ("250", "1,250.50", "25k")
+ * while they type; they become minor units only when read for validation and save (`readAutonomyDraft`). Rewriting
+ * the field from minor units on every keystroke turned "25" into "2.01" (audit WEB-03).
+ */
+export interface AutonomyDraft {
+  mode: AutonomyMode;
+  spendCap: string;
+  approvalThreshold: string;
+}
+export interface NegotiationDraft {
+  enabled: boolean;
+  priceMin: string;
+  priceMax: string;
+  walkAway: string;
+  maxConcession: string;
+  topics: string[];
+}
+
+export function autonomyDraft(form: AutonomyForm): AutonomyDraft {
+  return { mode: form.mode, spendCap: formatMajor(form.spendCapMinor), approvalThreshold: formatMajor(form.approvalThresholdMinor) };
+}
+export function negotiationDraft(form: NegotiationForm): NegotiationDraft {
+  return { enabled: form.enabled, priceMin: formatMajor(form.priceMinMinor), priceMax: formatMajor(form.priceMaxMinor), walkAway: formatMajor(form.walkAwayMinor), maxConcession: form.maxConcessionPct === null ? "" : String(form.maxConcessionPct), topics: form.topics };
+}
+/** The draft in minor units. Text that is not an amount reads as NaN, which validation names instead of saving a guess. */
+export function readAutonomyDraft(draft: AutonomyDraft): AutonomyForm {
+  return { mode: draft.mode, spendCapMinor: parseMajor(draft.spendCap), approvalThresholdMinor: parseMajor(draft.approvalThreshold) };
+}
+export function readNegotiationDraft(draft: NegotiationDraft): NegotiationForm {
+  return { enabled: draft.enabled, priceMinMinor: parseMajor(draft.priceMin), priceMaxMinor: parseMajor(draft.priceMax), walkAwayMinor: parseMajor(draft.walkAway), maxConcessionPct: parsePercent(draft.maxConcession), topics: draft.topics };
+}
+
+const AMOUNT_HINT = "as an amount, like 250 or 12.50";
+
 /** Mirrors the API's rules: negotiation needs a walk-away and at least one price limit; caps must be non-negative. */
 export function validateNegotiation(form: NegotiationForm): string | null {
+  // Unreadable text is refused even with negotiation off: the limits are saved either way.
+  if (Number.isNaN(form.priceMinMinor)) return `Enter the price floor ${AMOUNT_HINT}.`;
+  if (Number.isNaN(form.priceMaxMinor)) return `Enter the price ceiling ${AMOUNT_HINT}.`;
+  if (Number.isNaN(form.walkAwayMinor)) return `Enter the walk-away amount ${AMOUNT_HINT}.`;
+  if (form.maxConcessionPct !== null && !(form.maxConcessionPct >= 0 && form.maxConcessionPct <= 100)) return "Max concession is a percentage between 0 and 100.";
+  if ([form.priceMinMinor, form.priceMaxMinor, form.walkAwayMinor].some((v) => v !== null && v < 0)) return "Negotiation limits cannot be negative.";
   if (!form.enabled) return null;
   if (form.walkAwayMinor === null) return "Set a walk-away amount before enabling negotiation.";
   if (form.priceMinMinor === null && form.priceMaxMinor === null) return "Set a price floor or a price ceiling before enabling negotiation.";
   if (form.priceMinMinor !== null && form.priceMaxMinor !== null && form.priceMinMinor > form.priceMaxMinor) return "The price floor is above the ceiling.";
-  if (form.maxConcessionPct !== null && (form.maxConcessionPct < 0 || form.maxConcessionPct > 100)) return "Max concession is a percentage between 0 and 100.";
   return null;
 }
 export function validateAutonomy(form: AutonomyForm): string | null {
+  if (Number.isNaN(form.spendCapMinor)) return `Enter the spend cap ${AMOUNT_HINT}.`;
+  if (Number.isNaN(form.approvalThresholdMinor)) return `Enter the approval threshold ${AMOUNT_HINT}.`;
   if (form.spendCapMinor !== null && form.spendCapMinor < 0) return "The spend cap cannot be negative.";
   if (form.approvalThresholdMinor !== null && form.approvalThresholdMinor < 0) return "The approval threshold cannot be negative.";
   // A zero cap is the default "no spending of its own" (every spend asks), not a conflict with the threshold.
@@ -502,15 +559,32 @@ export function negotiationToInput(form: NegotiationForm): { enabled: boolean; p
   };
 }
 
-/** "12.50" → 1250 minor units; blank → null. */
+/**
+ * A typed amount in minor units: "12.50" → 1250, "1,250" → 125000 (the comma groups thousands, US English), "25k" →
+ * 2500000 (the shorthand MoneyInput expands at rest), blank → null. Anything else, a fraction of a cent included, is
+ * NaN: the form says so instead of saving a different number.
+ */
 export function parseMajor(text: string): number | null {
-  const t = text.replace(/[^\d.,-]/g, "").replace(",", ".");
+  const t = text.trim().replace(/[\s,'_$£€¥]/g, "");
   if (!t) return null;
-  const n = Number(t);
-  return Number.isFinite(n) ? Math.round(n * 100) : null;
+  const m = /^([+-]?)(\d+(?:\.\d*)?|\.\d+)([kmb])?$/i.exec(t);
+  if (!m) return Number.NaN;
+  const mult = m[3] ? { k: 1e3, m: 1e6, b: 1e9 }[m[3].toLowerCase() as "k" | "m" | "b"] : 1;
+  const minor = Number(`${m[1]}${m[2]}`) * mult * 100;
+  const rounded = Math.round(minor);
+  if (!Number.isFinite(minor) || Math.abs(minor - rounded) > 1e-6) return Number.NaN;
+  return rounded === 0 ? 0 : rounded;
 }
+/** A stored amount as the text its field starts from: 25000 → "250", 1250 → "12.50", null → "". */
 export function formatMajor(minor: number | null): string {
-  return minor === null ? "" : (minor / 100).toFixed(2);
+  if (minor === null || !Number.isFinite(minor)) return "";
+  return minor % 100 === 0 ? String(minor / 100) : (minor / 100).toFixed(2);
+}
+/** "15" or "12.5%" → the number; blank → null; anything else → NaN. */
+export function parsePercent(text: string): number | null {
+  const t = text.trim().replace(/%$/, "").trim();
+  if (!t) return null;
+  return /^\d+(?:\.\d+)?$/.test(t) ? Number(t) : Number.NaN;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

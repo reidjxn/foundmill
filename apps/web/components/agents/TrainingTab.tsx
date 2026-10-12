@@ -8,7 +8,7 @@
  * (old → new per skill) → Promote / Discard → 7-day watch banner with one-click rollback (`rollback`).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Dumbbell, Eye, FlaskConical, History, Save, Sparkles, Undo2 } from "lucide-react";
+import { CircleStop, Dumbbell, Eye, FlaskConical, History, Save, Sparkles, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, InstructionsEditor, KeyValueList, MODEL_LABELS, ModelPicker, Panel, ProgressRing, ProvenanceChip, SkillGrid, TabBar, TrainingResults, formatDuration, formatMoney, formatRelative, instructionsEqual, useDateFormat, type AgentInstructions, type InstructionComment, type InstructionViolation, type TabItem } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
@@ -26,12 +26,14 @@ import {
   currentVersion,
   grantsEqual,
   instructionVersions,
+  isRetestVersion,
   latestDraft,
   modelOptions,
   parseInstructions,
   parseToolGrants,
   readFocus,
   runProgress,
+  runStalled,
   toSkillRows,
   toTrainingResults,
   trainingFlow,
@@ -54,7 +56,9 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
   const [sub, setSub] = useState<TrainingSubTab>("instructions");
   const [instructions, setInstructions] = useState<AgentInstructions>(() => parseInstructions(baseVersion?.instructions ?? {}));
   const [tools, setTools] = useState<ToolGrant[]>(() => parseToolGrants(baseVersion?.tools));
-  const draftModel: ModelKey = baseVersion?.modelKey ?? agent.modelKey;
+  // A draft keeps the model it was saved on (a preview on another model); edits of the live version train on the model
+  // the agent runs now, which a model change sets before its retest is decided.
+  const draftModel: ModelKey = draftVersion?.modelKey ?? agent.modelKey;
   const [savedVersionId, setSavedVersionId] = useState<string | null>(draftVersion?.id ?? null);
   const [savedSnapshot, setSavedSnapshot] = useState<AgentInstructions | null>(draftVersion ? parseInstructions(draftVersion.instructions) : null);
   const [violations, setViolations] = useState<InstructionViolation[]>([]);
@@ -130,8 +134,20 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
   );
   const discard = useMutation(
     trpc.agent.training.discard.mutationOptions({
+      onSuccess: (r) => {
+        // A model change applies at once; discarding its retest keeps the live version but not the old model.
+        const candidate = profile.versions.find((v) => v.id === r.toVersionId);
+        setNotice({ tone: "info", text: candidate && isRetestVersion(candidate) ? `Retest discarded. The live version is unchanged; ${agent.name} keeps working on ${MODEL_LABELS[agent.modelKey]} until you change the model back.` : "Draft discarded. The live version is unchanged." });
+        void invalidateAgent();
+        refetch();
+      },
+      onError: (err) => setNotice({ tone: "bad", text: errorMessage(err) }),
+    }),
+  );
+  const cancel = useMutation(
+    trpc.agent.training.cancel.mutationOptions({
       onSuccess: () => {
-        setNotice({ tone: "info", text: "Draft discarded. The live version is unchanged." });
+        setNotice({ tone: "info", text: "Training canceled. The live version is unchanged." });
         void invalidateAgent();
         refetch();
       },
@@ -164,6 +180,9 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
   const subTabs: TabItem[] = TRAINING_SUB_TABS.map((t) => ({ id: t.id, label: t.label, badge: t.id === "focus" && focus.length ? focus.length : undefined }));
   const results = flow.awaiting && resultsQ.data ? toTrainingResults(resultsQ.data, profile.skills) : [];
   const busy = saveDraft.isPending || run.isPending;
+  // Retry runs the draft that failed (a model change's retest copy included) while it is still a draft.
+  const failedDraft = flow.failed ? (profile.versions.find((v) => v.id === flow.failed?.toVersionId && v.state === "draft") ?? null) : null;
+  const retryFailed = failedDraft ? () => run.mutate({ businessId, agentId: agent.id, versionId: failedDraft.id }) : savedVersionId ? trainSaved : undefined;
 
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="agent-training" data-phase={flow.phase}>
@@ -188,18 +207,21 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
       ) : null}
 
       {flow.active ? (
-        <Panel title="Training in progress" span={12} data-testid="training-progress">
+        <Panel title="Training in progress" span={12} data-testid="training-progress" data-run-id={flow.active.id}>
           <div className="flex items-center gap-4">
             <ProgressRing value={runProgress(flow.active, estimateQ.data?.durationMinutes ?? 3)} size={40} strokeWidth={3} tone="kit" label="Training progress" />
             <div className="flex flex-col">
               <span className="text-body-strong text-primary">{RUN_PHASE_LABEL[flow.active.status] ?? flow.active.status}</span>
-              <span className="text-small text-secondary">
-                Started {formatRelative(flow.active.startedAt ?? flow.active.createdAt)} · target 2–5 minutes · the live version keeps working
+              <span className="text-small text-secondary" data-testid="training-progress-note">
+                {runStalled(flow.active) ? `Queued ${formatRelative(flow.active.createdAt)} and not started yet. If it does not start soon, cancel it and train again.` : `Started ${formatRelative(flow.active.startedAt ?? flow.active.createdAt)} · target 2–5 minutes · the live version keeps working`}
               </span>
             </div>
             <span className="ml-auto inline-flex items-center gap-1 text-small text-secondary">
               <Icon icon={FlaskConical} size="inline" /> Held-out tests are never shown
             </span>
+            <Button size="sm" variant="ghost" icon={CircleStop} loading={cancel.isPending} onClick={() => cancel.mutate({ businessId, runId: flow.active!.id })} data-testid="cancel-training">
+              Cancel run
+            </Button>
           </div>
         </Panel>
       ) : null}
@@ -227,7 +249,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
         </div>
       ) : null}
 
-      {flow.failed ? <Panel title="Last run failed" span={12} error="The training run failed before grading. Save the draft again and retry; nothing changed on the live version." onRetry={savedVersionId ? trainSaved : undefined} /> : null}
+      {flow.failed ? <Panel title="Last run failed" span={12} error={`The training run failed before grading; nothing changed on the live version.${retryFailed ? " Retry runs the same draft again." : " Save the draft again to retry."}`} onRetry={retryFailed} data-testid="training-failed" /> : null}
 
       {/* editor ----------------------------------------------------------------------------------------------------- */}
       <Panel

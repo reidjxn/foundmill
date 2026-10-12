@@ -69,10 +69,31 @@ describe("training run (BUILD §11.10)", () => {
     const acts = createTrainingActivities(t.deps);
     const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
     const run = await repos.training.create(t.db, t.businessId, { agentId: agent.id, toVersionId: agent.currentVersionId });
-    await expect(acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: run.id })).rejects.toThrow(/live version/);
+    await expect(acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: run.id })).rejects.toMatchObject({ type: "TrainingRunError", nonRetryable: true, message: expect.stringMatching(/live version/) });
+    // failTrainingRun ends it failed (not queued) with the reason; a second call finds it ended and changes nothing.
+    expect(await acts.failTrainingRun({ businessId: t.businessId, trainingRunId: run.id, error: "The candidate is the live version." })).toMatchObject({ status: "failed", eventId: expect.any(String) });
+    expect(await repos.training.get(t.db, t.businessId, run.id)).toMatchObject({ status: "failed", coachSummaryMd: "Training failed: The candidate is the live version." });
+    expect(await acts.failTrainingRun({ businessId: t.businessId, trainingRunId: run.id, error: "again" })).toMatchObject({ status: "failed" });
+    expect((await repos.training.get(t.db, t.businessId, run.id)).coachSummaryMd).toBe("Training failed: The candidate is the live version.");
     expect(scoreTest(0.9, [{ passed: true }])).toBe(0.9);
     expect(scoreTest(0.9, [{ passed: false }])).toBe(0.4);
     expect(scoreTest(0.2, [{ passed: false }])).toBe(0.2);
+  });
+
+  it("a founder's cancel while the tests run stands: the results land as canceled, with what the tests cost", async () => {
+    const acts = createTrainingActivities(t.deps);
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const { run, draft } = (await repos.training.createModelRetest(t.db, t.businessId, agent.id, { modelKey: "haiku" }))!;
+    const loaded = await acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: run.id });
+    expect(loaded.retest).toEqual({ fromModelKey: (await repos.agents.getVersion(t.db, t.businessId, agent.currentVersionId!)).modelKey, toModelKey: "haiku" });
+    expect(loaded.modelKey).toBe("haiku");
+    await repos.training.cancel(t.db, t.businessId, run.id);
+    const outcome = { skillKey: loaded.skillKeys[0]!, group: "craft" as const, testsRun: 2, meanScore: 0.5, tested: 10, previousTested: 10, costMinor: 7, checksFailed: 0 };
+    const result = await acts.finalizeTrainingRun({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, liveVersionId: agent.currentVersionId, outcomes: [outcome], clubRuleFlags: [], retest: loaded.retest, startedAt: new Date().toISOString() });
+    expect(result.status).toBe("cancelled");
+    expect(await repos.training.get(t.db, t.businessId, run.id)).toMatchObject({ status: "cancelled", costMinor: 7, results: {} });
+    const events = await repos.events.list(t.db, t.businessId, { type: "training.completed", limit: 20 });
+    expect(events.items.find((e) => (e.payload as { trainingRunId: string }).trainingRunId === run.id)?.payload).toMatchObject({ status: "cancelled", recommendation: null });
   });
 });
 
