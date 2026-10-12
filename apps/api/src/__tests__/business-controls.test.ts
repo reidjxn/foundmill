@@ -167,8 +167,7 @@ describe("a new key and a top-up lift the stop they caused, never Stop all agent
     const revoked = await owner().keys.revoke({ businessId: A() });
     expect(revoked.pausedAgents).toBeGreaterThanOrEqual(2);
     expect(await repos.businesses.stopState(hz.db, A())).toMatchObject({ stopped: true, reason: "key_revoked" });
-    // The free tier runs on its own key: no resume without one.
-    await expect(owner().business.resumeAgents({ businessId: A() })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/Store a key/) });
+    // The free tier falls back to its included credits, so an owner could resume now; a stored key needs no one.
     const stored = await owner().keys.setAnthropic({ businessId: A(), apiKey: KEY });
     expect(stored.resumed).toMatchObject({ reason: "key_revoked" });
     expect(await paused()).toBe(0);

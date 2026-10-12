@@ -55,8 +55,14 @@ describe("team.humans: ownership stays with owners", () => {
     expect(await code(owner.team.humans.invite({ businessId, userId: hz.A.memberId, role: "admin", sectionPermissions: { finance: "write" } }))).toBe("CONFLICT");
     expect(await roleOf(hz.A.ownerId)).toBe("owner");
     expect((await repos.memberships.get(hz.db, businessId, hz.A.memberId))?.role).toBe("member");
-    const newcomer = await hz.h.createUser("guards-invitee@test.local");
-    expect((await owner.team.humans.invite({ businessId, userId: newcomer, role: "viewer" })).role).toBe("viewer");
+    // A newcomer takes a seat: on a plan with seats to spare the invitation goes through.
+    await owner.billing.changeTier({ businessId, tier: "scale" });
+    try {
+      const newcomer = await hz.h.createUser("guards-invitee@test.local");
+      expect((await owner.team.humans.invite({ businessId, userId: newcomer, role: "viewer" })).role).toBe("viewer");
+    } finally {
+      await owner.billing.changeTier({ businessId, tier: "free" });
+    }
   });
 
   it("nobody edits their own role or section permissions", async () => {

@@ -8,7 +8,8 @@ import { AttributionScreen } from "../AttributionScreen";
 import { CampaignsScreen } from "../CampaignsScreen";
 import { LeadsScreen } from "../LeadsScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
-import { BID, dataResponses } from "./fixtures";
+import { addDays } from "@foundmill/widgets";
+import { BID, dataResponses, TODAY } from "./fixtures";
 
 const props = { businessId: BID, departmentId: "d1" };
 
@@ -20,8 +21,9 @@ function renderAs(prefs: typeof ISO_24H, ui: ReactNode) {
 describe("distribution dates follow the person's date format", () => {
   it("Campaigns: starts and ends, in the table and the detail", () => {
     const { container } = renderAs(ISO_24H, <CampaignsScreen {...props} />);
-    expect(screen.getAllByText("2026-10-01").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("2026-10-31").length).toBeGreaterThan(0);
+    // The fixtures are relative to today: the launch runs from 10 days ago to 20 days ahead.
+    expect(screen.getAllByText(addDays(TODAY, -10)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(addDays(TODAY, 20)).length).toBeGreaterThan(0);
     expect(usDatesIn(container)).toEqual([]);
   });
 
@@ -37,8 +39,10 @@ describe("distribution dates follow the person's date format", () => {
 
   it("Attribution: the latest wins' dates and their Open buttons", () => {
     const { container } = renderAs(ISO_24H, <AttributionScreen {...props} />);
-    expect(screen.getByText("2026-10-10")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open Customer Update 2026-10-10" })).toBeTruthy();
+    // The latest win in the fixtures is yesterday's payment.
+    const latest = addDays(TODAY, -1);
+    expect(screen.getAllByText(latest).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: `Open Customer Update ${latest}` })).toBeTruthy();
     expect(usDatesIn(container)).toEqual([]);
   });
 });

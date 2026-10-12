@@ -58,7 +58,8 @@ describe("buildJourneyRecord", () => {
     expect(result.eventId).toBeNull(); // ingest already announced the win
     const refined = await repos.journeys.get(t.db, t.businessId, firstPass.id);
     expect(refined.touchIds).toHaveLength(3);
-    expect(Object.values(refined.weights).map((w) => Math.round(w * 10) / 10)).toEqual([0.4, 0.2, 0.4]);
+    // In touch order (jsonb does not keep key order, so never read the weights by position).
+    expect(refined.touchIds.map((id) => Math.round((refined.weights as Record<string, number>)[id]! * 10) / 10)).toEqual([0.4, 0.2, 0.4]);
     expect(refined.xcSeries.length).toBe(4); // three touches and the conversion point
     expect(refined.attributionModel).toBe("position_based_40_20_40");
     expect(refined.xcModelSource).toBe("archetype_prior");
