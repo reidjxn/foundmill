@@ -13,7 +13,7 @@ import { Button, Field, Input, StatusPill } from "@foundmill/dugout";
 import { magicLinkCallbackUrl } from "@/lib/auth/canonical-origin";
 import { NEXT_PARAM } from "@/lib/auth/constants";
 import { safeNextPath } from "@/lib/auth/redirects";
-import { parseSignInError, SIGN_IN_ERROR_PARAM, signInErrorCopy } from "@/lib/auth/sign-in-errors";
+import { classifySendLinkError, parseSignInError, sendLinkErrorMessage, SIGN_IN_ERROR_PARAM, signInErrorCopy } from "@/lib/auth/sign-in-errors";
 import { hasSupabase, isDevLike, publicEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
 import { BrandFrame } from "@/components/shell/BrandFrame";
@@ -44,8 +44,10 @@ export function LoginForm() {
     setPhase({ kind: "sending" });
     const env = publicEnv();
     const emailRedirectTo = magicLinkCallbackUrl({ appUrl: env.appUrl, appEnv: env.appEnv, currentOrigin: window.location.origin, next });
-    const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo } });
-    if (error) setPhase({ kind: "error", message: error.message });
+    // A send that throws (the auth client failed to load or the network dropped) reads like a refused one.
+    const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo } }).catch((err: unknown) => ({ error: err as { name?: string; message?: string } }));
+    // Supabase's own wording never reaches the screen: the error is mapped to what happened and what to do next.
+    if (error) setPhase({ kind: "error", message: sendLinkErrorMessage(classifySendLinkError(error)) });
     else setPhase({ kind: "sent", email: email.trim() });
   }
 

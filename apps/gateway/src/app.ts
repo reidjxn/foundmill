@@ -90,7 +90,8 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
       rateLimitStore: options.rateLimitStoreKind ?? "memory",
       time: now().toISOString(),
     };
-    return c.json(body);
+    // Readiness for Railway's healthcheck (railway/gateway.toml): 503 while the database is unavailable.
+    return c.json(body, db ? 200 : 503);
   });
 
   app.get("/v1/connectors", (c) => c.json({ mode: deps.mode, connectors: deps.registry.catalogue(deps.mode) }));

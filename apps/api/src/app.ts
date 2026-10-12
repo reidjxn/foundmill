@@ -104,18 +104,24 @@ export function createApp(deps: ApiDeps) {
       }
     };
     const [db, redis, temporal, composer] = await Promise.all([probe(deps.health.db), probe(deps.health.redis), probe(deps.health.temporal), probe(() => deps.composer.reachable())]);
-    return c.json({
-      ok: db,
-      service: "api",
-      env: deps.env.APP_ENV,
-      modes: { integrations: deps.env.INTEGRATIONS_MODE, models: deps.env.MODEL_MODE },
-      db,
-      redis,
-      temporal,
-      composer,
-      vault: deps.vault !== null,
-      time: new Date().toISOString(),
-    });
+    // Readiness: Railway's healthcheck (railway/api.toml) moves traffic to a new deployment only on a 2xx, so an api
+    // without its database answers 503 and the previous deployment keeps serving. Redis, Temporal and the composer
+    // are optional (the api degrades without them) and never fail the check.
+    return c.json(
+      {
+        ok: db,
+        service: "api",
+        env: deps.env.APP_ENV,
+        modes: { integrations: deps.env.INTEGRATIONS_MODE, models: deps.env.MODEL_MODE },
+        db,
+        redis,
+        temporal,
+        composer,
+        vault: deps.vault !== null,
+        time: new Date().toISOString(),
+      },
+      db ? 200 : 503,
+    );
   });
 
   // tRPC answers are JSON and shrink 5–10× with gzip (or deflate, whichever the client accepts). Hono's compress also

@@ -41,6 +41,15 @@ describe("composer HTTP", () => {
     expect(res.headers.get("x-request-id")).toBeTruthy();
   });
 
+  it("GET /health answers 503 without a database (Railway's healthcheck holds traffic on the previous deployment)", async () => {
+    // The harness's service, with a database that does not answer.
+    const service: ReturnType<typeof hz.service> = Object.assign(Object.create(hz.service()), { healthy: async () => false });
+    const down = createApp(service, { env: { APP_ENV: "test", INTEGRATIONS_MODE: "mock", MODEL_MODE: "mock" } });
+    const res = await down.request("/health");
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ ok: false, service: "composer", db: false });
+  });
+
   it("POST /v1/narrate writes one item and returns it with its id", async () => {
     const event = await hz.writeEvent(hz.A.businessId, "payment.received", { amount: { amountMinor: 2500, currency: "EUR" } }, [hz.A.entityId]);
     const res = await post("/v1/narrate", { businessId: hz.A.businessId, eventIds: [event.id] });
