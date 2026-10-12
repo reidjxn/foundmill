@@ -105,5 +105,13 @@ export const isMockIntegrations = (env = loadEnv()) => env.INTEGRATIONS_MODE ===
 export const liveConnectorKeys = (env: Pick<Env, "LIVE_CONNECTORS">): string[] => env.LIVE_CONNECTORS.split(",").map((k) => k.trim()).filter(Boolean);
 /** The mode one connector runs in: live everywhere in live mode, or when LIVE_CONNECTORS names it. */
 export const connectorMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">, connectorKey: string): "mock" | "live" => (env.INTEGRATIONS_MODE === "live" || liveConnectorKeys(env).includes(connectorKey) ? "live" : "mock");
+/**
+ * The LIVE_CONNECTORS entry for the platform's own billing (credit top-ups through Stripe Checkout on the platform
+ * account, docs/DEPLOY.md §5). Separate from `stripe`, the businesses' own Stripe connector, so taking real payments
+ * never switches every business's Stripe tools to live (and the reverse). The api and the gateway read it alike.
+ */
+export const PLATFORM_BILLING_LIVE_KEY = "stripe_billing";
+/** How credit top-ups are paid here: through Stripe (live) or simulated (mock). */
+export const platformBillingMode = (env: Pick<Env, "INTEGRATIONS_MODE" | "LIVE_CONNECTORS">): "mock" | "live" => connectorMode(env, PLATFORM_BILLING_LIVE_KEY);
 export const isMockModels = (env = loadEnv()) => env.MODEL_MODE === "mock";
 export const servicePort = (env: Env, named: "API_PORT" | "GATEWAY_PORT" | "COMPOSER_PORT" | "STREAM_PORT" | "COLLAB_PORT" | "INGEST_PORT" | "SOCIAL_PORT"): number => env.PORT ?? env[named];

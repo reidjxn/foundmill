@@ -244,6 +244,8 @@ export const ideaRouter = router({
         spendCapMinor: z.number().int().nonnegative().nullable().default(null),
       }),
     )
+    // A new business drafts its foundations and runs its first cycle on the platform key (SEC-13).
+    .use(modelLimited("commit"))
     .mutation(async ({ ctx, input }) => {
       const profile = await repos.founders.get(ctx.db, ctx.userId);
       if (!profile) throw new ValidationError("Complete your founder profile before taking charge of a business");

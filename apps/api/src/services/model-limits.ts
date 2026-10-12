@@ -1,8 +1,9 @@
 /**
  * Per-person and per-business allowances on every procedure that calls a model on the platform key (SEC-13): Ideation
  * and Ask, logos, conversations, Inbox Refresh, plan previews and free-text decisions, task planning, the legal and
- * distribution recommenders, foundations retries, training runs and Continue; and on the two that call a vendor per
- * press, registry lookups and checkout sessions. Each procedure spends one hit from its own rule and one from
+ * distribution recommenders, foundations retries, training runs, Continue, starting a task (an agent session) and
+ * Take charge (a new business drafts its foundations); and on the two that call a vendor per press, registry lookups
+ * and checkout sessions. Each procedure spends one hit from its own rule and one from
  * `SHARED_MODEL_LIMITS`, the ceiling across all of them, so a stuck key, a script or a member looping one button cannot
  * drain the platform's credits; a refusal is TOO_MANY_REQUESTS with a sentence the founder can act on (naming what they
  * pressed, whichever window is full), and nothing is called.
@@ -11,6 +12,7 @@
  * allowances that predate this one keep their own rules inside their services (drafting in ideation.ts, logo sets in
  * logo.ts, conversation sends in conversation.ts); their procedures still spend from the shared ceiling.
  */
+import type { ModelClient } from "@foundmill/models";
 import { TRPCError } from "@trpc/server";
 import type { Context } from "../context";
 import { middleware, toTRPCError } from "../trpc";
@@ -54,6 +56,10 @@ export const MODEL_LIMITS = {
   training: { what: "Training", user: [{ limit: 20, windowMs: HOUR }], business: [{ limit: 60, windowMs: DAY }] },
   /** business.continue: a cycle (the Chief of Staff's plan, or a composer note when nothing is ready). */
   continue: { what: "Continue", user: [{ limit: 20, windowMs: MINUTE }], business: [{ limit: 120, windowMs: HOUR }] },
+  /** dev.tasks.start: an agent session (models on the platform key or the founder's own, and a sandbox on the platform's account). */
+  session: { what: "Starting tasks", user: [{ limit: 30, windowMs: HOUR }], business: [{ limit: 200, windowMs: DAY }] },
+  /** idea.commit: a new business, whose vision, specification and roadmap are drafted on its first open (Opus). */
+  commit: { what: "Taking charge of a business", user: [{ limit: 10, windowMs: HOUR }, { limit: 30, windowMs: DAY }] },
   /** legal.import.lookup: a registry call to a vendor. */
   lookup: { what: "Registry lookup", user: [{ limit: 30, windowMs: HOUR }], business: [{ limit: 100, windowMs: DAY }] },
   /** billing.topUp: a Stripe Checkout session on the platform account. */
@@ -77,6 +83,23 @@ export function modelLimitEntries(name: ModelLimitName, scope: { userId: string;
 /** Refused before any model call (another limit, bad input, no access, a conflict): the hit is given back. */
 const REFUNDED_CODES = new Set(["TOO_MANY_REQUESTS", "BAD_REQUEST", "FORBIDDEN", "NOT_FOUND", "CONFLICT", "PRECONDITION_FAILED", "UNAUTHORIZED"]);
 
+/**
+ * `models` with every call noted in `seen`: a request refused after it reached the model (the Planner's graph has a
+ * cycle, a recommendation fails to save) spent the tokens, so it keeps its hit whatever the refusal's code.
+ */
+function noteModelCalls(models: ModelClient, seen: { called: boolean }): ModelClient {
+  return new Proxy(models, {
+    get(target, prop, receiver) {
+      const value: unknown = Reflect.get(target, prop, receiver);
+      if ((prop !== "complete" && prop !== "streamStructured") || typeof value !== "function") return value;
+      return (...args: unknown[]) => {
+        seen.called = true;
+        return (value as (...a: unknown[]) => unknown).apply(target, args);
+      };
+    },
+  });
+}
+
 export interface ModelLimitOptions {
   /** Only requests whose input this accepts spend the allowance (a decision with free text compiles a plan; an option does not). */
   when?: (input: unknown) => boolean;
@@ -85,7 +108,8 @@ export interface ModelLimitOptions {
 /**
  * Middleware for a model-backed procedure: spends one hit of `name` (and of the shared ceiling) for the signed-in person and,
  * inside a business, for the business; refuses with TOO_MANY_REQUESTS when any window is full. Use it after
- * `protectedProcedure` / `businessProcedure`. A request refused before reaching the model gets its hit back.
+ * `protectedProcedure` / `businessProcedure`. A request refused before reaching the model gets its hit back; one refused
+ * after a model call keeps it.
  */
 export function modelLimited(name: ModelLimitName, options: ModelLimitOptions = {}) {
   return middleware(async ({ ctx, next, getRawInput }) => {
@@ -94,8 +118,9 @@ export function modelLimited(name: ModelLimitName, options: ModelLimitOptions = 
     if (options.when && !options.when(await getRawInput())) return next();
     const taken = await c.limits.take(modelLimitEntries(name, { userId: c.userId, businessId: c.businessId ?? null }));
     if (!taken.ok) throw new RateLimitedError(MODEL_LIMITS[name].what, taken.retryAfterMs);
-    const result = await next();
-    if (!result.ok && REFUNDED_CODES.has(toTRPCError(result.error).code)) await c.limits.refund(taken.ticket);
+    const seen = { called: false };
+    const result = await next({ ctx: { models: noteModelCalls(c.models, seen) } });
+    if (!result.ok && !seen.called && REFUNDED_CODES.has(toTRPCError(result.error).code)) await c.limits.refund(taken.ticket);
     return result;
   });
 }

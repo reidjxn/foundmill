@@ -5,14 +5,18 @@
  * the Stripe connector's own `create_checkout_session` tool, with no stored credential (the platform key) and no
  * `Stripe-Account` header.
  *
- * Mock mode (Stripe not live: `INTEGRATIONS_MODE=mock` without `LIVE_CONNECTORS=stripe`) runs the mock connector's
- * tool, so the arguments are checked exactly as live, and answers with a simulated checkout: its URL is the success URL
- * the api gave (the Billing tab, where the founder completes the simulated payment). Nothing is ever paid or granted
- * here: credits arrive from the platform Stripe webhook (apps/ingest) or the api's labeled mock completion.
+ * Live when the platform's billing is (`INTEGRATIONS_MODE=live`, or `LIVE_CONNECTORS` naming `stripe_billing`, the
+ * same switch the api reads: `PLATFORM_BILLING_LIVE_KEY`), whatever the businesses' own `stripe` connector runs as. The
+ * api simulates a mock checkout itself and only asks here when it is live; should the two disagree (the api live, this
+ * gateway mock), the mock connector's tool runs, so the arguments are checked exactly as live, and the answer is a
+ * simulated checkout whose URL is the success URL the api gave (the Billing tab), which the api then refuses wherever
+ * simulated payments are off. Nothing is ever paid or granted here: credits arrive from the platform Stripe webhook
+ * (apps/ingest) or the api's labeled mock completion.
  */
 import { z } from "zod";
 import { isConfigError, STRIPE_KEY, type ConnectorMode, type IntegrationRecord, type ToolContext } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
+import { PLATFORM_BILLING_LIVE_KEY } from "@foundmill/shared";
 import { GatewayError, modeFor, type GatewayDeps } from "./pipeline";
 
 /** Stripe's own limits for one Checkout line are far above this; a top-up is at most $10,000. */
@@ -65,7 +69,7 @@ export async function createPlatformCheckout(deps: GatewayDeps, input: CreateChe
   await repos.businesses.get(deps.db, input.businessId).catch(() => {
     throw new GatewayError("business_not_found", `business ${input.businessId} is not available to this gateway`, 404);
   });
-  const mode = modeFor(deps, STRIPE_KEY);
+  const mode = modeFor(deps, PLATFORM_BILLING_LIVE_KEY);
   const connector = deps.registry.get(STRIPE_KEY, mode);
   const ctx: ToolContext = { businessId: input.businessId, agentId: NIL_ID, sessionId: input.checkoutId, integration: platformIntegration(input.businessId, now), log: deps.log, mode };
   const args = {

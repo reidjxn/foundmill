@@ -148,7 +148,7 @@ export const devRouter = router({
      * The task is claimed with one conditional update, so a double click starts one session; when the workflow cannot
      * be queued the claim is undone and the session row closed (SERVICE_UNAVAILABLE), so a retry is not refused.
      */
-    start: write.input(z.object({ taskId: Id })).mutation(async ({ ctx, input }) => {
+    start: write.input(z.object({ taskId: Id })).use(modelLimited("session")).mutation(async ({ ctx, input }) => {
       await assertAgentsRunning(ctx, "the task");
       const task = await ctx.rls((tx) => repos.tasks.get(tx, ctx.businessId, input.taskId));
       if (!task.assigneeAgentId) throw new ValidationError("Assign an agent before starting the task");

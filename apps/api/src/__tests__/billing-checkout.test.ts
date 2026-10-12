@@ -1,10 +1,12 @@
 /**
  * Paying Foundmill (audit 2026-10-12 #22): a top-up opens a real checkout through the gateway and grants nothing by
- * itself; a mock checkout is completed on the Billing tab (labeled) exactly once; mock payments never fund live model
- * calls outside development and test; a live checkout cannot be completed from the api; a gateway failure closes the
- * row with a sentence the founder can act on; a paid tier cannot be chosen while its price is to be announced.
+ * itself; a mock checkout is simulated by the api (no gateway, no vendor) and completed on the Billing tab (labeled)
+ * exactly once; mock payments never fund live model calls outside development and test; the platform's billing has its
+ * own live switch (`stripe_billing`), apart from the businesses' Stripe connector; a live checkout cannot be completed
+ * from the api; a gateway failure closes the row with a sentence the founder can act on; a paid tier cannot be chosen
+ * while its price is to be announced.
  */
-import { repos } from "@foundmill/db";
+import { creditsState, repos } from "@foundmill/db";
 import { TRPCError } from "@trpc/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { ApiDeps, CallerUser } from "../context";
@@ -56,17 +58,19 @@ const code = async (p: Promise<unknown>) => {
 /** A caller whose api runs with these env values (the harness itself is `test` with mock models). */
 const callerWith = (env: Partial<ApiDeps["env"]>, user: CallerUser) => createCaller({ ...hz.deps, env: { ...hz.deps.env, ...env } }, user);
 const owner = () => hz.caller({ userId: hz.A.ownerId, email: "owner@paycheckout.test" });
-const balanceOf = async (businessId: string) => Number((await repos.usage.creditBalance(hz.db, businessId, new Date().toISOString().slice(0, 7)))?.balanceMinor ?? 0);
+// What the business can spend this month: the balance row, or what its tier includes before the month's first row (a
+// top-up that comes first starts the row with the included credits).
+const balanceOf = async (businessId: string) => Number((await creditsState(hz.db, await repos.businesses.get(hz.db, businessId), new Date().toISOString().slice(0, 7)))?.balanceMinor ?? 0);
 
 describe("billing.topUp (mock)", () => {
-  it("opens a checkout through the gateway, grants nothing, and sends the founder to the simulated checkout", async () => {
+  it("opens a simulated checkout without the gateway, grants nothing, and sends the founder to it", async () => {
     const before = await balanceOf(hz.A.businessId);
     const r = await owner().billing.topUp({ businessId: hz.A.businessId, amountMinor: 5000 });
     expect(r).toMatchObject({ mode: "mock", label: "Mock checkout (no money moves)", checkout: { status: "open", amountMinor: 5000, currency: "USD" } });
     expect(r.checkoutUrl).toBe(`https://foundmill.test/b/${hz.A.businessId}/settings/billing?checkout=${r.checkout.id}`);
-    expect(asked).toEqual([
-      expect.objectContaining({ businessId: hz.A.businessId, checkoutId: r.checkout.id, kind: "credits", amountMinor: 5000, currency: "USD", customerEmail: "owner@paycheckout.test", cancelUrl: expect.stringContaining("canceled=1") }),
-    ]);
+    // No vendor is called in mock mode, so the gateway is not either (the e2e, CI and local stacks run without one).
+    expect(asked).toHaveLength(0);
+    expect(await repos.checkouts.get(hz.db, hz.A.businessId, r.checkout.id)).toMatchObject({ mode: "mock", externalId: expect.stringMatching(/^cs_mock_/), checkoutUrl: r.checkoutUrl });
     expect(await balanceOf(hz.A.businessId)).toBe(before);
     const audit = await repos.audit.list(hz.db, hz.A.businessId, { action: "billing.checkout_started" });
     expect(audit.items.find((a) => (a.target as { id?: string }).id === r.checkout.id)).toMatchObject({ actorKind: "user", actorId: hz.A.ownerId });
@@ -109,26 +113,39 @@ describe("billing.topUp (mock)", () => {
 });
 
 describe("billing.topUp (live)", () => {
+  /** Staging with live models and the platform's billing switched live, while every connector (Stripe included) stays mock. */
+  const liveBilling = { INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "stripe_billing", APP_ENV: "staging", MODEL_MODE: "live" } as const;
+
   it("answers with Stripe's page; the api never completes a live checkout (the webhook does)", async () => {
     answerMode = "live";
-    const live = callerWith({ INTEGRATIONS_MODE: "live", APP_ENV: "staging", MODEL_MODE: "live" }, { userId: hz.A.ownerId });
+    const live = callerWith(liveBilling, { userId: hz.A.ownerId, email: "owner@paycheckout.test" });
     expect((await live.billing.plan({ businessId: hz.A.businessId })).topUp).toMatchObject({ mode: "live", available: true });
     const r = await live.billing.topUp({ businessId: hz.A.businessId, amountMinor: 10_000 });
     expect(r).toMatchObject({ mode: "live", label: null, checkout: { status: "open", mode: "live" } });
     expect(r.checkoutUrl).toMatch(/^https:\/\/checkout\.stripe\.com\/c\/pay\/cs_test_/);
+    expect(asked).toEqual([
+      expect.objectContaining({ businessId: hz.A.businessId, checkoutId: r.checkout.id, kind: "credits", amountMinor: 10_000, currency: "USD", customerEmail: "owner@paycheckout.test", successUrl: `https://foundmill.test/b/${hz.A.businessId}/settings/billing?checkout=${r.checkout.id}`, cancelUrl: expect.stringContaining("canceled=1") }),
+    ]);
     expect(await code(live.billing.checkout.completeMock({ businessId: hz.A.businessId, checkoutId: r.checkout.id }))).toBe("BAD_REQUEST");
     expect((await repos.checkouts.get(hz.db, hz.A.businessId, r.checkout.id)).externalId).toMatch(/^cs_test_/);
+    // INTEGRATIONS_MODE=live takes real payments too.
+    expect((await callerWith({ INTEGRATIONS_MODE: "live", APP_ENV: "production", MODEL_MODE: "live" }, { userId: hz.A.ownerId }).billing.plan({ businessId: hz.A.businessId })).topUp).toMatchObject({ mode: "live", available: true });
+  });
+
+  it("the businesses' own Stripe connector going live does not take real payments", async () => {
+    const plan = await callerWith({ ...liveBilling, LIVE_CONNECTORS: "stripe" }, { userId: hz.A.ownerId }).billing.plan({ businessId: hz.A.businessId });
+    expect(plan.topUp).toMatchObject({ mode: "mock", available: false, reason: MOCK_PAYMENTS_OFF_MESSAGE });
   });
 
   it("a gateway that refuses closes the row and says what to do", async () => {
     failWith = new AppError("payments_unconfigured", "Payments are not set up on this server yet (STRIPE_SECRET_KEY is missing on the gateway)", 503);
-    await expect(owner().billing.topUp({ businessId: hz.A.businessId, amountMinor: 5000 })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE", message: expect.stringMatching(/^Payments are not set up on this server yet\. Use your own Anthropic key/) });
+    await expect(callerWith(liveBilling, { userId: hz.A.ownerId }).billing.topUp({ businessId: hz.A.businessId, amountMinor: 5000 })).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE", message: expect.stringMatching(/^Payments are not set up on this server yet\. Use your own Anthropic key/) });
     const [latest] = await repos.checkouts.listRecent(hz.db, hz.A.businessId, 1);
     expect(latest).toMatchObject({ status: "failed", failure: expect.stringMatching(/not set up/) });
     // A gateway that unexpectedly answers mock where mock payments are off is refused the same way.
     failWith = null;
     answerMode = "mock";
-    await expect(callerWith({ INTEGRATIONS_MODE: "live", APP_ENV: "staging", MODEL_MODE: "live" }, { userId: hz.A.ownerId }).billing.topUp({ businessId: hz.A.businessId, amountMinor: 5000 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await expect(callerWith(liveBilling, { userId: hz.A.ownerId }).billing.topUp({ businessId: hz.A.businessId, amountMinor: 5000 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     expect((await repos.checkouts.listRecent(hz.db, hz.A.businessId, 1))[0]).toMatchObject({ status: "failed", mode: "live" });
   });
 });

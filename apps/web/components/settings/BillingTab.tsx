@@ -76,7 +76,7 @@ export function checkoutNotice(checkout: Pick<CheckoutView, "status" | "mode" | 
     case "paid":
       return { tone: "good", word: "Paid", text: checkout.mode === "mock" ? `${amount} in credits added. Mock top-up: no money moved.` : `${amount} in credits added. Stripe sends the receipt to your email.` };
     case "failed":
-      return { tone: "bad", word: "Not opened", text: checkout.failure ?? "This checkout could not be opened. Nothing was charged." };
+      return { tone: "bad", word: "Not paid", text: checkout.failure ?? "This checkout could not be opened. Nothing was charged." };
     case "expired":
       return { tone: "neutral", word: "Expired", text: "This checkout expired before it was paid. Nothing was charged." };
     default:
