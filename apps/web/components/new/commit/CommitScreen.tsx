@@ -17,6 +17,7 @@ import { ARCHETYPE_LABELS, type Archetype, type BusinessMode, type GameMode } fr
 import { routes } from "@foundmill/widgets/shared/routes";
 import { Avatar, Button, Chip, ConceptCard, EmptyState, Field, Input, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, cn, formatMoney, useToast, type Kit } from "@foundmill/dugout";
 import { plainWords, plural } from "@/lib/format";
+import { useSingleFlight } from "@/lib/single-flight";
 import { errorMessage, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
@@ -86,7 +87,8 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
   const commit = useMutation(
     trpc.idea.commit.mutationOptions({
       onSuccess: (res) => {
-        toast({ title: `${res.business.name} is yours`, description: "The Board's first item is waiting in the Inbox.", tone: "good" });
+        // A second Take charge of this idea (another tab, a retried request) answers with the business the first created.
+        toast({ title: res.alreadyCommitted ? `${res.business.name} is already yours` : `${res.business.name} is yours`, description: "The Board's first item is waiting in the Inbox.", tone: "good" });
         const to = routes.inbox(res.business.id, res.boardItem.id);
         router.push(to);
         // Belt and braces: if the client-side move has not happened in a few seconds, load the page outright.
@@ -97,6 +99,9 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       onError: (err) => toast({ title: "Not committed", description: errorMessage(err), tone: "bad" }),
     }),
   );
+  // One commit per press: a double click reaches here twice before `isPending` re-renders the button, so a ref guards
+  // it, and stays closed after success while the page moves to the new business.
+  const onCommit = useSingleFlight(commit.mutateAsync, { closeOnSuccess: true });
 
   const idea = ideaQ.data?.idea as IdeaLike | undefined;
   const back = (
@@ -146,9 +151,9 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       preview={previewQ.data}
       previewLoading={previewQ.isLoading}
       onArchetypeChange={setArchetype}
-      committing={commit.isPending}
+      committing={commit.isPending || commit.isSuccess}
       error={commit.error ? errorMessage(commit.error) : null}
-      onCommit={(input) => commit.mutate(input)}
+      onCommit={onCommit}
       logoApi={logoApi}
       back={back}
     />

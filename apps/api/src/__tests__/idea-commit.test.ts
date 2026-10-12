@@ -97,6 +97,46 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(squad.agents.length).toBe(agents.items.length);
   });
 
+  it("Take charge twice (a double click, a second tab, a retry) builds one business and answers both with it", async () => {
+    const userId = await hz.h.createUser("twice@test.local");
+    const caller = hz.caller({ userId, email: "twice@test.local" });
+    await caller.founder.profile.update({ displayName: "Twice", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    const idea = (await caller.idea.generate({ prompt: "invoicing for dog walkers" })).ideas[0]!;
+    const input = { ideaId: idea.id, name: "Twice Walks", archetype: "b2b_saas" as const, gameMode: "personal" as const };
+
+    // Two calls in one batched request (what a double click sent): both succeed, with the same business.
+    const [first, second] = await Promise.all([caller.idea.commit(input), caller.idea.commit({ ...input, name: "Twice Walks Again" })]);
+    expect(second.business.id).toBe(first.business.id);
+    expect([first.alreadyCommitted, second.alreadyCommitted].sort()).toEqual([false, true]);
+    const created = first.alreadyCommitted ? second : first;
+    const replay = first.alreadyCommitted ? first : second;
+    expect(replay.business.name).toBe(created.business.name);
+    expect(replay.boardItem.id).toBe(created.boardItem.id);
+    expect(replay.chiefOfStaffId).toBe(created.chiefOfStaffId);
+    expect(replay.taskIds).toEqual(created.taskIds);
+    expect([...replay.departmentIds].sort()).toEqual([...created.departmentIds].sort());
+    expect([...replay.agentIds].sort()).toEqual([...created.agentIds].sort());
+    expect(replay.cycle.queued).toBe(false);
+
+    // A retry after the fact answers the same way.
+    const retry = await caller.idea.commit(input);
+    expect(retry).toMatchObject({ alreadyCommitted: true, business: { id: created.business.id }, boardItem: { id: created.boardItem.id } });
+
+    // Exactly one business, one team, one Board item, one first cycle.
+    const mine = (await repos.businesses.listForUser(hz.db, userId)).filter((b) => b.name.startsWith("Twice Walks"));
+    expect(mine.map((b) => b.id)).toEqual([created.business.id]);
+    expect((await repos.agents.list(hz.db, created.business.id, { limit: 500 })).items).toHaveLength(created.agentIds.length);
+    expect((await repos.events.list(hz.db, created.business.id, { type: "idea.committed" })).items).toHaveLength(1);
+    expect(temporal.starts.filter((s) => s.type === "businessCycle" && s.workflowId === `cycle:${created.business.id}:1`)).toHaveLength(1);
+    expect((await repos.ideas.get(hz.db, userId, idea.id)).businessId).toBe(created.business.id);
+
+    // Another founder cannot reach the business through the idea.
+    const otherId = await hz.h.createUser("other-twice@test.local");
+    const other = hz.caller({ userId: otherId, email: "other-twice@test.local" });
+    await other.founder.profile.update({ displayName: "Other", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    await expect(other.idea.commit(input)).rejects.toThrow(/not found/);
+  });
+
   it("preview lists what an archetype seeds, labelled Estimate", async () => {
     const userId = await hz.h.createUser("preview@test.local");
     const preview = await hz.caller({ userId }).idea.preview({ archetype: "dtc_physical" });

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, ensureDeck, logoPng, signIn } from "./helpers";
+import { LONG, devApi, ensureDeck, logoPng, signIn } from "./helpers";
 
 /**
  * /new/commit/[ideaId] — the Commit screen (BUILD §11.1; AC-11.1.6, AC-11.1.7). The test drafts a card in the
@@ -99,5 +99,28 @@ test.describe("commit", () => {
     await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
     // The sidebar carries the departments the commit created.
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
+  });
+
+  test("double-clicking Take charge sends one commit and creates one business", async ({ page, playwright }) => {
+    const name = `Playwright Once ${Date.now().toString(36)}`;
+    await page.getByLabel(/Business name/).fill(name);
+    const commits: string[] = [];
+    page.on("request", (req) => {
+      if (req.url().includes("idea.commit")) commits.push(req.url());
+    });
+    await page.getByTestId("take-charge").dblclick();
+    await expect(page).toHaveURL(/\/b\/[0-9a-f-]+\/inbox\/[0-9a-f-]+/, { timeout: LONG });
+    // One call, never a batch of two (`idea.commit,idea.commit`).
+    expect(commits).toHaveLength(1);
+    expect(commits[0]).not.toContain("idea.commit,idea.commit");
+    const api = await devApi(playwright);
+    try {
+      const res = await api.get("/trpc/founder.profile.get");
+      expect(res.ok()).toBe(true);
+      const body = (await res.json()) as { result: { data: { json: { businesses: { name: string }[] } } } };
+      expect(body.result.data.json.businesses.filter((b) => b.name === name)).toHaveLength(1);
+    } finally {
+      await api.dispose();
+    }
   });
 });
