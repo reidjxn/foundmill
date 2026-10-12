@@ -116,6 +116,15 @@ export function ModeTab() {
             <RadioCard key={m} id={`mode-${m}`} value={m} label={BUSINESS_MODE_INFO[m].word} description={BUSINESS_MODE_INFO[m].summary} />
           ))}
         </RadioGroup>
+        {holiday ? (
+          // The mode in force while away is Automated (BUILD §9.6); the choice above is the one that comes back.
+          <p className="flex items-center gap-2 text-body text-secondary" data-testid="mode-in-force">
+            <StatusPill tone="info" icon={Palmtree}>
+              Automated while on vacation
+            </StatusPill>
+            {b.businessMode === "automated" ? null : <span>{BUSINESS_MODE_INFO[b.businessMode].word} again when you come back.</span>}
+          </p>
+        ) : null}
         <Hint>Hard gates (money, signatures, filings, legal terms, permanent deletion, security settings, acting on untrusted content) always need you, whatever the mode.</Hint>
       </SettingsSection>
 
@@ -131,7 +140,7 @@ export function ModeTab() {
             </StatusPill>
             <KeyValueList
               items={[
-                { label: "Until", value: holiday.untilAt ? formatDate(holiday.untilAt, datePrefs) : ((holiday.untilCondition as { text?: string } | null)?.text ?? "until I return") },
+                { label: "Until", value: holiday.untilAt ? formatDate(holiday.untilAt, datePrefs) : ((holiday.untilCondition as { text?: string } | null)?.text ?? "You return") },
                 { label: "Budget ceiling", value: holiday.budgetCeilingMinor === null ? "Business cap applies" : formatMoney({ amountMinor: holiday.budgetCeilingMinor, currency: holiday.currency ?? currency }), numeric: true },
                 { label: "Authority", value: <span className="flex flex-wrap gap-1">{((holiday.authority as { decisionTypes?: string[] } | null)?.decisionTypes ?? []).map((d) => <Chip key={d}>{plainWords(d)}</Chip>)}</span> },
               ]}

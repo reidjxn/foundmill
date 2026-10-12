@@ -58,6 +58,16 @@ describe("KitBarFit", () => {
     expect(document.querySelector(".kitbar-holiday-short")?.textContent).toBe("Until Oct 21");
     expect(screen.getByText("On vacation until Oct 21, 2026", { selector: ".sr-only" })).toBeTruthy();
     expect(holidayCaptionParts({ kind: "holiday", until: null, untilLabel: "the launch ships" })).toEqual({ full: "On vacation until the launch ships", date: null, short: "Until the launch ships" });
+    // A label that already says "until" is not doubled ("Until until I return").
+    expect(holidayCaptionParts({ kind: "holiday", until: null, untilLabel: "until I return" })).toEqual({ full: "On vacation until I return", date: null, short: "Until I return" });
+  });
+
+  it("shows the mode in force on vacation: Automated, saying which mode comes back (OL-26)", () => {
+    render(<ModeChip mode="assisted" holiday />);
+    const chip = screen.getByRole("group", { name: "Business mode: Automated, on vacation; Assisted when you come back" });
+    expect(chip.textContent).toBe("Automated");
+    expect(chip.getAttribute("data-mode")).toBe("automated");
+    expect(chip.getAttribute("data-base-mode")).toBe("assisted");
   });
 
   it("drops the year first in the signed-in person's own date format (DateFormatProvider)", () => {

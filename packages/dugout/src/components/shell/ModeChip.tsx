@@ -27,8 +27,8 @@ export interface ModeChipProps extends Omit<ChipProps, "children" | "tone" | "ic
   /** Makes the chip a button (open Settings › Mode). */
   onClick?: () => void;
   /**
-   * Holiday variant: the business is on holiday and runs in Automated mode regardless. The chip still shows the mode's
-   * word only (the holiday caption beside Continue says "On holiday until …"); its label and tooltip say holiday.
+   * Vacation: the business runs in Automated mode while the founder is away (BUILD §9.6), so the chip shows the mode in
+   * force, Automated; its label and tooltip say it is the vacation's and which mode comes back with the founder.
    */
   holiday?: boolean;
 }
@@ -38,10 +38,13 @@ export interface ModeChipProps extends Omit<ChipProps, "children" | "tone" | "ic
  * it opens Settings › Mode; the tooltip says what runs without asking.
  */
 export function ModeChip({ mode, description, onClick, holiday, className, mono: _mono, dot: _dot, fit: _fit, onRemove: _onRemove, removeLabel: _removeLabel, selected: _selected, ...rest }: ModeChipProps) {
-  const info = BUSINESS_MODE_INFO[mode];
+  const inForce: BusinessMode = holiday ? "automated" : mode;
+  const info = BUSINESS_MODE_INFO[inForce];
+  const back = holiday && mode !== "automated" ? ` ${BUSINESS_MODE_INFO[mode].word} again when you come back.` : "";
   const common = {
-    "aria-label": `Business mode: ${info.word}${holiday ? ", on vacation" : ""}`,
-    "data-mode": mode,
+    "aria-label": `Business mode: ${info.word}${holiday ? `, on vacation${back ? `; ${BUSINESS_MODE_INFO[mode].word} when you come back` : ""}` : ""}`,
+    "data-mode": inForce,
+    "data-base-mode": holiday ? mode : undefined,
     "data-chip": "",
     className: cn("kitbar-glass", className),
   };
@@ -52,7 +55,7 @@ export function ModeChip({ mode, description, onClick, holiday, className, mono:
     </>
   );
   return (
-    <Tooltip content={description ?? (holiday ? `On vacation: ${info.summary}` : info.summary)}>
+    <Tooltip content={description ?? (holiday ? `On vacation: ${info.summary}${back}` : info.summary)}>
       {onClick ? (
         <button type="button" onClick={onClick} {...common}>
           {content}

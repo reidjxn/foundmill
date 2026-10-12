@@ -235,6 +235,22 @@ describe("per-agent autonomy override and holiday", () => {
     const r = run("automated", TOOLS.adSpend, { amountMinor: 1, holidayActive: true });
     expect(r.outcome).toBe("allow");
   });
+  it("on vacation an Assisted or Augmented business runs as Automated: hard gates still queue (OL-26)", () => {
+    const on = (mode: BusinessMode, t: ToolCtxInput, ctx: CallContextInput = {}, a: Partial<AgentCtxInput> = {}) => evaluate({ principal: agent(a), tool: t, business: business(mode, true), context: ctx });
+    expect(effectiveBusinessMode(EvaluateInput.parse({ principal: agent(), tool: tool(), business: business("assisted", true) }))).toBe("automated");
+    // What Assisted asks for, the vacation's Automated mode does within caps.
+    expect(on("assisted", TOOLS.mergeToMain).outcome).toBe("allow");
+    expect(on("assisted", TOOLS.draftContract).outcome).toBe("allow");
+    expect(on("augmented", TOOLS.sendEmail).outcome).toBe("allow");
+    // Above the threshold still asks, and hard gates never lift.
+    expect(on("assisted", TOOLS.adSpend, { amountMinor: THRESHOLD + 1 }).outcome).toBe("ask");
+    expect(on("assisted", TOOLS.signContract).outcome).toBe("deny");
+    expect(on("assisted", TOOLS.payInvoice, { amountMinor: 100 }).outcome).toBe("deny");
+    // An agent the founder gave its own autonomy keeps it.
+    expect(on("assisted", TOOLS.sendEmail, {}, { autonomy: "augmented" }).policyIds).toEqual(["augmented-ask-external"]);
+    // Back from vacation, the business's own mode applies again.
+    expect(run("assisted", TOOLS.mergeToMain).outcome).toBe("ask");
+  });
 });
 
 describe("input validation and robustness", () => {
