@@ -104,11 +104,12 @@ export const RETRY_REPLY_ID = "local-retry";
 /** Local failure replies carry this id prefix (never stored; dropped when the founder sends something else). */
 export const FAILURE_PREFIX = "failure:";
 
-export type DeskFailureKind = "offline" | "limited" | "failed" | "stale" | "refused";
+export type DeskFailureKind = "offline" | "limited" | "failed" | "stale" | "refused" | "credits";
 
 /**
  * Why a send failed, from the tRPC error: no response at all (the api is down or the connection dropped), a limit, the
- * model or the server failing (worth a retry), a chip or decision that is no longer open, or no permission.
+ * model or the server failing (worth a retry), a chip or decision that is no longer open, no permission, or the
+ * business's credits for the month used up (PAYMENT_REQUIRED, `credits_exhausted`: a retry is refused the same way).
  */
 export function deskFailureOf(err: unknown): { kind: DeskFailureKind; message: string } {
   const e = err as { data?: { code?: string; httpStatus?: number } | null; message?: string; name?: string } | null | undefined;
@@ -116,6 +117,7 @@ export function deskFailureOf(err: unknown): { kind: DeskFailureKind; message: s
   const code = e?.data?.code;
   if (!code) return { kind: /fetch|network|load failed|connect|socket|ECONN|offline/i.test(message) || e?.name === "TypeError" || !message ? "offline" : "failed", message };
   if (code === "TOO_MANY_REQUESTS") return { kind: "limited", message };
+  if (code === "PAYMENT_REQUIRED") return { kind: "credits", message };
   if (code === "BAD_REQUEST" || code === "CONFLICT" || code === "PRECONDITION_FAILED" || code === "PARSE_ERROR") return { kind: "stale", message };
   if (code === "FORBIDDEN" || code === "UNAUTHORIZED" || code === "NOT_FOUND") return { kind: "refused", message };
   return { kind: "failed", message };
@@ -143,6 +145,9 @@ export function failureReply(kind: DeskFailureKind, serverMessage = ""): { bubbl
       return { bubbles: [sentence(serverMessage) || "That one isn't open any more.", "Here's what's open now."], retry: false };
     case "refused":
       return { bubbles: [`I can't take that from here: ${sentence(serverMessage.replace(/^./, (c) => c.toLowerCase())) || "you don't have access."}`], retry: false };
+    case "credits":
+      // The API's own sentence says what lifts it (a top-up, or next month's credits on a date); trying again cannot.
+      return { bubbles: [sentence(serverMessage) || "This month's credits are used up, so I can't reply until there are more.", "Your message is kept here."], retry: false };
     case "failed":
     default:
       return { bubbles: ["I couldn't put a reply together just then.", "Your message is kept here. Shall I try again?"], retry: true };
