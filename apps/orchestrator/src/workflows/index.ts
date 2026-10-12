@@ -23,6 +23,19 @@ export { journeyBuild } from "./journeyBuild";
 export { importBusiness } from "./importBusiness";
 export type { ImportBusinessResult } from "./importBusiness";
 export { businessFoundations, FOUNDATIONS_DRAFT_FAILED, FOUNDATIONS_SAVE_FAILED, FOUNDATIONS_STAGED_PATCH } from "./businessFoundations";
-export { journeyDailyRefresh, benchmarksRebuild, credentialExpiryScan, consentRenewalScan, agentMetricsRollup } from "./schedules";
+export {
+  journeyDailyRefresh,
+  journeyMatviewRefresh,
+  benchmarksRebuild,
+  credentialExpiryScan,
+  consentRenewalScan,
+  agentMetricsRollup,
+  agentHealthSweep,
+  legalCalendarRoll,
+  channelEngineReconcile,
+  crmDeletionSweep,
+  businessDeletionSweep,
+} from "./schedules";
+export type { BusinessDeletionResult, EngineReconcileResult } from "./schedules";
 export { sourceWatch, sourceWatchSweep, SOURCE_WATCH_FAILED_REASON } from "./sourceWatch";
 export * from "./signals";

@@ -1,37 +1,167 @@
 /**
- * Nightly schedule workflows (BUILD §9.4). Each takes the business ids to process (apps/api registers one Temporal
- * Schedule per environment and passes the active businesses) and runs the matching activity; `agentMetricsRollup`
- * also refreshes every agent's health (BUILD §9.10) so `agent.health_changed` is emitted at least nightly.
+ * Schedule workflows (BUILD §9.4). The orchestrator registers one Temporal Schedule per workflow at boot
+ * (src/schedules.ts, `SCHEDULES`); each run lists the businesses it covers when it starts (or takes the ids it was given),
+ * so a business committed since the schedule was registered is included and an archived one is not.
+ *
+ * Nightly: journeyDailyRefresh (matview, attribution refit, milestone catch-up), benchmarksRebuild, credentialExpiryScan,
+ * consentRenewalScan, agentMetricsRollup (also refreshes every agent's health, BUILD §9.10), legalCalendarRoll,
+ * crmDeletionSweep and businessDeletionSweep. Frequent: journeyMatviewRefresh, agentHealthSweep (health, rested failing
+ * agents back, wage-cap pauses lifted in a new period) and channelEngineReconcile (every channel on the board has its
+ * engine running). Work that starts agents (engines, the Source Watcher's sweep in ./sourceWatch.ts) only covers
+ * businesses whose team is not stopped.
  */
-import { proxyActivities } from "@temporalio/workflow";
-import type { Activities, ScheduleInput, ScheduleResult } from "../activities";
+import { WorkflowExecutionAlreadyStartedError } from "@temporalio/common";
+import { ParentClosePolicy, getExternalWorkflowHandle, proxyActivities, startChild } from "@temporalio/workflow";
+import type { Activities, EngineToEnsure, ScheduleInput, ScheduleResult } from "../activities";
+import { channelEngine } from "./channelEngine";
+import { stopSignal } from "./signals";
 
-const acts = proxyActivities<Activities>({ startToCloseTimeout: "30 minutes", heartbeatTimeout: "10 minutes", retry: { maximumAttempts: 3, initialInterval: "30 seconds" } });
+/** Batches over businesses: they heartbeat after each one and resume where a failed attempt stopped. */
+const acts = proxyActivities<Activities>({ startToCloseTimeout: "30 minutes", heartbeatTimeout: "5 minutes", retry: { maximumAttempts: 3, initialInterval: "30 seconds" } });
+/** Short reads and writes. */
+const quick = proxyActivities<Activities>({ startToCloseTimeout: "2 minutes", retry: { maximumAttempts: 5, initialInterval: "5 seconds", backoffCoefficient: 2 } });
+/** One business's purge: a large business is many rows. */
+const purge = proxyActivities<Activities>({ startToCloseTimeout: "15 minutes", retry: { maximumAttempts: 3, initialInterval: "1 minute" } });
 
-export async function journeyDailyRefresh(input: ScheduleInput): Promise<ScheduleResult> {
-  return acts.journeyDailyRefresh(input);
+/** The businesses a run covers: the ids it was started with, else every committed business (`runnable`: not stopped). */
+export async function scheduledBusinesses(input: ScheduleInput, runnable = false): Promise<string[]> {
+  return input.businessIds ?? (await quick.listScheduledBusinesses({ runnable })).businessIds;
 }
 
-export async function benchmarksRebuild(input: ScheduleInput): Promise<ScheduleResult> {
-  return acts.benchmarksRebuild(input);
+const merge = (a: ScheduleResult, b: ScheduleResult): ScheduleResult => ({ businesses: Math.max(a.businesses, b.businesses), touched: a.touched + b.touched, eventIds: [...a.eventIds, ...b.eventIds], notes: [...a.notes, ...b.notes] });
+
+export async function journeyDailyRefresh(input: ScheduleInput = {}): Promise<ScheduleResult> {
+  const businessIds = await scheduledBusinesses(input);
+  const refreshed = await acts.journeyDailyRefresh({ businessIds, at: input.at });
+  const milestones = await acts.milestonesCatchUp({ businessIds, at: input.at });
+  return merge(refreshed, milestones);
 }
 
-export async function credentialExpiryScan(input: ScheduleInput): Promise<ScheduleResult> {
-  return acts.credentialExpiryScan(input);
+/** Every 15 minutes: the journey matview alone, so the Ribbon follows writes made outside the orchestrator. */
+export async function journeyMatviewRefresh(): Promise<{ refreshed: boolean; error: string | null }> {
+  return quick.refreshJourneyDaily();
 }
 
-export async function consentRenewalScan(input: ScheduleInput): Promise<ScheduleResult> {
-  return acts.consentRenewalScan(input);
+export async function benchmarksRebuild(input: ScheduleInput = {}): Promise<ScheduleResult> {
+  return acts.benchmarksRebuild({ businessIds: await scheduledBusinesses(input), at: input.at });
 }
 
-export async function agentMetricsRollup(input: ScheduleInput): Promise<ScheduleResult> {
-  const rolled = await acts.agentMetricsRollup(input);
-  const eventIds = [...rolled.eventIds];
-  const notes = [...rolled.notes];
-  for (const businessId of input.businessIds) {
-    const health = await acts.refreshAgentHealth({ businessId });
-    eventIds.push(...health.eventIds);
-    if (health.changed.length) notes.push(`${businessId}: ${health.changed.length} agent status change(s)`);
+export async function credentialExpiryScan(input: ScheduleInput = {}): Promise<ScheduleResult> {
+  return acts.credentialExpiryScan({ businessIds: await scheduledBusinesses(input), at: input.at });
+}
+
+export async function consentRenewalScan(input: ScheduleInput = {}): Promise<ScheduleResult> {
+  return acts.consentRenewalScan({ businessIds: await scheduledBusinesses(input), at: input.at });
+}
+
+export async function legalCalendarRoll(input: ScheduleInput = {}): Promise<ScheduleResult> {
+  return acts.rollLegalCalendars({ businessIds: await scheduledBusinesses(input), at: input.at });
+}
+
+/** Health for each business: one activity each, so one slow business never holds the others' slot for long. */
+async function refreshHealth(businessIds: readonly string[]): Promise<{ eventIds: string[]; notes: string[] }> {
+  const eventIds: string[] = [];
+  const notes: string[] = [];
+  for (const businessId of businessIds) {
+    try {
+      const health = await quick.refreshAgentHealth({ businessId });
+      eventIds.push(...health.eventIds);
+      if (health.changed.length) notes.push(`${businessId}: ${health.changed.length} agent status change(s)`);
+    } catch {
+      notes.push(`${businessId}: health refresh failed`);
+    }
   }
-  return { ...rolled, eventIds, notes };
+  return { eventIds, notes };
+}
+
+export async function agentMetricsRollup(input: ScheduleInput = {}): Promise<ScheduleResult> {
+  const businessIds = await scheduledBusinesses(input);
+  const rolled = await acts.agentMetricsRollup({ businessIds, at: input.at });
+  const health = await refreshHealth(businessIds);
+  return { ...rolled, eventIds: [...rolled.eventIds, ...health.eventIds], notes: [...rolled.notes, ...health.notes] };
+}
+
+/**
+ * Hourly: every agent's health (BUILD §9.10), and the agents the dispatch guard paused for their wage cap come back once
+ * they are under it (a new period, a higher cap). A stopped team is left as it is (`refreshAgentHealth` never lifts a
+ * pause and `recoverAgents` does nothing while stopped).
+ */
+export async function agentHealthSweep(input: ScheduleInput = {}): Promise<ScheduleResult> {
+  const businessIds = await scheduledBusinesses(input);
+  const health = await refreshHealth(businessIds);
+  return { businesses: businessIds.length, touched: health.notes.length, eventIds: health.eventIds, notes: health.notes };
+}
+
+export interface EngineReconcileResult {
+  channels: number;
+  started: string[];
+  running: string[];
+  failed: string[];
+}
+
+/**
+ * Every channel the Board shows as running has its engine (audit GTM-01): for each enabled channel of a business whose
+ * team may work, `engine:<channelId>` is started unless it already runs (Temporal refuses a second run of a running id),
+ * and the id is recorded on the channel. Engines outlive this run (abandoned children).
+ */
+export async function channelEngineReconcile(): Promise<EngineReconcileResult> {
+  const { channels } = await quick.listEnginesToEnsure();
+  const started: string[] = [];
+  const running: string[] = [];
+  const failed: string[] = [];
+  const entries: { businessId: string; channelId: string; workflowId: string }[] = [];
+  for (const c of channels as EngineToEnsure[]) {
+    const workflowId = `engine:${c.channelId}`;
+    try {
+      await startChild(channelEngine, { workflowId, args: [{ businessId: c.businessId, channelId: c.channelId, channelKey: c.channelKey }], parentClosePolicy: ParentClosePolicy.ABANDON });
+      started.push(workflowId);
+    } catch (err) {
+      if (!(err instanceof WorkflowExecutionAlreadyStartedError)) {
+        failed.push(workflowId);
+        continue;
+      }
+      running.push(workflowId);
+    }
+    if (c.engineWorkflowId !== workflowId) entries.push({ businessId: c.businessId, channelId: c.channelId, workflowId });
+  }
+  if (entries.length) await quick.recordEngineWorkflows({ entries });
+  return { channels: channels.length, started, running, failed };
+}
+
+/** Nightly: CRM records whose deletion request came due are purged (suppression entries stay). */
+export async function crmDeletionSweep(input: { at?: string } = {}): Promise<ScheduleResult> {
+  return acts.purgeDueEntities({ at: input.at });
+}
+
+export interface BusinessDeletionResult {
+  due: number;
+  purged: string[];
+  skipped: { businessId: string; reason: string }[];
+}
+
+/**
+ * Nightly: each business whose scheduled deletion came due and was not canceled (Settings › Danger zone, 7 days) is
+ * deleted with everything it owns. Its running workflows get `stop` first, so nothing writes while the rows go.
+ */
+export async function businessDeletionSweep(input: { at?: string } = {}): Promise<BusinessDeletionResult> {
+  const { due } = await quick.listDueBusinessDeletions({ at: input.at });
+  const purged: string[] = [];
+  const skipped: { businessId: string; reason: string }[] = [];
+  for (const d of due) {
+    await Promise.all(
+      d.workflowIds.map((workflowId) =>
+        getExternalWorkflowHandle(workflowId)
+          .signal(stopSignal, { reason: "business_deleted", by: null })
+          .catch(() => undefined),
+      ),
+    );
+    try {
+      const result = await purge.purgeBusiness({ businessId: d.businessId, at: input.at });
+      if (result.purged) purged.push(d.businessId);
+      else skipped.push({ businessId: d.businessId, reason: result.reason ?? "not purged" });
+    } catch {
+      skipped.push({ businessId: d.businessId, reason: "purge failed; the next sweep tries again" });
+    }
+  }
+  return { due: due.length, purged, skipped };
 }

@@ -11,6 +11,7 @@ import { uuid, type TaskKind } from "@foundmill/shared";
 import { ApplicationFailure } from "@temporalio/common";
 import { ComposerRequestError, ComposerUnavailableError } from "../composer-client";
 import type { OrchestratorDeps } from "../deps";
+import { requestJourneyDailyRefresh } from "../journey-refresh";
 import { emitEvent, systemActor } from "../events";
 import { openAgentSession, type DispatchRefusal } from "./dispatch";
 import type { BriefAgent, BriefTask, BusinessBrief, CyclePlan, CycleStart, CycleTrigger } from "./types";
@@ -165,6 +166,8 @@ export function createCycleActivities(deps: OrchestratorDeps) {
         },
       });
       await repos.audit.append(deps.db, input.businessId, { actorKind: "system", action: "cycle.complete", target: { kind: "cycle", id: input.cycleId }, details: { outcome: input.outcome, tasksDispatched: input.tasksDispatched, tasksCompleted: input.tasksCompleted, tasksBlocked: input.tasksBlocked } });
+      // The cycle's sessions, tasks and spend reach the Ribbon and the status strip soon after (debounced).
+      requestJourneyDailyRefresh(deps);
       return { eventId: ev.id };
     },
 

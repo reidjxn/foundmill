@@ -12,6 +12,9 @@
  * other is shut down too. A promise rejection nobody handled is logged instead of ending the process (and with it
  * every session on this worker).
  *
+ * Once the workers run, the periodic jobs' Temporal Schedules are registered (src/schedules.ts: created or updated,
+ * retried in the background while Temporal is unreachable; ORCHESTRATOR_SCHEDULES=off skips it).
+ *
  * SIGTERM/SIGINT, handled from the first line (a signal while connecting also closes Redis and the pool): stop
  * connecting, stop polling, give running activities `shutdownGraceTime` to finish (then cancel them; an activity that
  * accepts the cancellation is reported failed, so the server retries it on another worker at once), close the Temporal
@@ -29,6 +32,7 @@ import { prepareDb } from "./db-boot";
 import { createDeps, type OrchestratorDeps } from "./deps";
 import { loadOrchestratorEnv } from "./env";
 import { chooseRedisBackend, probeRedis } from "./redis";
+import { connectScheduleClient, registerSchedulesWithRetry } from "./schedules";
 import { sessionTaskQueue } from "./session-contract";
 
 export { createActivities } from "./activities";
@@ -46,6 +50,8 @@ export { LoopDetector, LOOP_THRESHOLD } from "./activities/loop";
 export { probeRedis, chooseRedisBackend, createRedisClient, type RedisProbe, type RedisBackendChoice } from "./redis";
 export { prepareDb, type DbReadiness } from "./db-boot";
 export { sessionTaskQueue } from "./session-contract";
+export { SCHEDULES, registerSchedules, registerSchedulesWithRetry, scheduleFingerprint, scheduleId, type ScheduleClientLike, type ScheduleDefinition, type RegisterResult } from "./schedules";
+export { requestJourneyDailyRefresh, journeyDailyRefreshIdle } from "./journey-refresh";
 
 /** Absolute path of the workflow bundle entry (a TypeScript file; the worker bundles it with swc). */
 export const WORKFLOWS_PATH = fileURLToPath(new URL("./workflows/index.ts", import.meta.url));
@@ -216,6 +222,11 @@ export async function main(): Promise<void> {
   workers = [created.worker, created.sessionWorker];
   if (lifecycle.stopping) return;
   running = runWorkers(workers);
+  // The periodic jobs' schedules (src/schedules.ts): registered in the background, retried while Temporal is away, never
+  // holding up the workers.
+  if (env.ORCHESTRATOR_SCHEDULES === "on") {
+    void registerSchedulesWithRetry(() => connectScheduleClient(env.TEMPORAL_ADDRESS, env.TEMPORAL_NAMESPACE), { taskQueue: env.TEMPORAL_TASK_QUEUE, log: deps.log, signal: abort.signal });
+  }
   try {
     await running;
   } catch (err) {
