@@ -180,9 +180,9 @@ describe("agents, versions, skills, training", () => {
       initialVersion: { instructions: { role: "Ship small PRs", goals: ["Green CI"] }, tools: [{ connectorKey: "github", tools: ["create_pr"] }], modelKey: "sonnet" },
     });
     const liveId = hired.currentVersion!.id;
-    const retest = await repos.training.createModelRetest(r.db, A, hired.id, { modelKey: "haiku", requestedBy: r.A.ownerId });
-    expect(retest).not.toBeNull();
-    const { run, draft } = retest!;
+    const first = await repos.training.createModelRetest(r.db, A, hired.id, { modelKey: "haiku", requestedBy: r.A.ownerId });
+    expect(first.superseded).toEqual([]);
+    const { run, draft } = first.retest!;
     expect(draft).toMatchObject({ state: "draft", modelKey: "haiku", createdByKind: "system", createdBy: r.A.ownerId, version: 2 });
     expect(draft.instructions).toMatchObject({ role: "Ship small PRs", goals: ["Green CI"] });
     expect(draft.tools).toEqual([{ connectorKey: "github", tools: ["create_pr"] }]);
@@ -191,25 +191,37 @@ describe("agents, versions, skills, training", () => {
     // The live version and the agent's pointer are untouched (AC-11.10.1).
     expect((await repos.agents.get(r.db, A, hired.id)).currentVersionId).toBe(liveId);
     expect((await repos.agents.getVersion(r.db, A, liveId)).modelKey).toBe("sonnet");
-    expect(retest!.superseded).toEqual([]);
     // A second model change supersedes the retest still in flight (and a stuck run of the old from = to shape); a
     // founder's own training run of a draft is left alone.
     const own = await repos.agents.createVersion(r.db, A, hired.id, { instructions: { role: "Ship smaller PRs" }, createdByKind: "user" });
     const ownRun = await repos.training.create(r.db, A, { agentId: hired.id, fromVersionId: liveId, toVersionId: own.id });
     const stuck = await repos.training.create(r.db, A, { agentId: hired.id, fromVersionId: liveId, toVersionId: liveId });
-    const second = (await repos.training.createModelRetest(r.db, A, hired.id, { modelKey: "opus" }))!;
+    const second = await repos.training.createModelRetest(r.db, A, hired.id, { modelKey: "opus" });
     expect(second.superseded.map((s) => s.id).sort()).toEqual([run.id, stuck.id].sort());
     expect((await repos.training.get(r.db, A, ownRun.id)).status).toBe("queued");
-    expect((await repos.training.get(r.db, A, second.run.id)).status).toBe("queued");
-    await repos.training.cancel(r.db, A, second.run.id);
-    await repos.training.cancel(r.db, A, ownRun.id);
+    const opusRun = second.retest!.run;
+    expect((await repos.training.get(r.db, A, opusRun.id)).status).toBe("queued");
+    // Both finish and await a decision. A change back to the live version's model has nothing new to score (no copy,
+    // no run) and withdraws the Opus results: promoting them would quietly switch the agent back to Opus. The
+    // founder's own results stay, as does their end time.
+    const finishedAt = new Date("2026-10-01T12:00:00Z");
+    await repos.training.transition(r.db, A, opusRun.id, ["queued"], { status: "awaiting_decision", endedAt: finishedAt });
+    await repos.training.transition(r.db, A, ownRun.id, ["queued"], { status: "awaiting_decision", endedAt: finishedAt });
+    const versionsBefore = (await repos.agents.listVersions(r.db, A, hired.id)).length;
+    const back = await repos.training.createModelRetest(r.db, A, hired.id, { modelKey: "sonnet" });
+    expect(back.retest).toBeNull();
+    expect(back.superseded.map((s) => s.id)).toEqual([opusRun.id]);
+    expect(await repos.training.get(r.db, A, opusRun.id)).toMatchObject({ status: "cancelled", decision: null, endedAt: finishedAt });
+    expect((await repos.training.get(r.db, A, ownRun.id)).status).toBe("awaiting_decision");
+    expect(await repos.agents.listVersions(r.db, A, hired.id)).toHaveLength(versionsBefore);
+    await repos.training.decide(r.db, A, ownRun.id, "discarded");
     // Promoting a retest makes the copy live on the new model.
     await repos.training.transition(r.db, A, run.id, ["cancelled"], { status: "awaiting_decision" });
     await repos.training.decide(r.db, A, run.id, "promoted");
     expect(await repos.agents.get(r.db, A, hired.id)).toMatchObject({ currentVersionId: draft.id, modelKey: "haiku" });
     // An agent without a live version has nothing to retest.
     const unversioned = await repos.agents.create(r.db, A, { name: "Unversioned", agentType: "engineer" });
-    expect(await repos.training.createModelRetest(r.db, A, unversioned.id, { modelKey: "haiku" })).toBeNull();
+    expect(await repos.training.createModelRetest(r.db, A, unversioned.id, { modelKey: "haiku" })).toEqual({ retest: null, superseded: [] });
   });
 
   it("transition only moves a run from the given statuses; cancel stops a queued or running run once", async () => {

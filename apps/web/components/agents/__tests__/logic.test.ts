@@ -20,6 +20,7 @@ import {
   whatIDo,
   blendDisplayed,
   coachProposals,
+  describeModelSet,
   developmentSeries,
   grantsEqual,
   humaniseKey,
@@ -47,6 +48,7 @@ import {
   type AgentSkillRecord,
   type CatalogueTemplate,
   type ModelCompare,
+  type ModelSetResult,
   type TrainingRunRecord,
 } from "../logic";
 
@@ -212,6 +214,13 @@ describe("model", () => {
     expect(modelChangeWarnings({ agentType: "chief_of_staff", layer: "assistant", modelKey: "sonnet" }, "chiefOfStaff", "opus")).toEqual([]);
     expect(modelChangeWarnings({ agentType: "composer", layer: "utility", modelKey: "opus" }, "inboxComposer", "sonnet")[0]).toMatch(/locked to Opus/);
   });
+  it("says what a model change queued and which earlier retests it canceled", () => {
+    const result = (o: Partial<ModelSetResult>) => ({ updated: ["a1"], skipped: [], warnings: [], retests: [], superseded: [], ...o }) as ModelSetResult;
+    expect(describeModelSet(result({ retests: [{ runId: "r2", workflow: { queued: true, workflowId: "training:r2" } }], superseded: ["r1"] }), "haiku")).toBe("Model set to Haiku for 1 agent · 1 retest queued · 1 earlier retest canceled");
+    // A change back to the model the live version runs on queues nothing new.
+    expect(describeModelSet(result({ superseded: ["r2", "r3"] }), "sonnet")).toBe("Model set to Sonnet for 1 agent · 2 earlier retests canceled");
+    expect(describeModelSet(result({}), "sonnet")).toBe("Model set to Sonnet for 1 agent");
+  });
 });
 
 describe("autonomy and negotiation forms", () => {
@@ -241,10 +250,18 @@ describe("autonomy and negotiation forms", () => {
     expect(parseMajor(".5")).toBe(50);
     expect(parseMajor("0")).toBe(0);
     expect(parseMajor("-5")).toBe(-500);
+    expect(parseMajor("-0")).toBe(0);
+    expect(parseMajor("12.500")).toBe(1250);
+    expect(parseMajor("1.2345k")).toBe(123_450);
+    // Exact at any size: the digits are shifted, never multiplied as floats.
+    expect(parseMajor("100,000,000.01")).toBe(10_000_000_001);
+    expect(parseMajor("0.29")).toBe(29);
     expect(parseMajor("")).toBeNull();
     expect(parseMajor("  ")).toBeNull();
     // Not an amount, or a fraction of a cent: NaN, which validation names, never a different number.
     expect(parseMajor("2.005")).toBeNaN();
+    expect(parseMajor("1.234567k")).toBeNaN();
+    expect(parseMajor("99999999999999999")).toBeNaN();
     expect(parseMajor("abc")).toBeNaN();
     expect(parseMajor("1.2.3")).toBeNaN();
     expect(formatMajor(25_000)).toBe("250");

@@ -41,6 +41,7 @@ describe("team rows", () => {
     ]);
     expect(toModelOptions({ ...compareJuno, options: compareJuno.options.map((o) => (o.modelKey === "haiku" ? { ...o, allowed: false, warning: "Locked to Sonnet" } : o)) }, "EUR")[2]!.lockedReason).toBe("Locked to Sonnet");
     expect(describeModelSet({ updated: ["a", "b"], skipped: [{ agentId: "c", reason: "locked route" }], warnings: [], retests: [{ runId: "r1" }] }, "opus")).toBe("Model set to Opus for 2 agents · 1 skipped (locked route) · 1 retest queued");
+    expect(describeModelSet({ updated: ["a"], skipped: [], warnings: [], retests: [], superseded: ["r1", "r2"] }, "sonnet")).toBe("Model set to Sonnet for 1 agent · 2 earlier retests canceled");
   });
 });
 

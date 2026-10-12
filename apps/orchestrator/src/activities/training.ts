@@ -105,17 +105,20 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
     },
 
     /**
-     * A run that could not start (`loadTrainingRun` refused it or kept failing) ends failed with the reason, unless it
-     * already ended (a founder's cancel). Without this the run stayed queued, and the Training tab active, for good.
+     * A run that could not start (`loadTrainingRun` refused it or kept failing), or whose results could not be written,
+     * ends failed with the reason, unless it already ended (a founder's cancel, or results that did land). Without this
+     * the run stayed queued, and the Training tab active, for good.
      */
     async failTrainingRun(input: TrainingRunInput & { error: string }): Promise<TrainingRunResult> {
       const { db } = deps;
       const coachSummaryMd = `Training failed: ${input.error}`;
       const failed = await repos.training.transition(db, input.businessId, input.trainingRunId, ACTIVE_TRAINING_STATUSES, { status: "failed", coachSummaryMd, endedAt: deps.clock.now() });
       if (!failed) {
-        // Already ended: canceled by the founder, or failed by an earlier attempt of this activity (or the row is gone).
+        // Already ended: canceled by the founder, failed by an earlier attempt of this activity, results that landed
+        // before a later step failed (or the row is gone).
         const run = await repos.training.get(db, input.businessId, input.trainingRunId).catch(() => null);
-        return { status: run?.status === "failed" ? "failed" : "cancelled", skillDeltas: [], eventId: null };
+        const status: TrainingRunResult["status"] = run?.status === "failed" ? "failed" : run?.status === "awaiting_decision" || run?.status === "done" ? "awaiting_decision" : "cancelled";
+        return { status, skillDeltas: [], eventId: null };
       }
       let eventId: string | null = null;
       if (failed.toVersionId) {

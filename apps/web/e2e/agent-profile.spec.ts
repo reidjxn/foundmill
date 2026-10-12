@@ -59,7 +59,7 @@ test.describe("agent profile", () => {
       await expect(progress).toHaveCount(0);
       await expect(page.getByTestId("training-notice")).toContainText("Training canceled. The live version is unchanged.");
     };
-    const applyModel = async (pick: "other" | string) => {
+    const applyModel = async (pick: "other" | string, outcome: RegExp) => {
       await page.getByTestId("header-model-chip").click();
       const dialog = page.getByTestId("model-dialog");
       await expect(dialog).toBeVisible();
@@ -69,7 +69,7 @@ test.describe("agent profile", () => {
       await expect(page.getByTestId("apply-scope-dialog")).toBeVisible();
       await page.getByTestId("apply-scope-confirm").click();
       await expect(page.getByTestId("apply-scope-dialog")).toBeHidden({ timeout: LONG });
-      await expect(page.getByText(/1 retest queued/).first()).toBeVisible({ timeout: LONG });
+      await expect(page.getByText(outcome).first()).toBeVisible({ timeout: LONG });
     };
 
     await page.getByTestId("header-model-chip").click();
@@ -77,15 +77,16 @@ test.describe("agent profile", () => {
     await page.keyboard.press("Escape");
     expect(original, "the picker marks the agent's current model").toBeTruthy();
 
-    await applyModel("other");
+    await applyModel("other", /1 retest queued/);
     await page.getByRole("tab", { name: "Training" }).click();
     await expect(page.getByTestId("agent-training")).toBeVisible({ timeout: LONG });
     await cancelQueuedRuns();
     await expect(page.getByTestId("agent-training")).not.toHaveAttribute("data-phase", "active");
 
-    // Put the seeded model back; its retest is canceled the same way.
-    await applyModel(original!);
-    await cancelQueuedRuns();
+    // Put the seeded model back. The live version already runs on it, so there is nothing new to retest.
+    await applyModel(original!, /^Model set to \w+ for 1 agent$/);
+    await expect(progress).toHaveCount(0);
+    await expect(page.getByTestId("agent-training")).not.toHaveAttribute("data-phase", "active");
   });
 
   test("training: editing saves a draft, the live version stays (AC-11.10.1)", async ({ page }) => {
