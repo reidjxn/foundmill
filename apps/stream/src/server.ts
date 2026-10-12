@@ -7,24 +7,34 @@
  * Heartbeat: the server pings every `heartbeatMs`; a socket that has neither answered a ping nor sent a frame by
  * the next tick is terminated (4000). Clients may also send `{ "t": "ping" }` and get `{ "t": "pong" }`.
  * Shutdown: `close()` stops accepting upgrades, closes every socket with 1001, stops the readers and the HTTP server.
+ *
+ * Section walls (security review S1): a business event reaches a reader only through their membership's walls
+ * (walls.ts: dropped, redacted or as is). Access is not fixed at subscribe time: a `membership.changed` event read on
+ * a business stream holds that person's subscriptions to the business, re-checks them with fresh decisions and then
+ * either releases what was held under the new walls or closes the subscription (`{ t: "err", ch, code }`); every
+ * `reauthorizeMs` all live subscriptions are re-checked as well, for changes that publish no event (an archived
+ * business, a deleted account, a direct database change).
  */
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import { APP_NAME } from "@foundmill/config";
-import type { StreamRedis } from "@foundmill/events";
+import type { StreamEntry, StreamRedis } from "@foundmill/events";
 import type { AuthUser, TokenVerifier } from "./auth";
-import type { Authorizer } from "./authorize";
+import type { AuthorizationResult, Authorizer } from "./authorize";
 import { OutboundQueue, type OutboundQueueOptions } from "./connection";
 import { MAX_INBOUND_BYTES, parseClientFrame } from "./frames";
 import { silentLog, StreamHub, type StreamHubOptions, type StreamLog } from "./hub";
 import { Metrics, type MetricsSnapshot } from "./metrics";
 import { CLOSE_CODES, parseChannel, type ClientFrame, type ErrorFrame, type StreamErrorCode, type SubscribedFrame } from "./protocol";
+import { eventView, membershipChangeOf, viewEvent, type EventView } from "./walls";
 
 export interface StreamServerOptions {
   /** Ping interval; a socket silent for two intervals is terminated (default 30 000 ms). */
   heartbeatMs?: number;
+  /** How often every live subscription is re-checked against memberships (default 30 000 ms). */
+  reauthorizeMs?: number;
   maxSubscriptionsPerSocket?: number;
   /** Malformed frames tolerated before the socket is closed with 1008 (default 5). */
   maxBadFrames?: number;
@@ -41,6 +51,11 @@ export interface StreamServerDeps {
   redis: StreamRedis;
   auth: TokenVerifier;
   authorizer: Authorizer;
+  /**
+   * Whether a signed-in account may use the app at all (`SIGNUP_ALLOWLIST`, the same list apps/api checks on every
+   * request); an account it refuses gets a 403 instead of a socket. Absent: everyone who signs in.
+   */
+  admit?: (user: AuthUser) => boolean;
   log?: StreamLog;
   metrics?: Metrics;
   options?: StreamServerOptions;
@@ -69,15 +84,31 @@ export interface StreamServer {
   subscriptions(): { userId: string; channels: string[] }[];
 }
 
+interface Subscription {
+  detach: () => void;
+  /** The business the channel belongs to (null when the decision named none). */
+  businessId: string | null;
+  /** Business channels: what the reader may see of each event (their section walls). Null for session channels. */
+  view: EventView | null;
+  /** Entries held back while the subscription is re-checked after a membership change; null when not held. */
+  held: StreamEntry[] | null;
+  /** Bumped by every re-check: only the latest one's answer counts (an older one may carry the old access). */
+  checks: number;
+}
+
 interface Client {
   ws: WebSocket;
   user: AuthUser;
   queue: OutboundQueue;
-  subs: Map<string, () => void>;
+  subs: Map<string, Subscription>;
   pending: Set<string>;
   alive: boolean;
   badFrames: number;
 }
+
+/** Entries a subscription holds at most while it is re-checked; past that it is closed as unavailable. */
+const MAX_HELD = 1_000;
+const sameUser = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 const HOST_FALLBACKS = ["::", "0.0.0.0"] as const;
 
@@ -87,15 +118,20 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
   const opts = deps.options ?? {};
   const now = opts.now ?? (() => Date.now());
   const heartbeatMs = Math.max(10, opts.heartbeatMs ?? 30_000);
+  const reauthorizeMs = Math.max(10, opts.reauthorizeMs ?? 30_000);
   const maxSubs = Math.max(1, opts.maxSubscriptionsPerSocket ?? 128);
   const maxBadFrames = Math.max(1, opts.maxBadFrames ?? 5);
   const closeGraceMs = Math.max(0, opts.closeGraceMs ?? 1_000);
   const startedAt = now();
 
-  const hub = new StreamHub(deps.redis, { ...(opts.hub ?? {}), log, metrics });
+  const hub = new StreamHub(deps.redis, { ...(opts.hub ?? {}), log, metrics, tap: onEntry });
   const clients = new Set<Client>();
+  /** Membership changes seen per person (lowercase id): a decision that raced one is checked again when it lands. */
+  const membershipChanges = new Map<string, number>();
+  const changesOf = (userId: string) => membershipChanges.get(userId.toLowerCase()) ?? 0;
   let closing = false;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
+  let reauthorizer: ReturnType<typeof setInterval> | null = null;
 
   const http = createServer((req, res) => handleHttp(req, res));
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_INBOUND_BYTES, clientTracking: false, perMessageDeflate: false });
@@ -141,6 +177,11 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
         if (!user) {
           metrics.inc("auth_failures_total");
           return rejectUpgrade(socket, 401, "Unauthorized");
+        }
+        if (deps.admit && !deps.admit(user)) {
+          metrics.inc("auth_failures_total");
+          log.info({ userId: user.userId }, "account is not on the invite list; upgrade refused");
+          return rejectUpgrade(socket, 403, "Forbidden");
         }
         if (closing) return rejectUpgrade(socket, 503, "Service Unavailable");
         wss.handleUpgrade(req, socket, head, (ws) => onConnection(ws, user));
@@ -193,7 +234,7 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
     });
     ws.on("error", (err) => log.warn({ err, userId: user.userId }, "socket error"));
     ws.on("close", () => {
-      for (const detach of client.subs.values()) detach();
+      for (const sub of client.subs.values()) sub.detach();
       client.subs.clear();
       client.pending.clear();
       client.queue.close();
@@ -217,9 +258,9 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
         return;
       case "unsub": {
         client.pending.delete(frame.ch);
-        const detach = client.subs.get(frame.ch);
-        if (detach) {
-          detach();
+        const sub = client.subs.get(frame.ch);
+        if (sub) {
+          sub.detach();
           client.subs.delete(frame.ch);
           client.queue.purge(frame.ch);
           updateSubscriptionGauge();
@@ -247,6 +288,7 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
     if (closing) return sendError(client, "shutting_down", "server is shutting down", ch);
     client.pending.add(ch);
     metrics.inc("subscriptions_total");
+    const changesBefore = changesOf(client.user.userId);
     let decision;
     try {
       decision = await deps.authorizer.canSubscribe(client.user.userId, ch);
@@ -262,13 +304,106 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
       return sendError(client, decision.code, decision.message, ch);
     }
     if (client.ws.readyState !== client.ws.OPEN) return;
-    const detach = hub.subscribe(parsed.streamKey, (entry) => {
-      const json = entry.fields.json ?? JSON.stringify(entry.fields);
-      client.queue.push(ch, json);
+    const business = parsed.kind === "business";
+    const sub: Subscription = { detach: () => {}, businessId: decision.businessId ?? (business ? parsed.id : null), view: business ? eventView(decision.membership) : null, held: null, checks: 0 };
+    sub.detach = hub.subscribe(parsed.streamKey, (entry) => {
+      if (sub.held) {
+        if (sub.held.length < MAX_HELD) sub.held.push(entry);
+        else revoke(client, ch, sub, { ok: false, code: "unavailable", message: "access check took too long" });
+        return;
+      }
+      deliver(client, ch, sub, entry);
     });
-    client.subs.set(ch, detach);
+    client.subs.set(ch, sub);
     updateSubscriptionGauge();
     sendControl(client, { t: "subscribed", ch });
+    // The person's membership changed while this decision was being made: it may be the old access. Hold and ask again.
+    if (changesOf(client.user.userId) !== changesBefore) {
+      sub.held = [];
+      void recheck(client, ch, sub);
+    }
+  }
+
+  /** One entry to one subscriber: business events through the reader's walls, session events as they are. */
+  function deliver(client: Client, ch: string, sub: Subscription, entry: StreamEntry): void {
+    const json = sub.view ? viewEvent(entry, sub.view) : (entry.fields.json ?? JSON.stringify(entry.fields));
+    if (json === null) {
+      metrics.inc("events_walled_total");
+      return;
+    }
+    client.queue.push(ch, json);
+  }
+
+  /** Closes a live subscription the reader may no longer have, and says why on the channel. */
+  function revoke(client: Client, ch: string, sub: Subscription, decision: Extract<AuthorizationResult, { ok: false }>): void {
+    if (client.subs.get(ch) !== sub) return;
+    sub.detach();
+    sub.held = null;
+    client.subs.delete(ch);
+    client.queue.purge(ch);
+    client.queue.focused.delete(ch);
+    updateSubscriptionGauge();
+    metrics.inc("subscriptions_revoked_total");
+    log.info({ userId: client.user.userId, ch, code: decision.code }, "subscription revoked");
+    sendError(client, decision.code, decision.message, ch);
+  }
+
+  /**
+   * Asks the authorizer again for one live subscription. Allowed: the walls are updated and anything held is released
+   * through them. Refused: the subscription is closed. Unavailable (the database did not answer): a subscription held
+   * because the person's access changed is closed (the tab asks again), a routine re-check keeps its last decision.
+   */
+  async function recheck(client: Client, ch: string, sub: Subscription): Promise<void> {
+    const check = ++sub.checks;
+    let decision: AuthorizationResult;
+    try {
+      decision = await deps.authorizer.canSubscribe(client.user.userId, ch);
+    } catch (err) {
+      log.error({ err, ch }, "authorizer threw");
+      decision = { ok: false, code: "unavailable", message: "membership check unavailable" };
+    }
+    if (client.subs.get(ch) !== sub) return; // unsubscribed, revoked or closed meanwhile
+    if (check !== sub.checks) return; // a later check (after a membership change) decides
+    if (!decision.ok) {
+      if (decision.code === "unavailable" && !sub.held) return;
+      return revoke(client, ch, sub, decision);
+    }
+    if (sub.view) sub.view = eventView(decision.membership);
+    sub.businessId = decision.businessId ?? sub.businessId;
+    const held = sub.held;
+    sub.held = null;
+    for (const entry of held ?? []) deliver(client, ch, sub, entry);
+  }
+
+  /**
+   * Every entry read, once, before its listeners: a `membership.changed` on a business stream holds that person's
+   * subscriptions to the business (its events and its sessions'), drops their cached decisions and re-checks them.
+   */
+  function onEntry(streamKey: string, entry: StreamEntry): void {
+    const userId = membershipChangeOf(entry);
+    if (!userId) return;
+    const parsed = parseChannel(streamKey);
+    if (!parsed || parsed.kind !== "business") return;
+    deps.authorizer.invalidate?.(userId);
+    const key = userId.toLowerCase();
+    // Counts only matter while a decision is in flight; keep the map small.
+    if (membershipChanges.size >= 10_000 && !membershipChanges.has(key)) membershipChanges.clear();
+    membershipChanges.set(key, (membershipChanges.get(key) ?? 0) + 1);
+    for (const client of clients) {
+      if (!sameUser(client.user.userId, userId)) continue;
+      for (const [ch, sub] of client.subs) {
+        if (sub.businessId !== parsed.id) continue;
+        sub.held ??= [];
+        void recheck(client, ch, sub);
+      }
+    }
+  }
+
+  /** The periodic re-check of every live subscription (not those already being re-checked). */
+  function reauthorizeAll(): void {
+    for (const client of clients) {
+      for (const [ch, sub] of client.subs) if (!sub.held) void recheck(client, ch, sub);
+    }
   }
 
   function startHeartbeat(): void {
@@ -285,6 +420,8 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
       }
     }, heartbeatMs);
     heartbeat.unref?.();
+    reauthorizer = setInterval(reauthorizeAll, reauthorizeMs);
+    reauthorizer.unref?.();
   }
 
   function listenOn(port: number, hosts: readonly string[]): Promise<AddressInfo> {
@@ -335,6 +472,8 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
       closing = true;
       if (heartbeat) clearInterval(heartbeat);
       heartbeat = null;
+      if (reauthorizer) clearInterval(reauthorizer);
+      reauthorizer = null;
       for (const client of clients) {
         client.queue.close();
         try {

@@ -255,5 +255,9 @@ describe("text helpers", () => {
     expect(describeEvent({ type: "task.completed", payload: { title: "X", outcome: "partial" } })).toMatchObject({ title: "Done: X", statusWord: "Partial", tone: "warn" });
     expect(describeEvent({ type: "payment.received", payload: { amount: { amountMinor: 4900, currency: "EUR" }, firstPayment: true } }).title).toBe("Payment received · €49.00");
     expect(describeEvent({ type: "something.odd", payload: {} }).title).toBe("something odd");
+    // What a member walled from Finance or the CRM receives: the note without its subject; staff changes in words.
+    expect(describeEvent({ type: "inbox.item_created", payload: { inboxItemId: "x", blocksContinue: false } }).title).toBe("New inbox note");
+    expect(describeEvent({ type: "membership.changed", payload: { userId: "u", change: "updated" } }).title).toBe("Staff access changed");
+    expect(describeEvent({ type: "membership.changed", payload: { userId: "u", change: "removed" } }).title).toBe("Staff member removed");
   });
 });

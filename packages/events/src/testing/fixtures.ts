@@ -457,6 +457,10 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     chosenQuickReplyId: null,
     handOff: false,
   },
+  "membership.changed": {
+    userId: fixtureId("member"),
+    change: "updated",
+  },
 };
 
 /** A valid `WriteEventInput` for the given type, with the fixture payload and envelope. */

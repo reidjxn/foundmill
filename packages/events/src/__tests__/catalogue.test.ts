@@ -144,6 +144,16 @@ describe("event catalogue", () => {
     expect(bad({ quickReplyIds: ["Not An Id"] })).toThrow(ValidationError);
   });
 
+  it("membership.changed: who and what kind of change, for apps/stream only, never narrated (security review S1)", () => {
+    const decl = EVENTS["membership.changed"];
+    expect(decl.narratable).toBe(false);
+    expect([...decl.consumers]).toEqual(["stream"]);
+    expect(parsePayload("membership.changed", EVENT_FIXTURES["membership.changed"])).toEqual({ userId: EVENT_FIXTURES["membership.changed"].userId, change: "updated" });
+    const bad = (patch: Record<string, unknown>) => () => parsePayload("membership.changed", { ...EVENT_FIXTURES["membership.changed"], ...patch });
+    expect(bad({ userId: "someone" })).toThrow(ValidationError);
+    expect(bad({ change: "promoted" })).toThrow(ValidationError);
+  });
+
   it("declareEvent refuses a type outside EVENT_TYPES at runtime", () => {
     expect(() =>
       declareEvent("made.up" as never, z.object({}), { doc: "x", consumers: ["metrics"] }),

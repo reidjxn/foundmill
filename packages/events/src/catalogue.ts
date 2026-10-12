@@ -1154,6 +1154,26 @@ const conversationMessagePosted = declareEvent(
 );
 
 // ---------------------------------------------------------------------------------------------------
+// Staff access (security review S1)
+// ---------------------------------------------------------------------------------------------------
+
+export const MEMBERSHIP_CHANGES = ["added", "updated", "removed"] as const;
+
+const membershipChanged = declareEvent(
+  "membership.changed",
+  z.object({
+    /** The staff member whose access changed. Nothing else: the role and section permissions stay on the row. */
+    userId: Id,
+    change: z.enum(MEMBERSHIP_CHANGES),
+  }),
+  {
+    doc: "A person was added to the business, removed from it, or had their role or section permissions changed (team.humans.*). apps/stream re-checks that person's open subscriptions at once and closes the ones they may no longer read; open tabs refetch the business and the staff list. Never narrated.",
+    consumers: ["stream"],
+    narratable: false,
+  },
+);
+
+// ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
 
@@ -1203,6 +1223,7 @@ export const EVENTS = {
   "decision.made": decisionMade,
   "foundations.progressed": foundationsProgressed,
   "conversation.message_posted": conversationMessagePosted,
+  "membership.changed": membershipChanged,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
 
 export type EventsRegistry = typeof EVENTS;
