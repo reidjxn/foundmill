@@ -137,8 +137,10 @@ export function createSourceWatcherActivities(deps: OrchestratorDeps) {
     if (res.outcome !== "allow") return { ok: false, reason: "The gateway did not allow reading this page." };
     const result = asRecord(res.result);
     if (result.ok === false) {
-      const code = String(asRecord(result.error).code ?? "");
-      if (RETRYABLE_PAGE_CODES.has(code)) retryable(`The page could not be read (${code}); trying again.`);
+      const error = asRecord(result.error);
+      const code = String(error.code ?? "");
+      // A site answering with a lasting refusal (410, 400 and the like: `retryable: false`) is unreadable, not retried.
+      if (RETRYABLE_PAGE_CODES.has(code) && error.retryable !== false) retryable(`The page could not be read (${code}); trying again.`);
       return { ok: false, reason: PAGE_REASONS[code] ?? "The page could not be read." };
     }
     const page = WebPageContent.safeParse(asRecord(result.data).content);

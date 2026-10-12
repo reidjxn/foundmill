@@ -8,7 +8,7 @@ How the repo fits together and the contracts each package exposes to the others.
 apps/web           Next.js 16 App Router. Shell + every surface. Talks to apps/api over tRPC and to apps/stream over WebSocket.
 apps/api           Hono + tRPC. Auth context (Supabase JWT), membership checks, RLS-scoped queries, audit, events. Starts Temporal workflows.
 apps/gateway       The only process that holds vendor secrets. Session tokens, Cedar policy, connectors (real or mock), metering, audit. Also serves MCP endpoints.
-apps/orchestrator  Temporal worker: businessCycle, agentSession, approvalWait, channelEngine, trainingRun, holiday, playbook, incorporation, journeyBuild, importBusiness, businessFoundations, schedules.
+apps/orchestrator  Temporal worker: businessCycle, agentSession, approvalWait, channelEngine, trainingRun, holiday, playbook, incorporation, journeyBuild, importBusiness, businessFoundations, sourceWatch (+ sourceWatchSweep), schedules.
 apps/composer      Inbox Composer + Refresh buffer + Journey commentary + chapter titles. HTTP service called by api and orchestrator.
 apps/ingest        Webhook receivers (Stripe, SendGrid, GitHub, Shopify, ...) → verified → normalised platform events via the outbox.
 apps/stream        WebSocket fan-out of Redis streams (ev:{businessId}, as:{sessionId}) to browser tabs.
