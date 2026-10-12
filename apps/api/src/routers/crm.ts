@@ -21,18 +21,25 @@ export const crmRouter = router({
      */
     list: read.input(EntityListFilter).query(({ ctx, input }) => ctx.rls((tx) => repos.entities.listWithRoles(tx, ctx.businessId, { ...input, limit: Math.min(input?.limit ?? 100, 500) }))),
     /**
-     * GDPR-style deletion request: recorded on the profile (interaction note) and the audit chain; nothing is deleted by
-     * agent or API code (a hard gate). The request names who asked, when and the earliest completion date.
+     * GDPR-style deletion request (audit RA-23): at once, every contact identifier of the record goes on the business's
+     * suppression list (the gateway refuses outreach to it and no engine imports it again) and the record is flagged
+     * `deletion_requested_at`; the orchestrator's nightly `crmDeletionSweep` purges it once the delay has passed. Nothing
+     * is deleted by agent or API code. Recorded on the profile (interaction note) and the audit chain with who asked,
+     * when and the earliest completion date; a repeated request keeps the first dates and adds nothing.
      */
     requestDeletion: write.input(z.object({ entityId: Id, reason: z.string().max(1000).optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
-        const entity = await repos.entities.resolve(tx, ctx.businessId, input.entityId);
-        const requestedAt = new Date();
-        const earliestAt = new Date(requestedAt.getTime() + DELETION_DELAY_DAYS * 86_400_000);
-        const note = `Deletion requested by ${ctx.email ?? ctx.userId} on ${usDate(requestedAt)}; earliest completion ${usDate(earliestAt)}.${input.reason ? ` Reason: ${input.reason}` : ""}`;
-        const interaction = await repos.entities.addNote(tx, ctx.businessId, entity.id, note);
-        await audit(tx, ctx, { action: "crm.entity.request_deletion", target: { kind: "entity", id: entity.id }, details: { reason: input.reason ?? null, requestedAt: requestedAt.toISOString(), earliestAt: earliestAt.toISOString(), interactionId: interaction.id } });
-        return { entityId: entity.id, status: "requested" as const, requestedAt: requestedAt.toISOString(), earliestAt: earliestAt.toISOString(), delayDays: DELETION_DELAY_DAYS, interactionId: interaction.id };
+        const requested = await repos.entities.requestDeletion(tx, ctx.businessId, input.entityId, { delayDays: DELETION_DELAY_DAYS });
+        const entity = requested.entity;
+        const requestedAt = entity.deletionRequestedAt ?? new Date();
+        const earliestAt = entity.deletionDueAt ?? new Date(requestedAt.getTime() + DELETION_DELAY_DAYS * 86_400_000);
+        let interactionId: string | null = null;
+        if (!requested.already) {
+          const note = `Deletion requested by ${ctx.email ?? ctx.userId} on ${usDate(requestedAt)}; earliest completion ${usDate(earliestAt)}. Outreach to this person is suppressed from now on.${input.reason ? ` Reason: ${input.reason}` : ""}`;
+          interactionId = (await repos.entities.addNote(tx, ctx.businessId, entity.id, note)).id;
+          await audit(tx, ctx, { action: "crm.entity.request_deletion", target: { kind: "entity", id: entity.id }, details: { reason: input.reason ?? null, requestedAt: requestedAt.toISOString(), earliestAt: earliestAt.toISOString(), interactionId, suppressed: requested.suppressed } });
+        }
+        return { entityId: entity.id, status: "requested" as const, requestedAt: requestedAt.toISOString(), earliestAt: earliestAt.toISOString(), delayDays: DELETION_DELAY_DAYS, interactionId, suppressed: requested.suppressed, already: requested.already };
       }),
     ),
     get: read.input(z.object({ entityId: Id })).query(({ ctx, input }) =>

@@ -2,7 +2,7 @@
 /**
  * CRM dialogs: new record (`crm.entity.create`), merge (search the other record, choose which survives →
  * `crm.entity.merge`, reversible, AC-11.12.3), rename/edit (`crm.entity.update`), export (data duty: JSON of
- * everything held), deletion request (recorded for the founder-approved scheduled job), add role (`crm.roles.add`).
+ * everything held), deletion request (outreach suppressed at once; the nightly deletion job removes the record after 7 days), add role (`crm.roles.add`).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, GitMerge, Search, Trash2, UserRoundPlus } from "lucide-react";
@@ -382,7 +382,7 @@ export function DeleteRequestDialog({ businessId, entity, requestedBy, open, onO
     }
     setBusy(false);
     void invalidate();
-    toast({ title: "Deletion requested", description: "Queued for the founder-approved scheduled job; the audit log records the request.", tone: "info" });
+    toast({ title: "Deletion requested", description: "Outreach to them stops now. The nightly deletion job removes the record in 7 days; the audit log records the request.", tone: "info" });
     onOpenChange(false);
   };
   return (
@@ -390,7 +390,7 @@ export function DeleteRequestDialog({ businessId, entity, requestedBy, open, onO
       <DialogContent size="sm" data-testid="delete-request-dialog">
         <DialogHeader>
           <DialogTitle>Request deletion of {entity.displayName}</DialogTitle>
-          <DialogDescription>Deletion never runs immediately. It is queued for the scheduled, audited job the founder approved at setup; a suppression entry stops re-import.</DialogDescription>
+          <DialogDescription>Deletion never runs immediately. Outreach to them stops now and a suppression entry stops re-import; the nightly, audited deletion job removes the record 7 days after the request.</DialogDescription>
         </DialogHeader>
         <DialogBody>
           <Field htmlFor="delete-reason" label="Reason" hint="Optional: the person asked, data is wrong, retention rule.">

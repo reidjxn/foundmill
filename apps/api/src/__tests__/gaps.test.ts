@@ -1,5 +1,5 @@
 /** Procedures the wave-2 consumers call that the API lacked: product.sources, crm.entity.list/requestDeletion, finance.accounts.list, dashboard metrics, dev.sessions.replay events. */
-import { repos } from "@foundmill/db";
+import { repos, suppressionHash } from "@foundmill/db";
 import { MemoryRedis, publishSessionEvent } from "@foundmill/events";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { METRIC_IDS, matchMetric } from "../services/metrics";
@@ -50,7 +50,7 @@ describe("consumer procedure gaps", () => {
     expect(audit.items).toHaveLength(2);
   });
 
-  it("crm.entity.list pages the CRM; crm.entity.requestDeletion records the request without deleting anything", async () => {
+  it("crm.entity.list pages the CRM; crm.entity.requestDeletion suppresses the person at once and schedules the purge", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const { businessId, entityId } = hz.A;
     const list = await owner.crm.entity.list({ businessId, limit: 500 });
@@ -59,16 +59,27 @@ describe("consumer procedure gaps", () => {
     const people = await owner.crm.entity.list({ businessId, kind: "person", limit: 10 });
     expect(people.items.every((e) => e.kind === "person")).toBe(true);
 
+    const before = await repos.entities.get(hz.db, businessId, entityId);
     const req = await owner.crm.entity.requestDeletion({ businessId, entityId, reason: "GDPR request by email" });
     expect(req.status).toBe("requested");
     expect(req.delayDays).toBe(7);
     expect(Date.parse(req.earliestAt) - Date.parse(req.requestedAt)).toBe(7 * 86_400_000);
+    // Nothing is deleted now; the record is flagged for the nightly purge and its address is suppressed at once.
     const entity = await repos.entities.get(hz.db, businessId, entityId);
     expect(entity.archivedAt).toBeNull();
+    expect(entity.deletionDueAt?.toISOString()).toBe(req.earliestAt);
+    expect(req.suppressed).toBeGreaterThan(0);
+    const email = String((before.identifiers as { email?: string }).email);
+    expect(await repos.channels.isSuppressed(hz.db, businessId, { emailHash: suppressionHash("email", email) })).toBe(true);
+    expect((await repos.entities.deletionsDue(hz.db, new Date(Date.parse(req.earliestAt) + 1_000))).some((d) => d.entityId === entityId)).toBe(true);
     const notes = await owner.crm.notes.list({ businessId, entityId });
     expect(JSON.stringify(notes)).toMatch(/Deletion requested by/);
     const audit = await repos.audit.list(hz.db, businessId, { action: "crm.entity.request_deletion" });
     expect(audit.items).toHaveLength(1);
+    // Asking again keeps the first dates and adds no second note or audit entry.
+    const again = await owner.crm.entity.requestDeletion({ businessId, entityId });
+    expect(again).toMatchObject({ already: true, earliestAt: req.earliestAt });
+    expect((await repos.audit.list(hz.db, businessId, { action: "crm.entity.request_deletion" })).items).toHaveLength(1);
     await expect(hz.caller({ userId: hz.A.viewerId }).crm.entity.requestDeletion({ businessId, entityId })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
