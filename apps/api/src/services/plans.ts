@@ -176,14 +176,22 @@ const isTaskKind = (v: unknown): v is TaskKind => typeof v === "string" && (TASK
 const isModelKey = (v: unknown): v is ModelKey => typeof v === "string" && (MODEL_KEYS as readonly string[]).includes(v);
 const str = (v: unknown, fallback = ""): string => (typeof v === "string" && v.trim() ? v : fallback);
 
+/** A channel a plan action switched on or off in-process; its engine follows after commit (`syncChannelEngines`). */
+export interface ChannelToggle {
+  channelId: string;
+  channelKey: ChannelKey;
+  enabled: boolean;
+}
+
 /**
  * Execute a plan's pending actions. Runs inside the caller's transaction for the in-process actions; the orchestrator
- * dispatch happens after commit (the caller passes the result through).
+ * dispatch and the channel engines (`channels`) happen after commit (the caller passes the result through).
  */
-export async function executePlanActions(tx: Executor, businessId: string, plan: PlanWithActions, opts: ExecuteOptions): Promise<Omit<ExecuteResult, "dispatch"> & { needsOrchestrator: boolean }> {
+export async function executePlanActions(tx: Executor, businessId: string, plan: PlanWithActions, opts: ExecuteOptions): Promise<Omit<ExecuteResult, "dispatch"> & { needsOrchestrator: boolean; channels: ChannelToggle[] }> {
   const executed: string[] = [];
   const deferred: string[] = [];
   const denied: string[] = [];
+  const channels: ChannelToggle[] = [];
   for (const action of plan.actions) {
     if (action.status !== "pending") continue;
     if (action.policyOutcome === "deny") {
@@ -196,9 +204,30 @@ export async function executePlanActions(tx: Executor, businessId: string, plan:
       await repos.plans.startAction(tx, businessId, action.id);
       await repos.plans.finishAction(tx, businessId, action.id, { status: "done", result: handled });
       executed.push(action.id);
+      if ((action.type === "enable_channel" || action.type === "disable_channel") && typeof handled.channelId === "string" && isChannelKey(handled.channelKey)) {
+        channels.push({ channelId: handled.channelId, channelKey: handled.channelKey, enabled: handled.enabled === true });
+      }
     } else deferred.push(action.id);
   }
-  return { executed, deferred, denied, needsOrchestrator: deferred.length > 0 };
+  return { executed, deferred, denied, needsOrchestrator: deferred.length > 0, channels };
+}
+
+/**
+ * The engine workflow follows a channel a plan switched (AC-11.7.2), as the Board toggle does
+ * (`distribution.channels.enable`): enabling starts `channelEngine`, disabling signals it to stop. Called after the
+ * plan's transaction commits; without Temporal the channel stays enabled and the result says why (audit VGJC-X1).
+ */
+export async function syncChannelEngines(ctx: { db: Executor; temporal: TemporalService; businessId: string; userId: string }, toggles: readonly ChannelToggle[]) {
+  const results: { channelId: string; workflow: Awaited<ReturnType<TemporalService["start"]>> }[] = [];
+  for (const t of toggles) {
+    const workflowId = workflowIds.engine(t.channelId);
+    const workflow = t.enabled
+      ? await ctx.temporal.start(WORKFLOWS.channelEngine, { workflowId, args: [{ businessId: ctx.businessId, channelId: t.channelId, channelKey: t.channelKey }] })
+      : await ctx.temporal.signal(workflowId, "stop", { reason: "channel_disabled", by: ctx.userId });
+    if (workflow.queued) await repos.channels.setEngineWorkflow(ctx.db, ctx.businessId, t.channelId, t.enabled ? workflowId : null);
+    results.push({ channelId: t.channelId, workflow });
+  }
+  return results;
 }
 
 /** Dispatch the plan to the orchestrator; degrades to `{ queued: false, reason }` when Temporal is unreachable. */
@@ -238,7 +267,7 @@ async function executeLocally(tx: Executor, businessId: string, action: PlanActi
       const enabled = action.type === "enable_channel";
       const existing = await repos.channels.getByKey(tx, businessId, p.channel);
       const channel = existing ? await repos.channels.setEnabled(tx, businessId, existing.id, enabled) : await repos.channels.upsert(tx, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled, kitMode: CHANNEL_META[p.channel].kitModeByDefault, ownerAgentId: action.agentId });
-      return { channelId: channel.id, enabled };
+      return { channelId: channel.id, channelKey: p.channel, enabled };
     }
     case "set_budget": {
       const amount = typeof p.amount_minor === "number" ? Math.round(p.amount_minor) : null;

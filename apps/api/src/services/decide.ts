@@ -11,7 +11,7 @@ import { repos, type DbTx, type Decision, type InboxItem, type PlanWithActions }
 import { ValidationError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
-import { compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, requiresConfirmation, type ActionEvaluation, type PlanContext } from "./plans";
+import { compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type PlanContext } from "./plans";
 
 export interface DecideItemInput {
   itemId: string;
@@ -83,7 +83,7 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
       actions: evaluations.map((e) => ({ type: e.action.type, params: e.action.params, agentId: e.action.agent_id, policyOutcome: e.outcome })),
     });
     const decided = await repos.inbox.decide(tx, ctx.businessId, item.id, { chosenOption, freeText, decidedByKind: "user", decidedBy: ctx.userId, planId: plan.id });
-    const exec = confirm ? { executed: [], deferred: plan.actions.map((a) => a.id), denied: [], needsOrchestrator: false } : await executePlanActions(tx, ctx.businessId, plan, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency });
+    const exec = confirm ? { executed: [], deferred: plan.actions.map((a) => a.id), denied: [], needsOrchestrator: false, channels: [] } : await executePlanActions(tx, ctx.businessId, plan, { actorUserId: ctx.userId, temporal: ctx.temporal, currency: planCtx.currency });
 
     await emit(tx, ctx, {
       type: "decision.made",
@@ -111,6 +111,7 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
 
   const dispatch = !confirm && written.exec.needsOrchestrator ? await dispatchPlan(ctx.temporal, ctx.businessId, written.plan.id) : null;
   if (dispatch?.queued) await repos.plans.setWorkflowId(ctx.db, ctx.businessId, written.plan.id, dispatch.workflowId);
+  await syncChannelEngines(ctx, written.exec.channels);
 
   return {
     item: written.decided.item,
@@ -142,6 +143,7 @@ export async function confirmPlan(ctx: BusinessContext, planId: string) {
   });
   const dispatch = written.exec.needsOrchestrator ? await dispatchPlan(ctx.temporal, ctx.businessId, planId) : null;
   if (dispatch?.queued) await repos.plans.setWorkflowId(ctx.db, ctx.businessId, planId, dispatch.workflowId);
+  await syncChannelEngines(ctx, written.exec.channels);
   return { ...written, dispatch };
 }
 
