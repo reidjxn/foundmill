@@ -70,6 +70,8 @@ export const EVENT_WALLS = {
   "cycle.started": { sections: [], hide: { finance: ["budget"] } },
   "cycle.completed": { sections: [], hide: { finance: ["cost"] } },
   "inbox.item_created": { sections: ["inbox"], hide: { finance: ["subject", "cost"], crm: ["subject"] } },
+  // Ids and the kind of change only (no subject): a member allowed the Inbox learns nothing beyond the change itself.
+  "inbox.item_updated": { sections: ["inbox"] },
   "decision.made": { sections: ["inbox"], hide: freeText("freeText") },
   "foundations.progressed": { sections: ["product"] },
   "conversation.message_posted": { sections: conversationSections, hide: freeText("preview") },
