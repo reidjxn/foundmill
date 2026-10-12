@@ -3,9 +3,19 @@
  * every redirect hop), robots.txt (RFC 9309: the most specific group for our token or `*`, longest match wins, an
  * unreachable robots.txt means "do not read"), a size and time cap, and HTML → readable text. Pure helpers are exported
  * for tests; nothing here logs page content.
+ *
+ * Connections are pinned (security review S5): the global fetch resolves a name again when it connects, so a name with
+ * a short TTL could answer a public address to the check and 169.254.169.254 or 10.x to the connection (DNS
+ * rebinding). Every request goes through `createPinnedFetch` instead, whose sockets connect only to an address our
+ * lookup returned and `isPublicAddress` accepted at connect time: robots.txt, the page and each redirect hop.
  */
 import { lookup as dnsLookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import type { LookupAddress } from "node:dns";
+import { Agent as HttpAgent, request as httpRequest, type IncomingMessage } from "node:http";
+import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
+import { isIP, type LookupFunction } from "node:net";
+import { pipeline, Readable } from "node:stream";
+import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { AppError } from "@foundmill/shared";
 import type { FetchLike } from "../../http";
 import { WEB_ROBOTS_TOKEN, WEB_USER_AGENT, type WebPage } from "./tools";
@@ -72,8 +82,89 @@ export async function assertPublicUrl(raw: string, lookup: HostLookup): Promise<
   if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) throw new AppError("blocked_address", "Local addresses are never read", 400);
   const addresses = isIP(host) ? [host] : await lookup(host).catch(() => [] as string[]);
   if (addresses.length === 0) throw new AppError("not_found", `${host} does not resolve`, 404);
-  if (!addresses.every(isPublicAddress)) throw new AppError("blocked_address", "Private or local addresses are never read", 400);
+  if (!addresses.every(isPublicAddress)) throw blockedAddress();
   return url;
+}
+
+const blockedAddress = () => new AppError("blocked_address", "Private or local addresses are never read", 400);
+const isBlockedAddress = (e: unknown): e is AppError => e instanceof AppError && e.code === "blocked_address";
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Pinned transport
+// ---------------------------------------------------------------------------------------------------------------------
+
+const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
+
+/** Response headers as sent (repeated headers kept), less the encoding ones once the body is decoded. */
+function responseHeaders(res: IncomingMessage, decoded: boolean): Headers {
+  const headers = new Headers();
+  for (let i = 0; i + 1 < res.rawHeaders.length; i += 2) {
+    const name = res.rawHeaders[i]!;
+    if (decoded && /^content-(encoding|length)$/i.test(name)) continue;
+    headers.append(name, res.rawHeaders[i + 1]!);
+  }
+  return headers;
+}
+
+/** The body as a web stream, gzip, deflate and br decoded (what fetch does by itself). */
+function responseBody(res: IncomingMessage): { body: Readable; decoded: boolean } {
+  const encoding = String(res.headers["content-encoding"] ?? "").trim().toLowerCase();
+  const decoder = encoding === "gzip" || encoding === "x-gzip" ? createGunzip() : encoding === "deflate" ? createInflate() : encoding === "br" ? createBrotliDecompress() : null;
+  if (!decoder) return { body: res, decoded: false };
+  return { body: pipeline(res, decoder, () => undefined), decoded: true };
+}
+
+/**
+ * A fetch (GET and HEAD, no request body, redirects returned as they are) whose sockets connect only to an address
+ * `lookup` returned for the name, checked with `allow` when the socket connects. A name that resolves to nothing, or
+ * to any address `allow` refuses, fails with `blocked_address` before a connection is opened; an address literal is
+ * checked the same way. Each call resolves afresh (no keep-alive), so a later answer is checked again.
+ */
+export function createPinnedFetch(lookup: HostLookup, allow: (ip: string) => boolean = isPublicAddress): FetchLike {
+  const agents = { "http:": new HttpAgent({ keepAlive: false }), "https:": new HttpsAgent({ keepAlive: false }) };
+  const pinnedLookup: LookupFunction = (hostname, options, callback) => {
+    lookup(hostname).then(
+      (found) => {
+        const addresses = found.filter((a) => isIP(a) !== 0);
+        if (addresses.length === 0) return callback(Object.assign(new Error(`${hostname} does not resolve`), { code: "ENOTFOUND" }), "", 0);
+        if (!addresses.every(allow)) return callback(blockedAddress(), "", 0);
+        const family = options.family === 4 || options.family === 6 ? options.family : 0;
+        const usable = family ? addresses.filter((a) => isIP(a) === family) : addresses;
+        if (usable.length === 0) return callback(Object.assign(new Error(`${hostname} has no IPv${family} address`), { code: "ENOTFOUND" }), "", 0);
+        if (options.all) return callback(null, usable.map((address): LookupAddress => ({ address, family: isIP(address) })));
+        callback(null, usable[0]!, isIP(usable[0]!));
+      },
+      (err: unknown) => callback(err instanceof Error ? err : new Error(String(err)), "", 0),
+    );
+  };
+
+  const pinned = (input: Parameters<FetchLike>[0], init: Parameters<FetchLike>[1] = {}): Promise<Response> =>
+    new Promise<Response>((resolve, reject) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      const method = (init.method ?? "GET").toUpperCase();
+      if (url.protocol !== "http:" && url.protocol !== "https:") return reject(new AppError("blocked_url", "Only http and https pages are read", 400));
+      if ((method !== "GET" && method !== "HEAD") || (init.body !== undefined && init.body !== null)) return reject(new TypeError("the pinned transport sends GET and HEAD requests without a body"));
+      // An address literal never reaches the lookup (sockets connect to it directly): check it here.
+      const literal = url.hostname.replace(/^\[|\]$/g, "");
+      if (isIP(literal) && !allow(literal)) return reject(blockedAddress());
+      const headers = Object.fromEntries(new Headers(init.headers ?? {}).entries());
+      headers["accept-encoding"] ??= "gzip, deflate, br";
+      const send = url.protocol === "https:" ? httpsRequest : httpRequest;
+      const req = send(url, { method, headers, agent: agents[url.protocol], lookup: pinnedLookup, signal: init.signal ?? undefined }, (res) => {
+        const status = res.statusCode ?? 0;
+        if (status < 200 || status > 599) {
+          res.destroy();
+          return reject(new Error(`${url.host} answered with status ${status}`));
+        }
+        const nullBody = method === "HEAD" || NULL_BODY_STATUSES.has(status);
+        if (nullBody) res.resume();
+        const { body, decoded } = nullBody ? { body: null, decoded: false } : responseBody(res);
+        resolve(new Response(body ? (Readable.toWeb(body) as ReadableStream<Uint8Array>) : null, { status, statusText: res.statusMessage, headers: responseHeaders(res, decoded) }));
+      });
+      req.on("error", reject);
+      req.end();
+    });
+  return pinned as FetchLike;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -171,6 +262,11 @@ export function htmlToText(html: string): { title: string | null; description: s
 // ---------------------------------------------------------------------------------------------------------------------
 
 export interface PageReaderOptions {
+  /**
+   * The platform's global fetch (the default `resolveLiveOptions` hands every live connector) is replaced by
+   * `createPinnedFetch(lookup)`, because it would resolve each name again when it connects. Any other fetch (a test's
+   * canned responses, a pinned transport built by the caller) is used as given.
+   */
   fetch: FetchLike;
   lookup: HostLookup;
   now: () => Date;
@@ -200,11 +296,14 @@ async function readCapped(res: Response, maxBytes: number): Promise<{ body: stri
 
 export function createPageReader(options: PageReaderOptions) {
   const timeoutMs = options.timeoutMs ?? 15_000;
+  const transport: FetchLike = options.fetch === globalThis.fetch ? createPinnedFetch(options.lookup) : options.fetch;
 
   async function get(url: URL, accept: string, signal: AbortSignal): Promise<Response> {
     try {
-      return await options.fetch(url.toString(), { method: "GET", redirect: "manual", signal, headers: { "user-agent": WEB_USER_AGENT, accept } });
+      return await transport(url.toString(), { method: "GET", redirect: "manual", signal, headers: { "user-agent": WEB_USER_AGENT, accept } });
     } catch (e) {
+      // The name now resolves to a private address (it answered a public one to the check): refused, not "unreachable".
+      if (isBlockedAddress(e)) throw e;
       if (e instanceof Error && e.name === "AbortError") throw new AppError("timeout", `${url.host} did not answer in time`, 504);
       throw new AppError("unreachable", `${url.host} could not be reached`, 502);
     }
@@ -216,7 +315,8 @@ export function createPageReader(options: PageReaderOptions) {
     let res: Response;
     try {
       res = await get(robotsUrl, "text/plain", signal);
-    } catch {
+    } catch (e) {
+      if (isBlockedAddress(e)) throw e;
       throw new AppError("robots_unreachable", `${origin.host}'s robots.txt could not be read, so the page is not read`, 503);
     }
     if (res.status >= 300 && res.status < 400) {
