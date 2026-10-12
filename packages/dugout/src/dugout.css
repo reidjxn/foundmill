@@ -168,7 +168,7 @@
   --radius-panel: var(--radius-panel);
   --radius-chip: var(--radius-chip);
 
-  /* Sizes → h-control-xs … h-control-xl, h-field, h-field-lg, size-badge, h-chip, h-row-compact, w-sidebar, w-rail … */
+  /* Sizes → h-control-xs … h-control-xl, h-field, h-field-lg, size-badge, size-target (24, WCAG 2.5.8), h-chip, h-row-compact, w-sidebar, w-rail … */
   --spacing-row-compact: var(--row-compact);
   --spacing-row-comfortable: var(--row-comfortable);
   --spacing-control-xs: var(--control-xs);
@@ -179,6 +179,7 @@
   --spacing-field: var(--field);
   --spacing-field-lg: var(--field-lg);
   --spacing-badge: var(--badge-size);
+  --spacing-target: var(--target-size);
   --spacing-chip: var(--chip-height);
   --spacing-sidebar: var(--sidebar-width);
   --spacing-sidebar-collapsed: var(--sidebar-width-collapsed);

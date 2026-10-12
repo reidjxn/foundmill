@@ -66,17 +66,18 @@
 
   /* ---------- Brand (overwritten per business by kitStyle on the shell root) ----------
      The defaults are Foundmill steel: first-run frames (no business yet), the login page and the landing page's own
-     light. kit-hi, kit-lo, kit-deep and kit-aura are kitRamp(#3F7FE0); kit-lift is the accent, by direction. */
-  --kit-primary: #3f7fe0;
+     light. #3570CC, so white text on a primary button reads at 4.8 : 1 (WCAG AA) and APCA Lc 78; the brighter #3F7FE0
+     gave 3.9 : 1. kit-hi, kit-lo, kit-deep and kit-aura are kitRamp(#3570CC); kit-lift is the accent, by direction. */
+  --kit-primary: #3570cc;
   --kit-secondary: #ffffff;
-  --kit-on-primary: #ffffff; /* computed: white or near-black by APCA Lc >= 75 (lib/colour kitOnPrimary) */
+  --kit-on-primary: #ffffff; /* computed: white or near-black, APCA Lc >= 75 and 4.5 : 1 (lib/colour kitOnPrimary) */
   --on-kit-light: #ffffff; /* the two candidates kitOnPrimary chooses between */
   --on-kit-dark: #0f1318;
   --kit-lift: #7cc4ff; /* the brand lifted towards text-1: lines, edges, Today, carets, the active sidebar icon */
-  --kit-hi: #5e9eff; /* active edges, lit corners */
-  --kit-lo: #1a4a92; /* low stop of the brand gradient */
-  --kit-deep: #133160; /* the deepest brand tone */
-  --kit-aura: #4891ff; /* brand light: halos and the canvas light under the top bar */
+  --kit-hi: #5f9dff; /* active edges, lit corners */
+  --kit-lo: #1e4a8f; /* low stop of the brand gradient */
+  --kit-deep: #15325e; /* the deepest brand tone */
+  --kit-aura: #3a87ff; /* brand light: halos and the canvas light under the top bar */
 
   /* ---------- Department colours ---------- */
   --dept-1: #5b8cff;
@@ -131,6 +132,7 @@
   --field: 36px; /* text fields */
   --field-lg: 46px; /* MoneyInput and selects in forms */
   --badge-size: 18px; /* badges, Estimate chips, kbd */
+  --target-size: 24px; /* the smallest pointer target (WCAG 2.5.8): icon-only buttons such as carets and info badges */
   --row-compact: 28px;
   --row-comfortable: 34px;
   --chip-height: var(--control-xs); /* chips and status pills */
