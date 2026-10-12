@@ -19,7 +19,7 @@ import { useShellChrome } from "@/components/shell/chrome";
 import { MergeDialog, NewEntityDialog } from "./dialogs";
 import { CRM_VIEWS, KIND_WORD, LAWFUL_BASIS_LABEL, RETENTION_COPY, STAGE_TONE, groupByForView, groupCounts, groupLabel, roleWord, sourceWord, stageWord, type CrmRow, type OwnerRef } from "./logic";
 import { formatNumber, plainWords } from "@/lib/format";
-import { KIND_LABELS, chip, chipsToOperators, crmFilterFields, mergeChips, operatorValueWord, parseCrmQuery, type CrmFilterField } from "./search";
+import { KIND_LABELS, chip, chipsToOperators, crmFilterFields, matchOwner, mergeChips, operatorValueWord, parseCrmQuery, type CrmFilterField } from "./search";
 import { CRM_LIST_LIMIT, useEntityIndex } from "./useEntityIndex";
 
 const IMPORTERS = [
@@ -55,14 +55,15 @@ export function CrmScreen() {
 
   const squadQ = useQuery(trpc.team.agents.list.queryOptions({ businessId }, { staleTime: 60_000, retry: false }));
   const agentName = useCallback((id: string) => squadQ.data?.agents.find((a) => a.id === id)?.name, [squadQ.data]);
+  const owners = useMemo(() => [...(squadQ.data?.agents ?? []).map((a) => ({ id: a.id, name: a.name })), ...departments.map((d) => ({ id: d.id, name: d.name }))], [squadQ.data, departments]);
   const resolvers = useMemo(
     () => ({
-      ownerId: (v: string) => squadQ.data?.agents.find((a) => a.name.toLowerCase() === v.toLowerCase() || a.id === v)?.id ?? departments.find((d) => d.name.toLowerCase() === v.toLowerCase())?.id,
+      ownerId: (v: string) => matchOwner(v, owners),
       departmentId: (v: string) => departments.find((d) => d.name.toLowerCase() === v.toLowerCase() || d.slug === v.toLowerCase())?.id,
       ownerName: (ref: OwnerRef) => (ref.kind === "agent" ? agentName(ref.id) : ref.kind === "department" ? departments.find((d) => d.id === ref.id)?.name : "You"),
       departmentName: (id: string) => departments.find((d) => d.id === id)?.name,
     }),
-    [squadQ.data, departments, agentName],
+    [owners, departments, agentName],
   );
 
   // Typeahead: raw text (operators stripped) against crm.search, grouped by kind.

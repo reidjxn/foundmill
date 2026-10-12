@@ -196,6 +196,20 @@ export interface SearchResolvers {
 export const roleKey = (v: string) => v.trim().toLowerCase().replace(/[\s_-]+/g, "_");
 
 /**
+ * The agent or department an owner chip names, so the API can filter on its id: an exact name (or the id) first, else
+ * the only owner whose name contains the words ("owned by sourcing" → "Sourcing and Manufacturing Specialist"). A name
+ * several owners share resolves to none, and the screen then matches it against the loaded rows (`applyChipFilters`).
+ */
+export function matchOwner(value: string, owners: readonly { id: string; name: string }[]): string | undefined {
+  const v = value.trim().toLowerCase();
+  if (!v) return undefined;
+  const exact = owners.find((o) => o.id === value.trim() || o.name.toLowerCase() === v);
+  if (exact) return exact.id;
+  const partial = owners.filter((o) => o.name.toLowerCase().includes(v));
+  return partial.length === 1 ? partial[0]!.id : undefined;
+}
+
+/**
  * Chips → the API's filters. A chip the API cannot take (an owner or department name that resolves to no id, a kind
  * that does not exist) comes back in `unresolved`, so the screen applies it to the rows itself instead of dropping it.
  */
