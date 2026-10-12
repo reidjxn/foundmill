@@ -181,8 +181,13 @@ export interface SessionResult {
 export interface SessionParked {
   /** Where a mock replay picks up (`<recording>@<next event index>`); null for live sessions (the work is saved). */
   cursor: string | null;
-  /** Nudges and decisions that reached the run after its last poll; the workflow hands them to the next run. */
+  /** Nudges and decisions the run read but did not act on (they came while it parked); the next run gets them. */
   carry: SessionCommand[];
+  /**
+   * The number (`seq`) of the last control command the run read (its `fromSeq` − 1 when none). The workflow hands the
+   * next run every nudge and decision it numbered after this one too: they reached the list after the run's last poll.
+   */
+  lastSeq: number;
 }
 
 /** How one run of a session starts (agentSession may run several when a paused session parks and resumes). */

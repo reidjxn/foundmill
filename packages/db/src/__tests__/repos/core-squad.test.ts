@@ -126,6 +126,13 @@ describe("agents, versions, skills, training", () => {
     expect(released.status).toBe("paused");
     expect(await repos.agents.pauseAll(r.db, A)).toBeGreaterThan(0);
     expect((await repos.agents.countByStatus(r.db, A)).paused).toBeGreaterThan(0);
+    // A guarded write never undoes a pause; it applies to any other status, and only within the business.
+    expect(await repos.agents.setHealthStatus(r.db, A, hired.id, "idle")).toBeNull();
+    expect((await repos.agents.get(r.db, A, hired.id)).status).toBe("paused");
+    await repos.agents.setStatus(r.db, A, hired.id, "failing");
+    expect((await repos.agents.setHealthStatus(r.db, A, hired.id, "idle"))?.status).toBe("idle");
+    expect(await repos.agents.setHealthStatus(r.db, r.B.businessId, hired.id, "healthy")).toBeNull();
+    expect((await repos.agents.get(r.db, A, hired.id)).status).toBe("idle");
 
     const session = await repos.agents.createSession(r.db, A, { agentId: hired.id, versionId: draft.id, modelKey: "sonnet" });
     const ended = await repos.agents.endSession(r.db, A, session.id, { tokensIn: 100, tokensOut: 20, costMinor: 3, outcome: "done" });

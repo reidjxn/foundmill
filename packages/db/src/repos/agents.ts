@@ -276,6 +276,17 @@ export const agentsRepo = {
     return one(await db.update(agents).set({ status: s }).where(scoped(businessId, agentId)).returning(), "agent", agentId);
   },
 
+  /**
+   * A computed health status (session end, health refresh) for an agent that is not paused: a pause (the founder's,
+   * the kill switch's, credits', a key revoke's, a wage cap's) is never overwritten by a computation. Null when the
+   * agent is paused (or gone), so the caller writes no `agent.health_changed`.
+   */
+  async setHealthStatus(db: Executor, businessId: string, agentId: string, status: Exclude<AgentStatus, "paused">): Promise<Agent | null> {
+    const s = parseInput(z.enum(AGENT_STATUSES).exclude(["paused"]), status, "agent status");
+    const rows = await db.update(agents).set({ status: s }).where(and(scoped(businessId, agentId), sql`${agents.status} <> 'paused'`)).returning();
+    return rows[0] ?? null;
+  },
+
   /** Stop-all: pauses every non-archived agent. Returns the number paused. */
   async pauseAll(db: Executor, businessId: string): Promise<number> {
     const rows = await db
