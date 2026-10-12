@@ -197,12 +197,17 @@ describe("a new key and a top-up lift the stop they caused, never Stop all agent
       await repos.usage.chargeCredits(hz.db, A(), period, 100);
       await stopBusinessAgents(hz.db, A(), { reason: "credits_exhausted" });
       await expect(owner().business.resumeAgents({ businessId: A() })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/credits are used up/) });
-      const topped = await owner().billing.topUp({ businessId: A(), amountMinor: 5_000 });
+      // A top-up is a checkout; its (mock) payment grants the credits and lifts the stop.
+      const buy = async (amountMinor: number) => {
+        const opened = await owner().billing.topUp({ businessId: A(), amountMinor });
+        return owner().billing.checkout.completeMock({ businessId: A(), checkoutId: opened.checkout.id });
+      };
+      const topped = await buy(5_000);
       expect(topped.resumed).toMatchObject({ reason: "credits_exhausted" });
       expect(await paused()).toBe(0);
       // A top-up after Stop all agents resumes nothing.
       await owner().business.stopAllAgents({ businessId: A() });
-      expect((await owner().billing.topUp({ businessId: A(), amountMinor: 1_000 })).resumed).toBeNull();
+      expect((await buy(1_000)).resumed).toBeNull();
       expect(await repos.businesses.stopState(hz.db, A())).toMatchObject({ stopped: true, reason: "kill_switch" });
       await owner().business.resumeAgents({ businessId: A() });
     } finally {

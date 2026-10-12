@@ -26,9 +26,14 @@ describe("credits are US dollars", () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     await expect(owner.billing.topUp({ businessId: hz.A.businessId, amountMinor: 2_500, currency: "GBP" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(await repos.usage.creditBalance(hz.db, hz.A.businessId, period())).toBeNull();
-    const topped = await owner.billing.topUp({ businessId: hz.A.businessId, amountMinor: 2_500 });
-    expect(topped.balance).toMatchObject({ grantedMinor: 2_500, currency: "USD" });
-    expect((await owner.billing.topUp({ businessId: hz.A.businessId, amountMinor: 500, currency: "usd" })).balance).toMatchObject({ grantedMinor: 3_000 });
+    // A top-up is a checkout (mock mode here) whose payment grants the credits.
+    const buy = async (amountMinor: number, currency?: string) => {
+      const opened = await owner.billing.topUp({ businessId: hz.A.businessId, amountMinor, ...(currency ? { currency } : {}) });
+      expect(opened.checkout).toMatchObject({ currency: "USD", amountMinor });
+      return owner.billing.checkout.completeMock({ businessId: hz.A.businessId, checkoutId: opened.checkout.id });
+    };
+    expect((await buy(2_500)).balance).toMatchObject({ grantedMinor: 2_500, currency: "USD" });
+    expect((await buy(500, "usd")).balance).toMatchObject({ grantedMinor: 3_000 });
   });
 
   it("plan and usage report US dollar costs and list spend in another currency apart", async () => {

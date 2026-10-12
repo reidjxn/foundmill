@@ -28,7 +28,7 @@ function recordingComposer(): ComposerClient & { narrated: string[][] } {
     narrated,
     async narrate(input) {
       narrated.push(input.eventIds);
-      return { inboxItemId: "00000000-0000-4000-8000-000000000001" };
+      return { inboxItemId: "00000000-0000-4000-8000-000000000001", replayed: false };
     },
     async commentary() {
       return { lines: [] };
