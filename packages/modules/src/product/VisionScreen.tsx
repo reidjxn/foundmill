@@ -22,7 +22,7 @@ import type { RoadmapResponse, SpecGetResponse } from "./types";
 export const NARRATIVE_SECTIONS = ["vision", "problem", "customers", "value proposition"] as const;
 
 export function VisionScreen({ businessId }: ModuleScreenProps) {
-  const { formatDate, formatDateShort } = useFormatters();
+  const { formatDate, formatDateSmart } = useFormatters();
   const { navigate } = useWidgetData();
   const spec = useWidgetQuery<SpecGetResponse>("product.spec.get", {});
   const roadmap = useWidgetQuery<RoadmapResponse>("product.roadmap.list", {});
@@ -194,7 +194,7 @@ export function VisionScreen({ businessId }: ModuleScreenProps) {
                       </button>
                       <span className="flex shrink-0 items-center gap-3">
                         <span className="text-small text-secondary tabular-nums">{ts.total ? `${ts.done} of ${ts.total} task${ts.total === 1 ? "" : "s"}` : "No tasks yet"}</span>
-                        {item.targetEnd ? <span className="text-small text-secondary tabular-nums">by {formatDateShort(item.targetEnd)}</span> : null}
+                        {item.targetEnd ? <span className="text-small text-secondary tabular-nums">by {formatDateSmart(item.targetEnd)}</span> : null}
                         <StatusPill tone={st.tone} icon={st.icon}>
                           {st.word}
                         </StatusPill>

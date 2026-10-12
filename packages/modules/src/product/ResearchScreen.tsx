@@ -8,6 +8,7 @@ import { useMemo } from "react";
 import { BookOpenText, ExternalLink, FileText, Swords } from "lucide-react";
 import { Button, Chip, EntityText, Icon, Panel, ProvenanceChip, formatRelative, useFormatters } from "@foundmill/dugout";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { plural } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { Screen, blockTitle, findBlock } from "./shared";
 import { RESEARCH_NOTE_KINDS, SOURCE_KIND_META, coverageBySection, hostOf, linkedBlocks, relevance, topicCounts, topics } from "./sources/kinds";
@@ -78,7 +79,7 @@ function CompetitorCard({ source, onOpen }: { source: SourceRow; onOpen: () => v
 }
 
 function NoteRow({ source, blocks, onOpenBlock, onOpen }: { source: SourceRow; blocks: readonly SpecBlockRow[]; onOpenBlock: (id: string) => void; onOpen: () => void }) {
-  const { formatDateShort } = useFormatters();
+  const { formatDateSmart } = useFormatters();
   const m = SOURCE_KIND_META[source.kind] ?? SOURCE_KIND_META.doc;
   const r = relevance(source);
   const linked = linkedBlocks(source).map((l) => ({ ...l, block: findBlock(blocks, l.blockId) })).filter((l) => l.block);
@@ -91,7 +92,7 @@ function NoteRow({ source, blocks, onOpenBlock, onOpen }: { source: SourceRow; b
         <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-pretty break-words text-left text-body-strong text-primary hover:underline focus-visible:outline-2 focus-visible:outline-link">
           {source.title || source.uri || "Untitled"}
         </button>
-        <span className="shrink-0 text-small text-secondary tabular-nums">{formatDateShort(source.createdAt)}</span>
+        <span className="shrink-0 text-small text-secondary tabular-nums">{formatDateSmart(source.createdAt)}</span>
       </div>
       {r.summary ? (
         <EntityText as="p" className="text-body text-primary">{String(r.summary)}</EntityText>
@@ -154,7 +155,7 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
         error={err}
         onRetry={list.refetch}
         empty={list.data && competitors.length === 0 ? { icon: Swords, title: "No competitor cards yet", children: "The Research agent grounds the spec with competitor pages and pricing; add a competitor link on the Sources tab to start one." , action: { label: "Open sources", onClick: () => navigate(href("sources")) } } : undefined}
-        footer={<span className="tabular-nums">{competitors.length} competitors · pricing and market figures are the agent's estimates, not measurements</span>}
+        footer={<span className="tabular-nums">{plural(competitors.length, "competitor")} · pricing and market figures are the agent's estimates, not measurements</span>}
       >
         <div className="grid grid-cols-2 gap-3">
           {competitors.map((s) => (

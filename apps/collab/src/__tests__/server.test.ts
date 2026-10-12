@@ -245,6 +245,40 @@ describe("authentication and authorisation", () => {
     expect((await post(A.memberId)).status).toBe(200);
   });
 
+  it("the first human edit in the live editor pins the block, so agents can no longer overwrite it (AC-11.5.3, TPD-05)", async () => {
+    const block = await newBlock(A.businessId);
+    expect(block.pinned).toBe(false);
+    const name = specDocumentName(A.businessId, block.id);
+    const client = createCollabClient({ baseUrl: httpUrl, serviceSecret: SERVICE_SECRET });
+
+    // An agent's store leaves the block unpinned.
+    const agent = await connect(await agentToken(A.businessId, A.agentId), name);
+    await agent.client.waitForSync();
+    appendParagraph(agent.client.doc, "AGENT drafted this.");
+    await until(async () => (await repos.product.getBlock(db, A.businessId, block.id)).version > block.version, 8000, "agent store");
+    expect((await repos.product.getBlock(db, A.businessId, block.id)).pinned).toBe(false);
+
+    // A human types, and the agent's update lands last in the same debounce window: the store still pins.
+    const human = await connect(await userToken(A.memberId), name);
+    await human.client.waitForSync();
+    appendParagraph(human.client.doc, "HUMAN rewrote the risks.");
+    appendParagraph(agent.client.doc, "AGENT added a line after the human.");
+    await until(async () => (await repos.product.getBlock(db, A.businessId, block.id)).pinned, 8000, "pinned by the human edit");
+    await until(async () => JSON.stringify((await repos.product.getBlock(db, A.businessId, block.id)).content).includes("AGENT added a line"), 8000, "both edits stored");
+    const stored = await repos.product.getBlock(db, A.businessId, block.id);
+    expect(JSON.stringify(stored.content)).toContain("HUMAN rewrote the risks.");
+    await agent.client.close();
+
+    // From now on agents only read: the HTTP edit is refused, and a new agent connection is read-only.
+    await expect(client.edit({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id, content: initialDoc })).rejects.toMatchObject({ status: 409, code: "spec_block_pinned" });
+    expect((await client.read({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id })).pinned).toBe(true);
+    const again = await connect(await agentToken(A.businessId, A.agentId), name);
+    expect(again.client.scope).toBe("readonly");
+    await again.client.close();
+    await human.client.close();
+    expect(JSON.stringify((await repos.product.getBlock(db, A.businessId, block.id)).content)).toContain("HUMAN rewrote the risks.");
+  });
+
   it("agents are read-only on pinned blocks while humans still write (AC-11.5.3 spirit)", async () => {
     const block = await newBlock(A.businessId, initialDoc, true);
     const name = specDocumentName(A.businessId, block.id);
@@ -276,7 +310,7 @@ describe("HTTP surface", () => {
     expect(await missing.json()).toMatchObject({ error: "not_found" });
   });
 
-  it("an agent edits a block through POST /v1/spec-blocks with a service token: read → edit with expectedRevision, 409 when a human changed it meanwhile, then re-apply on the fresh content", async () => {
+  it("an agent edits a block through POST /v1/spec-blocks with a service token: read → edit with expectedRevision, 409 when someone changed it meanwhile, then re-apply on the fresh content", async () => {
     const block = await newBlock(A.businessId);
     const name = specDocumentName(A.businessId, block.id);
     const client = createCollabClient({ baseUrl: httpUrl, serviceSecret: SERVICE_SECRET });
@@ -285,46 +319,47 @@ describe("HTTP surface", () => {
     const first = await client.read({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id });
     expect(first).toMatchObject({ live: false, version: block.version, content: initialDoc });
 
-    // A human opens the block and types into the paragraph the agent is about to rewrite.
-    const human = await connect(await userToken(A.ownerId), name);
-    await human.client.waitForSync();
-    typeInto(human.client.doc, 1, 0, "HUMAN: ");
-    await human.client.waitUntil(() => human.client.syncStatuses.some(Boolean), 5000, "human edit acked");
+    // Another writer opens the block and types into the paragraph the agent is about to rewrite. (A second agent: a
+    // human's edit would pin the block, and agents may not edit pinned blocks at all; see the AC-11.5.3 tests above.)
+    const writer = await connect(await agentToken(A.businessId, A.agentId), name);
+    await writer.client.waitForSync();
+    typeInto(writer.client.doc, 1, 0, "EDITOR: ");
+    await writer.client.waitUntil(() => writer.client.syncStatuses.some(Boolean), 5000, "concurrent edit acked");
 
     // The agent's edit against the stale revision is refused and nothing is written.
     const stale: PmNode = { type: "doc", content: [initialDoc.content![0]!, paragraph("AGENT rewrote the paragraph."), paragraph("AGENT: a second paragraph.")] };
     await expect(client.edit({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id, content: stale, expectedRevision: first.revision })).rejects.toMatchObject({ status: 409, code: "stale_revision" });
-    expect(JSON.stringify(docToPmDoc(human.client.doc))).not.toContain("AGENT");
+    expect(JSON.stringify(docToPmDoc(writer.client.doc))).not.toContain("AGENT");
 
-    // It reads again (now the live document, with the human's text), re-applies its change and succeeds.
+    // It reads again (now the live document, with the other writer's text), re-applies its change and succeeds.
     const fresh = await client.read({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id });
     expect(fresh.live).toBe(true);
     expect(fresh.revision).not.toBe(first.revision);
-    expect(JSON.stringify(fresh.content)).toContain("HUMAN: Founders lose context between tools.");
+    expect(JSON.stringify(fresh.content)).toContain("EDITOR: Founders lose context between tools.");
     const next: PmNode = { type: "doc", content: [...fresh.content.content!, paragraph("AGENT: a second paragraph."), paragraph("AGENT: a third.")] };
     const result = await client.edit({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id, content: next, expectedRevision: fresh.revision });
     expect(result).toMatchObject({ changed: 2, kept: 2 });
     const merged = JSON.stringify(result.content);
     expect(merged).toContain("AGENT: a second paragraph.");
-    expect(merged).toContain("HUMAN: Founders lose context between tools.");
+    expect(merged).toContain("EDITOR: Founders lose context between tools.");
     expect(result.version).toBeGreaterThan(block.version);
 
-    // Persisted immediately with the agent as author, and broadcast to the human's editor.
+    // Persisted immediately with the agent as author, and broadcast to the other editor.
     const stored = await repos.product.getBlock(db, A.businessId, block.id);
     expect(stored.authoredByKind).toBe("agent");
     expect(stored.authoredBy).toBe(A.agentId);
     expect(JSON.stringify(stored.content)).toContain("AGENT: a third.");
-    await human.client.waitUntil(() => JSON.stringify(docToPmDoc(human.client.doc)).includes("AGENT: a third."), 5000, "broadcast to human");
+    await writer.client.waitUntil(() => JSON.stringify(docToPmDoc(writer.client.doc)).includes("AGENT: a third."), 5000, "broadcast to the other editor");
 
     const after = await client.read({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id });
     expect(after.live).toBe(true);
-    expect(after.content).toEqual(docToPmDoc(human.client.doc));
+    expect(after.content).toEqual(docToPmDoc(writer.client.doc));
     expect(after.revision).toBe(result.revision);
 
     // Without expectedRevision the edit is applied as a character-level merge onto whatever is there now.
     const unguarded = await client.edit({ businessId: A.businessId, agentId: A.agentId, specBlockId: block.id, content: { ...after.content, content: [...after.content.content!.slice(0, 3), paragraph("AGENT: a third, revised.")] } });
     expect(unguarded).toMatchObject({ changed: 1, kept: 3 });
-    await human.client.close();
+    await writer.client.close();
   });
 
   it("rejects agent edits on pinned blocks (409), bad tokens (401), other businesses (403/404) and invalid content (400)", async () => {

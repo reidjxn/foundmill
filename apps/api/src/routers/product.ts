@@ -18,7 +18,8 @@ const SUMMARY_PREVIEW_CHARS = 400;
 
 /**
  * What a member may say about a source they add: its kind, link, title and notes (or pasted text). Relevance, fetch
- * times and embeddings are the Source Watcher's to write, never the client's.
+ * times, the stored content reference and embeddings are the Source Watcher's to write, never the client's (unknown
+ * keys are dropped).
  */
 const AddSourceInput = z.object({
   kind: z.enum(SOURCE_KINDS),
@@ -29,7 +30,6 @@ const AddSourceInput = z.object({
     .refine((u) => !u || /^https?:\/\//i.test(u), "Links must start with http:// or https://")
     .nullish(),
   title: z.string().max(400).default(""),
-  contentRef: z.string().max(2048).nullish(),
   relevance: z.object({ notes: z.string().max(20_000).optional(), summary: z.string().max(20_000).optional() }).optional(),
 });
 
@@ -101,12 +101,17 @@ export const productRouter = router({
         return { from, to };
       }),
     ),
+    /**
+     * Snapshots the live blocks as the next version. Publishes are numbered under a per-business lock, and a publish
+     * identical to the latest version (same blocks, same changelog: a second tab or a second press) returns that
+     * version without announcing it again.
+     */
     publish: write.input(z.object({ changelogMd: z.string().max(4000).default("") })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
-        const versions = await repos.product.listVersions(tx, ctx.businessId);
-        const blocks = await repos.product.listBlocks(tx, ctx.businessId);
-        const version = await repos.product.publishVersion(tx, ctx.businessId, { changelogMd: input.changelogMd, publishedBy: ctx.userId });
-        await emit(tx, ctx, { type: "spec.version_published", payload: { specVersionId: version.id, version: version.version, previousVersion: versions[0]?.version ?? null, changedBlockIds: blocks.map((b) => b.id), changelog: input.changelogMd, hunksAccepted: 0, hunksRejected: 0, hunksEdited: 0 } });
+        const { version, created, previousVersion } = await repos.product.publish(tx, ctx.businessId, { changelogMd: input.changelogMd, publishedBy: ctx.userId, unlessUnchanged: true });
+        if (!created) return version;
+        const blocks = (version.snapshot as { blocks?: Array<{ id: string }> }).blocks ?? [];
+        await emit(tx, ctx, { type: "spec.version_published", payload: { specVersionId: version.id, version: version.version, previousVersion, changedBlockIds: blocks.map((b) => b.id), changelog: input.changelogMd, hunksAccepted: 0, hunksRejected: 0, hunksEdited: 0 } });
         await audit(tx, ctx, { action: "product.spec.publish", target: { kind: "spec_version", id: version.id }, details: { version: version.version } });
         return version;
       }),
@@ -134,12 +139,25 @@ export const productRouter = router({
         return item;
       }),
     ),
+    /**
+     * A card dragged or moved with the keyboard on the board: to `horizon`, at `index` among that column's other items
+     * (0 is the top). Moves inside a column reorder it; nothing but the horizon and the order changes.
+     */
+    move: write.input(z.object({ itemId: Id, horizon: z.enum(["now", "next", "later"]), index: z.number().int().min(0).max(10_000) })).mutation(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const before = await repos.product.getRoadmapItem(tx, ctx.businessId, input.itemId);
+        const item = await repos.product.moveRoadmapItem(tx, ctx.businessId, input.itemId, { horizon: input.horizon, index: input.index });
+        await audit(tx, ctx, { action: "product.roadmap.move", target: { kind: "roadmap_item", id: item.id }, details: { from: before.horizon, horizon: item.horizon, index: item.position } });
+        return item;
+      }),
+    ),
     /** Link two items (dependency) or a block/task to an item. */
     link: write.input(z.object({ itemId: Id, dependsOn: Id.optional(), specBlockIds: z.array(Id).optional(), taskIds: z.array(Id).optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const item = await repos.product.getRoadmapItem(tx, ctx.businessId, input.itemId);
         if (input.dependsOn) await repos.product.linkRoadmap(tx, ctx.businessId, input.dependsOn, input.itemId);
-        if (input.specBlockIds) await repos.product.upsertRoadmapItem(tx, ctx.businessId, { id: item.id, title: item.title, descriptionMd: item.descriptionMd, horizon: item.horizon, specBlockIds: [...new Set([...item.specBlockIds, ...input.specBlockIds])], status: item.status });
+        // Adds to the links only; dates, confidence, owner and horizon stay as the founder set them (ARB-16).
+        if (input.specBlockIds) await repos.product.addRoadmapSpecBlocks(tx, ctx.businessId, item.id, input.specBlockIds);
         for (const taskId of input.taskIds ?? []) await repos.tasks.update(tx, ctx.businessId, taskId, { roadmapItemId: item.id });
         await audit(tx, ctx, { action: "product.roadmap.link", target: { kind: "roadmap_item", id: item.id }, details: { dependsOn: input.dependsOn ?? null, specBlocks: input.specBlockIds?.length ?? 0, tasks: input.taskIds?.length ?? 0 } });
         return repos.product.getRoadmapItem(tx, ctx.businessId, item.id);
@@ -166,7 +184,7 @@ export const productRouter = router({
           kind: input.kind,
           uri: input.uri?.trim() || null,
           title: title.slice(0, 400),
-          contentRef: input.contentRef ?? null,
+          contentRef: null,
           relevance: { ...(notes ? { notes, summary: notes.slice(0, SUMMARY_PREVIEW_CHARS) } : {}), addedBy: "user" },
         });
         await emit(tx, ctx, { type: "source.added", payload: { sourceId: row.id, kind: row.kind, title: row.title, uri: row.uri, addedBy: "user" } });

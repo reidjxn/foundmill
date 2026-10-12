@@ -93,6 +93,50 @@ describe("SpecificationScreen", () => {
     expect(fake.mutations.at(-1)).toEqual({ path: "product.spec.publish", input: { changelogMd: "Pricing finalised" } });
   });
 
+  it("gives people who may not change Product a read-only editor and no Pin, Publish or Restore (RUI-07)", () => {
+    const seen: SpecEditorProps[] = [];
+    const Host = (props: SpecEditorProps) => {
+      seen.push(props);
+      return <div data-testid="host-editor">host editor</div>;
+    };
+    const asked: string[] = [];
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <SpecificationScreen businessId={BID} departmentId="d1" />, {
+      SpecEditor: Host,
+      canWrite: (section) => {
+        asked.push(section);
+        return false;
+      },
+    });
+    expect(asked).toContain("product");
+    expect(seen.at(-1)).toMatchObject({ blockId: BLOCK.problem, readOnly: true });
+    expect(screen.queryByRole("button", { name: /^(Pin|Unpin)$/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Publish$/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Restore$/ })).toBeNull();
+    // Reading and comparing stay open to everyone.
+    expect(screen.getByRole("button", { name: /^Compare$/ })).toBeTruthy();
+    expect(screen.getAllByRole("listitem").length).toBeGreaterThan(0);
+
+    // The plain fallback editor is locked too.
+    const plain = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(plain, <SpecificationScreen businessId={BID} departmentId="d1" />, { canWrite: () => false });
+    expect((screen.getAllByLabelText("Block text").at(-1) as HTMLTextAreaElement).readOnly).toBe(true);
+  });
+
+  it("offers Pin, Publish and Restore to writers and passes a writable editor", () => {
+    const seen: SpecEditorProps[] = [];
+    const Host = (props: SpecEditorProps) => {
+      seen.push(props);
+      return <div data-testid="host-editor">host editor</div>;
+    };
+    const fake = createFakeSource({ businessId: BID, responses: dataResponses });
+    renderScreen(fake, <SpecificationScreen businessId={BID} departmentId="d1" />, { SpecEditor: Host, canWrite: () => true });
+    expect(seen.at(-1)).toMatchObject({ readOnly: false });
+    expect(screen.getByRole("button", { name: /^Pin$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Publish$/ })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^Restore$/ }).length).toBeGreaterThan(0);
+  });
+
   it("shows empty states for a blank spec and errors with retry", () => {
     const fake = createFakeSource({ businessId: BID, responses: emptyResponses });
     renderScreen(fake, <SpecificationScreen businessId={BID} departmentId="d1" />);

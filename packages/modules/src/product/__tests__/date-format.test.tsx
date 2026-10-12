@@ -1,5 +1,5 @@
 import "./setup";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { DateFormatProvider } from "@foundmill/dugout";
 import type { ReactNode } from "react";
@@ -41,6 +41,14 @@ function renderAs(prefs: typeof ISO_24H, ui: ReactNode) {
 }
 
 describe("product dates follow the person's date format", () => {
+  // Dates in the current year drop the year ("by 10-20"); pin the clock so the fixtures (2026) stay this year.
+  beforeAll(() => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date(2026, 9, 11, 12) });
+  });
+  afterAll(() => {
+    vi.useRealTimers();
+  });
+
   it("the roadmap timeline's year ticks", () => {
     const items = roadmap.items;
     const ticks = (prefs: typeof ISO_24H) =>
@@ -100,6 +108,17 @@ describe("product dates follow the person's date format", () => {
         /published 2026-09-20\./,
       ),
     ).toBeTruthy();
+  });
+
+  it("Roadmap and Vision: a target date in another year carries its year (TPD-25)", () => {
+    const nextYear = { ...roadmap.items[0]!, id: "aaaaaaaa-0000-4000-8000-0000000000e1", title: "Refill-at-home concentrate", targetStart: null, targetEnd: "2027-10-06" };
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "department.list": departments, "product.roadmap.list": { ...roadmap, items: [...roadmap.items, nextYear] } } });
+    const board = renderScreen(fake, <DateFormatProvider value={{ date: "us", time: "12h" }}>{<RoadmapScreen {...props} />}</DateFormatProvider>);
+    expect(screen.getByText("by Oct 6, 2027")).toBeTruthy();
+    expect(screen.getByText("by Oct 20")).toBeTruthy();
+    board.unmount();
+    renderScreen(fake, <DateFormatProvider value={DAY_FIRST_24H}>{<VisionScreen {...props} />}</DateFormatProvider>);
+    expect(screen.getByText("by 6 Oct 2027")).toBeTruthy();
   });
 
   it("Roadmap: card target dates (board) and the Today tag (timeline)", () => {

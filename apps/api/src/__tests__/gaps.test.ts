@@ -30,7 +30,7 @@ describe("consumer procedure gaps", () => {
   it("product.sources.add/list/get/remove with the module's input shape; viewers cannot add", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const { businessId } = hz.A;
-    const added = await owner.product.sources.add({ businessId, kind: "competitor", uri: "https://competitor.example/pricing", title: "", contentRef: null, relevance: { summary: "Their pricing page" } });
+    const added = await owner.product.sources.add({ businessId, kind: "competitor", uri: "https://competitor.example/pricing", title: "", relevance: { summary: "Their pricing page" } });
     expect(added.title).toBe("https://competitor.example/pricing");
     expect(added.kind).toBe("competitor");
     expect((added.relevance as { summary: string; addedBy: string })).toMatchObject({ summary: "Their pricing page", addedBy: "user" });

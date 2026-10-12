@@ -18,6 +18,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { AppShell, Avatar, EntityLinkProvider, ShellLinkProvider, useToast, type PaletteItem, type ProcessingSegment, type SearchQuery, type SidebarItem } from "@foundmill/dugout";
 import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
+import { hasSectionAccess, type Section } from "@foundmill/shared/permissions";
 import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { runwayWords } from "@foundmill/widgets/shared/runway";
@@ -40,7 +41,7 @@ import { getBrowserAccessToken } from "@/lib/supabase/client";
 import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { WidgetDataHost } from "@/lib/widget-data";
-import { SpecUserProvider } from "@/components/spec/spec-user";
+import { SpecUserProvider, specUserName } from "@/components/spec/spec-user";
 import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/components/conversation/DeskHost";
 import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
@@ -51,7 +52,8 @@ export interface BusinessShellProps {
   businessId: string;
   initialBusiness: BusinessGet;
   initialDepartments: DepartmentList;
-  viewer: { email: string | null; userId: string | null };
+  /** The signed-in person; `name` is their profile's display name (the label on their caret in the spec editor). */
+  viewer: { email: string | null; userId: string | null; name?: string | null };
   children: ReactNode;
 }
 
@@ -429,8 +431,12 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   useEffect(() => {
     void getBrowserAccessToken().then((t) => setCollabToken(t ?? undefined));
   }, []);
-  const moduleEnv = useMemo<Partial<ModuleEnv>>(() => ({ collabUrl: publicEnv().collabUrl, collabToken, SpecEditor }), [collabToken]);
-  const specUser = useMemo(() => ({ id: viewer.userId ?? "dev", name: viewer.email ?? "You" }), [viewer.userId, viewer.email]);
+  // What the signed-in person may change: a write role and the section's staff permission, exactly as the API and the
+  // collab server decide, so module screens lock their editors instead of letting edits be thrown away.
+  const membership = data.membership;
+  const canWrite = useCallback((section: Section) => hasSectionAccess({ role: data.role, sectionPermissions: membership?.sectionPermissions ?? {} }, section, "write"), [data.role, membership]);
+  const moduleEnv = useMemo<Partial<ModuleEnv>>(() => ({ collabUrl: publicEnv().collabUrl, collabToken, SpecEditor, canWrite }), [collabToken, canWrite]);
+  const specUser = useMemo(() => ({ id: viewer.userId ?? "dev", name: specUserName(viewer) }), [viewer]);
   // Agents open their profile; everything else (people, organisations, staff) opens its CRM record.
   const entityLinks = useMemo(() => {
     const hrefFor = (ref: { id: string; kind?: string; href?: string }) => ref.href ?? (ref.kind === "agent" ? routes.agent(businessId, ref.id) : routes.crm(businessId, ref.id));

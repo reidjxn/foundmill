@@ -28,6 +28,13 @@ test.describe("specification editor", () => {
     await expect(page.getByTestId("module-screen")).not.toContainText(/collab server|spec:[0-9a-f]{8}/i);
     // Outline items wrap to two lines rather than being cut to a stub.
     await expect(firstBlock.locator("span.line-clamp-2")).toHaveCount(1);
+    // The outline keeps the archetype's section order (the DTC physical outline Northwind was seeded with): Non-functional
+    // requirements is not pushed to the end, and Formulation / BOM … Fulfillment are not pushed after Risks (AC-10).
+    const sections = await page.locator("nav[aria-label='Spec outline'] > section").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""));
+    const seeded = ["Problem", "Customers", "Value proposition", "Features", "Formulation / BOM", "Manufacturing", "Packaging", "Compliance", "Fulfillment", "Non-functional requirements", "Data", "Integrations", "Pricing", "Metrics", "Risks"];
+    expect(sections.filter((s) => seeded.includes(s)), `outline order: ${sections.join(", ")}`).toEqual(seeded.filter((s) => sections.includes(s)));
+    // The founder can write: no read-only hint (viewers and advisors get a read-only editor without Pin, Publish or Restore, RUI-07).
+    await expect(page.getByText("Read only: you can read the specification")).toHaveCount(0);
     const marker = `Edited in the e2e run ${Date.now().toString(36)}.`;
     await surface.click();
     await page.keyboard.press("End");

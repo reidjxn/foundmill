@@ -2,11 +2,13 @@
 import { describe, expect, it } from "vitest";
 import { pmExcerpt, pmTitle, pmToText, pmWordCount, textToPm } from "../prosemirror";
 import { computeRoadmapStatus, taskSummary } from "../roadmap-status";
-import { adjacentHorizon, barSpan, groupByHorizon, indexDependencies, moveInput, timelineScale } from "../roadmap/board";
+import { adjacentHorizon, barSpan, groupByHorizon, indexDependencies, isMove, moveInput, timelineScale } from "../roadmap/board";
 import { decisionProgress, hunkSides, impactLines, isSettled } from "../changes/hunks";
 import { coverageBySection, linkedBlocks, topicCounts } from "../sources/kinds";
 import { validateSourceDraft, sourceInput } from "../sources/AddSourceDialog";
 import { upsertInput, draftFrom, validateDraft } from "../roadmap/ItemDialog";
+import { compareSections, groupBySection } from "../shared";
+import type { SpecBlockRow } from "../types";
 import { blocks, doc, proposalAnnual, roadmap, sources, BLOCK, ITEM } from "./fixtures";
 
 describe("prosemirror text subset", () => {
@@ -40,12 +42,18 @@ describe("roadmap status (AC-11.5.4)", () => {
 });
 
 describe("board helpers", () => {
-  it("groups by horizon in position order and moves keep every field but horizon and position", () => {
+  it("groups by horizon in position order; a move sends only the item, the horizon and its place in the column", () => {
     const cols = groupByHorizon(roadmap.items);
     expect(cols.now.map((i) => i.id)).toEqual([ITEM.billing, ITEM.mobile]);
     expect(cols.next.map((i) => i.id)).toEqual([ITEM.sso]);
-    const moved = moveInput(roadmap.items[1]!, "now", 2);
-    expect(moved).toMatchObject({ id: ITEM.sso, title: "SSO for teams", horizon: "now", position: 2, status: "planned", specBlockIds: [BLOCK.features], targetStart: "2026-11-01" });
+    expect(moveInput(roadmap.items[1]!, "now", 2)).toEqual({ itemId: ITEM.sso, horizon: "now", index: 2 });
+    expect(moveInput(roadmap.items[1]!, "now", -1)).toEqual({ itemId: ITEM.sso, horizon: "now", index: 0 });
+    // Another column is always a move; inside the column only a new place is.
+    const billing = cols.now[0]!;
+    expect(isMove(cols, billing, "next", 0)).toBe(true);
+    expect(isMove(cols, billing, "now", 0)).toBe(false);
+    expect(isMove(cols, billing, "now", 1)).toBe(true);
+    expect(isMove(cols, cols.now[1]!, "now", 5)).toBe(false);
     expect(adjacentHorizon("now", -1)).toBeNull();
     expect(adjacentHorizon("now", 1)).toBe("next");
     expect(adjacentHorizon("later", 1)).toBeNull();
@@ -99,6 +107,31 @@ describe("change proposal helpers", () => {
   });
 });
 
+describe("spec outline order (AC-10)", () => {
+  const outline = (sections: string[], start = 0): SpecBlockRow[] => sections.map((section, i) => ({ ...blocks[0]!, id: `b-${section}`, section, position: start + i }));
+  const order = (rows: SpecBlockRow[]) => groupBySection(rows).map((g) => g.section);
+
+  it("follows the archetype outline as stored, not a fixed list", () => {
+    // The hardware outline (packages/agents archetypes.ts), shuffled as the API might return it.
+    const hardware = ["Problem", "Customers", "Value proposition", "Features", "Firmware and app", "Formulation / BOM", "Manufacturing", "Packaging", "Compliance", "Fulfillment", "Non-functional requirements", "Data", "Integrations", "Pricing", "Metrics", "Risks"];
+    expect(order(outline(hardware).reverse())).toEqual(hardware);
+    const content = ["Problem", "Customers", "Value proposition", "Editorial formats and cadence", "Audience and membership", "Sponsorship and monetization", "Features", "Non-functional requirements", "Data", "Integrations", "Pricing", "Metrics", "Risks"];
+    expect(order(outline(content).reverse())).toEqual(content);
+  });
+
+  it("keeps a section's blocks together by position and breaks position ties with the default order", () => {
+    const rows = [...outline(["Problem", "Features", "Risks"]), { ...blocks[0]!, id: "b-features-2", section: "Features", position: 7 }, { ...blocks[0]!, id: "b-later", section: "Go-to-market", position: 3 }];
+    const groups = groupBySection(rows);
+    expect(groups.map((g) => g.section)).toEqual(["Problem", "Features", "Risks", "Go-to-market"]);
+    expect(groups[1]!.blocks.map((b) => b.id)).toEqual(["b-Features", "b-features-2"]);
+    // Every block at position 0 (blocks added one per section): the default order decides, in the seeds' spelling.
+    expect(order(outline(["Risks", "Non-functional requirements", "Formulation / BOM", "Features", "Problem"]).map((b) => ({ ...b, position: 0 })))).toEqual(["Problem", "Features", "Formulation / BOM", "Non-functional requirements", "Risks"]);
+    expect(compareSections("Non-functional", "Data")).toBeLessThan(0);
+    expect(compareSections("Fulfilment", "Fulfillment")).toBe(0);
+    expect(compareSections("Zebra notes", "Risks")).toBeGreaterThan(0);
+  });
+});
+
 describe("source helpers", () => {
   it("reads linked blocks best-first, counts coverage per section and topics", () => {
     expect(linkedBlocks(sources[0]!)).toEqual([{ blockId: BLOCK.pricing, score: 0.82 }]);
@@ -116,6 +149,6 @@ describe("source helpers", () => {
     expect(validateSourceDraft({ kind: "doc", title: "", uri: "ftp://x", notes: "" })).toMatch(/http/);
     expect(validateSourceDraft({ kind: "doc", title: "", uri: "not a url", notes: "" })).toMatch(/URL/);
     expect(validateSourceDraft({ kind: "doc", title: "A note", uri: "", notes: "" })).toBeNull();
-    expect(sourceInput({ kind: "competitor", title: "", uri: " https://x.example ", notes: "cheap" })).toEqual({ kind: "competitor", uri: "https://x.example", title: "https://x.example", contentRef: null, relevance: { notes: "cheap" } });
+    expect(sourceInput({ kind: "competitor", title: "", uri: " https://x.example ", notes: "cheap" })).toEqual({ kind: "competitor", uri: "https://x.example", title: "https://x.example", relevance: { notes: "cheap" } });
   });
 });

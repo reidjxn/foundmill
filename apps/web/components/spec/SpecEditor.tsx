@@ -9,11 +9,12 @@
  *
  * Local mode (status "local"): with no collab URL, or when the first connection fails (auth refused, server down),
  * the same editor runs on the block's `initialContent` without Yjs, with undo/redo, and saves whole blocks through
- * `product.spec.editBlock` (⌘/Ctrl+S; Esc reverts), exactly like the modules' plain fallback. Viewers and advisors get
- * a read-only editor (the collab server enforces the same).
+ * `product.spec.editBlock` (⌘/Ctrl+S; Esc reverts), exactly like the modules' plain fallback. People who may not change
+ * the Product section get a read-only editor: the screen says so through `readOnly`, and the collab server's own answer
+ * (scope `readonly` on authentication) locks it too, so nobody types into a document whose edits are refused.
  */
 import { useMutation } from "@tanstack/react-query";
-import { HocuspocusProvider, WebSocketStatus } from "@hocuspocus/provider";
+import { HocuspocusProvider, WebSocketStatus, type AuthorizedScope } from "@hocuspocus/provider";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
@@ -39,6 +40,11 @@ export function statusFromSocket(status: WebSocketStatus, synced: boolean): Spec
   if (status === WebSocketStatus.Connected) return synced ? "connected" : "connecting";
   if (status === WebSocketStatus.Connecting) return "connecting";
   return "disconnected";
+}
+
+/** Read only when the screen says so or the collab server granted only `readonly` (viewers, advisors, Product read). */
+export function isReadOnly(readOnly: boolean | undefined, scope: AuthorizedScope | null): boolean {
+  return Boolean(readOnly) || scope === "readonly";
 }
 
 /** The mode a block opens in: collaborative when a collab URL is configured, local otherwise. */
@@ -74,6 +80,7 @@ function CollabBlockEditor({ documentName, collabUrl, collabToken, pinned, readO
   const user = useSpecUser();
   const [session, setSession] = useState<CollabSession | null>(null);
   const [status, setStatus] = useState<SpecEditorStatus>("connecting");
+  const [scope, setScope] = useState<AuthorizedScope | null>(null);
   const synced = useRef(false);
 
   useEffect(() => {
@@ -97,6 +104,7 @@ function CollabBlockEditor({ documentName, collabUrl, collabToken, pinned, readO
         synced.current = true;
         setStatus("connected");
       },
+      onAuthenticated: ({ scope: granted }) => setScope(granted),
       onAuthenticationFailed: ({ reason }) => giveUp(`The collab server refused the connection (${reason}).`),
     });
     const timer = window.setTimeout(() => giveUp("The collab server did not answer in time."), CONNECT_TIMEOUT_MS);
@@ -106,6 +114,7 @@ function CollabBlockEditor({ documentName, collabUrl, collabToken, pinned, readO
       provider.destroy();
       doc.destroy();
       synced.current = false;
+      setScope(null);
       setSession(null);
     };
   }, [collabUrl, documentName, collabToken, onGiveUp]);
@@ -114,8 +123,10 @@ function CollabBlockEditor({ documentName, collabUrl, collabToken, pinned, readO
     onStatusChange?.(status);
   }, [status, onStatusChange]);
 
-  if (!session) return <EditorFrame status="connecting" pinned={pinned} readOnly={readOnly} />;
-  return <CollabSurface session={session} status={status} pinned={pinned} readOnly={readOnly} user={{ name: user.name, color: caretColourFor(user.id) }} />;
+  const locked = isReadOnly(readOnly, scope);
+  const caret = useMemo(() => ({ name: user.name, color: caretColourFor(user.id) }), [user.name, user.id]);
+  if (!session) return <EditorFrame status="connecting" pinned={pinned} readOnly={locked} />;
+  return <CollabSurface session={session} status={status} pinned={pinned} readOnly={locked} user={caret} />;
 }
 
 function CollabSurface({ session, status, pinned, readOnly, user }: { session: CollabSession; status: SpecEditorStatus; pinned: boolean; readOnly?: boolean; user: { name: string; color: string } }) {
@@ -235,7 +246,7 @@ const STATUS_TONE: Record<SpecEditorStatus, { tone: "info" | "good" | "bad" | "n
 function EditorFrame({ status, pinned, readOnly, note, actions, error, children }: { status: SpecEditorStatus; pinned: boolean; readOnly?: boolean; note?: string; actions?: ReactNode; error?: string; children?: ReactNode }) {
   const st = STATUS_TONE[status];
   const hint = useMemo(() => {
-    if (readOnly) return "Read only: viewers and advisors can read the specification but not change it.";
+    if (readOnly) return "Read only: you can read the specification but your role cannot change it.";
     if (status === "connected") return pinned ? "Human-edited block: agents propose changes here instead of writing." : "Edits sync live; the first human edit pins the block for agents.";
     if (status === "local") return "⌘/Ctrl+S saves this block; Esc undoes your changes.";
     if (status === "disconnected") return "Connection lost; edits continue locally and sync when the server is back.";

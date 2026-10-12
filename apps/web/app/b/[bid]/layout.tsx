@@ -65,7 +65,7 @@ export default async function BusinessLayout({ params, children }: { params: Par
     return (
       <Prefetched queryClient={shell.prefetch()}>
         <DateFormatHost initial={date.prefs} owner={date.owner}>
-          <BusinessShell businessId={bid} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId }}>
+          <BusinessShell businessId={bid} initialBusiness={business} initialDepartments={departments} viewer={{ email: profile.email ?? server.auth.email, userId: server.auth.userId, name: profile.profile?.displayName ?? null }}>
             {children}
           </BusinessShell>
         </DateFormatHost>

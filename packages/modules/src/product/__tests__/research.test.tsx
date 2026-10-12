@@ -25,7 +25,7 @@ describe("ResearchScreen", () => {
     const topicsList = screen.getByRole("list", { name: "Topics" });
     expect(within(topicsList).getByText("pricing")).toBeTruthy();
     expect(screen.getByRole("img", { name: /^Sources per spec section\. .*Pricing 1/ })).toBeTruthy();
-    expect(screen.getByText(/1 competitors · pricing and market figures are the agent's estimates/)).toBeTruthy();
+    expect(screen.getByText(/^1 competitor · pricing and market figures are the agent's estimates/)).toBeTruthy();
   });
 
   it("navigates to a linked spec block from a note", () => {

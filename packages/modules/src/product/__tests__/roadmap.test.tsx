@@ -21,10 +21,10 @@ describe("RoadmapScreen", () => {
     expect(within(billing).getByText(/After SSO for teams/)).toBeTruthy();
     expect(within(screen.getByRole("list", { name: "Next items" })).getAllByRole("listitem")).toHaveLength(1);
     expect(within(screen.getByRole("list", { name: "Later items" })).getAllByRole("listitem")).toHaveLength(1);
-    expect(screen.getByText(/4 items · drag between columns/)).toBeTruthy();
+    expect(screen.getByText(/4 items · drag a card, or press Alt\+← \/ Alt\+→ to change column and Alt\+↑ \/ Alt\+↓ to reorder/)).toBeTruthy();
   });
 
-  it("moves a card to another column by drop and by keyboard through product.roadmap.upsert with the status untouched", async () => {
+  it("moves a card to another column by drop and by keyboard through product.roadmap.move, at the end or above the card it lands on", async () => {
     const fake = createFakeSource({ businessId: BID, responses });
     renderScreen(fake, <RoadmapScreen businessId={BID} departmentId="d1" />);
     const sso = screen.getByRole("listitem", { name: /SSO for teams/ });
@@ -37,23 +37,50 @@ describe("RoadmapScreen", () => {
       fireEvent.drop(nowColumn, { dataTransfer });
     });
     expect(fake.mutations).toHaveLength(1);
-    expect(fake.mutations[0]!.path).toBe("product.roadmap.upsert");
-    expect(fake.mutations[0]!.input).toMatchObject({ id: ITEM.sso, horizon: "now", position: 2, status: "planned", title: "SSO for teams" });
+    // Only the horizon and the place in the column travel: dates, owner and links are never re-sent (TPD-34, ARB-16).
+    expect(fake.mutations[0]).toEqual({ path: "product.roadmap.move", input: { itemId: ITEM.sso, horizon: "now", index: 2 } });
     expect(fake.refetches["product.roadmap.list"]).toBe(1);
+
+    // Dropped on a card: lands just above it.
+    await act(async () => {
+      fireEvent.drop(within(nowColumn).getByRole("listitem", { name: /Mobile reminders/ }), { dataTransfer: { getData: () => ITEM.sso } });
+    });
+    expect(fake.mutations[1]).toEqual({ path: "product.roadmap.move", input: { itemId: ITEM.sso, horizon: "now", index: 1 } });
 
     const reports = screen.getByRole("listitem", { name: /Quarterly reports/ });
     await act(async () => {
       fireEvent.keyDown(reports, { key: "ArrowLeft", altKey: true });
     });
-    expect(fake.mutations[1]!.input).toMatchObject({ id: ITEM.reports, horizon: "next" });
+    expect(fake.mutations[2]).toEqual({ path: "product.roadmap.move", input: { itemId: ITEM.reports, horizon: "next", index: 1 } });
     await act(async () => {
       fireEvent.keyDown(reports, { key: "ArrowRight", altKey: true });
     });
-    expect(fake.mutations).toHaveLength(2); // already in Later: no-op
+    expect(fake.mutations).toHaveLength(3); // already in Later: no-op
     await act(async () => {
       fireEvent.drop(screen.getByRole("region", { name: "Later" }), { dataTransfer: { getData: () => ITEM.reports } });
     });
-    expect(fake.mutations).toHaveLength(2); // dropping on its own column is a no-op
+    expect(fake.mutations).toHaveLength(3); // dropping where it already is changes nothing
+  });
+
+  it("reorders inside a column with Alt+↑/↓ and the Move up / Move down verbs", async () => {
+    const fake = createFakeSource({ businessId: BID, responses });
+    renderScreen(fake, <RoadmapScreen businessId={BID} departmentId="d1" />);
+    const now = screen.getByRole("list", { name: "Now items" });
+    expect(within(now).getAllByRole("listitem").map((c) => c.getAttribute("data-roadmap-item"))).toEqual([ITEM.billing, ITEM.mobile]);
+    const mobile = within(now).getByRole("listitem", { name: /Mobile reminders/ });
+    await act(async () => {
+      fireEvent.keyDown(mobile, { key: "ArrowDown", altKey: true });
+    });
+    expect(fake.mutations).toHaveLength(0); // already last
+    await act(async () => {
+      fireEvent.keyDown(mobile, { key: "ArrowUp", altKey: true });
+    });
+    expect(fake.mutations[0]).toEqual({ path: "product.roadmap.move", input: { itemId: ITEM.mobile, horizon: "now", index: 0 } });
+    const billing = within(now).getByRole("listitem", { name: /Usage-based billing/ });
+    await act(async () => {
+      fireEvent.keyDown(billing, { key: "ArrowDown", altKey: true });
+    });
+    expect(fake.mutations[1]).toEqual({ path: "product.roadmap.move", input: { itemId: ITEM.billing, horizon: "now", index: 1 } });
   });
 
   it("opens the edit dialog from a card, links spec blocks and saves through upsert", async () => {

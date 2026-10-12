@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DATE_FORMAT_PREFERENCES, DEFAULT_DATE_FORMAT_PREFS, TIME_FORMAT_PREFERENCES, dateFormatKeyOf, datePatternFor, isDateFormatKey, normalizeDateFormatPrefs, type DateFormatKey, type DateFormatPrefs } from "./date-preferences";
-import { DATE_FORMATS, bindFormatters, formatDate, formatDateRange, formatDateShort, formatDateTime, formatDateYearParts, formatHourOfDay, formatMonthYear, formatRelative, formatTime } from "./format";
+import { DATE_FORMATS, bindFormatters, formatDate, formatDateRange, formatDateShort, formatDateSmart, formatDateTime, formatDateYearParts, formatHourOfDay, formatMonthYear, formatRelative, formatTime } from "./format";
 
 const US: DateFormatPrefs = { date: "us", time: "12h" };
 const DAY_FIRST_24: DateFormatPrefs = { date: "day_first", time: "24h" };
@@ -68,6 +68,18 @@ describe("helpers under a choice", () => {
     expect(formatDateShort(d, DAY_FIRST_24)).toBe("7 Oct");
     expect(formatDateShort(d, ISO_24)).toBe("10-07");
     expect(formatMonthYear(d, ISO_24)).toBe("2026-10");
+  });
+
+  it("drops the year only when it is the current one (TPD-25)", () => {
+    const now = new Date(2026, 9, 11, 9, 0);
+    expect(formatDateSmart(d, now)).toBe("Oct 7");
+    expect(formatDateSmart("2027-10-06", now)).toBe("Oct 6, 2027");
+    expect(formatDateSmart("2025-12-30", now)).toBe("Dec 30, 2025");
+    expect(formatDateSmart("2027-01-24", now, DAY_FIRST_24)).toBe("24 Jan 2027");
+    expect(formatDateSmart("2027-01-24", now, ISO_24)).toBe("2027-01-24");
+    expect(formatDateSmart(d, now, ISO_24)).toBe("10-07");
+    expect(bindFormatters(DAY_FIRST_24).formatDateSmart("2027-05-09", now)).toBe("9 May 2027");
+    expect(formatDateSmart("not a date", now)).toBe("—");
   });
 
   it("hours of the day on a 12- or 24-hour axis", () => {

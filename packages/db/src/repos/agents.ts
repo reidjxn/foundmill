@@ -388,6 +388,9 @@ export const agentsRepo = {
   async createVersion(db: Executor, businessId: string, agentId: string, input: CreateAgentVersionInput): Promise<AgentVersion> {
     const v = parseInput(CreateAgentVersionInput, input, "agent version");
     return db.transaction(async (tx) => {
+      // One numbering at a time per agent (a founder's Save draft and the coach's draft can land together): the second
+      // waits here and reads the first one's number, instead of failing on the unique (agent_id, version) index.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('agent_versions'), hashtext(${agentId}::text))`);
       const agent = await agentsRepo.get(tx, businessId, agentId);
       const next = one(await tx.select({ n: sql<number>`coalesce(max(${agentVersions.version}), 0) + 1` }).from(agentVersions).where(eq(agentVersions.agentId, agentId)), "version");
       const version = one(

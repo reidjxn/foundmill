@@ -1,16 +1,19 @@
 "use client";
 /**
  * Product › Sources (BUILD §11.5): everything the Source Watcher reads — interviews, feedback, issues, documents,
- * competitor pages, legal and finance notes — as a DataTable with kind filters, saved views, right-click verbs and
- * an "Add source" dialog. `?source=<id>` highlights one (the Changes tab links evidence here).
+ * competitor pages, legal and finance notes — as a DataTable with kind filters, saved views, right-click verbs (open
+ * the link, open the linked block, remove the source after a confirmation) and an "Add source" dialog. Adding and
+ * removing need write access to Product. `?source=<id>` highlights one (the Changes tab links evidence here).
  */
 import { useMemo, useState } from "react";
-import { ExternalLink, FileText, Inbox, Plus } from "lucide-react";
-import { Button, Chip, DataTable, Panel, formatRelative, type DataTableColumn, type SavedView } from "@foundmill/dugout";
+import { ExternalLink, FileText, Inbox, Plus, Trash2 } from "lucide-react";
+import { Button, Chip, DataTable, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Panel, formatRelative, type DataTableColumn, type SavedView } from "@foundmill/dugout";
 import { SOURCE_KINDS, type SourceKind } from "@foundmill/shared";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { useCanWrite } from "../env";
+import { plural } from "../fit";
 import type { ModuleScreenProps } from "../registry";
-import { Screen, blockTitle } from "./shared";
+import { InlineError, Screen, blockTitle, useAction } from "./shared";
 import { AddSourceDialog } from "./sources/AddSourceDialog";
 import { SOURCE_KIND_META, hostOf, isSourceKind, linkedBlocks, readState, summaryLine, topics } from "./sources/kinds";
 import type { SourceRow, SourcesListResponse, SpecBlockRow, SpecGetResponse } from "./types";
@@ -122,8 +125,23 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
   const departments = useDepartments();
   const [views, setViews] = useState<SavedView[]>(SOURCE_VIEWS);
   const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<SourceRow | null>(null);
   const [highlight] = useState<string | null>(() => sourceFromLocation());
+  const canWrite = useCanWrite("product");
+  const action = useAction();
   useBusinessEvents(() => list.refetch(), ["source.added", "source.scored", "spec.proposal_created"]);
+  // Removing archives the source (product.sources.remove): it leaves the list and the Source Watcher stops reading it;
+  // proposals that cite it keep their evidence.
+  const remove = async () => {
+    if (!removing) return;
+    await action.run("product.sources.remove", { sourceId: removing.id }, {
+      key: "remove",
+      then: () => {
+        setRemoving(null);
+        list.refetch();
+      },
+    });
+  };
 
   const rows = useMemo(() => list.data?.items ?? [], [list.data]);
   const blocks = spec.data?.blocks ?? [];
@@ -143,13 +161,19 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
         loading={list.isLoading}
         error={list.error ? list.error.message : undefined}
         onRetry={list.refetch}
-        empty={list.data && rows.length === 0 && !kind ? { icon: Inbox, title: "No sources yet", children: "Connected tools (GitHub issues, Drive, Notion, support mail) feed this list automatically; you can also add a link or a note by hand.", action: { label: "Add source", icon: Plus, onClick: () => setAdding(true) } } : undefined}
-        actions={
-          <Button size="sm" variant="primary" icon={Plus} onClick={() => setAdding(true)}>
-            Add source
-          </Button>
+        empty={
+          list.data && rows.length === 0 && !kind
+            ? { icon: Inbox, title: "No sources yet", children: "Connected tools (GitHub issues, Drive, Notion, support mail) feed this list automatically; you can also add a link or a note by hand.", action: canWrite ? { label: "Add source", icon: Plus, onClick: () => setAdding(true) } : undefined }
+            : undefined
         }
-        footer={<span className="tabular-nums">{rows.length} sources{kind ? ` of kind ${SOURCE_KIND_META[kind].word}` : ""} · the Source Watcher scores relevance against every spec block and raises proposals from the Changes tab</span>}
+        actions={
+          canWrite ? (
+            <Button size="sm" variant="primary" icon={Plus} onClick={() => setAdding(true)}>
+              Add source
+            </Button>
+          ) : null
+        }
+        footer={<span className="tabular-nums">{plural(rows.length, "source")}{kind ? ` of kind ${SOURCE_KIND_META[kind].word}` : ""} · the Source Watcher scores relevance against every spec block and raises proposals from the Changes tab</span>}
         flush
       >
         <div role="group" aria-label="Filter by kind" className="flex flex-wrap items-center gap-1 border-b border-subtle px-panel-pad py-2">
@@ -177,17 +201,45 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
           exportFileName="sources"
           rowClassName={(row) => (row.id === highlight ? "bg-panel-alt" : undefined)}
           onRowOpen={(row) => (openExternal(row.uri) ? undefined : linkedBlocks(row)[0] && openBlock(linkedBlocks(row)[0]!.blockId))}
-          empty={kind ? { icon: SOURCE_KIND_META[kind].icon, children: `No ${SOURCE_KIND_META[kind].word.toLowerCase()} sources yet.`, action: { label: `Add ${SOURCE_KIND_META[kind].word.toLowerCase()}`, icon: Plus, onClick: () => setAdding(true) } } : undefined}
+          empty={kind ? { icon: SOURCE_KIND_META[kind].icon, children: `No ${SOURCE_KIND_META[kind].word.toLowerCase()} sources yet.`, action: canWrite ? { label: `Add ${SOURCE_KIND_META[kind].word.toLowerCase()}`, icon: Plus, onClick: () => setAdding(true) } : undefined } : undefined}
           rowActions={(row) => {
             const linked = linkedBlocks(row);
             return [
               { id: "open-link", label: "Open link", icon: ExternalLink, disabled: !row.uri, onSelect: (r) => void openExternal(r.uri) },
               { id: "open-block", label: linked.length ? "Open linked spec block" : "No linked spec block", icon: FileText, disabled: linked.length === 0, onSelect: () => linked[0] && openBlock(linked[0].blockId) },
+              ...(canWrite ? [{ id: "remove", label: "Remove source", icon: Trash2, onSelect: (r: SourceRow) => setRemoving(r) }] : []),
             ];
           }}
         />
       </Panel>
       <AddSourceDialog open={adding} kind={kind && isSourceKind(kind) ? kind : undefined} onClose={() => setAdding(false)} onSaved={() => list.refetch()} />
+      <Dialog
+        open={removing !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRemoving(null);
+            action.clearError();
+          }
+        }}
+      >
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>Remove this source?</DialogTitle>
+            <DialogDescription>
+              {removing ? `"${removing.title || removing.uri || "Untitled"}" leaves the list and the Source Watcher stops reading it. Change proposals that cite it keep it as evidence.` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <InlineError error={action.error} />
+            <Button variant="ghost" onClick={() => setRemoving(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" icon={Trash2} onClick={() => void remove()} loading={action.pending === "remove"}>
+              Remove source
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Screen>
   );
 }
