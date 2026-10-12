@@ -103,6 +103,21 @@ describe("watchSource", () => {
     expect(rel.notes).toMatch(/second bank/);
   });
 
+  it("a page the site refuses for good is recorded as unreachable at once; a server error is retried", async () => {
+    const answering = (error: Record<string, unknown>): GatewayClient => ({
+      ...createOfflineGatewayClient(),
+      async call() {
+        return { outcome: "allow", result: { ok: false, error, untrusted: false, costMinor: 0 }, costMinor: 0 };
+      },
+    });
+    const source = await repos.product.createSource(t.db, t.businessId, { kind: "competitor", uri: "https://gone.example/pricing", title: "Gone" });
+    const gone = createSourceWatcherActivities({ ...t.deps, gateway: answering({ code: "vendor_error", message: "gone.example answered 410", status: 410, retryable: false }) });
+    expect(await gone.watchSource({ businessId: t.businessId, sourceId: source.id, reason: "added" })).toMatchObject({ status: "unreachable", reason: "The page could not be read." });
+    expect((await repos.product.getSource(t.db, t.businessId, source.id)).relevance).toMatchObject({ watch: { status: "unreachable" } });
+    const down = createSourceWatcherActivities({ ...t.deps, gateway: answering({ code: "vendor_error", message: "gone.example answered 503", status: 503, retryable: true }) });
+    await expect(down.watchSource({ businessId: t.businessId, sourceId: source.id, reason: "schedule" })).rejects.toMatchObject({ type: "SourceWatchError", nonRetryable: false });
+  });
+
   it("skips archived sources and paused agents; another business's id finds nothing", async () => {
     const s = await repos.product.createSource(t.db, t.businessId, { kind: "doc", title: "Pricing note" });
     await repos.product.archiveSource(t.db, t.businessId, s.id);
@@ -137,7 +152,23 @@ describe("the sweep and failures", () => {
     await acts.failSourceWatch({ businessId: t.businessId, sourceId: fresh.id, error: "The Source Watcher could not finish reading this source. It tries again on the next sweep." });
     const row = await repos.product.getSource(t.db, t.businessId, fresh.id);
     expect((row.relevance as { watch: unknown }).watch).toMatchObject({ status: "failed" });
+    // What the Sources tab promises: a failed read is tried again on the next sweep, even for a note read once.
+    expect((await acts.listSourcesToWatch({ businessId: t.businessId, limit: 200 })).sourceIds).toContain(fresh.id);
+    await acts.watchSource({ businessId: t.businessId, sourceId: fresh.id, reason: "schedule" });
+    expect((await acts.listSourcesToWatch({ businessId: t.businessId, limit: 200, at: later })).sourceIds).not.toContain(fresh.id);
     const events = await repos.events.list(t.db, t.businessId, { type: "source.scored", limit: 50 });
     expect(events.items.some((e) => (e.payload as { sourceId: string; status: string }).sourceId === fresh.id && (e.payload as { status: string }).status === "failed")).toBe(true);
+  });
+
+  it("a source written before the Source Watcher (old { score, sections } shape) is read once and gets the shape the tabs read", async () => {
+    const legacy = await repos.product.createSource(t.db, t.businessId, { kind: "feedback", title: "Support inbox: the Starter plan at $39 per month is too much for one entity", relevance: { score: 0.81, sections: ["Pricing"] }, fetchedAt: new Date(t.deps.clock.now().getTime() - 9 * 86_400_000) });
+    expect((await acts.listSourcesToWatch({ businessId: t.businessId, limit: 200 })).sourceIds).toContain(legacy.id);
+    expect(await acts.watchSource({ businessId: t.businessId, sourceId: legacy.id, reason: "schedule" })).toMatchObject({ status: "scored" });
+    const rel = (await repos.product.getSource(t.db, t.businessId, legacy.id)).relevance as { summary?: string; blocks?: { blockId: string }[]; topics?: string[]; watch?: { status: string } };
+    expect(rel).toMatchObject({ summary: expect.any(String), topics: expect.arrayContaining([expect.any(String)]), watch: { status: "scored" } });
+    expect(rel.blocks?.map((b) => b.blockId)).toContain(pricingId);
+    // Read once: a note-like source is not read again on later sweeps.
+    const later = new Date(t.deps.clock.now().getTime() + 25 * 3_600_000).toISOString();
+    expect((await acts.listSourcesToWatch({ businessId: t.businessId, limit: 200, at: later })).sourceIds).not.toContain(legacy.id);
   });
 });

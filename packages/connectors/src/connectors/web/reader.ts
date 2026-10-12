@@ -52,6 +52,8 @@ export function isPublicAddress(ip: string): boolean {
     if ((first & 0xffc0) === 0xfe80) return false; // link-local fe80::/10
     if ((first & 0xff00) === 0xff00) return false; // multicast
     if (lower.startsWith("2001:db8:") || lower.startsWith("64:ff9b:") || lower.startsWith("100::")) return false;
+    // Transition prefixes that carry an IPv4 address inside (6to4 2002::/16, Teredo 2001:0::/32): never a public page's home.
+    if (first === 0x2002 || /^2001:0{0,4}:/.test(lower)) return false;
     return (first & 0xe000) === 0x2000; // global unicast 2000::/3
   }
   return false;

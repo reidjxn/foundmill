@@ -529,13 +529,18 @@ export const productRepo = {
   },
 
   /**
-   * Sources the Source Watcher should (re)read: live ones never checked, and web pages (which change) last checked
-   * (read, or found unreadable: `relevance.watch.checkedAt`) before `staleBefore`, oldest first. A note or a file is
-   * read once. Import sources (read once by the import, `relevance.import`) are left to it.
+   * Sources the Source Watcher should (re)read: live ones it never read (no `relevance.watch`, which includes rows
+   * written before it existed in the old `{ score, sections }` shape, so the Sources and Research tabs fill in for
+   * them too), reads that failed (whatever the kind: the Sources tab promises a failed read is tried again on the next
+   * sweep), and web pages (which change) last checked (read, or found unreadable: `relevance.watch.checkedAt`) before
+   * `staleBefore`, oldest first. A note or a file that was read is not read again. Import sources (read once by the
+   * import, `relevance.import`) are left to it.
    */
   async listSourcesToWatch(db: Executor, businessId: string, input: { staleBefore: Date; limit?: number }): Promise<Source[]> {
     const limit = Math.min(Math.max(Math.trunc(input.limit ?? 20), 1), 200);
     const checkedAt = sql`coalesce((${sources.relevance} -> 'watch' ->> 'checkedAt')::timestamptz, ${sources.fetchedAt})`;
+    const neverWatched = sql`(${sources.relevance} -> 'watch') is null`;
+    const failed = sql`(${sources.relevance} -> 'watch' ->> 'status') = 'failed'`;
     return db
       .select()
       .from(sources)
@@ -544,7 +549,7 @@ export const productRepo = {
           eq(sources.businessId, businessId),
           isNull(sources.archivedAt),
           sql`(${sources.relevance} -> 'import') is null`,
-          sql`(${checkedAt} is null or (${sources.uri} ~* '^https?://' and ${checkedAt} < ${input.staleBefore.toISOString()}::timestamptz))`,
+          sql`(${checkedAt} is null or ${neverWatched} or ${failed} or (${sources.uri} ~* '^https?://' and ${checkedAt} < ${input.staleBefore.toISOString()}::timestamptz))`,
         ),
       )
       .orderBy(sql`${checkedAt} asc nulls first`, asc(sources.createdAt))

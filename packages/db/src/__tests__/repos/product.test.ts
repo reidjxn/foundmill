@@ -39,6 +39,10 @@ describe("spec merge", () => {
     expect(conflict.conflicts).toBe(1);
     // Additions on both sides at different places.
     expect(docText(mergeBlockContent(base, doc("Z", "A", "B", "C"), doc("A", "B", "C", "D")).content)).toBe("Z\n\nA\n\nB\n\nC\n\nD");
+    // Additions on both sides at the same place: the live paragraph is kept, then the hunk's, and nothing conflicts.
+    const both = mergeBlockContent(base, doc("A", "B", "Human note", "C"), doc("A", "B", "Proposed note", "C"));
+    expect(docText(both.content)).toBe("A\n\nB\n\nHuman note\n\nProposed note\n\nC");
+    expect(both.conflicts).toBe(0);
     // No base recorded: the hunk replaces.
     expect(mergeBlockContent(null, doc("X"), doc("Y")).content).toEqual(doc("Y"));
   });

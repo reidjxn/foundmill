@@ -565,10 +565,19 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
 
   const costMinor = Math.max(0, Math.round(result.costMinor ?? connector.costModel?.(tool.name, args) ?? 0));
   if (result.ok) {
+    // A token minted outside an agent session (a plan action, an import, a Source Watcher read) carries a one-off
+    // session id with no agent_sessions row, which usage_ledger.session_id references: that call is booked to the agent.
+    const sessionKnown = await repos.agents.getSession(deps.db, session.businessId, session.sessionId).then(
+      () => true,
+      (e: unknown) => {
+        if (e instanceof NotFoundError) return false;
+        throw e;
+      },
+    );
     // Billed to the business's own key or the platform's credits; a credits row is charged to the period's balance.
     await bookUsage(deps.db, session.businessId, {
       agentId: session.agentId,
-      sessionId: session.sessionId,
+      sessionId: sessionKnown ? session.sessionId : null,
       kind: "tool",
       quantity: 1,
       unit: "calls",
