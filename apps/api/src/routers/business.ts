@@ -1,6 +1,6 @@
 /**
  * business.get/update/setGameMode/setBusinessMode/continue/pauseCycle/resumeCycle/startHoliday/endHoliday/stopAllAgents/
- * export/archive/requestDeletion/cancelDeletion (BUILD §9.4, §9.6, §11.15, §14).
+ * export/archive/restore/listArchived/requestDeletion/cancelDeletion (BUILD §9.4, §9.6, §11.15, §14).
  */
 import { LIMITS } from "@foundmill/config";
 import { repos, UpdateBusinessInput } from "@foundmill/db";
@@ -8,9 +8,9 @@ import { BUSINESS_MODES, DECISION_TYPES, EVENT_TYPES, GAME_MODES } from "@foundm
 import { z } from "zod";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
 import { stopAllAgents } from "../services/killswitch";
-import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, requestDeletion } from "../services/lifecycle";
+import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, requestDeletion, restoreBusiness } from "../services/lifecycle";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
-import { adminProcedure, audit, businessProcedure, emit, ownerProcedure, router, writeProcedure } from "../trpc";
+import { adminArchivedProcedure, adminProcedure, archivedBusinessProcedure, audit, businessProcedure, emit, ownerArchivedProcedure, protectedProcedure, router, writeProcedure } from "../trpc";
 import { businessLogoRouter } from "./logo";
 
 /** What an admin may change on the business record (Settings › Business and Glossary send these). */
@@ -188,16 +188,32 @@ export const businessRouter = router({
   audit: adminProcedure.input(z.object({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() })).query(({ ctx, input }) => ctx.rls((tx) => repos.audit.list(tx, ctx.businessId, input))),
 
   // --- Danger zone (BUILD §11.15) -------------------------------------------------------------------------------------
-  /** Export everything as a portable JSON archive (credentials never included); an Inbox note carries the counts. */
-  export: adminProcedure.mutation(({ ctx }) => exportBusiness(ctx)),
-  /** Stop every agent and hide the business. Data stays. */
+  // Export, restore and deletion also reach an archived business (`*ArchivedProcedure`); everything else 404s on one.
+  /**
+   * Export everything as a portable JSON archive (credentials never included): every business-scoped table to its last
+   * row, returned for the browser to save as `fileName`; an Inbox note carries the counts.
+   */
+  export: adminArchivedProcedure.mutation(({ ctx }) => exportBusiness(ctx)),
+  /** Stop every agent and hide the business. Data stays; an owner restores it with `restore`. */
   archive: adminProcedure.input(z.object({ reason: z.string().max(200).default("archived") })).mutation(async ({ ctx, input }) => {
     const archived = await archiveBusiness(ctx, input.reason);
     await repos.social.removeBusinessFromLeaderboards(ctx.db, ctx.businessId);
     return archived;
   }),
+  /** Owner-only: bring an archived business back (idempotent). Its agents stay stopped until resumed. */
+  restore: ownerArchivedProcedure.mutation(({ ctx }) => restoreBusiness(ctx)),
+  /** The archived businesses the signed-in account owns, with any scheduled deletion (New business › Archived businesses). */
+  listArchived: protectedProcedure.query(async ({ ctx }) => {
+    const archived = await repos.businesses.listArchivedForUser(ctx.db, ctx.userId);
+    return Promise.all(
+      archived.map(async (business) => {
+        const deletion = await deletionState({ db: ctx.db, businessId: business.id });
+        return { business: { id: business.id, name: business.name, slug: business.slug, kitPrimary: business.kitPrimary, kitSecondary: business.kitSecondary, archivedAt: business.archivedAt }, deletion: deletion.status === "scheduled" ? deletion : null };
+      }),
+    );
+  }),
   /** Owner-only, fresh authentication required (PRECONDITION_FAILED `reauth_required` otherwise); deletion runs 7 days later unless cancelled. */
-  requestDeletion: ownerProcedure.input(z.object({ confirmName: z.string().max(200).optional() })).mutation(({ ctx, input }) => requestDeletion(ctx, { confirmName: input.confirmName })),
-  cancelDeletion: ownerProcedure.mutation(({ ctx }) => cancelDeletion(ctx)),
-  deletionStatus: businessProcedure.query(({ ctx }) => ctx.rls((tx) => deletionState({ db: tx, businessId: ctx.businessId }))),
+  requestDeletion: ownerArchivedProcedure.input(z.object({ confirmName: z.string().max(200).optional() })).mutation(({ ctx, input }) => requestDeletion(ctx, { confirmName: input.confirmName })),
+  cancelDeletion: ownerArchivedProcedure.mutation(({ ctx }) => cancelDeletion(ctx)),
+  deletionStatus: archivedBusinessProcedure.query(({ ctx }) => ctx.rls((tx) => deletionState({ db: tx, businessId: ctx.businessId }))),
 });

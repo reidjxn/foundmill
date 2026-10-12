@@ -1,40 +1,56 @@
 "use client";
 /**
- * Settings › Danger zone (BUILD §11.15): export everything (`business.export`), archive the business
- * (`business.archive`), permanent deletion (`business.requestDeletion`: founder-only, fresh sign-in required, 7-day
- * delay, cancellable with `business.cancelDeletion`). Outlined in status-bad at 40 % (DESIGN §9).
+ * Settings › Danger zone (BUILD §11.15): export everything (`business.export`, saved by the browser as a JSON file),
+ * archive the business (`business.archive`; an owner restores it from New business › Archived businesses), permanent
+ * deletion (`business.requestDeletion`: founder-only, fresh sign-in required, 7-day delay, cancellable with
+ * `business.cancelDeletion`). Outlined in status-bad at 40 % (DESIGN §9).
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Archive, Download, Trash2, TriangleAlert, Undo2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Icon, Input, Panel, StatusPill, useDateFormat } from "@foundmill/dugout";
 import { formatDate } from "@/lib/format";
 import { errorMessage, trpcErrorCode, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
+import { ARCHIVED_HREF, DELETION_DELAY_DAYS, exportToast, saveExport, type ExportedArchive } from "./danger";
 import { Hint, useSettingsToast } from "./shared";
-
-export const DELETION_DELAY_DAYS = 7;
 
 export function DangerTab() {
   const datePrefs = useDateFormat();
   const { businessId, data, isOwner, isAdmin } = useBusiness();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const t = useSettingsToast();
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [typedName, setTypedName] = useState("");
+  // The last export of this visit, so a blocked or lost download can be saved again without exporting again.
+  const [lastExport, setLastExport] = useState<ExportedArchive | null>(null);
   const refreshBusiness = () => queryClient.invalidateQueries({ queryKey: trpcPathPrefix("business") as unknown[] });
 
-  const exportAll = useMutation(trpc.business.export.mutationOptions({ onSuccess: () => t.saved("Export ready", "An Inbox note carries the archive (spec, roadmap, tasks, CRM, journeys, finance, audit log, agent instructions). Credentials are never included."), onError: (err) => t.failed(err, "Export failed") }));
+  const exportAll = useMutation(
+    trpc.business.export.mutationOptions({
+      onSuccess: (result) => {
+        setLastExport(result);
+        const toast = exportToast(result, saveExport(result));
+        if (toast.tone === "good") t.saved(toast.title, toast.description);
+        else t.info(toast.title, toast.description);
+      },
+      onError: (err) => t.failed(err, "Export failed"),
+    }),
+  );
   const archive = useMutation(
     trpc.business.archive.mutationOptions({
       onSuccess: (result) => {
         setConfirmArchive(false);
-        void refreshBusiness();
         const n = result.stopped.pausedAgents;
-        t.saved("Business archived", `${n} agent${n === 1 ? "" : "s"} stopped; the business is hidden from your list and an owner can restore it.`);
+        t.saved("Business archived", `${n} agent${n === 1 ? "" : "s"} stopped. The business is hidden from your list; ${isOwner ? "restore it" : "an owner can restore it"} from New business › Archived businesses.`);
+        // This business no longer opens: leave for New business, where its owner finds it under Archived businesses.
+        router.push(ARCHIVED_HREF);
+        void refreshBusiness();
       },
       onError: (err) => t.failed(err, "Archive failed"),
     }),
@@ -68,16 +84,22 @@ export function DangerTab() {
       <div className="flex max-w-reading flex-col gap-6">
         <div className="flex flex-col gap-2">
           <span className="t-display-sm">Export everything</span>
-          <p className="text-body text-secondary">Spec, roadmap, tasks, CRM, journeys, finance, audit log and agent instructions as a portable archive. Credentials are never included.</p>
-          <div>
-            <Button icon={Download} variant="default" disabled={!isAdmin} loading={exportAll.isPending} onClick={() => exportAll.mutate({ businessId })}>
+          <p className="text-body text-secondary">Every record of the business (spec, roadmap, tasks, team and conversations, CRM, journeys, finance, legal, Inbox, usage and audit log) saved to your computer as one JSON file. Credentials are never included.</p>
+          <div className="flex items-center gap-3">
+            <Button icon={Download} variant="default" disabled={!isAdmin} loading={exportAll.isPending} onClick={() => exportAll.mutate({ businessId })} data-testid="export-everything">
               Export everything
             </Button>
+            {lastExport ? (
+              <Button icon={Download} variant="ghost" onClick={() => saveExport(lastExport)} data-testid="export-save-again">
+                Save the file
+              </Button>
+            ) : null}
+            {lastExport ? <span className="font-mono text-mono text-secondary" data-testid="export-file-name">{lastExport.fileName}</span> : null}
           </div>
         </div>
         <div className="flex flex-col gap-2 border-t border-line pt-4">
           <span className="t-display-sm">Archive business</span>
-          <p className="text-body text-secondary">Stops every agent and hides the business. Data stays; an owner can restore it.</p>
+          <p className="text-body text-secondary">Stops every agent and hides the business. Data stays; an owner can restore, export or delete it from New business › Archived businesses.</p>
           <div>
             <Button icon={Archive} variant="default" disabled={!isAdmin} onClick={() => setConfirmArchive(true)}>
               Archive {data.business.name}
@@ -112,7 +134,7 @@ export function DangerTab() {
         <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Archive {data.business.name}?</DialogTitle>
-            <DialogDescription>All agents stop within 30 seconds. The business leaves your list until an owner restores it.</DialogDescription>
+            <DialogDescription>All agents stop within 30 seconds. The business leaves your list until an owner restores it from New business › Archived businesses.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setConfirmArchive(false)}>

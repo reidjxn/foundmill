@@ -1,6 +1,6 @@
-/** businesses — the club record (BUILD §7.2 "Accounts and businesses", routers business.*). */
+/** businesses — the business record (BUILD §7.2 "Accounts and businesses", routers business.*). */
 import { ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, GAME_MODES, MODEL_BILLING, PLAN_TIERS, slugify, uuid } from "@foundmill/shared";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { businesses, memberships, type Business } from "../schema";
 import { defined, Id, IsoDateInput, maybeOne, one, parseInput, type Executor } from "./_shared";
@@ -64,6 +64,20 @@ export const businessesRepo = {
       .where(and(eq(memberships.userId, userId), notArchived))
       .orderBy(desc(businesses.createdAt));
     return rows.map((r) => ({ ...r.business, role: r.role }));
+  },
+
+  /**
+   * Account-scoped: the archived businesses the user owns, most recently archived first (Settings › Danger zone
+   * promises an owner can restore one; New business lists them with Restore, Export and Delete permanently).
+   */
+  async listArchivedForUser(db: Executor, userId: string): Promise<Business[]> {
+    const rows = await db
+      .select({ business: businesses })
+      .from(memberships)
+      .innerJoin(businesses, eq(businesses.id, memberships.businessId))
+      .where(and(eq(memberships.userId, userId), eq(memberships.role, "owner"), isNotNull(businesses.archivedAt)))
+      .orderBy(desc(businesses.archivedAt));
+    return rows.map((r) => r.business);
   },
 
   /**
@@ -146,5 +160,10 @@ export const businessesRepo = {
   /** Soft delete (permanent deletion is a hard gate). */
   async archive(db: Executor, businessId: string): Promise<Business> {
     return one(await db.update(businesses).set({ archivedAt: new Date() }).where(and(eq(businesses.id, businessId), notArchived)).returning(), "business", businessId);
+  },
+
+  /** Undo `archive`: the business is listed and reachable again (its agents stay stopped until resumed). */
+  async restore(db: Executor, businessId: string): Promise<Business> {
+    return one(await db.update(businesses).set({ archivedAt: null }).where(and(eq(businesses.id, businessId), isNotNull(businesses.archivedAt))).returning(), "archived business", businessId);
   },
 };

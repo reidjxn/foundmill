@@ -25,6 +25,18 @@ describe("businesses, memberships, founders, ideas", () => {
     await repos.businesses.archive(r.db, b.id);
     await expect(repos.businesses.get(r.db, b.id)).rejects.toThrow(/not found/);
     expect((await repos.businesses.get(r.db, b.id, { includeArchived: true })).archivedAt).toBeInstanceOf(Date);
+    // Archived: off the list, on the owner's archived list (not on a member's, not on a stranger's), and restorable.
+    expect((await repos.businesses.listForUser(r.db, r.A.ownerId)).map((x) => x.id)).not.toContain(b.id);
+    expect((await repos.businesses.listArchivedForUser(r.db, r.A.ownerId)).map((x) => x.id)).toEqual([b.id]);
+    await repos.memberships.add(r.db, b.id, { userId: r.A.memberId, role: "member" });
+    expect(await repos.businesses.listArchivedForUser(r.db, r.A.memberId)).toEqual([]);
+    expect(await repos.businesses.listArchivedForUser(r.db, r.B.ownerId)).toEqual([]);
+    const restored = await repos.businesses.restore(r.db, b.id);
+    expect(restored.archivedAt).toBeNull();
+    expect((await repos.businesses.get(r.db, b.id)).id).toBe(b.id);
+    expect(await repos.businesses.listArchivedForUser(r.db, r.A.ownerId)).toEqual([]);
+    // Restoring a business that is not archived finds nothing to restore.
+    await expect(repos.businesses.restore(r.db, b.id)).rejects.toThrow(/not found/);
   });
 
   it("memberships are per business; roles and section permissions update", async () => {

@@ -40,6 +40,7 @@ import { usageRepo } from "./usage";
 import { workspacesRepo } from "./workspaces";
 import { conversationsRepo } from "./conversations";
 import { preferencesRepo } from "./preferences";
+import { portabilityRepo } from "./portability";
 
 export const repos = {
   businesses: businessesRepo,
@@ -78,6 +79,7 @@ export const repos = {
   foundations: foundationsRepo,
   conversations: conversationsRepo,
   preferences: preferencesRepo,
+  portability: portabilityRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -121,3 +123,4 @@ export * from "./workspaces";
 export * from "./logos";
 export * from "./conversations";
 export * from "./preferences";
+export * from "./portability";

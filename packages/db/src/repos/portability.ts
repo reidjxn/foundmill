@@ -1,0 +1,175 @@
+/**
+ * The portable archive's reader (Settings › Danger zone "Export everything", BUILD §11.15; routers business.export).
+ *
+ * Every business-scoped table is classified here once: exported (with the section of the product it belongs to, so a
+ * member walled off a section never exports it, and the columns kept back) or left out (with the reason the archive
+ * states). `__tests__/repos/portability.test.ts` fails when a table with a `business_id` column is in neither list, so
+ * a new table can never be silently missing from the export again. Rows are read in id order, page by page, until the
+ * table is exhausted (`nextAfter: null`); nothing here stops at a row count.
+ */
+import { and, asc, eq, getTableColumns, getTableName, gt, is, type AnyColumn } from "drizzle-orm";
+import { PgTable } from "drizzle-orm/pg-core";
+import * as s from "../schema";
+import type { Executor } from "./_shared";
+
+/** The product sections a table belongs to (apps/api `SECTIONS` minus LIVE, which is never exported). */
+export const EXPORT_SECTIONS = ["product", "development", "distribution", "finance", "team", "legal", "inbox", "crm", "settings", "billing"] as const;
+export type ExportSection = (typeof EXPORT_SECTIONS)[number];
+
+type BusinessTable = PgTable & { id: AnyColumn; businessId: AnyColumn };
+
+export interface ExportTableSpec {
+  table: BusinessTable;
+  section: ExportSection;
+  /** Columns (schema property names) never written to the archive. */
+  omit?: readonly string[];
+  /** When set, only these columns are written (connector plumbing: what is connected, never how). */
+  pick?: readonly string[];
+}
+
+const t = (table: PgTable, section: ExportSection, columns: { omit?: readonly string[]; pick?: readonly string[] } = {}): ExportTableSpec => ({ table: table as BusinessTable, section, ...columns });
+
+/** Exported tables by their SQL name (the archive's keys), grouped by section. */
+export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
+  // product
+  business_foundations: t(s.businessFoundations, "product"),
+  spec_blocks: t(s.specBlocks, "product"),
+  spec_versions: t(s.specVersions, "product"),
+  change_proposals: t(s.changeProposals, "product"),
+  proposal_hunks: t(s.proposalHunks, "product"),
+  roadmap_items: t(s.roadmapItems, "product"),
+  roadmap_dependencies: t(s.roadmapDependencies, "product"),
+  sources: t(s.sources, "product"),
+  ideas: t(s.ideas, "product"),
+  idea_versions: t(s.ideaVersions, "product"),
+  idea_comparisons: t(s.ideaComparisons, "product"),
+  // development
+  tasks: t(s.tasks, "development"),
+  task_edges: t(s.taskEdges, "development"),
+  agent_sessions: t(s.agentSessions, "development"),
+  // team
+  departments: t(s.departments, "team"),
+  department_members: t(s.departmentMembers, "team"),
+  agents: t(s.agents, "team"),
+  agent_versions: t(s.agentVersions, "team"),
+  agent_skills: t(s.agentSkills, "team"),
+  skill_definitions: t(s.skillDefinitions, "team"),
+  skill_tests: t(s.skillTests, "team"),
+  training_runs: t(s.trainingRuns, "team"),
+  agent_metrics: t(s.agentMetrics, "team"),
+  playbooks: t(s.playbooks, "team"),
+  agent_threads: t(s.agentThreads, "team"),
+  agent_messages: t(s.agentMessages, "team"),
+  // distribution (channels, campaigns and the customer journey)
+  channels: t(s.channels, "distribution"),
+  campaigns: t(s.campaigns, "distribution"),
+  assets: t(s.assets, "distribution"),
+  channel_metrics: t(s.channelMetrics, "distribution"),
+  suppression_list: t(s.suppressionList, "distribution"),
+  visitors: t(s.visitors, "distribution"),
+  touches: t(s.touches, "distribution"),
+  conversions: t(s.conversions, "distribution"),
+  journeys: t(s.journeys, "distribution"),
+  milestones: t(s.milestones, "distribution"),
+  // crm
+  entities: t(s.entities, "crm"),
+  entity_roles: t(s.entityRoles, "crm"),
+  relationships: t(s.relationships, "crm"),
+  interactions: t(s.interactions, "crm"),
+  mentions: t(s.mentions, "crm"),
+  field_provenance: t(s.fieldProvenance, "crm"),
+  merge_log: t(s.mergeLog, "crm"),
+  // finance
+  accounts: t(s.accounts, "finance", { omit: ["externalId"] }),
+  transactions: t(s.transactions, "finance"),
+  ledger_snapshots: t(s.ledgerSnapshots, "finance"),
+  forecasts: t(s.forecasts, "finance"),
+  securities: t(s.securities, "finance"),
+  cap_table_entries: t(s.capTableEntries, "finance"),
+  // billing
+  usage_ledger: t(s.usageLedger, "billing"),
+  credit_balances: t(s.creditBalances, "billing"),
+  // legal
+  legal_entities: t(s.legalEntities, "legal"),
+  incorporations: t(s.incorporations, "legal"),
+  filings: t(s.filings, "legal"),
+  contracts: t(s.contracts, "legal"),
+  compliance_events: t(s.complianceEvents, "legal"),
+  // inbox
+  inbox_items: t(s.inboxItems, "inbox"),
+  plans: t(s.plans, "inbox"),
+  plan_actions: t(s.planActions, "inbox"),
+  decisions: t(s.decisions, "inbox"),
+  approvals: t(s.approvals, "inbox"),
+  // settings
+  memberships: t(s.memberships, "settings", { pick: ["id", "userId", "role", "createdAt"] }),
+  integrations: t(s.integrations, "settings", { pick: ["id", "connectorKey", "status", "authKind", "scopes", "accountLabel", "lastHealthAt", "lastError", "createdAt", "updatedAt"] }),
+  app_installations: t(s.appInstallations, "settings", { pick: ["id", "connectorKey", "accountLabel", "verifiedAt", "createdAt"] }),
+  policies: t(s.policies, "settings"),
+  holiday_periods: t(s.holidayPeriods, "settings"),
+  screen_definitions: t(s.screenDefinitions, "settings"),
+  dashboard_layouts: t(s.dashboardLayouts, "settings"),
+  business_logos: t(s.businessLogos, "settings"),
+  audit_log: t(s.auditLog, "settings"),
+};
+
+/** Business-scoped tables left out of the archive, with the reason the archive states. */
+export const EXPORT_EXCLUDED_TABLES: Readonly<Record<string, string>> = {
+  credentials: "Credentials and connector tokens are never exported (ciphertext or plaintext).",
+  webhooks: "Webhook endpoints and their secret references are connector plumbing, not business data.",
+  events: "The internal event log; the audit log and the Inbox in this archive record what happened.",
+  outbox: "The event delivery queue (internal).",
+  composer_buffer: "Inbox notes waiting to be written (internal queue).",
+  workspace_blobs: "Sandbox file snapshots; the code reaches your repository through pushes.",
+  workspace_snapshots: "Sandbox file snapshots; the code reaches your repository through pushes.",
+  posts: "LIVE network posts belong to the network, not to the business.",
+  community_members: "LIVE network memberships belong to the network, not to the business.",
+  leaderboard_entries: "LIVE leaderboard rows belong to the network, not to the business.",
+};
+
+/** One row as it is written to the archive: dates as ISO strings, bytes as base64, everything else as stored. */
+export type PortableRow = Record<string, unknown>;
+
+/** JSON-safe copy of a stored value (Date → ISO string, bytes → `{ encoding: "base64", data }`). */
+export function portableValue(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Uint8Array) return { encoding: "base64", data: Buffer.from(value).toString("base64") };
+  if (typeof value === "bigint") return value.toString();
+  if (Array.isArray(value)) return value.map(portableValue);
+  return value;
+}
+
+export const portabilityRepo = {
+  /**
+   * One page of an exported table for the business, in id order after `after` (exclusive). `nextAfter` is the id to
+   * pass back for the next page, null once the table is exhausted. Unknown or excluded tables are refused.
+   */
+  async page(db: Executor, businessId: string, tableName: string, options: { after?: string | null; limit?: number } = {}): Promise<{ rows: PortableRow[]; nextAfter: string | null }> {
+    const spec = EXPORT_TABLES[tableName];
+    if (!spec) throw new Error(`table ${tableName} is not exported`);
+    const limit = Math.min(Math.max(options.limit ?? 1000, 1), 5000);
+    const rows = (await db
+      .select()
+      .from(spec.table)
+      .where(and(eq(spec.table.businessId, businessId), options.after ? gt(spec.table.id, options.after) : undefined))
+      .orderBy(asc(spec.table.id))
+      .limit(limit + 1)) as Record<string, unknown>[];
+    const more = rows.length > limit;
+    const page = more ? rows.slice(0, limit) : rows;
+    const keep = (key: string) => (spec.pick ? spec.pick.includes(key) : !spec.omit?.includes(key));
+    return {
+      rows: page.map((row) => Object.fromEntries(Object.entries(row).filter(([k]) => keep(k)).map(([k, v]) => [k, portableValue(v)]))),
+      nextAfter: more ? String(page.at(-1)!.id) : null,
+    };
+  },
+
+  /** Every table of the schema with a `business_id` column (what the classification must cover). */
+  businessScopedTables(): string[] {
+    const tables: PgTable[] = [];
+    for (const value of Object.values(s) as unknown[]) if (is(value, PgTable)) tables.push(value);
+    return tables
+      .filter((table) => "businessId" in getTableColumns(table))
+      .map((table) => getTableName(table))
+      .sort();
+  },
+};

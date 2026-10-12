@@ -7,6 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, GitMerge, Search, Trash2, UserRoundPlus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { downloadText } from "@/lib/download";
 import { plainWords } from "@/lib/format";
 import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ENTITY_KIND_ICONS, ENTITY_KIND_LABELS, Field, Icon, Input, RadioGroup, RadioOption, SimpleSelect, Textarea, useToast } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
@@ -312,19 +313,6 @@ export function AddRoleDialog({ businessId, entityId, open, onOpenChange, roles 
 }
 
 // --- data duties: export and deletion request ----------------------------------------------------------------------
-
-export function downloadText(filename: string, text: string, type = "application/json"): void {
-  if (typeof document === "undefined") return;
-  const blob = new Blob([text], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
 
 export function ExportDialog({ get, open, onOpenChange }: { get: EntityGet; open: boolean; onOpenChange: (o: boolean) => void }) {
   const json = useMemo(() => exportEntityJson(get), [get]);
