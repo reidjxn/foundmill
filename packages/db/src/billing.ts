@@ -16,8 +16,9 @@
  * currency is never subtracted from a USD balance.
  */
 import { CREDITS_CURRENCY, includedCreditsMinor } from "@foundmill/config";
+import { CreditsExhaustedError, NotFoundError } from "@foundmill/shared";
 import { repos } from "./repos";
-import type { Executor } from "./repos/_shared";
+import { Id, type Executor } from "./repos/_shared";
 import { periodOf, type RecordUsageInput } from "./repos/usage";
 import type { Business, CreditBalance, UsageEntry } from "./schema";
 
@@ -70,8 +71,41 @@ export async function creditsState(db: Executor, business: Pick<Business, "id" |
   return { currency: CREDITS_CURRENCY, balanceMinor, grantedMinor: row ? Number(row.grantedMinor) : includedMinor, spentMinor: row ? Number(row.spentMinor) : 0, includedMinor, exhausted: balanceMinor <= 0 };
 }
 
+/**
+ * The ceiling on a platform-key call made for a business (the api's own model calls: conversations, plan compiles,
+ * the in-process composer, logos, recommenders): refused with `CreditsExhaustedError` before it is sent when the
+ * business is on credits and this month's are used up. `bookUsage` settles a call after the fact and pauses the team
+ * on the last credit; this keeps anything else from running on the platform's key past that point. A business on its
+ * own key is never refused here (its platform-key calls are metered, not charged), and neither is an unknown business.
+ */
+export async function assertCreditsAvailable(db: Executor, businessId: string, now: Date = new Date()): Promise<void> {
+  if (!Id.safeParse(businessId).success) return;
+  const business = await repos.businesses.get(db, businessId, { includeArchived: true }).catch((err: unknown) => {
+    if (err instanceof NotFoundError) return null;
+    throw err;
+  });
+  if (!business) return;
+  const period = periodOf(now);
+  const credits = await creditsState(db, business, period);
+  if (!credits?.exhausted) return;
+  throw new CreditsExhaustedError(`${creditsWayBack(business.planTier, "used up")} Spend so far is an Estimate in US dollars.`, { tier: business.planTier, period, balanceMinor: credits.balanceMinor, currency: credits.currency });
+}
+
 /** "$5.00" for a USD credits amount in copy the founder reads. */
 const usd = (minor: number) => `$${(minor / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** The way back when this month's credits are gone, worded for the tier (the Inbox note and a refused call). */
+function creditsWayBack(tier: Business["planTier"], state: "used up" | "paused"): string {
+  if (tier === "free") {
+    const head = `The free plan includes ${usd(includedCreditsMinor("free"))} of model use a month, and this month's is used up`;
+    return state === "paused"
+      ? `${head}, so every agent is paused. Add your own Anthropic key in Settings → Keys to keep the team working (your key is billed by Anthropic, not by us), then resume the team; tasks pick up where they stopped.`
+      : `${head}. Add your own Anthropic key in Settings → Keys to keep working (your key is billed by Anthropic, not by us).`;
+  }
+  return state === "paused"
+    ? `This month's credits are used up, so every agent is paused. Top up in Settings → Billing, or bring your own Anthropic key in Settings → Keys, then resume the team; tasks pick up where they stopped.`
+    : `This month's credits are used up. Top up in Settings → Billing, or bring your own Anthropic key in Settings → Keys, to keep working.`;
+}
 
 /** The 100 % action of BUILD §10.4: pause every agent and let the Inbox explain the way back for this tier. */
 async function pauseForCredits(db: Executor, business: Business, period: string): Promise<{ pausedAgents: number; noteId: string | null }> {
@@ -80,15 +114,11 @@ async function pauseForCredits(db: Executor, business: Business, period: string)
   const chief = await repos.agents.chiefOfStaff(db, businessId);
   let noteId: string | null = null;
   if (chief) {
-    const way =
-      business.planTier === "free"
-        ? `The free plan includes ${usd(includedCreditsMinor("free"))} of model use a month, and this month's is used up, so every agent is paused. Add your own Anthropic key in Settings → Keys to keep the team working (your key is billed by Anthropic, not by us), then resume the team; tasks pick up where they stopped.`
-        : `This month's credits are used up, so every agent is paused. Top up in Settings → Billing, or bring your own Anthropic key in Settings → Keys, then resume the team; tasks pick up where they stopped.`;
     const note = await repos.inbox.createItem(db, businessId, {
       type: "warning",
       from_agent_id: chief.id,
       subject: CREDITS_EXHAUSTED_SUBJECT,
-      body_md: `${way} Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
+      body_md: `${creditsWayBack(business.planTier, "paused")} Spend so far is an Estimate in US dollars; the model invoice is the real figure.`,
       status_strip: [],
       exhibit: { kind: "none", spec_ref: null },
       decision: null,

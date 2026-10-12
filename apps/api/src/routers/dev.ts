@@ -6,7 +6,7 @@
  */
 import { FLAGS, isSimulateEnv } from "@foundmill/config";
 import { HOUSE_STYLE } from "@foundmill/agents";
-import { TaskListFilter, codeRepositoryOf, repos, type Task } from "@foundmill/db";
+import { TaskListFilter, assertConcurrencyRoom, codeRepositoryOf, repos, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
 import { TaskGraphOutput } from "@foundmill/models";
 import { NotFoundError, ValidationError, connectorMode } from "@foundmill/shared";
@@ -126,6 +126,8 @@ export const devRouter = router({
       const task = await ctx.rls((tx) => repos.tasks.get(tx, ctx.businessId, input.taskId));
       if (!task.assigneeAgentId) throw new ValidationError("Assign an agent before starting the task");
       const assignee = await ctx.rls((tx) => repos.agents.get(tx, ctx.businessId, task.assigneeAgentId!));
+      // Plan tier (BUILD §10.5): a task started by hand takes a concurrent-agent slot like a cycle's dispatch.
+      await assertConcurrencyRoom(ctx.db, ctx.business);
       // agent_sessions is service-written (orchestrator-owned); created on the service db before the RLS transaction.
       const session = await repos.agents.createSession(ctx.db, ctx.businessId, { agentId: assignee.id, taskId: task.id, modelKey: assignee.modelKey });
       await ctx.rls(async (tx) => {

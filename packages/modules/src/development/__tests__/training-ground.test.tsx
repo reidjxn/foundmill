@@ -26,7 +26,7 @@ describe("TrainingGroundScreen", () => {
     expect(fake.subscriberCount(`as:${SESSION_INDEX}`)).toBe(1);
     expect(fake.subscriberCount(`as:${SESSION_SOURCING}`)).toBe(1);
     expect(screen.getByTestId("ground-counts").textContent).toBe("3 live · 2 running");
-    expect(screen.getByText(/16 is the largest team your key supports/)).toBeTruthy();
+    expect(screen.getByText(/your plan runs 16 agents at once/)).toBeTruthy();
     expect(fake.queried.get("dev.tasks.list")).toMatchObject({ status: ["running", "paused", "blocked", "review", "merging"] });
   });
 

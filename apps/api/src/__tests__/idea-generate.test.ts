@@ -80,8 +80,9 @@ describe("idea.generate", () => {
   });
 
   it("explains a draft that ran out of room instead of showing the model error", async () => {
+    // A client that only completes (no streaming), so the slate falls back to `complete` and is cut off there.
     const truncated: ModelClient = {
-      ...hz.deps.models,
+      mode: hz.deps.models.mode,
       complete: (async () => {
         throw new ModelOutputError('Output truncated at max_tokens=3000 before valid JSON was produced for route "ideationSlate"', {}, "max_tokens");
       }) as ModelClient["complete"],

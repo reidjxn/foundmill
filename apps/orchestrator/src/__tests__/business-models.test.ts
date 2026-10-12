@@ -2,10 +2,13 @@
  * `createBusinessModelClient` (BUILD §10.2 step 3, §10.4): a business on credits runs on the platform client; a business on
  * its own key runs on a client built from that key (decrypted here, cached per key, re-read after the ttl) and books to
  * `byok`; in live mode a business on its own key with no readable key is refused rather than run on the platform's
- * credits; under MODEL_MODE=mock it gets a mock client that books to `byok`.
+ * credits; under MODEL_MODE=mock it gets a mock client that books to `byok`. A business on credits whose month is used
+ * up is refused on the platform client before the call is sent.
  */
-import { BYOK_CREDENTIAL_KIND, repos } from "@foundmill/db";
+import { includedCreditsMinor } from "@foundmill/config";
+import { BYOK_CREDENTIAL_KIND, periodOf, repos } from "@foundmill/db";
 import { createModelClient, ModelRequestError, type ModelClient, type UsageEvent } from "@foundmill/models";
+import { CreditsExhaustedError } from "@foundmill/shared";
 import { buildAad, createVault, encryptJson, generateMasterKey } from "@foundmill/shared/crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createBusinessModelClient } from "../models";
@@ -93,6 +96,40 @@ describe("createBusinessModelClient", () => {
       await expect(platform.complete(ask(t.businessId))).resolves.toBeTruthy();
     } finally {
       await repos.businesses.update(t.db, t.businessId, { modelBilling: "credits" });
+    }
+  });
+
+  it("a business on credits whose month is used up is refused on the platform client before the call is sent", async () => {
+    const events: UsageEvent[] = [];
+    const platform = createModelClient({ mode: "mock", onUsage: (e) => void events.push(e) });
+    const client = createBusinessModelClient(platform, { db: t.db, vault: null, mode: "mock", onUsage: (e) => void events.push(e) });
+    const period = periodOf(new Date());
+    const { balance } = await repos.usage.ensurePeriodCredits(t.db, t.businessId, period, includedCreditsMinor("free"));
+    await repos.usage.chargeCredits(t.db, t.businessId, period, Number(balance.balanceMinor));
+    try {
+      const refused = await client.complete(ask(t.businessId)).catch((e: unknown) => e);
+      expect(refused).toBeInstanceOf(CreditsExhaustedError);
+      expect(refused).toMatchObject({ code: "credits_exhausted", details: { tier: "free", period, balanceMinor: 0, currency: "USD" } });
+      await expect(client.streamStructured!(ask(t.businessId) as never)).rejects.toBeInstanceOf(CreditsExhaustedError);
+      expect(events).toHaveLength(0);
+      // A call for no business is not the business's to pay for.
+      await client.complete(ask(undefined));
+      expect(events).toHaveLength(1);
+      // On its own key the business never touches credits, so its calls run.
+      await repos.businesses.update(t.db, t.businessId, { modelBilling: "byok" });
+      client.forget(t.businessId);
+      await client.complete(ask(t.businessId));
+      expect(events.at(-1)?.billedTo).toBe("byok");
+      await repos.businesses.update(t.db, t.businessId, { modelBilling: "credits" });
+      client.forget(t.businessId);
+      await expect(client.complete(ask(t.businessId))).rejects.toBeInstanceOf(CreditsExhaustedError);
+      // A top-up lifts the ceiling at once: the verdict is never cached with the route.
+      await repos.usage.grantCredits(t.db, t.businessId, period, 100);
+      await client.complete(ask(t.businessId));
+      expect(events.at(-1)?.billedTo).toBe("credits");
+    } finally {
+      await repos.businesses.update(t.db, t.businessId, { modelBilling: "credits" });
+      await repos.usage.grantCredits(t.db, t.businessId, period, includedCreditsMinor("free"));
     }
   });
 });

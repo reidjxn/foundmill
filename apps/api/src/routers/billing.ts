@@ -60,8 +60,11 @@ export const billingRouter = router({
     const period = currentPeriod();
     if (ctx.env.INTEGRATIONS_MODE === "mock") {
       // credit_balances is service-written; the owner check already ran. A business on its own key keeps the balance
-      // for when it goes back to credits; its own key is still what pays for its calls.
+      // for when it goes back to credits; its own key is still what pays for its calls. A top-up comes on top of the
+      // month's included credits: the period's row starts with them when the top-up is the first thing in the month
+      // (a team paused at the end of last month makes no charge to create it).
       const balance = await ctx.db.transaction(async (tx) => {
+        await repos.usage.ensurePeriodCredits(tx, ctx.businessId, period, includedCreditsMinor(ctx.business.planTier));
         const b = await repos.usage.grantCredits(tx, ctx.businessId, period, input.amountMinor, input.currency);
         await audit(tx, ctx, { action: "billing.top_up", target: { kind: "credit_balance", id: b.id }, details: { amountMinor: input.amountMinor, currency: input.currency, mode: "mock" } });
         return b;
