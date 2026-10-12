@@ -5,12 +5,21 @@
  *
  *   client → server  { t:"sub", ch, focus? } · { t:"unsub", ch } · { t:"ping" } · { t:"focus", ch, focused }
  *   server → client  { ch, e } · [ { ch, e }, … ] (coalesced burst) · { t:"pong" } · { t:"err", ch?, code, message }
+ *                    · { t:"subscribed", ch }
  *
  * One WebSocket per tab multiplexes every subscription; `sub` is sent once per channel (first handler) and `unsub`
  * when the last handler leaves. Reconnects with exponential backoff + jitter, re-subscribing every channel and
  * fetching a fresh token each time. Unfocused channels deliver in at most 4 bursts per second (every event is still
  * delivered); the focused tile gets every event as it arrives. A per-channel buffer cap drops the oldest events of
  * an unfocused channel when a tab is far behind (reported through `onDrop`).
+ *
+ * Liveness is per channel, not per socket: a channel is live once the server acknowledges its `sub` and stops being
+ * live when the socket closes or goes silent, when the server refuses it (`err` with its `ch`; refusals that can heal
+ * are asked again with backoff on the same socket) or when it is unsubscribed. `onChannel` reports each change. The
+ * server does not replay what it sent while a channel was not live, so a channel that comes back after a gap (a
+ * reconnect, a retried refusal, a return to a channel this tab had before) is reported with `resync: true` and the app
+ * refetches what that channel keeps current. A tab that becomes visible again calls `checkConnection()`, which probes
+ * a socket that may have slept (half-open) with a short deadline instead of a whole heartbeat.
  */
 
 export type StreamHandler = (event: unknown) => void;
@@ -27,13 +36,26 @@ export interface StreamEventFrame {
   ch: string;
   e: unknown;
 }
+/** The server's acknowledgement that a subscription is live: every event from here on is delivered. */
+export interface StreamSubscribedFrame {
+  t: "subscribed";
+  ch: string;
+}
 export type StreamClientFrame = { t: "sub"; ch: string; focus?: boolean } | { t: "unsub"; ch: string } | { t: "ping" } | { t: "focus"; ch: string; focused: boolean };
 
 export const CLOSE_CODES = { goingAway: 1001, policyViolation: 1008, tooSlow: 1013, heartbeatTimeout: 4000, unauthorized: 4001 } as const;
 export const UNFOCUSED_BURSTS_PER_SECOND = 4;
+/**
+ * Refusals asked again on the same socket, with backoff: a membership check that failed (`unavailable`), a membership
+ * the server has not seen yet (`forbidden`, cached for seconds), a full socket, a server on its way out. A malformed
+ * channel is never retried.
+ */
+export const RESUBSCRIBE_CODES: readonly StreamErrorCode[] = ["unavailable", "forbidden", "too_many_subscriptions", "shutting_down"];
 
 export const businessChannel = (businessId: string): string => `ev:${businessId}`;
 export const sessionChannel = (sessionId: string): string => `as:${sessionId}`;
+/** The business of an `ev:<businessId>` channel; null for any other channel. */
+export const businessIdOfChannel = (channel: string): string | null => (channel.startsWith("ev:") && channel.length > 3 ? channel.slice(3) : null);
 
 export function isEventFrame(v: unknown): v is StreamEventFrame {
   return typeof v === "object" && v !== null && typeof (v as StreamEventFrame).ch === "string" && "e" in (v as object);
@@ -43,6 +65,9 @@ export function isPongFrame(v: unknown): v is { t: "pong" } {
 }
 export function isErrorFrame(v: unknown): v is StreamErrorFrame {
   return typeof v === "object" && v !== null && (v as { t?: string }).t === "err" && typeof (v as StreamErrorFrame).code === "string";
+}
+export function isSubscribedFrame(v: unknown): v is StreamSubscribedFrame {
+  return typeof v === "object" && v !== null && (v as { t?: string }).t === "subscribed" && typeof (v as StreamSubscribedFrame).ch === "string";
 }
 
 /** Minimal WebSocket surface (the browser's WebSocket, or a fake in tests). */
@@ -67,10 +92,20 @@ export interface StreamClientOptions {
   minBackoffMs?: number;
   maxBackoffMs?: number;
   pingMs?: number;
+  /** How long a probe (`checkConnection`) waits for any frame before it replaces the socket. */
+  probeMs?: number;
+  /** Ceiling of the backoff between asks for a refused subscription. */
+  maxResubscribeMs?: number;
   unfocusedBurstsPerSecond?: number;
   maxBufferedPerChannel?: number;
   onStatus?: (status: StreamStatus, detail?: { code?: number; reason?: string; attempt?: number }) => void;
   onError?: (err: StreamErrorFrame) => void;
+  /**
+   * A channel became live (the server acknowledged it) or stopped being live. `resync` is true when it comes back after
+   * a gap in which events may have been missed (it was live before in this tab, or a socket dropped or the server
+   * refused it since it was asked for).
+   */
+  onChannel?: (channel: string, live: boolean, detail: { resync: boolean }) => void;
   onDrop?: (channel: string, count: number) => void;
   now?: () => number;
   setTimeout?: (fn: () => void, ms: number) => TimerHandle;
@@ -84,6 +119,12 @@ interface ChannelState {
   flushTimer: TimerHandle | null;
   lastFlushAt: number;
   sent: boolean;
+  /** The server acknowledged the subscription on the current socket. */
+  live: boolean;
+  /** Events may have been missed since this channel was asked for (a dropped socket, a refusal). */
+  missed: boolean;
+  retryTimer: TimerHandle | null;
+  retries: number;
 }
 
 const WS_OPEN = 1;
@@ -96,11 +137,17 @@ export class StreamClient {
   private reconnectTimer: TimerHandle | null = null;
   private pingTimer: TimerHandle | null = null;
   private lastFrameAt = 0;
+  /** When the outstanding heartbeat ping was sent; any frame after it proves the link alive. */
+  private pingSentAt: number | null = null;
+  /** Channels that were live at some point in this tab (coming back to one is a gap). */
+  private readonly everLive = new Set<string>();
   private closedByUser = false;
   private connectSeq = 0;
   private readonly minBackoff: number;
   private readonly maxBackoff: number;
   private readonly pingMs: number;
+  private readonly probeMs: number;
+  private readonly maxResubscribe: number;
   private readonly burstIntervalMs: number;
   private readonly maxBuffered: number;
   private readonly now: () => number;
@@ -112,6 +159,8 @@ export class StreamClient {
     this.minBackoff = Math.max(1, opts.minBackoffMs ?? 250);
     this.maxBackoff = Math.max(this.minBackoff, opts.maxBackoffMs ?? 10_000);
     this.pingMs = Math.max(10, opts.pingMs ?? 20_000);
+    this.probeMs = Math.max(10, Math.min(this.pingMs, opts.probeMs ?? 5_000));
+    this.maxResubscribe = Math.max(this.minBackoff, opts.maxResubscribeMs ?? 30_000);
     this.burstIntervalMs = Math.max(1, Math.round(1000 / (opts.unfocusedBurstsPerSecond ?? UNFOCUSED_BURSTS_PER_SECOND)));
     this.maxBuffered = Math.max(1, opts.maxBufferedPerChannel ?? 2_000);
     this.now = opts.now ?? (() => Date.now());
@@ -128,13 +177,17 @@ export class StreamClient {
   subscribedChannels(): string[] {
     return [...this.channels.keys()];
   }
+  /** True while the server has acknowledged `channel` on the open socket. */
+  isLive(channel: string): boolean {
+    return this.channels.get(channel)?.live ?? false;
+  }
 
   /** Subscribe to `ev:<businessId>` or `as:<sessionId>`; connects lazily on the first subscription. */
   subscribe(channel: string, handler: StreamHandler, options: { focused?: boolean } = {}): () => void {
     let state = this.channels.get(channel);
     const first = !state;
     if (!state) {
-      state = { handlers: new Set(), focused: options.focused ?? true, buffer: [], flushTimer: null, lastFlushAt: -Infinity, sent: false };
+      state = { handlers: new Set(), focused: options.focused ?? true, buffer: [], flushTimer: null, lastFlushAt: -Infinity, sent: false, live: false, missed: false, retryTimer: null, retries: 0 };
       this.channels.set(channel, state);
     } else if (options.focused !== undefined) {
       this.setFocus(channel, options.focused);
@@ -155,7 +208,9 @@ export class StreamClient {
       if (s.handlers.size > 0) return;
       this.channels.delete(channel);
       if (s.flushTimer !== null) this.clearTimer(s.flushTimer);
+      if (s.retryTimer !== null) this.clearTimer(s.retryTimer);
       if (this.isOpen && s.sent) this.send({ t: "unsub", ch: channel });
+      this.setDown(channel, s);
     };
   }
 
@@ -172,13 +227,32 @@ export class StreamClient {
     if (this.isOpen) this.send({ t: "ping" });
   }
 
+  /**
+   * The tab became visible or the browser came back online: retry a pending reconnect now, and probe an open socket
+   * (a laptop that slept leaves one half-open, which only a missing answer reveals) with `probeMs` to answer.
+   */
+  checkConnection(): void {
+    if (this.closedByUser || this.channels.size === 0) return;
+    if (this.reconnectTimer !== null) {
+      this.clearTimer(this.reconnectTimer);
+      this.reconnectTimer = null;
+      void this.open();
+      return;
+    }
+    if (!this.isOpen) return;
+    if (this.pingTimer !== null) this.clearTimer(this.pingTimer);
+    this.pingSentAt = this.now();
+    this.ping();
+    this.pingTimer = this.setTimer(() => this.heartbeat(), this.probeMs);
+  }
+
   /** Close and stop reconnecting; subscriptions are kept and the next subscribe/connect reopens. */
   close(): void {
     this.closedByUser = true;
     this.clearTimers();
     const ws = this.ws;
     this.ws = null;
-    for (const s of this.channels.values()) s.sent = false;
+    this.channelsDown();
     if (ws) {
       ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
       try {
@@ -213,6 +287,57 @@ export class StreamClient {
   private sendSub(channel: string, state: ChannelState): void {
     this.send(state.focused ? { t: "sub", ch: channel } : { t: "sub", ch: channel, focus: false });
     state.sent = true;
+  }
+
+  /** The socket is gone (closed, silent or closed by the app): no channel is live, and each may miss events until it is again. */
+  private channelsDown(): void {
+    for (const [channel, s] of this.channels) {
+      s.sent = false;
+      s.missed = true;
+      s.retries = 0;
+      if (s.retryTimer !== null) this.clearTimer(s.retryTimer);
+      s.retryTimer = null;
+      this.setDown(channel, s);
+    }
+  }
+
+  private setDown(channel: string, s: ChannelState): void {
+    if (!s.live) return;
+    s.live = false;
+    this.opts.onChannel?.(channel, false, { resync: false });
+  }
+
+  private onSubscribed(channel: string): void {
+    const s = this.channels.get(channel);
+    if (!s || s.live) return; // unsubscribed meanwhile, or a repeated acknowledgement
+    s.sent = true;
+    s.live = true;
+    s.retries = 0;
+    if (s.retryTimer !== null) this.clearTimer(s.retryTimer);
+    s.retryTimer = null;
+    const resync = s.missed || this.everLive.has(channel);
+    s.missed = false;
+    this.everLive.add(channel);
+    this.opts.onChannel?.(channel, true, { resync });
+  }
+
+  /** The server refused a channel: it is not live, and a refusal that can heal is asked again with backoff. */
+  private onRefused(frame: StreamErrorFrame): void {
+    const channel = frame.ch;
+    const s = channel ? this.channels.get(channel) : undefined;
+    if (!channel || !s) return;
+    s.sent = false;
+    s.missed = true;
+    this.setDown(channel, s);
+    if (!RESUBSCRIBE_CODES.includes(frame.code) || s.retryTimer !== null) return;
+    const base = Math.min(this.maxResubscribe, this.minBackoff * 2 ** (s.retries + 2));
+    const delay = Math.round(base / 2 + Math.random() * (base / 2));
+    s.retries += 1;
+    s.retryTimer = this.setTimer(() => {
+      s.retryTimer = null;
+      // Still wanted and not asked meanwhile; a closed socket re-sends every channel when it reopens.
+      if (this.channels.get(channel) === s && !s.sent && this.isOpen) this.sendSub(channel, s);
+    }, delay);
   }
 
   private async open(): Promise<void> {
@@ -261,7 +386,7 @@ export class StreamClient {
       if (this.ws !== ws) return;
       this.ws = null;
       this.clearTimers();
-      for (const s of this.channels.values()) s.sent = false;
+      this.channelsDown();
       const code = typeof ev?.code === "number" ? ev.code : undefined;
       const reason = typeof ev?.reason === "string" ? ev.reason : undefined;
       if (this.closedByUser) return this.setStatus("closed", { code, reason });
@@ -271,6 +396,7 @@ export class StreamClient {
   }
 
   private scheduleReconnect(detail: { code?: number; reason?: string } = {}): void {
+    for (const s of this.channels.values()) s.missed = true;
     if (this.closedByUser || this.channels.size === 0 || this.reconnectTimer !== null) {
       if (this.channels.size === 0) this.setStatus("idle", detail);
       return;
@@ -287,26 +413,35 @@ export class StreamClient {
 
   private startPing(): void {
     if (this.pingTimer !== null) this.clearTimer(this.pingTimer);
-    const tick = () => {
-      this.pingTimer = null;
-      if (!this.isOpen) return;
-      if (this.now() - this.lastFrameAt > this.pingMs * 2) {
-        const ws = this.ws!;
-        this.ws = null;
-        ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
-        try {
-          ws.close(CLOSE_CODES.heartbeatTimeout, "no frames");
-        } catch {
-          /* ignore */
-        }
-        for (const s of this.channels.values()) s.sent = false;
-        this.scheduleReconnect({ code: CLOSE_CODES.heartbeatTimeout, reason: "no frames" });
-        return;
-      }
-      this.ping();
-      this.pingTimer = this.setTimer(tick, this.pingMs);
-    };
-    this.pingTimer = this.setTimer(tick, this.pingMs);
+    this.pingSentAt = null;
+    this.pingTimer = this.setTimer(() => this.heartbeat(), this.pingMs);
+  }
+
+  /**
+   * One heartbeat: a ping still unanswered (no frame of any kind since it was sent) means the link is dead, even when
+   * the socket says it is open (a stalled or half-open link); otherwise ping again.
+   */
+  private heartbeat(): void {
+    this.pingTimer = null;
+    if (!this.isOpen) return;
+    if (this.pingSentAt !== null && this.lastFrameAt < this.pingSentAt) return this.dropSilentSocket();
+    this.pingSentAt = this.now();
+    this.ping();
+    this.pingTimer = this.setTimer(() => this.heartbeat(), this.pingMs);
+  }
+
+  private dropSilentSocket(): void {
+    const ws = this.ws!;
+    this.ws = null;
+    ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+    try {
+      ws.close(CLOSE_CODES.heartbeatTimeout, "no frames");
+    } catch {
+      /* ignore */
+    }
+    this.clearTimers();
+    this.channelsDown();
+    this.scheduleReconnect({ code: CLOSE_CODES.heartbeatTimeout, reason: "no frames" });
   }
 
   private clearTimers(): void {
@@ -314,6 +449,7 @@ export class StreamClient {
     if (this.pingTimer !== null) this.clearTimer(this.pingTimer);
     this.reconnectTimer = null;
     this.pingTimer = null;
+    this.pingSentAt = null;
   }
 
   private handleMessage(data: unknown): void {
@@ -330,8 +466,10 @@ export class StreamClient {
     }
     if (isEventFrame(frame)) return this.deliver(frame);
     if (isPongFrame(frame)) return;
+    if (isSubscribedFrame(frame)) return this.onSubscribed(frame.ch);
     if (isErrorFrame(frame)) {
       this.stats.errors += 1;
+      this.onRefused(frame);
       this.opts.onError?.(frame);
     }
   }

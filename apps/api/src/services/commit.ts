@@ -8,12 +8,16 @@
  * Board decision in the Inbox → `idea.committed` through the outbox → audit. After commit the first businessCycle is
  * started on Temporal (reported as `{ queued, reason }`; the business is complete without it). The vision,
  * specification content and roadmap are drafted on the first open (services/foundations.ts).
+ *
+ * One business per idea: the transaction claims the idea (`ideas.claimForCommit`, one conditional statement) before
+ * anything is created, so a double click, a second tab or a retried request never builds a second business; it
+ * answers with the business the first commit created (`alreadyCommitted: true`), read back from that commit's audit row.
  */
 import { randomUUID } from "node:crypto";
 import { getArchetypeSeed, getTemplate } from "@foundmill/agents";
 import { repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
-import { CHANNEL_KEYS, CHANNEL_META, DEFAULT_BUSINESS_MODE, MODULE_TABS, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, DEFAULT_BUSINESS_MODE, MODULE_TABS, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import { PRESET_LAYOUTS } from "../presets";
 import { checkLogoChoice, type LogoChoice } from "./logo";
 import { hireMany, type PlannedHire } from "./squad";
@@ -44,7 +48,20 @@ export interface CommitIdeaResult {
   cycle: { queued: boolean; workflowId: string; reason?: string };
   /** The vision, specification and roadmap wait for the first open (BUILD §11.1, §11.5). */
   foundations: { status: "pending"; door: "ideation" | "import"; importSourceIds: string[] };
+  /** True when the idea was already a business (a second Take charge): nothing was created and no cycle started. */
+  alreadyCommitted: boolean;
 }
+
+/** What the `idea.commit` audit row records beyond counts: enough to answer a second commit of the same idea. */
+interface CommitReceipt {
+  boardItemId?: string;
+  chiefOfStaffId?: string;
+  taskIds?: string[];
+  door?: "ideation" | "import";
+  importSourceIds?: string[];
+}
+
+const COMMIT_AUDIT_ACTION = "idea.commit";
 
 /**
  * Door B's Board item: the Import report's suggested first decisions (the Import screen promises they arrive as the
@@ -80,6 +97,7 @@ function uniqueSlug(name: string): string {
  */
 export async function commitIdea(db: Db, temporal: TemporalService, userId: string, input: CommitIdeaInput, importKey: () => string): Promise<CommitIdeaResult> {
   const idea = await repos.ideas.get(db, userId, input.ideaId);
+  if (idea.committedAt) return committedIdeaResult(db, userId, input.ideaId);
   // Door B: the Import job this idea was drafted from (recorded by idea.generate), verified again (signed for this
   // founder, finished, valid sources) and rebuilt before the transaction.
   const importJobId = importJobIdOf(idea.current?.research);
@@ -92,6 +110,9 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   const checkedLogo = input.logo ? checkLogoChoice(input.logo) : null;
 
   const result = await db.transaction(async (tx: DbTx) => {
+    // Claim the idea before anything is created. Of two concurrent commits only one gets past this line; the other has
+    // waited for the winner's row lock, finds the idea committed and creates nothing (answered below).
+    if (!(await repos.ideas.claimForCommit(tx, userId, input.ideaId))) return null;
     const business = await repos.businesses.create(tx, {
       name: input.name,
       slug: uniqueSlug(input.name),
@@ -252,17 +273,67 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     await repos.audit.append(tx, businessId, {
       actorKind: "user",
       actorId: userId,
-      action: "idea.commit",
+      action: COMMIT_AUDIT_ACTION,
       target: { kind: "business", id: businessId },
-      details: { ideaId: idea.id, archetype: input.archetype, gameMode: input.gameMode, businessMode, departments: departmentIds.length, agents: agentIds.length, spendCapMinor: input.spendCapMinor ?? null, logo: logo ? { source: logo.source, mime: logo.mime, sha256: logo.sha256, bytes: logo.bytes } : null , door: importLink ? "import" : "ideation", importSources: importSources.length },
+      details: {
+        ideaId: idea.id,
+        archetype: input.archetype,
+        gameMode: input.gameMode,
+        businessMode,
+        departments: departmentIds.length,
+        agents: agentIds.length,
+        spendCapMinor: input.spendCapMinor ?? null,
+        logo: logo ? { source: logo.source, mime: logo.mime, sha256: logo.sha256, bytes: logo.bytes } : null,
+        door: importLink ? "import" : "ideation",
+        importSources: importSources.length,
+        // The receipt a second commit of this idea answers with (committedIdeaResult).
+        boardItemId: boardItem.id,
+        chiefOfStaffId: chief.agent.id,
+        taskIds,
+        importSourceIds: importSources.map((s) => s.id),
+      } satisfies CommitReceipt & Record<string, unknown>,
     });
 
     const foundations = { status: "pending" as const, door: importLink ? ("import" as const) : ("ideation" as const), importSourceIds: importSources.map((s) => s.id) };
     return { business: { ...business, committedAt: new Date(), archetype: input.archetype }, departmentIds, agentIds, chiefOfStaffId: chief.agent.id, boardItem, taskIds, foundations };
   });
 
+  if (!result) return committedIdeaResult(db, userId, input.ideaId);
+
   const cycle = await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue" }] });
-  return { ...result, cycle };
+  return { ...result, cycle, alreadyCommitted: false };
+}
+
+/**
+ * The answer to Take charge on an idea that is already a business (a double click, a second tab, a retried request):
+ * the business the first commit created, with its Board item, read back from that commit's audit row. Nothing is
+ * created and the first cycle is not started again. Refused like before when the founder no longer belongs to that
+ * business or the commit predates the receipt.
+ */
+async function committedIdeaResult(db: Db, userId: string, ideaId: string): Promise<CommitIdeaResult> {
+  const idea = await repos.ideas.get(db, userId, ideaId);
+  const businessId = idea.businessId;
+  const member = businessId ? await repos.memberships.get(db, businessId, userId) : null;
+  const audit = member && businessId ? await repos.audit.list(db, businessId, { action: COMMIT_AUDIT_ACTION, limit: 1 }) : null;
+  const receipt = (audit?.items[0]?.details ?? {}) as CommitReceipt;
+  if (!businessId || !receipt.boardItemId || !receipt.chiefOfStaffId) throw new ValidationError("Idea is already committed", { ideaId });
+  const [business, departments, agents, boardItem] = await Promise.all([
+    repos.businesses.get(db, businessId),
+    repos.departments.list(db, businessId),
+    repos.agents.list(db, businessId, { limit: 500 }),
+    repos.inbox.get(db, businessId, receipt.boardItemId),
+  ]);
+  return {
+    business,
+    departmentIds: departments.map((d) => d.id),
+    agentIds: agents.items.map((a) => a.id),
+    chiefOfStaffId: receipt.chiefOfStaffId,
+    boardItem,
+    taskIds: receipt.taskIds ?? [],
+    cycle: { queued: false, workflowId: workflowIds.cycle(businessId, 1), reason: "already committed: the first commit started this cycle" },
+    foundations: { status: "pending", door: receipt.door ?? "ideation", importSourceIds: receipt.importSourceIds ?? [] },
+    alreadyCommitted: true,
+  };
 }
 
 /** Templates the archetype hires, for the Commit screen preview. */

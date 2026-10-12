@@ -33,8 +33,9 @@ export type WidgetDataSource = {
   /** Business currency for money the API returns without one. Default "EUR". */
   currency?: string;
   /**
-   * Whether the host's event stream is connected (a hook, called in render). While it is, the host refetches what each
-   * event changes, so a screen can poll slowly or not at all; hosts without a stream leave it out and screens poll.
+   * Whether the host's event stream is live for this business (a hook, called in render). While it is, the host
+   * refetches what each event changes, so a screen can poll slowly or not at all; hosts without a stream leave it out
+   * and screens poll.
    */
   useStreamOpen?: () => boolean;
 };
@@ -57,7 +58,7 @@ export function useWidgetQuery<T = unknown>(path: string, input?: Record<string,
 
 const noStream = () => false;
 
-/** True while the host's event stream is connected (`WidgetDataSource.useStreamOpen`); false for hosts without one. */
+/** True while the host's event stream is live for this business (`WidgetDataSource.useStreamOpen`); false for hosts without one. */
 export function useHostStreamOpen(): boolean {
   const useOpen = useWidgetData().useStreamOpen ?? noStream;
   return useOpen();

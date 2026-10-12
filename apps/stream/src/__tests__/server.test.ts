@@ -107,6 +107,9 @@ describe("membership", () => {
       [sessionChannel(SESSION_A), "forbidden"],
     ]);
     expect(t.server.subscriptions()[0]!.channels).toEqual([businessChannel(BUSINESS_B)]);
+    // Only the allowed channel is acknowledged as live; a tab never trusts a denied one.
+    await waitFor(() => sock.subscribed.length === 1, 2_000, "ack");
+    expect(sock.subscribed).toEqual([businessChannel(BUSINESS_B)]);
     await publishSessionEvent(t.redis, SESSION_A, note("secret"));
     await publishSessionEvent(t.redis, SESSION_B, note("mine"));
     await sleep(60);
@@ -148,6 +151,11 @@ describe("protocol handling", () => {
     sock.sub(sessionChannel(SESSION_A));
     sock.sub(sessionChannel(SESSION_A));
     await waitFor(() => t.server.subscriptions()[0]?.channels.length === 1, 2_000, "subscribed once");
+    // Each sub is acknowledged (a repeat of a live channel again, so a tab that re-asks after an error learns it is live).
+    await waitFor(() => sock.subscribed.length >= 1, 2_000, "ack");
+    sock.sub(sessionChannel(SESSION_A));
+    await waitFor(() => sock.subscribed.length >= 2, 2_000, "second ack");
+    expect(new Set(sock.subscribed)).toEqual(new Set([sessionChannel(SESSION_A)]));
     await publishSessionEvent(t.redis, SESSION_A, note("one"));
     await waitFor(() => sock.events.length === 1, 2_000, "one event");
     expect(sock.events).toHaveLength(1); // not duplicated by the repeated subs
@@ -199,7 +207,8 @@ describe("coalescing and backpressure", () => {
     for (let i = 0; i < N; i++) await publishSessionEvent(t.redis, SESSION_A, note(`burst ${i}`));
     await waitFor(() => sock.events.length === N, 5_000, "all events");
     const elapsedS = (Date.now() - start) / 1000;
-    const frames = sock.frames.length;
+    // Event frames only (the subscription's ack is a control frame written outside the queue).
+    const frames = sock.frames.filter((f) => (f as { t?: string }).t === undefined).length;
     expect(frames).toBeLessThanOrEqual(Math.ceil(elapsedS * 20) + 2);
     expect(frames).toBeLessThan(N / 4); // bursts were batched into array frames
     expect(t.metrics.get("batches_out_total")).toBeGreaterThan(0);

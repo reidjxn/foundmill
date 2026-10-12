@@ -32,7 +32,7 @@ import { entityPaletteItems, filterLocal, localPaletteItems, searchInputFor } fr
 import { SIDEBAR_BRAND, SIDEBAR_IDS, activeSidebarId, buildSidebarItems, orderedVisibleDepartments } from "@/lib/sidebar";
 import { signOut } from "@/lib/auth/sign-out";
 import { useStreamSubscription } from "@/lib/stream-client";
-import { pollUnlessStreaming, useStreamOpen } from "@/lib/stream-status";
+import { streamPollInterval, useBusinessLive } from "@/lib/stream-status";
 import { useClientToday } from "@/lib/today";
 import { getBrowserAccessToken } from "@/lib/supabase/client";
 import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
@@ -55,11 +55,15 @@ export interface BusinessShellProps {
 
 const SEARCH_DEBOUNCE_MS = 150;
 /**
- * `inbox.list` and `cycle.status` are refetched on the events that change them; polling is the safety net while the
- * event stream is not connected, and stops while it is.
+ * `inbox.list` and `cycle.status` are refetched on the events that change them; polling is the safety net: every 30 s
+ * while the business's event channel is not live, and slowly while it is (changes that publish no event, such as an
+ * archive by another member, and a link that stalls).
  */
 const POLL_WITHOUT_STREAM_MS = 30_000;
-/** Freshness of the shell's stream-kept queries: minutes while the stream is connected, these values while it is not. */
+/**
+ * Freshness of the shell's stream-kept queries: minutes while the business's channel has stayed live since they were
+ * fetched, these values otherwise.
+ */
 const INBOX_STALE = streamAwareStaleTime(10_000);
 const FINANCE_STALE = streamAwareStaleTime(60_000);
 const CYCLE_STALE = streamAwareStaleTime(10_000);
@@ -156,12 +160,12 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   // The layout starts inbox, finance and cycle on the server and hands them over under these same keys
   // (lib/shell-data.server.ts); business and departments arrive as initial data.
   const inputs = useMemo(() => shellQueryInputs(businessId), [businessId]);
-  const streamOpen = useStreamOpen();
+  const streamLive = useBusinessLive(businessId);
   const businessQ = useQuery(trpc.business.get.queryOptions({ businessId }, { initialData: initialBusiness, staleTime: 30_000 }));
   const departmentsQ = useQuery(trpc.department.list.queryOptions(inputs.departments, { initialData: initialDepartments, staleTime: 30_000 }));
-  const inboxQ = useQuery(trpc.inbox.list.queryOptions(inputs.inbox, { staleTime: INBOX_STALE, refetchInterval: pollUnlessStreaming(streamOpen, POLL_WITHOUT_STREAM_MS) }));
+  const inboxQ = useQuery(trpc.inbox.list.queryOptions(inputs.inbox, { staleTime: INBOX_STALE, refetchInterval: streamPollInterval(streamLive, POLL_WITHOUT_STREAM_MS) }));
   const financeQ = useQuery(trpc.finance.overview.queryOptions(inputs.finance, { staleTime: FINANCE_STALE, retry: false }));
-  const cycleQ = useQuery(trpc.cycle.status.queryOptions(inputs.cycle, { staleTime: CYCLE_STALE, refetchInterval: pollUnlessStreaming(streamOpen, POLL_WITHOUT_STREAM_MS), retry: false }));
+  const cycleQ = useQuery(trpc.cycle.status.queryOptions(inputs.cycle, { staleTime: CYCLE_STALE, refetchInterval: streamPollInterval(streamLive, POLL_WITHOUT_STREAM_MS), retry: false }));
 
   // --- foundations: the first open drafts the vision, specification and roadmap (BUILD §11.1, §11.5) ---------------
   // `product.foundations.ensure` is idempotent on the server (it claims a pending draft exactly once, so two tabs or a

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { eventFrame } from "../connection";
 import { parseClientFrame } from "../frames";
-import { businessChannel, isErrorFrame, isEventFrame, isPongFrame, parseChannel, sessionChannel } from "../protocol";
+import { businessChannel, isErrorFrame, isEventFrame, isPongFrame, isSubscribedFrame, parseChannel, sessionChannel } from "../protocol";
 import { BUSINESS_A, SESSION_A } from "./helpers";
 
 describe("protocol", () => {
@@ -44,5 +44,8 @@ describe("protocol", () => {
     expect(isPongFrame({ t: "pong" })).toBe(true);
     expect(isErrorFrame({ t: "err", code: "forbidden", message: "no" })).toBe(true);
     expect(isErrorFrame({ t: "err" })).toBe(false);
+    expect(isSubscribedFrame({ t: "subscribed", ch: businessChannel(BUSINESS_A) })).toBe(true);
+    expect(isSubscribedFrame({ t: "subscribed" })).toBe(false);
+    expect(isEventFrame({ t: "subscribed", ch: businessChannel(BUSINESS_A) })).toBe(false);
   });
 });

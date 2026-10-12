@@ -186,14 +186,36 @@ export const ideasRepo = {
     return one(await db.update(ideas).set({ archivedAt: new Date() }).where(ownedIdea(userId, ideaId)).returning(), "idea", ideaId);
   },
 
-  /** Commit: stamps the business on the idea, its versions and any comparison that includes one of them. */
+  /**
+   * "Take charge" claims the idea before anything is created: `committed_at` is stamped only while it is still null, in
+   * one statement, so of two concurrent commits exactly one gets the row; the other waits for the winner's row lock,
+   * then finds the idea committed (false) and creates nothing. Run it inside the commit's transaction so a commit that
+   * fails releases the claim. Not found when the idea is not the user's (or was discarded).
+   */
+  async claimForCommit(db: Executor, userId: string, ideaId: string): Promise<boolean> {
+    const claimed = await db.update(ideas).set({ committedAt: new Date() }).where(and(ownedIdea(userId, ideaId), isNull(ideas.committedAt))).returning({ id: ideas.id });
+    if (claimed.length > 0) return true;
+    await ideasRepo.get(db, userId, ideaId);
+    return false;
+  },
+
+  /**
+   * Commit: stamps the business on the idea (claimed by `claimForCommit` in the same transaction, or claimed here), its
+   * versions and any comparison that includes one of them. The stamp is conditional on the idea having no business
+   * yet, so a second commit can never re-point an idea at another business.
+   */
   async commit(db: Executor, userId: string, ideaId: string, businessId: string): Promise<IdeaWithVersion> {
     parseInput(Id, businessId, "businessId");
     return db.transaction(async (tx) => {
-      const idea = await ideasRepo.get(tx, userId, ideaId);
-      if (idea.committedAt) throw new ValidationError("Idea is already committed", { ideaId });
-      const now = new Date();
-      await tx.update(ideas).set({ businessId, committedAt: now }).where(eq(ideas.id, ideaId));
+      const stamped = await tx
+        .update(ideas)
+        .set({ businessId, committedAt: sql`coalesce(${ideas.committedAt}, now())` })
+        .where(and(ownedIdea(userId, ideaId), isNull(ideas.businessId)))
+        .returning({ id: ideas.id });
+      if (stamped.length === 0) {
+        await ideasRepo.get(tx, userId, ideaId);
+        throw new ValidationError("Idea is already committed", { ideaId });
+      }
       const versionIds = (await tx.update(ideaVersions).set({ businessId }).where(eq(ideaVersions.ideaId, ideaId)).returning({ id: ideaVersions.id })).map((r) => r.id);
       if (versionIds.length) {
         await tx

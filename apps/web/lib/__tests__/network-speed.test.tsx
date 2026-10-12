@@ -1,8 +1,9 @@
 /**
  * Speed work in the web app that must keep behaviour: server-started queries land under the keys the browser's hooks
  * read (shell, Home, the shared ribbon and departments), the hand-over carries a pending query into the browser cache,
- * polling and freshness follow the event stream, and foundations are ensured only while there is something to do
- * (shell links: components/shell/__tests__/next-shell-link.test.tsx).
+ * polling and freshness follow each business's event channel (and a channel back after a gap refetches its business),
+ * and foundations are ensured only while there is something to do (shell links:
+ * components/shell/__tests__/next-shell-link.test.tsx).
  */
 import { QueryClient, dehydrate, hashKey, hydrate } from "@tanstack/react-query";
 import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
@@ -14,21 +15,27 @@ import { recentRibbonInput } from "@foundmill/widgets/shared/ribbon";
 import { INVALIDATE_ON_EVENT, foundationsNeedEnsure } from "@/components/shell/BusinessShell";
 import { pickDashboardId } from "@/components/home/pick-dashboard";
 import { createServerPrefetch, shouldHandOver } from "../hydrate.server";
-import { DEFAULT_STALE_MS, STREAM_KEPT_ROUTERS, STREAM_KEPT_STALE_MS, makeQueryClient, routerOfKey, streamAwareStaleTime } from "../query-client";
+import { DEFAULT_STALE_MS, STREAM_KEPT_ROUTERS, STREAM_KEPT_STALE_MS, businessOfKey, getQueryClient, makeQueryClient, resyncBusiness, routerOfKey, streamAwareStaleTime } from "../query-client";
 import { SHELL_INBOX_PAGE, shellQueryInputs } from "../shell-queries";
-import { isStreamOpen, pollUnlessStreaming, setStreamStatus, streamStatus } from "../stream-status";
+import { businessChannel } from "../stream";
+import { onStreamChannel } from "../stream-client";
+import { SAFETY_POLL_MS, businessLiveSince, clearChannelLiveness, isBusinessLive, isStreamOpen, setChannelLive, setStreamStatus, streamPollInterval, streamStatus } from "../stream-status";
 import { createApiClient, type AppRouter } from "../trpc";
 import { withBusiness } from "../widget-data";
 import { trpcQueryKey } from "../trpc";
 
 const BID = "b1e5e5e5-0000-4000-8000-000000000001";
+const OTHER = "b1e5e5e5-0000-4000-8000-000000000002";
 
 /** A browser-side options proxy, the way `useTRPC()` builds keys. */
 function browserProxy() {
   return createTRPCOptionsProxy<AppRouter>({ client: createApiClient({ getToken: () => null }), queryClient: new QueryClient() });
 }
 
-afterEach(() => setStreamStatus("idle"));
+afterEach(() => {
+  setStreamStatus("idle");
+  clearChannelLiveness();
+});
 
 describe("server-started queries use the browser's keys", () => {
   it("shell, Home and the shared queries hash the same on the server, in the typed hooks and in the widget source", () => {
@@ -84,31 +91,88 @@ describe("server-started queries use the browser's keys", () => {
   });
 });
 
-describe("freshness and polling follow the event stream", () => {
-  it("tracks the stream status", () => {
+describe("freshness and polling follow each business's event channel (audit RES-01/02/03, RUI-09)", () => {
+  it("tracks the socket, and separately which businesses' channels the server acknowledged", () => {
     setStreamStatus("open");
     expect(streamStatus()).toBe("open");
     expect(isStreamOpen()).toBe(true);
+    // An open socket says nothing about a business whose channel it does not carry (yet).
+    expect(isBusinessLive(BID)).toBe(false);
+    setChannelLive(businessChannel(BID), true, 1_000);
+    expect(isBusinessLive(BID)).toBe(true);
+    expect(businessLiveSince(BID)).toBe(1_000);
+    expect(isBusinessLive(OTHER)).toBe(false);
+    setChannelLive(businessChannel(BID), true, 2_000); // still the same live period
+    expect(businessLiveSince(BID)).toBe(1_000);
+    setChannelLive(businessChannel(BID), false);
+    expect(businessLiveSince(BID)).toBeNull();
     setStreamStatus("reconnecting");
     expect(isStreamOpen()).toBe(false);
   });
 
-  it("polls only while the stream is down", () => {
-    expect(pollUnlessStreaming(false, 30_000)).toBe(30_000);
-    expect(pollUnlessStreaming(true, 30_000)).toBe(false);
+  it("polls every interval while the business's channel is not live, and keeps a slow safety net while it is", () => {
+    expect(streamPollInterval(false, 30_000)).toBe(30_000);
+    expect(streamPollInterval(true, 30_000)).toBe(SAFETY_POLL_MS);
+    expect(SAFETY_POLL_MS).toBeLessThanOrEqual(60_000);
   });
 
-  it("keeps stream-kept routers fresh for minutes while connected, and falls back otherwise", () => {
+  it("keeps stream-kept data fresh for minutes only while its business's channel has stayed live since the fetch", () => {
     const staleTime = streamAwareStaleTime(10_000);
-    const inbox = { queryKey: [["inbox", "list"], { input: { businessId: BID }, type: "query" }] };
-    const crm = { queryKey: [["crm", "search"], { input: { businessId: BID }, type: "query" }] };
-    expect(staleTime(inbox)).toBe(10_000);
+    const read = (router: string, businessId: string, dataUpdatedAt: number) => ({ queryKey: [[router, "list"], { input: { businessId }, type: "query" }], state: { dataUpdatedAt } });
+    expect(staleTime(read("inbox", BID, 5_000))).toBe(10_000);
     setStreamStatus("open");
-    expect(staleTime(inbox)).toBe(STREAM_KEPT_STALE_MS);
-    expect(staleTime(crm)).toBe(10_000);
-    expect(streamAwareStaleTime()(crm)).toBe(DEFAULT_STALE_MS);
+    expect(staleTime(read("inbox", BID, 5_000))).toBe(10_000); // the socket alone is not enough
+    setChannelLive(businessChannel(BID), true, 4_000);
+    expect(staleTime(read("inbox", BID, 5_000))).toBe(STREAM_KEPT_STALE_MS);
+    // Fetched before the channel went live: an event may have been missed in between.
+    expect(staleTime(read("inbox", BID, 3_000))).toBe(10_000);
+    // Another business whose channel this tab does not carry (it was left for this one) keeps the short default.
+    expect(staleTime(read("inbox", OTHER, 5_000))).toBe(10_000);
+    expect(staleTime(read("crm", BID, 5_000))).toBe(10_000);
+    expect(streamAwareStaleTime()(read("crm", BID, 5_000))).toBe(DEFAULT_STALE_MS);
+    setChannelLive(businessChannel(BID), false);
+    expect(staleTime(read("inbox", BID, 5_000))).toBe(10_000);
     expect(routerOfKey([["finance", "overview"]])).toBe("finance");
     expect(routerOfKey(["plain"])).toBeNull();
+    expect(businessOfKey(trpcQueryKey("inbox.list", { businessId: BID, limit: 50 }))).toBe(BID);
+    expect(businessOfKey(trpcQueryKey("founder.profile.get"))).toBeNull();
+  });
+
+  it("a channel back after a gap refetches every query of its business, and nothing of another", async () => {
+    const qc = makeQueryClient();
+    const keys = {
+      inbox: trpcQueryKey("inbox.list", { businessId: BID, limit: 50 }),
+      live: trpcQueryKey("dev.sessions.list", { businessId: BID, openOnly: true, limit: 200 }),
+      other: trpcQueryKey("inbox.list", { businessId: OTHER, limit: 50 }),
+      profile: trpcQueryKey("founder.profile.get"),
+    };
+    for (const key of Object.values(keys)) qc.setQueryData(key as unknown[], { ok: true });
+    await resyncBusiness(qc, BID);
+    const invalidated = (key: readonly unknown[]) => qc.getQueryState(key as unknown[])?.isInvalidated;
+    expect(invalidated(keys.inbox)).toBe(true);
+    expect(invalidated(keys.live)).toBe(true); // Live sessions refresh on events too
+    expect(invalidated(keys.other)).toBe(false);
+    expect(invalidated(keys.profile)).toBe(false);
+  });
+
+  it("the tab's stream client records liveness and resyncs only a channel that comes back", () => {
+    const qc = getQueryClient();
+    const key = trpcQueryKey("cycle.status", { businessId: BID }) as unknown[];
+    qc.setQueryData(key, { running: true });
+    onStreamChannel(businessChannel(BID), true, { resync: false }); // first time: what the page loaded is current
+    expect(isBusinessLive(BID)).toBe(true);
+    expect(qc.getQueryState(key)?.isInvalidated).toBe(false);
+    onStreamChannel(businessChannel(BID), false, { resync: false });
+    expect(isBusinessLive(BID)).toBe(false);
+    onStreamChannel(businessChannel(BID), true, { resync: true }); // a missed cycle.completed is fetched, not waited for
+    expect(qc.getQueryState(key)?.isInvalidated).toBe(true);
+    qc.removeQueries({ queryKey: key });
+  });
+
+  it("a tab that becomes visible again refetches the business's stale reads, not account-level ones", () => {
+    const focus = makeQueryClient().getDefaultOptions().queries?.refetchOnWindowFocus as (q: { queryKey: readonly unknown[] }) => boolean;
+    expect(focus({ queryKey: trpcQueryKey("inbox.list", { businessId: BID }) })).toBe(true);
+    expect(focus({ queryKey: trpcQueryKey("idea.list") })).toBe(false);
   });
 
   it("only routers the shell invalidates on events are treated as stream-kept", () => {

@@ -16,7 +16,7 @@ import type { DeptColourToken } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { usePageShortcuts } from "@/lib/keys";
 import { streamAwareStaleTime } from "@/lib/query-client";
-import { pollUnlessStreaming, useStreamOpen } from "@/lib/stream-status";
+import { streamPollInterval, useBusinessLive } from "@/lib/stream-status";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
@@ -26,7 +26,7 @@ import { InboxList, type InboxListRow } from "./InboxList";
 import { ReadingPane } from "./ReadingPane";
 import { INBOX_TAB_LABELS, REFRESH_DEBOUNCE_MS, agentIndex, inboxTabs, itemIdFromPath, neighbourId, parseInboxTab, refreshGate, rowModel, type InboxTab } from "./logic";
 
-/** Fresh for minutes while the event stream keeps the inbox current, 10 s while it is down. */
+/** Fresh for minutes while the business's event channel keeps the inbox current, 10 s otherwise. */
 const INBOX_LIST_STALE = streamAwareStaleTime(10_000);
 
 /** DESIGN §9: the list is 380 px wide. */
@@ -60,12 +60,13 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
   const selectedId = itemIdFromPath(pathname) ?? routeItemId ?? null;
 
   // --- list --------------------------------------------------------------------------------------------------------
-  // The shell refetches the inbox on every event that adds or settles an item; polling only while the stream is down.
-  const streamOpen = useStreamOpen();
+  // The shell refetches the inbox on every event that adds or settles an item; polling every 30 s while the business's
+  // channel is not live, and a slow safety net while it is (an archive or a read by another member publishes no event).
+  const streamLive = useBusinessLive(businessId);
   const listQ = useInfiniteQuery(
     trpc.inbox.list.infiniteQueryOptions(
       { businessId, tab, limit: PAGE },
-      { getNextPageParam: (last) => last.nextCursor ?? undefined, initialCursor: null, staleTime: INBOX_LIST_STALE, refetchInterval: pollUnlessStreaming(streamOpen, 30_000) },
+      { getNextPageParam: (last) => last.nextCursor ?? undefined, initialCursor: null, staleTime: INBOX_LIST_STALE, refetchInterval: streamPollInterval(streamLive, 30_000) },
     ),
   );
   const pages = listQ.data?.pages;

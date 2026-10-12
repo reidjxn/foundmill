@@ -8,7 +8,8 @@
  *   grows up to `maxQueue` entries, beyond which the oldest entries are dropped, preferring session channels the
  *   client has not marked focused, then any session channel, then anything. Business events (`ev:`) are dropped only
  *   as a last resort because the Inbox cannot replay them. A socket that stays above the high-water mark for
- *   `slowCloseMs` is closed with 1013 (the tab reconnects and re-subscribes from the live tail).
+ *   `slowCloseMs` is closed with 1013 (the tab reconnects, re-subscribes from the live tail and, once each channel is
+ *   acknowledged, refetches what it may have missed).
  * - Event JSON is spliced into the frame as text; nothing is parsed or re-serialised on the hot path.
  */
 import { CLOSE_CODES, SERVER_FRAMES_PER_SECOND, SESSION_CHANNEL_PREFIX } from "./protocol";
