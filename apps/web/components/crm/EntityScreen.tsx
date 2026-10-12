@@ -3,7 +3,9 @@
  * Entity profile (BUILD §11.12 "Profile tabs"): ProfileHeader (kind, roles, owner, since, relationship strength
  * 1–20, lead score stars) and the tabs Overview · Activity · Relationships (graph + intro paths) · Commercial ·
  * Documents · Notes · Journey (re-watch replays). Merge from the header, unmerge from the merge history
- * (AC-11.12.3); data duties (export, deletion request) live in the header actions.
+ * (AC-11.12.3): Unmerge reverts only what that merge changed, and while a later merge relies on it the history
+ * says which merge to undo first instead of offering the button. Data duties (export, deletion request) live in
+ * the header actions.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, Download, GitMerge, Handshake, Mail, MessageSquare, Pencil, Phone, Play, ScrollText, StickyNote, Trash2, Undo2, UserRoundPlus, Users } from "lucide-react";
@@ -74,7 +76,11 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
         void invalidate();
         toast({ title: "Merge undone", description: `${r.merged.displayName} is a separate record again.`, tone: "good" });
       },
-      onError: (err) => toast({ title: "Unmerge failed", description: errorMessage(err), tone: "bad" }),
+      onError: (err) => {
+        // CONFLICT: a later merge relies on this one; the message names the merge to undo first.
+        if (trpcErrorCode(err) === "CONFLICT") void invalidate();
+        toast({ title: trpcErrorCode(err) === "CONFLICT" ? "This merge cannot be undone yet" : "Unmerge failed", description: errorMessage(err), tone: "bad" });
+      },
     }),
   );
   const endRole = useMutation(
@@ -125,9 +131,13 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
           {banner.absorbed.map((m) => (
             <span key={m.id} className="inline-flex items-center gap-2">
               Absorbed a duplicate {formatRelative(m.createdAt)}.
-              <Button size="sm" variant="ghost" icon={Undo2} loading={unmerge.isPending} onClick={() => unmerge.mutate({ businessId, mergeLogId: m.id })} data-testid="unmerge">
-                Unmerge
-              </Button>
+              {m.undoBlocked ? (
+                <span data-testid="unmerge-blocked">{m.undoBlocked}</span>
+              ) : (
+                <Button size="sm" variant="ghost" icon={Undo2} loading={unmerge.isPending} onClick={() => unmerge.mutate({ businessId, mergeLogId: m.id })} data-testid="unmerge">
+                  Unmerge
+                </Button>
+              )}
             </span>
           ))}
         </div>
@@ -213,7 +223,15 @@ export function EntityScreen({ entityId, tab }: EntityScreenProps) {
                         <span>
                           {m.keptId === entity.id ? "Absorbed a duplicate record" : "Merged into another record"} {formatRelative(m.createdAt)}, {MERGED_BY[m.byKind] ?? `by ${plainWords(m.byKind).toLowerCase()}`}
                         </span>
-                        {m.revertedAt ? <Chip tone="neutral">Reverted {formatRelative(m.revertedAt)}</Chip> : m.keptId === entity.id ? <Button size="sm" variant="ghost" icon={Undo2} className="ml-auto" loading={unmerge.isPending} onClick={() => unmerge.mutate({ businessId, mergeLogId: m.id })}>Unmerge</Button> : null}
+                        {m.revertedAt ? (
+                          <Chip tone="neutral">Reverted {formatRelative(m.revertedAt)}</Chip>
+                        ) : m.keptId !== entity.id ? null : m.undoBlocked ? (
+                          <span className="ml-auto max-w-reading text-small text-secondary">{m.undoBlocked}</span>
+                        ) : (
+                          <Button size="sm" variant="ghost" icon={Undo2} className="ml-auto" loading={unmerge.isPending} onClick={() => unmerge.mutate({ businessId, mergeLogId: m.id })}>
+                            Unmerge
+                          </Button>
+                        )}
                       </li>
                     ))}
                   </ul>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityItems, applyChipFilters, commercialSummary, deletionRequestNote, documentItems, exportEntityJson, groupByForView, groupCounts, introPaths, isEntityTab, leadScore, mergeBanner, relationshipStrength, rowFromEntity, rowsFromRoleListings, rowsFromSearch, strengthRating, CRM_VIEWS, type EntityGet, type RelationshipRecord } from "../logic";
+import { activityItems, applyChipFilters, commercialSummary, deletionRequestNote, documentItems, exportEntityJson, groupByForView, groupCounts, introPaths, isEntityTab, leadScore, mergeBanner, relationshipStrength, rowFromEntity, rowsFromSearch, strengthRating, CRM_VIEWS, type EntityGet, type RelationshipRecord } from "../logic";
 import { parseCrmQuery } from "../search";
 
 const entity = (over: Record<string, unknown> = {}) => ({ id: "e1", businessId: "b", kind: "person", displayName: "Ana Lind", aliases: [], avatarUrl: null, identifiers: { email: "ana@example.com" }, lawfulBasis: "contract", source: "stripe", embedding: null, search: null, visibility: "private", agentId: null, mergedIntoId: null, createdAt: new Date("2026-01-10"), updatedAt: new Date("2026-09-01"), archivedAt: null, ...over });
@@ -11,17 +11,16 @@ describe("rows", () => {
     const row = rowFromEntity(entity() as never, [role({ role: "lead", stage: "qualified", startedAt: new Date("2026-01-15"), endedAt: new Date("2026-02-01") }), role()] as never);
     expect(row).toMatchObject({ id: "e1", name: "Ana Lind", email: "ana@example.com", roles: ["customer"], stage: "customer", owner: { kind: "agent", id: "a1" }, lawfulBasis: "contract" });
   });
-  it("unions role listings into one row per entity", () => {
-    const a = { ...entity(), role: role({ role: "customer" }) };
-    const b = { ...entity(), role: role({ id: "r2", role: "champion", stage: null, startedAt: new Date("2026-03-01") }) };
-    const rows = rowsFromRoleListings([[a as never], [b as never]]);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.roles.sort()).toEqual(["champion", "customer"]);
-    expect(rows[0]!.stage).toBeNull();
+  it("speaks for the role a role or stage filter names, else the most recent one", () => {
+    const roles = [role({ role: "customer", stage: "activated" }), role({ id: "r2", role: "lead", stage: "qualified", ownerRef: { kind: "department", id: "d1" }, startedAt: new Date("2026-01-01") })];
+    expect(rowFromEntity(entity() as never, roles as never)).toMatchObject({ roles: ["customer", "lead"], stage: "activated", owner: { kind: "agent", id: "a1" } });
+    expect(rowFromEntity(entity() as never, roles as never, { role: "lead" })).toMatchObject({ stage: "qualified", owner: { kind: "department", id: "d1" } });
+    expect(rowFromEntity(entity() as never, roles as never, { stage: "QUALIFIED" })).toMatchObject({ stage: "qualified" });
+    expect(rowFromEntity(entity() as never, roles as never, { role: "partner" })).toMatchObject({ stage: "activated" });
   });
-  it("keeps search scores and filters client-side by chips with resolvers", () => {
-    const rows = rowsFromSearch([{ entity: entity() as never, score: 0.9, matchedOn: "name" }] as never);
-    expect(rows[0]).toMatchObject({ score: 0.9, matchedOn: "name" });
+  it("keeps search scores and roles, and filters client-side by chips with resolvers", () => {
+    const rows = rowsFromSearch([{ entity: entity() as never, roles: [role({ role: "supplier", stage: "shortlisted" })], score: 0.9, matchedOn: "name" }] as never);
+    expect(rows[0]).toMatchObject({ score: 0.9, matchedOn: "name", roles: ["supplier"], stage: "shortlisted", owner: { kind: "agent", id: "a1" } });
     const listed = [rowFromEntity(entity() as never, [role()] as never), rowFromEntity(entity({ id: "e2", kind: "organisation", displayName: "Acme" }) as never, [role({ role: "supplier", stage: "shortlisted", ownerRef: { kind: "department", id: "d1" } })] as never)];
     const owner = applyChipFilters(listed, parseCrmQuery("owner:Mara").chips, { ownerName: (ref) => (ref.id === "a1" ? "Mara" : undefined) });
     expect(owner.map((r) => r.id)).toEqual(["e1"]);
@@ -83,7 +82,7 @@ describe("profile derivations", () => {
 });
 
 describe("data duties and merges", () => {
-  const get = { entity: entity(), roles: [role()], relationships: [rel()], interactions: [{ id: "i1", kind: "email", occurredAt: new Date("2026-03-01"), direction: "inbound", summary: "s", contentRef: "vault://x" }], mentions: [], conversions: [], mergeHistory: [{ id: "ml", keptId: "e1", mergedId: "e9", byKind: "user", byId: null, revertedAt: null, createdAt: new Date("2026-06-01") }], redirectedFrom: null } as unknown as EntityGet;
+  const get = { entity: entity(), roles: [role()], relationships: [rel()], interactions: [{ id: "i1", kind: "email", occurredAt: new Date("2026-03-01"), direction: "inbound", summary: "s", contentRef: "vault://x" }], mentions: [], conversions: [], mergeHistory: [{ id: "ml", keptId: "e1", mergedId: "e9", byKind: "user", byId: null, revertedAt: null, createdAt: new Date("2026-06-01"), undoBlocked: null }], redirectedFrom: null } as unknown as EntityGet;
   it("exports everything held without decrypting bodies", () => {
     const json = JSON.parse(exportEntityJson(get, new Date("2026-10-07T00:00:00Z")));
     expect(json.entity.displayName).toBe("Ana Lind");

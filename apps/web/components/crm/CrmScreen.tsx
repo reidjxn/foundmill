@@ -20,7 +20,7 @@ import { MergeDialog, NewEntityDialog } from "./dialogs";
 import { CRM_VIEWS, KIND_WORD, LAWFUL_BASIS_LABEL, RETENTION_COPY, STAGE_TONE, groupByForView, groupCounts, groupLabel, roleWord, sourceWord, stageWord, type CrmRow, type OwnerRef } from "./logic";
 import { plainWords } from "@/lib/format";
 import { KIND_LABELS, chip, chipsToOperators, crmFilterFields, mergeChips, operatorValueWord, parseCrmQuery, type CrmFilterField } from "./search";
-import { useEntityIndex } from "./useEntityIndex";
+import { CRM_LIST_LIMIT, useEntityIndex } from "./useEntityIndex";
 
 const IMPORTERS = [
   { key: "affinity", name: "Affinity" },
@@ -238,7 +238,13 @@ export function CrmScreen() {
         error={index.error ? errorMessage(index.error) : undefined}
         onRetry={index.refetch}
         empty={!index.loading && !index.error && index.rows.length === 0 ? { icon: Database, children: index.mode === "search" ? "Nothing matches. Try fewer words, an email or a domain, or clear the filters." : "People and organizations arrive from imports, integrations and agents' work. Add one by hand or connect an importer.", action: { label: "New record", icon: UserRoundPlus, onClick: () => setNewOpen(true) } } : undefined}
-        footer={index.mode === "search" ? "Matches names, emails and domains, notes and documents, and meaning." : "Everyone the business works with. Type above to search names, emails, notes and documents."}
+        footer={
+          index.mode === "search"
+            ? "Matches names, emails and domains, notes and documents, and meaning."
+            : index.truncated
+              ? `The ${CRM_LIST_LIMIT.toLocaleString("en-US")} newest records${chips.length ? " that match the filters" : ""}. Filter by role, stage or owner, or type above to search, to reach the rest.`
+              : "Everyone the business works with. Type above to search names, emails, notes and documents."
+        }
         data-testid="crm-table-panel"
       >
         {groupBy && groups.length ? (

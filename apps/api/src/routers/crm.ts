@@ -15,8 +15,11 @@ export const crmRouter = router({
   search: read.input(SearchInput).query(({ ctx, input }) => ctx.rls((tx) => repos.entities.search(tx, ctx.businessId, input))),
 
   entity: router({
-    /** The CRM list without a search term (newest first, keyset paged). */
-    list: read.input(EntityListFilter).query(({ ctx, input }) => ctx.rls((tx) => repos.entities.list(tx, ctx.businessId, { ...input, limit: Math.min(input?.limit ?? 100, 500) }))),
+    /**
+     * The CRM list without a search term (newest first, keyset paged). Every row carries its active roles (role, stage,
+     * owner) for the role and stage views; role, stage, owner and department filters match those roles server-side.
+     */
+    list: read.input(EntityListFilter).query(({ ctx, input }) => ctx.rls((tx) => repos.entities.listWithRoles(tx, ctx.businessId, { ...input, limit: Math.min(input?.limit ?? 100, 500) }))),
     /**
      * GDPR-style deletion request: recorded on the profile (interaction note) and the audit chain; nothing is deleted by
      * agent or API code (a hard gate). The request names who asked, when and the earliest completion date.
@@ -63,6 +66,7 @@ export const crmRouter = router({
         return result;
       }),
     ),
+    /** Reverts only what the merge changed; CONFLICT (with the later merge to undo first) while a later merge relies on it. */
     unmerge: write.input(z.object({ mergeLogId: Id })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const result = await repos.entities.unmerge(tx, ctx.businessId, input.mergeLogId);

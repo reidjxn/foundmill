@@ -116,4 +116,52 @@ test.describe("entity profile", () => {
     const history = page.getByTestId("merge-history");
     if (await history.count()) await expect(history.getByRole("button", { name: "Unmerge" })).toHaveCount(0);
   });
+
+  test("a merge a later one relies on says which merge to undo first; undone newest first, both records return", async ({ page }) => {
+    // Three new people: the kept one has no email, both duplicates have one, so the second merge keeps the first one's
+    // email and relies on that merge.
+    const tag = Date.now().toString(36);
+    const kept = `Merge Kept ${tag}`;
+    const first = `Merge First ${tag}`;
+    const second = `Merge Second ${tag}`;
+    const add = async (name: string, email?: string): Promise<string> => {
+      await openBusiness(page, "crm");
+      await page.getByTestId("crm-new").click();
+      const dialog = page.getByTestId("new-entity-dialog");
+      await dialog.getByLabel("Name").fill(name);
+      if (email) await dialog.getByLabel("Email").fill(email);
+      await page.getByTestId("new-entity-save").click();
+      await expect(page.getByTestId("entity-profile")).toBeVisible({ timeout: LONG });
+      await expect(page.getByTestId("profile-header")).toContainText(name);
+      return page.url();
+    };
+    const firstUrl = await add(first, `first.${tag}@merge.example`);
+    const secondUrl = await add(second, `second.${tag}@merge.example`);
+    const keptUrl = await add(kept);
+    const mergeIn = async (name: string) => {
+      await page.getByTestId("entity-merge").click();
+      const dialog = page.getByTestId("merge-dialog");
+      await dialog.getByLabel(/Find the duplicate/).fill(name);
+      await page.getByTestId("merge-matches").getByRole("option").filter({ hasText: name }).first().click();
+      await page.getByTestId("merge-confirm").click();
+      await expect(dialog).toBeHidden({ timeout: LONG });
+    };
+    await mergeIn(first);
+    await mergeIn(second);
+
+    const banner = page.getByTestId("merge-banner");
+    await expect(banner.getByTestId("unmerge-blocked")).toContainText(`Undo the later merge of “${second}” first`, { timeout: LONG });
+    await expect(banner.getByTestId("unmerge-blocked")).toContainText("the email");
+    await expect(banner.getByTestId("unmerge")).toHaveCount(1);
+    await banner.getByTestId("unmerge").click();
+    await expect(banner.getByTestId("unmerge-blocked")).toHaveCount(0, { timeout: LONG });
+    await banner.getByTestId("unmerge").click();
+    await expect(page.getByTestId("merge-banner")).toHaveCount(0, { timeout: LONG });
+
+    for (const [url, name] of [[firstUrl, first], [secondUrl, second], [keptUrl, kept]] as const) {
+      await page.goto(url);
+      await expect(page.getByTestId("profile-header")).toContainText(name, { timeout: LONG });
+      await expect(page.getByTestId("merge-banner")).toHaveCount(0);
+    }
+  });
 });

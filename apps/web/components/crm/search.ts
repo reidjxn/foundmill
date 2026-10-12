@@ -1,8 +1,8 @@
 /**
  * CRM universal search (BUILD §11.12 "Search"): the operators `kind:` `role:` `stage:` `owner:` `department:` (parsed
  * by Dugout's `parseSearchQuery`), plus a deterministic natural-language pass that turns phrases such as
- * "churned customers in Growth owned by Mara" into editable filter chips. The chips map onto `crm.search`'s input;
- * when the box is empty the list falls back to role listings filtered client-side by the same chips.
+ * "churned customers in Growth owned by Mara" into editable filter chips. The chips map onto the same server-side
+ * filters in `crm.search` (with text) and `crm.entity.list` (chips only).
  */
 import { plainWords } from "@/lib/format";
 import { newFilterChipId, parseSearchQuery, type FilterChipValue, type FilterField } from "@foundmill/dugout";
@@ -170,13 +170,17 @@ export function chipValue(chips: readonly FilterChipValue[], field: CrmFilterFie
   return String(c.value);
 }
 
-export interface CrmSearchInput {
-  q: string;
+/** The role filters `crm.search` and `crm.entity.list` share (matched against each record's active roles). */
+export interface CrmChipFilters {
   kinds?: EntityKind[];
   role?: string;
   stage?: string;
   ownerId?: string;
   departmentId?: string;
+}
+
+export interface CrmSearchInput extends CrmChipFilters {
+  q: string;
   limit: number;
 }
 
@@ -185,28 +189,42 @@ export interface SearchResolvers {
   departmentId?: (nameOrSlug: string) => string | undefined;
 }
 
-/** `crm.search` input for the box text + chips, or null when there is no text (the list then uses role listings). */
+/** A role or stage as stored ("Signed up" → "signed_up"); the API compares them case-insensitively. */
+const storedKey = (v: string) => v.trim().toLowerCase().replace(/[\s-]+/g, "_");
+
+/**
+ * Chips → the API's filters. A chip the API cannot take (an owner or department name that resolves to no id, a kind
+ * that does not exist) comes back in `unresolved`, so the screen applies it to the rows itself instead of dropping it.
+ */
+export function chipFilters(chips: readonly FilterChipValue[], resolvers: SearchResolvers = {}): { filters: CrmChipFilters; unresolved: FilterChipValue[] } {
+  const filters: CrmChipFilters = {};
+  const unresolved: FilterChipValue[] = [];
+  for (const c of chips) {
+    const v = chipValue([c], c.field as CrmFilterField);
+    if (!v) continue;
+    const ownerId = c.field === "owner" ? resolvers.ownerId?.(v) : undefined;
+    const departmentId = c.field === "department" ? resolvers.departmentId?.(v) : undefined;
+    if (c.field === "kind" && (ENTITY_KINDS as readonly string[]).includes(v)) filters.kinds = [v as EntityKind];
+    else if (c.field === "role") filters.role = storedKey(v);
+    else if (c.field === "stage") filters.stage = storedKey(v);
+    else if (ownerId) filters.ownerId = ownerId;
+    else if (departmentId) filters.departmentId = departmentId;
+    else unresolved.push(c);
+  }
+  return { filters, unresolved };
+}
+
+/** `crm.search` input for the box text + chips, or null when there is no text (the list then reads `crm.entity.list`). */
 export function toSearchInput(text: string, chips: readonly FilterChipValue[], resolvers: SearchResolvers = {}, limit = 50): CrmSearchInput | null {
   const q = text.trim();
   if (!q) return null;
-  const kind = chipValue(chips, "kind");
-  const owner = chipValue(chips, "owner");
-  const dept = chipValue(chips, "department");
-  const input: CrmSearchInput = { q, limit };
-  if (kind && (ENTITY_KINDS as readonly string[]).includes(kind)) input.kinds = [kind as EntityKind];
-  const role = chipValue(chips, "role");
-  if (role) input.role = role;
-  const stage = chipValue(chips, "stage");
-  if (stage) input.stage = stage;
-  if (owner) {
-    const id = resolvers.ownerId?.(owner);
-    if (id) input.ownerId = id;
-  }
-  if (dept) {
-    const id = resolvers.departmentId?.(dept);
-    if (id) input.departmentId = id;
-  }
-  return input;
+  return { q, limit, ...chipFilters(chips, resolvers).filters };
+}
+
+/** `crm.entity.list` filters for the chips (no text): the server filters every record, not just one loaded page. */
+export function toListFilter(filters: CrmChipFilters): { kind?: EntityKind[]; role?: string; stage?: string; ownerId?: string; departmentId?: string } {
+  const { kinds, ...rest } = filters;
+  return { ...(kinds ? { kind: kinds } : {}), ...rest };
 }
 
 /** Filter fields for the editable chips (FilterChips). */

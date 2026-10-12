@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the CRM list and entity profiles (BUILD §11.12): row models from search hits and role listings,
+ * Pure helpers for the CRM list and entity profiles (BUILD §11.12): row models from listed records and search hits,
  * grouped saved views, client-side chip filters, relationship strength (1–20), lead score stars (Estimate), intro
  * paths, activity/document/commercial derivations, the data-duties export and the merge banner. Unit-tested.
  */
@@ -18,7 +18,6 @@ export type MentionRecord = EntityGet["mentions"][number];
 export type ConversionRecord = EntityGet["conversions"][number];
 export type MergeLogRecord = EntityGet["mergeHistory"][number];
 export type SearchHitRecord = RouterOutputs["crm"]["search"]["hits"][number];
-export type RoleListingRow = RouterOutputs["crm"]["roles"]["byRole"]["items"][number];
 
 export type Iso = Date | string | null | undefined;
 export function toIso(d: Iso): string | null {
@@ -68,8 +67,18 @@ function identifier(e: EntityLike, key: string): string | null {
   return typeof v === "string" && v ? v : null;
 }
 
-export function rowFromEntity(e: EntityLike, roles: Pick<EntityRoleRecord, "role" | "stage" | "ownerRef" | "startedAt" | "endedAt">[] = []): CrmRow {
+type RoleLike = Pick<EntityRoleRecord, "role" | "stage" | "ownerRef" | "startedAt" | "endedAt">;
+
+/** Which role a row speaks for when the list is filtered by role or stage (else its most recent active role). */
+export interface RowFocus {
+  role?: string;
+  stage?: string;
+}
+
+export function rowFromEntity(e: EntityLike, roles: readonly RoleLike[] = [], focus: RowFocus = {}): CrmRow {
   const active = roles.filter((r) => !r.endedAt).sort((a, b) => ms(b.startedAt) - ms(a.startedAt));
+  const same = (a: string | null | undefined, b: string | undefined) => !b || (a ?? "").toLowerCase() === b.toLowerCase();
+  const primary = active.find((r) => (focus.role || focus.stage) && same(r.role, focus.role) && same(r.stage, focus.stage)) ?? active[0];
   return {
     id: e.id,
     kind: e.kind,
@@ -77,8 +86,8 @@ export function rowFromEntity(e: EntityLike, roles: Pick<EntityRoleRecord, "role
     email: identifier(e, "email"),
     domain: identifier(e, "domain"),
     roles: [...new Set(active.map((r) => r.role))],
-    stage: active[0]?.stage ?? null,
-    owner: (active.find((r) => r.ownerRef)?.ownerRef as OwnerRef | null | undefined) ?? null,
+    stage: primary?.stage ?? null,
+    owner: ((primary?.ownerRef ?? active.find((r) => r.ownerRef)?.ownerRef) as OwnerRef | null | undefined) ?? null,
     lawfulBasis: e.lawfulBasis ?? null,
     source: e.source ?? null,
     createdAt: toIso(e.createdAt) ?? new Date(0).toISOString(),
@@ -86,21 +95,8 @@ export function rowFromEntity(e: EntityLike, roles: Pick<EntityRoleRecord, "role
   };
 }
 
-export function rowsFromSearch(hits: readonly SearchHitRecord[]): CrmRow[] {
-  return hits.map((h) => ({ ...rowFromEntity(h.entity), score: h.score, matchedOn: h.matchedOn }));
-}
-
-/** Union of several role listings: one row per entity carrying every role it holds. */
-export function rowsFromRoleListings(listings: readonly RoleListingRow[][]): CrmRow[] {
-  const byId = new Map<string, { entity: RoleListingRow; roles: RoleListingRow["role"][] }>();
-  for (const list of listings) {
-    for (const item of list) {
-      const cur = byId.get(item.id);
-      if (cur) cur.roles.push(item.role);
-      else byId.set(item.id, { entity: item, roles: [item.role] });
-    }
-  }
-  return [...byId.values()].map(({ entity, roles }) => rowFromEntity(entity, roles)).sort((a, b) => a.name.localeCompare(b.name));
+export function rowsFromSearch(hits: readonly SearchHitRecord[], focus: RowFocus = {}): CrmRow[] {
+  return hits.map((h) => ({ ...rowFromEntity(h.entity, h.roles, focus), score: h.score, matchedOn: h.matchedOn }));
 }
 
 export interface RowResolvers {
@@ -108,7 +104,10 @@ export interface RowResolvers {
   departmentName?: (id: string) => string | undefined;
 }
 
-/** Client-side chip filters for the role-listing mode (search mode applies them server-side). */
+/**
+ * Client-side chip filters over rows that carry their roles. The API applies every chip it can (`chipFilters`); the
+ * screen runs this only for the rest, such as an owner name that resolves to no agent or department id.
+ */
 export function applyChipFilters(rows: readonly CrmRow[], chips: readonly FilterChipValue[], resolvers: RowResolvers = {}): CrmRow[] {
   const want = (f: CrmFilterField) => chipValue(chips, f)?.toLowerCase();
   const kind = want("kind");
