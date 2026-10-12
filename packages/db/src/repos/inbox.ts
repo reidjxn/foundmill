@@ -158,6 +158,12 @@ export const inboxRepo = {
     return one(await db.select().from(inboxItems).where(scoped(businessId, itemId)).limit(1), "inbox item", itemId);
   },
 
+  /** Several items in one query (ids of another business, or of nothing, are left out). */
+  async byIds(db: Executor, businessId: string, itemIds: readonly string[]): Promise<InboxItem[]> {
+    if (itemIds.length === 0) return [];
+    return db.select().from(inboxItems).where(and(eq(inboxItems.businessId, businessId), inArray(inboxItems.id, [...itemIds])));
+  },
+
   /** Items that block Continue and are still unanswered (AC-11.3.3: the button reads "Respond · N"). */
   async countBlocking(db: Executor, businessId: string): Promise<number> {
     const rows = await db

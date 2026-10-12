@@ -11,6 +11,7 @@ import { assertAgentsRunning, resumeAgents, stopAllAgents } from "../services/ki
 import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, requestDeletion } from "../services/lifecycle";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { modelLimited } from "../services/model-limits";
+import { noteAsSeenBy } from "../services/inbox-redaction";
 import { adminProcedure, audit, businessProcedure, emit, ownerProcedure, router, writeProcedure } from "../trpc";
 import { businessLogoRouter } from "./logo";
 
@@ -58,9 +59,14 @@ export const businessRouter = router({
   /**
    * One press of Continue (BUILD §9.4): starts the next businessCycle on Temporal when reachable, resumes a paused one,
    * or runs one in-process cycle step (one new Inbox item through the composer) and returns the new Continue state.
-   * Refuses (CONFLICT) while red items block Continue or a holiday is running.
+   * Refuses (CONFLICT) while red items block Continue or a holiday is running. The note an in-process step wrote comes
+   * back as this person may read it (the walls of inbox.get; audit RUI-02).
    */
-  continue: writeProcedure.use(modelLimited("continue")).mutation(({ ctx }) => startCycle(ctx)),
+  continue: writeProcedure.use(modelLimited("continue")).mutation(async ({ ctx }) => {
+    const result = await startCycle(ctx);
+    const item = result.item;
+    return item ? { ...result, item: await ctx.rls((tx) => noteAsSeenBy(tx, ctx.businessId, ctx.membership, item)) } : result;
+  }),
   pauseCycle: writeProcedure.mutation(({ ctx }) => pauseCycle(ctx)),
   resumeCycle: writeProcedure.mutation(({ ctx }) => resumeCycle(ctx)),
 

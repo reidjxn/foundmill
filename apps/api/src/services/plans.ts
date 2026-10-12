@@ -135,7 +135,10 @@ export function sectionForAction(action: { type: PlanActionType; params?: unknow
     case "approve_spend":
       return "finance";
     case "create_task":
-      return isChannelKey(p.channel) ? "distribution" : p.kind === "code" ? "development" : null;
+      // A task does its section's work: channel work is Distribution's, code Development's, finance and legal work
+      // their own section's. Research, specialist and ops tasks are the asking agent's own work.
+      if (isChannelKey(p.channel) || p.kind === "channel") return "distribution";
+      return p.kind === "code" ? "development" : p.kind === "finance" ? "finance" : p.kind === "legal" ? "legal" : null;
     case "update_spec":
     case "update_roadmap":
       return "product";
