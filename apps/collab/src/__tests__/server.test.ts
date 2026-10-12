@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { createCollabAuthenticator, mintCollabServiceToken } from "../auth";
 import { createCollabClient } from "../client";
-import { specDocumentName } from "../document-name";
+import { parseDocumentName, specDocumentName } from "../document-name";
 import { docToPmDoc, pmEqual, type PmNode } from "../prosemirror";
 import { createCollabServer, type CollabServer } from "../server";
 import { blockTexts, RawHocuspocusClient, until } from "./protocol-client";
@@ -209,6 +209,40 @@ describe("authentication and authorisation", () => {
     expect(JSON.stringify(docToPmDoc(live))).not.toContain("VIEWER");
     await viewer.client.close();
     await until(async () => (await repos.product.getBlock(db, A.businessId, block.id)).version === block.version, 1000, "no version bump");
+  });
+
+  it("staff section permissions apply (TPD-06): Product none is denied, read is read-only, over the socket and HTTP", async () => {
+    const block = await newBlock(A.businessId);
+    const name = specDocumentName(A.businessId, block.id);
+    const url = `${httpUrl}/v1/spec-blocks/${A.businessId}/${block.id}`;
+    const post = async (userId: string) => fetch(url, { method: "POST", headers: { authorization: `Bearer ${await userToken(userId)}`, "content-type": "application/json" }, body: JSON.stringify({ content: { type: "doc", content: [paragraph("MEMBER rewrote the block.")] } }) });
+    try {
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, { product: "none" });
+      const walled = await connect(await userToken(A.memberId), name);
+      expect(walled.outcome).not.toBe("authenticated");
+      await walled.client.close();
+      expect((await fetch(url, { headers: { authorization: `Bearer ${await userToken(A.memberId)}` } })).status).toBe(403);
+      expect((await post(A.memberId)).status).toBe(403);
+      await expect(server.authorize({ kind: "user", userId: A.memberId, email: null }, parseDocumentName(name))).rejects.toMatchObject({ reason: "section-denied" });
+
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, { product: "read" });
+      const reader = await connect(await userToken(A.memberId), name);
+      expect(reader.outcome).toBe("authenticated");
+      expect(reader.client.scope).toBe("readonly");
+      await reader.client.close();
+      expect((await fetch(url, { headers: { authorization: `Bearer ${await userToken(A.memberId)}` } })).status).toBe(200);
+      expect((await post(A.memberId)).status).toBe(403);
+
+      // An explicit "write" never lets a viewer edit: writing needs a write role too.
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.viewerId, { product: "write" });
+      expect((await post(A.viewerId)).status).toBe(403);
+      expect((await repos.product.getBlock(db, A.businessId, block.id)).version).toBe(block.version);
+    } finally {
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, {});
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.viewerId, {});
+    }
+    // The member's default (write) is back.
+    expect((await post(A.memberId)).status).toBe(200);
   });
 
   it("agents are read-only on pinned blocks while humans still write (AC-11.5.3 spirit)", async () => {

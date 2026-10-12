@@ -1,7 +1,7 @@
 /** team.agents.* / team.humans.* / team.responsibilities.* (BUILD §11.9; AC-11.9.2 responsibilities route approvals). */
 import { TEMPLATE_KEYS, listTemplates } from "@foundmill/agents";
 import { SectionPermissions, repos } from "@foundmill/db";
-import { DECISION_TYPES, MEMBERSHIP_ROLES, ValidationError } from "@foundmill/shared";
+import { ConflictError, DECISION_TYPES, ForbiddenError, MEMBERSHIP_ROLES, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { hireFromTemplate } from "../services/squad";
 import { Id, adminProcedure, audit, emit, router, sectionRead, sectionWrite } from "../trpc";
@@ -99,19 +99,27 @@ export const teamRouter = router({
   humans: router({
     list: read.query(({ ctx }) => ctx.rls((tx) => repos.memberships.list(tx, ctx.businessId))),
     /** Invite by user id (Supabase auth user); e-mail invitations are sent by the web app's auth flow. */
+    /** Adds a new member only: an existing member (the owner included) is never overwritten (409; use `role`). */
     invite: adminProcedure.input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).default("member"), sectionPermissions: SectionPermissions.default({}), email: z.string().email().optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
-        if (input.role === "owner") throw new ValidationError("Ownership is transferred, not granted by invitation");
+        if (input.role === "owner") throw new ValidationError("Ownership is granted by an owner from Role and permissions, not by invitation");
+        if (await repos.memberships.get(tx, ctx.businessId, input.userId)) throw new ConflictError("That person is already a member of this business; change their role instead", { userId: input.userId });
         const membership = await repos.memberships.add(tx, ctx.businessId, { userId: input.userId, role: input.role, sectionPermissions: input.sectionPermissions });
         await audit(tx, ctx, { action: "team.humans.invite", target: { kind: "membership", id: membership.id }, details: { userId: input.userId, role: input.role } });
         return membership;
       }),
     ),
+    /**
+     * Role and section permissions of another member. Nobody edits their own; only an owner changes an owner's row or
+     * grants ownership; the last owner keeps the role (the same rules hold in RLS, 0026_membership_guards).
+     */
     role: adminProcedure.input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).optional(), sectionPermissions: SectionPermissions.optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
-        if (input.userId === ctx.userId && input.role && input.role !== ctx.role) throw new ValidationError("You cannot change your own role");
+        if (input.userId === ctx.userId) throw new ValidationError("You cannot change your own role or section permissions; another owner or admin can");
         let membership = await repos.memberships.get(tx, ctx.businessId, input.userId);
         if (!membership) throw new ValidationError("Not a member of this business");
+        if (ctx.role !== "owner" && membership.role === "owner") throw new ForbiddenError("Only an owner can change an owner's role or permissions");
+        if (ctx.role !== "owner" && input.role === "owner") throw new ForbiddenError("Only an owner can grant ownership");
         if (input.role) membership = await repos.memberships.setRole(tx, ctx.businessId, input.userId, input.role);
         if (input.sectionPermissions) membership = await repos.memberships.setSectionPermissions(tx, ctx.businessId, input.userId, input.sectionPermissions);
         await audit(tx, ctx, { action: "team.humans.role", target: { kind: "membership", id: membership.id }, details: { role: input.role ?? null, sections: input.sectionPermissions ? Object.keys(input.sectionPermissions) : [] } });

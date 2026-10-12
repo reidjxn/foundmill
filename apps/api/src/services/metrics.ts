@@ -6,9 +6,14 @@
  * match; no model call is needed for a closed catalogue) and previews it. `runMetric` accepts a `queryId` or the
  * entry's canonical SQL text: the text is matched against the catalogue, never executed, so nothing a widget sends can
  * read outside the business (docs/DECISIONS.md "custom metric SQL is a catalogue key").
+ *
+ * Section walls (BUILD §11.9; audit RA-02): every entry names the section whose data it reads, and a reader without
+ * read access to that section never gets its value, its preview or its catalogue line, exactly as the section's own
+ * procedures (finance.overview, dev.tasks.list, distribution.channels.list, …) refuse them. RLS scopes the rows to the
+ * business, not to a section, so the check lives here.
  */
 import { repos, type Executor } from "@foundmill/db";
-import { ValidationError } from "@foundmill/shared";
+import { ForbiddenError, ValidationError, type Section } from "@foundmill/shared";
 
 export type MetricFormat = "compact" | "integer" | "decimal" | "percent" | "money";
 
@@ -32,7 +37,14 @@ export interface CompiledMetric {
   estimate: "forecast" | "estimate" | null;
 }
 
+/** What the caller may read (apps/api passes the membership's effective section permissions). */
+export interface MetricReader {
+  canRead(section: Section): boolean;
+}
+
 interface MetricDefinition extends CompiledMetric {
+  /** The section whose data the metric reads: a reader without read access to it never gets the metric. */
+  section: Section;
   description: string;
   keywords: readonly string[];
   run(db: Executor, businessId: string, now: Date): Promise<Pick<MetricResult, "value" | "currency" | "series" | "asOf">>;
@@ -44,6 +56,7 @@ const last30 = (now: Date) => ({ from: new Date(now.getTime() - 30 * DAY_MS), to
 export const METRICS: readonly MetricDefinition[] = [
   {
     queryId: "cash",
+    section: "finance",
     label: "Cash in bank",
     description: "Sum of the latest balances of the connected bank accounts.",
     format: "money",
@@ -59,6 +72,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "net_burn",
+    section: "finance",
     label: "Net burn (monthly)",
     description: "Operating outflows minus operating inflows, trailing 3-month average.",
     format: "money",
@@ -74,6 +88,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "runway_months",
+    section: "finance",
     label: "Runway (months)",
     description: "Cash divided by net burn.",
     format: "decimal",
@@ -89,6 +104,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "revenue_30d",
+    section: "finance",
     label: "Revenue, last 30 days",
     description: "Payments received in the last 30 days (cash basis).",
     format: "money",
@@ -103,6 +119,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "customers_30d",
+    section: "distribution",
     label: "Customers won, last 30 days",
     description: "Paying customers won in the last 30 days.",
     format: "integer",
@@ -117,6 +134,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "signups_30d",
+    section: "distribution",
     label: "Sign-ups, last 30 days",
     description: "Sign-ups in the last 30 days.",
     format: "integer",
@@ -131,6 +149,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "activation_rate_30d",
+    section: "distribution",
     label: "Activation rate, last 30 days",
     description: "Activations as a share of sign-ups in the last 30 days.",
     format: "percent",
@@ -145,6 +164,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "tasks_running",
+    section: "development",
     label: "Tasks running",
     description: "Team tasks currently running.",
     format: "integer",
@@ -159,6 +179,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "tasks_done",
+    section: "development",
     label: "Tasks done",
     description: "Team tasks completed.",
     format: "integer",
@@ -173,6 +194,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "agents_active",
+    section: "team",
     label: "Agents working",
     description: "Agents with a healthy or degraded status (not paused, down or idle).",
     format: "integer",
@@ -187,6 +209,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "spend_30d",
+    section: "finance",
     label: "Agent spend, last 30 days",
     description: "Model and sandbox cost metered in the last 30 days.",
     format: "money",
@@ -201,6 +224,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "cpa_blended",
+    section: "distribution",
     label: "Cost per customer (blended)",
     description: "Channel spend divided by customers won, last 30 days.",
     format: "money",
@@ -215,6 +239,7 @@ export const METRICS: readonly MetricDefinition[] = [
   },
   {
     queryId: "channels_enabled",
+    section: "distribution",
     label: "Channels enabled",
     description: "Channels switched on in the Board.",
     format: "integer",
@@ -235,8 +260,13 @@ const byId = new Map(METRICS.map((m) => [m.queryId, m]));
 const normaliseSql = (s: string) => s.trim().replace(/\s+/g, " ").replace(/;+$/, "").toLowerCase();
 const bySql = new Map(METRICS.map((m) => [normaliseSql(m.sql), m]));
 
-export function listMetrics(): { id: string; label: string; description: string; format: MetricFormat; estimate: "forecast" | "estimate" | null }[] {
-  return METRICS.map((m) => ({ id: m.queryId, label: m.label, description: m.description, format: m.format, estimate: m.estimate }));
+/** The catalogue lines the reader may use (a metric from a section they cannot read is not offered). */
+export function listMetrics(reader: MetricReader): { id: string; label: string; description: string; format: MetricFormat; estimate: "forecast" | "estimate" | null }[] {
+  return METRICS.filter((m) => reader.canRead(m.section)).map((m) => ({ id: m.queryId, label: m.label, description: m.description, format: m.format, estimate: m.estimate }));
+}
+
+function assertReadable(m: MetricDefinition, reader: MetricReader): void {
+  if (!reader.canRead(m.section)) throw new ForbiddenError(`You do not have read access to ${m.section}`);
 }
 
 /** Resolve `{ queryId }` or `{ sql }` to a catalogue entry. SQL is matched, never executed (AC-11.2.5). */
@@ -256,8 +286,9 @@ export function resolveMetric(input: { queryId?: string | null; sql?: string | n
   throw new ValidationError("Give a queryId or the compiled sql");
 }
 
-export async function runMetric(db: Executor, businessId: string, input: { queryId?: string | null; sql?: string | null }, now = new Date()): Promise<MetricResult> {
+export async function runMetric(db: Executor, businessId: string, input: { queryId?: string | null; sql?: string | null }, reader: MetricReader, now = new Date()): Promise<MetricResult> {
   const m = resolveMetric(input);
+  assertReadable(m, reader);
   const r = await m.run(db, businessId, now);
   return { value: r.value, currency: r.currency, series: r.series, asOf: r.asOf, format: m.format, label: m.label, provenance: m.provenance, estimate: m.estimate };
 }
@@ -265,10 +296,10 @@ export async function runMetric(db: Executor, businessId: string, input: { query
 const tokenise = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/\s+/).filter(Boolean);
 
 /** The catalogue entry a sentence means, by keyword overlap (ties → catalogue order). Null when nothing matches. */
-export function matchMetric(sentence: string): MetricDefinition | null {
+export function matchMetric(sentence: string, among: readonly MetricDefinition[] = METRICS): MetricDefinition | null {
   const text = ` ${tokenise(sentence).join(" ")} `;
   let best: { m: MetricDefinition; score: number } | null = null;
-  for (const m of METRICS) {
+  for (const m of among) {
     let score = 0;
     for (const k of m.keywords) if (text.includes(` ${k.toLowerCase()} `)) score += k.includes(" ") ? 2 : 1;
     if (/last 30 days|30 days|this month|monthly/.test(text) && m.queryId.endsWith("_30d")) score += 0.5;
@@ -277,10 +308,19 @@ export function matchMetric(sentence: string): MetricDefinition | null {
   return best?.m ?? null;
 }
 
-export async function compileMetric(db: Executor, businessId: string, sentence: string, now = new Date()): Promise<CompiledMetric & { preview: MetricResult; alternatives: string[] }> {
-  const m = matchMetric(sentence);
-  if (!m) throw new ValidationError(`No known metric matches "${sentence.slice(0, 80)}". Try one of: ${METRICS.map((x) => x.label).join(", ")}`, { known: METRIC_IDS });
-  const preview = await runMetric(db, businessId, { queryId: m.queryId }, now);
-  const alternatives = METRICS.filter((x) => x !== m && x.keywords.some((k) => sentence.toLowerCase().includes(k))).map((x) => x.queryId);
+/**
+ * A sentence → the readable catalogue entry it means, with a preview. Only metrics from sections the reader may read are
+ * matched, previewed or offered as alternatives; a sentence that only matches a walled metric is refused (403).
+ */
+export async function compileMetric(db: Executor, businessId: string, sentence: string, reader: MetricReader, now = new Date()): Promise<CompiledMetric & { preview: MetricResult; alternatives: string[] }> {
+  const readable = METRICS.filter((x) => reader.canRead(x.section));
+  const m = matchMetric(sentence, readable);
+  if (!m) {
+    const walled = matchMetric(sentence);
+    if (walled) throw new ForbiddenError(`You do not have read access to ${walled.section}`);
+    throw new ValidationError(`No known metric matches "${sentence.slice(0, 80)}". Try one of: ${readable.map((x) => x.label).join(", ")}`, { known: readable.map((x) => x.queryId) });
+  }
+  const preview = await runMetric(db, businessId, { queryId: m.queryId }, reader, now);
+  const alternatives = readable.filter((x) => x !== m && x.keywords.some((k) => sentence.toLowerCase().includes(k))).map((x) => x.queryId);
   return { queryId: m.queryId, sql: m.sql, label: m.label, format: m.format, provenance: m.provenance, estimate: m.estimate, preview, alternatives };
 }

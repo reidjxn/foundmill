@@ -107,11 +107,17 @@ export const legalRouter = router({
         return { incorporation, entity, history: all };
       }),
     ),
-    /** The founder clicked submit in the supervised session (the only way past awaiting_founder, AC-11.11.4). */
+    /**
+     * The founder clicked submit in the supervised session (the only way past awaiting_founder, AC-11.11.4). The
+     * incorporation is loaded under this business first (audit ARB-01): one from another business is "not found" and no
+     * workflow hears anything; one not waiting for the founder is refused. The workflow id comes from that row.
+     */
     founderSubmitted: admin.input(z.object({ incorporationId: Id })).mutation(async ({ ctx, input }) => {
-      const workflow = await ctx.temporal.signal(workflowIds.incorporation(input.incorporationId), "founderSubmit", { by: ctx.userId, at: new Date().toISOString() });
+      const pending = await ctx.rls((tx) => repos.legal.getIncorporation(tx, ctx.businessId, input.incorporationId));
+      if (pending.status !== "awaiting_founder") throw new ValidationError(`The incorporation is ${pending.status.replace(/_/g, " ")}, not waiting for your submission`, { incorporationId: pending.id, status: pending.status });
+      const workflow = await ctx.temporal.signal(workflowIds.incorporation(pending.id), "founderSubmit", { kind: "submitted", by: ctx.userId, at: new Date().toISOString() });
       const incorporation = await ctx.rls(async (tx) => {
-        const i = await repos.legal.updateIncorporation(tx, ctx.businessId, input.incorporationId, { status: "submitted" });
+        const i = await repos.legal.updateIncorporation(tx, ctx.businessId, pending.id, { status: "submitted" });
         await audit(tx, ctx, { action: "legal.incorporate.founder_submitted", target: { kind: "incorporation", id: i.id }, details: { queued: workflow.queued } });
         return i;
       });

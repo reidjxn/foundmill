@@ -11,7 +11,7 @@
  * customers open their Customer Update (the replay).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, ArrowRight, CirclePause, ExternalLink, Play, ShieldAlert, Trophy } from "lucide-react";
+import { Archive, ArrowRight, CirclePause, ExternalLink, EyeOff, Play, ShieldAlert, Trophy } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -60,6 +60,7 @@ import {
   headerDates,
   noteOpener,
   headerTag,
+  hiddenNotice,
   journeyForItem,
   planStatusLine,
   statusStripTiles,
@@ -242,6 +243,8 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const pendingConfirmation = plan?.status === "pending_confirmation";
   const roleLine = roleBesideName(fromAgent?.name ?? persona?.name, persona?.role);
   const relatedEntities = entities.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, href: routes.crm(businessId, e.id) }));
+  // Parts of the note the reader's section permissions hide (inbox.get masks them on the server).
+  const hidden = hiddenNotice(item.redacted);
 
   return (
     <article className="flex min-h-0 flex-1 flex-col" data-testid="inbox-item" data-item-id={item.id} data-type={item.type} data-state={isAnswered ? "answered" : item.state}>
@@ -289,6 +292,12 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         <div className="flex flex-col gap-1.5" data-testid="inbox-title">
           {/* The subject has the full width of the pane: it wraps, it is never crushed by chips. */}
           <h1 className="t-display-md max-w-reading text-balance break-words text-primary">{item.subject}</h1>
+          {hidden ? (
+            <p className="flex items-center gap-1.5 text-small text-secondary" data-testid="redacted-notice">
+              <EyeOff size={14} aria-hidden />
+              <span>{hidden}</span>
+            </p>
+          ) : null}
           {relatedEntities.length ? (
             <p className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-small text-secondary" data-testid="related-entities">
               <span>About</span>

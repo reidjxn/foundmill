@@ -11,6 +11,8 @@ import type { ImportSourceResult, LoadedPlaybook } from "./types";
 export const INCORPORATION_STEPS = ["prepare_documents", "founder_review", "founder_submits", "record_filing", "complete"] as const;
 export type IncorporationStep = (typeof INCORPORATION_STEPS)[number];
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function createMiscActivities(deps: OrchestratorDeps) {
   return {
     // ---- playbooks ------------------------------------------------------------------------------------------------
@@ -88,6 +90,18 @@ export function createMiscActivities(deps: OrchestratorDeps) {
           return { status: "complete", note: "complete" };
         }
       }
+    },
+
+    /**
+     * Who may move an incorporation past the founder's hard gate (audit ARB-01): the `founderSubmit` signal names its
+     * sender, and only an owner or admin of this business counts. apps/api already refuses anyone else; this keeps a
+     * signal from any other source (another business, a forged client) from filing in the founder's name.
+     */
+    async verifyIncorporationSubmitter(input: { businessId: string; incorporationId: string; userId: string | null }): Promise<{ ok: boolean; reason: string | null }> {
+      if (!input.userId || !UUID_RE.test(input.userId)) return { ok: false, reason: "the signal names no sender" };
+      await repos.legal.getIncorporation(deps.db, input.businessId, input.incorporationId); // NotFound when it is not this business's
+      const ok = await repos.memberships.hasRole(deps.db, input.businessId, input.userId, ["owner", "admin"]);
+      return ok ? { ok: true, reason: null } : { ok: false, reason: "the sender is not an owner or admin of this business" };
     },
 
     async abandonIncorporation(input: { businessId: string; incorporationId: string; reason: string }): Promise<void> {

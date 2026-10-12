@@ -2,8 +2,9 @@
  * The collab server (docs/ARCHITECTURE.md §1 apps/collab; BUILD §3.1, §11.5): Hocuspocus 4 over Yjs for spec blocks.
  *
  * - `onAuthenticate`: verifies the token (Supabase JWT, collab service token or dev token), parses the document
- *   name `spec:<businessId>:<specBlockId>`, loads the block through repos (404 → denied) and checks membership:
- *   owners/admins/members read-write, viewers/advisors read-only; an agent's service token must be bound to the
+ *   name `spec:<businessId>:<specBlockId>`, loads the block through repos (404 → denied) and checks membership and
+ *   the member's Product section permission (`effectivePermission`, as product.spec.* in apps/api): no access →
+ *   denied, read → read-only, write (owners/admins/members only) → read-write; an agent's service token must be bound to the
  *   business and the agent must exist there; agents are read-only on pinned (human-edited) blocks (AC-11.5.3).
  * - `onLoadDocument`: fills the fresh Y.Doc from `spec_blocks.content` (ProseMirror JSON → y-prosemirror layout).
  * - `onStoreDocument`: debounced (`debounce` / `maxDebounce`) write back through `repos.product.editBlock`, which
@@ -14,7 +15,7 @@
  */
 import { APP_NAME } from "@foundmill/config";
 import { repos, type Db, type SpecBlock } from "@foundmill/db";
-import { AppError, NotFoundError } from "@foundmill/shared";
+import { AppError, NotFoundError, hasSectionAccess, type Section } from "@foundmill/shared";
 import { Server, type Hocuspocus, type onAuthenticatePayload, type onLoadDocumentPayload, type onRequestPayload, type onStoreDocumentPayload, type ServerConfiguration } from "@hocuspocus/server";
 import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -25,6 +26,8 @@ import { createSpecBlockStore, type Author, type SpecBlockStore } from "./store"
 
 export const COLLAB_SERVICE = "collab" as const;
 export const WRITE_ROLES = ["owner", "admin", "member"] as const;
+/** The section whose permissions govern spec blocks (staff walled from Product neither read nor edit them). */
+export const SPEC_SECTION: Section = "product";
 
 export interface CollabLogger {
   debug(obj: unknown, msg?: string): void;
@@ -176,7 +179,9 @@ export function createCollabServer(deps: CollabServerDeps, options: CollabServer
     if (principal.kind === "user") {
       const membership = await repos.memberships.get(deps.db, name.businessId, principal.userId);
       if (!membership) throw new CollabDenied("not-a-member", `user ${principal.userId} is not a member of business ${name.businessId}`);
-      const canWrite = (WRITE_ROLES as readonly string[]).includes(membership.role);
+      // Spec blocks belong to the Product section: the same walls as product.spec.* in apps/api (BUILD §11.9).
+      if (!hasSectionAccess(membership, SPEC_SECTION, "read")) throw new CollabDenied("section-denied", `user ${principal.userId} has no access to ${SPEC_SECTION} in business ${name.businessId}`);
+      const canWrite = hasSectionAccess(membership, SPEC_SECTION, "write");
       return { block, readOnly: !canWrite, reason: canWrite ? null : "viewer" };
     }
     if (principal.businessId !== name.businessId) throw new CollabDenied("wrong-business", `service token is bound to business ${principal.businessId}`);

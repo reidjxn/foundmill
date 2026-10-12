@@ -10,16 +10,17 @@ import { ZodError, z } from "zod";
 import { repos, withRls, type Business, type DbTx, type Executor, type Membership } from "@foundmill/db";
 import type { EventPayloadInput } from "@foundmill/events";
 import { writeEventRow } from "./services/events";
-import { AppError, WRITE_ROLES, type Actor, type EventType, type MembershipRole } from "@foundmill/shared";
+import { AppError, WRITE_ROLES, effectivePermission, type Actor, type EventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
 import type { Context } from "./context";
 
 export const Id = z.guid();
 export const BusinessInput = z.object({ businessId: Id });
 
-/** Sections a membership can be restricted on (BUILD §11.9 "per-section permissions"): module keys plus fixed surfaces. */
-export const SECTIONS = ["product", "development", "distribution", "finance", "team", "legal", "inbox", "crm", "settings", "billing", "live"] as const;
-export type Section = (typeof SECTIONS)[number];
-export type PermissionLevel = "read" | "write";
+/**
+ * Sections a membership can be restricted on (BUILD §11.9 "per-section permissions") and the effective permission of a
+ * membership on one: defined once in @foundmill/shared (permissions.ts) so apps/collab enforces the same walls.
+ */
+export { SECTIONS, effectivePermission, hasSectionAccess, type PermissionLevel, type Section } from "@foundmill/shared";
 
 export type RlsRunner = <T>(fn: (tx: DbTx) => Promise<T>) => Promise<T>;
 
@@ -257,14 +258,6 @@ export function requireRoles(roles: readonly MembershipRole[], what = "this acti
     if (!role || !roles.includes(role)) throw new TRPCError({ code: "FORBIDDEN", message: `Your role (${role ?? "none"}) cannot perform ${what}` });
     return next();
   });
-}
-
-/** Effective permission of a membership on a section: owner is never restricted; viewers/advisors read only. */
-export function effectivePermission(membership: Pick<Membership, "role" | "sectionPermissions">, section: Section): "none" | "read" | "write" {
-  if (membership.role === "owner") return "write";
-  const explicit = membership.sectionPermissions[section];
-  if (explicit) return explicit;
-  return WRITE_ROLES.includes(membership.role) ? "write" : "read";
 }
 
 /** Middleware factory: the member must hold at least `level` on `section` (BUILD §11.9 staff permissions). */
