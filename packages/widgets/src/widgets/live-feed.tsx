@@ -5,7 +5,7 @@
  */
 import { useMemo, useState } from "react";
 import { z } from "zod";
-import { CircleCheck, CircleX, Coins, GitMerge, Handshake, Hourglass, MessageSquare, Play, Radio, Rocket, Trophy, UserPlus, type LucideIcon } from "lucide-react";
+import { CircleCheck, CircleX, Coins, GitMerge, Handshake, Hourglass, MessageSquare, Play, Radio, Rocket, Trophy, UserPlus, Users, type LucideIcon } from "lucide-react";
 import { Timeline, formatMoney, type StatusTone, type TimelineEvent } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetQuery, type WidgetEvent } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
@@ -72,10 +72,13 @@ export function describeEvent(e: WidgetEvent): Described {
     case "cycle.completed":
       return { title: `Cycle ${String(p.cycleNumber ?? "")} ${str(p.outcome) ?? "completed"}`.replace("  ", " "), description: `${String(p.tasksCompleted ?? 0)} tasks done`, icon: CircleCheck, tone: "good" };
     case "inbox.item_created":
+      // A reader walled from Finance or the CRM gets the note without its subject (apps/stream walls).
       return { title: str(p.subject) ?? "New inbox note", icon: MessageSquare, tone: p.blocksContinue ? "bad" : "neutral", statusWord: p.blocksContinue ? "Respond" : undefined };
     case "inbox.item_updated":
       // Ids only (no subject), so a member walled from the item learns nothing beyond the change itself.
       return p.change === "plan_confirmed" ? { title: "Plan confirmed", icon: CircleCheck, tone: "good", statusWord: "Confirmed" } : { title: "Inbox note archived", icon: MessageSquare, tone: "neutral" };
+    case "membership.changed":
+      return { title: p.change === "added" ? "Staff member added" : p.change === "removed" ? "Staff member removed" : "Staff access changed", icon: Users, tone: "neutral" };
     default:
       return { title: e.type.replace(/[._]/g, " "), icon: Radio, tone: "neutral" };
   }

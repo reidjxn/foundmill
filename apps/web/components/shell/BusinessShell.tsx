@@ -114,6 +114,9 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   // items appear on Home and the Product tabs as they land. Only the foundations query: the tabs reload their own data
   // when the drafting turns ready.
   "foundations.progressed": ["product.foundations"],
+  // Someone's role or section permissions changed (maybe this reader's): the business carries the reader's own role
+  // and walls, the Team the staff list. apps/stream has already re-checked the reader's open channels.
+  "membership.changed": ["business", "team"],
 };
 
 function readCollapsed(businessId: string): boolean {

@@ -8,7 +8,7 @@ import WebSocket from "ws";
 import { createTokenVerifier, type TokenVerifier } from "../auth";
 import { createMemoryAuthorizer, type Authorizer } from "../authorize";
 import { Metrics } from "../metrics";
-import { createStreamServer, type StreamServer, type StreamServerOptions } from "../server";
+import { createStreamServer, type StreamServer, type StreamServerDeps, type StreamServerOptions } from "../server";
 
 export const USER_A = fixtureId("user-a");
 export const USER_B = fixtureId("user-b");
@@ -38,6 +38,7 @@ export interface TestServerOptions {
   redis?: StreamRedis;
   authorizer?: Authorizer;
   auth?: TokenVerifier;
+  admit?: StreamServerDeps["admit"];
   options?: StreamServerOptions;
   port?: number;
 }
@@ -49,6 +50,7 @@ export async function startTestServer(opts: TestServerOptions = {}): Promise<Tes
     redis,
     metrics,
     auth: opts.auth ?? createTokenVerifier({ appEnv: "test", devUserId: USER_A }),
+    admit: opts.admit,
     authorizer: opts.authorizer ?? createMemoryAuthorizer(memberships),
     options: {
       heartbeatMs: 5_000,

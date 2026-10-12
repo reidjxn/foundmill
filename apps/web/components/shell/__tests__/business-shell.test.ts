@@ -59,6 +59,12 @@ describe("payments on the stream (audit JM-02)", () => {
   });
 });
 
+describe("staff changes on the stream (security review S1)", () => {
+  it("membership.changed refetches the business (the reader's own role and walls) and the staff list", () => {
+    expect(INVALIDATE_ON_EVENT["membership.changed"]).toEqual(["business", "team"]);
+  });
+});
+
 describe("foundations progress on the stream (audit P3)", () => {
   it("foundations.progressed refetches the foundations query only, which the dotted prefix reaches", async () => {
     expect(INVALIDATE_ON_EVENT["foundations.progressed"]).toEqual(["product.foundations"]);

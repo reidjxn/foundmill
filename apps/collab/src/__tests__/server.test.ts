@@ -245,6 +245,75 @@ describe("authentication and authorisation", () => {
     expect((await post(A.memberId)).status).toBe(200);
   });
 
+  it("open connections follow permission changes: read-only takes effect at once, a wall closes the connection (security review S1)", async () => {
+    const block = await newBlock(A.businessId);
+    const name = specDocumentName(A.businessId, block.id);
+    const member = await connect(await userToken(A.memberId), name);
+    const owner = await connect(await userToken(A.ownerId), name);
+    try {
+      expect(member.client.scope).toBe("read-write");
+      await member.client.waitForSync();
+      // Product turned read-only while the editor is open: still connected, its writes are now refused.
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, { product: "read" });
+      expect(await server.reauthorize()).toBe(0);
+      appendParagraph(member.client.doc, "MEMBER wrote after the change.");
+      await member.client.waitUntil(() => member.client.syncStatuses.includes(false), 5000, "rejection ack");
+      expect(JSON.stringify(docToPmDoc(server.hocuspocus.documents.get(name)!))).not.toContain("MEMBER wrote after");
+
+      // Product walled off: the member's connection is closed; the owner's is untouched.
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, { product: "none" });
+      expect(await server.reauthorize()).toBe(1);
+      await member.client.waitUntil(() => member.client.closeReason !== null, 5000, "close message");
+      expect(member.client.closeReason).toBe("section-denied");
+      expect(owner.client.closeReason).toBeNull();
+      expect(server.hocuspocus.documents.get(name)!.getConnectionsCount()).toBe(1);
+    } finally {
+      await repos.memberships.setSectionPermissions(db, A.businessId, A.memberId, {});
+      await member.client.close();
+      await owner.client.close();
+    }
+  });
+
+  it("a person the invite list does not name opens no spec block, whatever their membership", async () => {
+    const auth = createCollabAuthenticator({ appEnv: "test", jwtSecret: JWT_SECRET, serviceSecret: SERVICE_SECRET });
+    const invited = `${A.ownerId.slice(0, 8)}@test.local`;
+    const listed = createCollabServer({ db, auth, admit: (user) => user.email === invited }, { debounceMs: 60, maxDebounceMs: 300 });
+    const bound = await listed.listen(0);
+    const block = await newBlock(A.businessId);
+    const name = specDocumentName(A.businessId, block.id);
+    try {
+      const member = new RawHocuspocusClient(`ws://127.0.0.1:${bound.port}`, name, await userToken(A.memberId));
+      expect(await member.connect()).toBe("denied");
+      await member.close();
+      await expect(listed.authorize({ kind: "user", userId: A.memberId, email: "member@test.local" }, parseDocumentName(name))).rejects.toMatchObject({ reason: "not-invited" });
+      const owner = new RawHocuspocusClient(`ws://127.0.0.1:${bound.port}`, name, await userToken(A.ownerId));
+      expect(await owner.connect()).toBe("authenticated");
+      await owner.close();
+    } finally {
+      await listed.close();
+    }
+  });
+
+  it("re-checks open connections on a timer: a removed member's editor is closed without any action of theirs", async () => {
+    const auth = createCollabAuthenticator({ appEnv: "test", jwtSecret: JWT_SECRET, serviceSecret: SERVICE_SECRET });
+    const fast = createCollabServer({ db, auth }, { debounceMs: 60, maxDebounceMs: 300, reauthorizeMs: 40 });
+    const bound = await fast.listen(0);
+    const block = await newBlock(A.businessId);
+    const name = specDocumentName(A.businessId, block.id);
+    const client = new RawHocuspocusClient(`ws://127.0.0.1:${bound.port}`, name, await userToken(A.viewerId));
+    try {
+      expect(await client.connect()).toBe("authenticated");
+      await client.waitForSync();
+      await repos.memberships.remove(db, A.businessId, A.viewerId);
+      await client.waitUntil(() => client.closeReason !== null, 5000, "close message");
+      expect(client.closeReason).toBe("not-a-member");
+    } finally {
+      if (!(await repos.memberships.get(db, A.businessId, A.viewerId))) await repos.memberships.add(db, A.businessId, { userId: A.viewerId, role: "viewer" });
+      await client.close();
+      await fast.close();
+    }
+  });
+
   it("agents are read-only on pinned blocks while humans still write (AC-11.5.3 spirit)", async () => {
     const block = await newBlock(A.businessId, initialDoc, true);
     const name = specDocumentName(A.businessId, block.id);

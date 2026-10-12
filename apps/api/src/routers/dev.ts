@@ -6,10 +6,10 @@
  */
 import { FLAGS, isSimulateEnv } from "@foundmill/config";
 import { HOUSE_STYLE } from "@foundmill/agents";
-import { TaskListFilter, assertConcurrencyRoom, codeRepositoryOf, periodOf, repos, type AgentSession, type Task } from "@foundmill/db";
+import { TaskListFilter, assertConcurrencyRoom, codeRepositoryOf, periodOf, repos, type AgentSession, type Executor, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
 import { TaskGraphOutput } from "@foundmill/models";
-import { AppError, NotFoundError, ValidationError, connectorMode, type TaskStatus } from "@foundmill/shared";
+import { AppError, ForbiddenError, NotFoundError, ValidationError, connectorMode, hasSectionAccess, sessionSections, type TaskStatus } from "@foundmill/shared";
 import { z } from "zod";
 import { replaySession } from "../services/replay";
 import { assertAgentsRunning } from "../services/stop-guard";
@@ -52,6 +52,18 @@ const SHOUT_PRESETS = ["Focus on tests", "Simplify", "Ask before schema changes"
 
 /** Worktree branch per task (packages/sandbox `agentBranch`; mirrored here so the API does not depend on the sandbox package). */
 export const agentBranch = (taskId: string) => `agent/${taskId}`;
+
+/**
+ * A session the member may watch: besides Development (the procedure's own wall), every module of the department its
+ * work is filed under (a Finance agent's terminal shows Finance's figures). apps/stream applies the same wall to
+ * `as:<sessionId>` (security review S1).
+ */
+async function readableSession(tx: Executor, ctx: Pick<BusinessContext, "businessId" | "membership">, sessionId: string): Promise<AgentSession> {
+  const session = await repos.agents.getSession(tx, ctx.businessId, sessionId);
+  const walled = sessionSections(await repos.agents.sessionModuleKeys(tx, ctx.businessId, session)).filter((section) => !hasSectionAccess(ctx.membership, section, "read"));
+  if (walled.length > 0) throw new ForbiddenError(`You do not have read access to ${walled.join(" and ")}, where this session's work belongs`);
+  return session;
+}
 
 function departmentOfRoadmapItem(item: { ownerRef: unknown } | null): string | null {
   const ref = item?.ownerRef as { kind?: string; id?: string } | null | undefined;
@@ -281,13 +293,13 @@ export const devRouter = router({
     /** Where to subscribe (apps/stream multiplexes `as:{sessionId}`). */
     stream: read.input(z.object({ sessionId: Id })).query(({ ctx, input }) =>
       ctx.rls(async (tx) => {
-        const session = await repos.agents.getSession(tx, ctx.businessId, input.sessionId);
+        const session = await readableSession(tx, ctx, input.sessionId);
         return { session, channel: sessionStreamKey(session.id), live: session.endedAt === null };
       }),
     ),
     /** The recorded events of a session (its `as:{sessionId}` stream, or the mock recording it was played from) plus where live frames arrive. */
     replay: read.input(z.object({ sessionId: Id, limit: z.number().int().min(1).max(5000).optional(), after: z.string().max(64).optional(), kinds: z.array(z.enum(SESSION_EVENT_KINDS)).optional() })).query(async ({ ctx, input }) => {
-      const session = await ctx.rls((tx) => repos.agents.getSession(tx, ctx.businessId, input.sessionId));
+      const session = await ctx.rls((tx) => readableSession(tx, ctx, input.sessionId));
       const replay = await replaySession({ redis: ctx.redis, recordings: ctx.recordings }, session, { limit: input.limit, after: input.after, kinds: input.kinds });
       return { session, recordingRef: session.recordingRef, channel: sessionStreamKey(session.id), live: session.endedAt === null, ...replay };
     }),

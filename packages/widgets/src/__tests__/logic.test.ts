@@ -258,5 +258,9 @@ describe("text helpers", () => {
     // Another member archived a note or confirmed its plan (audit RUI-09): plain words, not the raw event type.
     expect(describeEvent({ type: "inbox.item_updated", payload: { change: "archived" } })).toMatchObject({ title: "Inbox note archived", tone: "neutral" });
     expect(describeEvent({ type: "inbox.item_updated", payload: { change: "plan_confirmed" } })).toMatchObject({ title: "Plan confirmed", statusWord: "Confirmed", tone: "good" });
+    // What a member walled from Finance or the CRM receives: the note without its subject; staff changes in words.
+    expect(describeEvent({ type: "inbox.item_created", payload: { inboxItemId: "x", blocksContinue: false } }).title).toBe("New inbox note");
+    expect(describeEvent({ type: "membership.changed", payload: { userId: "u", change: "updated" } }).title).toBe("Staff access changed");
+    expect(describeEvent({ type: "membership.changed", payload: { userId: "u", change: "removed" } }).title).toBe("Staff member removed");
   });
 });
