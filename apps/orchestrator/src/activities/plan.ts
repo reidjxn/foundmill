@@ -15,7 +15,7 @@ import { evaluate, type ToolCtxInput } from "@foundmill/policy";
 import { CHANNEL_KEYS, CHANNEL_META, MODEL_KEYS, TASK_KINDS, uuid, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
-import { openApprovalNote } from "./approvals";
+import { grantApproval, openApprovalNote } from "./approvals";
 import { openAgentSession } from "./dispatch";
 import type { LoadedPlan, PlanActionResult, PlanActionView } from "./types";
 
@@ -250,8 +250,8 @@ export function createPlanActivities(deps: OrchestratorDeps) {
       case "approve_spend": {
         const approvalId = typeof p.approval_id === "string" ? p.approval_id : null;
         if (approvalId) {
-          const approval = await repos.approvals.get(db, businessId, approvalId);
-          if (approval.outcome === null) await repos.approvals.resolve(db, businessId, approvalId, { outcome: "approved", byKind: "user", byId: typeof p.by === "string" ? p.by : null });
+          // Answered like the Inbox answers it: the item closes and a session waiting on the call carries on.
+          await grantApproval(deps, businessId, approvalId, typeof p.by === "string" ? p.by : null);
           return { result: { approvalId, amountMinor: amountOf(p) }, spawn: [] };
         }
         return { result: { amountMinor: amountOf(p), currency, note: "spend approved within caps; the next matching tool call runs without asking" }, spawn: [] };

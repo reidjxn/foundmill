@@ -41,6 +41,31 @@ export async function openApprovalNote(db: Executor, businessId: string, approva
   return item.id;
 }
 
+/**
+ * An approval a plan action grants by naming it (`approve_spend` with `approval_id`): the same bookkeeping as an answer
+ * in the Inbox, so nothing is left waiting on it. `approval.resolved` goes through the outbox, the decision item stops
+ * blocking Continue, and a session still waiting on the call gets the decision on its control bus. An approval already
+ * answered is returned as it is.
+ */
+export async function grantApproval(deps: Pick<OrchestratorDeps, "db" | "clock" | "control">, businessId: string, approvalId: string, by: string | null): Promise<Approval> {
+  const approval = await repos.approvals.get(deps.db, businessId, approvalId);
+  if (approval.outcome !== null) return approval;
+  const resolved = await repos.approvals.resolve(deps.db, businessId, approvalId, { outcome: "approved", byKind: by ? "user" : "system", byId: by });
+  const resolvedBy = by ? { kind: "user" as const, id: by } : systemActor;
+  if (approval.agentId) {
+    await emitEvent(deps.db, {
+      businessId,
+      type: "approval.resolved",
+      actor: resolvedBy,
+      payload: { approvalId, planActionId: approval.planActionId, agentId: approval.agentId, outcome: "approved", resolvedBy, note: null, latencyMs: Math.max(0, deps.clock.nowMs() - new Date(approval.createdAt).getTime()) },
+    });
+  }
+  await closeApprovalItem(deps.db, businessId, resolved);
+  const session = approval.sessionId ? await repos.agents.getSession(deps.db, businessId, approval.sessionId).catch(() => null) : null;
+  if (session && session.endedAt === null) await deps.control.post(session.id, { kind: "decision", approvalId, outcome: "approved", by, at: deps.clock.now().toISOString() });
+  return resolved;
+}
+
 export function createApprovalActivities(deps: OrchestratorDeps) {
   return {
     async loadApproval(input: { businessId: string; approvalId?: string | null; planActionId?: string | null }): Promise<{ approvalId: string; outcome: string | null; agentId: string | null; planActionId: string | null; createdAt: string } | null> {

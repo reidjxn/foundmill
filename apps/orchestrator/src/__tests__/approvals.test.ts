@@ -12,6 +12,7 @@ import { APPROVAL_OPTIONS, closeApprovalItem, repos } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
 import { MockSandboxProvider, RECORDINGS } from "@foundmill/sandbox";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { grantApproval, openApprovalNote } from "../activities/approvals";
 import { createBriefActivities } from "../activities/brief";
 import { approvalDeferral, createCycleActivities } from "../activities/cycle";
 import { createSessionActivities } from "../activities/session";
@@ -145,6 +146,27 @@ describe("an answer that comes after the session ended", () => {
     expect(requested).toHaveLength(0);
     const notes = await readSessionEvents(t.redis, second.sessionId, { kinds: ["note"] });
     expect(notes.some((r) => r.event.kind === "note" && /^The founder already approved run_migration; continuing without asking again\.$/.test(r.event.text))).toBe(true);
+  });
+});
+
+describe("an approval a plan grants by naming it (approve_spend)", () => {
+  it("is answered like the Inbox answers it: approval.resolved, the item closes, the waiting session gets the decision", async () => {
+    const task = await newTask("Apply the pricing migration");
+    const sessionId = await openSessionRow(t, t.workerId, task.id);
+    const approval = await repos.approvals.create(t.db, t.businessId, { agentId: t.workerId, sessionId, connectorKey: "github", tool: "run_migration", args: { file: "0021_pricing.sql" } });
+    const itemId = await openApprovalNote(t.db, t.businessId, approval, { agent: { id: t.workerId, name: "Test Engineer" } });
+    await t.control.drain(sessionId);
+
+    const granted = await grantApproval(t.deps, t.businessId, approval.id, t.fixture.ownerId);
+    expect(granted).toMatchObject({ outcome: "approved", byKind: "user", byId: t.fixture.ownerId });
+    expect(await repos.inbox.get(t.db, t.businessId, itemId!)).toMatchObject({ state: "answered", blocksContinue: false });
+    const resolved = (await repos.events.list(t.db, t.businessId, { type: "approval.resolved", limit: 100 })).items.filter((e) => (e.payload as { approvalId: string }).approvalId === approval.id);
+    expect(resolved).toHaveLength(1);
+    expect(await t.control.drain(sessionId)).toEqual([expect.objectContaining({ kind: "decision", approvalId: approval.id, outcome: "approved", by: t.fixture.ownerId })]);
+
+    // Granting it again changes nothing and tells nobody twice.
+    await grantApproval(t.deps, t.businessId, approval.id, t.fixture.ownerId);
+    expect(await t.control.drain(sessionId)).toEqual([]);
   });
 });
 

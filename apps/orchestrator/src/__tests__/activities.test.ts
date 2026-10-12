@@ -4,7 +4,7 @@
  * build and the credential expiry scan. Everything runs in mock mode without a network.
  */
 import { getSkillTests } from "@foundmill/agents";
-import { repos } from "@foundmill/db";
+import { openApprovalItem, repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
 import { createHealthActivities } from "../activities/health";
@@ -145,6 +145,25 @@ describe("holiday activities (BUILD §9.6)", () => {
     expect((await repos.holidays.get(t.db, t.businessId, h.id)).endedAt).not.toBeNull();
     const ended = await repos.events.list(t.db, t.businessId, { type: "holiday.ended", limit: 2 });
     expect(ended.items[0]?.payload).toMatchObject({ holidayId: h.id, reason: "until_reached", cyclesRun: 3 });
+  });
+
+  it("never answers an agent's request for the founder: the approval stays open and queued (audit FR-01)", async () => {
+    const acts = createHolidayActivities(t.deps);
+    const started = t.clock.now();
+    // Every kind of decision delegated: a request to message a customer would pass as "message_customers".
+    const h = await repos.holidays.start(t.db, t.businessId, { untilAt: new Date(started.getTime() + 3 * 86_400_000), authority: { decisionTypes: ["message_customers", "publish_content", "spend_above_threshold", "merge_to_main"] }, wakeEvents: [], startedAt: started, currency: "EUR" });
+    const loaded = await acts.loadHoliday({ businessId: t.businessId, holidayId: h.id });
+    const approval = await repos.approvals.create(t.db, t.businessId, { agentId: t.workerId, connectorKey: "gmail", tool: "send_message", args: { summary: "Email the pilot customer the launch announcement" }, reasons: ["spend above the vacation per-decision cap"] });
+    const { item } = await openApprovalItem(t.db, t.businessId, approval, { agentId: t.workerId, agentName: "Test Engineer", connectorName: "Gmail" });
+    expect(classifyDecision(item)).not.toBeNull(); // within the delegated authority, were it any other note
+
+    const decided = await acts.holidayAutoDecide({ businessId: t.businessId, holiday: loaded });
+    expect(decided.inboxItemIds).not.toContain(item.id);
+    expect(decided.queuedGated).toBeGreaterThanOrEqual(1);
+    // Answering the note here would close it while nothing resolved the approval or told the session that waits on it.
+    expect(await repos.inbox.get(t.db, t.businessId, item.id)).toMatchObject({ state: "unread", blocksContinue: true });
+    expect((await repos.approvals.get(t.db, t.businessId, approval.id)).outcome).toBeNull();
+    await repos.holidays.end(t.db, t.businessId, h.id, { reportInboxItemId: null, endedAt: t.clock.now() });
   });
 });
 
