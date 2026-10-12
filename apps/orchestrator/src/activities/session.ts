@@ -3,41 +3,63 @@
  *
  * `prepareSession` validates the launch (agent version, task, sandbox runner, model route, credential hygiene) and
  * returns only non-secret facts. `runAgentSession` is the long-running activity: in live mode it drives the Claude
- * Agent SDK (`query()`) with the club-rules system prompt, the version's MCP tools served by the gateway and a
+ * Agent SDK (`query()`) with the house-rules system prompt, the version's MCP tools served by the gateway and a
  * short-lived session token; in mock mode it replays a recorded session through packages/sandbox. Both stream
  * `SessionEvent`s to `as:{sessionId}`, heartbeat on every event, persist progress, create approval rows when a tool
  * call waits for the founder, write the usage ledger and fail the session when the same tool call repeats three times.
  * `finishSession` settles the task, the agent and the events.
  *
+ * Waiting for the founder never holds a worker slot for long (`runAgentSession` runs on the sessions task queue, see
+ * ../session-contract): a gated call left undecided for APPROVAL_WAIT_MINUTES ends the session `blocked` (the approval
+ * stays open), and a session paused for SESSION_PAUSE_HOLD_MINUTES "parks": it saves its work, returns, and the
+ * workflow starts a new run on Resume. Control commands are polled without overlap, and a failed poll (Redis down) is
+ * logged and retried, never left as an unhandled rejection.
+ *
  * The live SDK process is confined by ./sdk-isolation (SECURITY_REVIEW SEC-3): from-scratch environment, private
  * per-session workspace deleted in `finally`, built-in tools by task kind and a path guard on every file-tool call.
- * A code task's acceptance tests run in the sandbox on a copy of that workspace (./workspace-sync): dependencies install
- * while the npm registry is reachable, with every script off; then the network closes and the agent's code runs offline.
+ * A code task's acceptance tests run in a sandbox created for them on a copy of that workspace (./workspace-sync):
+ * dependencies install while the npm registry is reachable, with every script off; then the network closes and the
+ * agent's code runs offline. Pause interrupts the SDK's turn and holds every tool call until Resume; Stop interrupts the
+ * turn and waits briefly for the SDK's final usage before aborting it, so every token spent is booked.
  */
+import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, buildSystemPrompt, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
 import { bookUsage, loadByokApiKey, repos, type Agent, type AgentVersion, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
-import { resolveModel, type RouteKey } from "@foundmill/models";
-import { assertNoLongLivedCredentials, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox } from "@foundmill/sandbox";
+import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
+import { assertNoLongLivedCredentials, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
 import { type AgentStatus, type ModelKey, type TaskStatus } from "@foundmill/shared";
 import { Context } from "@temporalio/activity";
+import { ApplicationFailure } from "@temporalio/common";
 import { z } from "zod";
 import type { SessionCommand } from "../control-bus";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { applySessionEvent, initialProgress, type ProgressState } from "../progress";
+import { AGENT_PAUSED_FAILURE } from "../session-contract";
 import { LoopDetector } from "./loop";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
 import { describePush, pushWorkspace, type PushContext } from "./workspace-push";
 import { restoreWorkspace, saveWorkspace, type LeftOut, type RestoredWorkspace, type SaveWorkspaceOptions } from "./workspace-store";
 import { syncWorkspaceToSandbox } from "./workspace-sync";
-import type { AgentSessionInput, SessionFinish, SessionLaunch, SessionResult } from "./types";
+import type { AgentSessionInput, SessionFinish, SessionLaunch, SessionParked, SessionResult, SessionRunOptions } from "./types";
 
 const ToolGrants = z.array(ToolGrant);
 const CONTROL_POLL_MS = 250;
 const DEFAULT_MAX_TURNS = 60;
 const SESSION_TOKEN_TTL_SECONDS = 4 * 60 * 60;
+/** After a stop, a loop or a park, how long the SDK gets to end its turn and report its usage before it is aborted. */
+export const SDK_STOP_GRACE_MS = 10_000;
+/** Phase timeouts of the acceptance run: dependency install (online), then the tests (offline). */
+const ACCEPTANCE_PREPARE_TIMEOUT_MS = 10 * 60 * 1000;
+const ACCEPTANCE_RUN_TIMEOUT_MS = 15 * 60 * 1000;
+/**
+ * Lifetime a session asks of its sandbox. A live session creates one only for its acceptance run (copy, install, tests:
+ * both phase timeouts plus the copy), which fits inside E2B Hobby's one-hour cap; Pro allows 24 hours (docs/DEPLOY.md
+ * §5). A mock replay ignores it.
+ */
+export const SANDBOX_TTL_MINUTES = 30;
 
 /** Heartbeat when running inside Temporal; a no-op in unit tests that call the activity directly. */
 function heartbeat(details?: unknown): void {
@@ -118,12 +140,144 @@ const summariseArgs = (args: unknown): string => {
   return s.length > 480 ? `${s.slice(0, 477)}...` : s;
 };
 
+interface UsageTotals {
+  tokensIn: number;
+  tokensOut: number;
+  /** USD cents, unrounded (an Estimate). */
+  costMinor: number;
+}
+
+/** The slice of an SDK `result.modelUsage` entry the session books. */
+interface SdkModelUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  costUSD: number;
+}
+
+/** The slice of an SDK assistant message (`message.message`, a Messages API message) that carries usage. */
+interface SdkAssistantUsage {
+  id?: string;
+  model?: string;
+  usage?: { input_tokens?: number | null; output_tokens?: number | null; cache_creation_input_tokens?: number | null; cache_read_input_tokens?: number | null } | null;
+}
+
+/**
+ * A session's model usage, in USD cents (an Estimate, contract: credits are USD). The SDK's `result.modelUsage` is
+ * cumulative across the turns of a streaming-input session, so each result replaces the settled totals (never summed;
+ * a zeroed crash result never lowers them). Assistant messages since the last result are estimated from their own
+ * `usage` at list price (the last usage seen per message id counts), so a turn cut short by a stop, a loop or a crash
+ * is still booked.
+ */
+export class SessionUsage {
+  private settled: UsageTotals = { tokensIn: 0, tokensOut: 0, costMinor: 0 };
+  private readonly open = new Map<string, UsageTotals>();
+
+  constructor(private readonly fallbackModelId: string) {}
+
+  onResult(modelUsage: Record<string, SdkModelUsage> | null | undefined): void {
+    const latest: UsageTotals = { tokensIn: 0, tokensOut: 0, costMinor: 0 };
+    for (const u of Object.values(modelUsage ?? {})) {
+      latest.tokensIn += u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens;
+      latest.tokensOut += u.outputTokens;
+      latest.costMinor += u.costUSD * 100;
+    }
+    this.settled = { tokensIn: Math.max(this.settled.tokensIn, latest.tokensIn), tokensOut: Math.max(this.settled.tokensOut, latest.tokensOut), costMinor: Math.max(this.settled.costMinor, latest.costMinor) };
+    this.open.clear();
+  }
+
+  onAssistant(message: SdkAssistantUsage): void {
+    const u = message.usage;
+    if (!u || !message.id) return;
+    const usage = { inputTokens: u.input_tokens ?? 0, outputTokens: u.output_tokens ?? 0, cacheCreationInputTokens: u.cache_creation_input_tokens ?? 0, cacheReadInputTokens: u.cache_read_input_tokens ?? 0 };
+    const priced = (id: string | undefined): id is ModelId => !!id && id in MODEL_PRICING;
+    const modelId = priced(message.model) ? message.model : priced(this.fallbackModelId) ? this.fallbackModelId : null;
+    this.open.set(message.id, { tokensIn: usage.inputTokens + usage.cacheCreationInputTokens + usage.cacheReadInputTokens, tokensOut: usage.outputTokens, costMinor: modelId ? meter(usage, modelId).costMinor : 0 });
+  }
+
+  totals(): UsageTotals {
+    const out = { ...this.settled };
+    for (const u of this.open.values()) {
+      out.tokensIn += u.tokensIn;
+      out.tokensOut += u.tokensOut;
+      out.costMinor += u.costMinor;
+    }
+    return out;
+  }
+}
+
+/** How long a run waits for the founder before it frees its slot (env: APPROVAL_WAIT_MINUTES, SESSION_PAUSE_HOLD_MINUTES). */
+function founderWaits(deps: OrchestratorDeps): { approvalMs: number; pauseHoldMs: number } {
+  return { approvalMs: deps.env.APPROVAL_WAIT_MINUTES * 60_000, pauseHoldMs: deps.env.SESSION_PAUSE_HOLD_MINUTES * 60_000 };
+}
+
+const minutesText = (ms: number): string => {
+  const m = Number((ms / 60_000).toFixed(1));
+  return `${m} minute${m === 1 ? "" : "s"}`;
+};
+
+const approvalTimeoutNote = (ms: number) => `No decision on the pending approval after ${minutesText(ms)}. The session ends here and frees its place for other work; the request stays open, and approving it lets the task run again.`;
+const parkNote = (ms: number) => `Paused for ${minutesText(ms)}: the session saves its work and frees its place for other work. Resume picks it up again.`;
+
+/** This run's control commands, oldest first. Never throws: a failed poll (Redis down) is logged and the next one retries. */
+function commandFeed(deps: OrchestratorDeps, sessionId: string, fromSeq: number): () => Promise<SessionCommand[]> {
+  return async () => {
+    let commands: SessionCommand[];
+    try {
+      commands = await deps.control.drain(sessionId);
+    } catch (err) {
+      deps.log.warn({ err: (err as Error).message, sessionId }, "session control poll failed; retrying on the next poll");
+      return [];
+    }
+    return commands.filter((c) => c.seq === undefined || c.seq >= fromSeq);
+  };
+}
+
+/** Commands read before the run starts are handed to the runner's first poll. */
+function withPrefetched(first: SessionCommand[], pull: () => Promise<SessionCommand[]>): () => Promise<SessionCommand[]> {
+  let head = first;
+  return async () => {
+    const before = head;
+    head = [];
+    return before.length > 0 ? [...before, ...(await pull())] : pull();
+  };
+}
+
+/** Nudges and decisions that a parked run did not act on: the workflow hands them to the next run. */
+const carriedOver = (commands: readonly SessionCommand[]): SessionCommand[] => commands.filter((c) => c.kind === "shout" || c.kind === "decision");
+
+/**
+ * Heartbeat and run `tick` every CONTROL_POLL_MS, one at a time. A tick that throws is logged: a rejection left
+ * unhandled in a timer would take the whole worker down, and every session running on it.
+ */
+function controlLoop(deps: OrchestratorDeps, sessionId: string, tick: () => Promise<void>, details: () => unknown): { flush(): Promise<void>; stop(): void } {
+  let chain: Promise<void> = Promise.resolve();
+  let pending = 0;
+  const step = (): Promise<void> => {
+    pending += 1;
+    chain = chain
+      .then(tick)
+      .catch((err: unknown) => deps.log.warn({ err: (err as Error)?.message ?? String(err), sessionId }, "session control step failed"))
+      .then(() => {
+        pending -= 1;
+      });
+    return chain;
+  };
+  const timer = setInterval(() => {
+    heartbeat(details());
+    if (pending === 0) void step();
+  }, CONTROL_POLL_MS);
+  return { flush: step, stop: () => clearInterval(timer) };
+}
+
 interface RunnerContext {
   input: AgentSessionInput;
   launch: SessionLaunch;
   task: Task;
   agent: Agent;
   startedAtMs: number;
+  run: SessionRunOptions;
 }
 
 class SessionRecorder {
@@ -136,16 +290,22 @@ class SessionRecorder {
   readonly approvalIds = new Map<string, string>();
   readonly approvalIdsReverse = new Map<string, string>();
   pendingApprovalId: string | null = null;
+  /** When the pending approval opened (clock ms); the wait for the founder is capped at APPROVAL_WAIT_MINUTES. */
+  pendingSince: number | null = null;
   prNumber: number | null = null;
   lastPersisted = -1;
   lastPhase: string | null = null;
+  /** Model usage so far; read by every exit path, a thrown error included. */
+  readonly usage: SessionUsage;
   private seq = 0;
 
   constructor(
     private readonly deps: OrchestratorDeps,
     private readonly ctx: RunnerContext,
   ) {
-    this.progress = initialProgress({ planSteps: ctx.launch.planSteps, acceptanceTests: ctx.launch.acceptanceTests });
+    // A resumed run carries on from the progress the parked run reached instead of starting the ring at zero.
+    this.progress = ctx.run.resume?.progress ?? initialProgress({ planSteps: ctx.launch.planSteps, acceptanceTests: ctx.launch.acceptanceTests });
+    this.usage = new SessionUsage(ctx.launch.modelId);
   }
 
   nextCallId(): string {
@@ -238,6 +398,7 @@ class SessionRecorder {
       this.approvalIds.set(key, approval.id);
       this.approvalIdsReverse.set(approval.id, key);
       this.pendingApprovalId = approval.id;
+      this.pendingSince = deps.clock.nowMs();
       await emitEvent(deps.db, {
         businessId: ctx.input.businessId,
         type: "approval.requested",
@@ -265,7 +426,10 @@ class SessionRecorder {
     } catch (err) {
       deps.log.warn({ err: (err as Error).message }, "approval resolution bookkeeping failed");
     }
-    if (this.pendingApprovalId === approvalId) this.pendingApprovalId = null;
+    if (this.pendingApprovalId === approvalId) {
+      this.pendingApprovalId = null;
+      this.pendingSince = null;
+    }
   }
 }
 
@@ -306,11 +470,37 @@ export function createSessionActivities(deps: OrchestratorDeps) {
     return deps.env.ANTHROPIC_API_KEY ? { apiKey: deps.env.ANTHROPIC_API_KEY, source: "platform" } : { apiKey: null, source: "none" };
   }
 
+  /** Drop the session's leftover control commands; a Redis failure here never fails the session. */
+  async function clearControl(sessionId: string): Promise<void> {
+    try {
+      await deps.control.clear(sessionId);
+    } catch (err) {
+      deps.log.warn({ err: (err as Error).message, sessionId }, "session control list could not be cleared");
+    }
+  }
+
+  /** An idle agent that starts a session is working: `healthy`, with the event the Team screen listens for. */
+  async function markWorking(input: AgentSessionInput, agent: Agent, task: Task): Promise<void> {
+    try {
+      await repos.agents.setStatus(deps.db, input.businessId, agent.id, "healthy");
+      await emitEvent(deps.db, {
+        businessId: input.businessId,
+        type: "agent.health_changed",
+        actor: systemActor,
+        payload: { agentId: agent.id, from: agent.status, to: "healthy", reason: `working on "${task.title}"`.slice(0, 500), signals: {}, sessionId: input.sessionId },
+      });
+    } catch (err) {
+      deps.log.warn({ err: (err as Error).message, agentId: agent.id }, "agent status could not be set to working");
+    }
+  }
+
   return {
     /** Validate everything a session needs; returns non-secret launch facts only (tokens are minted inside the run). */
     async prepareSession(input: AgentSessionInput): Promise<SessionLaunch> {
       const { agent, task, business, version, template } = await loadContext(input);
-      if (agent.status === "paused") throw new Error(`Agent ${agent.name} is paused`);
+      // Not a failure: the founder (or the credits pause, or Stop all agents) paused the agent. The workflow ends the
+      // session `stopped` and the agent stays paused; retrying would not change the answer.
+      if (agent.status === "paused") throw ApplicationFailure.nonRetryable(`Agent ${agent.name} is paused`, AGENT_PAUSED_FAILURE);
       const grants = parseGrants(version, template);
       const route: RouteKey = template.route;
       const model = resolveModel(route, agent.modelKey);
@@ -338,41 +528,79 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       };
     },
 
-    /** The session itself. Long-running; heartbeats on every event; honours pause/resume/shout/stop/decision commands. */
-    async runAgentSession(input: AgentSessionInput, launch: SessionLaunch, briefText: string | null = null): Promise<SessionResult> {
+    /**
+     * One run of the session. Long-running (on the sessions task queue); heartbeats on every event; honours
+     * pause/resume/shout/stop/decision commands. `run` says which commands are this run's and, after a park, where to
+     * pick up; workflows started before runs existed pass nothing.
+     */
+    async runAgentSession(input: AgentSessionInput, launch: SessionLaunch, briefText: string | null = null, runOptions: SessionRunOptions | null = null): Promise<SessionResult> {
+      const run: SessionRunOptions = runOptions ?? { fromSeq: 0, resume: null };
       const { agent, task, business, version, template } = await loadContext(input);
       const startedAtMs = deps.clock.nowMs();
-      const recorder = new SessionRecorder(deps, { input, launch, task, agent, startedAtMs });
+      const recorder = new SessionRecorder(deps, { input, launch, task, agent, startedAtMs, run });
       const signal = cancellation();
-      await deps.control.clear(input.sessionId);
       const env = buildSandboxEnv({ businessId: input.businessId, agentId: agent.id, taskId: task.id, sessionId: input.sessionId, gatewayUrl: deps.gateway.baseUrl });
 
-      const base = (): Omit<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> => ({
-        progress: recorder.progress,
-        eventsEmitted: recorder.eventsEmitted,
-        toolCalls: recorder.toolCalls,
-        toolFailures: recorder.toolFailures,
-        tokensIn: 0,
-        tokensOut: 0,
-        costMinor: 0,
-        durationMs: deps.clock.nowMs() - startedAtMs,
-        prNumber: recorder.prNumber,
-      });
+      const base = (): Omit<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> => {
+        const usage = recorder.usage.totals();
+        return {
+          progress: recorder.progress,
+          eventsEmitted: recorder.eventsEmitted,
+          toolCalls: recorder.toolCalls,
+          toolFailures: recorder.toolFailures,
+          tokensIn: usage.tokensIn,
+          tokensOut: usage.tokensOut,
+          costMinor: Math.round(usage.costMinor),
+          durationMs: deps.clock.nowMs() - startedAtMs,
+          prNumber: recorder.prNumber,
+        };
+      };
+      const stoppedBeforeStart = (reason: string, summary: string): SessionResult => ({ ...base(), outcome: "stopped", reason, blockedReason: "stopped", approvalId: null, summary, providerSessionId: null });
+
+      // Commands posted while the run waited for a slot (the list is never cleared at start, so none is lost). A stop
+      // among them, or an agent paused meanwhile, ends the run before anything starts.
+      const pull = commandFeed(deps, input.sessionId, run.fromSeq);
+      const waiting = await pull();
+      const earlyStop = waiting.find((c): c is Extract<SessionCommand, { kind: "stop" }> => c.kind === "stop");
+      if (earlyStop) {
+        await clearControl(input.sessionId);
+        return stoppedBeforeStart(earlyStop.reason, `Stopped before it started: ${earlyStop.reason}.`);
+      }
+      if (agent.status === "paused") {
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Not started: ${agent.name} is paused.` });
+        await clearControl(input.sessionId);
+        return stoppedBeforeStart("agent paused", `Not started: ${agent.name} is paused.`);
+      }
+      // An agent with an open session is working (as on api-started sessions); the Team screen shows it.
+      if (agent.status === "idle") await markWorking(input, agent, task);
 
       const { provider } = await deps.sandbox();
+      const recording = run.resume?.cursor ?? launch.recordingKey;
+      const spec: SandboxSpecInput = { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, envShortLived: env, ttlMinutes: SANDBOX_TTL_MINUTES, egressAllowList: sandboxEgressFor(task) };
       let sandbox: Sandbox | null = null;
       try {
-        sandbox = await provider.create({ businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, envShortLived: env, ttlMinutes: 240, egressAllowList: sandboxEgressFor(task), ...(launch.recordingKey ? { recording: launch.recordingKey } : {}) });
-        await sandbox.start();
-        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Session started for ${agent.name} on "${task.title}" (${launch.sandboxMode} sandbox${launch.fellBackFrom ? `, fell back from ${launch.fellBackFrom}` : ""}, ${launch.modelKey}).` });
+        // A replay is the session itself; a live session needs a sandbox only for its acceptance run, created then.
+        if (provider.mode === "mock") {
+          sandbox = await provider.create({ ...spec, ...(recording ? { recording } : {}) });
+          await sandbox.start();
+        }
+        const where = launch.sandboxMode === "mock" ? "mock sandbox" : acceptanceCommandFor(task) ? `${launch.sandboxMode} sandbox for the acceptance tests` : "no sandbox needed";
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Session ${run.resume ? "resumed" : "started"} for ${agent.name} on "${task.title}" (${where}${launch.fellBackFrom ? `, fell back from ${launch.fellBackFrom}` : ""}, ${launch.modelKey}).` });
 
+        const feed = withPrefetched(waiting, pull);
         if (sandbox instanceof MockSandbox) {
-          const r = await runMockSession(deps, recorder, sandbox, input, signal);
+          const r = await runMockSession(deps, recorder, sandbox, input, signal, feed);
           return { ...base(), ...r };
         }
-        const r = await runLiveSession(deps, recorder, sandbox, { input, launch, task, agent, startedAtMs }, { business, version, template, briefText, resolveApiKey, sandboxEnv: env });
+        const acquireSandbox = async (): Promise<Sandbox> => {
+          const created = await provider.create(spec);
+          await created.start();
+          return created;
+        };
+        const r = await runLiveSession(deps, recorder, { input, launch, task, agent, startedAtMs, run }, { business, version, template, briefText, resolveApiKey, sandboxEnv: env, acquireSandbox, pull: feed });
         return { ...base(), ...r };
       } catch (err) {
+        // `base()` carries the usage recorded so far: tokens already spent are booked whatever went wrong.
         const message = (err as Error).message ?? String(err);
         await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "error", text: `Session failed: ${message.slice(0, 500)}` });
         return { ...base(), outcome: "failed", reason: message.slice(0, 500), blockedReason: "error", approvalId: null, summary: `Failed: ${message.slice(0, 200)}`, providerSessionId: null };
@@ -382,26 +610,31 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         } catch {
           /* best effort */
         }
-        await deps.control.clear(input.sessionId);
+        await clearControl(input.sessionId);
       }
     },
 
     /** Settle the session: agent_sessions row, usage ledger, task status, task events and the agent's health. */
     async finishSession(input: AgentSessionInput, launch: SessionLaunch, result: SessionResult): Promise<SessionFinish> {
       const { db } = deps;
-      const [agent, task] = await Promise.all([repos.agents.get(db, input.businessId, input.agentId), repos.tasks.get(db, input.businessId, input.taskId)]);
+      const task = await repos.tasks.get(db, input.businessId, input.taskId);
       const eventIds: string[] = [];
       const endedAt = deps.clock.now();
       await repos.agents.endSession(db, input.businessId, input.sessionId, { endedAt, tokensIn: result.tokensIn, tokensOut: result.tokensOut, costMinor: Math.round(result.costMinor), outcome: result.outcome, recordingRef: launch.recordingKey });
       const minutes = Math.max(1, Math.round(result.durationMs / 60_000));
-      await bookUsage(db, input.businessId, { agentId: agent.id, sessionId: input.sessionId, kind: "sandbox", quantity: minutes, unit: "minutes", costMinor: 0, billedTo: launch.modelBilling, occurredAt: endedAt, details: { sandboxMode: launch.sandboxMode, label: "Estimate", recording: launch.recordingKey } });
+      await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "sandbox", quantity: minutes, unit: "minutes", costMinor: 0, billedTo: launch.modelBilling, occurredAt: endedAt, details: { sandboxMode: launch.sandboxMode, label: "Estimate", recording: launch.recordingKey } });
       if (result.tokensIn + result.tokensOut > 0 && launch.sandboxMode !== "mock") {
-        // Settled against credits when the platform key ran the session (`bookUsage` pauses the team on the last credit).
-        await bookUsage(db, input.businessId, { agentId: agent.id, sessionId: input.sessionId, kind: "tokens", modelKey: launch.modelKey, quantity: result.tokensIn + result.tokensOut, unit: "tokens", costMinor: Math.round(result.costMinor), billedTo: launch.modelBilling, occurredAt: endedAt, details: { source: "claude-agent-sdk", label: "Estimate" } });
+        // The SDK prices in USD (an Estimate). Settled against credits when the platform key ran the session
+        // (`bookUsage` pauses the team on the last credit).
+        await bookUsage(db, input.businessId, { agentId: input.agentId, sessionId: input.sessionId, kind: "tokens", modelKey: launch.modelKey, quantity: result.tokensIn + result.tokensOut, unit: "tokens", costMinor: Math.round(result.costMinor), currency: "USD", billedTo: launch.modelBilling, occurredAt: endedAt, details: { source: "claude-agent-sdk", label: "Estimate" } });
       }
+      // Read the agent after booking: the last credit may just have paused the team, and the founder's pause or Stop
+      // all agents may have landed while the session ran. Nothing a session does un-pauses an agent.
+      const agent = await repos.agents.get(db, input.businessId, input.agentId);
+      const agentPaused = agent.status === "paused";
 
       let taskStatus: TaskStatus;
-      const cost = { amountMinor: Math.round(result.costMinor), currency: task.currency ?? "EUR" };
+      const cost = { amountMinor: Math.round(result.costMinor), currency: "USD" };
       switch (result.outcome) {
         case "done": {
           taskStatus = result.progress.merged ? "done" : result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";
@@ -437,17 +670,21 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           break;
         }
         default:
-          taskStatus = "stopped";
+          // Stopped with its agent paused (Stop all agents, the credits pause, a refused start): the task waits for
+          // the agent instead of being dropped, and runs again once the team is resumed.
+          taskStatus = agentPaused ? "paused" : "stopped";
       }
       if (task.status !== taskStatus) await repos.tasks.setStatus(db, input.businessId, task.id, taskStatus, { force: true });
       if (taskStatus === "done") await repos.tasks.setProgress(db, input.businessId, task.id, { progress: Math.max(result.progress.progress, task.status === "done" ? 1 : result.progress.progress), phase: result.progress.phase ?? "done" });
 
-      // Health: loops and failures mark the agent; a clean finish returns it to idle when nothing else is open.
+      // Health: loops and failures mark the agent; a clean finish returns it to idle when nothing else is open. A
+      // paused agent stays paused whatever the outcome.
       let healthChanged = false;
       const from: AgentStatus = agent.status;
       let to: AgentStatus = from;
-      if (result.blockedReason === "loop_detected" || result.outcome === "failed") to = "failing";
-      else if (result.outcome === "stopped" && from !== "paused") to = "idle";
+      if (agentPaused) to = from;
+      else if (result.blockedReason === "loop_detected" || result.outcome === "failed") to = "failing";
+      else if (result.outcome === "stopped") to = "idle";
       else if (result.outcome === "done" || result.outcome === "blocked") {
         const open = await repos.agents.listSessions(db, input.businessId, { agentId: agent.id, openOnly: true, limit: 1 });
         to = open.items.length > 0 ? "healthy" : "idle";
@@ -480,13 +717,22 @@ export type SessionActivities = ReturnType<typeof createSessionActivities>;
 // Mock runner (packages/sandbox replay)
 // ---------------------------------------------------------------------------------------------------------------------
 
-type RunOutcome = Pick<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> & Partial<Pick<SessionResult, "tokensIn" | "tokensOut" | "costMinor">>;
+type RunOutcome = Pick<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> & Partial<Pick<SessionResult, "tokensIn" | "tokensOut" | "costMinor" | "parked">>;
 
-async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder, sandbox: MockSandbox, input: AgentSessionInput, signal: AbortSignal | null): Promise<RunOutcome> {
+/** Why a replay frees its slot early: the founder left an approval undecided, or a pause outlasted the hold. */
+type MockEnding = { kind: "approval_timeout" } | ({ kind: "park" } & SessionParked);
+
+async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder, sandbox: MockSandbox, input: AgentSessionInput, signal: AbortSignal | null, pull: () => Promise<SessionCommand[]>): Promise<RunOutcome> {
   const replay = sandbox.replay;
+  const waits = founderWaits(deps);
   let loopTripped = false;
   let stoppedBy: { reason: string; by: string | null } | null = null;
   let paused = false;
+  let pausedAtMs = 0;
+  /** When the replay started holding on a recorded approval (clock ms), as this run's polls saw it. */
+  let holdingSince: number | null = null;
+  /** Why the run frees its slot early: the founder left an approval undecided, or a pause outlasted the hold. */
+  let ending: MockEnding | null = null;
 
   const unsubscribe = replay.subscribe(async (event) => {
     const { loop } = await recorder.publish(event);
@@ -496,36 +742,59 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     }
   });
 
-  const applyCommands = async () => {
-    const commands = await deps.control.drain(input.sessionId);
-    for (const c of commands) {
-      const at = deps.clock.now().toISOString();
-      switch (c.kind) {
-        case "pause":
-          replay.pause();
-          paused = true;
-          await recorder.publishRaw({ kind: "note", at, source: "system", level: "info", text: `Paused${c.by ? " by the founder" : ""}.` });
-          break;
-        case "resume":
-          replay.resume();
-          paused = false;
-          await recorder.publishRaw({ kind: "note", at, source: "system", level: "info", text: "Resumed." });
-          break;
-        case "stop":
-          stoppedBy = { reason: c.reason, by: c.by ?? null };
-          replay.stop(c.reason);
-          break;
-        case "shout":
-          await recorder.publishRaw({ kind: "note", at, source: "shout", level: "info", text: c.message.slice(0, 4000) });
-          break;
-        case "decision": {
-          const recordedId = recorder.approvalIdsReverse.get(c.approvalId) ?? c.approvalId;
-          const applied = replay.decide(recordedId, c.outcome);
-          await recorder.markApprovalResolved(c.approvalId, c.outcome, c.by ?? null);
-          await recorder.publishRaw({ kind: "note", at, source: "system", level: "info", text: applied ? `Approval ${c.outcome}; continuing.` : `Decision received (${c.outcome}) but no call was waiting on it.` });
-          break;
-        }
+  const apply = async (c: SessionCommand) => {
+    const at = deps.clock.now().toISOString();
+    const park = ending?.kind === "park" ? ending : null;
+    // Once parked, nudges and decisions go to the next run; the workflow tracks pause and resume itself.
+    if (park && (c.kind === "shout" || c.kind === "decision")) {
+      park.carry.push(c);
+      return;
+    }
+    switch (c.kind) {
+      case "pause":
+        if (park || paused) break;
+        replay.pause();
+        paused = true;
+        pausedAtMs = deps.clock.nowMs();
+        await recorder.publishRaw({ kind: "note", at, source: "system", level: "info", text: `Paused${c.by ? " by the founder" : ""}.` });
+        break;
+      case "resume":
+        if (park || !paused) break;
+        replay.resume();
+        paused = false;
+        await recorder.publishRaw({ kind: "note", at, source: "system", level: "info", text: "Resumed." });
+        break;
+      case "stop":
+        stoppedBy = { reason: c.reason, by: c.by ?? null };
+        replay.stop(c.reason);
+        break;
+      case "shout":
+        await recorder.publishRaw({ kind: "note", at, source: "shout", level: "info", text: c.message.slice(0, 4000) });
+        break;
+      case "decision": {
+        const recordedId = recorder.approvalIdsReverse.get(c.approvalId) ?? c.approvalId;
+        const applied = replay.decide(recordedId, c.outcome);
+        await recorder.markApprovalResolved(c.approvalId, c.outcome, c.by ?? null);
+        await recorder.publishRaw({ kind: "note", at, source: "system", level: "info", text: applied ? `Approval ${c.outcome}; continuing.` : `Decision received (${c.outcome}) but no call was waiting on it.` });
+        break;
       }
+    }
+  };
+
+  const tick = async () => {
+    for (const c of await pull()) await apply(c);
+    if (ending || stoppedBy || loopTripped || replay.status === "finished" || replay.status === "stopped") return;
+    const now = deps.clock.nowMs();
+    holdingSince = replay.pendingApproval ? (holdingSince ?? now) : null;
+    if (holdingSince !== null && now - holdingSince >= waits.approvalMs) {
+      ending = { kind: "approval_timeout" };
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: approvalTimeoutNote(waits.approvalMs) });
+      replay.stop("awaiting_approval");
+    } else if (paused && holdingSince === null && now - pausedAtMs >= waits.pauseHoldMs) {
+      // The next run continues from the event this one was about to play.
+      ending = { kind: "park", cursor: `${sandbox.recording.key}@${replay.position.index}`, carry: [] };
+      replay.stop("parked");
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: parkNote(waits.pauseHoldMs) });
     }
   };
 
@@ -534,23 +803,23 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     replay.stop("cancelled");
   };
   signal?.addEventListener("abort", onCancel, { once: true });
-  const timer = setInterval(() => {
-    heartbeat({ sessionId: input.sessionId, status: replay.status, paused });
-    void applyCommands();
-  }, CONTROL_POLL_MS);
+  const loop = controlLoop(deps, input.sessionId, tick, () => ({ sessionId: input.sessionId, status: replay.status, paused }));
 
   try {
     const summary = await replay.play();
-    await applyCommands();
+    await loop.flush();
     const stop = stoppedBy as { reason: string; by: string | null } | null;
+    const end = ending as MockEnding | null;
     if (loopTripped) return { outcome: "failed", reason: "loop detected: the same call repeated three times", blockedReason: "loop_detected", approvalId: null, summary: `Stopped after a detected loop (${recorder.loop.loopDetected?.signature.slice(0, 120) ?? "repeated call"}).`, providerSessionId: summary.recordingKey };
     if (stop) return { outcome: "stopped", reason: stop.reason, blockedReason: "stopped", approvalId: null, summary: `Stopped: ${stop.reason}.`, providerSessionId: summary.recordingKey };
+    if (end?.kind === "park") return { outcome: "stopped", reason: "paused", blockedReason: "stopped", approvalId: null, summary: "Paused; the session continues on Resume.", providerSessionId: summary.recordingKey, parked: { cursor: end.cursor, carry: carriedOver(end.carry) } };
+    if (end?.kind === "approval_timeout") return { outcome: "blocked", reason: `no decision on the approval within ${minutesText(waits.approvalMs)}`, blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: `Blocked after ${summary.emitted} events: waiting for the founder's approval.`, providerSessionId: summary.recordingKey };
     if (summary.outcome === "blocked") return { outcome: "blocked", reason: recorder.pendingApprovalId ? "waiting for the founder's approval" : "blocked by a dependency or approval", blockedReason: recorder.pendingApprovalId ? "awaiting_approval" : "dependency", approvalId: recorder.pendingApprovalId, summary: `Blocked after ${summary.emitted} events.`, providerSessionId: summary.recordingKey };
     if (summary.outcome === "failed") return { outcome: "failed", reason: summary.stoppedReason ?? "the recorded session failed", blockedReason: "error", approvalId: null, summary: `Failed after ${summary.emitted} events.`, providerSessionId: summary.recordingKey };
     if (summary.outcome === "stopped") return { outcome: "stopped", reason: summary.stoppedReason ?? "stopped", blockedReason: "stopped", approvalId: null, summary: "Stopped.", providerSessionId: summary.recordingKey };
     return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${sandbox.recording.title}: ${sandbox.recording.summary}`.slice(0, 1800), providerSessionId: summary.recordingKey };
   } finally {
-    clearInterval(timer);
+    loop.stop();
     signal?.removeEventListener("abort", onCancel);
     unsubscribe();
   }
@@ -568,20 +837,30 @@ interface LiveContext {
   resolveApiKey: (businessId: string, billing: "byok" | "credits") => Promise<{ apiKey: string | null; source: "byok" | "platform" | "none" }>;
   /** The sandbox's short-lived identifiers (`buildSandboxEnv`); the SDK process receives the same and nothing from the host. */
   sandboxEnv: Record<string, string>;
+  /** Creates and starts a sandbox: a live session needs one only for its acceptance run, so it is created then. */
+  acquireSandbox: () => Promise<Sandbox>;
+  /** This run's control commands (`commandFeed`). */
+  pull: () => Promise<SessionCommand[]>;
 }
 
-/** A prompt queue the SDK consumes as streaming input: the task first, then every Shout as a user turn. */
+/** A prompt queue the SDK consumes as streaming input: the task first, then every Nudge, decision or Resume as a user turn. */
 class PromptQueue {
   private readonly items: string[] = [];
   private waiter: (() => void) | null = null;
   private closed = false;
   constructor(private readonly sessionId: string) {}
+  /** Turns pushed and not yet taken by the SDK. */
+  get pending(): number {
+    return this.items.length;
+  }
   push(text: string): void {
     this.items.push(text);
     this.waiter?.();
   }
-  close(): void {
+  /** No more input. `discard` also drops the turns the SDK has not taken yet (a stopped session sends nothing more). */
+  close(discard = false): void {
     this.closed = true;
+    if (discard) this.items.length = 0;
     this.waiter?.();
   }
   async *messages(): AsyncGenerator<{ type: "user"; message: { role: "user"; content: string }; parent_tool_use_id: null; session_id: string }> {
@@ -598,7 +877,73 @@ class PromptQueue {
   }
 }
 
-async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder, sandbox: Sandbox, ctx: RunnerContext, live: LiveContext): Promise<RunOutcome> {
+/** Why a live run ends before the agent is done: Stop or a cancel, a detected loop, a park, or an undecided approval. */
+type LiveEnding = "stop" | "loop" | "park" | "approval_timeout";
+
+const PAUSE_CUT_TURN = "The founder paused the session mid-step and has now resumed it. Continue the task from where you stopped.";
+
+/** The user turn a nudge or a decision becomes. */
+function turnFor(c: Extract<SessionCommand, { kind: "shout" | "decision" }>): string {
+  if (c.kind === "shout") return `Founder nudge: ${c.message}`;
+  return c.outcome === "approved" ? "The founder approved the pending action; continue." : "The founder rejected the pending action; do not retry it and continue with the rest of the task.";
+}
+
+/** The slice of an SDK result message that says how its turn ended. */
+export interface SdkTurnResult {
+  subtype: string;
+  is_error?: boolean;
+  api_error_status?: number | null;
+  errors?: string[];
+  result?: string;
+}
+
+export interface TurnFailure {
+  outcome: "blocked" | "failed";
+  blockedReason: "budget" | "credential" | "rate_limit" | "error";
+  reason: string;
+  summary: string;
+}
+
+/**
+ * How a turn that did not end normally ends the session, or null when it ended normally. The SDK reports a refused API
+ * call as `subtype: "success"` with `is_error: true` (the assistant message before it names the kind, `billing_error`
+ * for "Credit balance is too low"), so `subtype` alone would book a session where no model call succeeded as done.
+ * Billing, key and rate-limit refusals block the task (it stays open and runs again once fixed); anything else fails it.
+ */
+export function classifyTurnEnd(result: SdkTurnResult, apiError: { kind: string | null; text: string } | null, keySource: "byok" | "platform" | "none"): TurnFailure | null {
+  if (result.subtype !== "success") {
+    const errors = (result.errors?.length ? result.errors : [result.subtype]).join("; ");
+    return { outcome: "failed", blockedReason: "error", reason: `${result.subtype}: ${errors}`.slice(0, 500), summary: "The agent run ended with an error." };
+  }
+  if (!result.is_error) return null;
+  const status = result.api_error_status ?? null;
+  const kind = apiError?.kind ?? null;
+  const text = (apiError?.text || result.result || "the model call failed").trim().slice(0, 300);
+  const byok = keySource === "byok";
+  const whose = byok ? "the business's own Anthropic key" : "the platform's Anthropic account";
+  if (kind === "billing_error" || status === 402 || /credit balance|billing|spend(ing)? limit|insufficient (credit|funds)/i.test(text)) {
+    return {
+      outcome: "blocked",
+      blockedReason: "budget",
+      reason: `model budget exhausted: ${whose} refused the call for billing (${text})`.slice(0, 500),
+      summary: byok ? "Blocked: your Anthropic account refused the call for billing. Add credit or raise its spend limit in the Anthropic Console, then run the task again." : "Blocked: the model provider refused the call for billing, so no work was done.",
+    };
+  }
+  if (kind === "authentication_failed" || kind === "oauth_org_not_allowed" || status === 401 || status === 403) {
+    return {
+      outcome: "blocked",
+      blockedReason: "credential",
+      reason: `the model key was refused: ${whose} (${text})`.slice(0, 500),
+      summary: byok ? "Blocked: your Anthropic key was refused. Check it in Settings → Keys, then run the task again." : "Blocked: the model provider refused the platform key, so no work was done.",
+    };
+  }
+  if (kind === "rate_limit" || kind === "overloaded" || status === 429 || status === 529) {
+    return { outcome: "blocked", blockedReason: "rate_limit", reason: `rate limited by the model provider (${text})`.slice(0, 500), summary: "Blocked: the model provider is rate limiting or overloaded; the task runs again on a later cycle." };
+  }
+  return { outcome: "failed", blockedReason: "error", reason: `the model call failed${status ? ` (${status})` : ""}: ${text}`.slice(0, 500), summary: "The agent run ended with an error from the model provider." };
+}
+
+async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder, ctx: RunnerContext, live: LiveContext): Promise<RunOutcome> {
   const { input, launch, task, agent } = ctx;
   const key = await live.resolveApiKey(input.businessId, live.business.modelBilling);
   if (!key.apiKey) {
@@ -642,59 +987,146 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   const mcpServers = Object.fromEntries(grants.map((g) => [g.connectorKey, { type: "http" as const, url: deps.gateway.mcpUrl(g.connectorKey), headers: deps.gateway.sessionHeaders(token.token) }]));
 
   const continuing = restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : "";
-  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? `Work on branch ${launch.branch} inside your working directory; it is the only place you can read or write files.` : "Keep every action inside the tools you were given; this task has no file access.", continuing, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
+  const resumed = ctx.run.resume ? "This session was paused for a while and has been resumed. Continue the task from where the work stands." : "";
+  const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? `Work on branch ${launch.branch} inside your working directory; it is the only place you can read or write files.` : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
 
+  const waits = founderWaits(deps);
   const queue = new PromptQueue(input.sessionId);
-  queue.push(taskPrompt);
   const abort = new AbortController();
+  let q: Query | null = null;
+  /** A user turn was sent and its result has not arrived yet. */
+  let turnOpen = false;
+  /** The turn in flight was interrupted (pause or an ending): its result is not a failure. */
+  let interrupted = false;
   let paused = false;
+  let pausedAtMs = 0;
+  /** The pause cut a turn short: Resume asks the agent to carry on. */
+  let pauseCut = false;
+  /** Nudges and decisions that arrived while paused: sent on Resume, or handed to the next run when the session parks. */
+  let held: Extract<SessionCommand, { kind: "shout" | "decision" }>[] = [];
+  /** Closed while paused: the SDK answers tool hooks on its own, so every tool call waits here until Resume. */
+  let gate: { promise: Promise<void>; open: () => void } | null = null;
+  let ending: LiveEnding | null = null;
   let stoppedBy: { reason: string } | null = null;
-  let loopTripped = false;
+  const carry: SessionCommand[] = [];
+  /** A refused API call the CLI reported as an assistant message (`billing_error`, `rate_limit`...). */
+  let apiError: { kind: string | null; text: string } | null = null;
+  let abortTimer: ReturnType<typeof setTimeout> | null = null;
   /** Why this session's code is not pushed: stays set unless the session finishes (or waits on an approval). */
   let holdBack: string | null = "the session did not finish";
   let sdkSessionId: string | null = null;
-  let tokensIn = 0;
-  let tokensOut = 0;
-  let costUsdCents = 0;
   const openCalls = new Map<string, { tool: string; connectorKey: string | null; startedAt: number }>();
+  const usageNow = () => {
+    const u = recorder.usage.totals();
+    return { tokensIn: u.tokensIn, tokensOut: u.tokensOut, costMinor: Math.round(u.costMinor) };
+  };
 
-  const applyCommands = async () => {
-    for (const c of await deps.control.drain(input.sessionId)) {
-      const at = deps.clock.now().toISOString();
-      if (c.kind === "shout") {
-        queue.push(`Founder nudge: ${c.message}`);
-        await recorder.publishRaw({ kind: "note", at, source: "shout", text: c.message.slice(0, 4000) });
-      } else if (c.kind === "pause") {
-        paused = true;
-        await recorder.publishRaw({ kind: "note", at, source: "system", text: "Paused." });
-      } else if (c.kind === "resume") {
-        paused = false;
-        await recorder.publishRaw({ kind: "note", at, source: "system", text: "Resumed." });
-      } else if (c.kind === "stop") {
-        stoppedBy = { reason: c.reason };
-        queue.close();
-        abort.abort();
-      } else if (c.kind === "decision") {
-        await recorder.markApprovalResolved(c.approvalId, c.outcome, c.by ?? null);
-        queue.push(c.outcome === "approved" ? "The founder approved the pending action; continue." : "The founder rejected the pending action; do not retry it and continue with the rest of the task.");
-      }
+  const send = (text: string) => {
+    turnOpen = true;
+    queue.push(text);
+  };
+  const openGate = () => {
+    gate?.open();
+    gate = null;
+  };
+  const interruptTurn = async () => {
+    if (!q || !turnOpen) return;
+    interrupted = true;
+    try {
+      await q.interrupt();
+    } catch (err) {
+      deps.log.warn({ err: (err as Error).message, sessionId: input.sessionId }, "SDK interrupt failed");
     }
   };
-  const timer = setInterval(() => {
-    heartbeat({ sessionId: input.sessionId, paused });
-    void applyCommands();
-  }, CONTROL_POLL_MS);
+  /**
+   * End the run before the agent is done: no more input, the turn in flight is interrupted so the SDK reports its usage
+   * on a final result, and after SDK_STOP_GRACE_MS the process is aborted whatever it is doing.
+   */
+  const end = async (why: LiveEnding) => {
+    if (ending) return;
+    ending = why;
+    openGate();
+    queue.close(true);
+    abortTimer = setTimeout(() => abort.abort(), SDK_STOP_GRACE_MS);
+    await interruptTurn();
+  };
+
+  const apply = async (c: SessionCommand) => {
+    const at = deps.clock.now().toISOString();
+    switch (c.kind) {
+      case "shout":
+      case "decision":
+        if (c.kind === "shout") await recorder.publishRaw({ kind: "note", at, source: "shout", text: c.message.slice(0, 4000) });
+        else await recorder.markApprovalResolved(c.approvalId, c.outcome, c.by ?? null);
+        if (ending === "park") carry.push(c);
+        else if (paused) held.push(c);
+        else if (!ending) send(turnFor(c));
+        break;
+      case "pause":
+        if (paused || ending) break;
+        paused = true;
+        pausedAtMs = deps.clock.nowMs();
+        {
+          let open!: () => void;
+          const promise = new Promise<void>((resolve) => (open = resolve));
+          gate = { promise, open };
+        }
+        await recorder.publishRaw({ kind: "note", at, source: "system", text: "Paused." });
+        // The SDK runs its turn on its own, whatever this loop does: interrupt it so nothing more is generated or called.
+        if (turnOpen) {
+          pauseCut = true;
+          await interruptTurn();
+        }
+        break;
+      case "resume": {
+        if (!paused || ending) break;
+        paused = false;
+        openGate();
+        await recorder.publishRaw({ kind: "note", at, source: "system", text: "Resumed." });
+        const turns = [...(pauseCut ? [PAUSE_CUT_TURN] : []), ...held.map(turnFor)];
+        pauseCut = false;
+        held = [];
+        if (turns.length > 0) send(turns.join("\n\n"));
+        else if (!turnOpen && !recorder.pendingApprovalId) queue.close();
+        break;
+      }
+      case "stop":
+        stoppedBy = { reason: c.reason };
+        await end("stop");
+        break;
+    }
+  };
+
+  const tick = async () => {
+    for (const c of await live.pull()) await apply(c);
+    if (ending) return;
+    const now = deps.clock.nowMs();
+    if (recorder.pendingApprovalId && recorder.pendingSince !== null) {
+      // The agent waits on a gated call with nothing else to do: wait for the decision, but not in this slot forever.
+      if (!turnOpen && now - recorder.pendingSince >= waits.approvalMs) {
+        await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: approvalTimeoutNote(waits.approvalMs) });
+        await end("approval_timeout");
+      }
+    } else if (paused && now - pausedAtMs >= waits.pauseHoldMs) {
+      await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: parkNote(waits.pauseHoldMs) });
+      carry.push(...held);
+      held = [];
+      await end("park");
+    }
+  };
+
+  const loop = controlLoop(deps, input.sessionId, tick, () => ({ sessionId: input.sessionId, paused }));
   const cancel = cancellation();
   const onCancel = () => {
     stoppedBy = { reason: "cancelled" };
-    queue.close();
-    abort.abort();
+    void end("stop");
   };
   cancel?.addEventListener("abort", onCancel, { once: true });
 
   try {
+    send(taskPrompt);
     const env = sdkEnvFor({ cwd, apiKey: key.apiKey, sessionToken: token.token, sandboxEnv: live.sandboxEnv });
-    const q = sdk.query({
+    q = sdk.query({
       prompt: queue.messages(),
       options: {
         systemPrompt,
@@ -718,6 +1150,9 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
               hooks: [
                 async (hook) => {
                   if (hook.hook_event_name !== "PreToolUse") return { continue: true };
+                  // A paused session runs no tool: the call waits here until Resume, and is refused if the run ends first.
+                  while (gate && !ending) await gate.promise;
+                  if (ending) return hookOutputFor({ allow: false, reason: "the session is ending" });
                   const verdict = await guardToolCall(hook.tool_name, hook.tool_input, { cwd, policy });
                   if (!verdict.allow) await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: `Blocked ${hook.tool_name}: ${verdict.reason}.` });
                   return hookOutputFor(verdict);
@@ -730,77 +1165,100 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         persistSession: false,
       },
     });
-    for await (const message of q) {
-      while (paused && !abort.signal.aborted) await deps.clock.sleep(CONTROL_POLL_MS);
-      if (message.type === "system" && message.subtype === "init") sdkSessionId = message.session_id;
-      if (message.type === "assistant") {
-        for (const block of message.message.content) {
-          if (block.type === "text" && block.text.trim()) await recorder.publish({ kind: "note", at: deps.clock.now().toISOString(), source: "agent", text: block.text.slice(0, 4000) });
-          if (block.type === "tool_use") {
-            const parts = /^mcp__([^_]+(?:_[^_]+)*)__(.+)$/.exec(block.name);
-            const connectorKey = parts ? parts[1]! : null;
-            const tool = parts ? parts[2]! : block.name;
-            openCalls.set(block.id, { tool, connectorKey, startedAt: deps.clock.nowMs() });
-            const { loop } = await recorder.publish({ kind: "tool_call", at: deps.clock.now().toISOString(), callId: block.id, connectorKey, tool, status: "started", argsSummary: summariseArgs(block.input) });
-            if (loop) {
-              loopTripped = true;
-              queue.close();
-              abort.abort();
+    try {
+      for await (const message of q) {
+        if (message.type === "system" && message.subtype === "init") sdkSessionId = message.session_id;
+        if (message.type === "assistant") {
+          recorder.usage.onAssistant(message.message);
+          if (message.error) {
+            // A refused API call the CLI reports as an assistant message ("Credit balance is too low"): the provider's
+            // words, never the agent's. The turn's result says how the session ends.
+            const text = message.message.content.map((b) => (b.type === "text" ? b.text : "")).join(" ").trim();
+            apiError = { kind: message.error, text: text || message.error };
+            continue;
+          }
+          for (const block of message.message.content) {
+            if (block.type === "text" && block.text.trim()) await recorder.publish({ kind: "note", at: deps.clock.now().toISOString(), source: "agent", text: block.text.slice(0, 4000) });
+            if (block.type === "tool_use") {
+              const parts = /^mcp__([^_]+(?:_[^_]+)*)__(.+)$/.exec(block.name);
+              const connectorKey = parts ? parts[1]! : null;
+              const tool = parts ? parts[2]! : block.name;
+              openCalls.set(block.id, { tool, connectorKey, startedAt: deps.clock.nowMs() });
+              const { loop: looped } = await recorder.publish({ kind: "tool_call", at: deps.clock.now().toISOString(), callId: block.id, connectorKey, tool, status: "started", argsSummary: summariseArgs(block.input) });
+              if (looped) await end("loop");
             }
           }
         }
-      }
-      if (message.type === "user" && Array.isArray(message.message.content)) {
-        for (const block of message.message.content) {
-          if (typeof block === "object" && block && block.type === "tool_result") {
-            const open = openCalls.get(block.tool_use_id);
-            if (!open) continue;
-            openCalls.delete(block.tool_use_id);
-            const text = typeof block.content === "string" ? block.content : JSON.stringify(block.content ?? "");
-            const asked = /"outcome"\s*:\s*"ask"/.test(text);
-            const approvalMatch = /"approvalId"\s*:\s*"([0-9a-f-]{36})"/.exec(text);
-            await recorder.publish({ kind: "tool_call", at: deps.clock.now().toISOString(), callId: block.tool_use_id, connectorKey: open.connectorKey, tool: open.tool, status: asked ? "awaiting_approval" : block.is_error ? "failed" : "succeeded", resultSummary: text.slice(0, 1000), durationMs: deps.clock.nowMs() - open.startedAt, policyOutcome: asked ? "ask" : /"outcome"\s*:\s*"deny"/.test(text) ? "deny" : null, approvalId: approvalMatch ? approvalMatch[1]! : null });
+        if (message.type === "user" && Array.isArray(message.message.content)) {
+          for (const block of message.message.content) {
+            if (typeof block === "object" && block && block.type === "tool_result") {
+              const open = openCalls.get(block.tool_use_id);
+              if (!open) continue;
+              openCalls.delete(block.tool_use_id);
+              const text = typeof block.content === "string" ? block.content : JSON.stringify(block.content ?? "");
+              const asked = /"outcome"\s*:\s*"ask"/.test(text);
+              const approvalMatch = /"approvalId"\s*:\s*"([0-9a-f-]{36})"/.exec(text);
+              await recorder.publish({ kind: "tool_call", at: deps.clock.now().toISOString(), callId: block.tool_use_id, connectorKey: open.connectorKey, tool: open.tool, status: asked ? "awaiting_approval" : block.is_error ? "failed" : "succeeded", resultSummary: text.slice(0, 1000), durationMs: deps.clock.nowMs() - open.startedAt, policyOutcome: asked ? "ask" : /"outcome"\s*:\s*"deny"/.test(text) ? "deny" : null, approvalId: approvalMatch ? approvalMatch[1]! : null });
+            }
           }
         }
-      }
-      if (message.type === "result") {
-        for (const u of Object.values(message.modelUsage ?? {})) {
-          tokensIn += u.inputTokens + u.cacheReadInputTokens + u.cacheCreationInputTokens;
-          tokensOut += u.outputTokens;
-          costUsdCents += u.costUSD * 100;
-        }
-        const subtype: string = message.subtype;
-        if (subtype !== "success" && !stoppedBy && !loopTripped) {
-          const errors = ("errors" in message ? message.errors : [subtype]).join("; ");
+        if (message.type === "result") {
+          // Cumulative across turns: the latest result replaces the totals so far (SessionUsage).
+          recorder.usage.onResult(message.modelUsage);
+          const cut = interrupted || paused || ending !== null;
+          interrupted = false;
+          turnOpen = queue.pending > 0 || ((message as { queued_turn_count?: number }).queued_turn_count ?? 0) > 0;
+          if (!cut) {
+            const failure = classifyTurnEnd(message, apiError, key.source);
+            if (failure) {
+              queue.close(true);
+              if (message.subtype === "success") holdBack = "the model call failed";
+              await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "error", text: message.subtype === "success" ? failure.summary : `SDK ended with ${failure.reason}` });
+              if (failure.blockedReason === "budget" && key.source === "platform") deps.log.error({ businessId: input.businessId, sessionId: input.sessionId, status: message.subtype === "success" ? message.api_error_status ?? null : null }, "the platform's Anthropic account refused a session's call for billing");
+              return { outcome: failure.outcome, reason: failure.reason, blockedReason: failure.blockedReason, approvalId: null, summary: failure.summary, providerSessionId: sdkSessionId, ...usageNow() };
+            }
+          }
+          apiError = null;
+          // More input may come: Resume, the founder's decision, or a nudge already queued.
+          if (ending || paused || recorder.pendingApprovalId || turnOpen) continue;
           queue.close();
-          await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "error", text: `SDK ended with ${subtype}: ${errors.slice(0, 500)}` });
-          return { outcome: "failed", reason: `${subtype}: ${errors}`.slice(0, 500), blockedReason: "error", approvalId: null, summary: "The agent run ended with an error.", providerSessionId: sdkSessionId, tokensIn, tokensOut, costMinor: Math.round(costUsdCents) };
         }
-        if (!recorder.pendingApprovalId) queue.close();
       }
+    } catch (err) {
+      // An ending already chosen (stop, cancel, loop, park, undecided approval) aborts the SDK once its grace period runs
+      // out, and the SDK then throws an AbortError: that is the ending, not a failure. Anything else fails the run, and
+      // runAgentSession books the usage recorded so far.
+      if (!ending) throw err;
     }
-    // Acceptance tests run inside the sandbox, never on the orchestrator host, on a copy of the agent's workspace.
-    const acceptanceCommand = acceptanceCommandFor(task);
-    if (acceptanceCommand) await runAcceptance(deps, recorder, sandbox, cwd, acceptanceCommand);
-    const usage = { tokensIn, tokensOut, costMinor: Math.round(costUsdCents) };
-    if (loopTripped) {
+    const how = ending as LiveEnding | null;
+    if (how === "loop") {
       holdBack = "the session stopped on a loop";
-      return { outcome: "failed", reason: "loop detected: the same tool call repeated three times", blockedReason: "loop_detected", approvalId: null, summary: "Stopped after a detected loop.", providerSessionId: sdkSessionId, ...usage };
+      return { outcome: "failed", reason: "loop detected: the same tool call repeated three times", blockedReason: "loop_detected", approvalId: null, summary: "Stopped after a detected loop.", providerSessionId: sdkSessionId, ...usageNow() };
     }
     const stop = stoppedBy as { reason: string } | null;
     if (stop) {
       holdBack = "the session was stopped";
-      return { outcome: "stopped", reason: stop.reason, blockedReason: "stopped", approvalId: null, summary: `Stopped: ${stop.reason}.`, providerSessionId: sdkSessionId, ...usage };
+      return { outcome: "stopped", reason: stop.reason, blockedReason: "stopped", approvalId: null, summary: `Stopped: ${stop.reason}.`, providerSessionId: sdkSessionId, ...usageNow() };
+    }
+    if (how === "park") {
+      holdBack = "the session is paused";
+      return { outcome: "stopped", reason: "paused", blockedReason: "stopped", approvalId: null, summary: "Paused; the session continues on Resume.", providerSessionId: sdkSessionId, parked: { cursor: null, carry: carriedOver(carry) }, ...usageNow() };
     }
     holdBack = null;
-    if (recorder.pendingApprovalId) return { outcome: "blocked", reason: "waiting for the founder's approval", blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: "Blocked on an approval.", providerSessionId: sdkSessionId, ...usage };
-    return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}" with ${recorder.toolCalls} tool calls.`, providerSessionId: sdkSessionId, ...usage };
+    if (how === "approval_timeout") return { outcome: "blocked", reason: `no decision on the approval within ${minutesText(waits.approvalMs)}`, blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: "Blocked on an approval.", providerSessionId: sdkSessionId, ...usageNow() };
+    // Acceptance tests run inside a sandbox, never on the orchestrator host, on a copy of the agent's workspace.
+    const acceptanceCommand = acceptanceCommandFor(task);
+    if (acceptanceCommand) await runAcceptance(deps, recorder, live.acquireSandbox, cwd, acceptanceCommand);
+    if (recorder.pendingApprovalId) return { outcome: "blocked", reason: "waiting for the founder's approval", blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: "Blocked on an approval.", providerSessionId: sdkSessionId, ...usageNow() };
+    return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}" with ${recorder.toolCalls} tool calls.`, providerSessionId: sdkSessionId, ...usageNow() };
   } finally {
-    clearInterval(timer);
+    loop.stop();
+    if (abortTimer) clearTimeout(abortTimer);
     cancel?.removeEventListener("abort", onCancel);
-    queue.close();
-    // Keep the code whatever the outcome (done, stopped, failed): the workspace itself is deleted next. Only a session
-    // that finished (or waits on an approval) is pushed to GitHub.
+    openGate();
+    queue.close(true);
+    // Keep the code whatever the outcome (done, stopped, failed, parked): the workspace itself is deleted next. Only a
+    // session that finished (or waits on an approval) is pushed to GitHub.
     if (policy.fileTools) await keepWorkspace(deps, recorder, { businessId: input.businessId, taskId: task.id, sessionId: input.sessionId, agentId: agent.id, branch: launch.branch, agentName: agent.name, holdBack }, cwd, { secrets: [key.apiKey, token.token], carryOver: restoreFailed });
     try {
       await removeSessionWorkspace(cwd);
@@ -907,12 +1365,29 @@ function sandboxOutputForNote(output: string, max = 1500): string {
  * offline and publish the `test_result`. Every failure ends as a failed acceptance result with its reason; none of them
  * fails the session.
  */
-async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, sandbox: Sandbox, cwd: string, command: string): Promise<void> {
+async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, acquireSandbox: () => Promise<Sandbox>, cwd: string, command: string): Promise<void> {
   const at = () => deps.clock.now().toISOString();
   const failed = async (reason: string, durationMs = 0) => {
     await recorder.publish({ kind: "test_result", at: at(), suite: "acceptance", command, passed: 0, failed: 1, skipped: 0, durationMs, acceptance: true, failures: [reason.slice(0, 300)] });
   };
 
+  // The sandbox exists for this run only (SANDBOX_TTL_MINUTES), so a long session never outlives its sandbox.
+  let sandbox: Sandbox;
+  try {
+    sandbox = await acquireSandbox();
+  } catch (err) {
+    await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "warn", text: `Acceptance tests not run: the sandbox could not be started (${redactCredentialValues(String((err as Error).message ?? err)).slice(0, 300)}).` });
+    return failed("Sandbox could not be started");
+  }
+  try {
+    await runAcceptanceIn(deps, recorder, sandbox, cwd, command, failed);
+  } finally {
+    await sandbox.stop().catch(() => undefined);
+  }
+}
+
+async function runAcceptanceIn(deps: OrchestratorDeps, recorder: SessionRecorder, sandbox: Sandbox, cwd: string, command: string, failed: (reason: string, durationMs?: number) => Promise<void>): Promise<void> {
+  const at = () => deps.clock.now().toISOString();
   let synced: Awaited<ReturnType<typeof syncWorkspaceToSandbox>>;
   try {
     synced = await syncWorkspaceToSandbox(cwd, sandbox);
@@ -927,7 +1402,7 @@ async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, 
   }
   await recorder.publishRaw({ kind: "note", at: at(), source: "system", level: "info", text: `Copied ${synced.files} file${synced.files === 1 ? "" : "s"} (${Math.ceil(synced.bytes / 1024)} KB) into the sandbox for the acceptance tests.` });
 
-  const prep = await sandbox.exec(acceptancePrepareScript(), { timeoutMs: 10 * 60 * 1000 });
+  const prep = await sandbox.exec(acceptancePrepareScript(), { timeoutMs: ACCEPTANCE_PREPARE_TIMEOUT_MS });
   if (prep.code !== 0) {
     await recorder.publishRaw({ kind: "note", at: at(), source: "agent", level: "warn", text: `Installing the project's dependencies failed (exit ${prep.code}${prep.timedOut ? ", timed out" : ""}):\n${sandboxOutputForNote(prep.stdout + prep.stderr)}` });
     return failed("Dependency install failed", prep.durationMs);
@@ -939,7 +1414,7 @@ async function runAcceptance(deps: OrchestratorDeps, recorder: SessionRecorder, 
     return failed("Sandbox network could not be closed; tests not run");
   }
 
-  const res = await sandbox.exec(acceptanceRunScript(command), { timeoutMs: 15 * 60 * 1000 });
+  const res = await sandbox.exec(acceptanceRunScript(command), { timeoutMs: ACCEPTANCE_RUN_TIMEOUT_MS });
   const output = res.stdout + res.stderr;
   const counts = parseTestCounts(output);
   // The output comes from the task's own scripts, so it is shown as the agent's, never as a system message.

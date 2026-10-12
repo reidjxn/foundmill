@@ -1,7 +1,7 @@
 import { SessionEvent, type SessionEventInput } from "@foundmill/events";
 import { describe, expect, it } from "vitest";
 import { findRecording, RECORDINGS } from "../mock/recordings";
-import { MockSandboxProvider, SessionReplay, type ReplayEventMeta, type Sleep } from "../mock/replay";
+import { MockSandboxProvider, parseRecordingRef, pickRecording, SessionReplay, type ReplayEventMeta, type Sleep } from "../mock/replay";
 
 const START = new Date("2026-03-02T09:00:00.000Z");
 
@@ -48,6 +48,39 @@ describe("replay speed factor", () => {
     const { sleep, waits } = recordingSleep();
     await new SessionReplay(hold, "s", { speed: 10, startAt: START, sleep }).play();
     expect(waits).toContain(150); // 1500 ms recorded auto-resolve / 10
+  });
+});
+
+describe("continuing a replay part-way (a parked agent session)", () => {
+  const rec = findRecording("ledgerly-webhook-retry")!;
+
+  it("a `<key>@<index>` ref starts at that event, keeps the recorded gaps from there and stamps the timeline from now", async () => {
+    const { sleep, waits } = recordingSleep();
+    const now = new Date("2026-03-02T10:00:00.000Z");
+    const provider = new MockSandboxProvider({ speed: 1, sleep, now: () => now, holds: { autoResolveAfterMs: 1 }, autoplay: false });
+    const sb = await provider.create({ businessId: "b-1", taskId: "t-1", sessionId: "s-1", recording: `${rec.key}@5` });
+    const metas: ReplayEventMeta[] = [];
+    const ats: string[] = [];
+    sb.replay.subscribe((e, meta) => {
+      metas.push(meta);
+      ats.push(e.at!);
+    });
+    await sb.start();
+    const summary = await sb.replay.play();
+    expect(metas.map((m) => m.index)).toEqual(rec.events.slice(5).map((_, i) => i + 5));
+    expect(summary.emitted).toBe(rec.events.length - 5);
+    const gaps = rec.events.slice(5).map((e, i) => e.tMs - rec.events[i + 4]!.tMs).filter((g) => g > 0);
+    expect(waits).toEqual(gaps);
+    // The next event is stamped one recorded gap after now, as if the replay had never stopped.
+    expect(ats[0]).toBe(new Date(now.getTime() + rec.events[5]!.tMs - rec.events[4]!.tMs).toISOString());
+  });
+
+  it("parses recording refs and picks the recording by its key", () => {
+    expect(parseRecordingRef(`${rec.key}@12`)).toEqual({ key: rec.key, startIndex: 12 });
+    expect(parseRecordingRef(rec.key)).toEqual({ key: rec.key, startIndex: 0 });
+    expect(pickRecording(RECORDINGS, { taskId: "t", recording: `${rec.key}@5` }).key).toBe(rec.key);
+    // An index past the end replays nothing more.
+    expect(new SessionReplay(rec, "s", { speed: Infinity, startAt: START, startIndex: 10_000 }).position.index).toBe(rec.events.length);
   });
 });
 

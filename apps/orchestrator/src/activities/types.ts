@@ -171,6 +171,26 @@ export interface SessionResult {
   summary: string;
   /** Last SDK/replay session id for resume. */
   providerSessionId: string | null;
+  /**
+   * Set when the run handed its slot back because the session stayed paused past SESSION_PAUSE_HOLD_MINUTES: the
+   * workflow waits for Resume without holding a slot, then starts another run. Never set on a finished session.
+   */
+  parked?: SessionParked | null;
+}
+
+export interface SessionParked {
+  /** Where a mock replay picks up (`<recording>@<next event index>`); null for live sessions (the work is saved). */
+  cursor: string | null;
+  /** Nudges and decisions that reached the run after its last poll; the workflow hands them to the next run. */
+  carry: SessionCommand[];
+}
+
+/** How one run of a session starts (agentSession may run several when a paused session parks and resumes). */
+export interface SessionRunOptions {
+  /** Control commands numbered below this were meant for an earlier run and are ignored. */
+  fromSeq: number;
+  /** Set when this run continues a parked session. */
+  resume: { cursor: string | null; progress: ProgressState } | null;
 }
 
 export interface SessionFinish {
