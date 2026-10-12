@@ -5,9 +5,9 @@
  * existing member, and neither `setRole` nor `remove` may leave a business without an owner.
  */
 import { ConflictError, MEMBERSHIP_ROLES, ValidationError, type MembershipRole } from "@foundmill/shared";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { memberships, type Membership } from "../schema";
+import { businesses, memberships, type Business, type Membership } from "../schema";
 import { Id, maybeOne, one, parseInput, type Executor } from "./_shared";
 
 export const SectionPermissions = z.record(z.string(), z.enum(["read", "write", "none"]));
@@ -31,6 +31,23 @@ export const membershipsRepo = {
 
   async get(db: Executor, businessId: string, userId: string): Promise<Membership | null> {
     return maybeOne(await db.select().from(memberships).where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId))).limit(1));
+  },
+
+  /**
+   * What apps/api's `businessProcedure` checks before every procedure: the user's membership and the business, in one
+   * statement (one round trip pair instead of two lookups on two connections). No membership: both null, whether or
+   * not the business exists, so a non-member learns nothing about it. A membership of an archived business comes back
+   * with a null business, as `businesses.get` would not find it.
+   */
+  async access(db: Executor, businessId: string, userId: string): Promise<{ membership: Membership | null; business: Business | null }> {
+    const rows = await db
+      .select({ membership: memberships, business: businesses })
+      .from(memberships)
+      .leftJoin(businesses, and(eq(businesses.id, memberships.businessId), isNull(businesses.archivedAt)))
+      .where(and(eq(memberships.businessId, businessId), eq(memberships.userId, userId)))
+      .limit(1);
+    const row = rows[0];
+    return row ? { membership: row.membership, business: row.business } : { membership: null, business: null };
   },
 
   /** True when the user holds one of the roles in this business. */

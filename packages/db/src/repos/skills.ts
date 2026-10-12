@@ -1,6 +1,6 @@
 /** skill_definitions, skill_tests, agent_skills — attribute ratings (BUILD §11.10; routers agent.profile.*). */
 import { SKILL_GROUPS } from "@foundmill/shared";
-import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentSkills, skillDefinitions, skillTests, type AgentSkill, type SkillDefinition, type SkillTest } from "../schema";
 import { Id, JsonObject, numericText, one, parseInput, type Executor } from "./_shared";
@@ -118,6 +118,19 @@ export const skillsRepo = {
   // agent skills ------------------------------------------------------------------------------------------------------
   async listForAgent(db: Executor, businessId: string, agentId: string): Promise<AgentSkill[]> {
     return db.select().from(agentSkills).where(and(eq(agentSkills.businessId, businessId), eq(agentSkills.agentId, agentId))).orderBy(asc(agentSkills.group), asc(agentSkills.skillKey));
+  },
+
+  /** `listForAgent` for several agents in one statement (the Team table), by agent id; every id asked for has a list. */
+  async listForAgents(db: Executor, businessId: string, agentIds: readonly string[]): Promise<Map<string, AgentSkill[]>> {
+    const out = new Map(agentIds.map((id) => [id, [] as AgentSkill[]]));
+    if (agentIds.length === 0) return out;
+    const rows = await db
+      .select()
+      .from(agentSkills)
+      .where(and(eq(agentSkills.businessId, businessId), inArray(agentSkills.agentId, [...agentIds])))
+      .orderBy(asc(agentSkills.group), asc(agentSkills.skillKey));
+    for (const row of rows) out.get(row.agentId)?.push(row);
+    return out;
   },
 
   /**

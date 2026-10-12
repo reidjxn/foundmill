@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, logoPng, openBusiness } from "./helpers";
+import { LONG, logoPng, openBusiness, settingsScreen } from "./helpers";
 
 /**
  * Settings › Business (BUILD §11.15): the owner uploads a real logo, generates marks and picks one, or goes back to the
@@ -9,7 +9,7 @@ import { LONG, logoPng, openBusiness } from "./helpers";
 test.describe("settings › business: the logo", () => {
   test.beforeEach(async ({ page }) => {
     await openBusiness(page, "settings/business");
-    await expect(page.getByTestId("settings-screen")).toHaveAttribute("data-tab", "business", { timeout: LONG });
+    await expect(settingsScreen(page)).toHaveAttribute("data-tab", "business", { timeout: LONG });
     await expect(page.getByTestId("settings-logo")).toBeVisible();
     // Start from the initials mark whatever an earlier run left.
     const clear = page.getByTestId("logo-clear");

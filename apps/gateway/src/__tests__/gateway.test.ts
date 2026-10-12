@@ -47,11 +47,11 @@ describe("health and catalogue", () => {
     expect(health.policy.policies).toBeGreaterThanOrEqual(15);
   });
 
-  it("GET /health reports ok:false with db:false when the database did not answer at boot", async () => {
+  it("GET /health answers 503 with ok:false and db:false when the database did not answer at boot (not ready)", async () => {
     const { createGatewayApp } = await import("../app");
     const app = createGatewayApp(g.deps, { sessionTokenSecret: "x".repeat(32), dbReady: () => false });
     const res = await app.request("/health");
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ ok: false, db: false, service: "gateway" });
   });
 

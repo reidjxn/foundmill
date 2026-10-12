@@ -9,6 +9,9 @@ WORKDIR /app
 
 FROM base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+# pnpm applies patches/ while installing (pnpm-workspace.yaml `patchedDependencies`: postgres.js, docs/DECISIONS.md
+# "Round trips per procedure"); without the folder the frozen install fails.
+COPY patches ./patches
 COPY apps ./apps
 COPY packages ./packages
 COPY evals ./evals

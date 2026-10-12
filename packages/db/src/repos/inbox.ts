@@ -167,16 +167,12 @@ export const inboxRepo = {
     return Number(rows[0]?.n ?? 0);
   },
 
+  /** Items per tab, in one statement (a `count(*) filter (where …)` per tab) rather than one query per tab. */
   async countByTab(db: Executor, businessId: string): Promise<Record<InboxTab, number>> {
-    const out = {} as Record<InboxTab, number>;
-    for (const tab of INBOX_TABS) {
-      const rows = await db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(inboxItems)
-        .where(and(eq(inboxItems.businessId, businessId), isNull(inboxItems.archivedAt), tabCondition(tab)));
-      out[tab] = Number(rows[0]?.n ?? 0);
-    }
-    return out;
+    const counts = Object.fromEntries(INBOX_TABS.map((tab) => [tab, sql<number>`count(*) filter (where ${tabCondition(tab) ?? sql`true`})::int`]));
+    const rows = await db.select(counts).from(inboxItems).where(and(eq(inboxItems.businessId, businessId), isNull(inboxItems.archivedAt)));
+    const row: Record<string, unknown> = rows[0] ?? {};
+    return Object.fromEntries(INBOX_TABS.map((tab) => [tab, Number(row[tab] ?? 0)])) as Record<InboxTab, number>;
   },
 
   /** Persists one Composer note. Validates the §11.3 shape and that every referenced id belongs to the business. */

@@ -38,6 +38,18 @@ test.describe("home", () => {
     }
   });
 
+  test("the Team pulse hour labels fit their boxes at 1280 px, one every three hours", async ({ page }) => {
+    // Each label's box spans three hour columns; at one column (about 24 px) "12 AM" spilled out (no-clip.spec, Oct 2026).
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const pulse = page.locator("[data-squad-pulse]").first();
+    test.skip((await pulse.count()) === 0, "the active dashboard has no Team pulse widget");
+    await expect(pulse).toBeVisible({ timeout: LONG });
+    const labels = await pulse.locator("[role=columnheader]:not(.sr-only)").evaluateAll((els) => els.map((el) => ({ text: el.textContent ?? "", box: el.clientWidth, needs: el.scrollWidth })));
+    expect(labels.map((l) => l.text)).toEqual(["12 AM", "3 AM", "6 AM", "9 AM", "12 PM", "3 PM", "6 PM", "9 PM"]);
+    for (const l of labels) expect(l.needs, `"${l.text}" ${l.box}<${l.needs}`).toBeLessThanOrEqual(l.box + 1);
+    await expect(pulse.locator("[role=columnheader]")).toHaveCount(24);
+  });
+
   test("E toggles Edit mode; the toolbar button mirrors it; Esc leaves it", async ({ page }) => {
     await page.keyboard.press("e");
     await expect(page.getByTestId("home-screen")).toHaveAttribute("data-editing", "true");

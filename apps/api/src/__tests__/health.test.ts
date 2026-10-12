@@ -33,6 +33,15 @@ describe("HTTP surface on an ephemeral port", () => {
     expect(res.headers.get("x-request-id")).toBeTruthy();
   });
 
+  it("GET /health answers 503 without the database, so Railway's healthcheck keeps traffic on the previous deployment", async () => {
+    const down = createApp({ ...hz.deps, health: { ...hz.deps.health, db: async () => false } });
+    const res = await down.request("/health");
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ ok: false, service: "api", db: false });
+    // Redis, Temporal and the composer are optional: their absence alone never fails the check (they are down here).
+    expect((await createApp(hz.deps).request("/health")).status).toBe(200);
+  });
+
   it("CORS allows the web origin and localhost:3000 with credentials", async () => {
     const res = await fetch(`${base}/trpc/health`, { method: "OPTIONS", headers: { origin: "http://localhost:3000", "access-control-request-method": "POST", "access-control-request-headers": "authorization,content-type" } });
     expect(res.headers.get("access-control-allow-origin")).toBe("http://localhost:3000");

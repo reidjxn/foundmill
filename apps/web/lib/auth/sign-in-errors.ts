@@ -59,3 +59,47 @@ export function signInErrorCopy(reason: SignInErrorReason): SignInErrorCopy {
       return { title: "Sign-in failed", body: "That sign-in link didn't work. Send a new link to try again." };
   }
 }
+
+/**
+ * Why sending a sign-in link failed (`signInWithOtp`), as a reason the login form turns into plain words. Supabase Auth
+ * answers with an error `code` and an HTTP status; older servers send only the message, so the message is the last
+ * resort. Raw Supabase text ("Email address not authorized", "email rate limit exceeded") never reaches the screen.
+ */
+export type SendLinkErrorReason = "too_soon" | "rate_limited" | "address_not_allowed" | "signups_closed" | "invalid_email" | "unavailable" | "offline" | "failed";
+
+export function classifySendLinkError(error: { code?: string | undefined; status?: number | undefined; name?: string | undefined; message?: string | undefined }): SendLinkErrorReason {
+  const code = error.code ?? "";
+  const message = error.message ?? "";
+  // The sender refused the address: Supabase's built-in sender only mails the project's own team (DEPLOY §4 custom SMTP).
+  if (code === "email_address_not_authorized" || /not authori[sz]ed/i.test(message)) return "address_not_allowed";
+  // The same address asked again inside Supabase's resend window ("you can only request this after 52 seconds").
+  if (/only request this after/i.test(message)) return "too_soon";
+  if (code === "over_email_send_rate_limit" || code === "over_request_rate_limit" || error.status === 429 || /rate limit/i.test(message)) return "rate_limited";
+  if (code === "signup_disabled" || code === "otp_disabled" || /signups? not allowed/i.test(message)) return "signups_closed";
+  if (code === "email_address_invalid" || /invalid.*email|email.*invalid/i.test(message)) return "invalid_email";
+  if (code === "email_provider_disabled" || /email logins are disabled/i.test(message)) return "unavailable";
+  // auth-js reports a request that never reached Supabase as a retryable fetch error with no HTTP status.
+  if (error.name === "AuthRetryableFetchError" && !error.status) return "offline";
+  return "failed";
+}
+
+export function sendLinkErrorMessage(reason: SendLinkErrorReason): string {
+  switch (reason) {
+    case "too_soon":
+      return "A sign-in link was just sent to this address. Wait a minute before asking for another, and check your spam folder too.";
+    case "rate_limited":
+      return "Too many sign-in links were requested in a short time. Wait a few minutes, then try again.";
+    case "address_not_allowed":
+      return "We can't send sign-in emails to this address right now. Please contact support.";
+    case "signups_closed":
+      return "There is no account for this address, and new sign-ups are closed for now.";
+    case "invalid_email":
+      return "That email address doesn't look right. Check it and try again.";
+    case "unavailable":
+      return "Email sign-in is turned off on this server right now.";
+    case "offline":
+      return "We couldn't reach the sign-in service. Check your connection and try again.";
+    case "failed":
+      return "The sign-in link couldn't be sent. Try again in a moment.";
+  }
+}

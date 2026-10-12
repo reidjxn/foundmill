@@ -11,7 +11,7 @@ import { repos, withRls, type Business, type DbTx, type Executor, type Membershi
 import type { EventPayloadInput } from "@foundmill/events";
 import { assertAllowlisted } from "./services/access";
 import { writeEventRow } from "./services/events";
-import { AppError, WRITE_ROLES, effectivePermission, type Actor, type EventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
+import { AppError, NotFoundError, WRITE_ROLES, effectivePermission, type Actor, type EventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
 import type { Context } from "./context";
 
 export const Id = z.guid();
@@ -210,28 +210,21 @@ export const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
   return next({ ctx: { ...ctx, userId: ctx.userId } });
 });
 
-/** What `businessProcedure` learns about one user and one business: the membership, and the business or why it failed. */
+/** What `businessProcedure` learns about one user and one business: the membership, and the business if it is open. */
 export interface BusinessAccess {
   membership: Membership | null;
-  business: { ok: true; value: Business } | { ok: false; error: unknown };
+  /** Null when there is no membership, or the business is archived. */
+  business: Business | null;
 }
 
 /**
- * The membership and the business, looked up in parallel. With a request memo (`ctx.accessMemo`, a fresh map per HTTP
- * request) the lookup runs once per user and business for the whole batch; without one (in-process caller, tests) it
- * runs on every call. A failed lookup is dropped from the memo so it is never reused.
+ * The membership and the business, in one statement (`repos.memberships.access`: one round trip, one connection).
+ * With a request memo (`ctx.accessMemo`, a fresh map per HTTP request) the lookup runs once per user and business for
+ * the whole batch; without one (in-process caller, tests) it runs on every call. A failed lookup is dropped from the
+ * memo so it is never reused.
  */
 export function loadBusinessAccess(ctx: Pick<Context, "db" | "accessMemo">, userId: string, businessId: string): Promise<BusinessAccess> {
-  const run = async (): Promise<BusinessAccess> => {
-    const [membership, business] = await Promise.all([
-      repos.memberships.get(ctx.db, businessId, userId),
-      repos.businesses.get(ctx.db, businessId).then(
-        (value) => ({ ok: true as const, value }),
-        (error: unknown) => ({ ok: false as const, error }),
-      ),
-    ]);
-    return { membership, business };
-  };
+  const run = (): Promise<BusinessAccess> => repos.memberships.access(ctx.db, businessId, userId);
   const memo = ctx.accessMemo;
   if (!memo) return run();
   const key = `${userId}\u0000${businessId}`;
@@ -251,8 +244,9 @@ export const businessProcedure = protectedProcedure.input(BusinessInput).use(asy
   // Membership first: a non-member learns nothing about the business, not even whether it exists.
   const membership = access.membership;
   if (!membership) throw new TRPCError({ code: "FORBIDDEN", message: "You are not a member of this business" });
-  if (!access.business.ok) throw access.business.error;
-  const business = access.business.value;
+  // A member of an archived business gets what `repos.businesses.get` says about it.
+  if (!access.business) throw new NotFoundError("business", input.businessId);
+  const business = access.business;
   const rls: RlsRunner = (fn) => withRls(ctx.db, { userId: ctx.userId, claims: ctx.email ? { email: ctx.email } : undefined }, fn);
   const bctx: BusinessContext = { ...ctx, businessId: input.businessId, business, membership, role: membership.role, rls };
   return next({ ctx: bctx });

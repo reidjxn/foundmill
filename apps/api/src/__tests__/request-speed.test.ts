@@ -4,6 +4,7 @@
  * with the same answer as before, `journey.ribbon`'s slim mode, and gzip on tRPC answers that never touches a stream.
  */
 import { repos } from "@foundmill/db";
+import { createBusinessFixture } from "@foundmill/db/__tests__/rls/fixtures";
 import { TRPCError } from "@trpc/server";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp, isStreamingRequest } from "../app";
@@ -37,9 +38,8 @@ const code = async (p: Promise<unknown>) => {
 };
 
 describe("membership and business lookups (businessProcedure)", () => {
-  it("run once per HTTP request for a whole batch, in parallel, and again for the next request", async () => {
-    const membership = vi.spyOn(repos.memberships, "get");
-    const business = vi.spyOn(repos.businesses, "get");
+  it("run once per HTTP request for a whole batch, and again for the next request", async () => {
+    const access = vi.spyOn(repos.memberships, "access");
     try {
       const app = createApp(asUser(hz.A.ownerId));
       const bid = hz.A.businessId;
@@ -54,44 +54,36 @@ describe("membership and business lookups (businessProcedure)", () => {
       expect(codes((await res.json()) as BatchResult[])).toEqual(["OK", "OK", "OK", "OK"]);
       // The middleware reads through the service db (procedures read through their RLS transaction).
       const lookups = (calls: unknown[][]) => calls.filter((c) => c[0] === hz.deps.db && c[1] === bid).length;
-      expect(lookups(membership.mock.calls)).toBe(1);
-      expect(lookups(business.mock.calls)).toBe(1);
+      expect(lookups(access.mock.calls)).toBe(1);
 
-      membership.mockClear();
-      business.mockClear();
+      access.mockClear();
       const again = await app.request(url, { headers: { authorization: "Bearer x" } });
       expect(again.status).toBe(200);
-      expect(lookups(membership.mock.calls)).toBe(1);
-      expect(lookups(business.mock.calls)).toBe(1);
+      expect(lookups(access.mock.calls)).toBe(1);
+    } finally {
+      access.mockRestore();
+    }
+  });
+
+  it("looks up the membership and the business in one statement, never as two lookups", async () => {
+    const membership = vi.spyOn(repos.memberships, "get");
+    const business = vi.spyOn(repos.businesses, "get");
+    try {
+      const res = await createApp(asUser(hz.A.ownerId)).request(batchUrl([{ path: "inbox.list", input: { businessId: hz.A.businessId } }]), { headers: { authorization: "Bearer x" } });
+      expect(res.status).toBe(200);
+      expect(membership).not.toHaveBeenCalled();
+      expect(business).not.toHaveBeenCalled();
     } finally {
       membership.mockRestore();
       business.mockRestore();
     }
   });
 
-  it("starts both lookups before either answers", async () => {
-    let businessAsked = false;
-    const realBusiness = repos.businesses.get.bind(repos.businesses);
-    const realMembership = repos.memberships.get.bind(repos.memberships);
-    const business = vi.spyOn(repos.businesses, "get").mockImplementation((...args) => {
-      businessAsked = true;
-      return realBusiness(...args);
-    });
-    let sawBusinessFirst = false;
-    const membership = vi.spyOn(repos.memberships, "get").mockImplementation(async (...args) => {
-      // Sequential lookups would ask for the business only after this resolves.
-      await new Promise((r) => setTimeout(r, 20));
-      sawBusinessFirst = businessAsked;
-      return realMembership(...args);
-    });
-    try {
-      const res = await createApp(asUser(hz.A.ownerId)).request(batchUrl([{ path: "inbox.list", input: { businessId: hz.A.businessId } }]), { headers: { authorization: "Bearer x" } });
-      expect(res.status).toBe(200);
-      expect(sawBusinessFirst).toBe(true);
-    } finally {
-      membership.mockRestore();
-      business.mockRestore();
-    }
+  it("answers NOT_FOUND to a member of an archived business, as the business lookup did", async () => {
+    const archived = await createBusinessFixture(hz.h, "speed-archived");
+    await repos.businesses.archive(hz.db, archived.businessId);
+    expect(await code(hz.caller({ userId: archived.ownerId }).business.get({ businessId: archived.businessId }))).toBe("NOT_FOUND");
+    expect(await code(hz.caller({ userId: hz.A.ownerId }).business.get({ businessId: archived.businessId }))).toBe("FORBIDDEN");
   });
 
   it("keeps FORBIDDEN per business inside one batch, and a non-member never learns whether a business exists", async () => {

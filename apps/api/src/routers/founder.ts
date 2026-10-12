@@ -16,9 +16,8 @@ function asUser<T>(ctx: { db: Db; userId: string; email?: string | null }, fn: (
 export const founderRouter = router({
   profile: router({
     get: protectedProcedure.query(async ({ ctx }) => {
-      const profile = await repos.founders.get(ctx.db, ctx.userId);
-      const memberships = await repos.memberships.listForUser(ctx.db, ctx.userId);
-      const businesses = await repos.businesses.listForUser(ctx.db, ctx.userId);
+      // Three independent reads: sent together, not one after another (each is a network round trip in production).
+      const [profile, memberships, businesses] = await Promise.all([repos.founders.get(ctx.db, ctx.userId), repos.memberships.listForUser(ctx.db, ctx.userId), repos.businesses.listForUser(ctx.db, ctx.userId)]);
       return { profile, complete: profile !== null, email: ctx.email, memberships, businesses };
     }),
     update: protectedProcedure.input(FounderProfilePatch).mutation(async ({ ctx, input }) => {

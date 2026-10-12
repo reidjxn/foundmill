@@ -43,7 +43,8 @@ export function createApp(service: ComposerService, options: AppOptions = {}) {
 
   app.get("/health", async (c) => {
     const db = await service.healthy();
-    return c.json({ ok: db, service: "composer", db, env: options.env?.APP_ENV ?? null, modes: { integrations: options.env?.INTEGRATIONS_MODE ?? null, models: options.env?.MODEL_MODE ?? null }, time: new Date().toISOString() });
+    // Readiness for Railway's healthcheck (railway/composer.toml) and the api's `composer.reachable()`: 503 without a database.
+    return c.json({ ok: db, service: "composer", db, env: options.env?.APP_ENV ?? null, modes: { integrations: options.env?.INTEGRATIONS_MODE ?? null, models: options.env?.MODEL_MODE ?? null }, time: new Date().toISOString() }, db ? 200 : 503);
   });
 
   const body = async <T>(c: { req: { json(): Promise<unknown> } }, schema: z.ZodType<T>): Promise<T> => {

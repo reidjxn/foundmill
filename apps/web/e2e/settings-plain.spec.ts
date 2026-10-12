@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, openBusiness, settingsScreen } from "./helpers";
 
 /**
  * Settings in plain words (the 2027 screen pass): no stored identifiers, developer notes or plural slips reach the
@@ -18,7 +18,7 @@ test.describe("settings, plain words", () => {
     const list = page.getByTestId("member-list");
     await expect(list).toBeVisible({ timeout: LONG });
     await expect(list).toContainText(/Account [0-9a-f]{8}…[0-9a-f]{4}/);
-    await expect(page.getByTestId("settings-screen")).not.toContainText(/auth build|owner:|admin:/);
+    await expect(settingsScreen(page)).not.toContainText(/auth build|owner:|admin:/);
     await expect(list.getByRole("combobox").first()).toContainText(/^(Owner|Admin|Member|Viewer|Advisor)$/);
     // The founder's own row reads as a name with a "You" chip, never "You You".
     await expect(list).not.toContainText(/\bYou\s*You\b/);
@@ -26,7 +26,7 @@ test.describe("settings, plain words", () => {
 
   test("Mode: the choice is named in words, with no notes about what comes later", async ({ page }) => {
     await page.goto(`${B}/settings/mode`);
-    const screen = page.getByTestId("settings-screen");
+    const screen = settingsScreen(page);
     await expect(page.getByTestId("switch-game-mode")).toBeVisible({ timeout: LONG });
     await expect(screen).toContainText("Personal or live");
     await expect(screen).not.toContainText(/Game mode/);
@@ -40,7 +40,7 @@ test.describe("settings, plain words", () => {
 
   test("Billing: correct plurals, whole numbers in the usage tables, credits and model costs in US dollars", async ({ page }) => {
     await page.goto(`${B}/settings/billing`);
-    const screen = page.getByTestId("settings-screen");
+    const screen = settingsScreen(page);
     await expect(screen.locator("[data-tier]").first()).toBeVisible({ timeout: LONG });
     await expect(screen).not.toContainText(/\b1 (businesses|seats|agents)\b/);
     await expect(screen.locator("[data-tier=free]")).toContainText("1 business");

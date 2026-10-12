@@ -82,10 +82,28 @@ export function createServiceDb(options: CreateDbOptions = {}): AnyDb {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * The statement that makes RLS apply to a transaction: `set_config('role', …, true)` is `set local role` (the same
+ * privilege check, transaction-local) and `request.jwt.claims` is what auth.uid() reads. Both values are bound
+ * parameters ($1 and $2), never interpolated.
+ */
+const RLS_SETUP_SQL = "select set_config('role', $1, true), set_config('request.jwt.claims', $2, true)";
+
+/** The postgres.js handle a Drizzle transaction runs on (its postgres-js session), or null on another driver (PGlite). */
+function postgresJsClient(tx: DbTx): Pick<Sql, "unsafe"> | null {
+  const client = (tx as unknown as { session?: { client?: unknown } }).session?.client;
+  return typeof client === "function" && typeof (client as Partial<Sql>).unsafe === "function" ? (client as Sql) : null;
+}
+
+/**
  * Runs `fn(tx)` after `set local role <role>` and `set local request.jwt.claims = {sub, role, ...}`.
  * Both settings are transaction-local, so the connection returns to the service role when the
  * transaction ends (commit or rollback). The role name is whitelisted; claims go through set_config
  * as a bound parameter, never string-interpolated.
+ *
+ * Round trips (src/__tests__/round-trips.test.ts): BEGIN, then the setup together with fn's first statements, then
+ * any later statements of fn, then COMMIT. On postgres.js the setup is handed to the transaction's connection before
+ * fn starts and the connection sends in order, so it always runs before anything fn sends; if it fails, the
+ * transaction is aborted and none of fn's statements run. On PGlite (in process, no network) it is awaited first.
  */
 export async function withRls<T>(db: Db, ctx: RlsContext, fn: (tx: DbTx) => Promise<T>): Promise<T> {
   const role: RlsRole = ctx.role ?? "authenticated";
@@ -93,12 +111,22 @@ export async function withRls<T>(db: Db, ctx: RlsContext, fn: (tx: DbTx) => Prom
   if (role !== "anon" && !UUID_RE.test(ctx.userId)) throw new Error("withRls: userId must be a UUID");
   const claims = JSON.stringify({ ...(ctx.claims ?? {}), sub: role === "anon" ? undefined : ctx.userId, role });
   return db.transaction(async (tx) => {
-    // Infrastructure, not a data query: this statement is what makes RLS apply to everything fn(tx) runs. One round
-    // trip sets both: `set_config('role', …, true)` is `set local role` (the same privilege check, transaction-local),
-    // and the claims for auth.uid(). Both values are bound parameters, never interpolated.
-    // eslint-disable-next-line fm/no-raw-db -- role switch and JWT claims for this transaction (ARCHITECTURE §4)
-    await tx.execute(sql`select set_config('role', ${role}, true), set_config('request.jwt.claims', ${claims}, true)`);
-    return fn(tx);
+    // Infrastructure, not a data query: this statement is what makes RLS apply to everything fn(tx) runs.
+    const client = postgresJsClient(tx);
+    if (!client) {
+      // eslint-disable-next-line fm/no-raw-db -- role switch and JWT claims for this transaction (ARCHITECTURE §4)
+      await tx.execute(sql`select set_config('role', ${role}, true), set_config('request.jwt.claims', ${claims}, true)`);
+      return fn(tx);
+    }
+    // `execute()` queues the statement on the connection now (a postgres.js query is otherwise sent only once
+    // awaited), ahead of everything fn sends. Not awaiting it before fn saves a round trip: the setup travels with
+    // fn's first statements. Both settle before the transaction commits or rolls back, so fn has always finished
+    // with the connection by then.
+    const ready = client.unsafe(RLS_SETUP_SQL, [role, claims]).execute();
+    const [applied, result] = await Promise.allSettled([ready, Promise.resolve().then(() => fn(tx))]);
+    if (applied.status === "rejected") throw applied.reason;
+    if (result.status === "rejected") throw result.reason;
+    return result.value;
   });
 }
 
