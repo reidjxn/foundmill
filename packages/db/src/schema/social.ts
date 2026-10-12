@@ -1,4 +1,4 @@
-/** 0012 — LIVE social: public profiles view, connections, messages, communities, leaderboards, negotiations. */
+/** 0012 — LIVE social: public profiles view, connections, messages, communities, leaderboards, negotiations (0016 hardening; 0027 delivery and moderation). */
 import { ARCHETYPES, DATA_REGIONS, VISIBILITY } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { boolean, index, integer, jsonb, numeric, pgTable, pgView, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
@@ -10,8 +10,14 @@ import { agents } from "./agents";
 
 export const CONNECTION_STATUSES = ["requested", "accepted", "blocked"] as const;
 export const COMMUNITY_ROLES = ["owner", "moderator", "member"] as const;
-export const COMMUNITY_MEMBER_STATUSES = ["active", "muted", "banned", "left"] as const;
+/** `muted` reads but cannot post; `invited` (0027) is an invitation the person has not answered yet. */
+export const COMMUNITY_MEMBER_STATUSES = ["active", "muted", "banned", "left", "invited"] as const;
+/** BUILD §11.14 community kinds (0027); Private is a visibility, not a kind. */
+export const COMMUNITY_KINDS = ["cohort", "category", "geography"] as const;
 export const POST_STATUSES = ["visible", "hidden", "removed", "pending_review"] as const;
+export const THREAD_KINDS = ["direct", "group"] as const;
+export const POST_REPORT_REASONS = ["spam", "harassment", "personal_data", "scam", "off_topic", "other"] as const;
+export const POST_REPORT_RESOLUTIONS = ["approved", "hidden", "removed", "dismissed"] as const;
 export const NEGOTIATION_STATUSES = ["open", "agreed", "declined", "expired", "stopped"] as const;
 export const PUBLIC_PROFILE_KINDS = ["business", "founder"] as const;
 
@@ -60,6 +66,12 @@ export const messageThreads = pgTable(
   {
     id: id(),
     participantIds: uuid("participant_ids").array().notNull(),
+    /** 0027: a group is never matched as the pair it shrinks to. */
+    kind: text("kind", { enum: THREAD_KINDS }).notNull().default("direct"),
+    /** 0027: people who left; they are no longer in `participant_ids`. */
+    leftIds: uuid("left_ids").array().notNull().default(emptyArray),
+    /** 0027: participants who muted the thread (no badge, no Inbox note). Never shown to the others. */
+    mutedIds: uuid("muted_ids").array().notNull().default(emptyArray),
     subject: text("subject"),
     lastMessageAt: tstz("last_message_at"),
     ...timestampsWithArchive(),
@@ -92,6 +104,7 @@ export const communities = pgTable(
     slug: text("slug").notNull().unique(),
     descriptionMd: text("description_md").notNull().default(""),
     visibility: text("visibility", { enum: VISIBILITY }).notNull().default("public"),
+    kind: text("kind", { enum: COMMUNITY_KINDS }).notNull().default("category"),
     ownerBusinessId: uuid("owner_business_id").references(() => businesses.id, { onDelete: "set null" }),
     createdBy: uuid("created_by").references(() => authUsers.id, { onDelete: "set null" }),
     memberCount: integer("member_count").notNull().default(0),
@@ -112,12 +125,17 @@ export const communityMembers = pgTable(
     role: text("role", { enum: COMMUNITY_ROLES }).notNull().default("member"),
     status: text("status", { enum: COMMUNITY_MEMBER_STATUSES }).notNull().default("active"),
     joinedAt: tstz("joined_at").notNull().defaultNow(),
+    /** 0027: the owner or moderator who invited this person (set with status `invited`). */
+    invitedBy: uuid("invited_by").references(() => authUsers.id, { onDelete: "set null" }),
+    /** 0027: set while a moderator's mute stands, even after the person leaves (they come back muted). */
+    mutedAt: tstz("muted_at"),
     ...timestamps(),
   },
   (t) => [
     uniqueIndex("community_members_community_id_user_id_key").on(t.communityId, t.userId),
     index("community_members_user_id_idx").on(t.userId),
     index("community_members_business_id_idx").on(t.businessId),
+    index("community_members_invited_by_idx").on(t.invitedBy),
   ],
 );
 export type CommunityMember = typeof communityMembers.$inferSelect;
@@ -134,6 +152,14 @@ export const posts = pgTable(
     bodyMd: text("body_md").notNull(),
     entityIds: uuid("entity_ids").array().notNull().default(emptyArray),
     status: text("status", { enum: POST_STATUSES }).notNull().default("visible"),
+    /** 0027: when the author last edited the text. */
+    editedAt: tstz("edited_at"),
+    /** 0027: the moderation screen's verdict on the current text. */
+    screening: jsonb("screening").$type<PostScreening | Record<string, never>>().notNull().default(emptyObject),
+    /** 0027: who last hid, restored or removed it (the author, when they deleted their own post). */
+    moderatedBy: uuid("moderated_by").references(() => authUsers.id, { onDelete: "set null" }),
+    moderatedAt: tstz("moderated_at"),
+    moderationNote: text("moderation_note"),
     ...timestampsWithArchive(),
   },
   (t) => [
@@ -141,10 +167,58 @@ export const posts = pgTable(
     index("posts_author_user_id_idx").on(t.authorUserId),
     index("posts_business_id_idx").on(t.businessId),
     index("posts_parent_post_id_idx").on(t.parentPostId),
+    index("posts_moderated_by_idx").on(t.moderatedBy),
+    index("posts_review_idx").on(t.communityId, t.status).where(sql`${t.status} in ('pending_review','hidden')`),
   ],
 );
 export type Post = typeof posts.$inferSelect;
 export type NewPost = typeof posts.$inferInsert;
+
+/** What the moderation screen said about a post's text (0027 `posts.screening`). */
+export interface PostScreening {
+  decision: "allow" | "hold";
+  /** Flag categories, most severe first. */
+  flags: string[];
+  rationale: string;
+  /** `mock` (deterministic), `live` (the moderation route), or `unavailable` (the screen failed, so the post was held). */
+  mode: "mock" | "live" | "unavailable";
+}
+
+export const postReports = pgTable(
+  "post_reports",
+  {
+    id: id(),
+    postId: uuid("post_id").notNull().references(() => posts.id, { onDelete: "cascade" }),
+    communityId: uuid("community_id").notNull().references(() => communities.id, { onDelete: "cascade" }),
+    reporterUserId: uuid("reporter_user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+    reason: text("reason", { enum: POST_REPORT_REASONS }).notNull(),
+    note: text("note"),
+    resolvedAt: tstz("resolved_at"),
+    resolvedBy: uuid("resolved_by").references(() => authUsers.id, { onDelete: "set null" }),
+    resolution: text("resolution", { enum: POST_REPORT_RESOLUTIONS }),
+    ...timestamps(),
+  },
+  (t) => [
+    uniqueIndex("post_reports_post_id_reporter_user_id_key").on(t.postId, t.reporterUserId),
+    index("post_reports_open_idx").on(t.communityId, t.postId).where(sql`${t.resolvedAt} is null`),
+    index("post_reports_reporter_idx").on(t.reporterUserId),
+    index("post_reports_resolved_by_idx").on(t.resolvedBy),
+  ],
+);
+export type PostReport = typeof postReports.$inferSelect;
+export type NewPostReport = typeof postReports.$inferInsert;
+
+/**
+ * 0027: a person's confirmation that they are 18 or older (BUILD §11.14 "18+ only"), asked once before their first
+ * network action or when a business they run goes LIVE. Their own statement, not identity verification.
+ */
+export const networkAttestations = pgTable("network_attestations", {
+  id: id(),
+  userId: uuid("user_id").notNull().unique().references(() => authUsers.id, { onDelete: "cascade" }),
+  adultConfirmedAt: tstz("adult_confirmed_at").notNull().defaultNow(),
+  ...timestamps(),
+});
+export type NetworkAttestation = typeof networkAttestations.$inferSelect;
 
 export const leaderboards = pgTable(
   "leaderboards",

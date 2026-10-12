@@ -4,12 +4,12 @@
  * heartbeat timeouts, Redis reader reconnects and graceful shutdown.
  */
 import { createLocalJWKSet, exportJWK, generateKeyPair } from "jose";
-import { MemoryRedis, publishSessionEvent, runOutboxRelay, writeEvent, type RedisArg, type SessionEvent } from "@foundmill/events";
+import { MemoryRedis, publishSessionEvent, publishUserSignal, runOutboxRelay, writeEvent, type RedisArg, type SessionEvent } from "@foundmill/events";
 import { FakeDb } from "@foundmill/events/testing/fake-db";
 import { EVENT_FIXTURES, FIXTURE_ENTITY_ID, fixtureId } from "@foundmill/events/testing/fixtures";
 import { afterEach, describe, expect, it } from "vitest";
 import { createTokenVerifier } from "../auth";
-import { businessChannel, CLOSE_CODES, sessionChannel } from "../protocol";
+import { businessChannel, CLOSE_CODES, sessionChannel, userChannel } from "../protocol";
 import { BUSINESS_A, BUSINESS_B, devToken, openSocket, SESSION_A, SESSION_B, sleep, startTestServer, USER_A, USER_B, waitFor, type TestServer, type TestSocket } from "./helpers";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -113,6 +113,21 @@ describe("membership", () => {
     expect(sock.events).toHaveLength(0);
     expect(t.metrics.get("subscriptions_denied_total")).toBe(2);
     expect(t.server.hub.keys()).toEqual([businessChannel(BUSINESS_B)]);
+  });
+
+  it("delivers a person's LIVE signals on u:<their id> to them and to nobody else (audit #65)", async () => {
+    const t = await boot();
+    const mine = await connect(t, USER_A);
+    const other = await connect(t, USER_B);
+    mine.sub(userChannel(USER_A));
+    other.sub(userChannel(USER_A));
+    await waitFor(() => other.errors.length === 1 && t.server.hub.readerCount === 1, 2_000, "one denial, one reader");
+    expect(other.errors.map((e) => [e.ch, e.code])).toEqual([[userChannel(USER_A), "forbidden"]]);
+    await publishUserSignal(t.redis, USER_A, { kind: "connection_requested" });
+    await waitFor(() => mine.events.length === 1, 2_000, "signal delivered");
+    expect(mine.events[0]).toMatchObject({ ch: userChannel(USER_A), e: { type: "live.signal", kind: "connection_requested" } });
+    await sleep(40);
+    expect(other.events).toHaveLength(0);
   });
 
   it("rejects malformed channels and caps subscriptions per socket", async () => {

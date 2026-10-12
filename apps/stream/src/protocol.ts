@@ -3,7 +3,8 @@
  * and the server share one definition.
  *
  * Client → server
- *   { "t": "sub",   "ch": "ev:<businessId>" | "as:<sessionId>", "focus"?: boolean }
+ *   { "t": "sub",   "ch": "ev:<businessId>" | "as:<sessionId>" | "u:<userId>", "focus"?: boolean }
+ *                                                          (`u:` is the signed-in person's own LIVE signals; nobody else's)
  *   { "t": "unsub", "ch": ... }
  *   { "t": "ping" }
  *   { "t": "focus", "ch": ..., "focused": boolean }        (extension: lets the server prefer dropping unfocused tiles
@@ -17,12 +18,13 @@
 
 export const BUSINESS_CHANNEL_PREFIX = "ev:";
 export const SESSION_CHANNEL_PREFIX = "as:";
+export const USER_CHANNEL_PREFIX = "u:";
 
-export type ChannelKind = "business" | "session";
+export type ChannelKind = "business" | "session" | "user";
 
 export interface ParsedChannel {
   kind: ChannelKind;
-  /** The business id (`ev:`) or the agent session id (`as:`). */
+  /** The business id (`ev:`), the agent session id (`as:`) or the person's user id (`u:`). */
   id: string;
   /** The Redis stream key, identical to the channel name by design (BUILD §8.2). */
   streamKey: string;
@@ -30,7 +32,7 @@ export interface ParsedChannel {
 
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Parse `ev:<uuid>` / `as:<uuid>`; null for anything else (unknown prefix, non-uuid id, stray whitespace). */
+/** Parse `ev:<uuid>` / `as:<uuid>` / `u:<uuid>`; null for anything else (unknown prefix, non-uuid id, stray whitespace). */
 export function parseChannel(channel: unknown): ParsedChannel | null {
   if (typeof channel !== "string") return null;
   if (channel.startsWith(BUSINESS_CHANNEL_PREFIX)) {
@@ -41,11 +43,16 @@ export function parseChannel(channel: unknown): ParsedChannel | null {
     const id = channel.slice(SESSION_CHANNEL_PREFIX.length);
     return ID_RE.test(id) ? { kind: "session", id, streamKey: channel } : null;
   }
+  if (channel.startsWith(USER_CHANNEL_PREFIX)) {
+    const id = channel.slice(USER_CHANNEL_PREFIX.length);
+    return ID_RE.test(id) ? { kind: "user", id, streamKey: channel } : null;
+  }
   return null;
 }
 
 export const businessChannel = (businessId: string): string => `${BUSINESS_CHANNEL_PREFIX}${businessId}`;
 export const sessionChannel = (sessionId: string): string => `${SESSION_CHANNEL_PREFIX}${sessionId}`;
+export const userChannel = (userId: string): string => `${USER_CHANNEL_PREFIX}${userId}`;
 
 export type ClientFrame =
   | { t: "sub"; ch: string; focus?: boolean }

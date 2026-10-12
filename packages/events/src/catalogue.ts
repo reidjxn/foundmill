@@ -891,8 +891,12 @@ const connectionRequested = declareEvent(
     message: z.string().max(1000).nullable().default(null),
   }),
   {
-    doc: "Another LIVE founder asked to connect. Shown in the Inbox Messages tab; accept/block are human actions.",
-    consumers: ["composer", "playbooks"],
+    doc:
+      "Another LIVE founder asked to connect. Written into each LIVE business the RECIPIENT speaks for (owner or admin), once per new request, " +
+      "never into the requester's; the api files it in that business's Inbox Messages tab as a human message itself, so the composer never narrates it. " +
+      "Accept, ignore and block are human actions on Network.",
+    consumers: ["playbooks", "stream"],
+    narratable: false,
   },
 );
 
@@ -910,8 +914,12 @@ const messageReceived = declareEvent(
     negotiation: z.boolean(),
   }),
   {
-    doc: "A human-to-human LIVE message arrived. Agents may draft a reply but never send it without the founder pressing Send.",
-    consumers: ["composer", "playbooks"],
+    doc:
+      "A human-to-human LIVE message arrived. Written into each LIVE business a recipient speaks for (not the sender's, not for a thread the recipient muted); " +
+      "the api files a human message in that Inbox's Messages tab itself (one unread note per thread), so the composer never narrates it. " +
+      "Agents may draft a reply but never send it without the founder pressing Send.",
+    consumers: ["playbooks", "stream"],
+    narratable: false,
   },
 );
 

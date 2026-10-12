@@ -168,6 +168,8 @@ export const NON_TENANT_TABLES = [
   "communities",
   "community_members",
   "posts",
+  "post_reports",
+  "network_attestations",
   "leaderboards",
   "leaderboard_entries",
   "negotiation_threads",

@@ -1,6 +1,7 @@
 /**
  * Per-subscription membership checks (docs/ARCHITECTURE.md §12): `ev:<businessId>` needs a membership of that
- * business; `as:<sessionId>` needs a membership of the business the session belongs to. The service role reaches
+ * business; `as:<sessionId>` needs a membership of the business the session belongs to; `u:<userId>` is the person's
+ * own channel, open to that signed-in user only (no database lookup). The service role reaches
  * the database only through repositories (`repos.memberships`, `repos.agents`), never raw queries.
  *
  * Decisions are cached per (user, channel) for a short time so a Training Ground with 16 tiles does not issue 16
@@ -20,12 +21,17 @@ export interface Authorizer {
 const deny = (code: StreamErrorCode, message: string): AuthorizationResult => ({ ok: false, code, message });
 const ALLOW: AuthorizationResult = { ok: true };
 
+/** `u:<userId>`: a person reads only their own signals. User ids are compared case-insensitively (they are uuids). */
+const ownChannel = (userId: string, channelUserId: string): AuthorizationResult =>
+  userId.toLowerCase() === channelUserId.toLowerCase() ? ALLOW : deny("forbidden", "this is another person's channel");
+
 /** Repo-backed authorizer used in production. */
 export function createRepoAuthorizer(db: Db, opts: { log?: { warn(o: unknown, m?: string): void } } = {}): Authorizer {
   return {
     async canSubscribe(userId, channel) {
       const parsed = parseChannel(channel);
       if (!parsed) return deny("invalid_channel", `unknown channel "${channel}"`);
+      if (parsed.kind === "user") return ownChannel(userId, parsed.id);
       try {
         if (parsed.kind === "business") {
           const membership = await repos.memberships.get(db, parsed.id, userId);
@@ -104,6 +110,7 @@ export function createMemoryAuthorizer(input: { members: Record<string, readonly
     async canSubscribe(userId, channel) {
       const parsed = parseChannel(channel);
       if (!parsed) return deny("invalid_channel", `unknown channel "${channel}"`);
+      if (parsed.kind === "user") return ownChannel(userId, parsed.id);
       const businesses = input.members[userId] ?? [];
       if (parsed.kind === "business") return businesses.includes(parsed.id) ? ALLOW : deny("forbidden", "not a member of this business");
       const businessId = input.sessions?.[parsed.id];

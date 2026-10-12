@@ -20,6 +20,7 @@ export * from "./skills";
 export * from "./voice";
 export * from "./nudges";
 export * from "./conversation";
+export * from "./community-screen";
 export * as prompts from "./prompts";
 export {
   type PromptTemplate,

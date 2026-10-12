@@ -6,7 +6,7 @@ import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import type { Db } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createCachedAuthorizer, createMemoryAuthorizer, createRepoAuthorizer, type Authorizer } from "../authorize";
-import { businessChannel, sessionChannel } from "../protocol";
+import { businessChannel, sessionChannel, userChannel } from "../protocol";
 import { BUSINESS_A, memberships, SESSION_A, SESSION_B, USER_A, USER_B } from "./helpers";
 
 let h: TestHarness;
@@ -47,6 +47,18 @@ describe("repo authorizer (PGlite)", () => {
     expect(await authorizer.canSubscribe(B.ownerId, sessionChannel(A.sessionId))).toMatchObject({ ok: false, code: "forbidden" });
     expect(await authorizer.canSubscribe(A.ownerId, sessionChannel(B.sessionId))).toMatchObject({ ok: false, code: "forbidden" });
     expect(await authorizer.canSubscribe(A.ownerId, sessionChannel("00000000-0000-4000-8000-000000000000"))).toMatchObject({ ok: false, code: "forbidden" });
+  });
+
+  it("opens u:<userId> to that person only, whatever businesses they or the others belong to (audit #65)", async () => {
+    const stranger = await h.createUser("no-business@stream.test");
+    expect(await authorizer.canSubscribe(A.ownerId, userChannel(A.ownerId))).toEqual({ ok: true });
+    // A person with no business at all still gets their own LIVE signals.
+    expect(await authorizer.canSubscribe(stranger, userChannel(stranger))).toEqual({ ok: true });
+    expect(await authorizer.canSubscribe(stranger, userChannel(stranger.toUpperCase()))).toEqual({ ok: true });
+    // Nobody reads another person's, not even a co-member of the same business.
+    expect(await authorizer.canSubscribe(A.adminId, userChannel(A.ownerId))).toMatchObject({ ok: false, code: "forbidden" });
+    expect(await authorizer.canSubscribe(B.ownerId, userChannel(A.ownerId))).toMatchObject({ ok: false, code: "forbidden" });
+    expect(await authorizer.canSubscribe(A.ownerId, "u:*")).toMatchObject({ ok: false, code: "invalid_channel" });
   });
 
   it("rejects channels that are not ev:/as: with a uuid", async () => {
@@ -122,6 +134,8 @@ describe("memory authorizer", () => {
     expect(await m.canSubscribe(USER_B, businessChannel(BUSINESS_A))).toMatchObject({ ok: false, code: "forbidden" });
     expect(await m.canSubscribe(USER_A, sessionChannel(SESSION_A))).toEqual({ ok: true });
     expect(await m.canSubscribe(USER_A, sessionChannel(SESSION_B))).toMatchObject({ ok: false, code: "forbidden" });
+    expect(await m.canSubscribe(USER_A, userChannel(USER_A))).toEqual({ ok: true });
+    expect(await m.canSubscribe(USER_B, userChannel(USER_A))).toMatchObject({ ok: false, code: "forbidden" });
     expect(await m.canSubscribe(USER_A, "nope")).toMatchObject({ ok: false, code: "invalid_channel" });
   });
 });

@@ -130,6 +130,16 @@ describe("event catalogue", () => {
     expect(bad({ visionReady: "yes" })).toThrow(ValidationError);
   });
 
+  it("connection.requested and message.received: delivered to the recipient as human messages by the api, never narrated (audit #65)", () => {
+    for (const type of ["connection.requested", "message.received"] as const) {
+      const decl = EVENTS[type];
+      expect(decl.narratable, type).toBe(false);
+      expect(decl.consumers, type).not.toContain("composer");
+      expect(decl.consumers, type).toContain("stream");
+    }
+    expect(() => parsePayload("message.received", { ...EVENT_FIXTURES["message.received"], preview: "x".repeat(281) })).toThrow(ValidationError);
+  });
+
   it("conversation.message_posted: a desk message for stream and metrics, never narrated (audit-conversation §4)", () => {
     const decl = EVENTS["conversation.message_posted"];
     expect(decl.narratable).toBe(false);

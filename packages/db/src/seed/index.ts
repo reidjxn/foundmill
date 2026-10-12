@@ -116,6 +116,8 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
         riskAppetite: "moderate",
       });
     }
+    // The demo founders are adults: the network asks once before a first connection, message or post (0027).
+    await repos.social.confirmAdult(db, o.userId);
   }
 
   const northwind = await seedNorthwind(ctx);

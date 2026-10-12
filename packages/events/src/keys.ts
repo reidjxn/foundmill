@@ -3,17 +3,20 @@
  *
  * - `ev:{businessId}`   platform events for one business (relay → consumers, apps/stream fan-out)
  * - `as:{sessionId}`    agent session events (orchestrator → Training Ground tiles, replay)
+ * - `u:{userId}`        signals for one person (LIVE: a request, a message or an invitation reached them); content-free
  * - `dlq:{group}`       dead letters for one consumer group (entries that failed `maxRetries` times)
  * - `dlq:outbox-relay`  outbox rows the relay could not publish as valid platform events
  */
 export const BUSINESS_STREAM_PREFIX = "ev:";
 export const SESSION_STREAM_PREFIX = "as:";
+export const USER_STREAM_PREFIX = "u:";
 export const DEAD_LETTER_PREFIX = "dlq:";
 
 export const businessStreamKey = (businessId: string): string =>
   `${BUSINESS_STREAM_PREFIX}${businessId}`;
 export const sessionStreamKey = (sessionId: string): string =>
   `${SESSION_STREAM_PREFIX}${sessionId}`;
+export const userStreamKey = (userId: string): string => `${USER_STREAM_PREFIX}${userId}`;
 export const deadLetterKey = (group: string): string => `${DEAD_LETTER_PREFIX}${group}`;
 export const RELAY_DEAD_LETTER_KEY = deadLetterKey("outbox-relay");
 

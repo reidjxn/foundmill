@@ -155,6 +155,13 @@
       "when": 1791979920000,
       "tag": "0022_account_preferences",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792411920000,
+      "tag": "0027_live_social_delivery",
+      "breakpoints": true
     }
   ]
 }
