@@ -174,6 +174,11 @@ describe("status strip (AC-11.3.6: numbers come from live queries, never the not
     expect(tiles[2]).toMatchObject({ label: "Customers this week", value: 1 });
     expect(tiles[3]).toMatchObject({ label: "MRR", value: { amountMinor: 42_000, currency: "EUR" }, caption: "2026-09" });
   });
+  it("revenue never counts a raise: the latest month's operating inflows, not every inflow (BUILD §11.8)", () => {
+    const raised = { ...finance, revenue: { monthly: [...finance.revenue.monthly.slice(0, 1), { month: "2026-09", inflowMinor: 40_042_000, netMinor: 40_000_000, operatingInflowMinor: 42_000 }] } };
+    const [revenue] = statusStripTiles([{ metric: "revenue", source: "Stripe" }], { finance: raised, conversions, now });
+    expect(revenue).toMatchObject({ label: "Revenue", value: { amountMinor: 42_000, currency: "EUR" } });
+  });
   it("unknown metrics render honestly empty; missing sources give null values", () => {
     const tiles = statusStripTiles([{ metric: "made_up", source: "x" }, { metric: "cash" }], { finance: null, conversions: null, now });
     expect(tiles[0]).toMatchObject({ label: "Made up", value: null, provenance: { source: "x" } });

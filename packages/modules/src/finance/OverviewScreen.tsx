@@ -6,7 +6,7 @@
  */
 import { useMemo } from "react";
 import { AlertTriangle, Inbox, Landmark } from "lucide-react";
-import { BarChart, Button, EmptyState, ErrorState, LineChart, MetricTile, Panel, ProvenanceChip, StatusPill, useDateFormat, type LineSeries, type MetricTileProps, type MetricProvenance } from "@foundmill/dugout";
+import { BarChart, Button, EmptyState, ErrorState, LineChart, MetricTile, Panel, ProvenanceChip, StatusPill, formatNumber, useDateFormat, type LineSeries, type MetricTileProps, type MetricProvenance } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
@@ -18,6 +18,7 @@ import {
   monthStart,
   monthlySeries,
   operatingBurn,
+  operatingInflow,
   operatingOutflow,
   paybackMonths,
   pnlTotals,
@@ -71,8 +72,9 @@ export function overviewTiles(args: { overview: FinanceOverview; pnl: PnlRespons
   const gm = totals?.grossMarginPct ?? null;
   const blended = channels?.blended;
   const cpa = acquisitionCost(blended ? { spendMinor: blended.spendMinor, customers: blended.customers } : null);
-  // Payback divides by every paying customer in the revenue window, never by the customers newly acquired (those are
-  // acquisition cost's denominator): MRR comes from all of them, so gross profit per customer must too.
+  // Payback divides by the whole paying base of the revenue window (everyone who had paid by its end and had not
+  // churned), never by the customers newly acquired (acquisition cost's denominator): MRR comes from all of them, so
+  // gross profit per customer must too.
   const payingCustomers = overview.payingCustomers?.count ?? 0;
   const payback = paybackMonths(cpa, mrr, gm, payingCustomers);
   const fcRunway = forecastRunway(overview, now);
@@ -93,12 +95,12 @@ export function overviewTiles(args: { overview: FinanceOverview; pnl: PnlRespons
     { key: "grossBurn", label: METRIC_DEFINITIONS.grossBurn.label, value: { amountMinor: overview.burn.grossBurnMinor, currency }, estimate: "estimate", spark: monthlySeries(monthly, months, operatingOutflow), provenance: prov("grossBurn", "Bank transactions, operating outflows", "finance.overview.burn.grossBurnMinor"), caption: `per month, ${overview.burn.months}-month average` },
     { key: "netBurn", label: METRIC_DEFINITIONS.netBurn.label, value: { amountMinor: overview.burn.netBurnMinor, currency }, estimate: "estimate", delta: undefined, spark: monthlySeries(monthly, months, operatingBurn), provenance: prov("netBurn", "Bank transactions, financing and transfers excluded", "finance.overview.burn.netBurnMinor"), caption: overview.burn.netBurnMinor <= 0 ? "Cash-flow positive" : `per month, ${overview.burn.months}-month average` },
     { key: "runway", label: METRIC_DEFINITIONS.runway.label, value: overview.runway.months === null ? (runwayWords(overview)?.value ?? "—") : `${overview.runway.months}`, unit: overview.runway.months === null ? undefined : "mo", estimate: overview.runway.months === null ? undefined : "estimate", provenance: prov("runway", "Cash ÷ net burn", "finance.overview.runway", fcRunway !== null ? `Base forecast: ${fmtMonths(fcRunway)}.` : undefined), caption: fcRunway !== null ? `Forecast: ${fmtMonths(fcRunway)}` : overview.runway.months === null ? (runwayWords(overview)?.caption ?? "Appears once net burn is measured") : runwayWord(overview.runway.months) },
-    { key: "revenue", label: METRIC_DEFINITIONS.revenue.label, value: { amountMinor: revenue, currency }, estimate: pnl?.source === "ledger" ? undefined : "estimate", spark: monthlySeries(monthly, months, (m) => m.inflowMinor), provenance: prov("revenue", pnlSource, "finance.pnl.categories[revenue]"), caption: `trailing ${TRAILING} months` },
+    { key: "revenue", label: METRIC_DEFINITIONS.revenue.label, value: { amountMinor: revenue, currency }, estimate: pnl?.source === "ledger" ? undefined : "estimate", spark: monthlySeries(monthly, months, operatingInflow), provenance: prov("revenue", pnlSource, "finance.pnl.categories[revenue]"), caption: `trailing ${TRAILING} months` },
     { key: "mrr", label: METRIC_DEFINITIONS.mrr.label, value: { amountMinor: mrr, currency }, estimate: "estimate", provenance: prov("mrr", pnlSource, `revenue ÷ ${TRAILING}`), caption: "per month" },
     { key: "arr", label: METRIC_DEFINITIONS.arr.label, value: { amountMinor: mrr * 12, currency }, estimate: "estimate", provenance: prov("arr", pnlSource, "MRR × 12"), caption: "annualized" },
     { key: "grossMargin", label: METRIC_DEFINITIONS.grossMargin.label, value: gm === null ? "—" : gm / 100, format: "percent", estimate: gm === null ? undefined : "estimate", provenance: prov("grossMargin", pnlSource, "(revenue − cost of sales) ÷ revenue"), caption: gm === null ? "Appears with the first revenue" : `trailing ${TRAILING} months` },
     { key: "acquisitionCost", label: METRIC_DEFINITIONS.acquisitionCost.label, value: cpa === null ? "—" : { amountMinor: cpa, currency }, estimate: cpa === null ? undefined : "estimate", provenance: prov("acquisitionCost", "Distribution board, channel spend and customers", "spend ÷ new customers", perChannelText), caption: blended ? `${blended.customers} customer${blended.customers === 1 ? "" : "s"}, ${blended.days} days` : "Appears once a channel spends" },
-    { key: "payback", label: METRIC_DEFINITIONS.payback.label, value: payback === null ? "—" : `${payback}`, unit: payback === null ? undefined : "mo", estimate: payback === null ? undefined : "estimate", provenance: prov("payback", `Acquisition cost, and gross profit per paying customer over the trailing ${TRAILING} months`, "CPA ÷ (MRR × gross margin ÷ paying customers)"), caption: payback === null ? "Appears with acquisition cost, margin and paying customers" : `${payingCustomers} paying customer${payingCustomers === 1 ? "" : "s"}, ${TRAILING} months` },
+    { key: "payback", label: METRIC_DEFINITIONS.payback.label, value: payback === null ? "—" : `${payback}`, unit: payback === null ? undefined : "mo", estimate: payback === null ? undefined : "estimate", provenance: prov("payback", "Acquisition cost, and gross profit per paying customer (every customer who had paid by the end of the revenue window and had not churned)", "CPA ÷ (MRR × gross margin ÷ paying customers)"), caption: payback === null ? "Appears with acquisition cost, margin and paying customers" : `${formatNumber(payingCustomers)} paying customer${payingCustomers === 1 ? "" : "s"}` },
   ];
   return tiles;
 }

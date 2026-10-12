@@ -30,7 +30,7 @@ export const overview: FinanceOverview = {
   runway: { months: 7.5, label: "Estimate", warnings: [12, 9], blocksContinue: false },
   revenue: { monthly, basis: "cash", label: "Management P&L, unaudited, cash basis" },
   customers30d: 12,
-  /** Every customer who paid in Jul–Sep (the payback base), not the 24 the channels acquired in the window. */
+  /** The paying base at the end of Jul–Sep (the payback denominator), not the 24 customers the channels acquired. */
   payingCustomers: { count: 120, months: 3, from: "2026-07-01T00:00:00.000Z", to: "2026-10-01T00:00:00.000Z" },
   forecasts: {
     base: {

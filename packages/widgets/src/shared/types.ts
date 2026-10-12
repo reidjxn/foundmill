@@ -101,7 +101,7 @@ export interface FinanceOverview {
   /** Monthly totals; the operating fields leave financing and transfers out (net and gross burn read them). */
   revenue: { monthly: { month: string; inflowMinor: number; outflowMinor: number; netMinor: number; count: number; operatingInflowMinor?: number; operatingOutflowMinor?: number }[]; basis: "cash" | string; label: string };
   customers30d: number;
-  /** Distinct paying customers over the trailing full months revenue covers (the payback denominator). */
+  /** The paying customer base of the trailing full months revenue covers: paid by its end, not churned before (the payback denominator). */
   payingCustomers?: { count: number; months: number; from?: Iso; to?: Iso };
   forecasts: Partial<Record<string, ForecastRecord | null>>;
 }

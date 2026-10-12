@@ -8,7 +8,7 @@
  * bypasses RLS. `refreshDaily` is for the metrics consumer and the nightly schedule.
  */
 import { CHANNEL_KEYS, CONVERSION_KINDS, MATCHDAY_LEVELS, MILESTONE_KINDS, ValidationError, VISIBILITY, type ConversionKind } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   CONSENT_STATES, conversions, entities, journeyDaily, journeyDailyMv, journeys, milestones, touches, visitors,
@@ -280,16 +280,23 @@ export const journeysRepo = {
   },
 
   /**
-   * Paying customers in a range: distinct customer entities with at least one payment (BUILD §11.8 payback divides
-   * gross profit by these, not by the customers newly acquired). A payment with no linked entity counts as its own
-   * customer, since nothing says it repeats another.
+   * The paying customer base over a revenue window [from, to) (BUILD §11.8: payback divides the window's monthly gross
+   * profit by it): distinct customers who had paid by the window's end and had not churned before it began. A payment
+   * conversion is a customer's win (the first payment; renewals are not always recorded), so counting only the payers
+   * inside the window would count the newly acquired customers again. Churn comes from the CRM: a `customer` role that
+   * ended before the window, or is marked `churned` and last changed before it, with no open customer role since. A
+   * payment with no linked customer counts once, and only inside the window (nothing says whether it repeats).
    */
   async countPayingCustomers(db: Executor, businessId: string, range: DateRange = {}): Promise<number> {
     const r = parseInput(DateRange, range, "date range");
+    const to = r.to ?? new Date();
+    const from = r.from ?? to;
+    const role = (cond: SQL) => sql`exists (select 1 from entity_roles r where r.business_id = ${conversions.businessId} and r.entity_id = ${conversions.entityId} and r.role = 'customer' and ${cond})`;
+    const churnedBefore = sql`(${role(sql`((r.ended_at is not null and r.ended_at < ${from.toISOString()}) or (r.ended_at is null and r.stage = 'churned' and r.updated_at < ${from.toISOString()}))`)} and not ${role(sql`r.ended_at is null and r.stage is distinct from 'churned'`)})`;
     const rows = await db
-      .select({ n: sql<number>`count(distinct coalesce(${conversions.entityId}, ${conversions.id}))::int` })
+      .select({ n: sql<number>`count(distinct case when ${conversions.entityId} is not null then ${conversions.entityId}::text when ${conversions.occurredAt} >= ${from.toISOString()} then ${conversions.id}::text end)::int` })
       .from(conversions)
-      .where(and(eq(conversions.businessId, businessId), eq(conversions.kind, "payment"), timeRange(conversions.occurredAt, r)));
+      .where(and(eq(conversions.businessId, businessId), eq(conversions.kind, "payment"), timeRange(conversions.occurredAt, { to }), sql`(${conversions.entityId} is null or not ${churnedBefore})`));
     return Number(rows[0]?.n ?? 0);
   },
 

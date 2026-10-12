@@ -34,11 +34,19 @@ describe("finance.overview (BUILD §11.8): burn without financing, payback over 
     expect(overview.runway.blocksContinue).toBe(true);
   });
 
-  it("payingCustomers counts distinct paying entities over the trailing full months, beside the 30-day new count", async () => {
+  it("payingCustomers is the whole paying base at the end of the window, not the customers newly won in it", async () => {
     const { businessId, entityId, entity2Id } = hz.A;
+    // Won in the window, paying every month: one customer.
     for (const occurredAt of [inMonth(3, 2), inMonth(2, 2), inMonth(1, 2)]) await repos.journeys.recordConversion(hz.db, businessId, { entityId, kind: "payment", amountMinor: 4900, occurredAt });
-    await repos.journeys.recordConversion(hz.db, businessId, { entityId: entity2Id, kind: "payment", amountMinor: 4900, occurredAt: inMonth(1, 15) });
-    // Outside the window: four months ago.
+    // Won five months ago and still a customer: part of the base although it records no new conversion in the window.
+    await repos.journeys.recordConversion(hz.db, businessId, { entityId: entity2Id, kind: "payment", amountMinor: 4900, occurredAt: inMonth(5, 15) });
+    await repos.entities.addRole(hz.db, businessId, entity2Id, { role: "customer", stage: "customer", startedAt: inMonth(5, 15) });
+    // Won six months ago, churned before the window: out.
+    const gone = await repos.entities.create(hz.db, businessId, { kind: "person", displayName: "Gone customer" });
+    await repos.journeys.recordConversion(hz.db, businessId, { entityId: gone.id, kind: "payment", amountMinor: 4900, occurredAt: inMonth(6, 10) });
+    const role = await repos.entities.addRole(hz.db, businessId, gone.id, { role: "customer", stage: "churned", startedAt: inMonth(6, 10) });
+    await repos.entities.endRole(hz.db, businessId, role.id, inMonth(5, 1));
+    // A payment with no linked customer before the window: cannot be told from a repeat, so it stays out.
     await repos.journeys.recordConversion(hz.db, businessId, { entityId: null, kind: "payment", amountMinor: 4900, occurredAt: inMonth(4, 15) });
     const overview = await hz.caller({ userId: hz.A.ownerId }).finance.overview({ businessId });
     expect(overview.payingCustomers.count).toBe(2);

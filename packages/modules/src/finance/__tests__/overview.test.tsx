@@ -22,6 +22,8 @@ describe("overviewTiles", () => {
     expect(by.runway!.value).toBe("7.5");
     expect(by.runway!.caption).toBe("Forecast: 14.2 mo");
     expect(by.revenue!.value).toEqual({ amountMinor: 6_000_000, currency: "EUR" });
+    // Nor is the SAFE revenue: August's bar is the €20,000 of operating inflows, not €120,000.
+    expect(by.revenue!.spark).toEqual([1_200_000, 1_500_000, 1_700_000, 1_800_000, 2_000_000, 2_200_000]);
     expect(by.mrr!.value).toEqual({ amountMinor: 2_000_000, currency: "EUR" });
     expect(by.arr!.value).toEqual({ amountMinor: 24_000_000, currency: "EUR" });
     expect(by.grossMargin!.value).toBe(0.875);
@@ -30,7 +32,7 @@ describe("overviewTiles", () => {
     // CPA €500 ÷ (MRR €20,000 × 87.5 % ÷ 120 paying customers) = 3.4 months. Dividing by the 24 customers the channels
     // acquired instead (the old denominator) read 0.7 months, five times too short.
     expect(by.payback!.value).toBe("3.4");
-    expect(by.payback!.caption).toBe("120 paying customers, 3 months");
+    expect(by.payback!.caption).toBe("120 paying customers");
     const unknownBase = Object.fromEntries(overviewTiles({ overview: { ...overview, payingCustomers: undefined }, pnl, channels, currency: "EUR", now: NOW }).map((t) => [t.key, t]));
     expect(unknownBase.payback!.value).toBe("—");
     for (const t of tiles) expect(t.provenance?.note).toBeTruthy(); // every tile carries its hover definition

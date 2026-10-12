@@ -5,6 +5,7 @@
  */
 import type { DecisionAnswer, DecisionOption, MetricTileProps, TabItem } from "@foundmill/dugout";
 import type { InboxItemType, InboxState, Money } from "@foundmill/shared";
+import { monthRevenueMinor } from "@foundmill/widgets/shared/cash";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { runwayWords } from "@foundmill/widgets/shared/runway";
 import { NOTE_TYPE_TAGS, noteRowTag, type NoteTag as SharedNoteTag, type NoteTagIcon, type NoteTagTone } from "@foundmill/widgets/shared/note-tags";
@@ -245,7 +246,7 @@ export interface MetricSources {
     cash: { amountMinor: number; currency: string; asOf?: Date | string | null };
     burn: { netBurnMinor: number; grossBurnMinor: number };
     runway: { months: number | null };
-    revenue: { monthly: readonly { month: string; inflowMinor: number; netMinor: number }[] };
+    revenue: { monthly: readonly { month: string; inflowMinor: number; netMinor: number; operatingInflowMinor?: number }[] };
     customers30d: number;
   } | null;
   /** Conversions in the ribbon window (last 30 days). */
@@ -263,7 +264,7 @@ function countKind(conversions: MetricSources["conversions"], kind: string, days
   return conversions.filter((c) => c.kind === kind && Date.parse(String(c.occurredAt)) >= since).length;
 }
 
-function latestMonthly(f: NonNullable<MetricSources["finance"]>): { month: string; inflowMinor: number; netMinor: number } | undefined {
+function latestMonthly(f: NonNullable<MetricSources["finance"]>): NonNullable<MetricSources["finance"]>["revenue"]["monthly"][number] | undefined {
   return [...f.revenue.monthly].sort((a, b) => (a.month < b.month ? 1 : -1))[0];
 }
 
@@ -386,7 +387,7 @@ export function statusStripTiles(strip: unknown, sources: MetricSources): Metric
         case "mrr":
         case "revenue": {
           const latest = f ? latestMonthly(f) : undefined;
-          return { label: key === "mrr" ? "MRR" : "Revenue", value: latest ? { amountMinor: latest.inflowMinor, currency } : null, estimate: key === "mrr" ? "estimate" : undefined, caption: latest ? latest.month : undefined, provenance: provenance(m, "Cash basis, latest month") };
+          return { label: key === "mrr" ? "MRR" : "Revenue", value: latest ? { amountMinor: monthRevenueMinor(latest), currency } : null, estimate: key === "mrr" ? "estimate" : undefined, caption: latest ? latest.month : undefined, provenance: provenance(m, "Cash basis, latest month") };
         }
         case "customers_week":
           return { label: "Customers this week", value: countKind(sources.conversions, "payment", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days") };

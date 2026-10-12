@@ -11,11 +11,12 @@ import { previewLine } from "../widgets/inbox-preview";
 import { forecastCone, journeyHref, rippleFor, roadmapFlags } from "../widgets/journey-ribbon";
 import { pickBoard, windowRows } from "../widgets/league-table";
 import { describeEvent } from "../widgets/live-feed";
-import { customersPerWeek } from "../widgets/revenue-customers";
+import { customersPerWeek, revenueBars } from "../widgets/revenue-customers";
 import { groupByHorizon, roadmapStatus, taskProgress } from "../widgets/roadmap-timeline";
 import { sessionsToPulseCells } from "../widgets/squad-pulse";
 import { boardWords, runwayTile, squadHealth, statusTiles } from "../widgets/status-strip";
 import { milestoneKey, trophyCards } from "../widgets/trophy-cabinet";
+import { monthRevenueMinor } from "../shared/cash";
 import { routes } from "../shared/routes";
 import { BID, TODAY, channelMetrics, channels, departments, finance, leaderboardEntries, leaderboards, ribbon, roadmap, sessions, team } from "./fixtures";
 
@@ -93,6 +94,17 @@ describe("status strip", () => {
     expect(live[5]).toMatchObject({ label: "Leaderboard position", value: "#8" });
     expect(squadHealth(departments)).toBeCloseTo(5 / 6, 5);
     expect(squadHealth([])).toBeNull();
+  });
+
+  it("never counts a raise as revenue: Revenue this month and its spark read operating inflows (BUILD §11.8)", () => {
+    const monthly = finance.revenue.monthly.map((m, i, all) => (i === all.length - 1 ? { ...m, inflowMinor: m.inflowMinor + 40_000_000, operatingInflowMinor: m.inflowMinor } : m));
+    const withSafe = { ...finance, revenue: { ...finance.revenue, monthly } };
+    const base = { finance: withSafe, ribbon: ribbon(14), departments, today: TODAY, currency: "EUR", loading: { finance: false, ribbon: false, departments: false, positions: false }, open: () => {}, live: false };
+    const revenue = statusTiles(base)[2]!;
+    expect(revenue.value).toEqual({ amountMinor: finance.revenue.monthly.at(-1)!.inflowMinor, currency: "EUR" });
+    expect(revenue.spark).toEqual(finance.revenue.monthly.map((m) => m.inflowMinor));
+    expect(revenueBars(withSafe, 6).map((b) => b.value)).toEqual(finance.revenue.monthly.map((m) => m.inflowMinor / 100));
+    expect(monthRevenueMinor({ inflowMinor: 500 })).toBe(500); // older responses without the split
   });
 
   it("speaks plain words: a board kind is never a stored key, a missing runway says why", () => {

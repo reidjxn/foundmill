@@ -47,8 +47,9 @@ export const financeRouter = router({
         revenue: { monthly, basis: "cash" as const, label: "Management P&L, unaudited, cash basis" },
         customers30d: conversions.payment ?? 0,
         /**
-         * Distinct paying customers over the same trailing full months as revenue and MRR: the payback tile divides
-         * gross profit by these (BUILD §11.8), never by the customers newly acquired (those feed acquisition cost).
+         * The paying customer base of the same trailing full months as revenue and MRR (everyone who had paid by the
+         * window's end and had not churned before it began): the payback tile divides gross profit by it (BUILD §11.8),
+         * never by the customers newly acquired (those feed acquisition cost).
          */
         payingCustomers: { count: payingCustomers, months: TRAILING_MONTHS, from: window.from.toISOString(), to: window.to.toISOString() },
         forecasts: Object.fromEntries(Object.entries(forecasts).map(([k, v]) => [k, v ? { ...v, label: "Forecast" as const } : null])),

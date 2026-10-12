@@ -295,9 +295,14 @@ export function operatingOutflow(m: MonthlyTotal): number {
   return m.operatingOutflowMinor ?? m.outflowMinor;
 }
 
+/** A month's operating inflows (cash-basis revenue): a raise, a loan or a transfer in is not income. */
+export function operatingInflow(m: MonthlyTotal): number {
+  return m.operatingInflowMinor ?? m.inflowMinor;
+}
+
 /** A month's net burn (operating outflows − operating inflows); positive means burning. */
 export function operatingBurn(m: MonthlyTotal): number {
-  return operatingOutflow(m) - (m.operatingInflowMinor ?? m.inflowMinor);
+  return operatingOutflow(m) - operatingInflow(m);
 }
 
 export function monthlySeries(monthly: readonly MonthlyTotal[], months: readonly string[], pick: (m: MonthlyTotal) => number): number[] {

@@ -9,6 +9,7 @@ import { TrendingUp } from "lucide-react";
 import { BarChart, LineChart, MetricTile, formatNumber, type BarDatum, type LineSeries } from "@foundmill/dugout";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
+import { monthRevenueMinor } from "../shared/cash";
 import { WidgetFrame } from "../shared/frame";
 import { routes } from "../shared/routes";
 import { addDays, dayKey, monthKey, weekKey } from "../shared/time";
@@ -21,7 +22,7 @@ export const RevenueCustomersSettings = z.object({
 export type RevenueCustomersSettings = z.infer<typeof RevenueCustomersSettings>;
 
 export function revenueBars(finance: FinanceOverview | undefined, months: number): BarDatum[] {
-  return (finance?.revenue.monthly ?? []).slice(-months).map((m) => ({ label: m.month.slice(5), value: m.inflowMinor / 100 }));
+  return (finance?.revenue.monthly ?? []).slice(-months).map((m) => ({ label: m.month.slice(5), value: monthRevenueMinor(m) / 100 }));
 }
 
 /** Customers (payments) per ISO week from the business-wide daily rows, oldest first. */
@@ -59,7 +60,8 @@ function RevenueCustomersWidget({ settings }: WidgetProps<RevenueCustomersSettin
     ];
   }, [weeks]);
   const cur = finance.data?.cash.currency ?? currency;
-  const thisMonth = finance.data?.revenue.monthly.find((m) => m.month === monthKey(today))?.inflowMinor ?? null;
+  const thisMonthRow = finance.data?.revenue.monthly.find((m) => m.month === monthKey(today));
+  const thisMonth = thisMonthRow ? monthRevenueMinor(thisMonthRow) : null;
   const last30 = (ribbon.data?.rows ?? []).filter((r) => r.departmentId === null && r.day >= addDays(today, -29)).reduce((s, r) => s + r.payments, 0);
   const queries = settings.view === "revenue" ? [finance] : settings.view === "customers" ? [ribbon] : [finance, ribbon];
   const hasData = bars.some((b) => b.value > 0) || weeks.some((w) => w.customers > 0 || w.signups > 0);
