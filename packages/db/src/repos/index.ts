@@ -83,7 +83,7 @@ export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
 
 export type { Executor, Page, PageInput, DateRange, DayRange } from "./_shared";
-export { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, encodeCursor, decodeCursor } from "./_shared";
+export { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, encodeCursor, decodeCursor, sqlState } from "./_shared";
 
 export * from "./agents";
 export * from "./approvals";

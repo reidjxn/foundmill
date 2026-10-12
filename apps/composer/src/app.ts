@@ -61,7 +61,7 @@ export function createApp(service: ComposerService, options: AppOptions = {}) {
   app.post("/v1/narrate", async (c) => {
     const { businessId, eventIds } = await body(c, NarrateBody);
     const r = await service.narrate(businessId, eventIds);
-    return c.json({ inboxItemId: r.item.id, item: r.item, eventIds: r.eventIds, reasked: r.reasked, entityIds: r.entityIds, draftEntityIds: r.draftEntityIds, cost: { amountMinor: r.costMinor, label: "Estimate" }, model: r.model, durationMs: r.durationMs });
+    return c.json({ inboxItemId: r.item.id, item: r.item, eventIds: r.eventIds, reasked: r.reasked, replayed: r.replayed, entityIds: r.entityIds, draftEntityIds: r.draftEntityIds, cost: { amountMinor: r.costMinor, label: "Estimate" }, model: r.model, durationMs: r.durationMs });
   });
 
   app.post("/v1/refresh", async (c) => {

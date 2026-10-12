@@ -13,7 +13,7 @@ import { getEventDeclaration, isEventType } from "@foundmill/events";
 import { writeEventRow } from "./events";
 import { buildManifest, checkComposerText, type ManifestEntityInput } from "@foundmill/entity-linker";
 import { ComposerOutput, type ModelClient } from "@foundmill/models";
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, LIMITS } from "@foundmill/config";
 import { HOUSE_STYLE } from "@foundmill/agents";
 import { AppError, type EntityKind } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
@@ -43,6 +43,10 @@ export interface CreateComposerClientOptions {
   models: ModelClient;
   log: ApiLogger;
   fetch?: typeof globalThis.fetch;
+  /**
+   * How long refresh and narrate wait for the composer (default `LIMITS.composerClientTimeoutMs`, env
+   * COMPOSER_TIMEOUT_MS). A cold Refresh is a live Opus call; the composer abandons a note at its own, shorter deadline.
+   */
   timeoutMs?: number;
   /** Run the composer logic in-process when the service is unreachable (development/test). */
   allowFallback: boolean;
@@ -54,25 +58,51 @@ export class ComposerUnavailableError extends AppError {
   }
 }
 
+/**
+ * The composer did not answer within the client's wait. It may still be writing, so this is not "unavailable" (audit
+ * CML-04): the note appears in the Inbox if it finishes. With the default waits it cannot happen while a note is being
+ * written, since the composer gives up on a note (and answers 504 `composer_timeout`) before the client does.
+ */
+export class ComposerTimeoutError extends AppError {
+  constructor(timeoutMs: number) {
+    super("composer_timeout", `The composer did not answer within ${Math.round(timeoutMs / 1000)} seconds. If a note was being written, it will appear in your Inbox.`, 504);
+  }
+}
+
+/** Why a call to the composer service failed: no answer at all, no answer in time, or an answer that was an error. */
+type CallFailure = { kind: "unreachable"; message: string } | { kind: "timeout" } | { kind: "answered"; error: AppError };
+
+class ComposerCallError extends Error {
+  constructor(readonly failure: CallFailure) {
+    super(failure.kind === "unreachable" ? failure.message : failure.kind === "timeout" ? "timed out" : failure.error.message);
+  }
+}
+
 export function createComposerClient(opts: CreateComposerClientOptions): ComposerClient {
   const fetchImpl = opts.fetch ?? globalThis.fetch;
-  const timeoutMs = opts.timeoutMs ?? 5_000;
+  const timeoutMs = opts.timeoutMs ?? LIMITS.composerClientTimeoutMs;
 
   const post = async (path: string, body: Record<string, unknown>): Promise<Record<string, unknown>> => {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), timeoutMs);
+    let res: Response;
     try {
-      const res = await fetchImpl(`${opts.url.replace(/\/$/, "")}${path}`, {
+      res = await fetchImpl(`${opts.url.replace(/\/$/, "")}${path}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
-      if (!res.ok) throw new Error(`composer ${path} answered ${res.status}`);
-      return (await res.json()) as Record<string, unknown>;
+      if (res.ok) return (await res.json()) as Record<string, unknown>;
+    } catch (err) {
+      throw new ComposerCallError(controller.signal.aborted ? { kind: "timeout" } : { kind: "unreachable", message: (err as Error).message });
     } finally {
       clearTimeout(t);
     }
+    // The composer answered with an error (`{ error, message }`): its own words and status, not "unavailable".
+    const json = (await res.json().catch(() => null)) as { error?: unknown; message?: unknown; details?: unknown } | null;
+    if (typeof json?.error === "string" && typeof json.message === "string") throw new ComposerCallError({ kind: "answered", error: new AppError(json.error, json.message, res.status, json.details ?? undefined) });
+    throw new ComposerCallError({ kind: "unreachable", message: `composer ${path} answered ${res.status}` });
   };
 
   const itemFromResponse = async (businessId: string, json: Record<string, unknown>): Promise<InboxItem> => {
@@ -91,8 +121,12 @@ export function createComposerClient(opts: CreateComposerClientOptions): Compose
     try {
       return await viaService(path, body, businessId);
     } catch (err) {
-      if (!opts.allowFallback) throw new ComposerUnavailableError((err as Error).message);
-      opts.log.debug({ err: (err as Error).message, path }, "composer unreachable; composing in-process");
+      const failure: CallFailure = err instanceof ComposerCallError ? err.failure : { kind: "unreachable", message: (err as Error).message };
+      // Never compose a second note in-process while the service may still be writing one, nor over its answer.
+      if (failure.kind === "timeout") throw new ComposerTimeoutError(timeoutMs);
+      if (failure.kind === "answered" && (failure.error.status < 500 || !opts.allowFallback)) throw failure.error;
+      if (!opts.allowFallback) throw new ComposerUnavailableError(failure.kind === "unreachable" ? failure.message : failure.error.message);
+      opts.log.debug({ err: failure.kind === "unreachable" ? failure.message : failure.error.message, path }, "composer unreachable; composing in-process");
       const composed = await local();
       return { item: composed.item, source: "local", slot: composed.slot };
     }

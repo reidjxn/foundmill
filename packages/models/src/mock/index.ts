@@ -186,7 +186,7 @@ export class MockModelClient implements ModelClient {
       modelId: resolution.modelId,
       modelKey: resolution.modelKey,
       warning: resolution.warning,
-      maxTokens: req.maxTokens ?? 4096,
+      maxTokens: req.maxTokens ?? resolution.maxTokens,
       logger: this.opts.logger,
       streamCall: (args) => this.streamCall(req, args),
       complete: (r) => this.complete(r),

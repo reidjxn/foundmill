@@ -3,10 +3,14 @@
  * fabricated event, priority event → insight → decision, the 3-candidate buffer, invalidation on source change,
  * the 3 s debounce and p95 < 400 ms warm (AC-11.3.7).
  */
+import { createBusinessFixture } from "@foundmill/db/__tests__/rls/fixtures";
 import { repos } from "@foundmill/db";
 import { validateMarkup } from "@foundmill/entity-linker";
+import { MOCK_ROUTES, createModelClient, type MockGenerator } from "@foundmill/models";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { countInbox, countSourceEvents, createComposerHarness, p95, unnarratedIds, type ComposerHarness } from "./harness";
+import { ComposeTimeoutError } from "../compose";
+import { createComposerService } from "../service";
+import { countInbox, countSourceEvents, createComposerHarness, p95, servedKeys, silentLog, unnarratedIds, type ComposerHarness } from "./harness";
 
 let hz: ComposerHarness;
 beforeAll(async () => {
@@ -168,6 +172,107 @@ describe("debounce (3 s per business)", () => {
     expect(new Set([a.item.id, b.item.id, c.item.id]).size).toBe(1);
     await service.drain(hz.A.businessId);
     expect(await countInbox(hz.db, hz.A.businessId)).toBe(before + 1);
+  });
+});
+
+describe("served candidates stay served (audit CML-01)", () => {
+  const day = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+
+  it("an unchanged insight is written and served once; later presses fall through to new decisions", async () => {
+    const C = await createBusinessFixture(hz.h, "refresh-insight-once");
+    let insightComposes = 0;
+    const base = MOCK_ROUTES.inboxComposer.generate;
+    const counting: MockGenerator = (ctx) => {
+      if (ctx.messages[0]?.content.includes('"insight":{')) insightComposes += 1;
+      return base(ctx);
+    };
+    const service = hz.service({}, { inboxComposer: counting });
+    await quiet(C.businessId);
+    await repos.channels.upsertMetrics(hz.db, C.businessId, [
+      { channelId: C.channelId, day: day(10), spendMinor: 10_000, customers: 10 },
+      { channelId: C.channelId, day: day(2), spendMinor: 15_000, customers: 10 },
+    ]);
+    const results = [];
+    for (let i = 0; i < 6; i++) {
+      const served = (await servedKeys(hz.h, C.businessId)).length;
+      const r = await service.refresh(C.businessId);
+      await service.drain(C.businessId);
+      results.push(r);
+      // Every press serves one slot key that was never served before (one buffer row per key).
+      expect(await servedKeys(hz.h, C.businessId)).toHaveLength(served + 1);
+    }
+    const insights = results.filter((r) => r.slot === "insight");
+    expect(insights.map((r) => r.item.subject)).toEqual([...new Set(insights.map((r) => r.item.subject))]);
+    expect(insights.filter((r) => /cost per customer moved/.test(r.item.subject))).toHaveLength(1);
+    expect(results.slice(-3).every((r) => r.slot === "decision")).toBe(true);
+    expect(new Set(results.map((r) => r.item.id)).size).toBe(6);
+    // Written once each: the refill never re-composed (and re-billed) an insight that was already served.
+    expect(insightComposes).toBe(insights.length);
+    expect((await repos.inbox.bufferList(hz.db, C.businessId)).some((row) => row.sourceHash.startsWith("insight:"))).toBe(false);
+
+    // The insight comes back only when its facts change (a new key): the refill writes it behind the buffered decision.
+    await repos.channels.upsertMetrics(hz.db, C.businessId, [{ channelId: C.channelId, day: day(1), spendMinor: 40_000, customers: 10 }]);
+    const after = [];
+    for (let i = 0; i < 2; i++) {
+      after.push(await service.refresh(C.businessId));
+      await service.drain(C.businessId);
+    }
+    expect(after.filter((r) => r.slot === "insight" && /cost per customer moved/.test(r.item.subject))).toHaveLength(1);
+  }, 180_000);
+
+  it("a restarted composer (decision rotation forgotten) moves on to a decision not yet served", async () => {
+    const C = await createBusinessFixture(hz.h, "refresh-restart");
+    await quiet(C.businessId);
+    const first = hz.service();
+    for (let i = 0; i < 3; i++) {
+      await first.refresh(C.businessId);
+      await first.drain(C.businessId);
+    }
+    const before = await servedKeys(hz.h, C.businessId);
+    const restarted = hz.service();
+    const r = await restarted.refresh(C.businessId);
+    await restarted.drain(C.businessId);
+    const after = await servedKeys(hz.h, C.businessId);
+    expect(after).toHaveLength(before.length + 1);
+    expect(after.filter((k) => !before.includes(k))).toHaveLength(1);
+    expect(r.item.sourceEventIds).toEqual([]);
+  }, 120_000);
+});
+
+describe("lookahead and priority (audits EXTRA-STARVE, EXTRA-PRIO)", () => {
+  it("dozens of routine un-narrated rows never hide a win: Refresh narrates customer.converted first and marks the routine rows narrated", async () => {
+    const C = await createBusinessFixture(hz.h, "refresh-lookahead");
+    const service = hz.service();
+    await quiet(C.businessId);
+    const routine = [];
+    for (let i = 0; i < 30; i++) routine.push(await hz.writeEvent(C.businessId, i % 2 ? "task.progressed" : "cycle.started", { note: `routine ${i}` }));
+    const report = await hz.writeEvent(C.businessId, "cycle.completed", { cycleNumber: 1 });
+    const win = await hz.writeEvent(C.businessId, "customer.converted", { customer_name: "Ada" }, [C.entityId]);
+    const first = await service.refresh(C.businessId);
+    await service.drain(C.businessId);
+    expect(first.slot).toBe("events");
+    expect(first.item.sourceEventIds).toEqual([win.id]);
+    const second = await service.refresh(C.businessId);
+    await service.drain(C.businessId);
+    expect(second.item.sourceEventIds).toEqual([report.id]);
+    // The routine rows can never become notes; they no longer sit in the un-narrated set.
+    expect((await repos.events.byIds(hz.db, C.businessId, routine.map((e) => e.id))).every((e) => e.narrated)).toBe(true);
+  }, 120_000);
+});
+
+describe("compose deadline (audit CML-04)", () => {
+  it("a cold Refresh that cannot finish in time answers 504 composer_timeout and writes nothing", async () => {
+    const C = await createBusinessFixture(hz.h, "refresh-deadline");
+    await quiet(C.businessId);
+    const event = await hz.writeEvent(C.businessId, "task.completed", { title: "Slow note" });
+    const slow = createModelClient({ mode: "mock", logger: silentLog, mock: { latencyMs: 300 } });
+    const service = createComposerService({ db: hz.db, models: slow, log: silentLog }, { debounceMs: 0, persistDrafts: false, composeDeadlineMs: 50 });
+    const inboxBefore = await countInbox(hz.db, C.businessId);
+    const err = await service.refresh(C.businessId).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ComposeTimeoutError);
+    expect(err).toMatchObject({ code: "composer_timeout", status: 504 });
+    expect(await countInbox(hz.db, C.businessId)).toBe(inboxBefore);
+    expect((await repos.events.get(hz.db, C.businessId, event.id)).narrated).toBe(false);
   });
 });
 

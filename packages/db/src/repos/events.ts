@@ -8,7 +8,7 @@
  * payload: it checks the type against the shared vocabulary and the ids, but not the payload shape.
  */
 import { Actor, EVENT_TYPES, uuid, type EventType } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { events, outbox, type Event, type OutboxRow } from "../schema";
 import { DateRange, Id, IsoDateInput, JsonObject, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page } from "./_shared";
@@ -84,6 +84,12 @@ export const eventsRepo = {
     return one(await db.select().from(events).where(and(eq(events.businessId, businessId), eq(events.id, eventId))).limit(1), "event", eventId);
   },
 
+  /** The event written with this idempotency key (a webhook delivery, a narration of one event set), or null. */
+  async byIdempotencyKey(db: Executor, businessId: string, idempotencyKey: string): Promise<Event | null> {
+    const rows = await db.select().from(events).where(and(eq(events.businessId, businessId), eq(events.idempotencyKey, idempotencyKey))).limit(1);
+    return rows[0] ?? null;
+  },
+
   async byIds(db: Executor, businessId: string, ids: readonly string[]): Promise<Event[]> {
     if (ids.length === 0) return [];
     return db.select().from(events).where(and(eq(events.businessId, businessId), inArray(events.id, [...ids]))).orderBy(asc(events.occurredAt));
@@ -112,16 +118,36 @@ export const eventsRepo = {
     return toPage(rows, f, ks);
   },
 
-  /** Un-narrated events, highest priority first then oldest first (what the Composer refresh picks from). */
-  async unnarrated(db: Executor, businessId: string, limit = 20): Promise<Event[]> {
-    const cases = Object.entries(EVENT_PRIORITY).map(([type, p]) => sql`when ${type} then ${p}`);
-    const priority = sql`case ${events.type} ${sql.join(cases, sql` `)} else ${DEFAULT_PRIORITY} end`;
+  /**
+   * Un-narrated events, highest priority first then oldest first (what the Composer refresh picks from). `types` limits
+   * the window to the events the caller can narrate, so rows it would skip (task.progressed, cycle.started, …) never
+   * fill the `limit` ahead of a win or an alert.
+   */
+  async unnarrated(db: Executor, businessId: string, limit = 20, options: { types?: readonly EventType[] } = {}): Promise<Event[]> {
+    if (options.types && options.types.length === 0) return [];
+    // The priorities are bound as integers: an untyped parameter makes Postgres resolve the CASE as text and sort
+    // "10" before "2", which put every routine event ahead of payments, wins and alerts (audit EXTRA-PRIO).
+    const cases = Object.entries(EVENT_PRIORITY).map(([type, p]) => sql`when ${type} then ${p}::int`);
+    const priority = sql`case ${events.type} ${sql.join(cases, sql` `)} else ${DEFAULT_PRIORITY}::int end`;
     return db
       .select()
       .from(events)
-      .where(and(eq(events.businessId, businessId), eq(events.narrated, false)))
+      .where(and(eq(events.businessId, businessId), eq(events.narrated, false), options.types ? inArray(events.type, [...options.types]) : undefined))
       .orderBy(priority, asc(events.occurredAt), asc(events.id))
       .limit(limit);
+  },
+
+  /**
+   * Marks a business's un-narrated events whose type is not in `narratable` as narrated: they never become notes, and
+   * left un-narrated they pile up behind the Composer's lookahead (audit EXTRA-STARVE). Returns how many were marked.
+   */
+  async markUnnarratable(db: Executor, businessId: string, narratable: readonly EventType[]): Promise<number> {
+    const rows = await db
+      .update(events)
+      .set({ narrated: true })
+      .where(and(eq(events.businessId, businessId), eq(events.narrated, false), narratable.length ? notInArray(events.type, [...narratable]) : undefined))
+      .returning({ id: events.id });
+    return rows.length;
   },
 
   async markNarrated(db: Executor, businessId: string, eventIds: readonly string[]): Promise<number> {

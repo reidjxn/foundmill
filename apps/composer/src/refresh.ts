@@ -11,6 +11,11 @@
  *   `decision:<kind>:<hash of facts+n>`    valid while the state still produces that decision (n rotates per serve)
  * so consuming the event candidate never invalidates the insight and decision candidates behind it, and the next
  * refresh is warm (AC-11.3.7) while the refill writes the next event candidate in the background.
+ *
+ * A served slot key stays served: its row keeps `consumed_at` (a note written on demand is recorded the same way), the
+ * plan leaves out an insight whose key was served and moves the decision on to a variant not yet served. An insight
+ * that holds for weeks is therefore one note, not one per press (audit CML-01), and Refresh falls through to the
+ * decision; the insight comes back only when its facts change (a new key).
  */
 import { LIMITS } from "@foundmill/config";
 import { repos, type ComposerBufferRow, type ComposerItem, type Db, type InboxItem } from "@foundmill/db";
@@ -27,6 +32,8 @@ export interface RefreshEngineOptions {
   insightThresholds?: InsightThresholds;
   /** Create unverified CRM entities for sweep drafts (default true). */
   persistDrafts?: boolean;
+  /** Longest one note may take before it is abandoned unwritten (default `LIMITS.composerDeadlineMs`). */
+  composeDeadlineMs?: number;
   now?: () => Date;
 }
 
@@ -52,7 +59,12 @@ interface Slot {
 interface Plan {
   slots: Slot[];
   keys: Set<string>;
+  /** The decision variant the plan's decision slot was written for. */
+  decisionVariant: number;
 }
+
+/** How many decision variants past the current one the plan looks at for one not yet served. */
+const DECISION_LOOKAHEAD = 8;
 
 interface Pending {
   at: number;
@@ -70,6 +82,7 @@ export class RefreshEngine {
   private readonly bufferSize: number;
   private readonly thresholds: InsightThresholds;
   private readonly draftsOn: boolean;
+  private readonly deadlineMs: number;
   private readonly now: () => Date;
   private readonly recent = new Map<string, Pending>();
   private readonly inflight = new Map<string, Promise<RefreshResult>>();
@@ -87,6 +100,7 @@ export class RefreshEngine {
     this.bufferSize = options.bufferSize ?? LIMITS.inboxBufferSize;
     this.thresholds = options.insightThresholds ?? DEFAULT_INSIGHT_THRESHOLDS;
     this.draftsOn = options.persistDrafts ?? true;
+    this.deadlineMs = options.composeDeadlineMs ?? LIMITS.composerDeadlineMs;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -106,7 +120,7 @@ export class RefreshEngine {
   /** Pre-writes candidates until the buffer holds `bufferSize` valid ones; returns how many were written. */
   async warm(businessId: string): Promise<number> {
     const ctx = await loadContext(this.deps.db, businessId, { now: this.now() });
-    const plan = this.plan(ctx);
+    const plan = await this.plan(ctx);
     const rows = await this.reconcile(businessId, plan);
     return this.fill(businessId, ctx, plan, rows.map((r) => r.sourceHash));
   }
@@ -139,7 +153,7 @@ export class RefreshEngine {
   private async run(businessId: string): Promise<RefreshResult> {
     const started = Date.now();
     const ctx = await loadContext(this.deps.db, businessId, { now: this.now() });
-    const plan = this.plan(ctx);
+    const plan = await this.plan(ctx);
     const rows = await this.reconcile(businessId, plan);
 
     let composed: ComposedNote | null = null;
@@ -159,7 +173,9 @@ export class RefreshEngine {
       candidate = { item, slot: slotKind(row.sourceHash), eventIds: [...(item.source_event_ids ?? [])], costMinorInt: cost.costMinorInt, currency: cost.currency };
     } else {
       source = "generated";
-      composed = await composeNote(this.deps, ctx, top.brief, { onInvalidLinks: "strip" }); // the decision slot is always present
+      // Cold path (empty buffer, or a new event): one Opus call the caller waits on, bounded by the compose deadline,
+      // which sits below the api's wait, so the founder hears either the note or why there is none (audit CML-04).
+      composed = await composeNote(this.deps, ctx, top.brief, { onInvalidLinks: "strip", deadlineMs: this.deadlineMs }); // the decision slot is always present
       candidate = { item: composed.item, slot: composed.slot, eventIds: composed.eventIds, costMinorInt: composed.costMinorInt, currency: composed.costCurrency };
     }
 
@@ -171,8 +187,10 @@ export class RefreshEngine {
       costCurrency: candidate.currency,
       slot: candidate.slot,
     });
+    // A note written on demand is served under its slot key too, so the refill does not write (and pay for) it again.
+    if (!row) await repos.inbox.bufferMarkServed(this.deps.db, businessId, { candidate: candidate.item, sourceHash: top.key, priority: top.priority });
     if (composed && this.draftsOn && composed.drafts.length) await persistDrafts(this.deps.db, this.deps.log, businessId, composed.drafts, persisted.item.id, persisted.item.bodyMd);
-    if (candidate.slot === "decision") this.decisionVariant.set(businessId, (this.decisionVariant.get(businessId) ?? 0) + 1);
+    if (candidate.slot === "decision") this.decisionVariant.set(businessId, plan.decisionVariant + 1);
 
     const remaining = Math.max(0, rows.length - (row ? 1 : 0));
     const result: RefreshResult = {
@@ -189,14 +207,25 @@ export class RefreshEngine {
     return result;
   }
 
-  /** The candidate plan in priority order: un-narrated events, insights, the next-best decision. */
-  private plan(ctx: ComposeContext): Plan {
+  /**
+   * The candidate plan in priority order: un-narrated events, insights not yet served, the next-best decision (the
+   * first variant from the current one that was not served yet, so the decision slot is always there and always new).
+   */
+  private async plan(ctx: ComposeContext): Promise<Plan> {
+    const insights = computeInsights(ctx.metrics, this.thresholds);
+    const start = this.decisionVariant.get(ctx.businessId) ?? 0;
+    const decisions = Array.from({ length: DECISION_LOOKAHEAD }, (_, i) => nextBestDecision(ctx.metrics, start + i));
+    const served = await repos.inbox.bufferServed(this.deps.db, ctx.businessId, [...insights.map((i) => i.key), ...decisions.map((d) => d.key)]);
+    const fresh = decisions.findIndex((d) => !served.has(d.key));
+    const decisionVariant = start + (fresh === -1 ? DECISION_LOOKAHEAD : fresh);
+    const decision = fresh === -1 ? nextBestDecision(ctx.metrics, decisionVariant) : decisions[fresh]!;
+    if (decisionVariant !== start) this.decisionVariant.set(ctx.businessId, decisionVariant);
+
     const slots: Slot[] = [];
     ctx.unnarrated.forEach((e, i) => slots.push({ key: `event:${e.id}`, priority: 300 - i, brief: { mode: "events", events: [e] } }));
-    for (const insight of computeInsights(ctx.metrics, this.thresholds)) slots.push({ key: insight.key, priority: 200 - insight.rank, brief: { mode: "insight", insight } });
-    const decision = nextBestDecision(ctx.metrics, this.decisionVariant.get(ctx.businessId) ?? 0);
+    for (const insight of insights) if (!served.has(insight.key)) slots.push({ key: insight.key, priority: 200 - insight.rank, brief: { mode: "insight", insight } });
     slots.push({ key: decision.key, priority: 100, brief: { mode: "decision", decision } });
-    return { slots, keys: new Set(slots.map((s) => s.key)) };
+    return { slots, keys: new Set(slots.map((s) => s.key)), decisionVariant };
   }
 
   /**
@@ -232,7 +261,7 @@ export class RefreshEngine {
 
   private async refill(businessId: string): Promise<void> {
     const ctx = await loadContext(this.deps.db, businessId, { now: this.now() });
-    const plan = this.plan(ctx);
+    const plan = await this.plan(ctx);
     const rows = await this.reconcile(businessId, plan);
     await this.fill(businessId, ctx, plan, rows.map((r) => r.sourceHash));
   }
@@ -243,8 +272,10 @@ export class RefreshEngine {
     for (const slot of plan.slots) {
       if (have.size >= this.bufferSize) break;
       if (have.has(slot.key)) continue;
-      const composed = await composeNote(this.deps, ctx, slot.brief, { onInvalidLinks: "strip" });
+      const composed = await composeNote(this.deps, ctx, slot.brief, { onInvalidLinks: "strip", deadlineMs: this.deadlineMs });
       const row = await repos.inbox.bufferPush(this.deps.db, businessId, { candidate: composed.item, sourceHash: slot.key, priority: slot.priority });
+      // Served while this candidate was being written (a Refresh wrote it on demand): it stays served, not a candidate.
+      if (row.consumedAt) continue;
       this.costs.set(row.id, { costMinorInt: composed.costMinorInt, currency: composed.costCurrency });
       have.add(slot.key);
       written += 1;

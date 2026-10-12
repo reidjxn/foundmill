@@ -26,6 +26,8 @@ const Env = z.object({
   SOCIAL_PORT: z.coerce.number().default(4006),
   GATEWAY_URL: z.string().default("http://localhost:4001"),
   COMPOSER_URL: z.string().default("http://localhost:4002"),
+  /** apps/api and apps/orchestrator: how long a composer call (refresh, narrate) may take; unset = LIMITS.composerClientTimeoutMs. Keep it above the composer's deadline. */
+  COMPOSER_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).optional().catch(undefined),
   INGEST_URL: z.string().default("http://localhost:4005"),
   SUPABASE_URL: z.string().optional(),
   SUPABASE_ANON_KEY: z.string().optional(),

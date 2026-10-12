@@ -23,6 +23,10 @@
  * - Streaming (`streamStructured`): `messages.stream()` (or the beta stream in fast mode); the text deltas feed the
  *   incremental scanner in ./structured-stream.ts. The connection phase gets the same retry policy as `complete()`;
  *   a stream that breaks after connecting is restarted or resumed there.
+ * - `max_tokens`: the request's own, else the client's `defaultMaxTokens`, else the route's budget from `ROUTES`
+ *   (routing.ts), sized for the reply plus the thinking Opus 5.5 and Sonnet 5.5 always do (it counts toward
+ *   `max_tokens`). A schema request cut off at `max_tokens` before its JSON is complete is sent once more with the
+ *   budget doubled (up to `MAX_TOKENS_CEILING`) instead of failing at once (audit CML-03); both calls are metered.
  * - The limiter books `reserveTokens` (default `max_tokens`) output tokens per call.
  * - A call stopped by its signal after the request went out is still metered: the prompt's estimated input tokens, no
  *   output, flagged `aborted` on the usage event (the provider may bill it and reports nothing). A call stopped before
@@ -60,7 +64,11 @@ import type {
   UsageSink,
 } from "./types";
 
-export const DEFAULT_MAX_TOKENS = 4096;
+/**
+ * Highest budget the truncation retry doubles up to. A non-streaming call this long still finishes well inside
+ * `REQUEST_TIMEOUT_MS`; longer outputs belong on `streamStructured`.
+ */
+export const MAX_TOKENS_CEILING = 32_000;
 export const DEFAULT_MAX_ATTEMPTS = 4;
 export const REQUEST_TIMEOUT_MS = 600_000;
 
@@ -80,6 +88,7 @@ export interface LiveModelClientOptions {
   /** Attempts per API call including the first (429 and transient failures). Default 4. */
   maxAttempts?: number;
   timeoutMs?: number;
+  /** `max_tokens` for every request without its own, instead of the route's budget (routing.ts). Unset in services. */
   defaultMaxTokens?: number;
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
@@ -192,17 +201,20 @@ export class LiveModelClient implements ModelClient {
   complete(req: CompleteRequest<unknown> & { schema?: undefined }): Promise<CompleteResult<unknown>>;
   async complete<T = unknown>(req: CompleteRequest<T>): Promise<CompleteResult<T>> {
     const started = Date.now();
-    const plan = this.plan(req);
-    const { resolution, maxTokens } = plan;
+    let plan = this.plan(req);
+    const { resolution } = plan;
     const scope = req.scope ?? "default";
-    let messages: Anthropic.MessageParam[] = req.messages.map(toParam);
+    const firstMessages: Anthropic.MessageParam[] = req.messages.map(toParam);
+    let messages = firstMessages;
 
     let totalUsage: TokenUsage = ZERO_USAGE;
     const meters: MeterResult[] = [];
     let repaired = false;
+    let raised = false;
     let speedUsed: Speed | undefined;
 
-    for (let call = 0; call < 2; call++) {
+    // One repair call and one call at a raised budget at most: a schema answer is never sent more than three times.
+    for (let call = 0; ; call++) {
       const { message, requestId, speed } = await this.send({ ...plan.base, messages }, req, scope, call, plan);
       if (speed === "fast") speedUsed = "fast";
       const usage = toUsage(message.usage);
@@ -227,9 +239,18 @@ export class LiveModelClient implements ModelClient {
 
       const issues = validated ? validated.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`) : [`output is not JSON: ${parsed.ok ? "" : parsed.error}`];
       if (stopReason === "max_tokens") {
-        throw new ModelOutputError(`Output truncated at max_tokens=${maxTokens} before valid JSON was produced for route "${req.route}"`, { issues, requestId }, "max_tokens");
+        // The thinking and the JSON did not fit: ask the same question again with twice the room, once.
+        const bigger = Math.min(MAX_TOKENS_CEILING, plan.maxTokens * 2);
+        if (raised || bigger <= plan.maxTokens) {
+          throw new ModelOutputError(`Output truncated at max_tokens=${plan.maxTokens} before valid JSON was produced for route "${req.route}"`, { issues, requestId }, "max_tokens");
+        }
+        this.opts.logger?.warn({ route: req.route, maxTokens: plan.maxTokens, retryMaxTokens: bigger, requestId }, "output truncated at max_tokens; retrying once with a larger budget");
+        raised = true;
+        plan = withMaxTokens(plan, bigger);
+        messages = firstMessages;
+        continue;
       }
-      if (call === 1) {
+      if (repaired) {
         throw new ModelOutputError(`Model output did not match the schema for route "${req.route}" after one repair retry`, { issues, text: text.slice(0, 2000), requestId });
       }
       this.opts.logger?.info({ route: req.route, issues: issues.slice(0, 10), requestId }, "schema validation failed; asking the model to repair its JSON");
@@ -240,7 +261,6 @@ export class LiveModelClient implements ModelClient {
         { role: "user", content: repairPrompt(issues) },
       ];
     }
-    throw new ModelOutputError(`Unreachable: repair loop exhausted for route "${req.route}"`);
   }
 
   /**
@@ -268,7 +288,7 @@ export class LiveModelClient implements ModelClient {
   private plan(req: PlanInput): CallPlan {
     const resolution = resolveModel(req.route, req.modelOverride);
     if (resolution.warning) this.opts.logger?.warn({ route: req.route, override: req.modelOverride }, resolution.warning);
-    const maxTokens = req.maxTokens ?? this.opts.defaultMaxTokens ?? DEFAULT_MAX_TOKENS;
+    const maxTokens = req.maxTokens ?? this.opts.defaultMaxTokens ?? resolution.maxTokens;
     const reserve = Math.max(1, Math.min(maxTokens, Math.round(req.reserveTokens ?? maxTokens)));
     const output = req.schema ? structuredOutputFor(req.schema) : undefined;
     if (output?.kind === "prompt") this.opts.logger?.debug({ route: req.route, gaps: output.gaps.slice(0, 5) }, "schema not expressible as structured output; sending it in the system prompt instead");
@@ -609,6 +629,11 @@ function buildSystem(system: CompleteRequest["system"], cache: boolean): Anthrop
 }
 
 const toParam = (m: ChatMessage): Anthropic.MessageParam => ({ role: m.role, content: m.content });
+
+/** The same plan with a larger `max_tokens` (the truncation retry); the limiter books the new budget too. */
+function withMaxTokens(plan: CallPlan, maxTokens: number): CallPlan {
+  return { ...plan, maxTokens, reserve: Math.max(plan.reserve, Math.min(maxTokens, plan.reserve * 2)), base: { ...plan.base, max_tokens: maxTokens } };
+}
 
 /** The prompt's input tokens, estimated locally (limiter reservations, and the booking of a call stopped in flight). */
 const estimateInputTokens = (params: Pick<Anthropic.MessageCreateParamsNonStreaming, "messages" | "system">): number => estimateTokens(JSON.stringify(params.messages) + JSON.stringify(params.system ?? ""));

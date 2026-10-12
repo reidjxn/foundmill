@@ -147,7 +147,7 @@ export function createDeps(options: CreateDepsOptions = {}): OrchestratorDeps {
           return createOfflineGatewayClient(env.GATEWAY_URL);
         })());
 
-  const composer = options.composer ?? (env.COMPOSER_URL ? createComposerClient({ baseUrl: env.COMPOSER_URL }) : createOfflineComposerClient());
+  const composer = options.composer ?? (env.COMPOSER_URL ? createComposerClient({ baseUrl: env.COMPOSER_URL, timeoutMs: env.COMPOSER_TIMEOUT_MS }) : createOfflineComposerClient());
 
   let resolved: Promise<{ provider: SandboxProvider; mode: SandboxMode; fellBackFrom: string | null }> | null = null;
   const sandbox = () => {

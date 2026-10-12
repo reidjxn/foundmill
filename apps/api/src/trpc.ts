@@ -71,6 +71,9 @@ const CODE_BY_APP_CODE: Record<string, TRPC_ERROR_CODE_KEY> = {
   unauthorized: "UNAUTHORIZED",
   validation: "BAD_REQUEST",
   composer_unavailable: "SERVICE_UNAVAILABLE",
+  // The composer's own answers (services/composer.ts passes them through): shown to the founder, never hidden as internal.
+  composer_timeout: "GATEWAY_TIMEOUT",
+  composer_rejected: "UNPROCESSABLE_CONTENT",
   no_agents: "CONFLICT",
   continue_blocked: "CONFLICT",
   reauth_required: "PRECONDITION_FAILED",

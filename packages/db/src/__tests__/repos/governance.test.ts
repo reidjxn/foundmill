@@ -230,4 +230,33 @@ describe("events and outbox", () => {
     expect(pending.filter((p) => p.eventId === pay.id)).toHaveLength(1);
     expect(await repos.events.outboxCountPending(r.db, A)).toBe(pending.length);
   });
+
+  it("orders un-narrated events by numeric priority, narrows to the given types and sweeps the rest (audits EXTRA-PRIO, EXTRA-STARVE)", async () => {
+    const B = r.B.businessId;
+    const actor = { kind: "system", id: "test" } as const;
+    await repos.events.markNarrated(r.db, B, (await repos.events.unnarrated(r.db, B, 500)).map((e) => e.id));
+    // Oldest first: routine rows (default priority 10), then a task (9), then a win (2).
+    const routine = [];
+    for (let i = 0; i < 12; i++) routine.push(await repos.events.write(r.db, B, { type: i % 2 ? "task.progressed" : "cycle.started", actor, occurredAt: day(`2026-09-${String(10 + i).padStart(2, "0")}`) }));
+    const report = await repos.events.write(r.db, B, { type: "cycle.completed", actor, occurredAt: day("2026-09-25") });
+    const done = await repos.events.write(r.db, B, { type: "task.completed", actor, occurredAt: day("2026-09-26") });
+    const win = await repos.events.write(r.db, B, { type: "customer.converted", actor, occurredAt: day("2026-09-27") });
+    // Priorities are compared as numbers: 2 before 9 before 10 (as text, "10" sorted before "2").
+    expect((await repos.events.unnarrated(r.db, B, 3)).map((e) => e.id)).toEqual([win.id, done.id, routine[0]!.id]);
+    const narratable = ["cycle.completed", "task.completed", "customer.converted"] as const;
+    expect((await repos.events.unnarrated(r.db, B, 10, { types: narratable })).map((e) => e.id)).toEqual([win.id, done.id, report.id]);
+    expect(await repos.events.unnarrated(r.db, B, 10, { types: [] })).toEqual([]);
+    expect(await repos.events.markUnnarratable(r.db, r.A.businessId, narratable)).toBeGreaterThanOrEqual(0);
+    expect(await repos.events.markUnnarratable(r.db, B, narratable)).toBe(12);
+    expect((await repos.events.unnarrated(r.db, B, 50)).map((e) => e.id)).toEqual([win.id, done.id, report.id]);
+    expect(await repos.events.markUnnarratable(r.db, B, narratable)).toBe(0);
+  });
+
+  it("finds an event by its idempotency key within one business only", async () => {
+    const actor = { kind: "system", id: "composer" } as const;
+    const ev = await repos.events.write(r.db, r.A.businessId, { type: "inbox.item_created", actor, payload: { inboxItemId: r.A.inboxItemId }, idempotencyKey: "narrate:abc" });
+    expect((await repos.events.byIdempotencyKey(r.db, r.A.businessId, "narrate:abc"))?.id).toBe(ev.id);
+    expect(await repos.events.byIdempotencyKey(r.db, r.B.businessId, "narrate:abc")).toBeNull();
+    expect(await repos.events.byIdempotencyKey(r.db, r.A.businessId, "narrate:other")).toBeNull();
+  });
 });

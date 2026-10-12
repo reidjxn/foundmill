@@ -15,7 +15,7 @@ export {
   LiveModelClient,
   validateApiKey,
   keyFingerprint,
-  DEFAULT_MAX_TOKENS,
+  MAX_TOKENS_CEILING,
   DEFAULT_MAX_ATTEMPTS,
   type CreateModelClientOptions,
   type LiveModelClientOptions,
