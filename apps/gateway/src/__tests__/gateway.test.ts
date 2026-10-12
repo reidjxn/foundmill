@@ -2,10 +2,11 @@
  * The pipeline over HTTP on an ephemeral port with PGlite, the test connector and the in-memory rate limiter.
  * Policy outcomes are asserted end to end: audit rows, approvals + outbox events, usage_ledger metering.
  */
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { BUSINESS_MODES, ForbiddenError } from "@foundmill/shared";
 import { mockIntegrationRecord } from "@foundmill/connectors";
-import { repos } from "@foundmill/db";
+import { repos, suppressionHash } from "@foundmill/db";
 import { storeCredential } from "../credentials";
 import { GatewayClientError } from "../client";
 import { createGatewayApp, MAX_CALL_BODY_BYTES, MAX_MCP_BODY_BYTES, MAX_SERVICE_BODY_BYTES } from "../app";
@@ -221,6 +222,17 @@ describe("recipients", () => {
     expect(r.policyIds).toEqual(["suppressed-recipient"]);
   });
 
+  it("a CRM deletion request stops outreach to the person at once (audit RA-23)", async () => {
+    const person = await repos.entities.create(g.db, g.businessId, { kind: "person", displayName: "Erase Me", identifiers: { email: "Erase.Me@Example.com", phone: "+1 (415) 555-0100" } });
+    await repos.entities.requestDeletion(g.db, g.businessId, person.id);
+    // The CRM writes the hashes the gateway checks: the same normalization on both sides.
+    expect(suppressionHash("email", " ERASE.me@example.com ")).toBe(hashRecipient("email", "erase.me@example.com"));
+    expect(suppressionHash("phone", "+1 (415) 555-0100")).toBe(hashRecipient("phone", "+14155550100"));
+    const r = asDeny(await g.client.call(await g.token(), { connector: "test", tool: "send_message", args: { to: "erase.me@example.com", body: "one more offer" } }));
+    expect(r.policyIds).toEqual(["suppressed-recipient"]);
+    expect(g.seen).toHaveLength(0);
+  });
+
   it("a recipient first seen in untrusted content is blocked for that session only", async () => {
     const sessionA = await g.newSession();
     const sessionB = await g.newSession();
@@ -315,6 +327,21 @@ describe("allow path", () => {
     expect(r.result.error?.code).toBe("invalid_args");
     const after = await repos.usage.totals(g.db, g.businessId, { agentId: g.agentId });
     expect(after.entries).toBe(before.entries);
+  });
+
+  it("a service call (a plan action's message, a Source Watcher read) has no agent session: it is metered and asks without one", async () => {
+    // The orchestrator mints these tokens with an id of its own; linking usage or an approval to it broke their foreign
+    // key after the message had gone out, and the founder read a failure (audit VGPC-X1).
+    const serviceSession = randomUUID();
+    const sent = asAllow(await g.client.call(await g.token({ sessionId: serviceSession }), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "from a plan" } }));
+    expect(sent.result).toMatchObject({ ok: true, data: { sent: true, to: SAFE_EMAIL } });
+    const booked = await repos.usage.list(g.db, g.businessId, { agentId: g.agentId, kind: "tool", limit: 5 });
+    expect(booked.items[0]).toMatchObject({ sessionId: null, details: { connector: "test", tool: "send_message" } });
+    expect((await repos.audit.get(g.db, g.businessId, sent.auditId)).details).toMatchObject({ outcome: "allow", sessionId: serviceSession });
+
+    await repos.businesses.setBusinessMode(g.db, g.businessId, "augmented");
+    const asked = asAsk(await g.client.call(await g.token({ sessionId: serviceSession }), { connector: "test", tool: "send_message", args: { to: SAFE_EMAIL, body: "from a plan" } }));
+    expect(await repos.approvals.get(g.db, g.businessId, asked.approvalId)).toMatchObject({ connectorKey: "test", tool: "send_message", sessionId: null });
   });
 });
 

@@ -1067,7 +1067,9 @@ export const entitiesRepo = {
       const holder = await tx.select({ id: capTableEntries.id }).from(capTableEntries).where(and(eq(capTableEntries.businessId, businessId), inArray(capTableEntries.holderEntityId, ids))).limit(1);
       if (holder.length) return { purged: [], blocked: "the record holds a cap-table entry" };
       const idArray = sql`array[${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)}]`;
-      await tx.delete(interactions).where(and(eq(interactions.businessId, businessId), sql`${interactions.entityIds} <@ ${idArray}`));
+      // About them and nobody else: `&&` keeps an interaction that names no record at all (an empty array is contained
+      // in every array).
+      await tx.delete(interactions).where(and(eq(interactions.businessId, businessId), sql`${interactions.entityIds} && ${idArray}`, sql`${interactions.entityIds} <@ ${idArray}`));
       for (const id of ids) {
         await tx
           .update(interactions)

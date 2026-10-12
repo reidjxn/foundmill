@@ -5,8 +5,11 @@
  * inputs, one failing business never stopping a batch) and the debounced journey matview refresh.
  */
 import { repos } from "@foundmill/db";
+import { MockActivityEnvironment } from "@temporalio/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createScheduleActivities } from "../activities/schedules";
+import type { ScheduleResult } from "../activities/types";
+import { emitEvent, systemActor } from "../events";
 import { JOURNEY_REFRESH_MIN_INTERVAL_MS, journeyDailyRefreshIdle, requestJourneyDailyRefresh } from "../journey-refresh";
 import { registerSchedules, registerSchedulesWithRetry, SCHEDULES, scheduleFingerprint, scheduleId, type ScheduleClientLike } from "../schedules";
 import { WORKFLOWS_PATH } from "../index";
@@ -158,6 +161,26 @@ describe("schedule activities on PGlite", () => {
     expect(audit.items.length).toBeGreaterThan(0);
   });
 
+  it("a retried benchmarks rebuild reads every business again and resumes only the writes", async () => {
+    const other = await repos.businesses.create(t.db, { name: "Benchmarks Peer", archetype: "b2b_saas" });
+    await repos.businesses.commit(t.db, other.id, { archetype: "b2b_saas" });
+    const written = async (businessId: string) => (await repos.audit.list(t.db, businessId, { action: "schedule.benchmarks_rebuild", limit: 50 })).items;
+    const before = { mine: (await written(t.businessId)).length, peer: (await written(other.id)).length };
+    // The attempt before wrote the first business, then its worker went away (heartbeat details = next index).
+    const heartbeats: unknown[] = [];
+    const env = new MockActivityEnvironment({ heartbeatDetails: 1 });
+    env.on("heartbeat", (d: unknown) => heartbeats.push(d));
+    const result = (await env.run(acts.benchmarksRebuild, { businessIds: [t.businessId, other.id] })) as ScheduleResult;
+    expect(result.notes.some((n) => n.startsWith("resumed at business 2 of 2"))).toBe(true);
+    expect((await written(t.businessId)).length).toBe(before.mine);
+    const peer = await written(other.id);
+    expect(peer.length).toBe(before.peer + 1);
+    // Both businesses' numbers are in the benchmark the resumed attempt wrote, not only the ones after the resume point.
+    expect((peer[0]!.details as { benchmarks: { archetype: string; businesses: number }[] }).benchmarks).toContainEqual(expect.objectContaining({ archetype: "b2b_saas", businesses: 2 }));
+    // While it re-read, the heartbeats kept the write progress, so a failure there still resumes the writes.
+    expect(heartbeats.slice(0, 2)).toEqual([1, 1]);
+  });
+
   it("the nightly milestone catch-up awards the trophies the business reached", async () => {
     await repos.journeys.recordConversion(t.db, t.businessId, { kind: "payment", amountMinor: 2_000, currency: "EUR", occurredAt: new Date("2026-10-01T09:00:00Z") });
     const result = await acts.milestonesCatchUp({ businessIds: [t.businessId], at: "2026-10-05T00:00:00Z" });
@@ -189,10 +212,14 @@ describe("schedule activities on PGlite", () => {
     const fresh = await repos.businesses.create(t.db, { name: "Doomed Co", archetype: "b2b_saas" });
     await repos.businesses.commit(t.db, fresh.id, { archetype: "b2b_saas" });
     const channel = await repos.channels.upsert(t.db, fresh.id, { channelKey: "seo", line: "defence", enabled: true });
+    const cycleWorkflowId = `cycle:${fresh.id}:3`;
+    await emitEvent(t.db, { businessId: fresh.id, type: "cycle.started", actor: systemActor, payload: { cycleId: crypto.randomUUID(), cycleNumber: 3, workflowId: cycleWorkflowId, trigger: "continue", timeBoxAgentHours: 2, plannedTaskIds: [] } });
     await repos.audit.append(t.db, fresh.id, { actorKind: "user", action: "business.request_deletion", target: { kind: "business", id: fresh.id }, details: { scheduledFor: "2026-10-01T00:00:00.000Z" } });
     const { due } = await acts.listDueBusinessDeletions({ at: "2026-10-05T00:00:00Z" });
     const mine = due.find((d) => d.businessId === fresh.id);
     expect(mine?.workflowIds).toContain(`engine:${channel.id}`);
+    // A cycle still running is stopped too, so it does not dispatch into a business that is going away.
+    expect(mine?.workflowIds).toContain(cycleWorkflowId);
     expect(await acts.purgeBusiness({ businessId: fresh.id, at: "2026-09-20T00:00:00Z" })).toEqual({ purged: false, reason: expect.stringMatching(/not due/) });
     expect(await acts.purgeBusiness({ businessId: fresh.id, at: "2026-10-05T00:00:00Z" })).toEqual({ purged: true, reason: null });
     await expect(repos.businesses.get(t.db, fresh.id, { includeArchived: true })).rejects.toThrow();

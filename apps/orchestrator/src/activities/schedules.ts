@@ -117,20 +117,32 @@ export function createScheduleActivities(deps: OrchestratorDeps) {
       const { db } = deps;
       const notes: string[] = [];
       const byArchetype = new Map<string, { cpa: number[]; businesses: number }>();
-      await eachBusiness(deps, "benchmarksRebuild:read", input.businessIds, notes, async (businessId) => {
-        const [business, summary] = await Promise.all([repos.businesses.get(db, businessId), repos.channels.metricsSummary(db, businessId, {})]);
-        const key = business.archetype ?? "uncommitted";
-        const entry = byArchetype.get(key) ?? { cpa: [], businesses: 0 };
-        entry.businesses += 1;
-        for (const c of summary.channels) if (c.cpaMinor !== null) entry.cpa.push(c.cpaMinor);
-        byArchetype.set(key, entry);
-      });
-      const benchmarks = [...byArchetype.entries()].map(([archetype, v]) => ({ archetype, businesses: v.businesses, medianCpaMinor: median(v.cpa), label: "Estimate" }));
-      // The write pass starts over from the first business: the read pass above has its own heartbeats.
+      // Read pass: every business on every attempt (the medians need all of them). Its heartbeats carry the previous
+      // attempt's write progress unchanged, so a retry reads everything again and resumes only the writes.
+      const ctx = activityContext();
+      const writesDone: unknown = ctx?.info.heartbeatDetails;
+      const unread = new Set<string>();
       for (const businessId of input.businessIds) {
-        await repos.audit.append(db, businessId, { actorKind: "system", action: "schedule.benchmarks_rebuild", target: {}, details: { benchmarks, computedAt: at(input.at).toISOString() } }).catch((err: unknown) => notes.push(`${businessId}: failed (${(err as Error).message.slice(0, 120)})`));
-        activityContext()?.heartbeat(input.businessIds.length);
+        try {
+          const [business, summary] = await Promise.all([repos.businesses.get(db, businessId), repos.channels.metricsSummary(db, businessId, {})]);
+          const key = business.archetype ?? "uncommitted";
+          const entry = byArchetype.get(key) ?? { cpa: [], businesses: 0 };
+          entry.businesses += 1;
+          for (const c of summary.channels) if (c.cpaMinor !== null) entry.cpa.push(c.cpaMinor);
+          byArchetype.set(key, entry);
+        } catch (err) {
+          const message = (err as Error)?.message ?? String(err);
+          deps.log.warn({ task: "benchmarksRebuild", businessId, err: message }, "schedule step failed for one business; the others continue");
+          notes.push(`${businessId}: failed (${message.slice(0, 120)})`);
+          unread.add(businessId);
+        }
+        ctx?.heartbeat(writesDone);
       }
+      const benchmarks = [...byArchetype.entries()].map(([archetype, v]) => ({ archetype, businesses: v.businesses, medianCpaMinor: median(v.cpa), label: "Estimate" }));
+      await eachBusiness(deps, "benchmarksRebuild", input.businessIds, notes, async (businessId) => {
+        if (unread.has(businessId)) return;
+        await repos.audit.append(db, businessId, { actorKind: "system", action: "schedule.benchmarks_rebuild", target: {}, details: { benchmarks, computedAt: at(input.at).toISOString() } });
+      });
       return { businesses: input.businessIds.length, touched: benchmarks.length, eventIds: [], notes: [...notes, ...benchmarks.map((b) => `${b.archetype}: median CPA ${b.medianCpaMinor === null ? "n/a" : (b.medianCpaMinor / 100).toFixed(2)} (Estimate)`)] };
     },
 
@@ -252,19 +264,26 @@ export function createScheduleActivities(deps: OrchestratorDeps) {
 
     /**
      * Businesses whose scheduled deletion came due (audit MLSL-20), each with the workflows that still run for it (its
-     * channel engines, open sessions, a vacation, executing plans), which the sweep stops before the purge.
+     * latest cycles, channel engines, open sessions, a vacation, executing plans), which the sweep stops before the purge.
      */
     async listDueBusinessDeletions(input: { at?: string } = {}): Promise<{ due: DueBusinessDeletion[] }> {
       const { db } = deps;
       const due: DueBusinessDeletion[] = [];
       for (const d of await repos.businesses.deletionsDue(db, at(input.at))) {
-        const [channels, sessions, holiday, plans] = await Promise.all([
+        const [cycles, channels, sessions, holiday, plans] = await Promise.all([
+          repos.events.list(db, d.businessId, { type: "cycle.started", limit: 3 }),
           repos.channels.list(db, d.businessId, { includeArchived: true }),
           repos.agents.listSessions(db, d.businessId, { openOnly: true, limit: 500 }),
           repos.holidays.current(db, d.businessId),
           repos.plans.list(db, d.businessId, { status: "executing", limit: 500 }),
         ]);
         const ids = new Set<string>();
+        // A cycle still running would otherwise keep dispatching into a business that is going away (a finished one
+        // ignores the signal).
+        for (const e of cycles.items) {
+          const workflowId = (e.payload as { workflowId?: unknown } | null)?.workflowId;
+          if (typeof workflowId === "string" && workflowId) ids.add(workflowId);
+        }
         for (const c of channels) {
           ids.add(`engine:${c.id}`);
           if (c.engineWorkflowId) ids.add(c.engineWorkflowId);

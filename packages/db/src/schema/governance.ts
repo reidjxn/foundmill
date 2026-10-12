@@ -183,6 +183,8 @@ export const auditLog = pgTable(
     index("audit_log_business_id_idx").on(t.businessId, t.createdAt),
     index("audit_log_actor_idx").on(t.actorKind, t.actorId),
     index("audit_log_action_idx").on(t.businessId, t.action),
+    // The business-deletion sweep's read (0028).
+    index("audit_log_deletion_idx").on(t.businessId, t.seq.desc()).where(sql`${t.action} in ('business.request_deletion', 'business.cancel_deletion')`),
   ],
 );
 export type AuditEntry = typeof auditLog.$inferSelect;

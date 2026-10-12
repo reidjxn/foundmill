@@ -126,6 +126,8 @@ describe("CRM deletion requests", () => {
     await repos.entities.addRole(r.db, A, person.id, { role: "lead", stage: "new" });
     const onlyThem = await repos.entities.addNote(r.db, A, person.id, "Called about pricing");
     const shared = await repos.entities.createInteraction(r.db, A, { kind: "meeting", entityIds: [person.id, r.A.entity2Id], summary: "Intro" });
+    // An interaction that names no record (an import, a record purged before) is nobody's to delete.
+    const [unlinked] = rowsOf<{ id: string }>(await r.db.execute(sql`insert into interactions (business_id, kind, summary, entity_ids) values (${A}::uuid, 'note', 'Unlinked note', '{}') returning id`));
     const paid = await repos.journeys.recordConversion(r.db, A, { kind: "payment", amountMinor: 1_000, entityId: person.id });
 
     const requested = await repos.entities.requestDeletion(r.db, A, person.id, { requestedAt: day("2026-10-01") });
@@ -152,6 +154,7 @@ describe("CRM deletion requests", () => {
     const notes = await repos.entities.listInteractions(r.db, A, { limit: 200 });
     expect(notes.items.some((i) => i.id === onlyThem.id)).toBe(false);
     expect(notes.items.find((i) => i.id === shared.id)?.entityIds).toEqual([r.A.entity2Id]);
+    expect(notes.items.some((i) => i.id === unlinked!.id)).toBe(true);
     expect((await repos.journeys.getConversion(r.db, A, paid.id)).entityId).toBeNull();
     // The suppression entries stay.
     expect(await repos.channels.isSuppressed(r.db, A, { emailHash: suppressionHash("email", "erase@example.com") })).toBe(true);

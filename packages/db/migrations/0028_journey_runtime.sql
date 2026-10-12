@@ -40,6 +40,10 @@ begin
 end;
 $$;
 --> statement-breakpoint
+-- The nightly business-deletion sweep reads each business's latest deletion entry across every audit chain
+-- (`repos.businesses.deletionsDue`); this keeps it off a scan of the whole log.
+create index audit_log_deletion_idx on audit_log (business_id, seq desc) where action in ('business.request_deletion', 'business.cancel_deletion');
+--> statement-breakpoint
 -- Permanently deletes a business and everything it owns (every business-scoped table cascades from `businesses`).
 -- Service role only: the orchestrator's business-deletion job calls it for a deletion the owner scheduled, that was not
 -- canceled, once its date has passed. Cap-table entries go first (their holder FK is RESTRICT).

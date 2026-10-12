@@ -206,6 +206,11 @@ interface Loaded {
   integrationRow: Integration | null;
   holidayActive: boolean;
   holidayBudgetMinor: number | null;
+  /**
+   * The token's session when it is an agent session the orchestrator opened (`agent_sessions`); null for a service
+   * call (a plan action, a Source Watcher read) whose token names an id of its own. Usage and approvals link to it.
+   */
+  sessionRowId: string | null;
 }
 
 function findTool(connector: Connector, name: string): McpToolDefinition | undefined {
@@ -287,7 +292,16 @@ async function loadContext(deps: GatewayDeps, session: SessionToken, connector: 
   if (denial) throw new SessionStateDenied(denial);
   const integrationRow = await repos.integrations.getByKey(db, businessId, connector.key);
   const holiday = await repos.holidays.current(db, businessId);
-  return { connector, tool, business, agent, integrationRow, holidayActive: holiday !== null, holidayBudgetMinor: holiday?.budgetCeilingMinor ?? null };
+  // A service call's session id has no row: writing it to usage or an approval would break their foreign key (after
+  // the tool already ran), so those rows carry no session.
+  const sessionRowId = await repos.agents.getSession(db, businessId, sessionId).then(
+    () => sessionId,
+    (e: unknown) => {
+      if (e instanceof NotFoundError) return null;
+      throw e;
+    },
+  );
+  return { connector, tool, business, agent, integrationRow, holidayActive: holiday !== null, holidayBudgetMinor: holiday?.budgetCeilingMinor ?? null, sessionRowId };
 }
 
 const rethrowNotFound =
@@ -462,7 +476,7 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
     const approval = await repos.approvals.create(tx, session.businessId, {
       planActionId: req.context.planActionId ?? null,
       agentId: session.agentId,
-      sessionId: session.sessionId,
+      sessionId: loaded.sessionRowId,
       connectorKey: loaded.connector.key,
       tool: loaded.tool.name,
       args: argsObject(args),
@@ -476,7 +490,7 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
         approvalId: approval.id,
         planActionId: req.context.planActionId ?? null,
         agentId: session.agentId,
-        sessionId: session.sessionId,
+        sessionId: loaded.sessionRowId,
         connectorKey: loaded.connector.key,
         tool: loaded.tool.name,
         amount,
@@ -569,7 +583,7 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     // Billed to the business's own key or the platform's credits; a credits row is charged to the period's balance.
     await bookUsage(deps.db, session.businessId, {
       agentId: session.agentId,
-      sessionId: session.sessionId,
+      sessionId: loaded.sessionRowId,
       kind: "tool",
       quantity: 1,
       unit: "calls",
