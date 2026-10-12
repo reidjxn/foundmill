@@ -160,6 +160,8 @@ describe("FormationBoard", () => {
     expect(screen.getByText(/Social media moved off the board/)).toBeTruthy();
     fireEvent.keyDown(seo, { key: "o" });
     expect(onOpenChannel).toHaveBeenCalledWith("seo");
+    // Opening is announced in the board's live region, not only moves (A11Y-11).
+    expect(screen.getByText("SEO profile opened. Esc closes it.")).toBeTruthy();
   });
 
   it("drags a token from the tray onto the board, lights its ghost as the target, and treats a still pointer as a click", () => {

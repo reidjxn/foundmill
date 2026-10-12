@@ -1,5 +1,5 @@
 "use client";
-import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { IconButton } from "../foundation/IconButton";
@@ -15,8 +15,18 @@ export interface RightRailProps extends Omit<HTMLAttributes<HTMLElement>, "title
   actions?: ReactNode;
   /** Hide the collapse handle entirely (the app controls the rail). */
   hideToggle?: boolean;
+  /**
+   * A rail that opens on a founder's action (a channel's profile): focus moves to its title when it opens, and again
+   * when `focusKey` changes (another item shown); when it closes with focus inside, focus goes back to what opened it.
+   */
+  focusOnOpen?: boolean;
+  focusKey?: string;
+  /** Esc inside the rail closes it (BUILD §5.5 "Esc = close overlay"). */
+  closeOnEscape?: boolean;
   children?: ReactNode;
 }
+
+const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
  * The optional 320 px right rail (BUILD §5.3, DESIGN §8): hover-card details, the agent log, a decision preview. On the
@@ -25,12 +35,42 @@ export interface RightRailProps extends Omit<HTMLAttributes<HTMLElement>, "title
  * (200 ms width transition).
  */
 export const RightRail = forwardRef<HTMLElement, RightRailProps>(function RightRail(
-  { title = "Details", open, onOpenChange, actions, hideToggle, className, children, ...rest },
+  { title = "Details", open, onOpenChange, actions, hideToggle, focusOnOpen, focusKey, closeOnEscape, className, children, onKeyDown, ...rest },
   ref,
 ) {
+  const asideRef = useRef<HTMLElement | null>(null);
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const originRef = useRef<HTMLElement | null>(null);
+  const setRefs = useCallback(
+    (node: HTMLElement | null) => {
+      asideRef.current = node;
+      if (typeof ref === "function") ref(node);
+      else if (ref) ref.current = node;
+    },
+    [ref],
+  );
+  // Layout effects, so the cleanup still sees focus inside the rail before a closing rail leaves the page.
+  useIsoLayoutEffect(() => {
+    const rail = asideRef.current;
+    if (!open || !focusOnOpen || !rail) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== document.body && !rail.contains(active)) originRef.current = active;
+    headingRef.current?.focus({ preventScroll: true });
+    return () => {
+      const origin = originRef.current;
+      if (rail.contains(document.activeElement) && origin?.isConnected) origin.focus({ preventScroll: true });
+    };
+  }, [open, focusOnOpen, focusKey]);
+  const onRailKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    onKeyDown?.(e);
+    if (!closeOnEscape || !open || e.key !== "Escape" || e.defaultPrevented) return;
+    e.preventDefault();
+    onOpenChange(false);
+  };
   return (
     <aside
-      ref={ref}
+      ref={setRefs}
+      onKeyDown={onRailKeyDown}
       aria-label={typeof title === "string" ? title : "Right rail"}
       data-state={open ? "open" : "collapsed"}
       data-side="right"
@@ -40,7 +80,9 @@ export const RightRail = forwardRef<HTMLElement, RightRailProps>(function RightR
       <div className={cn(open ? "panel-head" : "flex h-panel-header shrink-0 items-center justify-center")}>
         {open ? (
           <>
-            <h2 className="t-title min-w-0 flex-auto text-balance text-primary">{title}</h2>
+            <h2 ref={headingRef} tabIndex={focusOnOpen ? -1 : undefined} className="t-title min-w-0 flex-auto rounded-xs text-balance text-primary outline-none focus-visible:shadow-ring">
+              {title}
+            </h2>
             {actions ? <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div> : null}
           </>
         ) : null}

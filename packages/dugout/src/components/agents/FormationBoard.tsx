@@ -182,9 +182,10 @@ export function FormationBoard({ channels, onToggle, onOpenChannel, onPause, kit
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       toggle(channel.key, !channel.enabled);
-    } else if (e.key === "o" || e.key === "O") {
+    } else if ((e.key === "o" || e.key === "O") && onOpenChannel) {
       e.preventDefault();
-      onOpenChannel?.(channel.key);
+      onOpenChannel(channel.key);
+      setAnnounce(`${channelLabel(channel.key)} profile opened. Esc closes it.`);
     }
   };
 

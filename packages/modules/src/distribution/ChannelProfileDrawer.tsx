@@ -48,6 +48,11 @@ export function ChannelProfileDrawer({ view, token, action, onClose, onToggle, o
         if (!next) onClose();
       }}
       hideToggle={!open}
+      // Opened from the board (a click or O on a token): focus lands on the profile's title, Esc closes it and gives
+      // focus back to the token.
+      focusOnOpen
+      focusKey={view?.channelKey}
+      closeOnEscape
       actions={
         open ? (
           <Button size="sm" variant="ghost" onClick={onClose}>
