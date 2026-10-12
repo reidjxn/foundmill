@@ -12,6 +12,7 @@ export const CreateTrainingRunInput = z.object({
   toVersionId: Id.nullable().optional(),
   status: z.enum(TRAINING_STATUSES).default("queued"),
   costMinor: MinorAmount.default(0),
+  /** The run's cost is model spend in US cents: left out, the column's USD default applies (0024). */
   currency: Currency.optional(),
   requestedBy: Id.nullable().optional(),
 });

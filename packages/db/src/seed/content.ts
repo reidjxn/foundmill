@@ -3,6 +3,7 @@
  * blocks, roadmap items, tasks in mixed states with sessions, Inbox items with validated entity links, integrations
  * in mock status, legal records and the founder's Home dashboard. The business modules supply the words.
  */
+import { CREDITS_CURRENCY } from "@foundmill/config";
 import { CHANNEL_KEYS, CHANNEL_META, ENTITY_MARKUP_RE, MODULE_KEYS, type ChannelKey, type InboxItemType, type TaskKind, type TaskStatus } from "@foundmill/shared";
 import { eq } from "drizzle-orm";
 import { repos, type ComposerItem } from "../repos";
@@ -229,7 +230,7 @@ export async function seedTasks(ctx: SeedCtx, businessId: string, specs: TaskSpe
         tokensIn,
         tokensOut: Math.round(tokensIn * 0.12),
         costMinor: Math.round(hours * 180),
-        currency,
+        currency: CREDITS_CURRENCY,
         outcome: open ? null : s.status === "done" ? "completed" : s.status === "failed" ? "failed" : s.status === "stopped" ? "stopped" : "handed_over",
         recordingRef: s.recordingRef ?? null,
       });
@@ -274,7 +275,7 @@ export async function seedHistoricalTasks(ctx: SeedCtx, businessId: string, squa
     const tokensIn = Math.round(hours * 180_000);
     sessions.push({
       id, businessId, agentId: assignee.agent.id, versionId: assignee.versionId, taskId: task.id, workflowId: `session:${id}`, modelKey: assignee.agent.modelKey,
-      startedAt, endedAt, tokensIn, tokensOut: Math.round(tokensIn * 0.11), costMinor: Math.round(hours * 180), currency, outcome: failed ? "failed" : "completed", recordingRef: null,
+      startedAt, endedAt, tokensIn, tokensOut: Math.round(tokensIn * 0.11), costMinor: Math.round(hours * 180), currency: CREDITS_CURRENCY, outcome: failed ? "failed" : "completed", recordingRef: null,
     });
     made += 1;
   }

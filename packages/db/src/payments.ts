@@ -13,6 +13,7 @@
  * stop for used-up credits in the same transaction (`resumeBusinessAgents`, reason `credits_exhausted` only: never Stop
  * all agents or a revoked key); the caller announces the resumed agents and restarts the channel engines.
  */
+import { includedCreditsMinor } from "@foundmill/config";
 import { resumeBusinessAgents, type ResumeBusinessResult } from "./controls";
 import { repos } from "./repos";
 import type { Executor } from "./repos/_shared";
@@ -69,6 +70,10 @@ export async function settleCreditCheckout(db: Executor, input: SettleCheckoutIn
     }
     // A payment that arrives after the row was closed (the gateway timed out, the session expired) still pays for credits.
     const period = periodOf(input.paidAt);
+    // A top-up comes on top of the month's included credits: the period's row starts with them when the top-up is the
+    // first thing in the month (a team paused at the end of last month makes no charge to create it).
+    const business = await repos.businesses.get(tx, input.businessId, { includeArchived: true });
+    await repos.usage.ensurePeriodCredits(tx, input.businessId, period, includedCreditsMinor(business.planTier));
     const balance = await repos.usage.grantCredits(tx, input.businessId, period, Number(row.amountMinor), row.currency);
     const checkout = await repos.checkouts.markPaid(tx, input.businessId, row.id, { paidAt: input.paidAt, paidEventId: input.eventId, grantedPeriod: period, creditBalanceId: balance.id });
     await repos.audit.append(tx, input.businessId, {

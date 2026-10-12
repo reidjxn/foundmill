@@ -16,3 +16,8 @@ export class PolicyDeniedError extends AppError { constructor(reason: string) { 
  * the web turns the code into an upgrade prompt rather than a plain failure.
  */
 export class TierLimitError extends AppError { constructor(message: string, details: { limit: "businesses" | "seats" | "concurrent_agents"; tier: string; allowed: number; used: number } & Record<string, unknown>) { super("tier_limit", message, 403, details); } }
+/**
+ * A business on credits whose balance for the month is used up (BUILD §10.4, §10.5): a model call on the platform's key
+ * is refused before it is sent. `details` says where the balance stands; the message says the way back for the tier.
+ */
+export class CreditsExhaustedError extends AppError { constructor(message: string, details: { tier: string; period: string; balanceMinor: number; currency: string }) { super("credits_exhausted", message, 402, details); } }

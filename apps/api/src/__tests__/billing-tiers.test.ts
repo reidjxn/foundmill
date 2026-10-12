@@ -3,10 +3,11 @@
  * whatever the business's currency, third-party spend in another currency is listed apart, a seat past the tier is
  * refused with a typed `tier_limit` error, and the founder's "Spend cap per action" is stored and editable by admins.
  */
-import { CREDITS_CURRENCY } from "@foundmill/config";
+import { CREDITS_CURRENCY, includedCreditsMinor, TIERS } from "@foundmill/config";
 import { PRICING_CURRENCY } from "@foundmill/models";
 import { repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { composeLocally } from "../services/composer";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -22,7 +23,7 @@ describe("credits are US dollars", () => {
     expect(CREDITS_CURRENCY).toBe(PRICING_CURRENCY);
   });
 
-  it("a top-up is granted in US dollars; another currency is refused, never merged", async () => {
+  it("a top-up is granted in US dollars on top of the month's included credits; another currency is refused, never merged", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     await expect(owner.billing.topUp({ businessId: hz.A.businessId, amountMinor: 2_500, currency: "GBP" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(await repos.usage.creditBalance(hz.db, hz.A.businessId, period())).toBeNull();
@@ -32,8 +33,11 @@ describe("credits are US dollars", () => {
       expect(opened.checkout).toMatchObject({ currency: "USD", amountMinor });
       return owner.billing.checkout.completeMock({ businessId: hz.A.businessId, checkoutId: opened.checkout.id });
     };
-    expect((await buy(2_500)).balance).toMatchObject({ grantedMinor: 2_500, currency: "USD" });
-    expect((await buy(500, "usd")).balance).toMatchObject({ grantedMinor: 3_000 });
+    // The first thing in the month: the period starts with what the tier includes, and the top-up comes on top of it.
+    const included = includedCreditsMinor("free");
+    expect((await buy(2_500)).balance).toMatchObject({ grantedMinor: included + 2_500, balanceMinor: included + 2_500, currency: "USD" });
+    // Later top-ups only add their own amount.
+    expect((await buy(500, "usd")).balance).toMatchObject({ grantedMinor: included + 3_000 });
   });
 
   it("plan and usage report US dollar costs and list spend in another currency apart", async () => {
@@ -49,6 +53,23 @@ describe("credits are US dollars", () => {
     expect(usage.byAgent.find((a) => a.agentId === hz.A.agentId)?.costMinor).toBe(plan.usage.costMinor);
     const wages = await owner.finance.wages({ businessId: hz.A.businessId });
     expect(wages).toMatchObject({ currency: "USD", label: "Estimate" });
+    // A wage cap caps that metered cost, so it is in US dollars too.
+    expect(wages.rows.length).toBeGreaterThan(0);
+    expect(wages.rows.every((r) => r.wageCapCurrency === "USD")).toBe(true);
+    // Model costs elsewhere: an agent's wage and a training estimate are US dollars, whatever the business's currency.
+    const profile = await owner.agent.profile.get({ businessId: hz.A.businessId, agentId: hz.A.agentId });
+    expect(profile.wage).toMatchObject({ currency: "USD", label: "Estimate" });
+    expect(await owner.agent.training.estimate({ businessId: hz.A.businessId, agentId: hz.A.agentId })).toMatchObject({ currency: "USD", label: "Estimate" });
+    expect(await owner.agent.model.compare({ businessId: hz.A.businessId, agentId: hz.A.agentId })).toMatchObject({ currency: "USD" });
+  });
+});
+
+describe("a note's own cost", () => {
+  it("the in-process composer books a note's model cost in US dollars, never the business's currency", async () => {
+    const item = await composeLocally(hz.db, hz.deps.models, hz.A.businessId);
+    expect(item.currency).toBe("USD");
+    const created = (await repos.events.list(hz.db, hz.A.businessId, { type: ["inbox.item_created"], limit: 20 })).items.find((e) => (e.payload as { inboxItemId?: string }).inboxItemId === item.id);
+    expect((created?.payload as { cost?: { currency?: string } } | undefined)?.cost?.currency).toBe("USD");
   });
 });
 
@@ -65,6 +86,32 @@ describe("seats (TIERS.seats)", () => {
       expect(membership.role).toBe("member");
     } finally {
       await owner.billing.changeTier({ businessId: hz.B.businessId, tier: "free" });
+    }
+  });
+});
+
+describe("concurrent agents (TIERS.maxConcurrentAgents)", () => {
+  it("a task started by hand is refused while every slot of the tier is in use, before any session is opened", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const A = hz.A.businessId;
+    const task = await repos.tasks.create(hz.db, A, { kind: "ops", title: "Tier slot check", assigneeAgentId: hz.A.agentId, status: "ready" });
+    const open = async () => (await repos.agents.listSessions(hz.db, A, { openOnly: true, limit: 100 })).items.length;
+    while ((await open()) < TIERS.free.maxConcurrentAgents) await repos.agents.createSession(hz.db, A, { agentId: hz.A.agentId });
+    const before = await open();
+    await expect(owner.dev.tasks.start({ businessId: A, taskId: task.id })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      cause: { code: "tier_limit", details: { limit: "concurrent_agents", tier: "free", allowed: TIERS.free.maxConcurrentAgents, used: before } },
+    });
+    expect(await open()).toBe(before);
+    expect((await repos.tasks.get(hz.db, A, task.id)).status).toBe("ready");
+    // A larger tier has room for it.
+    await repos.businesses.update(hz.db, A, { planTier: "pro" });
+    try {
+      const started = await owner.dev.tasks.start({ businessId: A, taskId: task.id });
+      expect(started.session.taskId).toBe(task.id);
+      expect(await open()).toBe(before + 1);
+    } finally {
+      await repos.businesses.update(hz.db, A, { planTier: "free" });
     }
   });
 });

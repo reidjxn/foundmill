@@ -11,8 +11,12 @@
  * is refused with `ModelRequestError("missing_api_key")` rather than quietly spending platform credits; the gateway makes
  * the same call for tool calls (`key-revoked`). Under MODEL_MODE=mock a `byok` business gets a mock client that books to
  * `byok`, so the golden path and the ledger behave the same with INTEGRATIONS_MODE=mock.
+ *
+ * A business on credits whose month is used up is refused on the platform client (`CreditsExhaustedError`, packages/db
+ * `assertCreditsAvailable`) before the call is sent: the cycle plan, skill grading, foundations and every other
+ * orchestrator call stop with the team instead of running on past the ceiling (DECISIONS 2026-10-12).
  */
-import { loadByokApiKey, repos, type Db } from "@foundmill/db";
+import { assertCreditsAvailable, loadByokApiKey, repos, type Db } from "@foundmill/db";
 import { createModelClient, keyFingerprint, ModelRequestError, type CompleteRequest, type CompleteResult, type CompleteResultWithJson, type ModelClient, type ModelLogger, type ModelMode, type StreamStructuredRequest, type StreamStructuredResult, type UsageSink } from "@foundmill/models";
 import { NotFoundError, type ModelBilling } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
@@ -99,7 +103,11 @@ export function createBusinessModelClient(platform: ModelClient, opts: BusinessM
 
   async function pick(businessId: string | undefined): Promise<ModelClient> {
     if (!businessId) return platform;
-    return (await resolve(businessId)).client;
+    const entry = await resolve(businessId);
+    // The credits ceiling (BUILD §10.4, §10.5): a platform-key call for a business on credits whose month is used up is
+    // refused before it is sent (`CreditsExhaustedError`), never cached, so a top-up or a stored key lifts it at once.
+    if (entry.route.source === "platform") await assertCreditsAvailable(opts.db, businessId);
+    return entry.client;
   }
 
   async function complete<T>(req: CompleteRequest<T> & { schema: z.ZodType<T> }): Promise<CompleteResultWithJson<T>>;

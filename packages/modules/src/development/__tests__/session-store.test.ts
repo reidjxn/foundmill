@@ -163,8 +163,9 @@ describe("SessionThrottle", () => {
 });
 
 describe("concurrencyHint", () => {
-  it("names the largest team the key supports and clamps to 1–64", () => {
-    expect(concurrencyHint(16, 3)).toBe("3 of 16 running · 16 is the largest team your key supports");
+  it("names the plan's concurrent-agent limit and clamps to 1–64", () => {
+    expect(concurrencyHint(16, 3)).toBe("3 of 16 running · your plan runs 16 agents at once");
+    expect(concurrencyHint(1, 1)).toBe("1 of 1 running · your plan runs 1 agent at once");
     expect(concurrencyHint(400, 0)).toMatch(/of 64 running/);
     expect(concurrencyHint(0, 0)).toMatch(/of 1 running/);
   });

@@ -10,6 +10,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleStop, Dumbbell, Eye, FlaskConical, History, Save, Sparkles, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CREDITS_CURRENCY } from "@foundmill/config";
 import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, InstructionsEditor, KeyValueList, MODEL_LABELS, ModelPicker, Panel, ProgressRing, ProvenanceChip, SkillGrid, TabBar, TrainingResults, formatDuration, formatMoney, formatRelative, instructionsEqual, useDateFormat, type AgentInstructions, type InstructionComment, type InstructionViolation, type TabItem } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
@@ -43,7 +44,7 @@ import {
   type TrainingSubTab,
 } from "./logic";
 
-export function TrainingTab({ businessId, profile, currency, refetch }: TabProps) {
+export function TrainingTab({ businessId, profile, refetch }: TabProps) {
   const datePrefs = useDateFormat();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -238,7 +239,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
               coachExplanation={resultsQ.data.coachSummaryMd || "The Coach's explanation arrives with the grading pass."}
               candidateVersion={profile.versions.find((v) => v.id === flow.awaiting?.toVersionId)?.version}
               liveVersion={live?.version}
-              cost={{ amountMinor: Number(flow.awaiting.costMinor ?? 0), currency: flow.awaiting.currency ?? currency }}
+              cost={{ amountMinor: Number(flow.awaiting.costMinor ?? 0), currency: flow.awaiting.currency ?? CREDITS_CURRENCY }}
               durationMs={flow.awaiting.startedAt && flow.awaiting.endedAt ? Date.parse(String(flow.awaiting.endedAt)) - Date.parse(String(flow.awaiting.startedAt)) : undefined}
               onPromote={() => promote.mutate({ businessId, runId: flow.awaiting!.id })}
               onDiscard={() => discard.mutate({ businessId, runId: flow.awaiting!.id })}
@@ -324,7 +325,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
           {sub === "model" ? (
             <div className="grid grid-cols-12 gap-gutter" data-testid="training-model">
               <div className="col-span-7">
-                {compareQ.data ? <ModelPicker options={modelOptions(compareQ.data, currency)} value={previewModel ?? agent.modelKey} onChange={(m) => setPreviewModel(m === agent.modelKey ? null : m)} disabled={profile.modelLock} /> : <p className="text-small text-secondary">{compareQ.error ? errorMessage(compareQ.error) : "Loading model comparison…"}</p>}
+                {compareQ.data ? <ModelPicker options={modelOptions(compareQ.data, CREDITS_CURRENCY)} value={previewModel ?? agent.modelKey} onChange={(m) => setPreviewModel(m === agent.modelKey ? null : m)} disabled={profile.modelLock} /> : <p className="text-small text-secondary">{compareQ.error ? errorMessage(compareQ.error) : "Loading model comparison…"}</p>}
                 {profile.modelLock ? <p className="mt-2 text-small text-secondary">{profile.route === "inboxComposer" ? "The Inbox Composer is locked to Opus." : "This agent's route is locked to its model."}</p> : null}
               </div>
               <div className="col-span-5 flex flex-col gap-3">
@@ -334,9 +335,9 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
                     <KeyValueList
                       items={[
                         { label: "Tests", value: estimateQ.data ? `${estimateQ.data.tests} across ${estimateQ.data.skills} skills` : "…", numeric: true },
-                        { label: "Cost", value: estimateQ.data ? <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: estimateQ.data.costMinor, currency })} <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
+                        { label: "Cost", value: estimateQ.data ? <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: estimateQ.data.costMinor, currency: estimateQ.data.currency })} <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
                         { label: "Duration", value: estimateQ.data ? `about ${estimateQ.data.durationMinutes} min` : "…", numeric: true },
-                        { label: "Wage delta", value: compareQ.data ? <span className="inline-flex items-center gap-1">{formatMoney(modelOptions(compareQ.data, currency).find((o) => o.key === previewModel)?.wageDelta ?? { amountMinor: 0, currency })}/mo <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
+                        { label: "Wage delta", value: compareQ.data ? <span className="inline-flex items-center gap-1">{formatMoney(modelOptions(compareQ.data, CREDITS_CURRENCY).find((o) => o.key === previewModel)?.wageDelta ?? { amountMinor: 0, currency: CREDITS_CURRENCY })}/mo <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
                         { label: "Skill deltas", value: "From the preview run" },
                       ]}
                     />
@@ -394,7 +395,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
             <KeyValueList
               items={[
                 { label: "Tests", value: estimateQ.data ? `${estimateQ.data.tests} across ${estimateQ.data.skills} skills (half held out)` : "…" },
-                { label: "Cost", value: estimateQ.data ? <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: estimateQ.data.costMinor, currency })} <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
+                { label: "Cost", value: estimateQ.data ? <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: estimateQ.data.costMinor, currency: estimateQ.data.currency })} <ProvenanceChip kind="estimate" /></span> : "…", numeric: true },
                 { label: "Duration", value: estimateQ.data ? `about ${formatDuration(estimateQ.data.durationMinutes * 60_000)}` : "…", numeric: true },
                 { label: "Model", value: MODEL_LABELS[draftModel] },
               ]}
@@ -412,7 +413,7 @@ export function TrainingTab({ businessId, profile, currency, refetch }: TabProps
         </DialogContent>
       </Dialog>
 
-      <ModelChangeDialog businessId={businessId} profile={profile} open={!!applyModel} onOpenChange={(o) => !o && setApplyModel(null)} preselect={applyModel} currency={currency} />
+      <ModelChangeDialog businessId={businessId} profile={profile} open={!!applyModel} onOpenChange={(o) => !o && setApplyModel(null)} preselect={applyModel} />
     </div>
   );
 }

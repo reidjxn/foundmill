@@ -205,8 +205,8 @@ export class SessionThrottle {
   }
 }
 
-/** Largest squad the founder's plan and key support (BUILD §11.6: tier limit, default 16, max 64). */
+/** The plan tier's concurrent-agent limit, enforced at dispatch and on a task started by hand (BUILD §10.5, §11.6; max 64). */
 export function concurrencyHint(limit: number, running: number): string {
   const n = Math.max(1, Math.min(64, Math.round(limit)));
-  return `${running} of ${n} running · ${n} is the largest team your key supports`;
+  return `${running} of ${n} running · your plan runs ${n} ${n === 1 ? "agent" : "agents"} at once`;
 }

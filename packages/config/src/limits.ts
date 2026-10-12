@@ -31,3 +31,14 @@ export const LIMITS = {
   /** Logo uploads checked (prepare and upload) per signed-in user per hour: the SVG check is CPU work on the api. */
   logoChecksPerUserPerHour: 60,
 } as const;
+
+/**
+ * The approval threshold a spend is checked against (Cedar `principal.approvalThresholdMinor`): the agent's own (the
+ * policy default when it has none), lowered to the business's "Spend cap per action" when the founder set one (Commit,
+ * Settings › Mode; `businesses.spend_cap_minor`). Undefined when neither is set: the policy default applies. The gateway
+ * sends it and the agent profile shows it, so both read the same number.
+ */
+export function effectiveApprovalThresholdMinor(agentThresholdMinor: number | null | undefined, businessCapMinor: number | null | undefined): number | undefined {
+  if (businessCapMinor === null || businessCapMinor === undefined) return agentThresholdMinor ?? undefined;
+  return Math.min(agentThresholdMinor ?? LIMITS.approvalThresholdMinorDefault, businessCapMinor);
+}

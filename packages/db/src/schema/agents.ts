@@ -5,7 +5,7 @@ import {
 import { sql } from "drizzle-orm";
 import { boolean, date, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
-import { currency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
+import { currency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz, usdCurrency } from "./_common";
 import { businessId, businessIdNullable } from "./_refs";
 import { inboxItems, planActions } from "./inbox";
 import { roadmapItems } from "./product";
@@ -234,7 +234,8 @@ export const trainingRuns = pgTable(
     toVersionId: uuid("to_version_id").references(() => agentVersions.id, { onDelete: "set null" }),
     status: text("status", { enum: TRAINING_STATUSES }).notNull().default("queued"),
     costMinor: minor("cost_minor").notNull().default(0),
-    currency: currency(),
+    /** A training run's model cost: US cents (0024), the model price list's currency. */
+    currency: usdCurrency(),
     results: jsonb("results").$type<Record<string, { old: number; new: number }>>().notNull().default(emptyObject),
     coachSummaryMd: text("coach_summary_md").notNull().default(""),
     decision: text("decision", { enum: TRAINING_DECISIONS }),
@@ -326,7 +327,8 @@ export const agentSessions = pgTable(
     tokensIn: minor("tokens_in").notNull().default(0),
     tokensOut: minor("tokens_out").notNull().default(0),
     costMinor: minor("cost_minor").notNull().default(0),
-    currency: currency(),
+    /** The session's model cost: US cents (0024), the model price list's currency. */
+    currency: usdCurrency(),
     outcome: text("outcome"),
     recordingRef: text("recording_ref"),
     ...timestamps(),
@@ -355,7 +357,8 @@ export const agentMetrics = pgTable(
     approvalsRejected: integer("approvals_rejected").notNull().default(0),
     ratingAvg: numeric("rating_avg", { precision: 4, scale: 2 }),
     costMinor: minor("cost_minor").notNull().default(0),
-    currency: currency(),
+    /** Rolled up from the day's sessions: US cents (0024). */
+    currency: usdCurrency(),
     ...timestamps(),
   },
   (t) => [uniqueIndex("agent_metrics_agent_id_day_key").on(t.agentId, t.day), index("agent_metrics_business_id_idx").on(t.businessId, t.day)],

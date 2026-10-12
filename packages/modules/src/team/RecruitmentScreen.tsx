@@ -7,6 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
+import { CREDITS_CURRENCY } from "@foundmill/config";
 import { Button, Chip, DataTable, DeptChip, ModelChip, Panel, ProvenanceChip, Textarea, formatMoney, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
@@ -141,7 +142,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         meta: { numeric: true, csv: (r) => r.wageCapMinor / 100 },
         cell: ({ row }) => (
           <span className="inline-flex items-center gap-1.5 whitespace-nowrap tabular-nums">
-            {formatMoney({ amountMinor: row.original.wageCapMinor, currency })}
+            {formatMoney({ amountMinor: row.original.wageCapMinor, currency: CREDITS_CURRENCY })}
             <span className="t-unit">/mo</span>
             <ProvenanceChip kind="estimate" />
           </span>
@@ -149,7 +150,7 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
       },
       { id: "hired", accessorKey: "hired", header: "In team", size: catalogueSizes.hired, meta: { numeric: true }, cell: ({ row }) => (row.original.hired ? row.original.hired : <span className="text-tertiary">—</span>) },
     ], CATALOGUE_FIT),
-    [currency, catalogueSizes, departments.data],
+    [catalogueSizes, departments.data],
   );
   const catalogueActions = (row: CatalogueRow): RowAction<CatalogueRow>[] => [{ id: "hire", label: "Hire…", icon: UserRoundPlus, onSelect: () => setHire({ template: row }) }];
 
@@ -300,7 +301,6 @@ export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProp
         onOpenChange={(o) => !o && setHire(null)}
         departments={departments.data}
         defaultDepartmentId={departmentId}
-        currency={currency}
         onHired={(agent, template) => {
           setNotice(`${agent.name ?? template.name} hired. First training run queued.`);
           setSentence("");

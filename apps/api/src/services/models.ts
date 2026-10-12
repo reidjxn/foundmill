@@ -8,8 +8,8 @@
  * call, as the orchestrator's usage sink does (review item 7). Calls with no business (Ideation drafting, Ask on a
  * concept, a logo before commit) are not booked: there is no ledger to book them to yet (DECISIONS 2026-10-09).
  */
-import { bookUsage, type Db } from "@foundmill/db";
-import { createModelClient, type ModelClient, type UsageEvent, type UsageSink } from "@foundmill/models";
+import { assertCreditsAvailable, bookUsage, type Db } from "@foundmill/db";
+import { createModelClient, type ModelClient, type StreamStructuredRequest, type UsageAttribution, type UsageEvent, type UsageSink } from "@foundmill/models";
 import type { Env } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
 
@@ -64,6 +64,35 @@ export function apiUsageSink(db: Db, log: ApiLogger): UsageSink {
   };
 }
 
+/**
+ * The credits ceiling on the API's platform-key calls (BUILD §10.4, §10.5): a call made for a business on credits whose
+ * month is used up is refused before it is sent (`CreditsExhaustedError`, which the web shows with the way back), so
+ * conversations, plan compiles and the in-process composer cannot keep spending the platform's key once the team has
+ * paused. Calls with no business, and businesses on their own key, are never refused here.
+ */
+export function withCreditsCeiling(client: ModelClient, db: Db): ModelClient {
+  const check = async (attribution: UsageAttribution | undefined) => {
+    if (attribution?.businessId) await assertCreditsAvailable(db, attribution.businessId);
+  };
+  const complete = (async (req: Parameters<ModelClient["complete"]>[0]) => {
+    await check(req.attribution);
+    return client.complete(req);
+  }) as ModelClient["complete"];
+  const stream = client.streamStructured?.bind(client);
+  return {
+    mode: client.mode,
+    complete,
+    ...(stream
+      ? {
+          streamStructured: async <T, E>(req: StreamStructuredRequest<T, E>) => {
+            await check(req.attribution);
+            return stream(req);
+          },
+        }
+      : {}),
+  };
+}
+
 export function createApiModelClient(env: Pick<Env, "MODEL_MODE" | "ANTHROPIC_API_KEY">, log: ApiLogger, opts: ApiModelClientOptions = {}): ModelClient {
   const book = opts.db ? apiUsageSink(opts.db, log) : null;
   const usage = async (e: UsageEvent) => {
@@ -71,9 +100,10 @@ export function createApiModelClient(env: Pick<Env, "MODEL_MODE" | "ANTHROPIC_AP
     await book?.(e);
     opts.onUsage?.(e);
   };
+  const guard = (client: ModelClient) => (opts.db ? withCreditsCeiling(client, opts.db) : client);
   if (env.MODEL_MODE === "live" && !env.ANTHROPIC_API_KEY) {
     log.error({}, "MODEL_MODE=live but ANTHROPIC_API_KEY is missing; falling back to the mock model client");
-    return createModelClient({ mode: "mock", onUsage: usage, logger: log });
+    return guard(createModelClient({ mode: "mock", onUsage: usage, logger: log }));
   }
-  return createModelClient({ mode: env.MODEL_MODE, apiKey: env.ANTHROPIC_API_KEY, onUsage: usage, logger: log });
+  return guard(createModelClient({ mode: env.MODEL_MODE, apiKey: env.ANTHROPIC_API_KEY, onUsage: usage, logger: log }));
 }

@@ -107,6 +107,20 @@ describe("SquadScreen", () => {
     expect(fake.refetches["team.agents.list"]).toBe(1);
   });
 
+  it("shows predicted wage deltas in US dollars, the metered model cost's currency, on a business that keeps its books in pounds", async () => {
+    const user = userEvent.setup();
+    const fake = createFakeSource({ businessId: BID, currency: "GBP", responses: { ...dataResponses, "agent.model.compare": { ...compareJuno, currency: "USD" } } });
+    renderScreen(fake, <SquadScreen {...props} />);
+    const table = await screen.findByRole("grid", { name: "Agents" });
+    const junoRow = within(table).getByRole("link", { name: "Juno" }).closest("[role='row']") as HTMLElement;
+    await user.click(within(junoRow).getByRole("button", { name: "Sonnet" }));
+    const dialog = await screen.findByTestId("model-dialog");
+    await waitFor(() => expect(dialog.textContent).toContain("+$720.00/mo"));
+    expect(dialog.textContent).not.toContain("£");
+    // An older answer without a currency still never borrows the business's.
+    expect(toModelOptions({ ...compareJuno, currency: undefined })[0]!.wageDelta).toEqual({ amountMinor: 72_000, currency: "USD" });
+  });
+
   it("offers right-click verbs: open profile, change model, clone, loan, release (not for the Chief of Staff)", async () => {
     const user = userEvent.setup();
     const fake = createFakeSource({ businessId: BID, responses: dataResponses, onMutate: () => ({ id: "new", name: "Juno II" }) });

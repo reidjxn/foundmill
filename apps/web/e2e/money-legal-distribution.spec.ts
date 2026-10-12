@@ -63,6 +63,18 @@ test.describe("distribution, finance and legal read in plain words", () => {
     expect(count!.x + count!.width).toBeGreaterThan(box!.x + box!.width - 24);
   });
 
+  test("finance: Payroll keeps the team's metered cost and its wage caps in US dollars, apart from staff payroll in pounds", async ({ page }) => {
+    await openTab(page, "finance", "wage-bill");
+    const strip = page.getByRole("region", { name: "Payroll summary" });
+    await expect(strip.getByText("Team payroll")).toBeVisible();
+    // Never added across currencies: the team in US dollars, staff in the business's pounds.
+    await expect(strip).toContainText("$");
+    await expect(strip).toContainText("£");
+    const table = page.getByRole("grid", { name: "Team payroll" });
+    await expect(table).toContainText("$");
+    await expect(table).not.toContainText("£");
+  });
+
   test("finance: an empty cap table says so once and has nothing to export", async ({ page }) => {
     await openTab(page, "finance", "cap-table");
     await expect(page.getByText("No cap table yet")).toHaveCount(1);

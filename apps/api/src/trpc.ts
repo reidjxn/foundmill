@@ -78,6 +78,8 @@ const CODE_BY_APP_CODE: Record<string, TRPC_ERROR_CODE_KEY> = {
   composer_rejected: "UNPROCESSABLE_CONTENT",
   no_agents: "CONFLICT",
   continue_blocked: "CONFLICT",
+  // A business on credits whose month is used up (packages/db billing.ts `assertCreditsAvailable`).
+  credits_exhausted: "PAYMENT_REQUIRED",
   reauth_required: "PRECONDITION_FAILED",
   config: "PRECONDITION_FAILED",
   invalid_record: "INTERNAL_SERVER_ERROR",

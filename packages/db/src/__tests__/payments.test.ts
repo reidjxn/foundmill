@@ -4,6 +4,7 @@
  * with the row (session, amount, currency, mode) grants nothing and is audited; a row of another business is unknown.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { creditsState } from "../billing";
 import { MOCK_TOP_UP_LABEL, settleCreditCheckout } from "../payments";
 import { repos } from "../repos";
 import { setupRepoHarness, type RepoHarness } from "./repos/helpers";
@@ -43,7 +44,8 @@ describe("settleCreditCheckout", () => {
   it("grants the amount to the period's balance once, marks the row paid and audits it", async () => {
     const A = r.A.businessId;
     const row = await openLive(A, 10_000);
-    const before = (await repos.usage.creditBalance(r.db, A, "2026-10"))?.balanceMinor ?? 0;
+    // The month's first top-up starts the period with the tier's included credits; the paid amount comes on top.
+    const before = (await creditsState(r.db, await repos.businesses.get(r.db, A), "2026-10"))?.balanceMinor ?? 0;
     const settle = (eventId: string) => settleCreditCheckout(r.db, { businessId: A, checkoutId: row.id, externalId: row.externalId, eventId, amountMinor: 10_000, currency: "usd", mode: "live", paidAt, actor: { kind: "webhook" } });
 
     const first = await settle("evt_1");

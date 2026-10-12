@@ -152,11 +152,9 @@ export const financeRouter = router({
     ctx.rls(async (tx) => {
       const period = input?.period ?? currentPeriod();
       const [wages, agents] = await Promise.all([repos.usage.wages(tx, ctx.businessId, period), repos.agents.list(tx, ctx.businessId, { limit: 500 })]);
-      // The team's cost is platform spend metered in US dollars (`currency`); a wage cap is in its agent's currency.
-      const rows = wages.map((w) => {
-        const agent = agents.items.find((a) => a.id === w.agentId);
-        return { ...w, wageCapMinor: agent?.wageCapMinor ?? null, wageCapCurrency: agent?.currency ?? null };
-      });
+      // The team's cost is platform spend metered in US dollars (`currency`), and a wage cap caps that spend, so it is in
+      // US dollars too (DECISIONS 2026-10-12): the share of the cap used compares like with like.
+      const rows = wages.map((w) => ({ ...w, wageCapMinor: agents.items.find((a) => a.id === w.agentId)?.wageCapMinor ?? null, wageCapCurrency: CREDITS_CURRENCY }));
       return { period, label: "Estimate" as const, currency: CREDITS_CURRENCY, rows, totalMinor: wages.reduce((a, w) => a + w.costMinor, 0) };
     }),
   ),

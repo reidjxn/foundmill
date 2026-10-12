@@ -301,7 +301,7 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         const live = agent.currentVersionId ? await repos.agents.getVersion(db, businessId, agent.currentVersionId) : null;
         const instructions = { ...((live?.instructions ?? {}) as Record<string, unknown>), ...(typeof p.instructions === "object" && p.instructions ? (p.instructions as Record<string, unknown>) : {}) };
         const draft = await repos.agents.createVersion(db, businessId, agent.id, { instructions: instructions as never, tools: live?.tools ?? [], modelKey: isModelKey(p.model_key) ? p.model_key : agent.modelKey, state: "draft", createdByKind: "agent" });
-        const run = await repos.training.create(db, businessId, { agentId: agent.id, fromVersionId: live?.id ?? null, toVersionId: draft.id, status: "queued", currency });
+        const run = await repos.training.create(db, businessId, { agentId: agent.id, fromVersionId: live?.id ?? null, toVersionId: draft.id, status: "queued" }); // its cost is model spend: US cents (0024)
         return { result: { trainingRunId: run.id, draftVersionId: draft.id }, spawn: [{ workflow: "trainingRun", workflowId: `training:${run.id}`, args: { businessId, trainingRunId: run.id } }] };
       }
       case "set_agent_model": {

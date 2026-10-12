@@ -182,6 +182,19 @@ test.describe("agent profile", () => {
     expect(page.url()).toContain(`/b/${NORTHWIND_BUSINESS_ID}/agents/`);
   });
 
+  test("model costs read in US dollars on a business that keeps its books in pounds", async ({ page }) => {
+    await openSquadAgent(page);
+    await page.getByRole("tab", { name: "History" }).click();
+    const history = page.getByTestId("agent-history");
+    await expect(history).toBeVisible({ timeout: LONG });
+    await expect(history).toContainText("$");
+    await expect(history).not.toContainText("£");
+    await page.getByRole("tab", { name: "Logs" }).click();
+    const logs = page.getByTestId("agent-logs");
+    await expect(logs).toBeVisible({ timeout: LONG });
+    await expect(logs).not.toContainText("£");
+  });
+
   test("Talk opens the agent's desk as a sheet; a starter gets a reply in the agent's voice, with 2–4 quick replies", async ({ page }) => {
     await openSquadAgent(page);
     await page.getByTestId("header-talk").click();

@@ -50,7 +50,8 @@ export function readAgents(data: TeamAgentRow[] | { agents: TeamAgentRow[] } | u
 
 /** One row per agent with usage in the period; agents without usage still appear (zero cost) so caps are visible. */
 export function wageBillRows(wages: readonly WageRow[], agents: readonly TeamAgentRow[], tasks: readonly TaskRow[], period: string, currencies: { cost: string; cap: string } | null = null): WageBillRow[] {
-  // Costs are metered in US dollars and a wage cap is in the agent's currency: the share used shows only when they match.
+  // Costs are metered in US dollars and wage caps are US dollars too; a share is shown only when the two currencies match
+  // (an answer that labels them differently is never compared, nothing is converted).
   const comparable = currencies === null || currencies.cost === currencies.cap;
   const doneByAgent = new Map<string, number>();
   for (const t of tasks) {
@@ -117,7 +118,7 @@ export function perHundredLabel(currency: string): string {
   return symbol ? `Tasks per ${symbol}100` : `Tasks per 100 ${currency}`;
 }
 
-/** `currency` is the costs' (US dollars, metered); `capCurrency` the wage caps' (the agents' currency). */
+/** `currency` is the costs' (US dollars, metered); `capCurrency` the wage caps' (US dollars too; finance.wages `wageCapCurrency`). */
 export function wageColumns(businessId: string, currency: string, sizes: Record<WageColumnId, number> = fitColumns<WageColumnId>(null, WAGE_FIT, []), capCurrency: string = currency): DataTableColumn<WageBillRow>[] {
   return [
     { id: "name", accessorKey: "name", header: "Agent", size: sizes.name, cell: ({ row }) => <EntityLink entity={{ id: row.original.agentId, kind: "agent", name: row.original.name, href: routes.agent(businessId, row.original.agentId) }} />, meta: { locked: true } },
@@ -185,10 +186,12 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
   const pnl = useWidgetQuery<PnlResponse>("finance.pnl", range);
   const [views, setViews] = useState<SavedView[]>(WAGE_VIEWS);
 
-  // The team's cost is metered in US dollars (finance.wages `currency`); staff payroll and wage caps are the business's.
+  // The team's cost is metered in US dollars (finance.wages `currency`) and wage caps cap that cost (`wageCapCurrency`,
+  // US dollars too); staff payroll is in the business's currency.
   const teamCurrency = wages.data?.currency ?? currency;
-  const rows = useMemo(() => wageBillRows(wages.data?.rows ?? [], readAgents(agents.data), tasks.data?.items ?? [], period, { cost: teamCurrency, cap: currency }), [wages.data, agents.data, tasks.data, period, teamCurrency, currency]);
-  const columns = useMemo(() => fitToGrow(wageColumns(businessId, teamCurrency, undefined, currency), WAGE_FIT), [businessId, teamCurrency, currency]);
+  const capCurrency = wages.data?.rows.find((r) => r.wageCapCurrency)?.wageCapCurrency ?? teamCurrency;
+  const rows = useMemo(() => wageBillRows(wages.data?.rows ?? [], readAgents(agents.data), tasks.data?.items ?? [], period, { cost: teamCurrency, cap: capCurrency }), [wages.data, agents.data, tasks.data, period, teamCurrency, capCurrency]);
+  const columns = useMemo(() => fitToGrow(wageColumns(businessId, teamCurrency, undefined, capCurrency), WAGE_FIT), [businessId, teamCurrency, capCurrency]);
   const squadMinor = rows.reduce((n, r) => n + r.costMinor, 0);
   const tasksDone = rows.reduce((n, r) => n + r.tasksDone, 0);
   const payrollMinor = useMemo(() => {

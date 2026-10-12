@@ -4,7 +4,7 @@
  * of a month; none for a business on its own key), a full plan defers every start, and a small balance still runs work.
  */
 import { CREDITS_CURRENCY, includedCreditsMinor, TIERS } from "@foundmill/config";
-import { repos } from "@foundmill/db";
+import { periodOf, repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createBriefActivities } from "../activities/brief";
 import { createCycleActivities } from "../activities/cycle";
@@ -37,6 +37,27 @@ describe("loadBrief: the plan tier and credits", () => {
     expect(own.budgetRemainingMinor).toBeNull();
     expect(own.text).toContain("the founder's own Anthropic key");
     await repos.businesses.update(t.db, t.businessId, { modelBilling: "credits" });
+  });
+
+  it("with this month's credits used up, the brief has no budget and the cycle plan drafts nothing on the platform's key", async () => {
+    const { loadBrief } = createBriefActivities(t.deps);
+    const { planCycle } = createCycleActivities(t.deps);
+    const period = periodOf(t.deps.clock.now());
+    const { balance } = await repos.usage.ensurePeriodCredits(t.db, t.businessId, period, includedCreditsMinor("free"));
+    await repos.usage.chargeCredits(t.db, t.businessId, period, Number(balance.balanceMinor));
+    try {
+      const brief = await loadBrief({ businessId: t.businessId });
+      expect(brief.budgetRemainingMinor).toBe(0);
+      expect(brief.maxAgents).toBeGreaterThan(0);
+      const ledgerBefore = (await repos.usage.list(t.db, t.businessId, { limit: 500 })).items.length;
+      const plan = await planCycle({ businessId: t.businessId, cycleNumber: 1, trigger: "continue", brief });
+      expect(plan).toMatchObject({ starts: [], costMinor: 0 });
+      expect(plan.deferred.length).toBeGreaterThan(0);
+      expect(plan.deferred.every((d) => d.reason === "credits used up for this month")).toBe(true);
+      expect((await repos.usage.list(t.db, t.businessId, { limit: 500 })).items).toHaveLength(ledgerBefore);
+    } finally {
+      await repos.usage.grantCredits(t.db, t.businessId, period, includedCreditsMinor("free"));
+    }
   });
 
   it("with every slot of the plan in use, the cycle plan defers each start", async () => {

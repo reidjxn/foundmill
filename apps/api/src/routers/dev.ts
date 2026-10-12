@@ -6,7 +6,7 @@
  */
 import { FLAGS, isSimulateEnv } from "@foundmill/config";
 import { HOUSE_STYLE } from "@foundmill/agents";
-import { TaskListFilter, codeRepositoryOf, periodOf, repos, type AgentSession, type Task } from "@foundmill/db";
+import { TaskListFilter, assertConcurrencyRoom, codeRepositoryOf, periodOf, repos, type AgentSession, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
 import { TaskGraphOutput } from "@foundmill/models";
 import { AppError, NotFoundError, ValidationError, connectorMode, type TaskStatus } from "@foundmill/shared";
@@ -160,6 +160,8 @@ export const devRouter = router({
       if (assignee.status === "paused") throw new TaskStartError(assignee.pausedReason === "wage_cap" ? `${assignee.name} reached its wage cap for the month and is paused. Raise the cap on its profile or reassign the task.` : `${assignee.name} is paused. Resume the agents or reassign the task first.`, { pausedReason: assignee.pausedReason });
       const spend = await repos.usage.agentSpend(ctx.db, ctx.businessId, assignee.id, periodOf(new Date()));
       if (spend.remainingMinor !== null && spend.remainingMinor <= 0) throw new TaskStartError(`${assignee.name} reached its wage cap for the month. Raise the cap on its profile or reassign the task.`);
+      // Plan tier (BUILD §10.5): a task started by hand takes a concurrent-agent slot like a cycle's dispatch.
+      await assertConcurrencyRoom(ctx.db, ctx.business);
       // Exactly one start wins the task; a second (double click, another tab) finds it running and is refused.
       const claimed = await ctx.rls((tx) => repos.tasks.claimForStart(tx, ctx.businessId, task.id, STARTABLE_TASK_STATUSES));
       if (!claimed) throw new TaskStartError("The task was just started.");

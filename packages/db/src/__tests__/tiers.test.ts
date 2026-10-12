@@ -6,7 +6,7 @@ import { TIERS } from "@foundmill/config";
 import { TierLimitError } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../repos";
-import { assertBusinessAllowance, assertSeatAvailable, businessAllowance, concurrencyAllowance, OPEN_SESSION_WINDOW_HOURS, seatAllowance } from "../tiers";
+import { assertBusinessAllowance, assertConcurrencyRoom, assertSeatAvailable, businessAllowance, concurrencyAllowance, OPEN_SESSION_WINDOW_HOURS, seatAllowance } from "../tiers";
 import { setupRepoHarness, type RepoHarness } from "./repos/helpers";
 
 let r: RepoHarness;
@@ -70,8 +70,11 @@ describe("concurrent agents", () => {
     await repos.agents.endSession(r.db, r.B.businessId, ended.id, { outcome: "done" });
     await repos.agents.createSession(r.db, r.B.businessId, { agentId: r.B.agentId, startedAt: new Date(now.getTime() - (OPEN_SESSION_WINDOW_HOURS + 1) * 3_600_000) });
     expect(await concurrencyAllowance(r.db, business, now)).toMatchObject({ running: 4, room: 0 });
+    // One more session by hand is refused with a typed error while every slot is taken.
+    await expect(assertConcurrencyRoom(r.db, business, now)).rejects.toMatchObject({ code: "tier_limit", details: { limit: "concurrent_agents", tier: "free", allowed: 4, used: 4, planBusinessId: r.B.businessId } });
     // A larger tier has room; the room never goes below zero.
     expect(await concurrencyAllowance(r.db, { ...business, planTier: "pro" }, now)).toEqual({ limit: 16, running: 4, room: 12 });
+    await expect(assertConcurrencyRoom(r.db, { ...business, planTier: "pro" }, now)).resolves.toMatchObject({ room: 12 });
     // Business A's sessions are its own.
     expect((await concurrencyAllowance(r.db, await repos.businesses.get(r.db, r.A.businessId), now)).running).toBe(1);
   });

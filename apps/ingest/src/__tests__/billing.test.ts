@@ -6,7 +6,7 @@
  * grants nothing; another business's checkout is never touched.
  */
 import { MOCK_NOW, stripeSignatureHeader } from "@foundmill/connectors";
-import { repos } from "@foundmill/db";
+import { creditsState, repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BILLING_WEBHOOK_PATH } from "../billing";
 import { createIngestHarness, json, type IngestHarness } from "./harness";
@@ -38,7 +38,9 @@ async function post(event: unknown, opts: { secret?: string; timestamp?: number;
   const res = await fetch(`${opts.base ?? hz.base}${BILLING_WEBHOOK_PATH}`, { method: "POST", headers: { "content-type": "application/json", "stripe-signature": stripeSignatureHeader(opts.secret ?? SECRET, body, opts.timestamp ?? T) }, body });
   return { status: res.status, body: await json(res) };
 }
-const balance = async (businessId: string) => Number((await repos.usage.creditBalance(hz.db, businessId, period))?.balanceMinor ?? 0);
+// What the business can spend this period: the balance row, or what its tier includes before the month's first row (a
+// top-up that comes first starts the row with the included credits).
+const balance = async (businessId: string) => Number((await creditsState(hz.db, await repos.businesses.get(hz.db, businessId), period))?.balanceMinor ?? 0);
 
 describe("POST /billing/stripe", () => {
   it("a paid session grants its checkout's credits once and audits it; the same event again is refused as a replay", async () => {
@@ -80,6 +82,7 @@ describe("POST /billing/stripe", () => {
   it("grants nothing for an unpaid session, another amount, a mock checkout, or a checkout of another business", async () => {
     const c = await liveCheckout(hz.A.businessId, 10_000);
     const before = await balance(hz.A.businessId);
+    const beforeB = await balance(hz.B.businessId);
     expect((await post(sessionEvent("checkout.session.completed", c, { payment_status: "unpaid" }))).body).toMatchObject({ outcome: "awaiting_payment" });
     expect((await post(sessionEvent("checkout.session.completed", c, { amount_total: 100 }))).body).toMatchObject({ outcome: "mismatch" });
     expect((await post(sessionEvent("checkout.session.completed", c, { currency: "eur" }))).body).toMatchObject({ outcome: "mismatch" });
@@ -87,7 +90,7 @@ describe("POST /billing/stripe", () => {
     const mock = await repos.checkouts.create(hz.db, hz.A.businessId, { mode: "mock", amountMinor: 10_000 });
     expect((await post(sessionEvent("checkout.session.completed", { ...mock, externalId: "cs_test_forged", amountMinor: 10_000 }))).body).toMatchObject({ outcome: "mismatch" });
     expect(await balance(hz.A.businessId)).toBe(before);
-    expect(await balance(hz.B.businessId)).toBe(0);
+    expect(await balance(hz.B.businessId)).toBe(beforeB);
     // Not a Foundmill top-up at all (another product on the platform account): acknowledged and ignored.
     expect((await post({ ...sessionEvent("checkout.session.completed", c), data: { object: { id: "cs_test_other", mode: "payment", payment_status: "paid", amount_total: 999, currency: "usd", metadata: {} } } })).body).toMatchObject({ outcome: "ignored" });
     expect((await post({ id: "evt_billing_invoice", type: "invoice.paid", created: T, data: { object: {} } })).body).toMatchObject({ outcome: "ignored" });

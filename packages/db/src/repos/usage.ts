@@ -202,7 +202,7 @@ export const usageRepo = {
     return rows.map((x) => ({ agentId: x.agentId, name: x.name, costMinor: Number(x.cost), tokens: Number(x.tokens), sandboxMinutes: Number(x.sandbox), toolCalls: Number(x.tools), trainingMinor: Number(x.training) }));
   },
 
-  /** Month-to-date USD spend for an agent against its wage cap (null cap = uncapped). */
+  /** Month-to-date USD spend for an agent against its wage cap, which is in US dollars too (null cap = uncapped). */
   async agentSpend(db: Executor, businessId: string, agentId: string, period: string): Promise<{ costMinor: number; wageCapMinor: number | null; remainingMinor: number | null }> {
     const { from, to } = periodRange(period);
     const [row] = await db
