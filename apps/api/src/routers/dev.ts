@@ -123,7 +123,7 @@ export const devRouter = router({
     ),
 
     /** Start: the task becomes ready/running and an agentSession workflow is started for it. */
-    start: write.input(z.object({ taskId: Id })).mutation(async ({ ctx, input }) => {
+    start: write.input(z.object({ taskId: Id })).use(modelLimited("session")).mutation(async ({ ctx, input }) => {
       const task = await ctx.rls((tx) => repos.tasks.get(tx, ctx.businessId, input.taskId));
       if (!task.assigneeAgentId) throw new ValidationError("Assign an agent before starting the task");
       const assignee = await ctx.rls((tx) => repos.agents.get(tx, ctx.businessId, task.assigneeAgentId!));
