@@ -1,8 +1,10 @@
 import "./setup";
 import { describe, expect, it, vi } from "vitest";
-import { act, fireEvent, screen, within } from "@testing-library/react";
-import { SourcesScreen } from "../SourcesScreen";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { IMPORT_POLL_MS, SourcesScreen } from "../SourcesScreen";
 import { createFakeSource, renderScreen } from "./fake-source";
+import type { SourceRow } from "../types";
 import { BID, BLOCK, dataResponses, emptyResponses } from "./fixtures";
 
 const departments = [{ id: "d1", name: "Product", slug: "product", colourToken: "dept-1", position: 0, moduleKeys: ["product"], lead: null, squad: [], tabs: [{ id: "t1", slug: "specification", title: "Specification", position: 1 }] }];
@@ -22,6 +24,67 @@ describe("SourcesScreen", () => {
     const filters = screen.getByRole("group", { name: "Filter by kind" });
     expect(within(filters).getByRole("button", { name: /Competitor 1/ })).toBeTruthy();
     expect(screen.getByText(/4 sources ·/)).toBeTruthy();
+  });
+
+  it("says whether each imported source was read, and labels a summary nobody read Estimate (Door B)", () => {
+    const at = "2026-10-05T10:00:00Z";
+    const imported: SourceRow[] = [
+      { id: "aaaaaaaa-0000-4000-8000-000000000001", kind: "doc", uri: "https://github.com/acme/ledgerly", title: "GitHub import: acme/ledgerly", contentRef: null, relevance: { import: { key: "github", status: "read" }, imported: true, connector: "github", tool: "read_tree" }, fetchedAt: at, createdAt: at },
+      { id: "aaaaaaaa-0000-4000-8000-000000000002", kind: "finance", uri: "https://dashboard.stripe.com/", title: "Stripe import", contentRef: null, relevance: { import: { key: "stripe", status: "pending" } }, fetchedAt: null, createdAt: at },
+      { id: "aaaaaaaa-0000-4000-8000-000000000003", kind: "issue", uri: "https://linear.app/", title: "Linear import", contentRef: null, relevance: { import: { key: "linear", status: "failed" }, imported: false, reason: "no import reader for this source yet" }, fetchedAt: null, createdAt: at },
+      // Stored by the sign-up simulation before the fix: "done", an invented summary, never fetched.
+      { id: "aaaaaaaa-0000-4000-8000-000000000004", kind: "finance", uri: "https://admin.shopify.com/", title: "Shopify import", contentRef: null, relevance: { import: { key: "shopify", status: "done", provenance: "Estimate" }, summary: "164 orders, 12 products" }, fetchedAt: null, createdAt: at },
+    ];
+    const fake = createFakeSource({ businessId: BID, responses: { ...responses, "product.sources.list": { items: imported, nextCursor: null } } });
+    renderScreen(fake, <SourcesScreen businessId={BID} departmentId="d1" />);
+    const table = screen.getByRole("grid", { name: "Sources" });
+    const stateOf = (title: string) => within(table).getByText(title).closest("[role='row']")!.querySelector("[data-import-state]")!.getAttribute("data-import-state");
+    expect(stateOf("GitHub import: acme/ledgerly")).toBe("read");
+    expect(stateOf("Stripe import")).toBe("pending");
+    expect(stateOf("Linear import")).toBe("not_read");
+    expect(stateOf("Shopify import")).toBe("not_read");
+    expect(within(table).getByText("Read through github (read_tree), read only.")).toBeTruthy();
+    expect(within(table).getByText("Not read: no import reader for this source yet.")).toBeTruthy();
+    const shopify = within(table).getByText("Shopify import").closest("[role='row']") as HTMLElement;
+    expect(within(shopify).getByText("Estimate")).toBeTruthy();
+    expect(within(table).getAllByText("Estimate")).toHaveLength(1);
+  });
+
+  it("reads again the imported sources that were not read: Read now on the panel and in a row's menu (Door B)", async () => {
+    const user = userEvent.setup();
+    const at = "2026-10-05T10:00:00Z";
+    const LINEAR = "aaaaaaaa-0000-4000-8000-000000000003";
+    const STRIPE = "aaaaaaaa-0000-4000-8000-000000000002";
+    const imported: SourceRow[] = [
+      { id: "aaaaaaaa-0000-4000-8000-000000000001", kind: "doc", uri: "https://github.com/acme/ledgerly", title: "GitHub import: acme/ledgerly", contentRef: null, relevance: { import: { key: "github", status: "read" }, imported: true, connector: "github", tool: "read_tree" }, fetchedAt: at, createdAt: at },
+      { id: STRIPE, kind: "finance", uri: "https://dashboard.stripe.com/", title: "Stripe import", contentRef: null, relevance: { import: { key: "stripe", status: "failed" }, imported: false, reason: "Stripe is not connected for this business; connect it in Settings › Integrations" }, fetchedAt: null, createdAt: at },
+      { id: LINEAR, kind: "issue", uri: "https://linear.app/", title: "Linear import", contentRef: null, relevance: { import: { key: "linear", status: "failed" }, imported: false, reason: "the import has no reader for this source yet" }, fetchedAt: null, createdAt: at },
+    ];
+    const fake = createFakeSource({ businessId: BID, responses: { ...responses, "product.sources.list": { items: imported, nextCursor: null } }, onMutate: () => ({ sourceIds: [], workflow: { queued: true, workflowId: "import:x" } }) });
+    renderScreen(fake, <SourcesScreen businessId={BID} departmentId="d1" />);
+    const button = screen.getByTestId("read-imports-now");
+    expect(button.textContent).toBe("Read now · 2");
+    await user.click(button);
+    await waitFor(() => expect(fake.mutations[0]).toEqual({ path: "import.readAgain", input: { sourceIds: [STRIPE, LINEAR] } }));
+    await waitFor(() => expect(fake.refetches["product.sources.list"]).toBeGreaterThan(0));
+
+    const table = screen.getByRole("grid", { name: "Sources" });
+    fireEvent.contextMenu(within(table).getByText("GitHub import: acme/ledgerly"));
+    expect(within(await screen.findByRole("menu")).queryByRole("menuitem", { name: "Read now" })).toBeNull();
+    await user.keyboard("{Escape}");
+    fireEvent.contextMenu(within(table).getByText("Linear import"));
+    await user.click(await screen.findByRole("menuitem", { name: "Read now" }));
+    await waitFor(() => expect(fake.mutations[1]).toEqual({ path: "import.readAgain", input: { sourceIds: [LINEAR] } }));
+  });
+
+  it("shows no Read now when every imported source was read, and polls only while an import is still reading", () => {
+    const fake = createFakeSource({ businessId: BID, responses });
+    renderScreen(fake, <SourcesScreen businessId={BID} departmentId="d1" />);
+    expect(screen.queryByTestId("read-imports-now")).toBeNull();
+    expect(fake.intervals["product.sources.list"]).toBeUndefined();
+    const at = "2026-10-05T10:00:00Z";
+    act(() => fake.setResponse("product.sources.list", { items: [{ id: "aaaaaaaa-0000-4000-8000-000000000009", kind: "doc", uri: "https://github.com/acme/ledgerly", title: "GitHub import: acme/ledgerly", contentRef: null, relevance: { import: { key: "github", status: "pending" } }, fetchedAt: null, createdAt: at }], nextCursor: null }));
+    expect(fake.intervals["product.sources.list"]).toBe(IMPORT_POLL_MS);
   });
 
   it("filters by kind through the query input and navigates to a linked spec block", () => {

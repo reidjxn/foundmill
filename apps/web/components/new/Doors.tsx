@@ -52,7 +52,7 @@ const DOORS: Door[] = [
     icon: FolderInput,
     kicker: "Door B",
     title: "Import what exists",
-    lede: "Point the Import agent at your repository, documents, trackers, revenue and registry. It reads, never writes, and returns an Import report with first decisions.",
+    lede: "Point the Import agent at your repository, documents, trackers, revenue and registry. It checks them, returns an Import report with first decisions, and reads them once you take charge. It never writes.",
     steps: ["GitHub, Drive, Notion, Linear, Jira, website", "Stripe, Shopify, bank, company registry", "Import report: what exists, what is missing", "Commit and take charge"],
     cta: "Choose sources",
   },

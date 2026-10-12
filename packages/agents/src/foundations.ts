@@ -716,7 +716,7 @@ export interface FoundationsNoteStats {
  * ask; 60-180 words). Deterministic from the draft, so it needs no second model call and invents nothing.
  */
 export function foundationsReadyNote(draft: FoundationsDraft, door: FoundationsDoor, stats: FoundationsNoteStats): { subject: string; bodyMd: string } {
-  const from = door === "import" ? "the Import report and the sources you connected" : "your idea and your founder profile";
+  const from = door === "import" ? "the Import report (it says which of your sources have been read)" : "your idea and your founder profile";
   const kept = stats.sectionsKept ? `, ${stats.sectionsKept} left as the team wrote them` : "";
   const issues = stats.importedIssues ? `, including ${stats.importedIssues} open issue${stats.importedIssues === 1 ? "" : "s"} from the import` : "";
   // Model text goes in as plain, escaped text: the note is rendered as Markdown and stored without entity ids (M1).

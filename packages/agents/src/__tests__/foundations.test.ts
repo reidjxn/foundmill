@@ -242,7 +242,7 @@ describe("finaliseFoundations over the mock drafter", () => {
       expect(item!.sourceRef).toBe(seed.source);
       expect(item!.descriptionMd).toContain(seed.source);
     }
-    expect(draft.vision.whyNow).toMatch(/imported sources/);
+    expect(draft.vision.whyNow).toMatch(/pointed the import at \d+ existing source/);
   });
 
   it("is deterministic in its inputs", async () => {

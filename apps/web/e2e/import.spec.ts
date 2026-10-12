@@ -15,6 +15,8 @@ test.describe("import", () => {
 
   test("lists ten read-only sources and validates the repository", async ({ page }) => {
     await expect(page.locator("[data-source]")).toHaveCount(10);
+    // Sources the import cannot read yet say so before the founder picks them.
+    await expect(page.getByTestId("no-import-reader")).toHaveCount(3);
     // One "Read only" chip per source (the bank source's description also says "Read only.", hence the exact match).
     await expect(page.locator("[data-source]").getByText("Read only", { exact: true })).toHaveCount(10);
     await expect(page.getByTestId("start-import")).toBeDisabled();
@@ -23,18 +25,23 @@ test.describe("import", () => {
     await expect(page.getByRole("alert").filter({ hasText: /owner\/name/ }).first()).toBeVisible();
   });
 
-  test("AC-11.1.5: a GitHub import never pushes and the Import report seeds the roadmap from open issues", async ({ page }) => {
+  test("AC-11.1.5: a GitHub import never pushes, and the Import report claims nothing it has not read", async ({ page }) => {
     await page.getByLabel("Import from GitHub").check();
     await page.getByLabel("Repository").fill("acme/ledgerly");
     await page.getByLabel("Import from Stripe").check();
     await page.getByTestId("start-import").click();
-    await expect(page.getByTestId("import-progress")).toBeVisible();
-    await expect(page.locator('[data-source-progress="github"] [data-step-status="done"]')).toHaveCount(6, { timeout: LONG });
+    // Two checks of 120 ms: the progress may pass too quickly to see, so the spec waits for the report.
     const report = page.getByTestId("scouting-report");
     await expect(report).toBeVisible({ timeout: LONG });
+    // Before the business exists the job checks the repository name; the read itself waits for Take charge.
+    await expect(page.locator('[data-source-progress="github"] [data-step-status="done"]')).toHaveCount(1);
+    await expect(page.locator('[data-source-progress="github"] [data-step-status="planned"]')).toHaveCount(1);
     await expect(page.getByTestId("never-pushed")).toHaveText(/Nothing was pushed/);
+    await expect(page.getByTestId("report-read-state")).toHaveText(/Nothing read yet/);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Import report: Ledgerly");
-    expect(await page.getByTestId("roadmap-seeds").locator("li").count()).toBeGreaterThanOrEqual(3);
+    // No invented counts or issues: the roadmap seeds are empty and every strength is worded "Once …".
+    await expect(page.getByTestId("roadmap-seeds").locator("li")).toHaveCount(0);
+    await expect(report).not.toContainText(/\d+ (files read|customers|open issues)/);
     await expect(page.getByTestId("first-decisions").locator("[data-recommended]")).toHaveCount(1);
     await expect(report.getByText("Estimate").first()).toBeVisible();
 

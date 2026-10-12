@@ -153,6 +153,24 @@ export type InteractionKind = (typeof INTERACTION_KINDS)[number];
 export const SOURCE_KINDS = ["doc", "issue", "feedback", "transcript", "competitor", "legal", "finance"] as const;
 export type SourceKind = (typeof SOURCE_KINDS)[number];
 
+/**
+ * Door B (BUILD §11.1): the one read-only gateway call that reads each import source, keyed by the import source key
+ * (apps/api `IMPORT_SOURCE_KEYS`). apps/api words the Import report from it and the orchestrator's `importSource` makes
+ * the call; a source without a reader (null) is reported as not read, never as imported.
+ */
+export const IMPORT_READERS: Readonly<Record<string, { connector: string; tool: string } | null>> = {
+  github: { connector: "github", tool: "read_tree" },
+  google_drive: { connector: "google_drive", tool: "search_files" },
+  notion: { connector: "notion", tool: "search" },
+  stripe: { connector: "stripe", tool: "get_account" },
+  shopify: { connector: "shopify", tool: "get_shop" },
+  bank: { connector: "tink", tool: "list_accounts" },
+  registry: { connector: "opencorporates", tool: "search_companies" },
+  linear: null,
+  jira: null,
+  website: null,
+};
+
 export const PROPOSAL_STATUSES = ["open", "accepted", "partially_accepted", "rejected"] as const;
 export type ProposalStatus = (typeof PROPOSAL_STATUSES)[number];
 

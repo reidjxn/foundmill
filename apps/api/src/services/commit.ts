@@ -4,10 +4,12 @@
  * In ONE service-role transaction: business + owner membership → idea stamped → departments from the archetype seed →
  * agents hired from templates (versions + baseline skills) → leads set → module screens → channels (all 15, starters
  * enabled) → spec outline blocks → the foundations row (pending; Door B also links its Import job: the report is
- * snapshotted and the imported sources become `sources`) → first-cycle tasks → the founder's Home dashboard → the first
- * Board decision in the Inbox → `idea.committed` through the outbox → audit. After commit the first businessCycle is
- * started on Temporal (reported as `{ queued, reason }`; the business is complete without it). The vision,
- * specification content and roadmap are drafted on the first open (services/foundations.ts).
+ * snapshotted and the chosen sources become `sources`, not read yet) → first-cycle tasks → the founder's Home dashboard →
+ * the first Board decision in the Inbox → `idea.committed` through the outbox → audit. After commit the first
+ * businessCycle is started on Temporal, and for Door B the `importBusiness` workflow that reads the sources through the
+ * gateway (both reported as `{ queued, reason }`; the business is complete without them, and a source nothing will read
+ * is marked not read). The vision, specification content and roadmap are drafted on the first open
+ * (services/foundations.ts).
  */
 import { randomUUID } from "node:crypto";
 import { getArchetypeSeed, getTemplate } from "@foundmill/agents";
@@ -20,6 +22,7 @@ import { hireMany, type PlannedHire } from "./squad";
 import type { TemporalService } from "./temporal";
 import { WORKFLOWS, workflowIds } from "./temporal";
 import { importJobIdOf, resolveImportLink, seedFoundations, type ImportLink } from "./foundations";
+import { queueImportReads } from "./import";
 
 export interface CommitIdeaInput {
   ideaId: string;
@@ -42,6 +45,8 @@ export interface CommitIdeaResult {
   boardItem: InboxItem;
   taskIds: string[];
   cycle: { queued: boolean; workflowId: string; reason?: string };
+  /** Door B: the `importBusiness` workflow reading the imported sources through the gateway (null for Door A). */
+  import: { queued: boolean; workflowId: string; reason?: string } | null;
   /** The vision, specification and roadmap wait for the first open (BUILD §11.1, §11.5). */
   foundations: { status: "pending"; door: "ideation" | "import"; importSourceIds: string[] };
 }
@@ -262,7 +267,9 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   });
 
   const cycle = await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue" }] });
-  return { ...result, cycle };
+  // Door B: the sign-up job read nothing; this is the import that reads the sources (or marks them not read).
+  const imported = result.foundations.importSourceIds.length ? await queueImportReads({ db, temporal }, result.business.id, result.foundations.importSourceIds) : null;
+  return { ...result, cycle, import: imported };
 }
 
 /** Templates the archetype hires, for the Commit screen preview. */

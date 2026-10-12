@@ -42,6 +42,7 @@ export const workflowIds = {
   incorporation: (incorporationId: string) => `incorporation:${incorporationId}`,
   playbook: (playbookId: string) => `playbook:${playbookId}`,
   foundations: (businessId: string, attempt: number) => `foundations:${businessId}:${attempt}`,
+  importBusiness: (businessId: string, at: Date) => `import:${businessId}:${at.getTime().toString(36)}`,
 } as const;
 
 export interface TemporalResult {

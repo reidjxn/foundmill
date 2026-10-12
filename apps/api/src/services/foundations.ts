@@ -4,7 +4,8 @@
  *
  * - Commit writes the `business_foundations` row (pending) and, for a business that came through Import (Door B),
  *   links the Import job: the job id travels on the idea Import drafted (`idea.generate({ importJobId })`), commit
- *   snapshots the Import report on the row and stores the imported sources as the business's `sources`.
+ *   snapshots the Import report on the row and stores the chosen sources as the business's `sources`, not read yet;
+ *   commit then starts `importBusiness`, which reads them through the gateway (services/import.ts).
  * - The first open (`product.foundations.ensure`, called by the business shell) claims the row exactly once and starts
  *   the orchestrator's `businessFoundations` workflow (`foundations:{businessId}:{attempt}`). When Temporal does not
  *   answer, the same drafting runs here in the background (`runner: local`), never inside the request.
@@ -34,7 +35,7 @@ import { repos, type BusinessFoundationsRow, type Db, type DbTx, type Source } f
 import type { ModelClient } from "@foundmill/models";
 import type { FoundationsDoor, FoundationsRunner, FoundationsStatus } from "@foundmill/shared";
 import { writeEventRow } from "./events";
-import { IMPORT_SOURCES, decodeJobId, importStatus, localJobAt, sourceUri, validateConfigs, webUri, type ImportStatus, type ScoutingReport } from "./import";
+import { decodeJobId, importSourceRow, importStatus, localJobAt, validateConfigs, type ImportStatus, type ScoutingReport } from "./import";
 import type { ApiLogger } from "./log";
 import { WORKFLOWS, workflowIds, type TemporalService } from "./temporal";
 
@@ -313,7 +314,12 @@ export async function resolveImportLink(db: Db, key: string, jobId: string | nul
   return { jobId: usable, status, report: status.report };
 }
 
-/** Inside the commit transaction: the foundations row (pending) and, for Door B, the imported sources. */
+/**
+ * Inside the commit transaction: the foundations row (pending) and, for Door B, the chosen sources as `sources` rows
+ * that are not read yet (`import.status: "pending"`, no summary). The sign-up job read nothing, so nothing it showed is
+ * stored as a finding; commit then starts `importBusiness`, which reads each row through the gateway and records what
+ * it read or why it could not.
+ */
 export async function seedFoundations(tx: DbTx, businessId: string, input: { ideaId: string; link: ImportLink | null }): Promise<{ sources: Source[] }> {
   const { link } = input;
   await repos.foundations.create(tx, businessId, {
@@ -324,16 +330,6 @@ export async function seedFoundations(tx: DbTx, businessId: string, input: { ide
   });
   const sources: Source[] = [];
   if (!link) return { sources };
-  for (const s of link.status.job.sources) {
-    const meta = IMPORT_SOURCES[s.key];
-    sources.push(
-      await repos.product.createSource(tx, businessId, {
-        kind: meta.sourceKind,
-        uri: webUri(sourceUri(s.key, s.value)),
-        title: `${meta.label} import${s.value ? `: ${s.value}` : ""}`.slice(0, 400),
-        relevance: { import: { key: s.key, value: s.value, connector: meta.connectorKey, readOnly: true, status: s.status, summary: s.summary, provenance: "Estimate" }, summary: s.summary ?? undefined },
-      }),
-    );
-  }
+  for (const s of link.status.job.sources) sources.push(await repos.product.createSource(tx, businessId, importSourceRow(s.key, s.value)));
   return { sources };
 }
