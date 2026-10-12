@@ -1,13 +1,13 @@
 /**
  * business.get/update/setGameMode/setBusinessMode/continue/pauseCycle/resumeCycle/startHoliday/endHoliday/stopAllAgents/
- * export/archive/requestDeletion/cancelDeletion (BUILD §9.4, §9.6, §11.15, §14).
+ * resumeAgents/export/archive/requestDeletion/cancelDeletion (BUILD §9.4, §9.6, §11.15, §14).
  */
 import { LIMITS } from "@foundmill/config";
 import { repos, UpdateBusinessInput } from "@foundmill/db";
 import { BUSINESS_MODES, DECISION_TYPES, EVENT_TYPES, GAME_MODES } from "@foundmill/shared";
 import { z } from "zod";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
-import { stopAllAgents } from "../services/killswitch";
+import { assertAgentsRunning, resumeAgents, stopAllAgents } from "../services/killswitch";
 import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, requestDeletion } from "../services/lifecycle";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { adminProcedure, audit, businessProcedure, emit, ownerProcedure, router, writeProcedure } from "../trpc";
@@ -119,6 +119,8 @@ export const businessRouter = router({
       const authority = input.authority.filter((d) => d !== "sign_contracts");
       const existing = await repos.holidays.current(ctx.db, ctx.businessId);
       if (existing) return { holiday: existing, workflow: { queued: false, workflowId: workflowIds.holiday(existing.id), reason: "a vacation is already running" } };
+      // A vacation runs cycles: none starts while the team is stopped.
+      await assertAgentsRunning(ctx, "a vacation");
       const holiday = await ctx.rls(async (tx) => {
         const h = await repos.holidays.start(tx, ctx.businessId, {
           untilAt: input.until.kind === "date" ? input.until.date : null,
@@ -183,6 +185,12 @@ export const businessRouter = router({
 
   /** Kill switch (BUILD §14): ≤ 30 s, pauses workflows, engines and campaigns; works without Temporal. */
   stopAllAgents: adminProcedure.input(z.object({ reason: z.string().max(200).default("kill_switch") })).mutation(({ ctx, input }) => stopAllAgents(ctx, input.reason)),
+  /**
+   * The way back from the kill switch, a revoked key or used-up credits (owner or admin, audited): lifts the stop, sets
+   * the agents it paused back to idle and restarts the channel engines it ended. CONFLICT while the team could not run
+   * (its own key missing, credits used up).
+   */
+  resumeAgents: adminProcedure.mutation(({ ctx }) => resumeAgents(ctx)),
 
   /** Audit trail (read-only, hash-chained). */
   audit: adminProcedure.input(z.object({ limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() })).query(({ ctx, input }) => ctx.rls((tx) => repos.audit.list(tx, ctx.businessId, input))),

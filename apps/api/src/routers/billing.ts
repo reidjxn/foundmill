@@ -4,9 +4,10 @@
  * returns the checkout the founder completes personally; in mock mode credits are granted and labelled.
  */
 import { PRICE_TBA_LABEL, TIERS } from "@foundmill/config";
-import { periodRange, repos } from "@foundmill/db";
+import { periodRange, repos, resumeBusinessAgents } from "@foundmill/db";
 import { PLAN_TIERS, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
+import { emitResumed, restartEngines } from "../services/killswitch";
 import { audit, ownerProcedure, router, sectionRead } from "../trpc";
 
 const read = sectionRead("billing");
@@ -35,15 +36,19 @@ export const billingRouter = router({
     const period = currentPeriod();
     if (ctx.env.INTEGRATIONS_MODE === "mock") {
       // credit_balances is service-written; the owner check already ran.
-      const balance = await ctx.db.transaction(async (tx) => {
+      const { balance, resumed } = await ctx.db.transaction(async (tx) => {
         const b = await repos.usage.grantCredits(tx, ctx.businessId, period, input.amountMinor, input.currency);
-        await audit(tx, ctx, { action: "billing.top_up", target: { kind: "credit_balance", id: b.id }, details: { amountMinor: input.amountMinor, currency: input.currency, mode: "mock" } });
-        return b;
+        // Credits back: a team stopped because they ran out resumes by itself (never Stop all agents or a revoked key).
+        const r = Number(b.balanceMinor) > 0 ? await resumeBusinessAgents(tx, ctx.businessId, { reason: "credits_exhausted" }) : null;
+        if (r?.resumed) await emitResumed(tx, ctx, r.agentIds, "Resumed: credits topped up");
+        await audit(tx, ctx, { action: "billing.top_up", target: { kind: "credit_balance", id: b.id }, details: { amountMinor: input.amountMinor, currency: input.currency, mode: "mock", resumedAgents: r?.resumed ? r.agentIds.length : null } });
+        return { balance: b, resumed: r?.resumed ? { reason: r.reason, agents: r.agentIds.length } : null };
       });
-      return { granted: true as const, balance, label: "Mock top-up (no money moved)" as const, checkoutUrl: null };
+      if (resumed) await restartEngines(ctx);
+      return { granted: true as const, balance, resumed, label: "Mock top-up (no money moved)" as const, checkoutUrl: null };
     }
     await ctx.rls((tx) => audit(tx, ctx, { action: "billing.top_up_requested", target: { kind: "business", id: ctx.businessId }, details: { amountMinor: input.amountMinor, currency: input.currency } }));
-    return { granted: false as const, balance: null, label: "Complete the payment yourself; credits are granted by the payment webhook" as const, checkoutUrl: null, hardGate: "move_money" as const };
+    return { granted: false as const, balance: null, resumed: null, label: "Complete the payment yourself; credits are granted by the payment webhook" as const, checkoutUrl: null, hardGate: "move_money" as const };
   }),
 
   usage: read.input(z.object({ period: Period.optional() })).query(({ ctx, input }) =>

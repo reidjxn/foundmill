@@ -9,6 +9,7 @@ import { UpdateAgentInput, repos, type Agent } from "@foundmill/db";
 import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
 import { MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
 import { z } from "zod";
+import { assertAgentsRunning } from "../services/stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds } from "../services/temporal";
 import { Id, audit, emit, router, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
@@ -111,6 +112,7 @@ export const agentRouter = router({
 
     /** Queue a run on the orchestrator (`trainingRun`); the live version keeps working (AC-11.10.1). */
     run: write.input(z.object({ agentId: Id, versionId: Id })).mutation(async ({ ctx, input }) => {
+      await assertAgentsRunning(ctx, "a training run");
       const run = await ctx.rls(async (tx) => {
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
         const version = await repos.agents.getVersion(tx, ctx.businessId, input.versionId);

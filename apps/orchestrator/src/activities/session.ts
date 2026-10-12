@@ -501,6 +501,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       // Not a failure: the founder (or the credits pause, or Stop all agents) paused the agent. The workflow ends the
       // session `stopped` and the agent stays paused; retrying would not change the answer.
       if (agent.status === "paused") throw ApplicationFailure.nonRetryable(`Agent ${agent.name} is paused`, AGENT_PAUSED_FAILURE);
+      if (business.agentsStoppedAt) throw ApplicationFailure.nonRetryable("Agents are stopped for this business", AGENT_PAUSED_FAILURE);
       const grants = parseGrants(version, template);
       const route: RouteKey = template.route;
       const model = resolveModel(route, agent.modelKey);
@@ -635,7 +636,10 @@ export function createSessionActivities(deps: OrchestratorDeps) {
 
       let taskStatus: TaskStatus;
       const cost = { amountMinor: Math.round(result.costMinor), currency: "USD" };
-      switch (result.outcome) {
+      // A session cut short by a pause of its agent or a team-wide stop did not fail on its merits: the task waits
+      // `paused` and the next cycle after the resume picks it up (0023).
+      const teamStopped = agentPaused || (await repos.businesses.agentsStopped(db, input.businessId));
+      switch (teamStopped && result.outcome === "failed" ? "stopped" : result.outcome) {
         case "done": {
           taskStatus = result.progress.merged ? "done" : result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";
           const ev = await emitEvent(db, {
@@ -670,9 +674,9 @@ export function createSessionActivities(deps: OrchestratorDeps) {
           break;
         }
         default:
-          // Stopped with its agent paused (Stop all agents, the credits pause, a refused start): the task waits for
-          // the agent instead of being dropped, and runs again once the team is resumed.
-          taskStatus = agentPaused ? "paused" : "stopped";
+          // Stopped with its agent paused or the team stopped (Stop all agents, the credits pause, a refused start):
+          // the task waits instead of being dropped, and runs again once the team is resumed.
+          taskStatus = teamStopped || task.status === "paused" ? "paused" : "stopped";
       }
       if (task.status !== taskStatus) await repos.tasks.setStatus(db, input.businessId, task.id, taskStatus, { force: true });
       if (taskStatus === "done") await repos.tasks.setProgress(db, input.businessId, task.id, { progress: Math.max(result.progress.progress, task.status === "done" ? 1 : result.progress.progress), phase: result.progress.phase ?? "done" });
@@ -683,14 +687,14 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       const from: AgentStatus = agent.status;
       let to: AgentStatus = from;
       if (agentPaused) to = from;
-      else if (result.blockedReason === "loop_detected" || result.outcome === "failed") to = "failing";
-      else if (result.outcome === "stopped") to = "idle";
+      else if ((result.blockedReason === "loop_detected" || result.outcome === "failed") && !teamStopped) to = "failing";
+      else if (result.outcome === "stopped" || teamStopped) to = "idle";
       else if (result.outcome === "done" || result.outcome === "blocked") {
         const open = await repos.agents.listSessions(db, input.businessId, { agentId: agent.id, openOnly: true, limit: 1 });
         to = open.items.length > 0 ? "healthy" : "idle";
       }
-      if (to !== from) {
-        await repos.agents.setStatus(db, input.businessId, agent.id, to);
+      // Never over a pause (the founder's, a team-wide stop, a wage cap): `setHealthStatus` leaves a paused agent alone.
+      if (to !== from && from !== "paused" && to !== "paused" && (await repos.agents.setHealthStatus(db, input.businessId, agent.id, to))) {
         const ev = await emitEvent(db, {
           businessId: input.businessId,
           type: "agent.health_changed",

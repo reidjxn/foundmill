@@ -1,5 +1,5 @@
 /** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences. */
-import { ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, GAME_MODES, MODEL_BILLING, PLAN_TIERS, TIME_FORMAT_PREFERENCES, VISIBILITY } from "@foundmill/shared";
+import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, GAME_MODES, MODEL_BILLING, PLAN_TIERS, TIME_FORMAT_PREFERENCES, VISIBILITY } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
@@ -61,6 +61,12 @@ export const businesses = pgTable(
     modelBilling: text("model_billing", { enum: MODEL_BILLING }).notNull().default("credits"),
     glossary: jsonb("glossary").$type<Record<string, string>>().notNull().default(emptyObject),
     createdBy: uuid("created_by").references(() => authUsers.id, { onDelete: "set null" }),
+    /**
+     * 0023 — the team-wide stop (Stop all agents, a revoked key, used-up credits): set with its reason, cleared only by
+     * `resumeBusinessAgents`. Every path that starts work refuses while it is set.
+     */
+    agentsStoppedAt: tstz("agents_stopped_at"),
+    agentsStoppedReason: text("agents_stopped_reason", { enum: AGENT_STOP_REASONS }),
     ...timestampsWithArchive(),
   },
   (t) => [

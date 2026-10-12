@@ -107,10 +107,10 @@ export async function setupOrchestratorHarness(options: HarnessOptions = {}): Pr
   };
 }
 
-/** Open an agent_sessions row the way apps/api does before starting the agentSession workflow. */
-export async function openSessionRow(t: OrchestratorTestHarness, agentId: string, taskId: string, workflowId = "session:test"): Promise<string> {
+/** Open an agent_sessions row the way apps/api does before starting the agentSession workflow (its workflow id is `session:<id>`). */
+export async function openSessionRow(t: OrchestratorTestHarness, agentId: string, taskId: string): Promise<string> {
   const agent = await repos.agents.get(t.db, t.businessId, agentId);
-  const session = await repos.agents.createSession(t.db, t.businessId, { agentId, versionId: agent.currentVersionId, taskId, workflowId, modelKey: agent.modelKey });
+  const session = await repos.agents.createSession(t.db, t.businessId, { agentId, versionId: agent.currentVersionId, taskId, modelKey: agent.modelKey });
   return session.id;
 }
 

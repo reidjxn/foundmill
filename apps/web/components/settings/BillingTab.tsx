@@ -59,7 +59,8 @@ export function BillingTab() {
   const plan = useQuery(trpc.billing.plan.queryOptions({ businessId }));
   const usage = useQuery(trpc.billing.usage.queryOptions({ businessId }));
   const changeTier = useMutation(trpc.billing.changeTier.mutationOptions({ onSuccess: () => (void invalidate(["billing", "business"]), t.saved("Tier changed")), onError: (e) => t.failed(e) }));
-  const topUp = useMutation(trpc.billing.topUp.mutationOptions({ onSuccess: (r) => (void invalidate(["billing"]), r.granted ? t.saved("Credits added", r.label) : t.info("Payment is yours to make", r.label)), onError: (e) => t.failed(e) }));
+  // A top-up after the credits ran out resumes the team by itself; the toast says so.
+  const topUp = useMutation(trpc.billing.topUp.mutationOptions({ onSuccess: (r) => (void invalidate(["billing", "business", "team"]), r.granted ? t.saved("Credits added", r.resumed ? `${r.label}. ${r.resumed.agents} agent${r.resumed.agents === 1 ? "" : "s"} resumed.` : r.label) : t.info("Payment is yours to make", r.label)), onError: (e) => t.failed(e) }));
   const [amount, setAmount] = useState<string>(String(TOP_UP_OPTIONS[1]));
 
   if (plan.error) return <ErrorPanel title="Billing" message={errorMessage(plan.error)} onRetry={() => void plan.refetch()} />;

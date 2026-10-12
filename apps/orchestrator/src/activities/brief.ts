@@ -6,9 +6,15 @@ import { LIMITS } from "@foundmill/config";
 import { periodOf, repos } from "@foundmill/db";
 import type { TaskStatus } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
+import { failureStreak, taskRetry } from "../retry";
+import { recoverAgents } from "./dispatch";
 import type { BriefAgent, BriefDepartment, BriefTask, BusinessBrief } from "./types";
 
-const OPEN_STATUSES: TaskStatus[] = ["planned", "ready", "running", "paused", "blocked", "review", "merging"];
+/**
+ * Tasks the brief lists. `failed` is here so a failed task is retried (with a backoff and a limit, `retry.ts`) instead
+ * of leaving the loop for good; `stopped` is not: that is the founder's "Stop and discard", which only Start undoes.
+ */
+const OPEN_STATUSES: TaskStatus[] = ["planned", "ready", "running", "paused", "blocked", "review", "merging", "failed"];
 const BRIEF_TOKEN_BUDGET = 4_000;
 const CHARS_PER_TOKEN = 4;
 
@@ -40,7 +46,9 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       const { db, clock } = deps;
       const businessId = input.businessId;
       const now = clock.now();
-      const [business, departmentsRaw, agentsPage, tasksPage, pendingApprovals, blockingInboxItems, holiday, chief] = await Promise.all([
+      // Agents that rested after a failure, or are under their wage cap again, go back to work before the plan.
+      await recoverAgents(deps, businessId);
+      const [business, departmentsRaw, agentsPage, tasksPage, pendingApprovals, blockingInboxItems, holiday, chief, wages] = await Promise.all([
         repos.businesses.get(db, businessId),
         repos.departments.list(db, businessId),
         repos.agents.list(db, businessId, { limit: 200 }),
@@ -49,7 +57,11 @@ export function createBriefActivities(deps: OrchestratorDeps) {
         repos.inbox.countBlocking(db, businessId),
         repos.holidays.current(db, businessId),
         repos.agents.chiefOfStaff(db, businessId),
+        repos.usage.wages(db, businessId, periodOf(now)),
       ]);
+      const failedIds = tasksPage.items.filter((t) => t.status === "failed").map((t) => t.id);
+      const recent = await repos.agents.recentOutcomes(db, businessId, { taskIds: failedIds, limit: 20 * failedIds.length });
+      const spentBy = new Map(wages.map((w) => [w.agentId, w.costMinor]));
       const currency = (await repos.channels.enabledBudget(db, businessId)).currencies[0] ?? "EUR";
       const edges = await repos.tasks.listEdges(db, businessId, tasksPage.items.map((t) => t.id));
       const openIds = new Set(tasksPage.items.map((t) => t.id));
@@ -71,6 +83,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
         status: a.status,
         departmentIds: a.departmentIds,
         wageCapMinor: a.wageCapMinor === null ? null : Number(a.wageCapMinor),
+        wageRemainingMinor: a.wageCapMinor === null ? null : Number(a.wageCapMinor) - (spentBy.get(a.id) ?? 0),
       }));
       const openTasks: BriefTask[] = tasksPage.items.map((t) => {
         const deps = dependsOn.get(t.id) ?? [];
@@ -87,8 +100,10 @@ export function createBriefActivities(deps: OrchestratorDeps) {
           budgetMinor: t.budgetMinor === null ? null : Number(t.budgetMinor),
           // A dependency still open (in this list) blocks dispatch; done dependencies are no longer listed.
           blocked: deps.some((d) => openIds.has(d)),
+          retry: t.status === "failed" ? taskRetry(failureStreak(recent.filter((s) => s.taskId === t.id)), now) : null,
         };
       });
+      const agentsStopped = business.agentsStoppedAt !== null;
 
       let budgetRemainingMinor: number | null = null;
       try {
@@ -106,12 +121,12 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       sections.push(`# ${business.name}\nMode: ${business.businessMode}${holiday ? " (founder on vacation; Chief of Staff decides within authority)" : ""}. Archetype: ${business.archetype ?? "not committed"}. Game mode: ${business.gameMode}. Plan tier: ${business.planTier}. Currency: ${currency}.`);
       if (Object.keys(business.glossary).length) sections.push(`## Glossary\n${Object.entries(business.glossary).map(([k, v]) => `- say "${v}" for "${k}"`).join("\n")}`);
       sections.push(`## Departments\n${fit(departments.map((d) => `- ${d.name} (${d.id}): modules ${d.moduleKeys.join(", ") || "none"}; lead ${d.leadAgentId ?? "none"}; budget ${d.budgetMinor === null ? "unset" : formatMinor(d.budgetMinor, currency) + " (Estimate)"}`), 400).join("\n")}`);
-      sections.push(`## Team (${agents.length})\n${fit(agents.map((a) => `- ${a.name} — ${a.role || a.agentType} [${a.layer}, ${a.modelKey}, ${a.status}] id ${a.id}`), 900).join("\n")}`);
+      sections.push(`## Team (${agents.length})\n${fit(agents.map((a) => `- ${a.name} — ${a.role || a.agentType} [${a.layer}, ${a.modelKey}, ${a.status}${a.wageRemainingMinor !== null && a.wageRemainingMinor !== undefined && a.wageRemainingMinor <= 0 ? ", wage cap reached" : ""}] id ${a.id}`), 900).join("\n")}`);
       const taskLines = [...openTasks]
         .sort((a, b) => b.priority - a.priority)
         .map((t) => `- [${t.status}] ${t.title} (${t.kind}, id ${t.id}${t.assigneeAgentId ? `, assignee ${t.assigneeAgentId}` : ""}${t.departmentId ? `, dept ${t.departmentId}` : ""}${t.blocked ? ", blocked by dependencies" : ""}${t.fileScope.length ? `, files ${t.fileScope.slice(0, 3).join(" ")}` : ""})`);
       sections.push(`## Open tasks (${openTasks.length})\n${fit(taskLines, 1600).join("\n") || "- none"}`);
-      sections.push(`## Governance\nApprovals waiting: ${pendingApprovals}. Inbox items blocking Continue: ${blockingInboxItems}. Concurrency limit: ${maxAgents} agents. Budget remaining this period: ${budgetRemainingMinor === null ? "not capped" : formatMinor(budgetRemainingMinor, currency) + " (Estimate)"}. Rate-limit capacity: ${capacity}.`);
+      sections.push(`## Governance\n${agentsStopped ? "The team is stopped (Stop all agents, a revoked key or used-up credits): no work starts until an owner or admin resumes it. " : ""}Approvals waiting: ${pendingApprovals}. Inbox items blocking Continue: ${blockingInboxItems}. Concurrency limit: ${maxAgents} agents. Budget remaining this period: ${budgetRemainingMinor === null ? "not capped" : formatMinor(budgetRemainingMinor, currency) + " (Estimate)"}. Rate-limit capacity: ${capacity}.`);
       sections.push(`## Rules of engagement\nFacts live in the database; query them through tools rather than guessing. Every external action or spend goes through the gateway and its policy. Hard gates (money movement, signing, filings in the founder's name, deletions, security settings) always become founder tasks. Label estimates and forecasts.`);
       let text = sections.join("\n\n");
       if (approxTokens(text) > BRIEF_TOKEN_BUDGET) text = text.slice(0, BRIEF_TOKEN_BUDGET * CHARS_PER_TOKEN - 1) + "…";
@@ -130,6 +145,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
         openTasks,
         pendingApprovals,
         blockingInboxItems,
+        agentsStopped,
         budgetRemainingMinor,
         maxAgents,
         capacity,

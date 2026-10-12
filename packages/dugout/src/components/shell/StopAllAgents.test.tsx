@@ -32,6 +32,44 @@ describe("StopAllAgents", () => {
     expect(screen.getByRole("dialog")).toBeTruthy();
   });
 
+  it("while the team is stopped the trigger is Resume agents: an owner confirms and onResume runs", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    const onResume = vi.fn(() => Promise.resolve());
+    render(<StopAllAgents onConfirm={onConfirm} stopped={{ since: "2026-10-12T15:45:00Z", reason: "Stop all agents", onResume, canResume: true, hint: "Storing a new key resumes the team by itself." }} />);
+    expect(screen.queryByTestId("stop-all-trigger")).toBeNull();
+    await user.click(screen.getByTestId("resume-agents-trigger"));
+    const dialog = screen.getByRole("dialog", { name: "Resume agents?" });
+    expect(dialog.textContent).toContain("because Stop all agents");
+    expect(dialog.textContent).toContain("Oct 12");
+    expect(dialog.textContent).toContain("Storing a new key resumes the team by itself.");
+    await user.click(screen.getByRole("button", { name: "Resume agents" }));
+    expect(onResume).toHaveBeenCalledTimes(1);
+    expect(onConfirm).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("someone who cannot resume sees why the team is stopped and no Resume button", async () => {
+    const user = userEvent.setup();
+    const onResume = vi.fn();
+    render(<StopAllAgents onConfirm={vi.fn()} stopped={{ reason: "the credits ran out", onResume, canResume: false }} />);
+    await user.click(screen.getByTestId("resume-agents-trigger"));
+    expect(screen.getByRole("dialog", { name: "Agents are stopped" }).textContent).toContain("An owner or admin resumes the agents.");
+    expect(screen.queryByRole("button", { name: "Resume agents" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Got it" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(onResume).not.toHaveBeenCalled();
+  });
+
+  it("a failed resume keeps the dialog open with the error", async () => {
+    const user = userEvent.setup();
+    render(<StopAllAgents onConfirm={vi.fn()} stopped={{ reason: "the Anthropic key was revoked", onResume: () => Promise.reject(new Error("Store a key in Settings › Keys first.")), canResume: true }} />);
+    await user.click(screen.getByTestId("resume-agents-trigger"));
+    await user.click(screen.getByRole("button", { name: "Resume agents" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Store a key"));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
   it("cancel closes without calling onConfirm", async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();

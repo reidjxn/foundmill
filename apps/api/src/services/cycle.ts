@@ -13,6 +13,7 @@ import { repos, type Executor, type InboxItem } from "@foundmill/db";
 import { AppError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
+import { assertAgentsRunning } from "./stop-guard";
 import { WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
 
 export const CYCLE_OUTCOMES = ["completed", "time_box", "waiting", "stopped", "failed"] as const;
@@ -141,8 +142,13 @@ export class ContinueBlockedError extends AppError {
   }
 }
 
-/** One press of Continue. Refuses while blocked or on holiday; resumes a paused cycle; otherwise starts the next one. */
+/**
+ * One press of Continue. Refuses while the team is stopped (Stop all agents, a revoked key, used-up credits: no cycle,
+ * and no Chief of Staff plan to pay for, until an owner or admin resumes it), blocked or on vacation; resumes a paused
+ * cycle; otherwise starts the next one.
+ */
 export async function startCycle(ctx: BusinessContext): Promise<StartCycleResult> {
+  await assertAgentsRunning(ctx, "the next cycle");
   const before = await continueStateFor(ctx);
   if (before.kind === "holiday") throw new ContinueBlockedError("The Chief of Staff is running the business while you are away. End the vacation to take over.", { continueState: before });
   if (before.kind === "blocked") throw new ContinueBlockedError(`Respond to ${before.count} item${before.count === 1 ? "" : "s"} in the Inbox before the next cycle.`, { continueState: before });

@@ -1,6 +1,6 @@
 /** 0004 — agents, versions, skills, training, departments, screens, dashboards, tasks, playbooks, holidays. */
 import {
-  AGENT_LAYERS, AGENT_STATUSES, AGENT_VERSION_STATES, DEPT_COLOUR_TOKENS, MODEL_KEYS, SKILL_GROUPS, TASK_KINDS, TASK_PHASES, TASK_STATUSES,
+  AGENT_LAYERS, AGENT_PAUSE_REASONS, AGENT_STATUSES, AGENT_VERSION_STATES, DEPT_COLOUR_TOKENS, MODEL_KEYS, SKILL_GROUPS, TASK_KINDS, TASK_PHASES, TASK_STATUSES,
 } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
 import { boolean, date, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
@@ -29,6 +29,8 @@ export const agents = pgTable(
     lineManagerId: uuid("line_manager_id").references((): AnyPgColumn => agents.id, { onDelete: "set null" }),
     modelKey: text("model_key", { enum: MODEL_KEYS }).notNull().default("sonnet"),
     status: text("status", { enum: AGENT_STATUSES }).notNull().default("idle"),
+    /** 0023 — why a paused agent is paused (null: by hand or before 0023); a trigger drops it when the agent leaves `paused`. */
+    pausedReason: text("paused_reason", { enum: AGENT_PAUSE_REASONS }),
     currentVersionId: uuid("current_version_id").references((): AnyPgColumn => agentVersions.id, { onDelete: "set null" }),
     autonomy: jsonb("autonomy").$type<Record<string, unknown>>().notNull().default(emptyObject),
     negotiation: jsonb("negotiation").$type<Record<string, unknown>>().notNull().default(emptyObject),

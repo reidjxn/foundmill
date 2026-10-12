@@ -15,6 +15,7 @@ import { evaluate, type ToolCtxInput } from "@foundmill/policy";
 import { CHANNEL_KEYS, CHANNEL_META, MODEL_KEYS, TASK_KINDS, uuid, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
+import { openAgentSession } from "./dispatch";
 import type { LoadedPlan, PlanActionResult, PlanActionView } from "./types";
 
 /** Policy attributes per action type (same table as apps/api/src/services/plans.ts; kept in sync by the plan tests). */
@@ -202,11 +203,15 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         const assignee = action.agentId ?? (typeof p.agent_id === "string" ? p.agent_id : null);
         const task = await repos.tasks.create(db, businessId, { kind, title: str(p.title, "Task from your decision").slice(0, 200), goalMd: str(p.goal, str(p.title)), acceptance: Array.isArray(p.acceptance) ? p.acceptance : [], assigneeAgentId: assignee, planActionId: action.id, status: "ready", budgetMinor: num(p.budget_minor), currency, departmentId: channel ? await departmentForChannel(businessId) : (typeof p.department_id === "string" ? p.department_id : null), fileScope: Array.isArray(p.file_scope) ? p.file_scope.filter((f): f is string => typeof f === "string") : [] });
         const spawn: PlanActionResult["spawn"] = [];
+        let deferred: string | null = null;
         if (assignee && p.start_now !== false) {
-          const session = await repos.agents.createSession(db, businessId, { agentId: assignee, taskId: task.id, workflowId: `session:pending`, startedAt: deps.clock.now() });
-          spawn.push({ workflow: "agentSession", workflowId: `session:${session.id}`, args: { businessId, agentId: assignee, taskId: task.id, sessionId: session.id } });
+          // Same guard as a cycle's dispatch; refused (team stopped, agent paused or capped), the task stays ready for
+          // the next cycle. The session row carries `session:<id>` before the workflow starts with that id.
+          const opened = await openAgentSession(deps, { businessId, agentId: assignee, taskId: task.id });
+          if (opened.sessionId) spawn.push({ workflow: "agentSession", workflowId: opened.workflowId, args: { businessId, agentId: assignee, taskId: task.id, sessionId: opened.sessionId } });
+          else deferred = opened.detail;
         }
-        return { result: { taskId: task.id, channel, assigneeAgentId: assignee }, spawn };
+        return { result: { taskId: task.id, channel, assigneeAgentId: assignee, ...(deferred ? { deferred } : {}) }, spawn };
       }
       case "enable_channel":
       case "disable_channel": {
@@ -214,8 +219,14 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         const enabled = action.type === "enable_channel";
         const existing = await repos.channels.getByKey(db, businessId, p.channel);
         const channel = existing ? await repos.channels.setEnabled(db, businessId, existing.id, enabled) : await repos.channels.upsert(db, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled, kitMode: CHANNEL_META[p.channel].kitModeByDefault, ownerAgentId: action.agentId });
-        const spawn: PlanActionResult["spawn"] = enabled ? [{ workflow: "channelEngine", workflowId: `engine:${channel.id}`, args: { businessId, channelId: channel.id, channelKey: p.channel } }] : [];
-        return { result: { channelId: channel.id, enabled }, spawn };
+        // The engine's id is recorded with the channel so Stop all agents (and the Distribution toggle) can reach it;
+        // while the team is stopped no engine starts (resuming the agents starts it).
+        const stopped = enabled && (await repos.businesses.agentsStopped(db, businessId));
+        const workflowId = `engine:${channel.id}`;
+        if (enabled && !stopped) await repos.channels.setEngineWorkflow(db, businessId, channel.id, workflowId);
+        if (!enabled && channel.engineWorkflowId) await repos.channels.setEngineWorkflow(db, businessId, channel.id, null);
+        const spawn: PlanActionResult["spawn"] = enabled && !stopped ? [{ workflow: "channelEngine", workflowId, args: { businessId, channelId: channel.id, channelKey: p.channel } }] : [];
+        return { result: { channelId: channel.id, enabled, ...(stopped ? { deferred: "agents are stopped; the engine starts when they resume" } : {}) }, spawn };
       }
       case "set_budget": {
         const amount = num(p.amount_minor) ?? num(p.budget_minor);
@@ -285,6 +296,7 @@ export function createPlanActivities(deps: OrchestratorDeps) {
       case "train_agent": {
         const targetId = str(p.agent_id, action.agentId ?? "");
         if (!targetId) throw new Error("agent_id is required");
+        if (await repos.businesses.agentsStopped(db, businessId)) throw new Error("agents are stopped; resume them, then start the training from the agent's profile");
         const agent = await repos.agents.get(db, businessId, targetId);
         const live = agent.currentVersionId ? await repos.agents.getVersion(db, businessId, agent.currentVersionId) : null;
         const instructions = { ...((live?.instructions ?? {}) as Record<string, unknown>), ...(typeof p.instructions === "object" && p.instructions ? (p.instructions as Record<string, unknown>) : {}) };

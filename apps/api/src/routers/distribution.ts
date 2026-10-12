@@ -3,6 +3,7 @@ import { CreateCampaignInput, UpdateCampaignInput, repos } from "@foundmill/db";
 import { HOUSE_STYLE } from "@foundmill/agents";
 import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, ChannelKey, type ChannelLine } from "@foundmill/shared";
 import { z } from "zod";
+import { assertAgentsRunning } from "../services/stop-guard";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { Id, audit, emit, router, sectionRead, sectionWrite } from "../trpc";
 
@@ -128,6 +129,8 @@ export const distributionRouter = router({
 type Ctx = Parameters<Parameters<typeof write.mutation>[0]>[0]["ctx"];
 
 async function setEnabled(ctx: Ctx, channelKey: ChannelKey, enabled: boolean) {
+  // Enabling starts the channel's engine, which drafts and launches campaigns: never while the team is stopped.
+  if (enabled) await assertAgentsRunning(ctx, "a channel engine");
   const channel = await ctx.rls(async (tx) => {
     const existing = await repos.channels.getByKey(tx, ctx.businessId, channelKey);
     const row = existing ? await repos.channels.setEnabled(tx, ctx.businessId, existing.id, enabled) : await repos.channels.upsert(tx, ctx.businessId, { channelKey, line: CHANNEL_META[channelKey].line, enabled, kitMode: CHANNEL_META[channelKey].kitModeByDefault });
