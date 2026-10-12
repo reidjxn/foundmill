@@ -220,10 +220,10 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         const existing = await repos.channels.getByKey(db, businessId, p.channel);
         const channel = existing ? await repos.channels.setEnabled(db, businessId, existing.id, enabled) : await repos.channels.upsert(db, businessId, { channelKey: p.channel, line: CHANNEL_META[p.channel].line, enabled, kitMode: CHANNEL_META[p.channel].kitModeByDefault, ownerAgentId: action.agentId });
         // The engine's id is recorded with the channel so Stop all agents (and the Distribution toggle) can reach it;
-        // while the team is stopped no engine starts (resuming the agents starts it).
+        // while the team is stopped no engine starts, and the recorded id is what makes resuming the agents start it.
         const stopped = enabled && (await repos.businesses.agentsStopped(db, businessId));
         const workflowId = `engine:${channel.id}`;
-        if (enabled && !stopped) await repos.channels.setEngineWorkflow(db, businessId, channel.id, workflowId);
+        if (enabled) await repos.channels.setEngineWorkflow(db, businessId, channel.id, workflowId);
         if (!enabled && channel.engineWorkflowId) await repos.channels.setEngineWorkflow(db, businessId, channel.id, null);
         const spawn: PlanActionResult["spawn"] = enabled && !stopped ? [{ workflow: "channelEngine", workflowId, args: { businessId, channelId: channel.id, channelKey: p.channel } }] : [];
         return { result: { channelId: channel.id, enabled, ...(stopped ? { deferred: "agents are stopped; the engine starts when they resume" } : {}) }, spawn };

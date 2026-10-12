@@ -8,11 +8,15 @@
  *
  * `recoverAgents` is the other half of the loop: before each cycle plans, an agent that failed rests (`retry.ts`) and
  * then goes back to idle, and an agent paused for its wage cap comes back once it is under the cap again (a new
- * period, or a higher cap). Neither touches any other pause.
+ * period, or a higher cap). Neither touches any other pause. `enforceWageCaps` runs right after it: an agent whose
+ * spend crossed 50, 80 or 100 % of its cap while it worked gets its note (and at 100 % its pause) before the plan,
+ * because the planner no longer picks a capped agent and so would never reach the dispatch check.
  */
+import { createHash } from "node:crypto";
 import { LIMITS } from "@foundmill/config";
-import { periodOf, periodRange, repos, type Agent } from "@foundmill/db";
+import { periodOf, repos, sessionWorkflowId, type Agent } from "@foundmill/db";
 import { formatMoney } from "@foundmill/shared";
+import { Context } from "@temporalio/activity";
 import type { OrchestratorDeps } from "../deps";
 import { agentActor, emitEvent, systemActor } from "../events";
 import { agentCooldown, failureStreak } from "../retry";
@@ -32,29 +36,56 @@ export function nextPeriodStart(now: Date): Date {
 
 const shortDate = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
+/**
+ * The id of the session an activity attempt opens, derived from the activity itself (workflow run and activity id), so
+ * a retried `openSession` (the worker died after the row was written) finds its own row again instead of refusing the
+ * task as already running and leaving that row open with no workflow behind it. Null outside Temporal (unit tests).
+ */
+export function attemptSessionId(): string | null {
+  let key: string;
+  try {
+    const { workflowExecution, activityId } = Context.current().info;
+    if (!workflowExecution) return null;
+    key = `${workflowExecution.workflowId}/${workflowExecution.runId}/${activityId}`;
+  } catch {
+    return null;
+  }
+  const h = createHash("sha256").update(`foundmill:session:${key}`).digest("hex");
+  // A name-based UUID (version 5 layout, sha-256 digest).
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${((parseInt(h.slice(16, 18), 16) & 0x3f) | 0x80).toString(16)}${h.slice(18, 20)}-${h.slice(20, 32)}`;
+}
+
 /** Open a session for `agentId` on `taskId`, or say why not. See the module comment. */
-export async function openAgentSession(deps: OrchestratorDeps, input: { businessId: string; agentId: string; taskId: string }): Promise<OpenSessionResult> {
+export async function openAgentSession(deps: OrchestratorDeps, input: { businessId: string; agentId: string; taskId: string; sessionId?: string | null }): Promise<OpenSessionResult> {
   const { db, clock } = deps;
   const businessId = input.businessId;
+  const id = input.sessionId === undefined ? attemptSessionId() : input.sessionId;
+  const open = await repos.agents.listSessions(db, businessId, { taskId: input.taskId, openOnly: true, limit: 5 });
+  // A retry of an attempt that already opened its session: hand back the same session.
+  if (id && open.items.some((s) => s.id === id)) return { sessionId: id, workflowId: sessionWorkflowId(id), refused: null, detail: null };
   const stop = await repos.businesses.stopState(db, businessId);
   if (stop.stopped) return refuse("agents_stopped", stop.archived ? "the business is archived" : `agents are stopped (${(stop.reason ?? "kill_switch").replace(/_/g, " ")}); an owner or admin resumes them`);
-  const [agent, task, open] = await Promise.all([repos.agents.get(db, businessId, input.agentId), repos.tasks.get(db, businessId, input.taskId), repos.agents.listSessions(db, businessId, { taskId: input.taskId, openOnly: true, limit: 1 })]);
+  const [agent, task] = await Promise.all([repos.agents.get(db, businessId, input.agentId), repos.tasks.get(db, businessId, input.taskId)]);
   if (agent.archivedAt) return refuse("agent_archived", `${agent.name} has left the team`);
   if (agent.status === "paused") return refuse("agent_paused", `${agent.name} is paused${agent.pausedReason === "wage_cap" ? " (wage cap reached)" : ""}`);
   if (open.items.length > 0) return refuse("open_session", `"${task.title}" already has a session running`);
   const capped = await checkWageCap(deps, businessId, agent);
   if (capped) return refuse("wage_cap", capped);
 
-  const session = await repos.agents.createSession(db, businessId, { agentId: agent.id, versionId: agent.currentVersionId, taskId: task.id, modelKey: agent.modelKey, startedAt: clock.now() });
-  if (task.assigneeAgentId !== agent.id) await repos.tasks.reassign(db, businessId, task.id, agent.id);
-  if (task.status !== "running") await repos.tasks.setStatus(db, businessId, task.id, "running", { force: true });
-  await emitEvent(db, {
-    businessId,
-    type: "task.started",
-    actor: agentActor(agent.id),
-    payload: { taskId: task.id, title: task.title, kind: task.kind, assigneeAgentId: agent.id, sessionId: session.id, roadmapItemId: task.roadmapItemId, workflowId: session.workflowId ?? `session:${session.id}`, branch: `agent/${task.id}` },
+  // One transaction: a failure part-way leaves no open row behind to block the task.
+  const session = await db.transaction(async (tx) => {
+    const row = await repos.agents.createSession(tx, businessId, { ...(id ? { id } : {}), agentId: agent.id, versionId: agent.currentVersionId, taskId: task.id, modelKey: agent.modelKey, startedAt: clock.now() });
+    if (task.assigneeAgentId !== agent.id) await repos.tasks.reassign(tx, businessId, task.id, agent.id);
+    if (task.status !== "running") await repos.tasks.setStatus(tx, businessId, task.id, "running", { force: true });
+    await emitEvent(tx, {
+      businessId,
+      type: "task.started",
+      actor: agentActor(agent.id),
+      payload: { taskId: task.id, title: task.title, kind: task.kind, assigneeAgentId: agent.id, sessionId: row.id, roadmapItemId: task.roadmapItemId, workflowId: sessionWorkflowId(row.id), branch: `agent/${task.id}` },
+    });
+    return row;
   });
-  return { sessionId: session.id, workflowId: session.workflowId ?? `session:${session.id}`, refused: null, detail: null };
+  return { sessionId: session.id, workflowId: sessionWorkflowId(session.id), refused: null, detail: null };
 }
 
 /**
@@ -78,8 +109,9 @@ export async function checkWageCap(deps: OrchestratorDeps, businessId: string, a
   const crossed = LIMITS.budgetAlertPercents.filter((p) => p < 100 && percent >= p);
   const highest = crossed[crossed.length - 1];
   if (highest === undefined) return null;
-  const sent = await repos.audit.list(deps.db, businessId, { action: WAGE_ALERT_ACTION, actorKind: "agent", actorId: agent.id, from: periodRange(period).from, limit: 20 });
-  if (sent.items.some((e) => Number((e.details as { percent?: unknown }).percent) >= highest)) return null;
+  // Deduplicated by the period the alert names (not by when it was written), newest first.
+  const sent = await repos.audit.list(deps.db, businessId, { action: WAGE_ALERT_ACTION, actorKind: "agent", actorId: agent.id, limit: 20 });
+  if (sent.items.some((e) => (e.details as { period?: unknown }).period === period && Number((e.details as { percent?: unknown }).percent) >= highest)) return null;
   const chief = await repos.agents.chiefOfStaff(deps.db, businessId);
   if (chief) {
     await postNote(deps, businessId, chief.id, {
@@ -176,4 +208,27 @@ export async function recoverAgents(deps: OrchestratorDeps, businessId: string):
     if (spend.remainingMinor === null || spend.remainingMinor > 0) await recover(agent, spend.wageCapMinor === null ? "wage cap removed" : "under the wage cap again (new period or a higher cap)");
   }
   return changed;
+}
+
+/**
+ * The wage-cap sweep before a cycle plans (and in the health refresh; see the module comment): every live agent that
+ * is not paused and has spent at least the lowest alert share of its cap goes through `checkWageCap`, which posts the
+ * 50 and 80 % notes once each per period and pauses it at 100 % with its Inbox note. Spend is booked when a session
+ * ends, so this is where an agent that went over its cap while it worked is stopped. Returns the agents it paused.
+ * Nothing happens while the team is stopped.
+ */
+export async function enforceWageCaps(deps: OrchestratorDeps, businessId: string): Promise<RecoveredAgent[]> {
+  const { db, clock } = deps;
+  if (await repos.businesses.agentsStopped(db, businessId)) return [];
+  const [team, wages] = await Promise.all([repos.agents.list(db, businessId, { limit: 200 }), repos.usage.wages(db, businessId, periodOf(clock.now()))]);
+  const spent = new Map(wages.map((w) => [w.agentId, w.costMinor]));
+  const lowest = Math.min(...LIMITS.budgetAlertPercents);
+  const paused: RecoveredAgent[] = [];
+  for (const agent of team.items) {
+    if (agent.archivedAt || agent.status === "paused" || agent.wageCapMinor === null) continue;
+    const cap = Number(agent.wageCapMinor);
+    if (cap <= 0 || ((spent.get(agent.id) ?? 0) / cap) * 100 < lowest) continue;
+    if (await checkWageCap(deps, businessId, agent)) paused.push({ agentId: agent.id, from: agent.status, to: "paused", reason: "wage cap reached for the period" });
+  }
+  return paused;
 }

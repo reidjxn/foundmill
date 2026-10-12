@@ -140,6 +140,9 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
       running.set(s.taskId, entry);
       if (budgetRemaining !== null) budgetRemaining -= taskReserveMinor(s.budgetMinor, budgetRemaining, maxConcurrent - running.size + 1);
       if (paused) void handle.signal(pauseSignal, {}).catch(() => undefined);
+      // The stop landed while this session was being opened: the fan-out ran before the child existed, so it gets its own.
+      const stop: { reason: string; by: string | null } | null = stopped;
+      if (stop && patched(CYCLE_STOP_DISPATCH_PATCH)) void handle.signal(stopSignal, stop).catch(() => undefined);
       void handle
         .result()
         .then((outcome) => {

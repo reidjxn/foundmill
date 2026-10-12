@@ -80,6 +80,13 @@ export class TaskStartError extends AppError {
   }
 }
 
+/** The agentSession workflow was not queued (Temporal unreachable or refusing): nothing started (503). */
+export class TaskNotStartedError extends AppError {
+  constructor(message: string, details?: unknown) {
+    super("task_not_started", message, 503, details);
+  }
+}
+
 export const devRouter = router({
   tasks: router({
     /** Planner (Opus) builds a task graph from a roadmap item or a goal; tasks + edges are written (BUILD §11.6). */
@@ -138,7 +145,8 @@ export const devRouter = router({
      * Start: an agentSession workflow is started for the task. Refused (CONFLICT) while the team is stopped, while the
      * task already runs (or has a session open), is in review or done, waits on an unfinished dependency, or when its
      * agent is paused, released or at its wage cap: a start never wakes a paused agent, so it cannot undo Stop all agents.
-     * The task is claimed with one conditional update, so a double click starts one session.
+     * The task is claimed with one conditional update, so a double click starts one session; when the workflow cannot
+     * be queued the claim is undone and the session row closed (SERVICE_UNAVAILABLE), so a retry is not refused.
      */
     start: write.input(z.object({ taskId: Id })).mutation(async ({ ctx, input }) => {
       await assertAgentsRunning(ctx, "the task");
@@ -155,13 +163,24 @@ export const devRouter = router({
       // Exactly one start wins the task; a second (double click, another tab) finds it running and is refused.
       const claimed = await ctx.rls((tx) => repos.tasks.claimForStart(tx, ctx.businessId, task.id, STARTABLE_TASK_STATUSES));
       if (!claimed) throw new TaskStartError("The task was just started.");
+      // Until the workflow is queued, any failure gives the task back and closes the row: an open session nothing runs
+      // would refuse every later start (and every cycle) of the task as already running.
+      const giveBack = async (opened: AgentSession | null) => {
+        if (opened) await repos.agents.endSession(ctx.db, ctx.businessId, opened.id, { outcome: "not_started" });
+        await ctx.rls((tx) => repos.tasks.setStatus(tx, ctx.businessId, task.id, task.status, { force: true }));
+      };
       // agent_sessions is service-written (orchestrator-owned); created on the service db, outside the RLS transaction.
       let session: AgentSession;
       try {
         session = await repos.agents.createSession(ctx.db, ctx.businessId, { agentId: assignee.id, taskId: task.id, modelKey: assignee.modelKey });
       } catch (err) {
-        await ctx.rls((tx) => repos.tasks.setStatus(tx, ctx.businessId, task.id, task.status, { force: true }));
+        await giveBack(null);
         throw err;
+      }
+      const workflow = await ctx.temporal.start(WORKFLOWS.agentSession, { workflowId: workflowIds.session(session.id), args: [{ businessId: ctx.businessId, agentId: assignee.id, taskId: task.id, sessionId: session.id }] });
+      if (!workflow.queued) {
+        await giveBack(session);
+        throw new TaskNotStartedError("The orchestrator did not take the session, so the task did not start. Try again in a moment.", { reason: workflow.reason ?? null });
       }
       await ctx.rls(async (tx) => {
         // A computed status, never over a pause (a stop that lands meanwhile wins).
@@ -169,7 +188,6 @@ export const devRouter = router({
         await emit(tx, ctx, { type: "task.started", payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: assignee.id, sessionId: session.id, roadmapItemId: task.roadmapItemId, workflowId: workflowIds.session(session.id), branch: task.kind === "code" ? agentBranch(task.id) : null } });
         await audit(tx, ctx, { action: "dev.tasks.start", target: { kind: "task", id: task.id }, details: { sessionId: session.id, from: task.status } });
       });
-      const workflow = await ctx.temporal.start(WORKFLOWS.agentSession, { workflowId: workflowIds.session(session.id), args: [{ businessId: ctx.businessId, agentId: assignee.id, taskId: task.id, sessionId: session.id }] });
       return { session, workflow, stream: sessionStreamKey(session.id) };
     }),
 

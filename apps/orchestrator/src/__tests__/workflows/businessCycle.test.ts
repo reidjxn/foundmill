@@ -59,6 +59,8 @@ const done = (): SessionResult => ({ outcome: "done", reason: null, blockedReaso
 
 interface Calls {
   opened: { taskId: string; agentId: string }[];
+  /** The session ids handed out, in order (each child runs as `session:<id>`). */
+  sessionIds: string[];
   /** Every openSession input as received (the workflow sends no workflow id: the row carries `session:<id>`). */
   openInputs: Record<string, unknown>[];
   running: Set<string>;
@@ -67,13 +69,21 @@ interface Calls {
   narrated: string[][];
   completed: Record<string, unknown>[];
   started: number;
+  /** An openSession call is waiting on `releaseOpen` (only with `holdOpen`). */
+  opening: boolean;
 }
 
-function mockActivities(opts: { holdSessions?: boolean; stoppedBrief?: boolean; refuseAfter?: number; planned?: number } = {}): { acts: Partial<Activities>; calls: Calls; release: () => void } {
-  const calls: Calls = { opened: [], openInputs: [], running: new Set(), maxConcurrent: 0, overlapSeen: false, narrated: [], completed: [], started: 0 };
+/** Each test's sessions get their own ids: children an earlier test abandoned may still run under theirs. */
+let rigRun = 0;
+
+function mockActivities(opts: { holdSessions?: boolean; holdOpen?: boolean; stoppedBrief?: boolean; refuseAfter?: number; planned?: number } = {}): { acts: Partial<Activities>; calls: Calls; release: () => void; releaseOpen: () => void } {
+  const calls: Calls = { opened: [], sessionIds: [], openInputs: [], running: new Set(), maxConcurrent: 0, overlapSeen: false, narrated: [], completed: [], started: 0, opening: false };
+  const run = String((rigRun += 1)).padStart(4, "0");
   const scopes = new Map(tasks.map((t) => [t.id, t.fileScope]));
   let release = () => {};
   const held = new Promise<void>((r) => (release = r));
+  let releaseOpen = () => {};
+  const openHeld = new Promise<void>((r) => (releaseOpen = r));
   const acts: Partial<Activities> = {
     async loadBrief() {
       return { ...brief(), agentsStopped: opts.stoppedBrief ?? false };
@@ -89,10 +99,16 @@ function mockActivities(opts: { holdSessions?: boolean; stoppedBrief?: boolean; 
     async openSession(input) {
       const { taskId, agentId } = input;
       calls.openInputs.push({ ...input });
+      if (opts.holdOpen) {
+        calls.opening = true;
+        await openHeld;
+      }
       // The kill switch lands after `refuseAfter` sessions: every later dispatch is refused.
       if (opts.refuseAfter !== undefined && calls.opened.length >= opts.refuseAfter) return { sessionId: null, refused: "agents_stopped" as const, detail: "agents are stopped (kill switch)" };
       calls.opened.push({ taskId, agentId });
-      return { sessionId: `${taskId.slice(0, 8)}-0000-4000-8000-${String(calls.opened.length).padStart(12, "0")}`, refused: null, detail: null };
+      const sessionId = `${taskId.slice(0, 8)}-${run}-4000-8000-${String(calls.opened.length).padStart(12, "0")}`;
+      calls.sessionIds.push(sessionId);
+      return { sessionId, refused: null, detail: null };
     },
     async prepareSession() {
       return launch;
@@ -119,7 +135,7 @@ function mockActivities(opts: { holdSessions?: boolean; stoppedBrief?: boolean; 
       return { eventId: id(902) };
     },
   };
-  return { acts, calls, release };
+  return { acts, calls, release, releaseOpen };
 }
 
 describe("fileScopesOverlap", () => {
@@ -164,12 +180,31 @@ describe("businessCycle workflow", () => {
     expect(m.calls.completed[0]).toMatchObject({ outcome: "stopped" });
   });
 
+  it("a stop that lands while a session is being opened still reaches that session", async () => {
+    const m = mockActivities({ planned: 1, holdOpen: true });
+    const result = await rig.run(m.acts, async (client, taskQueue) => {
+      const handle = await client.workflow.start(businessCycle, { workflowId: `cycle:${B}:6`, taskQueue, args: [{ businessId: B, cycleNumber: 6, trigger: "continue" }] });
+      for (let i = 0; i < 200 && !m.calls.opening; i++) await new Promise((r) => setTimeout(r, 25));
+      // The kill switch signals the cycle while openSession is still running: the fan-out finds no child yet.
+      await handle.signal(stopSignal, { reason: "kill_switch", by: "founder" });
+      m.releaseOpen();
+      const r = await handle.result();
+      const child = client.workflow.getHandle(`session:${m.calls.sessionIds[0]!}`);
+      await child.result();
+      const history = await child.fetchHistory();
+      const signals = (history.events ?? []).map((e) => e.workflowExecutionSignaledEventAttributes?.signalName).filter(Boolean);
+      expect(signals).toContain("stop");
+      return r;
+    });
+    expect(result.outcome).toBe("stopped");
+    expect(m.calls.sessionIds).toHaveLength(1);
+  });
+
   it("opens each session without a placeholder workflow id: the row carries session:<id> and the child runs under it", async () => {
     const m = mockActivities({ planned: 1 });
     const result = await rig.run(m.acts, async (client, taskQueue) => {
       const r = await client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:3`, taskQueue, args: [{ businessId: B, cycleNumber: 3, trigger: "continue" }] });
-      const sessionId = `${tasks[0]!.id.slice(0, 8)}-0000-4000-8000-000000000001`;
-      const child = await client.workflow.getHandle(`session:${sessionId}`).describe();
+      const child = await client.workflow.getHandle(`session:${m.calls.sessionIds[0]!}`).describe();
       expect(child.type).toBe("agentSession");
       return r;
     });

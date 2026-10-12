@@ -267,8 +267,12 @@ export interface ResumeResult {
   status: CycleStatus;
 }
 
-/** Resume a paused cycle: signal the workflow and put the paused tasks back to running. */
+/**
+ * Resume a paused cycle: signal the workflow and put the paused tasks back to running. Refused while the team is
+ * stopped: the tasks Stop all agents paused wait for the resume of the agents, not of a cycle.
+ */
 export async function resumeCycle(ctx: BusinessContext, status?: CycleStatus): Promise<ResumeResult> {
+  await assertAgentsRunning(ctx, "the cycle");
   const s = status ?? (await cycleStatus(ctx));
   if (!s.running) return { resumed: false, workflow: null, resumedTasks: 0, reason: "no cycle is running", status: s };
   if (!s.paused) return { resumed: false, workflow: null, resumedTasks: 0, reason: "the cycle is not paused", status: s };

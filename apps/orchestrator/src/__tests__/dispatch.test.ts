@@ -3,12 +3,12 @@
  * real workflow id, nothing starts while the team is stopped, an agent at its wage cap is paused (and comes back next
  * period), failed tasks and failing agents come back after a backoff, and a finishing session never overwrites a pause.
  */
-import { repos, resumeBusinessAgents, stopBusinessAgents, type Task } from "@foundmill/db";
+import { periodOf, repos, resumeBusinessAgents, stopBusinessAgents, type Task } from "@foundmill/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createBriefActivities } from "../activities/brief";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
 import { createCycleActivities } from "../activities/cycle";
-import { WAGE_ALERT_ACTION, recoverAgents } from "../activities/dispatch";
+import { WAGE_ALERT_ACTION, attemptSessionId, nextPeriodStart, openAgentSession, recoverAgents } from "../activities/dispatch";
 import { createHolidayActivities } from "../activities/holiday";
 import { createPlanActivities } from "../activities/plan";
 import { createSessionActivities } from "../activities/session";
@@ -65,6 +65,21 @@ describe("openSession", () => {
     expect((await repos.agents.listSessions(t.db, B(), { taskId: task.id, limit: 10 })).items).toHaveLength(1);
   });
 
+  it("a retried attempt (same attempt id) hands back its own session instead of refusing the task or opening a second", async () => {
+    const task = await readyTask();
+    const id = "5e55e55e-0000-4000-8000-0000000000aa";
+    expect(attemptSessionId()).toBeNull(); // outside Temporal the id is generated
+    const first = await openAgentSession(t.deps, { businessId: B(), agentId: t.workerId, taskId: task.id, sessionId: id });
+    const again = await openAgentSession(t.deps, { businessId: B(), agentId: t.workerId, taskId: task.id, sessionId: id });
+    expect(first).toMatchObject({ sessionId: id, workflowId: `session:${id}`, refused: null });
+    expect(again).toEqual(first);
+    expect((await repos.agents.listSessions(t.db, B(), { taskId: task.id, limit: 10 })).items.map((s) => s.id)).toEqual([id]);
+    const started = (await repos.events.list(t.db, B(), { type: "task.started", limit: 100 })).items.filter((e) => (e.payload as { taskId: string }).taskId === task.id);
+    expect(started).toHaveLength(1);
+    // Another attempt (another id) is still refused: the task already has a session.
+    expect(await openAgentSession(t.deps, { businessId: B(), agentId: t.workerId, taskId: task.id })).toMatchObject({ sessionId: null, refused: "open_session" });
+  });
+
   it("refuses everything while the team is stopped, and works again after the resume", async () => {
     const task = await readyTask();
     await stopBusinessAgents(t.db, B(), { reason: "kill_switch" });
@@ -100,6 +115,10 @@ describe("the stop flag reaches every work-starting path", () => {
     expect((await repos.tasks.get(t.db, B(), (created.result as { taskId: string }).taskId)).status).toBe("ready");
     const enabled = await planActs.executePlanAction({ businessId: B(), planId: plan.id, actionId: plan.actions[1]!.id, workflowId: "plan:test" });
     expect(enabled.spawn).toEqual([]);
+    // No engine starts now, but its id is recorded: that is what makes resuming the agents start it (restartEngines).
+    const deferredChannel = enabled.result as { channelId: string; deferred?: string };
+    expect(deferredChannel.deferred).toMatch(/starts when they resume/);
+    expect((await repos.channels.get(t.db, B(), deferredChannel.channelId)).engineWorkflowId).toBe(`engine:${deferredChannel.channelId}`);
 
     const channel = await repos.channels.upsert(t.db, B(), { channelKey: "events", line: "wings", enabled: true, ownerAgentId: t.workerId });
     const step = await createChannelActivities(t.deps).channelStep({ businessId: B(), channelId: channel.id, channelKey: "events", step: "create", weekIndex: 0, state: emptyChannelState() });
@@ -184,6 +203,43 @@ describe("wage caps at dispatch (BUILD §10.4)", () => {
     expect(back.agentIds).not.toContain(t.workerId);
     expect((await recoverAgents(t.deps, B())).find((r) => r.agentId === t.workerId)).toBeUndefined();
   });
+
+  it("an agent that went over its cap while it worked gets its notes and its pause before the next plan, though the planner no longer picks it", async () => {
+    await repos.agents.update(t.db, B(), t.workerId, { wageCapMinor: 1_000 });
+    const spendTo = async (totalMinor: number) => {
+      const now = (await repos.usage.agentSpend(t.db, B(), t.workerId, periodOf(t.clock.now()))).costMinor;
+      await repos.usage.record(t.db, B(), { agentId: t.workerId, kind: "tokens", quantity: 1, costMinor: totalMinor - now, occurredAt: t.clock.now() });
+    };
+    const alerts = async () => (await repos.audit.list(t.db, B(), { action: WAGE_ALERT_ACTION, actorId: t.workerId, limit: 20 })).items.filter((e) => (e.details as { period: string }).period === periodOf(t.clock.now())).map((e) => (e.details as { percent: number }).percent);
+
+    // Spend booked at the end of sessions: no dispatch of this agent in between, only the cycles' briefs.
+    await spendTo(400);
+    await brief.loadBrief({ businessId: B() });
+    expect(await alerts()).toEqual([]);
+    await spendTo(600);
+    await brief.loadBrief({ businessId: B() });
+    expect(await alerts()).toEqual([50]);
+    await brief.loadBrief({ businessId: B() });
+    expect(await alerts()).toEqual([50]);
+    await spendTo(850);
+    await brief.loadBrief({ businessId: B() });
+    expect((await alerts()).sort()).toEqual([50, 80]);
+
+    await spendTo(1_100);
+    const b = await brief.loadBrief({ businessId: B() });
+    expect(await repos.agents.get(t.db, B(), t.workerId)).toMatchObject({ status: "paused", pausedReason: "wage_cap" });
+    expect(b.agents.find((a) => a.id === t.workerId)).toMatchObject({ status: "paused", wageRemainingMinor: -100 });
+    expect((await alerts()).sort((x, y) => x - y)).toEqual([50, 80, 100]);
+    const name = (await repos.agents.get(t.db, B(), t.workerId)).name;
+    const notes = (await repos.inbox.list(t.db, B(), { limit: 50 })).items.filter((i) => i.subject.startsWith(`${name} reached its wage cap`));
+    expect(notes.length).toBeGreaterThanOrEqual(1);
+    const health = (await repos.events.list(t.db, B(), { type: "agent.health_changed", limit: 50 })).items.find((e) => (e.payload as { agentId: string; to: string }).agentId === t.workerId && (e.payload as { to: string }).to === "paused");
+    expect((health?.payload as { expectedReturnAt: string }).expectedReturnAt).toBe(nextPeriodStart(t.clock.now()).toISOString());
+    const task = await readyTask("For a capped agent", t.workerId);
+    const plan = await cycle.planCycle({ businessId: B(), cycleNumber: 9, trigger: "continue", brief: await brief.loadBrief({ businessId: B() }) });
+    expect(plan.starts.some((s) => s.agentId === t.workerId)).toBe(false);
+    expect(plan.starts.some((s) => s.taskId === task.id && s.agentId === t.workerId)).toBe(false);
+  });
 });
 
 describe("failed tasks and failing agents come back (bounded backoff)", () => {
@@ -243,5 +299,8 @@ describe("failed tasks and failing agents come back (bounded backoff)", () => {
     expect(finish.taskStatus).toBe("paused");
     expect(finish.healthChanged).toBe(false);
     expect(await repos.agents.get(t.db, B(), t.workerId)).toMatchObject({ status: "paused", pausedReason: "kill_switch" });
+    // The row says stopped, so the backoff never counts a stop as a failure in a row.
+    expect((await repos.agents.getSession(t.db, B(), opened.sessionId!)).outcome).toBe("stopped");
+    expect((await repos.agents.recentOutcomes(t.db, B(), { taskIds: [task.id] })).map((s) => s.outcome)).toEqual(["stopped"]);
   });
 });
