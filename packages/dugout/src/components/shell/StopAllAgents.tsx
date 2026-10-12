@@ -125,10 +125,11 @@ function StopAll({ onConfirm, runningCount, open, onOpenChange, disabled, childr
             </DialogBody>
           ) : null}
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setOpen(false)} disabled={loading}>
+            {/* Focus starts on Cancel, as on every destructive confirm: a stray Enter must not stop the whole team. */}
+            <Button variant="ghost" onClick={() => setOpen(false)} disabled={loading} autoFocus>
               Cancel
             </Button>
-            <Button variant="danger" icon={OctagonX} onClick={confirm} loading={loading} autoFocus>
+            <Button variant="danger" icon={OctagonX} onClick={confirm} loading={loading}>
               Stop all agents
             </Button>
           </DialogFooter>

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Sparkles, Users } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "./Dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuTrigger } from "./DropdownMenu";
 import { EmptyState } from "./EmptyState";
@@ -67,6 +68,44 @@ describe("Dialog", () => {
     const header = dialog.querySelector("[data-dialog-header]")!;
     expect(header.className).toContain("[&>:first-child]:pr-9");
     expect(header.className).toContain("px-gutter");
+  });
+
+  function StateOpened() {
+    // Opened from state by a plain button, as the product's openers are (no DialogTrigger, so Radix has no trigger ref).
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          Go on vacation
+        </button>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent aria-describedby={undefined}>
+            <DialogTitle>Vacation</DialogTitle>
+            <DialogFooter>
+              <button type="button" autoFocus onClick={() => setOpen(false)}>
+                Cancel
+              </button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  it("gives focus back to the button that opened it, on Esc and on Cancel (WCAG 2.4.3)", async () => {
+    const user = userEvent.setup();
+    render(<StateOpened />);
+    const opener = screen.getByRole("button", { name: "Go on vacation" });
+    opener.focus();
+    await user.keyboard("{Enter}");
+    const cancel = await screen.findByRole("button", { name: "Cancel" });
+    expect(document.activeElement).toBe(cancel);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+    await user.keyboard("{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(document.activeElement).toBe(opener));
   });
 });
 

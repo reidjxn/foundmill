@@ -467,7 +467,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                 continueButton={{
                   state: continueState,
                   pulseKey: cycle.completedCount,
-                  disabled: refreshInbox.isPending || endHoliday.isPending || continueCycle.isPending || pauseCycle.isPending,
+                  // Pending, not disabled: Continue keeps keyboard focus while its own request is in flight.
+                  pending: refreshInbox.isPending || endHoliday.isPending || continueCycle.isPending || pauseCycle.isPending,
                   onContinue,
                   onRespond,
                   onPause,

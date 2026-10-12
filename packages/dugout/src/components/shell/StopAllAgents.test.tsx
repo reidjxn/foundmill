@@ -17,7 +17,7 @@ describe("StopAllAgents", () => {
     await user.click(confirm);
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(confirm.getAttribute("aria-busy")).toBe("true");
-    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    expect(confirm.getAttribute("aria-disabled")).toBe("true");
     resolve();
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
@@ -68,6 +68,21 @@ describe("StopAllAgents", () => {
     await user.click(screen.getByRole("button", { name: "Resume agents" }));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Store a key"));
     expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
+  it("opens with focus on Cancel, so Enter straight away stops nothing, and returns focus to the trigger", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    render(<StopAllAgents onConfirm={onConfirm} variant="button" />);
+    const trigger = screen.getByTestId("stop-all-trigger");
+    trigger.focus();
+    await user.keyboard("{Enter}");
+    await screen.findByRole("dialog", { name: "Stop all agents?" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(onConfirm).not.toHaveBeenCalled();
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
   it("cancel closes without calling onConfirm", async () => {

@@ -56,16 +56,46 @@ describe("Button", () => {
     await userEvent.keyboard("{Enter}");
     expect(onClick).toHaveBeenCalledTimes(1);
   });
-  it("is disabled and busy while loading", () => {
-    render(
-      <Button loading icon={Plus}>
+  it("is busy and refuses clicks while loading, but keeps focus (WCAG 2.4.3)", async () => {
+    const onClick = vi.fn();
+    const { rerender } = render(
+      <Button icon={Plus} onClick={onClick}>
         Working
       </Button>,
     );
     const b = screen.getByRole("button", { name: "Working" });
-    expect((b as HTMLButtonElement).disabled).toBe(true);
+    b.focus();
+    // Turning busy under the keyboard: a `disabled` button would drop focus to <body>.
+    rerender(
+      <Button loading icon={Plus} onClick={onClick}>
+        Working
+      </Button>,
+    );
+    expect((b as HTMLButtonElement).disabled).toBe(false);
+    expect(document.activeElement).toBe(b);
+    expect(b.getAttribute("aria-disabled")).toBe("true");
     expect(b.getAttribute("aria-busy")).toBe("true");
     expect(b.querySelector("svg.animate-spin")).not.toBeNull();
+    await userEvent.keyboard("{Enter}");
+    await userEvent.click(b, { pointerEventsCheck: 0 });
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("does not submit its form while loading", async () => {
+    const onSubmit = vi.fn((e: React.FormEvent) => e.preventDefault());
+    render(
+      <form onSubmit={onSubmit}>
+        <input aria-label="Name" />
+        <Button type="submit" loading>
+          Save
+        </Button>
+      </form>,
+    );
+    screen.getByRole("textbox", { name: "Name" }).focus();
+    await userEvent.keyboard("{Enter}");
+    screen.getByRole("button", { name: "Save" }).focus();
+    await userEvent.keyboard("{Enter}");
+    expect(onSubmit).not.toHaveBeenCalled();
   });
   it("renders a leading icon decoratively", () => {
     render(<Button icon={Plus}>Add</Button>);

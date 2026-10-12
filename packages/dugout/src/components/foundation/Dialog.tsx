@@ -4,6 +4,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { Icon } from "./Icon";
+import { FocusOrigin, useReturnFocus } from "./ReturnFocus";
 
 export const Dialog = DialogPrimitive.Root;
 export const DialogTrigger = DialogPrimitive.Trigger;
@@ -28,17 +29,20 @@ export interface DialogContentProps extends ComponentPropsWithoutRef<typeof Dial
 
 /**
  * The dialog surface (DESIGN §3, §7): glass on r-lg with elev-3, centred, scaling .98 → 1 from its centre as it fades in
- * (200 ms). The close button sits in the top-right corner; DialogHeader keeps its title clear of it.
+ * (200 ms). The close button sits in the top-right corner; DialogHeader keeps its title clear of it. On close, focus
+ * goes back to whatever had it when the dialog opened (`useReturnFocus`), so openers need no `<DialogTrigger>`.
  */
 export const DialogContent = forwardRef<ElementRef<typeof DialogPrimitive.Content>, DialogContentProps>(function DialogContent(
-  { className, children, size = "md", hideClose, ...props },
+  { className, children, size = "md", hideClose, onCloseAutoFocus, ...props },
   ref,
 ) {
+  const returnFocus = useReturnFocus(onCloseAutoFocus);
   return (
     <DialogPortal>
       <DialogOverlay />
       <DialogPrimitive.Content
         ref={ref}
+        onCloseAutoFocus={returnFocus.onCloseAutoFocus}
         className={cn(
           "surface-dialog overlay-motion fixed left-1/2 top-1/2 z-50 max-h-[calc(100vh-4rem)] max-w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden",
           "flex flex-col text-body text-primary outline-none",
@@ -47,6 +51,7 @@ export const DialogContent = forwardRef<ElementRef<typeof DialogPrimitive.Conten
         )}
         {...props}
       >
+        <FocusOrigin origin={returnFocus.origin} />
         {children}
         {hideClose ? null : (
           <DialogPrimitive.Close

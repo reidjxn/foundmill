@@ -36,6 +36,8 @@ export interface SidebarItem {
   keys?: string[];
   /** The fixed surface this item opens (BUILD §5.5: G H Home, G I Inbox, G C CRM). Departments are identified by `group`. */
   fixed?: "home" | "inbox" | "crm";
+  /** A department's stored G-chord letter (departments.shortcut); it wins over the letter its name would give. */
+  shortcut?: string | null;
   disabled?: boolean;
 }
 

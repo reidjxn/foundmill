@@ -19,11 +19,15 @@ export function FormRow({ children }: { children: ReactNode }) {
   return <div className="grid grid-cols-2 gap-3">{children}</div>;
 }
 
+/**
+ * The Save row. Nothing to save turns the button off with aria-disabled rather than `disabled`: a save that succeeds
+ * leaves the form clean while the button still has keyboard focus, and a disabled button would drop it to <body>.
+ */
 export function SaveBar({ onSave, saving, disabled, label = "Save changes", children }: { onSave: () => void; saving?: boolean; disabled?: boolean; label?: string; children?: ReactNode }) {
   return (
     <div className="flex items-center justify-end gap-2 border-t border-line pt-3">
       {children}
-      <Button variant="primary" onClick={onSave} loading={saving} disabled={disabled}>
+      <Button variant="primary" onClick={disabled ? undefined : onSave} loading={saving} aria-disabled={disabled || undefined} data-save-bar>
         {label}
       </Button>
     </div>

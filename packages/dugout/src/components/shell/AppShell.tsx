@@ -17,7 +17,7 @@ import type { RunwayWords } from "./RunwayChip";
 import { Sidebar } from "./Sidebar";
 import type { StopAllAgentsProps } from "./StopAllAgents";
 import { TabBar, type TabBarProps } from "./TabBar";
-import { departmentLetters, RESERVED_SECTION_LETTERS, useKeyboardMap, type GoToTarget, type KeyboardMapContext } from "./keyboard";
+import { departmentLetters, RESERVED_SECTION_LETTERS, useKeyboardMap, type DepartmentForKeys, type GoToTarget, type KeyboardMapContext } from "./keyboard";
 import type { BreadcrumbItem, ContinueState, Kit, ProcessingSegment, SidebarBrand, SidebarItem } from "./types";
 import { isViewportTooSmall, MIN_VIEWPORT_WIDTH, useViewportWidth } from "./useViewportWidth";
 
@@ -36,6 +36,8 @@ export interface AppShellContinue extends ContinueHandlers {
   /** Change to fire the single 600 ms pulse (DESIGN §7). */
   pulseKey?: string | number;
   disabled?: boolean;
+  /** The action is in flight: Continue keeps focus but refuses presses (ContinueButton `pending`). */
+  pending?: boolean;
 }
 
 export interface AppShellProcessing {
@@ -110,10 +112,14 @@ export interface AppShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "tit
   children?: ReactNode;
 }
 
+/** The departments in sidebar order, with their stored letters, for the G chord. */
+function departmentsForKeys(items: readonly SidebarItem[]): DepartmentForKeys[] {
+  return items.filter((it) => it.group === "department").map((it) => ({ id: it.id, name: it.label, shortcut: it.shortcut }));
+}
+
 /** Sidebar items with their chords filled in: fixed surfaces from `fixed`, departments from `departmentLetters`. Exported for tests. */
 export function withSidebarKeys(items: readonly SidebarItem[]): SidebarItem[] {
-  const departments = items.filter((it) => it.group === "department").map((it) => ({ id: it.id, name: it.label }));
-  const letters = departmentLetters(departments);
+  const letters = departmentLetters(departmentsForKeys(items));
   const fixedLetter = (fixed: NonNullable<SidebarItem["fixed"]>) => Object.entries(RESERVED_SECTION_LETTERS).find(([, v]) => v === fixed)?.[0];
   return items.map((it) => {
     if (it.keys) return it;
@@ -207,7 +213,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   const tooSmall = isViewportTooSmall(width, minViewportWidth);
 
   const items = useMemo(() => withSidebarKeys(sidebar.items), [sidebar.items]);
-  const departments = useMemo(() => items.filter((it) => it.group === "department").map((it) => ({ id: it.id, name: it.label })), [items]);
+  const departments = useMemo(() => departmentsForKeys(items), [items]);
 
   const [searchOpenState, setSearchOpenState] = useState(false);
   const searchOpen = search?.open ?? searchOpenState;
@@ -220,7 +226,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   );
   const [helpOpen, setHelpOpen] = useState(false);
 
-  const { state, pulseKey, disabled: continueDisabled, ...continueHandlers } = continueButton;
+  const { state, pulseKey, disabled: continueDisabled, pending: continuePending, ...continueHandlers } = continueButton;
   const continueAction = continueButtonAction(state, continueHandlers);
 
   const openSearch = useCallback(() => {
@@ -240,7 +246,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
   const { chordPending, cancelChord } = useKeyboardMap({
     enabled: keyboard?.enabled ?? true,
     departments,
-    onContinue: continueAction && !continueDisabled ? continueAction : undefined,
+    onContinue: continueAction && !continueDisabled && !continuePending ? continueAction : undefined,
     onRefreshInbox: keyboard?.onRefreshInbox,
     onGoTo: goTo,
     onSearch: openSearch,
@@ -309,7 +315,7 @@ export const AppShell = forwardRef<HTMLDivElement, AppShellProps>(function AppSh
             businessMode={businessMode}
             onModeClick={onModeClick}
             gameMode={mode}
-            continueButton={{ state, pulseKey, disabled: continueDisabled, ...continueHandlers }}
+            continueButton={{ state, pulseKey, disabled: continueDisabled, pending: continuePending, ...continueHandlers }}
             stopAll={stopAll}
             onHome={homeItem && onNavigate ? () => onNavigate(homeItem) : undefined}
           />

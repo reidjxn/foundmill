@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { AgentDesk, type AgentDeskProps } from "./AgentDesk";
 import {
@@ -295,6 +296,29 @@ describe("AgentDesk", () => {
     expect(within(dialog).queryByRole("textbox")).toBeNull();
     await user.keyboard("{Escape}");
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("sheet: closing gives focus back to the button that opened it", async () => {
+    const user = userEvent.setup();
+    function Opener() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Ask Juno
+          </button>
+          <AgentDesk persona={JUNO} messages={JUNO_MESSAGES} label="Conversation with Juno" variant="sheet" open={open} onOpenChange={setOpen} onQuickReply={vi.fn()} onSend={vi.fn()} />
+        </>
+      );
+    }
+    render(<Opener />);
+    const opener = screen.getByRole("button", { name: "Ask Juno" });
+    opener.focus();
+    await user.keyboard("{Enter}");
+    await screen.findByRole("dialog", { name: "Conversation with Juno" });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(opener));
   });
 });
 
