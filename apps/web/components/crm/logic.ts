@@ -288,10 +288,14 @@ export function activityItems(get: Pick<EntityGet, "interactions" | "mentions" |
     items.push({ id: `m-${m.id}`, at: toIso(m.createdAt) ?? new Date(0).toISOString(), kind: "mention", title: `Mentioned in ${containerWord(m.containerKind)}`, href: m.containerKind === "inbox_item" ? links.inbox(m.containerId) : undefined });
   }
   for (const c of get.conversions) {
-    items.push({ id: `c-${c.id}`, at: toIso(c.occurredAt) ?? new Date(0).toISOString(), kind: "conversion", title: c.kind === "payment" ? "Payment" : c.kind === "activation" ? "Activated" : "Signed up", description: c.kind === "payment" ? `${(Number(c.amountMinor) / 100).toFixed(2)} ${c.currency}` : undefined, href: links.journey(c.id) });
+    const won = isCustomerWin(c);
+    items.push({ id: `c-${c.id}`, at: toIso(c.occurredAt) ?? new Date(0).toISOString(), kind: "conversion", title: c.kind === "payment" ? (won ? "Payment" : "Repeat payment") : c.kind === "activation" ? "Activated" : "Signed up", description: c.kind === "payment" ? `${(Number(c.amountMinor) / 100).toFixed(2)} ${c.currency}` : undefined, href: won ? links.journey(c.id) : undefined });
   }
   return items.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
 }
+
+/** A conversion that won a customer and so has a Customer Update; a renewal or a repeat order is revenue only (no replay). */
+export const isCustomerWin = (c: Pick<ConversionRecord, "firstPayment">): boolean => c.firstPayment !== false;
 
 export interface DocumentItem {
   id: string;

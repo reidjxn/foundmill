@@ -80,6 +80,8 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   "inbox.item_created": ["inbox"],
   "decision.made": ["inbox", "plan"],
   "customer.converted": ["inbox", "journey", "finance"],
+  // A renewal or a repeat order is revenue with no customer.converted (only first payments win a customer).
+  "payment.received": ["journey", "finance"],
   "agent.health_changed": ["department", "team"],
   "mode.changed": ["business"],
   "holiday.started": ["business"],

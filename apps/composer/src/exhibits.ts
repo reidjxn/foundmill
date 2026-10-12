@@ -78,7 +78,8 @@ export const NAMED_QUERIES: Readonly<Record<NamedQueryId, NamedQuery>> = {
     description: "Daily signups, activations and payments over the last thirty days.",
     async run(db, businessId, now = new Date()) {
       const from = daysAgo(now, 30);
-      const page = await repos.journeys.listConversions(db, businessId, { from, to: now, limit: 500 });
+      // Conversions that won a customer: a renewal or a repeat order is revenue, not a conversion (same as the Ribbon).
+      const page = await repos.journeys.listConversions(db, businessId, { from, to: now, firstPayment: true, limit: 500 });
       const days = Array.from({ length: 30 }, (_, i) => dayKey(daysAgo(now, 29 - i)));
       const buckets: Record<"signup" | "activation" | "payment", Map<string, number>> = {
         signup: new Map(days.map((d) => [d, 0])),

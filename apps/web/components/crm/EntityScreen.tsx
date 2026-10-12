@@ -20,7 +20,7 @@ import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { AddRoleDialog, DeleteRequestDialog, EditEntityDialog, ExportDialog, MergeDialog, useCrmInvalidate } from "./dialogs";
-import { ENTITY_TABS, KIND_WORD, LAWFUL_BASIS_LABEL, STAGE_TONE, VISIBILITY_WORD, activityItems, commercialSummary, documentItems, introPaths, leadScore, mergeBanner, primaryRole, relationshipStrength, containerWord, roleWord, sourceWord, stageWord, strengthRating, type EntityGet, type EntityTab, type OwnerRef } from "./logic";
+import { ENTITY_TABS, KIND_WORD, LAWFUL_BASIS_LABEL, STAGE_TONE, VISIBILITY_WORD, activityItems, commercialSummary, documentItems, introPaths, isCustomerWin, leadScore, mergeBanner, primaryRole, relationshipStrength, containerWord, roleWord, sourceWord, stageWord, strengthRating, type EntityGet, type EntityTab, type OwnerRef } from "./logic";
 import { RelationshipGraph } from "./RelationshipGraph";
 
 export interface EntityScreenProps {
@@ -411,7 +411,8 @@ function NotesTab({ get, businessId }: { get: EntityGet; businessId: string }) {
 function JourneyTab({ get, businessId }: { get: EntityGet; businessId: string }) {
   const { formatDateTime } = useFormatters();
   const router = useRouter();
-  const wins = get.conversions.slice().sort((a, b) => Date.parse(String(b.occurredAt)) - Date.parse(String(a.occurredAt)));
+  // Renewals and repeat orders are revenue (Commercial tab), not wins: they have no replay.
+  const wins = get.conversions.filter(isCustomerWin).sort((a, b) => Date.parse(String(b.occurredAt)) - Date.parse(String(a.occurredAt)));
   return (
     <Panel title="Customer Updates" span={12} empty={wins.length === 0 ? { icon: Play, children: "Each win (sign-up, activation, payment) has a replay: first touch, who was involved, the win moment and the debrief." } : undefined} footer="Replays open the Customer Update for that win." data-testid="journey-list">
       <ul className="flex flex-col divide-y divide-subtle">
