@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { CommitScreen } from "@/components/new/commit/CommitScreen";
 import { loadStudioViewer } from "@/components/new/viewer.server";
-import { UnreachablePage } from "@/components/shell/UnreachablePage";
+import { ApiErrorPage } from "@/components/shell/ApiErrorPage";
 
 export const metadata: Metadata = { title: "Commit" };
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export default async function CommitPage({ params }: { params: Promise<{ ideaId:
   if (!UUID_RE.test(ideaId)) notFound();
   const result = await loadStudioViewer();
   if (result.kind === "signed_out") redirect(`/login?next=${encodeURIComponent(`/new/commit/${ideaId}`)}`);
-  if (result.kind === "unreachable") return <UnreachablePage message={result.message} />;
+  if (result.kind === "unreachable") return <ApiErrorPage error={result.error} email={result.email} />;
   const { viewer } = result;
   if (!viewer.complete) redirect("/onboarding");
   return (

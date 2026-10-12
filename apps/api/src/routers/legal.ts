@@ -8,6 +8,7 @@ import { CreateContractInput, UpdateContractInput, repos } from "@foundmill/db";
 import { INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
+import { modelLimited } from "../services/model-limits";
 import { Id, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
 const read = sectionRead("legal");
@@ -72,7 +73,7 @@ const addr = (v: unknown): Record<string, string> => (v && typeof v === "object"
 
 export const legalRouter = router({
   /** Jurisdiction recommender (AC-11.11.1): two-jurisdiction headline, up to 6 cards with a date-checked stamp. */
-  recommend: write.input(z.object({ fundraising: z.enum(["none", "angels", "vc"]).default("none"), coFounders: z.number().int().min(0).max(10).default(0) })).mutation(async ({ ctx, input }) => {
+  recommend: write.input(z.object({ fundraising: z.enum(["none", "angels", "vc"]).default("none"), coFounders: z.number().int().min(0).max(10).default(0) })).use(modelLimited("recommend")).mutation(async ({ ctx, input }) => {
     const profile = await repos.founders.get(ctx.db, ctx.userId);
     const result = await ctx.models.complete({
       route: "departmentLead",
@@ -121,7 +122,7 @@ export const legalRouter = router({
 
   import: router({
     /** Registry lookup through the connectors (mock fixtures in mock mode). Third-party content is untrusted. */
-    lookup: read.input(LookupInput).mutation(async ({ ctx, input }): Promise<LookupResult> => {
+    lookup: read.input(LookupInput).use(modelLimited("lookup")).mutation(async ({ ctx, input }): Promise<LookupResult> => {
       const checkedAt = new Date().toISOString();
       if (input.country === "gb") {
         const company = await call<Record<string, unknown>>(ctx, "companies_house", "get_company", { companyNumber: input.regNo });

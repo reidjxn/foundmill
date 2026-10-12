@@ -11,6 +11,7 @@ import { businessesRepo } from "./businesses";
 import { campaignsRepo } from "./campaigns";
 import { capTableRepo } from "./capTable";
 import { channelsRepo } from "./channels";
+import { checkoutsRepo } from "./checkouts";
 import { credentialsRepo } from "./credentials";
 import { dashboardsRepo } from "./dashboards";
 import { departmentsRepo } from "./departments";
@@ -78,6 +79,7 @@ export const repos = {
   foundations: foundationsRepo,
   conversations: conversationsRepo,
   preferences: preferencesRepo,
+  checkouts: checkoutsRepo,
 } as const;
 export type Repos = typeof repos;
 export type RepoArea = keyof Repos;
@@ -121,3 +123,4 @@ export * from "./workspaces";
 export * from "./logos";
 export * from "./conversations";
 export * from "./preferences";
+export * from "./checkouts";

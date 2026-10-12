@@ -37,6 +37,11 @@ export interface IngestDeps {
    * (docs/SECURITY_REVIEW.md SEC-2). Null means the routes refuse every request (401), never that they open up.
    */
   simulateTokenSecret: string | null;
+  /**
+   * `STRIPE_BILLING_WEBHOOK_SECRET`: the platform Stripe endpoint for Foundmill's own billing (`POST /billing/stripe`,
+   * billing.ts) verifies with it. Null (or absent) refuses every billing delivery (503), in every mode.
+   */
+  billingWebhookSecret?: string | null;
 }
 
 export const INGEST_SERVICE = "ingest";

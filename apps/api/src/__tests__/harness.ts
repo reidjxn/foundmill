@@ -18,6 +18,7 @@ import { createComposerClient } from "../services/composer";
 import { createApiModelClient } from "../services/models";
 import type { ApiGatewayClient } from "../services/gateway";
 import { silentLog } from "../services/log";
+import { MemoryRateLimitStore } from "../services/rate-limit";
 import type { RecordingResolver } from "../services/replay";
 import { createIngestClient } from "../services/simulate";
 import { createTemporalService, type TemporalClientLike } from "../services/temporal";
@@ -29,6 +30,8 @@ export interface ApiHarness {
   h: TestHarness;
   db: Db;
   deps: ApiDeps;
+  /** The deps' allowance windows (in memory): tests fill or reset them. */
+  limits: MemoryRateLimitStore;
   A: BusinessFixture;
   B: BusinessFixture;
   caller(user: CallerUser | null): ReturnType<typeof createCaller>;
@@ -70,10 +73,12 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
       throw new Error("composer service not running in tests");
     },
   });
+  const limits = new MemoryRateLimitStore();
   const deps: ApiDeps = {
     env,
     db,
     redis: options.redis ?? null,
+    limits,
     temporal,
     models,
     composer,
@@ -98,6 +103,9 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
       health: async () => {
         throw new Error("gateway not running in tests");
       },
+      createCheckout: async () => {
+        throw new Error("gateway not running in tests");
+      },
     },
     health: { db: async () => true, redis: async () => false, temporal: () => temporal.reachable() },
   };
@@ -106,6 +114,7 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
     h,
     db,
     deps,
+    limits,
     A,
     B,
     caller: (user) => createCaller(deps, user),

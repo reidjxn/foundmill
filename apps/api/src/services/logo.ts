@@ -10,8 +10,8 @@
  *   direction (monogram, geometric, negative space, abstract), all at once, and checks each mark the moment its call
  *   ends; a mark the sanitiser cannot keep whole is dropped. `onOption` hands each mark over as it passes, which the
  *   streamed procedures (`idea.logo.stream`, `business.logo.stream`) turn into `LogoEvent`s for the picker. Every call is
- *   metered and the set's cost is reported as an Estimate. `logoLimiter` bounds sets per signed-in user and per
- *   business: one set per request, however many calls it takes.
+ *   metered and the set's cost is reported as an Estimate. `takeLogoAllowance` bounds sets per signed-in user and
+ *   per business: one set per request, however many calls it takes.
  */
 import { prompts } from "@foundmill/agents";
 import { LIMITS } from "@foundmill/config";
@@ -20,7 +20,7 @@ import { AppError, ARCHETYPE_LABELS, ValidationError, type Archetype } from "@fo
 import { base64ToBytes, checkLogo, LOGO_SOURCES, SVG_MAX_INPUT_CHARS, utf8Decode, type CheckedLogo, type LogoInput } from "@foundmill/shared/logo";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { RateLimitedError, SlidingWindowLimiter } from "./rate-limit";
+import { RateLimitedError, takeOrThrow, type LimitTicket, type RateLimitStore } from "./rate-limit";
 
 const Hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
@@ -70,8 +70,7 @@ export function sanitisedSummary(logo: CheckedLogo): { counts: Record<string, nu
 // Generation
 // ---------------------------------------------------------------------------------------------------------------------
 
-/** One process-wide limiter (see rate-limit.ts for the replica caveat). */
-export const logoLimiter = new SlidingWindowLimiter();
+// The windows live in the api's limit store (`ctx.limits`: Redis across replicas, memory in development; rate-limit.ts).
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 export const LOGO_LIMITS = {
@@ -81,9 +80,8 @@ export const LOGO_LIMITS = {
 } as const;
 
 /** Spends one upload check (prepare, upload), or throws TOO_MANY_REQUESTS. */
-export function takeLogoCheck(userId: string): void {
-  const r = logoLimiter.takeAll([{ key: `logo:check:${userId}`, rule: LOGO_LIMITS.checks }]);
-  if (!r.ok) throw new RateLimitedError("Logo upload", r.retryAfterMs);
+export async function takeLogoCheck(limits: RateLimitStore, userId: string): Promise<void> {
+  await takeOrThrow(limits, "Logo upload", [{ key: `logo:check:${userId}`, rule: LOGO_LIMITS.checks }]);
 }
 
 export interface LogoBrief {
@@ -126,12 +124,18 @@ export interface LogoSetUsage {
   model: string;
 }
 
+/** One set's spend: the hit to give back when the set fails before any tokens are spent, and the sets left. */
+export interface LogoAllowance {
+  ticket: LimitTicket;
+  remaining: number;
+}
+
 /** Spends one set from every limit that applies, or throws TOO_MANY_REQUESTS. */
-export function takeLogoAllowance(scope: { userId: string; businessId?: string }): { keys: string[]; remaining: number } {
+export async function takeLogoAllowance(limits: RateLimitStore, scope: { userId: string; businessId?: string }): Promise<LogoAllowance> {
   const entries = [{ key: `logo:user:${scope.userId}`, rule: LOGO_LIMITS.user }, ...(scope.businessId ? [{ key: `logo:business:${scope.businessId}`, rule: LOGO_LIMITS.business }] : [])];
-  const r = logoLimiter.takeAll(entries);
+  const r = await limits.take(entries);
   if (!r.ok) throw new RateLimitedError("Logo generation", r.retryAfterMs);
-  return { keys: entries.map((e) => e.key), remaining: r.remaining };
+  return { ticket: r.ticket, remaining: r.remaining };
 }
 
 /** What the mark calls of one set have used so far, filled in as each call ends (so a stopped set is metered too). */

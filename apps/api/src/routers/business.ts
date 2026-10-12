@@ -10,6 +10,7 @@ import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
 import { stopAllAgents } from "../services/killswitch";
 import { archiveBusiness, cancelDeletion, deletionState, exportBusiness, requestDeletion } from "../services/lifecycle";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
+import { modelLimited } from "../services/model-limits";
 import { adminProcedure, audit, businessProcedure, emit, ownerProcedure, router, writeProcedure } from "../trpc";
 import { businessLogoRouter } from "./logo";
 
@@ -59,7 +60,7 @@ export const businessRouter = router({
    * or runs one in-process cycle step (one new Inbox item through the composer) and returns the new Continue state.
    * Refuses (CONFLICT) while red items block Continue or a holiday is running.
    */
-  continue: writeProcedure.mutation(({ ctx }) => startCycle(ctx)),
+  continue: writeProcedure.use(modelLimited("continue")).mutation(({ ctx }) => startCycle(ctx)),
   pauseCycle: writeProcedure.mutation(({ ctx }) => pauseCycle(ctx)),
   resumeCycle: writeProcedure.mutation(({ ctx }) => resumeCycle(ctx)),
 

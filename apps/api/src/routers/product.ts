@@ -6,6 +6,7 @@ import { CreateSourceInput, EditSpecBlockInput, UpsertRoadmapItemInput, repos } 
 import { HUNK_DECISIONS, SOURCE_KINDS, ValidationError, WRITE_ROLES } from "@foundmill/shared";
 import { z } from "zod";
 import { ensureFoundations, foundationsView, isStale, retryFoundations } from "../services/foundations";
+import { modelLimited } from "../services/model-limits";
 import { Id, audit, businessProcedure, effectivePermission, emit, router, sectionRead, sectionWrite } from "../trpc";
 
 const read = sectionRead("product");
@@ -30,7 +31,7 @@ export const productRouter = router({
       const { view, started } = await ensureFoundations({ db: ctx.db, models: ctx.models, temporal: ctx.temporal, log: ctx.log }, ctx.businessId, { userId: ctx.userId, canStart });
       return { status: view.status, door: view.door, attempt: view.attempt, startedAt: view.startedAt, finishedAt: view.finishedAt, started };
     }),
-    retry: write.mutation(async ({ ctx }) => {
+    retry: write.use(modelLimited("foundations")).mutation(async ({ ctx }) => {
       const result = await retryFoundations({ db: ctx.db, models: ctx.models, temporal: ctx.temporal, log: ctx.log }, ctx.businessId, { userId: ctx.userId });
       if (!result.started && result.view.status !== "drafting") throw new ValidationError(result.view.status === "none" ? "This business has no drafting to retry" : `Nothing to retry: the drafting is ${result.view.status}`);
       return { ...result.view, started: result.started, stale: false };

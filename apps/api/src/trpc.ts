@@ -9,6 +9,7 @@ import superjson from "superjson";
 import { ZodError, z } from "zod";
 import { repos, withRls, type Business, type DbTx, type Executor, type Membership } from "@foundmill/db";
 import type { EventPayloadInput } from "@foundmill/events";
+import { assertAllowlisted } from "./services/access";
 import { writeEventRow } from "./services/events";
 import { AppError, WRITE_ROLES, type Actor, type EventType, type MembershipRole } from "@foundmill/shared";
 import type { Context } from "./context";
@@ -200,6 +201,8 @@ export const publicProcedure = t.procedure.use(mapErrors);
 
 export const protectedProcedure = publicProcedure.use(({ ctx, next }) => {
   if (!ctx.userId) throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to continue" });
+  // A deployment that is not open to everyone admits only the accounts SIGNUP_ALLOWLIST names (services/access.ts).
+  assertAllowlisted(ctx.env, { userId: ctx.userId, email: ctx.email });
   return next({ ctx: { ...ctx, userId: ctx.userId } });
 });
 

@@ -9,6 +9,7 @@ import { UpdateAgentInput, repos, type Agent } from "@foundmill/db";
 import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
 import { MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
 import { z } from "zod";
+import { modelLimited } from "../services/model-limits";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { Id, audit, emit, router, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
@@ -110,7 +111,7 @@ export const agentRouter = router({
     ),
 
     /** Queue a run on the orchestrator (`trainingRun`); the live version keeps working (AC-11.10.1). */
-    run: write.input(z.object({ agentId: Id, versionId: Id })).mutation(async ({ ctx, input }) => {
+    run: write.input(z.object({ agentId: Id, versionId: Id })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
       const run = await ctx.rls(async (tx) => {
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
         const version = await repos.agents.getVersion(tx, ctx.businessId, input.versionId);
@@ -193,7 +194,7 @@ export const agentRouter = router({
     ),
 
     /** Change the model for the agent, every agent of its type, or all; locked routes are skipped; retests are queued (AC-11.10.5). */
-    set: write.input(z.object({ agentId: Id, modelKey: z.enum(MODEL_KEYS), applyScope: ApplyScope.default("agent") })).mutation(async ({ ctx, input }) => {
+    set: write.input(z.object({ agentId: Id, modelKey: z.enum(MODEL_KEYS), applyScope: ApplyScope.default("agent") })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
       const targets = await scopedAgents(ctx, input.agentId, input.applyScope);
       const updated: string[] = [];
       const skipped: { agentId: string; reason: string }[] = [];

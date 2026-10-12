@@ -48,6 +48,12 @@ const Env = z.object({
   SESSION_TOKEN_SECRET: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  /**
+   * apps/ingest: signing secret of the platform Stripe endpoint for Foundmill's own billing (`POST /billing/stripe`:
+   * credit top-ups paid through Checkout). Separate from STRIPE_WEBHOOK_SECRET (the businesses' own Stripe events) so
+   * a delivery signed for one can never pass as the other; unset refuses every billing delivery.
+   */
+  STRIPE_BILLING_WEBHOOK_SECRET: z.string().optional(),
   SENDGRID_API_KEY: z.string().optional(),
   SENDGRID_WEBHOOK_PUBLIC_KEY: z.string().optional(),
   GITHUB_APP_ID: z.string().optional(),
@@ -61,6 +67,12 @@ const Env = z.object({
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
   SENTRY_DSN: z.string().optional(),
   SEED_OWNER_EMAILS: z.string().optional(),
+  /**
+   * apps/api: who may use the app, comma-separated emails and `@domain`s (`founder@example.com, @example.org`). When set,
+   * every signed-in request from any other account is refused (FORBIDDEN, `not_invited`); unset admits every account
+   * that can sign in. Staging sets it while sign-up is open (docs/DEPLOY.md §4).
+   */
+  SIGNUP_ALLOWLIST: z.string().optional(),
   /** apps/api: build the demo businesses once at boot and give SEED_OWNER_EMAILS owner memberships (docs/DEPLOY.md §3). */
   SEED_ON_BOOT: z.string().optional(),
   /** Seed data volume multiplier (1 = the full two years of history). */

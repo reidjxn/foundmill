@@ -33,6 +33,7 @@ export * from "./ingest";
 export * from "./webhooks";
 export * from "./simulate";
 export * from "./simulate-token";
+export * from "./billing";
 export * from "./app";
 export * from "./db-boot";
 
@@ -57,6 +58,8 @@ export interface BuildIngestOptions {
   simulateEnabled?: boolean;
   /** Secret the Simulate service token is verified with (defaults to `SESSION_TOKEN_SECRET`; null refuses every request). */
   simulateTokenSecret?: string | null;
+  /** Secret the platform billing webhook verifies with (defaults to `STRIPE_BILLING_WEBHOOK_SECRET`; null refuses every delivery). */
+  billingWebhookSecret?: string | null;
 }
 
 export interface BuiltIngest extends CreatedIngestApp {
@@ -102,6 +105,7 @@ export function buildIngest(options: BuildIngestOptions = {}): BuiltIngest {
     env: { APP_ENV: env.APP_ENV },
     simulateEnabled: options.simulateEnabled ?? simulateEnabledFor(env.APP_ENV, FLAGS.devSimulatePanel),
     simulateTokenSecret: options.simulateTokenSecret === undefined ? (env.SESSION_TOKEN_SECRET ?? null) : options.simulateTokenSecret,
+    billingWebhookSecret: options.billingWebhookSecret === undefined ? (env.STRIPE_BILLING_WEBHOOK_SECRET?.trim() || null) : options.billingWebhookSecret,
   };
   if (simulateRoutesMounted(deps) && !deps.simulateTokenSecret) {
     log.warn({ env: env.APP_ENV }, "Simulate routes are enabled but SESSION_TOKEN_SECRET is not set: every simulate request will be refused (401)");

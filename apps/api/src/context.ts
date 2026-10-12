@@ -18,6 +18,7 @@ import { createAuthVerifier, type AuthVerifier } from "./auth";
 import { requestIdFrom } from "./request-id";
 import { createComposerClient, type ComposerClient } from "./services/composer";
 import { createApiModelClient } from "./services/models";
+import { createRateLimitStore, type RateLimitStore, type RedisLimitClient } from "./services/rate-limit";
 import { createRedis } from "./services/redis";
 import { createSandboxRecordingResolver, type RecordingResolver } from "./services/replay";
 import { createApiGatewayClient, type ApiGatewayClient } from "./services/gateway";
@@ -31,6 +32,11 @@ export interface ApiDeps {
   /** Service-role Drizzle database. User-originated queries go through `withRls` (see trpc.ts `ctx.rls`). */
   db: Db;
   redis: StreamRedis | null;
+  /**
+   * Allowances on procedures that spend money per call (model calls on the platform key, vendor lookups): Redis in
+   * staging and production so every replica counts against one window, memory otherwise (services/rate-limit.ts).
+   */
+  limits: RateLimitStore;
   temporal: TemporalService;
   models: ModelClient;
   composer: ComposerClient;
@@ -81,6 +87,7 @@ export interface CreateApiDepsOptions {
   redis?: StreamRedis | null;
   log?: ApiLogger;
   recordings?: RecordingResolver | null;
+  limits?: RateLimitStore;
 }
 
 /** Build every process-wide service from the environment. Never throws for an unreachable backend. */
@@ -97,6 +104,13 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
   }
 
   const redis = options.redis === undefined ? createRedis(env.REDIS_URL, log) : options.redis;
+  // Deployed replicas share their windows through Redis; development and tests keep them in the process.
+  const shared = env.APP_ENV === "staging" || env.APP_ENV === "production";
+  const limits =
+    options.limits ??
+    createRateLimitStore(shared && redis && typeof (redis as Partial<RedisLimitClient>).eval === "function" ? (redis as unknown as RedisLimitClient) : null, {
+      onFallback: (err) => log.warn({ err: (err as Error)?.message }, "rate limits fell back to memory (Redis did not answer); retrying Redis in 30 s"),
+    });
   const temporal = createTemporalService({ address: env.TEMPORAL_ADDRESS, namespace: env.TEMPORAL_NAMESPACE, taskQueue: env.TEMPORAL_TASK_QUEUE, log });
   // Calls made for a business are booked to its usage ledger through the client (services/models.ts).
   const models = createApiModelClient(env, log, { db });
@@ -147,7 +161,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
     temporal: () => temporal.reachable(),
   };
 
-  return { env, db, redis, temporal, models, composer, vault, connectors, auth, log, recordings, ingest, gateway, health };
+  return { env, db, redis, limits, temporal, models, composer, vault, connectors, auth, log, recordings, ingest, gateway, health };
 }
 
 /** Per-request context factory for `trpcServer({ createContext })`. */

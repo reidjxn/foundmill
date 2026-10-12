@@ -44,8 +44,8 @@ export const importRouter = router({
    * Drafts the concept card for a finished sign-up import while the founder reads the report (held in memory, never
    * saved until `continue`). Idempotent per job; answers at once with "drafting" or "ready".
    */
-  prepareConcept: protectedProcedure.input(JobInput).mutation(({ ctx, input }) => prepareImportConcept({ db: ctx.db, models: ctx.models, key: importJobKey(ctx.env) }, input.jobId, ctx.userId)),
+  prepareConcept: protectedProcedure.input(JobInput).mutation(({ ctx, input }) => prepareImportConcept({ db: ctx.db, models: ctx.models, limits: ctx.limits, key: importJobKey(ctx.env) }, input.jobId, ctx.userId)),
 
   /** "Continue to Commit": the card drafted ahead (or drafted now), saved as the founder's idea and linked to the import. */
-  continue: protectedProcedure.input(JobInput).mutation(({ ctx, input }) => continueImport({ db: ctx.db, models: ctx.models, key: importJobKey(ctx.env) }, input.jobId, ctx.userId)),
+  continue: protectedProcedure.input(JobInput).mutation(({ ctx, input }) => continueImport({ db: ctx.db, models: ctx.models, limits: ctx.limits, key: importJobKey(ctx.env) }, input.jobId, ctx.userId)),
 });

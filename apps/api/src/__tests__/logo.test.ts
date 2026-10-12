@@ -11,7 +11,7 @@ import { bytesToBase64, isLogoDataUrl, sanitiseSvg } from "@foundmill/shared/log
 import { makeJpeg, makePng } from "@foundmill/shared/testing/logo-fixtures";
 import { TRPCError } from "@trpc/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { logoLimiter, takeLogoAllowance, takeLogoCheck } from "../services/logo";
+import { takeLogoAllowance, takeLogoCheck } from "../services/logo";
 import { SlidingWindowLimiter } from "../services/rate-limit";
 import { createApiHarness, type ApiHarness } from "./harness";
 
@@ -27,7 +27,7 @@ beforeAll(async () => {
   hz = await createApiHarness({ prefix: "logo" });
 }, 120_000);
 afterAll(() => hz.close());
-beforeEach(() => logoLimiter.reset());
+beforeEach(() => hz.limits.reset());
 
 const pngUrl = (size = 512) => `data:image/png;base64,${bytesToBase64(makePng(size, size))}`;
 const svgUrl = (svg: string) => `data:image/svg+xml;base64,${Buffer.from(svg, "utf8").toString("base64")}`;
@@ -131,7 +131,7 @@ describe("business.logo.* (owner/admin, audited)", () => {
   it("limits upload checks per user per hour", async () => {
     const { businessId, ownerId } = hz.B;
     const owner = hz.caller({ userId: ownerId });
-    for (let i = 0; i < LIMITS.logoChecksPerUserPerHour; i++) takeLogoCheck(ownerId);
+    for (let i = 0; i < LIMITS.logoChecksPerUserPerHour; i++) await takeLogoCheck(hz.limits, ownerId);
     expect(await code(owner.business.logo.prepare({ businessId, dataUrl: pngUrl(64) }))).toBe("TOO_MANY_REQUESTS");
     expect(await code(owner.idea.logo.prepare({ dataUrl: pngUrl(64) }))).toBe("TOO_MANY_REQUESTS");
     // Someone else is unaffected.
@@ -209,11 +209,11 @@ describe("business.logo.generate (Opus, sanitised, metered, rate-limited)", () =
     await hz.caller({ userId: adminId }).business.logo.generate({ businessId, round: 100 });
     // ...until the business's daily allowance runs out, whoever asks.
     const used = LIMITS.logoSetsPerUserPerHour + 1;
-    for (let i = used; i < LIMITS.logoSetsPerBusinessPerDay; i++) takeLogoAllowance({ userId: `someone-${i}`, businessId });
-    expect(() => takeLogoAllowance({ userId: "someone-else", businessId })).toThrow(/Logo generation limit reached/);
+    for (let i = used; i < LIMITS.logoSetsPerBusinessPerDay; i++) await takeLogoAllowance(hz.limits, { userId: `someone-${i}`, businessId });
+    await expect(takeLogoAllowance(hz.limits, { userId: "someone-else", businessId })).rejects.toThrow(/Logo generation limit reached/);
     expect(await code(hz.caller({ userId: adminId }).business.logo.generate({ businessId, round: 101 }))).toBe("TOO_MANY_REQUESTS");
     // A different business is unaffected.
-    expect(() => takeLogoAllowance({ userId: "someone-else", businessId: hz.A.businessId })).not.toThrow();
+    await expect(takeLogoAllowance(hz.limits, { userId: "someone-else", businessId: hz.A.businessId })).resolves.toMatchObject({ remaining: expect.any(Number) });
   });
 });
 
@@ -251,7 +251,7 @@ describe("idea.logo.* and idea.commit with a logo", () => {
     const caller = hz.caller({ userId });
     await caller.founder.profile.update({ displayName: "Lea", experience: "operator", skills: { sales: 12 }, targetMarkets: ["EU"], riskAppetite: "low" });
     const idea = (await caller.idea.generate({ prompt: "a bakery" })).ideas[0]!;
-    for (let i = 0; i < LIMITS.logoChecksPerUserPerHour; i++) takeLogoCheck(userId);
+    for (let i = 0; i < LIMITS.logoChecksPerUserPerHour; i++) await takeLogoCheck(hz.limits, userId);
     expect(await code(caller.idea.commit({ ideaId: idea.id, name: "Crumb", archetype: "dtc_physical", logo: { source: "upload", dataUrl: pngUrl(64) } }))).toBe("TOO_MANY_REQUESTS");
     expect((await caller.idea.get({ ideaId: idea.id })).idea.committedAt).toBeNull();
     expect(await code(caller.idea.commit({ ideaId: idea.id, name: "Crumb", archetype: "dtc_physical" }))).toBe("OK");
@@ -283,7 +283,7 @@ describe("SlidingWindowLimiter", () => {
     expect(l.peek("b", rule)).toEqual({ ok: true, remaining: 2 });
     now = 1001;
     expect(l.takeAll([{ key: "u", rule }])).toEqual({ ok: true, remaining: 0 });
-    l.refund(["u"]);
+    l.refund(["u"], 1001);
     expect(l.peek("u", rule)).toEqual({ ok: true, remaining: 1 });
   });
 

@@ -2,11 +2,15 @@
 import { InboxListFilter, repos } from "@foundmill/db";
 import { z } from "zod";
 import { confirmPlan, decideInboxItem, planContextFor } from "../services/decide";
+import { modelLimited } from "../services/model-limits";
 import { compilePlan, evaluatePlan, requiresConfirmation } from "../services/plans";
 import { Id, audit, router, sectionRead, sectionWrite } from "../trpc";
 
 const inboxRead = sectionRead("inbox");
 const inboxWrite = sectionWrite("inbox");
+
+/** A decision with free text (compiled into a plan by the model). */
+const hasFreeText = (input: unknown): boolean => typeof (input as { freeText?: unknown } | null)?.freeText === "string" && Boolean((input as { freeText: string }).freeText.trim());
 
 export const inboxRouter = router({
   list: inboxRead.input(InboxListFilter).query(({ ctx, input }) =>
@@ -29,14 +33,15 @@ export const inboxRouter = router({
     }),
   ),
 
-  /** Exactly one new item (AC-11.3.2); the composer service, or the same logic in-process in development. */
-  refresh: inboxWrite.mutation(async ({ ctx }) => {
+  /** Exactly one new item (AC-11.3.2); the composer service, or the same logic in-process in development. One composer note per press, so it has an allowance (BILL-19). */
+  refresh: inboxWrite.use(modelLimited("refresh")).mutation(async ({ ctx }) => {
     const result = await ctx.composer.refresh(ctx.businessId, { actorUserId: ctx.userId });
     await ctx.rls((tx) => audit(tx, ctx, { action: "inbox.refresh", target: { kind: "inbox_item", id: result.item.id }, details: { source: result.source, type: result.item.type } }));
     return result;
   }),
 
-  decide: inboxWrite.input(z.object({ itemId: Id, chosenOption: z.string().max(40).nullable().optional(), freeText: z.string().max(4000).nullable().optional() })).mutation(({ ctx, input }) => decideInboxItem(ctx, input)),
+  // Free text is compiled into a plan (a model call) and spends the planning allowance; choosing an option does not.
+  decide: inboxWrite.input(z.object({ itemId: Id, chosenOption: z.string().max(40).nullable().optional(), freeText: z.string().max(4000).nullable().optional() })).use(modelLimited("plan", { when: hasFreeText })).mutation(({ ctx, input }) => decideInboxItem(ctx, input)),
 
   markRead: inboxRead.input(z.object({ itemId: Id })).mutation(({ ctx, input }) => ctx.rls((tx) => repos.inbox.markRead(tx, ctx.businessId, input.itemId))),
 
@@ -50,8 +55,11 @@ export const inboxRouter = router({
 });
 
 export const planRouter = router({
-  /** Compile + policy check without writing anything ("Here is what will happen"). */
-  preview: inboxRead.input(z.object({ text: z.string().min(1).max(4000), inboxItemId: Id.optional() })).mutation(async ({ ctx, input }) => {
+  /**
+   * Compile + policy check without writing anything ("Here is what will happen"). A model call each time, so it needs Inbox
+   * write (viewers and advisors cannot loop it on the platform key) and spends the planning allowance (SEC-13).
+   */
+  preview: inboxWrite.input(z.object({ text: z.string().min(1).max(4000), inboxItemId: Id.optional() })).use(modelLimited("plan")).mutation(async ({ ctx, input }) => {
     const planCtx = await planContextFor(ctx);
     const compiled = await compilePlan(ctx.models, input.text, planCtx);
     const evaluations = evaluatePlan(compiled.actions, planCtx);

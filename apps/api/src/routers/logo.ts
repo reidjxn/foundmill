@@ -24,14 +24,15 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type { Context } from "../context";
 import { eventStream } from "../services/event-stream";
-import { BrandColours, checkLogoChoice, emptyLogoSpend, generateLogoOptions, logoLimiter, LogoChoice, LogoDataUrl, logoSlots, preparedView, sanitisedSummary, takeLogoAllowance, takeLogoCheck, type LogoBrief, type LogoEvent, type LogoSet, type LogoSpend } from "../services/logo";
+import { BrandColours, checkLogoChoice, emptyLogoSpend, generateLogoOptions, LogoChoice, LogoDataUrl, logoSlots, preparedView, sanitisedSummary, takeLogoAllowance, takeLogoCheck, type LogoAllowance, type LogoBrief, type LogoEvent, type LogoSet, type LogoSpend } from "../services/logo";
+import { modelLimited } from "../services/model-limits";
 import { adminProcedure, audit, businessProcedure, Id, internalErrorMessage, protectedProcedure, router, toTRPCError, type BusinessContext } from "../trpc";
 
 const Round = z.number().int().min(0).max(10_000).default(0);
 
 /** Gives the allowance back when the call failed before any tokens were spent (model unavailable, rate limited). */
-function refundUnlessSpent(keys: string[], err: unknown): never {
-  if (!(err instanceof AppError && err.code === "logo_generation_failed")) logoLimiter.refund(keys);
+async function refundUnlessSpent(ctx: Pick<Context, "limits">, allowance: LogoAllowance, err: unknown): Promise<never> {
+  if (!(err instanceof AppError && err.code === "logo_generation_failed")) await ctx.limits.refund(allowance.ticket);
   throw err;
 }
 
@@ -44,8 +45,8 @@ type SetHooks = { emit?: (event: LogoEvent) => void; signal?: AbortSignal };
  * nothing was delivered and no tokens were spent.
  */
 async function runLogoSet(
-  ctx: Pick<Context, "models">,
-  allowance: { keys: string[]; remaining: number },
+  ctx: Pick<Context, "models" | "limits">,
+  allowance: LogoAllowance,
   brief: LogoBrief,
   opts: { scope: string; attribution: { businessId?: string; kind: string }; after?: (set: Omit<LogoSet, "remaining"> | null, spend: LogoSpend) => Promise<void> },
   hooks: SetHooks = {},
@@ -73,7 +74,7 @@ async function runLogoSet(
     if (spend.calls > 0) await opts.after?.(null, spend).catch(() => undefined);
     // A delivered mark, or a set the founder stopped, keeps the allowance spent.
     if (delivered > 0 || hooks.signal?.aborted) throw err;
-    return refundUnlessSpent(allowance.keys, err);
+    return refundUnlessSpent(ctx, allowance, err);
   }
   await opts.after?.(set, spend);
   const done: LogoSet = { ...set, remaining: allowance.remaining };
@@ -97,14 +98,14 @@ const BusinessGenerateInput = z.object({ colours: BrandColours.optional(), round
  * booked here.
  */
 async function businessLogoSet(ctx: BusinessContext, input: z.infer<typeof BusinessGenerateInput>, hooks?: SetHooks): Promise<LogoSet> {
-  const allowance = takeLogoAllowance({ userId: ctx.userId, businessId: ctx.businessId });
+  const allowance = await takeLogoAllowance(ctx.limits, { userId: ctx.userId, businessId: ctx.businessId });
   let brief: LogoBrief;
   try {
     const committed = await repos.ideas.forBusiness(ctx.db, ctx.businessId);
     const colours = input.colours ?? { primary: ctx.business.kitPrimary, secondary: ctx.business.kitSecondary };
     brief = { businessName: ctx.business.name, pitch: committed?.idea.pitch ?? "", archetype: ctx.business.archetype, colours, round: input.round };
   } catch (err) {
-    return refundUnlessSpent(allowance.keys, err);
+    return refundUnlessSpent(ctx, allowance, err);
   }
   return runLogoSet(
     ctx,
@@ -130,7 +131,7 @@ const IdeaGenerateInput = z.object({ ideaId: Id, name: z.string().trim().min(1).
 /** Commit screen: a set for one of the founder's own ideas (no business yet, so no ledger row; DECISIONS 2026-10-09). */
 async function ideaLogoSet(ctx: Context & { userId: string }, input: z.infer<typeof IdeaGenerateInput>, hooks?: SetHooks): Promise<LogoSet> {
   const idea = await repos.ideas.get(ctx.db, ctx.userId, input.ideaId);
-  const allowance = takeLogoAllowance({ userId: ctx.userId });
+  const allowance = await takeLogoAllowance(ctx.limits, { userId: ctx.userId });
   return runLogoSet(
     ctx,
     allowance,
@@ -144,13 +145,13 @@ export const businessLogoRouter = router({
   /** `version` is the caller's cache key (`business.get` → `logo.sha256`); the newest logo is always returned. */
   get: businessProcedure.input(z.object({ version: z.string().max(64).optional() })).query(({ ctx }) => ctx.rls((tx) => repos.logos.get(tx, ctx.businessId))),
 
-  prepare: adminProcedure.input(z.object({ dataUrl: LogoDataUrl })).mutation(({ ctx, input }) => {
-    takeLogoCheck(ctx.userId);
+  prepare: adminProcedure.input(z.object({ dataUrl: LogoDataUrl })).mutation(async ({ ctx, input }) => {
+    await takeLogoCheck(ctx.limits, ctx.userId);
     return preparedView(checkLogoChoice({ source: "upload", dataUrl: input.dataUrl }));
   }),
 
   upload: adminProcedure.input(LogoChoice).mutation(async ({ ctx, input }) => {
-    takeLogoCheck(ctx.userId);
+    await takeLogoCheck(ctx.limits, ctx.userId);
     // Checked once here; storage recognises the result and does not run the sanitiser again.
     const checked = checkLogoChoice(input);
     return ctx.db.transaction(async (tx) => {
@@ -164,10 +165,10 @@ export const businessLogoRouter = router({
     });
   }),
 
-  generate: adminProcedure.input(BusinessGenerateInput).mutation(({ ctx, input }) => businessLogoSet(ctx, input)),
+  generate: adminProcedure.input(BusinessGenerateInput).use(modelLimited("logo")).mutation(({ ctx, input }) => businessLogoSet(ctx, input)),
 
   /** The same set as `generate`, streamed: `started` (the slots), each `option` as it passes the check, then `done`. */
-  stream: adminProcedure.input(BusinessGenerateInput).mutation(async function* ({ ctx, input, signal }): AsyncGenerator<LogoEvent, void, undefined> {
+  stream: adminProcedure.input(BusinessGenerateInput).use(modelLimited("logo")).mutation(async function* ({ ctx, input, signal }): AsyncGenerator<LogoEvent, void, undefined> {
     try {
       yield* eventStream<LogoEvent>((emit, abort) => businessLogoSet(ctx, input, { emit, signal: abort }), signal);
     } catch (err) {
@@ -186,16 +187,16 @@ export const businessLogoRouter = router({
 
 export const ideaLogoRouter = router({
   /** Check an upload before commit and return what would be stored (the preview shows exactly that). */
-  prepare: protectedProcedure.input(z.object({ dataUrl: LogoDataUrl })).mutation(({ ctx, input }) => {
-    takeLogoCheck(ctx.userId);
+  prepare: protectedProcedure.input(z.object({ dataUrl: LogoDataUrl })).mutation(async ({ ctx, input }) => {
+    await takeLogoCheck(ctx.limits, ctx.userId);
     return preparedView(checkLogoChoice({ source: "upload", dataUrl: input.dataUrl }));
   }),
 
   /** Four marks for one of the founder's ideas, from the name on the Commit screen, the idea's pitch and archetype. */
-  generate: protectedProcedure.input(IdeaGenerateInput).mutation(({ ctx, input }) => ideaLogoSet(ctx, input)),
+  generate: protectedProcedure.input(IdeaGenerateInput).use(modelLimited("logo")).mutation(({ ctx, input }) => ideaLogoSet(ctx, input)),
 
   /** The same set as `generate`, streamed mark by mark (the Commit screen's picker). */
-  stream: protectedProcedure.input(IdeaGenerateInput).mutation(async function* ({ ctx, input, signal }): AsyncGenerator<LogoEvent, void, undefined> {
+  stream: protectedProcedure.input(IdeaGenerateInput).use(modelLimited("logo")).mutation(async function* ({ ctx, input, signal }): AsyncGenerator<LogoEvent, void, undefined> {
     try {
       yield* eventStream<LogoEvent>((emit, abort) => ideaLogoSet(ctx, input, { emit, signal: abort }), signal);
     } catch (err) {

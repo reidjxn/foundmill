@@ -13,6 +13,7 @@ import { NotFoundError, ValidationError, connectorMode } from "@foundmill/shared
 import { z } from "zod";
 import { replaySession } from "../services/replay";
 import { SIGNALS, WORKFLOWS, workflowIds, type SignalName } from "../services/temporal";
+import { modelLimited } from "../services/model-limits";
 import { Id, adminProcedure, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
 const read = sectionRead("development");
@@ -70,7 +71,7 @@ async function signalTask(ctx: BusinessContext, task: Task, signal: SignalName, 
 export const devRouter = router({
   tasks: router({
     /** Planner (Opus) builds a task graph from a roadmap item or a goal; tasks + edges are written (BUILD §11.6). */
-    plan: write.input(z.object({ roadmapItemId: Id.optional(), goal: z.string().max(4000).optional(), departmentId: Id.optional() })).mutation(async ({ ctx, input }) => {
+    plan: write.input(z.object({ roadmapItemId: Id.optional(), goal: z.string().max(4000).optional(), departmentId: Id.optional() })).use(modelLimited("planner")).mutation(async ({ ctx, input }) => {
       const roadmapItem = input.roadmapItemId ? await ctx.rls((tx) => repos.product.getRoadmapItem(tx, ctx.businessId, input.roadmapItemId!)) : null;
       const goal = input.goal ?? roadmapItem?.descriptionMd ?? roadmapItem?.title;
       if (!goal) throw new ValidationError("Give a goal or a roadmap item to plan");

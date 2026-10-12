@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TRPCClientError } from "@trpc/client";
-import { apiTrpcUrl, createApiLinks, createUntypedApiClient, errorMessage, isStreamingOperation, resolveBearer, STREAMING_PROCEDURES, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
+import { apiTrpcUrl, appErrorCode, createApiLinks, createUntypedApiClient, errorMessage, isNotInvited, isStreamingOperation, RATE_LIMITED_MESSAGE, resolveBearer, STREAMING_PROCEDURES, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
+import { makeQueryClient } from "../query-client";
 import { routersToInvalidate, withBusiness } from "../widget-data";
 
 describe("trpc helpers", () => {
@@ -33,6 +34,25 @@ describe("trpc helpers", () => {
     expect(errorMessage(err)).toBe("Sign in to continue");
     expect(trpcErrorCode(new Error("x"))).toBeNull();
     expect(errorMessage("weird", "fallback")).toBe("fallback");
+  });
+
+  it("reads the API's own code: not invited (SIGNUP_ALLOWLIST) and rate limits", () => {
+    const err = (message: string, code: string, appCode?: string) => new TRPCClientError(message, { result: { error: { code: -32003, message, data: { code, httpStatus: code === "FORBIDDEN" ? 403 : 429, ...(appCode ? { appCode } : {}) } } } } as never);
+    const notInvited = err("This address is not on the invite list yet.", "FORBIDDEN", "not_invited");
+    expect(appErrorCode(notInvited)).toBe("not_invited");
+    expect(isNotInvited(notInvited)).toBe(true);
+    expect(isNotInvited(err("You are not a member of this business", "FORBIDDEN"))).toBe(false);
+    expect(isNotInvited(new Error("x"))).toBe(false);
+    // A rate limit reads as the API's own sentence, or a friendly line when it sent none.
+    expect(errorMessage(err("Refresh limit reached. Try again in 2 minutes.", "TOO_MANY_REQUESTS", "rate_limited"))).toBe("Refresh limit reached. Try again in 2 minutes.");
+    expect(errorMessage(err("Too Many Requests", "TOO_MANY_REQUESTS"))).toBe(RATE_LIMITED_MESSAGE);
+  });
+
+  it("never retries a query the API refused for a rate limit (a retry spends the allowance again)", () => {
+    const retry = makeQueryClient().getDefaultOptions().queries?.retry as (count: number, err: unknown) => boolean;
+    expect(retry(0, { data: { code: "TOO_MANY_REQUESTS" } })).toBe(false);
+    expect(retry(0, { data: { code: "FORBIDDEN" } })).toBe(false);
+    expect(retry(0, { data: { code: "INTERNAL_SERVER_ERROR" } })).toBe(true);
   });
 
   it("derives the tRPC url", () => {

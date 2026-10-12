@@ -24,6 +24,9 @@ const gateway: ApiGatewayClient = {
     calls.push({ kind: "health", businessId, connector });
     return { ok: true, status: "connected", details: { repositories: 3 } };
   },
+  async createCheckout() {
+    throw new Error("no checkouts in these tests");
+  },
 };
 
 describe("integrations.connect for a live GitHub App", () => {

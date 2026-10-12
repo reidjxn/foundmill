@@ -36,7 +36,8 @@ export function makeQueryClient(): QueryClient {
         refetchOnWindowFocus: false,
         retry: (count, err) => {
           const code = (err as { data?: { code?: string } } | undefined)?.data?.code;
-          if (code === "UNAUTHORIZED" || code === "FORBIDDEN" || code === "NOT_FOUND") return false;
+          // A rate limit is not a blip: retrying spends the allowance again and is refused again.
+          if (code === "UNAUTHORIZED" || code === "FORBIDDEN" || code === "NOT_FOUND" || code === "TOO_MANY_REQUESTS") return false;
           return count < 2;
         },
       },
