@@ -1,5 +1,5 @@
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import { createServer as createNetServer, type AddressInfo } from "node:net";
 import { gzipSync } from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { isUntrusted, readForQuarantine } from "../../quarantine";
@@ -197,5 +197,28 @@ describe("pinned transport (security review S5: DNS rebinding)", () => {
     controller.abort();
     await expect(pinned(`http://pinned.example:${port}/`, { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
     await expect(pinned(`http://pinned.example:${port}/`, { method: "POST", body: "x" })).rejects.toThrow(/GET and HEAD/);
+  });
+
+  it("a page's odd status line or header fails that read only, never the process", async () => {
+    // Raw answers a real server would never send: a reason phrase fetch refuses, a header value Node refuses.
+    const answers: Record<string, string> = {
+      "/odd-reason": "HTTP/1.1 200 O\x7fK\r\ncontent-type: text/plain\r\ncontent-length: 2\r\n\r\nok",
+      "/odd-header": "HTTP/1.1 200 OK\r\nx-odd: a\x7fb\r\ncontent-length: 2\r\n\r\nok",
+    };
+    const raw = createNetServer((socket) => {
+      socket.on("error", () => undefined);
+      socket.once("data", (chunk) => socket.end(Buffer.from(answers[chunk.toString("latin1").split(" ")[1] ?? ""] ?? "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n", "latin1")));
+    });
+    await new Promise<void>((resolve) => raw.listen(0, "127.0.0.1", () => resolve()));
+    const rawPort = (raw.address() as AddressInfo).port;
+    try {
+      const pinned = createPinnedFetch(async () => ["127.0.0.1"], () => true);
+      const odd = await pinned(`http://pinned.example:${rawPort}/odd-reason`);
+      expect(odd.status).toBe(200);
+      expect(await odd.text()).toBe("ok");
+      await expect(pinned(`http://pinned.example:${rawPort}/odd-header`)).rejects.toThrow();
+    } finally {
+      await new Promise<void>((resolve) => raw.close(() => resolve()));
+    }
   });
 });
