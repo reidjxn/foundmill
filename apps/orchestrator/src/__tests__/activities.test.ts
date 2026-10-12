@@ -1,15 +1,17 @@
 /**
  * Activity groups on PGlite: training (held-out tests included, live version untouched, club-rule flags), holiday
- * (authority classification, auto-decide, While-you-were-away report), health refresh, channel engine steps, journey
+ * (authority classification, decisions run as plans, what waits for the founder, While-you-were-away report), health
+ * refresh, channel engine steps, journey
  * build and the credential expiry scan. Everything runs in mock mode without a network.
  */
 import { getSkillTests } from "@foundmill/agents";
-import { repos } from "@foundmill/db";
+import { repos, resumeBusinessAgents } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
 import { createHealthActivities } from "../activities/health";
-import { classifyDecision, createHolidayActivities } from "../activities/holiday";
+import { AWAITING_GO_AHEAD, classifyDecision, createHolidayActivities, vacationVerdict, type VacationContext } from "../activities/holiday";
 import { createJourneyActivities } from "../activities/journey";
+import { createPlanActivities } from "../activities/plan";
 import { createScheduleActivities } from "../activities/schedules";
 import { createTrainingActivities, scoreTest } from "../activities/training";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
@@ -108,43 +110,122 @@ describe("holiday activities (BUILD §9.6)", () => {
     expect(classifyDecision(item("Pick a colour"))).toBeNull();
   });
 
-  it("auto-decides blocking items within authority, queues gated ones, then builds the report", async () => {
+  it("a vacation decision walks the founder's plan path: authority, the compiled plan, hard gates, money, policy, section walls", async () => {
+    const agents = (await repos.agents.list(t.db, t.businessId, { limit: 200 })).items;
+    const ctx: VacationContext = { business: { id: t.businessId, businessMode: "automated" }, agents, chiefOfStaffId: t.chiefId, authority: new Set(["publish_content", "hire_agents"]), actsFor: { role: "owner", sectionPermissions: {} }, currency: "USD" };
+    const item = (subject: string, label: string, extra: Record<string, unknown> = {}) => ({ subject, bodyMd: "", fromAgentId: t.chiefId, decision: { options: [{ id: "a", label, recommended: true, cost_minor: 0, reversible: true, ...extra }, { id: "b", label: "Not now", recommended: false, cost_minor: 0, reversible: true }] } });
+    const decided = vacationVerdict(item("Publish the launch post", "Go"), ctx);
+    expect(decided).toMatchObject({ kind: "decide", option: { id: "a" }, decisionType: "publish_content" });
+    // The same rules as the founder's option click: the agent who asked carries the choice out.
+    expect(decided.kind === "decide" && decided.actions.map((a) => [a.action.type, a.action.agent_id, a.verdict.outcome])).toEqual([["create_task", t.chiefId, "allow"]]);
+    expect(vacationVerdict(item("Sign the hosting contract", "Go"), ctx)).toEqual({ kind: "wait", reason: "signing is always yours" });
+    expect(vacationVerdict(item("Merge the billing PR", "Go"), ctx)).toEqual({ kind: "wait", reason: "it is outside the authority you gave" });
+    expect(vacationVerdict(item("Pick a color", "Go", { reversible: false }), ctx)).toEqual({ kind: "wait", reason: "the recommended option is not free and reversible" });
+    // Money and hard gates are the founder's, whatever authority was given.
+    expect(vacationVerdict(item("Publish the launch post", "Go", { cost_minor: 5_000 }), ctx)).toEqual({ kind: "wait", reason: "it costs money ($50.00)" });
+    expect(vacationVerdict(item("Publish the launch ads", "Set the paid ads budget to $300"), ctx)).toEqual({ kind: "wait", reason: "it moves money (a budget)" });
+    expect(vacationVerdict(item("Publish the launch post", "Pay the supplier invoice"), ctx)).toEqual({ kind: "wait", reason: "only you can do what it needs (a hard gate)" });
+    // Never more than the person who handed over could do themselves (their section walls).
+    const walled = { ...ctx, actsFor: { role: "admin" as const, sectionPermissions: { distribution: "read" as const } } };
+    expect(vacationVerdict(item("Publish the launch ads", "Turn on LinkedIn ads"), walled)).toEqual({ kind: "wait", reason: "it changes Distribution, which the person who started the vacation cannot change" });
+    expect(vacationVerdict(item("Publish the launch ads", "Turn on LinkedIn ads"), ctx)).toMatchObject({ kind: "decide" });
+    expect(vacationVerdict(item("Publish the launch post", "Go"), { ...ctx, chiefOfStaffId: null })).toEqual({ kind: "wait", reason: "there is no Chief of Staff to decide it" });
+    expect(vacationVerdict({ ...item("Publish the launch post", "Go"), decision: null }, ctx)).toEqual({ kind: "wait", reason: "it has no option to choose" });
+  });
+
+  it("decisions taken on vacation run as plans; money, signing and the founder's go-ahead wait; the stop flag wins; the report says which", async () => {
     const acts = createHolidayActivities(t.deps);
+    const plans = createPlanActivities(t.deps);
     const started = t.clock.now();
     const h = await repos.holidays.start(t.db, t.businessId, { untilAt: new Date(started.getTime() + 3 * 86_400_000), authority: { decisionTypes: ["publish_content", "spend_above_threshold", "sign_contracts"] }, wakeEvents: ["credential.expiring"], startedAt: started, currency: "EUR" });
     const loaded = await acts.loadHoliday({ businessId: t.businessId, holidayId: h.id });
     expect(loaded.authority).toEqual(["publish_content", "spend_above_threshold"]); // signing is never delegated
-    const mk = (subject: string, body: string) =>
-      repos.inbox.createItem(t.db, t.businessId, { type: "decision", from_agent_id: t.chiefId, subject, body_md: body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: "go", label: "Go", recommended: true, consequence: "It happens", cost_minor: 0, reversible: true }, { id: "wait", label: "Wait", recommended: false, consequence: "Nothing", cost_minor: 0, reversible: true }], free_text: true, expires_at: null }, blocks_continue: true, source_event_ids: [], entity_ids: [] });
+    const go = { id: "go", label: "Go", recommended: true, consequence: "It happens", cost_minor: 0, reversible: true };
+    const wait = { id: "wait", label: "Wait", recommended: false, consequence: "Nothing", cost_minor: 0, reversible: true };
+    const mk = (subject: string, body: string, options: (typeof go)[] = [go, wait]) =>
+      repos.inbox.createItem(t.db, t.businessId, { type: "decision", from_agent_id: t.chiefId, subject, body_md: body, status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options, free_text: true, expires_at: null }, blocks_continue: true, source_event_ids: [], entity_ids: [] });
     const publish = await mk("Publish the launch newsletter", "The post is ready to publish.");
     const contract = await mk("Sign the hosting contract", "Needs your signature on the contract.");
+    const budget = await mk("Raise the ads budget", "The ads convert; more budget would help.", [{ ...go, id: "raise", label: "Set the paid ads budget to $300" }, wait]);
+    const stand = await mk("Book the trade show stand", "The organizer holds the stand until Friday.", [{ ...go, id: "book", label: "Book it", cost_minor: 120_000 }, wait]);
+    // The founder answered this one before leaving; its plan is outside policy and waits for their go-ahead.
+    const mine = await mk("Pick the first paid channel", "LinkedIn or Google.");
+    await repos.inbox.decide(t.db, t.businessId, mine.id, { chosenOption: "go", decidedBy: t.fixture.ownerId });
+    const minePlan = await repos.plans.create(t.db, t.businessId, { origin: "option", inboxItemId: mine.id, status: "pending_confirmation", actions: [{ type: "set_budget", params: { channel: "paid_ads", amount_minor: 50_000, currency: "EUR" }, policyOutcome: "ask" }] });
+
     const decided = await acts.holidayAutoDecide({ businessId: t.businessId, holiday: loaded });
     expect(decided.inboxItemIds).toContain(publish.id);
-    expect(decided.inboxItemIds).not.toContain(contract.id);
-    expect(decided.queuedGated).toBeGreaterThanOrEqual(1);
+    for (const other of [contract, budget, stand, mine]) expect(decided.inboxItemIds).not.toContain(other.id);
+    const reasons = Object.fromEntries(decided.waiting.map((w) => [w.inboxItemId, w.reason]));
+    expect(reasons[contract.id]).toBe("signing is always yours");
+    expect(reasons[budget.id]).toBe("it moves money (a budget)");
+    expect(reasons[stand.id]).toMatch(/^it costs money \(€1,200\.00\)$/);
+    expect(reasons[mine.id]).toBe(AWAITING_GO_AHEAD);
+    expect(decided.queuedGated).toBeGreaterThanOrEqual(4);
     expect((await repos.inbox.get(t.db, t.businessId, publish.id)).state).toBe("answered");
-    expect((await repos.inbox.get(t.db, t.businessId, contract.id)).state).toBe("unread");
+    for (const open of [contract, budget, stand]) expect((await repos.inbox.get(t.db, t.businessId, open.id)).state).toBe("unread");
+    // Nobody confirmed the founder's plan for them.
+    expect((await repos.plans.get(t.db, t.businessId, minePlan.id)).status).toBe("pending_confirmation");
+
+    // The decision went down the founder's plan path: a holiday plan beside the decision, its workflow id recorded.
+    const plan = (await repos.plans.forInboxItem(t.db, t.businessId, publish.id))!;
+    expect(plan).toMatchObject({ origin: "holiday", status: "executing", workflowId: `plan:${plan.id}` });
+    expect(plan.actions.map((a) => [a.type, a.agentId, a.policyOutcome])).toEqual([["create_task", t.chiefId, "allow"]]);
+    expect(decided.planIds).toEqual([plan.id]);
+    expect((await repos.inbox.decisionsFor(t.db, t.businessId, publish.id))[0]).toMatchObject({ chosenOption: "go", decidedByKind: "chief_of_staff", decidedBy: t.chiefId, planId: plan.id });
+    const made = await repos.events.list(t.db, t.businessId, { type: "decision.made", limit: 50 });
+    expect(made.items.find((e) => (e.payload as { inboxItemId?: string }).inboxItemId === publish.id)?.payload).toMatchObject({ decidedBy: "chief_of_staff", planId: plan.id, planActionCount: 1 });
+
+    // planExecution's activities carry it out, as for a founder's plan: the task exists for the agent who asked.
+    const toRun = await plans.loadPlan({ businessId: t.businessId, planId: plan.id });
+    for (const a of toRun.actions) expect((await plans.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId: a.id, workflowId: `plan:${plan.id}` })).status).toBe("done");
+    expect((await plans.finishPlan({ businessId: t.businessId, planId: plan.id })).status).toBe("done");
+    const tasks = await repos.tasks.list(t.db, t.businessId, { limit: 500 });
+    expect(tasks.items.find((task) => task.planActionId === plan.actions[0]!.id)).toMatchObject({ title: "Go", assigneeAgentId: t.chiefId });
+
+    // The next pass decides nothing twice and hands back no plan that already ran.
+    const again = await acts.holidayAutoDecide({ businessId: t.businessId, holiday: loaded });
+    expect(again.inboxItemIds).not.toContain(publish.id);
+    expect(again.planIds).not.toContain(plan.id);
+
+    // The stop flag wins: a stopped team decides nothing.
+    const later = await mk("Publish the follow-up post", "The second post is ready.");
+    await repos.businesses.setAgentsStopped(t.db, t.businessId, { reason: "kill_switch" });
+    expect(await acts.holidayAutoDecide({ businessId: t.businessId, holiday: loaded })).toEqual({ decided: 0, queuedGated: 0, inboxItemIds: [], planIds: [], waiting: [] });
+    expect((await repos.inbox.get(t.db, t.businessId, later.id)).state).toBe("unread");
 
     let check = await acts.holidayCheck({ businessId: t.businessId, holiday: loaded });
+    expect(check).toMatchObject({ shouldEnd: true, reason: "kill_switch" });
+    await resumeBusinessAgents(t.db, t.businessId);
+    check = await acts.holidayCheck({ businessId: t.businessId, holiday: loaded });
     expect(check.shouldEnd).toBe(false);
     await t.clock.advance(4 * 86_400_000);
     check = await acts.holidayCheck({ businessId: t.businessId, holiday: loaded });
     expect(check).toMatchObject({ shouldEnd: true, reason: "until_reached" });
 
-    const end = await acts.endHoliday({ businessId: t.businessId, holiday: loaded, reason: "until_reached", wakeEventType: null, cyclesRun: 3 });
+    await repos.businesses.setAgentsStopped(t.db, t.businessId, { reason: "kill_switch" });
+    const end = await acts.endHoliday({ businessId: t.businessId, holiday: loaded, reason: "kill_switch", wakeEventType: null, cyclesRun: 3 });
+    await resumeBusinessAgents(t.db, t.businessId);
     expect(end.decisionsMade).toBeGreaterThanOrEqual(1);
+    expect(end.gatedItemsQueued).toBeGreaterThanOrEqual(5);
     expect(end.reportInboxItemId).toBeTruthy();
     const report = await repos.inbox.get(t.db, t.businessId, end.reportInboxItemId!);
     expect(report.type).toBe("report");
     expect(report.subject).toBe("While you were away");
     expect(report.bodyMd).toMatch(/Decisions I took/);
+    expect(report.bodyMd).toContain(`"Publish the launch newsletter", I chose "Go"; done (1 of 1 action).`);
     expect(report.bodyMd).toMatch(/Customer Updates \(\d+\)/);
     expect(report.bodyMd).not.toMatch(/match/i);
     expect(report.bodyMd).toMatch(/Waiting for you/);
+    expect(report.bodyMd).toContain(`- "Sign the hosting contract": signing is always yours.`);
+    expect(report.bodyMd).toContain(`- "Raise the ads budget": it moves money (a budget).`);
+    expect(report.bodyMd).toContain(`- "Book the trade show stand": it costs money (€1,200.00).`);
+    expect(report.bodyMd).toContain(`- "Pick the first paid channel": ${AWAITING_GO_AHEAD}.`);
+    expect(report.bodyMd).toContain(`- "Publish the follow-up post": the agents were stopped before I could take it.`);
     expect(report.bodyMd).toMatch(/Estimate/);
     expect((await repos.holidays.get(t.db, t.businessId, h.id)).endedAt).not.toBeNull();
     const ended = await repos.events.list(t.db, t.businessId, { type: "holiday.ended", limit: 2 });
-    expect(ended.items[0]?.payload).toMatchObject({ holidayId: h.id, reason: "until_reached", cyclesRun: 3 });
+    expect(ended.items[0]?.payload).toMatchObject({ holidayId: h.id, reason: "kill_switch", cyclesRun: 3 });
   });
 });
 

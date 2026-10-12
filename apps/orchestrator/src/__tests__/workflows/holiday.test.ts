@@ -1,9 +1,10 @@
 /**
  * holiday with mocked activities and a fake clock: cycles run on the cadence (time skipped), the Chief of Staff
- * decides between cycles, and the holiday ends on a wake event (signal), on the until date (fake clock) or on stop.
+ * decides between cycles and every decision's plan runs through planExecution, and the holiday ends on a wake event
+ * (signal), on the until date (fake clock) or on stop.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Activities, HolidayCheck, LoadedHoliday } from "../../activities";
+import type { Activities, HolidayCheck, HolidayDecisions, LoadedHoliday, PlanActionResult, PlanActionView } from "../../activities";
 import { FakeClock } from "../../clock";
 import { holiday, stopSignal, wakeSignal } from "../../workflows";
 import { createTemporalRig, type TemporalRig } from "./temporal";
@@ -25,10 +26,19 @@ interface Calls {
   decides: number;
   cycles: number;
   end: Record<string, unknown> | null;
+  /** planExecution's calls: the actions it ran, by plan. */
+  executed: { planId: string; actionId: string; workflowId: string }[];
 }
 
-function mockActivities(clock: FakeClock, untilAt: string | null): { acts: Partial<Activities>; calls: Calls } {
-  const calls: Calls = { checks: 0, decides: 0, cycles: 0, end: null };
+/** The plans `holidayAutoDecide` hands back, pass by pass (the last entry repeats); none by default. */
+function mockActivities(clock: FakeClock, untilAt: string | null, passes: string[][] = [[]]): { acts: Partial<Activities>; calls: Calls } {
+  const calls: Calls = { checks: 0, decides: 0, cycles: 0, end: null, executed: [] };
+  // Each decided plan has two actions; planExecution marks them done, so a plan that ran has nothing left to run.
+  const actions = new Map<string, PlanActionView[]>();
+  const actionsOf = (planId: string) => {
+    if (!actions.has(planId)) actions.set(planId, [1, 2].map((n) => ({ id: `${planId}-a${n}`, type: "create_task", params: { title: `Step ${n}` }, agentId: null, policyOutcome: "allow", status: "pending" })));
+    return actions.get(planId)!;
+  };
   const loaded: LoadedHoliday = { holidayId: H, untilAt, untilCondition: null, authority: ["spend_above_threshold", "publish_content"], budgetCeilingMinor: null, currency: "EUR", wakeEvents: ["credential.expiring"], startedAt: clock.now().toISOString(), cadenceAgentHours: 4, chiefOfStaffId: id(1) };
   const acts: Partial<Activities> = {
     async loadHoliday() {
@@ -43,9 +53,24 @@ function mockActivities(clock: FakeClock, untilAt: string | null): { acts: Parti
       const until = untilAt && new Date(untilAt).getTime() <= now.getTime();
       return { shouldEnd: Boolean(until), reason: until ? "until_reached" : null, wakeEventType: null, wakeEventId: null, spentMinor: 0, now: now.toISOString() };
     },
-    async holidayAutoDecide() {
+    async holidayAutoDecide(): Promise<HolidayDecisions> {
+      const planIds = passes[Math.min(calls.decides, passes.length - 1)]!;
       calls.decides += 1;
-      return { decided: 1, queuedGated: 0, inboxItemIds: [] };
+      return { decided: planIds.length, queuedGated: 0, inboxItemIds: [], planIds, waiting: [] };
+    },
+    // the planExecution children
+    async loadPlan(input) {
+      return { planId: input.planId, status: "executing", businessMode: "automated", actions: actionsOf(input.planId).map((a) => ({ ...a })) };
+    },
+    async executePlanAction(input): Promise<PlanActionResult> {
+      const action = actionsOf(input.planId).find((a) => a.id === input.actionId)!;
+      if (action.status !== "pending") return { actionId: action.id, status: "skipped", outcome: "allow", approvalId: null, result: null, spawn: [] };
+      action.status = "done";
+      calls.executed.push({ planId: input.planId, actionId: input.actionId, workflowId: input.workflowId });
+      return { actionId: action.id, status: "done", outcome: "allow", approvalId: null, result: { taskId: id(700) }, spawn: [] };
+    },
+    async finishPlan(input) {
+      return { status: actionsOf(input.planId).every((a) => a.status === "done") ? "done" : "executing", progress: 1 };
     },
     async endHoliday(input) {
       calls.end = input as unknown as Record<string, unknown>;
@@ -103,6 +128,22 @@ describe("holiday workflow", () => {
     expect(result.reason).toBe("until_reached");
     expect(result.cyclesRun).toBe(3);
     expect(clock.now().toISOString()).toBe("2026-10-05T20:00:00.000Z");
+  });
+
+  it("runs every decision the Chief of Staff takes: each plan starts planExecution as plan:<id>, once", async () => {
+    const clock = new FakeClock("2026-10-05T08:00:00.000Z");
+    // Pass 1 decides P1; pass 2 decides P2 and hands P1 back as well (still executing, or its start was lost): P1's
+    // actions do not run twice. Later passes decide nothing.
+    const P1 = id(41);
+    const P2 = id(42);
+    const m = mockActivities(clock, "2026-10-05T14:00:00.000Z", [[P1], [P1, P2], []]);
+    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(holiday, { workflowId: `holiday:${H}-runs`, taskQueue, args: [{ businessId: B, holidayId: H }] }));
+    expect(result.reason).toBe("until_reached");
+    expect(m.calls.decides).toBeGreaterThanOrEqual(3);
+    // The children run after the holiday has ended (abandoned on close): wait for their actions.
+    for (let i = 0; i < 400 && m.calls.executed.length < 4; i++) await new Promise((r) => setTimeout(r, 25));
+    expect(m.calls.executed.map((e) => e.actionId).sort()).toEqual([`${P1}-a1`, `${P1}-a2`, `${P2}-a1`, `${P2}-a2`]);
+    expect(new Set(m.calls.executed.map((e) => e.workflowId))).toEqual(new Set([`plan:${P1}`, `plan:${P2}`]));
   });
 
   it("the kill switch (stop) ends it as kill_switch", async () => {
