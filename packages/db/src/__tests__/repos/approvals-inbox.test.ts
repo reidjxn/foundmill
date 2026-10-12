@@ -4,7 +4,7 @@
  * used once by the same call (`useGranted`), and a task waits while its approval is open or was just rejected (`holds`).
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { APPROVAL_OPTIONS, approvalItem, approvalOutcomeOf, approvalSection, closeApprovalItem, isApprovalOption, openApprovalItem } from "../../approvals";
+import { APPROVAL_OPTIONS, approvalArgsText, approvalItem, approvalOutcomeOf, approvalSection, closeApprovalItem, isApprovalOption, openApprovalItem } from "../../approvals";
 import { repos } from "../../repos";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
 
@@ -84,6 +84,22 @@ describe("the decision item", () => {
     expect(await closeApprovalItem(r.db, r.A.businessId, expired)).toMatchObject({ id: second.item.id, state: "archived" });
   });
 
+  it("shows a push's file paths and leaves their contents out, however large the call is", () => {
+    // `github.commit_files` carries every changed file as base64: up to 10 MB that must not travel with the note.
+    const files = Array.from({ length: 40 }, (_, i) => ({ path: `src/module-${i}.ts`, content: "QUJD".repeat(50_000), encoding: "base64" }));
+    const push = { args: { owner: "acme", repo: "ledger", branch: "agent/usage-index", message: "Add the usage index", files } };
+    const text = approvalArgsText(push);
+    expect(text.length).toBeLessThanOrEqual(1_200);
+    expect(text).toContain("agent/usage-index");
+    expect(text).toContain("src/module-0.ts");
+    expect(text).not.toContain("QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJD".repeat(5));
+    const item = approvalItem({ connectorKey: "github", tool: "commit_files", reasons: [], amountMinor: null, currency: null, ...push }, { agentId: r.A.agentId, agentName: "Engineer" });
+    expect(item.body_md.length).toBeLessThan(2_000);
+    // The agent's own summary and short arguments are shown as they are.
+    expect(approvalArgsText({ args: { code: "ANNUAL20" } })).toBe('{"code":"ANNUAL20"}');
+    expect(approvalArgsText({ args: { summary: "create index" } })).toBe("create index");
+  });
+
   it("maps options to outcomes and calls to sections", () => {
     expect(approvalOutcomeOf(APPROVAL_OPTIONS.approve)).toBe("approved");
     expect(approvalOutcomeOf(APPROVAL_OPTIONS.reject)).toBe("rejected");
@@ -107,8 +123,9 @@ describe("one approval per gated call", () => {
     const open = await repos.approvals.create(r.db, r.A.businessId, { agentId: r.A.agentId, sessionId: first.id, ...call });
     // Same session, same call, keys in another order: the same approval.
     expect((await repos.approvals.claimOpen(r.db, r.A.businessId, { sessionId: first.id, agentId: r.A.agentId, connectorKey: "github", tool: "run_migration", args: { concurrently: true, file: "0019_idx.sql" } }))?.id).toBe(open.id);
-    // Other arguments are another call.
+    // Other arguments are another call, and so is another amount.
     expect(await repos.approvals.claimOpen(r.db, r.A.businessId, { sessionId: first.id, agentId: r.A.agentId, connectorKey: "github", tool: "run_migration", args: { file: "0020.sql" } })).toBeNull();
+    expect(await repos.approvals.claimOpen(r.db, r.A.businessId, { sessionId: first.id, agentId: r.A.agentId, ...call, amountMinor: 1_000, currency: "USD" })).toBeNull();
     // A later session on the task takes the open approval over: the decision goes to it.
     const second = await newSession(task.id);
     const claimed = await repos.approvals.claimOpen(r.db, r.A.businessId, { sessionId: second.id, agentId: r.A.agentId, ...call });
@@ -121,17 +138,31 @@ describe("one approval per gated call", () => {
     expect(await repos.approvals.claimOpen(r.db, r.A.businessId, { sessionId: second.id, agentId: r.A.agentId, ...call })).toBeNull();
   });
 
-  it("a granted approval is used once, by the same call on the same task, within its amount", async () => {
+  it("a spend waits on the open request for exactly its amount and currency", async () => {
+    const task = await newTask("Raise the search budget");
+    const session = await newSession(task.id);
+    const spend = { connectorKey: "stripe", tool: "create_coupon", args: { code: "SPRING" } };
+    const open = await repos.approvals.create(r.db, r.A.businessId, { agentId: r.A.agentId, sessionId: session.id, ...spend, amountMinor: 5_000, currency: "GBP" });
+    const ask = { sessionId: session.id, agentId: r.A.agentId, ...spend };
+    expect((await repos.approvals.claimOpen(r.db, r.A.businessId, { ...ask, amountMinor: 5_000, currency: "gbp" }))?.id).toBe(open.id);
+    expect(await repos.approvals.claimOpen(r.db, r.A.businessId, { ...ask, amountMinor: 5_000, currency: "EUR" })).toBeNull();
+    expect(await repos.approvals.claimOpen(r.db, r.A.businessId, { ...ask, amountMinor: 4_000, currency: "GBP" })).toBeNull();
+    expect(await repos.approvals.claimOpen(r.db, r.A.businessId, ask)).toBeNull();
+  });
+
+  it("a granted approval is used once, by the same call on the same task, within its amount and currency", async () => {
     const task = await newTask("Launch the annual discount");
     const first = await newSession(task.id);
     const a = await repos.approvals.create(r.db, r.A.businessId, { agentId: r.A.agentId, sessionId: first.id, connectorKey: "stripe", tool: "create_coupon", args: { code: "ANNUAL20" }, amountMinor: 5_000, currency: "USD" });
-    const ask = { agentId: r.A.agentId, connectorKey: "stripe", tool: "create_coupon", args: { code: "ANNUAL20" } };
+    const ask = { agentId: r.A.agentId, connectorKey: "stripe", tool: "create_coupon", args: { code: "ANNUAL20" }, currency: "usd" };
     expect(await repos.approvals.useGranted(r.db, r.A.businessId, { sessionId: first.id, ...ask, amountMinor: 5_000 })).toBeNull(); // still open
     await repos.approvals.resolve(r.db, r.A.businessId, a.id, { outcome: "approved", byKind: "user", byId: r.A.ownerId });
     // The next session on the task (the first ended before the answer) finds it granted.
     const next = await newSession(task.id);
     expect(await repos.approvals.useGranted(r.db, r.A.businessId, { sessionId: next.id, ...ask, amountMinor: 6_000 })).toBeNull(); // more than asked
     expect(await repos.approvals.useGranted(r.db, r.A.businessId, { sessionId: next.id, ...ask, args: { code: "ANNUAL50" }, amountMinor: 5_000 })).toBeNull(); // another call
+    expect(await repos.approvals.useGranted(r.db, r.A.businessId, { sessionId: next.id, ...ask, amountMinor: 5_000, currency: "JPY" })).toBeNull(); // another currency
+    expect(await repos.approvals.useGranted(r.db, r.A.businessId, { sessionId: next.id, ...ask, amountMinor: 5_000, currency: null })).toBeNull(); // a spend in no currency
     const used = await repos.approvals.useGranted(r.db, r.A.businessId, { sessionId: next.id, ...ask, amountMinor: 5_000 });
     expect(used).toMatchObject({ id: a.id, usedBySessionId: next.id });
     expect(used?.usedAt).toBeInstanceOf(Date);

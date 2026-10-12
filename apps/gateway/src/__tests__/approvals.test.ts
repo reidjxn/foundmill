@@ -126,6 +126,10 @@ describe("money stays inside what was approved", () => {
       // The same arguments with a larger amount in the call's context are not what the founder approved.
       const bigger = asAsk(await g.client.call(token, { connector: "test", tool: "spend", args: { amountMinor: 900_000 }, context: { amountMinor: 950_000, currency: "USD" } }));
       expect(bigger.approvalId).not.toBe(asked.approvalId);
+      // Nor is the same figure in another currency: it asks about itself, not on the open request for $9,500.00.
+      const yen = asAsk(await g.client.call(token, { connector: "test", tool: "spend", args: { amountMinor: 900_000 }, context: { amountMinor: 900_000, currency: "JPY" } }));
+      expect([asked.approvalId, bigger.approvalId]).not.toContain(yen.approvalId);
+      expect(await repos.approvals.get(g.db, g.businessId, yen.approvalId)).toMatchObject({ amountMinor: 900_000, currency: "JPY", outcome: null });
       expect(g.seen).toHaveLength(0);
       asAllow(await g.client.call(token, { connector: "test", tool: "spend", args: { amountMinor: 900_000 }, context: { amountMinor: 900_000, currency: "USD" } }));
       expect(g.seen.map((s) => s.tool)).toEqual(["spend"]);

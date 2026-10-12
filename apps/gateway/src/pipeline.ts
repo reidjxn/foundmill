@@ -278,8 +278,9 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
   if (decision.outcome === "ask") {
     // The founder already approved this very call (0030): it runs once under that approval instead of asking again,
     // whether the session still waiting retries it or the next session on the task makes it. The approval covers the
-    // amount it was asked for and no more; a deny (spend cap, hard gate, suppression) never reaches this point.
-    const granted = await repos.approvals.useGranted(deps.db, businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: connector.key, tool: tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0 });
+    // amount it was asked for, in the same currency, and no more; a deny (spend cap, hard gate, suppression) never
+    // reaches this point.
+    const granted = await repos.approvals.useGranted(deps.db, businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: connector.key, tool: tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0, currency: req.context.currency ?? loaded.agent.currency });
     if (granted) {
       log.info({ approvalId: granted.id }, "tool call runs under the founder's approval");
       return allow(deps, session, req, loaded, { ...decision, reasons: [...decision.reasons, `Approved by the founder (approval ${granted.id})`] }, args, log, now, granted.id);
@@ -530,7 +531,7 @@ function decisionTypeFor(loaded: Loaded, req: CallRequestParsed, decision: Evalu
 async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger): Promise<ToolCallResult> {
   // One gated call has one approval (audit O-26): asked again while its approval is open (a retry, or the next session
   // on the task), the call waits on that one instead of queueing a second request and a second Inbox item.
-  const open = await repos.approvals.claimOpen(deps.db, session.businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: loaded.connector.key, tool: loaded.tool.name, args: argsObject(args) });
+  const open = await repos.approvals.claimOpen(deps.db, session.businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: loaded.connector.key, tool: loaded.tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0, currency: req.context.currency ?? loaded.agent.currency });
   const approvalId = open?.id ?? (await queueApproval(deps, session, req, loaded, decision, args, false));
   const audit = await appendAudit(deps, session, req, { outcome: "ask", reasons: decision.reasons, policyIds: decision.policyIds, approvalId });
   log.info({ approvalId, reasons: decision.reasons }, "tool call needs approval");

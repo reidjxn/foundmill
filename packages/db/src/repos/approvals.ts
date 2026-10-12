@@ -61,6 +61,9 @@ export const ClaimOpenInput = GatedCall.extend({
   /** The session making the call: the open approval must be for its task (or for this very session). */
   sessionId: Id,
   agentId: Id,
+  /** What this call would commit: an open approval asks the founder about exactly this amount, in this currency. */
+  amountMinor: MinorAmount.nonnegative().default(0),
+  currency: Currency.nullable().optional(),
 });
 export type ClaimOpenInput = z.input<typeof ClaimOpenInput>;
 
@@ -70,6 +73,8 @@ export const UseGrantedInput = GatedCall.extend({
   agentId: Id,
   /** What this call would commit; an approval never covers more than the amount it was asked for. */
   amountMinor: MinorAmount.nonnegative().default(0),
+  /** The currency of `amountMinor`: a call that spends runs only under an approval in that same currency. */
+  currency: Currency.nullable().optional(),
 });
 export type UseGrantedInput = z.input<typeof UseGrantedInput>;
 
@@ -197,10 +202,10 @@ export const approvalsRepo = {
   },
 
   /**
-   * The approval still open for the same call (0030): same agent, connector, tool and arguments, for this session's task
-   * (or this very session). The call waits for that answer instead of opening a second request. An approval opened by
-   * an earlier session on the task is handed to `sessionId`, so the founder's decision is sent to the session waiting
-   * now. Null when there is none (the call opens its own).
+   * The approval still open for the same call (0030): same agent, connector, tool, arguments and amount, for this
+   * session's task (or this very session). The call waits for that answer instead of opening a second request. An
+   * approval opened by an earlier session on the task is handed to `sessionId`, so the founder's decision is sent to the
+   * session waiting now. Null when there is none (the call opens its own).
    */
   async claimOpen(db: Executor, businessId: string, input: ClaimOpenInput): Promise<Approval | null> {
     const v = parseInput(ClaimOpenInput, input, "gated call");
@@ -216,6 +221,9 @@ export const approvalsRepo = {
           eq(approvals.connectorKey, v.connectorKey),
           eq(approvals.tool, v.tool),
           sameArgs(v.args),
+          // The same spend: an open request for another amount (or currency) is not this call's question.
+          sql`coalesce(${approvals.amountMinor}, 0) = ${v.amountMinor}`,
+          v.amountMinor > 0 ? (v.currency ? eq(approvals.currency, v.currency) : isNull(approvals.currency)) : undefined,
           taskId ? or(eq(approvals.sessionId, v.sessionId), eq(approvals.taskId, taskId)) : eq(approvals.sessionId, v.sessionId),
         ),
       )
@@ -233,12 +241,14 @@ export const approvalsRepo = {
 
   /**
    * Uses a granted approval for one call (0030): the approval the founder granted for this session's task (or this very
-   * session), agent, connector, tool and arguments, covering at least the call's amount, that no call has used. Marked
-   * used by `sessionId` under a condition on `used_at`, so two calls can never both run under one approval. Null when
-   * there is none (the call asks as usual).
+   * session), agent, connector, tool and arguments, covering at least the call's amount in the same currency, that no
+   * call has used. Marked used by `sessionId` under a condition on `used_at`, so two calls can never both run under one
+   * approval. Null when there is none (the call asks as usual).
    */
   async useGranted(db: Executor, businessId: string, input: UseGrantedInput): Promise<Approval | null> {
     const v = parseInput(UseGrantedInput, input, "gated call");
+    // ¥5,000 approved is not $5,000: a call that spends needs an approval in its own currency.
+    if (v.amountMinor > 0 && !v.currency) return null;
     const taskId = await taskOfSession(db, businessId, v.sessionId);
     const candidates = await db
       .select({ id: approvals.id })
@@ -253,6 +263,7 @@ export const approvalsRepo = {
           eq(approvals.tool, v.tool),
           sameArgs(v.args),
           sql`coalesce(${approvals.amountMinor}, 0) >= ${v.amountMinor}`,
+          v.amountMinor > 0 ? eq(approvals.currency, v.currency!) : undefined,
           taskId ? or(eq(approvals.sessionId, v.sessionId), eq(approvals.taskId, taskId)) : eq(approvals.sessionId, v.sessionId),
         ),
       )

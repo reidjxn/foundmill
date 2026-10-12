@@ -109,13 +109,23 @@ export interface ApprovalItemDetails {
 
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 3)}...` : text);
 
-/** What the call would send, in one line: the summary the session recorded, else the arguments themselves. */
+/** Longest text of a call's arguments that travels with the note and the reading pane. */
+const ARGS_TEXT_MAX = 1_000;
+/** A value longer than this is shortened: a push carries every changed file as base64 (up to 10 MB). */
+const ARG_VALUE_MAX = 160;
+
+/**
+ * What the call would send, in one line: the summary the session recorded, else the arguments themselves, with long
+ * values (file contents) shortened to their start and length so the keys, paths and branch names stay readable.
+ */
 export function approvalArgsText(approval: Pick<Approval, "args">, argsSummary?: string | null): string {
   const given = (argsSummary ?? "").trim();
-  if (given) return given;
+  if (given) return clip(given, ARGS_TEXT_MAX);
   const args = (approval.args ?? {}) as Record<string, unknown>;
-  if (typeof args.summary === "string" && Object.keys(args).length === 1) return args.summary.trim();
-  return Object.keys(args).length ? JSON.stringify(args) : "";
+  if (typeof args.summary === "string" && Object.keys(args).length === 1) return clip(args.summary.trim(), ARGS_TEXT_MAX);
+  if (Object.keys(args).length === 0) return "";
+  const text = JSON.stringify(args, (_key, value: unknown) => (typeof value === "string" && value.length > ARG_VALUE_MAX ? `${value.slice(0, 100)}... (${value.length} characters)` : value));
+  return clip(text, ARGS_TEXT_MAX);
 }
 
 /** The amount an approval's call would commit, formatted in its own currency ("£120.00"), or null when it spends nothing. */
