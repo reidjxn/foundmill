@@ -2,7 +2,7 @@
  * Section walls on business events (security review S1): what a reader walled from Finance or the CRM receives of each
  * event, decided once per entry and wall set, and the exhaustive event → section table.
  */
-import type { StreamEntry } from "@foundmill/events";
+import { EVENTS, type StreamEntry } from "@foundmill/events";
 import { EVENT_FIXTURES, fixtureId } from "@foundmill/events/testing/fixtures";
 import { EVENT_TYPES, type EventType, type SectionMembership } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
@@ -33,6 +33,24 @@ describe("event walls", () => {
     expect(Object.keys(EVENT_WALLS).sort()).toEqual([...EVENT_TYPES].sort());
   });
 
+  it("hide only fields the event declares (a renamed payload field must not silently stop being hidden)", () => {
+    // Walks a Zod schema by dotted path, through optional, nullable and default wrappers.
+    const declares = (schema: unknown, path: string[]): boolean => {
+      const def = (schema as { _zod?: { def?: { type?: string; innerType?: unknown; shape?: Record<string, unknown> } } })._zod?.def;
+      if (!def) return false;
+      if (def.innerType) return declares(def.innerType, path);
+      if (path.length === 0) return true;
+      const [head, ...rest] = path;
+      return def.type === "object" && !!def.shape && head! in def.shape && declares(def.shape[head!], rest);
+    };
+    for (const [type, wall] of Object.entries(EVENT_WALLS) as [EventType, (typeof EVENT_WALLS)[EventType]][]) {
+      const hide: Record<string, readonly string[]> = "hide" in wall ? wall.hide : {};
+      for (const [section, paths] of Object.entries(hide)) {
+        for (const path of paths) expect(declares(EVENTS[type].schema, path.split(".")), `${type} hides ${path} for ${section}`).toBe(true);
+      }
+    }
+  });
+
   it("a reader without walls gets each event's own JSON, untouched and unparsed", () => {
     for (const type of EVENT_TYPES) {
       const e = entry(type);
@@ -57,6 +75,11 @@ describe("event walls", () => {
     expect(won.payload).not.toHaveProperty("acquisitionCost");
     const health = seen(entry("agent.health_changed", { ...EVENT_FIXTURES["agent.health_changed"], signals: { budgetRemaining: { amountMinor: 1200, currency: "GBP" }, loopDetected: true } }), NO_FINANCE)!;
     expect(health.payload.signals).toEqual({ loopDetected: true });
+    // A negotiation's terms are free text that quotes the price: both go.
+    const offer = { ...EVENT_FIXTURES["negotiation.message"], proposal: { price: { amountMinor: 4900, currency: "GBP" }, quantity: 12, terms: ["£49 a seat for 12 months"] } };
+    const negotiation = seen(entry("negotiation.message", offer), NO_FINANCE)!;
+    expect(negotiation.payload.proposal).toEqual({ quantity: 12 });
+    expect(negotiation.redacted).toEqual(["finance"]);
     // Nothing to hide: the event goes through as it was written.
     const progressed = entry("task.progressed");
     expect(viewEvent(progressed, NO_FINANCE)).toBe(progressed.fields.json);

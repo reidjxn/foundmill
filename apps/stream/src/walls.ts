@@ -65,7 +65,8 @@ export const EVENT_WALLS = {
   "contract.signed": { sections: ["legal"], hide: { finance: ["value"] } },
   "connection.requested": { sections: ["live"] },
   "message.received": { sections: ["live"] },
-  "negotiation.message": { sections: ["live"], hide: { finance: ["proposal.price"] } },
+  // The terms are free text written by either side's agent ("£49 a seat for 12 months"): they go with the price.
+  "negotiation.message": { sections: ["live"], hide: { finance: ["proposal.price", "proposal.terms"] } },
   "cycle.started": { sections: [], hide: { finance: ["budget"] } },
   "cycle.completed": { sections: [], hide: { finance: ["cost"] } },
   "inbox.item_created": { sections: ["inbox"], hide: { finance: ["subject", "cost"], crm: ["subject"] } },
