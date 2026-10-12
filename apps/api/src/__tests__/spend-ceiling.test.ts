@@ -16,6 +16,8 @@ import { createApp } from "../app";
 import { createAuthVerifier, emailConfirmedFromPayload } from "../auth";
 import { createCaller } from "../router";
 import { EMAIL_UNCONFIRMED_MESSAGE } from "../services/access";
+import { createComposerClient } from "../services/composer";
+import { noteModelCall, withModelCallScope } from "../services/model-calls";
 import { MODEL_LIMITS } from "../services/model-limits";
 import { apiCreditsGate } from "../services/models";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
@@ -143,6 +145,36 @@ function paidAdsPlanner(): ModelClient & { compiles: number } {
 }
 
 describe("allowances are given back only when no model was called (S3)", () => {
+  it("a call counts for its request's scope and every scope around it; outside a scope nothing is counted", async () => {
+    noteModelCall();
+    const { result, scope: outer } = await withModelCallScope(async () => {
+      const { scope: inner } = await withModelCallScope(async () => {
+        noteModelCall();
+        await Promise.resolve();
+        noteModelCall();
+      });
+      // A sibling request running at the same time has its own count.
+      const [{ scope: sibling }] = await Promise.all([withModelCallScope(async () => undefined), Promise.resolve().then(noteModelCall)]);
+      return { inner: inner.calls, sibling: sibling.calls };
+    });
+    expect(result).toEqual({ inner: 2, sibling: 0 });
+    expect(outer.calls).toBe(3);
+  });
+
+  it("Refresh: the composer's credits refusal gives the hit back; a composer failure that may follow a model call keeps it", async () => {
+    const B = hz.B.businessId;
+    const answer = (status: number, body: Record<string, unknown>) => async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    const withComposer = (fetch: typeof globalThis.fetch) => createCaller({ ...hz.deps, composer: createComposerClient({ url: "http://composer.test", db: hz.db, models: hz.deps.models, log: hz.deps.log, allowFallback: false, fetch }) }, { userId: hz.B.ownerId });
+    const refused = withComposer(answer(402, { error: "credits_exhausted", message: "This month's credits are used up.", details: { reason: "exhausted" } }));
+    const limit = MODEL_LIMITS.refresh.user[0]!.limit;
+    for (let i = 0; i < limit + 2; i++) expect(await refusal(refused.inbox.refresh({ businessId: B }))).toMatchObject({ code: "PAYMENT_REQUIRED", appCode: "credits_exhausted" });
+    // Any other refusal from the composer spends the hit, even one whose code is given back before a model call in
+    // the api (409): the api cannot tell whether the composer called a model first.
+    const failing = withComposer(answer(409, { error: "no_agents", message: "The business has no agents to write from" }));
+    for (let i = 0; i < limit; i++) expect((await refusal(failing.inbox.refresh({ businessId: B })))?.code).toBe("CONFLICT");
+    expect((await refusal(failing.inbox.refresh({ businessId: B })))?.code).toBe("TOO_MANY_REQUESTS");
+  });
+
   it("a walled member looping free-text decisions the compiled plan is refused for spends the planning allowance", async () => {
     const A = hz.A.businessId;
     await repos.memberships.setSectionPermissions(hz.db, A, hz.A.memberId, { distribution: "read" });
