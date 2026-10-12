@@ -27,20 +27,20 @@ export const teamRouter = router({
           repos.usage.wages(tx, ctx.businessId, period),
           repos.departments.list(tx, ctx.businessId),
         ]);
-        const rows = await Promise.all(
-          agents.items.map(async (a) => {
-            const skills = await repos.skills.listForAgent(tx, ctx.businessId, a.id);
-            const rating = skills.length ? Math.round((skills.reduce((s, k) => s + k.displayed, 0) / skills.length) * 5) / 10 : null;
-            return {
-              ...a,
-              departments: departments.filter((d) => a.departmentIds.includes(d.id)).map((d) => ({ id: d.id, name: d.name, colourToken: d.colourToken })),
-              currentTask: running.items.find((t) => t.assigneeAgentId === a.id) ?? null,
-              skills,
-              rating,
-              wage: { costMinor: wages.find((w) => w.agentId === a.id)?.costMinor ?? 0, capMinor: a.wageCapMinor, period, label: "Estimate" as const },
-            };
-          }),
-        );
+        // Every agent's skills in one statement, not one query per agent.
+        const skillsByAgent = await repos.skills.listForAgents(tx, ctx.businessId, agents.items.map((a) => a.id));
+        const rows = agents.items.map((a) => {
+          const skills = skillsByAgent.get(a.id) ?? [];
+          const rating = skills.length ? Math.round((skills.reduce((s, k) => s + k.displayed, 0) / skills.length) * 5) / 10 : null;
+          return {
+            ...a,
+            departments: departments.filter((d) => a.departmentIds.includes(d.id)).map((d) => ({ id: d.id, name: d.name, colourToken: d.colourToken })),
+            currentTask: running.items.find((t) => t.assigneeAgentId === a.id) ?? null,
+            skills,
+            rating,
+            wage: { costMinor: wages.find((w) => w.agentId === a.id)?.costMinor ?? 0, capMinor: a.wageCapMinor, period, label: "Estimate" as const },
+          };
+        });
         return { agents: rows, templates: TEMPLATE_KEYS };
       }),
     ),
