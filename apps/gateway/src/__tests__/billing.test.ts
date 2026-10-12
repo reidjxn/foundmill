@@ -1,7 +1,8 @@
 /**
  * `POST /v1/billing/checkout-sessions` (audit 2026-10-12 #22): only the api opens a checkout; live mode creates a
  * Stripe Checkout session on the platform account (platform key, no Stripe-Account header, the checkout id in the
- * metadata) and answers with Stripe's page; mock mode runs the mock tool and answers with the success URL; a missing
+ * metadata) and answers with Stripe's page; `LIVE_CONNECTORS=stripe_billing` (not `stripe`) is what makes it live
+ * while connectors are mock; mock mode runs the mock tool and answers with the success URL; a missing
  * STRIPE_SECRET_KEY is a clear 503; every opened checkout is audited.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -27,7 +28,7 @@ afterAll(() => h?.close());
 
 type Seen = { auth: string; account: string | null; body: URLSearchParams };
 
-function appFor(mode: "mock" | "live", opts: { secretKey?: string; seen?: Seen[] } = {}) {
+function appFor(mode: "mock" | "live", opts: { secretKey?: string; seen?: Seen[]; liveConnectors?: string[] } = {}) {
   const live = createStripeConnector({
     secrets: opts.secretKey ? { stripeSecretKey: opts.secretKey } : {},
     fetch: routedFetch({
@@ -38,7 +39,7 @@ function appFor(mode: "mock" | "live", opts: { secretKey?: string; seen?: Seen[]
       },
     }),
   });
-  const deps: GatewayDeps = { db, registry: createRegistry([live]), vault: null, mode, rateLimits: new MemoryRateLimitStore(), recipients: new UntrustedRecipientRegistry(), log: silentLog };
+  const deps: GatewayDeps = { db, registry: createRegistry([live]), vault: null, mode, liveConnectors: opts.liveConnectors, rateLimits: new MemoryRateLimitStore(), recipients: new UntrustedRecipientRegistry(), log: silentLog };
   return createGatewayApp(deps, { sessionTokenSecret: TEST_SECRET });
 }
 
@@ -78,6 +79,16 @@ describe("platform checkout sessions", () => {
     expect(call.body.get("success_url")).toContain(`checkout=${checkoutId}`);
     const audit = await repos.audit.list(db, businessId, { action: "gateway.billing.checkout_created" });
     expect(audit.items.find((a) => (a.target as { id?: string }).id === checkoutId)).toMatchObject({ actorKind: "system", details: { mode: "live", sessionId: "cs_test_platform123456", amountMinor: 5000 } });
+  });
+
+  it("the platform's billing has its own live switch: `stripe_billing`, not the businesses' `stripe`", async () => {
+    const seen: Seen[] = [];
+    const billingLive = await post(appFor("mock", { secretKey: "sk_test_platform", seen, liveConnectors: ["stripe_billing"] }), request(crypto.randomUUID()));
+    expect(billingLive).toMatchObject({ status: 201, body: { mode: "live", session: { url: expect.stringMatching(/^https:\/\/checkout\.stripe\.com\//) } } });
+    expect(seen).toHaveLength(1);
+    const stripeLive = await post(appFor("mock", { secretKey: "sk_test_platform", seen, liveConnectors: ["stripe"] }), request(crypto.randomUUID()));
+    expect(stripeLive).toMatchObject({ status: 201, body: { mode: "mock" } });
+    expect(seen).toHaveLength(1);
   });
 
   it("mock: the mock tool checks the same arguments and the simulated checkout is the success page", async () => {

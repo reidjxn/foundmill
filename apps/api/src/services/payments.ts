@@ -6,15 +6,17 @@
  *   it and hands back the page to send the founder to. Nothing is granted here: the platform Stripe webhook in
  *   apps/ingest settles a paid session (`settleCreditCheckout`, packages/db), or, for a checkout opened in mock mode,
  *   the founder completes the simulated payment on the Billing tab (`billing.checkout.completeMock`, labeled; no money
- *   moves). Mock payments are refused where they would fund real model calls (MODEL_MODE=live outside development and
- *   test): free credits must never pay for the platform's Anthropic spend.
+ *   moves). The platform's billing is live where `INTEGRATIONS_MODE=live` or `LIVE_CONNECTORS` names `stripe_billing`
+ *   (`platformBillingMode`, read alike by the gateway); a mock checkout calls no vendor, so it is simulated here without
+ *   the gateway, as mock connectors run in the api. Mock payments are refused where they would fund real model calls
+ *   (MODEL_MODE=live outside development and test): free credits must never pay for the platform's Anthropic spend.
  * - **Paid tiers** (Pro, Scale) are not on sale: their prices are still "to be announced" (§19) and there is no
  *   subscription checkout, so choosing one is refused outside development and test (where seeded demos and tests switch
  *   freely). Moving down to Free is always allowed.
  */
 import { APP_NAME, PRICE_TBA_LABEL, TIERS, type TierKey } from "@foundmill/config";
 import { repos, type BillingCheckout, type Db } from "@foundmill/db";
-import { AppError, connectorMode, type Env } from "@foundmill/shared";
+import { AppError, platformBillingMode, type Env } from "@foundmill/shared";
 import type { ApiGatewayClient } from "./gateway";
 
 export const TOP_UP_MIN_MINOR = 500;
@@ -27,8 +29,11 @@ type PaymentsEnv = Pick<Env, "APP_ENV" | "MODEL_MODE" | "INTEGRATIONS_MODE" | "L
 
 const testMode = (env: Pick<Env, "APP_ENV">) => env.APP_ENV === "development" || env.APP_ENV === "test";
 
-/** How a checkout opened here would be paid: through Stripe (live) or simulated (mock), as the gateway decides it. */
-export const checkoutModeFor = (env: PaymentsEnv): "mock" | "live" => connectorMode(env, "stripe");
+/** How a checkout opened here is paid: through Stripe (live) or simulated (mock); the gateway reads the same switch. */
+export const checkoutModeFor = (env: PaymentsEnv): "mock" | "live" => platformBillingMode(env);
+
+/** How long a simulated checkout stays open (Stripe's own sessions last 24 hours). */
+const MOCK_CHECKOUT_TTL_MS = 24 * 60 * 60_000;
 
 /** Simulated payments grant real credits, so they are refused where credits pay for real model calls. */
 export const mockPaymentsAllowed = (env: PaymentsEnv): boolean => env.MODEL_MODE === "mock" || testMode(env);
@@ -108,6 +113,11 @@ export async function startCreditCheckout(deps: StartCheckoutDeps, input: { busi
   if (!availability.available) throw new AppError("payments_unavailable", availability.reason ?? MOCK_PAYMENTS_OFF_MESSAGE, 412);
   const row = await repos.checkouts.create(deps.db, input.businessId, { mode: availability.mode, amountMinor: input.amountMinor, createdBy: input.userId });
   const { successUrl, cancelUrl } = billingReturnUrls(deps.env.APP_URL, input.businessId, row.id);
+  if (availability.mode === "mock") {
+    // Simulated: no vendor is called, so the gateway is not needed. The checkout page is the Billing tab itself.
+    const checkout = await repos.checkouts.attachSession(deps.db, input.businessId, row.id, { mode: "mock", externalId: `cs_mock_${row.id.replace(/-/g, "")}`, checkoutUrl: successUrl, expiresAt: new Date(Date.now() + MOCK_CHECKOUT_TTL_MS) });
+    return { checkout, checkoutUrl: successUrl, mode: "mock" };
+  }
   let created;
   try {
     created = await deps.gateway.createCheckout({ businessId: input.businessId, checkoutId: row.id, kind: "credits", amountMinor: input.amountMinor, currency: "USD", description: CHECKOUT_DESCRIPTION, successUrl, cancelUrl, ...(input.email ? { customerEmail: input.email } : {}) });
@@ -116,7 +126,7 @@ export async function startCreditCheckout(deps: StartCheckoutDeps, input: { busi
     await repos.checkouts.markFailed(deps.db, input.businessId, row.id, message);
     throw new AppError("payments_unavailable", message, err instanceof AppError && err.status === 412 ? 412 : 503);
   }
-  // The gateway decides the mode (it holds the Stripe key); a mock answer is held to the same rule as above.
+  // A gateway that runs the platform's billing as mock (its switch differs from the api's) is held to the same rule.
   if (created.mode === "mock" && !mockPaymentsAllowed(deps.env)) {
     await repos.checkouts.markFailed(deps.db, input.businessId, row.id, MOCK_PAYMENTS_OFF_MESSAGE);
     throw new AppError("payments_unavailable", MOCK_PAYMENTS_OFF_MESSAGE, 412);

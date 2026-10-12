@@ -20,7 +20,7 @@ describe("settings logic", () => {
     expect(checkoutNotice({ ...live, status: "paid" })).toMatchObject({ tone: "good", text: "$50.00 in credits added. Stripe sends the receipt to your email." });
     expect(checkoutNotice({ ...live, mode: "mock" })).toMatchObject({ word: "Mock checkout", text: expect.stringMatching(/no money moves/) });
     expect(checkoutNotice({ ...live, mode: "mock", status: "paid" }).text).toBe("$50.00 in credits added. Mock top-up: no money moved.");
-    expect(checkoutNotice({ ...live, status: "failed", failure: "Payments are not set up on this server yet." })).toMatchObject({ tone: "bad", text: "Payments are not set up on this server yet." });
+    expect(checkoutNotice({ ...live, status: "failed", failure: "Payments are not set up on this server yet." })).toMatchObject({ tone: "bad", word: "Not paid", text: "Payments are not set up on this server yet." });
     expect(checkoutNotice({ ...live, status: "expired" }).text).toMatch(/expired before it was paid/);
   });
 

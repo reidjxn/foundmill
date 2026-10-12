@@ -2,13 +2,13 @@
  * `POST /billing/stripe` (audit 2026-10-12 #22): the platform Stripe webhook is the only way a live top-up becomes
  * credits. Only a delivery signed with STRIPE_BILLING_WEBHOOK_SECRET is read (never the businesses' secret, never a
  * fixture secret; without the secret nothing is accepted); a paid session grants its checkout's USD credits once and is
- * audited; a replay is refused, a duplicate event or a mismatched session grants nothing; an unpaid or expired session
- * grants nothing; another business's checkout is never touched.
+ * audited; a replay is refused, a duplicate event or a mismatched session grants nothing; an unpaid, expired or bounced
+ * session grants nothing (the last two close the checkout); another business's checkout is never touched.
  */
 import { MOCK_NOW, stripeSignatureHeader } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { BILLING_WEBHOOK_PATH } from "../billing";
+import { ASYNC_PAYMENT_FAILED_MESSAGE, BILLING_WEBHOOK_PATH } from "../billing";
 import { createIngestHarness, json, type IngestHarness } from "./harness";
 
 const SECRET = "whsec_test_platform_billing_0123456789";
@@ -97,5 +97,15 @@ describe("POST /billing/stripe", () => {
     const c = await liveCheckout(hz.A.businessId, 2500);
     expect((await post(sessionEvent("checkout.session.expired", c, { payment_status: "unpaid" }))).body).toMatchObject({ outcome: "expired" });
     expect((await repos.checkouts.get(hz.db, hz.A.businessId, c.id)).status).toBe("expired");
+  });
+
+  it("a delayed payment that bounces closes its checkout as failed, with a sentence for the Billing tab", async () => {
+    const c = await liveCheckout(hz.A.businessId, 2500);
+    const before = await balance(hz.A.businessId);
+    // A bank debit: the session completes unpaid, then the payment fails (the session never expires).
+    expect((await post(sessionEvent("checkout.session.completed", c, { payment_status: "unpaid" }))).body).toMatchObject({ outcome: "awaiting_payment" });
+    expect((await post(sessionEvent("checkout.session.async_payment_failed", c, { payment_status: "unpaid" }))).body).toMatchObject({ outcome: "failed" });
+    expect(await repos.checkouts.get(hz.db, hz.A.businessId, c.id)).toMatchObject({ status: "failed", failure: ASYNC_PAYMENT_FAILED_MESSAGE });
+    expect(await balance(hz.A.businessId)).toBe(before);
   });
 });

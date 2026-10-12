@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { connectorMode, liveConnectorKeys, loadEnv } from "./env";
+import { connectorMode, liveConnectorKeys, loadEnv, platformBillingMode } from "./env";
 
 describe("per-connector integrations mode", () => {
   it("runs the connectors LIVE_CONNECTORS names live while the rest stay mock", () => {
@@ -9,6 +9,14 @@ describe("per-connector integrations mode", () => {
     expect(connectorMode(env, "gmail")).toBe("mock");
     expect(connectorMode(loadEnv({ INTEGRATIONS_MODE: "live", LIVE_CONNECTORS: "" }), "gmail")).toBe("live");
     expect(connectorMode(loadEnv({ INTEGRATIONS_MODE: "mock" }), "github")).toBe("mock");
+  });
+
+  it("switches the platform's own billing separately from the businesses' Stripe connector", () => {
+    const billing = loadEnv({ INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "stripe_billing" });
+    expect(platformBillingMode(billing)).toBe("live");
+    expect(connectorMode(billing, "stripe")).toBe("mock");
+    expect(platformBillingMode(loadEnv({ INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "stripe" }))).toBe("mock");
+    expect(platformBillingMode(loadEnv({ INTEGRATIONS_MODE: "live" }))).toBe("live");
   });
 });
 

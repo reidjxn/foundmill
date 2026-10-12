@@ -12,7 +12,8 @@
  *      the checkout named in the session's metadata through `settleCreditCheckout` (packages/db): the USD credits are
  *      granted once and audited; a duplicate, a session that disagrees with the checkout, or a checkout this database
  *      does not know (another environment on the same Stripe account) is acknowledged without granting anything.
- *      `checkout.session.expired` closes the checkout. Everything else is acknowledged and ignored.
+ *      `checkout.session.expired` closes the checkout, and `checkout.session.async_payment_failed` (a bank debit that
+ *      bounced) closes it as failed. Everything else is acknowledged and ignored.
  */
 import { verifyStripeSignature } from "@foundmill/connectors";
 import { repos, settleCreditCheckout } from "@foundmill/db";
@@ -40,7 +41,10 @@ interface BillingEvent {
   data?: { object?: BillingSession };
 }
 
-export type BillingOutcome = "granted" | "duplicate" | "mismatch" | "unknown" | "expired" | "awaiting_payment" | "ignored";
+export type BillingOutcome = "granted" | "duplicate" | "mismatch" | "unknown" | "expired" | "failed" | "awaiting_payment" | "ignored";
+
+/** What the Billing tab says of a delayed payment that did not go through (`checkout.session.async_payment_failed`). */
+export const ASYNC_PAYMENT_FAILED_MESSAGE = "The payment did not go through, so no credits were added. Try again with another payment method.";
 
 export type BillingWebhookResult =
   | { status: 200; body: { ok: true; eventId: string; outcome: BillingOutcome } }
@@ -84,6 +88,11 @@ export async function handleBillingWebhook(deps: Pick<IngestDeps, "db" | "log" |
     if (event.type === "checkout.session.expired") {
       const closed = await repos.checkouts.markExpired(deps.db, named.businessId, named.checkoutId).catch(() => null);
       return ok(closed ? "expired" : "ignored");
+    }
+    // A bank debit that bounced: the session completed but no money arrived, and it never expires, so close it here.
+    if (event.type === "checkout.session.async_payment_failed") {
+      const closed = await repos.checkouts.markFailed(deps.db, named.businessId, named.checkoutId, ASYNC_PAYMENT_FAILED_MESSAGE).catch(() => null);
+      return ok(closed ? "failed" : "ignored");
     }
     if (event.type !== "checkout.session.completed" && event.type !== "checkout.session.async_payment_succeeded") return ok("ignored");
     // A bank debit completes the session first and pays later (async_payment_succeeded).
