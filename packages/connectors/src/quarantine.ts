@@ -87,8 +87,11 @@ const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 // No leading word boundary: "linkhttps://evil.example" still yields the URL (recording too much only asks the founder more).
 const URL_RE = /https?:\/\/[^\s<>"')\]\\]+/gi;
 const PHONE_RE = /(?:(?<=\s)|^)\+?\d[\d\s().-]{7,}\d/g;
-/** JSON-style escapes left inside a string (double-encoded JSON, a body pasted as a literal): read as a separator too. */
-const ESCAPE_RE = /\\(?:[nrtbf"\\/]|u[0-9a-fA-F]{4})/g;
+/** JSON-style escapes left inside a string (double-encoded JSON, a body pasted as a literal). */
+const ESCAPE_RE = /\\(?:u([0-9a-fA-F]{4})|([nrtbf"\\/]))/g;
+
+/** The string as its JSON escapes say: `\/`, `\"` and `\uXXXX` are the characters they stand for, a line break or tab or a backslash a separator. */
+const unescapeJsonStyle = (t: string): string => t.replace(ESCAPE_RE, (_m, hex: string | undefined, ch: string | undefined) => (hex !== undefined ? String.fromCharCode(Number.parseInt(hex, 16)) : ch === "/" || ch === '"' ? ch : " "));
 
 export interface CandidateRecipients {
   emails: string[];
@@ -122,7 +125,7 @@ function textLeaves(value: unknown, out: string[] = [], depth = 0): string[] {
  */
 export function extractCandidateRecipients(content: unknown): CandidateRecipients {
   const texts = textLeaves(content).flatMap((t) => {
-    const unescaped = t.replace(ESCAPE_RE, " ");
+    const unescaped = unescapeJsonStyle(t);
     return unescaped === t ? [t] : [t, unescaped];
   });
   const all = (re: RegExp) => texts.flatMap((t) => t.match(re) ?? []);

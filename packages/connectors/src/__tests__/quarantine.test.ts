@@ -49,6 +49,12 @@ describe("quarantine: wrapUntrusted", () => {
     expect(found.emails).toContain("ap@evil-payee.example");
     expect(found.urls).toContain("https://evil-payee.example/pay");
   });
+
+  it("reads escaped slashes and unicode escapes of a pasted JSON body as the characters they stand for", () => {
+    const found = extractCandidateRecipients({ raw: '{"body":"Pay at https:\\/\\/evil-payee.example\\/pay or write ap\\u0040evil-payee.example\\nthanks"}' });
+    expect(found.urls).toContain("https://evil-payee.example/pay");
+    expect(found.emails).toContain("ap@evil-payee.example");
+  });
 });
 
 describe("webhook plumbing", () => {

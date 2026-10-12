@@ -67,6 +67,12 @@ describe("platform task board", () => {
     expect(ok<{ items: { subject: string }[] }>(await as(A, WORKER)("list_messages", {})).items.map((m) => m.subject)).not.toContain("Check the claims");
   });
 
+  it("names found in the business's records came from customers and leads, so they come back as data (untrusted)", async () => {
+    const r = await as(A, WORKER)("search_entities", { query: "maja" });
+    expect(r.untrusted).toBe(true);
+    expect(ok<{ items: { name: string }[] }>(r).items.map((e) => e.name)).toEqual(["Maja Lindgren"]);
+  });
+
   it("one business never sees or touches another's board or messages", async () => {
     const { items } = ok<{ items: { id: string }[] }>(await as(A, WORKER)("list_tasks", { scope: "team" }));
     for (const t of items) {
