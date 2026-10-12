@@ -17,7 +17,7 @@ export { holiday, MAX_HOLIDAY_CYCLES } from "./holiday";
 export type { HolidayResult } from "./holiday";
 export { playbook } from "./playbook";
 export type { PlaybookResult } from "./playbook";
-export { incorporation } from "./incorporation";
+export { incorporation, INCORPORATION_SUBMITTER_PATCH } from "./incorporation";
 export type { IncorporationResult } from "./incorporation";
 export { journeyBuild } from "./journeyBuild";
 export { importBusiness } from "./importBusiness";
