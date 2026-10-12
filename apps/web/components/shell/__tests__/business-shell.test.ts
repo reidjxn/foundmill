@@ -1,8 +1,10 @@
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
+import { EVENT_TYPES } from "@foundmill/shared/constants";
 import { EMPTY_CYCLE, cycleFromSnapshot } from "@/lib/cycle";
 import { trpcPathPrefix, trpcQueryKey } from "@/lib/trpc";
-import { INVALIDATE_ON_EVENT, cycleReducer, describeContinue } from "../BusinessShell";
+import { SAFETY_POLL_MS } from "@/lib/stream-status";
+import { INVALIDATE_ON_EVENT, cycleReducer, describeContinue, shellPollIntervals } from "../BusinessShell";
 
 type ContinueResult = Parameters<typeof describeContinue>[0];
 
@@ -70,3 +72,25 @@ describe("foundations progress on the stream (audit P3)", () => {
   });
 });
 
+describe("changes another member makes reach an open Inbox (audit RUI-09)", () => {
+  it("an archive or a plan confirmation (inbox.item_updated) refetches the list, the reading pane and the plan", async () => {
+    expect(INVALIDATE_ON_EVENT["inbox.item_updated"]).toEqual(["inbox", "plan"]);
+    const qc = new QueryClient();
+    const BID = "00000000-0000-4000-8000-000000000001";
+    const pane = trpcQueryKey("inbox.get", { businessId: BID, itemId: "00000000-0000-4000-8000-000000000002" }) as unknown[];
+    qc.setQueryData(pane, { item: { state: "unread" } });
+    await Promise.all(INVALIDATE_ON_EVENT["inbox.item_updated"]!.map((r) => qc.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] })));
+    expect(qc.getQueryState(pane)?.isInvalidated).toBe(true);
+  });
+
+  it("maps only events the catalogue declares (a typo would never fire)", () => {
+    for (const type of Object.keys(INVALIDATE_ON_EVENT)) expect(EVENT_TYPES as readonly string[], type).toContain(type);
+  });
+
+  it("polls the inbox and cycle every 30 s while the channel is not live and as a safety net while it is; the departments always at the safety pace", () => {
+    expect(shellPollIntervals(false)).toEqual({ inbox: 30_000, cycle: 30_000, departments: SAFETY_POLL_MS });
+    // A live channel never turns polling off (a read, a department edit or a hire by another member publishes no event).
+    expect(shellPollIntervals(true)).toEqual({ inbox: SAFETY_POLL_MS, cycle: SAFETY_POLL_MS, departments: SAFETY_POLL_MS });
+    expect(SAFETY_POLL_MS).toBe(60_000);
+  });
+});

@@ -113,6 +113,24 @@ describe("inbox.decide (BUILD §11.3, AC-11.3.3/4/5)", () => {
     expect(preview.hardGates).toBeGreaterThan(0);
   });
 
+  it("an archive and a plan confirmation publish inbox.item_updated, so another member's open Inbox refetches (audit RUI-09)", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const updates = async () => (await repos.events.list(hz.db, hz.A.businessId, { type: "inbox.item_updated", limit: 200 })).items.map((e) => e.payload as Record<string, unknown>);
+
+    const staged = await owner.inbox.decide({ businessId: hz.A.businessId, itemId: (await decisionItem("Paid search?")).id, freeText: "spend up to €500 on LinkedIn ads targeting fintech CFOs next week" });
+    expect(staged.requiresConfirmation).toBe(true);
+    expect((await updates()).some((p) => p.inboxItemId === staged.item.id)).toBe(false);
+    const confirmed = await owner.plan.confirm({ businessId: hz.A.businessId, planId: staged.plan.id });
+    expect(await updates()).toContainEqual({ inboxItemId: staged.item.id, change: "plan_confirmed", planId: staged.plan.id, followUpItemId: confirmed.followUp!.id });
+
+    const gone = await decisionItem("Archived elsewhere");
+    await owner.inbox.archive({ businessId: hz.A.businessId, itemId: gone.id });
+    // Ids only: a member walled from the item learns nothing from the stream.
+    expect(await updates()).toContainEqual({ inboxItemId: gone.id, change: "archived", planId: null, followUpItemId: null });
+    const event = (await repos.events.list(hz.db, hz.A.businessId, { type: "inbox.item_updated", limit: 200 })).items.find((e) => (e.payload as { inboxItemId: string }).inboxItemId === gone.id)!;
+    expect(event.actor).toMatchObject({ kind: "user", id: hz.A.ownerId });
+  });
+
   it("rejects an option that is not on the item and an empty decision", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const item = await decisionItem("Bad option");

@@ -41,7 +41,8 @@ function InboxPreviewWidget({ settings }: WidgetProps<InboxPreviewSettings>) {
   // The founder's own notes carry the founder's initials, as in the Inbox list.
   const founder = useWidgetQuery<FounderProfileResponse>("founder.profile.get", undefined);
   const founderName = founder.data?.profile?.displayName?.trim() || undefined;
-  useBusinessEvents(() => inbox.refetch(), ["inbox.item_created", "decision.made", "cycle.completed"]);
+  // An item archived or a plan confirmed by another member (`inbox.item_updated`) leaves or changes the list too.
+  useBusinessEvents(() => inbox.refetch(), ["inbox.item_created", "inbox.item_updated", "decision.made", "cycle.completed"]);
 
   const agentMeta = useMemo(() => {
     const map = new Map<string, { name: string; seed: string; dept: DeptColourToken }>();

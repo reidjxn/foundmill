@@ -130,6 +130,8 @@ describe("freshness and polling follow each business's event channel (audit RES-
     expect(staleTime(read("inbox", OTHER, 5_000))).toBe(10_000);
     expect(staleTime(read("crm", BID, 5_000))).toBe(10_000);
     expect(streamAwareStaleTime()(read("crm", BID, 5_000))).toBe(DEFAULT_STALE_MS);
+    // department.list carries the roster and tabs, which change without an event (a hire, a rename by another member).
+    expect(staleTime(read("department", BID, 5_000))).toBe(10_000);
     setChannelLive(businessChannel(BID), false);
     expect(staleTime(read("inbox", BID, 5_000))).toBe(10_000);
     expect(routerOfKey([["finance", "overview"]])).toBe("finance");

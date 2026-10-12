@@ -1073,6 +1073,24 @@ const inboxItemCreated = declareEvent(
   },
 );
 
+const inboxItemUpdated = declareEvent(
+  "inbox.item_updated",
+  z.object({
+    inboxItemId: Id,
+    /** Archived by a member, or the plan the item was answered with confirmed (its follow-up Update written). */
+    change: z.enum(["archived", "plan_confirmed"]),
+    /** The confirmed plan (`plan_confirmed`); null otherwise. */
+    planId: Id.nullable().default(null),
+    /** The follow-up Update the confirmation wrote; null when none. */
+    followUpItemId: Id.nullable().default(null),
+  }),
+  {
+    doc: "An inbox item changed without a new decision: archived, or its plan confirmed (BUILD §11.3). apps/stream pushes it so every member's open Inbox, reading pane and Respond count refetch at once instead of acting on an item that is gone. Ids only, no subject, so it tells a member walled from the item nothing.",
+    consumers: ["stream"],
+    narratable: false,
+  },
+);
+
 const decisionMade = declareEvent(
   "decision.made",
   z.object({
@@ -1200,6 +1218,7 @@ export const EVENTS = {
   "cycle.started": cycleStarted,
   "cycle.completed": cycleCompleted,
   "inbox.item_created": inboxItemCreated,
+  "inbox.item_updated": inboxItemUpdated,
   "decision.made": decisionMade,
   "foundations.progressed": foundationsProgressed,
   "conversation.message_posted": conversationMessagePosted,

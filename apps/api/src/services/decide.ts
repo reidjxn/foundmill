@@ -145,6 +145,8 @@ export async function confirmPlan(ctx: BusinessContext, planId: string) {
     await audit(tx, ctx, { action: "plan.confirm", target: { kind: "plan", id: planId }, details: { executed: exec.executed.length, deferred: exec.deferred.length } });
     const item = plan.inboxItemId ? await repos.inbox.get(tx, ctx.businessId, plan.inboxItemId) : null;
     const followUp = item ? await writeFollowUp(tx, ctx, item, confirmed, confirmed.summaryMd, exec.executed.length, exec.deferred.length) : null;
+    // Other members' open Inbox shows the plan confirmed and the follow-up at once (audit RUI-09).
+    if (item) await emit(tx, ctx, { type: "inbox.item_updated", payload: { inboxItemId: item.id, change: "plan_confirmed", planId, followUpItemId: followUp?.id ?? null } });
     return { plan: await repos.plans.get(tx, ctx.businessId, planId), exec, followUp };
   });
   const dispatch = written.exec.needsOrchestrator ? await dispatchPlan(ctx.temporal, ctx.businessId, planId) : null;

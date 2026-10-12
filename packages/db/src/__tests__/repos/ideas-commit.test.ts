@@ -3,7 +3,7 @@
  * claim is one conditional statement, so under READ COMMITTED a second commit that waited on the winner's row lock
  * re-checks `committed_at is null`, gets no row and creates nothing; the business stamp never re-points an idea.
  */
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { repos } from "../../repos";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
 
@@ -84,5 +84,24 @@ describe("ideas.commit", () => {
     await expect(r.db.transaction((tx) => repos.ideas.commit(tx, r.A.ownerId, idea.id, r.B.businessId))).rejects.toThrow(/already committed/);
     expect((await repos.ideas.get(r.db, r.A.ownerId, idea.id)).businessId).toBe(r.A.businessId);
     await expect(repos.ideas.commit(r.db, r.B.ownerId, idea.id, r.B.businessId)).rejects.toThrow(/not found/);
+  });
+
+  it("does not trust an earlier read: a commit that saw the idea uncommitted (READ COMMITTED) neither claims nor re-points it", async () => {
+    // PGlite runs one transaction at a time, so the interleaving is replayed: every read of the idea returns the
+    // snapshot from before the first commit landed, as the losing transaction saw it on Postgres.
+    const idea = await newIdea("Stale read");
+    const before = await repos.ideas.get(r.db, r.A.ownerId, idea.id);
+    await r.db.transaction(async (tx) => {
+      await repos.ideas.claimForCommit(tx, r.A.ownerId, idea.id);
+      await repos.ideas.commit(tx, r.A.ownerId, idea.id, r.A.businessId);
+    });
+    const stale = vi.spyOn(repos.ideas, "get").mockResolvedValue(before);
+    try {
+      expect(await repos.ideas.claimForCommit(r.db, r.A.ownerId, idea.id)).toBe(false);
+      await expect(repos.ideas.commit(r.db, r.A.ownerId, idea.id, r.B.businessId)).rejects.toThrow(/already committed/);
+    } finally {
+      stale.mockRestore();
+    }
+    expect((await repos.ideas.get(r.db, r.A.ownerId, idea.id)).businessId).toBe(r.A.businessId);
   });
 });

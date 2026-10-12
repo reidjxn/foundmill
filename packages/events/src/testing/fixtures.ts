@@ -426,6 +426,12 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     sourceEventIds: [fixtureId("event-approval")],
     cost: eur(9),
   },
+  "inbox.item_updated": {
+    inboxItemId: fixtureId("inbox-1"),
+    change: "plan_confirmed",
+    planId: fixtureId("plan"),
+    followUpItemId: fixtureId("inbox-2"),
+  },
   "decision.made": {
     decisionId: fixtureId("decision"),
     inboxItemId: fixtureId("inbox-1"),

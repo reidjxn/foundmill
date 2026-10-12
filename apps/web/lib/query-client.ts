@@ -14,8 +14,13 @@ import { businessLiveSince } from "./stream-status";
 export const DEFAULT_STALE_MS = 30_000;
 /** Freshness of stream-kept data while its business's channel stays live. */
 export const STREAM_KEPT_STALE_MS = 5 * 60_000;
-/** Routers whose every change arrives as an event the shell invalidates on (and as mutations that invalidate them). */
-export const STREAM_KEPT_ROUTERS: readonly string[] = ["inbox", "cycle", "finance", "department"];
+/**
+ * Routers whose every change arrives as an event the shell invalidates on (and as mutations that invalidate them).
+ * Not `department`: `department.list` carries the team roster and the tabs, which hires, agent edits and tab or
+ * department settings change without an event (audit RUI-09), so it keeps the short default and refetches on the next
+ * mount or focus.
+ */
+export const STREAM_KEPT_ROUTERS: readonly string[] = ["inbox", "cycle", "finance"];
 
 /** The router of a tRPC query key (`[["inbox", "list"], {…}]` → "inbox"). */
 export function routerOfKey(queryKey: readonly unknown[]): string | null {
