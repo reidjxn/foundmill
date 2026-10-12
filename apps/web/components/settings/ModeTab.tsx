@@ -1,12 +1,13 @@
 "use client";
 /**
  * Settings › Mode: game mode (Live ⇄ Personal) behind a review wizard, business mode (Augmented / Assisted /
- * Automated) and the holiday (HolidayDialog → business.startHoliday / endHoliday). BUILD §9.6, §11.15.
+ * Automated) and the holiday (HolidayDialog → business.startHoliday / endHoliday). BUILD §9.6, §11.15. Going live asks
+ * the founder, once, to confirm that they are 18 or older (BUILD §11.14: the network is for adults).
  */
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Globe, Lock, Palmtree } from "lucide-react";
 import { useState } from "react";
-import { BUSINESS_MODE_INFO, Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, HolidayDialog, KeyValueList, RadioCard, RadioGroup, StatusPill, useDateFormat, type HolidaySettings } from "@foundmill/dugout";
+import { BUSINESS_MODE_INFO, Button, Checkbox, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, HolidayDialog, KeyValueList, Label, RadioCard, RadioGroup, StatusPill, useDateFormat, type HolidaySettings } from "@foundmill/dugout";
 import { BUSINESS_MODES, type BusinessMode, type GameMode } from "@foundmill/shared/constants";
 import { formatDate, formatMoney, plainWords } from "@/lib/format";
 import { toStartHolidayInput } from "@/lib/holiday";
@@ -30,8 +31,13 @@ export function ModeTab() {
   const b = data.business;
   const [reviewTarget, setReviewTarget] = useState<GameMode | null>(null);
   const [holidayOpen, setHolidayOpen] = useState(false);
+  // Going live asks for the founder's 18+ confirmation unless it is already on record (`live.summary`, the shell's badge query).
+  const [adult, setAdult] = useState(false);
+  const summaryQ = useQuery(trpc.live.summary.queryOptions(undefined, { staleTime: 10_000, retry: false }));
+  const needsAdult = reviewTarget === "live" && summaryQ.data?.adultConfirmed !== true;
+  const closeReview = () => (setReviewTarget(null), setAdult(false));
 
-  const setGameMode = useMutation(trpc.business.setGameMode.mutationOptions({ onSuccess: (_r, v) => (void invalidate(["business", "live"]), setReviewTarget(null), t.saved(v.gameMode === "live" ? "The business is live" : "The business is personal again")), onError: (e) => t.failed(e) }));
+  const setGameMode = useMutation(trpc.business.setGameMode.mutationOptions({ onSuccess: (_r, v) => (void invalidate(["business", "live"]), closeReview(), t.saved(v.gameMode === "live" ? "The business is live" : "The business is personal again")), onError: (e) => t.failed(e) }));
   const setBusinessMode = useMutation(trpc.business.setBusinessMode.mutationOptions({ onSuccess: () => (void invalidate(["business"]), t.saved("Business mode changed")), onError: (e) => t.failed(e) }));
   const startHoliday = useMutation(trpc.business.startHoliday.mutationOptions({ onSuccess: (r) => (void invalidate(["business", "inbox"]), setHolidayOpen(false), t.saved("Vacation started", r.workflow.queued ? "The Chief of Staff is in charge." : `Recorded; the workflow is not running: ${r.workflow.reason ?? "orchestrator unavailable"}.`)), onError: (e) => t.failed(e) }));
   const endHoliday = useMutation(trpc.business.endHoliday.mutationOptions({ onSuccess: () => (void invalidate(["business", "inbox"]), t.saved("Welcome back")), onError: (e) => t.failed(e) }));
@@ -53,20 +59,28 @@ export function ModeTab() {
             {b.gameMode === "live" ? "Switch to Personal" : "Go live"}
           </Button>
         </div>
-        <Dialog open={reviewTarget !== null} onOpenChange={(o) => !o && setReviewTarget(null)}>
+        <Dialog open={reviewTarget !== null} onOpenChange={(o) => !o && closeReview()}>
           <DialogContent size="md">
             <DialogHeader>
               <DialogTitle>{reviewTarget === "live" ? "Review before going live" : "Review before switching to Personal"}</DialogTitle>
               <DialogDescription>This is what changes. Nothing is deleted either way.</DialogDescription>
             </DialogHeader>
-            <DialogBody>
+            <DialogBody className="flex flex-col gap-3">
               <ul className="flex list-disc flex-col gap-1 pl-5 text-body">{(reviewTarget ? GAME_MODE_REVIEW[reviewTarget] : []).map((line) => <li key={line}>{line}</li>)}</ul>
+              {needsAdult ? (
+                <div className="flex items-start gap-2" data-testid="go-live-adult">
+                  <Checkbox id="go-live-adult" checked={adult} onCheckedChange={(v) => setAdult(v === true)} className="mt-0.5" />
+                  <Label htmlFor="go-live-adult" className="normal-case tracking-normal text-body text-primary">
+                    I am 18 or older. The network is for adults; you confirm this once.
+                  </Label>
+                </div>
+              ) : null}
             </DialogBody>
             <DialogFooter>
-              <Button variant="ghost" onClick={() => setReviewTarget(null)}>
+              <Button variant="ghost" onClick={closeReview}>
                 Cancel
               </Button>
-              <Button variant="primary" loading={setGameMode.isPending} onClick={() => reviewTarget && setGameMode.mutate({ businessId, gameMode: reviewTarget, reason: "settings" })}>
+              <Button variant="primary" disabled={needsAdult && !adult} loading={setGameMode.isPending} onClick={() => reviewTarget && setGameMode.mutate({ businessId, gameMode: reviewTarget, reason: "settings", ...(needsAdult ? { confirmAdult: true } : {}) })}>
                 Confirm
               </Button>
             </DialogFooter>

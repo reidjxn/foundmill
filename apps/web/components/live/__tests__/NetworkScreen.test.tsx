@@ -17,8 +17,8 @@ import { LiveViewerProvider } from "../viewer";
 import { callsTo, ids, renderWithProviders } from "./fake-trpc";
 
 const AT = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000);
-const THREAD_ANA = { id: "t-ana", participantIds: [ids.me, ids.ana], subject: "Fintech ops intro", lastMessageAt: AT(5), createdAt: AT(60), updatedAt: AT(5), archivedAt: null, unread: 2 };
-const THREAD_BEN = { id: "t-ben", participantIds: [ids.me, ids.ben], subject: null, lastMessageAt: AT(90), createdAt: AT(120), updatedAt: AT(90), archivedAt: null, unread: 0 };
+const THREAD_ANA = { id: "t-ana", participantIds: [ids.me, ids.ana], kind: "direct", leftIds: [] as string[], muted: false, subject: "Fintech ops intro", lastMessageAt: AT(5), createdAt: AT(60), updatedAt: AT(5), archivedAt: null, unread: 2 };
+const THREAD_BEN = { id: "t-ben", participantIds: [ids.me, ids.ben], kind: "direct", leftIds: [] as string[], muted: false, subject: null, lastMessageAt: AT(90), createdAt: AT(120), updatedAt: AT(90), archivedAt: null, unread: 0 };
 const message = (id: string, from: string, body: string, minutesAgo: number) => ({ id, threadId: "t-ana", fromUser: from, body, readBy: [from], createdAt: AT(minutesAgo), updatedAt: AT(minutesAgo) });
 const connection = (id: string, from: string, to: string, status: "requested" | "accepted" | "blocked", note: string | null = null) => ({ id, fromUser: from, toUser: to, status, message: note, respondedAt: status === "requested" ? null : AT(30), createdAt: AT(30), updatedAt: AT(30) });
 const NAMES: Record<string, string> = { [ids.ana]: "Ana Ruiz", [ids.ben]: "Ben Okoye", [ids.cal]: "Cal Dunne" };
@@ -35,6 +35,17 @@ function seed(over: Partial<FakeApi["handlers"]> = {}) {
     "live.profile.visibility.set": () => ({}),
     "live.connections.respond": (v) => ({ ...(v as object) }),
     "live.connections.remove": () => ({ removed: true }),
+    "live.connections.block": () => ({ blocked: true }),
+    "live.communities.invitations": () => [],
+    "live.messages.thread": (v) => {
+      const threadId = (v as { threadId: string }).threadId;
+      const t = [THREAD_ANA, THREAD_BEN].find((x) => x.id === threadId) ?? THREAD_ANA;
+      return { thread: t, participants: t.participantIds.filter((id) => id !== ids.me).map((userId) => ({ userId, connected: true, blockedByMe: false })), canSend: true, closedReason: null };
+    },
+    "live.messages.mute": (v) => ({ muted: (v as { muted: boolean }).muted }),
+    "live.messages.leave": () => ({ left: true, deleted: false }),
+    "live.summary": () => ({ unreadMessages: 2, requestsWaiting: 1, invitations: 0, moderation: 0, total: 3, adultConfirmed: true }),
+    "live.profile.confirmAdult": () => ({ adultConfirmedAt: new Date() }),
     ...over,
   };
   api.calls = [];
@@ -95,6 +106,77 @@ describe("/network", () => {
     await waitFor(() => expect(callsTo(api, "live.connections.respond")).toEqual([{ connectionId: "c1", status: "accepted" }]));
     fireEvent.click(within(requests).getByRole("button", { name: "Block Cal Dunne" }));
     await waitFor(() => expect(callsTo(api, "live.connections.respond")[1]).toEqual({ connectionId: "c1", status: "blocked" }));
+  });
+
+  it("audit #34: Ignore deletes a request without blocking, and says so", async () => {
+    mount();
+    const requests = await screen.findByTestId("requests-panel");
+    fireEvent.click(await within(requests).findByRole("button", { name: "Ignore Cal Dunne" }));
+    await waitFor(() => expect(callsTo(api, "live.connections.remove")).toEqual([{ connectionId: "c1" }]));
+    expect(await screen.findByText("Ignored Cal Dunne's request")).toBeTruthy();
+    expect(callsTo(api, "live.connections.respond")).toHaveLength(0);
+    expect(within(screen.getByTestId("network-strip")).getByText("Accept, ignore or block each one")).toBeTruthy();
+  });
+
+  it("audit #34: the thread pane mutes, leaves, and blocks someone in it with no connection needed", async () => {
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));
+    await screen.findByRole("log", { name: "Conversation with Fintech ops intro" });
+    const openThreadMenu = async () => fireEvent.keyDown(await screen.findByTestId("thread-menu"), { key: "Enter" });
+    await openThreadMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Mute/ }));
+    await waitFor(() => expect(callsTo(api, "live.messages.mute")).toEqual([{ threadId: "t-ana", muted: true }]));
+    await openThreadMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Block Ana Ruiz" }));
+    await waitFor(() => expect(callsTo(api, "live.connections.block")).toEqual([{ userId: ids.ana }]));
+    await openThreadMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Leave conversation/ }));
+    await waitFor(() => expect(callsTo(api, "live.messages.leave")).toEqual([{ threadId: "t-ana" }]));
+    // Leaving closes the pane.
+    expect(await screen.findByText("Pick a conversation to read it and reply.")).toBeTruthy();
+  });
+
+  it("audit #34: a thread the founder can no longer write to says why and closes the reply box", async () => {
+    seed({ "live.messages.thread": () => ({ thread: THREAD_ANA, participants: [{ userId: ids.ana, connected: false, blockedByMe: false }], canSend: false, closedReason: "closed" }) });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));
+    expect((await screen.findByTestId("thread-closed")).textContent).toMatch(/You can no longer write here/);
+    expect((screen.getByLabelText("Message: Conversation with Fintech ops intro") as HTMLTextAreaElement).disabled).toBe(true);
+  });
+
+  it("audit #28: the network is for adults: the 18+ confirmation is asked until it is on record, then the notice goes", async () => {
+    mount();
+    await screen.findByTestId("network-strip");
+    await waitFor(() => expect(callsTo(api, "live.summary").length).toBeGreaterThan(0));
+    expect(screen.queryByTestId("adult-notice")).toBeNull();
+    cleanup();
+
+    let confirmed = false;
+    seed({ "live.summary": () => ({ unreadMessages: 0, requestsWaiting: 0, invitations: 0, moderation: 0, total: 0, adultConfirmed: confirmed }), "live.profile.confirmAdult": () => ((confirmed = true), { adultConfirmedAt: new Date() }) });
+    mount();
+    const notice = await screen.findByTestId("adult-notice");
+    expect(notice.textContent).toMatch(/The network is for adults/);
+    const confirm = within(notice).getByTestId("adult-confirm") as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.click(within(notice).getByRole("checkbox", { name: "I am 18 or older" }));
+    fireEvent.click(confirm);
+    await waitFor(() => expect(callsTo(api, "live.profile.confirmAdult")).toEqual([{ confirm: true }]));
+    await waitFor(() => expect(screen.queryByTestId("adult-notice")).toBeNull());
+  });
+
+  it("audit #28: community invitations wait on Network, to join or decline", async () => {
+    const invitation = (id: string, name: string) => ({ community: { id, name, visibility: "private", slug: name.toLowerCase(), descriptionMd: "", ownerBusinessId: null, createdBy: ids.ana, memberCount: 3, createdAt: AT(100), updatedAt: AT(10), archivedAt: null, kind: "cohort" }, invitedBy: ids.ana, invitedAt: AT(10) });
+    seed({ "live.communities.invitations": () => [invitation("00000000-0000-4000-8000-0000000000e1", "Founders circle"), invitation("00000000-0000-4000-8000-0000000000e2", "Lisbon founders")], "live.communities.join": () => ({}), "live.communities.decline": () => ({ declined: true }) });
+    mount();
+    const panel = await screen.findByTestId("invitations-panel");
+    const rows = await within(panel).findAllByTestId("invitation-row");
+    await waitFor(() => expect(rows[0]!.textContent).toContain("From Ana Ruiz"));
+    fireEvent.click(within(panel).getByRole("button", { name: "Join Founders circle" }));
+    await waitFor(() => expect(callsTo(api, "live.communities.join")).toEqual([{ communityId: "00000000-0000-4000-8000-0000000000e1" }]));
+    fireEvent.click(within(panel).getByRole("button", { name: "Decline Lisbon founders" }));
+    await waitFor(() => expect(callsTo(api, "live.communities.decline")).toEqual([{ communityId: "00000000-0000-4000-8000-0000000000e2" }]));
+    const tiles = within(screen.getByTestId("network-strip")).getAllByRole("listitem");
+    expect(tiles[3]!.textContent).toMatch(/Invitations\s*2/);
   });
 
   it("Message on a connection with no thread starts one: the first Send addresses the person, not a thread", async () => {

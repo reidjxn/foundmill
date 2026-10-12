@@ -40,6 +40,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { WidgetDataHost } from "@/lib/widget-data";
 import { SpecUserProvider } from "@/components/spec/spec-user";
 import { AgentDeskHost, prefetchAgentDesk, type AgentDeskApi } from "@/components/conversation/DeskHost";
+import { useNetworkBadge } from "@/components/live/signals";
 import { agentOfAskItem, askPaletteItems, askQuestion, generatePaletteItems, paletteAgents } from "@/components/conversation/palette";
 import { BusinessProvider, makeBusinessContext, type BusinessGet, type DepartmentList } from "./business-context";
 import { ShellChromeProvider, useShellChromeValue } from "./chrome";
@@ -230,9 +231,11 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     },
     [businessId],
   );
+  // The founder's LIVE badge (requests, messages, invitations, posts to moderate) in every business and mode.
+  const network = useNetworkBadge(viewer.userId);
   const sidebarItems = useMemo(
-    () => buildSidebarItems({ businessId, departments, inboxCounts: inboxQ.data?.counts, inboxItems: inboxQ.data?.items, live }),
-    [businessId, departments, inboxQ.data?.counts, inboxQ.data?.items, live],
+    () => buildSidebarItems({ businessId, departments, inboxCounts: inboxQ.data?.counts, inboxItems: inboxQ.data?.items, live, network }),
+    [businessId, departments, inboxQ.data?.counts, inboxQ.data?.items, live, network],
   );
   const activeId = useMemo(() => activeSidebarId(pathname, businessId, departments), [pathname, businessId, departments]);
   // Sidebar links navigate by themselves (next/link); this pushes only for keyboard chords, the logo button and items

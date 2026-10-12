@@ -19,7 +19,8 @@ describe("sidebar items", () => {
     expect(items.find((i) => i.id === "home")?.fixed).toBe("home");
     expect(items.find((i) => i.id === "inbox")?.fixed).toBe("inbox");
     expect(items.find((i) => i.id === "crm")?.fixed).toBe("crm");
-    expect(items.some((i) => i.group === "live")).toBe(false);
+    // A Personal business keeps Network (the founder's own requests and messages) and nothing else of the LIVE block.
+    expect(items.filter((i) => i.group === "live").map((i) => i.label)).toEqual(["Network"]);
     // The Foundmill wordmark is not an item (no icon): Dugout draws it from `SIDEBAR_BRAND` while expanded.
     expect(items.filter((i) => i.group === "foot").map((i) => i.label)).toEqual(["Settings", "Anthropic key", "Sign out"]);
     // Sign out is a button (no href), so no router prefetch can ever end the session.
@@ -31,6 +32,15 @@ describe("sidebar items", () => {
   it("adds the LIVE block in live mode", () => {
     const items = buildSidebarItems({ businessId: BID, departments: depts, live: true });
     expect(items.filter((i) => i.group === "live").map((i) => i.label)).toEqual(["Network", "Communities", "Leaderboards"]);
+  });
+
+  it("badges Network with what waits for the founder in every mode, and Communities with posts to moderate (audit #65)", () => {
+    const personal = buildSidebarItems({ businessId: BID, departments: depts, live: false, network: { total: 3, moderation: 2 } });
+    expect(personal.find((i) => i.id === "network")).toMatchObject({ href: "/network", badge: 3 });
+    expect(personal.find((i) => i.id === "communities")).toBeUndefined();
+    const live = buildSidebarItems({ businessId: BID, departments: depts, live: true, network: { total: 0, moderation: 2 } });
+    expect(live.find((i) => i.id === "network")?.badge).toBeUndefined();
+    expect(live.find((i) => i.id === "communities")?.badge).toBe(2);
   });
 
   it("badges the Inbox with the respond count and departments with unread items from their agents", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  boardKindLabel, canSpeakAsBusiness, boardScope, boardTitle, counterpartId, describeMetric, findDirectThread, formResults, formatMetricValue, groupConnections, humanise, joinNames,
-  otherParticipants, periodLabel, personName, positionLabel, threadTitle, UNNAMED_PERSON, VISIBILITY_OPTIONS, visibilityLabel,
+  askToConnectBlocker, boardKindLabel, canSpeakAsBusiness, boardScope, boardTitle, connectStateOf, counterpartId, describeMetric, findDirectThread, formResults, formatMetricValue, groupConnections, humanise, joinNames,
+  leaveBlocker, leftNote, otherParticipants, periodLabel, personName, positionLabel, postStatusLabel, REPORT_REASONS, reportReasonLabel, threadTitle, UNNAMED_PERSON, VISIBILITY_OPTIONS, visibilityLabel,
 } from "../live";
 
 const ME = "00000000-0000-4000-8000-0000000000aa";
@@ -77,6 +77,45 @@ describe("message threads", () => {
     expect(findDirectThread([group, direct, named], ME, ANA)?.id).toBe("t1");
     expect(findDirectThread([group], ME, ANA)).toBeUndefined();
     expect(findDirectThread([direct], ME, BEN)).toBeUndefined();
+  });
+});
+
+describe("asking to connect and moderation copy (audit #28, #34, #66)", () => {
+  const row = (id: string, fromUser: string, toUser: string, status: "requested" | "accepted" | "blocked") => ({ id, fromUser, toUser, status });
+  it("reads where the viewer stands with a person from their own rows", () => {
+    const rows = [row("1", ME, ANA, "accepted"), row("2", ME, BEN, "requested"), row("3", CAL, ME, "requested")];
+    expect(connectStateOf(rows, ME, ME)).toBe("self");
+    expect(connectStateOf(rows, ME, ANA)).toBe("connected");
+    expect(connectStateOf(rows, ME, BEN)).toBe("requested");
+    expect(connectStateOf(rows, ME, CAL)).toBe("incoming");
+    expect(connectStateOf([row("4", ME, CAL, "blocked")], ME, CAL)).toBe("blocked");
+    expect(connectStateOf(rows, ME, "00000000-0000-4000-8000-0000000000ff")).toBe("none");
+  });
+
+  it("asks only from a LIVE business the founder may speak for, and says why not", () => {
+    const live = { gameMode: "live", committedAt: new Date(), archivedAt: null };
+    expect(askToConnectBlocker({ business: live, membership: { role: "owner" } })).toBeNull();
+    expect(askToConnectBlocker({ business: { ...live, gameMode: "personal" }, membership: { role: "owner" } })).toMatch(/LIVE business/);
+    expect(askToConnectBlocker({ business: live, membership: { role: "viewer" } })).toMatch(/role/);
+    expect(askToConnectBlocker({ business: live, membership: { role: "member", sectionPermissions: { live: "read" } } })).toMatch(/role/);
+  });
+
+  it("names a post's status, the reasons to report, and who left a thread", () => {
+    expect(postStatusLabel("pending_review")).toBe("Held for review");
+    expect(postStatusLabel("hidden")).toBe("Hidden by a moderator");
+    expect(postStatusLabel("visible")).toBeNull();
+    expect(REPORT_REASONS.map((r) => r.value)).toEqual(["spam", "harassment", "personal_data", "scam", "off_topic", "other"]);
+    expect(reportReasonLabel("personal_data")).toBe("Someone's personal data");
+    const names: Record<string, string> = { [ANA]: "Ana", [BEN]: "Ben" };
+    expect(leftNote([], () => undefined)).toBeNull();
+    expect(leftNote([ANA, BEN], (id) => ({ userId: id, displayName: names[id] ?? null }))).toBe("Ana and Ben left this conversation");
+  });
+
+  it("keeps the owner of a community joined by invitation in it, and lets everyone else leave", () => {
+    expect(leaveBlocker({ role: "owner", visibility: "private" })).toMatch(/invitation only/);
+    expect(leaveBlocker({ role: "owner", visibility: "public" })).toBeNull();
+    expect(leaveBlocker({ role: "moderator", visibility: "private" })).toBeNull();
+    expect(leaveBlocker({ role: null, visibility: "private" })).toBeNull();
   });
 });
 

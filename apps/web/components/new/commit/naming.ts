@@ -252,6 +252,8 @@ export interface CommitForm {
   /** The chosen logo (uploaded or generated, already checked by the server), or null for the initials mark. */
   logo: LogoDraft | null;
   gameMode: GameMode;
+  /** The founder's "I am 18 or older", asked when the business starts LIVE (the network is for adults). */
+  adult: boolean;
   archetype: Archetype | null;
   businessMode: BusinessMode;
   /** Major units as typed. */
@@ -265,6 +267,7 @@ export function initialCommitForm(idea: { title: string; archetype: Archetype | 
     kit,
     logo: null,
     gameMode: "personal",
+    adult: false,
     archetype: idea.archetype,
     businessMode: "assisted",
     spendCap: String(DEFAULT_SPEND_CAP_MINOR.assisted / 100),
@@ -281,7 +284,10 @@ export function parseSpendCapMinor(input: string): number | null {
   return Math.round(Number(s) * 100);
 }
 
-export function validateCommitForm(form: CommitForm): CommitErrors {
+/** Whether a LIVE start still needs the founder's 18+ confirmation: not when it is on record already (`live.summary`). */
+export const needsAdultConfirmation = (form: Pick<CommitForm, "gameMode" | "adult">, adultOnRecord = false): boolean => form.gameMode === "live" && !form.adult && !adultOnRecord;
+
+export function validateCommitForm(form: CommitForm, options: { adultOnRecord?: boolean } = {}): CommitErrors {
   const errors: CommitErrors = {};
   if (form.name.trim().length === 0) errors.name = "Give the business a name.";
   if (form.name.trim().length > 120) errors.name = "Keep the name under 120 characters.";
@@ -289,11 +295,12 @@ export function validateCommitForm(form: CommitForm): CommitErrors {
   if (!form.archetype) errors.archetype = "Pick the archetype that fits best; it seeds departments and agents.";
   const cap = parseSpendCapMinor(form.spendCap);
   if (Number.isNaN(cap) || (cap !== null && cap < 0)) errors.spendCap = "Use a number, like 250.";
+  if (needsAdultConfirmation(form, options.adultOnRecord)) errors.adult = "Confirm that you are 18 or older to start live, or start Personal.";
   return errors;
 }
 
-export function isCommitValid(form: CommitForm): boolean {
-  return Object.keys(validateCommitForm(form)).length === 0;
+export function isCommitValid(form: CommitForm, options: { adultOnRecord?: boolean } = {}): boolean {
+  return Object.keys(validateCommitForm(form, options)).length === 0;
 }
 
 /** The `idea.commit` input. */
@@ -309,6 +316,8 @@ export function commitInput(ideaId: string, form: CommitForm) {
     logo: form.logo ? { source: form.logo.source, dataUrl: form.logo.dataUrl } : null,
     currency: form.currency,
     spendCapMinor: cap === null || Number.isNaN(cap) ? null : cap,
+    // Sent only when the founder ticked it for a LIVE start (the server records it once).
+    ...(form.gameMode === "live" && form.adult ? { confirmAdult: true as const } : {}),
   };
 }
 

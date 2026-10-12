@@ -74,8 +74,9 @@ export function localPaletteItems(input: { businessId: string; departments: read
     if (it.state === "archived") continue;
     items.push({ id: `inbox:${it.id}`, kind: "inbox", label: it.subject, description: it.type.replace(/_/g, " "), href: routes.inbox(bid, it.id) });
   }
+  // Network is the founder's own, in every mode (as in the sidebar).
+  items.push({ id: "screen:network", kind: "screen", label: "Network", href: "/network" });
   if (input.live) {
-    items.push({ id: "screen:network", kind: "screen", label: "Network", href: "/network" });
     items.push({ id: "screen:communities", kind: "screen", label: "Communities", href: "/communities" });
     items.push({ id: "screen:leaderboards", kind: "screen", label: "Leaderboards", href: "/leaderboards" });
   }

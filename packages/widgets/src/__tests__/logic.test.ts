@@ -5,7 +5,7 @@ import { addDays, dailySeries, daysUntil, lastDays, weekKey } from "../shared/ti
 import { agentRows, pickAgent } from "../widgets/agent-of-the-week";
 import { buildFormRows, formCells } from "../widgets/channel-form-guide";
 import { forecastSeries, runwayTone } from "../widgets/cash-runway";
-import { pickCommunity, postPreview } from "../widgets/community-feed";
+import { pickCommunity, postPreview, postsToTimeline } from "../widgets/community-feed";
 import { funnelStages } from "../widgets/funnel";
 import { previewLine } from "../widgets/inbox-preview";
 import { forecastCone, journeyHref, rippleFor, roadmapFlags } from "../widgets/journey-ribbon";
@@ -16,6 +16,7 @@ import { groupByHorizon, roadmapStatus, taskProgress } from "../widgets/roadmap-
 import { sessionsToPulseCells } from "../widgets/squad-pulse";
 import { boardWords, runwayTile, squadHealth, statusTiles } from "../widgets/status-strip";
 import { milestoneKey, trophyCards } from "../widgets/trophy-cabinet";
+import { humanSender, NETWORK_SENDER } from "../shared/note-tags";
 import { routes } from "../shared/routes";
 import { BID, TODAY, channelMetrics, channels, departments, finance, leaderboardEntries, leaderboards, ribbon, roadmap, sessions, team } from "./fixtures";
 
@@ -240,10 +241,25 @@ describe("leaderboard", () => {
 });
 
 describe("text helpers", () => {
+  it("names a human message after its sender: the founder's own note, or another founder's words from Network (audit #65)", () => {
+    expect(humanSender("u-me", "u-me")).toBe("self");
+    expect(humanSender("u-ana", "u-me")).toBe("other");
+    expect(humanSender(null, "u-me")).toBeNull();
+    expect(NETWORK_SENDER).toBe("Network");
+  });
+
   it("writes previews and event lines in plain words", () => {
     expect(previewLine("Atlas needs a yes. The migration touches [[ent:x|Nordic]] data.")).toBe("Atlas needs a yes.");
     expect(previewLine("**No full stop here**")).toBe("No full stop here");
     expect(postPreview("# Hello  *world*", 5)).toBe("Hell…");
+    // The founder's own post that moderation holds says so; a visible one carries no pill.
+    const [held, shown] = postsToTimeline([
+      { id: "p1", communityId: "c", authorUserId: "u", authorName: "Ana", bodyMd: "Mail me", createdAt: `${TODAY}T09:00:00.000Z`, status: "pending_review" },
+      { id: "p2", communityId: "c", authorUserId: "u", authorName: "Ana", bodyMd: "Hello", createdAt: `${TODAY}T10:00:00.000Z`, status: "visible" },
+    ]);
+    expect(held).toMatchObject({ tone: "warn", statusWord: "Held for review" });
+    expect(shown).toMatchObject({ tone: "neutral" });
+    expect(shown).not.toHaveProperty("statusWord");
     // The feed is for members: the chosen community if joined, else the first joined one, never one the founder is not in.
     const communities = [{ id: "a", name: "A", role: null }, { id: "b", name: "B", role: "member" }, { id: "c", name: "C", role: "owner" }];
     expect(pickCommunity(communities, null)?.id).toBe("b");

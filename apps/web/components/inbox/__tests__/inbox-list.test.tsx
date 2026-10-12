@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render } from "@testing-library/react";
+import { APP_NAME } from "@foundmill/config";
 import { InboxList, type InboxListRow } from "../InboxList";
 import { ConfirmPlanDialog } from "../ReadingPane";
 
@@ -49,6 +50,25 @@ describe("InboxList (DESIGN §9 rows)", () => {
     expect(onSelect).toHaveBeenCalledWith("i1");
     expect(r.getByTestId("inbox-load-more")).toBeTruthy();
   });
+  it("gives a person's note the founder's initials only when it is their own; another founder's words come from Network (audit #65)", () => {
+    const r = render(
+      <InboxList
+        rows={[row({ id: "own", agent: undefined, fromUser: true }), row({ id: "theirs", agent: undefined, fromUser: false, fromPerson: true }), row({ id: "team", agent: undefined, fromUser: false })]}
+        selectedId={null}
+        onSelect={vi.fn()}
+        loading={false}
+        hasMore={false}
+        onLoadMore={vi.fn()}
+        emptyText=""
+        founderName="Jamie Reyes"
+      />,
+    );
+    const avatarOf = (id: string) => r.container.querySelector(`[data-inbox-row='${id}'] [role='img']`)?.getAttribute("aria-label");
+    expect(avatarOf("own")).toBe("Jamie Reyes");
+    expect(avatarOf("theirs")).toBe("Network");
+    expect(avatarOf("team")).toBe(APP_NAME);
+  });
+
   it("shows a skeleton while loading and the empty line otherwise", () => {
     const a = render(<InboxList rows={[]} selectedId={null} onSelect={vi.fn()} loading hasMore={false} onLoadMore={vi.fn()} emptyText="Nothing" />);
     expect(a.getByTestId("inbox-list-loading")).toBeTruthy();

@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { Clock, Flag, MoreHorizontal, Trash2 } from "lucide-react";
 import { useState, type ComponentProps } from "react";
+import { Button } from "../foundation/Button";
 import { Chip } from "../foundation/Chip";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../foundation/DropdownMenu";
+import { Icon } from "../foundation/Icon";
 import { FeedPost } from "./FeedPost";
 
 // Relative to the clock, so "5 min ago" reads right whenever the story is opened.
@@ -59,6 +63,42 @@ function RepliesDemo(args: ComponentProps<typeof FeedPost>) {
 }
 
 export const WithReplies: Story = { render: (args) => <RepliesDemo {...args} /> };
+
+/** The post's own controls (a More menu: report, edit, delete, a moderator's hide) and status chips about the post. */
+export const WithActionsAndStatus: Story = {
+  render: (args) => (
+    <div className="surface-panel w-[560px]">
+      <FeedPost
+        {...args}
+        status={
+          <>
+            <Chip tone="neutral">Edited</Chip>
+            <Chip tone="warn" icon={Clock}>
+              Held for review
+            </Chip>
+          </>
+        }
+        actions={
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" icon={MoreHorizontal} aria-label="More for this post" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem>
+                <Icon icon={Flag} size="inline" /> Report
+              </DropdownMenuItem>
+              <DropdownMenuItem variant="danger">
+                <Icon icon={Trash2} size="inline" /> Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        }
+        replyCount={0}
+        onReply={() => undefined}
+      />
+    </div>
+  ),
+};
 
 export const NoReplies: Story = {
   render: (args) => (

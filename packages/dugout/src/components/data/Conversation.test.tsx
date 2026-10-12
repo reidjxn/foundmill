@@ -135,6 +135,17 @@ describe("FeedPost", () => {
     expect(screen.getByRole("button", { name: "1 reply" }).getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("A reply")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+    // A post's own controls and status chips sit in its header; neither is rendered when omitted.
+    expect(screen.queryByRole("button", { name: "More for this post" })).toBeNull();
+    const onMore = vi.fn();
+    rerender(
+      <FeedPost author="Jamie Reyes" at={iso(95)} status={<span>Held for review</span>} actions={<button type="button" aria-label="More for this post" onClick={onMore} />}>
+        First touch halved.
+      </FeedPost>,
+    );
+    expect(screen.getByText("Held for review").closest("header")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "More for this post" }));
+    expect(onMore).toHaveBeenCalledTimes(1);
   });
 
   it("a reply carries no actions", () => {

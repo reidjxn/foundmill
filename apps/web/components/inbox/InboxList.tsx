@@ -5,7 +5,7 @@
  * "Milestone", "Update"…) before a one-line preview. A won customer keeps the gold left edge.
  */
 import { Inbox } from "lucide-react";
-import { NOTE_TAG_ICONS } from "@foundmill/widgets/shared/note-tags";
+import { NETWORK_SENDER, NOTE_TAG_ICONS } from "@foundmill/widgets/shared/note-tags";
 import { useEffect, useRef } from "react";
 import { APP_NAME } from "@foundmill/config";
 import { Avatar, Button, Chip, EmptyState, Skeleton, formatRelative, useFormatters, type ChipTone, type IconComponent } from "@foundmill/dugout";
@@ -38,7 +38,10 @@ export interface AgentMeta {
 
 export interface InboxListRow extends InboxRowModel {
   agent: AgentMeta | undefined;
+  /** The founder's own note: it carries their initials. */
   fromUser: boolean;
+  /** Another person's words (a connection request or a message from another founder, filed here by Network). */
+  fromPerson?: boolean;
 }
 
 export interface InboxListProps {
@@ -111,7 +114,7 @@ export function InboxList({ rows, selectedId, onSelect, loading, hasMore, loadin
                 aria-label={`${row.subject}. ${row.tag.word}${row.needsAnswer && row.tag.word !== "Respond" ? ", needs an answer" : ""}${row.won ? ", customer won" : ""}`}
               >
                 <span className="shrink-0 pt-0.5">
-                  {row.agent ? <Avatar size={32} name={row.agent.name} agent={{ seed: row.agent.seed, dept: row.agent.dept }} /> : <Avatar size={32} name={row.fromUser ? (founderName ?? "You") : APP_NAME} />}
+                  {row.agent ? <Avatar size={32} name={row.agent.name} agent={{ seed: row.agent.seed, dept: row.agent.dept }} /> : <Avatar size={32} name={row.fromUser ? (founderName ?? "You") : row.fromPerson ? NETWORK_SENDER : APP_NAME} />}
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="flex items-start gap-2">

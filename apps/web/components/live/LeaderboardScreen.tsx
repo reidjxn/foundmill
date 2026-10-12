@@ -2,10 +2,11 @@
 /**
  * /leaderboards/[boardId] (BUILD §6.2, §11.14): one board. A strip with the current business's position, how many
  * businesses are ranked and when it was last computed, then a DataTable of the entries: position, movement, logo and
- * business, the metric the board ranks on, and form. The current business's row is raised and marked "You".
+ * business, the metric the board ranks on, and form. The current business's row is raised and marked "You". Another
+ * business's row offers "Ask to connect", which reaches the founder who owns it (audit #66).
  */
 import { useQuery } from "@tanstack/react-query";
-import { Copy, Home, Trophy } from "lucide-react";
+import { Copy, Home, Trophy, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Chip, DataTable, DeltaBadge, FormCells, Panel, StatusStrip, formatRelative, useToast, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
@@ -15,7 +16,8 @@ import { errorMessage, trpcErrorCode } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
-import { BusinessLogo, PersonalNotice, type BusinessCard } from "./shared";
+import { useAskToConnect } from "./connect";
+import { AdultNotice, BusinessLogo, PersonalNotice, type BusinessCard } from "./shared";
 
 interface EntryRow {
   id: string;
@@ -28,6 +30,8 @@ interface EntryRow {
   metricValue: number;
   form: string;
   you: boolean;
+  /** A business the viewer belongs to (any of theirs, not only the current one): no "Ask to connect". */
+  own: boolean;
 }
 
 export const ENTRY_VIEWS: SavedView[] = [
@@ -64,6 +68,7 @@ export function LeaderboardScreen({ boardId }: { boardId: string }) {
         metricValue: Number(e.metricValue),
         form: e.form,
         you: e.businessId === businessId,
+        own: e.own || e.businessId === businessId,
       })),
     [entries, businessId, data.business.name],
   );
@@ -93,8 +98,12 @@ export function LeaderboardScreen({ boardId }: { boardId: string }) {
     [metric.label, metric.format],
   );
 
+  const connect = useAskToConnect();
   const rowActions = (row: EntryRow): RowAction<EntryRow>[] => [
     ...(row.you ? [{ id: "home", label: "Open Home", icon: Home, onSelect: () => router.push(routes.home(businessId)) } satisfies RowAction<EntryRow>] : []),
+    ...(!row.own && row.card
+      ? [{ id: "connect", label: connect.blocker ? "Ask to connect (from a LIVE business)" : `Ask ${row.name} to connect`, icon: UserPlus, disabled: !!connect.blocker, onSelect: (r: EntryRow) => connect.ask({ businessId: r.businessId, name: r.name }) } satisfies RowAction<EntryRow>]
+      : []),
     {
       id: "copy",
       label: "Copy name and position",
@@ -131,6 +140,7 @@ export function LeaderboardScreen({ boardId }: { boardId: string }) {
   return (
     <div className="grid grid-cols-12 gap-gutter p-gutter" data-testid="leaderboard-screen" data-board-id={board.id}>
       <PersonalNotice className="col-span-12" />
+      <AdultNotice className="col-span-12" />
       <StatusStrip className="col-span-12" tiles={tiles} aria-label={`${boardKindLabel(board.boardKind)} at a glance`} />
       <Panel
         title={`${title} · ${periodLabel(board.period)}`}
@@ -160,6 +170,7 @@ export function LeaderboardScreen({ boardId }: { boardId: string }) {
           className="border-0"
         />
       </Panel>
+      {connect.dialog}
     </div>
   );
 }
