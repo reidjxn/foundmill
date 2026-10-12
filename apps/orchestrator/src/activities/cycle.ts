@@ -154,7 +154,10 @@ export function createCycleActivities(deps: OrchestratorDeps) {
      * Hand the cycle's events to the composer (one inbox item). When the composer is unreachable in development or
      * test, a plain update from the Chief of Staff is written instead so the founder still sees the cycle end.
      */
-    async narrateCycle(input: { businessId: string; eventIds: string[]; summary: string; fallbackSubject?: string }): Promise<{ inboxItemIds: string[]; viaComposer: boolean }> {
+    async narrateCycle(input: NarrateCycleInput): Promise<{ inboxItemIds: string[]; viaComposer: boolean }> {
+      // No session finished, so there is no event to narrate (the composer refuses an empty list, and in staging that
+      // refusal used to end the cycle without any note): the Chief of Staff says what happened in plain words instead.
+      if (input.eventIds.length === 0) return plainCycleUpdate(deps, input, "Nothing finished this cycle, so there is nothing new to narrate yet.");
       try {
         const out = await deps.composer.narrate({ businessId: input.businessId, eventIds: input.eventIds });
         return { inboxItemIds: out.inboxItemId ? [out.inboxItemId] : [], viaComposer: true };
@@ -162,26 +165,37 @@ export function createCycleActivities(deps: OrchestratorDeps) {
         if (!(err instanceof ComposerUnavailableError)) throw err;
         if (deps.env.APP_ENV === "production" || deps.env.APP_ENV === "staging") throw err;
         deps.log.warn({ err: err.message }, "composer unavailable; writing a plain cycle update");
-        const chief = await repos.agents.chiefOfStaff(deps.db, input.businessId);
-        if (!chief) return { inboxItemIds: [], viaComposer: false };
-        const body = `${input.summary.trim()}\n\nThis update was written without the Inbox Composer (service unavailable); links and exhibits will appear once it is back.`;
-        const item = await repos.inbox.createItem(deps.db, input.businessId, {
-          type: "update",
-          from_agent_id: chief.id,
-          subject: (input.fallbackSubject ?? "Cycle finished").slice(0, 80),
-          body_md: body,
-          status_strip: [],
-          exhibit: { kind: "none", spec_ref: null },
-          decision: null,
-          blocks_continue: false,
-          source_event_ids: input.eventIds,
-          entity_ids: [],
-        });
-        if (input.eventIds.length) await repos.events.markNarrated(deps.db, input.businessId, input.eventIds);
-        return { inboxItemIds: [item.id], viaComposer: false };
+        return plainCycleUpdate(deps, input, "This update was written without the Inbox Composer (service unavailable); links and exhibits will appear once it is back.");
       }
     },
   };
+}
+
+interface NarrateCycleInput {
+  businessId: string;
+  eventIds: string[];
+  summary: string;
+  fallbackSubject?: string;
+}
+
+/** The Chief of Staff's plain cycle update: the cycle's summary (what ran, finished, was blocked or deferred) and a closing line. */
+async function plainCycleUpdate(deps: OrchestratorDeps, input: NarrateCycleInput, footer: string): Promise<{ inboxItemIds: string[]; viaComposer: boolean }> {
+  const chief = await repos.agents.chiefOfStaff(deps.db, input.businessId);
+  if (!chief) return { inboxItemIds: [], viaComposer: false };
+  const item = await repos.inbox.createItem(deps.db, input.businessId, {
+    type: "update",
+    from_agent_id: chief.id,
+    subject: (input.fallbackSubject ?? "Cycle finished").slice(0, 80),
+    body_md: `${input.summary.trim()}\n\n${footer}`,
+    status_strip: [],
+    exhibit: { kind: "none", spec_ref: null },
+    decision: null,
+    blocks_continue: false,
+    source_event_ids: input.eventIds,
+    entity_ids: [],
+  });
+  if (input.eventIds.length) await repos.events.markNarrated(deps.db, input.businessId, input.eventIds);
+  return { inboxItemIds: [item.id], viaComposer: false };
 }
 
 export type CycleActivities = ReturnType<typeof createCycleActivities>;

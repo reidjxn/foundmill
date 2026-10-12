@@ -11,7 +11,7 @@
 import { AgentInstructions, buildSystemPrompt, detectClubRuleViolation, getPrompt, getSkillDefinition, getSkillTests, ratingFromTested, runDeterministicChecks, type AgentTemplate, type SkillTest } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
 import { repos } from "@foundmill/db";
-import { SkillGradeOutput, resolveModel } from "@foundmill/models";
+import { PRICING_CURRENCY, SkillGradeOutput, resolveModel } from "@foundmill/models";
 import { MockSandboxProvider, RECORDINGS, type MockSandbox } from "@foundmill/sandbox";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
@@ -151,7 +151,9 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, tests.length) }, worker));
       const meanScore = scores.reduce((a, b) => a + b, 0) / Math.max(1, scores.length);
       const tested = ratingFromTested(meanScore);
-      await repos.usage.record(db, input.businessId, { agentId: agent.id, kind: "training", quantity: tests.length, unit: "tests", costMinor: Math.max(0, costMinor), occurredAt: deps.clock.now(), details: { trainingRunId: input.trainingRunId, skillKey: input.skillKey, label: "Estimate" } });
+      // Every answer and grader call above is already booked once, in the pricing currency, by the model client's usage
+      // sink. This row records the tests run, not their cost a second time (and never in a currency of its own).
+      await repos.usage.record(db, input.businessId, { agentId: agent.id, kind: "training", quantity: tests.length, unit: "tests", costMinor: 0, currency: PRICING_CURRENCY, occurredAt: deps.clock.now(), details: { trainingRunId: input.trainingRunId, skillKey: input.skillKey, meteredMinor: Math.max(0, costMinor), label: "Estimate" } });
       return { skillKey: input.skillKey, group, testsRun: tests.length, meanScore: Math.round(meanScore * 1000) / 1000, tested, previousTested, costMinor, checksFailed };
     },
 
