@@ -114,6 +114,8 @@ test.describe("inbox", () => {
     }
     await expect(item).toHaveAttribute("data-state", "answered");
     await expect(answered).toBeVisible();
+    // An action left to the founder never reads "Confirmed by you" while its plan still awaits confirmation (VOL-X1).
+    if (await answered.getByText("Awaiting your confirmation").isVisible()) await expect(answered.getByText("Confirmed by you")).toHaveCount(0);
     // Decided from the DecisionBar: the desk keeps 2–4 replies but no longer offers "Go with: …" (no second decision).
     await expect(desk.locator('[data-quick-reply="go_with"]')).toHaveCount(0, { timeout: LONG });
     const left = desk.getByTestId("quick-replies").locator("[data-quick-reply]:not([data-quick-reply=write])");
