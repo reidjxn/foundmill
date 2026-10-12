@@ -12,3 +12,4 @@ export type { Journal, JournalEntry, MigrationFile } from "./migrations";
 export { appliedMigrationCount, DEFAULT_MIGRATION_LOCK_TIMEOUT_MS, isMigrationLockTimeout, migrateDb, MIGRATION_LOCK, MigrationLockTimeoutError, type MigrateOptions, type MigrateResult, type MigrationLockHolder } from "./migrator";
 export { DEFAULT_PGLITE_DIR, PGLITE_BOOTSTRAP_SQL, findWorkspaceRoot, isPgliteDb, isPgliteUrl, parsePgliteUrl, pgliteUrl, resolvePgliteDir } from "./pglite";
 export type { LazyPgliteClient, PgliteTarget } from "./pglite";
+export { awardMilestonesForConversion, catchUpMilestones, MRR_WINDOW_DAYS } from "./milestones";

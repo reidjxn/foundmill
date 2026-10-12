@@ -51,6 +51,7 @@ describe("journal", () => {
       "0023_business_controls",
       "0024_billing_enforcement",
       "0026_membership_guards",
+      "0028_journey_runtime",
       "0033_payments",
       "0034_first_payments",
     ]);
