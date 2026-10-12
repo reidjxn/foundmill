@@ -9,7 +9,7 @@ import { APP_NAME } from "@foundmill/config";
 import { eq } from "drizzle-orm";
 import { repos } from "../repos";
 import { entities as entitiesTable, type Entity } from "../schema";
-import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSpec, seedTasks, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
+import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
 import { DEMO_OWNER_DISPLAY_NAME, NORTHWIND_BUSINESS_ID, NORTHWIND_NAME, NORTHWIND_SLUG } from "./constants";
 import { addDays, atHour, mention, money, pct, proseDoc, type SeedCtx } from "./context";
 import { seedFinance } from "./finance";
@@ -173,8 +173,20 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   const productLead = squad.byTemplate.get("product_lead");
   const specIds = await seedSpec(ctx, businessId, archetype.specOutline, SPEC_TEXT, productLead?.agent.id ?? null);
   const roadmapIds = await seedRoadmap(ctx, businessId, ROADMAP, specIds, squad);
-  await repos.product.createSource(db, businessId, { kind: "doc", uri: "drive://northwind/lab/batch-002-cpsr.pdf", title: "Batch 002 CPSR (Meridian Labs)", relevance: { score: 0.92, sections: ["Compliance"] }, fetchedAt: addDays(ctx.today, -9) });
-  await repos.product.createSource(db, businessId, { kind: "feedback", uri: null, title: "Reaction reports Q3 (12 tickets)", relevance: { score: 0.81, sections: ["Formulation / BOM"] }, fetchedAt: addDays(ctx.today, -3) });
+  await repos.product.createSource(db, businessId, {
+    kind: "doc",
+    uri: "drive://northwind/lab/batch-002-cpsr.pdf",
+    title: "Batch 002 CPSR (Meridian Labs)",
+    relevance: seededRelevance(specIds, { summary: "The safety assessment for batch 002 passes all three SKUs; the serum needs a revised warning line before relabeling.", sections: [["Compliance", 0.92], ["Packaging", 0.64]], topics: ["safety assessment", "labeling", "batch 002"], checkedAt: addDays(ctx.today, -9) }),
+    fetchedAt: addDays(ctx.today, -9),
+  });
+  await repos.product.createSource(db, businessId, {
+    kind: "feedback",
+    uri: null,
+    title: "Reaction reports Q3 (12 tickets)",
+    relevance: seededRelevance(specIds, { summary: "Twelve reaction tickets this quarter; nine name the serum and most within two weeks of a new batch.", sections: [["Formulation / BOM", 0.81], ["Customers", 0.52]], topics: ["reactions", "serum", "batch quality"], checkedAt: addDays(ctx.today, -3) }),
+    fetchedAt: addDays(ctx.today, -3),
+  });
 
   // One open spec change proposal (BUILD §11.5, AC-11.5.2): a customer interview the Source Watcher read touches three
   // sections; each hunk carries the current block as base/ours and the proposed text as theirs so Product › Changes
@@ -183,7 +195,12 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     kind: "transcript",
     uri: "drive://northwind/research/interview-2026-10-04-reactive-skin-panel.md",
     title: "Customer interview: reactive-skin panel (6 participants)",
-    relevance: { score: 0.88, sections: PROPOSAL_HUNKS.map((h) => h.section) },
+    relevance: seededRelevance(specIds, {
+      summary: "Six panel participants on refills, reactions and referrals: a quarterly refill under £35 would win four of them, five keep a private reaction note, two came through an online clinic.",
+      sections: [["Pricing", 0.88], ["Features", 0.79], ["Customers", 0.74]],
+      topics: ["refill pricing", "reaction diary", "clinic referrals"],
+      checkedAt: addDays(ctx.today, -3),
+    }),
     fetchedAt: addDays(ctx.today, -3),
   });
   const researcher = squad.byTemplate.get("researcher");

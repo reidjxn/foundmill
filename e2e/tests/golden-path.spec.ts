@@ -300,7 +300,7 @@ test.describe("seeded business (Northwind Skincare)", () => {
     await expect(page.getByTestId("journey-crm-link")).toBeVisible();
   });
 
-  test("AC-11.5.2: Product Changes lists proposals; accepting a hunk records the decision", async ({ page }) => {
+  test("AC-11.5.2: Product Changes lists proposals; accepting a hunk writes it into the spec", async ({ page }) => {
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
     const product = page.locator("[data-testid=app-shell] nav a[href*='/d/']").filter({ hasText: /product/i }).first();
     await expect(product).toBeVisible({ timeout: LONG });
@@ -324,15 +324,25 @@ test.describe("seeded business (Northwind Skincare)", () => {
     const hunkId = (await hunk.getAttribute("data-hunk"))!;
     expect(hunkId).toMatch(new RegExp(`^${UUID}$`));
     await expect(hunk.getByText("Pending").first()).toBeVisible();
+    // What each seeded hunk proposes (PROPOSAL_HUNKS in packages/db/src/seed/northwind.ts), by section.
+    const name = (await hunk.getAttribute("aria-label")) ?? "";
+    const proposed = /Pricing/.test(name) ? "refills £34 per quarter" : /Features/.test(name) ? "Reaction diary in the account" : "online dermatology clinics as a referral channel";
+    const settles = (await proposalHunks.filter({ has: page.getByRole("button", { name: "Accept change" }) }).count()) === 1;
     await hunk.getByRole("button", { name: "Accept change" }).click();
     // The decision is recorded: the hunk shows Accepted, its buttons are gone, and the progress line counts it.
     const decided = detail.locator(`section[data-hunk="${hunkId}"]`);
     await expect(decided).toContainText(/Accepted/, { timeout: LONG });
     await expect(decided.getByRole("button", { name: "Accept change" })).toHaveCount(0);
     await expect(page.getByText(/[1-3] of 3 changes decided/).first()).toBeAttached({ timeout: LONG });
+    // Deciding the last hunk settles the proposal and publishes the next version, shown in the result panel.
+    if (settles) await expect(detail.getByText(/Version \d+/).first()).toBeVisible({ timeout: LONG });
     // It survives a reload (the api wrote it; nothing was staged client-side only).
     await page.reload();
     await expect(page.locator(`section[data-hunk="${hunkId}"]`)).toContainText(/Accepted/, { timeout: LONG });
+    // The accepted text is now in the specification block itself (the hunk's title opens it).
+    await page.locator(`section[data-hunk="${hunkId}"] header button`).first().click();
+    await expect(page.getByTestId("module-screen")).toHaveAttribute("data-module", "product/specification", { timeout: LONG });
+    await expect(page.locator("[data-spec-editor]")).toContainText(proposed, { timeout: LONG });
   });
 
   test("AC-11.12.1: CRM search finds a seeded person and a seeded organisation", async ({ page }) => {

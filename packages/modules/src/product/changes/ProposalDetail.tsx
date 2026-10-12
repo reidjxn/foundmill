@@ -9,7 +9,7 @@
 import { useMemo, useState } from "react";
 import { Check, CheckCheck, ExternalLink, FileText, GitCommitVertical, Map as MapIcon, Save, X } from "lucide-react";
 import { Button, Chip, DiffView, EntityLink, Icon, KeyValueList, Markdown, Panel, ProvenanceChip, StatusPill, cn, useEntityLinkContext, useFormatters, type HunkDecisionState, type HunkDecisions } from "@foundmill/dugout";
-import { textToPm } from "../prosemirror";
+import { pmToText, textToPm } from "../prosemirror";
 import { InlineError, PinnedChip, blockTitle, findBlock, useAction, useAgentNames } from "../shared";
 import type { ProposalHunkRow, ProposalWithHunks, RoadmapRow, SourceRow, SpecBlockRow, SpecVersionRow } from "../types";
 import { DECISION_PILL, PROPOSAL_STATUS_PILL, SEVERITY_CHIP, decisionProgress, hunkSides, impactLines, isSettled } from "./hunks";
@@ -47,9 +47,11 @@ function HunkCard({ hunk, index, blocks, roadmapItems, settled, onChanged, onOpe
   const [merged, setMerged] = useState<string | null>(null);
   const block = findBlock(blocks, hunk.specBlockId);
   const item = hunk.roadmapItemId ? roadmapItems.find((r) => r.id === hunk.roadmapItemId) : undefined;
-  const sides = useMemo(() => hunkSides(hunk), [hunk]);
   const pill = DECISION_PILL[hunk.decision];
   const locked = settled || hunk.decision !== "pending";
+  // A block edited after the proposal was drafted: decide against the text as it reads now (accepting merges into it).
+  const changedSince = !locked && block && hunk.ours ? pmToText(block.content) !== pmToText(hunk.ours) : false;
+  const sides = useMemo(() => (changedSince && block ? hunkSides({ base: hunk.base, ours: block.content, theirs: hunk.theirs }) : hunkSides(hunk)), [hunk, block, changedSince]);
   const stagedCount = Object.values(staged).filter((s) => s && s.decision !== "pending").length;
 
   const decide = (decision: "accepted" | "rejected" | "edited", edited?: Record<string, unknown>) =>
@@ -74,6 +76,7 @@ function HunkCard({ hunk, index, blocks, roadmapItems, settled, onChanged, onOpe
         </StatusPill>
       </header>
       {block?.pinned && hunk.decision === "pending" ? <p className="text-small text-secondary">This block is pinned (human-edited). Nothing changes unless you accept or edit this change.</p> : null}
+      {changedSince ? <p className="text-small text-secondary">This block changed after the proposal was drafted. Current shows it as it reads now; accepting keeps those edits and adds this change.</p> : null}
       <DiffView
         title={null}
         original={sides.original}

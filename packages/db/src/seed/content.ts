@@ -107,6 +107,21 @@ export async function seedSpec(ctx: SeedCtx, businessId: string, outline: readon
   return ids;
 }
 
+/**
+ * A seeded source's `relevance` in the shape the Source Watcher writes (packages/agents source-watcher.ts) and the
+ * Sources and Research tabs read: a summary, the spec blocks it touches with scores, topics, and when it was checked.
+ */
+export function seededRelevance(
+  specIds: ReadonlyMap<string, string>,
+  input: { summary: string; sections: readonly (readonly [string, number])[]; topics: readonly string[]; checkedAt: Date; severity?: "low" | "normal" | "critical"; extra?: Record<string, unknown> },
+): Record<string, unknown> {
+  const blocks = input.sections.flatMap(([section, score]) => {
+    const blockId = specIds.get(section);
+    return blockId ? [{ blockId, score, reason: "" }] : [];
+  });
+  return { summary: input.summary, blocks, topics: [...input.topics], severity: input.severity ?? "normal", ...input.extra, watch: { status: "scored", checkedAt: input.checkedAt.toISOString(), costLabel: "Estimate" } };
+}
+
 // --- roadmap ----------------------------------------------------------------------------------------------------------------
 
 export interface RoadmapSpec {

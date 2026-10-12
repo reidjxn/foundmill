@@ -10,6 +10,7 @@ import {
   type ChangeProposal, type ProposalHunk, type RoadmapDependency, type RoadmapItem, type Source, type SpecBlock, type SpecVersion,
 } from "../schema";
 import { defined, Id, JsonObject, maybeOne, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
+import { docText, mergeBlockContent, sameContent, textDoc } from "./spec-merge";
 
 const OwnerRef = z.object({ kind: z.enum(["agent", "user", "department"]), id: Id });
 
@@ -93,6 +94,46 @@ export type CreateSourceInput = z.input<typeof CreateSourceInput>;
 
 export interface ProposalWithHunks extends ChangeProposal {
   hunks: ProposalHunk[];
+}
+
+/** What deciding one hunk did to its target (audited by the caller). */
+export interface AppliedHunk {
+  hunkId: string;
+  decision: "accepted" | "edited";
+  target: { kind: "spec_block" | "roadmap_item"; id: string };
+  /** False when the target was archived or the change was already in it. */
+  changed: boolean;
+  /** The live content had changed since the proposal was drafted, so the change was merged into it (three-way). */
+  merged: boolean;
+  conflicts: number;
+  skipped: "archived" | "no_content" | null;
+}
+
+/** The version a settled proposal published (none when every hunk was rejected). */
+export interface PublishedFromProposal {
+  version: SpecVersion;
+  previousVersion: number | null;
+  changedBlockIds: string[];
+  counts: { accepted: number; rejected: number; edited: number };
+}
+
+export interface ProposalDecisionResult extends ProposalWithHunks {
+  applied: AppliedHunk[];
+  published: PublishedFromProposal | null;
+}
+
+export interface DecideOptions {
+  /** The user deciding (publishes the version, authors an edited block). */
+  decidedBy?: string | null;
+}
+
+const DECISION_WORDS: Record<string, string> = { accepted: "accepted", edited: "accepted as edited", rejected: "rejected" };
+
+/** One line for the version history: which proposal, and what happened to each of its changes. */
+export function proposalChangelog<H extends Pick<ProposalHunk, "decision" | "position">>(title: string, hunks: readonly H[], labelOf: (h: H) => string): string {
+  const parts = [...hunks].sort((a, b) => a.position - b.position).map((h) => `${labelOf(h)} ${DECISION_WORDS[h.decision] ?? h.decision}`);
+  const name = title.trim() ? `Change proposal "${title.trim()}"` : "Change proposal";
+  return `${name}: ${parts.join("; ")}.`.slice(0, 4000);
 }
 
 export const productRepo = {
@@ -244,9 +285,24 @@ export const productRepo = {
     return { ...proposal, hunks };
   },
 
+  /**
+   * Creates a proposal with its hunks. A hunk drafted without `base` / `ours` gets the target's current content for both
+   * (the version it was proposed against), so the Changes tab shows a real diff and accepting it can merge (three-way)
+   * with whatever changes in the block before it is decided. Every target must belong to the business.
+   */
   async createProposal(db: Executor, businessId: string, input: CreateProposalInput): Promise<ProposalWithHunks> {
     const v = parseInput(CreateProposalInput, input, "proposal");
     return db.transaction(async (tx) => {
+      const blockIds = [...new Set(v.hunks.map((h) => h.specBlockId).filter((x): x is string => Boolean(x)))];
+      const itemIds = [...new Set(v.hunks.map((h) => h.roadmapItemId).filter((x): x is string => Boolean(x)))];
+      const blocks = blockIds.length ? await tx.select().from(specBlocks).where(and(eq(specBlocks.businessId, businessId), inArray(specBlocks.id, blockIds))) : [];
+      const items = itemIds.length ? await tx.select().from(roadmapItems).where(and(eq(roadmapItems.businessId, businessId), inArray(roadmapItems.id, itemIds))) : [];
+      if (blocks.length !== blockIds.length || items.length !== itemIds.length) throw new ValidationError("Every change must target a spec block or roadmap item of this business", { blockIds, itemIds });
+      const currentOf = (h: (typeof v.hunks)[number]): Record<string, unknown> | null => {
+        if (h.specBlockId) return blocks.find((b) => b.id === h.specBlockId)?.content ?? null;
+        const item = items.find((i) => i.id === h.roadmapItemId);
+        return item ? textDoc(item.descriptionMd) : null;
+      };
       const proposal = one(
         await tx
           .insert(changeProposals)
@@ -257,27 +313,48 @@ export const productRepo = {
       const hunks = await tx
         .insert(proposalHunks)
         .values(
-          v.hunks.map((h, i) => ({
-            businessId,
-            proposalId: proposal.id,
-            specBlockId: h.specBlockId ?? null,
-            roadmapItemId: h.roadmapItemId ?? null,
-            base: h.base ?? null,
-            ours: h.ours ?? null,
-            theirs: h.theirs ?? null,
-            position: h.position ?? i,
-          })),
+          v.hunks.map((h, i) => {
+            const current = currentOf(h);
+            return {
+              businessId,
+              proposalId: proposal.id,
+              specBlockId: h.specBlockId ?? null,
+              roadmapItemId: h.roadmapItemId ?? null,
+              base: h.base ?? h.ours ?? current,
+              ours: h.ours ?? current,
+              theirs: h.theirs ?? null,
+              position: h.position ?? i,
+            };
+          }),
         )
         .returning();
       return { ...proposal, hunks };
     });
   },
 
-  /** Decides one hunk; when every hunk is decided the proposal status follows (accepted / partially_accepted / rejected). */
-  async decideHunk(db: Executor, businessId: string, hunkId: string, decision: (typeof HUNK_DECISIONS)[number], edited?: Record<string, unknown>): Promise<ProposalWithHunks> {
+  /**
+   * Decides one pending hunk of an open proposal. Accepting (or saving an edit) applies the hunk's `theirs` to its spec
+   * block or roadmap item through a three-way merge with the live content (`spec-merge.ts`); the block's version is
+   * bumped and an edit by the founder pins it. When this was the last pending hunk the proposal settles (accepted /
+   * partially_accepted / rejected) and, if any hunk changed the spec, the next immutable version is published with a
+   * changelog naming each change. The proposal row is locked for the whole decision, so two decisions at once can
+   * never both settle it (or neither). Deciding a hunk again with the same decision is a no-op; changing a decision
+   * is refused (an applied change is not undone by a click).
+   */
+  async decideHunk(db: Executor, businessId: string, hunkId: string, decision: (typeof HUNK_DECISIONS)[number], edited?: Record<string, unknown>, opts: DecideOptions = {}): Promise<ProposalDecisionResult> {
     const d = parseInput(z.enum(HUNK_DECISIONS), decision, "hunk decision");
+    if (d === "pending") throw new ValidationError("Choose accept, reject or edited");
+    if (d === "edited" && !edited) throw new ValidationError("An edited change needs its edited text");
     return db.transaction(async (tx) => {
-      const hunk = one(
+      const located = one(await tx.select({ proposalId: proposalHunks.proposalId }).from(proposalHunks).where(and(eq(proposalHunks.businessId, businessId), eq(proposalHunks.id, hunkId))).limit(1), "hunk", hunkId);
+      const proposal = await lockProposal(tx, businessId, located.proposalId);
+      const hunk = one(await tx.select().from(proposalHunks).where(and(eq(proposalHunks.businessId, businessId), eq(proposalHunks.id, hunkId))).limit(1), "hunk", hunkId);
+      if (hunk.decision !== "pending") {
+        if (hunk.decision === d) return { ...(await productRepo.getProposal(tx, businessId, proposal.id)), applied: [], published: null };
+        throw new ValidationError("This change was already decided", { hunkId, decision: hunk.decision });
+      }
+      if (proposal.status !== "open") throw new ValidationError("This proposal is already settled", { proposalId: proposal.id, status: proposal.status });
+      const decided = one(
         await tx
           .update(proposalHunks)
           .set({ decision: d, ...(d === "edited" && edited ? { theirs: edited } : {}) })
@@ -286,7 +363,8 @@ export const productRepo = {
         "hunk",
         hunkId,
       );
-      return productRepo.settleProposal(tx, businessId, hunk.proposalId);
+      const applied = d === "rejected" ? [] : [await applyHunk(tx, businessId, proposal, decided, d, opts)];
+      return finishDecision(tx, businessId, proposal, applied, opts);
     });
   },
 
@@ -309,18 +387,32 @@ export const productRepo = {
     return current;
   },
 
-  async acceptAll(db: Executor, businessId: string, proposalId: string): Promise<ProposalWithHunks> {
+  /** Accepts every pending hunk (each applied as in `decideHunk`), settles the proposal and publishes the version. */
+  async acceptAll(db: Executor, businessId: string, proposalId: string, opts: DecideOptions = {}): Promise<ProposalDecisionResult> {
     return db.transaction(async (tx) => {
-      await tx.update(proposalHunks).set({ decision: "accepted" }).where(and(eq(proposalHunks.businessId, businessId), eq(proposalHunks.proposalId, proposalId), eq(proposalHunks.decision, "pending")));
-      return productRepo.settleProposal(tx, businessId, proposalId);
+      const proposal = await lockProposal(tx, businessId, proposalId);
+      if (proposal.status !== "open") return { ...(await productRepo.getProposal(tx, businessId, proposalId)), applied: [], published: null };
+      const pending = await tx
+        .update(proposalHunks)
+        .set({ decision: "accepted" })
+        .where(and(eq(proposalHunks.businessId, businessId), eq(proposalHunks.proposalId, proposalId), eq(proposalHunks.decision, "pending")))
+        .returning();
+      const applied: AppliedHunk[] = [];
+      for (const hunk of pending.sort((a, b) => a.position - b.position)) applied.push(await applyHunk(tx, businessId, proposal, hunk, "accepted", opts));
+      return finishDecision(tx, businessId, proposal, applied, opts);
     });
   },
 
-  async rejectProposal(db: Executor, businessId: string, proposalId: string): Promise<ProposalWithHunks> {
+  /**
+   * Rejects every pending hunk. Hunks already accepted stay applied, so a proposal with accepted hunks settles as
+   * partially accepted and publishes the version those hunks made; one with none is rejected and publishes nothing.
+   */
+  async rejectProposal(db: Executor, businessId: string, proposalId: string, opts: DecideOptions = {}): Promise<ProposalDecisionResult> {
     return db.transaction(async (tx) => {
+      const proposal = await lockProposal(tx, businessId, proposalId);
+      if (proposal.status !== "open") return { ...(await productRepo.getProposal(tx, businessId, proposalId)), applied: [], published: null };
       await tx.update(proposalHunks).set({ decision: "rejected" }).where(and(eq(proposalHunks.businessId, businessId), eq(proposalHunks.proposalId, proposalId), eq(proposalHunks.decision, "pending")));
-      await tx.update(changeProposals).set({ status: "rejected", resolvedAt: new Date() }).where(and(eq(changeProposals.businessId, businessId), eq(changeProposals.id, proposalId)));
-      return productRepo.getProposal(tx, businessId, proposalId);
+      return finishDecision(tx, businessId, proposal, [], opts);
     });
   },
 
@@ -431,8 +523,99 @@ export const productRepo = {
     return one(await db.update(sources).set({ archivedAt: new Date() }).where(and(eq(sources.businessId, businessId), eq(sources.id, sourceId))).returning(), "source", sourceId);
   },
 
+  /** The source row locked until the transaction ends (two Source Watcher reads of one source write one after the other). */
+  async lockSource(db: Executor, businessId: string, sourceId: string): Promise<Source> {
+    return one(await db.select().from(sources).where(and(eq(sources.businessId, businessId), eq(sources.id, sourceId))).for("update").limit(1), "source", sourceId);
+  },
+
+  /**
+   * Sources the Source Watcher should (re)read: live ones never checked, and web pages (which change) last checked
+   * (read, or found unreadable: `relevance.watch.checkedAt`) before `staleBefore`, oldest first. A note or a file is
+   * read once. Import sources (read once by the import, `relevance.import`) are left to it.
+   */
+  async listSourcesToWatch(db: Executor, businessId: string, input: { staleBefore: Date; limit?: number }): Promise<Source[]> {
+    const limit = Math.min(Math.max(Math.trunc(input.limit ?? 20), 1), 200);
+    const checkedAt = sql`coalesce((${sources.relevance} -> 'watch' ->> 'checkedAt')::timestamptz, ${sources.fetchedAt})`;
+    return db
+      .select()
+      .from(sources)
+      .where(
+        and(
+          eq(sources.businessId, businessId),
+          isNull(sources.archivedAt),
+          sql`(${sources.relevance} -> 'import') is null`,
+          sql`(${checkedAt} is null or (${sources.uri} ~* '^https?://' and ${checkedAt} < ${input.staleBefore.toISOString()}::timestamptz))`,
+        ),
+      )
+      .orderBy(sql`${checkedAt} asc nulls first`, asc(sources.createdAt))
+      .limit(limit);
+  },
+
   /** Convenience for the Source Watcher: the most recently fetched source per uri (null when never fetched). */
   async findSourceByUri(db: Executor, businessId: string, uri: string): Promise<Source | null> {
     return maybeOne(await db.select().from(sources).where(and(eq(sources.businessId, businessId), eq(sources.uri, uri), isNull(sources.archivedAt))).orderBy(desc(sources.createdAt)).limit(1));
   },
 };
+
+// --- deciding proposals -----------------------------------------------------------------------------------------------
+
+/** The proposal row, locked until the transaction ends (decisions on one proposal run one at a time). */
+async function lockProposal(tx: Executor, businessId: string, proposalId: string): Promise<ChangeProposal> {
+  return one(await tx.select().from(changeProposals).where(and(eq(changeProposals.businessId, businessId), eq(changeProposals.id, proposalId))).for("update").limit(1), "proposal", proposalId);
+}
+
+/** Writes an accepted (or edited) hunk into its spec block or roadmap item; see `decideHunk`. */
+async function applyHunk(tx: Executor, businessId: string, proposal: ChangeProposal, hunk: ProposalHunk, decision: "accepted" | "edited", opts: DecideOptions): Promise<AppliedHunk> {
+  const target = hunk.specBlockId ? ({ kind: "spec_block", id: hunk.specBlockId } as const) : ({ kind: "roadmap_item", id: hunk.roadmapItemId! } as const);
+  const result: AppliedHunk = { hunkId: hunk.id, decision, target, changed: false, merged: false, conflicts: 0, skipped: null };
+  if (!hunk.theirs) return { ...result, skipped: "no_content" };
+  const base = hunk.base ?? hunk.ours;
+
+  if (target.kind === "spec_block") {
+    const block = maybeOne(await tx.select().from(specBlocks).where(and(eq(specBlocks.businessId, businessId), eq(specBlocks.id, target.id))).limit(1));
+    if (!block || block.archivedAt) return { ...result, skipped: "archived" };
+    const merge = mergeBlockContent(base, block.content, hunk.theirs);
+    if (sameContent(merge.content, block.content)) return { ...result, merged: merge.merged, conflicts: merge.conflicts };
+    // Accepting writes the proposer's text (an agent's, or the system's); saving an edit writes the founder's and pins it.
+    const author =
+      decision === "edited"
+        ? { authoredByKind: "user" as const, authoredBy: opts.decidedBy ?? null, pinned: true }
+        : { authoredByKind: proposal.proposedByAgentId ? ("agent" as const) : ("system" as const), authoredBy: proposal.proposedByAgentId ?? null };
+    await tx
+      .update(specBlocks)
+      .set({ content: merge.content, ...author, version: sql`${specBlocks.version} + 1` })
+      .where(and(eq(specBlocks.businessId, businessId), eq(specBlocks.id, block.id)));
+    return { ...result, changed: true, merged: merge.merged, conflicts: merge.conflicts };
+  }
+
+  const item = maybeOne(await tx.select().from(roadmapItems).where(and(eq(roadmapItems.businessId, businessId), eq(roadmapItems.id, target.id))).limit(1));
+  if (!item || item.archivedAt) return { ...result, skipped: "archived" };
+  const merge = mergeBlockContent(base, textDoc(item.descriptionMd), hunk.theirs);
+  const descriptionMd = docText(merge.content);
+  if (descriptionMd === item.descriptionMd) return { ...result, merged: merge.merged, conflicts: merge.conflicts };
+  await tx.update(roadmapItems).set({ descriptionMd }).where(and(eq(roadmapItems.businessId, businessId), eq(roadmapItems.id, item.id)));
+  return { ...result, changed: true, merged: merge.merged, conflicts: merge.conflicts };
+}
+
+/** Settles the proposal from its hunks and, when this decision settled it with something accepted, publishes the version. */
+async function finishDecision(tx: Executor, businessId: string, proposal: ChangeProposal, applied: AppliedHunk[], opts: DecideOptions): Promise<ProposalDecisionResult> {
+  const settled = await productRepo.settleProposal(tx, businessId, proposal.id);
+  if (settled.status === "open" || proposal.status !== "open") return { ...settled, applied, published: null };
+  const counts = { accepted: 0, rejected: 0, edited: 0 };
+  for (const h of settled.hunks) if (h.decision !== "pending") counts[h.decision] += 1;
+  if (counts.accepted + counts.edited === 0) return { ...settled, applied, published: null };
+
+  const blockIds = [...new Set(settled.hunks.map((h) => h.specBlockId).filter((x): x is string => Boolean(x)))];
+  const itemIds = [...new Set(settled.hunks.map((h) => h.roadmapItemId).filter((x): x is string => Boolean(x)))];
+  const blocks = blockIds.length ? await tx.select({ id: specBlocks.id, section: specBlocks.section }).from(specBlocks).where(and(eq(specBlocks.businessId, businessId), inArray(specBlocks.id, blockIds))) : [];
+  const items = itemIds.length ? await tx.select({ id: roadmapItems.id, title: roadmapItems.title }).from(roadmapItems).where(and(eq(roadmapItems.businessId, businessId), inArray(roadmapItems.id, itemIds))) : [];
+  const labelOf = (h: Pick<ProposalHunk, "specBlockId" | "roadmapItemId">) =>
+    h.specBlockId ? (blocks.find((b) => b.id === h.specBlockId)?.section ?? "A spec block") : `Roadmap: ${items.find((i) => i.id === h.roadmapItemId)?.title ?? "an item"}`;
+  const changelogMd = proposalChangelog(settled.title, settled.hunks, labelOf);
+
+  const [previous] = await tx.select({ n: sql<number | null>`max(${specVersions.version})` }).from(specVersions).where(eq(specVersions.businessId, businessId));
+  const version = await productRepo.publishVersion(tx, businessId, { changelogMd, publishedBy: opts.decidedBy ?? null });
+  const changedBlockIds = [...new Set(settled.hunks.filter((h) => h.specBlockId && (h.decision === "accepted" || h.decision === "edited")).map((h) => h.specBlockId!))];
+  const previousVersion = previous?.n === null || previous?.n === undefined ? null : Number(previous.n);
+  return { ...settled, applied, published: { version, previousVersion, changedBlockIds, counts } };
+}

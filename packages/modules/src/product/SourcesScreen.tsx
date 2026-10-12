@@ -12,7 +12,7 @@ import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, u
 import type { ModuleScreenProps } from "../registry";
 import { Screen, blockTitle } from "./shared";
 import { AddSourceDialog } from "./sources/AddSourceDialog";
-import { SOURCE_KIND_META, hostOf, isSourceKind, linkedBlocks, relevance, topics } from "./sources/kinds";
+import { SOURCE_KIND_META, hostOf, isSourceKind, linkedBlocks, readState, summaryLine, topics } from "./sources/kinds";
 import type { SourceRow, SourcesListResponse, SpecBlockRow, SpecGetResponse } from "./types";
 import { DateText } from "../dates";
 
@@ -70,7 +70,7 @@ export function sourceColumns(blocks: readonly SpecBlockRow[], onOpenBlock: (id:
       meta: { filter: "select", filterOptions: SOURCE_KINDS.map((k) => ({ value: k, label: SOURCE_KIND_META[k].word })) },
     },
     { id: "host", accessorFn: (r) => hostOf(r.uri) ?? "", header: "Site", size: 150, cell: ({ getValue }) => <span className="font-mono text-mono text-secondary">{String(getValue() ?? "")}</span> },
-    { id: "summary", accessorFn: (r) => relevance(r).summary ?? "", header: "What it says", size: 290, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "") || "—"}</span> },
+    { id: "summary", accessorFn: (r) => summaryLine(r), header: "What it says", size: 290, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "") || "—"}</span> },
     {
       id: "blocks",
       accessorFn: (r) => linkedBlocks(r).length,
@@ -95,7 +95,21 @@ export function sourceColumns(blocks: readonly SpecBlockRow[], onOpenBlock: (id:
       meta: { numeric: true, label: "Spec blocks", csv: (r) => linkedBlocks(r).length },
     },
     { id: "topics", accessorFn: (r) => topics(r).join(", "), header: "Topics", size: 180, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "") || "—"}</span> },
-    { accessorKey: "fetchedAt", header: "Fetched", size: 110, cell: ({ getValue }) => <span className="tabular-nums">{getValue() ? formatRelative(getValue() as string) : "Not fetched"}</span>, meta: { filter: "date" } },
+    {
+      accessorKey: "fetchedAt",
+      header: "Fetched",
+      size: 110,
+      cell: ({ row, getValue }) => {
+        const { state, reason } = readState(row.original);
+        const text = getValue() ? formatRelative(getValue() as string) : state === "unreachable" ? "Could not read" : state === "failed" ? "Read failed" : state === "read" ? "Read" : "Not read yet";
+        return (
+          <span className="tabular-nums" title={reason ?? undefined}>
+            {text}
+          </span>
+        );
+      },
+      meta: { filter: "date" },
+    },
     { accessorKey: "createdAt", header: "Added", size: 110, cell: ({ getValue }) => <DateText className="tabular-nums" value={getValue() as string} />, meta: { filter: "date" } },
   ];
 }
@@ -109,7 +123,7 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
   const [views, setViews] = useState<SavedView[]>(SOURCE_VIEWS);
   const [adding, setAdding] = useState(false);
   const [highlight] = useState<string | null>(() => sourceFromLocation());
-  useBusinessEvents(() => list.refetch(), ["source.added", "spec.proposal_created"]);
+  useBusinessEvents(() => list.refetch(), ["source.added", "source.scored", "spec.proposal_created"]);
 
   const rows = useMemo(() => list.data?.items ?? [], [list.data]);
   const blocks = spec.data?.blocks ?? [];

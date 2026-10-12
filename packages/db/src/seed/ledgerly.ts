@@ -9,7 +9,7 @@ import { APP_NAME } from "@foundmill/config";
 import { eq } from "drizzle-orm";
 import { repos } from "../repos";
 import { agentSessions, type Entity } from "../schema";
-import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSpec, seedTasks, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
+import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
 import { BOOTSTRAPPED_COMMUNITY_SLUG, DEMO_OWNER_DISPLAY_NAME, LEDGERLY_BUSINESS_ID, LEDGERLY_COMMUNITY_SLUG, LEDGERLY_GITHUB_REPO, LEDGERLY_NAME, LEDGERLY_SLUG } from "./constants";
 import { addDays, addHours, atHour, mention, money, pct, quarterKey, type SeedCtx } from "./context";
 import { seedFinance } from "./finance";
@@ -167,9 +167,33 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
   // --- product -----------------------------------------------------------------------------------------------------------
   const specIds = await seedSpec(ctx, businessId, archetype.specOutline, SPEC_TEXT, squad.byTemplate.get("product_lead")?.agent.id ?? null);
   const roadmapIds = await seedRoadmap(ctx, businessId, ROADMAP, specIds, squad);
-  await repos.product.createSource(db, businessId, { kind: "doc", uri: `https://github.com/${LEDGERLY_GITHUB_REPO}`, title: `Repository ${LEDGERLY_GITHUB_REPO} (test repo, mock connector)`, relevance: { score: 0.97, sections: ["Features", "Integrations"] }, fetchedAt: addHours(ctx.today, -3) });
-  await repos.product.createSource(db, businessId, { kind: "issue", uri: `https://github.com/${LEDGERLY_GITHUB_REPO}/issues/142`, title: "#142 Invoice PDF 500 for customers with no address", relevance: { score: 0.88, sections: ["Features"] }, fetchedAt: addHours(ctx.today, -3) });
-  await repos.product.createSource(db, businessId, { kind: "competitor", uri: "https://example.com/competitor-pricing", title: "Competitor pricing scan (two fixtures)", relevance: { score: 0.7, sections: ["Pricing"] }, fetchedAt: addDays(ctx.today, -12) });
+  await repos.product.createSource(db, businessId, {
+    kind: "doc",
+    uri: `https://github.com/${LEDGERLY_GITHUB_REPO}`,
+    title: `Repository ${LEDGERLY_GITHUB_REPO} (test repo, mock connector)`,
+    relevance: seededRelevance(specIds, { summary: "The repository holds the approval workflow, the Xero sync and the matching rules the spec describes.", sections: [["Features", 0.97], ["Integrations", 0.83]], topics: ["approval workflow", "xero sync", "matching rules"], severity: "low", checkedAt: addHours(ctx.today, -3) }),
+    fetchedAt: addHours(ctx.today, -3),
+  });
+  await repos.product.createSource(db, businessId, {
+    kind: "issue",
+    uri: `https://github.com/${LEDGERLY_GITHUB_REPO}/issues/142`,
+    title: "#142 Invoice PDF 500 for customers with no address",
+    relevance: seededRelevance(specIds, { summary: "Invoice PDFs fail for customers with no billing address; the spec does not say what an invoice shows without one.", sections: [["Features", 0.88], ["Data", 0.55]], topics: ["invoices", "bug"], checkedAt: addHours(ctx.today, -3) }),
+    fetchedAt: addHours(ctx.today, -3),
+  });
+  await repos.product.createSource(db, businessId, {
+    kind: "competitor",
+    uri: "https://example.com/competitor-pricing",
+    title: "Competitor pricing scan (two fixtures)",
+    relevance: seededRelevance(specIds, {
+      summary: "A competitor charges $29 and $79 per month and bundles email approvals for CFOs into every plan.",
+      sections: [["Pricing", 0.7], ["Features", 0.46]],
+      topics: ["pricing", "annual billing", "approvals"],
+      checkedAt: addDays(ctx.today, -12),
+      extra: { pricing: "Starter $29 per month; Growth $79 per month; annual billing saves two months", strengths: ["Email approvals in every plan", "Annual billing saves two months"], weaknesses: ["Multi-entity only on the higher plan"] },
+    }),
+    fetchedAt: addDays(ctx.today, -12),
+  });
 
   // --- coding squad tasks with recorded sessions ---------------------------------------------------------------------
   const rec = (slug: string) => `recordings/ledgerly/${slug}.jsonl`;

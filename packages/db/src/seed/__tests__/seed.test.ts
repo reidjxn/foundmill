@@ -177,6 +177,19 @@ describe("seedDemo on PGlite", () => {
     expect(new Set(proposal.hunks.map((h) => h.specBlockId)).size).toBe(3);
     expect(await repos.product.listProposals(db, LEDGERLY_BUSINESS_ID, { limit: 50 })).toMatchObject({ items: [] });
 
+    // Seeded sources read as the Source Watcher writes them (summary, linked blocks of the business, topics), so the
+    // Sources table and Research coverage are filled (packages/modules product/sources/kinds.ts).
+    for (const businessId of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
+      const blockIds = new Set((await repos.product.listBlocks(db, businessId)).map((b) => b.id));
+      for (const src of (await repos.product.listSources(db, businessId, { limit: 50 })).items) {
+        const rel = src.relevance as { summary?: unknown; blocks?: { blockId: string; score: number }[]; topics?: unknown[] };
+        expect(typeof rel.summary, src.title).toBe("string");
+        expect(rel.blocks?.length, src.title).toBeGreaterThan(0);
+        for (const b of rel.blocks!) expect(blockIds.has(b.blockId), `${src.title} links a block of its business`).toBe(true);
+        expect(rel.topics?.length, src.title).toBeGreaterThan(0);
+      }
+    }
+
     const tasks = await repos.tasks.list(db, LEDGERLY_BUSINESS_ID, { limit: 500 });
     const statuses = new Set(tasks.items.map((t) => t.status));
     for (const st of ["running", "review", "blocked", "merging", "done", "ready", "planned", "stopped"]) expect(statuses.has(st as never), `task status ${st}`).toBe(true);

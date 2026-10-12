@@ -3,7 +3,7 @@
  * gracefully: when the server is unreachable the API answers `{ queued: false, reason }` instead of failing the
  * founder's request. Workflow ids are deterministic (`cycle:{businessId}:{n}`, `session:{sessionId}`,
  * `engine:{channelId}`, `holiday:{holidayId}`, `plan:{planId}`, `training:{runId}`, `incorporation:{id}`,
- * `foundations:{businessId}:{attempt}`).
+ * `foundations:{businessId}:{attempt}`, `source-watch:{sourceId}:{reason}`).
  */
 import type { ApiLogger } from "./log";
 
@@ -19,6 +19,7 @@ export const WORKFLOWS = {
   journeyBuild: "journeyBuild",
   importBusiness: "importBusiness",
   businessFoundations: "businessFoundations",
+  sourceWatch: "sourceWatch",
 } as const;
 
 export const SIGNALS = {
@@ -42,6 +43,8 @@ export const workflowIds = {
   incorporation: (incorporationId: string) => `incorporation:${incorporationId}`,
   playbook: (playbookId: string) => `playbook:${playbookId}`,
   foundations: (businessId: string, attempt: number) => `foundations:${businessId}:${attempt}`,
+  /** One Source Watcher read of one source (a re-read after it settled gets a new suffix). */
+  sourceWatch: (sourceId: string, suffix = "added") => `source-watch:${sourceId}:${suffix}`,
 } as const;
 
 export interface TemporalResult {

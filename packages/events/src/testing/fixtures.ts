@@ -60,6 +60,21 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     hunksRejected: 1,
     hunksEdited: 0,
   },
+  "source.added": {
+    sourceId: fixtureId("source-interview"),
+    kind: "competitor",
+    title: "Competitor pricing page",
+    uri: "https://competitor.example/pricing",
+    addedBy: "user",
+  },
+  "source.scored": {
+    sourceId: fixtureId("source-interview"),
+    kind: "competitor",
+    status: "scored",
+    relevantBlockIds: [fixtureId("block-pricing")],
+    topScore: 0.82,
+    severity: "normal",
+  },
   "task.started": {
     taskId: fixtureId("task"),
     kind: "code",

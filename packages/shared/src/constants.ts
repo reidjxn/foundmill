@@ -206,6 +206,7 @@ export type DecisionType = (typeof DECISION_TYPES)[number];
 /** Event types (BUILD §8.1 plus platform-internal ones). Payload schemas live in packages/events. */
 export const EVENT_TYPES = [
   "idea.committed", "spec.proposal_created", "spec.version_published",
+  "source.added", "source.scored",
   "task.started", "task.progressed", "task.completed", "task.blocked",
   "pr.merged", "deploy.succeeded",
   "lead.created", "lead.replied", "campaign.launched", "channel.threshold_breached",

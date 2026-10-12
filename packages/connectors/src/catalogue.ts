@@ -25,6 +25,7 @@ import { createShopifyConnector } from "./connectors/shopify";
 import { createStripeConnector } from "./connectors/stripe";
 import { createTinkConnector } from "./connectors/tink";
 import { createVoyageConnector } from "./connectors/voyage";
+import { createWebConnector } from "./connectors/web";
 
 export type ConnectorFactory = (options?: LiveConnectorOptions) => Connector;
 
@@ -44,6 +45,7 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   e2b: createE2bConnector,
   dropbox_sign: createDropboxSignConnector,
   ecb_rates: createEcbRatesConnector,
+  web: createWebConnector,
   stripe: createStripeConnector,
   sendgrid: createSendgridConnector,
   shopify: createShopifyConnector,
