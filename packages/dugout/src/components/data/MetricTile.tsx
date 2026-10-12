@@ -71,13 +71,7 @@ export function deltaTone(delta: MetricDelta): "good" | "bad" | "neutral" {
   return up === goodUp ? "good" : "bad";
 }
 
-/**
- * The change since the last period as a status pill (DESIGN §8): one trend icon and the figure in the delta's own tone,
- * the comparison in the pill ("↗ 439% vs prior week"). The word "up"/"down" is in the accessible name, so colour and
- * icon are never the only signal.
- */
-export function DeltaBadge({ delta, className }: { delta: MetricDelta; className?: string }) {
-  const tone = deltaTone(delta);
+function deltaParts(delta: MetricDelta): { word: string; body: string; flat: boolean; up: boolean } {
   const up = delta.value > 0;
   const flat = delta.value === 0 || !Number.isFinite(delta.value);
   const abs = Math.abs(delta.value);
@@ -86,7 +80,24 @@ export function DeltaBadge({ delta, className }: { delta: MetricDelta; className
     : abs < 1000
       ? formatNumber(abs, { maxDigits: abs < 10 ? 1 : 0 })
       : formatCompact(abs);
-  const word = flat ? "no change" : up ? "up" : "down";
+  return { word: flat ? "no change" : up ? "up" : "down", body, flat, up };
+}
+
+/** The change in words, as a screen reader hears it: "up 19 vs last week", "no change vs last month". */
+export function deltaWords(delta: MetricDelta): string {
+  const { word, body, flat } = deltaParts(delta);
+  return `${word}${flat ? "" : ` ${body}`}${delta.label ? ` ${delta.label}` : ""}`;
+}
+
+/**
+ * The change since the last period as a status pill (DESIGN §8): one trend icon and the figure in the delta's own tone,
+ * the comparison in the pill ("↗ 439% vs prior week"). The word "up"/"down" is read out with the visible figure and
+ * comparison (screen-reader-only text, not an aria-label on a span, which assistive tech ignores), so colour and icon
+ * are never the only signal.
+ */
+export function DeltaBadge({ delta, className, id }: { delta: MetricDelta; className?: string; id?: string }) {
+  const tone = deltaTone(delta);
+  const { word, body, flat, up } = deltaParts(delta);
   return (
     <span
       className={cn(
@@ -96,17 +107,15 @@ export function DeltaBadge({ delta, className }: { delta: MetricDelta; className
         tone === "neutral" && "tone-secondary text-secondary",
         className,
       )}
-      aria-label={`${word} ${flat ? "" : body}${delta.label ? ` ${delta.label}` : ""}`.trim()}
+      id={id}
       data-tone={tone}
       data-delta=""
     >
       <Icon icon={flat ? Minus : up ? TrendingUp : TrendingDown} size={12} strokeWidth={2} />
-      <span aria-hidden>{flat ? "0" : body}</span>
-      {delta.label ? (
-        <span aria-hidden className="font-normal opacity-80">
-          {delta.label}
-        </span>
-      ) : null}
+      <span className="sr-only">{word} </span>
+      {/* A flat change reads as "no change": the visible 0 would only repeat it. */}
+      <span aria-hidden={flat || undefined}>{flat ? "0" : body}</span>
+      {delta.label ? <span className="font-normal opacity-80">{delta.label}</span> : null}
     </span>
   );
 }
@@ -233,8 +242,9 @@ export const MetricTile = forwardRef<HTMLDivElement, MetricTileProps>(function M
           type="button"
           onClick={() => onClick()}
           // Named in plain words: the figure's parts are separate spans, which some readers space out ("€ 1,840 .00").
-          aria-label={typeof label === "string" || typeof label === "number" ? `${label} ${text}${unit ? ` ${unit}` : ""}` : undefined}
-          aria-labelledby={typeof label === "string" || typeof label === "number" ? undefined : `${id}-label ${id}-value`}
+          // The change is part of the name ("Customers this week 55, up 19 vs last week"): the button covers the tile.
+          aria-label={typeof label === "string" || typeof label === "number" ? `${label} ${text}${unit ? ` ${unit}` : ""}${delta ? `, ${deltaWords(delta)}` : ""}` : undefined}
+          aria-labelledby={typeof label === "string" || typeof label === "number" ? undefined : `${id}-label ${id}-value${delta ? ` ${id}-delta` : ""}`}
           data-metric-action
           className="absolute inset-0 cursor-pointer focus-ring"
         />
@@ -245,9 +255,10 @@ export const MetricTile = forwardRef<HTMLDivElement, MetricTileProps>(function M
         </span>
         {provenance ? (
           <Tooltip content={<ProvenanceTip p={provenance} />} side="top" align="end">
+            {/* A 24 px target (WCAG 2.5.8) above the tile's own button; the negative margins keep the label row's height. */}
             <button
               type="button"
-              className="relative z-10 -mr-1 -mt-0.5 inline-flex size-badge shrink-0 items-center justify-center rounded-pill text-tertiary transition-colors duration-hover hover:bg-white/6 hover:text-primary focus-ring"
+              className="relative z-10 -my-1 -mr-1.5 inline-flex size-target shrink-0 items-center justify-center rounded-pill text-tertiary transition-colors duration-hover hover:bg-white/6 hover:text-primary focus-ring"
               aria-label={`Where this number comes from: ${provenance.source}`}
             >
               <Icon icon={Info} size={13} />
@@ -269,7 +280,7 @@ export const MetricTile = forwardRef<HTMLDivElement, MetricTileProps>(function M
             <Figure id={`${id}-value`} value={text} unit={unit} data-value={text} />
           </FitText>
           {estimate ? <ProvenanceChip kind={estimate} className="relative z-10 ml-0.5" /> : null}
-          {delta ? <DeltaBadge delta={delta} /> : null}
+          {delta ? <DeltaBadge delta={delta} id={`${id}-delta`} /> : null}
         </div>
       )}
       {caption ? (

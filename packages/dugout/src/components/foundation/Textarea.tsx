@@ -1,6 +1,8 @@
+"use client";
 import { forwardRef, type TextareaHTMLAttributes } from "react";
 import { cn } from "../../lib/cn";
 import { inputBaseClass } from "./Input";
+import { joinDescribedBy, useFieldAria } from "./Label";
 
 export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   invalid?: boolean;
@@ -16,15 +18,18 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
   { className, invalid, tone, mono, autoGrow, rows = 3, ...rest },
   ref,
 ) {
-  const isInvalid = Boolean(invalid || rest["aria-invalid"] === true || rest["aria-invalid"] === "true");
+  const field = useFieldAria(rest.id);
+  const isInvalid = Boolean(invalid || field?.invalid || rest["aria-invalid"] === true || rest["aria-invalid"] === "true");
   return (
     <textarea
       ref={ref}
       rows={rows}
       aria-invalid={isInvalid || undefined}
+      aria-required={field?.required || undefined}
       data-tone={!isInvalid && tone ? tone : undefined}
       className={cn(inputBaseClass, "block min-h-control-md resize-y px-2.5 py-2", mono && "font-mono text-mono", autoGrow && "field-sizing-content", className)}
       {...rest}
+      aria-describedby={joinDescribedBy(rest["aria-describedby"], field?.describedBy)}
     />
   );
 });

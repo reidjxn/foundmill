@@ -1,7 +1,9 @@
 "use client";
 import {
+  createContext,
   forwardRef,
   useCallback,
+  useContext,
   useEffect,
   useId,
   useMemo,
@@ -170,6 +172,40 @@ export function addWidget(
 }
 
 /** Keyboard move/resize of one item by one unit; clamps to the grid and the item's limits. */
+interface WidgetInstance {
+  itemId: string;
+  setLabel: (itemId: string, label: string | undefined) => void;
+}
+const WidgetInstanceContext = createContext<WidgetInstance | null>(null);
+
+/**
+ * A widget names its own instance for the grid's edit controls ("Move Department card: Product"), once it knows it
+ * (a department card resolves its department from its settings). Without it, repeated widgets are told apart by order.
+ */
+export function useWidgetInstanceLabel(label: string | undefined): void {
+  const ctx = useContext(WidgetInstanceContext);
+  useEffect(() => {
+    if (!ctx) return;
+    ctx.setLabel(ctx.itemId, label);
+  }, [ctx, label]);
+}
+
+/**
+ * The name the edit controls use for one widget: its type and its own label ("Department card: Product"), or, for a
+ * repeated widget that has none, its place among its kind ("Department card 2 of 6"). Exported for tests.
+ */
+export function widgetInstanceName(title: string, instanceLabel: string | undefined, index: number, count: number): string {
+  if (instanceLabel) return `${title}: ${instanceLabel}`;
+  return count > 1 ? `${title} ${index + 1} of ${count}` : title;
+}
+
+/** What a keyboard move or resize did, for the grid's live region. Exported for tests. */
+export function nudgeAnnouncement(name: string, action: Parameters<typeof nudgeItem>[2], item: WidgetLayoutItem | undefined): string {
+  if (!item) return "";
+  const resized = action === "wider" || action === "narrower" || action === "taller" || action === "shorter";
+  return resized ? `${name} resized to ${item.w} columns by ${item.h} rows` : `${name} moved to column ${item.x + 1}, row ${item.y + 1}`;
+}
+
 export function nudgeItem(
   layout: WidgetLayout,
   id: string,
@@ -533,6 +569,25 @@ export function WidgetGrid({
     else if (defaultLayout) onChange(defaultLayout.map((it) => ({ ...it })));
   };
 
+  // Each widget's own label (useWidgetInstanceLabel), and what the last keyboard move did (read out politely).
+  const [instanceLabels, setInstanceLabels] = useState<Readonly<Record<string, string>>>({});
+  const setInstanceLabel = useCallback((itemId: string, label: string | undefined) => {
+    setInstanceLabels((cur) => {
+      if ((cur[itemId] ?? undefined) === label) return cur;
+      const next = { ...cur };
+      if (label) next[itemId] = label;
+      else delete next[itemId];
+      return next;
+    });
+  }, []);
+  const instanceContexts = useMemo(() => new Map(layout.map((it) => [it.i, { itemId: it.i, setLabel: setInstanceLabel }])), [layout, setInstanceLabel]);
+  const [announcement, setAnnouncement] = useState("");
+  const nameOf = (it: WidgetLayoutItem): string => {
+    const title = registry.find((e) => e.key === it.widget)?.title ?? it.widget;
+    const same = layout.filter((x) => x.widget === it.widget);
+    return widgetInstanceName(title, instanceLabels[it.i], same.findIndex((x) => x.i === it.i), same.length);
+  };
+
   const onHandleKeyDown = (e: KeyboardEvent, id: string) => {
     const map: Record<string, Parameters<typeof nudgeItem>[2]> = e.shiftKey
       ? { ArrowLeft: "narrower", ArrowRight: "wider", ArrowUp: "shorter", ArrowDown: "taller" }
@@ -540,7 +595,10 @@ export function WidgetGrid({
     const action = map[e.key];
     if (!action) return;
     e.preventDefault();
-    onChange(nudgeItem(layout, id, action, cols));
+    const next = nudgeItem(layout, id, action, cols);
+    const moved = next.find((it) => it.i === id);
+    if (moved) setAnnouncement(nudgeAnnouncement(nameOf(moved), action, moved));
+    onChange(next);
   };
 
   const canvasStyle: CSSProperties | undefined = editing
@@ -657,6 +715,7 @@ export function WidgetGrid({
               const entry = registry.find((e) => e.key === it.widget);
               const size = pxSize(it);
               const framed = !!entry?.framed;
+              const name = nameOf(it);
               const dragHandle =
                 editing && !it.static ? (
                   <button
@@ -665,7 +724,7 @@ export function WidgetGrid({
                       DRAG_HANDLE_CLASS,
                       "inline-flex size-control-sm cursor-grab items-center justify-center rounded-sm text-secondary hover:bg-white/6 hover:text-primary active:cursor-grabbing focus-visible:shadow-ring",
                     )}
-                    aria-label={`Move ${entry?.title ?? it.widget}. Arrow keys move, Shift+arrows resize.`}
+                    aria-label={`Move ${name}. Arrow keys move, Shift+arrows resize.`}
                     onKeyDown={(e) => onHandleKeyDown(e, it.i)}
                   >
                     <Icon icon={GripVertical} size="inline" />
@@ -674,9 +733,9 @@ export function WidgetGrid({
               const editButtons = editing ? (
                 <>
                   {entry?.settings && entry.settings.length > 0 ? (
-                    <IconButton size="sm" icon={Settings2} label={`${entry.title} settings`} onClick={() => setSettingsFor(it)} />
+                    <IconButton size="sm" icon={Settings2} label={`${name} settings`} onClick={() => setSettingsFor(it)} />
                   ) : null}
-                  {!it.static ? <IconButton size="sm" icon={X} label={`Remove ${entry?.title ?? it.widget}`} onClick={() => remove(it.i)} /> : null}
+                  {!it.static ? <IconButton size="sm" icon={X} label={`Remove ${name}`} onClick={() => remove(it.i)} /> : null}
                 </>
               ) : null;
               // A framed widget draws its own panel and header; the grid adds none, so each widget has one title.
@@ -690,12 +749,14 @@ export function WidgetGrid({
               const body = (
                 <div className={cn("min-h-0 flex-1 overflow-hidden", framed && "flex flex-col")}>
                   {entry ? (
-                    entry.render({
-                      item: it,
-                      settings: { ...(entry.defaultSettings ?? {}), ...(it.settings ?? {}) },
-                      editing,
-                      size: { width: size.width, height: Math.max(0, size.height - (framed ? 0 : 32)) },
-                    })
+                    <WidgetInstanceContext.Provider value={instanceContexts.get(it.i) ?? null}>
+                      {entry.render({
+                        item: it,
+                        settings: { ...(entry.defaultSettings ?? {}), ...(it.settings ?? {}) },
+                        editing,
+                        size: { width: size.width, height: Math.max(0, size.height - (framed ? 0 : 32)) },
+                      })}
+                    </WidgetInstanceContext.Provider>
                   ) : (
                     <EmptyState className="py-4">
                       Unknown widget “{it.widget}”. Remove it or update the registry.
@@ -743,6 +804,10 @@ export function WidgetGrid({
         ) : null}
       </div>
 
+      {/* Keyboard moves and resizes, read out (WCAG 4.1.3). */}
+      <span className="sr-only" aria-live="polite" data-widget-grid-status>
+        {editing ? announcement : ""}
+      </span>
       <AddWidgetDrawer
         open={drawerOpen}
         onOpenChange={setDrawerOpen}

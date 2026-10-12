@@ -2,6 +2,7 @@
 import { forwardRef, useCallback, useId, useRef, type InputHTMLAttributes, type PointerEvent, type ReactNode } from "react";
 import { cn } from "../../lib/cn";
 import { Icon, type IconComponent } from "./Icon";
+import { joinDescribedBy, useFieldAria } from "./Label";
 
 /**
  * The field look (DESIGN §8), for elements that are their own field (Textarea): a well — black at 30 % over the panel,
@@ -80,7 +81,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   },
   ref,
 ) {
-  const isInvalid = Boolean(invalid || rest["aria-invalid"] === true || rest["aria-invalid"] === "true");
+  const field = useFieldAria(rest.id);
+  const isInvalid = Boolean(invalid || field?.invalid || rest["aria-invalid"] === true || rest["aria-invalid"] === "true");
   const lead = Boolean(icon || prefix);
   const segment = Boolean(suffix) && suffixVariant === "segment";
   const tail = Boolean(suffix || trailing);
@@ -132,7 +134,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         ref={setRefs}
         disabled={disabled}
         aria-invalid={isInvalid || undefined}
-        aria-describedby={[describedBy, suffix ? suffixId : undefined].filter(Boolean).join(" ") || undefined}
+        aria-required={field?.required || undefined}
+        aria-describedby={joinDescribedBy(describedBy, field?.describedBy, suffix ? suffixId : undefined)}
         className={cn(
           "h-full w-full min-w-0 flex-1 border-0 bg-transparent text-primary placeholder:text-tertiary focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed",
           lead ? "pl-1.5" : roomy ? "pl-3.5" : "pl-2.5",

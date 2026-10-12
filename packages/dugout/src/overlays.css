@@ -269,6 +269,23 @@
       0 0 0 1.5px var(--tone, var(--status-good)),
       0 0 10px -1px color-mix(in oklab, var(--tone, var(--status-good)) 70%, transparent);
   }
+  /* At rest (idle, paused): dashed, so the state does not rest on the ring's grey alone (DESIGN §2). */
+  &[data-dashed] {
+    inset: calc((var(--avatar-gap, 3px) + 1.5px) * -1);
+    border: 1.5px dashed var(--tone, var(--text-4));
+    box-shadow: none;
+  }
+}
+/* The status glyph (degraded, failing, Down, paused): a badge on the face's top-right edge, cut out of the surface
+   like the presence dot, carrying the status's icon in its tone. */
+@utility avatar-glyph {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-pill);
+  background-color: var(--avatar-cut, var(--surface-1));
+  color: var(--tone, var(--text-2));
+  pointer-events: none;
 }
 /* Overlapping faces (AvatarStack, team strips): each face is cut out of the surface behind it, so a ring never runs
    across its neighbour's face. */
@@ -282,6 +299,9 @@
     box-shadow:
       0 0 0 1.5px var(--tone, var(--status-good)),
       0 0 0 3px var(--avatar-cut, var(--surface-1));
+  }
+  & > .avatar-ring[data-dashed] {
+    box-shadow: 0 0 0 1.5px var(--avatar-cut, var(--surface-1));
   }
 }
 /* Live presence: a copy of the ring breathes outwards and fades (scale 1 → 1.35, 2400 ms). Reduced motion: nothing

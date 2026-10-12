@@ -314,8 +314,9 @@ describe("/leaderboards/[boardId]", () => {
     expect(rows[0]!.textContent).toContain("Northlight Payments");
     expect(rows[0]!.textContent).toContain("33.0%");
     expect(rows[1]!.textContent).toContain("You");
-    expect(within(rows[1]!).getByLabelText("up 2")).toBeTruthy();
-    expect(within(rows[2]!).getByLabelText("down 1")).toBeTruthy();
+    // The movement reads "up 2" / "down 1": the word is screen-reader text beside the visible figure.
+    expect(rows[1]!.querySelector("[data-delta]")?.textContent).toBe("up 2");
+    expect(rows[2]!.querySelector("[data-delta]")?.textContent).toBe("down 1");
     expect(rows[2]!.textContent).toContain("Unlisted business");
     expect(within(rows[0]!).getByLabelText(/Form, last five: success, success, success, success, partial/)).toBeTruthy();
     expect(within(grid).getByRole("columnheader", { name: /MRR growth/ })).toBeTruthy();

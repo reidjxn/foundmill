@@ -142,3 +142,21 @@ describe("FeedPost", () => {
     expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 });
+
+describe("long unbroken words (LS2-09)", () => {
+  const token = `https://example.com/${"w".repeat(400)}`;
+  it("wrap anywhere inside a bubble that never grows past its row", () => {
+    render(<Conversation label="Thread" messages={[{ id: "a", author: "Priya Nair", body: token, at: iso(1) }]} onSend={() => undefined} />);
+    const bubble = screen.getByText(token);
+    // break-words keeps the token as the bubble's min-content (152,652 px wide); anywhere lets it break.
+    expect(bubble.className).toContain("wrap-anywhere");
+    expect(bubble.className).not.toContain("break-words");
+    expect(bubble.className).toContain("max-w-full");
+  });
+  it("wrap anywhere in a feed post's body instead of running past the clipped panel", () => {
+    render(<FeedPost author="Priya Nair" at={iso(3)}>{token}</FeedPost>);
+    const body = screen.getByText(token).closest("[data-feed-post-body]")!;
+    expect(body.className).toContain("wrap-anywhere");
+    expect(body.className).toContain("min-w-0");
+  });
+});

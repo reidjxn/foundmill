@@ -81,7 +81,9 @@ export function Conversation({ messages, onSend, label, sending, loading, error,
                 )}
                 <p
                   className={cn(
-                    "whitespace-pre-wrap break-words px-3 py-2 t-chat text-primary",
+                    // overflow-wrap: anywhere (not break-word) lowers the bubble's min-content, so one long unbroken token wraps
+                    // inside the bubble instead of widening the log to its own length.
+                    "max-w-full whitespace-pre-wrap wrap-anywhere px-3 py-2 t-chat text-primary",
                     m.self ? "bubble-self" : "bubble-other",
                     m.self ? (grouped ? "rounded-lg rounded-tr-xs" : "rounded-lg") : grouped ? "rounded-lg rounded-tl-xs" : "rounded-lg",
                     m.self && lastOfGroup && "rounded-br-xs",

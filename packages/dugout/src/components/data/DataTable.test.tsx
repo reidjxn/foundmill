@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { Mail, Trash2 } from "lucide-react";
@@ -226,6 +226,32 @@ describe("DataTable", () => {
     const item = await screen.findByRole("menuitem", { name: `Message ${leads[1]?.name}` });
     await user.click(item);
     expect(onMessage).toHaveBeenCalledWith(leads[1]);
+  });
+
+  it("opens the focused row's menu from the keyboard: Shift+F10, the Menu key, or a contextmenu at the grid", async () => {
+    const user = userEvent.setup();
+    const onMessage = vi.fn();
+    render(<DataTable data={leads.slice(0, 3)} columns={columns} aria-label="Leads" rowActions={(row) => [{ id: "msg", label: `Message ${row.name}`, icon: Mail, onSelect: onMessage }]} />);
+    expect(grid().getAttribute("aria-keyshortcuts")).toBe("Shift+F10");
+    grid().focus();
+    await user.keyboard("{ArrowDown}");
+    await user.keyboard("{Shift>}{F10}{/Shift}");
+    // The second row's verbs, not "No actions" (the grid has focus; the row is its active descendant).
+    const item = await screen.findByRole("menuitem", { name: `Message ${leads[1]?.name}` });
+    expect(screen.queryByRole("menuitem", { name: "No actions" })).toBeNull();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("menuitem", { name: `Message ${leads[1]?.name}` })).toBeNull());
+    expect(item).toBeTruthy();
+    grid().focus();
+    await user.keyboard("{ArrowDown}");
+    await user.keyboard("{ContextMenu}");
+    await user.click(await screen.findByRole("menuitem", { name: `Message ${leads[2]?.name}` }));
+    expect(onMessage).toHaveBeenCalledWith(leads[2]);
+    // A browser's own keyboard contextmenu lands on the grid itself: it is re-aimed at the focused row.
+    grid().focus();
+    await user.keyboard("{ArrowUp}");
+    fireEvent.contextMenu(grid());
+    expect(await screen.findByRole("menuitem", { name: `Message ${leads[1]?.name}` })).toBeTruthy();
   });
 
   it("shows loading, error and empty states inside the body", async () => {
