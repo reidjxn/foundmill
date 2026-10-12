@@ -107,6 +107,18 @@ describe("SquadPulse", () => {
     fireEvent.click(document.activeElement as HTMLElement);
     expect(onSelect).toHaveBeenCalledWith(days[5], 10, expect.any(Array));
   });
+  it("gives each visible hour label a box three columns wide and keeps a screen-reader header for every hour", () => {
+    // A label box one column wide (about 24 px at 1280) cannot hold "12 AM" (about 35 px): no-clip.spec flagged all 8.
+    render(<SquadPulse departments={RIBBON_DEPARTMENTS} days={days} cells={cells} />);
+    const headers = screen.getAllByRole("columnheader");
+    expect(headers.map((h) => h.getAttribute("aria-label"))).toEqual(Array.from({ length: 24 }, (_, h) => (h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`)));
+    const visible = headers.filter((h) => !h.classList.contains("sr-only"));
+    expect(visible.map((h) => h.textContent)).toEqual(["12 AM", "3 AM", "6 AM", "9 AM", "12 PM", "3 PM", "6 PM", "9 PM"]);
+    for (const h of visible) {
+      expect(h.className).toContain("flex-[3]");
+      expect(h.className).not.toMatch(/\b(flex-1|invisible)\b/);
+    }
+  });
 });
 
 describe("TrophyCabinet", () => {

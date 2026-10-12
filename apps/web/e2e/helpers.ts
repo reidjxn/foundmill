@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page, type PlaywrightWorkerArgs } from "@playwright/test";
 // Relative imports on purpose (as playwright.config.ts does for the seed constants): Node-only modules with no
 // imports of their own, from packages apps/web does not depend on.
 import { DEMO_OWNER_DISPLAY_NAME } from "../../../packages/db/src/seed/constants";
@@ -37,6 +37,15 @@ export async function openBusiness(page: Page, path = "home"): Promise<string> {
   // those first queries have answered, so a click or a key press right after this reaches a live handler.
   await page.waitForLoadState("networkidle", { timeout: LONG });
   return NORTHWIND_BUSINESS_ID;
+}
+
+/**
+ * The Settings screen inside the shell's main region. While a page streams, React parks its finished HTML in a hidden
+ * `DIV#S:*` outside the shell until the reveal script moves it in; if the boundary is client-rendered meanwhile, both
+ * copies exist for a moment, so an unscoped `getByTestId("settings-screen")` can match two elements (strict mode).
+ */
+export function settingsScreen(page: Page): Locator {
+  return page.getByTestId("shell-content").getByTestId("settings-screen");
 }
 
 /** Fills the founder profile on /onboarding (the page the dev user is held at without one) and saves it. */

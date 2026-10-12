@@ -49,6 +49,8 @@ export function buildPulseGrid(departments: readonly RibbonDepartment[], cells: 
 }
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
+/** The hour axis shows a label every third hour; 24 is a multiple, so the labeled boxes tile the row exactly. */
+const HOUR_LABEL_EVERY = 3;
 
 /**
  * Home's squad pulse (BUILD §11.2, DESIGN §9): a 7 × 24 heatmap of agent activity, each cell in the leading
@@ -76,9 +78,18 @@ export function SquadPulse({ departments, days, cells, onSelect, className }: Sq
   return (
     <div className={cn("flex flex-col gap-2", className)} data-squad-pulse>
       <div ref={gridRef} role="grid" aria-label={`Team pulse: ${formatNumber(total, { maxDigits: 0 })} agent hours over the last 7 days, by hour and department`} aria-rowcount={7} aria-colcount={24} className="flex flex-col gap-px" onKeyDown={onKeyDown}>
-        <div role="row" className="flex items-center gap-px pl-12">
+        {/* Every third hour carries a visible label whose box spans its own hour and the two after it (3 columns plus
+            their 2 gaps, the same width as 3 cells below), so "12 AM" or "00:00" fits inside it at 1280 px. The other
+            hours keep a screen-reader-only header, so each of the 24 columns still has one. */}
+        <div role="row" className="relative flex items-center gap-px pl-12">
           {HOURS.map((h) => (
-            <span key={h} role="columnheader" className={cn("min-w-0 flex-1 overflow-visible whitespace-nowrap text-left font-mono text-micro text-tertiary", h % 3 !== 0 && "invisible")} aria-label={formatHourOfDay(h)}>
+            <span
+              key={h}
+              role="columnheader"
+              data-pulse-hour={h}
+              className={cn(h % HOUR_LABEL_EVERY === 0 ? "min-w-0 flex-[3] whitespace-nowrap text-left font-mono text-micro text-tertiary" : "sr-only")}
+              aria-label={formatHourOfDay(h)}
+            >
               {formatHourOfDay(h)}
             </span>
           ))}

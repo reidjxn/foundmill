@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { LONG, NORTHWIND_BUSINESS_ID, openBusiness } from "./helpers";
+import { LONG, NORTHWIND_BUSINESS_ID, openBusiness, settingsScreen } from "./helpers";
 
 /**
  * Web core screens: login, the AppShell at 1440 px, NeedsLargerWindow below 1280 px, G chords, Settings tabs and the
@@ -168,7 +168,7 @@ test.describe("shell", () => {
     await expect(page).toHaveURL(/\/d\//);
     for (const tab of ["business", "mode", "departments", "glossary", "members", "integrations", "keys", "billing", "preferences", "danger"]) {
       await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/settings/${tab}`);
-      await expect(page.getByTestId("settings-screen")).toHaveAttribute("data-tab", tab, { timeout: LONG });
+      await expect(settingsScreen(page)).toHaveAttribute("data-tab", tab, { timeout: LONG });
     }
   });
 
@@ -181,7 +181,7 @@ test.describe("shell", () => {
       if (/\/simulate\//.test(req.url()) && !/\/trpc\//.test(req.url())) ingestRequests.push(req.url());
     });
     await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/settings/integrations`);
-    await expect(page.getByTestId("settings-screen")).toHaveAttribute("data-tab", "integrations", { timeout: LONG });
+    await expect(settingsScreen(page)).toHaveAttribute("data-tab", "integrations", { timeout: LONG });
     await expect(page.getByText("Connectors", { exact: true }).first()).toBeVisible();
     await expect(page.getByTestId("simulate-panel")).toHaveCount(0);
     await expect(page.locator("[data-simulate]")).toHaveCount(0);
