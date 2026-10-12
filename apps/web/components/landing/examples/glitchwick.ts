@@ -306,7 +306,6 @@ const INBOX_NOTE: ExampleInboxNote = {
   department: "Distribution",
   subject: "Sponsor the Slow Turns Jam on itch.io?",
   /** When the note arrived: today on the example business. */
-  sentOn: "Wed, Oct 7",
   paragraphs: [
     "Jams are where Glitchwick meets studios early: 4 of the last 12 Team plans first saw us at one. The Slow Turns Jam (Nov 6–9, turn-based and puzzle games) offers us its tools sponsor slot: our name on the jam page and a free nightly playtest for every entry.",
     "The slot is $1,200, above the $500 cap you set for new spend, so it waits for you. Playtests for about 600 entries add $260 in runs (Estimate). The runway stays at 16 months either way.",

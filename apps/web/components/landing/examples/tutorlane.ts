@@ -278,7 +278,6 @@ const INBOX_NOTE: ExampleInboxNote = {
   department: "Distribution",
   subject: "Sponsor a newsletter read by 9,000 tutors?",
   /** When the note arrived: today on the example business. */
-  sentOn: "Wed, Oct 7",
   paragraphs: [
     "Tutor communities are Tutorlane's strongest channel after search: four of the last ten tutors who upgraded came from one. A one-month sponsorship of the largest tutors' newsletter in the US is ready to book, with the copy written.",
     "It costs $480, above the $250 cap you set for new spend, so it waits for you. The runway stays at 14 months either way.",

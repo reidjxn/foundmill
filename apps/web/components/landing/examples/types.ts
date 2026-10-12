@@ -251,8 +251,6 @@ export interface ExampleInboxNote {
   /** The department label on the note's chip. */
   department: string;
   subject: string;
-  /** When the note arrived: today on the example business ("Wed, Oct 7"). */
-  sentOn: string;
   paragraphs: readonly string[];
   costMinor: number;
   /** The cost tile's label: "Cost" when absent ("Deposit" for a purchase order). */

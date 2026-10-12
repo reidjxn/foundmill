@@ -166,6 +166,7 @@ describe("LandingPage (signed-out /)", () => {
 
   it("prices the example business in US dollars and tells its story in US English", async () => {
     vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-12T12:00:00Z"));
     const { container } = renderPage();
     await act(async () => {
       vi.advanceTimersByTime(1500);
@@ -177,7 +178,7 @@ describe("LandingPage (signed-out /)", () => {
     const note = screen.getByRole("article", { name: "Example Inbox note" });
     expect(note.querySelector('[data-value="$480.00"]')).toBeTruthy();
     expect(within(note).getByText(/^It costs \$480, above the \$250 cap/)).toBeTruthy();
-    expect(within(note).getByText("Wed, Oct 7 · cycle 215")).toBeTruthy();
+    expect(within(note).getByText("Mon, Oct 12 · cycle 215")).toBeTruthy();
     expect(screen.getByText("$10K MRR")).toBeTruthy();
     // Nothing of the earlier sterling, UK-schooled example is left.
     const text = container.textContent ?? "";
@@ -260,11 +261,12 @@ describe("LandingPage (signed-out /)", () => {
     expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Landed cost per routine")).toBeTruthy();
   });
 
-  it("dates the deck's top bar today, not a fixed day", () => {
+  it("dates the deck's top bar and the Inbox note today, not a fixed day", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-10-12T12:00:00Z"));
+    vi.setSystemTime(new Date("2026-10-15T12:00:00Z"));
     renderPage();
-    expect(within(screen.getByTestId("cycle-deck")).getByTestId("kitbar-date").textContent).toBe("Oct 12, 2026");
+    expect(within(screen.getByTestId("cycle-deck")).getByTestId("kitbar-date").textContent).toBe("Oct 15, 2026");
+    expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Thu, Oct 15 · cycle 215")).toBeTruthy();
   });
 
   it("renders the live tiles in the browser only, already mid-session, then streams them", async () => {
@@ -323,6 +325,7 @@ describe("LandingPage server render", () => {
     try {
       const utc = await markupIn("UTC");
       expect(utc).toContain("Oct 12, 2026");
+      expect(utc).toContain("Mon, Oct 12");
       expect(utc).toContain("Sep 25, 2025");
       for (const zone of ["America/Los_Angeles", "Pacific/Honolulu", "Asia/Tokyo", "Pacific/Auckland"]) expect(await markupIn(zone), zone).toBe(utc);
     } finally {
