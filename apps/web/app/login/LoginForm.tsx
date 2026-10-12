@@ -36,7 +36,12 @@ export function LoginForm() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const supabase = await createClient();
+    // The auth client is its own chunk: one that fails to load (offline, a new deploy) reads like a send that failed.
+    const supabase = await createClient().catch((err: unknown) => (err instanceof Error ? err : new Error(String(err))));
+    if (supabase instanceof Error) {
+      setPhase({ kind: "error", message: sendLinkErrorMessage(classifySendLinkError(supabase)) });
+      return;
+    }
     if (!supabase) {
       setPhase({ kind: "error", message: "Email sign-in is not set up on this server yet." });
       return;
@@ -44,7 +49,7 @@ export function LoginForm() {
     setPhase({ kind: "sending" });
     const env = publicEnv();
     const emailRedirectTo = magicLinkCallbackUrl({ appUrl: env.appUrl, appEnv: env.appEnv, currentOrigin: window.location.origin, next });
-    // A send that throws (the auth client failed to load or the network dropped) reads like a refused one.
+    // A send that throws (the network dropped before Supabase answered) reads like a refused one.
     const { error } = await supabase.auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo } }).catch((err: unknown) => ({ error: err as { name?: string; message?: string } }));
     // Supabase's own wording never reaches the screen: the error is mapped to what happened and what to do next.
     if (error) setPhase({ kind: "error", message: sendLinkErrorMessage(classifySendLinkError(error)) });

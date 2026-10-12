@@ -41,12 +41,18 @@ test.describe("home", () => {
   test("the Team pulse hour labels fit their boxes at 1280 px, one every three hours", async ({ page }) => {
     // Each label's box spans three hour columns; at one column (about 24 px) "12 AM" spilled out (no-clip.spec, Oct 2026).
     await page.setViewportSize({ width: 1280, height: 900 });
+    // Seeded on Northwind's Home (`squad_pulse` in the seed's dashboard); it renders once its data has loaded, so wait
+    // for it rather than counting at once. An earlier edit of the dashboard may have removed it.
     const pulse = page.locator("[data-squad-pulse]").first();
-    test.skip((await pulse.count()) === 0, "the active dashboard has no Team pulse widget");
-    await expect(pulse).toBeVisible({ timeout: LONG });
-    const labels = await pulse.locator("[role=columnheader]:not(.sr-only)").evaluateAll((els) => els.map((el) => ({ text: el.textContent ?? "", box: el.clientWidth, needs: el.scrollWidth })));
-    expect(labels.map((l) => l.text)).toEqual(["12 AM", "3 AM", "6 AM", "9 AM", "12 PM", "3 PM", "6 PM", "9 PM"]);
-    for (const l of labels) expect(l.needs, `"${l.text}" ${l.box}<${l.needs}`).toBeLessThanOrEqual(l.box + 1);
+    const shown = await pulse.waitFor({ state: "visible", timeout: LONG }).then(
+      () => true,
+      () => false,
+    );
+    test.skip(!shown, "the active dashboard has no Team pulse widget");
+    const labels = () => pulse.locator("[role=columnheader]:not(.sr-only)").evaluateAll((els) => els.map((el) => ({ text: el.textContent ?? "", box: el.clientWidth, needs: el.scrollWidth })));
+    await expect.poll(async () => (await labels()).map((l) => l.text), { timeout: LONG }).toEqual(["12 AM", "3 AM", "6 AM", "9 AM", "12 PM", "3 PM", "6 PM", "9 PM"]);
+    // Polled while the grid settles at the new width; a label too wide for its box never passes.
+    await expect.poll(async () => (await labels()).filter((l) => l.needs > l.box + 1).map((l) => `"${l.text}" ${l.box}<${l.needs}`), { timeout: LONG }).toEqual([]);
     await expect(pulse.locator("[role=columnheader]")).toHaveCount(24);
   });
 
