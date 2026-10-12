@@ -7,6 +7,8 @@ import { LONG, NORTHWIND_BUSINESS_ID, UUID, ensureDeck, openBusiness, signIn } f
  * run). Stack and commands: e2e/README.md.
  */
 const rowsOf = (page: Page) => page.getByTestId("inbox-list").getByRole("option");
+/** Ledgerly (seed): on vacation, with a spend its Paid Ads agent asked the founder to approve. */
+const LEDGERLY_BUSINESS_ID = "b1e5e5e5-0000-4000-8000-000000000002";
 
 async function openInbox(page: Page, tab?: string): Promise<void> {
   await openBusiness(page, `inbox${tab ? `?tab=${tab}` : ""}`);
@@ -276,6 +278,41 @@ test.describe("inbox", () => {
     await expect(answered).toBeVisible();
     // The agent acknowledges in the thread.
     await expect(desk.getByTestId("agent-bubble").filter({ hasText: /Going with/ }).last()).toBeVisible({ timeout: LONG });
+  });
+
+  test("an agent's request names the agent, the call and the amount; Reject sends the founder's reason (audit FR-01)", async ({ page }) => {
+    await signIn(page);
+    await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/inbox?tab=all`);
+    await expect(page.getByTestId("inbox-list")).toBeVisible({ timeout: LONG });
+    // The seed's pending approval has its decision item: "<agent> asks to run Foundmill › set budget".
+    const request = rowsOf(page).filter({ hasText: /asks to run .+ › set budget/ }).first();
+    await expect(request, "the seed gives Ledgerly an agent's request to approve").toBeVisible({ timeout: LONG });
+    await request.click();
+    const panel = page.getByTestId("approval-panel");
+    await expect(panel).toBeVisible({ timeout: LONG });
+    await expect(panel.getByTestId("approval-agent")).toHaveAttribute("href", new RegExp(`/b/${LEDGERLY_BUSINESS_ID}/agents/${UUID}/overview$`));
+    await expect(panel.getByTestId("approval-action")).toHaveText(/ › set budget$/);
+    await expect(panel.getByTestId("approval-amount")).toHaveText("£600.00");
+    const item = page.getByTestId("inbox-item");
+    await expect(item).toHaveAttribute("data-type", "decision");
+    // The seed's request is used up by the first run; a re-run without a fresh seed finds it answered.
+    if ((await item.getAttribute("data-state")) !== "answered") {
+      const bar = page.getByTestId("decision-bar");
+      await expect(bar).toHaveAttribute("data-state", "open");
+      const options = bar.getByRole("group", { name: "Options" }).getByRole("button");
+      await expect(options.filter({ hasText: "Approve" })).toBeVisible();
+      await panel.getByTestId("approval-reason").fill("Keep the budget until the close is done");
+      const decided = page.waitForRequest((req) => req.method() === "POST" && /\/trpc\/[^?]*inbox\.decide/.test(req.url()));
+      await options.filter({ hasText: "Reject" }).click();
+      const body = (await decided).postData() ?? "";
+      expect(body).toContain("reject_request");
+      expect(body).toContain("Keep the budget until the close is done");
+      await expect(page.getByText(/^You rejected .+ request to run .+ › set budget/).first()).toBeVisible({ timeout: LONG });
+    }
+    await expect(item).toHaveAttribute("data-state", "answered", { timeout: LONG });
+    await expect(panel.getByTestId("approval-reason")).toHaveCount(0);
+    await expect(panel).toContainText(/Rejected|Approved/);
+    await expect(page.getByTestId("answered-panel")).toBeVisible();
   });
 
   test("a won customer opens its Customer Update", async ({ page }) => {

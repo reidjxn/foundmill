@@ -44,7 +44,8 @@ export function describeAction(type: string, p: Record<string, unknown> | null |
     case "request_human_action":
       return `Founder action: ${s("request") || s("original_text") || "needs you"}`;
     case "reply_only":
-      return `Reply: ${s("question") || s("text") || "a question back to you"}`;
+      // A recorded answer ("You approved …", "You chose "Not now"") reads as itself.
+      return s("acknowledgement") || `Reply: ${s("question") || s("text") || "a question back to you"}`;
     default:
       return type.replace(/_/g, " ");
   }

@@ -443,6 +443,47 @@ function moduleTab(departments: readonly DepartmentForLinks[], moduleKey: string
   return tab ? { slug: d.slug, tab: tab.slug } : null;
 }
 
+/** A task on the Plan tab of the department that runs development (`?task=` opens it), or null without one. */
+export function taskHref(businessId: string, departments: readonly DepartmentForLinks[], taskId: string): string | null {
+  const t = moduleTab(departments, "development", "plan");
+  return t ? `${routes.department(businessId, t.slug, t.tab)}?task=${encodeURIComponent(taskId)}` : null;
+}
+
+/** The slice of `inbox.get`'s `approval` the reading pane needs (audit FR-01). */
+export interface ApprovalLike {
+  outcome: "approved" | "rejected" | "expired" | null;
+  sessionWaiting: boolean;
+  task: { id: string; title: string } | null;
+  canAnswer: boolean;
+  section: string | null;
+}
+
+/**
+ * Where an agent's request stands, in words: waiting (and what Approve does from here), or how it was answered. The
+ * session may still wait for the answer, or it ended while waiting, in which case Approve runs the task again on the
+ * next cycle.
+ */
+export function approvalStatus(a: ApprovalLike): { word: string; tone: "good" | "warn" | "bad" | "neutral"; detail: string } {
+  switch (a.outcome) {
+    case "approved":
+      return { word: "Approved", tone: "good", detail: "The call runs once, exactly as asked." };
+    case "rejected":
+      return { word: "Rejected", tone: "bad", detail: a.task ? "Nothing ran. The task stays blocked until you start it again." : "Nothing ran." };
+    case "expired":
+      return { word: "Expired", tone: "neutral", detail: "Nobody answered in time, so nothing ran." };
+    default:
+      if (a.sessionWaiting) return { word: "Waiting for you", tone: "warn", detail: "The agent's session is waiting for your answer. Approve and it carries on." };
+      return { word: "Waiting for you", tone: "warn", detail: a.task ? "The session stopped waiting and freed its place. Approve and the task runs again on the next cycle." : "Approve and it runs once, exactly as asked." };
+  }
+}
+
+/** Why Approve and Reject are not this reader's to press, or null when they are. */
+export function approvalLockedReason(a: Pick<ApprovalLike, "canAnswer" | "section">): string | null {
+  if (a.canAnswer) return null;
+  const section = a.section ? a.section[0]!.toUpperCase() + a.section.slice(1) : "the Inbox";
+  return `Answering this needs write access to ${section}. Someone who has it can approve or reject it.`;
+}
+
 /** Where the artefacts of a decided plan live (BUILD §11.3 "follow-up Update with links to artefacts"). */
 export function followUpLinks(actions: readonly PlanActionLike[], businessId: string, departments: readonly DepartmentForLinks[]): FollowUpLink[] {
   const out: FollowUpLink[] = [];
