@@ -7,6 +7,7 @@
  *   POST /v1/session-tokens        service JWT → session JWT for one agent session
  *   POST /v1/integrations/connect  service JWT → connect an App connector (GitHub) whose keys only the gateway holds
  *   POST /v1/integrations/health   service JWT → that integration's health check
+ *   POST /v1/billing/checkout-sessions  service JWT (api) → a Stripe Checkout session on the platform account (billing.ts)
  *   POST /v1/call                  session JWT → the pipeline (allow / ask / deny / rate_limited)
  *   ALL  /mcp/:connector           session JWT → that connector's tools as an MCP streamable-HTTP server
  */
@@ -21,6 +22,7 @@ import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
 import { bearerToken, mintSessionToken, verifyServiceToken, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
 import { toIntegrationRecord } from "./credentials";
 import { appInstallationVerified, executeToolCall, GatewayError, modeFor, type GatewayDeps } from "./pipeline";
+import { CreateCheckoutRequest, createPlatformCheckout } from "./billing";
 import { handleMcpRequest } from "./mcp";
 import { toCandidates } from "./recipients";
 import { STATE_ERROR_CODES, stateDenial } from "./state";
@@ -74,6 +76,7 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use("/mcp/*", limit(MAX_MCP_BODY_BYTES));
   app.use("/v1/session-tokens", limit(MAX_SERVICE_BODY_BYTES));
   app.use("/v1/integrations/*", limit(MAX_SERVICE_BODY_BYTES));
+  app.use("/v1/billing/*", limit(MAX_SERVICE_BODY_BYTES));
 
   app.get("/health", (c) => {
     const engine = getPolicyEngine();
@@ -108,6 +111,17 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
   app.use("/v1/integrations/*", async (c, next) => {
     if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api connects App installations", 403);
     await next();
+  });
+  // Foundmill's own billing: only the api opens a checkout (after its owner check).
+  app.use("/v1/billing/*", requireService);
+  app.use("/v1/billing/*", async (c, next) => {
+    if (c.var.service.svc !== "api") throw new GatewayError("forbidden_service", "Only the api opens checkouts", 403);
+    await next();
+  });
+
+  app.post("/v1/billing/checkout-sessions", async (c) => {
+    const input = CreateCheckoutRequest.parse(await c.req.json());
+    return c.json(await createPlatformCheckout(deps, input, c.var.service.svc), 201);
   });
 
   app.post("/v1/session-tokens", async (c) => {

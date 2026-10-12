@@ -122,6 +122,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
   spec("cap_table_entries", s.capTableEntries, "admin", (f) => ({ holderEntityId: f.entityId, securityId: f.securityId, quantity: "1000" })),
   spec("usage_ledger", s.usageLedger, "service", (f) => ({ agentId: f.agentId, sessionId: f.sessionId, kind: "tokens", quantity: 500, costMinor: 3 })),
   spec("credit_balances", s.creditBalances, "service", () => ({ period: uniq("2026-02"), balanceMinor: 10000 })),
+  // 0033 credit top-ups through Stripe Checkout (written by the api and the ingest webhook with the service role)
+  spec("billing_checkouts", s.billingCheckouts, "service", () => ({ mode: "mock", amountMinor: 5000, currency: "USD" })),
   // 0010 legal
   spec("legal_entities", s.legalEntities, "admin", () => ({ jurisdiction: "GB", entityType: "ltd", legalName: uniq("Legal") })),
   spec("incorporations", s.incorporations, "admin", (f) => ({ legalEntityId: f.legalEntityId, route: "kit" })),

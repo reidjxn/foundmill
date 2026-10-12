@@ -11,8 +11,7 @@ import { routes } from "@foundmill/widgets/shared/routes";
 import { pickCurrentBusiness } from "@/lib/auth/current-business";
 import { getLastBusinessId } from "@/lib/auth/server";
 import { serverApi } from "@/lib/trpc-server";
-import { errorMessage } from "@/lib/trpc";
-import { UnreachablePage } from "@/components/shell/UnreachablePage";
+import { ApiErrorPage } from "@/components/shell/ApiErrorPage";
 import { LandingPage } from "@/components/landing/LandingPage";
 import { DEFAULT_EXAMPLE_ID, EXAMPLE_PARAM, loadExample, parseExampleId } from "@/components/landing/examples";
 
@@ -28,7 +27,7 @@ export default async function IndexPage({ searchParams }: { searchParams: Promis
   try {
     profile = await server.api.founder.profile.get.query();
   } catch (err) {
-    return <UnreachablePage message={errorMessage(err, "The API did not answer.")} />;
+    return <ApiErrorPage error={err} email={server.auth.email} />;
   }
   if (!profile.complete) redirect("/onboarding");
   const target = pickCurrentBusiness(await getLastBusinessId(), profile.businesses);

@@ -10,7 +10,7 @@ import { LIMITS } from "@foundmill/config";
 import { MockModelClient, ModelAbortedError, ModelOutputError, ModelUnavailableError, type CompleteRequest, type ModelClient } from "@foundmill/models";
 import { AppError } from "@foundmill/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { emptyLogoSpend, generateLogoOptions, logoLimiter, logoSlots, type LogoBrief, type LogoEvent, type LogoOption } from "../services/logo";
+import { emptyLogoSpend, generateLogoOptions, logoSlots, type LogoBrief, type LogoEvent, type LogoOption } from "../services/logo";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 const brief: LogoBrief = { businessName: "Ledgerly", pitch: "Bookkeeping that closes itself for freelancers.", archetype: "b2b_saas", colours: { primary: "#1f6f5f", secondary: "#e8c56b" }, round: 0 };
@@ -145,7 +145,7 @@ beforeAll(async () => {
   hz = await createApiHarness({ prefix: "logostream" });
 }, 120_000);
 afterAll(() => hz.close());
-beforeEach(() => logoLimiter.reset());
+beforeEach(() => hz.limits.reset());
 
 async function collect(stream: AsyncIterable<LogoEvent>): Promise<LogoEvent[]> {
   const out: LogoEvent[] = [];

@@ -1,13 +1,15 @@
 /**
  * HTTP surface (docs/ARCHITECTURE.md §1, §17). `createIngestApp(deps)` is pure so tests boot it on an ephemeral
- * port: `GET /health`, `POST /webhooks/:connector[/:businessId]`, and — development/staging only, behind the
- * service token apps/api mints (SEC-2) — `GET /simulate` + `POST /simulate/:eventName`.
+ * port: `GET /health`, `POST /webhooks/:connector[/:businessId]`, `POST /billing/stripe` (Foundmill's own billing:
+ * paid credit top-ups, billing.ts), and — development/staging only, behind the service token apps/api mints (SEC-2) —
+ * `GET /simulate` + `POST /simulate/:eventName`.
  */
 import { APP_NAME, simulatePanelHonoured } from "@foundmill/config";
 import { AppError, UnauthorizedError } from "@foundmill/shared";
 import { Hono, type MiddlewareHandler } from "hono";
 import { repos } from "@foundmill/db";
 import { ackBody, handleWebhook, mountedWebhooks, type MountedWebhook } from "./webhooks";
+import { BILLING_WEBHOOK_PATH, handleBillingWebhook } from "./billing";
 import { runSimulation, SimulateBody, simulateRoutesMounted, simulationCatalogue } from "./simulate";
 import { bearerToken, verifySimulateToken, type SimulateTokenClaims } from "./simulate-token";
 import { INGEST_SERVICE, type IngestDeps } from "./types";
@@ -73,6 +75,10 @@ export function createIngestApp(deps: IngestDeps): CreatedIngestApp {
   };
   app.post("/webhooks/:connector", (c) => webhookRoute(c.req.param("connector"), null, c.req.raw));
   app.post("/webhooks/:connector/:businessId", (c) => webhookRoute(c.req.param("connector"), c.req.param("businessId"), c.req.raw));
+  app.post(BILLING_WEBHOOK_PATH, async (c) => {
+    const outcome = await handleBillingWebhook(deps, c.req.raw);
+    return c.json(outcome.body, outcome.status);
+  });
 
   if (simulateRoutesMounted(deps)) {
     // SEC-2: the service token is verified before anything else happens (the body is not even read), so a request

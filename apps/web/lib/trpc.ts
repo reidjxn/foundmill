@@ -79,9 +79,29 @@ export function trpcErrorCode(err: unknown): string | null {
   return null;
 }
 
-/** Human-readable message for an API error (never the stack). */
+/** The API's own error code (`appCode`: `not_invited`, `rate_limited`, ...) of an unknown error, or null. */
+export function appErrorCode(err: unknown): string | null {
+  if (err instanceof TRPCClientError) return (err.data as { appCode?: string } | undefined)?.appCode ?? null;
+  return null;
+}
+
+/** Signed in, but this deployment admits only the addresses on its invite list (the API's SIGNUP_ALLOWLIST). */
+export function isNotInvited(err: unknown): boolean {
+  return appErrorCode(err) === "not_invited";
+}
+
+/** What a refused TOO_MANY_REQUESTS says when the API sent no sentence of its own. */
+export const RATE_LIMITED_MESSAGE = "That's a lot of requests in a short time. Wait a minute, then try again.";
+
+/**
+ * Human-readable message for an API error (never the stack). A rate limit reads as the API's own sentence ("Refresh
+ * limit reached. Try again in 2 minutes."), or a friendly line when it sent none.
+ */
 export function errorMessage(err: unknown, fallback = "Something went wrong"): string {
-  if (err instanceof TRPCClientError) return err.message || fallback;
+  if (err instanceof TRPCClientError) {
+    if (trpcErrorCode(err) === "TOO_MANY_REQUESTS") return /Try again/i.test(err.message) ? err.message : RATE_LIMITED_MESSAGE;
+    return err.message || fallback;
+  }
   if (err instanceof Error) return err.message || fallback;
   return fallback;
 }

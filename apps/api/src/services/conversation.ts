@@ -66,14 +66,13 @@ import { z } from "zod";
 import { audit, effectivePermission, emit, Id, type BusinessContext, type Section } from "../trpc";
 import { decideInboxItem, planContextFor, type DecideItemResult } from "./decide";
 import { compilePlan, evaluatePlan, requiresConfirmation, type ActionEvaluation } from "./plans";
-import { RateLimitedError, SlidingWindowLimiter, type WindowLimit } from "./rate-limit";
+import { takeOrThrow, type RateLimitStore, type WindowLimit } from "./rate-limit";
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Limits: every send can be a model call (a reply, a plan compile), so sends are bounded per person and per business.
-// Process-local like the logo limits (see rate-limit.ts for the replica caveat).
+// The windows live in the api's limit store (`ctx.limits`: Redis across replicas; rate-limit.ts), like the logo limits.
 // ---------------------------------------------------------------------------------------------------------------------
 
-export const conversationLimiter = new SlidingWindowLimiter();
 const MINUTE = 60_000;
 export const CONVERSATION_LIMITS = {
   /** A person pressing quick replies as fast as replies arrive stays well inside this; a script or a stuck key does not. */
@@ -83,14 +82,12 @@ export const CONVERSATION_LIMITS = {
 } as const satisfies Record<string, WindowLimit>;
 
 /** Spends one send from every limit that applies (no business for a concept's Ask), or throws TOO_MANY_REQUESTS. */
-export function takeConversationAllowance(scope: { userId: string; businessId?: string | null }): void {
-  const entries = [
+export async function takeConversationAllowance(limits: RateLimitStore, scope: { userId: string; businessId?: string | null }): Promise<void> {
+  await takeOrThrow(limits, "Conversation", [
     { key: `conversation:burst:${scope.userId}`, rule: CONVERSATION_LIMITS.burst },
     { key: `conversation:user:${scope.userId}`, rule: CONVERSATION_LIMITS.user },
     ...(scope.businessId ? [{ key: `conversation:business:${scope.businessId}`, rule: CONVERSATION_LIMITS.business }] : []),
-  ];
-  const r = conversationLimiter.takeAll(entries);
-  if (!r.ok) throw new RateLimitedError("Conversation", r.retryAfterMs);
+  ]);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -565,7 +562,7 @@ function scriptedReply(bubbles: string[], quickReplies: QuickReply[], reaction: 
 export async function sendConversationMessage(ctx: BusinessContext, input: SendInput): Promise<SendResult> {
   const p = await ctx.rls((tx) => prepare(tx, ctx, input));
   // Checked after the chip (a stale or write chip costs nothing), before any model call or decision.
-  takeConversationAllowance({ userId: ctx.userId, businessId: ctx.businessId });
+  await takeConversationAllowance(ctx.limits, { userId: ctx.userId, businessId: ctx.businessId });
   const { r, chip } = p;
   const voice = voiceOf(r.agent);
   const seed = `${p.thread?.id ?? r.subject.id}:${p.history.length}`;
@@ -667,7 +664,7 @@ export async function stageHandOff(ctx: BusinessContext, messageId: string, opts
   if (already) return already;
 
   // Compiling is a model call: it counts against the send limits (unless the send that asked for it already did).
-  if (!opts.allowanceTaken) takeConversationAllowance({ userId: ctx.userId, businessId: ctx.businessId });
+  if (!opts.allowanceTaken) await takeConversationAllowance(ctx.limits, { userId: ctx.userId, businessId: ctx.businessId });
   const compiled = await compilePlan(ctx.models, instruction, planCtx);
   const evaluations = evaluatePlan(compiled.actions, planCtx);
   const plan = await ctx
@@ -744,14 +741,17 @@ export function conceptPersona(conceptTitle: string): ConceptReply["persona"] {
  * One reply from the Research agent about a concept card, for `idea.ask` (audit-conversation §4 "Ask on a concept").
  * Same route, house rules and checks as the desk; the mock answers from the card's attributes, never "Mock …".
  */
-export async function replyAboutConcept(models: ModelClient, input: { concept: ConceptInput; question?: string; quickReplyId?: string; history?: ReadonlyArray<{ question: string; answer: string }>; userId?: string }): Promise<ConceptReply> {
+export async function replyAboutConcept(
+  models: ModelClient,
+  input: { concept: ConceptInput; question?: string; quickReplyId?: string; history?: ReadonlyArray<{ question: string; answer: string }> } & ({ userId: string; limits: RateLimitStore } | { userId?: undefined; limits?: undefined }),
+): Promise<ConceptReply> {
   const starters = conceptStarters();
   const chip = input.quickReplyId ? (starters.find((q) => q.id === input.quickReplyId) ?? null) : null;
   if (input.quickReplyId && !chip) throw new ValidationError("That quick reply is no longer available", { quickReplyId: input.quickReplyId });
   const text = chip?.say ?? input.question?.trim() ?? "";
   if (!text) throw new ValidationError("Ask a question or pick a quick reply");
   // The same per-person send limits as the desk (Ideation has no business yet).
-  if (input.userId) takeConversationAllowance({ userId: input.userId });
+  if (input.userId) await takeConversationAllowance(input.limits, { userId: input.userId });
   // Title, pitch and evidence travel as untrusted data; the house rules name a neutral principal, never the concept.
   const requestInput = conceptConversationInput({ appName: APP_NAME, concept: input.concept, text, quickReply: chip, history: input.history });
   const request = buildConversationRequest(requestInput);

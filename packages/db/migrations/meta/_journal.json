@@ -169,6 +169,13 @@
       "when": 1792152720000,
       "tag": "0024_billing_enforcement",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792930320000,
+      "tag": "0033_payments",
+      "breakpoints": true
     }
   ]
 }

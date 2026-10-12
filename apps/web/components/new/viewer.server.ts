@@ -4,7 +4,7 @@
  *
  * Returns one of three outcomes so each page decides its own redirect:
  *   - signed out → the caller redirects to /login?next=
- *   - API unreachable → the caller renders UnreachablePage
+ *   - API unreachable, or the account is not on the invite list → the caller renders ApiErrorPage with the error
  *   - ok → the viewer (email, profile, businesses)
  */
 import { serverApi } from "@/lib/trpc-server";
@@ -20,7 +20,7 @@ export interface StudioViewer {
   businesses: FounderProfileGet["businesses"];
 }
 
-export type StudioViewerResult = { kind: "signed_out" } | { kind: "unreachable"; message: string } | { kind: "ok"; viewer: StudioViewer };
+export type StudioViewerResult = { kind: "signed_out" } | { kind: "unreachable"; message: string; error: unknown; email: string | null } | { kind: "ok"; viewer: StudioViewer };
 
 export async function loadStudioViewer(): Promise<StudioViewerResult> {
   const server = await serverApi();
@@ -32,7 +32,7 @@ export async function loadStudioViewer(): Promise<StudioViewerResult> {
       viewer: { email: data.email ?? server.auth.email, profile: data.profile, complete: data.complete, businesses: data.businesses },
     };
   } catch (err) {
-    return { kind: "unreachable", message: errorMessage(err, "The API did not answer.") };
+    return { kind: "unreachable", message: errorMessage(err, "The API did not answer."), error: err, email: server.auth.email };
   }
 }
 

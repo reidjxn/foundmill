@@ -10,9 +10,10 @@ import { z } from "zod";
 import { commitIdea, squadPreview } from "../services/commit";
 import { conceptPersona, conceptStarters, replyAboutConcept } from "../services/conversation";
 import { linkableImportJob } from "../services/foundations";
-import { draftEventStream, draftIdeas, isMeta, readMeta, withMeta, type DraftEvent } from "../services/ideation";
+import { draftEventStream, draftIdeas, isMeta, readMeta, takeIdeationAllowance, withMeta, type DraftEvent } from "../services/ideation";
 import { importJobKey } from "../services/import";
 import { LogoChoice, takeLogoCheck } from "../services/logo";
+import { modelLimited } from "../services/model-limits";
 import { ideaLogoRouter } from "./logo";
 import type { Context } from "../context";
 import { Id, internalErrorMessage, protectedProcedure, router, toTRPCError } from "../trpc";
@@ -92,9 +93,9 @@ export const ideaRouter = router({
    * is saved. `importJobId` is Import's "Continue to Commit": the job the single card describes, recorded on the idea so
    * commit links the business to it. The Studio uses `draft` instead, which streams the same draft card by card.
    */
-  generate: protectedProcedure.input(GenerateInput).mutation(async ({ ctx, input, signal }) => {
+  generate: protectedProcedure.input(GenerateInput).use(modelLimited("ideation")).mutation(async ({ ctx, input, signal }) => {
     const importJobId = importJobOf(ctx, ctx.userId, input);
-    const result = await draftIdeas({ db: ctx.db, models: ctx.models, userId: ctx.userId, log: ctx.log }, { ...input, importJobId }, { signal });
+    const result = await draftIdeas({ db: ctx.db, models: ctx.models, limits: ctx.limits, userId: ctx.userId, log: ctx.log }, { ...input, importJobId }, { signal });
     return { ideas: result.ideas, costMinor: result.costMinor, costLabel: result.costLabel, mode: result.mode };
   }),
 
@@ -103,10 +104,10 @@ export const ideaRouter = router({
    * as the slate arrives, then each card the moment it is saved, then `done`. Stopping the stream (the founder's Stop,
    * or a closed tab) aborts the model calls; cards already saved stay in the deck.
    */
-  draft: protectedProcedure.input(GenerateInput).mutation(async function* ({ ctx, input, signal }): AsyncGenerator<DraftEvent, void, undefined> {
+  draft: protectedProcedure.input(GenerateInput).use(modelLimited("ideation")).mutation(async function* ({ ctx, input, signal }): AsyncGenerator<DraftEvent, void, undefined> {
     try {
       const importJobId = importJobOf(ctx, ctx.userId, input);
-      yield* draftEventStream((emit, abort) => draftIdeas({ db: ctx.db, models: ctx.models, userId: ctx.userId, log: ctx.log }, { ...input, importJobId }, { signal: abort, emit }), signal);
+      yield* draftEventStream((emit, abort) => draftIdeas({ db: ctx.db, models: ctx.models, limits: ctx.limits, userId: ctx.userId, log: ctx.log }, { ...input, importJobId }, { signal: abort, emit }), signal);
     } catch (err) {
       // Errors thrown mid-stream skip the error-mapping middleware: map them the same way here.
       const mapped = toTRPCError(err);
@@ -116,9 +117,13 @@ export const ideaRouter = router({
     }
   }),
 
-  /** Compare 2–4 cards: side-by-side attributes + agent verdict (AC-11.1.4). */
-  compare: protectedProcedure.input(z.object({ ideaIds: z.array(Id).min(2).max(4) })).mutation(async ({ ctx, input }) => {
+  /**
+   * Compare 2–4 cards: side-by-side attributes + agent verdict (AC-11.1.4). One Opus call with no business to book it
+   * to, so it spends a draft from the founder's drafting allowance (SEC-13), after the cards are found to be theirs.
+   */
+  compare: protectedProcedure.input(z.object({ ideaIds: z.array(Id).min(2).max(4) })).use(modelLimited("ideation")).mutation(async ({ ctx, input }) => {
     const ideas = await Promise.all(input.ideaIds.map((id) => repos.ideas.get(ctx.db, ctx.userId, id)));
+    await takeIdeationAllowance(ctx.limits, ctx.userId);
     const result = await ctx.models.complete({
       route: "ideation",
       schema: Verdict,
@@ -186,6 +191,7 @@ export const ideaRouter = router({
    * `bubbles` / `quickReplies` / `persona` / `reaction` are the conversation.
    */
   ask: protectedProcedure
+    .use(modelLimited("conversation"))
     .input(
       z
         .object({ ideaId: Id, question: z.string().trim().min(1).max(2000).optional(), quickReplyId: z.string().regex(/^[a-z0-9_-]{1,24}$/).optional() })
@@ -203,6 +209,7 @@ export const ideaRouter = router({
         quickReplyId: input.quickReplyId,
         history,
         userId: ctx.userId,
+        limits: ctx.limits,
       });
       const question = input.question ?? conceptStarters().find((q) => q.id === input.quickReplyId)?.say ?? "";
       // The conversation route answers from the card; it never moves a rating, so the attributes carry over unchanged.
@@ -241,7 +248,7 @@ export const ideaRouter = router({
       const profile = await repos.founders.get(ctx.db, ctx.userId);
       if (!profile) throw new ValidationError("Complete your founder profile before taking charge of a business");
       // A logo is an upload check like any other (the SVG check is CPU work).
-      if (input.logo) takeLogoCheck(ctx.userId);
+      if (input.logo) await takeLogoCheck(ctx.limits, ctx.userId);
       return commitIdea(ctx.db, ctx.temporal, ctx.userId, input, () => importJobKey(ctx.env));
     }),
 });

@@ -9,6 +9,7 @@ import { UpdateAgentInput, repos, type Agent } from "@foundmill/db";
 import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
 import { MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
 import { z } from "zod";
+import { modelLimited } from "../services/model-limits";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds } from "../services/temporal";
 import { Id, audit, emit, router, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
@@ -111,7 +112,7 @@ export const agentRouter = router({
     ),
 
     /** Queue a run on the orchestrator (`trainingRun`); the live version keeps working (AC-11.10.1). */
-    run: write.input(z.object({ agentId: Id, versionId: Id })).mutation(async ({ ctx, input }) => {
+    run: write.input(z.object({ agentId: Id, versionId: Id })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
       await assertAgentsRunning(ctx, "a training run");
       const run = await ctx.rls(async (tx) => {
         const agent = await repos.agents.get(tx, ctx.businessId, input.agentId);
@@ -214,7 +215,7 @@ export const agentRouter = router({
      * (AC-11.10.5). The change applies at once; each changed agent's retest scores a draft copy of its live version on
      * the new model (never the live version itself, AC-11.10.1), which Promote makes live.
      */
-    set: write.input(z.object({ agentId: Id, modelKey: z.enum(MODEL_KEYS), applyScope: ApplyScope.default("agent") })).mutation(async ({ ctx, input }) => {
+    set: write.input(z.object({ agentId: Id, modelKey: z.enum(MODEL_KEYS), applyScope: ApplyScope.default("agent") })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
       const targets = await scopedAgents(ctx, input.agentId, input.applyScope);
       const updated: string[] = [];
       const skipped: { agentId: string; reason: string }[] = [];

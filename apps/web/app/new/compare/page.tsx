@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { CompareScreen } from "@/components/new/compare/CompareScreen";
 import { loadStudioViewer } from "@/components/new/viewer.server";
-import { UnreachablePage } from "@/components/shell/UnreachablePage";
+import { ApiErrorPage } from "@/components/shell/ApiErrorPage";
 
 export const metadata: Metadata = { title: "Compare concepts" };
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function ComparePage() {
   const result = await loadStudioViewer();
   if (result.kind === "signed_out") redirect("/login?next=%2Fnew%2Fcompare");
-  if (result.kind === "unreachable") return <UnreachablePage message={result.message} />;
+  if (result.kind === "unreachable") return <ApiErrorPage error={result.error} email={result.email} />;
   const { viewer } = result;
   if (!viewer.complete) redirect("/onboarding");
   return (

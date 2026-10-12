@@ -1,18 +1,25 @@
 /**
- * billing.plan/changeTier/topUp/usage (BUILD §10.5, §11.15). Prices are config (`TIERS`) and may be "TBD"; usage is
- * metered and labeled Estimate. Paying is a hard gate: `topUp` never charges anything from here — in live mode it
- * returns the checkout the founder completes personally; in mock mode credits are granted and labeled.
+ * billing.plan/changeTier/topUp/checkout.status/checkout.completeMock/usage (BUILD §10.5, §11.15). Prices are config
+ * (`TIERS`) and may be "TBD"; usage is metered and labeled Estimate. Paying is a hard gate the founder completes
+ * personally (services/payments.ts):
+ *   - `topUp` opens a Stripe Checkout session on the platform account through the gateway and returns the page to send
+ *     the founder to; credits arrive only when the platform Stripe webhook (apps/ingest) reports the session paid. In
+ *     mock mode the page is the Billing tab's simulated checkout, completed with `checkout.completeMock` (labeled; no
+ *     money moves), and refused where it would fund live model calls.
+ *   - `changeTier` refuses a paid tier while its price is "to be announced" (outside development and test).
  *
  * Credits and platform costs are US dollars (`CREDITS_CURRENCY`, the model price list's currency), whatever the
  * business's own currency: `plan` and `usage` say so (`creditsCurrency`, `usage.currency`), list third-party spend
  * booked in another currency apart, and a top-up is in US dollars only.
  */
 import { CREDITS_CURRENCY, includedCreditsMinor, PRICE_TBA_LABEL, TIERS } from "@foundmill/config";
-import { creditsState, periodRange, repos, resumeBusinessAgents } from "@foundmill/db";
-import { PLAN_TIERS, ValidationError } from "@foundmill/shared";
+import { creditsState, MOCK_TOP_UP_LABEL, periodRange, repos, settleCreditCheckout } from "@foundmill/db";
+import { AppError, PLAN_TIERS, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { emitResumed, restartEngines } from "../services/killswitch";
-import { audit, ownerProcedure, router, sectionRead } from "../trpc";
+import { modelLimited } from "../services/model-limits";
+import { assertTierAvailable, checkoutView, MOCK_PAYMENTS_OFF_MESSAGE, mockPaymentsAllowed, startCreditCheckout, tierAvailability, TOP_UP_MAX_MINOR, TOP_UP_MIN_MINOR, TOP_UP_OPTIONS_MINOR, topUpAvailability } from "../services/payments";
+import { audit, Id, ownerProcedure, router, sectionRead } from "../trpc";
 
 const read = sectionRead("billing");
 const Period = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
@@ -44,37 +51,68 @@ export const billingRouter = router({
         /** Where credits stand this month (null for a business on its own key, which never touches credits). */
         credits,
         usage: { ...usage, label: "Estimate" as const },
+        /** Which tiers can be chosen here, and why not. */
+        tierChanges: PLAN_TIERS.map((tier) => tierAvailability(ctx.env, tier)),
+        /** Whether a top-up can be bought here, how it is paid, and the amounts offered (USD cents). */
+        topUp: { ...topUpAvailability(ctx.env), currency: "USD" as const, options: TOP_UP_OPTIONS_MINOR, minMinor: TOP_UP_MIN_MINOR, maxMinor: TOP_UP_MAX_MINOR },
       };
     }),
   ),
 
-  changeTier: ownerProcedure.input(z.object({ tier: z.enum(PLAN_TIERS) })).mutation(({ ctx, input }) =>
-    ctx.rls(async (tx) => {
+  changeTier: ownerProcedure.input(z.object({ tier: z.enum(PLAN_TIERS) })).mutation(({ ctx, input }) => {
+    assertTierAvailable(ctx.env, input.tier);
+    return ctx.rls(async (tx) => {
       if (input.tier === ctx.business.planTier) throw new ValidationError(`Already on the ${input.tier} tier`);
       const business = await repos.businesses.update(tx, ctx.businessId, { planTier: input.tier });
       await audit(tx, ctx, { action: "billing.change_tier", target: { kind: "business", id: ctx.businessId }, details: { from: ctx.business.planTier, to: input.tier } });
       return business;
-    }),
-  ),
+    });
+  }),
 
-  topUp: ownerProcedure.input(z.object({ amountMinor: z.number().int().positive().max(1_000_000_00), currency: CreditsCurrency })).mutation(async ({ ctx, input }) => {
-    const period = currentPeriod();
-    if (ctx.env.INTEGRATIONS_MODE === "mock") {
-      // credit_balances is service-written; the owner check already ran. A business on its own key keeps the balance
-      // for when it goes back to credits; its own key is still what pays for its calls.
-      const { balance, resumed } = await ctx.db.transaction(async (tx) => {
-        const b = await repos.usage.grantCredits(tx, ctx.businessId, period, input.amountMinor, input.currency);
-        // Credits back: a team stopped because they ran out resumes by itself (never Stop all agents or a revoked key).
-        const r = Number(b.balanceMinor) > 0 ? await resumeBusinessAgents(tx, ctx.businessId, { reason: "credits_exhausted" }) : null;
-        if (r?.resumed) await emitResumed(tx, ctx, r.agentIds, "Resumed: credits topped up");
-        await audit(tx, ctx, { action: "billing.top_up", target: { kind: "credit_balance", id: b.id }, details: { amountMinor: input.amountMinor, currency: input.currency, mode: "mock", resumedAgents: r?.resumed ? r.agentIds.length : null } });
-        return { balance: b, resumed: r?.resumed ? { reason: r.reason, agents: r.agentIds.length } : null };
+  /** Opens a checkout for a credit top-up and returns the page to send the founder to (nothing is granted here). */
+  topUp: ownerProcedure.input(z.object({ amountMinor: z.number().int().min(TOP_UP_MIN_MINOR).max(TOP_UP_MAX_MINOR), currency: CreditsCurrency })).use(modelLimited("checkout")).mutation(async ({ ctx, input }) => {
+    const started = await startCreditCheckout({ db: ctx.db, env: ctx.env, gateway: ctx.gateway }, { businessId: ctx.businessId, userId: ctx.userId, email: ctx.email, amountMinor: input.amountMinor });
+    // billing_checkouts is service-written; the owner check already ran. The audit row is the founder's own.
+    await ctx.rls((tx) => audit(tx, ctx, { action: "billing.checkout_started", target: { kind: "billing_checkout", id: started.checkout.id }, details: { amountMinor: input.amountMinor, currency: "USD", mode: started.mode } }));
+    return { checkout: checkoutView(started.checkout), checkoutUrl: started.checkoutUrl, mode: started.mode, label: started.mode === "mock" ? ("Mock checkout (no money moves)" as const) : null };
+  }),
+
+  checkout: router({
+    /** Where a checkout stands (the Billing tab polls it after Stripe sends the founder back), with this month's credits. */
+    status: read.input(z.object({ checkoutId: Id })).query(({ ctx, input }) =>
+      ctx.rls(async (tx) => {
+        const checkout = await repos.checkouts.get(tx, ctx.businessId, input.checkoutId);
+        const balance = await repos.usage.creditBalance(tx, ctx.businessId, currentPeriod());
+        return { checkout: checkoutView(checkout), balance, label: checkout.mode === "mock" ? MOCK_TOP_UP_LABEL : null };
+      }),
+    ),
+
+    /** The simulated payment of a checkout opened in mock mode: settled exactly as the webhook settles a real one. */
+    completeMock: ownerProcedure.input(z.object({ checkoutId: Id })).mutation(async ({ ctx, input }) => {
+      const checkout = await repos.checkouts.get(ctx.db, ctx.businessId, input.checkoutId);
+      if (checkout.mode !== "mock") throw new ValidationError("A real payment is confirmed by Stripe, not from here");
+      if (!mockPaymentsAllowed(ctx.env)) throw new AppError("payments_unavailable", MOCK_PAYMENTS_OFF_MESSAGE, 412);
+      const settled = await settleCreditCheckout(ctx.db, {
+        businessId: ctx.businessId,
+        checkoutId: checkout.id,
+        externalId: checkout.externalId,
+        eventId: `mock:${checkout.id}`,
+        amountMinor: Number(checkout.amountMinor),
+        currency: checkout.currency,
+        mode: "mock",
+        paidAt: new Date(),
+        actor: { kind: "user", id: ctx.userId },
       });
-      if (resumed) await restartEngines(ctx);
-      return { granted: true as const, balance, resumed, label: "Mock top-up (no money moved)" as const, checkoutUrl: null };
-    }
-    await ctx.rls((tx) => audit(tx, ctx, { action: "billing.top_up_requested", target: { kind: "business", id: ctx.businessId }, details: { amountMinor: input.amountMinor, currency: input.currency } }));
-    return { granted: false as const, balance: null, resumed: null, label: "Complete the payment yourself; credits are granted by the payment webhook" as const, checkoutUrl: null, hardGate: "move_money" as const };
+      if (settled.outcome === "unknown" || settled.outcome === "mismatch") throw new ValidationError("This checkout cannot be completed");
+      // Credits back: a team stopped because they ran out resumes by itself (settleCreditCheckout lifted the stop).
+      if (settled.outcome === "granted" && settled.resumed) {
+        const agentIds = settled.resumed.agentIds;
+        await ctx.rls((tx) => emitResumed(tx, ctx, agentIds, "Resumed: credits topped up"));
+        await restartEngines(ctx);
+      }
+      const balance = settled.outcome === "granted" ? settled.balance : await repos.usage.creditBalance(ctx.db, ctx.businessId, currentPeriod());
+      return { checkout: checkoutView(settled.checkout), balance, granted: settled.outcome === "granted", resumed: settled.outcome === "granted" && settled.resumed ? { reason: settled.resumed.reason, agents: settled.resumed.agentIds.length } : null, label: MOCK_TOP_UP_LABEL };
+    }),
   }),
 
   usage: read.input(z.object({ period: Period.optional() })).query(({ ctx, input }) =>

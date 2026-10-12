@@ -5,6 +5,7 @@ import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, ChannelKe
 import { z } from "zod";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
+import { modelLimited } from "../services/model-limits";
 import { Id, audit, emit, router, sectionRead, sectionWrite } from "../trpc";
 
 const read = sectionRead("distribution");
@@ -28,7 +29,7 @@ const Recommendation = z.object({
 
 export const distributionRouter = router({
   /** Distribution Strategist scores all 15 channels and picks 3–6 starters (AC-11.7.1). Writes the scores to `channels`. */
-  recommend: write.mutation(async ({ ctx }) => {
+  recommend: write.use(modelLimited("recommend")).mutation(async ({ ctx }) => {
     const [profile, enabled] = await Promise.all([repos.founders.get(ctx.db, ctx.userId), repos.channels.list(ctx.db, ctx.businessId)]);
     const result = await ctx.models.complete({
       route: "departmentLead",

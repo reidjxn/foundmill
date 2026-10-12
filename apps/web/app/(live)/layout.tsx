@@ -20,6 +20,7 @@ import { serverApi } from "@/lib/trpc-server";
 import { LiveViewerProvider } from "@/components/live/viewer";
 import { DateFormatHost } from "@/components/providers/DateFormatHost";
 import { BusinessShell } from "@/components/shell/BusinessShell";
+import { ApiErrorPage } from "@/components/shell/ApiErrorPage";
 import { UnreachablePage } from "@/components/shell/UnreachablePage";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +39,7 @@ export default async function LiveLayout({ children }: { children: ReactNode }) 
   try {
     profile = await api.founder.profile.get.query();
   } catch (err) {
-    return <UnreachablePage message={errorMessage(err, "The API did not answer.")} />;
+    return <ApiErrorPage error={err} email={server.auth.email} />;
   }
   // AC-11.1.1: no app screen before the founder profile exists.
   const founder = profile.profile;

@@ -7,7 +7,7 @@ import { CONVERSATION_MAX_TOKENS, CONVERSATION_RESERVE_TOKENS, hasClubRulesPrefi
 import { repos } from "@foundmill/db";
 import { MockModelClient, PRICING_CURRENCY, type CompleteRequest, type ModelClient } from "@foundmill/models";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { CONVERSATION_LIMITS, conceptStarters, conversationLimiter, replyAboutConcept } from "../services/conversation";
+import { CONVERSATION_LIMITS, conceptStarters, replyAboutConcept } from "../services/conversation";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -19,7 +19,7 @@ beforeAll(async () => {
 afterEach(() => {
   hz.deps.models = original;
   // Each test starts with a full allowance (the limits have their own tests below).
-  conversationLimiter.reset();
+  hz.limits.reset();
 });
 afterAll(() => hz.close());
 
@@ -296,7 +296,7 @@ describe("races and limits (adversarial)", () => {
   it("bounds sends per person (TOO_MANY_REQUESTS, nothing written) without blocking another member of the business", async () => {
     const client = recordingModels();
     const subject = { kind: "agent" as const, id: hz.A.agentId };
-    for (let i = 0; i < CONVERSATION_LIMITS.burst.limit; i++) conversationLimiter.takeAll([{ key: `conversation:burst:${hz.A.ownerId}`, rule: CONVERSATION_LIMITS.burst }]);
+    for (let i = 0; i < CONVERSATION_LIMITS.burst.limit; i++) await hz.limits.take([{ key: `conversation:burst:${hz.A.ownerId}`, rule: CONVERSATION_LIMITS.burst }]);
     const calls = conversationRequests(client).length;
     const thread = await repos.conversations.findThread(hz.db, hz.A.businessId, { agentId: hz.A.agentId, subjectKind: "agent", subjectId: hz.A.agentId });
     const count = thread ? (await repos.conversations.listMessages(hz.db, hz.A.businessId, thread.id, { limit: 200 })).length : 0;
@@ -313,14 +313,14 @@ describe("races and limits (adversarial)", () => {
 
   it("bounds sends per business across its members, and a concept's Ask per person", async () => {
     recordingModels();
-    for (let i = 0; i < CONVERSATION_LIMITS.business.limit; i++) conversationLimiter.takeAll([{ key: `conversation:business:${hz.A.businessId}`, rule: CONVERSATION_LIMITS.business }]);
+    for (let i = 0; i < CONVERSATION_LIMITS.business.limit; i++) await hz.limits.take([{ key: `conversation:business:${hz.A.businessId}`, rule: CONVERSATION_LIMITS.business }]);
     const member = hz.caller({ userId: hz.A.memberId });
     await expect(member.agent.conversation.send({ businessId: hz.A.businessId, subject: { kind: "agent", id: hz.A.agentId }, text: "What's next?" })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
 
     const concept = { id: "00000000-0000-4000-8000-0000000000c1", title: "Nornest", pitch: "Refill subscriptions for skincare.", attributes: { market_size: { value: 12, evidence: "EU refill market" } } };
-    for (let i = 0; i < CONVERSATION_LIMITS.burst.limit; i++) conversationLimiter.takeAll([{ key: `conversation:burst:someone`, rule: CONVERSATION_LIMITS.burst }]);
-    await expect(replyAboutConcept(hz.deps.models, { concept, quickReplyId: conceptStarters()[0]!.id, userId: "someone" })).rejects.toMatchObject({ status: 429 });
-    await expect(replyAboutConcept(hz.deps.models, { concept, quickReplyId: conceptStarters()[0]!.id, userId: "someone-else" })).resolves.toMatchObject({ persona: { name: "Research agent" } });
+    for (let i = 0; i < CONVERSATION_LIMITS.burst.limit; i++) await hz.limits.take([{ key: `conversation:burst:someone`, rule: CONVERSATION_LIMITS.burst }]);
+    await expect(replyAboutConcept(hz.deps.models, { concept, quickReplyId: conceptStarters()[0]!.id, userId: "someone", limits: hz.limits })).rejects.toMatchObject({ status: 429 });
+    await expect(replyAboutConcept(hz.deps.models, { concept, quickReplyId: conceptStarters()[0]!.id, userId: "someone-else", limits: hz.limits })).resolves.toMatchObject({ persona: { name: "Research agent" } });
   });
 });
 
