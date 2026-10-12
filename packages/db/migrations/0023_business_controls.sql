@@ -27,10 +27,18 @@ create trigger agents_clear_paused_reason before insert or update on agents for 
 -- Sessions a cycle, a plan or a vacation opened stored a placeholder; their workflow has always been `session:<id>`.
 update agent_sessions set workflow_id = 'session:' || id::text where workflow_id = 'session:pending';
 --> statement-breakpoint
--- A business whose whole team is paused today was stopped by one of the three: the latest of their audit entries
--- names which (no entry: the kill switch, the strictest, which only an owner or admin lifts).
+-- A business stopped before 0023 (Stop all agents, archiving, a revoked key, used-up credits) was never resumed, since
+-- nothing could resume a team: every live agent is still paused, or some are and its audit trail holds one of those
+-- stops (a task start or a task stop used to set single agents back to work). The latest of those entries names the
+-- reason and the time (no entry: the kill switch, the strictest, which only an owner or admin lifts). Archived
+-- businesses are marked too, so a restored one shows Resume agents.
 update businesses b set
-  agents_stopped_at = now(),
+  agents_stopped_at = coalesce((
+    select a.created_at from audit_log a
+    where a.business_id = b.id and a.action in ('business.stop_all_agents', 'keys.revoke', 'billing.credits_exhausted')
+    order by a.seq desc
+    limit 1
+  ), now()),
   agents_stopped_reason = coalesce((
     select case a.action when 'keys.revoke' then 'key_revoked' when 'billing.credits_exhausted' then 'credits_exhausted' else 'kill_switch' end
     from audit_log a
@@ -38,9 +46,11 @@ update businesses b set
     order by a.seq desc
     limit 1
   ), 'kill_switch')
-where b.archived_at is null
-  and exists (select 1 from agents g where g.business_id = b.id and g.archived_at is null)
-  and not exists (select 1 from agents g where g.business_id = b.id and g.archived_at is null and g.status <> 'paused');
+where exists (select 1 from agents g where g.business_id = b.id and g.archived_at is null and g.status = 'paused')
+  and (
+    not exists (select 1 from agents g where g.business_id = b.id and g.archived_at is null and g.status <> 'paused')
+    or exists (select 1 from audit_log a where a.business_id = b.id and a.action in ('business.stop_all_agents', 'keys.revoke', 'billing.credits_exhausted'))
+  );
 --> statement-breakpoint
 update agents g set paused_reason = b.agents_stopped_reason
 from businesses b

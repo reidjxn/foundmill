@@ -7,7 +7,7 @@ import { readSessionEvents } from "@foundmill/events";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { computeHealth, errorRate, type HealthSignals } from "../health";
-import { recoverAgents } from "./dispatch";
+import { enforceWageCaps, recoverAgents } from "./dispatch";
 import type { HealthRefreshResult } from "./types";
 
 export function createHealthActivities(deps: OrchestratorDeps) {
@@ -15,8 +15,9 @@ export function createHealthActivities(deps: OrchestratorDeps) {
     async refreshAgentHealth(input: { businessId: string }): Promise<HealthRefreshResult> {
       const { db, clock } = deps;
       const now = clock.now();
-      // Rested failing agents and agents under their wage cap again come back first (the same step a cycle takes).
-      const recovered = await recoverAgents(deps, input.businessId);
+      // Rested failing agents and agents under their wage cap again come back first, and agents over their cap are
+      // paused with their note (the same steps a cycle takes before it plans).
+      const recovered = [...(await recoverAgents(deps, input.businessId)), ...(await enforceWageCaps(deps, input.businessId))];
       const [agents, expiredCredentials, integrations] = await Promise.all([
         repos.agents.list(db, input.businessId, { limit: 200 }),
         repos.credentials.expiring(db, input.businessId, now),

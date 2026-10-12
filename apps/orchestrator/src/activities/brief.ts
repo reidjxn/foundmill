@@ -7,7 +7,7 @@ import { periodOf, repos } from "@foundmill/db";
 import type { TaskStatus } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { failureStreak, taskRetry } from "../retry";
-import { recoverAgents } from "./dispatch";
+import { enforceWageCaps, recoverAgents } from "./dispatch";
 import type { BriefAgent, BriefDepartment, BriefTask, BusinessBrief } from "./types";
 
 /**
@@ -46,8 +46,10 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       const { db, clock } = deps;
       const businessId = input.businessId;
       const now = clock.now();
-      // Agents that rested after a failure, or are under their wage cap again, go back to work before the plan.
+      // Agents that rested after a failure, or are under their wage cap again, go back to work before the plan; an agent
+      // that went over its cap while it worked is paused (with its note) before the planner sees the team.
       await recoverAgents(deps, businessId);
+      await enforceWageCaps(deps, businessId);
       const [business, departmentsRaw, agentsPage, tasksPage, pendingApprovals, blockingInboxItems, holiday, chief, wages] = await Promise.all([
         repos.businesses.get(db, businessId),
         repos.departments.list(db, businessId),

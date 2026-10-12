@@ -51,6 +51,9 @@ describe("Stop all agents cannot be undone by a member; resume is an owner's or 
 
     await expect(member().distribution.channels.enable({ businessId: A(), channelKey: "seo" })).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(owner().business.continue({ businessId: A() })).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/next cycle/) });
+    // Resuming a cycle would set the tasks the stop paused back to running.
+    await expect(member().business.resumeCycle({ businessId: A() })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await repos.tasks.get(hz.db, A(), task.id)).status).not.toBe("running");
     await expect(owner().business.startHoliday({ businessId: A(), until: { kind: "return" } })).rejects.toMatchObject({ code: "CONFLICT" });
     const draft = await repos.agents.createVersion(hz.db, A(), hz.A.agentId, { state: "draft" });
     await expect(member().agent.training.run({ businessId: A(), agentId: hz.A.agentId, versionId: draft.id })).rejects.toMatchObject({ code: "CONFLICT" });
@@ -125,6 +128,30 @@ describe("dev.tasks.start guards (RA-05, api-services-14)", () => {
     expect((await repos.agents.listSessions(hz.db, A(), { taskId: t.id, limit: 5 })).items).toHaveLength(1);
     // A third press while it runs is refused too.
     await expect(start(t.id)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/already running/) });
+  });
+
+  it("a start the orchestrator does not take leaves nothing open: the task is given back and the next press starts it", async () => {
+    const t = await task();
+    const startWorkflow = temporal.workflow.start;
+    temporal.workflow.start = async () => {
+      throw Object.assign(new Error("connection refused"), { name: "ServiceError" });
+    };
+    try {
+      await expect(start(t.id)).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE", message: expect.stringMatching(/did not start/) });
+    } finally {
+      temporal.workflow.start = startWorkflow;
+    }
+    expect((await repos.tasks.get(hz.db, A(), t.id)).status).toBe("ready");
+    const sessions = (await repos.agents.listSessions(hz.db, A(), { taskId: t.id, limit: 5 })).items;
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({ outcome: "not_started", endedAt: expect.any(Date) });
+    const startedEvents = async () => (await repos.events.list(hz.db, A(), { type: "task.started", limit: 200 })).items.filter((e) => (e.payload as { taskId: string }).taskId === t.id);
+    expect(await startedEvents()).toHaveLength(0);
+
+    const again = await start(t.id);
+    expect(again.workflow).toMatchObject({ queued: true, workflowId: `session:${again.session.id}` });
+    expect((await repos.tasks.get(hz.db, A(), t.id)).status).toBe("running");
+    expect(await startedEvents()).toHaveLength(1);
   });
 
   it("refuses a done or in-review task, an unfinished dependency, a paused, released or capped agent", async () => {

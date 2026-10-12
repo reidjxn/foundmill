@@ -393,7 +393,12 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       const [agent, task] = await Promise.all([repos.agents.get(db, input.businessId, input.agentId), repos.tasks.get(db, input.businessId, input.taskId)]);
       const eventIds: string[] = [];
       const endedAt = deps.clock.now();
-      await repos.agents.endSession(db, input.businessId, input.sessionId, { endedAt, tokensIn: result.tokensIn, tokensOut: result.tokensOut, costMinor: Math.round(result.costMinor), outcome: result.outcome, recordingRef: launch.recordingKey });
+      // A session cut short by a pause of its agent or a team-wide stop did not fail on its merits: the task waits
+      // `paused` and the next cycle after the resume picks it up (0023). Its row says `stopped`, so the retry backoff
+      // (`retry.ts`, which counts failed sessions in a row) does not count it.
+      const teamStopped = agent.status === "paused" || (await repos.businesses.agentsStopped(db, input.businessId));
+      const outcome = teamStopped && result.outcome === "failed" ? "stopped" : result.outcome;
+      await repos.agents.endSession(db, input.businessId, input.sessionId, { endedAt, tokensIn: result.tokensIn, tokensOut: result.tokensOut, costMinor: Math.round(result.costMinor), outcome, recordingRef: launch.recordingKey });
       const minutes = Math.max(1, Math.round(result.durationMs / 60_000));
       await bookUsage(db, input.businessId, { agentId: agent.id, sessionId: input.sessionId, kind: "sandbox", quantity: minutes, unit: "minutes", costMinor: 0, billedTo: launch.modelBilling, occurredAt: endedAt, details: { sandboxMode: launch.sandboxMode, label: "Estimate", recording: launch.recordingKey } });
       if (result.tokensIn + result.tokensOut > 0 && launch.sandboxMode !== "mock") {
@@ -403,10 +408,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
 
       let taskStatus: TaskStatus;
       const cost = { amountMinor: Math.round(result.costMinor), currency: task.currency ?? "EUR" };
-      // A session cut short by a pause of its agent or a team-wide stop did not fail on its merits: the task waits
-      // `paused` and the next cycle after the resume picks it up (0023).
-      const teamStopped = agent.status === "paused" || (await repos.businesses.agentsStopped(db, input.businessId));
-      switch (teamStopped && result.outcome === "failed" ? "stopped" : result.outcome) {
+      switch (outcome) {
         case "done": {
           taskStatus = result.progress.merged ? "done" : result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";
           const ev = await emitEvent(db, {
