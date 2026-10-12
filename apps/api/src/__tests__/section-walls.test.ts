@@ -12,6 +12,7 @@ import { repos, type InboxItem } from "@foundmill/db";
 import { TRPCError } from "@trpc/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { manifestFor } from "../services/conversation";
+import { sectionForAction } from "../services/plans";
 import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -70,6 +71,37 @@ describe("RUI-01: plans run with the decider's section permissions", () => {
     }
   });
 
+  it("each action needs the section it changes; a task needs the section whose work it does", () => {
+    expect(sectionForAction({ type: "enable_channel", params: { channel: "seo" } })).toBe("distribution");
+    expect(sectionForAction({ type: "set_budget", params: { channel: "paid_ads", amount_minor: 500 } })).toBe("distribution");
+    expect(sectionForAction({ type: "set_budget", params: { scope: "department", department: "product", amount_minor: 500 } })).toBe("finance");
+    expect(sectionForAction({ type: "create_task", params: { kind: "channel" } })).toBe("distribution");
+    expect(sectionForAction({ type: "create_task", params: { kind: "ops", channel: "seo" } })).toBe("distribution");
+    expect(sectionForAction({ type: "create_task", params: { kind: "code" } })).toBe("development");
+    expect(sectionForAction({ type: "create_task", params: { kind: "finance" } })).toBe("finance");
+    expect(sectionForAction({ type: "create_task", params: { kind: "legal" } })).toBe("legal");
+    expect(sectionForAction({ type: "create_task", params: { kind: "research" } })).toBeNull();
+    expect(sectionForAction({ type: "set_agent_model", params: {} })).toBe("team");
+    expect(sectionForAction({ type: "send_message", params: {} })).toBe("crm");
+    expect(sectionForAction({ type: "reply_only", params: {} })).toBeNull();
+  });
+
+  it("a member walled from Finance or Legal cannot start that section's work from the Inbox", async () => {
+    const businessId = hz.A.businessId;
+    const item = await decisionItem("What should the team do next?");
+    await walls({ finance: "none", legal: "read" });
+    try {
+      const member = hz.caller({ userId: hz.A.memberId });
+      await expect(member.inbox.decide({ businessId, itemId: item.id, freeText: "Prepare a cash flow forecast for next quarter" })).rejects.toThrow(/write access to finance.*start a task/);
+      await expect(member.inbox.decide({ businessId, itemId: item.id, freeText: "Draft an NDA for the new supplier" })).rejects.toThrow(/write access to legal.*start a task/);
+      expect(await repos.plans.forInboxItem(hz.db, businessId, item.id)).toBeNull();
+    } finally {
+      await walls({});
+    }
+    const ok = await hz.caller({ userId: hz.A.memberId }).inbox.decide({ businessId, itemId: item.id, freeText: "Prepare a cash flow forecast for next quarter" });
+    expect(ok.plan.actions.map((a) => [a.type, (a.params as { kind?: string }).kind])).toEqual([["create_task", "finance"]]);
+  });
+
   it("a member walled from Team cannot change an agent's model from a decision", async () => {
     await walls({ team: "read" });
     try {
@@ -90,6 +122,16 @@ describe("RUI-01: plans run with the decider's section permissions", () => {
       expect(await code(hz.caller({ userId: hz.A.memberId }).plan.confirm({ businessId, planId: staged.plan.id }))).toBe("FORBIDDEN");
       expect((await repos.plans.get(hz.db, businessId, staged.plan.id)).status).toBe("pending_confirmation");
       expect((await repos.channels.getByKey(hz.db, businessId, "paid_ads"))?.enabled ?? false).toBe(false);
+    } finally {
+      await walls({});
+    }
+    // A walled member following the plan reads its progress without the amounts in its summary.
+    expect(staged.plan.summaryMd).toContain("500");
+    await walls({ finance: "none" });
+    try {
+      const status = await hz.caller({ userId: hz.A.memberId }).plan.status({ businessId, planId: staged.plan.id });
+      expect(status.plan.summaryMd).not.toContain("500");
+      expect(status.plan.summaryMd).toContain("(amount hidden)");
     } finally {
       await walls({});
     }
@@ -161,6 +203,13 @@ describe("RUI-02: notes follow the reader's Finance and CRM walls", () => {
       expect(listed.subject).toBe("New order from a customer");
       expect(listed.bodyMd).not.toContain("56.99");
       expect(listed.redacted).toEqual(["crm", "finance"]);
+
+      // The mutations that answer with the note answer with the same masked note.
+      for (const answered of [await member.inbox.markRead({ businessId, itemId: item.id }), await member.inbox.archive({ businessId, itemId: item.id })]) {
+        for (const leak of [name, "56.99", "263345", "47,898"]) expect(JSON.stringify(answered), leak).not.toContain(leak);
+        expect(answered.subject).toBe("New order from a customer");
+        expect(answered.redacted).toEqual(["crm", "finance"]);
+      }
     } finally {
       await walls({});
     }
@@ -214,5 +263,92 @@ describe("RUI-02: notes follow the reader's Finance and CRM walls", () => {
     const ownerMembership = (await repos.memberships.get(hz.db, businessId, hz.A.ownerId))!;
     const full = await hz.h.asUser(hz.A.ownerId).run((tx) => manifestFor(tx, { businessId, membership: ownerMembership }));
     expect(full.entries.some((e) => e.id === hz.A.entityId)).toBe(true);
+  });
+
+  it("'Go with: …' at the desk answers a member walled from the CRM without the customer's name; the thread keeps it", async () => {
+    const businessId = hz.A.businessId;
+    const name = (await repos.entities.get(hz.db, businessId, hz.A.entityId)).displayName;
+    const item = await repos.inbox.createItem(hz.db, businessId, {
+      type: "customer_won",
+      from_agent_id: hz.A.agentId,
+      subject: `New order from ${name}`,
+      body_md: `[[ent:${hz.A.entityId}|${name}]] placed an order.`,
+      status_strip: [],
+      exhibit: { kind: "none", spec_ref: null },
+      decision: { options: [{ id: "welcome", label: `Welcome ${name} aboard`, recommended: true, consequence: "", cost_minor: 0, reversible: true }, { id: "later", label: "Not now", recommended: false, consequence: "", cost_minor: 0, reversible: true }], free_text: true, expires_at: null },
+      blocks_continue: false,
+      source_event_ids: [],
+      entity_ids: [hz.A.entityId],
+    });
+    const subject = { kind: "inbox_item" as const, id: item.id };
+    await walls({ crm: "none" });
+    try {
+      const member = hz.caller({ userId: hz.A.memberId });
+      const desk = await member.agent.conversation.get({ businessId, subject });
+      const goWith = desk.starters.find((q) => q.kind === "choose_option" && q.option_id === "welcome")!;
+      expect(goWith.label).toBe("Go with: Welcome a customer aboard");
+      const sent = await member.agent.conversation.send({ businessId, subject, quickReplyId: goWith.id });
+      expect(sent.decision?.decision.chosenOption).toBe("welcome");
+      // The founder's chip and the agent's acknowledgement both quote the option: masked in the answer.
+      expect(sent.messages.map((m) => m.bubbles.join(" ")).join(" ")).toContain("Welcome a customer aboard");
+      expect(JSON.stringify(sent), "send answer").not.toContain(name);
+    } finally {
+      await walls({});
+    }
+    // The stored thread is whole: the owner reads the name.
+    const owner = await hz.caller({ userId: hz.A.ownerId }).agent.conversation.get({ businessId, subject });
+    expect(owner.messages.map((m) => m.bubbles.join(" ")).join(" ")).toContain(`Welcome ${name} aboard`);
+  });
+
+  it("plan.status and plan.list hide the customer a plan's summary quotes, as inbox.get does", async () => {
+    const businessId = hz.A.businessId;
+    const name = (await repos.entities.get(hz.db, businessId, hz.A.entityId)).displayName;
+    // An option no rule turns into actions: the plan carries it out as written, so its summary quotes the label.
+    const item = await repos.inbox.createItem(hz.db, businessId, {
+      type: "customer_won",
+      from_agent_id: hz.A.agentId,
+      subject: `New order from ${name}`,
+      body_md: `[[ent:${hz.A.entityId}|${name}]] placed an order.`,
+      status_strip: [],
+      exhibit: { kind: "none", spec_ref: null },
+      decision: { options: [{ id: "welcome", label: `Welcome ${name} aboard`, recommended: true, consequence: "", cost_minor: 0, reversible: true }, { id: "later", label: "Not now", recommended: false, consequence: "", cost_minor: 0, reversible: true }], free_text: true, expires_at: null },
+      blocks_continue: false,
+      source_event_ids: [],
+      entity_ids: [hz.A.entityId],
+    });
+    const decided = await hz.caller({ userId: hz.A.ownerId }).inbox.decide({ businessId, itemId: item.id, chosenOption: "welcome" });
+    expect(decided.plan.summaryMd).toContain(name);
+    await walls({ crm: "none" });
+    try {
+      const member = hz.caller({ userId: hz.A.memberId });
+      const status = await member.plan.status({ businessId, planId: decided.plan.id });
+      expect(status.plan.summaryMd).not.toContain(name);
+      const listed = (await member.plan.list({ businessId, limit: 200 })).items.find((p) => p.id === decided.plan.id)!;
+      expect(listed.summaryMd).toBe(status.plan.summaryMd);
+      expect((await member.inbox.get({ businessId, itemId: item.id })).plan?.summaryMd).toBe(status.plan.summaryMd);
+    } finally {
+      await walls({});
+    }
+  });
+
+  it("the note inbox.refresh or an in-process Continue step writes comes back masked, as inbox.get shows it", async () => {
+    const businessId = hz.A.businessId;
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    // Continue refuses while notes block it: clear what the tests above left open.
+    const open = await owner.inbox.list({ businessId, blocking: true, state: ["unread", "read"], limit: 50 });
+    for (const i of open.items) await owner.inbox.archive({ businessId, itemId: i.id });
+    await walls({ finance: "none", crm: "none" });
+    try {
+      const member = hz.caller({ userId: hz.A.memberId });
+      const pressed = await member.business.continue({ businessId });
+      expect(pressed.mode).toBe("local");
+      const got = await member.inbox.get({ businessId, itemId: pressed.item!.id });
+      expect(pressed.item).toMatchObject({ subject: got.item.subject, bodyMd: got.item.bodyMd, statusStrip: got.item.statusStrip, exhibit: got.item.exhibit, redacted: got.item.redacted });
+      const refreshed = await member.inbox.refresh({ businessId });
+      const gotRefreshed = await member.inbox.get({ businessId, itemId: refreshed.item.id });
+      expect(refreshed.item).toMatchObject({ subject: gotRefreshed.item.subject, bodyMd: gotRefreshed.item.bodyMd, statusStrip: gotRefreshed.item.statusStrip, redacted: gotRefreshed.item.redacted });
+    } finally {
+      await walls({});
+    }
   });
 });

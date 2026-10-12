@@ -36,6 +36,7 @@ import {
   presenceLabel,
   quickReply,
   thinkingLine,
+  trimLabel,
   type AgentVoice,
   type ConceptCardInput,
   type ConversationRequestInput,
@@ -481,24 +482,44 @@ export async function getConversation(ctx: BusinessContext, subject: Conversatio
  * masked the way inbox.get masks a note. `r.item` becomes the masked note, so a prompt built from it carries nothing the
  * person could not read.
  */
-async function seenAtDesk(tx: DbTx, ctx: BusinessContext, r: Resolved, messages: ConversationMessageView[]): Promise<{ r: Resolved; messages: ConversationMessageView[] }> {
+async function seenAtDesk(tx: DbTx, ctx: BusinessContext, r: Resolved, messages: ConversationMessageView[], chips: QuickReply[] = []): Promise<{ r: Resolved; messages: ConversationMessageView[]; chips: QuickReply[] }> {
   const walls = inboxWalls(ctx.membership);
-  if (!isWalled(walls)) return { r, messages };
-  const ids = [...(r.item ? idsOfItem(r.item) : []), ...messages.flatMap((m) => mentionIds(JSON.stringify([m.bubbles, m.quickReplies, m.handOff])))];
+  if (!isWalled(walls)) return { r, messages, chips };
+  const ids = [...(r.item ? idsOfItem(r.item) : []), ...messages.flatMap((m) => mentionIds(JSON.stringify([m.bubbles, m.quickReplies, m.handOff]))), ...mentionIds(JSON.stringify(chips))];
   const source = await loadRedactionSource(tx, ctx.businessId, walls, ids);
   const mask = r.item ? noteMask(r.item) : {};
   const item = r.item ? redactInboxItem(r.item, source) : null;
+  const options = item ? itemOptions(item) : r.options;
+  // A "Go with: …" chip quotes its option cut to fit ("Go with: Send Wren Ga…"), past where a name can be matched: it is
+  // written again from the masked option, as finaliseAgentReply writes it.
+  const maskChips = (qs: unknown): QuickReply[] =>
+    asQuickReplies(redactValue(qs, source, mask)).map((q) => {
+      const option = q.kind === "choose_option" ? options.find((o) => o.id === q.option_id) : undefined;
+      return option ? quickReply(q.id, `Go with: ${trimLabel(option.label, 26)}`, `Go with ${option.label}.`, "choose_option", { option_id: option.id, recommended: q.recommended }) : q;
+    });
   const shown: Resolved = {
     ...r,
     item,
     subject: { ...r.subject, title: item ? item.subject : r.subject.title, options: r.subject.options.map((o) => ({ ...o, label: redactText(o.label, source, mask) })) },
-    options: item ? itemOptions(item) : r.options,
-    starters: redactValue(r.starters, source, mask),
+    options,
+    starters: maskChips(r.starters),
   };
   return {
     r: shown,
-    messages: messages.map((m) => ({ ...m, bubbles: m.bubbles.map((b) => redactText(b, source, mask)), quickReplies: redactValue(m.quickReplies, source, mask), handOff: m.handOff ? { ...m.handOff, instruction: redactText(m.handOff.instruction, source, mask) } : null })),
+    messages: messages.map((m) => ({ ...m, bubbles: m.bubbles.map((b) => redactText(b, source, mask)), quickReplies: maskChips(m.quickReplies), handOff: m.handOff ? { ...m.handOff, instruction: redactText(m.handOff.instruction, source, mask) } : null })),
+    chips: maskChips(chips),
   };
+}
+
+/**
+ * A send's answer as the person who sent it may read it (audit RUI-02): the two new messages quote what was pressed or
+ * typed ("Go with Send Wren Garza a thank-you." and "Going with …"), so they come back masked the way the thread is.
+ * The stored messages stay whole; anyone walled reads them through `getConversation`, which masks them again.
+ */
+async function sentAsSeen(ctx: BusinessContext, r: Resolved, sent: SendResult): Promise<SendResult> {
+  if (!isWalled(inboxWalls(ctx.membership))) return sent;
+  const seen = await ctx.rls((tx) => seenAtDesk(tx, ctx, r, sent.messages, sent.quickReplies));
+  return { ...sent, messages: seen.messages, quickReplies: seen.chips };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -610,7 +631,7 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
     const ack = fullAck.match(/^.*?[.!](?=\s|$)/)?.[0] ?? fullAck;
     const reply = scriptedReply([`${ack} Going with ${option?.label ?? "that option"}.`, next], [quickReply("thanks", "Thanks", "Thanks.", "acknowledge"), quickReply("what_happens_next", "What happens next?", "What happens next?", "ask")], "pleased");
     const written = await writeExchange(ctx, { r, subject: input.subject, founderText: p.founderText, chip, reply, entityIds: [], handOffGated: false, planId: decision.plan.id, meta: { source: "decide", requiresConfirmation: decision.requiresConfirmation } });
-    return { ...written, quickReplies: reply.quick_replies, decision, handOff: null };
+    return sentAsSeen(ctx, r, { ...written, quickReplies: reply.quick_replies, decision, handOff: null });
   }
 
   // 2. "Review the plan" on a message that carries a hand-off → stage it (nothing runs until plan.confirm).
@@ -621,7 +642,7 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
       [quickReply("thanks", "Thanks", "Thanks.", "acknowledge"), quickReply("change_it", "Change it", "I want to change the plan.", "write"), quickReply("not_now", "Not now", "Not now.", "decline")],
     );
     const written = await writeExchange(ctx, { r, subject: input.subject, founderText: p.founderText, chip, reply, entityIds: [], handOffGated: false, meta: { source: "hand_off", planId: staged.planId } });
-    return { ...written, quickReplies: reply.quick_replies, decision: null, handOff: staged };
+    return sentAsSeen(ctx, r, { ...written, quickReplies: reply.quick_replies, decision: null, handOff: staged });
   }
 
   // 3. Everything else → the conversation route, then the server-side checks.
@@ -656,7 +677,7 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
     handOffGated: fin.handOffGates.length > 0,
     meta: { source: "model", route: result.route, model: result.model, mode: result.mode, durationMs: result.durationMs, costMinor: result.cost.costMinorInt, costLabel: "Estimate", repairs: fin.repairs.slice(0, 10) },
   });
-  return { ...written, quickReplies: fin.reply.quick_replies, decision: null, handOff: null };
+  return sentAsSeen(ctx, r, { ...written, quickReplies: fin.reply.quick_replies, decision: null, handOff: null });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

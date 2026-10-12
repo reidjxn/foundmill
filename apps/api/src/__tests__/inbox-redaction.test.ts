@@ -23,8 +23,13 @@ describe("maskFinance", () => {
     expect(maskFinance("cash stands at 263345.71 GBP, the deposit is SEK 1,200 and US$40 went on ads")).toBe("cash stands at (amount hidden), the deposit is (amount hidden) and (amount hidden) went on ads");
     expect(maskFinance("14 months of runway (Estimate); Runway 9.5 mo; runway of 3 months")).toBe("(hidden) of runway (Estimate); Runway (hidden); runway of (hidden)");
   });
+  it("hides what a founder types in a decision: currency words and lowercase codes", () => {
+    expect(maskFinance("Spend 500 euros on ads, then 2k dollars; 1,200 usd for print and eur 300 for flyers; 40 quid on stickers")).toBe(
+      "Spend (amount hidden) on ads, then (amount hidden); (amount hidden) for print and (amount hidden) for flyers; (amount hidden) on stickers",
+    );
+  });
   it("leaves counts, dates, SKUs and percentages alone", () => {
-    const text = "3 SKUs, 2,000 units each, SKU 2000, VAT 20, due Oct 7, 2026, activation 35%, 4 weeks of cover";
+    const text = "3 SKUs, 2,000 units each, SKU 2000, VAT 20, due Oct 7, 2026, activation 35%, 4 weeks of cover, all 5 agents, top 3 channels, 2 pounds of beans";
     expect(maskFinance(text)).toBe(text);
   });
 });

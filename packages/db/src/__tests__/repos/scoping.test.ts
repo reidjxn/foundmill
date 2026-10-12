@@ -126,6 +126,7 @@ describe("service-role calls are scoped by the repository", () => {
     await expect(r.svc((tx) => repos.channels.get(tx, r.A.businessId, r.B.channelId))).rejects.toThrow(/not found/);
     await expect(r.svc((tx) => repos.journeys.getConversion(tx, r.A.businessId, r.B.conversionIds[0]!))).rejects.toThrow(/not found/);
     await expect(r.svc((tx) => repos.events.get(tx, r.A.businessId, r.B.eventIds[0]!))).rejects.toThrow(/not found/);
+    expect((await r.svc((tx) => repos.inbox.byIds(tx, r.A.businessId, [r.A.inboxItemId, r.B.inboxItemId]))).map((i) => i.id)).toEqual([r.A.inboxItemId]);
   });
 
   it("writes that name another business's child rows are refused", async () => {

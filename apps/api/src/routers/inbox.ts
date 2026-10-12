@@ -2,7 +2,7 @@
 import { InboxListFilter, repos } from "@foundmill/db";
 import { z } from "zod";
 import { confirmPlan, decideInboxItem, planContextFor } from "../services/decide";
-import { entityStubs, idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactDecisions, redactInboxItem, redactPlan, redactText } from "../services/inbox-redaction";
+import { entityStubs, idsOfItem, inboxWalls, loadRedactionSource, noteAsSeenBy, noteMask, planSummariesAsSeenBy, redactDecisions, redactInboxItem, redactPlan } from "../services/inbox-redaction";
 import { compilePlan, evaluatePlan, requiresConfirmation } from "../services/plans";
 import { Id, audit, router, sectionRead, sectionWrite } from "../trpc";
 
@@ -40,21 +40,18 @@ export const inboxRouter = router({
     const result = await ctx.composer.refresh(ctx.businessId, { actorUserId: ctx.userId });
     await ctx.rls((tx) => audit(tx, ctx, { action: "inbox.refresh", target: { kind: "inbox_item", id: result.item.id }, details: { source: result.source, type: result.item.type } }));
     // The new note as this person may read it (the same walls as inbox.get).
-    const walls = inboxWalls(ctx.membership);
-    if (!isWalled(walls)) return result;
-    const source = await ctx.rls((tx) => loadRedactionSource(tx, ctx.businessId, walls, idsOfItem(result.item)));
-    return { ...result, item: redactInboxItem(result.item, source) };
+    return { ...result, item: await ctx.rls((tx) => noteAsSeenBy(tx, ctx.businessId, ctx.membership, result.item)) };
   }),
 
   decide: inboxWrite.input(z.object({ itemId: Id, chosenOption: z.string().max(40).nullable().optional(), freeText: z.string().max(4000).nullable().optional() })).mutation(({ ctx, input }) => decideInboxItem(ctx, input)),
 
-  markRead: inboxRead.input(z.object({ itemId: Id })).mutation(({ ctx, input }) => ctx.rls((tx) => repos.inbox.markRead(tx, ctx.businessId, input.itemId))),
+  markRead: inboxRead.input(z.object({ itemId: Id })).mutation(({ ctx, input }) => ctx.rls(async (tx) => noteAsSeenBy(tx, ctx.businessId, ctx.membership, await repos.inbox.markRead(tx, ctx.businessId, input.itemId)))),
 
   archive: inboxWrite.input(z.object({ itemId: Id })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const item = await repos.inbox.archive(tx, ctx.businessId, input.itemId);
       await audit(tx, ctx, { action: "inbox.archive", target: { kind: "inbox_item", id: item.id } });
-      return item;
+      return noteAsSeenBy(tx, ctx.businessId, ctx.membership, item);
     }),
   ),
 });
@@ -68,14 +65,17 @@ export const planRouter = router({
     return { summary: compiled.summary, source: compiled.source, evaluations, requiresConfirmation: requiresConfirmation(evaluations), hardGates: evaluations.filter((e) => e.hardGate).length };
   }),
   confirm: inboxWrite.input(z.object({ planId: Id })).mutation(({ ctx, input }) => confirmPlan(ctx, input.planId)),
-  status: inboxRead.input(z.object({ planId: Id })).query(({ ctx, input }) => ctx.rls((tx) => repos.plans.status(tx, ctx.businessId, input.planId))),
+  status: inboxRead.input(z.object({ planId: Id })).query(({ ctx, input }) =>
+    ctx.rls(async (tx) => {
+      const status = await repos.plans.status(tx, ctx.businessId, input.planId);
+      const [plan] = await planSummariesAsSeenBy(tx, ctx.businessId, ctx.membership, [status.plan]);
+      return { ...status, plan: plan! };
+    }),
+  ),
   list: inboxRead.input(z.object({ status: z.enum(["pending_confirmation", "executing", "done", "failed"]).optional(), limit: z.number().int().min(1).max(200).default(50), cursor: z.string().nullish() })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const page = await repos.plans.list(tx, ctx.businessId, input);
-      const walls = inboxWalls(ctx.membership);
-      if (!isWalled(walls)) return page;
-      const source = await loadRedactionSource(tx, ctx.businessId, walls, page.items.flatMap((p) => mentionIds(p.summaryMd)));
-      return { ...page, items: page.items.map((p) => ({ ...p, summaryMd: redactText(p.summaryMd, source) })) };
+      return { ...page, items: await planSummariesAsSeenBy(tx, ctx.businessId, ctx.membership, page.items) };
     }),
   ),
 });

@@ -14,7 +14,7 @@
  * (`{ id, kind, displayName }`), never identifiers or a lawful basis. `redacted` on a note lists the walls that changed
  * it, so the reading pane can say so.
  */
-import { repos, type Decision, type Executor, type InboxItem, type PlanWithActions } from "@foundmill/db";
+import { repos, type Decision, type Executor, type InboxItem, type Plan, type PlanWithActions } from "@foundmill/db";
 import { hasSectionAccess, type SectionMembership } from "@foundmill/shared";
 
 export type WallSection = "finance" | "crm";
@@ -44,7 +44,6 @@ export interface RedactionSource {
   keep: ReadonlySet<string>;
 }
 
-
 export const AMOUNT_HIDDEN = "(amount hidden)";
 export const FIGURE_HIDDEN = "(hidden)";
 
@@ -72,6 +71,10 @@ const NUMBER = String.raw`-?\d[\d,]*(?:\.\d+)?(?:\s?(?:[kKmMbB]n?|million|billio
 const SYMBOL_MONEY_RE = new RegExp(String.raw`(?:[A-Z]{0,2}[£$€¥₹]|\bkr\.?)\s?${NUMBER}`, "g");
 const CODE_FIRST_RE = new RegExp(String.raw`\b([A-Z]{3})\s?(${NUMBER})`, "g");
 const CODE_AFTER_RE = new RegExp(String.raw`(${NUMBER})\s?([A-Z]{3})\b`, "g");
+// What a founder types in a decision ("spend 500 euros", "200 usd"): currency words and the common codes in any case.
+// Only these few codes: in lowercase, three letters before or after a number are far more often words ("all 5").
+const MONEY_WORDS = String.raw`(?:eur|usd|gbp|sek|nok|dkk|chf|euros?|dollars?|bucks|quid|kronor|kroner|francs|pounds?\s+sterling)`;
+const WORD_MONEY_RE = new RegExp(String.raw`(?:\b(?:eur|usd|gbp|sek|nok|dkk|chf)\s?${NUMBER}|${NUMBER}\s?${MONEY_WORDS}\b)`, "gi");
 const MONTHS_OF_RUNWAY_RE = /\b\d+(?:\.\d+)?\s*(?:months?|mo)\b(?=\s+(?:of\s+)?runway\b)/gi;
 const RUNWAY_MONTHS_RE = /(\brunway\b[^.\n\d]{0,24})\d+(?:\.\d+)?\s*(?:months?|mo)\b/gi;
 
@@ -82,6 +85,7 @@ export function maskFinance(text: string): string {
     .replace(SYMBOL_MONEY_RE, AMOUNT_HIDDEN)
     .replace(CODE_FIRST_RE, (all, code: string) => (codes.has(code) ? AMOUNT_HIDDEN : all))
     .replace(CODE_AFTER_RE, (all, _n: string, code: string) => (codes.has(code) ? AMOUNT_HIDDEN : all))
+    .replace(WORD_MONEY_RE, AMOUNT_HIDDEN)
     .replace(MONTHS_OF_RUNWAY_RE, FIGURE_HIDDEN)
     .replace(RUNWAY_MONTHS_RE, (_all, lead: string) => `${lead}${FIGURE_HIDDEN}`);
 }
@@ -260,6 +264,32 @@ export function redactInboxItem<T extends InboxItem>(item: T, source: RedactionS
     decision,
     redacted: [...m.touched].sort(),
   };
+}
+
+/**
+ * One note as this person may read it (the walls of inbox.get), for every answer that carries a note: markRead, archive,
+ * inbox.refresh and the note an in-process Continue step wrote (business.continue).
+ */
+export async function noteAsSeenBy<T extends InboxItem>(db: Executor, businessId: string, membership: SectionMembership, item: T): Promise<RedactedInboxItem<T>> {
+  const walls = inboxWalls(membership);
+  return redactInboxItem(item, await loadRedactionSource(db, businessId, walls, idsOfItem(item)));
+}
+
+/**
+ * Plan summaries as this person may read them (plan.list, plan.status). A summary quotes the option it carries out
+ * ("carries out your choice: Send Wren Garza a thank-you"), so behind a CRM wall it also hides the plain names of its
+ * note's records, as inbox.get does: the plans' notes are read for their ids.
+ */
+export async function planSummariesAsSeenBy<P extends Pick<Plan, "summaryMd" | "inboxItemId">>(db: Executor, businessId: string, membership: SectionMembership, plans: readonly P[]): Promise<P[]> {
+  const walls = inboxWalls(membership);
+  if (!isWalled(walls)) return [...plans];
+  const noteIds = walls.crm ? [...new Set(plans.flatMap((p) => (p.inboxItemId ? [p.inboxItemId] : [])))] : [];
+  const notes = new Map((await repos.inbox.byIds(db, businessId, noteIds)).map((note) => [note.id, note]));
+  const source = await loadRedactionSource(db, businessId, walls, [...plans.flatMap((p) => mentionIds(p.summaryMd)), ...[...notes.values()].flatMap(idsOfItem)]);
+  return plans.map((p) => {
+    const note = p.inboxItemId ? notes.get(p.inboxItemId) : undefined;
+    return { ...p, summaryMd: redactText(p.summaryMd, source, note ? noteMask(note) : {}) };
+  });
 }
 
 /** A plan as the reader may see it (summary, action texts and amounts, results). */
