@@ -260,6 +260,13 @@ describe("LandingPage (signed-out /)", () => {
     expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Landed cost per routine")).toBeTruthy();
   });
 
+  it("dates the deck's top bar today, not a fixed day", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-12T12:00:00Z"));
+    renderPage();
+    expect(within(screen.getByTestId("cycle-deck")).getByTestId("kitbar-date").textContent).toBe("Oct 12, 2026");
+  });
+
   it("renders the live tiles in the browser only, already mid-session, then streams them", async () => {
     vi.useFakeTimers();
     renderPage();
@@ -310,12 +317,16 @@ describe("LandingPage server render", () => {
 
   it("is identical in every time zone, so it hydrates cleanly anywhere", async () => {
     const original = process.env.TZ;
+    // Late in the UTC day: already tomorrow in Tokyo and Auckland. The deck's date is the server's (UTC) day until it hydrates.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-12T20:00:00Z"));
     try {
       const utc = await markupIn("UTC");
-      expect(utc).toContain("Oct 7, 2026");
+      expect(utc).toContain("Oct 12, 2026");
       expect(utc).toContain("Sep 25, 2025");
       for (const zone of ["America/Los_Angeles", "Pacific/Honolulu", "Asia/Tokyo", "Pacific/Auckland"]) expect(await markupIn(zone), zone).toBe(utc);
     } finally {
+      vi.useRealTimers();
       process.env.TZ = original;
       vi.resetModules();
     }

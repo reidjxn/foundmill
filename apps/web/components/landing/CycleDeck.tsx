@@ -7,7 +7,7 @@
  * the cycle comes back with a decision (Continue turns into "Respond · 1") or a customer (gold). The first cycle runs
  * on its own once the deck is on screen, unless the visitor prefers reduced motion.
  */
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { ArrowRight, ArrowUp, Check, Inbox as InboxIcon, Star, ThumbsUp, Trophy } from "lucide-react";
 import {
   Avatar,
@@ -30,10 +30,23 @@ import {
   type ProcessingSegment,
 } from "@foundmill/dugout";
 import { useExample } from "./examples/context";
-import { exampleMoney, exampleToday, orbitDepartments } from "./examples/helpers";
+import { calendarDay, exampleMoney, exampleToday, orbitDepartments } from "./examples/helpers";
 import type { ActivityLine, ExampleBusiness, ExampleDecision, ExampleWin } from "./examples/types";
 import { continueStateFor, cycleReducer, cycleStatusText, cycleTasks, initialCycleState, type CycleAction, type CycleState, type InboxItem } from "./cycle";
 import { useSeen } from "./parts";
+
+/**
+ * Today's calendar day for the top bar's date. The server renders the UTC day and hydration reads the same, so the
+ * markup matches in every time zone; once hydrated, the deck shows the visitor's own day.
+ */
+function useToday(): string {
+  return useSyncExternalStore(
+    noSubscription,
+    () => calendarDay(new Date(), "local"),
+    () => calendarDay(new Date(), "utc"),
+  );
+}
+const noSubscription = () => () => {};
 
 /** How long a cycle runs in the deck (the product's cycles take hours; this is the replay). */
 export const DECK_CYCLE_MS = 4200;
@@ -51,7 +64,8 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
   const decisionRef = useRef<HTMLButtonElement>(null);
   const continueRef = useRef<HTMLButtonElement>(null);
   const startedAt = useRef(0);
-  const today = useMemo(exampleToday, []);
+  const todayKey = useToday();
+  const today = useMemo(() => exampleToday(todayKey), [todayKey]);
   const working = state.phase === "processing";
   const cycleMs = reduced ? DECK_CYCLE_MS_REDUCED : DECK_CYCLE_MS;
   const tick = useTicker(working ? 650 : 2800);

@@ -15,12 +15,19 @@ export function exampleMoney(business: ExampleBusiness, amountMinor: number): st
 }
 
 /**
- * Today on every example business, as local noon. The page is server-rendered in UTC and hydrated in the visitor's time
- * zone, and every date it prints must read the same in both: a date-only ISO string ("2026-10-07") parses as UTC
- * midnight and prints as 6 Oct west of UTC, so dates here are built in local time.
+ * Today on every example business, as local noon on the given calendar day ("2026-10-12"). The page is server-rendered
+ * in UTC and hydrated in the visitor's time zone, and every date it prints must read the same in both: a date-only ISO
+ * string parses as UTC midnight and prints as the day before west of UTC, so the date is built in local time.
  */
-export function exampleToday(): Date {
-  return new Date(2026, 9, 7, 12);
+export function exampleToday(day: string): Date {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(y!, m! - 1, d!, 12);
+}
+
+/** The calendar day of `now` ("2026-10-12"): in UTC, as the server renders it, or in the visitor's own time zone. */
+export function calendarDay(now: Date, zone: "utc" | "local"): string {
+  const [y, m, d] = zone === "utc" ? [now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()] : [now.getFullYear(), now.getMonth(), now.getDate()];
+  return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 /** An ISO instant moved to local noon on the same calendar day, so it prints the same day in every time zone. */

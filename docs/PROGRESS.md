@@ -238,3 +238,4 @@ Status legend: ☐ not started · ◐ in progress · ☑ done · ✗ blocked
 
 
 - 2026-10-11 Home widget grid measures its width before the first render instead of drawing at a 1280 px guess and shrinking; the brief sideways overflow on Northwind Home is gone (no-clip passes).
+- 2026-10-12 — Landing page "Watch it run" deck: the top bar's date is today, not a fixed Oct 7, 2026. The server renders the UTC day (so the markup is the same in every time zone and hydrates cleanly) and the browser then shows the visitor's own day (`useToday` in `CycleDeck.tsx`). The rest of each example (Journey, Customer Update, the Inbox note's "Wed, Oct 7") stays on its fixed timeline. Tests: deck date follows the clock; server markup identical across five time zones late in the UTC day.
