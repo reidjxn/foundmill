@@ -1,4 +1,5 @@
 /** The repos written in the first pass: businesses, memberships, founders, ideas, departments, screens, dashboards, agents, skills, training, tasks, playbooks, holidays. */
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../../repos";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
@@ -86,6 +87,51 @@ describe("departments, screens, dashboards", () => {
     await repos.dashboards.setActive(r.db, A, dash.id);
     expect((await repos.dashboards.active(r.db, A, r.A.ownerId))?.id).toBe(dash.id);
     expect(await repos.dashboards.list(r.db, A, r.B.ownerId)).toHaveLength(0);
+  });
+
+  it("stores each department's G letter, so renaming one never moves another's (audit AC-13)", async () => {
+    const b = await repos.businesses.create(r.db, { name: "Shortcut Hardware", createdBy: r.A.ownerId });
+    const make = (name: string) => repos.departments.create(r.db, b.id, { name, moduleKeys: [] });
+    const dev = await make("Development");
+    const ops = await make("Operations");
+    const dist = await make("Distribution");
+    const fin = await make("Finance");
+    const letter = async (id: string) => (await repos.departments.get(r.db, b.id, id)).shortcut;
+    expect([dev.shortcut, ops.shortcut, await letter(dist.id), await letter(fin.id)]).toEqual(["D", "O", "S", "F"]);
+    // The renamed department takes a letter from its new name; Distribution and Finance keep S and F (they used to
+    // move to D and N).
+    const lab = await repos.departments.update(r.db, b.id, dev.id, { name: "Formulation Lab" });
+    expect(lab.shortcut).toBe("L");
+    expect([await letter(ops.id), await letter(dist.id), await letter(fin.id)]).toEqual(["O", "S", "F"]);
+    // Moving and hiding change nothing.
+    await repos.departments.reorder(r.db, b.id, [fin.id, dist.id, ops.id, dev.id]);
+    await repos.departments.update(r.db, b.id, ops.id, { hidden: true });
+    expect([await letter(dev.id), await letter(ops.id), await letter(dist.id), await letter(fin.id)]).toEqual(["L", "O", "S", "F"]);
+    // The founder takes D for Distribution (free) and then F (Finance's): the holder gets Distribution's old letter.
+    expect((await repos.departments.setShortcut(r.db, b.id, dist.id, "d")).shortcut).toBe("D");
+    const swapped = await repos.departments.setShortcut(r.db, b.id, dist.id, "F");
+    expect([swapped.shortcut, swapped.shortcutChosen, await letter(fin.id)]).toEqual(["F", true, "D"]);
+    // A chosen letter survives a rename; "automatic" goes back to the name's.
+    expect((await repos.departments.update(r.db, b.id, dist.id, { name: "Sales" })).shortcut).toBe("F");
+    const auto = await repos.departments.setShortcut(r.db, b.id, dist.id, null);
+    expect([auto.shortcut, auto.shortcutChosen]).toEqual(["S", false]);
+    await expect(repos.departments.setShortcut(r.db, b.id, dist.id, "H")).rejects.toThrow(/A to Z other than G, H, I and C/);
+    await expect(repos.departments.setShortcut(r.db, r.B.businessId, dist.id, "Q")).rejects.toThrow(/not found/);
+    // Archiving frees the letter for the next department.
+    await repos.departments.archive(r.db, b.id, fin.id);
+    expect((await make("Data")).shortcut).toBe("D");
+  });
+
+  it("keeps the letters a business showed before 0040 (none stored) when its first department changes", async () => {
+    const b = await repos.businesses.create(r.db, { name: "Legacy Letters", createdBy: r.A.ownerId });
+    const dev = await repos.departments.create(r.db, b.id, { name: "Development", moduleKeys: [] });
+    const dist = await repos.departments.create(r.db, b.id, { name: "Distribution", moduleKeys: [] });
+    const fin = await repos.departments.create(r.db, b.id, { name: "Finance", moduleKeys: [] });
+    // As a business committed before 0040: nothing stored, the shell derives D, S, F from the names.
+    await r.db.execute(sql`update departments set shortcut = null where business_id = ${b.id}`);
+    await repos.departments.update(r.db, b.id, dev.id, { name: "Formulation Lab" });
+    const letters = await Promise.all([dev, dist, fin].map(async (d) => (await repos.departments.get(r.db, b.id, d.id)).shortcut));
+    expect(letters).toEqual(["L", "S", "F"]);
   });
 });
 

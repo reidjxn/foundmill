@@ -1,5 +1,5 @@
 /** departments + department_members (BUILD §11.13; routers department.*). Departments are labels over modules. */
-import { DEPT_COLOUR_TOKENS, MODULE_KEYS, slugify, ValidationError } from "@foundmill/shared";
+import { departmentLetters, DEPT_COLOUR_TOKENS, isDepartmentShortcut, MODULE_KEYS, slugify, ValidationError } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { departmentMembers, departments, MEMBER_KINDS, screenDefinitions, type Department, type DepartmentMember } from "../schema";
@@ -24,6 +24,26 @@ export const UpdateDepartmentInput = patchSchema(CreateDepartmentInput);
 export type UpdateDepartmentInput = z.input<typeof UpdateDepartmentInput>;
 
 const live = (businessId: string) => and(eq(departments.businessId, businessId), isNull(departments.archivedAt));
+
+/**
+ * Gives every live department a stored G-chord letter (0040). Letters already stored stay; the others take the first
+ * free letter of their name (`departmentLetters`, the shell's own rule). Visible departments go first, in sidebar
+ * order, so a business from before 0040 keeps exactly the letters its sidebar showed; hidden ones follow. Called on
+ * every change that can add, rename or remove a department, so renaming one never moves another's letter.
+ */
+async function settleShortcuts(db: Executor, businessId: string): Promise<void> {
+  const rows = await db
+    .select({ id: departments.id, name: departments.name, shortcut: departments.shortcut })
+    .from(departments)
+    .where(live(businessId))
+    .orderBy(asc(departments.hidden), asc(departments.position), asc(departments.name));
+  const letters = departmentLetters(rows);
+  for (const d of rows) {
+    const letter = letters.get(d.id) ?? null;
+    // Only empty slots are filled: stored letters are valid and unique by constraint, so they come back unchanged.
+    if (d.shortcut !== letter) await db.update(departments).set({ shortcut: letter }).where(and(eq(departments.businessId, businessId), eq(departments.id, d.id)));
+  }
+}
 
 export const departmentsRepo = {
   async list(db: Executor, businessId: string, options: { includeHidden?: boolean; includeArchived?: boolean } = {}): Promise<Department[]> {
@@ -51,7 +71,7 @@ export const departmentsRepo = {
   async create(db: Executor, businessId: string, input: CreateDepartmentInput): Promise<Department> {
     const v = parseInput(CreateDepartmentInput, input, "department");
     const position = v.position ?? Number(one(await db.select({ n: sql<number>`coalesce(max(${departments.position}), -1) + 1` }).from(departments).where(live(businessId)), "position").n);
-    return one(
+    const created = one(
       await db
         .insert(departments)
         .values({
@@ -71,11 +91,50 @@ export const departmentsRepo = {
         .returning(),
       "department",
     );
+    // The new department takes the first free letter of its name; the others keep theirs.
+    await settleShortcuts(db, businessId);
+    return departmentsRepo.get(db, businessId, created.id);
   },
 
   async update(db: Executor, businessId: string, departmentId: string, input: UpdateDepartmentInput): Promise<Department> {
     const v = parseInput(UpdateDepartmentInput, input, "department update");
-    return one(await db.update(departments).set(defined(v)).where(and(eq(departments.businessId, businessId), eq(departments.id, departmentId))).returning(), "department", departmentId);
+    if (v.name === undefined) return one(await db.update(departments).set(defined(v)).where(and(eq(departments.businessId, businessId), eq(departments.id, departmentId))).returning(), "department", departmentId);
+    // A rename re-derives this department's letter from its new name (AC-11.13.1) unless the founder chose it; every
+    // other department keeps the letter it has now, stored first for a business that has none stored yet.
+    await settleShortcuts(db, businessId);
+    const current = await departmentsRepo.get(db, businessId, departmentId);
+    const patch = { ...defined(v), ...(current.name !== v.name && !current.shortcutChosen ? { shortcut: null } : {}) };
+    await db.update(departments).set(patch).where(and(eq(departments.businessId, businessId), eq(departments.id, departmentId)));
+    await settleShortcuts(db, businessId);
+    return departmentsRepo.get(db, businessId, departmentId);
+  },
+
+  /**
+   * The founder's own letter for a department (Settings › Departments), or `null` to go back to the automatic one. A
+   * letter another department holds is swapped: that department takes this one's previous letter.
+   */
+  async setShortcut(db: Executor, businessId: string, departmentId: string, letter: string | null): Promise<Department> {
+    const wanted = letter === null ? null : letter.trim().toUpperCase();
+    if (wanted !== null && !isDepartmentShortcut(wanted)) throw new ValidationError("A shortcut is one letter from A to Z other than G, H, I and C (G starts the chord; H, I and C open Home, Inbox and CRM)", { letter });
+    return db.transaction(async (tx) => {
+      await settleShortcuts(tx, businessId);
+      const dept = await departmentsRepo.get(tx, businessId, departmentId);
+      if (dept.archivedAt) throw new ValidationError("An archived department has no shortcut", { departmentId });
+      const where = (id: string) => and(eq(departments.businessId, businessId), eq(departments.id, id));
+      if (wanted === null) {
+        await tx.update(departments).set({ shortcut: null, shortcutChosen: false }).where(where(departmentId));
+      } else if (wanted !== dept.shortcut) {
+        const holder = maybeOne(await tx.select({ id: departments.id }).from(departments).where(and(live(businessId), eq(departments.shortcut, wanted))).limit(1));
+        // One letter per live department (a unique index): free it, take it, then hand the holder this one's old letter.
+        if (holder) await tx.update(departments).set({ shortcut: null, shortcutChosen: false }).where(where(holder.id));
+        await tx.update(departments).set({ shortcut: wanted, shortcutChosen: true }).where(where(departmentId));
+        if (holder && dept.shortcut) await tx.update(departments).set({ shortcut: dept.shortcut }).where(where(holder.id));
+      } else {
+        await tx.update(departments).set({ shortcutChosen: true }).where(where(departmentId));
+      }
+      await settleShortcuts(tx, businessId);
+      return departmentsRepo.get(tx, businessId, departmentId);
+    });
   },
 
   async setLead(db: Executor, businessId: string, departmentId: string, leadAgentId: string | null): Promise<Department> {
@@ -100,7 +159,8 @@ export const departmentsRepo = {
     return db.transaction(async (tx) => {
       const now = new Date();
       await tx.update(screenDefinitions).set({ archivedAt: now }).where(and(eq(screenDefinitions.businessId, businessId), eq(screenDefinitions.departmentId, departmentId)));
-      return one(await tx.update(departments).set({ archivedAt: now, hidden: true }).where(and(eq(departments.businessId, businessId), eq(departments.id, departmentId))).returning(), "department", departmentId);
+      // Its letter goes back to the pool for the next department that needs one.
+      return one(await tx.update(departments).set({ archivedAt: now, hidden: true, shortcut: null, shortcutChosen: false }).where(and(eq(departments.businessId, businessId), eq(departments.id, departmentId))).returning(), "department", departmentId);
     });
   },
 

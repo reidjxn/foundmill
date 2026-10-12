@@ -190,6 +190,13 @@
       "when": 1793016720000,
       "tag": "0034_first_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1793535120000,
+      "tag": "0040_design_system",
+      "breakpoints": true
     }
   ]
 }
