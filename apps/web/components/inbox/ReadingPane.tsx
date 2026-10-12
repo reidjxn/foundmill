@@ -181,7 +181,11 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const decide = useMutation(
     trpc.inbox.decide.mutationOptions({
       onSuccess: onDecided,
-      onError: (err) => toast({ title: "Could not record the decision", description: errorMessage(err), tone: "bad" }),
+      onError: (err) => {
+        // Often a view that fell behind (another member decided or archived it): show what the server has now.
+        void invalidate(["inbox", "plan"]);
+        toast({ title: "Could not record the decision", description: errorMessage(err), tone: "bad" });
+      },
     }),
   );
   const confirm = useMutation(
@@ -193,7 +197,10 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         toast({ title: "Confirmed", description: `${res.exec.executed.length} action${res.exec.executed.length === 1 ? "" : "s"} started${res.dispatch && !res.dispatch.queued ? "; the orchestrator is offline, the rest run when it returns" : ""}.`, tone: "good", action: res.followUp ? { label: "Open the update", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
         if (won && journeyId) router.push(routes.journey(businessId, journeyId));
       },
-      onError: (err) => toast({ title: "Could not confirm the plan", description: errorMessage(err), tone: "bad" }),
+      onError: (err) => {
+        void invalidate(["inbox", "plan"]);
+        toast({ title: "Could not confirm the plan", description: errorMessage(err), tone: "bad" });
+      },
     }),
   );
   const archive = useMutation(
@@ -203,7 +210,10 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         toast({ title: "Archived", tone: "info" });
         onArchived?.();
       },
-      onError: (err) => toast({ title: "Could not archive", description: errorMessage(err), tone: "bad" }),
+      onError: (err) => {
+        void invalidate(["inbox"]);
+        toast({ title: "Could not archive", description: errorMessage(err), tone: "bad" });
+      },
     }),
   );
 

@@ -13,6 +13,9 @@
  *   [ { "ch", "e" }, ... ]                                 a coalesced burst (each element is exactly one event frame)
  *   { "t": "pong" }
  *   { "t": "err", "ch"?: "...", "code": "...", "message": "..." }   (extension: subscription denied / bad frame)
+ *   { "t": "subscribed", "ch": "..." }                     (extension: the subscription is live; every event from
+ *                                                            here on is delivered, so a tab refetches what it may
+ *                                                            have missed before it, and only then trusts the stream)
  */
 
 export const BUSINESS_CHANNEL_PREFIX = "ev:";
@@ -67,7 +70,8 @@ export interface EventFrame {
 }
 export type PongFrame = { t: "pong" };
 export type ErrorFrame = { t: "err"; ch?: string; code: StreamErrorCode; message: string };
-export type ServerFrame = EventFrame | EventFrame[] | PongFrame | ErrorFrame;
+export type SubscribedFrame = { t: "subscribed"; ch: string };
+export type ServerFrame = EventFrame | EventFrame[] | PongFrame | ErrorFrame | SubscribedFrame;
 
 /** Close codes the server uses (RFC 6455 range plus the private 4xxx range). */
 export const CLOSE_CODES = {
@@ -94,4 +98,8 @@ export function isPongFrame(v: unknown): v is PongFrame {
 
 export function isErrorFrame(v: unknown): v is ErrorFrame {
   return typeof v === "object" && v !== null && (v as ErrorFrame).t === "err" && typeof (v as ErrorFrame).code === "string";
+}
+
+export function isSubscribedFrame(v: unknown): v is SubscribedFrame {
+  return typeof v === "object" && v !== null && (v as SubscribedFrame).t === "subscribed" && typeof (v as SubscribedFrame).ch === "string";
 }

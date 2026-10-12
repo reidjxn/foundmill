@@ -20,7 +20,7 @@ import { OutboundQueue, type OutboundQueueOptions } from "./connection";
 import { MAX_INBOUND_BYTES, parseClientFrame } from "./frames";
 import { silentLog, StreamHub, type StreamHubOptions, type StreamLog } from "./hub";
 import { Metrics, type MetricsSnapshot } from "./metrics";
-import { CLOSE_CODES, parseChannel, type ClientFrame, type ErrorFrame, type StreamErrorCode } from "./protocol";
+import { CLOSE_CODES, parseChannel, type ClientFrame, type ErrorFrame, type StreamErrorCode, type SubscribedFrame } from "./protocol";
 
 export interface StreamServerOptions {
   /** Ping interval; a socket silent for two intervals is terminated (default 30 000 ms). */
@@ -151,7 +151,7 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
       });
   });
 
-  function sendControl(client: Client, frame: ErrorFrame | { t: "pong" }): void {
+  function sendControl(client: Client, frame: ErrorFrame | SubscribedFrame | { t: "pong" }): void {
     if (client.ws.readyState !== client.ws.OPEN) return;
     client.ws.send(JSON.stringify(frame));
   }
@@ -238,7 +238,9 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
 
   async function subscribe(client: Client, ch: string, focus: boolean): Promise<void> {
     if (focus) client.queue.focused.add(ch);
-    if (client.subs.has(ch) || client.pending.has(ch)) return; // idempotent
+    // Idempotent: a repeated sub of a live channel is acknowledged again; a pending one is acknowledged when it lands.
+    if (client.subs.has(ch)) return sendControl(client, { t: "subscribed", ch });
+    if (client.pending.has(ch)) return;
     const parsed = parseChannel(ch);
     if (!parsed) return sendError(client, "invalid_channel", `unknown channel "${ch}"`, ch);
     if (client.subs.size + client.pending.size >= maxSubs) return sendError(client, "too_many_subscriptions", `at most ${maxSubs} channels per socket`, ch);
@@ -266,6 +268,7 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
     });
     client.subs.set(ch, detach);
     updateSubscriptionGauge();
+    sendControl(client, { t: "subscribed", ch });
   }
 
   function startHeartbeat(): void {

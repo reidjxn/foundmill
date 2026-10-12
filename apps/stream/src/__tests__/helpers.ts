@@ -77,6 +77,8 @@ export interface TestSocket {
   /** Flattened event frames `{ ch, e }`. */
   events: { ch: string; e: unknown }[];
   errors: { t: "err"; ch?: string; code: string; message: string }[];
+  /** Channels the server acknowledged as live (`{ t: "subscribed", ch }`), in arrival order. */
+  subscribed: string[];
   send(frame: unknown): void;
   sub(ch: string, focus?: boolean): void;
   unsub(ch: string): void;
@@ -91,6 +93,7 @@ export function openSocket(url: string, token: string | null): Promise<TestSocke
   const frames: unknown[] = [];
   const events: { ch: string; e: unknown }[] = [];
   const errors: TestSocket["errors"] = [];
+  const subscribed: string[] = [];
   const closed = new Promise<{ code: number; reason: string }>((resolve) => {
     ws.on("close", (code, reason) => resolve({ code, reason: reason.toString() }));
   });
@@ -101,6 +104,7 @@ export function openSocket(url: string, token: string | null): Promise<TestSocke
     for (const f of list as Record<string, unknown>[]) {
       if (typeof f.ch === "string" && "e" in f) events.push({ ch: f.ch, e: f.e });
       else if (f.t === "err") errors.push(f as TestSocket["errors"][number]);
+      else if (f.t === "subscribed" && typeof f.ch === "string") subscribed.push(f.ch);
     }
   });
   const sock: TestSocket = {
@@ -108,6 +112,7 @@ export function openSocket(url: string, token: string | null): Promise<TestSocke
     frames,
     events,
     errors,
+    subscribed,
     send: (frame) => ws.send(JSON.stringify(frame)),
     sub: (ch, focus) => ws.send(JSON.stringify(focus === undefined ? { t: "sub", ch } : { t: "sub", ch, focus })),
     unsub: (ch) => ws.send(JSON.stringify({ t: "unsub", ch })),
