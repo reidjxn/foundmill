@@ -13,7 +13,7 @@ import { ComposerUnavailableError, createComposerNarrator, type ComposerNarrator
 import { createFollowups, type JourneyBuildRequest, type PlaybookRequest } from "../followups";
 import { conditionHolds, playbookTriggerMatches } from "../playbooks";
 import { silentLogger } from "../types";
-import { createTemporalStarter, type WorkflowStarter } from "../workflows";
+import { createTemporalStarter, type TemporalStartClient, type WorkflowStarter } from "../workflows";
 import { createIngestHarness, json, simulateToken, type IngestHarness } from "./harness";
 
 let hz: IngestHarness;
@@ -166,6 +166,19 @@ describe("Temporal starter and composer client", () => {
     expect(await down.start("playbook", { workflowId: "playbook:a:b", args: [] })).toMatchObject({ started: false, reason: expect.stringContaining("ECONNREFUSED") });
     expect(await down.start("playbook", { workflowId: "playbook:a:c", args: [] })).toMatchObject({ started: false });
     expect(attempts).toBe(1);
+
+    // A server that accepts the socket and never answers is given up on, not waited for.
+    const hung = createTemporalStarter({ address: "x", namespace: "default", taskQueue: "q", log: silentLogger, connectTimeoutMs: 20, connect: () => new Promise<never>(() => undefined) });
+    expect(await hung.start("journeyBuild", { workflowId: "journey:hung", args: [] })).toMatchObject({ started: false, reason: expect.stringContaining("connect timeout") });
+
+    // One that answers after we gave up has its connection closed, not leaked.
+    let closed = 0;
+    let answer: (c: TemporalStartClient) => void = () => undefined;
+    const slow = createTemporalStarter({ address: "x", namespace: "default", taskQueue: "q", log: silentLogger, connectTimeoutMs: 20, connect: () => new Promise<TemporalStartClient>((r) => (answer = r)) });
+    expect(await slow.start("journeyBuild", { workflowId: "journey:slow", args: [] })).toMatchObject({ started: false, reason: expect.stringContaining("connect timeout") });
+    answer({ workflow: { start: async () => undefined }, connection: { close: async () => void (closed += 1) } });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(closed).toBe(1);
   });
 
   it("posts the event ids to /v1/narrate and turns a failure into ComposerUnavailableError", async () => {

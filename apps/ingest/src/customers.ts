@@ -9,7 +9,7 @@
  * resolves without a lookup. Merged records resolve to the survivor. The customer role's stage moves forward only
  * (signed up → activated → customer). Runs inside the delivery's transaction.
  */
-import { repos, type Entity } from "@foundmill/db";
+import { repos, type CreateEntityInput, type Entity } from "@foundmill/db";
 import type { Executor } from "@foundmill/db/repos/_shared";
 import { uuidFromSeed } from "@foundmill/connectors";
 import { NotFoundError, type ConversionKind } from "@foundmill/shared";
@@ -88,19 +88,38 @@ export async function linkCustomer(tx: Executor, businessId: string, input: Link
   const identifiers = identifiersFor(input.provider, customer);
   let created = false;
   if (!entity) {
-    const displayName = customerDisplayName(input.provider, customer!);
-    entity = await repos.entities.create(tx, businessId, { id: scopedId, kind: "person", displayName, identifiers, lawfulBasis: "contract", source: input.provider });
-    created = true;
-    for (const field of ["display_name", ...Object.keys(identifiers)]) {
-      await repos.entities.recordProvenance(tx, businessId, entity.id, { field, source: input.provider, sourceRef: `event:${input.sourceEventId}`, confidence: 1, observedAt: input.occurredAt });
+    const added = await addCustomerRecord(tx, businessId, { id: scopedId, kind: "person", displayName: customerDisplayName(input.provider, customer!), identifiers, lawfulBasis: "contract", source: input.provider });
+    entity = added.entity;
+    created = added.created;
+    if (created) {
+      for (const field of ["display_name", ...Object.keys(identifiers)]) {
+        await repos.entities.recordProvenance(tx, businessId, entity.id, { field, source: input.provider, sourceRef: `event:${input.sourceEventId}`, confidence: 1, observedAt: input.occurredAt });
+      }
     }
-  } else if (Object.keys(identifiers).length > 0) {
+  }
+  if (!created && Object.keys(identifiers).length > 0) {
     // Enrichment fills only what the record lacks (a founder's edits are never overwritten).
     entity = await repos.entities.enrich(tx, businessId, entity.id, { identifiers, source: input.provider });
   }
 
   await advanceCustomerRole(tx, businessId, entity.id, STAGE_FOR_KIND[input.kind], input.occurredAt);
   return { entityId: entity.id, created };
+}
+
+/**
+ * Adds the customer at the business-scoped id. Two deliveries for one new customer can arrive together (Stripe sends a
+ * subscription's `customer.subscription.created` and its first `invoice.paid` within milliseconds): the second insert
+ * waits for the first transaction and then hits the primary key. It runs in a savepoint, so the loser links to the
+ * record the winner committed instead of failing (and losing) its delivery.
+ */
+export async function addCustomerRecord(tx: Executor, businessId: string, input: CreateEntityInput & { id: string }): Promise<{ entity: Entity; created: boolean }> {
+  try {
+    return { entity: await tx.transaction((sp) => repos.entities.create(sp, businessId, input)), created: true };
+  } catch (e) {
+    const existing = await resolveOrNull(tx, businessId, input.id);
+    if (existing) return { entity: existing, created: false };
+    throw e;
+  }
 }
 
 function identifiersFor(provider: string, customer: ConvertingCustomer | null): Record<string, string> {

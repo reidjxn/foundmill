@@ -63,7 +63,9 @@ export function createTemporalStarter(opts: TemporalStarterOptions): WorkflowSta
     if (!connecting) {
       connecting = (async () => {
         try {
-          client = await (opts.connect ?? defaultConnect)();
+          // A server that accepts the socket but never answers must not hold follow-ups (or shutdown) forever; a
+          // connection that completes after we gave up is closed rather than leaked.
+          client = await withTimeout((opts.connect ?? defaultConnect)(), connectTimeoutMs + 500, (late) => void late.connection?.close().catch(() => undefined));
           return client;
         } catch (err) {
           lastReason = `temporal unreachable: ${(err as Error).message}`;
@@ -98,6 +100,29 @@ export function createTemporalStarter(opts: TemporalStarterOptions): WorkflowSta
       await c?.connection?.close().catch(() => undefined);
     },
   };
+}
+
+/** `p`, or a "connect timeout" rejection after `ms`; `onLate` receives a value that arrives after the timeout. */
+function withTimeout<T>(p: Promise<T>, ms: number, onLate?: (value: T) => void): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error("connect timeout"));
+    }, ms);
+    timer.unref?.();
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        if (timedOut) onLate?.(v);
+        else resolve(v);
+      },
+      (e: unknown) => {
+        clearTimeout(timer);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      },
+    );
+  });
 }
 
 /** Starts nothing (tests that do not exercise follow-ups, tools). */

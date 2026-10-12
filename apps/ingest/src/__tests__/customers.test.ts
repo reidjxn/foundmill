@@ -12,7 +12,7 @@ import { ST_CHECKOUT_PAID, ST_INVOICES } from "@foundmill/connectors/connectors/
 import { stripeEvent } from "@foundmill/connectors/connectors/stripe/mock";
 import { stripeCustomerEntityId } from "@foundmill/connectors/connectors/stripe/webhooks";
 import { MOCK_NOW_UNIX } from "@foundmill/connectors/connectors/stripe/fixtures/stripe";
-import { customerEntityId } from "../customers";
+import { addCustomerRecord, advanceCustomerRole, customerEntityId } from "../customers";
 import { createIngestHarness, deliver, json, type IngestHarness } from "./harness";
 
 let hz: IngestHarness;
@@ -81,6 +81,21 @@ describe("payers in the CRM (#59)", () => {
     const late = { ...shopper, created_at: "2026-10-03T00:00:00Z" };
     await deliver(hz.base, signedShopifyRequest(hz.B.businessId, "customers/create", { ...late, id: shopper.id }, { webhookId: "rita-late" }));
     expect(await customerRole(hz.B.businessId, signup!.entityId)).toMatchObject({ stage: "customer" });
+  });
+
+  it("a delivery that loses the race to add the same new customer links to the record the other one committed", async () => {
+    const id = customerEntityId(hz.A.businessId, "connector-entity-of-the-racer");
+    const input = { id, kind: "person" as const, displayName: "Racer", identifiers: { email: "racer@example.com" } };
+    // The concurrent delivery committed first; this one's insert at the same id hits the primary key.
+    const winner = await repos.entities.create(hz.db, hz.A.businessId, input);
+    const outcome = await hz.db.transaction(async (tx) => {
+      const added = await addCustomerRecord(tx, hz.A.businessId, input);
+      // The failed insert ran in a savepoint, so the delivery's transaction goes on (and commits) normally.
+      await advanceCustomerRole(tx, hz.A.businessId, added.entity.id, "customer", new Date());
+      return added;
+    });
+    expect(outcome).toMatchObject({ created: false, entity: { id: winner.id } });
+    expect(await customerRole(hz.A.businessId, winner.id)).toMatchObject({ stage: "customer" });
   });
 });
 
