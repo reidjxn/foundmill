@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   applyProposal,
+  autonomyDraft,
   autonomyFromAgent,
+  autonomyToInput,
+  formatMajor,
+  latestDraft,
+  negotiationDraft,
+  parsePercent,
+  readAutonomyDraft,
+  readNegotiationDraft,
+  runStalled,
   firstPerson,
   founderPlain,
   plainDescription,
@@ -140,6 +149,18 @@ describe("training flow", () => {
     expect(trainingFlow([run({ decision: "promoted", watchUntil: new Date("2026-10-01") })], now).phase).toBe("idle");
     expect(trainingFlow([run({ status: "failed" })], now).phase).toBe("failed");
   });
+  it("a canceled run frees the flow; a run queued for more than ten minutes reads as stalled", () => {
+    expect(trainingFlow([run({ status: "cancelled" })], now).phase).toBe("idle");
+    expect(runStalled({ status: "queued", createdAt: new Date(now.getTime() - 11 * 60_000) }, now)).toBe(true);
+    expect(runStalled({ status: "queued", createdAt: new Date(now.getTime() - 60_000) }, now)).toBe(false);
+    expect(runStalled({ status: "running", createdAt: new Date(now.getTime() - 60 * 60_000) }, now)).toBe(false);
+  });
+  it("the editing base is the newest draft by the founder or the Coach, never a model change's retest copy", () => {
+    const v = (version: number, state: string, createdByKind: string) => ({ id: `v${version}`, version, state, createdByKind, modelKey: "sonnet", instructions: {}, tools: [], createdAt: now }) as never;
+    expect(latestDraft([v(1, "live", "system"), v(2, "draft", "user"), v(3, "draft", "system")])).toMatchObject({ id: "v2" });
+    expect(latestDraft([v(1, "live", "system"), v(2, "draft", "system")])).toBeNull();
+    expect(latestDraft([v(1, "live", "system"), v(2, "draft", "agent")])).toMatchObject({ id: "v2" });
+  });
   it("progress is phase-based, never token-based", () => {
     expect(runProgress({ status: "queued", startedAt: null, createdAt: now }, 3, now)).toBe(0.05);
     expect(runProgress({ status: "running", startedAt: new Date(now.getTime() - 90_000), createdAt: now }, 3, now)).toBeCloseTo(0.45, 2);
@@ -208,10 +229,58 @@ describe("autonomy and negotiation forms", () => {
     expect(validateNegotiation({ ...n, walkAwayMinor: 100, priceMaxMinor: 900 })).toBeNull();
     expect(negotiationToInput({ enabled: false, priceMinMinor: null, priceMaxMinor: null, walkAwayMinor: null, maxConcessionPct: null, topics: [] })).toEqual({ enabled: false, topics: [] });
   });
-  it("parses money in major units", () => {
+  it("parses typed money in major units, US grouping and shorthand, and never guesses", () => {
     expect(parseMajor("12.50")).toBe(1250);
-    expect(parseMajor("1,5")).toBe(150);
+    expect(parseMajor("25")).toBe(2500);
+    expect(parseMajor("150.50")).toBe(15050);
+    expect(parseMajor("1,250.50")).toBe(125050);
+    expect(parseMajor("1,250")).toBe(125000);
+    expect(parseMajor(" $250 ")).toBe(25000);
+    expect(parseMajor("25k")).toBe(2_500_000);
+    expect(parseMajor("12.")).toBe(1200);
+    expect(parseMajor(".5")).toBe(50);
+    expect(parseMajor("0")).toBe(0);
+    expect(parseMajor("-5")).toBe(-500);
     expect(parseMajor("")).toBeNull();
+    expect(parseMajor("  ")).toBeNull();
+    // Not an amount, or a fraction of a cent: NaN, which validation names, never a different number.
+    expect(parseMajor("2.005")).toBeNaN();
+    expect(parseMajor("abc")).toBeNaN();
+    expect(parseMajor("1.2.3")).toBeNaN();
+    expect(formatMajor(25_000)).toBe("250");
+    expect(formatMajor(1250)).toBe("12.50");
+    expect(formatMajor(0)).toBe("0");
+    expect(formatMajor(null)).toBe("");
+    expect(parsePercent("15")).toBe(15);
+    expect(parsePercent("12.5%")).toBe(12.5);
+    expect(parsePercent("")).toBeNull();
+    expect(parsePercent("lots")).toBeNaN();
+  });
+
+  it("keeps typed text in the drafts and reads it only for validation and save (audit WEB-03: 25 never becomes 2.01)", () => {
+    // Every keystroke of "25" and "150.50" leaves the text as typed; the old field re-rendered "2" as "2.00".
+    let draft = autonomyDraft(autonomyFromAgent({ mode: "inherit", spendCapMinor: 0 }));
+    expect(draft.spendCap).toBe("0");
+    for (const text of ["", "2", "25"]) draft = { ...draft, spendCap: text };
+    expect(draft.spendCap).toBe("25");
+    expect(readAutonomyDraft(draft).spendCapMinor).toBe(2500);
+    let threshold = "";
+    for (const ch of "150.50") threshold += ch;
+    draft = { ...draft, spendCap: "200", approvalThreshold: threshold };
+    expect(readAutonomyDraft(draft)).toEqual({ mode: "inherit", spendCapMinor: 20_000, approvalThresholdMinor: 15_050 });
+    expect(validateAutonomy(readAutonomyDraft(draft))).toBeNull();
+    expect(autonomyToInput(readAutonomyDraft(draft))).toEqual({ mode: "inherit", spendCapMinor: 20_000, approvalThresholdMinor: 15_050 });
+    expect(validateAutonomy(readAutonomyDraft({ ...draft, spendCap: "two hundred" }))).toMatch(/Enter the spend cap as an amount/);
+    expect(validateAutonomy(readAutonomyDraft({ ...draft, approvalThreshold: "2.005" }))).toMatch(/Enter the approval threshold as an amount/);
+    expect(autonomyToInput(readAutonomyDraft({ ...draft, spendCap: "", approvalThreshold: "" }))).toEqual({ mode: "inherit" });
+
+    const n = negotiationDraft(negotiationFromAgent({ enabled: true, priceMinMinor: 10_000, walkAwayMinor: 8_050, maxConcessionPct: 15, topics: ["price"] }));
+    expect(n).toEqual({ enabled: true, priceMin: "100", priceMax: "", walkAway: "80.50", maxConcession: "15", topics: ["price"] });
+    expect(negotiationToInput(readNegotiationDraft({ ...n, priceMax: "1,500" }))).toEqual({ enabled: true, priceMinMinor: 10_000, priceMaxMinor: 150_000, walkAwayMinor: 8_050, maxConcessionPct: 15, topics: ["price"] });
+    // Unreadable limits are refused even with negotiation off: they are saved either way.
+    expect(validateNegotiation(readNegotiationDraft({ ...n, enabled: false, walkAway: "soon" }))).toMatch(/walk-away amount as an amount/);
+    expect(validateNegotiation(readNegotiationDraft({ ...n, enabled: false, maxConcession: "most" }))).toMatch(/between 0 and 100/);
+    expect(validateNegotiation(readNegotiationDraft({ ...n, enabled: false, priceMin: "-5" }))).toMatch(/cannot be negative/);
   });
 });
 

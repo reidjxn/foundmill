@@ -45,6 +45,49 @@ test.describe("agent profile", () => {
     await expect(page.getByTestId("apply-scope-dialog")).toBeHidden();
   });
 
+  test("a model change queues a retest the founder can cancel; it never sits queued with no way out (AC-11.10.5)", async ({ page }) => {
+    await openSquadAgent(page);
+    const progress = page.getByTestId("training-progress");
+    /** The e2e stack runs no Temporal, so a retest stays queued until the founder cancels it from the Training tab. */
+    const cancelQueuedRuns = async () => {
+      await expect(progress).toBeVisible({ timeout: LONG });
+      for (let i = 0; i < 5 && (await progress.count()) > 0; i++) {
+        const runId = await progress.getAttribute("data-run-id");
+        await progress.getByTestId("cancel-training").click();
+        await expect(page.locator(`[data-testid=training-progress][data-run-id="${runId}"]`)).toHaveCount(0, { timeout: LONG });
+      }
+      await expect(progress).toHaveCount(0);
+      await expect(page.getByTestId("training-notice")).toContainText("Training canceled. The live version is unchanged.");
+    };
+    const applyModel = async (pick: "other" | string) => {
+      await page.getByTestId("header-model-chip").click();
+      const dialog = page.getByTestId("model-dialog");
+      await expect(dialog).toBeVisible();
+      const radio = pick === "other" ? dialog.locator("input[type=radio]:not(:checked):not(:disabled)").first() : dialog.locator(`input[type=radio][value="${pick}"]`);
+      await expect(radio).toBeAttached({ timeout: LONG });
+      await radio.click();
+      await expect(page.getByTestId("apply-scope-dialog")).toBeVisible();
+      await page.getByTestId("apply-scope-confirm").click();
+      await expect(page.getByTestId("apply-scope-dialog")).toBeHidden({ timeout: LONG });
+      await expect(page.getByText(/1 retest queued/).first()).toBeVisible({ timeout: LONG });
+    };
+
+    await page.getByTestId("header-model-chip").click();
+    const original = await page.getByTestId("model-dialog").locator("input[type=radio]:checked").getAttribute("value", { timeout: LONG });
+    await page.keyboard.press("Escape");
+    expect(original, "the picker marks the agent's current model").toBeTruthy();
+
+    await applyModel("other");
+    await page.getByRole("tab", { name: "Training" }).click();
+    await expect(page.getByTestId("agent-training")).toBeVisible({ timeout: LONG });
+    await cancelQueuedRuns();
+    await expect(page.getByTestId("agent-training")).not.toHaveAttribute("data-phase", "active");
+
+    // Put the seeded model back; its retest is canceled the same way.
+    await applyModel(original!);
+    await cancelQueuedRuns();
+  });
+
   test("training: editing saves a draft, the live version stays (AC-11.10.1)", async ({ page }) => {
     await openSquadAgent(page);
     await page.getByRole("tab", { name: "Training" }).click();
@@ -73,6 +116,21 @@ test.describe("agent profile", () => {
     await page.getByRole("tab", { name: "Autonomy" }).click();
     await expect(page.getByTestId("agent-autonomy")).toBeVisible({ timeout: LONG });
     await page.getByLabel("Ask more often").check();
+    // Money fields keep exactly what is typed, keystroke by keystroke (audit WEB-03: "25" used to become "2.01").
+    const cap = page.getByRole("textbox", { name: "Spend cap per action" });
+    for (const amount of ["25", "150.50"]) {
+      await cap.click();
+      await cap.press("ControlOrMeta+a");
+      await cap.press("Backspace");
+      await cap.pressSequentially(amount);
+      await expect(cap).toHaveValue(amount);
+    }
+    // At rest the amount is grouped for reading; focus shows the typed text again.
+    await cap.click();
+    await cap.press("ControlOrMeta+a");
+    await cap.pressSequentially("1250");
+    await page.getByRole("textbox", { name: "Ask above" }).click();
+    await expect(cap).toHaveValue("1,250");
     // The seed gives some agents an approval threshold above a zero spend cap, which the form refuses to save; the
     // threshold field is part of the save path, so put it inside the cap first.
     await page.getByRole("textbox", { name: "Ask above" }).fill("0");

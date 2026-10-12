@@ -38,4 +38,19 @@ describe("historyEvents", () => {
     expect(events[1]).toMatchObject({ title: "Training promoted", statusWord: "Promoted", tone: "good" });
     expect(events[2]).toMatchObject({ title: "Version 1 is live", statusWord: "Live" });
   });
+
+  it("names a model change's retest and a canceled run in US English", () => {
+    const profile = {
+      versions: [
+        { id: "v1", version: 1, state: "live", createdByKind: "system", modelKey: "sonnet", tools: [], createdAt: new Date("2026-09-01") },
+        { id: "v2", version: 2, state: "draft", createdByKind: "system", modelKey: "haiku", tools: [], createdAt: new Date("2026-10-01") },
+      ],
+      trainingRuns: [{ id: "r1", status: "cancelled", decision: null, fromVersionId: "v1", toVersionId: "v2", results: {}, costMinor: 0, currency: "USD", startedAt: null, endedAt: new Date("2026-10-01T00:05:00Z"), createdAt: new Date("2026-10-01") }],
+      sessions: [],
+    } as never;
+    const events = historyEvents(profile, "USD");
+    expect(events.find((e) => e.id === "run-r1")).toMatchObject({ title: "Retest canceled", statusWord: "Canceled" });
+    expect(events.find((e) => e.id === "version-v2")?.description).toMatch(/^Retest after a model change · Haiku/);
+    expect(events.find((e) => e.id === "version-v1")?.description).toMatch(/^Set up with the business/);
+  });
 });

@@ -6,13 +6,17 @@
  * (held-out included, never returned) against the draft version: the candidate answers through the agent's route in
  * the mock sandbox with mock tools only, deterministic checks run first and are authoritative, then the `skillGrader`
  * route scores the rubric. `finalizeTrainingRun` writes results, moves the run to awaiting_decision and emits
- * `training.completed`. The live version is never touched here; Promote is the founder's button (apps/api).
+ * `training.completed`; `failTrainingRun` ends a run that could not start as failed, so no run stays queued. A run the
+ * founder canceled (agent.training.cancel) stays canceled whatever lands later. The live version is never touched
+ * here; Promote is the founder's button (apps/api).
  */
 import { AgentInstructions, buildSystemPrompt, detectClubRuleViolation, getPrompt, getSkillDefinition, getSkillTests, ratingFromTested, runDeterministicChecks, type AgentTemplate, type SkillTest } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
-import { repos } from "@foundmill/db";
+import { ACTIVE_TRAINING_STATUSES, repos } from "@foundmill/db";
 import { SkillGradeOutput, resolveModel } from "@foundmill/models";
 import { MockSandboxProvider, RECORDINGS, type MockSandbox } from "@foundmill/sandbox";
+import { NotFoundError, type ModelKey } from "@foundmill/shared";
+import { ApplicationFailure } from "@temporalio/common";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { templateForAgent } from "./session";
@@ -20,6 +24,15 @@ import type { LoadedTrainingRun, SkillTestsOutcome, TrainingRunInput, TrainingRu
 
 /** A failed deterministic check caps the test's score (BUILD §12.5: checks are authoritative, the grader never overrides them). */
 export const FAILED_CHECK_SCORE_CAP = 0.4;
+
+/** The only failure type whose message is a founder-readable reason a run could not start (workflows/trainingRun stores it). */
+export const TRAINING_RUN_ERROR = "TrainingRunError";
+/** Retrying cannot help these: the run is failed at once with the reason. */
+const cannotStart = (message: string) => ApplicationFailure.create({ message, type: TRAINING_RUN_ERROR, nonRetryable: true });
+/** A run starts from queued; running too, when `loadTrainingRun` itself is retried after it moved the run. */
+const STARTABLE = ["queued", "running"] as const;
+
+const MODEL_NAMES: Record<ModelKey, string> = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
 
 export function scoreTest(graderScore: number, checks: readonly { passed: boolean }[]): number {
   const failed = checks.some((c) => !c.passed);
@@ -50,17 +63,33 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
   }
 
   return {
+    /**
+     * Reads the run and moves it to running. A run that can never start (its candidate is the live version, it has no
+     * draft, a row is gone, it was canceled) fails with a non-retryable `TrainingRunError` whose message the workflow
+     * stores on the run, so it ends failed instead of staying queued.
+     */
     async loadTrainingRun(input: TrainingRunInput): Promise<LoadedTrainingRun> {
       const { db } = deps;
-      const run = await repos.training.get(db, input.businessId, input.trainingRunId);
-      if (!run.toVersionId) throw new Error("training run has no draft version");
-      const [agent, draft] = await Promise.all([repos.agents.get(db, input.businessId, run.agentId), repos.agents.getVersion(db, input.businessId, run.toVersionId)]);
-      if (draft.state === "live") throw new Error("refusing to train against the live version (AC-11.10.1)");
-      const live = run.fromVersionId ? await repos.agents.getVersion(db, input.businessId, run.fromVersionId) : agent.currentVersionId ? await repos.agents.getVersion(db, input.businessId, agent.currentVersionId) : null;
+      const permanent = async <T>(read: Promise<T>): Promise<T> => {
+        try {
+          return await read;
+        } catch (err) {
+          if (err instanceof NotFoundError) throw cannotStart("The run, its agent or its draft version no longer exists.");
+          throw err;
+        }
+      };
+      const run = await permanent(repos.training.get(db, input.businessId, input.trainingRunId));
+      if (!(STARTABLE as readonly string[]).includes(run.status)) throw cannotStart("The run had already ended before it started.");
+      if (!run.toVersionId) throw cannotStart("The run has no draft version to test.");
+      const [agent, draft] = await permanent(Promise.all([repos.agents.get(db, input.businessId, run.agentId), repos.agents.getVersion(db, input.businessId, run.toVersionId)]));
+      if (draft.state !== "draft") throw cannotStart(draft.state === "live" ? "The candidate is the live version; training only ever scores a draft." : "The candidate is no longer a draft.");
+      const live = run.fromVersionId ? await permanent(repos.agents.getVersion(db, input.businessId, run.fromVersionId)) : agent.currentVersionId ? await permanent(repos.agents.getVersion(db, input.businessId, agent.currentVersionId)) : null;
       const template = templateForAgent(agent);
       const existing = await repos.skills.listForAgent(db, input.businessId, agent.id);
       const skillKeys = existing.length > 0 ? existing.map((s) => s.skillKey) : template.skills;
-      await repos.training.update(db, input.businessId, run.id, { status: "running", startedAt: deps.clock.now() });
+      // Only from queued (or running, on a retry of this activity): a cancel that landed meanwhile stands.
+      const started = await repos.training.transition(db, input.businessId, run.id, STARTABLE, { status: "running", startedAt: run.startedAt ?? deps.clock.now() });
+      if (!started) throw cannotStart("The run had already ended before it started.");
       return {
         trainingRunId: run.id,
         agentId: agent.id,
@@ -70,7 +99,36 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
         skillKeys,
         modelKey: draft.modelKey,
         clubRuleFlags: flagsFor((live?.instructions as Record<string, unknown> | null) ?? null, draft.instructions as Record<string, unknown>, template),
+        // A model change's retest (agent.model.set): the system's copy of the live version on another model.
+        retest: live && draft.createdByKind === "system" && draft.modelKey !== live.modelKey ? { fromModelKey: live.modelKey, toModelKey: draft.modelKey } : null,
       };
+    },
+
+    /**
+     * A run that could not start (`loadTrainingRun` refused it or kept failing) ends failed with the reason, unless it
+     * already ended (a founder's cancel). Without this the run stayed queued, and the Training tab active, for good.
+     */
+    async failTrainingRun(input: TrainingRunInput & { error: string }): Promise<TrainingRunResult> {
+      const { db } = deps;
+      const coachSummaryMd = `Training failed: ${input.error}`;
+      const failed = await repos.training.transition(db, input.businessId, input.trainingRunId, ACTIVE_TRAINING_STATUSES, { status: "failed", coachSummaryMd, endedAt: deps.clock.now() });
+      if (!failed) {
+        // Already ended: canceled by the founder, or failed by an earlier attempt of this activity (or the row is gone).
+        const run = await repos.training.get(db, input.businessId, input.trainingRunId).catch(() => null);
+        return { status: run?.status === "failed" ? "failed" : "cancelled", skillDeltas: [], eventId: null };
+      }
+      let eventId: string | null = null;
+      if (failed.toVersionId) {
+        const ev = await emitEvent(db, {
+          businessId: input.businessId,
+          type: "training.completed",
+          actor: systemActor,
+          payload: { trainingRunId: failed.id, agentId: failed.agentId, fromVersionId: failed.fromVersionId ?? failed.toVersionId, toVersionId: failed.toVersionId, status: "failed", cost: { amountMinor: 0, currency: failed.currency }, durationMs: 0, testsRun: 0, skillDeltas: [], coachSummary: coachSummaryMd.slice(0, 4000), recommendation: null },
+        });
+        eventId = ev.id;
+      }
+      await repos.audit.append(db, input.businessId, { actorKind: "system", action: "training.complete", target: { kind: "training_run", id: failed.id }, details: { status: "failed", error: input.error.slice(0, 400) } });
+      return { status: "failed", skillDeltas: [], eventId };
     },
 
     /** One skill's test set against the draft version, in the mock sandbox with mock tools only. */
@@ -156,12 +214,12 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
     },
 
     /** Persist results on the run (never on the live version) and narrate through `training.completed`. */
-    async finalizeTrainingRun(input: TrainingRunInput & { agentId: string; draftVersionId: string; liveVersionId: string | null; outcomes: SkillTestsOutcome[]; clubRuleFlags: LoadedTrainingRun["clubRuleFlags"]; startedAt: string; status?: "failed" | "cancelled"; error?: string }): Promise<TrainingRunResult> {
+    async finalizeTrainingRun(input: TrainingRunInput & { agentId: string; draftVersionId: string; liveVersionId: string | null; outcomes: SkillTestsOutcome[]; clubRuleFlags: LoadedTrainingRun["clubRuleFlags"]; startedAt: string; status?: "failed" | "cancelled"; error?: string; retest?: LoadedTrainingRun["retest"] }): Promise<TrainingRunResult> {
       const { db } = deps;
       const run = await repos.training.get(db, input.businessId, input.trainingRunId);
       const results: Record<string, { old: number; new: number }> = {};
       const skillDeltas: TrainingRunResult["skillDeltas"] = [];
-      const costMinor = input.outcomes.reduce((a, o) => a + o.costMinor, 0);
+      const costMinor = Math.max(0, Math.round(input.outcomes.reduce((a, o) => a + o.costMinor, 0)));
       for (const o of input.outcomes) {
         const before = Math.max(1, Math.min(20, Math.round(o.previousTested ?? o.tested)));
         results[o.skillKey] = { old: before, new: o.tested };
@@ -169,17 +227,29 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
       }
       const drops = skillDeltas.filter((d) => d.before - d.after > 1);
       const gains = skillDeltas.filter((d) => d.after > d.before);
+      const retest = input.retest ?? null;
+      // A retest has nothing to gain by itself: the new model is kept unless skills drop.
+      const recommendation = drops.length === 0 && (gains.length > 0 || retest) ? "promote" : "discard";
       const flagNote = input.clubRuleFlags.length ? ` The draft tried to change ${input.clubRuleFlags.length} house rule${input.clubRuleFlags.length > 1 ? "s" : ""} (${input.clubRuleFlags.map((f) => f.ruleId).join(", ")}); those lines were ignored and the rules still apply.` : "";
+      const intro = retest ? `Retest on ${MODEL_NAMES[retest.toModelKey]} after the model change from ${MODEL_NAMES[retest.fromModelKey]}: ` : "";
+      const advice = !retest ? recommendation : recommendation === "promote" ? `promote, so the live version runs on ${MODEL_NAMES[retest.toModelKey]} too` : `discard, and change the model back to ${MODEL_NAMES[retest.fromModelKey]} (the agent works on ${MODEL_NAMES[retest.toModelKey]} until you do)`;
       const coachSummaryMd = input.status
-        ? `Training ${input.status}${input.error ? `: ${input.error}` : ""}.`
-        : `${input.outcomes.reduce((a, o) => a + o.testsRun, 0)} tests across ${input.outcomes.length} skills. ${gains.length} skill${gains.length === 1 ? "" : "s"} up, ${drops.length} dropped by more than a point${drops.length ? ` (${drops.map((d) => `${d.skillKey} ${d.before}→${d.after}`).join(", ")})` : ""}.${flagNote} Recommendation: ${drops.length === 0 && gains.length > 0 ? "promote" : "discard"} (Estimate from tested ratings; proven ratings follow live work).`;
-      const status = input.status ?? "awaiting_decision";
-      await repos.training.update(db, input.businessId, run.id, { status, results, coachSummaryMd, costMinor: Math.max(0, Math.round(costMinor)), endedAt: deps.clock.now() });
+        ? `Training ${input.status === "cancelled" ? "canceled" : "failed"}${input.error ? `: ${input.error}` : ""}.`
+        : `${intro}${input.outcomes.reduce((a, o) => a + o.testsRun, 0)} tests across ${input.outcomes.length} skills. ${gains.length} skill${gains.length === 1 ? "" : "s"} up, ${drops.length} dropped by more than a point${drops.length ? ` (${drops.map((d) => `${d.skillKey} ${d.before}→${d.after}`).join(", ")})` : ""}.${flagNote} Recommendation: ${advice} (Estimate from tested ratings; proven ratings follow live work).`;
+      // Only a run still in flight takes the outcome: a founder's cancel (agent.training.cancel) that landed while the
+      // tests ran stands, and keeps what the tests cost.
+      const moved = await repos.training.transition(db, input.businessId, run.id, ACTIVE_TRAINING_STATUSES, { status: input.status ?? "awaiting_decision", results, coachSummaryMd, costMinor, endedAt: deps.clock.now() });
+      let stored = moved;
+      if (!stored) {
+        const current = await repos.training.get(db, input.businessId, run.id);
+        stored = current.status === "cancelled" ? await repos.training.update(db, input.businessId, run.id, { costMinor }) : current;
+      }
+      const status: TrainingRunResult["status"] = stored.status === "cancelled" ? "cancelled" : stored.status === "failed" ? "failed" : "awaiting_decision";
       const ev = await emitEvent(db, {
         businessId: input.businessId,
         type: "training.completed",
         actor: systemActor,
-        payload: { trainingRunId: run.id, agentId: input.agentId, fromVersionId: input.liveVersionId ?? input.draftVersionId, toVersionId: input.draftVersionId, status: input.status === "cancelled" ? "cancelled" : input.status === "failed" ? "failed" : "succeeded", cost: { amountMinor: Math.max(0, Math.round(costMinor)), currency: run.currency ?? "EUR" }, durationMs: Math.max(0, deps.clock.nowMs() - new Date(input.startedAt).getTime()), testsRun: input.outcomes.reduce((a, o) => a + o.testsRun, 0), skillDeltas: skillDeltas.map((d) => ({ skillKey: d.skillKey, group: input.outcomes.find((o) => o.skillKey === d.skillKey)?.group ?? "craft", before: d.before, after: d.after })), coachSummary: coachSummaryMd.slice(0, 4000), recommendation: input.status ? null : drops.length === 0 && gains.length > 0 ? "promote" : "discard" },
+        payload: { trainingRunId: run.id, agentId: input.agentId, fromVersionId: input.liveVersionId ?? input.draftVersionId, toVersionId: input.draftVersionId, status: status === "awaiting_decision" ? "succeeded" : status, cost: { amountMinor: costMinor, currency: run.currency ?? "EUR" }, durationMs: Math.max(0, deps.clock.nowMs() - new Date(input.startedAt).getTime()), testsRun: input.outcomes.reduce((a, o) => a + o.testsRun, 0), skillDeltas: skillDeltas.map((d) => ({ skillKey: d.skillKey, group: input.outcomes.find((o) => o.skillKey === d.skillKey)?.group ?? "craft", before: d.before, after: d.after })), coachSummary: (moved ? coachSummaryMd : stored.coachSummaryMd || "Training canceled.").slice(0, 4000), recommendation: status === "awaiting_decision" ? recommendation : null },
       });
       await repos.audit.append(db, input.businessId, { actorKind: "system", action: "training.complete", target: { kind: "training_run", id: run.id }, details: { status, skills: skillDeltas.length, flags: input.clubRuleFlags.length } });
       return { status, skillDeltas, eventId: ev.id };

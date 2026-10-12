@@ -1,9 +1,9 @@
 /** training_runs — the Training screen lifecycle (BUILD §11.10; routers agent.training.*). */
-import { ValidationError } from "@foundmill/shared";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { MODEL_KEYS, ValidationError } from "@foundmill/shared";
+import { and, desc, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
-import { TRAINING_DECISIONS, TRAINING_STATUSES, trainingRuns, type TrainingRun } from "../schema";
-import { agentsRepo } from "./agents";
+import { TRAINING_DECISIONS, TRAINING_STATUSES, agentVersions, trainingRuns, type AgentVersion, type TrainingRun } from "../schema";
+import { agentsRepo, type CreateAgentVersionInput } from "./agents";
 import { Currency, defined, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 
 export const CreateTrainingRunInput = z.object({
@@ -30,6 +30,10 @@ export const UpdateTrainingRunInput = z.object({
   watchUntil: z.coerce.date().nullable().optional(),
 });
 export type UpdateTrainingRunInput = z.input<typeof UpdateTrainingRunInput>;
+
+export type TrainingStatus = (typeof TRAINING_STATUSES)[number];
+/** A run in one of these is in flight: the Training tab shows it as active and holds the agent's Train button. */
+export const ACTIVE_TRAINING_STATUSES = ["queued", "running", "grading"] as const satisfies readonly TrainingStatus[];
 
 const scoped = (businessId: string, runId: string) => and(eq(trainingRuns.businessId, businessId), eq(trainingRuns.id, runId));
 
@@ -88,6 +92,67 @@ export const trainingRepo = {
   async update(db: Executor, businessId: string, runId: string, input: UpdateTrainingRunInput): Promise<TrainingRun> {
     const v = parseInput(UpdateTrainingRunInput, input, "training run update");
     return one(await db.update(trainingRuns).set(defined(v)).where(scoped(businessId, runId)).returning(), "training run", runId);
+  },
+
+  /**
+   * `update`, but only while the run's status is one of `from`, in one statement, so a founder's cancel that lands
+   * between a worker's read and its write is never overwritten. Null when the run had already moved on.
+   */
+  async transition(db: Executor, businessId: string, runId: string, from: readonly TrainingStatus[], input: UpdateTrainingRunInput): Promise<TrainingRun | null> {
+    const v = parseInput(UpdateTrainingRunInput, input, "training run update");
+    const rows = await db
+      .update(trainingRuns)
+      .set(defined(v))
+      .where(and(scoped(businessId, runId), inArray(trainingRuns.status, [...from])))
+      .returning();
+    return rows[0] ?? null;
+  },
+
+  /**
+   * The founder stops a queued or running run (agent.training.cancel). A run whose worker never picked it up would
+   * otherwise stay queued, and hold the agent's Train button, for good.
+   */
+  async cancel(db: Executor, businessId: string, runId: string): Promise<TrainingRun> {
+    const run = await trainingRepo.get(db, businessId, runId);
+    const cancelled = await trainingRepo.transition(db, businessId, runId, ACTIVE_TRAINING_STATUSES, { status: "cancelled", endedAt: new Date() });
+    if (!cancelled) throw new ValidationError("This training run has already finished", { runId, status: run.status });
+    return cancelled;
+  },
+
+  /**
+   * A model change's retest (AC-11.10.5): a draft copy of the live version (instructions and tools) on the new model,
+   * created by the system, and a queued run that scores it against the live version. The live version itself is never
+   * the candidate (AC-11.10.1); promoting the run makes the copy live on the new model. The agent's earlier retests
+   * still in flight are canceled (`superseded`, the caller stops their workflows): they test a model it no longer runs,
+   * and the old shape (the live version as its own candidate) could never start. Null when the agent has no live
+   * version to copy.
+   */
+  async createModelRetest(db: Executor, businessId: string, agentId: string, input: { modelKey: (typeof MODEL_KEYS)[number]; requestedBy?: string | null }): Promise<{ run: TrainingRun; draft: AgentVersion; superseded: TrainingRun[] } | null> {
+    const v = parseInput(z.object({ modelKey: z.enum(MODEL_KEYS), requestedBy: Id.nullable().optional() }), input, "model retest");
+    return db.transaction(async (tx) => {
+      const agent = await agentsRepo.get(tx, businessId, agentId);
+      if (!agent.currentVersionId) return null;
+      const live = await agentsRepo.getVersion(tx, businessId, agent.currentVersionId);
+      const retestCopies = tx
+        .select({ id: agentVersions.id })
+        .from(agentVersions)
+        .where(and(eq(agentVersions.businessId, businessId), eq(agentVersions.agentId, agent.id), eq(agentVersions.createdByKind, "system"), gt(agentVersions.version, 1)));
+      const superseded = await tx
+        .update(trainingRuns)
+        .set({ status: "cancelled", endedAt: new Date() })
+        .where(
+          and(
+            eq(trainingRuns.businessId, businessId),
+            eq(trainingRuns.agentId, agent.id),
+            inArray(trainingRuns.status, [...ACTIVE_TRAINING_STATUSES]),
+            or(inArray(trainingRuns.toVersionId, retestCopies), eq(trainingRuns.fromVersionId, trainingRuns.toVersionId)),
+          ),
+        )
+        .returning();
+      const draft = await agentsRepo.createVersion(tx, businessId, agent.id, { instructions: live.instructions as CreateAgentVersionInput["instructions"], tools: live.tools, modelKey: v.modelKey, state: "draft", createdByKind: "system", createdBy: v.requestedBy ?? null });
+      const run = await trainingRepo.create(tx, businessId, { agentId: agent.id, fromVersionId: live.id, toVersionId: draft.id, status: "queued", requestedBy: v.requestedBy ?? null });
+      return { run, draft, superseded };
+    });
   },
 
   /**

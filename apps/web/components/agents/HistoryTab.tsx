@@ -9,7 +9,7 @@ import { useMemo } from "react";
 import { Panel, StatusStrip, Timeline, formatMoney, type MetricTileProps, type TimelineEvent } from "@foundmill/dugout";
 import type { TabProps } from "./AgentProfileScreen";
 import { MODEL_LABELS } from "@foundmill/dugout";
-import { RUN_PHASE_LABEL, outcomeWord, sessionRows, toIso } from "./logic";
+import { RUN_PHASE_LABEL, isRetestVersion, outcomeWord, sessionRows, toIso } from "./logic";
 import { formatNumber } from "@/lib/format";
 
 /** "opus" → "Opus" (the model's display name). */
@@ -22,7 +22,7 @@ export function historyEvents(profile: TabProps["profile"], currency: string): T
       id: `version-${v.id}`,
       at: toIso(v.createdAt) ?? new Date(0),
       title: `Version ${v.version} ${v.state === "live" ? "is live" : v.state === "draft" ? "drafted" : "retired"}`,
-      description: `${v.createdByKind === "user" ? "You" : v.createdByKind === "agent" ? "Coach" : "Set up with the business"} · ${modelWord(v.modelKey)} · ${(v.tools as unknown[]).length} tool ${(v.tools as unknown[]).length === 1 ? "grant" : "grants"}`,
+      description: `${v.createdByKind === "user" ? "You" : v.createdByKind === "agent" ? "Coach" : isRetestVersion(v) ? "Retest after a model change" : "Set up with the business"} · ${modelWord(v.modelKey)} · ${(v.tools as unknown[]).length} tool ${(v.tools as unknown[]).length === 1 ? "grant" : "grants"}`,
       icon: FileClock,
       tone: v.state === "live" ? "good" : v.state === "draft" ? "info" : "neutral",
       statusWord: outcomeWord(v.state),
@@ -30,14 +30,16 @@ export function historyEvents(profile: TabProps["profile"], currency: string): T
   }
   for (const r of profile.trainingRuns) {
     const n = Object.keys(r.results ?? {}).length;
+    const candidate = profile.versions.find((v) => v.id === r.toVersionId);
+    const kind = r.fromVersionId === r.toVersionId || (candidate && isRetestVersion(candidate)) ? "Retest" : "Training";
     events.push({
       id: `run-${r.id}`,
       at: toIso(r.endedAt ?? r.startedAt ?? r.createdAt) ?? new Date(0),
-      title: r.decision === "promoted" ? (r.fromVersionId === r.toVersionId ? "Retest promoted" : "Training promoted") : r.decision === "discarded" ? "Training discarded" : `Training ${RUN_PHASE_LABEL[r.status]?.toLowerCase() ?? r.status}`,
+      title: r.decision === "promoted" ? `${kind} promoted` : r.decision === "discarded" ? `${kind} discarded` : `${kind} ${RUN_PHASE_LABEL[r.status]?.toLowerCase() ?? r.status}`,
       description: `${n ? `${n} skills graded · ` : ""}${formatMoney({ amountMinor: Number(r.costMinor ?? 0), currency: r.currency ?? currency })}`,
       icon: r.decision === "discarded" ? Undo2 : Dumbbell,
       tone: r.decision === "promoted" ? "good" : r.decision === "discarded" ? "warn" : r.status === "failed" ? "bad" : "info",
-      statusWord: outcomeWord(r.decision ?? r.status),
+      statusWord: r.decision ? outcomeWord(r.decision) : (RUN_PHASE_LABEL[r.status] ?? outcomeWord(r.status)),
     });
   }
   for (const s of sessionRows(profile.sessions)) {

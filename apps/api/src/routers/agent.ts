@@ -1,5 +1,5 @@
 /**
- * agent.profile.get/update, agent.training.saveDraft/estimate/run/results/promote/discard/rollback,
+ * agent.profile.get/update, agent.training.saveDraft/estimate/run/results/promote/discard/cancel/rollback,
  * agent.model.compare/set, agent.autonomy.set, agent.negotiation.set — all scoped actions accept `applyScope`
  * ("agent" | "type" | "all", BUILD §9.6 ApplyScopeDialog). BUILD §11.10; AC-11.10.1/2/5/6.
  */
@@ -9,7 +9,7 @@ import { UpdateAgentInput, repos, type Agent } from "@foundmill/db";
 import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
 import { MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
 import { z } from "zod";
-import { WORKFLOWS, workflowIds } from "../services/temporal";
+import { SIGNALS, WORKFLOWS, workflowIds } from "../services/temporal";
 import { Id, audit, emit, router, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
 const read = sectionRead("team");
@@ -155,6 +155,21 @@ export const agentRouter = router({
       }),
     ),
 
+    /**
+     * Stop a queued or running run. The row is canceled at once, so a run no worker will pick up (Temporal down, a
+     * worker lost) never holds the agent's Train button; a workflow still running gets `stop` and finishes the tests in
+     * flight. The live version is untouched.
+     */
+    cancel: write.input(z.object({ runId: Id })).mutation(async ({ ctx, input }) => {
+      const run = await ctx.rls(async (tx) => {
+        const r = await repos.training.cancel(tx, ctx.businessId, input.runId);
+        await audit(tx, ctx, { action: "agent.training.cancel", target: { kind: "training_run", id: r.id }, details: { agentId: r.agentId, versionId: r.toVersionId } });
+        return r;
+      });
+      const workflow = await ctx.temporal.signal(workflowIds.training(run.id), SIGNALS.stop);
+      return { run, workflow };
+    }),
+
     /** One-click rollback to the previous live version (AC-11.10.6). */
     rollback: write.input(z.object({ agentId: Id })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
@@ -192,13 +207,18 @@ export const agentRouter = router({
       }),
     ),
 
-    /** Change the model for the agent, every agent of its type, or all; locked routes are skipped; retests are queued (AC-11.10.5). */
+    /**
+     * Change the model for the agent, every agent of its type, or all; locked routes are skipped; retests are queued
+     * (AC-11.10.5). The change applies at once; each changed agent's retest scores a draft copy of its live version on
+     * the new model (never the live version itself, AC-11.10.1), which Promote makes live.
+     */
     set: write.input(z.object({ agentId: Id, modelKey: z.enum(MODEL_KEYS), applyScope: ApplyScope.default("agent") })).mutation(async ({ ctx, input }) => {
       const targets = await scopedAgents(ctx, input.agentId, input.applyScope);
       const updated: string[] = [];
       const skipped: { agentId: string; reason: string }[] = [];
       const warnings: string[] = [];
       const retests: string[] = [];
+      const superseded: string[] = [];
       await ctx.rls(async (tx) => {
         for (const agent of targets) {
           const r = resolveModel(routeOf(agent), input.modelKey as ModelKey);
@@ -209,15 +229,19 @@ export const agentRouter = router({
           if (r.warning) warnings.push(`${agent.name}: ${r.warning}`);
           await repos.agents.setModel(tx, ctx.businessId, agent.id, input.modelKey);
           updated.push(agent.id);
-          if (agent.currentVersionId) {
-            const run = await repos.training.create(tx, ctx.businessId, { agentId: agent.id, fromVersionId: agent.currentVersionId, toVersionId: agent.currentVersionId, status: "queued", requestedBy: ctx.userId });
-            retests.push(run.id);
-          }
+          // An agent already on this model has nothing new to retest.
+          if (agent.modelKey === input.modelKey) continue;
+          const retest = await repos.training.createModelRetest(tx, ctx.businessId, agent.id, { modelKey: input.modelKey, requestedBy: ctx.userId });
+          if (!retest) continue;
+          retests.push(retest.run.id);
+          superseded.push(...retest.superseded.map((r) => r.id));
         }
-        await audit(tx, ctx, { action: "agent.model.set", target: { kind: "agent", id: input.agentId }, details: { modelKey: input.modelKey, applyScope: input.applyScope, updated, skipped, retests } });
+        await audit(tx, ctx, { action: "agent.model.set", target: { kind: "agent", id: input.agentId }, details: { modelKey: input.modelKey, applyScope: input.applyScope, updated, skipped, retests, superseded } });
       });
+      // Earlier retests of a model these agents no longer run were canceled above; their workflows stop too.
+      if (superseded.length) await ctx.temporal.signalMany(superseded.map((runId) => workflowIds.training(runId)), SIGNALS.stop);
       const workflows = await Promise.all(retests.map((runId) => ctx.temporal.start(WORKFLOWS.trainingRun, { workflowId: workflowIds.training(runId), args: [{ businessId: ctx.businessId, trainingRunId: runId }] })));
-      return { updated, skipped, warnings, retests: retests.map((runId, i) => ({ runId, workflow: workflows[i]! })) };
+      return { updated, skipped, warnings, retests: retests.map((runId, i) => ({ runId, workflow: workflows[i]! })), superseded };
     }),
   }),
 

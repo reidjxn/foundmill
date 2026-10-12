@@ -170,6 +170,63 @@ describe("agents, versions, skills, training", () => {
     expect((await repos.training.latestForAgent(r.db, A, r.A.agent2Id))?.id).toBe(run.id);
     expect((await repos.training.list(r.db, r.B.businessId)).items).toHaveLength(0);
   });
+
+  it("a model retest scores a draft copy of the live version on the new model, never the live version itself", async () => {
+    const A = r.A.businessId;
+    const hired = await repos.agents.create(r.db, A, {
+      name: "Retest Engineer",
+      agentType: "engineer",
+      modelKey: "sonnet",
+      initialVersion: { instructions: { role: "Ship small PRs", goals: ["Green CI"] }, tools: [{ connectorKey: "github", tools: ["create_pr"] }], modelKey: "sonnet" },
+    });
+    const liveId = hired.currentVersion!.id;
+    const retest = await repos.training.createModelRetest(r.db, A, hired.id, { modelKey: "haiku", requestedBy: r.A.ownerId });
+    expect(retest).not.toBeNull();
+    const { run, draft } = retest!;
+    expect(draft).toMatchObject({ state: "draft", modelKey: "haiku", createdByKind: "system", createdBy: r.A.ownerId, version: 2 });
+    expect(draft.instructions).toMatchObject({ role: "Ship small PRs", goals: ["Green CI"] });
+    expect(draft.tools).toEqual([{ connectorKey: "github", tools: ["create_pr"] }]);
+    expect(run).toMatchObject({ status: "queued", fromVersionId: liveId, toVersionId: draft.id, requestedBy: r.A.ownerId });
+    expect(run.toVersionId).not.toBe(run.fromVersionId);
+    // The live version and the agent's pointer are untouched (AC-11.10.1).
+    expect((await repos.agents.get(r.db, A, hired.id)).currentVersionId).toBe(liveId);
+    expect((await repos.agents.getVersion(r.db, A, liveId)).modelKey).toBe("sonnet");
+    expect(retest!.superseded).toEqual([]);
+    // A second model change supersedes the retest still in flight (and a stuck run of the old from = to shape); a
+    // founder's own training run of a draft is left alone.
+    const own = await repos.agents.createVersion(r.db, A, hired.id, { instructions: { role: "Ship smaller PRs" }, createdByKind: "user" });
+    const ownRun = await repos.training.create(r.db, A, { agentId: hired.id, fromVersionId: liveId, toVersionId: own.id });
+    const stuck = await repos.training.create(r.db, A, { agentId: hired.id, fromVersionId: liveId, toVersionId: liveId });
+    const second = (await repos.training.createModelRetest(r.db, A, hired.id, { modelKey: "opus" }))!;
+    expect(second.superseded.map((s) => s.id).sort()).toEqual([run.id, stuck.id].sort());
+    expect((await repos.training.get(r.db, A, ownRun.id)).status).toBe("queued");
+    expect((await repos.training.get(r.db, A, second.run.id)).status).toBe("queued");
+    await repos.training.cancel(r.db, A, second.run.id);
+    await repos.training.cancel(r.db, A, ownRun.id);
+    // Promoting a retest makes the copy live on the new model.
+    await repos.training.transition(r.db, A, run.id, ["cancelled"], { status: "awaiting_decision" });
+    await repos.training.decide(r.db, A, run.id, "promoted");
+    expect(await repos.agents.get(r.db, A, hired.id)).toMatchObject({ currentVersionId: draft.id, modelKey: "haiku" });
+    // An agent without a live version has nothing to retest.
+    const unversioned = await repos.agents.create(r.db, A, { name: "Unversioned", agentType: "engineer" });
+    expect(await repos.training.createModelRetest(r.db, A, unversioned.id, { modelKey: "haiku" })).toBeNull();
+  });
+
+  it("transition only moves a run from the given statuses; cancel stops a queued or running run once", async () => {
+    const A = r.A.businessId;
+    const run = await repos.training.create(r.db, A, { agentId: r.A.agentId });
+    expect(await repos.training.transition(r.db, A, run.id, ["running"], { status: "awaiting_decision" })).toBeNull();
+    expect((await repos.training.transition(r.db, A, run.id, ["queued", "running"], { status: "running", startedAt: new Date() }))?.status).toBe("running");
+    const cancelled = await repos.training.cancel(r.db, A, run.id);
+    expect(cancelled.status).toBe("cancelled");
+    expect(cancelled.endedAt).toBeInstanceOf(Date);
+    // A worker finishing afterwards cannot overwrite the cancel, and a second cancel is refused.
+    expect(await repos.training.transition(r.db, A, run.id, ["queued", "running", "grading"], { status: "awaiting_decision" })).toBeNull();
+    await expect(repos.training.cancel(r.db, A, run.id)).rejects.toThrow(/already finished/);
+    // Another business cannot reach the run.
+    await expect(repos.training.cancel(r.db, r.B.businessId, run.id)).rejects.toThrow(/not found/);
+    expect(await repos.training.transition(r.db, r.B.businessId, run.id, ["cancelled"], { status: "failed" })).toBeNull();
+  });
 });
 
 describe("a whole team in a few statements (commit)", () => {
