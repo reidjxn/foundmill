@@ -12,6 +12,7 @@ import { request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 import { Readable } from "node:stream";
 import Anthropic from "@anthropic-ai/sdk";
+import { APP_NAME, APP_ORIGIN } from "@foundmill/config";
 import { resolveModel } from "@foundmill/models/routing";
 import { ConfigError, VendorError, type Connector } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
@@ -26,6 +27,9 @@ export interface WebConnectorOptions extends LiveConnectorOptions {
 }
 
 export type ResolveHost = (host: string) => Promise<string[]>;
+
+/** How the gateway names itself to the sites agents read. */
+export const WEB_USER_AGENT = `${APP_NAME}Agent/1.0 (+${APP_ORIGIN}/agents)`;
 
 const refused = (message: string) => Object.assign(new Error(message), { status: 400 });
 const systemResolveHost: ResolveHost = async (host) => (await lookup(host, { all: true, verbatim: true })).map((a) => a.address);
@@ -127,7 +131,7 @@ export function createWebConnector(options: WebConnectorOptions = {}): Connector
           let current = new URL(url);
           for (let hop = 0; ; hop++) {
             await assertPublic(current);
-            const res = await pageFetch(current.toString(), { signal: AbortSignal.timeout(WEB_TIMEOUT_MS), headers: { accept: "text/html, text/plain;q=0.9, */*;q=0.1", "user-agent": "FoundmillAgent/1.0 (+https://foundmill.com/agents)" } }).catch((e: unknown) => {
+            const res = await pageFetch(current.toString(), { signal: AbortSignal.timeout(WEB_TIMEOUT_MS), headers: { accept: "text/html, text/plain;q=0.9, */*;q=0.1", "user-agent": WEB_USER_AGENT } }).catch((e: unknown) => {
               // The connection's own lookup refused the address (the name changed its answer after the check).
               if ((e as { code?: unknown }).code === "ENOTPUBLIC") throw refused(`${current.hostname} is not a public address`);
               throw e;

@@ -216,7 +216,7 @@ describe("web live: search_web", () => {
 describe("web helpers", () => {
   it.each([
     ["127.0.0.1", true], ["10.20.30.40", true], ["172.16.0.1", true], ["172.31.255.255", true], ["192.168.0.1", true], ["169.254.169.254", true], ["100.64.0.1", true], ["0.0.0.0", true], ["224.0.0.1", true], ["198.18.0.1", true],
-    ["::1", true], ["::", true], ["fe80::1", true], ["fd12:3456::1", true], ["::ffff:127.0.0.1", true],
+    ["::1", true], ["::", true], ["fe80::1", true], ["fec0::1", true], ["fd12:3456::1", true], ["::ffff:127.0.0.1", true], ["::ffff:7f00:1", true], ["64:ff9b::a00:1", true],
     ["93.184.216.34", false], ["8.8.8.8", false], ["::ffff:8.8.8.8", false], ["172.32.0.1", false], ["2606:2800:220:1::1", false],
   ])("isPrivateAddress(%s) is %s", (ip, expected) => {
     expect(isPrivateAddress(ip)).toBe(expected);

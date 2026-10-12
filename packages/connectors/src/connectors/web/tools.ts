@@ -71,5 +71,7 @@ export function isPrivateAddress(ip: string): boolean {
     return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19)) || a >= 224;
   }
   const v6 = ip.toLowerCase();
-  return v6 === "::" || v6 === "::1" || v6.startsWith("fc") || v6.startsWith("fd") || v6.startsWith("fe8") || v6.startsWith("fe9") || v6.startsWith("fea") || v6.startsWith("feb") || v6.startsWith("ff") || v6.startsWith("::ffff:");
+  // Unique local (fc00::/7), link-local and the old site-local (fe80::/10, fec0::/10), multicast, IPv4-mapped in hex, and
+  // NAT64 (64:ff9b::/96), which a resolver can use to reach an internal IPv4 address through the network's translator.
+  return v6 === "::" || v6 === "::1" || /^f[cd]/.test(v6) || /^fe[89a-f]/.test(v6) || v6.startsWith("ff") || v6.startsWith("::ffff:") || v6.startsWith("64:ff9b:");
 }
