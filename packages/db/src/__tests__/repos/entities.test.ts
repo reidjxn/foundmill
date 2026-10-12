@@ -367,6 +367,40 @@ describe("merge / unmerge (AC-11.12.3)", () => {
     expect((await repos.entities.get(r.db, A, y.id)).mergedIntoId).toBeNull();
   });
 
+  it("refuses while a later merge left behind a relationship this one moved between the two duplicates", async () => {
+    const A = r.A.businessId;
+    const x = await repos.entities.create(r.db, A, { kind: "person", displayName: "Tie Kept" });
+    const y = await repos.entities.create(r.db, A, { kind: "person", displayName: "Tie Y" });
+    const z = await repos.entities.create(r.db, A, { kind: "person", displayName: "Tie Z" });
+    const tie = await repos.entities.upsertRelationship(r.db, A, { fromEntity: z.id, toEntity: y.id, type: "knows" });
+    const first = await repos.entities.merge(r.db, A, x.id, y.id);
+    const second = await repos.entities.merge(r.db, A, x.id, z.id);
+    // The first merge pointed Z's tie at X; the second left it on Z (it would have tied X to itself).
+    expect((await repos.entities.listRelationships(r.db, A, z.id)).map((rel) => [rel.id, rel.other.id])).toEqual([[tie.id, x.id]]);
+    await expect(repos.entities.unmerge(r.db, A, first.log.id)).rejects.toThrow("Undo the later merge of “Tie Z” first: it relies on what this merge brought in (a relationship between “Tie Y” and “Tie Z”).");
+    await repos.entities.unmerge(r.db, A, second.log.id);
+    await repos.entities.unmerge(r.db, A, first.log.id);
+    expect((await repos.entities.listRelationships(r.db, A, z.id)).map((rel) => [rel.id, rel.other.id])).toEqual([[tie.id, y.id]]);
+  });
+
+  it("orders merges made in one transaction by when each ran, so the earlier one waits for the later one", async () => {
+    const A = r.A.businessId;
+    const p = await repos.entities.create(r.db, A, { kind: "person", displayName: "Batch Kept" });
+    const q = await repos.entities.create(r.db, A, { kind: "person", displayName: "Batch Q", identifiers: { email: "q@batch.example" } });
+    const s = await repos.entities.create(r.db, A, { kind: "person", displayName: "Batch S", identifiers: { email: "s@batch.example" } });
+    // As an import that folds several duplicates into one record in a single transaction (now() is the same for both).
+    const [early, late] = await r.db.transaction(async (tx) => [await repos.entities.merge(tx, A, p.id, q.id), await repos.entities.merge(tx, A, p.id, s.id)]);
+    expect(late.log.createdAt.getTime()).toBeGreaterThanOrEqual(early.log.createdAt.getTime());
+    expect((await repos.entities.mergeHistory(r.db, A, p.id)).map((m) => [m.id, m.undoBlocked === null])).toEqual([
+      [late.log.id, true],
+      [early.log.id, false],
+    ]);
+    await expect(repos.entities.unmerge(r.db, A, early.log.id)).rejects.toMatchObject({ code: "merge_relied_on" });
+    await repos.entities.unmerge(r.db, A, late.log.id);
+    await repos.entities.unmerge(r.db, A, early.log.id);
+    expect((await repos.entities.get(r.db, A, p.id)).identifiers).toEqual({});
+  });
+
   it("refuses to merge across businesses or into itself", async () => {
     await expect(repos.entities.merge(r.db, r.A.businessId, ids.sara!, r.B.entityId)).rejects.toThrow(/not found/);
     await expect(repos.entities.merge(r.db, r.A.businessId, ids.sara!, ids.sara!)).rejects.toThrow(/into itself/);

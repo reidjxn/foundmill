@@ -282,8 +282,9 @@ async function mergeLogsOf(db: Executor, businessId: string, entityId: string): 
 /**
  * The later, still-open merges that rely on `log`, so undoing it now would not be exact: the kept record was merged
  * into another one since; or a later merge into the same record carried an identifier, filled field or name that this
- * merge had already brought in (so the later merge did not add it), shares an interaction with it, or left a
- * relationship or mention on its own record because a row this merge moved already held that slot.
+ * merge had already brought in (so the later merge did not add it), shares an interaction with it, left a relationship
+ * or mention on its own record because a row this merge moved already held that slot, or left behind a relationship
+ * this merge moved between the two records.
  * `history` is `mergeLogsOf(keptId)` (newest first, in the database's own order, so "later" is exact to the
  * microsecond); `current` is the kept record now.
  */
@@ -312,6 +313,23 @@ async function unmergeBlockers(db: Executor, businessId: string, log: MergeLogEn
 
   const laterIds = [...byMergedId.keys()];
   if (snap.moved.relationships.length) {
+    // A tie this merge moved that now links the kept record to a later-merged one: that merge left it behind (it would
+    // have tied the record to itself), so undoing this one first would leave it on an archived record.
+    const between = await db
+      .select({ from: relationships.fromEntity, to: relationships.toEntity })
+      .from(relationships)
+      .where(
+        and(
+          eq(relationships.businessId, businessId),
+          inArray(relationships.id, snap.moved.relationships),
+          or(and(eq(relationships.fromEntity, log.keptId), inArray(relationships.toEntity, laterIds)), and(eq(relationships.toEntity, log.keptId), inArray(relationships.fromEntity, laterIds))),
+        ),
+      );
+    for (const row of between) {
+      const laterId = byMergedId.get(row.from === log.keptId ? row.to : row.from)!;
+      const laterName = fieldsOf((later.find((m) => m.id === laterId)!.reversibleSnapshot as unknown as MergeSnapshot).merged).displayName;
+      reasons.get(laterId)?.push(`a relationship between “${fieldsOf(snap.merged).displayName}” and “${laterName}”`);
+    }
     const z = alias(relationships, "z");
     const rows = await db
       .select({ from: z.fromEntity, to: z.toEntity })
@@ -850,8 +868,13 @@ export const entitiesRepo = {
           sharedInteractions: sharedInteractionIds,
         },
       };
+      // clock_timestamp(), not the transaction's now(): merges done in one transaction still log in the order they ran,
+      // which is what `unmergeBlockers` reads as "later".
       const log = one(
-        await tx.insert(mergeLog).values({ businessId, keptId, mergedId, byKind: o.byKind, byId: o.byId ?? null, reversibleSnapshot: snapshot as unknown as Record<string, unknown> }).returning(),
+        await tx
+          .insert(mergeLog)
+          .values({ businessId, keptId, mergedId, byKind: o.byKind, byId: o.byId ?? null, reversibleSnapshot: snapshot as unknown as Record<string, unknown>, createdAt: sql`clock_timestamp()` })
+          .returning(),
         "merge log",
       );
       return { kept: updatedKept, merged: updatedMerged, log };
