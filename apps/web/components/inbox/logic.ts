@@ -44,6 +44,8 @@ export interface InboxRowInput {
   fromAgentId: string | null;
   fromUserId?: string | null;
   createdAt: Date | string;
+  /** Answered, but its plan still waits for the founder's go-ahead (inbox.list; audit OL-01): it says "Respond". */
+  awaitingConfirmation?: boolean;
 }
 
 export type RowTone = "bad" | "warn" | "info" | "good" | "neutral";
@@ -79,13 +81,17 @@ export type NoteTag = SharedNoteTag;
  * One tag per row: a won customer reads "Customer" (gold), anything waiting on the founder says "Respond", the rest
  * name their kind ("Milestone", "Update", "Report", "Decided" once a decision is answered).
  */
-export function rowTag(item: Pick<InboxRowInput, "type" | "state" | "blocksContinue">): NoteTag {
+export function rowTag(item: Pick<InboxRowInput, "type" | "state" | "blocksContinue" | "awaitingConfirmation">): NoteTag {
   return noteRowTag(item);
 }
 
-/** The reading pane's type tag: the same vocabulary, a little fuller ("Needs your call", "Customer won"). */
-export function headerTag(type: InboxItemType, answered: boolean, blocksContinue: boolean): NoteTag {
+/**
+ * The reading pane's type tag: the same vocabulary, a little fuller ("Needs your call", "Customer won", and "Needs your
+ * go-ahead" for an answered note whose plan waits for "Here is what will happen").
+ */
+export function headerTag(type: InboxItemType, answered: boolean, blocksContinue: boolean, awaitingConfirmation = false): NoteTag {
   if (type === "customer_won") return { word: "Customer won", tone: "gold", icon: "win" };
+  if (awaitingConfirmation) return { word: "Needs your go-ahead", tone: "warn", icon: "respond" };
   if (!answered && (type === "decision" || blocksContinue)) return { word: "Needs your call", tone: "bad", icon: "respond" };
   return NOTE_TYPE_TAGS[type];
 }
@@ -112,7 +118,7 @@ export function rowModel(item: InboxRowInput): InboxRowModel {
     subject: item.subject,
     preview: previewLine(item.bodyMd),
     createdAt: item.createdAt,
-    needsAnswer: !answered && (item.blocksContinue || item.type === "decision" || item.type === "customer_won"),
+    needsAnswer: item.awaitingConfirmation === true || (!answered && (item.blocksContinue || item.type === "decision" || item.type === "customer_won")),
     won: item.type === "customer_won",
     unread: item.state === "unread",
     tone: TYPE_META[item.type].tone,
@@ -418,11 +424,13 @@ export interface PlanActionLike {
   params: Record<string, unknown> | null;
   status?: string;
   policyOutcome?: string | null;
+  /** What the action produced once it ran (a task's id, a channel's). */
+  result?: Record<string, unknown> | null;
 }
 
 // The "Here is what will happen" lines live in ./confirmation, so the agent desk (mounted in every business page) can
 // use them without shipping the rest of the Inbox's logic.
-export { actionCost, confirmationLines, describeAction, totalCost, type ConfirmationLine, type EvaluationLike } from "./confirmation";
+export { actionCost, confirmationLines, describeAction, planConfirmationLines, totalCost, type ConfirmationLine, type EvaluationLike } from "./confirmation";
 
 export interface FollowUpLink {
   id: string;
@@ -443,7 +451,11 @@ function moduleTab(departments: readonly DepartmentForLinks[], moduleKey: string
   return tab ? { slug: d.slug, tab: tab.slug } : null;
 }
 
-/** Where the artefacts of a decided plan live (BUILD §11.3 "follow-up Update with links to artefacts"). */
+/**
+ * Where the artefacts of a decided plan live (BUILD §11.3 "follow-up Update with links to artefacts"). A task opens
+ * Development › Plan (the task list) on that task when the plan made exactly one, never as "the plan" (audit FR-08: the
+ * decision's own plan is the Decided panel).
+ */
 export function followUpLinks(actions: readonly PlanActionLike[], businessId: string, departments: readonly DepartmentForLinks[]): FollowUpLink[] {
   const out: FollowUpLink[] = [];
   const seen = new Set<string>();
@@ -452,12 +464,16 @@ export function followUpLinks(actions: readonly PlanActionLike[], businessId: st
     seen.add(href);
     out.push({ id, label, href });
   };
+  const taskIds = actions.flatMap((a) => (a.type === "create_task" && typeof a.result?.taskId === "string" ? [a.result.taskId] : []));
+  const tasks = actions.filter((a) => a.type === "create_task").length;
   for (const a of actions) {
     const id = a.id ?? `${a.type}-${out.length}`;
     switch (a.type) {
       case "create_task": {
         const t = moduleTab(departments, "development", "plan");
-        push(id, "Open the plan", t ? routes.department(businessId, t.slug, t.tab) : null);
+        const list = t ? routes.department(businessId, t.slug, t.tab) : null;
+        if (tasks === 1 && taskIds.length === 1) push(id, "Open the task", list ? `${list}?task=${encodeURIComponent(taskIds[0]!)}` : null);
+        else push(id, tasks === 1 ? "Open the task list" : "Open the tasks", list);
         break;
       }
       case "enable_channel":
@@ -611,6 +627,16 @@ export function stripSources(strip: unknown): Set<StripSource> {
 export interface PlanLike {
   status: string;
   actions: readonly PlanActionLike[];
+}
+
+/**
+ * The chip beside an action policy said "ask" for: it waits for the go-ahead until the plan is confirmed, and only then
+ * reads as confirmed (audit VOL-X1: never "Confirmed" while the plan still waits). Null for every other action.
+ */
+export function askChip(plan: { status: string; confirmedAt?: Date | string | null }, action: Pick<PlanActionLike, "policyOutcome">): { word: string; tone: "warn" | "neutral" } | null {
+  if (action.policyOutcome !== "ask") return null;
+  if (plan.status === "pending_confirmation") return { word: "Needs your go-ahead", tone: "warn" };
+  return plan.confirmedAt ? { word: "Confirmed", tone: "neutral" } : null;
 }
 
 /** One line for the answered strip: "Done · 3 of 3 actions" / "Awaiting your confirmation" / "Running · 1 of 3". */

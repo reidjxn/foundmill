@@ -84,6 +84,11 @@ export interface DeskMessage {
   handOff?: { instruction: string; gated?: boolean } | null;
   /** The staged plan for the hand-off, once staged. */
   planId?: string | null;
+  /**
+   * The staged plan was confirmed (it runs or ran): the strip says so and offers nothing. Until then a staged plan can be
+   * reviewed again, after a reload or from another device (it waits for the founder's go-ahead in the database).
+   */
+  planConfirmed?: boolean;
   /** The agent's last bubble is still streaming in (the caret stays open). */
   streaming?: boolean;
 }

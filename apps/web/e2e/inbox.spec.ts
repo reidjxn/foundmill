@@ -278,6 +278,50 @@ test.describe("inbox", () => {
     await expect(desk.getByTestId("agent-bubble").filter({ hasText: /Going with/ }).last()).toBeVisible({ timeout: LONG });
   });
 
+  test("a plan waiting for the go-ahead survives a reload: it stays in Respond, its spend reads as waiting, and Review confirms it once", async ({ page }) => {
+    await signIn(page);
+    const { bid, itemId } = await commitFreshBusiness(page, `Playwright Go-ahead ${Date.now().toString(36)}`);
+    const item = page.getByTestId("inbox-item");
+    await expect(item).toHaveAttribute("data-type", "decision");
+    // An instruction typed to the agent decides the note; the spend is above the approval threshold, so it waits.
+    await page.locator("[data-decision-ask]").click();
+    const write = page.getByTestId("agent-desk").getByRole("textbox", { name: /^Reply to / });
+    await expect(write).toBeFocused();
+    await write.fill("Spend up to $500 on LinkedIn ads targeting fintech CFOs next week");
+    await page.keyboard.press("Enter");
+    const confirm = page.getByTestId("confirm-plan");
+    await expect(confirm).toBeVisible({ timeout: LONG });
+    await confirm.getByRole("button", { name: "Not now" }).click();
+    await expect(confirm).toBeHidden();
+
+    // A reload (or another device): nothing the deciding page remembered. The note still asks for the go-ahead.
+    await page.goto(`/b/${bid}/inbox/${itemId}?tab=respond`);
+    const answered = page.getByTestId("answered-panel");
+    await expect(answered).toBeVisible({ timeout: LONG });
+    await expect(item).toHaveAttribute("data-state", "answered");
+    await expect(page.getByTestId("type-pill")).toContainText("Needs your go-ahead");
+    await expect(page.locator(`[data-inbox-row="${itemId}"]`)).toHaveAttribute("data-needs-answer", "true", { timeout: LONG });
+    // The spend action reads as waiting, never as confirmed (audit VOL-X1); nothing to open yet.
+    await expect(answered.getByTestId("ask-chip")).toHaveText(["Needs your go-ahead"]);
+    await expect(answered.locator("[data-follow-up-link]")).toHaveCount(0);
+
+    await answered.getByTestId("reopen-confirmation").click();
+    await expect(confirm).toBeVisible();
+    await expect(confirm.getByRole("heading", { name: "Here is what will happen" })).toBeVisible();
+    await expect(confirm.getByTestId("confirm-plan-lines").locator('[data-outcome="ask"]')).toHaveCount(1);
+    await page.getByTestId("confirm-plan-go").click();
+    await expect(confirm).toBeHidden({ timeout: LONG });
+    await expect(answered.getByTestId("reopen-confirmation")).toHaveCount(0, { timeout: LONG });
+    await expect(answered.getByTestId("ask-chip")).toHaveText(["Confirmed"], { timeout: LONG });
+    await expect(page.getByTestId("type-pill")).not.toContainText("Needs your go-ahead");
+    // A task is a task: the answered panel never sends "Open the plan" to the unrelated task list (audit FR-08).
+    await expect(answered.getByRole("button", { name: "Open the plan" })).toHaveCount(0);
+    // Confirmed, it leaves Respond.
+    await page.reload();
+    await expect(page.getByTestId("inbox-screen")).toHaveAttribute("data-tab", "respond", { timeout: LONG });
+    await expect(page.locator(`[data-inbox-row="${itemId}"]`)).toHaveCount(0, { timeout: LONG });
+  });
+
   test("a won customer opens its Customer Update", async ({ page }) => {
     await openInbox(page, "customers");
     const won = rowsOf(page).first();

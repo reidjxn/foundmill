@@ -1,7 +1,7 @@
 /** inbox.list/get/refresh/decide/markRead/archive + plan.preview/confirm/status (BUILD §11.3). */
 import { InboxListFilter, repos } from "@foundmill/db";
 import { z } from "zod";
-import { confirmPlan, decideInboxItem, planContextFor } from "../services/decide";
+import { confirmPlan, decideInboxItem, pendingConfirmation, planContextFor } from "../services/decide";
 import { entityStubs, idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactDecisions, redactInboxItem, redactPlan, redactText } from "../services/inbox-redaction";
 import { modelLimited } from "../services/model-limits";
 import { compilePlan, evaluatePlan, requiresConfirmation } from "../services/plans";
@@ -14,13 +14,17 @@ const inboxWrite = sectionWrite("inbox");
 const hasFreeText = (input: unknown): boolean => typeof (input as { freeText?: unknown } | null)?.freeText === "string" && Boolean((input as { freeText: string }).freeText.trim());
 
 export const inboxRouter = router({
-  /** Notes follow the reader's Finance and CRM walls (services/inbox-redaction.ts; audit RUI-02). */
+  /**
+   * Notes follow the reader's Finance and CRM walls (services/inbox-redaction.ts; audit RUI-02). `awaitingConfirmation`
+   * marks an answered note whose plan still waits for "Here is what will happen" (it stays in Respond; audit OL-01).
+   */
   list: inboxRead.input(InboxListFilter).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const [page, counts, blocking] = await Promise.all([repos.inbox.list(tx, ctx.businessId, input ?? {}), repos.inbox.countByTab(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId)]);
+      const [page, counts, blocking, waiting] = await Promise.all([repos.inbox.list(tx, ctx.businessId, input ?? {}), repos.inbox.countByTab(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId), repos.plans.awaitingConfirmation(tx, ctx.businessId)]);
       const walls = inboxWalls(ctx.membership);
       const source = await loadRedactionSource(tx, ctx.businessId, walls, page.items.flatMap(idsOfItem));
-      return { ...page, items: page.items.map((i) => redactInboxItem(i, source)), counts, blocking, continueState: blocking > 0 ? ({ kind: "blocked", count: blocking } as const) : ({ kind: "idle" } as const) };
+      const items = page.items.map((i) => ({ ...redactInboxItem(i, source), awaitingConfirmation: i.state === "answered" && waiting.has(i.id) }));
+      return { ...page, items, counts, blocking, continueState: blocking > 0 ? ({ kind: "blocked", count: blocking } as const) : ({ kind: "idle" } as const) };
     }),
   ),
 
@@ -35,7 +39,10 @@ export const inboxRouter = router({
         item.entityIds.length && !walls.crm ? repos.entities.byIds(tx, ctx.businessId, item.entityIds) : Promise.resolve([]),
         loadRedactionSource(tx, ctx.businessId, walls, idsOfItem(item)),
       ]);
-      return { item: redactInboxItem(item, source), decisions: redactDecisions(decisions, source, noteMask(item)), plan: plan ? redactPlan(plan, source, noteMask(item)) : null, fromAgent, entities: entityStubs(entities, walls) };
+      // A plan still waiting for its go-ahead comes back with what it needs (audit OL-01): the Inbox offers the
+      // confirmation from this, after a reload or on another device, never from what the page that decided remembers.
+      const confirmation = plan ? pendingConfirmation(ctx.membership, plan) : null;
+      return { item: redactInboxItem(item, source), decisions: redactDecisions(decisions, source, noteMask(item)), plan: plan ? redactPlan(plan, source, noteMask(item)) : null, confirmation, fromAgent, entities: entityStubs(entities, walls) };
     }),
   ),
 

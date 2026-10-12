@@ -135,3 +135,109 @@ describe("inbox.decide (BUILD §11.3, AC-11.3.3/4/5)", () => {
     expect(created.items.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+const code = (p: Promise<unknown>) => p.then(() => "OK", (err: { code?: string }) => err.code ?? String(err));
+const SPEND = "spend up to €500 on LinkedIn ads targeting fintech CFOs next week";
+
+describe("a plan waiting for its go-ahead stays confirmable (audit OL-01, FR-08)", () => {
+  it("after a reload: a fresh caller finds it in Respond, reads it back from inbox.get and confirms it by the plan's id alone", async () => {
+    const businessId = hz.A.businessId;
+    const item = await decisionItem("Paid acquisition, decided before a reload?");
+    const blockingBefore = (await hz.caller({ userId: hz.A.ownerId }).inbox.list({ businessId, tab: "respond", limit: 200 })).blocking;
+    const decided = await hz.caller({ userId: hz.A.ownerId }).inbox.decide({ businessId, itemId: item.id, freeText: SPEND });
+    expect(decided.requiresConfirmation).toBe(true);
+
+    // A new page, another tab or another device: nothing the deciding page remembered, only what the server keeps.
+    const fresh = hz.caller({ userId: hz.A.ownerId });
+    const respond = await fresh.inbox.list({ businessId, tab: "respond", limit: 200 });
+    expect(respond.items.find((i) => i.id === item.id)).toMatchObject({ state: "answered", awaitingConfirmation: true });
+    // Continue is free all the same: the note was answered.
+    expect(respond.blocking).toBe(blockingBefore - 1);
+    const reopened = await fresh.inbox.get({ businessId, itemId: item.id });
+    expect(reopened.item.state).toBe("answered");
+    expect(reopened.plan).toMatchObject({ id: decided.plan.id, status: "pending_confirmation" });
+    expect(reopened.plan?.actions.map((a) => [a.type, a.policyOutcome, a.status])).toEqual([
+      ["enable_channel", "allow", "pending"],
+      ["set_budget", "ask", "pending"],
+      ["create_task", "allow", "pending"],
+    ]);
+    expect(reopened.confirmation).toEqual({ planId: decided.plan.id, asks: 1, hardGates: 0, denied: 0, canConfirm: true, blockedReason: null });
+
+    const confirmed = await fresh.plan.confirm({ businessId, planId: reopened.confirmation!.planId });
+    expect(confirmed.alreadyConfirmed).toBe(false);
+    expect(confirmed.exec.executed).toHaveLength(3);
+    expect((await repos.channels.getByKey(hz.db, businessId, "paid_ads"))?.budgetMinor).toBe(50_000);
+    const after = await fresh.inbox.get({ businessId, itemId: item.id });
+    expect(after.confirmation).toBeNull();
+    expect(after.plan?.status).toBe("done");
+    expect(after.plan?.confirmedAt).toBeTruthy();
+    expect((await fresh.inbox.list({ businessId, tab: "respond", limit: 200 })).items.some((i) => i.id === item.id)).toBe(false);
+    expect((await fresh.inbox.list({ businessId, limit: 200 })).items.find((i) => i.id === item.id)?.awaitingConfirmation).toBe(false);
+
+    // The other tab's press: nothing runs, is written or audited a second time.
+    const tasksBefore = (await repos.tasks.list(hz.db, businessId, { limit: 500 })).items.length;
+    const twice = await hz.caller({ userId: hz.A.ownerId }).plan.confirm({ businessId, planId: decided.plan.id });
+    expect(twice).toMatchObject({ alreadyConfirmed: true, dispatch: null, followUp: null, exec: { executed: [], deferred: [] } });
+    expect(twice.plan.status).toBe("done");
+    expect((await repos.tasks.list(hz.db, businessId, { limit: 500 })).items.length).toBe(tasksBefore);
+    const audits = await repos.audit.list(hz.db, businessId, { action: "plan.confirm", limit: 200 });
+    expect(audits.items.filter((a) => (a.target as { id: string }).id === decided.plan.id)).toHaveLength(1);
+  });
+
+  it("two presses at once run the plan once", async () => {
+    const businessId = hz.A.businessId;
+    const item = await decisionItem("Paid acquisition, confirmed twice at once?");
+    const decided = await hz.caller({ userId: hz.A.ownerId }).inbox.decide({ businessId, itemId: item.id, freeText: SPEND });
+    const both = await Promise.all([0, 1].map(() => hz.caller({ userId: hz.A.ownerId }).plan.confirm({ businessId, planId: decided.plan.id })));
+    expect(both.map((r) => r.alreadyConfirmed).sort()).toEqual([false, true]);
+    const ran = await repos.plans.get(hz.db, businessId, decided.plan.id);
+    const taskAction = ran.actions.find((a) => a.type === "create_task")!;
+    expect((await repos.tasks.list(hz.db, businessId, { limit: 500 })).items.filter((t) => t.planActionId === taskAction.id)).toHaveLength(1);
+  });
+
+  it("whoever cannot give the go-ahead sees why, and plan.confirm refuses them", async () => {
+    const businessId = hz.A.businessId;
+    const item = await decisionItem("Paid acquisition, reviewed by the team?");
+    const decided = await hz.caller({ userId: hz.A.ownerId }).inbox.decide({ businessId, itemId: item.id, freeText: SPEND });
+    await repos.memberships.setSectionPermissions(hz.db, businessId, hz.A.memberId, { distribution: "read" });
+    try {
+      const member = await hz.caller({ userId: hz.A.memberId }).inbox.get({ businessId, itemId: item.id });
+      expect(member.confirmation).toMatchObject({ planId: decided.plan.id, canConfirm: false, blockedReason: expect.stringMatching(/write access to distribution/) });
+      expect(await code(hz.caller({ userId: hz.A.memberId }).plan.confirm({ businessId, planId: decided.plan.id }))).toBe("FORBIDDEN");
+    } finally {
+      await repos.memberships.setSectionPermissions(hz.db, businessId, hz.A.memberId, {});
+    }
+    const viewer = await hz.caller({ userId: hz.A.viewerId }).inbox.get({ businessId, itemId: item.id });
+    expect(viewer.confirmation).toMatchObject({ canConfirm: false, blockedReason: expect.stringMatching(/read-only/) });
+    expect(await code(hz.caller({ userId: hz.A.viewerId }).plan.confirm({ businessId, planId: decided.plan.id }))).toBe("FORBIDDEN");
+    expect((await repos.plans.get(hz.db, businessId, decided.plan.id)).status).toBe("pending_confirmation");
+  });
+});
+
+describe("after a vacation (audit O-16): the Chief of Staff's decisions read back like the founder's", () => {
+  it("a decision taken on vacation shows its running plan; a spend left open is the founder's to decide, and still asks first", async () => {
+    const businessId = hz.A.businessId;
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const chief = (await repos.agents.chiefOfStaff(hz.db, businessId))!;
+    // What the orchestrator's holidayAutoDecide writes for a decision inside the authority the founder gave.
+    const taken = await decisionItem("Which channel first, while I'm away?");
+    const plan = await repos.plans.create(hz.db, businessId, { origin: "holiday", inboxItemId: taken.id, status: "executing", summaryMd: "The team carries out your choice.", actions: [{ type: "create_task", params: { kind: "ops", title: "Outbound to a narrow ICP" }, agentId: hz.A.agentId, policyOutcome: "allow" }] });
+    await repos.plans.setWorkflowId(hz.db, businessId, plan.id, `plan:${plan.id}`);
+    await repos.inbox.decide(hz.db, businessId, taken.id, { chosenOption: "outbound", decidedByKind: "chief_of_staff", decidedBy: chief.id, planId: plan.id });
+
+    const read = await owner.inbox.get({ businessId, itemId: taken.id });
+    expect(read.decisions[0]).toMatchObject({ chosenOption: "outbound", decidedByKind: "chief_of_staff", planId: plan.id });
+    expect(read.plan).toMatchObject({ id: plan.id, origin: "holiday", status: "executing" });
+    expect(read.confirmation).toBeNull();
+    expect((await owner.inbox.list({ businessId, tab: "respond", limit: 200 })).items.some((i) => i.id === taken.id)).toBe(false);
+    // It runs on its own: there is nothing for the founder to confirm.
+    expect(await code(owner.plan.confirm({ businessId, planId: plan.id }))).toBe("BAD_REQUEST");
+
+    // A spend the Chief of Staff left open: back from vacation, the founder decides it, and the money still asks first.
+    const left = await decisionItem("Paid acquisition, left for my return?");
+    expect((await owner.inbox.list({ businessId, tab: "respond", limit: 200 })).items.find((i) => i.id === left.id)).toMatchObject({ state: "unread", awaitingConfirmation: false });
+    const mine = await owner.inbox.decide({ businessId, itemId: left.id, freeText: SPEND });
+    expect(mine.requiresConfirmation).toBe(true);
+    expect(mine.plan.origin).toBe("free_text");
+  });
+});

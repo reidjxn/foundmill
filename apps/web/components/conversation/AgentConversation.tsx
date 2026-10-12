@@ -181,6 +181,10 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
         setPreview(null);
         void invalidate(["inbox", "plan", "dev", "distribution", "team", "business"]);
         void queryClient.invalidateQueries({ queryKey: key });
+        if (res.alreadyConfirmed) {
+          toast({ title: "Already confirmed", description: "This plan was confirmed already; nothing runs twice.", tone: "info" });
+          return;
+        }
         toast({ title: "Confirmed", description: `${res.exec.executed.length} action${res.exec.executed.length === 1 ? "" : "s"} started${res.exec.deferred.length ? `, ${res.exec.deferred.length} handed to the team` : ""}.`, tone: "good" });
       },
       onError: (err) => toast({ title: "Could not confirm the plan", description: errorMessage(err), tone: "bad" }),
@@ -360,12 +364,21 @@ export const AgentConversation = forwardRef<AgentConversationHandle, AgentConver
       handOffM.mutate(
         { businessId, messageId },
         {
-          onSuccess: (p) => showPreview(p),
+          onSuccess: (p) => {
+            // Staged before (here, after a reload, or on another device): the stored plan comes back. One that was
+            // confirmed meanwhile has nothing left to review.
+            if (p.plan.status !== "pending_confirmation") {
+              queryClient.setQueryData(key, (old) => (old ? withPlanId(old, p.messageId, p.planId, p.plan.status) : old));
+              toast({ title: "Already confirmed", description: "This plan was confirmed already; nothing runs twice.", tone: "info" });
+              return;
+            }
+            showPreview(p);
+          },
           onError: (err) => toast({ title: "Could not prepare the plan", description: errorMessage(err), tone: "bad" }),
         },
       );
     },
-    [handOffM, businessId, showPreview, toast],
+    [handOffM, businessId, showPreview, toast, queryClient, key],
   );
 
   // The palette's "Ask <agent> · <question>": the question is the founder's first message, sent once the desk is ready.

@@ -8,7 +8,7 @@
 import { EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, ValidationError, type InboxItemType, type InboxState } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { agents, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItems, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
+import { agents, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItems, plans, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
 import { Currency, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
 
 // --- Composer output schema (BUILD §11.3) ------------------------------------------------------------------------------
@@ -66,12 +66,21 @@ export type InboxTab = (typeof INBOX_TABS)[number];
 /** Types that ask the founder for something; they sit in Respond until answered. */
 export const RESPOND_TYPES: readonly InboxItemType[] = ["decision", "customer_won", "warning"];
 
+/**
+ * The item's plan waits for the founder's go-ahead ("Here is what will happen", `plan.confirm`): it was answered, so
+ * Continue is free, but it still asks for something, so it stays in Respond until the plan is confirmed (audit OL-01).
+ */
+const awaitingConfirmation = sql`exists (select 1 from ${plans} where ${plans.businessId} = ${inboxItems.businessId} and ${plans.inboxItemId} = ${inboxItems.id} and ${plans.status} = 'pending_confirmation' and ${plans.archivedAt} is null)`;
+
 function tabCondition(tab: InboxTab) {
   switch (tab) {
     case "all":
       return sql`${inboxItems.state} <> 'archived'`;
     case "respond":
-      return and(inArray(inboxItems.state, ["unread", "read"]), or(eq(inboxItems.blocksContinue, true), inArray(inboxItems.type, [...RESPOND_TYPES])));
+      return or(
+        and(inArray(inboxItems.state, ["unread", "read"]), or(eq(inboxItems.blocksContinue, true), inArray(inboxItems.type, [...RESPOND_TYPES]))),
+        and(eq(inboxItems.state, "answered"), awaitingConfirmation),
+      );
     case "customers":
       return and(sql`${inboxItems.state} <> 'archived'`, eq(inboxItems.type, "customer_won"));
     case "updates":

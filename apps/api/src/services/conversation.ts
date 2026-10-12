@@ -60,6 +60,7 @@ import {
   type ConversationSubjectKind,
   type DeptColourToken,
   type EntityKind,
+  type PlanStatus,
 } from "@foundmill/shared";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
@@ -184,6 +185,11 @@ export interface ConversationMessageView {
   chosenQuickReplyId: string | null;
   handOff: { instruction: string; gated: boolean } | null;
   planId: string | null;
+  /**
+   * The staged plan's status as the desk was read: a hand-off staged on another page or device still waits for
+   * `plan.confirm` while it is `pending_confirmation`, so the desk offers "Review the plan" again (audit OL-01).
+   */
+  planStatus: PlanStatus | null;
   /** Stored messages have been accepted by the server ("Seen"). */
   state: "seen";
 }
@@ -413,7 +419,7 @@ const taskInput = (t: Task | null): ConversationTaskInput | null => (t ? { id: t
 
 const asQuickReplies = (v: unknown): QuickReply[] => (Array.isArray(v) ? (v as QuickReply[]) : []);
 
-export function toMessageViews(rows: readonly AgentMessage[]): ConversationMessageView[] {
+export function toMessageViews(rows: readonly AgentMessage[], planStatuses: ReadonlyMap<string, PlanStatus> = new Map()): ConversationMessageView[] {
   return rows.map((m, i) => {
     const quickReplies = asQuickReplies(m.quickReplies);
     const next = rows[i + 1];
@@ -429,6 +435,7 @@ export function toMessageViews(rows: readonly AgentMessage[]): ConversationMessa
       chosenQuickReplyId: chosen ?? null,
       handOff: m.handOff ? { instruction: m.handOff.instruction, gated: m.handOff.gated === true } : null,
       planId: m.planId,
+      planStatus: m.planId ? (planStatuses.get(m.planId) ?? null) : null,
       state: "seen",
     };
   });
@@ -466,7 +473,8 @@ export async function getConversation(ctx: BusinessContext, subject: Conversatio
     const resolved = await resolve(tx, ctx, subject);
     const thread = await repos.conversations.findThread(tx, ctx.businessId, { agentId: resolved.agent.id, subjectKind: subject.kind, subjectId: resolved.subject.id });
     const rows = thread ? await repos.conversations.listMessages(tx, ctx.businessId, thread.id, { limit: 50 }) : [];
-    const seen = await seenAtDesk(tx, ctx, resolved, withoutStaleOptions(toMessageViews(rows), resolved.subject.answered, resolved.starters));
+    const planStatuses = await repos.plans.statusesById(tx, ctx.businessId, rows.flatMap((m) => (m.planId && m.handOff ? [m.planId] : [])));
+    const seen = await seenAtDesk(tx, ctx, resolved, withoutStaleOptions(toMessageViews(rows, planStatuses), resolved.subject.answered, resolved.starters));
     const persona = await personaOf(tx, ctx, seen.r, thread?.id ?? seen.r.subject.id);
     return { subject: seen.r.subject, thread, messages: seen.messages, persona, starters: seen.r.starters, quickReplies: activeQuickReplies(seen.messages, seen.r.starters) };
   });

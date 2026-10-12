@@ -4,6 +4,7 @@ import {
   REFRESH_DEBOUNCE_MS,
   agentIndex,
   answeredFrom,
+  askChip,
   confirmationLines,
   decisionDeadline,
   decisionExpired,
@@ -17,6 +18,7 @@ import {
   journeyForItem,
   neighbourId,
   parseInboxTab,
+  planConfirmationLines,
   planStatusLine,
   previewLine,
   refreshGate,
@@ -79,6 +81,12 @@ describe("rows (DESIGN §9)", () => {
     expect(headerTag("decision", false, true)).toMatchObject({ word: "Needs your call", tone: "bad" });
     expect(headerTag("decision", true, true)).toMatchObject({ word: "Decided" });
     expect(headerTag("update", false, false)).toMatchObject({ word: "Update" });
+  });
+  it("an answered note whose plan waits for the go-ahead still asks: Respond in the list, Needs your go-ahead on the note", () => {
+    const waiting = rowModel({ ...base, type: "decision", state: "answered", blocksContinue: false, awaitingConfirmation: true });
+    expect(waiting).toMatchObject({ needsAnswer: true, tag: { word: "Respond", tone: "bad" } });
+    expect(rowModel({ ...base, type: "decision", state: "answered", blocksContinue: false, awaitingConfirmation: false }).tag.word).toBe("Decided");
+    expect(headerTag("decision", true, false, true)).toEqual({ word: "Needs your go-ahead", tone: "warn", icon: "respond" });
   });
   it("J/K moves through the visible rows and clamps at the ends", () => {
     const ids = ["a", "b", "c"];
@@ -257,6 +265,35 @@ describe("plans", () => {
     );
     expect(links.map((l) => l.href)).toEqual([`/b/${BID}/d/growth/formation`, `/b/${BID}/d/build/plan`, `/b/${BID}/agents/ag-1/overview`, `/b/${BID}/d/build/training-ground`]);
     expect(links[0]!.label).toBe("Open the Board");
+    // A task is a task: never "Open the plan" (the decision's own plan is the Decided panel; audit FR-08).
+    expect(links[1]!.label).toBe("Open the task list");
+    // One task that ran opens on that task; several open the list.
+    const one = followUpLinks([{ id: "t", type: "create_task", params: {}, status: "done", result: { taskId: "task-7" } }], BID, departments);
+    expect(one).toEqual([{ id: "t", label: "Open the task", href: `/b/${BID}/d/build/plan?task=task-7` }]);
+    const two = followUpLinks([{ id: "t1", type: "create_task", params: {}, result: { taskId: "task-7" } }, { id: "t2", type: "create_task", params: {}, result: { taskId: "task-8" } }], BID, departments);
+    expect(two).toEqual([{ id: "t1", label: "Open the tasks", href: `/b/${BID}/d/build/plan` }]);
+  });
+  it("a stored plan's lines come from its actions' recorded outcomes (after a reload, no evaluation in memory)", () => {
+    const lines = planConfirmationLines(
+      [
+        { type: "enable_channel", params: { channel: "paid_ads" }, policyOutcome: "allow" },
+        { type: "set_budget", params: { channel: "paid_ads", amount_minor: 50_000, currency: "GBP" }, policyOutcome: "ask" },
+        { type: "request_human_action", params: { request: "Pay the supplier invoice" }, policyOutcome: null },
+      ],
+      "GBP",
+    );
+    expect(lines.map((l) => [l.label, l.outcome, l.hardGate])).toEqual([
+      ["Enable channel paid ads", "allow", false],
+      ["Set budget for paid ads", "ask", false],
+      ["Founder action: Pay the supplier invoice", "allow", true],
+    ]);
+    expect(totalCost(lines, "GBP")).toEqual({ amountMinor: 50_000, currency: "GBP" });
+  });
+  it("an action policy asked about waits for the go-ahead until the plan is confirmed (audit VOL-X1)", () => {
+    expect(askChip({ status: "pending_confirmation", confirmedAt: null }, { policyOutcome: "ask" })).toEqual({ word: "Needs your go-ahead", tone: "warn" });
+    expect(askChip({ status: "done", confirmedAt: "2026-10-07T15:45:00Z" }, { policyOutcome: "ask" })).toEqual({ word: "Confirmed", tone: "neutral" });
+    expect(askChip({ status: "executing", confirmedAt: null }, { policyOutcome: "ask" })).toBeNull();
+    expect(askChip({ status: "pending_confirmation", confirmedAt: null }, { policyOutcome: "allow" })).toBeNull();
   });
   it("summarises plan status for the answered strip", () => {
     expect(planStatusLine(null)).toBeNull();

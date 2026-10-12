@@ -54,6 +54,15 @@ describe("the cached view", () => {
     expect(aliased[0]!.id).toBe("local-1");
     expect(withPlanId(view, "m1", "plan-9").messages[0]!.planId).toBe("plan-9");
   });
+
+  it("a staged plan stays reviewable until the server says it was confirmed (after a reload too)", () => {
+    const staged = withPlanId(view, "m1", "plan-9");
+    expect(deskMessagesOf(staged)[0]).toMatchObject({ planId: "plan-9", planConfirmed: false });
+    expect(deskMessagesOf(withPlanId(view, "m1", "plan-9", "executing"))[0]!.planConfirmed).toBe(true);
+    expect(deskMessagesOf(withPlanId(view, "m1", "plan-9", "done"))[0]!.planConfirmed).toBe(true);
+    // A message with no plan is never "confirmed".
+    expect(deskMessagesOf(view)[0]!.planConfirmed).toBe(false);
+  });
 });
 
 describe("the agent's own words", () => {

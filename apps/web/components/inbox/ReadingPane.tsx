@@ -7,8 +7,10 @@
  * replies on Alt+1–4, T to talk; typed text goes through `agent.conversation.inboxReply`, so a question never uses up
  * the decision) and the DecisionBar (1–4 through the shell's keyboard map; "Ask <agent>" opens the conversation's
  * Write field instead of a free-text box). When policy says "ask", "Here is what will happen" lists every action with
- * its cost before `plan.confirm`. Answered items show what was chosen, the plan's progress and follow-up links. Won
- * customers open their Customer Update (the replay).
+ * its cost before `plan.confirm`. The plan waits in the database, so the go-ahead is offered from what inbox.get returns
+ * (`confirmation`), after a reload, from another tab or device, never from what this page remembers (audit OL-01).
+ * Answered items show what was chosen, the plan's progress and follow-up links. Won customers open their Customer
+ * Update (the replay).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowRight, CirclePause, ExternalLink, EyeOff, Play, ShieldAlert, Trophy } from "lucide-react";
@@ -51,6 +53,7 @@ import { NoteTagChip } from "./InboxList";
 import {
   agentIndex,
   answeredFrom,
+  askChip,
   confirmationLines,
   decisionDeadline,
   decisionExpired,
@@ -62,6 +65,7 @@ import {
   headerTag,
   hiddenNotice,
   journeyForItem,
+  planConfirmationLines,
   planStatusLine,
   statusStripTiles,
   stripSources,
@@ -111,7 +115,7 @@ interface BodyProps {
 }
 
 function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps) {
-  const { item, decisions, plan: storedPlan, fromAgent, entities } = data;
+  const { item, decisions, plan: storedPlan, confirmation, fromAgent, entities } = data;
   const { businessId } = useBusiness();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -158,7 +162,9 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   const expired = decisionExpired(item.decision);
   const [result, setResult] = useState<DecideResult | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const plan = result?.plan ?? storedPlan;
+  // The server's record wins once it has this plan (it follows another tab's confirmation and the plan's progress); the
+  // decide result covers the moment before inbox.get has caught up.
+  const plan = storedPlan && (!result || storedPlan.id === result.plan.id) ? storedPlan : (result?.plan ?? storedPlan);
   const answered: DecisionAnswer | undefined = useMemo(() => {
     if (result) return result.decision.chosenOption ? { optionId: result.decision.chosenOption } : result.decision.freeText ? { text: result.decision.freeText } : undefined;
     return answeredFrom(decisions);
@@ -194,7 +200,13 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
       onSuccess: (res) => {
         setConfirmOpen(false);
         setResult((prev) => (prev ? { ...prev, plan: res.plan, requiresConfirmation: false, executed: res.exec.executed, deferred: res.exec.deferred, denied: res.exec.denied, followUp: res.followUp ?? prev.followUp } : prev));
+        // The note shows the confirmed plan at once (its refetch follows): no second "Review what will happen".
+        queryClient.setQueryData(trpc.inbox.get.queryKey({ businessId, itemId: item.id }), (old) => (old ? { ...old, plan: res.plan, confirmation: null } : old));
         void invalidate(["inbox", "plan", "dev", "distribution", "team", "business"]);
+        if (res.alreadyConfirmed) {
+          toast({ title: "Already confirmed", description: "This plan was confirmed already, here or elsewhere; nothing runs twice.", tone: "info" });
+          return;
+        }
         toast({ title: "Confirmed", description: `${res.exec.executed.length} action${res.exec.executed.length === 1 ? "" : "s"} started${res.dispatch && !res.dispatch.queued ? "; the orchestrator is offline, the rest run when it returns" : ""}.`, tone: "good", action: res.followUp ? { label: "Open the update", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
         if (won && journeyId) router.push(routes.journey(businessId, journeyId));
       },
@@ -247,10 +259,15 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     } : undefined,
   });
 
-  const lines: ConfirmationLine[] = useMemo(() => (result ? confirmationLines(result.evaluations, currency) : []), [result, currency]);
-  const links = useMemo(() => (plan ? followUpLinks(plan.actions, businessId, departments) : []), [plan, businessId, departments]);
-  const planLine = planStatusLine(plan);
+  // A plan waiting for its go-ahead, from the server's record: the plan that was just decided here, or the stored one
+  // inbox.get hands back (after a reload, in another tab, on another device). Its lines come from the plan's own actions.
   const pendingConfirmation = plan?.status === "pending_confirmation";
+  const canConfirm = confirmation && confirmation.planId === plan?.id ? confirmation.canConfirm : true;
+  const blockedReason = confirmation && !confirmation.canConfirm ? confirmation.blockedReason : null;
+  const lines: ConfirmationLine[] = useMemo(() => (pendingConfirmation && plan ? (result?.plan.id === plan.id ? confirmationLines(result.evaluations, currency) : planConfirmationLines(plan.actions, currency)) : []), [pendingConfirmation, plan, result, currency]);
+  // Nothing exists yet while the plan waits, so there is nothing to open.
+  const links = useMemo(() => (plan && !pendingConfirmation ? followUpLinks(plan.actions, businessId, departments) : []), [plan, pendingConfirmation, businessId, departments]);
+  const planLine = planStatusLine(plan);
   const roleLine = roleBesideName(fromAgent?.name ?? persona?.name, persona?.role);
   const relatedEntities = entities.map((e) => ({ id: e.id, kind: e.kind as EntityKind, name: e.displayName, href: routes.crm(businessId, e.id) }));
   // Parts of the note the reader's section permissions hide (inbox.get masks them on the server).
@@ -287,7 +304,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           </p>
         </div>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
-          <NoteTagChip tag={headerTag(item.type, isAnswered, item.blocksContinue)} size="header" testId="type-pill" />
+          <NoteTagChip tag={headerTag(item.type, isAnswered, item.blocksContinue, pendingConfirmation)} size="header" testId="type-pill" />
           {item.blocksContinue && !isAnswered ? (
             <Chip tone="neutral" icon={CirclePause} title="Continue waits until you answer this note">
               Blocks Continue
@@ -351,20 +368,28 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
               />
               {plan?.actions.length ? (
                 <ul className="flex flex-col gap-1 text-small" data-testid="plan-actions">
-                  {plan.actions.map((a) => (
-                    <li key={a.id} className="flex items-center gap-2">
-                      <StatusPill tone={a.status === "done" ? "good" : a.status === "failed" || a.status === "denied" ? "bad" : a.status === "awaiting_approval" || a.status === "pending" ? "warn" : "info"}>{a.status.replace(/_/g, " ")}</StatusPill>
-                      <span className="truncate">{confirmationLines([{ action: { type: a.type, params: a.params as Record<string, unknown> | null }, outcome: a.policyOutcome ?? "allow" }], currency)[0]?.label}</span>
-                      {a.policyOutcome === "ask" ? <Chip tone="warn">Confirmed by you</Chip> : null}
-                    </li>
-                  ))}
+                  {plan.actions.map((a) => {
+                    const chip = askChip(plan, a);
+                    return (
+                      <li key={a.id} className="flex items-center gap-2" data-action-status={a.status}>
+                        <StatusPill tone={a.status === "done" ? "good" : a.status === "failed" || a.status === "denied" ? "bad" : a.status === "awaiting_approval" || a.status === "pending" ? "warn" : "info"}>{a.status.replace(/_/g, " ")}</StatusPill>
+                        <span className="truncate">{confirmationLines([{ action: { type: a.type, params: a.params as Record<string, unknown> | null }, outcome: a.policyOutcome ?? "allow" }], currency)[0]?.label}</span>
+                        {chip ? <Chip tone={chip.tone} data-testid="ask-chip">{chip.word}</Chip> : null}
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : null}
               <div className="flex flex-wrap items-center gap-2">
-                {pendingConfirmation && result ? (
-                  <Button size="sm" variant="primary" icon={ShieldAlert} onClick={() => setConfirmOpen(true)} data-testid="reopen-confirmation">
+                {pendingConfirmation && canConfirm ? (
+                  <Button size="sm" variant="primary" icon={ShieldAlert} onClick={() => setConfirmOpen(true)} loading={confirm.isPending} data-testid="reopen-confirmation">
                     Review what will happen
                   </Button>
+                ) : null}
+                {pendingConfirmation && blockedReason ? (
+                  <p className="text-small text-secondary text-pretty" data-testid="confirmation-blocked">
+                    Waiting for someone who can give the go-ahead. {blockedReason}
+                  </p>
                 ) : null}
                 {result?.followUp ? (
                   <Button size="sm" variant="ghost" icon={ArrowRight} onClick={() => router.push(routes.inbox(businessId, result.followUp!.id))} data-testid="open-follow-up">
@@ -421,7 +446,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         />
       ) : null}
 
-      <ConfirmPlanDialog open={confirmOpen} onOpenChange={setConfirmOpen} lines={lines} summary={result?.plan.summaryMd ?? ""} currency={currency} loading={confirm.isPending} onConfirm={() => result && confirm.mutate({ businessId, planId: result.plan.id })} />
+      <ConfirmPlanDialog open={confirmOpen && pendingConfirmation} onOpenChange={setConfirmOpen} lines={lines} summary={plan?.summaryMd ?? ""} currency={currency} loading={confirm.isPending} onConfirm={() => plan && confirm.mutate({ businessId, planId: plan.id })} />
       {decide.isError || confirm.isError ? (
         <p className="sr-only" role="alert">
           {errorMessage(decide.error ?? confirm.error)}

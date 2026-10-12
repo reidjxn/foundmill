@@ -56,6 +56,8 @@ export function deskMessagesOf(view: Pick<ConversationView, "messages">, alias: 
     chosenQuickReplyId: m.chosenQuickReplyId,
     handOff: m.handOff,
     planId: m.planId,
+    // A staged plan stays reviewable until it is confirmed (audit OL-01); the server says where it stands.
+    planConfirmed: Boolean(m.planId && m.planStatus && m.planStatus !== "pending_confirmation"),
     state: m.state,
   }));
 }
@@ -67,9 +69,9 @@ export function withSent<V extends Pick<ConversationView, "thread" | "messages" 
   return { ...view, thread: sent.thread ?? view.thread, messages: [...view.messages, ...added], quickReplies: sent.quickReplies };
 }
 
-/** A message's plan once its hand-off is staged (the strip then reads "Plan staged"). */
-export function withPlanId<V extends Pick<ConversationView, "messages">>(view: V, messageId: string, planId: string): V {
-  return { ...view, messages: view.messages.map((m) => (m.id === messageId ? { ...m, planId } : m)) };
+/** A message's plan once its hand-off is staged (the strip then reads "Plan staged"), or its status once it is confirmed. */
+export function withPlanId<V extends Pick<ConversationView, "messages">>(view: V, messageId: string, planId: string, planStatus: ConversationView["messages"][number]["planStatus"] = "pending_confirmation"): V {
+  return { ...view, messages: view.messages.map((m) => (m.id === messageId ? { ...m, planId, planStatus } : m)) };
 }
 
 function hash(s: string): number {

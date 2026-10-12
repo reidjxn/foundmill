@@ -462,7 +462,10 @@ function DeskThread({
   );
 }
 
-/** What the agent would hand off, and that nothing runs until the founder confirms the plan. */
+/**
+ * What the agent would hand off, and that nothing runs until the founder confirms the plan. A staged plan stays
+ * reviewable until it is confirmed (the review opens the stored plan; nothing is compiled twice).
+ */
 function HandOffStrip({
   message,
   onHandOff,
@@ -472,8 +475,9 @@ function HandOffStrip({
 }) {
   const h = message.handOff!;
   const staged = Boolean(message.planId);
+  const confirmed = staged && message.planConfirmed === true;
   return (
-    <div className="desk-handoff" data-testid="desk-handoff" data-gated={h.gated || undefined}>
+    <div className="desk-handoff" data-testid="desk-handoff" data-gated={h.gated || undefined} data-staged={staged || undefined} data-confirmed={confirmed || undefined}>
       <Icon icon={h.gated ? Lock : ListChecks} size="inline" className="mt-px text-tertiary" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="font-medium text-primary">
@@ -481,12 +485,14 @@ function HandOffStrip({
         </span>
         <span className="text-pretty">{h.instruction}</span>
         <span className="text-tertiary">
-          {staged
-            ? "Plan staged. Nothing runs until you confirm it."
-            : "Nothing runs until you confirm the plan."}
+          {confirmed
+            ? "Plan confirmed. The team is on it."
+            : staged
+              ? "Plan staged. Nothing runs until you confirm it."
+              : "Nothing runs until you confirm the plan."}
         </span>
       </div>
-      {onHandOff && !staged ? (
+      {onHandOff && !confirmed ? (
         <Button
           size="sm"
           variant="default"

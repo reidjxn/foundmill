@@ -70,6 +70,14 @@ export function confirmationLines(evaluations: readonly EvaluationLike[], curren
   return evaluations.map((e) => ({ label: describeAction(e.action.type, e.action.params ?? null), outcome: e.outcome, hardGate: e.hardGate === true || e.action.type === "request_human_action", cost: actionCost(e.action.params ?? null, currency), reasons: e.reasons ?? [] }));
 }
 
+/**
+ * The lines of a stored plan (inbox.get, after a reload or on another device; audit OL-01): each action's recorded
+ * policy outcome stands in for its evaluation, so "Here is what will happen" never depends on the page that decided.
+ */
+export function planConfirmationLines(actions: readonly { type: string; params?: Record<string, unknown> | null; policyOutcome?: string | null }[], currency: string): ConfirmationLine[] {
+  return confirmationLines(actions.map((a) => ({ action: { type: a.type, params: a.params ?? null }, outcome: a.policyOutcome ?? "allow" })), currency);
+}
+
 export function totalCost(lines: readonly ConfirmationLine[], currency: string): Money | null {
   const sum = lines.reduce((acc, l) => acc + (l.cost?.amountMinor ?? 0), 0);
   return sum > 0 ? { amountMinor: sum, currency } : null;
