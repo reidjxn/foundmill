@@ -363,8 +363,8 @@ export function metricKey(metric: string): string | null {
 export function statusStripTiles(strip: unknown, sources: MetricSources): MetricTileProps[] {
   if (!Array.isArray(strip)) return [];
   const now = sources.now ?? new Date();
+  // Money shows only beside finance's figures, in finance's currency (the business's own before a bank is connected).
   const f = sources.finance ?? null;
-  const currency = f?.cash.currency ?? "EUR";
   const provenance = (m: StripMetricInput, fallback: string) => ({ source: plainSource(m.source) ?? fallback, asOf: f?.cash.asOf ?? undefined });
   return strip
     .filter((m): m is StripMetricInput => !!m && typeof m === "object" && typeof (m as StripMetricInput).metric === "string")
@@ -373,7 +373,7 @@ export function statusStripTiles(strip: unknown, sources: MetricSources): Metric
       const key = metricKey(m.metric);
       switch (key) {
         case "cash":
-          return { label: "Cash", value: f ? { amountMinor: f.cash.amountMinor, currency } : null, provenance: provenance(m, "Bank balances") };
+          return { label: "Cash", value: f ? { amountMinor: f.cash.amountMinor, currency: f.cash.currency } : null, provenance: provenance(m, "Bank balances") };
         case "runway": {
           // No figure: the shared runway words (Home, Finance and the note say the same), never a bare "—".
           const words = runwayWords(f);
@@ -382,11 +382,11 @@ export function statusStripTiles(strip: unknown, sources: MetricSources): Metric
         }
         case "burn":
         case "net_burn":
-          return { label: "Net burn", value: f ? { amountMinor: f.burn.netBurnMinor, currency } : null, estimate: "estimate", provenance: provenance(m, "Trailing 3-month average") };
+          return { label: "Net burn", value: f ? { amountMinor: f.burn.netBurnMinor, currency: f.cash.currency } : null, estimate: "estimate", provenance: provenance(m, "Trailing 3-month average") };
         case "mrr":
         case "revenue": {
           const latest = f ? latestMonthly(f) : undefined;
-          return { label: key === "mrr" ? "MRR" : "Revenue", value: latest ? { amountMinor: latest.inflowMinor, currency } : null, estimate: key === "mrr" ? "estimate" : undefined, caption: latest ? latest.month : undefined, provenance: provenance(m, "Cash basis, latest month") };
+          return { label: key === "mrr" ? "MRR" : "Revenue", value: f && latest ? { amountMinor: latest.inflowMinor, currency: f.cash.currency } : null, estimate: key === "mrr" ? "estimate" : undefined, caption: latest ? latest.month : undefined, provenance: provenance(m, "Cash basis, latest month") };
         }
         case "customers_week":
           return { label: "Customers this week", value: countKind(sources.conversions, "payment", 7, now), format: "integer", provenance: provenance(m, "Conversions, last 7 days") };
@@ -617,6 +617,18 @@ export function planStatusLine(plan: PlanLike | null | undefined): { word: strin
     default:
       return { word: plan.status.replace(/_/g, " "), tone: "neutral", detail: of };
   }
+}
+
+/**
+ * The consent chip beside a plan action in the Decided panel. Only an action outside policy (`ask`) carries one: it reads
+ * "Confirmed by you" once the founder confirmed the plan and nothing else is waiting, and "Needs your go-ahead" while
+ * the plan awaits confirmation or the action awaits an approval. A denied or skipped action never ran: no chip.
+ */
+export function actionConsentChip(action: PlanActionLike, planStatus: string | null | undefined): { label: string; tone: "warn" | "neutral" } | null {
+  if (action.policyOutcome !== "ask") return null;
+  if (planStatus === "pending_confirmation" || action.status === "awaiting_approval") return { label: "Needs your go-ahead", tone: "warn" };
+  if (action.status === "denied" || action.status === "skipped") return null;
+  return { label: "Confirmed by you", tone: "neutral" };
 }
 
 /** The id of the item from the pathname (`/b/<bid>/inbox/<itemId>`), or null on the list route. */

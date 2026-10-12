@@ -33,12 +33,13 @@ export interface HireDialogProps {
   defaultDepartmentId?: string;
   /** Prefilled name (the agent builder's suggestion). */
   defaultName?: string;
-  currency?: string;
+  /** The business's own currency: the wage cap reads in it, as the hire is stored (0025). */
+  currency: string;
   onHired: (agent: AgentRow, template: TemplateRow) => void;
 }
 
 /** Hire a catalogue template into a department (team.agents.hire). */
-export function HireDialog({ template, onOpenChange, departments, defaultDepartmentId, defaultName, currency = "EUR", onHired }: HireDialogProps) {
+export function HireDialog({ template, onOpenChange, departments, defaultDepartmentId, defaultName, currency, onHired }: HireDialogProps) {
   const id = useId();
   const action = useAction();
   const options = departmentOptions(departments);

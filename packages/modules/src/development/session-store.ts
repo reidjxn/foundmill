@@ -5,6 +5,7 @@
  */
 import { AGENT_SESSION_EVENT_KINDS, emptySession, type AgentSessionEvent, type AgentTileSession, type SessionSeed, type TileAgent } from "@foundmill/dugout";
 import type { TaskPhase, TaskStatus } from "@foundmill/shared";
+import { MODEL_COST_CURRENCY } from "@foundmill/shared/constants";
 import { agentBranch, progressValue, toIso } from "./shared";
 import type { SessionRow, TaskRow } from "./types";
 
@@ -45,8 +46,6 @@ export interface TileSeedInput {
   session: SessionRow | null | undefined;
   agent: TileAgent;
   taskHref?: string;
-  /** The business's currency: sessions carry no currency of their own, so their cost is shown in it. */
-  currency?: string;
 }
 
 /** The longest brief a tile shows (about three lines of a tile's empty state). */
@@ -73,9 +72,11 @@ export function goalLine(goalMd: string | null | undefined): string | undefined 
 }
 
 /** The static facts a tile needs, from the task row, its open session (if any) and the agent row. */
-export function seedFromRows({ task, session, agent, taskHref, currency: businessCurrency }: TileSeedInput): SessionSeed {
+export function seedFromRows({ task, session, agent, taskHref }: TileSeedInput): SessionSeed {
   const tokens = session ? (session.tokensIn ?? 0) + (session.tokensOut ?? 0) : 0;
-  const currency = session?.currency ?? businessCurrency ?? "EUR";
+  // A session's cost is a model cost, in the pricing currency (its row says which), never the business's money; a tile
+  // without a session shows its zero the same way, so the figure does not change currency when the session opens.
+  const currency = session?.currency ?? MODEL_COST_CURRENCY;
   return {
     id: session?.id ?? placeholderSessionId(task.id),
     agent: session?.modelKey ? { ...agent, model: session.modelKey } : agent,

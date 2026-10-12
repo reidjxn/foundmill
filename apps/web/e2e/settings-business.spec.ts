@@ -52,3 +52,35 @@ test.describe("settings › business: the logo", () => {
     await expect(page.getByTestId("logo-picker")).toHaveAttribute("data-logo-source", "initials");
   });
 });
+
+/**
+ * The business's currency (0025): stored on the business, shown in Settings › Business, and used by every screen's
+ * business money (it used to be EUR for any business without a bank account). Northwind keeps its books in pounds; the
+ * test switches it to dollars, checks a money screen follows, and puts pounds back.
+ */
+test.describe("settings › business: the currency", () => {
+  test("shows the business's currency, and a change reaches the money on other screens", async ({ page }) => {
+    const businessId = await openBusiness(page, "settings/business");
+    await expect(page.getByTestId("settings-screen")).toHaveAttribute("data-tab", "business", { timeout: LONG });
+    const field = page.locator("#biz-currency");
+    await expect(field).toContainText("GBP");
+    await expect(field).toContainText("British Pound");
+
+    await field.click();
+    await page.getByRole("option", { name: /US Dollar/ }).click();
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(page.getByText("Business saved")).toBeVisible({ timeout: LONG });
+    await page.goto(`/b/${businessId}/milestones`);
+    await expect(page.getByTestId("milestones-screen")).toBeVisible({ timeout: LONG });
+    await expect(page.locator("[data-trophy]").filter({ hasText: "MRR" }).first()).toContainText("$", { timeout: LONG });
+    await expect(page.locator("[data-trophy]").filter({ hasText: "£" })).toHaveCount(0);
+
+    await page.goto(`/b/${businessId}/settings/business`);
+    await expect(page.locator("#biz-currency")).toContainText("USD", { timeout: LONG });
+    await page.locator("#biz-currency").click();
+    await page.getByRole("option", { name: /British Pound/ }).click();
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(page.getByText("Business saved")).toBeVisible({ timeout: LONG });
+    await expect(page.locator("#biz-currency")).toContainText("GBP");
+  });
+});

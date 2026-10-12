@@ -43,6 +43,9 @@ describe("seedFromRows / baseSession", () => {
     const seed = seedFromRows({ task: bundle, session: null, agent });
     expect(seed.id).toBe(placeholderSessionId(TASK_BUNDLE));
     expect(seed.tokens).toBe(0);
+    // A session's cost is a model cost: in the pricing currency before the session opens too, never the business's.
+    expect(seed.cost).toEqual({ amountMinor: 0, currency: "USD" });
+    expect(seedFromRows({ task: bundle, session: { ...bundleSession, currency: undefined }, agent }).cost).toEqual({ amountMinor: 240, currency: "USD" });
   });
   it("carries the task's goal as one plain line (the brief a waiting tile shows)", () => {
     const seed = seedFromRows({ task: { ...bundle, goalMd: "## Goal\n\nAdd a **bundle picker** to the [product page](https://x).\n\n- Picker renders" }, session: bundleSession, agent });

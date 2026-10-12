@@ -192,7 +192,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const business = data.business;
   const logoSrc = useBusinessLogoSrc(businessId, data.logo);
   const live = business.gameMode === "live";
-  const currency = financeQ.data?.cash.currency ?? "EUR";
+  // The business's own currency (0025) for every business amount on every screen; a bank account's currency is its own.
+  const currency = business.currency;
 
   const agentDepartment = useCallback(
     (agentId: string) => departments.find((d) => d.squad.some((a) => a.id === agentId) || d.leadAgentId === agentId)?.id ?? null,

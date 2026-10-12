@@ -20,6 +20,8 @@ import { usSpelling } from "@foundmill/shared/us-spelling";
 
 export const DISPLAY_LOCALE = "en-US";
 export const DISPLAY_TIME_ZONE = "UTC";
+/** Model costs read in the pricing currency (USD); business money reads in the business's own (`useBusinessCurrency`). */
+export { MODEL_COST_CURRENCY } from "@foundmill/shared/constants";
 
 type DateValue = Date | string | number | null | undefined;
 
@@ -67,6 +69,15 @@ class UtcWallClock extends Date {
 function utc(d: Date, pattern: DateFormatKey | string, prefs: DateFormatPrefs | null | undefined): string {
   const key = dateFormatKeyOf(pattern);
   return dfFormat(new UtcWallClock(d.getTime()), key ? datePatternFor(key, prefs) : pattern);
+}
+
+/** "GBP" → "British Pound" for a currency select (the code sits on its own chip before the name). */
+export function currencyName(code: string): string {
+  try {
+    return new Intl.DisplayNames([DISPLAY_LOCALE], { type: "currency" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
 }
 
 export function formatMoney(money: Money | { amountMinor: number; currency: string } | null | undefined, locale = DISPLAY_LOCALE): string {

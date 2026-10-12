@@ -63,7 +63,7 @@ export function toHierarchyNodes(agents: readonly AgentRow[], opts: { department
 }
 
 export function HierarchyScreen({ businessId }: ModuleScreenProps) {
-  const { navigate, currency = "EUR" } = useWidgetData();
+  const { navigate, currency } = useWidgetData();
   const { liveRefetchMs } = useTeamOptions();
   const now = useNow();
   const agentsQuery = useAgents();

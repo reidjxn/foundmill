@@ -1,6 +1,7 @@
 /** /new/commit/[ideaId] — the Commit screen: name, logo and brand colours, modes, archetype, "Take charge" (BUILD §11.1, AC-11.1.6/7). */
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
+import { DEFAULT_BUSINESS_CURRENCY } from "@foundmill/shared/constants";
 import { Suspense } from "react";
 import { CommitScreen } from "@/components/new/commit/CommitScreen";
 import { loadStudioViewer } from "@/components/new/viewer.server";
@@ -19,9 +20,10 @@ export default async function CommitPage({ params }: { params: Promise<{ ideaId:
   if (result.kind === "unreachable") return <UnreachablePage message={result.message} />;
   const { viewer } = result;
   if (!viewer.complete) redirect("/onboarding");
+  // The Commit screen offers the founder's currency; commit stores it on the business (0025). A complete viewer has a profile.
   return (
     <Suspense fallback={null}>
-      <CommitScreen ideaId={ideaId} viewer={{ email: viewer.email }} currency={viewer.profile?.currency ?? "EUR"} />
+      <CommitScreen ideaId={ideaId} viewer={{ email: viewer.email }} currency={viewer.profile?.currency ?? DEFAULT_BUSINESS_CURRENCY} />
     </Suspense>
   );
 }

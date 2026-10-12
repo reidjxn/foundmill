@@ -17,7 +17,8 @@ export interface DayDigestProps {
   summary: DaySummary;
   /** Narrated highlights for the day (Composer); [[ent:id|Name]] markup renders as entity links. */
   highlights?: string[];
-  currency?: string;
+  /** The business's own currency (ISO 4217): every amount here is formatted in it. */
+  currency: string;
   onOpenJourney?: (conversionId: string) => void;
   onOpenEntity?: (id: string) => void;
   entityKinds?: Record<string, EntityKind>;
@@ -30,7 +31,7 @@ export interface DayDigestProps {
 const KIND_WORD = { signup: "Signup", activation: "Activation", payment: "Payment" } as const;
 
 /** The day digest card (BUILD §11.2 "click → day digest"): what the squad did, what happened and what it earned. */
-export function DayDigest({ summary, highlights = [], currency = "EUR", onOpenJourney, onOpenEntity, entityKinds, onPrevDay, onNextDay, onClose, className }: DayDigestProps) {
+export function DayDigest({ summary, highlights = [], currency, onOpenJourney, onOpenEntity, entityKinds, onPrevDay, onNextDay, onClose, className }: DayDigestProps) {
   const { formatDate, formatTime } = useFormatters();
   const p = summary.point;
   const depts = summary.departments.filter((d) => d.hours > 0);

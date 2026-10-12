@@ -91,11 +91,11 @@ describe("change proposal helpers", () => {
     expect(lines[0]!.value).toBe("+4 days");
     expect(lines[2]!.value).toContain("1,200");
     expect(lines.every((l) => l.estimate)).toBe(true);
-    expect(impactLines({ tasks: ["a", "b"], dates: { from: "2026-10-01", to: "2026-10-05" } })).toEqual([
+    expect(impactLines({ tasks: ["a", "b"], dates: { from: "2026-10-01", to: "2026-10-05" } }, "EUR")).toEqual([
       { label: "Dates", value: "2026-10-01 → 2026-10-05", estimate: true },
       { label: "Tasks", value: "2 tasks: a, b", estimate: true },
     ]);
-    expect(impactLines(null)).toEqual([]);
+    expect(impactLines(null, "EUR")).toEqual([]);
   });
 });
 

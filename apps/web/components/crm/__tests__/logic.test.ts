@@ -71,6 +71,10 @@ describe("profile derivations", () => {
     ] as never[];
     const s = commercialSummary(conversions as never, "SEK");
     expect(s).toMatchObject({ payments: 2, totalMinor: 9800, currency: "EUR", monthlyMinor: 3267, signedUpAt: "2026-01-01T00:00:00.000Z" });
+    // Two currencies are never added: the business's own counts when it has payments in it.
+    const mixed = commercialSummary([...conversions, { id: "c4", kind: "payment", amountMinor: 2000, currency: "SEK", occurredAt: new Date("2026-03-01") }] as never, "SEK");
+    expect(mixed).toMatchObject({ payments: 3, totalMinor: 2000, currency: "SEK" });
+    expect(commercialSummary([] as never, "USD")).toMatchObject({ payments: 0, totalMinor: 0, currency: "USD" });
     const items = activityItems({ interactions: [{ id: "i1", kind: "email", occurredAt: new Date("2026-03-01"), direction: "inbound", summary: "Asked about pricing", agentId: null, contentRef: "vault://x" }], mentions: [{ id: "m1", containerKind: "inbox_item", containerId: "n1", createdAt: new Date("2026-05-01") }], conversions } as never, { inbox: (id) => `/inbox/${id}`, journey: (id) => `/j/${id}` });
     expect(items.map((i) => i.id)).toEqual(["m-m1", "c-c3", "i-i1", "c-c2", "c-c1"]);
     expect(items[0]!.href).toBe("/inbox/n1");

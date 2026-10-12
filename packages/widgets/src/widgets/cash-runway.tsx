@@ -61,7 +61,7 @@ export function monthlySeries(finance: FinanceOverview | undefined, months: numb
 }
 
 function CashRunwayWidget({ settings }: WidgetProps<CashRunwaySettings>) {
-  const { businessId, navigate, currency = "EUR" } = useWidgetData();
+  const { businessId, navigate, currency } = useWidgetData();
   const finance = useWidgetQuery<FinanceOverview>("finance.overview", {});
   const departments = useDepartments();
   useBusinessEvents(() => finance.refetch(), ["bank.balance_updated", "payment.received", "runway.threshold_crossed"]);

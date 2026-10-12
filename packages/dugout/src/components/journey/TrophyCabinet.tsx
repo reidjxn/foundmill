@@ -72,10 +72,10 @@ export function TrophyCabinet({ trophies, onOpen, onShare, columns = 4, classNam
                         <dd className="break-words">{t.customerName}</dd>
                       </div>
                     ) : null}
-                    {t.amountMinor ? (
+                    {t.amountMinor && t.currency ? (
                       <div className="flex justify-between gap-2">
                         <dt className="text-secondary">Value</dt>
-                        <dd className="tabular-nums text-gold">{formatMoney({ amountMinor: t.amountMinor, currency: t.currency ?? "EUR" })}</dd>
+                        <dd className="tabular-nums text-gold">{formatMoney({ amountMinor: t.amountMinor, currency: t.currency })}</dd>
                       </div>
                     ) : null}
                   </dl>

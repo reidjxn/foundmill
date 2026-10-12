@@ -130,7 +130,7 @@ export function roadmapFlags(items: RoadmapListResponse["items"] | undefined, to
 }
 
 function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRibbonSettings>) {
-  const { businessId, navigate, currency = "EUR" } = useWidgetData();
+  const { businessId, navigate, currency } = useWidgetData();
   const today = dayKey();
   const ribbon = useWidgetQuery<RibbonResponse>("journey.ribbon", { from: addDays(today, -RIBBON_HISTORY_DAYS), to: today });
   const departments = useDepartments();

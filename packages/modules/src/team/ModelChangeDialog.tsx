@@ -48,12 +48,12 @@ export interface ModelChangeDialogProps {
   /** Agents sharing the type and the whole squad, for the scope dialog's copy. */
   typeCount: number;
   allCount: number;
-  currency?: string;
+  currency: string;
   /** Called after `agent.model.set` succeeded with the API result. */
   onApplied: (result: ModelSetResponse, modelKey: ModelKey, scope: ApplyScope) => void;
 }
 
-export function ModelChangeDialog({ agent, onOpenChange, typeCount, allCount, currency = "EUR", onApplied }: ModelChangeDialogProps) {
+export function ModelChangeDialog({ agent, onOpenChange, typeCount, allCount, currency, onApplied }: ModelChangeDialogProps) {
   const compare = useWidgetQuery<ModelCompareResponse>("agent.model.compare", agent ? { agentId: agent.id } : undefined, { enabled: !!agent });
   const action = useAction();
   const [candidate, setCandidate] = useState<ModelKey | null>(null);

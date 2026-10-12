@@ -53,7 +53,7 @@ export function specialistTasks(tasks: readonly TaskRow[] | undefined): TaskRow[
 }
 
 export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProps) {
-  const { navigate, currency } = useWidgetData();
+  const { navigate } = useWidgetData();
   const options = useDevScreenOptions();
   const tasks = useWidgetQuery<TasksListResponse>("dev.tasks.list", { kind: "specialist", limit: 200 });
   const sessions = useWidgetQuery<SessionsListResponse>("dev.sessions.list", { limit: 200 });
@@ -75,9 +75,9 @@ export function SpecialistsScreen({ businessId, departmentId }: ModuleScreenProp
       list.map((task) => {
         const session = byTask.get(task.id) ?? null;
         const agent = toTileAgent(agentIndex.get(task.assigneeAgentId ?? ""), task.assigneeAgentId);
-        return { seed: seedFromRows({ task, session, agent, taskHref: taskHref(businessId, deptSlug, task.id), currency }), task, session };
+        return { seed: seedFromRows({ task, session, agent, taskHref: taskHref(businessId, deptSlug, task.id) }), task, session };
       }),
-    [list, byTask, agentIndex, businessId, deptSlug, currency],
+    [list, byTask, agentIndex, businessId, deptSlug],
   );
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const streams = useSessionStreams(sources, focusedId, { flushMs: options.flushMs });

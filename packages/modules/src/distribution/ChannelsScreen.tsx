@@ -189,7 +189,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
   // Toggled since the Strategist last scored: local scores until its re-score lands (rescore.ts).
   const [provisional, setProvisional] = useState(false);
   const rows = useMemo(() => {
-    const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency: currency ?? "EUR", today });
+    const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency, today });
     return provisional ? localScores(built) : built;
   }, [channels.data, campaigns.data, metrics.data, recommendation, currency, today, provisional]);
   const columns = useMemo(() => fitToGrow(channelColumns(), CHANNEL_FIT), []);

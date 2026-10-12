@@ -66,7 +66,6 @@ describe("ConfirmPlanDialog ('Here is what will happen')", () => {
         open
         onOpenChange={vi.fn()}
         summary="Enable paid ads with a €500 cap."
-        currency="EUR"
         onConfirm={onConfirm}
         lines={[
           { label: "Enable channel paid ads", outcome: "allow", hardGate: false, cost: null, reasons: [] },
@@ -82,5 +81,22 @@ describe("ConfirmPlanDialog ('Here is what will happen')", () => {
     expect(r.getAllByText("€500.00").length).toBeGreaterThanOrEqual(1);
     fireEvent.click(r.getByTestId("confirm-plan-go"));
     expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a total per currency when the lines are in more than one (never '£300' lines under a '€300' total)", () => {
+    const r = render(
+      <ConfirmPlanDialog
+        open
+        onOpenChange={vi.fn()}
+        summary=""
+        onConfirm={vi.fn()}
+        lines={[
+          { label: "Set budget for paid ads", outcome: "ask", hardGate: false, cost: { amountMinor: 30_000, currency: "GBP" }, reasons: [] },
+          { label: "Set budget for seo", outcome: "allow", hardGate: false, cost: { amountMinor: 20_000, currency: "USD" }, reasons: [] },
+        ]}
+      />,
+    );
+    expect(r.getByTestId("confirm-plan-total").textContent).toContain("£300.00 + $200.00");
+    expect(r.getByText(/listed side by side, not converted/)).toBeTruthy();
   });
 });

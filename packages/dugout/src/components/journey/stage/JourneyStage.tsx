@@ -55,7 +55,8 @@ export interface JourneyStageProps {
   entityKinds?: Record<string, EntityKind>;
   onClose?: () => void;
   closeLabel?: string;
-  currency?: string;
+  /** The conversion's currency (the business's own unless the payment was in another). */
+  currency: string;
   /** "pixi" (default) draws the win-moment particle burst; "none" skips the canvas (tests, reduced motion). */
   overlay?: "pixi" | "none";
   className?: string;
@@ -538,7 +539,7 @@ function FullTime({ journey, customer, agents, currency, onReplay, onClose, clos
  * deterministic frame schedule (AC-11.4.3). Speeds Full / Highlights / Instant; a scrubber and pause; the stage
  * stepper jumps to any stage. Reduced motion renders the static summary (AC-11.4.5).
  */
-export function JourneyStage({ journey, touches, customer, agents, kit, speed: speedProp, defaultSpeed = "full", onSpeedChange, autoplay = true, onOpenEntity, entityKinds, onClose, closeLabel = "Back", currency = "EUR", overlay = "pixi", className }: JourneyStageProps) {
+export function JourneyStage({ journey, touches, customer, agents, kit, speed: speedProp, defaultSpeed = "full", onSpeedChange, autoplay = true, onOpenEntity, entityKinds, onClose, closeLabel = "Back", currency, overlay = "pixi", className }: JourneyStageProps) {
   const reduced = usePrefersReducedMotion();
   const [speedState, setSpeedState] = useState<ReplaySpeed>(defaultSpeed);
   const speed = speedProp ?? speedState;

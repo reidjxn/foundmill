@@ -32,9 +32,10 @@ interface Described {
 function str(v: unknown): string | undefined {
   return typeof v === "string" && v ? v : undefined;
 }
+/** An event's money carries its own currency (packages/events `Money`); an amount without one is not shown at all. */
 function money(v: unknown): string | undefined {
   const m = v as { amountMinor?: number; currency?: string } | undefined;
-  return m && typeof m.amountMinor === "number" ? formatMoney({ amountMinor: m.amountMinor, currency: m.currency ?? "EUR" }) : undefined;
+  return m && typeof m.amountMinor === "number" && typeof m.currency === "string" ? formatMoney({ amountMinor: m.amountMinor, currency: m.currency }) : undefined;
 }
 
 /** Plain, specific words for each event (DESIGN §10); colour always comes with an icon and a word. */

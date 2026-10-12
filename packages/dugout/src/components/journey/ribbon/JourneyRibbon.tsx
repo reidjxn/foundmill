@@ -94,7 +94,8 @@ export interface JourneyRibbonProps {
   overlay?: "pixi" | "svg" | "none";
   /** Flow-in on first render (1.2 s). Default true; reduced motion disables it. */
   animateIn?: boolean;
-  currency?: string;
+  /** The business's own currency (ISO 4217): every amount here is formatted in it. */
+  currency: string;
   /** Accessible name. */
   label?: string;
   className?: string;
@@ -177,7 +178,7 @@ const RibbonSurface = forwardRef<JourneyRibbonHandle, SurfaceProps>(function Rib
     kit,
     overlay = "pixi",
     animateIn = true,
-    currency = "EUR",
+    currency,
     label,
     className,
   } = props;

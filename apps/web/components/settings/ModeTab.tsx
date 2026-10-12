@@ -112,7 +112,7 @@ export function ModeTab() {
             </div>
           </div>
         )}
-        <HolidayDialog open={holidayOpen} onOpenChange={setHolidayOpen} currency={currency} onSubmit={(settings: HolidaySettings) => startHoliday.mutateAsync({ businessId, ...toStartHolidayInput(settings) }).then(() => undefined)} />
+        <HolidayDialog open={holidayOpen} onOpenChange={setHolidayOpen} currency={currency} onSubmit={(settings: HolidaySettings) => startHoliday.mutateAsync({ businessId, ...toStartHolidayInput(settings, currency) }).then(() => undefined)} />
       </SettingsSection>
     </AdminOnly>
   );

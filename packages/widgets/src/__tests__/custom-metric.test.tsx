@@ -88,11 +88,11 @@ describe("custom metric widget", () => {
     expect(metricQueryInput({ ...base, mode: "sentence", sentence: "x", compiled: { queryId: null, sql: "select 1", label: "One", format: "integer" } })).toEqual({ sql: "select 1", queryId: undefined });
   });
   it("formats by the declared format", () => {
-    expect(formatMetric(1234567, "compact")).toBe("1.2M");
-    expect(formatMetric(0.1234, "percent")).toBe("12.3%");
-    expect(formatMetric(12.5, "integer")).toBe("13");
+    expect(formatMetric(1234567, "compact", "USD")).toBe("1.2M");
+    expect(formatMetric(0.1234, "percent", "USD")).toBe("12.3%");
+    expect(formatMetric(12.5, "integer", "USD")).toBe("13");
     expect(formatMetric(4900, "money", "EUR")).toEqual({ amountMinor: 4900, currency: "EUR" });
-    expect(formatMetric(null, "money")).toBe("—");
+    expect(formatMetric(null, "money", "USD")).toBe("—");
   });
   it("renders the compiled metric read-only with its estimate chip", () => {
     const fake = createFakeSource({ businessId: BID, responses: { "dashboard.customMetric.get": { ...customMetric, estimate: "estimate" } } });

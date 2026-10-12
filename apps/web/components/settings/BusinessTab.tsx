@@ -1,16 +1,17 @@
 "use client";
 /**
- * Settings › Business (BUILD §11.15): name, slug and archetype; the logo (upload a real one, generate marks, or go back
- * to the initials mark: `business.logo.*`, owner/admin, saved at once and audited); and the brand colours (saved with
- * the rest of the form, with a suggestion read from the logo).
+ * Settings › Business (BUILD §11.15): name, slug, archetype and the currency the business keeps its money in (0025);
+ * the logo (upload a real one, generate marks, or go back to the initials mark: `business.logo.*`, owner/admin, saved at
+ * once and audited); and the brand colours (saved with the rest of the form, with a suggestion read from the logo).
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Field, Input, SimpleSelect, type Kit } from "@foundmill/dugout";
-import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared/constants";
+import { ARCHETYPES, ARCHETYPE_LABELS, CURRENCIES, type Archetype } from "@foundmill/shared/constants";
 import { LogoPicker, type LogoActions } from "@/components/logo/LogoPicker";
 import { readLogoStream } from "@/components/logo/logo-stream";
 import { useBusinessLogoSrc } from "@/components/logo/useBusinessLogo";
+import { currencyName } from "@/lib/format";
 import type { LogoDraft } from "@/lib/logo";
 import type { RouterOutputs } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
@@ -31,6 +32,9 @@ export function BusinessTab() {
   const [name, setName] = useState(b.name);
   const [slug, setSlug] = useState(b.slug);
   const [archetype, setArchetype] = useState<Archetype | "">(b.archetype ?? "");
+  const [currency, setCurrency] = useState(b.currency);
+  // The offered currencies, plus the business's own when it is not one of them (kept from commit or an import).
+  const currencyOptions = useMemo(() => [...new Set([...CURRENCIES, b.currency])].map((c) => ({ value: c, code: c, label: currencyName(c), textValue: c })), [b.currency]);
   const [primary, setPrimary] = useState(b.kitPrimary);
   const [secondary, setSecondary] = useState(b.kitSecondary);
 
@@ -88,7 +92,7 @@ export function BusinessTab() {
   }
 
   const validHex = HEX_RE.test(primary) && HEX_RE.test(secondary);
-  const dirty = name !== b.name || slug !== b.slug || (archetype || null) !== (b.archetype ?? null) || primary !== b.kitPrimary || secondary !== b.kitSecondary;
+  const dirty = name !== b.name || slug !== b.slug || (archetype || null) !== (b.archetype ?? null) || currency !== b.currency || primary !== b.kitPrimary || secondary !== b.kitSecondary;
 
   return (
     <AdminOnly>
@@ -103,6 +107,9 @@ export function BusinessTab() {
         </FormRow>
         <Field htmlFor="biz-archetype" label="Archetype" hint="Drives the default departments, channels and the Board's first decisions.">
           <SimpleSelect id="biz-archetype" value={archetype} onValueChange={(v) => setArchetype(v as Archetype)} placeholder="Choose an archetype" options={ARCHETYPES.map((a) => ({ value: a, label: ARCHETYPE_LABELS[a] }))} />
+        </Field>
+        <Field htmlFor="biz-currency" label="Currency" hint="Cash, budgets, wage caps and plans read in it. Amounts already set keep their own currency; model costs stay in US dollars.">
+          <SimpleSelect id="biz-currency" value={currency} onValueChange={setCurrency} options={currencyOptions} />
         </Field>
       </SettingsSection>
       <SettingsSection title="Logo and brand colors" data-testid="settings-logo">
@@ -128,7 +135,7 @@ export function BusinessTab() {
         </FormRow>
         <Hint>The logo is saved as soon as you choose it. Brand colors are saved with the button below; text on the primary color is picked for you so it always stays readable.</Hint>
         <SaveBar
-          onSave={() => update.mutate({ businessId, name: name.trim(), slug, archetype: archetype || null, kitPrimary: primary, kitSecondary: secondary })}
+          onSave={() => update.mutate({ businessId, name: name.trim(), slug, archetype: archetype || null, currency, kitPrimary: primary, kitSecondary: secondary })}
           saving={update.isPending}
           disabled={!dirty || !validHex || name.trim().length === 0 || !/^[a-z0-9-]+$/.test(slug)}
         />

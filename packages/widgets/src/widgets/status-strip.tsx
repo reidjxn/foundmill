@@ -112,7 +112,7 @@ export function statusTiles(i: StatusStripInputs): MetricTileProps[] {
 }
 
 function StatusStripWidget({ settings }: WidgetProps<StatusStripSettings>) {
-  const { businessId, navigate, gameMode = "personal", currency = "EUR" } = useWidgetData();
+  const { businessId, navigate, gameMode = "personal", currency } = useWidgetData();
   const today = dayKey();
   const live = gameMode === "live" && settings.showLeague;
   const finance = useWidgetQuery<FinanceOverview>("finance.overview", {});

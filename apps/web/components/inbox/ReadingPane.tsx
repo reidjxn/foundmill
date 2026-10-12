@@ -39,7 +39,7 @@ import { usePageShortcuts } from "@/lib/keys";
 import { useHydrated } from "@/lib/today";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { useBusiness } from "@/components/shell/business-context";
+import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { AgentConversation, type AgentConversationHandle } from "@/components/conversation/AgentConversation";
@@ -62,6 +62,7 @@ import {
   headerTag,
   journeyForItem,
   planStatusLine,
+  actionConsentChip,
   statusStripTiles,
   stripSources,
   toDecisionOptions,
@@ -80,10 +81,10 @@ export interface ReadingPaneProps {
 }
 
 export function ReadingPane({ itemId, onArchived }: ReadingPaneProps) {
-  const { businessId, data: biz, departments } = useBusiness();
+  const { businessId, departments } = useBusiness();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const currency = biz.business.glossary?.currency ?? "EUR";
+  const currency = useBusinessCurrency();
   const getQ = useQuery(trpc.inbox.get.queryOptions({ businessId, itemId }, { staleTime: 10_000 }));
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);
 
@@ -332,13 +333,16 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
               />
               {plan?.actions.length ? (
                 <ul className="flex flex-col gap-1 text-small" data-testid="plan-actions">
-                  {plan.actions.map((a) => (
-                    <li key={a.id} className="flex items-center gap-2">
-                      <StatusPill tone={a.status === "done" ? "good" : a.status === "failed" || a.status === "denied" ? "bad" : a.status === "awaiting_approval" || a.status === "pending" ? "warn" : "info"}>{a.status.replace(/_/g, " ")}</StatusPill>
-                      <span className="truncate">{confirmationLines([{ action: { type: a.type, params: a.params as Record<string, unknown> | null }, outcome: a.policyOutcome ?? "allow" }], currency)[0]?.label}</span>
-                      {a.policyOutcome === "ask" ? <Chip tone="warn">Confirmed by you</Chip> : null}
-                    </li>
-                  ))}
+                  {plan.actions.map((a) => {
+                    const consent = actionConsentChip(a, plan.status);
+                    return (
+                      <li key={a.id} className="flex items-center gap-2">
+                        <StatusPill tone={a.status === "done" ? "good" : a.status === "failed" || a.status === "denied" ? "bad" : a.status === "awaiting_approval" || a.status === "pending" ? "warn" : "info"}>{a.status.replace(/_/g, " ")}</StatusPill>
+                        <span className="truncate">{confirmationLines([{ action: { type: a.type, params: a.params as Record<string, unknown> | null }, outcome: a.policyOutcome ?? "allow" }], currency)[0]?.label}</span>
+                        {consent ? <Chip tone={consent.tone}>{consent.label}</Chip> : null}
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : null}
               <div className="flex flex-wrap items-center gap-2">
@@ -402,7 +406,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         />
       ) : null}
 
-      <ConfirmPlanDialog open={confirmOpen} onOpenChange={setConfirmOpen} lines={lines} summary={result?.plan.summaryMd ?? ""} currency={currency} loading={confirm.isPending} onConfirm={() => result && confirm.mutate({ businessId, planId: result.plan.id })} />
+      <ConfirmPlanDialog open={confirmOpen} onOpenChange={setConfirmOpen} lines={lines} summary={result?.plan.summaryMd ?? ""} loading={confirm.isPending} onConfirm={() => result && confirm.mutate({ businessId, planId: result.plan.id })} />
       {decide.isError || confirm.isError ? (
         <p className="sr-only" role="alert">
           {errorMessage(decide.error ?? confirm.error)}

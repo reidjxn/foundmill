@@ -212,7 +212,7 @@ export function toSquad(dept: DepartmentRow, overrides: Record<string, AgentStat
 }
 
 function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>) {
-  const { businessId, navigate, currency = "EUR" } = useWidgetData();
+  const { businessId, navigate, currency } = useWidgetData();
   const today = dayKey();
   const datePrefs = useDateFormat();
   const departments = useDepartments();

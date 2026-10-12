@@ -9,7 +9,7 @@ import type { AgentInstructions, DateFormatPrefs, InstructionVersion, Instructio
 import { MODEL_LABELS, positionLevelFor } from "@foundmill/dugout";
 import { usSpelling } from "@foundmill/shared/us-spelling";
 import type { RouterOutputs } from "@/lib/trpc";
-import { formatMonthYear } from "@/lib/format";
+import { formatMonthYear, MODEL_COST_CURRENCY } from "@/lib/format";
 
 export type AgentProfile = RouterOutputs["agent"]["profile"]["get"];
 export type AgentRow = AgentProfile["agent"];
@@ -588,7 +588,7 @@ export function sessionRows(sessions: readonly SessionRecord[], now: Date = new 
         model: s.modelKey,
         tokens: Number(s.tokensIn ?? 0) + Number(s.tokensOut ?? 0),
         costMinor: Number(s.costMinor ?? 0),
-        currency: s.currency ?? "EUR",
+        currency: s.currency ?? MODEL_COST_CURRENCY,
         outcome: s.outcome ?? (endedAt ? "ended" : "running"),
         taskId: s.taskId ?? null,
         live: !endedAt,

@@ -57,12 +57,13 @@ export interface BuildChannelViewsInput {
   campaigns?: readonly CampaignRow[];
   metrics?: readonly ChannelMetricRow[];
   recommendation?: readonly RecommendationRow[] | null;
-  currency?: string;
+  /** The business's own currency, for a channel not stored yet (a stored one carries its own). */
+  currency: string;
   today?: string;
 }
 
 /** All 15 channels in line order, each merged with its stored row, recommendation, campaigns and five-week form. */
-export function buildChannelViews({ channels, campaigns = [], metrics = [], recommendation, currency = "EUR", today }: BuildChannelViewsInput): ChannelView[] {
+export function buildChannelViews({ channels, campaigns = [], metrics = [], recommendation, currency, today }: BuildChannelViewsInput): ChannelView[] {
   const byKey = new Map((channels ?? []).map((c) => [c.channelKey, c]));
   const recByKey = new Map((recommendation ?? []).map((r) => [r.channel, r]));
   return CHANNEL_KEYS.map((key) => {

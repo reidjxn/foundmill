@@ -96,12 +96,13 @@ export interface WidgetDataHostProps {
   businessId: string;
   glossary: Record<string, string>;
   gameMode: GameMode;
-  currency?: string;
+  /** The business's own currency (`businesses.currency`, 0025): every widget formats business money with it. */
+  currency: string;
   children: ReactNode;
 }
 
 /** Wraps every business page (ARCHITECTURE §18). */
-export function WidgetDataHost({ businessId, glossary, gameMode, currency = "EUR", children }: WidgetDataHostProps) {
+export function WidgetDataHost({ businessId, glossary, gameMode, currency, children }: WidgetDataHostProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const client = useUntypedApi();

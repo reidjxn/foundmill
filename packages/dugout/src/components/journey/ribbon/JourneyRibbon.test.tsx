@@ -19,6 +19,7 @@ function renderRibbon(extra: Partial<React.ComponentProps<typeof JourneyRibbon>>
   const utils = render(
     <JourneyRibbon
       ref={ref}
+      currency="EUR"
       rows={data.rows}
       departments={RIBBON_DEPARTMENTS}
       conversions={data.conversions}
@@ -187,7 +188,7 @@ describe("JourneyRibbon", () => {
     const { rerender } = renderRibbon({ zoom: "month" });
     const root = screen.getByRole("group", { name: /Journey ribbon/ });
     expect(root.getAttribute("data-zoom")).toBe("month");
-    rerender(<JourneyRibbon rows={data.rows} departments={RIBBON_DEPARTMENTS} today={data.today} width={1200} overlay="none" animateIn={false} zoom="all" />);
+    rerender(<JourneyRibbon rows={data.rows} departments={RIBBON_DEPARTMENTS} today={data.today} width={1200} overlay="none" animateIn={false} zoom="all" currency="EUR" />);
     expect(screen.getByRole("group", { name: /Journey ribbon/ }).getAttribute("data-zoom")).toBe("all");
   });
 });

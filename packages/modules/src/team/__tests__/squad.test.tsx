@@ -19,7 +19,7 @@ describe("team rows", () => {
     expect(row.latestUpdate).toEqual({ at: "2026-10-07T11:50:00.000Z", text: "Picker renders; writing the Playwright test" });
     expect(toolKeys({ tools: ["github", { connectorKey: "github" }, { connectorKey: "stripe" }] })).toEqual(["github", "stripe"]);
     expect(skillRating({ rating: null, skills: [{ skillKey: "a", group: "craft", displayed: 10 }, { skillKey: "b", group: "craft", displayed: 20 }] })).toBe(7.5);
-    const mara = toSquadRow(agents.find((a) => a.id === AGENT_MARA)!);
+    const mara = toSquadRow(agents.find((a) => a.id === AGENT_MARA)!, "EUR");
     expect(mara.expectedReturnAt).toBe("2026-10-07T14:00:00.000Z");
   });
 

@@ -88,7 +88,7 @@ describe("journey components follow the person's date format", () => {
     const win = data.conversions.find((c) => c.kind === "payment")!;
     const day = win.occurredAt.slice(0, 10);
     const summary = summariseDay(day, { index, departments: RIBBON_DEPARTMENTS, conversions: data.conversions, milestones: data.milestones, chapters: data.chapters, today: data.today });
-    inFormat(ISO, <DayDigest summary={summary} />);
+    inFormat(ISO, <DayDigest summary={summary} currency="EUR" />);
     expect(screen.getByRole("region", { name: `Day digest, ${day}` })).toBeTruthy();
     expect(screen.getByRole("heading").textContent).toContain(formatDate(day, "longDate", ISO));
     expect(formatDate(day, "longDate", ISO)).toMatch(/^[A-Z][a-z]+day \d{4}-\d{2}-\d{2}$/);
@@ -99,7 +99,7 @@ describe("journey components follow the person's date format", () => {
   it("JourneyStage dates first touch and conversion, and times each touch from first touch", async () => {
     const user = userEvent.setup();
     const fx = matchDayFixture();
-    const { container } = inFormat(DAY_FIRST, <JourneyStage journey={fx.journey} touches={fx.touches} customer={fx.customer} agents={fx.agents} kit={NORTHWIND_KIT} autoplay={false} overlay="none" />);
+    const { container } = inFormat(DAY_FIRST, <JourneyStage currency="EUR" journey={fx.journey} touches={fx.touches} customer={fx.customer} agents={fx.agents} kit={NORTHWIND_KIT} autoplay={false} overlay="none" />);
     await user.click(screen.getByRole("button", { name: "First touch" }));
     const converted = formatDateTime(fx.journey.convertedAt, DAY_FIRST);
     expect(converted).toMatch(/^\d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2}$/);

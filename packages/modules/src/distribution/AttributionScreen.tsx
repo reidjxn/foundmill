@@ -100,7 +100,7 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
     journeys.refetch();
   }, ["customer.converted", "signup.created", "activation.reached"]);
 
-  const cur = currency ?? "EUR";
+  const cur = currency;
   const channelViews = useMemo(() => buildChannelViews({ channels: channels.data?.channels, currency: cur }), [channels.data, cur]);
   const rows = useMemo(() => attributionRows(channelViews, channels.data?.blended), [channelViews, channels.data]);
   // A count no channel reports (every row 0, e.g. no lead capture yet) is noise, not data: its column is left out.

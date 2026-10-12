@@ -50,6 +50,7 @@ export function describeAction(type: string, p: Record<string, unknown> | null |
   }
 }
 
+/** An action's cost in its own currency (the plan priced it), else the business's (`currency`). */
 export function actionCost(p: Record<string, unknown> | null | undefined, currency: string): Money | null {
   const v = p?.amount_minor ?? p?.amountMinor ?? p?.cost_minor;
   if (typeof v !== "number" || v <= 0) return null;
@@ -70,7 +71,12 @@ export function confirmationLines(evaluations: readonly EvaluationLike[], curren
   return evaluations.map((e) => ({ label: describeAction(e.action.type, e.action.params ?? null), outcome: e.outcome, hardGate: e.hardGate === true || e.action.type === "request_human_action", cost: actionCost(e.action.params ?? null, currency), reasons: e.reasons ?? [] }));
 }
 
-export function totalCost(lines: readonly ConfirmationLine[], currency: string): Money | null {
-  const sum = lines.reduce((acc, l) => acc + (l.cost?.amountMinor ?? 0), 0);
-  return sum > 0 ? { amountMinor: sum, currency } : null;
+/**
+ * The total, one figure per currency in the order the lines name them: amounts in different currencies are never added
+ * together (a "£300" the founder typed stays £300 beside the business's dollars). Empty when nothing costs anything.
+ */
+export function totalCost(lines: readonly ConfirmationLine[]): Money[] {
+  const byCurrency = new Map<string, number>();
+  for (const l of lines) if (l.cost && l.cost.amountMinor > 0) byCurrency.set(l.cost.currency, (byCurrency.get(l.cost.currency) ?? 0) + l.cost.amountMinor);
+  return [...byCurrency].map(([currency, amountMinor]) => ({ amountMinor, currency }));
 }

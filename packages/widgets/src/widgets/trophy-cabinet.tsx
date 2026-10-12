@@ -63,7 +63,7 @@ export function trophyCards(milestones: RibbonResponse["milestones"] | undefined
 }
 
 function TrophyCabinetWidget({ settings }: WidgetProps<TrophyCabinetSettings>) {
-  const { businessId, navigate, gameMode = "personal", currency = "EUR" } = useWidgetData();
+  const { businessId, navigate, gameMode = "personal", currency } = useWidgetData();
   // Milestones are not limited to the day range, so the recent ribbon Home already shares carries all of them.
   const ribbon = useRecentRibbon();
   useBusinessEvents(() => ribbon.refetch(), ["customer.converted", "payment.received", "contract.signed"]);

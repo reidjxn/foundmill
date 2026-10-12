@@ -347,7 +347,8 @@ export function skillRating(agent: Pick<AgentRow, "rating" | "skills">): number 
   return Math.round((skills.reduce((s, k) => s + k.displayed, 0) / skills.length) * 5) / 10;
 }
 
-export function toSquadRow(agent: AgentRow, currency = "EUR"): SquadRow {
+/** `currency`: the business's own, for an agent stored without one. */
+export function toSquadRow(agent: AgentRow, currency: string): SquadRow {
   const expected = toIso(agent.expectedReturnAt ?? agent.health?.expectedReturnAt ?? null);
   const latest = agent.latestUpdate ? { at: toIso(agent.latestUpdate.at) ?? new Date(0).toISOString(), text: agent.latestUpdate.text } : agent.currentTask ? { at: toIso(agent.updatedAt) ?? new Date(0).toISOString(), text: `Working on ${agent.currentTask.title}` } : null;
   return {
@@ -418,7 +419,7 @@ export function permissionSummary(perms: Record<string, string> | undefined): { 
 /* ---------- Entity links ---------- */
 
 /** Hover-card details for an agent (DESIGN §8 EntityLink: portrait, chips, three facts). */
-export function agentEntity(businessId: string, agent: AgentRow, currency = "EUR"): EntityDetails {
+export function agentEntity(businessId: string, agent: AgentRow, currency: string): EntityDetails {
   const wage = agent.wage?.costMinor ?? 0;
   return {
     id: agent.id,

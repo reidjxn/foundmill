@@ -251,6 +251,18 @@ test.describe("inbox", () => {
     await expect(page.getByTestId("answered-panel")).toHaveCount(0);
   });
 
+  test("a money decision reads in the business's own currency: pounds for Northwind, never euros", async ({ page }) => {
+    // The options' costs used to read a glossary entry nothing writes, so every business saw "€37,200.00" here.
+    await openInbox(page, "respond");
+    const decision = rowsOf(page).filter({ hasText: "Approve batch 002" }).first();
+    await expect(decision, "the seed gives Northwind the batch 002 decision").toBeVisible({ timeout: LONG });
+    await decision.click();
+    const bar = page.getByTestId("decision-bar");
+    await expect(bar).toHaveAttribute("data-state", "open", { timeout: LONG });
+    await expect(bar).toContainText("£37,200.00");
+    await expect(bar).not.toContainText("€");
+  });
+
   test("a \"Go with: …\" quick reply decides the note through the decide path", async ({ page }) => {
     await signIn(page);
     await commitFreshBusiness(page, `Playwright Desk ${Date.now().toString(36)}`);

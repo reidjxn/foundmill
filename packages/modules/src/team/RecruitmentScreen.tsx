@@ -73,7 +73,7 @@ export function toCatalogueRows(catalogue: readonly TemplateRow[] | undefined, a
 }
 
 export function RecruitmentScreen({ businessId, departmentId }: ModuleScreenProps) {
-  const { navigate, currency = "EUR" } = useWidgetData();
+  const { navigate, currency } = useWidgetData();
   const now = useNow();
   const catalogue = useWidgetQuery<TemplateRow[]>("team.agents.catalogue", {});
   const agentsQuery = useAgents();

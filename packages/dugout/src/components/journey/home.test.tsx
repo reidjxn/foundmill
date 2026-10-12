@@ -135,7 +135,7 @@ describe("DayDigest", () => {
     const dayWithPayment = data.conversions.find((c) => c.kind === "payment")!.occurredAt.slice(0, 10);
     const summary = summariseDay(dayWithPayment, { index, departments: RIBBON_DEPARTMENTS, conversions: data.conversions, milestones: data.milestones, chapters: data.chapters, today: data.today });
     const onOpenJourney = vi.fn();
-    render(<DayDigest summary={summary} highlights={["Scout closed [[ent:0f7c2d1e-4b1a-4c8e-9a3b-2d5f6e7a8b9c|Nordic Beauty AB]]"]} onOpenJourney={onOpenJourney} onOpenEntity={() => {}} />);
+    render(<DayDigest summary={summary} currency="EUR" highlights={["Scout closed [[ent:0f7c2d1e-4b1a-4c8e-9a3b-2d5f6e7a8b9c|Nordic Beauty AB]]"]} onOpenJourney={onOpenJourney} onOpenEntity={() => {}} />);
     expect(screen.getByRole("region", { name: /Day digest/ })).toBeTruthy();
     expect(screen.getByText("Agent hours")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Nordic Beauty AB" })).toBeTruthy();

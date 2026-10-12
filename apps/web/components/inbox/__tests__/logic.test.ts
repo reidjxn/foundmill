@@ -29,6 +29,7 @@ import {
   stripSources,
   toDecisionOptions,
   totalCost,
+  actionConsentChip,
 } from "../logic";
 
 const BID = "00000000-0000-4000-8000-000000000001";
@@ -234,8 +235,30 @@ describe("plans", () => {
     expect(lines[1]).toMatchObject({ outcome: "ask", cost: { amountMinor: 50_000, currency: "EUR" }, reasons: ["above threshold"] });
     expect(lines[2]!.hardGate).toBe(true);
     expect(lines[0]!.hardGate).toBe(false);
-    expect(totalCost(lines, "EUR")).toEqual({ amountMinor: 50_000, currency: "EUR" });
-    expect(totalCost([], "EUR")).toBeNull();
+    expect(totalCost(lines)).toEqual([{ amountMinor: 50_000, currency: "EUR" }]);
+    expect(totalCost([])).toEqual([]);
+  });
+  it("an amount the plan priced in another currency keeps it, and the total never adds two currencies (OL-20)", () => {
+    // A dollar business; the founder typed "£300" for ads and the plan also sets a $200 budget without a currency.
+    const lines = confirmationLines(
+      [
+        { action: { type: "set_budget", params: { channel: "paid_ads", amount_minor: 30_000, currency: "GBP" } }, outcome: "ask" },
+        { action: { type: "set_budget", params: { channel: "seo", amount_minor: 20_000 } }, outcome: "allow" },
+        { action: { type: "approve_spend", params: { purpose: "Ads", amount_minor: 10_000, currency: "GBP" } }, outcome: "ask" },
+      ],
+      "USD",
+    );
+    expect(lines.map((l) => l.cost)).toEqual([{ amountMinor: 30_000, currency: "GBP" }, { amountMinor: 20_000, currency: "USD" }, { amountMinor: 10_000, currency: "GBP" }]);
+    expect(totalCost(lines)).toEqual([{ amountMinor: 40_000, currency: "GBP" }, { amountMinor: 20_000, currency: "USD" }]);
+  });
+  it("says 'Confirmed by you' only once the founder confirmed: never while the plan or an approval still waits (VOL-X1)", () => {
+    const ask = { type: "set_budget", params: { amount_minor: 50_000 }, policyOutcome: "ask" };
+    expect(actionConsentChip({ ...ask, status: "pending" }, "pending_confirmation")).toEqual({ label: "Needs your go-ahead", tone: "warn" });
+    expect(actionConsentChip({ ...ask, status: "awaiting_approval" }, "executing")).toEqual({ label: "Needs your go-ahead", tone: "warn" });
+    expect(actionConsentChip({ ...ask, status: "done" }, "done")).toEqual({ label: "Confirmed by you", tone: "neutral" });
+    expect(actionConsentChip({ ...ask, status: "pending" }, "executing")).toEqual({ label: "Confirmed by you", tone: "neutral" });
+    expect(actionConsentChip({ ...ask, status: "denied" }, "done")).toBeNull();
+    expect(actionConsentChip({ ...ask, policyOutcome: "allow", status: "done" }, "done")).toBeNull();
   });
   it("follow-up links point at the screens that hold the artefacts, de-duplicated", () => {
     const departments = [

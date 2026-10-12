@@ -22,14 +22,15 @@ export interface ModelChangeDialogProps {
   /** Agents sharing the type and the whole squad, for the scope dialog's copy. */
   typeCount?: number;
   allCount?: number;
-  currency?: string;
+  /** The agent's wage currency (the business's own unless the agent was priced otherwise). */
+  currency: string;
   /** Open straight at the warning/scope step for this model (Training › Model has its own picker). */
   preselect?: ModelKey | null;
 }
 
 type Step = "pick" | "warn" | "scope";
 
-export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typeCount, allCount, currency = "EUR", preselect = null }: ModelChangeDialogProps) {
+export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typeCount, allCount, currency, preselect = null }: ModelChangeDialogProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { toast } = useToast();

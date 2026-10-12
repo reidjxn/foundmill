@@ -182,7 +182,7 @@ export function DelegateDialog({ row, onOpenChange, agents, humans, departments,
 /* ---------- Screen ---------- */
 
 export function ResponsibilitiesScreen({ businessId }: ModuleScreenProps) {
-  const { navigate, currency = "EUR" } = useWidgetData();
+  const { navigate, currency } = useWidgetData();
   const data = useWidgetQuery<ResponsibilitiesResponse>("team.responsibilities.get", undefined);
   const agentsQuery = useAgents();
   const humansQuery = useHumans();

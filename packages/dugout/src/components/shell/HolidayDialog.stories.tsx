@@ -23,7 +23,7 @@ function Frame(args: Story["args"]) {
         Go on vacation
       </Button>
       {result ? <pre className="t-mono rounded-panel bg-ink p-2 text-secondary">{JSON.stringify(result, null, 2)}</pre> : null}
-      <HolidayDialog {...args} onSubmit={(s) => setResult(s)} open={open} onOpenChange={setOpen} />
+      <HolidayDialog {...args} currency={args?.currency ?? "EUR"} onSubmit={(s) => setResult(s)} open={open} onOpenChange={setOpen} />
     </div>
   );
 }

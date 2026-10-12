@@ -55,7 +55,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   // Toggled since the Strategist last scored: the Board shows local scores until its re-score lands.
   const [provisional, setProvisional] = useState(false);
   const views = useMemo<ChannelView[]>(() => {
-    const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency: currency ?? "EUR", today });
+    const built = buildChannelViews({ channels: channels.data?.channels, campaigns: campaigns.data?.items, metrics: metrics.data, recommendation, currency, today });
     const toggled = built.map((v) => (overrides[v.channelKey] === undefined ? v : { ...v, enabled: overrides[v.channelKey]! }));
     return provisional ? localScores(toggled) : toggled;
   }, [channels.data, campaigns.data, metrics.data, recommendation, currency, today, overrides, provisional]);
@@ -141,7 +141,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
           footer={
             hasData ? (
               <span className="inline-flex flex-wrap items-center gap-1.5 tabular-nums">
-                Budget across running channels {formatMoney({ amountMinor: budget, currency: currency ?? "EUR" })} per month · cost per customer is an <ProvenanceChip kind="estimate" /> · drag a channel on or off the board, or open it for its profile
+                Budget across running channels {formatMoney({ amountMinor: budget, currency })} per month · cost per customer is an <ProvenanceChip kind="estimate" /> · drag a channel on or off the board, or open it for its profile
               </span>
             ) : undefined
           }
