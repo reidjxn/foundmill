@@ -83,7 +83,7 @@ describe("training run (BUILD §11.10)", () => {
   it("a founder's cancel while the tests run stands: the results land as canceled, with what the tests cost", async () => {
     const acts = createTrainingActivities(t.deps);
     const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
-    const { run, draft } = (await repos.training.createModelRetest(t.db, t.businessId, agent.id, { modelKey: "haiku" }))!;
+    const { run, draft } = (await repos.training.createModelRetest(t.db, t.businessId, agent.id, { modelKey: "haiku" })).retest!;
     const loaded = await acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: run.id });
     expect(loaded.retest).toEqual({ fromModelKey: (await repos.agents.getVersion(t.db, t.businessId, agent.currentVersionId!)).modelKey, toModelKey: "haiku" });
     expect(loaded.modelKey).toBe("haiku");
@@ -94,6 +94,15 @@ describe("training run (BUILD §11.10)", () => {
     expect(await repos.training.get(t.db, t.businessId, run.id)).toMatchObject({ status: "cancelled", costMinor: 7, results: {} });
     const events = await repos.events.list(t.db, t.businessId, { type: "training.completed", limit: 20 });
     expect(events.items.find((e) => (e.payload as { trainingRunId: string }).trainingRunId === run.id)?.payload).toMatchObject({ status: "cancelled", recommendation: null });
+  });
+
+  it("failing a run whose results already landed changes nothing and reports them", async () => {
+    const acts = createTrainingActivities(t.deps);
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const { run } = (await repos.training.createModelRetest(t.db, t.businessId, agent.id, { modelKey: "haiku" })).retest!;
+    await repos.training.transition(t.db, t.businessId, run.id, ["queued"], { status: "awaiting_decision", coachSummaryMd: "Results.", endedAt: new Date() });
+    expect(await acts.failTrainingRun({ businessId: t.businessId, trainingRunId: run.id, error: "late" })).toMatchObject({ status: "awaiting_decision", eventId: null });
+    expect(await repos.training.get(t.db, t.businessId, run.id)).toMatchObject({ status: "awaiting_decision", coachSummaryMd: "Results." });
   });
 });
 

@@ -174,7 +174,8 @@ export function developmentSeries(skills: readonly SkillRow[], runs: readonly Tr
       const at = toIso(r.endedAt ?? r.createdAt);
       if (!res || !at) continue;
       if (points.length === 0) points.push({ at: toIso(r.startedAt ?? r.createdAt) ?? at, value: clampRating(res.old) });
-      points.push({ at, value: clampRating(r.decision === "promoted" || r.decision === null ? res.new : res.old) });
+      // A canceled run never applied, like a discarded one: a retest withdrawn by a later model change keeps its results.
+      points.push({ at, value: clampRating(r.decision === "promoted" || (r.decision === null && r.status !== "cancelled") ? res.new : res.old) });
     }
     points.push({ at: now.toISOString(), value: s.value });
     return { skillId: s.id, name: s.name, points };
@@ -225,6 +226,13 @@ export function currentVersion(profile: Pick<AgentProfile, "agent" | "versions">
  */
 export function isRetestVersion(v: Pick<AgentVersionRecord, "createdByKind" | "version">): boolean {
   return v.createdByKind === "system" && v.version > 1;
+}
+
+/** A run that retests a model change: it scores a retest copy, or (the old shape, never started) the live version itself. */
+export function isRetestRun(run: Pick<TrainingRunRecord, "fromVersionId" | "toVersionId">, versions: readonly AgentVersionRecord[]): boolean {
+  if (run.toVersionId && run.fromVersionId === run.toVersionId) return true;
+  const candidate = versions.find((v) => v.id === run.toVersionId);
+  return !!candidate && isRetestVersion(candidate);
 }
 
 /** The newest draft the founder or the Coach wrote: the editing base. A retest copy never is, so it cannot replace a draft in progress. */
@@ -437,6 +445,8 @@ export function describeModelSet(result: ModelSetResult, modelKey: ModelKey): st
   const parts = [`Model set to ${MODEL_LABELS[modelKey]} for ${result.updated.length} ${result.updated.length === 1 ? "agent" : "agents"}`];
   if (result.skipped.length) parts.push(`${result.skipped.length} skipped (${[...new Set(result.skipped.map((s) => s.reason))].join("; ")})`);
   if (result.retests.length) parts.push(`${result.retests.length} ${result.retests.length === 1 ? "retest" : "retests"} queued`);
+  // Retests of a model the agents no longer run, still in flight or awaiting a decision, were canceled (agent.model.set).
+  if (result.superseded.length) parts.push(`${result.superseded.length} earlier ${result.superseded.length === 1 ? "retest" : "retests"} canceled`);
   if (result.warnings.length) parts.push(result.warnings.join("; "));
   return parts.join(" · ");
 }
@@ -567,13 +577,16 @@ export function negotiationToInput(form: NegotiationForm): { enabled: boolean; p
 export function parseMajor(text: string): number | null {
   const t = text.trim().replace(/[\s,'_$£€¥]/g, "");
   if (!t) return null;
-  const m = /^([+-]?)(\d+(?:\.\d*)?|\.\d+)([kmb])?$/i.exec(t);
+  const m = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))([kmb])?$/i.exec(t);
   if (!m) return Number.NaN;
-  const mult = m[3] ? { k: 1e3, m: 1e6, b: 1e9 }[m[3].toLowerCase() as "k" | "m" | "b"] : 1;
-  const minor = Number(`${m[1]}${m[2]}`) * mult * 100;
-  const rounded = Math.round(minor);
-  if (!Number.isFinite(minor) || Math.abs(minor - rounded) > 1e-6) return Number.NaN;
-  return rounded === 0 ? 0 : rounded;
+  const [, sign, int = "0", fracA, fracB, unit] = m;
+  // Shift the decimal point on the digits themselves (cents, plus the shorthand's thousands), so no float rounding.
+  const shift = 2 + (unit ? { k: 3, m: 6, b: 9 }[unit.toLowerCase() as "k" | "m" | "b"] : 0);
+  const frac = (fracA ?? fracB ?? "").padEnd(shift, "0");
+  if (/[^0]/.test(frac.slice(shift))) return Number.NaN;
+  const minor = Number(`${int}${frac.slice(0, shift)}`);
+  if (!Number.isSafeInteger(minor)) return Number.NaN;
+  return sign === "-" && minor !== 0 ? -minor : minor;
 }
 /** A stored amount as the text its field starts from: 25000 → "250", 1250 → "12.50", null → "". */
 export function formatMajor(minor: number | null): string {

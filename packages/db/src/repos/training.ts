@@ -36,6 +36,12 @@ export type TrainingStatus = (typeof TRAINING_STATUSES)[number];
 /** A run in one of these is in flight: the Training tab shows it as active and holds the agent's Train button. */
 export const ACTIVE_TRAINING_STATUSES = ["queued", "running", "grading"] as const satisfies readonly TrainingStatus[];
 
+/** A model change's retest (`createModelRetest`): the system's draft copy of the live version and the run that scores it. */
+export interface ModelRetest {
+  run: TrainingRun;
+  draft: AgentVersion;
+}
+
 const scoped = (businessId: string, runId: string) => and(eq(trainingRuns.businessId, businessId), eq(trainingRuns.id, runId));
 
 export const trainingRepo = {
@@ -123,36 +129,40 @@ export const trainingRepo = {
   /**
    * A model change's retest (AC-11.10.5): a draft copy of the live version (instructions and tools) on the new model,
    * created by the system, and a queued run that scores it against the live version. The live version itself is never
-   * the candidate (AC-11.10.1); promoting the run makes the copy live on the new model. The agent's earlier retests
-   * still in flight are canceled (`superseded`, the caller stops their workflows): they test a model it no longer runs,
-   * and the old shape (the live version as its own candidate) could never start. Null when the agent has no live
-   * version to copy.
+   * the candidate (AC-11.10.1); promoting the run makes the copy live on the new model. The agent's earlier retests are
+   * canceled first (`superseded`; the caller stops their workflows): those in flight or awaiting a decision test a
+   * model the agent no longer runs (promoting one would quietly switch it back), and the old shape (the live version as
+   * its own candidate) could never start. A founder's own training runs are left alone. `retest` is null when there is
+   * nothing new to score: the agent has no live version to copy, or its live version already runs on the model (a
+   * change back to it).
    */
-  async createModelRetest(db: Executor, businessId: string, agentId: string, input: { modelKey: (typeof MODEL_KEYS)[number]; requestedBy?: string | null }): Promise<{ run: TrainingRun; draft: AgentVersion; superseded: TrainingRun[] } | null> {
+  async createModelRetest(db: Executor, businessId: string, agentId: string, input: { modelKey: (typeof MODEL_KEYS)[number]; requestedBy?: string | null }): Promise<{ retest: ModelRetest | null; superseded: TrainingRun[] }> {
     const v = parseInput(z.object({ modelKey: z.enum(MODEL_KEYS), requestedBy: Id.nullable().optional() }), input, "model retest");
     return db.transaction(async (tx) => {
       const agent = await agentsRepo.get(tx, businessId, agentId);
-      if (!agent.currentVersionId) return null;
-      const live = await agentsRepo.getVersion(tx, businessId, agent.currentVersionId);
+      const ofAgent = and(eq(trainingRuns.businessId, businessId), eq(trainingRuns.agentId, agent.id));
       const retestCopies = tx
         .select({ id: agentVersions.id })
         .from(agentVersions)
         .where(and(eq(agentVersions.businessId, businessId), eq(agentVersions.agentId, agent.id), eq(agentVersions.createdByKind, "system"), gt(agentVersions.version, 1)));
-      const superseded = await tx
+      const inFlight = await tx
         .update(trainingRuns)
         .set({ status: "cancelled", endedAt: new Date() })
-        .where(
-          and(
-            eq(trainingRuns.businessId, businessId),
-            eq(trainingRuns.agentId, agent.id),
-            inArray(trainingRuns.status, [...ACTIVE_TRAINING_STATUSES]),
-            or(inArray(trainingRuns.toVersionId, retestCopies), eq(trainingRuns.fromVersionId, trainingRuns.toVersionId)),
-          ),
-        )
+        .where(and(ofAgent, inArray(trainingRuns.status, [...ACTIVE_TRAINING_STATUSES]), or(inArray(trainingRuns.toVersionId, retestCopies), eq(trainingRuns.fromVersionId, trainingRuns.toVersionId))))
         .returning();
+      // Results already in keep their end time; only the decision they wait for is withdrawn.
+      const undecided = await tx
+        .update(trainingRuns)
+        .set({ status: "cancelled" })
+        .where(and(ofAgent, eq(trainingRuns.status, "awaiting_decision"), isNull(trainingRuns.decision), inArray(trainingRuns.toVersionId, retestCopies)))
+        .returning();
+      const superseded = [...inFlight, ...undecided];
+      if (!agent.currentVersionId) return { retest: null, superseded };
+      const live = await agentsRepo.getVersion(tx, businessId, agent.currentVersionId);
+      if (live.modelKey === v.modelKey) return { retest: null, superseded };
       const draft = await agentsRepo.createVersion(tx, businessId, agent.id, { instructions: live.instructions as CreateAgentVersionInput["instructions"], tools: live.tools, modelKey: v.modelKey, state: "draft", createdByKind: "system", createdBy: v.requestedBy ?? null });
       const run = await trainingRepo.create(tx, businessId, { agentId: agent.id, fromVersionId: live.id, toVersionId: draft.id, status: "queued", requestedBy: v.requestedBy ?? null });
-      return { run, draft, superseded };
+      return { retest: { run, draft }, superseded };
     });
   },
 

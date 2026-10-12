@@ -68,7 +68,7 @@ describe("agent.model.set retests (AC-11.10.5)", () => {
 
   it("cancels a queued run and signals its workflow to stop; an ended run cannot be canceled again", async () => {
     const { businessId, ownerId, agentId } = hz.A;
-    const { runId } = (await hz.caller({ userId: ownerId }).agent.model.set({ businessId, agentId, modelKey: "sonnet" })).retests[0]!;
+    const { runId } = (await hz.caller({ userId: ownerId }).agent.model.set({ businessId, agentId, modelKey: "opus" })).retests[0]!;
     const cancelled = await hz.caller({ userId: ownerId }).agent.training.cancel({ businessId, runId });
     expect(cancelled.run).toMatchObject({ id: runId, status: "cancelled" });
     expect(cancelled.run.endedAt).toBeInstanceOf(Date);
@@ -80,11 +80,29 @@ describe("agent.model.set retests (AC-11.10.5)", () => {
 
   it("only members who can change the team may cancel, and only their own business's runs", async () => {
     const { businessId, ownerId, agentId, viewerId } = hz.A;
-    const { runId } = (await hz.caller({ userId: ownerId }).agent.model.set({ businessId, agentId, modelKey: "opus" })).retests[0]!;
+    const { runId } = (await hz.caller({ userId: ownerId }).agent.model.set({ businessId, agentId, modelKey: "haiku" })).retests[0]!;
     await expect(hz.caller({ userId: viewerId }).agent.training.cancel({ businessId, runId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(hz.caller({ userId: hz.B.ownerId }).agent.training.cancel({ businessId, runId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(hz.caller({ userId: hz.B.ownerId }).agent.training.cancel({ businessId: hz.B.businessId, runId })).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect((await repos.training.get(hz.db, businessId, runId)).status).toBe("queued");
+  });
+
+  it("a change back to the live version's model queues no retest and withdraws the Haiku results, which can no longer switch it back", async () => {
+    const { businessId, ownerId, agentId, agentVersionId } = hz.A;
+    const pending = (await repos.training.list(hz.db, businessId, { agentId, status: "queued", limit: 10 })).items;
+    expect(pending).toHaveLength(1);
+    // The Haiku retest finished and awaits a decision.
+    await repos.training.transition(hz.db, businessId, pending[0]!.id, ["queued"], { status: "awaiting_decision", endedAt: new Date() });
+    const versionsBefore = (await repos.agents.listVersions(hz.db, businessId, agentId)).length;
+
+    const back = await hz.caller({ userId: ownerId }).agent.model.set({ businessId, agentId, modelKey: "sonnet" });
+    expect(back.updated).toEqual([agentId]);
+    expect(back.retests).toEqual([]);
+    expect(back.superseded).toEqual([pending[0]!.id]);
+    expect(await repos.training.get(hz.db, businessId, pending[0]!.id)).toMatchObject({ status: "cancelled", decision: null });
+    expect(await repos.agents.listVersions(hz.db, businessId, agentId)).toHaveLength(versionsBefore);
+    await expect(hz.caller({ userId: ownerId }).agent.training.promote({ businessId, runId: pending[0]!.id })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(await repos.agents.get(hz.db, businessId, agentId)).toMatchObject({ modelKey: "sonnet", currentVersionId: agentVersionId });
   });
 });
 

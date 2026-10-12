@@ -175,6 +175,8 @@ export interface ModelSetResponse {
   skipped: { agentId: string; reason: string }[];
   warnings: string[];
   retests?: { runId: string }[];
+  /** Earlier retests the change canceled: they scored a model the agents no longer run. */
+  superseded?: string[];
 }
 
 /* `agent.health_changed` payload (packages/events) */

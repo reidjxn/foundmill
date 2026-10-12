@@ -216,7 +216,8 @@ export const agentRouter = router({
     /**
      * Change the model for the agent, every agent of its type, or all; locked routes are skipped; retests are queued
      * (AC-11.10.5). The change applies at once; each changed agent's retest scores a draft copy of its live version on
-     * the new model (never the live version itself, AC-11.10.1), which Promote makes live.
+     * the new model (never the live version itself, AC-11.10.1), which Promote makes live. Its earlier retests not yet
+     * decided are withdrawn (`superseded`), and a change back to the model its live version runs on queues none.
      */
     set: write.input(z.object({ agentId: Id, modelKey: z.enum(MODEL_KEYS), applyScope: ApplyScope.default("agent") })).use(modelLimited("training")).mutation(async ({ ctx, input }) => {
       const targets = await scopedAgents(ctx, input.agentId, input.applyScope);
@@ -237,14 +238,13 @@ export const agentRouter = router({
           updated.push(agent.id);
           // An agent already on this model has nothing new to retest.
           if (agent.modelKey === input.modelKey) continue;
-          const retest = await repos.training.createModelRetest(tx, ctx.businessId, agent.id, { modelKey: input.modelKey, requestedBy: ctx.userId });
-          if (!retest) continue;
-          retests.push(retest.run.id);
-          superseded.push(...retest.superseded.map((r) => r.id));
+          const { retest, superseded: withdrawn } = await repos.training.createModelRetest(tx, ctx.businessId, agent.id, { modelKey: input.modelKey, requestedBy: ctx.userId });
+          superseded.push(...withdrawn.map((w) => w.id));
+          if (retest) retests.push(retest.run.id);
         }
         await audit(tx, ctx, { action: "agent.model.set", target: { kind: "agent", id: input.agentId }, details: { modelKey: input.modelKey, applyScope: input.applyScope, updated, skipped, retests, superseded } });
       });
-      // Earlier retests of a model these agents no longer run were canceled above; their workflows stop too.
+      // Earlier retests of a model these agents no longer run were canceled above; those still running stop too.
       if (superseded.length) await ctx.temporal.signalMany(superseded.map((runId) => workflowIds.training(runId)), SIGNALS.stop);
       const workflows = await Promise.all(retests.map((runId) => ctx.temporal.start(WORKFLOWS.trainingRun, { workflowId: workflowIds.training(runId), args: [{ businessId: ctx.businessId, trainingRunId: runId }] })));
       return { updated, skipped, warnings, retests: retests.map((runId, i) => ({ runId, workflow: workflows[i]! })), superseded };
