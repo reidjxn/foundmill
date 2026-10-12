@@ -1,6 +1,6 @@
 /** finance (accounts, transactions, totals, snapshots, forecasts), capTable (securities, entries, summary), usage (ledger, wages, credits). */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { repos } from "../../repos";
+import { isNonOperatingCategory, repos } from "../../repos";
 import { day, setupRepoHarness, type RepoHarness } from "./helpers";
 
 let r: RepoHarness;
@@ -69,6 +69,33 @@ describe("finance", () => {
     const cats = await repos.finance.categoryTotals(r.db, r.A.businessId);
     expect(cats.find((c) => c.category === "revenue")?.inflowMinor).toBe(700000);
     expect(cats.find((c) => c.category === null)?.outflowMinor).toBe(1000);
+  });
+
+  it("net burn and gross burn leave financing and transfers out (BUILD §11.8: a raise never reads as income)", async () => {
+    // April to June, before the July–September rows above: operating rows plus a SAFE, a director loan, its repayment
+    // and a round trip through a savings account, categorized the ways the bank sync and the seeds store them.
+    await repos.finance.upsertTransactions(r.db, r.A.businessId, [
+      { accountId, externalId: "op-1", bookedAt: day("2026-04-10"), amountMinor: -300_000, counterparty: "Acme Payroll", category: "payroll" },
+      { accountId, externalId: "op-2", bookedAt: day("2026-05-10"), amountMinor: -300_000, counterparty: "Acme Payroll", category: "payroll" },
+      { accountId, externalId: "op-3", bookedAt: day("2026-06-10"), amountMinor: -300_000, counterparty: "Acme Payroll", category: "payroll" },
+      { accountId, externalId: "op-4", bookedAt: day("2026-06-20"), amountMinor: 150_000, counterparty: "Stripe", category: "revenue" },
+      { accountId, externalId: "fin-1", bookedAt: day("2026-05-02"), amountMinor: 40_000_000, counterparty: "Angel", category: "financing" },
+      { accountId, externalId: "fin-2", bookedAt: day("2026-05-03"), amountMinor: 6_000_000, counterparty: "Director", category: "Director loan" },
+      { accountId, externalId: "fin-3", bookedAt: day("2026-06-03"), amountMinor: -1_000_000, counterparty: "Director", category: "loan_repayment" },
+      { accountId, externalId: "tr-1", bookedAt: day("2026-06-15"), amountMinor: -15_000_000, counterparty: "Savings", category: "transfer" },
+      { accountId, externalId: "tr-2", bookedAt: day("2026-06-25"), amountMinor: 6_000_000, counterparty: "Savings", category: " Internal-Transfer " },
+    ]);
+    const months = await repos.finance.monthlyTotals(r.db, r.A.businessId, { from: day("2026-04-01"), to: day("2026-07-01") });
+    // The plain totals keep every row (cash history needs them); the operating totals drop the non-operating ones.
+    expect(months.find((m) => m.month === "2026-05")).toMatchObject({ inflowMinor: 46_000_000, outflowMinor: 300_000, operatingInflowMinor: 0, operatingOutflowMinor: 300_000 });
+    expect(months.find((m) => m.month === "2026-06")).toMatchObject({ inflowMinor: 6_150_000, outflowMinor: 16_300_000, operatingInflowMinor: 150_000, operatingOutflowMinor: 300_000 });
+    const burn = await repos.finance.netBurn(r.db, r.A.businessId, { months: 3, asOf: day("2026-07-02") });
+    expect(burn.grossBurnMinor).toBe(300_000);
+    expect(burn.netBurnMinor).toBe(Math.round((900_000 - 150_000) / 3));
+    expect(burn.netBurnMinor).toBeGreaterThan(0); // still burning: runway warnings keep firing after the raise
+    expect(isNonOperatingCategory("Share_Capital")).toBe(true);
+    expect(isNonOperatingCategory("revenue")).toBe(false);
+    expect(isNonOperatingCategory(null)).toBe(false);
   });
 
   it("ledger snapshots upsert per period/basis; forecasts version per scenario", async () => {

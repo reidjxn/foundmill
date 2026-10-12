@@ -146,6 +146,18 @@ describe("journeys", () => {
     await expect(repos.journeys.create(r.db, r.A.businessId, { conversionId: r.A.conversionIds[0]!, touchIds: [touches[0]!.id, r.B.visitorId], matchdayLevel: "friendly" })).rejects.toThrow(/touches of this business/);
   });
 
+  it("paying customers count distinct paying entities in the window, not payments or new customers", async () => {
+    const june = { from: day("2026-06-01"), to: day("2026-07-01") };
+    expect(await repos.journeys.countPayingCustomers(r.db, r.A.businessId, june)).toBe(0);
+    // One customer paying three months running is one paying customer; a payment without a linked entity counts once.
+    for (const d of ["2026-06-02", "2026-06-12", "2026-06-22"]) await repos.journeys.recordConversion(r.db, r.A.businessId, { entityId: r.A.entity2Id, kind: "payment", amountMinor: 4900, occurredAt: day(d) });
+    await repos.journeys.recordConversion(r.db, r.A.businessId, { entityId: r.A.entityId, kind: "payment", amountMinor: 4900, occurredAt: day("2026-06-05") });
+    await repos.journeys.recordConversion(r.db, r.A.businessId, { entityId: null, kind: "payment", amountMinor: 4900, occurredAt: day("2026-06-06") });
+    await repos.journeys.recordConversion(r.db, r.A.businessId, { entityId: r.A.entityId, kind: "signup", occurredAt: day("2026-06-07") });
+    expect(await repos.journeys.countPayingCustomers(r.db, r.A.businessId, june)).toBe(3);
+    expect(await repos.journeys.countPayingCustomers(r.db, r.B.businessId, june)).toBe(0);
+  });
+
   it("get/list/markViewed/commentary", async () => {
     const detail = await repos.journeys.get(r.db, r.A.businessId, journeyId);
     expect(detail.conversion.amountMinor).toBe(9900);

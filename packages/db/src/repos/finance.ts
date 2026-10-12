@@ -88,6 +88,10 @@ export interface MonthlyTotal {
   outflowMinor: number;
   netMinor: number;
   count: number;
+  /** Inflows that are operating cash flow: financing and transfers between the business's own accounts left out. */
+  operatingInflowMinor: number;
+  /** Outflows that are operating cash flow (loan repayments and transfers left out): gross burn's input. */
+  operatingOutflowMinor: number;
 }
 
 export interface CategoryTotal {
@@ -96,6 +100,26 @@ export interface CategoryTotal {
   outflowMinor: number;
   count: number;
 }
+
+/**
+ * Category keys that are not operating cash flow (BUILD §11.8: net burn is "operating outflows − operating inflows,
+ * financing excluded"): raising or repaying money, and moving it between the business's own accounts. Matched on the
+ * normalized key (lower case, `_` and `-` read as spaces), the same words the finance module's chart of accounts files
+ * under Financing and Transfers, so the burn tiles and the P&L agree on what a raise is.
+ */
+export const NON_OPERATING_CATEGORY_KEYS: readonly string[] = [
+  "financing", "funding", "investment", "equity", "safe", "loan", "loan repayment", "grant", "founder loan", "director loan", "share capital",
+  "transfer", "transfers", "internal transfer", "between accounts",
+];
+
+/** True for a category that is not operating cash flow (null and unknown categories are operating). */
+export function isNonOperatingCategory(category: string | null | undefined): boolean {
+  if (!category) return false;
+  return NON_OPERATING_CATEGORY_KEYS.includes(category.trim().toLowerCase().replace(/[_\s-]+/g, " "));
+}
+
+/** SQL twin of `isNonOperatingCategory` over `transactions.category`. */
+const nonOperating = sql`coalesce(regexp_replace(lower(trim(${transactions.category})), '[_[:space:]-]+', ' ', 'g') in (${sql.join(NON_OPERATING_CATEGORY_KEYS.map((k) => sql`${k}`), sql`, `)}), false)`;
 
 const scopedAccount = (businessId: string, accountId: string) => and(eq(accounts.businessId, businessId), eq(accounts.id, accountId));
 const scopedTx = (businessId: string, txId: string) => and(eq(transactions.businessId, businessId), eq(transactions.id, txId));
@@ -270,7 +294,10 @@ export const financeRepo = {
     return one(await db.update(transactions).set({ counterpartyEntityId }).where(scopedTx(businessId, txId)).returning(), "transaction", txId);
   },
 
-  /** Inflows/outflows per calendar month (UTC) in a range — the cash-basis P&L and burn inputs. */
+  /**
+   * Inflows/outflows per calendar month (UTC) in a range — the cash-basis P&L and burn inputs. The plain totals carry
+   * every transaction (cash history walks back through them); the operating totals leave financing and transfers out.
+   */
   async monthlyTotals(db: Executor, businessId: string, range: DateRange & { accountId?: string } = {}): Promise<MonthlyTotal[]> {
     const r = parseInput(DateRange.extend({ accountId: Id.optional() }), range, "date range");
     const month = sql<string>`to_char(${transactions.bookedAt} at time zone 'UTC', 'YYYY-MM')`;
@@ -280,12 +307,22 @@ export const financeRepo = {
         inflow: sql<number>`coalesce(sum(case when ${transactions.amountMinor} > 0 then ${transactions.amountMinor} else 0 end), 0)::bigint`,
         outflow: sql<number>`coalesce(sum(case when ${transactions.amountMinor} < 0 then -${transactions.amountMinor} else 0 end), 0)::bigint`,
         count: sql<number>`count(*)::int`,
+        operatingInflow: sql<number>`coalesce(sum(case when ${transactions.amountMinor} > 0 and not ${nonOperating} then ${transactions.amountMinor} else 0 end), 0)::bigint`,
+        operatingOutflow: sql<number>`coalesce(sum(case when ${transactions.amountMinor} < 0 and not ${nonOperating} then -${transactions.amountMinor} else 0 end), 0)::bigint`,
       })
       .from(transactions)
       .where(and(eq(transactions.businessId, businessId), r.accountId ? eq(transactions.accountId, r.accountId) : undefined, timeRange(transactions.bookedAt, r)))
       .groupBy(month)
       .orderBy(month);
-    return rows.map((x) => ({ month: x.month, inflowMinor: Number(x.inflow), outflowMinor: Number(x.outflow), netMinor: Number(x.inflow) - Number(x.outflow), count: Number(x.count) }));
+    return rows.map((x) => ({
+      month: x.month,
+      inflowMinor: Number(x.inflow),
+      outflowMinor: Number(x.outflow),
+      netMinor: Number(x.inflow) - Number(x.outflow),
+      count: Number(x.count),
+      operatingInflowMinor: Number(x.operatingInflow),
+      operatingOutflowMinor: Number(x.operatingOutflow),
+    }));
   },
 
   /** Totals per category in a range (the management P&L lines; null category = uncategorised). */
@@ -305,15 +342,20 @@ export const financeRepo = {
     return rows.map((x) => ({ category: x.category, inflowMinor: Number(x.inflow), outflowMinor: Number(x.outflow), count: Number(x.count) }));
   },
 
-  /** Net burn = trailing average of (outflows − inflows) over the last `months` full months; positive means burning. Label "Estimate". */
+  /**
+   * Net burn = trailing average of (operating outflows − operating inflows) over the last `months` full months; positive
+   * means burning. Gross burn = operating outflows per month. Financing (a raise, a director loan, its repayment) and
+   * transfers between the business's own accounts are not operating cash flow (BUILD §11.8), so a raise never turns net
+   * burn negative and hides the runway warnings. Label "Estimate".
+   */
   async netBurn(db: Executor, businessId: string, options: { months?: number; asOf?: Date } = {}): Promise<{ netBurnMinor: number; grossBurnMinor: number; months: number }> {
     const months = options.months ?? 3;
     const asOf = options.asOf ?? new Date();
     const to = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), 1));
     const from = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth() - months, 1));
     const totals = await financeRepo.monthlyTotals(db, businessId, { from, to });
-    const outflow = totals.reduce((n, t) => n + t.outflowMinor, 0);
-    const inflow = totals.reduce((n, t) => n + t.inflowMinor, 0);
+    const outflow = totals.reduce((n, t) => n + t.operatingOutflowMinor, 0);
+    const inflow = totals.reduce((n, t) => n + t.operatingInflowMinor, 0);
     return { netBurnMinor: Math.round((outflow - inflow) / months), grossBurnMinor: Math.round(outflow / months), months };
   },
 

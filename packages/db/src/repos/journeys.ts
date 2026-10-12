@@ -279,6 +279,20 @@ export const journeysRepo = {
     return out;
   },
 
+  /**
+   * Paying customers in a range: distinct customer entities with at least one payment (BUILD §11.8 payback divides
+   * gross profit by these, not by the customers newly acquired). A payment with no linked entity counts as its own
+   * customer, since nothing says it repeats another.
+   */
+  async countPayingCustomers(db: Executor, businessId: string, range: DateRange = {}): Promise<number> {
+    const r = parseInput(DateRange, range, "date range");
+    const rows = await db
+      .select({ n: sql<number>`count(distinct coalesce(${conversions.entityId}, ${conversions.id}))::int` })
+      .from(conversions)
+      .where(and(eq(conversions.businessId, businessId), eq(conversions.kind, "payment"), timeRange(conversions.occurredAt, r)));
+    return Number(rows[0]?.n ?? 0);
+  },
+
   /** Which number this conversion is among its kind (1-based, by occurred_at then id). */
   async nthOfKind(db: Executor, businessId: string, conversionId: string): Promise<number> {
     const c = await journeysRepo.getConversion(db, businessId, conversionId);

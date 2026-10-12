@@ -290,6 +290,16 @@ export function cashHistory(cashNowMinor: number, monthly: readonly MonthlyTotal
   return out;
 }
 
+/** A month's operating outflows (gross burn): financing and transfers left out when the API reports them apart. */
+export function operatingOutflow(m: MonthlyTotal): number {
+  return m.operatingOutflowMinor ?? m.outflowMinor;
+}
+
+/** A month's net burn (operating outflows − operating inflows); positive means burning. */
+export function operatingBurn(m: MonthlyTotal): number {
+  return operatingOutflow(m) - (m.operatingInflowMinor ?? m.inflowMinor);
+}
+
 export function monthlySeries(monthly: readonly MonthlyTotal[], months: readonly string[], pick: (m: MonthlyTotal) => number): number[] {
   const byMonth = new Map(monthly.map((m) => [m.month, m]));
   return months.map((k) => {

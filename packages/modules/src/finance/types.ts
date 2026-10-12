@@ -49,6 +49,10 @@ export interface MonthlyTotal {
   outflowMinor: number;
   netMinor: number;
   count: number;
+  /** Operating inflows: financing and transfers between own accounts left out (the burn tiles read these). */
+  operatingInflowMinor?: number;
+  /** Operating outflows: loan repayments and transfers left out. */
+  operatingOutflowMinor?: number;
 }
 export interface CategoryTotal {
   category: string | null;
