@@ -14,7 +14,7 @@ import type { LookupAddress } from "node:dns";
 import { Agent as HttpAgent, request as httpRequest, type IncomingMessage } from "node:http";
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
-import { pipeline, Readable } from "node:stream";
+import { pipeline, Readable, type Transform } from "node:stream";
 import { createBrotliDecompress, createGunzip, createInflate } from "node:zlib";
 import { AppError } from "@foundmill/shared";
 import type { FetchLike } from "../../http";
@@ -106,12 +106,16 @@ function responseHeaders(res: IncomingMessage, decoded: boolean): Headers {
   return headers;
 }
 
-/** The body as a web stream, gzip, deflate and br decoded (what fetch does by itself). */
-function responseBody(res: IncomingMessage): { body: Readable; decoded: boolean } {
+/** The content coding the transport decodes (gzip, deflate, br: what fetch decodes by itself); null for any other. */
+function responseEncoding(res: IncomingMessage): (() => Transform) | null {
   const encoding = String(res.headers["content-encoding"] ?? "").trim().toLowerCase();
-  const decoder = encoding === "gzip" || encoding === "x-gzip" ? createGunzip() : encoding === "deflate" ? createInflate() : encoding === "br" ? createBrotliDecompress() : null;
-  if (!decoder) return { body: res, decoded: false };
-  return { body: pipeline(res, decoder, () => undefined), decoded: true };
+  return encoding === "gzip" || encoding === "x-gzip" ? createGunzip : encoding === "deflate" ? createInflate : encoding === "br" ? createBrotliDecompress : null;
+}
+
+/** The body, decoded when its content coding is one `responseEncoding` names. */
+function responseBody(res: IncomingMessage): Readable {
+  const decoder = responseEncoding(res);
+  return decoder ? pipeline(res, decoder(), () => undefined) : res;
 }
 
 /**
@@ -156,10 +160,18 @@ export function createPinnedFetch(lookup: HostLookup, allow: (ip: string) => boo
           res.destroy();
           return reject(new Error(`${url.host} answered with status ${status}`));
         }
-        const nullBody = method === "HEAD" || NULL_BODY_STATUSES.has(status);
-        if (nullBody) res.resume();
-        const { body, decoded } = nullBody ? { body: null, decoded: false } : responseBody(res);
-        resolve(new Response(body ? (Readable.toWeb(body) as ReadableStream<Uint8Array>) : null, { status, statusText: res.statusMessage, headers: responseHeaders(res, decoded) }));
+        // A page decides what it answers: a reason phrase or a header fetch would refuse fails this read, never the
+        // process (a throw in this callback would be uncaught). The reason phrase is not kept; nothing reads it.
+        try {
+          const nullBody = method === "HEAD" || NULL_BODY_STATUSES.has(status);
+          const headersOut = responseHeaders(res, !nullBody && responseEncoding(res) !== null);
+          if (nullBody) res.resume();
+          const body = nullBody ? null : responseBody(res);
+          resolve(new Response(body ? (Readable.toWeb(body) as ReadableStream<Uint8Array>) : null, { status, headers: headersOut }));
+        } catch (err) {
+          res.destroy();
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
       });
       req.on("error", reject);
       req.end();
