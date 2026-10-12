@@ -27,7 +27,7 @@ const launchStub: SessionLaunch = { sandboxMode: "mock", fellBackFrom: null, mod
 
 describe("agentSession workflow", () => {
   it("fails the session on a detected loop (same call 3×) with the real activities", async () => {
-    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId, "session:wf");
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
     const activities = createActivities(t.deps);
     const outcome = await rig.run(activities, (client, taskQueue) =>
       client.workflow.execute(agentSession, { workflowId: `session:${sessionId}`, taskQueue, args: [{ businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId }] }),

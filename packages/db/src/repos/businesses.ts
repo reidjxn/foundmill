@@ -1,5 +1,5 @@
 /** businesses — the club record (BUILD §7.2 "Accounts and businesses", routers business.*). */
-import { ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, GAME_MODES, MODEL_BILLING, PLAN_TIERS, slugify, uuid } from "@foundmill/shared";
+import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, GAME_MODES, MODEL_BILLING, PLAN_TIERS, slugify, uuid, type AgentStopReason } from "@foundmill/shared";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { businesses, memberships, type Business } from "../schema";
@@ -107,10 +107,33 @@ export const businessesRepo = {
       modelBilling: v.modelBilling,
       glossary: v.glossary,
       createdBy: v.createdBy ?? null,
+      agentsStoppedAt: null,
+      agentsStoppedReason: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       archivedAt: null,
     };
+  },
+
+  /**
+   * Whether work may start for the business (0023): false while the team is stopped (Stop all agents, a revoked key,
+   * used-up credits) or the business is archived. Every path that starts a session, a cycle, an engine or a training
+   * run asks this first; `resumeBusinessAgents` is the only way back.
+   */
+  async agentsStopped(db: Executor, businessId: string): Promise<boolean> {
+    const state = await businessesRepo.stopState(db, businessId);
+    return state.stopped;
+  },
+
+  /** The team-wide stop with its reason (`stopped` also when the business is archived). */
+  async stopState(db: Executor, businessId: string): Promise<{ stopped: boolean; stoppedAt: Date | null; reason: Business["agentsStoppedReason"]; archived: boolean }> {
+    const rows = await db
+      .select({ stoppedAt: businesses.agentsStoppedAt, reason: businesses.agentsStoppedReason, archivedAt: businesses.archivedAt })
+      .from(businesses)
+      .where(eq(businesses.id, businessId))
+      .limit(1);
+    const row = one(rows, "business", businessId);
+    return { stopped: row.stoppedAt !== null || row.archivedAt !== null, stoppedAt: row.stoppedAt, reason: row.reason, archived: row.archivedAt !== null };
   },
 
   async update(db: Executor, businessId: string, input: UpdateBusinessInput): Promise<Business> {
@@ -141,6 +164,35 @@ export const businessesRepo = {
       "business",
       businessId,
     );
+  },
+
+  /**
+   * Sets the team-wide stop (0023). Stop all agents outranks a stop already set for a key or credits (only an owner or
+   * admin lifts it); otherwise the first reason and time stay, so a later stop never hides why the team stopped.
+   */
+  async setAgentsStopped(db: Executor, businessId: string, input: { reason: AgentStopReason; at?: Date }): Promise<{ stoppedAt: Date; reason: AgentStopReason; already: boolean }> {
+    const v = parseInput(z.object({ reason: z.enum(AGENT_STOP_REASONS), at: z.date().optional() }), input, "agents stop");
+    return db.transaction(async (tx) => {
+      const before = one(await tx.select({ stoppedAt: businesses.agentsStoppedAt, reason: businesses.agentsStoppedReason }).from(businesses).where(eq(businesses.id, businessId)).for("update").limit(1), "business", businessId);
+      const stoppedAt = before.stoppedAt ?? v.at ?? new Date();
+      const reason: AgentStopReason = v.reason === "kill_switch" ? "kill_switch" : (before.reason ?? v.reason);
+      if (before.stoppedAt === null || before.reason !== reason) await tx.update(businesses).set({ agentsStoppedAt: stoppedAt, agentsStoppedReason: reason }).where(eq(businesses.id, businessId));
+      return { stoppedAt, reason, already: before.stoppedAt !== null };
+    });
+  },
+
+  /**
+   * Clears the team-wide stop. With `onlyFor`, only a stop with one of those reasons is cleared (a new key clears a
+   * key revoke, a top-up the credits stop; neither lifts Stop all agents). Returns what was cleared.
+   */
+  async clearAgentsStopped(db: Executor, businessId: string, options: { onlyFor?: readonly AgentStopReason[] } = {}): Promise<{ cleared: boolean; stoppedAt: Date | null; reason: AgentStopReason | null }> {
+    return db.transaction(async (tx) => {
+      const before = one(await tx.select({ stoppedAt: businesses.agentsStoppedAt, reason: businesses.agentsStoppedReason }).from(businesses).where(eq(businesses.id, businessId)).for("update").limit(1), "business", businessId);
+      if (before.stoppedAt === null) return { cleared: false, stoppedAt: null, reason: null };
+      if (options.onlyFor && (before.reason === null || !options.onlyFor.includes(before.reason))) return { cleared: false, stoppedAt: before.stoppedAt, reason: before.reason };
+      await tx.update(businesses).set({ agentsStoppedAt: null, agentsStoppedReason: null }).where(eq(businesses.id, businessId));
+      return { cleared: true, stoppedAt: before.stoppedAt, reason: before.reason };
+    });
   },
 
   /** Soft delete (permanent deletion is a hard gate). */

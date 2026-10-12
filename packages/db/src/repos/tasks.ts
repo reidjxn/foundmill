@@ -149,6 +149,30 @@ export const tasksRepo = {
     });
   },
 
+  /**
+   * Claims a task for a manual start: moves it to `running` only from one of `from`, in one conditional update, so of
+   * two starts at once (a double click, two tabs) exactly one wins. Null when the task was not in one of `from`.
+   */
+  async claimForStart(db: Executor, businessId: string, taskId: string, from: readonly TaskStatus[]): Promise<Task | null> {
+    const statuses = parseInput(z.array(z.enum(TASK_STATUSES)).min(1), [...from], "task statuses");
+    const rows = await db
+      .update(tasks)
+      .set({ status: "running", startedAt: sql`coalesce(${tasks.startedAt}, now())`, endedAt: null })
+      .where(and(scoped(businessId, taskId), isNull(tasks.archivedAt), inArray(tasks.status, statuses)))
+      .returning();
+    return rows[0] ?? null;
+  },
+
+  /** Titles of the tasks `taskId` depends on that are not done yet (a start waits for them). */
+  async openDependencies(db: Executor, businessId: string, taskId: string): Promise<{ id: string; title: string; status: TaskStatus }[]> {
+    const rows = await db
+      .select({ id: tasks.id, title: tasks.title, status: tasks.status })
+      .from(taskEdges)
+      .innerJoin(tasks, eq(tasks.id, taskEdges.fromTask))
+      .where(and(eq(taskEdges.businessId, businessId), eq(taskEdges.toTask, taskId), sql`${tasks.status} <> 'done'`, isNull(tasks.archivedAt)));
+    return rows;
+  },
+
   async setProgress(db: Executor, businessId: string, taskId: string, input: { progress: number; phase?: (typeof TASK_PHASES)[number] | null; eta?: Date | null }): Promise<Task> {
     const v = parseInput(z.object({ progress: z.number().min(0).max(1), phase: z.enum(TASK_PHASES).nullable().optional(), eta: z.coerce.date().nullable().optional() }), input, "task progress");
     return one(

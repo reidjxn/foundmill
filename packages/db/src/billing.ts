@@ -6,10 +6,12 @@
  * the ledger row, and when the row is billed to `credits` it charges the business's credit balance for the row's period.
  * Enforcement only starts once a balance row exists for the period (a grant or a top-up): included credit sizes are an
  * open decision (§19), so a business that was never granted anything is metered but never paused. The charge that uses
- * the last credit pauses every agent and posts one Inbox warning from the Chief of Staff; later charges on an empty
- * balance are recorded (the ledger is the truth, overrun included) without repeating the pause or the note. Rows billed
- * to `byok` touch no balance: the founder's own vendor invoice is the only real cost.
+ * the last credit stops the team (the business's stop flag, reason `credits_exhausted`: nothing starts work until a
+ * top-up, a stored key or an owner or admin lifts it) and posts one Inbox warning from the Chief of Staff; later charges
+ * on an empty balance are recorded (the ledger is the truth, overrun included) without repeating the pause or the note.
+ * Rows billed to `byok` touch no balance: the founder's own vendor invoice is the only real cost.
  */
+import { stopBusinessAgents } from "./controls";
 import { repos } from "./repos";
 import type { Executor } from "./repos/_shared";
 import { periodOf, type RecordUsageInput } from "./repos/usage";
@@ -45,9 +47,12 @@ export async function bookUsage(db: Executor, businessId: string, input: RecordU
   return { entry, credits: { enforced: true, balance: charged.balance, exhausted: "now", pausedAgents, noteId } };
 }
 
-/** The 100 % action of BUILD §10.4: pause every agent and let the Inbox explain and offer a top-up. */
+/**
+ * The 100 % action of BUILD §10.4: stop the team (the business's stop flag, so nothing starts work until it is lifted)
+ * and let the Inbox explain and offer a top-up. A top-up or a stored key lifts this stop by itself (`resumeBusinessAgents`).
+ */
 async function pauseForCredits(db: Executor, businessId: string, period: string): Promise<{ pausedAgents: number; noteId: string | null }> {
-  const pausedAgents = await repos.agents.pauseAll(db, businessId);
+  const pausedAgents = (await stopBusinessAgents(db, businessId, { reason: "credits_exhausted" })).paused.length;
   const chief = await repos.agents.chiefOfStaff(db, businessId);
   let noteId: string | null = null;
   if (chief) {
@@ -55,7 +60,7 @@ async function pauseForCredits(db: Executor, businessId: string, period: string)
       type: "warning",
       from_agent_id: chief.id,
       subject: CREDITS_EXHAUSTED_SUBJECT,
-      body_md: `This month's credits are used up, so every agent is paused. Top up in Settings → Billing, or bring your own key in Settings → Keys, then resume the team; tasks pick up where they stopped. Spend so far is an Estimate; the model invoice is the real figure.`,
+      body_md: `This month's credits are used up, so every agent is paused. Top up in Settings → Billing or bring your own key in Settings → Keys, and the team resumes by itself; tasks pick up where they stopped. Spend so far is an Estimate; the model invoice is the real figure.`,
       status_strip: [],
       exhibit: { kind: "none", spec_ref: null },
       decision: null,

@@ -311,6 +311,26 @@
     pointer-events: none;
   }
 }
+/* Resume agents (the team is stopped) where the kill switch sits: the play mark in a light amber inside an amber ring,
+   so the stopped state reads from every screen; hover warms the glass towards amber. */
+@utility kitbar-resume {
+  &.kitbar-glass {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in oklab, var(--status-warn) 55%, transparent),
+      inset 0 1px 0 var(--glass-top),
+      0 0 12px -3px color-mix(in oklab, var(--status-warn) 60%, transparent);
+  }
+  &.kitbar-glass svg {
+    color: color-mix(in oklab, var(--status-warn) 55%, var(--white));
+  }
+  &.kitbar-glass:hover {
+    background-color: color-mix(in oklab, var(--status-warn) 24%, transparent);
+  }
+  &:disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+}
 /* The dashed "not measured" tag inside a glass chip ("Estimate"): the data style on the slab's own light. */
 @utility kitbar-est {
   display: inline-flex;

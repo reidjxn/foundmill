@@ -30,6 +30,8 @@ export interface BriefAgent {
   status: AgentStatus;
   departmentIds: string[];
   wageCapMinor: number | null;
+  /** What is left of the wage cap this period (null: uncapped). At or below zero the agent takes no work (BUILD §10.4). */
+  wageRemainingMinor?: number | null;
 }
 
 export interface BriefTask {
@@ -45,6 +47,8 @@ export interface BriefTask {
   budgetMinor: number | null;
   /** Dependencies not yet done block dispatch. */
   blocked: boolean;
+  /** A failed task's next automatic retry (`retry.ts`); absent for every other status. */
+  retry?: { failures: number; due: boolean; exhausted: boolean; nextAttemptAt: string | null } | null;
 }
 
 export interface BusinessBrief {
@@ -61,6 +65,11 @@ export interface BusinessBrief {
   openTasks: BriefTask[];
   pendingApprovals: number;
   blockingInboxItems: number;
+  /**
+   * The team is stopped (Stop all agents, a revoked key, used-up credits; 0023): nothing is planned or dispatched until
+   * an owner or admin resumes it. Absent in briefs built before the flag existed.
+   */
+  agentsStopped?: boolean;
   /** Credits remaining for the period (label "Estimate"); null when unknown/uncapped. */
   budgetRemainingMinor: number | null;
   maxAgents: number;

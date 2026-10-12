@@ -11,13 +11,28 @@ import { uuid, type TaskKind } from "@foundmill/shared";
 import { ComposerUnavailableError } from "../composer-client";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
+import { openAgentSession, type DispatchRefusal } from "./dispatch";
 import type { BriefAgent, BriefTask, BusinessBrief, CyclePlan, CycleStart, CycleTrigger } from "./types";
 
 const DISPATCHABLE = new Set(["planned", "ready", "paused", "blocked", "failed"]);
 
+/** An agent the cycle may give work: not paused, injured or failing (failing agents rest first, `recoverAgents`), and under its wage cap. */
+export function agentUsable(a: BriefAgent): boolean {
+  if (a.status === "paused" || a.status === "injured" || a.status === "failing") return false;
+  return a.wageRemainingMinor === undefined || a.wageRemainingMinor === null || a.wageRemainingMinor > 0;
+}
+
+/** Why a dispatchable-looking task is left out before planning (a failed task waiting for its retry), or null. */
+export function retryDeferral(task: BriefTask): string | null {
+  if (task.status !== "failed" || !task.retry || task.retry.due) return null;
+  if (task.retry.exhausted) return `failed ${task.retry.failures} times in a row; start it from the Plan once the cause is fixed`;
+  const next = task.retry.nextAttemptAt ? new Date(task.retry.nextAttemptAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }) : null;
+  return `retrying after ${task.retry.failures} failed session${task.retry.failures === 1 ? "" : "s"}${next ? `; next try after ${next} UTC` : ""}`;
+}
+
 function pickAssignee(task: BriefTask, brief: BusinessBrief, requested: string | null): BriefAgent | null {
   const byId = new Map(brief.agents.map((a) => [a.id, a]));
-  const usable = (a: BriefAgent | undefined | null) => (a && a.status !== "paused" && a.status !== "injured" && a.status !== "failing" ? a : null);
+  const usable = (a: BriefAgent | undefined | null) => (a && agentUsable(a) ? a : null);
   const fromRequest = requested ? usable(byId.get(requested)) : null;
   if (fromRequest) return fromRequest;
   const fromTask = task.assigneeAgentId ? usable(byId.get(task.assigneeAgentId)) : null;
@@ -35,12 +50,15 @@ export function createCycleActivities(deps: OrchestratorDeps) {
     /** Chief of Staff plan for one cycle (BUILD §12.4). Ids in the model's answer are validated against the brief. */
     async planCycle(input: { businessId: string; cycleNumber: number; trigger: CycleTrigger; brief: BusinessBrief }): Promise<CyclePlan> {
       const { brief } = input;
-      const chief = getTemplate("chief_of_staff");
       const chiefAgent = brief.agents.find((a) => a.id === brief.chiefOfStaffId) ?? null;
+      // A stopped team plans nothing, and no model is called (or charged) for it.
+      if (brief.agentsStopped) return { summary: "The team is stopped, so nothing was planned. An owner or admin resumes the agents with Resume agents in the top bar.", timeBoxHours: 0.25, starts: [], deferred: [], approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
+      const chief = getTemplate("chief_of_staff");
       const system = buildSystemPrompt({ businessName: brief.businessName, appName: APP_NAME, template: chief, brief: brief.text, glossary: brief.glossary });
       const budgetText = brief.budgetRemainingMinor === null ? "not capped" : `${(brief.budgetRemainingMinor / 100).toFixed(2)} ${brief.currency} (Estimate)`;
       const prompt = getPrompt("chief_of_staff_planner").render({ business_name: brief.businessName, max_agents: brief.maxAgents, budget: budgetText, capacity: brief.capacity });
-      const candidates = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked);
+      const waiting = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && retryDeferral(t) !== null);
+      const candidates = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && retryDeferral(t) === null);
       const payload = {
         business_mode: brief.businessMode,
         trigger: input.trigger,
@@ -83,6 +101,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
       }
       // The planner may leave dispatchable work out; nothing silently disappears — it is listed as deferred.
       for (const t of candidates) if (!seen.has(t.id) && !deferred.some((d) => d.taskId === t.id)) deferred.push({ taskId: t.id, reason: "not selected for this cycle" });
+      for (const t of waiting) deferred.push({ taskId: t.id, reason: retryDeferral(t)! });
       starts.sort((a, b) => a.priority - b.priority);
       return {
         summary: plan.summary,
@@ -110,20 +129,15 @@ export function createCycleActivities(deps: OrchestratorDeps) {
       return { cycleId, eventId: ev.id };
     },
 
-    /** Open an agent_sessions row for a task, mark the task running and emit `task.started`. */
-    async openSession(input: { businessId: string; agentId: string; taskId: string; workflowId: string; modelKey?: string }): Promise<{ sessionId: string }> {
-      const { db } = deps;
-      const [agent, task] = await Promise.all([repos.agents.get(db, input.businessId, input.agentId), repos.tasks.get(db, input.businessId, input.taskId)]);
-      const session = await repos.agents.createSession(db, input.businessId, { agentId: agent.id, versionId: agent.currentVersionId, taskId: task.id, workflowId: input.workflowId, modelKey: agent.modelKey, startedAt: deps.clock.now() });
-      if (task.assigneeAgentId !== agent.id) await repos.tasks.reassign(db, input.businessId, task.id, agent.id);
-      if (task.status !== "running") await repos.tasks.setStatus(db, input.businessId, task.id, "running", { force: true });
-      await emitEvent(db, {
-        businessId: input.businessId,
-        type: "task.started",
-        actor: { kind: "agent", id: agent.id },
-        payload: { taskId: task.id, title: task.title, kind: task.kind, assigneeAgentId: agent.id, sessionId: session.id, roadmapItemId: task.roadmapItemId, workflowId: input.workflowId, branch: `agent/${task.id}` },
-      });
-      return { sessionId: session.id };
+    /**
+     * Open an agent_sessions row for a task (workflow id `session:<id>` from the start), mark the task running and emit
+     * `task.started`, or refuse (`dispatch.ts`): the team is stopped, the agent is paused or at its wage cap, or the task
+     * already has a session. A refusal returns `sessionId: null`; `agents_stopped` ends the cycle's dispatching.
+     */
+    async openSession(input: { businessId: string; agentId: string; taskId: string }): Promise<{ sessionId: string | null; refused: DispatchRefusal | null; detail: string | null }> {
+      const opened = await openAgentSession(deps, input);
+      if (opened.refused) deps.log.info({ businessId: input.businessId, taskId: input.taskId, agentId: input.agentId, refused: opened.refused }, "session not opened");
+      return { sessionId: opened.sessionId, refused: opened.refused, detail: opened.detail };
     },
 
     /** Record the end of a cycle (`cycle.completed`). */

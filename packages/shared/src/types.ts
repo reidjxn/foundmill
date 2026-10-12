@@ -18,6 +18,8 @@ import {
   INBOX_STATES,
   EXHIBIT_KINDS,
   AGENT_STATUSES,
+  AGENT_STOP_REASONS,
+  AGENT_PAUSE_REASONS,
   AGENT_LAYERS,
   MODEL_KEYS,
   SKILL_GROUPS,
@@ -95,6 +97,10 @@ export const ExhibitKind = z.enum(EXHIBIT_KINDS);
 export type ExhibitKind = C.ExhibitKind;
 export const AgentStatus = z.enum(AGENT_STATUSES);
 export type AgentStatus = C.AgentStatus;
+export const AgentStopReason = z.enum(AGENT_STOP_REASONS);
+export type AgentStopReason = C.AgentStopReason;
+export const AgentPauseReason = z.enum(AGENT_PAUSE_REASONS);
+export type AgentPauseReason = C.AgentPauseReason;
 export const AgentLayer = z.enum(AGENT_LAYERS);
 export type AgentLayer = C.AgentLayer;
 export const ModelKey = z.enum(MODEL_KEYS);

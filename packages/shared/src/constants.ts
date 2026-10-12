@@ -59,6 +59,17 @@ export type ExhibitKind = (typeof EXHIBIT_KINDS)[number];
 export const AGENT_STATUSES = ["healthy", "degraded", "failing", "injured", "paused", "idle"] as const;
 export type AgentStatus = (typeof AGENT_STATUSES)[number];
 
+/**
+ * Why a whole team was stopped (`businesses.agents_stopped_reason`, 0023): Stop all agents, a revoked Anthropic key or
+ * used-up credits. Only an owner or admin clears it (`business.resumeAgents`); a new key or a top-up clears its own.
+ */
+export const AGENT_STOP_REASONS = ["kill_switch", "key_revoked", "credits_exhausted"] as const;
+export type AgentStopReason = (typeof AGENT_STOP_REASONS)[number];
+
+/** Why one agent is paused (`agents.paused_reason`, 0023): a team-wide stop, or its own wage cap for the period. */
+export const AGENT_PAUSE_REASONS = [...AGENT_STOP_REASONS, "wage_cap"] as const;
+export type AgentPauseReason = (typeof AGENT_PAUSE_REASONS)[number];
+
 export const AGENT_LAYERS = ["assistant", "lead", "worker", "utility"] as const;
 export type AgentLayer = (typeof AGENT_LAYERS)[number];
 

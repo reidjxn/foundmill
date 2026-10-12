@@ -202,7 +202,7 @@ export const STATUS_DESCRIPTION: Record<AgentStatus, string> = {
   failing: "Loop detected or repeated errors. Sessions are stopped until you look.",
   injured: "A credential expired or a rate limit hit. Back once the integration is reconnected.",
   degraded: "Error rate above 10% over the last day. Still working, watch the next tasks.",
-  paused: "Paused by you or by a vacation rule. Resume from the profile.",
+  paused: "Paused by Stop all agents, a revoked key, used-up credits or the agent's wage cap. Resume agents in the top bar; a wage cap lifts next month or when you raise it.",
   idle: "No task assigned. The Chief of Staff routes work on the next cycle.",
   healthy: "Heartbeat on time, errors low, budget available.",
 };

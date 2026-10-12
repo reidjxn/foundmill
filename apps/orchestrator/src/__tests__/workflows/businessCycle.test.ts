@@ -58,6 +58,8 @@ const done = (): SessionResult => ({ outcome: "done", reason: null, blockedReaso
 
 interface Calls {
   opened: { taskId: string; agentId: string }[];
+  /** Every openSession input as received (the workflow sends no workflow id: the row carries `session:<id>`). */
+  openInputs: Record<string, unknown>[];
   running: Set<string>;
   maxConcurrent: number;
   overlapSeen: boolean;
@@ -66,25 +68,30 @@ interface Calls {
   started: number;
 }
 
-function mockActivities(opts: { holdSessions?: boolean } = {}): { acts: Partial<Activities>; calls: Calls; release: () => void } {
-  const calls: Calls = { opened: [], running: new Set(), maxConcurrent: 0, overlapSeen: false, narrated: [], completed: [], started: 0 };
+function mockActivities(opts: { holdSessions?: boolean; stoppedBrief?: boolean; refuseAfter?: number; planned?: number } = {}): { acts: Partial<Activities>; calls: Calls; release: () => void } {
+  const calls: Calls = { opened: [], openInputs: [], running: new Set(), maxConcurrent: 0, overlapSeen: false, narrated: [], completed: [], started: 0 };
   const scopes = new Map(tasks.map((t) => [t.id, t.fileScope]));
   let release = () => {};
   const held = new Promise<void>((r) => (release = r));
   const acts: Partial<Activities> = {
     async loadBrief() {
-      return brief();
+      return { ...brief(), agentsStopped: opts.stoppedBrief ?? false };
     },
-    async planCycle() {
-      return plan();
+    async planCycle({ brief: b }) {
+      if (b.agentsStopped) return { ...plan(), starts: [], costMinor: 0 };
+      return opts.planned === undefined ? plan() : { ...plan(), starts: plan().starts.slice(0, opts.planned) };
     },
     async startCycle() {
       calls.started += 1;
       return { cycleId: id(900), eventId: id(901) };
     },
-    async openSession({ taskId, agentId }) {
+    async openSession(input) {
+      const { taskId, agentId } = input;
+      calls.openInputs.push({ ...input });
+      // The kill switch lands after `refuseAfter` sessions: every later dispatch is refused.
+      if (opts.refuseAfter !== undefined && calls.opened.length >= opts.refuseAfter) return { sessionId: null, refused: "agents_stopped" as const, detail: "agents are stopped (kill switch)" };
       calls.opened.push({ taskId, agentId });
-      return { sessionId: `${taskId.slice(0, 8)}-0000-4000-8000-${String(calls.opened.length).padStart(12, "0")}` };
+      return { sessionId: `${taskId.slice(0, 8)}-0000-4000-8000-${String(calls.opened.length).padStart(12, "0")}`, refused: null, detail: null };
     },
     async prepareSession() {
       return launch;
@@ -154,5 +161,37 @@ describe("businessCycle workflow", () => {
     });
     expect(result.outcome).toBe("stopped");
     expect(m.calls.completed[0]).toMatchObject({ outcome: "stopped" });
+  });
+
+  it("opens each session without a placeholder workflow id: the row carries session:<id> and the child runs under it", async () => {
+    const m = mockActivities({ planned: 1 });
+    const result = await rig.run(m.acts, async (client, taskQueue) => {
+      const r = await client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:3`, taskQueue, args: [{ businessId: B, cycleNumber: 3, trigger: "continue" }] });
+      const sessionId = `${tasks[0]!.id.slice(0, 8)}-0000-4000-8000-000000000001`;
+      const child = await client.workflow.getHandle(`session:${sessionId}`).describe();
+      expect(child.type).toBe("agentSession");
+      return r;
+    });
+    expect(result.tasksDispatched).toBe(1);
+    expect(m.calls.openInputs).toHaveLength(1);
+    expect(m.calls.openInputs[0]).not.toHaveProperty("workflowId");
+  });
+
+  it("a refused dispatch because the team was stopped ends the cycle: nothing else is opened", async () => {
+    const m = mockActivities({ refuseAfter: 1 });
+    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:4`, taskQueue, args: [{ businessId: B, cycleNumber: 4, trigger: "continue" }] }));
+    expect(result.outcome).toBe("stopped");
+    expect(m.calls.opened).toHaveLength(1);
+    // The refusal stopped the loop at the first refused task; the others were never asked for.
+    expect(m.calls.openInputs).toHaveLength(2);
+    expect(m.calls.completed[0]).toMatchObject({ outcome: "stopped", tasksDispatched: 1 });
+  });
+
+  it("a brief that says the team is stopped dispatches nothing and records the cycle as stopped", async () => {
+    const m = mockActivities({ stoppedBrief: true });
+    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(businessCycle, { workflowId: `cycle:${B}:5`, taskQueue, args: [{ businessId: B, cycleNumber: 5, trigger: "continue" }] }));
+    expect(result).toMatchObject({ outcome: "stopped", tasksDispatched: 0, costMinor: 0 });
+    expect(m.calls.openInputs).toHaveLength(0);
+    expect(m.calls.completed[0]).toMatchObject({ outcome: "stopped", tasksDispatched: 0 });
   });
 });

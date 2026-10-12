@@ -7,6 +7,7 @@ import { readSessionEvents } from "@foundmill/events";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { computeHealth, errorRate, type HealthSignals } from "../health";
+import { recoverAgents } from "./dispatch";
 import type { HealthRefreshResult } from "./types";
 
 export function createHealthActivities(deps: OrchestratorDeps) {
@@ -14,6 +15,8 @@ export function createHealthActivities(deps: OrchestratorDeps) {
     async refreshAgentHealth(input: { businessId: string }): Promise<HealthRefreshResult> {
       const { db, clock } = deps;
       const now = clock.now();
+      // Rested failing agents and agents under their wage cap again come back first (the same step a cycle takes).
+      const recovered = await recoverAgents(deps, input.businessId);
       const [agents, expiredCredentials, integrations] = await Promise.all([
         repos.agents.list(db, input.businessId, { limit: 200 }),
         repos.credentials.expiring(db, input.businessId, now),
@@ -21,11 +24,15 @@ export function createHealthActivities(deps: OrchestratorDeps) {
       ]);
       const expiredConnectors = new Set(expiredCredentials.map((c) => integrations.find((i) => i.id === c.integrationId)?.connectorKey).filter((k): k is string => Boolean(k)));
       const period = periodOf(now);
-      const changed: HealthRefreshResult["changed"] = [];
+      const changed: HealthRefreshResult["changed"] = recovered.map((r) => ({ agentId: r.agentId, from: r.from, to: r.to, reason: r.reason }));
       const eventIds: string[] = [];
       for (const agent of agents.items) {
-        if (agent.status === "paused") continue; // the founder's pause is never overridden by a computation
+        // A pause (the founder's, a team-wide stop, a wage cap) is never overridden by a computation: `recoverAgents`
+        // lifts a wage-cap pause once the agent is under its cap, and only a resume lifts the others.
+        if (agent.status === "paused") continue;
         const open = await repos.agents.listSessions(db, input.businessId, { agentId: agent.id, openOnly: true, limit: 5 });
+        // A failing agent with nothing open rests before it works again (`retry.ts`); `recoverAgents` decides when.
+        if (agent.status === "failing" && open.items.length === 0) continue;
         let heartbeatAgeMs: number | null = null;
         let failed = 0;
         let total = 0;
@@ -58,7 +65,10 @@ export function createHealthActivities(deps: OrchestratorDeps) {
         };
         const verdict = computeHealth(signals);
         if (verdict.status === agent.status) continue;
-        await repos.agents.setStatus(db, input.businessId, agent.id, verdict.status);
+        // The wage-cap pause carries its reason so it lifts itself next period; any other verdict never lands on an
+        // agent someone paused in the meantime.
+        const updated = verdict.status === "paused" ? await repos.agents.setStatus(db, input.businessId, agent.id, "paused", { pausedReason: "wage_cap" }) : await repos.agents.setHealthStatus(db, input.businessId, agent.id, verdict.status);
+        if (!updated) continue;
         const ev = await emitEvent(db, {
           businessId: input.businessId,
           type: "agent.health_changed",

@@ -2,7 +2,7 @@
  * agents, agent_versions, agent_sessions, agent_metrics — the squad (BUILD §9.1–9.2, §11.9, §11.10;
  * routers team.agents.*, agent.profile.*, agent.model.*, agent.autonomy.*, dev.sessions.*).
  */
-import { AGENT_LAYERS, AGENT_STATUSES, AGENT_VERSION_STATES, MODEL_KEYS, ValidationError, type AgentStatus } from "@foundmill/shared";
+import { AGENT_LAYERS, AGENT_PAUSE_REASONS, AGENT_STATUSES, AGENT_STOP_REASONS, AGENT_VERSION_STATES, MODEL_KEYS, uuid, ValidationError, type AgentPauseReason, type AgentStatus } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agentMetrics, agentSessions, agentVersions, agents, CREATED_BY_KINDS, type Agent, type AgentMetric, type AgentSession, type AgentVersion } from "../schema";
@@ -60,11 +60,18 @@ export const AgentListFilter = PageInput.extend({
 });
 export type AgentListFilter = z.input<typeof AgentListFilter>;
 
+/**
+ * A session's workflow id (ARCHITECTURE §10: `session:{sessionId}`). Every row stores exactly this, written with the
+ * row, so a signal (pause, nudge, stop, the kill switch) always names a workflow that exists; there is no placeholder.
+ */
+export const sessionWorkflowId = (sessionId: string): string => `session:${sessionId}`;
+
 export const CreateSessionInput = z.object({
+  /** Supply the id when the caller needs it before the insert; otherwise one is generated. */
+  id: Id.optional(),
   agentId: Id,
   versionId: Id.nullable().optional(),
   taskId: Id.nullable().optional(),
-  workflowId: z.string().max(200).nullable().optional(),
   modelKey: z.enum(MODEL_KEYS).default("sonnet"),
   startedAt: z.coerce.date().optional(),
   recordingRef: z.string().max(2048).nullable().optional(),
@@ -271,19 +278,58 @@ export const agentsRepo = {
     return one(await db.update(agents).set(defined(v)).where(scoped(businessId, agentId)).returning(), "agent", agentId);
   },
 
-  async setStatus(db: Executor, businessId: string, agentId: string, status: AgentStatus): Promise<Agent> {
+  /** Sets the status; a pause may say why (0023, `paused_reason`; leaving `paused` drops the reason). */
+  async setStatus(db: Executor, businessId: string, agentId: string, status: AgentStatus, options: { pausedReason?: AgentPauseReason | null } = {}): Promise<Agent> {
     const s = parseInput(z.enum(AGENT_STATUSES), status, "agent status");
-    return one(await db.update(agents).set({ status: s }).where(scoped(businessId, agentId)).returning(), "agent", agentId);
+    const reason = s === "paused" ? parseInput(z.enum(AGENT_PAUSE_REASONS).nullable(), options.pausedReason ?? null, "pause reason") : null;
+    return one(await db.update(agents).set({ status: s, pausedReason: reason }).where(scoped(businessId, agentId)).returning(), "agent", agentId);
   },
 
-  /** Stop-all: pauses every non-archived agent. Returns the number paused. */
-  async pauseAll(db: Executor, businessId: string): Promise<number> {
+  /**
+   * A computed health status (session end, health refresh) for an agent that is not paused: a pause (the founder's,
+   * the kill switch's, credits', a key revoke's, a wage cap's) is never overwritten by a computation. Null when the
+   * agent is paused (or gone), so the caller writes no `agent.health_changed`.
+   */
+  async setHealthStatus(db: Executor, businessId: string, agentId: string, status: Exclude<AgentStatus, "paused">): Promise<Agent | null> {
+    const s = parseInput(z.enum(AGENT_STATUSES).exclude(["paused"]), status, "agent status");
+    const rows = await db.update(agents).set({ status: s }).where(and(scoped(businessId, agentId), sql`${agents.status} <> 'paused'`)).returning();
+    return rows[0] ?? null;
+  },
+
+  /** Stop-all: pauses every non-archived agent (with the reason, when given). Returns the number paused. */
+  async pauseAll(db: Executor, businessId: string, options: { reason?: AgentPauseReason } = {}): Promise<number> {
+    return (await agentsRepo.pauseEveryone(db, businessId, options)).length;
+  },
+
+  /**
+   * Pauses every live agent that is not paused yet, recording why; returns each with the status it had (for
+   * `agent.health_changed`). Agents already paused keep their own reason (a wage cap stays a wage cap).
+   */
+  async pauseEveryone(db: Executor, businessId: string, options: { reason?: AgentPauseReason } = {}): Promise<{ id: string; from: AgentStatus }[]> {
+    const reason = options.reason ? parseInput(z.enum(AGENT_PAUSE_REASONS), options.reason, "pause reason") : null;
+    return db.transaction(async (tx) => {
+      const before = await tx
+        .select({ id: agents.id, status: agents.status })
+        .from(agents)
+        .where(and(eq(agents.businessId, businessId), isNull(agents.archivedAt), sql`${agents.status} <> 'paused'`))
+        .for("update");
+      if (before.length === 0) return [];
+      await tx.update(agents).set({ status: "paused", pausedReason: reason }).where(and(eq(agents.businessId, businessId), inArray(agents.id, before.map((a) => a.id))));
+      return before.map((a) => ({ id: a.id, from: a.status }));
+    });
+  },
+
+  /**
+   * The way back from a team-wide stop: live agents paused by a stop (kill switch, key revoke, credits) or with no
+   * recorded reason become idle. A wage-cap pause stays until the agent is under its cap again. Returns the ids.
+   */
+  async resumeStopped(db: Executor, businessId: string): Promise<string[]> {
     const rows = await db
       .update(agents)
-      .set({ status: "paused" })
-      .where(and(eq(agents.businessId, businessId), isNull(agents.archivedAt), sql`${agents.status} <> 'paused'`))
+      .set({ status: "idle" })
+      .where(and(eq(agents.businessId, businessId), isNull(agents.archivedAt), eq(agents.status, "paused"), sql`(${agents.pausedReason} is null or ${inArray(agents.pausedReason, [...AGENT_STOP_REASONS])})`))
       .returning({ id: agents.id });
-    return rows.length;
+    return rows.map((r) => r.id);
   },
 
   async setModel(db: Executor, businessId: string, agentId: string, modelKey: (typeof MODEL_KEYS)[number]): Promise<Agent> {
@@ -400,16 +446,40 @@ export const agentsRepo = {
     return one(await db.select().from(agentSessions).where(and(eq(agentSessions.businessId, businessId), eq(agentSessions.id, sessionId))).limit(1), "agent session", sessionId);
   },
 
+  /** Opens a session row; its workflow id is `session:<id>` from the start (`sessionWorkflowId`). */
   async createSession(db: Executor, businessId: string, input: CreateSessionInput): Promise<AgentSession> {
     const v = parseInput(CreateSessionInput, input, "agent session");
     await agentsRepo.get(db, businessId, v.agentId);
+    const id = v.id ?? uuid();
     return one(
       await db
         .insert(agentSessions)
-        .values({ businessId, agentId: v.agentId, versionId: v.versionId ?? null, taskId: v.taskId ?? null, workflowId: v.workflowId ?? null, modelKey: v.modelKey, startedAt: v.startedAt ?? new Date(), recordingRef: v.recordingRef ?? null })
+        .values({ id, businessId, agentId: v.agentId, versionId: v.versionId ?? null, taskId: v.taskId ?? null, workflowId: sessionWorkflowId(id), modelKey: v.modelKey, startedAt: v.startedAt ?? new Date(), recordingRef: v.recordingRef ?? null })
         .returning(),
       "agent session",
     );
+  },
+
+  /**
+   * The latest ended sessions of some tasks or agents, newest first (outcome and end time only): the cycle reads how
+   * many times in a row a task or an agent failed, to back off before trying again.
+   */
+  async recentOutcomes(db: Executor, businessId: string, filter: { taskIds?: readonly string[]; agentIds?: readonly string[]; limit?: number }): Promise<Pick<AgentSession, "id" | "agentId" | "taskId" | "outcome" | "startedAt" | "endedAt">[]> {
+    if ((filter.taskIds && filter.taskIds.length === 0) || (filter.agentIds && filter.agentIds.length === 0)) return [];
+    const limit = Math.min(Math.max(Math.trunc(filter.limit ?? 500), 1), 2000);
+    return db
+      .select({ id: agentSessions.id, agentId: agentSessions.agentId, taskId: agentSessions.taskId, outcome: agentSessions.outcome, startedAt: agentSessions.startedAt, endedAt: agentSessions.endedAt })
+      .from(agentSessions)
+      .where(
+        and(
+          eq(agentSessions.businessId, businessId),
+          sql`${agentSessions.endedAt} is not null`,
+          filter.taskIds ? inArray(agentSessions.taskId, [...filter.taskIds]) : undefined,
+          filter.agentIds ? inArray(agentSessions.agentId, [...filter.agentIds]) : undefined,
+        ),
+      )
+      .orderBy(desc(agentSessions.startedAt), desc(agentSessions.id))
+      .limit(limit);
   },
 
   async endSession(db: Executor, businessId: string, sessionId: string, input: EndSessionInput): Promise<AgentSession> {

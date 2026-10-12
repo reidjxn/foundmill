@@ -6,12 +6,13 @@
  */
 import { FLAGS, isSimulateEnv } from "@foundmill/config";
 import { HOUSE_STYLE } from "@foundmill/agents";
-import { TaskListFilter, codeRepositoryOf, repos, type Task } from "@foundmill/db";
+import { TaskListFilter, codeRepositoryOf, periodOf, repos, type AgentSession, type Task } from "@foundmill/db";
 import { SESSION_EVENT_KINDS, sessionStreamKey } from "@foundmill/events";
 import { TaskGraphOutput } from "@foundmill/models";
-import { NotFoundError, ValidationError, connectorMode } from "@foundmill/shared";
+import { AppError, NotFoundError, ValidationError, connectorMode, type TaskStatus } from "@foundmill/shared";
 import { z } from "zod";
 import { replaySession } from "../services/replay";
+import { assertAgentsRunning } from "../services/stop-guard";
 import { SIGNALS, WORKFLOWS, workflowIds, type SignalName } from "../services/temporal";
 import { Id, adminProcedure, audit, emit, router, sectionAdmin, sectionRead, sectionWrite, type BusinessContext } from "../trpc";
 
@@ -64,7 +65,18 @@ async function openSession(ctx: BusinessContext, taskId: string) {
 async function signalTask(ctx: BusinessContext, task: Task, signal: SignalName, payload: Record<string, unknown>) {
   const session = await openSession(ctx, task.id);
   if (!session) return { queued: false, workflowId: "", reason: "no running session for this task" };
-  return ctx.temporal.signal(session.workflowId ?? workflowIds.session(session.id), signal, payload);
+  // Always the computed id: rows written before 0023 may still say `session:pending`, a workflow that never existed.
+  return ctx.temporal.signal(workflowIds.session(session.id), signal, payload);
+}
+
+/** Statuses a task may be started from by hand (Start on the Plan): never while running, in review or done. */
+export const STARTABLE_TASK_STATUSES = ["planned", "ready", "paused", "blocked", "failed", "stopped"] as const satisfies readonly TaskStatus[];
+
+/** Task start refused for the task's own state (409): already running or finished, an open dependency, its agent. */
+export class TaskStartError extends AppError {
+  constructor(message: string, details?: unknown) {
+    super("task_start_refused", message, 409, details);
+  }
 }
 
 export const devRouter = router({
@@ -121,21 +133,42 @@ export const devRouter = router({
       }),
     ),
 
-    /** Start: the task becomes ready/running and an agentSession workflow is started for it. */
+    /**
+     * Start: an agentSession workflow is started for the task. Refused (CONFLICT) while the team is stopped, while the
+     * task already runs (or has a session open), is in review or done, waits on an unfinished dependency, or when its
+     * agent is paused, released or at its wage cap: a start never wakes a paused agent, so it cannot undo Stop all agents.
+     * The task is claimed with one conditional update, so a double click starts one session.
+     */
     start: write.input(z.object({ taskId: Id })).mutation(async ({ ctx, input }) => {
+      await assertAgentsRunning(ctx, "the task");
       const task = await ctx.rls((tx) => repos.tasks.get(tx, ctx.businessId, input.taskId));
       if (!task.assigneeAgentId) throw new ValidationError("Assign an agent before starting the task");
-      const assignee = await ctx.rls((tx) => repos.agents.get(tx, ctx.businessId, task.assigneeAgentId!));
-      // agent_sessions is service-written (orchestrator-owned); created on the service db before the RLS transaction.
-      const session = await repos.agents.createSession(ctx.db, ctx.businessId, { agentId: assignee.id, taskId: task.id, modelKey: assignee.modelKey });
+      if (!(STARTABLE_TASK_STATUSES as readonly TaskStatus[]).includes(task.status)) throw new TaskStartError(task.status === "running" ? "The task is already running." : `The task is ${task.status}; it cannot be started again.`, { status: task.status });
+      const [assignee, open, dependencies] = await ctx.rls((tx) => Promise.all([repos.agents.get(tx, ctx.businessId, task.assigneeAgentId!), repos.agents.listSessions(tx, ctx.businessId, { taskId: task.id, openOnly: true, limit: 1 }), repos.tasks.openDependencies(tx, ctx.businessId, task.id)]));
+      if (open.items.length > 0) throw new TaskStartError("The task already has a session running.", { sessionId: open.items[0]!.id });
+      if (dependencies.length > 0) throw new TaskStartError(`Finish what it depends on first: ${dependencies.map((d) => `"${d.title}"`).join(", ")}.`, { dependencies: dependencies.map((d) => d.id) });
+      if (assignee.archivedAt) throw new TaskStartError(`${assignee.name} has left the team. Reassign the task first.`);
+      if (assignee.status === "paused") throw new TaskStartError(assignee.pausedReason === "wage_cap" ? `${assignee.name} reached its wage cap for the month and is paused. Raise the cap on its profile or reassign the task.` : `${assignee.name} is paused. Resume the agents or reassign the task first.`, { pausedReason: assignee.pausedReason });
+      const spend = await repos.usage.agentSpend(ctx.db, ctx.businessId, assignee.id, periodOf(new Date()));
+      if (spend.remainingMinor !== null && spend.remainingMinor <= 0) throw new TaskStartError(`${assignee.name} reached its wage cap for the month. Raise the cap on its profile or reassign the task.`);
+      // Exactly one start wins the task; a second (double click, another tab) finds it running and is refused.
+      const claimed = await ctx.rls((tx) => repos.tasks.claimForStart(tx, ctx.businessId, task.id, STARTABLE_TASK_STATUSES));
+      if (!claimed) throw new TaskStartError("The task was just started.");
+      // agent_sessions is service-written (orchestrator-owned); created on the service db, outside the RLS transaction.
+      let session: AgentSession;
+      try {
+        session = await repos.agents.createSession(ctx.db, ctx.businessId, { agentId: assignee.id, taskId: task.id, modelKey: assignee.modelKey });
+      } catch (err) {
+        await ctx.rls((tx) => repos.tasks.setStatus(tx, ctx.businessId, task.id, task.status, { force: true }));
+        throw err;
+      }
       await ctx.rls(async (tx) => {
-        const s = session;
-        await repos.agents.setStatus(tx, ctx.businessId, task.assigneeAgentId!, "healthy");
-        if (task.status !== "running") await repos.tasks.setStatus(tx, ctx.businessId, task.id, "running", { force: true });
-        await emit(tx, ctx, { type: "task.started", payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: task.assigneeAgentId!, sessionId: s.id, roadmapItemId: task.roadmapItemId, workflowId: workflowIds.session(s.id), branch: task.kind === "code" ? agentBranch(task.id) : null } });
-        await audit(tx, ctx, { action: "dev.tasks.start", target: { kind: "task", id: task.id }, details: { sessionId: s.id } });
+        // A computed status, never over a pause (a stop that lands meanwhile wins).
+        await repos.agents.setHealthStatus(tx, ctx.businessId, assignee.id, "healthy");
+        await emit(tx, ctx, { type: "task.started", payload: { taskId: task.id, kind: task.kind, title: task.title, assigneeAgentId: assignee.id, sessionId: session.id, roadmapItemId: task.roadmapItemId, workflowId: workflowIds.session(session.id), branch: task.kind === "code" ? agentBranch(task.id) : null } });
+        await audit(tx, ctx, { action: "dev.tasks.start", target: { kind: "task", id: task.id }, details: { sessionId: session.id, from: task.status } });
       });
-      const workflow = await ctx.temporal.start(WORKFLOWS.agentSession, { workflowId: workflowIds.session(session.id), args: [{ businessId: ctx.businessId, agentId: task.assigneeAgentId, taskId: task.id, sessionId: session.id }] });
+      const workflow = await ctx.temporal.start(WORKFLOWS.agentSession, { workflowId: workflowIds.session(session.id), args: [{ businessId: ctx.businessId, agentId: assignee.id, taskId: task.id, sessionId: session.id }] });
       return { session, workflow, stream: sessionStreamKey(session.id) };
     }),
 
@@ -151,6 +184,7 @@ export const devRouter = router({
     }),
 
     resume: write.input(z.object({ taskId: Id })).mutation(async ({ ctx, input }) => {
+      await assertAgentsRunning(ctx, "the task");
       const task = await ctx.rls((tx) => repos.tasks.get(tx, ctx.businessId, input.taskId));
       const workflow = await signalTask(ctx, task, SIGNALS.resume, { by: ctx.userId });
       const updated = await ctx.rls(async (tx) => {
@@ -175,7 +209,8 @@ export const devRouter = router({
       const task = await ctx.rls((tx) => repos.tasks.get(tx, ctx.businessId, input.taskId));
       const workflow = task.status === "running" ? await signalTask(ctx, task, SIGNALS.stop, { reason: "reassigned", by: ctx.userId }) : { queued: false, workflowId: "", reason: "task not running" };
       const updated = await ctx.rls(async (tx) => {
-        await repos.agents.get(tx, ctx.businessId, input.agentId);
+        const target = await repos.agents.get(tx, ctx.businessId, input.agentId);
+        if (target.archivedAt) throw new TaskStartError(`${target.name} has left the team.`);
         const t = await repos.tasks.reassign(tx, ctx.businessId, task.id, input.agentId);
         const next = task.status === "running" ? await repos.tasks.setStatus(tx, ctx.businessId, t.id, "stopped", { force: true }).then(() => repos.tasks.setStatus(tx, ctx.businessId, t.id, "ready")) : t;
         await audit(tx, ctx, { action: "dev.tasks.reassign", target: { kind: "task", id: task.id }, details: { from: task.assigneeAgentId, to: input.agentId } });
@@ -198,7 +233,11 @@ export const devRouter = router({
       const workflow = await signalTask(ctx, task, SIGNALS.stop, { reason: "founder_stop", by: ctx.userId });
       const updated = await ctx.rls(async (tx) => {
         const t = ["done", "stopped"].includes(task.status) ? task : await repos.tasks.setStatus(tx, ctx.businessId, task.id, "stopped", { force: true });
-        if (task.assigneeAgentId) await repos.agents.setStatus(tx, ctx.businessId, task.assigneeAgentId, "idle");
+        // A stop is a safety action: it never un-pauses the agent, and leaves it working when another task of its is open.
+        if (task.assigneeAgentId) {
+          const others = await repos.agents.listSessions(tx, ctx.businessId, { agentId: task.assigneeAgentId, openOnly: true, limit: 10 });
+          if (!others.items.some((s) => s.taskId !== task.id)) await repos.agents.setHealthStatus(tx, ctx.businessId, task.assigneeAgentId, "idle");
+        }
         await audit(tx, ctx, { action: "dev.tasks.stop", target: { kind: "task", id: task.id }, details: { queued: workflow.queued } });
         return t;
       });

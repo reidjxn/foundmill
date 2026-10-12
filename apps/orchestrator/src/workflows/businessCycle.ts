@@ -4,14 +4,19 @@
  * load brief → Chief of Staff plan → dispatch agentSession children within concurrency, budget and file-scope
  * constraints (AC-11.6.2: overlapping file scopes never run together) → collect → composer narrate → `cycle.completed`.
  * Ends when every branch is done or waiting, at the time box (children keep working; the next cycle picks them up),
- * or on `stop`. Signals pause/resume/shout/decision/stop are fanned out to the running children.
+ * or on `stop`. Signals pause/resume/shout/decision/stop are fanned out to the running children. Each session row is
+ * opened before its child starts and carries the child's id `session:<id>`; a stopped team (the brief says so, or a
+ * dispatch is refused for it) ends the cycle as `stopped` without planning or opening anything more.
  */
-import { ParentClosePolicy, allHandlersFinished, condition, proxyActivities, setHandler, startChild, workflowInfo, type ChildWorkflowHandle } from "@temporalio/workflow";
+import { ParentClosePolicy, allHandlersFinished, condition, patched, proxyActivities, setHandler, startChild, workflowInfo, type ChildWorkflowHandle } from "@temporalio/workflow";
 import type { Activities, BusinessCycleInput, BusinessCycleResult, CycleStart } from "../activities";
 import { agentSession, type AgentSessionOutcome } from "./agentSession";
 import { decisionSignal, pauseSignal, resumeSignal, shoutSignal, stopSignal } from "./signals";
 
 const acts = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", retry: { maximumAttempts: 3, initialInterval: "2 seconds" } });
+
+/** A cycle stops opening sessions the moment it is stopped, not only between dispatch rounds (histories before it replay without). */
+export const CYCLE_STOP_DISPATCH_PATCH = "cycle-stop-dispatch";
 
 /** Tasks without a budget reserve this much of the cycle budget (minor units; an Estimate). */
 export const DEFAULT_TASK_RESERVE_MINOR = 2_000;
@@ -69,6 +74,8 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
   setHandler(decisionSignal, (d) => fanOut((r) => r.handle.signal(decisionSignal, d)));
 
   const brief = await acts.loadBrief({ businessId: input.businessId });
+  // A stopped team (Stop all agents, a revoked key, used-up credits) plans nothing and dispatches nothing.
+  if (brief.agentsStopped) stopped = { reason: "agents_stopped", by: null };
   const plan = await acts.planCycle({ businessId: input.businessId, cycleNumber: input.cycleNumber, trigger: input.trigger, brief });
   const timeBoxHours = input.timeBoxAgentHours ?? plan.timeBoxHours;
   const { cycleId } = await acts.startCycle({ businessId: input.businessId, cycleNumber: input.cycleNumber, workflowId: info.workflowId, trigger: input.trigger, plan, brief });
@@ -93,6 +100,8 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
 
   const dispatchReady = async () => {
     for (let i = 0; i < pending.length; ) {
+      // A stop that lands mid-dispatch (Stop all agents now signals the cycle) ends it before the next session opens.
+      if (stopped && patched(CYCLE_STOP_DISPATCH_PATCH)) return;
       const s = pending[i]!;
       const blocker = canStart(s);
       if (blocker === "budget") {
@@ -105,7 +114,14 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
         continue;
       }
       pending.splice(i, 1);
-      const { sessionId } = await acts.openSession({ businessId: input.businessId, agentId: s.agentId, taskId: s.taskId, workflowId: `session:pending` });
+      // The row is created first and carries the workflow id `session:<id>` the child is started with.
+      const opened = await acts.openSession({ businessId: input.businessId, agentId: s.agentId, taskId: s.taskId });
+      const sessionId = opened.sessionId;
+      if (!sessionId) {
+        skipped.push({ taskId: s.taskId, reason: opened.detail ?? opened.refused ?? "not dispatched" });
+        if (opened.refused === "agents_stopped") stopped = { reason: "agents_stopped", by: null };
+        continue;
+      }
       const handle = await startChild(agentSession, {
         workflowId: `session:${sessionId}`,
         args: [{ businessId: input.businessId, agentId: s.agentId, taskId: s.taskId, sessionId, cycleId, briefText: brief.text }],

@@ -4,7 +4,8 @@
  * - sidebar from department.list in the founder's order, badges from inbox.list;
  * - Continue state from inbox.list (blocking → "Respond · N"), the holiday and `cycle.status`; one pulse per
  *   `cycle.completed`; the button calls `business.continue` / `business.pauseCycle`;
- * - Stop all agents → business.stopAllAgents; processing strip from `cycle.status` kept current by the event stream;
+ * - Stop all agents → business.stopAllAgents; while the team is stopped (`business.get`) the same control is Resume
+ *   agents → business.resumeAgents (owners and admins); processing strip from `cycle.status` kept current by the stream;
  * - universal search (CommandPalette, remote) over local screens/commands + crm.search;
  * - date + runway chip from finance.overview, business-mode chip → Settings › Mode;
  * - NeedsLargerWindow below 1280 (AppShell measures the window itself); G-then-letter chords (AppShell);
@@ -20,6 +21,7 @@ import { ModuleEnvProvider, type ModuleEnv } from "@foundmill/modules/env";
 import { readWidgetEvent, type WidgetEvent } from "@foundmill/widgets/data";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { runwayWords } from "@foundmill/widgets/shared/runway";
+import { agentsStoppedView } from "@/lib/agents-stopped";
 import { LAST_BUSINESS_COOKIE, SIDEBAR_COLLAPSED_PREFIX } from "@/lib/auth/constants";
 import { computeContinueState, respondHref, unviewedWin } from "@/lib/continue-state";
 import { CYCLE_EVENT_TYPES, cycleFromSnapshot, reduceCycleEvent, setPaused, type CycleEvent, type CycleStatus, EMPTY_CYCLE } from "@/lib/cycle";
@@ -80,7 +82,8 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   "inbox.item_created": ["inbox"],
   "decision.made": ["inbox", "plan"],
   "customer.converted": ["inbox", "journey", "finance"],
-  "agent.health_changed": ["department", "team"],
+  // Stop all agents and its resume write one per agent (from any tab or service): the business carries the stop flag.
+  "agent.health_changed": ["department", "team", "business"],
   "mode.changed": ["business"],
   "holiday.started": ["business"],
   "holiday.ended": ["business", "inbox", "cycle"],
@@ -278,11 +281,21 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
     trpc.business.stopAllAgents.mutationOptions({
       onSuccess: () => {
         dispatch({ type: "event", event: { type: "agents.stopped" }, agentDepartment });
-        void invalidate(["business", "dev", "department", "inbox"]);
-        toast({ title: "All agents stopped", description: "Workflows, engines and campaigns are paused.", tone: "warn" });
+        void invalidate(["business", "dev", "department", "team", "inbox", "cycle"]);
+        toast({ title: "All agents stopped", description: "Workflows, engines and campaigns are paused. Nothing starts again until an owner or admin resumes the agents.", tone: "warn" });
       },
     }),
   );
+  // The way back (owners and admins): the stop button turns into Resume agents while the team is stopped.
+  const resumeAll = useMutation(
+    trpc.business.resumeAgents.mutationOptions({
+      onSuccess: (result) => {
+        void invalidate(["business", "dev", "department", "team", "cycle"]);
+        toast({ title: "Agents resumed", description: `${result.resumedAgents} agent${result.resumedAgents === 1 ? " is" : "s are"} back. The next cycle picks up the paused tasks.`, tone: "good" });
+      },
+    }),
+  );
+  const stopped = useMemo(() => agentsStoppedView(business, data.role), [business, data.role]);
 
   // One press of Continue → `business.continue` (BUILD §9.4): starts the next businessCycle on Temporal, resumes a
   // paused one, or runs one in-process cycle step (one new note) when no worker answers. The result carries the new
@@ -395,7 +408,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
       setSearchOpen(false);
       if (item.id === "command:refresh-inbox") return refreshInbox.mutate({ businessId });
       if (item.id === "command:edit-layout") return shortcuts.onEditLayout?.();
-      if (item.id === "command:stop-all") return document.querySelector<HTMLButtonElement>("[data-testid=stop-all-trigger]")?.click();
+      // While the team is stopped the same place holds Resume agents, which says so.
+      if (item.id === "command:stop-all") return document.querySelector<HTMLButtonElement>("[data-testid=stop-all-trigger], [data-testid=resume-agents-trigger]")?.click();
       if (item.id === "command:sign-out") return signOut();
       if (item.href) router.push(item.href);
     },
@@ -456,7 +470,12 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   onGoToJourney,
                   onComeBack: () => endHoliday.mutate({ businessId, reason: "founder_returned" }),
                 }}
-                stopAll={{ onConfirm: () => stopAll.mutateAsync({ businessId, reason: "kill_switch" }).then(() => undefined), runningCount: cycle.activeAgentIds.length, disabled: stopAll.isPending }}
+                stopAll={{
+                  onConfirm: () => stopAll.mutateAsync({ businessId, reason: "kill_switch" }).then(() => undefined),
+                  runningCount: cycle.activeAgentIds.length,
+                  disabled: stopAll.isPending || resumeAll.isPending,
+                  stopped: stopped ? { ...stopped, onResume: () => resumeAll.mutateAsync({ businessId }).then(() => undefined) } : null,
+                }}
                 processing={{ segments, active: cycle.running }}
                 tabs={chrome.tabs}
                 breadcrumbs={chrome.breadcrumbs}

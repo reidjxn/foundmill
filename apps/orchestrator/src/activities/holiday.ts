@@ -67,6 +67,9 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       const spentMinor = await spentSince(input.businessId, new Date(h.startedAt));
       const base = { spentMinor, now: now.toISOString(), wakeEventType: null, wakeEventId: null };
       if (row.endedAt) return { ...base, shouldEnd: true, reason: "founder_returned" };
+      // A stopped team ends the vacation: no cycle may start until an owner or admin resumes the agents.
+      const stop = await repos.businesses.stopState(db, input.businessId);
+      if (stop.stopped) return { ...base, shouldEnd: true, reason: stop.reason === "credits_exhausted" ? "budget_exhausted" : "kill_switch" };
       if (h.untilAt && new Date(h.untilAt).getTime() <= now.getTime()) return { ...base, shouldEnd: true, reason: "until_reached" };
       if (h.budgetCeilingMinor !== null && spentMinor >= h.budgetCeilingMinor) return { ...base, shouldEnd: true, reason: "budget_exhausted" };
       if (h.wakeEvents.length > 0) {
