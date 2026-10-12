@@ -92,7 +92,7 @@ export async function agentSession(input: AgentSessionWorkflowInput): Promise<Ag
   setHandler(shoutSignal, (p) => deliver({ kind: "shout", message: p.message, preset: p.preset ?? null, modelKey: p.modelKey ?? null, by: p.by ?? null, at: p.at }));
   setHandler(decisionSignal, (d) => {
     if (!d.approvalId) return;
-    deliver({ kind: "decision", approvalId: d.approvalId, outcome: d.outcome, by: d.by ?? null });
+    deliver({ kind: "decision", approvalId: d.approvalId, outcome: d.outcome, by: d.by ?? null, note: d.note ?? null });
   });
   setHandler(progressQuery, () => snapshot);
 

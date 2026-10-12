@@ -10,6 +10,7 @@ import { stableHash } from "@foundmill/models";
 import { CHANNEL_KEYS, CHANNEL_META, type ChannelKey } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
+import { openApprovalNote } from "./approvals";
 import type { ChannelEngineState, ChannelStep, ChannelStepResult } from "./types";
 
 export const emptyChannelState = (): ChannelEngineState => ({ campaignId: null, approvalId: null, lastStep: null, weeksRun: 0, learnings: [] });
@@ -62,11 +63,12 @@ export function createChannelActivities(deps: OrchestratorDeps) {
             return done("Founder approved; scheduled.");
           }
           await repos.campaigns.setStatus(db, businessId, state.campaignId, "pending_approval");
-          const approval = await repos.approvals.create(db, businessId, { agentId: owner?.id ?? null, connectorKey: "platform", tool: "launch_campaign", args: { campaignId: state.campaignId, channelKey: key }, reasons: [business.businessMode === "augmented" ? "augmented mode: every external action asks" : "offline tracking: the agent prepares, the founder submits"] });
+          const budget = channel.budgetMinor === null || Number(channel.budgetMinor) <= 0 ? null : { amountMinor: Number(channel.budgetMinor), currency: channel.currency ?? "EUR" };
+          const approval = await repos.approvals.create(db, businessId, { agentId: owner?.id ?? null, connectorKey: "platform", tool: "launch_campaign", args: { campaignId: state.campaignId, channelKey: key }, reasons: [business.businessMode === "augmented" ? "augmented mode: every external action asks" : "offline tracking: the agent prepares, the founder submits"], ...(budget ?? {}) });
           state.approvalId = approval.id;
-          if (owner) {
-            await emitEvent(db, { businessId, type: "approval.requested", actor: { kind: "agent", id: owner.id }, payload: { approvalId: approval.id, agentId: owner.id, connectorKey: "platform", tool: "launch_campaign", amount: channel.budgetMinor === null ? null : { amountMinor: Number(channel.budgetMinor), currency: channel.currency ?? "EUR" }, reasons: ["campaign launch needs your approval"], policyIds: [], decisionType: "publish_content", hardGate: false, summary: `${owner.name} wants to launch "${meta.label} — ${weekLabel}"` } });
-          }
+          const requested = owner ? await emitEvent(db, { businessId, type: "approval.requested", actor: { kind: "agent", id: owner.id }, payload: { approvalId: approval.id, agentId: owner.id, connectorKey: "platform", tool: "launch_campaign", amount: budget, reasons: ["campaign launch needs your approval"], policyIds: [], decisionType: "publish_content", hardGate: false, summary: `${owner.name} wants to launch "${meta.label} — ${weekLabel}"` } }) : null;
+          // Answered in the Inbox: Approve or Reject signals `approval:<id>`, the wait this engine runs in.
+          await openApprovalNote(db, businessId, approval, { agent: owner ? { id: owner.id, name: owner.name } : null, taskTitle: null, argsSummary: `Launch "${meta.label} — ${weekLabel}"`, sourceEventIds: requested ? [requested.id] : [] });
           return done("Waiting for the founder's approval.", { awaitingApprovalId: approval.id });
         }
         case "launch": {

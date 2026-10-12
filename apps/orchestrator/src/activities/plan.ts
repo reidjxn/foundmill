@@ -15,6 +15,7 @@ import { evaluate, type ToolCtxInput } from "@foundmill/policy";
 import { CHANNEL_KEYS, CHANNEL_META, MODEL_KEYS, TASK_KINDS, uuid, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
+import { openApprovalNote } from "./approvals";
 import { openAgentSession } from "./dispatch";
 import type { LoadedPlan, PlanActionResult, PlanActionView } from "./types";
 
@@ -152,16 +153,20 @@ export function createPlanActivities(deps: OrchestratorDeps) {
           return { ...empty, status: "denied", outcome: "ask", approvalId: existing.id };
         }
         const agent = await actingAgent(businessId, action.agentId, agents);
-        const approval = await repos.approvals.create(db, businessId, { planActionId: action.id, agentId: agent?.id ?? null, connectorKey: ACTION_TOOLS[action.type].connector, tool: ACTION_TOOLS[action.type].name, args: params, reasons: verdict.reasons });
+        const amount = amountOf(params) > 0 ? { amountMinor: amountOf(params), currency: str(params.currency, "EUR").toUpperCase() } : null;
+        const what = str(params.summary, str(params.title, str(params.request, JSON.stringify(params).slice(0, 200))));
+        const approval = await repos.approvals.create(db, businessId, { planActionId: action.id, agentId: agent?.id ?? null, connectorKey: ACTION_TOOLS[action.type].connector, tool: ACTION_TOOLS[action.type].name, args: params, reasons: verdict.reasons, ...(amount ?? {}) });
         await repos.plans.updateAction(db, businessId, action.id, { status: "awaiting_approval", policyOutcome: "ask" });
-        if (agent) {
-          await emitEvent(db, {
-            businessId,
-            type: "approval.requested",
-            actor: { kind: "agent", id: agent.id },
-            payload: { approvalId: approval.id, planActionId: action.id, agentId: agent.id, connectorKey: ACTION_TOOLS[action.type].connector, tool: ACTION_TOOLS[action.type].name, amount: amountOf(params) > 0 ? { amountMinor: amountOf(params), currency: str(params.currency, "EUR").toUpperCase() } : null, reasons: verdict.reasons, policyIds: verdict.policyIds, hardGate: false, summary: `${action.type.replace(/_/g, " ")}: ${str(params.summary, str(params.title, str(params.request, JSON.stringify(params).slice(0, 200))))}`.slice(0, 1000) },
-          });
-        }
+        const requested = agent
+          ? await emitEvent(db, {
+              businessId,
+              type: "approval.requested",
+              actor: { kind: "agent", id: agent.id },
+              payload: { approvalId: approval.id, planActionId: action.id, agentId: agent.id, connectorKey: ACTION_TOOLS[action.type].connector, tool: ACTION_TOOLS[action.type].name, amount, reasons: verdict.reasons, policyIds: verdict.policyIds, hardGate: false, summary: `${action.type.replace(/_/g, " ")}: ${what}`.slice(0, 1000) },
+            })
+          : null;
+        // The founder answers it in the Inbox; Approve or Reject signals `approval:<id>`, the wait this plan runs in.
+        await openApprovalNote(db, businessId, approval, { agent, taskTitle: null, argsSummary: what, sourceEventIds: requested ? [requested.id] : [] });
         return { ...empty, status: "awaiting_approval", outcome: "ask", approvalId: approval.id };
       }
 

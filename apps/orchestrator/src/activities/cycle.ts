@@ -31,6 +31,20 @@ export function retryDeferral(task: BriefTask): string | null {
   return `retrying after ${task.retry.failures} failed session${task.retry.failures === 1 ? "" : "s"}${next ? `; next try after ${next} UTC` : ""}`;
 }
 
+/**
+ * Why a task waits on the founder instead of being dispatched (0030), or null: its gated call's approval is still open
+ * in the Inbox (approving makes it dispatchable again), or the founder rejected it since its last session (it runs
+ * again only when started by hand).
+ */
+export function approvalDeferral(task: BriefTask): string | null {
+  const hold = task.approvalHold;
+  if (!hold) return null;
+  return hold.outcome === "rejected" ? "the founder rejected its request; it runs again once started by hand" : "waiting for the founder's approval in the Inbox";
+}
+
+/** Why a dispatchable-looking task sits this cycle out (a retry not yet due, an approval), or null. */
+const deferralOf = (task: BriefTask): string | null => retryDeferral(task) ?? approvalDeferral(task);
+
 function pickAssignee(task: BriefTask, brief: BusinessBrief, requested: string | null): BriefAgent | null {
   const byId = new Map(brief.agents.map((a) => [a.id, a]));
   const usable = (a: BriefAgent | undefined | null) => (a && agentUsable(a) ? a : null);
@@ -61,8 +75,8 @@ export function createCycleActivities(deps: OrchestratorDeps) {
       const system = buildSystemPrompt({ businessName: brief.businessName, appName: APP_NAME, template: chief, brief: brief.text, glossary: brief.glossary });
       const budgetText = brief.budgetRemainingMinor === null ? "the founder's own key (no credits)" : `${(brief.budgetRemainingMinor / 100).toFixed(2)} ${brief.creditsCurrency} of credits (Estimate)`;
       const prompt = getPrompt("chief_of_staff_planner").render({ business_name: brief.businessName, max_agents: brief.maxAgents, budget: budgetText, capacity: brief.capacity });
-      const waiting = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && retryDeferral(t) !== null);
-      const candidates = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && retryDeferral(t) === null);
+      const waiting = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t) !== null);
+      const candidates = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && deferralOf(t) === null);
       const payload = {
         business_mode: brief.businessMode,
         trigger: input.trigger,
@@ -105,7 +119,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
       }
       // The planner may leave dispatchable work out; nothing silently disappears — it is listed as deferred.
       for (const t of candidates) if (!seen.has(t.id) && !deferred.some((d) => d.taskId === t.id)) deferred.push({ taskId: t.id, reason: "not selected for this cycle" });
-      for (const t of waiting) deferred.push({ taskId: t.id, reason: retryDeferral(t)! });
+      for (const t of waiting) deferred.push({ taskId: t.id, reason: deferralOf(t)! });
       starts.sort((a, b) => a.priority - b.priority);
       return {
         summary: plan.summary,
