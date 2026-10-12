@@ -5,9 +5,10 @@
  * edit of it, wants the block to say). The block may have changed since (a human edit, another accepted proposal), so
  * accepting a hunk applies the change from `base` to `theirs` onto the live content instead of overwriting it:
  * top-level nodes (paragraphs, headings, lists) are diffed against `base` on both sides (diff3 over an LCS of node
- * keys). A region only one side changed takes that side; a region both sides changed the same way is taken once; a
- * region both changed differently is a conflict and takes `theirs`, because the founder has just decided this hunk
- * with the live text in front of them. Pure functions, no database access.
+ * keys). A region only one side changed takes that side; a region both sides changed the same way is taken once;
+ * paragraphs both sides only added at the same place are all kept (the live ones first); a region both changed
+ * differently is a conflict and takes `theirs`, because the founder has just decided this hunk with the live text in
+ * front of them. Pure functions, no database access.
  */
 
 export type PmNode = Record<string, unknown>;
@@ -91,6 +92,8 @@ export function mergeBlockContent(base: PmNode | null | undefined, current: PmNo
   const resolve = (b: string[], c: unknown[], t: unknown[], cKeys: string[], tKeys: string[]) => {
     if (same(cKeys, b)) out.push(...t);
     else if (same(tKeys, b) || same(cKeys, tKeys)) out.push(...c);
+    // Both sides added paragraphs at the same place and removed nothing: keep the live ones, then the hunk's.
+    else if (b.length === 0) out.push(...c, ...t);
     else if (b.length === cKeys.length && b.length === tKeys.length) {
       // Adjacent paragraphs edited in place on each side (no node added or removed): settle them one by one.
       b.forEach((k, i) => {
