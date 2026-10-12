@@ -3,6 +3,7 @@
  */
 import type { Db } from "@foundmill/db";
 import type { ConnectorMode, ConnectorRegistry } from "@foundmill/connectors";
+import type { IngestFollowups } from "./followups";
 import type { NonceStore } from "./nonce-store";
 
 /** Minimal structural logger; pino's `Logger` satisfies it, tests pass a silent one. */
@@ -20,6 +21,8 @@ export interface IngestDeps {
   registry: ConnectorRegistry;
   /** `INTEGRATIONS_MODE`: which side of every connector the webhooks come from. */
   mode: ConnectorMode;
+  /** `LIVE_CONNECTORS`: connectors whose live webhook is mounted while `mode` is mock. */
+  liveConnectors: readonly string[];
   nonces: NonceStore;
   log: IngestLogger;
   /** Injectable clock (the mock connectors sign deliveries at `MOCK_NOW`; tests pin the ingest clock to it too). */
@@ -42,6 +45,8 @@ export interface IngestDeps {
    * billing.ts) verifies with it. Null (or absent) refuses every billing delivery (503), in every mode.
    */
   billingWebhookSecret?: string | null;
+  /** After-commit work: narrating a customer won, journeyBuild, playbooks (`followups.ts`). */
+  followups: IngestFollowups;
 }
 
 export const INGEST_SERVICE = "ingest";

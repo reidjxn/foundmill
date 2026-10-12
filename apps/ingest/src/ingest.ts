@@ -1,7 +1,10 @@
 /**
  * The write path: normalised platform events → `events` + `outbox` in one transaction per event, idempotent on
- * (connector, external id), with conversion-kind events also recording their `conversions` row, a first-pass
- * journey and `customer.converted` (docs/ARCHITECTURE.md §5, BUILD §2.1 rule 4 "write through the outbox").
+ * (connector, external id), with conversion-kind events also linking the customer to the CRM (`customers.ts`) and
+ * recording their `conversions` row and, when they win a customer, a first-pass journey and `customer.converted`
+ * (docs/ARCHITECTURE.md §5, BUILD §2.1 rule 4 "write through the outbox"). The source event names the CRM record it
+ * was linked to, so its entity links resolve. What happens after commit (narration, journeyBuild, playbooks) is
+ * `followups.ts`.
  *
  * Events go through `buildEvent` (catalogue validation) and `repos.events.write`, which fills the outbox row's
  * `business_id` — `writeEvent` from `@foundmill/events` inserts `outbox(event_id)` only, which migration 0011
@@ -12,12 +15,15 @@ import type { Executor } from "@foundmill/db/repos/_shared";
 import { buildEvent, type PlatformEvent, type WriteEventInput } from "@foundmill/events";
 import { NotFoundError, ValidationError, type Actor, type EventType } from "@foundmill/shared";
 import { conversionFactsFor, recordConversionForEvent, type ConversionOutcome } from "./conversions";
+import { linkCustomer } from "./customers";
 import type { IngestLogger } from "./types";
 
 export interface IngestedEvent {
   id: string;
   type: EventType;
   businessId: string;
+  /** The payload as written (playbook triggers match on it). */
+  payload: Record<string, unknown>;
   /** False when the (connector, external id) pair had been written before; nothing was inserted. */
   written: boolean;
   idempotencyKey: string;
@@ -68,6 +74,14 @@ export async function writeEventRow(tx: Executor, input: WriteEventInput & { ide
   });
 }
 
+/** The event with the connector's entity id replaced by the CRM record it was linked to (payload and `entityIds`). */
+export function withLinkedEntity(event: PlatformEvent, connectorEntityId: string, entityId: string): PlatformEvent {
+  if (connectorEntityId === entityId) return event;
+  const entityIds = [...new Set(event.entityIds.map((id) => (id === connectorEntityId ? entityId : id)))];
+  if (!entityIds.includes(entityId)) entityIds.unshift(entityId);
+  return { ...event, entityIds, payload: { ...event.payload, entityId } } as PlatformEvent;
+}
+
 /**
  * Write platform events through the outbox. Each event is its own transaction: a duplicate or an invalid payload
  * in one never blocks the others, and the HTTP answer reports per event. The business must exist (404 otherwise).
@@ -84,16 +98,19 @@ export async function ingestPlatformEvents(db: Db, events: readonly PlatformEven
     const result = await db.transaction(async (tx) => {
       const existing = await findExisting(tx, event.businessId, event.id);
       if (existing) return { row: existing, written: false, conversion: null as ConversionOutcome | null };
-      const row = await writeEventRow(tx, { businessId: event.businessId, type: event.type, actor: event.actor, entityIds: event.entityIds, occurredAt: event.occurredAt, payload: event.payload, id: event.id, idempotencyKey });
-      if (row.id !== event.id) return { row, written: false, conversion: null as ConversionOutcome | null }; // same idempotency key, earlier row
+      // The customer is linked (or added to the CRM) before the event is written, so the event names the CRM record.
       const facts = conversionFactsFor(event);
-      const conversion = facts ? await recordConversionForEvent(tx, event, facts, actor, (t, input) => writeEventRow(t, input)) : null;
+      const linked = facts ? await linkCustomer(tx, event.businessId, { connectorEntityId: facts.entityId, provider: facts.provider, customer: facts.customer, kind: facts.kind, occurredAt: event.occurredAt, sourceEventId: event.id }) : null;
+      const toWrite = facts && linked ? withLinkedEntity(event, facts.entityId, linked.entityId) : event;
+      const row = await writeEventRow(tx, { businessId: toWrite.businessId, type: toWrite.type, actor: toWrite.actor, entityIds: toWrite.entityIds, occurredAt: toWrite.occurredAt, payload: toWrite.payload, id: toWrite.id, idempotencyKey });
+      if (row.id !== event.id) return { row, written: false, conversion: null as ConversionOutcome | null }; // same idempotency key, earlier row
+      const conversion = facts ? await recordConversionForEvent(tx, toWrite, facts, actor, (t, input) => writeEventRow(t, input), linked?.entityId ?? null) : null;
       return { row, written: true, conversion };
     });
-    out.push({ id: result.row.id, type: result.row.type as EventType, businessId: event.businessId, written: result.written, idempotencyKey, conversion: result.conversion });
+    out.push({ id: result.row.id, type: result.row.type as EventType, businessId: event.businessId, payload: result.row.payload as Record<string, unknown>, written: result.written, idempotencyKey, conversion: result.conversion });
     eventIds.push(result.row.id);
-    if (result.conversion) eventIds.push(result.conversion.convertedEventId);
-    options.log?.info({ eventId: result.row.id, type: event.type, businessId: event.businessId, written: result.written, conversion: result.conversion?.conversion.id ?? null, source: options.source }, result.written ? "event ingested" : "duplicate delivery ignored");
+    if (result.conversion?.win) eventIds.push(result.conversion.win.convertedEventId);
+    options.log?.info({ eventId: result.row.id, type: event.type, businessId: event.businessId, written: result.written, conversion: result.conversion?.conversion.id ?? null, firstPayment: result.conversion?.firstPayment ?? null, source: options.source }, result.written ? "event ingested" : "duplicate delivery ignored");
   }
   return { events: out, written: out.filter((e) => e.written).length, duplicates: out.filter((e) => !e.written).length, eventIds };
 }

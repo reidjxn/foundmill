@@ -111,7 +111,7 @@ export const STRIPE_RATE_LIMITS = { perMinute: 60, perDay: 20_000 };
 export interface StCustomer { id: string; object?: "customer"; deleted?: boolean; email?: string | null; name?: string | null; created: number; currency?: string | null; balance?: number; delinquent?: boolean | null; metadata?: Record<string, string> }
 export interface StInvoiceLine { description?: string | null; amount: number; quantity?: number | null; price?: { nickname?: string | null; product?: string | { name?: string } | null } | null; pricing?: { price_details?: { price?: string; product?: string } } }
 export interface StInvoice {
-  id: string; number?: string | null; customer?: string | { id: string } | null; customer_email?: string | null; status?: string | null; currency: string; amount_due: number; amount_paid: number;
+  id: string; number?: string | null; customer?: string | { id: string } | null; customer_email?: string | null; customer_name?: string | null; status?: string | null; currency: string; amount_due: number; amount_paid: number;
   subscription?: string | { id: string } | null; parent?: { subscription_details?: { subscription?: string | { id: string } | null } | null } | null; billing_reason?: string | null; created: number; due_date?: number | null;
   status_transitions?: { paid_at?: number | null } | null; hosted_invoice_url?: string | null; lines?: { data: StInvoiceLine[] }; metadata?: Record<string, string>;
 }

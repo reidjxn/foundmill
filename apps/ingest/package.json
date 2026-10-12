@@ -21,9 +21,11 @@
     "zod": "catalog:",
     "pino": "catalog:",
     "pino-pretty": "catalog:",
+    "@temporalio/client": "catalog:",
     "@foundmill/connectors": "workspace:*",
     "@foundmill/events": "workspace:*",
     "@foundmill/db": "workspace:*",
+    "@foundmill/journey": "workspace:*",
     "@foundmill/shared": "workspace:*",
     "@foundmill/config": "workspace:*"
   },

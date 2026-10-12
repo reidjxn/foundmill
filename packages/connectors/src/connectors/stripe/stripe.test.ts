@@ -76,6 +76,27 @@ describe("stripe webhook normalisation and signature details", () => {
     expect(renewal!.payload).toMatchObject({ firstPayment: false, recurring: true });
     expect(renewal!.entityIds).toEqual(first!.entityIds);
   });
+  it("carries the payer (customer id, email, name) so ingest can link or add the CRM record", async () => {
+    const [paid] = await stripeMock.webhooks![0]!.normalise(signedStripeRequest(TEST_BUSINESS_ID, evt("invoice.paid", ST_INVOICES[0]!)));
+    expect(paid!.payload).toMatchObject({ customer: { externalId: "cus_MockAnnaLind01", email: "anna.lind@example.com", name: "Anna Lind" }, source: null });
+    const checkout = { ...ST_CHECKOUT_PAID, customer: null, customer_details: { email: "buyer@example.com", name: "Bea Buyer" }, metadata: { utm_source: "newsletter", utm_medium: "email", promo_code: "AUTUMN" } };
+    const [oneOff] = await stripeMock.webhooks![0]!.normalise(signedStripeRequest(TEST_BUSINESS_ID, evt("checkout.session.completed", checkout)));
+    expect(oneOff!.payload).toMatchObject({ customer: { externalId: null, email: "buyer@example.com", name: "Bea Buyer" }, source: { utmSource: "newsletter", utmMedium: "email", code: "AUTUMN" } });
+    const [trial] = await stripeMock.webhooks![0]!.normalise(signedStripeRequest(TEST_BUSINESS_ID, evt("customer.subscription.created", ST_TRIAL_SUBSCRIPTION)));
+    expect((trial!.payload as { customer: { externalId: string } }).customer.externalId).toMatch(/^cus_/);
+  });
+  it("simulates another customer per seed or email, and a renewal when firstPayment is false", async () => {
+    const [defaultPayer] = await stripeMock.simulate("payment.received", { businessId: TEST_BUSINESS_ID });
+    expect(defaultPayer!.payload).toMatchObject({ customer: { externalId: "cus_MockAnnaLind01", name: "Anna Lind" }, firstPayment: true });
+    const [other] = await stripeMock.simulate("payment.received", { businessId: TEST_BUSINESS_ID, seed: "second" });
+    const [byEmail] = await stripeMock.simulate("payment.received", { businessId: TEST_BUSINESS_ID, seed: "third", email: "chosen@example.com" });
+    expect((other!.payload as { customer: { externalId: string } }).customer.externalId).not.toBe("cus_MockAnnaLind01");
+    expect((other!.payload as { entityId: string }).entityId).not.toBe((defaultPayer!.payload as { entityId: string }).entityId);
+    expect(byEmail!.payload).toMatchObject({ customer: { email: "chosen@example.com" } });
+    const [renewal] = await stripeMock.simulate("payment.received", { businessId: TEST_BUSINESS_ID, seed: "renewal", email: "chosen@example.com", firstPayment: false });
+    expect(renewal!.payload).toMatchObject({ firstPayment: false, recurring: true });
+    expect((renewal!.payload as { entityId: string }).entityId).toBe((byEmail!.payload as { entityId: string }).entityId);
+  });
   it("rejects stale timestamps, malformed headers and events without an id", async () => {
     const webhook = stripeMock.webhooks![0]!;
     expect(await webhook.verify(signedStripeRequest(TEST_BUSINESS_ID, evt("invoice.paid", ST_INVOICES[0]!), { timestamp: MOCK_NOW_UNIX - 3600 }))).toBe(false);

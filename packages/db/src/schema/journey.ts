@@ -1,6 +1,7 @@
 /** 0007 — customer journey: visitors, touches, conversions, journeys, journey_daily, milestones. */
 import { CHANNEL_KEYS, CONVERSION_KINDS, MATCHDAY_LEVELS, MILESTONE_KINDS, VISIBILITY } from "@foundmill/shared";
-import { bigint, date, index, integer, jsonb, numeric, pgMaterializedView, pgTable, pgView, text, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { bigint, boolean, date, index, integer, jsonb, numeric, pgMaterializedView, pgTable, pgView, text, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { currency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businessId } from "./_refs";
 import { entities } from "./crm";
@@ -8,6 +9,9 @@ import { campaigns } from "./distribution";
 import { events } from "./governance";
 
 export const CONSENT_STATES = ["unknown", "granted", "denied", "withdrawn"] as const;
+/** Same tuples as packages/journey (which packages/db does not import). */
+export const ATTRIBUTION_MODELS = ["position_based_40_20_40", "data_driven_markov"] as const;
+export const XC_MODEL_SOURCES = ["archetype_prior", "trained"] as const;
 
 export const visitors = pgTable(
   "visitors",
@@ -62,6 +66,8 @@ export const conversions = pgTable(
     currency: currency(),
     occurredAt: tstz("occurred_at").notNull().defaultNow(),
     sourceEventId: uuid("source_event_id").references((): AnyPgColumn => events.id, { onDelete: "set null" }),
+    /** 0034: false for a renewal or a repeat order (revenue, not a new customer); true for every other conversion. */
+    firstPayment: boolean("first_payment").notNull().default(true),
     ...timestamps(),
   },
   (t) => [
@@ -69,6 +75,7 @@ export const conversions = pgTable(
     index("conversions_entity_id_idx").on(t.entityId),
     index("conversions_kind_idx").on(t.businessId, t.kind, t.occurredAt),
     index("conversions_source_event_id_idx").on(t.sourceEventId),
+    index("conversions_first_payment_idx").on(t.businessId, t.kind, t.occurredAt).where(sql`${t.firstPayment}`),
   ],
 );
 export type Conversion = typeof conversions.$inferSelect;
@@ -86,6 +93,9 @@ export const journeys = pgTable(
     commentary: jsonb("commentary").$type<unknown[]>().notNull().default(emptyList),
     agents: jsonb("agents").$type<unknown[]>().notNull().default(emptyList),
     matchdayLevel: text("matchday_level", { enum: MATCHDAY_LEVELS }).notNull(),
+    /** 0034: the models the journey builder used (null on records written before them). */
+    attributionModel: text("attribution_model", { enum: ATTRIBUTION_MODELS }),
+    xcModelSource: text("xc_model_source", { enum: XC_MODEL_SOURCES }),
     viewedAt: tstz("viewed_at"),
     ...timestamps(),
   },

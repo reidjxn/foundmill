@@ -82,6 +82,10 @@ export function createStripeWebhook(deps: StripeWebhookDeps): ConnectorWebhook {
 
 export const stripeCustomerEntityId = (customerId: string | null, email: string | null): string => uuidFromSeed("entity", "stripe", customerId ?? `email:${(email ?? "unknown").toLowerCase()}`);
 
+/** Who paid or signed up, as Stripe reports them; ingest links it to (or adds it to) the business's CRM. */
+const stripeCustomer = (customerId: string | null, email: string | null | undefined, name: string | null | undefined) =>
+  customerId || email || name ? { externalId: customerId, email: email?.trim() || null, name: name?.trim() || null } : null;
+
 export function normaliseStripeEvent(event: StEvent, businessId: string): PlatformEvent[] {
   const occurredAt = new Date(event.created * 1000);
   const actor = { kind: "webhook" as const, id: STRIPE_KEY };
@@ -110,6 +114,8 @@ export function normaliseStripeEvent(event: StEvent, businessId: string): Platfo
             recurring: subscriptionId !== null,
             productRef: invoiceProductRef(inv),
             fee: null,
+            customer: stripeCustomer(customerId, inv.customer_email, inv.customer_name),
+            source: null,
           },
         }),
       ];
@@ -119,7 +125,8 @@ export function normaliseStripeEvent(event: StEvent, businessId: string): Platfo
       // Subscription checkouts are followed by invoice.paid; counting both would double the match.
       if (!s?.id || s.mode !== "payment" || s.payment_status !== "paid" || !s.amount_total || !s.currency) return [];
       const email = s.customer_details?.email ?? s.customer_email ?? null;
-      const entityId = stripeCustomerEntityId(refId(s.customer), email);
+      const customerId = refId(s.customer);
+      const entityId = stripeCustomerEntityId(customerId, email);
       return [
         makeEvent("payment.received", {
           businessId,
@@ -127,7 +134,20 @@ export function normaliseStripeEvent(event: StEvent, businessId: string): Platfo
           actor,
           entityIds: [entityId],
           seed: s.id,
-          payload: { entityId, conversionId: uuidFromSeed("conversion", "stripe", s.id), amount: { amountMinor: s.amount_total, currency: s.currency.toUpperCase() }, provider: "stripe", externalId: s.id, firstPayment: true, recurring: false, productRef: s.metadata?.productRef ?? null, fee: null },
+          payload: {
+            entityId,
+            conversionId: uuidFromSeed("conversion", "stripe", s.id),
+            amount: { amountMinor: s.amount_total, currency: s.currency.toUpperCase() },
+            provider: "stripe",
+            externalId: s.id,
+            // A one-off checkout; ingest still counts it as a repeat order when the customer has paid before.
+            firstPayment: true,
+            recurring: false,
+            productRef: s.metadata?.productRef ?? null,
+            fee: null,
+            customer: stripeCustomer(customerId, email, s.customer_details?.name),
+            source: s.metadata?.utm_source || s.metadata?.utm_medium || s.metadata?.promo_code ? { utmSource: s.metadata.utm_source ?? null, utmMedium: s.metadata.utm_medium ?? null, utmCampaign: s.metadata.utm_campaign ?? null, referrer: null, code: s.metadata.promo_code ?? null } : null,
+          },
         }),
       ];
     }
@@ -143,7 +163,7 @@ export function normaliseStripeEvent(event: StEvent, businessId: string): Platfo
           actor,
           entityIds: [entityId],
           seed: sub.id,
-          payload: { entityId, conversionId: uuidFromSeed("conversion", "stripe-trial", sub.id), visitorId: null, channelKey: null, campaignId: null, source: { utmSource: sub.metadata?.utm_source ?? null, utmMedium: sub.metadata?.utm_medium ?? null, utmCampaign: sub.metadata?.utm_campaign ?? null, referrer: null, code: sub.metadata?.promo_code ?? null }, provider: "stripe", consentState: "unknown" },
+          payload: { entityId, conversionId: uuidFromSeed("conversion", "stripe-trial", sub.id), visitorId: null, channelKey: null, campaignId: null, source: { utmSource: sub.metadata?.utm_source ?? null, utmMedium: sub.metadata?.utm_medium ?? null, utmCampaign: sub.metadata?.utm_campaign ?? null, referrer: null, code: sub.metadata?.promo_code ?? null }, provider: "stripe", consentState: "unknown", customer: stripeCustomer(customerId, null, null) },
         }),
       ];
     }

@@ -71,6 +71,16 @@ describe("journey.get returns the full Journey record (BUILD §11.4, AC-11.4.3)"
     await expect(hz.caller({ userId: hz.B.ownerId }).journey.get({ businessId, journeyId: row.id })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(hz.caller({ userId: hz.B.ownerId }).journey.get({ businessId: hz.B.businessId, journeyId: row.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
+
+  it("labels the record with the models the builder stored, not with what the conversion count implies", async () => {
+    const { businessId, entityId } = hz.A;
+    const conversion = await repos.journeys.recordConversion(hz.db, businessId, { entityId, kind: "payment", amountMinor: 2900, currency: "EUR", occurredAt: new Date("2026-09-05T10:00:00.000Z") });
+    // A business with a handful of conversions whose record was nonetheless built with the trained models (stored on the row).
+    const row = await repos.journeys.create(hz.db, businessId, { conversionId: conversion.id, matchdayLevel: "cup", attributionModel: "data_driven_markov", xcModelSource: "trained" });
+    const { journey } = await hz.caller({ userId: hz.A.ownerId }).journey.get({ businessId, journeyId: row.id });
+    expect(journey.attributionModel).toBe("data_driven_markov");
+    expect(journey.xcModelSource).toBe("trained");
+  });
 });
 
 describe("journey.ribbon rows (the Ribbon's daily data)", () => {
@@ -111,6 +121,19 @@ describe("journey.ribbon rows (the Ribbon's daily data)", () => {
     expect(byId.get(anonymous.id)).toMatchObject({ entityName: null, journeyId: null });
     const ribbon = await owner.journey.ribbon({ businessId, from: "2026-08-01", to: "2026-08-31" });
     expect(ribbon.conversions.find((c) => c.id === paid.id)).toMatchObject({ entityName: entity!.name, journeyId: update.id });
+  });
+
+  it("a renewal is revenue on the day's row but not a customer marker or a paying customer", async () => {
+    const { businessId, entityId } = hz.A;
+    const renewal = await repos.journeys.recordConversion(hz.db, businessId, { entityId, kind: "payment", amountMinor: 4200, currency: "EUR", occurredAt: new Date("2026-07-20T09:00:00.000Z"), firstPayment: false });
+    await repos.journeys.refreshDaily(hz.db);
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const res = await owner.journey.ribbon({ businessId, from: "2026-07-20", to: "2026-07-20" });
+    expect(res.rows.find((r) => r.day === "2026-07-20" && r.departmentId === null)).toMatchObject({ revenueMinor: 4200, payments: 0 });
+    expect(res.conversions.map((c) => c.id)).not.toContain(renewal.id);
+    expect(res.conversionCount).toBe(0);
+    const day = await owner.journey.roundup({ businessId, day: "2026-07-20" });
+    expect(day.conversions).toEqual([]);
   });
 });
 

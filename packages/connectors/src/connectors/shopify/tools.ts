@@ -72,7 +72,7 @@ export interface ShMoneySet { shop_money: { amount: string; currency_code: strin
 export interface ShLineItem { id?: number; title: string; sku?: string | null; quantity: number; price: string; variant_id?: number | null }
 export interface ShOrder {
   id: number; name: string; created_at: string; financial_status?: string | null; fulfillment_status?: string | null; cancelled_at?: string | null; currency: string; total_price: string; subtotal_price?: string | null; total_price_set?: ShMoneySet;
-  customer?: { id: number; email?: string | null; orders_count?: number | null } | null; email?: string | null; line_items: ShLineItem[]; discount_codes?: { code: string }[]; source_name?: string | null; landing_site?: string | null; referring_site?: string | null; tags?: string;
+  customer?: { id: number; email?: string | null; first_name?: string | null; last_name?: string | null; orders_count?: number | null } | null; email?: string | null; line_items: ShLineItem[]; discount_codes?: { code: string }[]; source_name?: string | null; landing_site?: string | null; referring_site?: string | null; tags?: string;
 }
 export interface ShProduct { id: number; title: string; handle: string; status: string; vendor?: string | null; product_type?: string | null; variants: { id: number; title: string; sku?: string | null; price: string; inventory_quantity?: number | null }[] }
 export interface ShCustomer { id: number; email?: string | null; first_name?: string | null; last_name?: string | null; orders_count?: number; total_spent?: string; created_at: string; accepts_marketing?: boolean; email_marketing_consent?: { state?: string } | null; tags?: string }

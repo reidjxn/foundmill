@@ -1,7 +1,7 @@
 /**
  * Test harness: PGlite with every migration, two businesses from the db fixture, the default connector registry in
- * mock mode, a memory nonce store and the ingest clock pinned to `MOCK_NOW` (the instant the mock connectors sign
- * their deliveries at). `serve()` binds an ephemeral port on 127.0.0.1 so the raw-body path through
+ * mock mode, a memory nonce store, no after-commit follow-ups (unless a test passes its own) and the ingest clock pinned
+ * to `MOCK_NOW` (the instant the mock connectors sign their deliveries at). `serve()` binds an ephemeral port on 127.0.0.1 so the raw-body path through
  * @hono/node-server is what the webhook tests exercise.
  */
 import type { AddressInfo } from "node:net";
@@ -12,6 +12,7 @@ import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import { repos, type Db, type Event } from "@foundmill/db";
 import type { EventType } from "@foundmill/shared";
 import { buildIngest, type BuildIngestOptions, type BuiltIngest } from "../index";
+import { noFollowups } from "../followups";
 import { MemoryNonceStore } from "../nonce-store";
 import { signSimulateToken, type SignSimulateTokenInput } from "../simulate-token";
 import { silentLogger } from "../types";
@@ -45,7 +46,7 @@ export async function createIngestHarness(prefix: string, options: BuildIngestOp
   // real thing rather than bypassed for tests; the secret is what `simulateToken()` signs with.
   const build = (extra: BuildIngestOptions = {}) =>
     buildIngest({
-      env: { APP_ENV: "development", INTEGRATIONS_MODE: "mock", MODEL_MODE: "mock" } as BuiltIngest["env"],
+      env: { APP_ENV: "development", INTEGRATIONS_MODE: "mock", LIVE_CONNECTORS: "", MODEL_MODE: "mock" } as BuiltIngest["env"],
       db,
       registry,
       vault: null,
@@ -54,6 +55,8 @@ export async function createIngestHarness(prefix: string, options: BuildIngestOp
       now: () => MOCK_NOW,
       simulateEnabled: true,
       simulateTokenSecret: SIMULATE_TEST_SECRET,
+      // No composer or Temporal in unit tests; followups.test.ts passes recording ones.
+      followups: noFollowups,
       ...options,
       ...extra,
     });

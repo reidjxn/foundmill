@@ -11,7 +11,7 @@ import { CHANNEL_KEYS, CONVERSION_KINDS, MATCHDAY_LEVELS, MILESTONE_KINDS, Valid
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
-  CONSENT_STATES, conversions, entities, journeyDaily, journeyDailyMv, journeys, milestones, touches, visitors,
+  ATTRIBUTION_MODELS, CONSENT_STATES, conversions, entities, journeyDaily, journeyDailyMv, journeys, milestones, touches, visitors, XC_MODEL_SOURCES,
   type Conversion, type Journey, type JourneyDailyRow, type Milestone, type Touch, type Visitor,
 } from "../schema";
 import {
@@ -55,12 +55,16 @@ export const RecordConversionInput = z.object({
   currency: Currency.optional(),
   occurredAt: IsoDateInput.optional(),
   sourceEventId: Id.nullable().optional(),
+  /** False for a renewal or a repeat order: revenue, but not a new customer (0034). */
+  firstPayment: z.boolean().default(true),
 });
 export type RecordConversionInput = z.input<typeof RecordConversionInput>;
 
 export const ConversionListFilter = PageInput.extend(DateRange.shape).extend({
   kind: z.union([z.enum(CONVERSION_KINDS), z.array(z.enum(CONVERSION_KINDS))]).optional(),
   entityId: Id.optional(),
+  /** true: conversions that won a customer (repeat payments left out); false: repeat payments only; omitted: every row. */
+  firstPayment: z.boolean().optional(),
 });
 export type ConversionListFilter = z.input<typeof ConversionListFilter>;
 
@@ -72,6 +76,9 @@ export const CreateJourneyInput = z.object({
   commentary: JsonArray.default([]),
   agents: JsonArray.default([]),
   matchdayLevel: z.enum(MATCHDAY_LEVELS),
+  /** The models the builder used for `weights` and `xcSeries` (journey.get labels the record with them). */
+  attributionModel: z.enum(ATTRIBUTION_MODELS).nullable().optional(),
+  xcModelSource: z.enum(XC_MODEL_SOURCES).nullable().optional(),
 });
 export type CreateJourneyInput = z.input<typeof CreateJourneyInput>;
 
@@ -211,13 +218,50 @@ export const journeysRepo = {
       .orderBy(asc(touches.occurredAt), asc(touches.id));
   },
 
+  /**
+   * Labeled paths for fitting the data-driven models (journeyBuild's Markov removal effect and xC model): the newest
+   * `maxTouches` touches since `since`, grouped per visitor (per entity when the touch has no visitor), each group
+   * marked converted when its person has a conversion. Oldest first inside a group.
+   */
+  async trainingPaths(db: Executor, businessId: string, options: { since?: Date; maxTouches?: number } = {}): Promise<Array<{ touches: Touch[]; converted: boolean }>> {
+    const rows = await db
+      .select()
+      .from(touches)
+      .where(and(eq(touches.businessId, businessId), options.since ? sql`${touches.occurredAt} >= ${options.since.toISOString()}::timestamptz` : undefined))
+      .orderBy(desc(touches.occurredAt), desc(touches.id))
+      .limit(Math.min(Math.max(1, options.maxTouches ?? 5000), 20_000));
+    const visitorIds = [...new Set(rows.map((t) => t.visitorId).filter((v): v is string => v !== null))];
+    const stitched = visitorIds.length
+      ? await db.select({ id: visitors.id, entityId: visitors.entityId }).from(visitors).where(and(eq(visitors.businessId, businessId), inArray(visitors.id, visitorIds)))
+      : [];
+    const entityOfVisitor = new Map(stitched.map((v) => [v.id, v.entityId] as const));
+    const entityOf = (t: Touch): string | null => t.entityId ?? (t.visitorId ? (entityOfVisitor.get(t.visitorId) ?? null) : null);
+    const entityIds = [...new Set(rows.map(entityOf).filter((e): e is string => e !== null))];
+    const convertedRows = entityIds.length
+      ? await db.selectDistinct({ entityId: conversions.entityId }).from(conversions).where(and(eq(conversions.businessId, businessId), inArray(conversions.entityId, entityIds)))
+      : [];
+    const converted = new Set(convertedRows.map((r) => r.entityId));
+    const groups = new Map<string, { touches: Touch[]; converted: boolean }>();
+    for (const t of rows) {
+      const key = t.visitorId ?? t.entityId;
+      if (!key) continue;
+      const group = groups.get(key) ?? { touches: [], converted: false };
+      group.touches.push(t);
+      const entityId = entityOf(t);
+      if (entityId && converted.has(entityId)) group.converted = true;
+      groups.set(key, group);
+    }
+    for (const g of groups.values()) g.touches.sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime() || a.id.localeCompare(b.id));
+    return [...groups.values()];
+  },
+
   // conversions -------------------------------------------------------------------------------------------------------
   async recordConversion(db: Executor, businessId: string, input: RecordConversionInput): Promise<Conversion> {
     const v = parseInput(RecordConversionInput, input, "conversion");
     return one(
       await db
         .insert(conversions)
-        .values({ businessId, entityId: v.entityId ?? null, kind: v.kind, amountMinor: v.amountMinor, ...(v.currency ? { currency: v.currency } : {}), occurredAt: v.occurredAt ?? new Date(), sourceEventId: v.sourceEventId ?? null })
+        .values({ businessId, entityId: v.entityId ?? null, kind: v.kind, amountMinor: v.amountMinor, ...(v.currency ? { currency: v.currency } : {}), occurredAt: v.occurredAt ?? new Date(), sourceEventId: v.sourceEventId ?? null, firstPayment: v.kind !== "payment" || v.firstPayment })
         .returning(),
       "conversion",
     );
@@ -257,6 +301,7 @@ export const journeysRepo = {
           eq(conversions.businessId, businessId),
           kinds?.length ? inArray(conversions.kind, kinds) : undefined,
           f.entityId ? eq(conversions.entityId, f.entityId) : undefined,
+          f.firstPayment === undefined ? undefined : eq(conversions.firstPayment, f.firstPayment),
           timeRange(conversions.occurredAt, f),
           ks.after(f.cursor),
         ),
@@ -266,33 +311,43 @@ export const journeysRepo = {
     return toPage(rows, f, ks);
   },
 
-  /** Counts per kind (the "nth customer" numbers the journey builder needs). */
+  /** Counts per kind (the "nth customer" numbers the journey builder needs): `payment` counts first payments only. */
   async countConversions(db: Executor, businessId: string, range: DateRange = {}): Promise<Record<ConversionKind, number>> {
     const r = parseInput(DateRange, range, "date range");
     const rows = await db
       .select({ kind: conversions.kind, n: sql<number>`count(*)::int` })
       .from(conversions)
-      .where(and(eq(conversions.businessId, businessId), timeRange(conversions.occurredAt, r)))
+      .where(and(eq(conversions.businessId, businessId), eq(conversions.firstPayment, true), timeRange(conversions.occurredAt, r)))
       .groupBy(conversions.kind);
     const out = Object.fromEntries(CONVERSION_KINDS.map((k) => [k, 0])) as Record<ConversionKind, number>;
     for (const row of rows) out[row.kind] = Number(row.n);
     return out;
   },
 
-  /** Which number this conversion is among its kind (1-based, by occurred_at then id). */
+  /** Which number this conversion is among its kind (1-based, by occurred_at then id); payments count first payments only. */
   async nthOfKind(db: Executor, businessId: string, conversionId: string): Promise<number> {
     const c = await journeysRepo.getConversion(db, businessId, conversionId);
     const rows = await db
       .select({ n: sql<number>`count(*)::int` })
       .from(conversions)
-      .where(and(eq(conversions.businessId, businessId), eq(conversions.kind, c.kind), sql`(${conversions.occurredAt}, ${conversions.id}) <= (${c.occurredAt.toISOString()}::timestamptz, ${c.id}::uuid)`));
-    return Number(rows[0]?.n ?? 1);
+      .where(and(eq(conversions.businessId, businessId), eq(conversions.kind, c.kind), eq(conversions.firstPayment, true), sql`(${conversions.occurredAt}, ${conversions.id}) <= (${c.occurredAt.toISOString()}::timestamptz, ${c.id}::uuid)`));
+    return Math.max(1, Number(rows[0]?.n ?? 1));
   },
 
-  /** 75th percentile of payment amounts (the volume rule for a full Match Day, BUILD §11.4). Null without payments. */
+  /** Whether the entity already paid (any payment strictly earlier than `before`): a payment now is a repeat, not a new customer. */
+  async hasPaidBefore(db: Executor, businessId: string, entityId: string, before: Date): Promise<boolean> {
+    const rows = await db
+      .select({ id: conversions.id })
+      .from(conversions)
+      .where(and(eq(conversions.businessId, businessId), eq(conversions.entityId, entityId), eq(conversions.kind, "payment"), sql`${conversions.occurredAt} < ${before.toISOString()}::timestamptz`))
+      .limit(1);
+    return rows.length > 0;
+  },
+
+  /** 75th percentile of first-payment amounts (the volume rule for a full Match Day, BUILD §11.4). Null without payments. */
   async paymentPercentile75(db: Executor, businessId: string): Promise<number | null> {
     const rows = rowsOf<{ p75: string | number | null }>(
-      await db.execute(sql`select percentile_cont(0.75) within group (order by amount_minor) as p75 from conversions where business_id = ${businessId}::uuid and kind = 'payment'`),
+      await db.execute(sql`select percentile_cont(0.75) within group (order by amount_minor) as p75 from conversions where business_id = ${businessId}::uuid and kind = 'payment' and first_payment`),
     );
     const p = rows[0]?.p75;
     return p === null || p === undefined ? null : Number(p);
@@ -309,10 +364,10 @@ export const journeysRepo = {
     return one(
       await db
         .insert(journeys)
-        .values({ businessId, conversionId: v.conversionId, touchIds: v.touchIds, weights: v.weights, xcSeries: v.xcSeries, commentary: v.commentary, agents: v.agents, matchdayLevel: v.matchdayLevel })
+        .values({ businessId, conversionId: v.conversionId, touchIds: v.touchIds, weights: v.weights, xcSeries: v.xcSeries, commentary: v.commentary, agents: v.agents, matchdayLevel: v.matchdayLevel, attributionModel: v.attributionModel ?? null, xcModelSource: v.xcModelSource ?? null })
         .onConflictDoUpdate({
           target: journeys.conversionId,
-          set: { touchIds: v.touchIds, weights: v.weights, xcSeries: v.xcSeries, commentary: v.commentary, agents: v.agents, matchdayLevel: v.matchdayLevel },
+          set: { touchIds: v.touchIds, weights: v.weights, xcSeries: v.xcSeries, commentary: v.commentary, agents: v.agents, matchdayLevel: v.matchdayLevel, attributionModel: v.attributionModel ?? null, xcModelSource: v.xcModelSource ?? null },
           setWhere: eq(journeys.businessId, businessId),
         })
         .returning(),

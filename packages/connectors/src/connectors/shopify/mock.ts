@@ -75,7 +75,10 @@ export function createShopifyMock() {
       "payment.received": (params) => {
         const base = SH_ORDERS[0]!;
         const seed = String(params.seed ?? "default");
-        const order: ShOrder = { ...base, id: 5_600_000_000 + (Number.parseInt(stableHash([params.businessId, seed], 8), 16) % 100_000_000), created_at: (params.occurredAt ?? MOCK_NOW).toISOString(), total_price: typeof params.amountMinor === "number" ? decimalFromMinor(params.amountMinor) : base.total_price, customer: { ...base.customer!, email: typeof params.email === "string" ? params.email : base.customer!.email, orders_count: typeof params.firstPayment === "boolean" && !params.firstPayment ? 2 : 1 } };
+        // Another shopper's email is another Shopify customer (and so another CRM record).
+        const shopper = typeof params.email === "string" ? { id: 7_100_000_000 + (Number.parseInt(stableHash(["shopify-customer", params.email.toLowerCase()], 8), 16) % 100_000_000), email: params.email, first_name: null, last_name: null } : {};
+        const customer = { ...base.customer!, ...shopper, orders_count: typeof params.firstPayment === "boolean" && !params.firstPayment ? 2 : 1 };
+        const order: ShOrder = { ...base, id: 5_600_000_000 + (Number.parseInt(stableHash([params.businessId, seed], 8), 16) % 100_000_000), created_at: (params.occurredAt ?? MOCK_NOW).toISOString(), total_price: typeof params.amountMinor === "number" ? decimalFromMinor(params.amountMinor) : base.total_price, customer };
         return normaliseShopifyEvent("orders/paid", order, params.businessId, () => MOCK_NOW);
       },
       "signup.created": (params) => normaliseShopifyEvent("customers/create", { ...SH_CUSTOMERS[2]!, id: 6_200_000_000 + (Number.parseInt(stableHash([params.businessId, String(params.seed ?? "default")], 8), 16) % 100_000_000), created_at: (params.occurredAt ?? MOCK_NOW).toISOString() }, params.businessId, () => MOCK_NOW),
