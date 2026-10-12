@@ -2,10 +2,11 @@
  * The LIVE social layer's delivery, screening and limits (BUILD §11.14; audit #28, #34, #65, #66).
  *
  * Delivery. A connection request or a message is about its RECIPIENT, never its sender. Inside the transaction that
- * stores it, each LIVE business the recipient speaks for on the network (owner or admin of a listed business) gets the
- * event (`connection.requested`, `message.received`) and a human message in its Inbox › Messages tab, written here
- * rather than narrated by the composer (the catalogue marks both events not narratable): the note quotes the sender's
- * words as plain text and says where to answer. A burst of messages in one thread makes one unread note. After the
+ * stores it, each LIVE business the recipient speaks for on the network (owner or admin of a listed business), other than
+ * the sender's own businesses, gets the event (`connection.requested`, `message.received`) and a human message in its
+ * Inbox › Messages tab, written here rather than narrated by the composer (the catalogue marks both events not
+ * narratable): the note quotes the sender's words as plain text and says where to answer. A burst of messages in one
+ * thread, or a request asked again, makes one unread note. After the
  * commit the recipient's own stream channel `u:{userId}` gets a content-free signal, so their Network badge refreshes
  * in whichever business they have open, Personal or LIVE. People with no LIVE business still get the badge.
  *
@@ -124,14 +125,24 @@ async function fileHumanMessage(tx: Executor, businessId: string, input: { fromU
 // ---------------------------------------------------------------------------------------------------------------------
 
 /**
+ * The businesses the sender belongs to. Nothing is filed there, even when the recipient speaks for one of them (two
+ * co-founders writing to each other): its Inbox is the sender's too, and would tell them about their own words.
+ */
+async function senderBusinesses(tx: Executor, userId: string): Promise<Set<string>> {
+  return new Set((await repos.memberships.listForUser(tx, userId)).map((m) => m.businessId));
+}
+
+/**
  * A new connection request reaches the recipient: `connection.requested` and an Inbox note in each LIVE business they
- * speak for. Runs inside the request's transaction (repos.social.requestConnection `onCreated`), so a repeated request,
- * which returns the existing row, never notifies again. Returns the businesses notified.
+ * speak for (none the requester belongs to). Runs inside the request's transaction (repos.social.requestConnection
+ * `onCreated`), so a repeated request, which returns the existing row, never notifies again; asking, withdrawing and
+ * asking again adds no second note while the first is unread. Returns the businesses notified.
  */
 export async function deliverConnectionRequest(tx: Executor, input: { connection: Connection; fromBusinessId: string | null }): Promise<string[]> {
   const { connection } = input;
   const to = connection.toUser;
-  const businesses = (await repos.social.listedBusinessesFor(tx, [to])).get(to) ?? [];
+  const theirs = await senderBusinesses(tx, connection.fromUser);
+  const businesses = ((await repos.social.listedBusinessesFor(tx, [to])).get(to) ?? []).filter((b) => !theirs.has(b));
   if (!businesses.length) return [];
   const name = await nameFor(tx, to, connection.fromUser);
   const fromBusiness = input.fromBusinessId ? (await repos.social.lookupPeople(tx, to, { businessIds: [input.fromBusinessId] })).businesses[0] : undefined;
@@ -151,6 +162,10 @@ export async function deliverConnectionRequest(tx: Executor, input: { connection
       actor: { kind: "user", id: connection.fromUser },
       payload: { connectionId: connection.id, fromUserId: connection.fromUser, toUserId: to, fromBusinessId: fromBusiness?.live ? fromBusiness.businessId : null, fromEntityId: null, message: connection.message ?? null },
     });
+    if (await repos.social.hasUnreadRequestNote(tx, businessId, connection.fromUser)) {
+      await repos.events.markNarrated(tx, businessId, [eventId]);
+      continue;
+    }
     await fileHumanMessage(tx, businessId, { fromUserId: connection.fromUser, subject: `Connection request from ${name}`, bodyMd, eventIds: [eventId] });
   }
   return businesses;
@@ -158,16 +173,17 @@ export async function deliverConnectionRequest(tx: Executor, input: { connection
 
 /**
  * A message reaches everyone else in its thread who has not muted it: `message.received` in each LIVE business they
- * speak for (once per business, however many of its people are in the thread) and an Inbox note, unless that business
- * already has an unread note for this thread. Runs inside the Send's transaction. Returns the people to signal.
+ * speak for (once per business, however many of its people are in the thread; none the sender belongs to) and an Inbox
+ * note, unless that business already has an unread note for this thread. Runs inside the Send's transaction. Returns
+ * the people to signal.
  */
 export async function deliverMessage(tx: Executor, input: { message: Message; thread: MessageThread }): Promise<string[]> {
   const { message, thread } = input;
   const recipients = thread.participantIds.filter((id) => id !== message.fromUser && !thread.mutedIds.includes(id));
   if (!recipients.length) return [];
-  const byPerson = await repos.social.listedBusinessesFor(tx, recipients);
+  const [byPerson, theirs] = await Promise.all([repos.social.listedBusinessesFor(tx, recipients), senderBusinesses(tx, message.fromUser)]);
   const preview = plainQuote(message.body, 280);
-  const seen = new Set<string>();
+  const seen = new Set<string>(theirs);
   for (const recipient of recipients) {
     const businesses = (byPerson.get(recipient) ?? []).filter((b) => !seen.has(b));
     if (!businesses.length) continue;

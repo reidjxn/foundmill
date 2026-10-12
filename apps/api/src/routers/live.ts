@@ -73,6 +73,12 @@ async function visibleCommunity(ctx: Ctx, communityId: string) {
   return { community, membership, isMember, invited, canPost: membership?.status === "active", canModerate };
 }
 
+/** Why the caller cannot post (or edit their post) in a community, or null when they can: only active members post. */
+function postingBlocker(membership: CommunityMember | null): string | null {
+  if (membership?.status === "active") return null;
+  return membership?.status === "muted" ? "A moderator muted you in this community; you can read it but not post" : "Join the community before posting";
+}
+
 /** A thread as its participant sees it: whether *they* muted it, never who else did. */
 function threadView(t: MessageThread, viewerId: string) {
   const { mutedIds, ...rest } = t;
@@ -80,13 +86,13 @@ function threadView(t: MessageThread, viewerId: string) {
 }
 
 /**
- * A post as the viewer may see it: the screen's verdict and the moderation fields are for its author and the
- * community's moderators.
+ * A post as the viewer may see it: the screen's verdict and the moderation note are for its author and the community's
+ * moderators; which moderator acted is for the moderators only (an author is told what happened, not who did it).
  */
 function postView(p: Post, viewerId: string, canModerate: boolean) {
   const { screening, moderatedBy, moderationNote, ...rest } = p;
   const privileged = canModerate || p.authorUserId === viewerId;
-  return { ...rest, screening: privileged && "decision" in screening ? screening : null, moderatedBy: privileged ? moderatedBy : null, moderationNote: privileged ? moderationNote : null };
+  return { ...rest, screening: privileged && "decision" in screening ? screening : null, moderatedBy: canModerate ? moderatedBy : null, moderationNote: privileged ? moderationNote : null };
 }
 
 /** What a person is told before their 18+ confirmation is on record (FORBIDDEN; the LIVE pages offer the confirmation). */
@@ -375,8 +381,10 @@ export const liveRouter = router({
      * text passes the moderation screen first: a held post waits for the community's owner and moderators, who are told.
      */
     post: protectedProcedure.input(z.object({ communityId: Id, bodyMd: z.string().min(1).max(20_000), parentPostId: Id.nullable().optional(), businessId: Id.nullable().optional() })).mutation(async ({ ctx, input }) => {
-      const { community, isMember, canModerate } = await visibleCommunity(ctx, input.communityId);
-      if (!isMember) throw new ValidationError("Join the community before posting");
+      const { community, membership, canModerate } = await visibleCommunity(ctx, input.communityId);
+      // Before the screen, so a muted member spends no model call (the repo refuses them too).
+      const blocker = postingBlocker(membership);
+      if (blocker) throw new ValidationError(blocker);
       const businessId = await speakingAs(ctx, input.businessId);
       await requireAdult(ctx);
       takeLive(ctx.userId, "posts");
@@ -412,11 +420,17 @@ export const liveRouter = router({
   }),
 
   posts: router({
-    /** The author edits their own post; the new text is screened again (a held edit waits for review). */
+    /**
+     * The author edits their own post; the new text is screened again (a held edit waits for review). A post written as a
+     * business is edited only while the author may still speak for it (deleting it never needs that).
+     */
     edit: protectedProcedure.input(z.object({ postId: Id, bodyMd: z.string().min(1).max(20_000) })).mutation(async ({ ctx, input }) => {
       const post = await repos.social.getPost(ctx.db, input.postId);
       if (post.authorUserId !== ctx.userId) throw new ForbiddenError("Only the author can edit a post");
-      const { community, canModerate } = await visibleCommunity(ctx, post.communityId);
+      const { community, membership, canModerate } = await visibleCommunity(ctx, post.communityId);
+      const blocker = postingBlocker(membership);
+      if (blocker) throw new ValidationError(blocker);
+      await speakingAs(ctx, post.businessId);
       await requireAdult(ctx);
       takeLive(ctx.userId, "posts");
       const screening = await screenText(ctx, { text: input.bodyMd, kind: "community_post", communityName: community.name, businessId: post.businessId });

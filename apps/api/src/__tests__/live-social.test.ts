@@ -93,6 +93,38 @@ describe("#65: requests and messages reach the recipient", () => {
     expect((await as(target.userId).live.summary()).requestsWaiting).toBe(1);
   });
 
+  it("asking, withdrawing and asking again files one unread note; a read note lets the next request through", async () => {
+    const asker = await founder("again");
+    const target = await founder("again-target");
+    const ask = () => as(asker.userId).live.connections.request({ businessId: asker.businessId, toUserId: target.userId });
+    const withdraw = (connectionId: string) => as(asker.userId).live.connections.remove({ connectionId });
+    await withdraw((await ask()).id);
+    const again = await ask();
+    // Each new request is still an event in the recipient's business, but the Inbox gets one note while it is unread.
+    expect(await eventsOf(target.businessId, "connection.requested")).toHaveLength(2);
+    const notes = await notesOf(target.businessId);
+    expect(notes).toHaveLength(1);
+    await repos.inbox.markRead(hz.db, target.businessId, notes[0]!.id);
+    await withdraw(again.id);
+    await ask();
+    expect(await notesOf(target.businessId)).toHaveLength(2);
+  });
+
+  it("never files anything in a business the sender belongs to, even one the recipient speaks for (co-founders)", async () => {
+    const lead = await founder("cofounder-lead");
+    const partner = await founder("cofounder-partner");
+    await repos.memberships.add(hz.db, lead.businessId, { userId: partner.userId, role: "admin" });
+    const c = await as(lead.userId).live.connections.request({ businessId: lead.businessId, toUserId: partner.userId });
+    // The partner speaks for both businesses; only the one the requester is not in hears about it.
+    expect(await eventsOf(lead.businessId, "connection.requested")).toEqual([]);
+    expect(await eventsOf(partner.businessId, "connection.requested")).toHaveLength(1);
+    await as(partner.userId).live.connections.respond({ connectionId: c.id, status: "accepted" });
+    await as(lead.userId).live.messages.send({ toUserIds: [partner.userId], body: "Board deck by Friday?" });
+    expect(await eventsOf(lead.businessId, "message.received")).toEqual([]);
+    expect(await notesOf(lead.businessId)).toEqual([]);
+    expect(await eventsOf(partner.businessId, "message.received")).toHaveLength(1);
+  });
+
   it("a recipient with no LIVE business still sees it on their badge (summary), and nothing is filed anywhere", async () => {
     const asker = await founder("asker2");
     const personal = await founder("personal", false);
@@ -221,6 +253,10 @@ describe("#28: screening, reports, author and moderator tools, creation and invi
     await as(owner.userId).live.posts.moderate({ postId: held[0]!.id, action: "restore" });
     await as(owner.userId).live.posts.moderate({ postId: held[1]!.id, action: "remove", note: "Script markup" });
     expect((await as(reader.userId).live.communities.posts({ communityId: room.id })).items.map((p) => p.id).sort()).toEqual([clean.id, held[0]!.id].sort());
+    // The author is told what happened, never which moderator did it; the moderators see who acted.
+    const approved = (id: string) => (items: { id: string; moderatedBy: string | null }[]) => items.find((p) => p.id === id)!;
+    expect(approved(held[0]!.id)((await as(author.userId).live.communities.posts({ communityId: room.id })).items).moderatedBy).toBeNull();
+    expect(approved(held[0]!.id)((await as(owner.userId).live.communities.posts({ communityId: room.id })).items).moderatedBy).toBe(owner.userId);
     expect((await signals(author.userId)).filter((s) => s.kind === "moderation")).toHaveLength(2);
     expect((await failure(as(reader.userId).live.posts.moderate({ postId: clean.id, action: "hide" }))).code).toBe("FORBIDDEN");
   });
@@ -263,6 +299,30 @@ describe("#28: screening, reports, author and moderator tools, creation and invi
     expect((await failure(as(reporters[0]!.userId).live.posts.delete({ postId: post.id }))).code).toBe("FORBIDDEN");
     expect(await as(author.userId).live.posts.delete({ postId: post.id })).toEqual({ postId: post.id, status: "removed" });
     expect((await as(author.userId).live.communities.posts({ communityId: room.id })).items).toEqual([]);
+  });
+
+  it("a muted member is refused before the screen runs, and a post written as a business is edited only while its author speaks for it", async () => {
+    const owner = await founder("gate-owner");
+    const member = await founder("gate-member");
+    const room = await as(owner.userId).live.communities.create({ name: "Gate room" });
+    await as(member.userId).live.communities.join({ communityId: room.id });
+    await as(owner.userId).live.communities.moderateMember({ communityId: room.id, userId: member.userId, action: "mute" });
+    const spy = vi.spyOn(hz.deps.models, "complete");
+    try {
+      const muted = await failure(as(member.userId).live.communities.post({ communityId: room.id, bodyMd: "Still here" }));
+      expect(muted).toEqual({ code: "BAD_REQUEST", message: expect.stringMatching(/muted you/) });
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+    // The owner posts as their business, then the business goes Personal: it no longer speaks on the network, so the
+    // post's text cannot change under its name; deleting it still works.
+    const post = await as(owner.userId).live.communities.post({ communityId: room.id, bodyMd: "Hello from the team", businessId: owner.businessId });
+    expect(post.businessId).toBe(owner.businessId);
+    await repos.businesses.setGameMode(hz.db, owner.businessId, "personal");
+    expect((await failure(as(owner.userId).live.posts.edit({ postId: post.id, bodyMd: "Edited under the old name" }))).code).toBe("BAD_REQUEST");
+    expect((await repos.social.getPost(hz.db, post.id)).bodyMd).toBe("Hello from the team");
+    expect(await as(owner.userId).live.posts.delete({ postId: post.id })).toEqual({ postId: post.id, status: "removed" });
   });
 
   it("private communities are joined by invitation only; owners and moderators manage members", async () => {

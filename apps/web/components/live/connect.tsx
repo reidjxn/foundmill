@@ -10,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Clock, UserPlus } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Textarea, useToast } from "@foundmill/dugout";
-import { askToConnectBlocker, connectStateOf, type ConnectState } from "@/lib/live";
+import { askToConnectBlocker, connectStateOf, requestOutcome, type ConnectState } from "@/lib/live";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
@@ -47,13 +47,22 @@ export function AskToConnectDialog({ target, onOpenChange }: { target: ConnectTa
   const qc = useQueryClient();
   const { toast } = useToast();
   const { businessId, data } = useBusiness();
+  const viewer = useLiveViewer();
   const [note, setNote] = useState("");
   const request = useMutation(
     trpc.live.connections.request.mutationOptions({
-      onSuccess: () => {
+      onSuccess: (row) => {
         void qc.invalidateQueries({ queryKey: trpcPathPrefix("live.connections") as unknown[] });
         void qc.invalidateQueries({ queryKey: trpcPathPrefix("live.summary") as unknown[] });
-        toast({ title: `Request sent to ${target?.name ?? "them"}`, description: "It waits in Sent requests on Network until they answer.", tone: "good" });
+        const name = target?.name ?? "them";
+        const outcome = requestOutcome(row, viewer.userId);
+        toast(
+          outcome === "connected"
+            ? { title: `You are already connected with ${name}`, description: "Write to them from Network.", tone: "info" }
+            : outcome === "incoming"
+              ? { title: `${name} already asked to connect with you`, description: "Accept their request in Requests on Network.", tone: "info" }
+              : { title: `Request sent to ${name}`, description: "It waits in Sent requests on Network until they answer.", tone: "good" },
+        );
         setNote("");
         onOpenChange(false);
       },

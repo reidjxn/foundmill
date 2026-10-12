@@ -90,6 +90,8 @@ export interface ThreadLike {
   id: string;
   participantIds: readonly string[];
   subject: string | null;
+  /** `group` for a thread started with two or more people, even once it is down to two (0027). */
+  kind?: "direct" | "group";
 }
 
 export function otherParticipants(thread: Pick<ThreadLike, "participantIds">, viewerId: string): string[] {
@@ -103,9 +105,13 @@ export function threadTitle(thread: ThreadLike, viewerId: string, nameOf: (userI
   return joinNames(otherParticipants(thread, viewerId).map(nameOf));
 }
 
-/** The one-to-one thread between the viewer and another person, if there is one. */
+/**
+ * The one-to-one thread between the viewer and another person, if there is one. A group that shrank to the two of them
+ * (the others left) is not it: the server keeps the pair's direct thread apart, and a Send to the person goes there.
+ */
 export function findDirectThread<T extends ThreadLike>(threads: readonly T[], viewerId: string, otherId: string): T | undefined {
   return threads.find((t) => {
+    if (t.kind === "group") return false;
     const others = new Set(otherParticipants(t, viewerId));
     return others.size === 1 && others.has(otherId);
   });
@@ -126,6 +132,16 @@ export function connectStateOf(rows: readonly ConnectionLike[], viewerId: string
   if (row.status === "accepted") return "connected";
   if (row.status === "blocked") return "blocked";
   return row.fromUser === viewerId ? "requested" : "incoming";
+}
+
+/**
+ * What a sent request came to (`live.connections.request` returns the pair's one row): the viewer's own request, new or
+ * already waiting ("sent"); a connection that already stood ("connected"); or the other person's request, already
+ * waiting for the viewer's answer ("incoming"). A leaderboard row cannot know the owner beforehand, so this tells.
+ */
+export function requestOutcome(row: Pick<ConnectionLike, "fromUser" | "status">, viewerId: string): "sent" | "connected" | "incoming" {
+  if (row.status === "accepted") return "connected";
+  return row.fromUser === viewerId ? "sent" : "incoming";
 }
 
 /** The group a thread is with: "Ana, Ben and Cal left" style notes for people who left. */

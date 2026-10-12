@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   askToConnectBlocker, boardKindLabel, canSpeakAsBusiness, boardScope, boardTitle, connectStateOf, counterpartId, describeMetric, findDirectThread, formResults, formatMetricValue, groupConnections, humanise, joinNames,
-  leaveBlocker, leftNote, otherParticipants, periodLabel, personName, positionLabel, postStatusLabel, REPORT_REASONS, reportReasonLabel, threadTitle, UNNAMED_PERSON, VISIBILITY_OPTIONS, visibilityLabel,
+  leaveBlocker, leftNote, otherParticipants, periodLabel, personName, positionLabel, postStatusLabel, REPORT_REASONS, reportReasonLabel, requestOutcome, threadTitle, UNNAMED_PERSON, VISIBILITY_OPTIONS, visibilityLabel,
 } from "../live";
 
 const ME = "00000000-0000-4000-8000-0000000000aa";
@@ -77,6 +77,10 @@ describe("message threads", () => {
     expect(findDirectThread([group, direct, named], ME, ANA)?.id).toBe("t1");
     expect(findDirectThread([group], ME, ANA)).toBeUndefined();
     expect(findDirectThread([direct], ME, BEN)).toBeUndefined();
+    // A group that shrank to the two of us (Ben left) is still a group: a Send to Ana opens our direct thread instead.
+    const shrunk = { id: "t5", participantIds: [ME, ANA], subject: null, kind: "group" as const };
+    expect(findDirectThread([shrunk], ME, ANA)).toBeUndefined();
+    expect(findDirectThread([shrunk, { ...direct, kind: "direct" as const }], ME, ANA)?.id).toBe("t1");
   });
 });
 
@@ -90,6 +94,12 @@ describe("asking to connect and moderation copy (audit #28, #34, #66)", () => {
     expect(connectStateOf(rows, ME, CAL)).toBe("incoming");
     expect(connectStateOf([row("4", ME, CAL, "blocked")], ME, CAL)).toBe("blocked");
     expect(connectStateOf(rows, ME, "00000000-0000-4000-8000-0000000000ff")).toBe("none");
+  });
+
+  it("tells what a sent request came to (a leaderboard row cannot know its owner beforehand)", () => {
+    expect(requestOutcome(row("1", ME, ANA, "requested"), ME)).toBe("sent");
+    expect(requestOutcome(row("2", ANA, ME, "requested"), ME)).toBe("incoming");
+    expect(requestOutcome(row("3", ANA, ME, "accepted"), ME)).toBe("connected");
   });
 
   it("asks only from a LIVE business the founder may speak for, and says why not", () => {

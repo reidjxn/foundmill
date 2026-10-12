@@ -27,6 +27,15 @@ describe("community screen eval (mock)", () => {
     expect(communityScreenVerdict([], { allowed: false, flags: [] }).decision).toBe("hold");
     expect(communityScreenVerdict([], { allowed: true, flags: [{ category: "harassment", severity: "normal", excerpt: "idiot" }] }).decision).toBe("hold");
     expect(communityScreenVerdict([], { allowed: true, flags: [{ category: "fabricated_urgency", severity: "normal", excerpt: "act now" }] })).toEqual({ decision: "allow", flags: ["fabricated_urgency"] });
+    // A post is not a marketing email: the route's unsubscribe and sender-identity rules never hold one.
+    const emailOnly = { allowed: false, flags: [{ category: "missing_unsubscribe" as const, severity: "critical" as const, excerpt: "No unsubscribe" }, { category: "missing_sender_identity" as const, severity: "normal" as const, excerpt: "No sender" }] };
+    expect(communityScreenVerdict([], emailOnly)).toEqual({ decision: "allow", flags: [] });
+    expect(communityScreenVerdict([], { ...emailOnly, flags: [...emailOnly.flags, { category: "harassment", severity: "normal", excerpt: "idiot" }] })).toEqual({ decision: "hold", flags: ["harassment"] });
+  });
+
+  it("lets a post that quotes an email subject line through (the mock reads it as an email)", async () => {
+    const result = await runModerationCase({ id: "subject-line", text: "Subject: Your plan, simplified. Which subject line would you open? We are testing two for our pricing email.", expect: "allow" }, new MockModelClient());
+    expect(result).toMatchObject({ decision: "allow", passed: true });
   });
 
   it("sends the text only as untrusted data in the user message, never in the system prompt", () => {

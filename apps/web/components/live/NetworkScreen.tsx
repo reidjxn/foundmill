@@ -13,6 +13,7 @@ import { useMemo, useState } from "react";
 import { StatusStrip, useToast, type MetricTileProps } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { counterpartId, findDirectThread, groupConnections, otherParticipants } from "@/lib/live";
+import { pollUnlessStreaming, useStreamOpen } from "@/lib/stream-status";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useShellChrome } from "@/components/shell/chrome";
@@ -31,10 +32,13 @@ export function NetworkScreen() {
   const { toast } = useToast();
   useShellChrome({ title: "Network" });
 
-  const connectionsQ = useQuery(trpc.live.connections.list.queryOptions(undefined, { staleTime: 15_000 }));
+  // The founder's own stream signal refreshes requests and invitations when one arrives (components/live/signals.ts);
+  // without the stream they are polled, like the shell's badge, so a request never waits for a reload.
+  const poll = pollUnlessStreaming(useStreamOpen(), 30_000);
+  const connectionsQ = useQuery(trpc.live.connections.list.queryOptions(undefined, { staleTime: 15_000, refetchInterval: poll }));
   const threadsQ = useQuery(trpc.live.messages.threads.queryOptions({ limit: 100 }, { staleTime: 10_000, refetchInterval: 30_000 }));
   const unreadQ = useQuery(trpc.live.messages.unread.queryOptions(undefined, { staleTime: 10_000, refetchInterval: 30_000 }));
-  const invitationsQ = useQuery(trpc.live.communities.invitations.queryOptions(undefined, { staleTime: 15_000 }));
+  const invitationsQ = useQuery(trpc.live.communities.invitations.queryOptions(undefined, { staleTime: 15_000, refetchInterval: poll }));
 
   const rows = useMemo<ConnectionRow[]>(() => connectionsQ.data ?? [], [connectionsQ.data]);
   const threads = useMemo(() => threadsQ.data?.items ?? [], [threadsQ.data]);

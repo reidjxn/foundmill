@@ -8,7 +8,7 @@ vi.mock("@/lib/trpc-react", async () => {
   const { fakeTrpc } = await import("./fake-trpc");
   return { useTRPC: () => fakeTrpc(api) };
 });
-vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ businessId: "b1", data: { business: { name: "Ledgerly", gameMode: "live" } } }) }));
+vi.mock("@/components/shell/business-context", () => ({ useBusiness: () => ({ businessId: "b1", data: { business: { name: "Ledgerly", gameMode: "live", committedAt: new Date(0), archivedAt: null }, membership: { role: "owner" } } }) }));
 vi.mock("@/components/shell/chrome", () => ({ useShellChrome: () => undefined }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => undefined }) }));
 
@@ -142,6 +142,32 @@ describe("/network", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));
     expect((await screen.findByTestId("thread-closed")).textContent).toMatch(/You can no longer write here/);
     expect((screen.getByLabelText("Message: Conversation with Fintech ops intro") as HTMLTextAreaElement).disabled).toBe(true);
+  });
+
+  it("audit #34/#66: from a thread a removed connection closed, the founder can ask that person to connect again", async () => {
+    seed({
+      "live.connections.list": () => [connection("c3", ids.ben, ids.me, "accepted")],
+      "live.messages.thread": () => ({ thread: THREAD_ANA, participants: [{ userId: ids.ana, connected: false, blockedByMe: false }], canSend: false, closedReason: "closed" }),
+      "live.connections.request": () => connection("c9", ids.me, ids.ana, "requested"),
+    });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));
+    await screen.findByTestId("thread-closed");
+    fireEvent.keyDown(await screen.findByTestId("thread-menu"), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Ask Ana Ruiz to connect" }));
+    const dialog = await screen.findByTestId("ask-to-connect-dialog");
+    fireEvent.click(within(dialog).getByTestId("ask-to-connect-send"));
+    await waitFor(() => expect(callsTo(api, "live.connections.request")).toEqual([{ businessId: "b1", toUserId: ids.ana }]));
+    expect(await screen.findByText("Request sent to Ana Ruiz")).toBeTruthy();
+  });
+
+  it("audit #66: a connected person in a thread is never offered Ask to connect", async () => {
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Fintech ops intro/ }));
+    await screen.findByRole("log", { name: "Conversation with Fintech ops intro" });
+    fireEvent.keyDown(await screen.findByTestId("thread-menu"), { key: "Enter" });
+    await screen.findByRole("menuitem", { name: /Leave conversation/ });
+    expect(screen.queryByRole("menuitem", { name: /to connect/ })).toBeNull();
   });
 
   it("audit #28: the network is for adults: the 18+ confirmation is asked until it is on record, then the notice goes", async () => {

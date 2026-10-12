@@ -418,7 +418,10 @@ export const socialRepo = {
    */
   async leaveThread(db: Executor, userId: string, threadId: string): Promise<{ left: true; deleted: boolean }> {
     return db.transaction(async (tx) => {
-      const thread = await socialRepo.getThread(tx, userId, threadId);
+      // The row is locked: two people leaving a pair at once must not both remove themselves (an empty thread breaks the
+      // participants check); the second one waits, then finds itself the last and deletes it.
+      const thread = one(await tx.select().from(messageThreads).where(eq(messageThreads.id, threadId)).for("update").limit(1), "thread", threadId);
+      if (!thread.participantIds.includes(userId)) throw new ValidationError("Not a participant of this thread", { threadId });
       if (thread.participantIds.length <= 1) {
         await tx.delete(messageThreads).where(eq(messageThreads.id, threadId));
         return { left: true, deleted: true };
@@ -671,6 +674,20 @@ export const socialRepo = {
       .from(inboxItems)
       .innerJoin(events, and(eq(events.businessId, inboxItems.businessId), sql`${events.id} = any(${inboxItems.sourceEventIds})`))
       .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.type, "human_message"), eq(inboxItems.state, "unread"), eq(events.type, "message.received"), sql`${events.payload}->>'threadId' = ${threadId}`))
+      .limit(1);
+    return rows.length > 0;
+  },
+
+  /**
+   * True when this business's Inbox already has an unread note for a connection request from this person: asking,
+   * withdrawing and asking again makes one note, not one each (Network lists the request itself).
+   */
+  async hasUnreadRequestNote(db: Executor, businessId: string, fromUserId: string): Promise<boolean> {
+    const rows = await db
+      .select({ id: inboxItems.id })
+      .from(inboxItems)
+      .innerJoin(events, and(eq(events.businessId, inboxItems.businessId), sql`${events.id} = any(${inboxItems.sourceEventIds})`))
+      .where(and(eq(inboxItems.businessId, businessId), eq(inboxItems.type, "human_message"), eq(inboxItems.state, "unread"), eq(events.type, "connection.requested"), sql`${events.payload}->>'fromUserId' = ${fromUserId}`))
       .limit(1);
     return rows.length > 0;
   },

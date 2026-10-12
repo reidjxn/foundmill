@@ -60,8 +60,19 @@ export function buildCommunityScreenRequest(input: CommunityScreenInput): { rout
   };
 }
 
-/** Holds when a deterministic check hit, the model did not allow the text, or it raised a critical or hold category. */
+/**
+ * Marketing-email rules of the shared moderation route (an unsubscribe line, a sender identity). A founder's community
+ * post is not a marketing email, so these never hold one: a post that mentions a "subject:" is still a post.
+ */
+export const COMMUNITY_IGNORED_CATEGORIES: ReadonlySet<string> = new Set(["missing_unsubscribe", "missing_sender_identity"]);
+
+/**
+ * Holds when a deterministic check hit, the model did not allow the text, or it raised a critical or hold category.
+ * Flags in COMMUNITY_IGNORED_CATEGORIES are dropped first, and a refusal that rests only on them does not hold.
+ */
 export function communityScreenVerdict(local: readonly string[], out: Pick<ModerationOutput, "allowed" | "flags">): { decision: "allow" | "hold"; flags: string[] } {
-  const hold = local.length > 0 || !out.allowed || out.flags.some((f) => f.severity === "critical" || COMMUNITY_HOLD_CATEGORIES.has(f.category));
-  return { decision: hold ? "hold" : "allow", flags: [...new Set([...local, ...out.flags.map((f) => f.category)])].slice(0, 20) };
+  const flags = out.flags.filter((f) => !COMMUNITY_IGNORED_CATEGORIES.has(f.category));
+  const refused = !out.allowed && (flags.length > 0 || out.flags.length === 0);
+  const hold = local.length > 0 || refused || flags.some((f) => f.severity === "critical" || COMMUNITY_HOLD_CATEGORIES.has(f.category));
+  return { decision: hold ? "hold" : "allow", flags: [...new Set([...local, ...flags.map((f) => f.category)])].slice(0, 20) };
 }

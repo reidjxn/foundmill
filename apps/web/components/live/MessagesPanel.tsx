@@ -4,12 +4,13 @@
  * with a reply box. Messages are human to human: only the signed-in founder's own Send writes one (`live.messages.send`);
  * agents may draft, never send. Opening a thread marks it read on the server, then the counts are refreshed.
  *
- * The thread pane says who is in it (and who left) and has a More menu: mute (no badge, no Inbox note), leave, and block
- * any person in it, connected or not (`live.connections.block`). A thread the founder can no longer write to (a removed
- * connection, a group member they are not connected with, a block) shows why in place of the reply box.
+ * The thread pane says who is in it (and who left) and has a More menu: mute (no badge, no Inbox note), leave, ask a
+ * person in it they are not connected with to connect (after a removed connection, the way back), and block any person
+ * in it, connected or not (`live.connections.block`). A thread the founder can no longer write to (a removed connection,
+ * a group member they are not connected with, a block) shows why in place of the reply box.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, BellOff, BellRing, Lock, LogOut, Mail, MailCheck, MessageSquare, MoreHorizontal, SquarePen } from "lucide-react";
+import { Ban, BellOff, BellRing, Lock, LogOut, Mail, MailCheck, MessageSquare, MoreHorizontal, SquarePen, UserPlus } from "lucide-react";
 import { useEffect, useMemo, useRef, type KeyboardEvent } from "react";
 import {
   Avatar,
@@ -33,6 +34,7 @@ import {
 import { joinNames, leftNote, otherParticipants, threadTitle } from "@/lib/live";
 import { errorMessage, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { useAskToConnect, useConnectStates } from "./connect";
 import type { People } from "./shared";
 
 export type ThreadRow = RouterOutputs["live"]["messages"]["threads"]["items"][number];
@@ -119,6 +121,10 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
   );
   const pane = paneQ.data;
   const muted = pane?.thread.muted ?? thread?.muted ?? false;
+  // People here the founder is not connected with and has no request or block with: "Ask to connect" from the menu.
+  const connect = useAskToConnect();
+  const connectStates = useConnectStates();
+  const askable = connect.blocker ? [] : (pane?.participants ?? []).filter((p) => !p.connected && !p.blockedByMe && connectStates.stateOf(p.userId) === "none");
 
   const messages = useMemo<ConversationMessage[]>(
     () => [...(messagesQ.data?.items ?? [])].reverse().map((m) => ({ id: m.id, author: people.name(m.fromUser), self: m.fromUser === viewerId, body: m.body, at: m.createdAt })),
@@ -222,6 +228,16 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
                         <DropdownMenuItem variant="danger" onSelect={() => leave.mutate({ threadId: selection.threadId })}>
                           <Icon icon={LogOut} size="inline" /> Leave conversation
                         </DropdownMenuItem>
+                        {askable.length ? (
+                          <>
+                            <DropdownMenuSeparator />
+                            {askable.map((p) => (
+                              <DropdownMenuItem key={p.userId} onSelect={() => connect.ask({ userId: p.userId, name: people.name(p.userId) })}>
+                                <Icon icon={UserPlus} size="inline" /> Ask {people.name(p.userId)} to connect
+                              </DropdownMenuItem>
+                            ))}
+                          </>
+                        ) : null}
                         {pane.participants.some((p) => !p.blockedByMe) ? (
                           <>
                             <DropdownMenuSeparator />
@@ -276,6 +292,7 @@ export function MessagesPanel({ viewerId, threads, unreadTotal, people, selectio
           )}
         </div>
       </div>
+      {connect.dialog}
     </Panel>
   );
 }
