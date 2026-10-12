@@ -2,6 +2,7 @@
 import type { ShCustomer, ShOrder, ShProduct, ShShop } from "../tools";
 
 export const MOCK_SHOP_DOMAIN = "northwind-skincare.myshopify.com";
+/** Public test secret: signs mock deliveries in development and test only; ingest never mounts mock webhooks in staging or production (`mockWebhooksAllowed`). */
 export const MOCK_SHOPIFY_WEBHOOK_SECRET = "shpss_mock_client_secret";
 export const MOCK_SHOPIFY_ACCESS_TOKEN = "shpat_mock_access_token";
 

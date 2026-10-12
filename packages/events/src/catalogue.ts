@@ -451,6 +451,17 @@ const TouchSource = z.object({
   code: z.string().nullable().default(null),
 });
 
+/**
+ * Who converted, as the vendor reported them: ingest links the conversion to the CRM record with this external id
+ * or email, or adds the customer to the CRM (null when the vendor reported nobody).
+ */
+const ConvertingCustomer = z.object({
+  /** The vendor's own customer id (Stripe `cus_…`, Shopify customer id). */
+  externalId: z.string().min(1).max(200).nullable().default(null),
+  email: z.string().max(320).nullable().default(null),
+  name: z.string().max(200).nullable().default(null),
+});
+
 const signupCreated = declareEvent(
   "signup.created",
   z.object({
@@ -464,6 +475,7 @@ const signupCreated = declareEvent(
     /** Where the signup came from (auth provider, product analytics, Shopify customer...). */
     provider: z.string().min(1).max(60),
     consentState: z.enum(["granted", "denied", "unknown"]),
+    customer: ConvertingCustomer.nullable().default(null),
   }),
   {
     doc: "A new signup (conversion kind `signup`). Triggers journeyBuild; Match Day level friendly.",
@@ -518,9 +530,12 @@ const paymentReceived = declareEvent(
     productRef: z.string().max(200).nullable().default(null),
     /** Net of refunds known at the time; null when the provider does not report fees. */
     fee: Money.nullable().default(null),
+    customer: ConvertingCustomer.nullable().default(null),
+    /** Where the order came from when the provider reports it (Shopify landing site, referrer, discount code). */
+    source: TouchSource.nullable().default(null),
   }),
   {
-    doc: "Money came in from a customer (Stripe invoice.paid, checkout.session.completed, Shopify orders/create, signed contract). Conversion kind `payment`; triggers journeyBuild; Match Day level cup.",
+    doc: "Money came in from a customer (Stripe invoice.paid, checkout.session.completed, Shopify orders/create, signed contract). Only a first payment (`firstPayment`) is a conversion that wins a customer and triggers journeyBuild (Match Day level cup); renewals and repeat orders count as revenue only.",
     consumers: ["journey", "metrics", "playbooks"],
     narratable: false,
   },

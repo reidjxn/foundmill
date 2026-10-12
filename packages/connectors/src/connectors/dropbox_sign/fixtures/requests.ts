@@ -1,5 +1,6 @@
 import type { HsSignatureRequest } from "../tools";
 
+/** Public test secret: signs mock deliveries in development and test only; ingest never mounts mock webhooks in staging or production (`mockWebhooksAllowed`). */
 export const MOCK_DROPBOX_SIGN_API_KEY = "mock_dropbox_sign_api_key";
 
 export const HS_REQUESTS: HsSignatureRequest[] = [

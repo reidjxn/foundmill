@@ -1,6 +1,7 @@
 /**
  * Deterministic SendGrid fixtures. The P-256 key pair below exists only to sign mock Event Webhook deliveries
- * (generated once for this repository; it has no relationship to any SendGrid account).
+ * (generated once for this repository; it has no relationship to any SendGrid account). The private key is public, so
+ * mock webhooks are mounted only in development and test (`mockWebhooksAllowed`).
  */
 import type { SgSingleSend, SgStatsDay, SgVerifiedSender } from "../tools";
 
@@ -8,6 +9,7 @@ export const MOCK_SENDGRID_PRIVATE_KEY_PEM =
   "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg6NgNhpl1hceT8or9\nq3DG8Y4r24KNuurhVgRHojh1bzmhRANCAAQk4N/pxt/ZIK9kzKaDIUu5Rw4txVZI\nRavykkwrl0syyl3ys/bT3L119BRjMAgiiWsJ6wPxo0ajYoD68NMzpVcl\n-----END PRIVATE KEY-----\n";
 /** Base64 SPKI, the format SendGrid shows in Settings → Mail Settings → Event Webhook → Signature verification. */
 export const MOCK_SENDGRID_PUBLIC_KEY = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEJODf6cbf2SCvZMymgyFLuUcOLcVWSEWr8pJMK5dLMspd8rP209y9dfQUYzAIIolrCesD8aNGo2KA+vDTM6VXJQ==";
+/** Public test secret: signs mock deliveries in development and test only; ingest never mounts mock webhooks in staging or production (`mockWebhooksAllowed`). */
 export const MOCK_SENDGRID_INBOUND_TOKEN = "mock-inbound-parse-token";
 
 export const MOCK_SENDER_EMAIL = "hello@northwindskincare.com";

@@ -370,6 +370,8 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
       commentary: commentaryLines(c.kind, c.amountMinor, c.currency, customer, orderedPath),
       agents: journey.agents,
       matchdayLevel: journey.matchdayLevel,
+      attributionModel: journey.attributionModel,
+      xcModelSource: journey.xcModelSource,
       viewedAt: at < ctx.today.getTime() - 10 * DAY_MS ? new Date(at + 6 * HOUR_MS + rng.int(0, 40) * HOUR_MS) : null,
       createdAt: new Date(at + 60_000),
     });

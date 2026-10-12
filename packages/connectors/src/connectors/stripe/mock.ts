@@ -16,6 +16,12 @@ export function signedStripeRequest(businessId: string, event: Omit<StEvent, "cr
 
 export const stripeEvent = <T>(type: string, object: T, id = `evt_${stableHash([type, object], 24)}`): StEvent<T> => ({ id, type, created: MOCK_NOW_UNIX, livemode: false, account: MOCK_STRIPE_ACCOUNT_ID, data: { object } });
 
+/** A simulated Stripe customer for one seed or email (deterministic, so the same seed is the same customer). */
+function simulatedCustomer(businessId: string, key: string, email: string | null, name: string | null): Pick<StInvoice, "customer" | "customer_email" | "customer_name"> {
+  const hash = stableHash(["sim-customer", businessId, key.toLowerCase()], 14);
+  return { customer: `cus_sim${hash}`, customer_email: email ?? `customer.${hash.slice(0, 8)}@example.com`, customer_name: name ?? ST_CUSTOMERS[Number.parseInt(hash.slice(0, 6), 16) % ST_CUSTOMERS.length]!.name ?? null };
+}
+
 export function createStripeMock() {
   const customers = new Map<string, StCustomer>(ST_CUSTOMERS.map((c) => [c.id, structuredClone(c)]));
   const invoices = new Map<string, StInvoice>(ST_INVOICES.map((i) => [i.id, structuredClone(i)]));
@@ -98,8 +104,14 @@ export function createStripeMock() {
         const inv = ST_INVOICES[0]!;
         const amount = typeof params.amountMinor === "number" ? params.amountMinor : inv.amount_paid;
         const paidAt = Math.floor((params.occurredAt ?? MOCK_NOW).getTime() / 1000);
-        const id = `in_sim${stableHash([params.businessId, params.seed ?? "default"], 14)}`;
-        return normaliseStripeEvent(stripeEvent("invoice.paid", { ...inv, id, amount_paid: amount, amount_due: amount, created: paidAt, status_transitions: { paid_at: paidAt } }), params.businessId);
+        const seed = params.seed ?? "default";
+        const id = `in_sim${stableHash([params.businessId, seed], 14)}`;
+        // The default simulation is the fixture's first customer; another seed or email is another customer, so a second
+        // simulated payment is a second customer won rather than a repeat payment by the first.
+        const email = typeof params.email === "string" ? params.email : null;
+        const payer = seed === "default" && !email ? { customer: inv.customer, customer_email: inv.customer_email, customer_name: ST_CUSTOMERS[0]!.name } : simulatedCustomer(params.businessId, email ?? seed, email, typeof params.name === "string" ? params.name : null);
+        const renewal = params.firstPayment === false;
+        return normaliseStripeEvent(stripeEvent("invoice.paid", { ...inv, ...payer, id, amount_paid: amount, amount_due: amount, billing_reason: renewal ? "subscription_cycle" : inv.billing_reason, created: paidAt, status_transitions: { paid_at: paidAt } }), params.businessId);
       },
       "checkout.completed": (params) => normaliseStripeEvent(stripeEvent("checkout.session.completed", { ...ST_CHECKOUT_PAID, id: `cs_test_sim${stableHash([params.businessId, params.seed ?? "default"], 16)}` }, `evt_${stableHash(["cs", params.seed ?? "default"], 24)}`), params.businessId),
       "signup.created": (params) => normaliseStripeEvent(stripeEvent("customer.subscription.created", { ...ST_TRIAL_SUBSCRIPTION, id: `sub_sim${stableHash([params.businessId, params.seed ?? "default"], 14)}`, created: Math.floor((params.occurredAt ?? MOCK_NOW).getTime() / 1000) }), params.businessId),

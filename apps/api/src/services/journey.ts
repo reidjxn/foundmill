@@ -1,11 +1,12 @@
 /**
  * The full `@foundmill/journey` Journey record for `journey.get` (BUILD §11.4; AC-11.4.3 deterministic replays).
  *
- * The `journeys` row stores touch ids, weights, the xC series, commentary, the agents who were involved and the
- * update level. Everything else the Customer Update shows (channels, captain, standout agent, attribution model,
- * xC model source, consent and the partial-journey flag, the nth of its kind, the full-update rule, stats) is derived
- * here with the same helpers the journey builder used, from repositories, and validated against the `Journey` schema,
- * so the web renders the record instead of deriving it.
+ * The `journeys` row stores touch ids, weights, the xC series, commentary, the agents who were involved, the update
+ * level and the attribution and xC models the builder used for those weights and that curve (0034). Everything else the
+ * Customer Update shows (channels, captain, standout agent, consent and the partial-journey flag, the nth of its kind,
+ * the full-update rule, stats) is derived here with the same helpers the journey builder used, from repositories, and
+ * validated against the `Journey` schema, so the web renders the record instead of deriving it. A record written before
+ * the models were stored gets the label the conversion count implies, as before.
  */
 import { LIMITS } from "@foundmill/config";
 import { repos, type Executor, type JourneyDetail } from "@foundmill/db";
@@ -125,8 +126,8 @@ export async function buildJourneyRecord(db: Executor, businessId: string, detai
     channels: channelWeights(touches, weights),
     captain: captainOf(touches, weights, agents),
     playerOfTheMatch: agents[0]?.agentId ?? null,
-    attributionModel: chooseModel(conversionCount),
-    xcModelSource: conversionCount >= LIMITS.xcArchetypePriorUntilConversions ? "trained" : "archetype_prior",
+    attributionModel: detail.attributionModel ?? chooseModel(conversionCount),
+    xcModelSource: detail.xcModelSource ?? (conversionCount >= LIMITS.xcArchetypePriorUntilConversions ? "trained" : "archetype_prior"),
     consent,
     partialJourney,
     nthOfKind,

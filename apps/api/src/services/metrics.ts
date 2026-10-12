@@ -106,9 +106,9 @@ export const METRICS: readonly MetricDefinition[] = [
     label: "Customers won, last 30 days",
     description: "Paying customers won in the last 30 days.",
     format: "integer",
-    provenance: "Payment conversions, last 30 days",
+    provenance: "First payments, last 30 days",
     estimate: null,
-    sql: "select count(*) from conversions where business_id = current_business() and kind = 'payment' and occurred_at >= now() - interval '30 days'",
+    sql: "select count(*) from conversions where business_id = current_business() and kind = 'payment' and first_payment and occurred_at >= now() - interval '30 days'",
     keywords: ["customers", "paying", "won", "wins"],
     async run(db, businessId, now) {
       const counts = await repos.journeys.countConversions(db, businessId, last30(now));

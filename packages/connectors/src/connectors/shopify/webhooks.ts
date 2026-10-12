@@ -54,6 +54,35 @@ export function createShopifyWebhook(deps: ShopifyWebhookDeps): ConnectorWebhook
 export const shopifyEntityId = (customer: { id?: number | string | null; email?: string | null } | null | undefined): string =>
   uuidFromSeed("entity", "shopify", customer?.id ? `customer:${customer.id}` : `email:${(customer?.email ?? "unknown").toLowerCase()}`);
 
+/** The shopper as Shopify reports them; ingest links it to (or adds it to) the business's CRM. */
+const shopifyCustomer = (customer: { id?: number | string | null; email?: string | null; first_name?: string | null; last_name?: string | null } | null | undefined) => {
+  if (!customer) return null;
+  const name = [customer.first_name, customer.last_name].map((p) => p?.trim()).filter(Boolean).join(" ");
+  const email = customer.email?.trim() || null;
+  if (!customer.id && !email && !name) return null;
+  return { externalId: customer.id ? String(customer.id) : null, email, name: name || null };
+};
+
+/** UTM tags of the order's landing page, its referrer and the first discount code: what the touch for this order is parsed from. */
+function orderSource(o: ShOrder) {
+  let params: URLSearchParams | null = null;
+  if (o.landing_site) {
+    try {
+      params = new URL(o.landing_site, "https://shop.invalid").searchParams;
+    } catch {
+      params = null;
+    }
+  }
+  const source = {
+    utmSource: params?.get("utm_source") ?? null,
+    utmMedium: params?.get("utm_medium") ?? null,
+    utmCampaign: params?.get("utm_campaign") ?? null,
+    referrer: o.referring_site || null,
+    code: o.discount_codes?.[0]?.code ?? null,
+  };
+  return Object.values(source).some((v) => v !== null) ? source : null;
+}
+
 export function normaliseShopifyEvent(topic: string, payload: unknown, businessId: string, now: () => Date = () => new Date()): PlatformEvent[] {
   const actor = { kind: "webhook" as const, id: SHOPIFY_KEY };
   if (topic === "orders/create" || topic === "orders/paid") {
@@ -62,7 +91,7 @@ export function normaliseShopifyEvent(topic: string, payload: unknown, businessI
     if (o.financial_status !== "paid" && o.financial_status !== "partially_paid") return [];
     const amountMinor = minorFromDecimal(o.total_price);
     if (amountMinor <= 0) return [];
-    const customer = o.customer ?? (o.email ? { email: o.email } : null);
+    const customer = o.customer ? { ...o.customer, email: o.customer.email ?? o.email ?? null } : o.email ? { email: o.email } : null;
     const entityId = shopifyEntityId(customer);
     const ordersCount = o.customer?.orders_count ?? null;
     return [
@@ -82,6 +111,8 @@ export function normaliseShopifyEvent(topic: string, payload: unknown, businessI
           recurring: false,
           productRef: o.line_items[0]?.title ?? null,
           fee: null,
+          customer: shopifyCustomer(customer),
+          source: orderSource(o),
         },
       }),
     ];
@@ -98,7 +129,7 @@ export function normaliseShopifyEvent(topic: string, payload: unknown, businessI
         actor,
         entityIds: [entityId],
         seed: `customer:${c.id}`,
-        payload: { entityId, conversionId: uuidFromSeed("conversion", "shopify-customer", String(c.id)), visitorId: null, channelKey: null, campaignId: null, source: { utmSource: null, utmMedium: null, utmCampaign: null, referrer: null, code: null }, provider: "shopify", consentState: consent },
+        payload: { entityId, conversionId: uuidFromSeed("conversion", "shopify-customer", String(c.id)), visitorId: null, channelKey: null, campaignId: null, source: { utmSource: null, utmMedium: null, utmCampaign: null, referrer: null, code: null }, provider: "shopify", consentState: consent, customer: shopifyCustomer(c) },
       }),
     ];
   }

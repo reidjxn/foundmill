@@ -189,3 +189,53 @@ describe("journeys", () => {
     expect(await repos.journeys.listMilestones(r.db, r.B.businessId)).toHaveLength(0);
   });
 });
+
+describe("first payments (0034)", () => {
+  it("a repeat payment is revenue only: counts, nth of a kind, p75 and journey_daily count customers from first payments", async () => {
+    const b = r.B.businessId;
+    const before = await repos.journeys.countConversions(r.db, b);
+    const first = await repos.journeys.recordConversion(r.db, b, { entityId: r.B.entityId, kind: "payment", amountMinor: 5_000, occurredAt: day("2026-08-01") });
+    expect(first.firstPayment).toBe(true);
+    expect(await repos.journeys.hasPaidBefore(r.db, b, r.B.entityId, day("2026-08-01"))).toBe(false);
+    expect(await repos.journeys.hasPaidBefore(r.db, b, r.B.entityId, day("2026-08-02"))).toBe(true);
+    const renewal = await repos.journeys.recordConversion(r.db, b, { entityId: r.B.entityId, kind: "payment", amountMinor: 900_000, occurredAt: day("2026-08-15"), firstPayment: false });
+    const second = await repos.journeys.recordConversion(r.db, b, { entityId: r.B.entity2Id, kind: "payment", amountMinor: 7_000, occurredAt: day("2026-08-20") });
+    // firstPayment only means something for payments: a signup is always counted.
+    const signup = await repos.journeys.recordConversion(r.db, b, { kind: "signup", occurredAt: day("2026-08-20"), firstPayment: false });
+    expect(signup.firstPayment).toBe(true);
+
+    expect(await repos.journeys.countConversions(r.db, b)).toEqual({ ...before, payment: before.payment + 2, signup: before.signup + 1 });
+    expect(await repos.journeys.nthOfKind(r.db, b, second.id)).toBe(2); // not 3: the renewal is not a customer
+    expect(await repos.journeys.paymentPercentile75(r.db, b)).toBeLessThan(900_000);
+    expect((await repos.journeys.listConversions(r.db, b, { kind: "payment", firstPayment: false })).items.map((c) => c.id)).toEqual([renewal.id]);
+    expect((await repos.journeys.listConversions(r.db, b, { kind: "payment", firstPayment: true, from: day("2026-08-01"), to: day("2026-08-31") })).items.map((c) => c.id).sort()).toEqual([first.id, second.id].sort());
+
+    await repos.journeys.refreshDaily(r.db);
+    const [aug15] = await repos.journeys.dailyTotals(r.db, b, { from: "2026-08-15", to: "2026-08-15" });
+    expect(aug15).toMatchObject({ payments: 0 });
+    expect(Number(aug15!.revenueMinor)).toBe(900_000);
+  });
+
+  it("journeys store the models the builder used; entities can be created at a caller-chosen id", async () => {
+    const conversion = await repos.journeys.recordConversion(r.db, r.B.businessId, { kind: "activation", occurredAt: day("2026-08-21") });
+    const j = await repos.journeys.create(r.db, r.B.businessId, { conversionId: conversion.id, matchdayLevel: "league", attributionModel: "data_driven_markov", xcModelSource: "trained" });
+    expect(j).toMatchObject({ attributionModel: "data_driven_markov", xcModelSource: "trained" });
+    const plain = await repos.journeys.create(r.db, r.B.businessId, { conversionId: conversion.id, matchdayLevel: "league" });
+    expect(plain).toMatchObject({ id: j.id, attributionModel: null, xcModelSource: null });
+    await expect(repos.journeys.create(r.db, r.B.businessId, { conversionId: conversion.id, matchdayLevel: "league", attributionModel: "guesswork" as never })).rejects.toThrow();
+
+    const id = "5b1c0d6e-7f80-5a91-8b2c-3d4e5f607182";
+    const person = await repos.entities.create(r.db, r.B.businessId, { id, kind: "person", displayName: "Chosen Id" });
+    expect(person.id).toBe(id);
+    await expect(repos.entities.create(r.db, r.A.businessId, { id, kind: "person", displayName: "Same id elsewhere" })).rejects.toThrow();
+  });
+
+  it("trainingPaths groups recent touches per visitor and marks the groups whose person converted", async () => {
+    const paths = await repos.journeys.trainingPaths(r.db, r.A.businessId, { since: day("2026-08-01") });
+    const stitched = paths.find((p) => p.touches.some((t) => t.channelKey === "seo"));
+    expect(stitched?.converted).toBe(true); // entity2 signed up and paid in "conversions are recorded…"
+    expect(stitched!.touches.map((t) => t.channelKey)).toEqual(["seo", "paid_ads"]);
+    expect(await repos.journeys.trainingPaths(r.db, r.A.businessId, { since: day("2026-12-01") })).toEqual([]);
+    expect((await repos.journeys.trainingPaths(r.db, r.B.businessId)).flatMap((p) => p.touches).every((t) => t.businessId === r.B.businessId)).toBe(true);
+  });
+});

@@ -217,6 +217,7 @@ export function simulate(eventName: string, params: SimulateParams): PlatformEve
             source: { utmSource: channelKey === "paid_ads" ? "google" : null, utmMedium: channelKey === "paid_ads" ? "cpc" : null, utmCampaign: null, referrer: channelKey === "seo" ? "https://www.google.com/" : null, code: null },
             provider: str(params.provider, "supabase_auth"),
             consentState: (params.consentState as "granted" | "denied" | "unknown" | undefined) ?? "granted",
+            customer: { externalId: null, email, name: typeof params.name === "string" ? params.name : null },
           },
         }),
       ];
@@ -239,6 +240,7 @@ export function simulate(eventName: string, params: SimulateParams): PlatformEve
             recurring: bool(params.recurring, true),
             productRef: str(params.productRef, "Pro monthly"),
             fee: params.feeMinor === undefined ? { amountMinor: Math.round(amountMinor * 0.029) + 25, currency } : { amountMinor: num(params.feeMinor, 0), currency },
+            customer: { externalId: null, email, name: typeof params.name === "string" ? params.name : null },
           },
         }),
       ];

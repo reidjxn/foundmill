@@ -4,31 +4,40 @@
  *
  * Boot: load env → service database (repositories only) → vault (per-business webhook secrets; optional) →
  * connector registry (`createDefaultRegistry` with platform secrets, business resolver and secret lookup) →
- * nonce store (Redis in staging/production when `REDIS_URL` is set, memory otherwise) → Hono app → listen on
- * `PORT` (fallback `INGEST_PORT`) on host `::` with a 0.0.0.0 fallback where IPv6 is unavailable. SIGTERM/SIGINT:
- * stop accepting connections, let in-flight deliveries finish (a vendor whose request is cut retries it), close the
- * nonce store and the database pool, exit 0, within SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3).
+ * nonce store (Redis in staging/production when `REDIS_URL` is set, memory otherwise) → follow-ups (composer at
+ * COMPOSER_URL, Temporal at TEMPORAL_ADDRESS for journeyBuild and playbooks) → Hono app → listen on `PORT` (fallback
+ * `INGEST_PORT`) on host `::` with a 0.0.0.0 fallback where IPv6 is unavailable. SIGTERM/SIGINT: stop accepting
+ * connections, let in-flight deliveries and their follow-ups finish (a vendor whose request is cut retries it), close
+ * Temporal, the nonce store and the database pool, exit 0, within SHUTDOWN_TIMEOUT_MS (docs/DEPLOY.md §3).
  */
 import { serve, type ServerType } from "@hono/node-server";
 import { APP_NAME, FLAGS } from "@foundmill/config";
-import { createDefaultRegistry, platformSecretsFromEnv, type BusinessResolver, type ConnectorRegistry } from "@foundmill/connectors";
+import { createDefaultRegistry, mockWebhooksAllowed, platformSecretsFromEnv, type BusinessResolver, type ConnectorRegistry } from "@foundmill/connectors";
 import { closeDb, createServiceDb, type Db } from "@foundmill/db";
-import { loadEnv, servicePort, type Env } from "@foundmill/shared";
+import { liveConnectorKeys, loadEnv, servicePort, type Env } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createVault, type Vault } from "@foundmill/shared/crypto";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
 import { createIngestApp, type CreatedIngestApp, type IngestApp } from "./app";
+import { createComposerNarrator, type ComposerNarrator } from "./composer-client";
 import { prepareDb } from "./db-boot";
+import { createFollowups, type IngestFollowups } from "./followups";
 import { MemoryNonceStore, RedisNonceStore, type NonceStore, type RedisNonceClient } from "./nonce-store";
 import { createBusinessSecretResolver } from "./secrets";
 import { simulateEnabledFor, simulateRoutesMounted } from "./simulate";
 import { silentLogger, type IngestDeps, type IngestLogger } from "./types";
+import { createTemporalStarter, type WorkflowStarter } from "./workflows";
 
 export * from "./types";
 export * from "./nonce-store";
 export * from "./replay";
 export * from "./secrets";
 export * from "./conversions";
+export * from "./customers";
+export * from "./composer-client";
+export * from "./workflows";
+export * from "./playbooks";
+export * from "./followups";
 export * from "./ingest";
 export * from "./webhooks";
 export * from "./simulate";
@@ -57,11 +66,19 @@ export interface BuildIngestOptions {
   simulateEnabled?: boolean;
   /** Secret the Simulate service token is verified with (defaults to `SESSION_TOKEN_SECRET`; null refuses every request). */
   simulateTokenSecret?: string | null;
+  /** Narrates a customer won (defaults to the composer at COMPOSER_URL; null leaves narration to journeyBuild). */
+  composer?: ComposerNarrator | null;
+  /** Starts journeyBuild and playbooks (defaults to Temporal at TEMPORAL_ADDRESS, main task queue). */
+  workflows?: WorkflowStarter;
+  /** Replaces the whole after-commit pipeline (tests). */
+  followups?: IngestFollowups;
 }
 
 export interface BuiltIngest extends CreatedIngestApp {
   deps: IngestDeps;
   env: Env;
+  /** The Temporal starter the follow-ups use (closed at shutdown). */
+  workflows: WorkflowStarter | null;
 }
 
 /** Assembles the production dependency graph; every piece can be replaced (tests pass PGlite, a pinned clock and a memory store). */
@@ -71,8 +88,10 @@ export function buildIngest(options: BuildIngestOptions = {}): BuiltIngest {
   const db = options.db ?? createServiceDb();
   const now = options.now ?? (() => new Date());
 
+  const liveConnectors = liveConnectorKeys({ LIVE_CONNECTORS: env.LIVE_CONNECTORS ?? "" });
   let vault: Vault | null = options.vault === undefined ? null : options.vault;
-  if (options.vault === undefined && env.INTEGRATIONS_MODE === "live") {
+  // Any live webhook may verify with a business's own secret (Stripe endpoint secret, Shopify custom app...).
+  if (options.vault === undefined && (env.INTEGRATIONS_MODE === "live" || liveConnectors.length > 0)) {
     try {
       vault = createVault(env);
     } catch (e) {
@@ -90,10 +109,19 @@ export function buildIngest(options: BuildIngestOptions = {}): BuiltIngest {
       getBusinessSecret: createBusinessSecretResolver(db, vault, log),
     });
 
+  let workflows: WorkflowStarter | null = null;
+  let followups = options.followups;
+  if (!followups) {
+    workflows = options.workflows ?? createTemporalStarter({ address: env.TEMPORAL_ADDRESS, namespace: env.TEMPORAL_NAMESPACE, taskQueue: env.TEMPORAL_TASK_QUEUE, log });
+    const composer = options.composer === undefined ? createComposerNarrator({ baseUrl: env.COMPOSER_URL }) : options.composer;
+    followups = createFollowups({ db, composer, workflows, log });
+  }
+
   const deps: IngestDeps = {
     db,
     registry,
     mode: env.INTEGRATIONS_MODE,
+    liveConnectors,
     nonces: options.nonces ?? new MemoryNonceStore(),
     log,
     now,
@@ -102,12 +130,14 @@ export function buildIngest(options: BuildIngestOptions = {}): BuiltIngest {
     env: { APP_ENV: env.APP_ENV },
     simulateEnabled: options.simulateEnabled ?? simulateEnabledFor(env.APP_ENV, FLAGS.devSimulatePanel),
     simulateTokenSecret: options.simulateTokenSecret === undefined ? (env.SESSION_TOKEN_SECRET ?? null) : options.simulateTokenSecret,
+    followups,
   };
   if (simulateRoutesMounted(deps) && !deps.simulateTokenSecret) {
     log.warn({ env: env.APP_ENV }, "Simulate routes are enabled but SESSION_TOKEN_SECRET is not set: every simulate request will be refused (401)");
   }
+  if (env.INTEGRATIONS_MODE === "mock" && !mockWebhooksAllowed(env.APP_ENV)) log.info({ env: env.APP_ENV, liveConnectors }, "mock webhooks are not mounted outside development and test; staging fabricates events through Simulate");
   const created = createIngestApp(deps);
-  return { ...created, deps, env };
+  return { ...created, deps, env, workflows };
 }
 
 /**
@@ -189,6 +219,7 @@ export async function main(): Promise<void> {
   const db = createServiceDb();
   let running: RunningIngest | null = null;
   let nonces: NonceStore | null = null;
+  let built: BuiltIngest | null = null;
   const lifecycle = onShutdown({
     service: "ingest",
     log,
@@ -202,6 +233,15 @@ export async function main(): Promise<void> {
           if (forced > 0) log.warn({ forced }, "ingest: connections still open at the drain deadline were cut");
         },
       },
+      {
+        name: "finish follow-ups",
+        run: async ({ remainingMs }) => {
+          if (!built) return;
+          // Narration and workflow starts of deliveries already acknowledged; past the budget they are left to Refresh.
+          await Promise.race([built.deps.followups.idle(), new Promise((r) => setTimeout(r, Math.max(0, remainingMs - 5_000)).unref())]);
+        },
+      },
+      { name: "close temporal", run: () => built?.workflows?.close() },
       { name: "close nonce store", run: () => nonces?.close?.() },
       { name: "close database", run: () => closeDb(db) },
     ],
@@ -209,7 +249,7 @@ export async function main(): Promise<void> {
   // PGlite boots + migrates here; a locked directory or an unreachable Postgres is one clear line and /health says db:false.
   const readiness = await prepareDb(db, log, { service: "ingest" });
   nonces = await createNonceStore(env, log);
-  const built = buildIngest({ env, db, nonces, log });
+  built = buildIngest({ env, db, nonces, log });
   const port = servicePort(env, "INGEST_PORT");
   if (lifecycle.stopping) return;
   running = await listenIngest(built.app, port, log);

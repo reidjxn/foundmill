@@ -27,6 +27,8 @@ export type StrongIdentifier = (typeof STRONG_IDENTIFIERS)[number];
 export const Identifiers = z.record(z.string(), z.unknown()).refine((o) => Object.values(o).every((v) => v === null || typeof v === "string"), { message: "identifiers are strings" });
 
 export const CreateEntityInput = z.object({
+  /** A caller-chosen id (ingest keys a payer's record by a business-scoped id derived from the vendor's customer id). */
+  id: Id.optional(),
   kind: z.enum(ENTITY_KINDS),
   displayName: z.string().trim().min(1).max(200),
   aliases: z.array(z.string().trim().min(1).max(200)).default([]),
@@ -40,7 +42,7 @@ export const CreateEntityInput = z.object({
 });
 export type CreateEntityInput = z.input<typeof CreateEntityInput>;
 
-export const UpdateEntityInput = patchSchema(CreateEntityInput.omit({ kind: true }));
+export const UpdateEntityInput = patchSchema(CreateEntityInput.omit({ id: true, kind: true }));
 export type UpdateEntityInput = z.input<typeof UpdateEntityInput>;
 
 export const EntityListFilter = PageInput.extend({
@@ -218,6 +220,7 @@ export const entitiesRepo = {
       await db
         .insert(entities)
         .values({
+          ...(v.id ? { id: v.id } : {}),
           businessId,
           kind: v.kind,
           displayName: v.displayName,

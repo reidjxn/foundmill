@@ -95,6 +95,7 @@ Money is `{ amountMinor: number; currency: string }` (minor units, `bigint` in t
 - Contract exactly BUILD §13.1. `registry.get(key)` returns the real connector or `connector.mock` depending on `INTEGRATIONS_MODE`.
 - Each connector folder: `index.ts` (real), `mock.ts`, `tools.ts` (tool definitions + policyHints), `webhooks.ts`, `fixtures/`, `*.test.ts` (contract tests against fixtures).
 - Mock connectors are deterministic and can `simulate(eventName, params)` to emit platform events (used by the dev-only Simulate panel and by tests).
+- Mock webhooks verify against secrets committed in `fixtures/`, so `registry.mountableWebhooks({ mode, appEnv, liveConnectors })` mounts them in development and test only; in staging and production a connector's webhook is mounted only when it runs live (`INTEGRATIONS_MODE=live` or `LIVE_CONNECTORS`), and ingest writes a delivery only for a business whose integration for that connector is connected.
 
 ## 9. Gateway (`apps/gateway`)
 
@@ -114,12 +115,12 @@ HTTP (JSON), service-to-service auth with `SESSION_TOKEN_SECRET`-signed JWTs (`j
 - `agentSession(agentId, taskId)`: mints a gateway session token, acquires a sandbox (`packages/sandbox`), runs the Claude Agent SDK (live) or the recorded replay (mock), streams to `as:{sessionId}`, writes `usage_ledger`, heartbeats, loop detection, pauses on `approval` signal. Code tasks start from the task's latest saved workspace (restored before the session token is minted, so its recipients are untrusted from the first call) and save it again when the session ends, without secret files, credential values or start-up files (`workspace_snapshots` / `workspace_blobs`, written by the orchestrator only; read on Development › Code; owners and admins may forget a task's code). Each save is then pushed to the task's branch `agent/<taskId>` on the business's chosen repository with the GitHub connector's `commit_files`, through the gateway with a token for that one tool; the result is recorded on the save.
 - Keys (BUILD §10.2): `deps.models` is `createBusinessModelClient` (`src/models.ts`) over the platform client. A call whose `attribution.businessId` names a business on its own key (`model_billing = byok`) runs on that key, decrypted here through `loadByokApiKey` (packages/db), cached per key for 30 s and booked as `byok`; in live mode a business on its own key with no readable key is refused (`missing_api_key`), never run on the platform's credits; in mock mode it gets a mock client that books to `byok`. Sessions resolve the same key for the Agent SDK and are blocked with reason `credential` when it is missing.
 - Signals: `decision`, `shout`, `pause`, `resume`, `stop`, `founderSubmit`, `wake`. Queries: `progress`.
-- `apps/api` starts workflows through `@temporalio/client`; workflow ids are deterministic: `cycle:{businessId}:{n}`, `session:{sessionId}`, `engine:{channelId}`, `holiday:{holidayId}`, `foundations:{businessId}:{attempt}`.
+- `apps/api` starts workflows through `@temporalio/client`; workflow ids are deterministic: `cycle:{businessId}:{n}`, `session:{sessionId}`, `engine:{channelId}`, `holiday:{holidayId}`, `foundations:{businessId}:{attempt}`. `apps/ingest` starts `journeyBuild` for a conversion that won a customer (`journey:{conversionId}`) and a `playbook` run for every enabled playbook whose event trigger an ingested event matches (`playbook:{playbookId}:{eventId}`), after the delivery commits.
 - When `TEMPORAL_ADDRESS` is unreachable in development, `pnpm dev` prints how to start `temporal server start-dev`.
 
 ## 11. Composer (`apps/composer`)
 
-- `POST /v1/narrate` `{ businessId, eventIds }` → writes one `inbox_items` row (schema BUILD §11.3, validated with Zod, links validated by entity-linker, one re-ask on invalid ids) and returns it.
+- `POST /v1/narrate` `{ businessId, eventIds }` → writes one `inbox_items` row (schema BUILD §11.3, validated with Zod, links validated by entity-linker, one re-ask on invalid ids) and returns it. Ingest calls it with a `customer.converted` that plays a full Customer Update as soon as the payment commits (AC-11.4.1); journeyBuild narrates it instead when that call failed.
 - `POST /v1/refresh` `{ businessId }` → exactly one new item from the buffer (priority: un-narrated event → data-change insight → next-best decision); refills the 3-item buffer asynchronously; debounced 3 s per business; p95 < 400 ms warm.
 - `POST /v1/commentary` `{ journeyId }` → commentary lines for a Customer Update. `POST /v1/chapter-title` for quarters.
 
@@ -182,7 +183,7 @@ WebSocket at `/?token=<supabase access token | dev token>`. Client → server: `
 - Every backend service is built from the root `Dockerfile` (one image, `APP` build arg selects the package) and started with `pnpm --filter @foundmill/<app> start`.
 - Railway's private network is IPv6-only: HTTP and WebSocket servers must listen on host `::` (not `127.0.0.1`, and prefer `::` over `0.0.0.0`). Read the port from `PORT` first (see §3).
 - Internal URLs between services use `http://<service>.railway.internal:<port>` (e.g. `GATEWAY_URL=http://gateway.railway.internal:4001`, `TEMPORAL_ADDRESS=temporal.railway.internal:7233`, `REDIS_URL` from the Railway Redis service).
-- Public URLs exist only for `api` (tRPC), `stream` (WebSocket), `ingest` (webhooks) and the Vercel-hosted `web`.
+- Public URLs exist only for `api` (tRPC), `stream` (WebSocket), `ingest` (webhooks) and the Vercel-hosted `web`. Staging runs `INTEGRATIONS_MODE=mock`, and ingest mounts no mock webhook there (§8): only `LIVE_CONNECTORS` webhooks, verified with real secrets.
 - `web` on Vercel has root directory `apps/web`; it reads `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_STREAM_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 
 ## 18. Widget and module data contract

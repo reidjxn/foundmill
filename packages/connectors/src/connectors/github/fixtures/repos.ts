@@ -2,6 +2,7 @@
 import { stableHash } from "../../../mock-utils";
 import type { GhPullRequest, GhRepository } from "../tools";
 
+/** Public test secret: signs mock deliveries in development and test only; ingest never mounts mock webhooks in staging or production (`mockWebhooksAllowed`). */
 export const MOCK_GITHUB_WEBHOOK_SECRET = "mock-github-webhook-secret";
 export const MOCK_INSTALLATION_ID = 48213377;
 export const MOCK_OWNER = "northwind-skincare";

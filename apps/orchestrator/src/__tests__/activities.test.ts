@@ -192,7 +192,7 @@ describe("journey build (BUILD §11.4)", () => {
     expect(result.matchdayLevel).toBe("cup");
     expect(result.journeyId).toBeTruthy();
     expect(result.eventId).toBeTruthy();
-    const journey = await repos.journeys.get(t.db, t.businessId, result.journeyId);
+    const journey = await repos.journeys.get(t.db, t.businessId, result.journeyId!);
     expect(journey.touchIds.length).toBe(2);
     expect(Object.values(journey.weights as Record<string, number>).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
     // Idempotent: a second build reuses the row and emits nothing new.

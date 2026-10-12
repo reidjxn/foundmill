@@ -38,7 +38,8 @@ export const journeyRouter = router({
       const range = { from: new Date(from), to: new Date(`${to}T23:59:59.999Z`) };
       const [rows, conversions, milestones, counts] = await Promise.all([
         repos.journeys.dailyRange(tx, ctx.businessId, { from, to, departmentId: input.departmentId }),
-        input.slim ? Promise.resolve({ items: [] }) : repos.journeys.listConversions(tx, ctx.businessId, { ...range, limit: 500 }),
+        // Customers won (and signups, activations): a renewal or a repeat order is revenue in the daily rows, not a marker.
+        input.slim ? Promise.resolve({ items: [] }) : repos.journeys.listConversions(tx, ctx.businessId, { ...range, firstPayment: true, limit: 500 }),
         repos.journeys.listMilestones(tx, ctx.businessId, {}),
         repos.journeys.countConversions(tx, ctx.businessId, range),
       ]);
@@ -59,7 +60,7 @@ export const journeyRouter = router({
     ctx.rls(async (tx) => {
       const from = new Date(`${input.day}T00:00:00.000Z`);
       const to = new Date(`${input.day}T23:59:59.999Z`);
-      const conversions = await repos.journeys.listConversions(tx, ctx.businessId, { from, to, limit: 500 });
+      const conversions = await repos.journeys.listConversions(tx, ctx.businessId, { from, to, firstPayment: true, limit: 500 });
       // Every conversion of one day, named, for the Ribbon's hover card and day digest (the ribbon query only carries the latest 500).
       const labelled = await repos.journeys.labelConversions(tx, ctx.businessId, conversions.items);
       return { day: input.day, conversions: labelled.map((c) => ({ ...c, occurredAt: c.occurredAt.toISOString() })) };

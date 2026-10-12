@@ -387,10 +387,15 @@ export interface IncorporationInput {
 export interface JourneyBuildInput {
   businessId: string;
   conversionId: string;
+  /** The `customer.converted` ingest wrote for the conversion (absent when the workflow builds a journey from nothing). */
+  convertedEventId?: string | null;
+  /** Ingest could not narrate the win: narrate `convertedEventId` if it is still un-narrated. */
+  narrate?: boolean;
 }
 
 export interface JourneyBuildResult {
-  journeyId: string;
+  /** Null for a repeat payment, which has no Customer Update. */
+  journeyId: string | null;
   matchdayLevel: "friendly" | "league" | "cup";
   fullMatchDay: boolean;
   eventId: string | null;

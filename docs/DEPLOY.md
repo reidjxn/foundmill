@@ -57,7 +57,7 @@ Per service:
 | gateway | none beyond shared |
 | composer | none beyond shared |
 | stream | none beyond shared (public domain stream.foundmill.com) |
-| ingest | `STRIPE_WEBHOOK_SECRET`, `SENDGRID_WEBHOOK_PUBLIC_KEY`, `GITHUB_WEBHOOK_SECRET` when those webhooks go live (public domain ingest.foundmill.com) |
+| ingest | `COMPOSER_URL=http://composer.railway.internal:4002` (narrates a customer won on arrival), `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE=default`, `TEMPORAL_TASK_QUEUE=foundmill` (starts journeyBuild and playbooks); `STRIPE_WEBHOOK_SECRET`, `SENDGRID_WEBHOOK_PUBLIC_KEY`, `GITHUB_WEBHOOK_SECRET` when those webhooks go live (public domain ingest.foundmill.com). Mock webhooks are never mounted in staging or production (their secrets are in the repository): a connector's webhook exists there only when it runs live (`LIVE_CONNECTORS`), and only for businesses that connected it; staging fabricates events through Settings › Integrations › Simulate |
 | orchestrator | `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE=default`, `TEMPORAL_TASK_QUEUE=foundmill`, `GATEWAY_URL`, `COMPOSER_URL` |
 
 Before a service can be connected to the repository, Railway's GitHub app must be granted access to `reidjxn/foundmill` (Railway → Account settings → Integrations → GitHub → Configure); until then `serviceConnect` answers "User does not have access to the repo" and nothing builds. The three public subdomains need CNAME records at Spaceship (Railway reports `DNS_RECORD_STATUS_REQUIRES_UPDATE` until they exist):
