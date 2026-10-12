@@ -14,7 +14,7 @@ import { closeDb, createServiceDb, repos, type Db } from "@foundmill/db";
 import { createDefaultRegistry, platformSecretsFromEnv, type ConnectorRegistry } from "@foundmill/connectors";
 import { createModelClient, effectiveModelMode, type ModelClient } from "@foundmill/models";
 import { createGatewayApp, type GatewayApp } from "./app";
-import { createGatewayBuiltins } from "./builtins";
+import { createGatewayBuiltins, gatewayUsageSink } from "./builtins";
 import { gatewayConfig, type GatewayConfig } from "./config";
 import { prepareDb, type DbReadiness } from "./db-boot";
 import { type GatewayDeps, type GatewayLogger } from "./pipeline";
@@ -85,8 +85,10 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
     });
     // The task board, typed messages, web reads and the quarantined reader are served here like any connector (BUILD §9.9).
     const mode = effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log);
-    const models = options.models ?? createModelClient({ mode, apiKey: env.ANTHROPIC_API_KEY, logger: log });
-    for (const connector of createGatewayBuiltins({ db, vault, models, mode, log, live: { secrets } })) registry.register(connector);
+    // Every model call made here (the quarantined reader) is booked to the business that asked, like any other service's.
+    const onUsage = gatewayUsageSink(db, log);
+    const models = options.models ?? createModelClient({ mode, apiKey: env.ANTHROPIC_API_KEY, logger: log, onUsage });
+    for (const connector of createGatewayBuiltins({ db, vault, models, mode, log, onUsage, live: { secrets } })) registry.register(connector);
   }
 
   let rateLimitStoreKind: "memory" | "redis" = "memory";

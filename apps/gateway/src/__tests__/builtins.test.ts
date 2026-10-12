@@ -194,5 +194,10 @@ describe("web reads and the quarantined reader", () => {
     expect(Object.keys((r.result.data as { content: { values: Record<string, unknown> } }).content.values).sort()).toEqual(["amount", "vendor"]);
     const usage = await repos.usage.list(db, worker.businessId, { sessionId: worker.sessionId, kind: "tool" });
     expect(usage.items.some((u) => (u.details as { connector?: string }).connector === "quarantine")).toBe(true);
+    // The reader's model call is booked as tokens to the agent and session that asked, on the platform's credits.
+    const tokens = await repos.usage.list(db, worker.businessId, { sessionId: worker.sessionId, kind: "tokens" });
+    const read = tokens.items.find((u) => (u.details as { route?: string }).route === "quarantinedReader");
+    expect(read).toMatchObject({ agentId: worker.agentId, sessionId: worker.sessionId, billedTo: "credits", details: { service: "gateway", kind: "quarantined_reader" } });
+    expect(Number(read!.quantity)).toBeGreaterThan(0);
   });
 });

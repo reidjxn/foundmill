@@ -3,7 +3,8 @@
  * page, a supplier quote) and the names of the fields it needs; a separate model call with no tools (Haiku, route
  * `quarantinedReader`) returns those fields as typed values and nothing else, so instructions inside the content never
  * reach an agent that can act. The model call is the host's (`LiveConnectorOptions.quarantinedReader`, the gateway's
- * metered client); the mock runs the deterministic mock model. Not part of CONNECTOR_FACTORIES.
+ * metered client, which books its tokens to the business: the tool call itself costs nothing more); the mock runs the
+ * deterministic mock model. Not part of CONNECTOR_FACTORIES.
  */
 import { z } from "zod";
 import { createModelClient, QuarantinedReaderOutput, QuarantinedValue, type ChatMessage } from "@foundmill/models";
@@ -17,8 +18,6 @@ export const QUARANTINE_KEY = "quarantine";
 export const QUARANTINE_RATE_LIMITS = { perMinute: 60, perDay: 5_000 };
 /** Longest content handed to the reader (characters); longer content is cut and the result says so. */
 export const QUARANTINE_MAX_CHARS = 60_000;
-/** Estimated cost of one read on the routed `quarantinedReader` model, minor units (USD cents). Estimate. */
-export const QUARANTINE_READ_COST_MINOR = 1;
 
 /** The reader's instruction (packages/agents `quarantined_reader`, BUILD §12.7), with the field list as the schema. */
 export function quarantinedReaderRequest(fields: readonly string[], content: string): { system: string; messages: ChatMessage[] } {
@@ -41,7 +40,6 @@ export const quarantineTools = [
     // The values still came from third-party content: an address among them counts as first seen in untrusted content.
     untrusted: "document",
     untrustedRef: (a) => `quarantined-reader:${a.fields.join(",").slice(0, 120)}`,
-    costMinor: () => QUARANTINE_READ_COST_MINOR,
     annotations: { readOnlyHint: true },
   }),
 ] as const;
