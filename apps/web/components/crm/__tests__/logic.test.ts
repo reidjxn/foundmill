@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityItems, applyChipFilters, commercialSummary, deletionRequestNote, documentItems, exportEntityJson, groupByForView, groupCounts, introPaths, isEntityTab, leadScore, mergeBanner, relationshipStrength, rowFromEntity, rowsFromSearch, strengthRating, CRM_VIEWS, type EntityGet, type RelationshipRecord } from "../logic";
+import { activityItems, applyChipFilters, commercialSummary, deletionRequestNote, documentItems, exportEntityJson, groupByForView, groupCounts, introPaths, isCustomerWin, isEntityTab, leadScore, mergeBanner, relationshipStrength, rowFromEntity, rowsFromSearch, strengthRating, CRM_VIEWS, type EntityGet, type RelationshipRecord } from "../logic";
 import { parseCrmQuery } from "../search";
 
 const entity = (over: Record<string, unknown> = {}) => ({ id: "e1", businessId: "b", kind: "person", displayName: "Ana Lind", aliases: [], avatarUrl: null, identifiers: { email: "ana@example.com" }, lawfulBasis: "contract", source: "stripe", embedding: null, search: null, visibility: "private", agentId: null, mergedIntoId: null, createdAt: new Date("2026-01-10"), updatedAt: new Date("2026-09-01"), archivedAt: null, ...over });
@@ -73,11 +73,25 @@ describe("profile derivations", () => {
     const items = activityItems({ interactions: [{ id: "i1", kind: "email", occurredAt: new Date("2026-03-01"), direction: "inbound", summary: "Asked about pricing", agentId: null, contentRef: "vault://x" }], mentions: [{ id: "m1", containerKind: "inbox_item", containerId: "n1", createdAt: new Date("2026-05-01") }], conversions } as never, { inbox: (id) => `/inbox/${id}`, journey: (id) => `/j/${id}` });
     expect(items.map((i) => i.id)).toEqual(["m-m1", "c-c3", "i-i1", "c-c2", "c-c1"]);
     expect(items[0]!.href).toBe("/inbox/n1");
+    expect(items.find((i) => i.id === "c-c2")).toMatchObject({ title: "Payment", href: "/j/c2" });
     const docs = documentItems({ interactions: [{ id: "i1", kind: "email", occurredAt: new Date(), summary: "", contentRef: "vault://x" }], mentions: [{ id: "m2", containerKind: "spec_block", containerId: "s1", createdAt: new Date() }] } as never, { inbox: (id) => id });
     expect(docs.map((d) => [d.kind, d.encrypted])).toEqual([
       ["email", true],
       ["spec_block", false],
     ]);
+  });
+  it("a renewal or repeat order is revenue with no replay link; only wins open a Customer Update", () => {
+    const conversions = [
+      { id: "c1", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-02-01"), firstPayment: true },
+      { id: "c2", kind: "payment", amountMinor: 4900, currency: "EUR", occurredAt: new Date("2026-03-01"), firstPayment: false },
+    ] as never[];
+    expect(commercialSummary(conversions as never, "EUR")).toMatchObject({ payments: 2, totalMinor: 9800 });
+    const items = activityItems({ interactions: [], mentions: [], conversions } as never, { inbox: (id) => `/inbox/${id}`, journey: (id) => `/j/${id}` });
+    expect(items.map((i) => [i.id, i.title, i.href])).toEqual([
+      ["c-c2", "Repeat payment", undefined],
+      ["c-c1", "Payment", "/j/c1"],
+    ]);
+    expect((conversions as { id: string; firstPayment: boolean }[]).filter(isCustomerWin).map((c) => c.id)).toEqual(["c1"]);
   });
 });
 

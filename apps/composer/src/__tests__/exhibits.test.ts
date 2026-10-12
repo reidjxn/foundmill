@@ -49,6 +49,15 @@ describe("named query registry", () => {
     expect(cash!.rows![0]).toMatchObject({ currency: "EUR", balance_minor: 1_234_500 });
   });
 
+  it("conversions_30d counts customers won: a renewal or a repeat order is revenue, not a payment conversion (audit JM-02)", async () => {
+    const payments = async () => (await runNamedQuery(hz.db, hz.B.businessId, "conversions_30d"))!.series!.find((s) => s.key === "payment")!.points.reduce((n, p) => n + Number(p.y), 0);
+    const before = await payments();
+    const at = new Date(Date.now() - 60_000);
+    await repos.journeys.recordConversion(hz.db, hz.B.businessId, { kind: "payment", amountMinor: 4_900, currency: "EUR", occurredAt: at });
+    await repos.journeys.recordConversion(hz.db, hz.B.businessId, { kind: "payment", amountMinor: 4_900, currency: "EUR", occurredAt: at, firstPayment: false });
+    expect(await payments()).toBe(before + 1);
+  });
+
   it("sanitizeExhibit downgrades anything outside the registry to none and corrects the kind", () => {
     expect(sanitizeExhibit({ kind: "chart", spec_ref: "made_up" })).toEqual({ kind: "none", spec_ref: null });
     expect(sanitizeExhibit({ kind: "chart", spec_ref: null })).toEqual({ kind: "none", spec_ref: null });

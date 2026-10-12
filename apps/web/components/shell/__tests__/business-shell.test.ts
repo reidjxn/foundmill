@@ -50,6 +50,13 @@ describe("shell cycle reducer", () => {
   });
 });
 
+describe("payments on the stream (audit JM-02)", () => {
+  it("a renewal, which writes payment.received and no customer.converted, still refetches revenue", () => {
+    expect(INVALIDATE_ON_EVENT["payment.received"]).toEqual(expect.arrayContaining(["finance", "journey"]));
+    expect(INVALIDATE_ON_EVENT["payment.received"]).not.toContain("inbox");
+  });
+});
+
 describe("foundations progress on the stream (audit P3)", () => {
   it("foundations.progressed refetches the foundations query only, which the dotted prefix reaches", async () => {
     expect(INVALIDATE_ON_EVENT["foundations.progressed"]).toEqual(["product.foundations"]);

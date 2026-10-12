@@ -10,10 +10,11 @@
  * business's recent paths, and the models actually used, which journey.get labels the record with. The founder's
  * viewed state is kept; the event ingest wrote is not repeated. A repeat payment has no journey to build.
  */
+import { ApplicationFailure } from "@temporalio/common";
 import { LIMITS } from "@foundmill/config";
 import { archetypePrior, buildJourney, buildMarkovModel, conversionPathsFromTouches, trainXcModel, Touch, TouchKind, xcSamplesFromPaths, type ConsentState, type MarkovModel, type XcModel } from "@foundmill/journey";
 import { repos } from "@foundmill/db";
-import type { Archetype, ChannelKey } from "@foundmill/shared";
+import { AppError, type Archetype, type ChannelKey } from "@foundmill/shared";
 import { ComposerRequestError, ComposerUnavailableError } from "../composer-client";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
@@ -23,6 +24,15 @@ const DAY_MS = 86_400_000;
 /** How far back the paths the data-driven models are fitted on reach, and how many touches at most. */
 export const TRAINING_WINDOW_DAYS = 180;
 export const TRAINING_MAX_TOUCHES = 5_000;
+/** ApplicationFailure type of a narration the composer refused (not retried). */
+export const COMPOSER_REFUSED = "composer_refused";
+
+/**
+ * The composer's own 4xx verdict on a request (unknown event or journey, links still invalid after its re-ask): the same
+ * request gets the same answer, so it is not retried. Read from the error's status, so it holds for any composer client
+ * error that carries the HTTP status (a `ComposerUnavailableError` is an outage: 503).
+ */
+export const composerRefused = (err: unknown): err is AppError => err instanceof AppError && err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429;
 
 export function createJourneyActivities(deps: OrchestratorDeps) {
   /** The models fitted on the business's recent labeled paths, when it has enough conversions for them to be used. */
@@ -100,16 +110,20 @@ export function createJourneyActivities(deps: OrchestratorDeps) {
         attributionModel: journey.attributionModel,
         xcModelSource: journey.xcModelSource,
       });
-      // Commentary is Sonnet's job in apps/composer; the journey stands without it, whether the composer is down or
-      // turned the request down (a 4xx), so the win is still announced.
-      try {
-        const c = await deps.composer.commentary({ businessId, journeyId: row.id });
-        if (c.lines.length > 0) await repos.journeys.setCommentary(db, businessId, row.id, c.lines);
-      } catch (err) {
-        if (!(err instanceof ComposerUnavailableError) && !(err instanceof ComposerRequestError)) throw err;
-        deps.log.warn({ businessId, journeyId: row.id, err: err.message }, "journey commentary skipped");
-      }
       const fullMatchDay = journey.fullMatchDay;
+      // Commentary is Sonnet's job in apps/composer; the journey stands without it, whether the composer is down or
+      // turned the request down (a 4xx), so the win is still announced. One model call per full Customer Update, written
+      // once: a conversion that rolls into the daily round-up (after the 100th of its kind) gets none, so a business with
+      // thousands of signups does not pay for a call per signup, and a retried build does not pay twice.
+      if (fullMatchDay && (existing?.commentary.length ?? 0) === 0) {
+        try {
+          const c = await deps.composer.commentary({ businessId, journeyId: row.id });
+          if (c.lines.length > 0) await repos.journeys.setCommentary(db, businessId, row.id, c.lines);
+        } catch (err) {
+          if (!(err instanceof ComposerUnavailableError) && !(err instanceof ComposerRequestError) && !composerRefused(err)) throw err;
+          deps.log.warn({ businessId, journeyId: row.id, err: err instanceof Error ? err.message : String(err) }, "journey commentary skipped");
+        }
+      }
       let eventId: string | null = null;
       // Ingest wrote customer.converted with its first pass; only a journey built from nothing announces the win here.
       if (conversion.entityId && !existing) {
@@ -140,13 +154,20 @@ export function createJourneyActivities(deps: OrchestratorDeps) {
 
     /**
      * Narrates a `customer.converted` that is still un-narrated (ingest's own narration failed): the customer_won item
-     * arrives late rather than never. A composer outage throws so Temporal retries with backoff.
+     * arrives late rather than never. A composer outage throws so Temporal retries with backoff; a refusal (a 4xx: the
+     * note still had invalid links after the composer's own re-ask, or the event is unknown) is not retried, since every
+     * attempt would pay for the same model calls again. The event stays un-narrated for Refresh.
      */
     async narrateConversion(input: { businessId: string; eventId: string }): Promise<{ narrated: boolean; inboxItemId: string | null }> {
       const event = await repos.events.get(deps.db, input.businessId, input.eventId);
       if (event.narrated) return { narrated: false, inboxItemId: null };
-      const out = await deps.composer.narrate({ businessId: input.businessId, eventIds: [event.id] });
-      return { narrated: true, inboxItemId: out.inboxItemId };
+      try {
+        const out = await deps.composer.narrate({ businessId: input.businessId, eventIds: [event.id] });
+        return { narrated: true, inboxItemId: out.inboxItemId };
+      } catch (err) {
+        if (composerRefused(err)) throw ApplicationFailure.create({ message: err.message, type: COMPOSER_REFUSED, nonRetryable: true, details: [{ code: err.code, status: err.status }] });
+        throw err;
+      }
     },
   };
 }
