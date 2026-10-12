@@ -7,7 +7,8 @@
  * - hands the Agent SDK what is spendable as its `maxBudgetUsd`, so the SDK itself stops past it;
  * - books what it spends as it goes (every finished turn and every `SESSION_CREDIT_CHECK_MS`), through `bookUsage` like
  *   every other sink, so concurrent sessions and the api see one balance; the charge that empties it stops the team;
- * - ends cleanly (`blocked`, reason `budget`) when the credits are used up, with what it spent booked.
+ * - ends cleanly (`blocked`, reason `budget`) when the credits are used up, with what it spent booked; a turn that
+ *   finished the task stays done (the task is not run again for the credit its last turn used).
  *
  * `finishSession` books only what the session has not booked yet (`repos.usage.sessionTokens`). A session on the
  * business's own key never comes here: its spend is the founder's, billed by Anthropic.
