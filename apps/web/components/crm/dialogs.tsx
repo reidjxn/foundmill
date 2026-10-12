@@ -139,7 +139,7 @@ export function MergeDialog({ businessId, source, open, onOpenChange, onMerged }
       <DialogContent size="md" data-testid="merge-dialog">
         <DialogHeader>
           <DialogTitle>Merge {source.displayName}</DialogTitle>
-          <DialogDescription>Roles, relationships, mentions, interactions and identifiers move to the record you keep. Merges are audited and can be undone exactly.</DialogDescription>
+          <DialogDescription>Roles, relationships, mentions, interactions and identifiers move to the record you keep. Merges are audited and can be undone: undoing one takes back only what it brought in, so later edits stay.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
           <Field htmlFor="merge-search" label={`Find the duplicate ${ENTITY_KIND_LABELS[source.kind].toLowerCase()}`}>

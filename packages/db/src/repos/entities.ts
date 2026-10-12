@@ -7,13 +7,17 @@
  * query embedding, pgvector cosine similarity. One score per row (the best signal wins, exact identifier
  * and prefix matches rank first) and the result is grouped by kind for the picker.
  *
- * `merge`/`unmerge` are reversible (AC-11.12.3): the merge_log row keeps an exact snapshot of both entity
- * rows and the ids of every CRM child row it re-pointed, so `unmerge` restores both records field for
- * field. Journey rows (visitors, touches, conversions) are never re-pointed — they are service-written and
- * resolve through `merged_into_id` (`resolve`).
+ * `merge`/`unmerge` are reversible (AC-11.12.3): the merge_log row keeps a snapshot of both entity rows
+ * as they were before the merge and the ids of every CRM child row it re-pointed. `unmerge` reverts only
+ * what the merge itself changed (the aliases, identifiers and empty fields it filled, where they still hold
+ * what the merge wrote, and the child rows it moved), so edits made since and later merges survive; it
+ * refuses, with the reason, while a later merge relies on what this one brought in. Journey rows (visitors,
+ * touches, conversions) are never re-pointed — they are service-written and resolve through
+ * `merged_into_id` (`resolve`).
  */
-import { ENTITY_KINDS, INTERACTION_KINDS, ValidationError, VISIBILITY, type EntityKind } from "@foundmill/shared";
+import { AppError, ENTITY_KINDS, INTERACTION_KINDS, ValidationError, VISIBILITY, type EntityKind } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import {
   ACTOR_BY_KINDS, entities, entityRoles, fieldProvenance, interactions, INTERACTION_DIRECTIONS, mentions, mergeLog, relationships,
@@ -46,8 +50,11 @@ export type UpdateEntityInput = z.input<typeof UpdateEntityInput>;
 export const EntityListFilter = PageInput.extend({
   kind: z.union([z.enum(ENTITY_KINDS), z.array(z.enum(ENTITY_KINDS))]).optional(),
   visibility: z.enum(VISIBILITY).optional(),
+  /** `role:` / `stage:` / `owner:` / `department:` filters on the entity's active roles (as in `SearchInput`). */
   role: z.string().max(80).optional(),
   stage: z.string().max(80).optional(),
+  ownerId: Id.optional(),
+  departmentId: Id.optional(),
   includeArchived: z.boolean().default(false),
   includeMerged: z.boolean().default(false),
 });
@@ -69,9 +76,15 @@ export const SearchInput = z.object({
 });
 export type SearchInput = z.input<typeof SearchInput>;
 
+/** An active role as the CRM list shows it (role, stage, owner); newest first per entity. */
+export type ActiveRole = Pick<EntityRole, "id" | "role" | "stage" | "ownerRef" | "startedAt" | "endedAt">;
+export type EntityWithRoles = Entity & { roles: ActiveRole[] };
+
 export type SearchMatch = "identifier" | "prefix" | "name" | "alias" | "text" | "meaning";
 export interface SearchHit {
   entity: Entity;
+  /** The entity's active roles, so a result row shows role, stage and owner like a listed one. */
+  roles: ActiveRole[];
   score: number;
   matchedOn: SearchMatch;
 }
@@ -138,12 +151,201 @@ export interface EntityProfile {
 
 /** What a merge_log row records so `unmerge` can put everything back. */
 interface MergeSnapshot {
+  /** Both rows as they were before the merge (SNAPSHOT_FIELDS, dates as ISO strings). */
   kept: Record<string, unknown>;
   merged: Record<string, unknown>;
-  moved: { roles: string[]; relationships: string[]; mentions: string[]; provenance: string[]; interactions: string[] };
+  /**
+   * The child rows the merge re-pointed. `sharedInteractions` (absent on merges logged before it existed) are the
+   * moved interactions that already listed the kept record: undoing the merge adds the merged record back to them
+   * instead of swapping the kept one out.
+   */
+  moved: { roles: string[]; relationships: string[]; mentions: string[]; provenance: string[]; interactions: string[]; sharedInteractions?: string[] };
 }
 
 const SNAPSHOT_FIELDS = ["displayName", "aliases", "avatarUrl", "identifiers", "lawfulBasis", "source", "visibility", "agentId", "mergedIntoId", "archivedAt"] as const;
+
+/** The kept record's fields a merge reads or writes. */
+interface MergeFields {
+  displayName: string;
+  aliases: string[];
+  identifiers: Record<string, unknown>;
+  avatarUrl: string | null;
+  lawfulBasis: string | null;
+  source: string | null;
+}
+/** Fields a merge fills on the kept record when they are empty there. */
+const FILLED_FIELDS = ["avatarUrl", "lawfulBasis", "source"] as const;
+type FilledField = (typeof FILLED_FIELDS)[number];
+
+/** A later merge that has to be undone before this one (it relies on what this one brought in). */
+export interface UnmergeBlocker {
+  mergeLogId: string;
+  /** "later_merge": a later merge into the same record; "absorbed": the kept record was itself merged away since. */
+  kind: "later_merge" | "absorbed";
+  /** The record the later merge absorbed, or the one the kept record was merged into. */
+  recordName: string;
+  /** What the later merge relies on, in words ("the email", "the name “Jon”"); empty for "absorbed". */
+  reasons: string[];
+}
+export type MergeHistoryEntry = MergeLogEntry & {
+  /** Why this open merge cannot be undone yet (a later merge relies on it), or null. */
+  undoBlocked: string | null;
+};
+
+const isEmpty = (v: unknown) => v === null || v === undefined || v === "";
+const has = (o: Record<string, unknown>, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+const fieldsOf = (s: Record<string, unknown>): MergeFields => ({
+  displayName: s.displayName as string,
+  aliases: (s.aliases as string[] | undefined) ?? [],
+  identifiers: (s.identifiers as Record<string, unknown> | undefined) ?? {},
+  avatarUrl: (s.avatarUrl as string | null | undefined) ?? null,
+  lawfulBasis: (s.lawfulBasis as string | null | undefined) ?? null,
+  source: (s.source as string | null | undefined) ?? null,
+});
+const namesOf = (e: Pick<MergeFields, "displayName" | "aliases">) => [e.displayName, ...e.aliases];
+
+/** What a merge writes on the kept record: the merged record's names become aliases; identifiers and empty fields are filled. */
+function mergedFields(kept: MergeFields, merged: MergeFields): Omit<MergeFields, "displayName"> {
+  const keptIdentifiers = Object.fromEntries(Object.entries(kept.identifiers).filter(([, v]) => !isEmpty(v)));
+  return {
+    aliases: uniq([...kept.aliases, ...namesOf(merged)].filter((a) => a !== kept.displayName)),
+    identifiers: { ...merged.identifiers, ...keptIdentifiers },
+    avatarUrl: kept.avatarUrl ?? merged.avatarUrl,
+    lawfulBasis: kept.lawfulBasis ?? merged.lawfulBasis,
+    source: kept.source ?? merged.source,
+  };
+}
+
+/**
+ * What undoing a merge changes on the kept record now. The merge's own changes are recomputed from its snapshot
+ * (`mergedFields` over the two pre-merge rows) and each is put back only where the record still holds what the merge
+ * wrote: the aliases it added go, the identifiers and empty fields it filled return to their pre-merge value. Anything
+ * edited since (a rename, a new email) and anything a later merge added is left alone.
+ */
+function revertPlan(snap: MergeSnapshot, current: MergeFields) {
+  const before = fieldsOf(snap.kept);
+  const after = mergedFields(before, fieldsOf(snap.merged));
+  const aliases = after.aliases.filter((a) => !before.aliases.includes(a) && current.aliases.includes(a));
+  const identifierKeys = uniq([...Object.keys(before.identifiers), ...Object.keys(after.identifiers)]).filter((k) => {
+    const changed = has(before.identifiers, k) !== has(after.identifiers, k) || before.identifiers[k] !== after.identifiers[k];
+    const stillAsMerged = has(current.identifiers, k) === has(after.identifiers, k) && current.identifiers[k] === after.identifiers[k];
+    return changed && stillAsMerged;
+  });
+  const fields = FILLED_FIELDS.filter((f) => before[f] !== after[f] && current[f] === after[f]);
+
+  const identifiers = { ...current.identifiers };
+  for (const k of identifierKeys) {
+    if (has(before.identifiers, k)) identifiers[k] = before.identifiers[k];
+    else delete identifiers[k];
+  }
+  const patch: Partial<Pick<Entity, "aliases" | "identifiers" | FilledField>> = { aliases: current.aliases.filter((a) => !aliases.includes(a)), identifiers: identifiers as Entity["identifiers"] };
+  for (const f of fields) patch[f] = before[f];
+  return { patch, aliases, identifierKeys, fields };
+}
+
+/** An identifier or filled field in words, for the reason Unmerge has to wait. */
+const IDENTIFIER_WORDS: Record<string, string> = { email: "email", domain: "domain", linkedin: "LinkedIn profile", reg_no: "company number", stripe_id: "Stripe customer", phone: "phone number" };
+const FIELD_WORDS: Record<FilledField, string> = { avatarUrl: "photo", lawfulBasis: "lawful basis", source: "source" };
+const identifierWord = (key: string) => IDENTIFIER_WORDS[key] ?? key.replace(/[_-]+/g, " ");
+const joinWords = (words: readonly string[]) => (words.length <= 2 ? words.join(" and ") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`);
+
+/** The founder-facing explanation of why a merge cannot be undone yet. */
+export function describeUnmergeBlockers(blockers: readonly UnmergeBlocker[]): string {
+  return blockers
+    .map((b) =>
+      b.kind === "absorbed"
+        ? `This record was merged into “${b.recordName}” afterwards. Undo that merge first.`
+        : `Undo the later merge of “${b.recordName}” first: it relies on what this merge brought in (${joinWords(b.reasons)}).`,
+    )
+    .join(" ");
+}
+
+/** Locks entity rows for the rest of the transaction, in id order so concurrent merges cannot deadlock. */
+async function lockEntities(db: Executor, businessId: string, ids: readonly string[]): Promise<Entity[]> {
+  return db
+    .select()
+    .from(entities)
+    .where(and(eq(entities.businessId, businessId), inArray(entities.id, [...ids])))
+    .orderBy(asc(entities.id))
+    .for("update");
+}
+
+/** Every merge-log row an entity took part in (kept or merged), newest first. */
+async function mergeLogsOf(db: Executor, businessId: string, entityId: string): Promise<MergeLogEntry[]> {
+  return db
+    .select()
+    .from(mergeLog)
+    .where(and(eq(mergeLog.businessId, businessId), or(eq(mergeLog.keptId, entityId), eq(mergeLog.mergedId, entityId))))
+    .orderBy(desc(mergeLog.createdAt), desc(mergeLog.id));
+}
+
+/**
+ * The later, still-open merges that rely on `log`, so undoing it now would not be exact: the kept record was merged
+ * into another one since; or a later merge into the same record carried an identifier, filled field or name that this
+ * merge had already brought in (so the later merge did not add it), shares an interaction with it, or left a
+ * relationship or mention on its own record because a row this merge moved already held that slot.
+ * `history` is `mergeLogsOf(keptId)` (newest first, in the database's own order, so "later" is exact to the
+ * microsecond); `current` is the kept record now.
+ */
+async function unmergeBlockers(db: Executor, businessId: string, log: MergeLogEntry, current: Entity, history: readonly MergeLogEntry[]): Promise<UnmergeBlocker[]> {
+  const snap = log.reversibleSnapshot as unknown as MergeSnapshot;
+  const open = history.filter((m) => m.id !== log.id && !m.revertedAt);
+  const blockers: UnmergeBlocker[] = open
+    .filter((m) => m.mergedId === log.keptId)
+    .map((m) => ({ mergeLogId: m.id, kind: "absorbed", recordName: fieldsOf((m.reversibleSnapshot as unknown as MergeSnapshot).kept).displayName, reasons: [] }));
+  const position = history.findIndex((m) => m.id === log.id);
+  const later = history.slice(0, Math.max(0, position)).filter((m) => !m.revertedAt && m.keptId === log.keptId);
+  if (!later.length) return blockers;
+
+  const plan = revertPlan(snap, fieldsOf(current));
+  const reasons = new Map<string, string[]>(later.map((m) => [m.id, []]));
+  const byMergedId = new Map(later.map((m) => [m.mergedId, m.id]));
+  for (const m of later) {
+    const s = m.reversibleSnapshot as unknown as MergeSnapshot;
+    const other = fieldsOf(s.merged);
+    const r = reasons.get(m.id)!;
+    for (const k of plan.identifierKeys) if (!isEmpty(other.identifiers[k])) r.push(`the ${identifierWord(k)}`);
+    for (const f of plan.fields) if (other[f] !== null) r.push(`the ${FIELD_WORDS[f]}`);
+    for (const a of plan.aliases) if (namesOf(other).includes(a)) r.push(`the name “${a}”`);
+    if (s.moved.interactions.some((id) => snap.moved.interactions.includes(id))) r.push("an interaction both records were part of");
+  }
+
+  const laterIds = [...byMergedId.keys()];
+  if (snap.moved.relationships.length) {
+    const z = alias(relationships, "z");
+    const rows = await db
+      .select({ from: z.fromEntity, to: z.toEntity })
+      .from(relationships)
+      .innerJoin(
+        z,
+        and(
+          eq(z.businessId, relationships.businessId),
+          eq(z.type, relationships.type),
+          or(
+            and(eq(relationships.fromEntity, log.keptId), eq(z.toEntity, relationships.toEntity), inArray(z.fromEntity, laterIds)),
+            and(eq(relationships.toEntity, log.keptId), eq(z.fromEntity, relationships.fromEntity), inArray(z.toEntity, laterIds)),
+          ),
+        ),
+      )
+      .where(and(eq(relationships.businessId, businessId), inArray(relationships.id, snap.moved.relationships)));
+    for (const row of rows) reasons.get(byMergedId.get(row.from) ?? byMergedId.get(row.to)!)?.push("a relationship both records had");
+  }
+  if (snap.moved.mentions.length) {
+    const z = alias(mentions, "z");
+    const rows = await db
+      .select({ entityId: z.entityId })
+      .from(mentions)
+      .innerJoin(z, and(eq(z.businessId, mentions.businessId), eq(z.containerKind, mentions.containerKind), eq(z.containerId, mentions.containerId), inArray(z.entityId, laterIds)))
+      .where(and(eq(mentions.businessId, businessId), inArray(mentions.id, snap.moved.mentions), eq(mentions.entityId, log.keptId)));
+    for (const row of rows) reasons.get(byMergedId.get(row.entityId)!)?.push("a mention both records had");
+  }
+
+  for (const m of later) {
+    const r = uniq(reasons.get(m.id)!);
+    if (r.length) blockers.push({ mergeLogId: m.id, kind: "later_merge", recordName: fieldsOf((m.reversibleSnapshot as unknown as MergeSnapshot).merged).displayName, reasons: r });
+  }
+  return blockers;
+}
 
 const scoped = (businessId: string, entityId: string) => and(eq(entities.businessId, businessId), eq(entities.id, entityId));
 const live = and(isNull(entities.archivedAt), isNull(entities.mergedIntoId));
@@ -151,11 +353,12 @@ const toArray = <T>(v: T | T[] | undefined): T[] | undefined => (v === undefined
 const uniq = (xs: string[]) => [...new Set(xs)];
 const vectorLiteral = (v: number[]) => `[${v.join(",")}]`;
 
+/** An active role matching every given filter (role and stage case-insensitively, as the founder types them). */
 function roleFilter(businessId: string, f: { role?: string; stage?: string; ownerId?: string; departmentId?: string }): SQL | undefined {
   if (!f.role && !f.stage && !f.ownerId && !f.departmentId) return undefined;
   const conds: SQL[] = [sql`r.business_id = ${businessId}::uuid`, sql`r.entity_id = ${entities.id}`, sql`r.ended_at is null`];
-  if (f.role) conds.push(sql`r.role = ${f.role}`);
-  if (f.stage) conds.push(sql`r.stage = ${f.stage}`);
+  if (f.role) conds.push(sql`lower(r.role) = lower(${f.role})`);
+  if (f.stage) conds.push(sql`lower(r.stage) = lower(${f.stage})`);
   if (f.ownerId) conds.push(sql`r.owner_ref ->> 'id' = ${f.ownerId}`);
   if (f.departmentId) conds.push(sql`r.owner_ref ->> 'kind' = 'department' and r.owner_ref ->> 'id' = ${f.departmentId}`);
   return sql`exists (select 1 from entity_roles r where ${sql.join(conds, sql` and `)})`;
@@ -183,6 +386,26 @@ export const entitiesRepo = {
       .orderBy(...ks.orderBy)
       .limit(f.limit + 1);
     return toPage(rows, f, ks);
+  },
+
+  /** `list` with each entity's active roles (role, stage, owner): what the CRM list, its views and its filters read. */
+  async listWithRoles(db: Executor, businessId: string, filter: EntityListFilter = {}): Promise<Page<EntityWithRoles>> {
+    const page = await entitiesRepo.list(db, businessId, filter);
+    const roles = await entitiesRepo.activeRoles(db, businessId, page.items.map((e) => e.id));
+    return { ...page, items: page.items.map((e) => ({ ...e, roles: roles.get(e.id) ?? [] })) };
+  },
+
+  /** Active roles of many entities in one query, newest first per entity. */
+  async activeRoles(db: Executor, businessId: string, entityIds: readonly string[]): Promise<Map<string, ActiveRole[]>> {
+    const out = new Map<string, ActiveRole[]>();
+    if (entityIds.length === 0) return out;
+    const rows = await db
+      .select({ entityId: entityRoles.entityId, id: entityRoles.id, role: entityRoles.role, stage: entityRoles.stage, ownerRef: entityRoles.ownerRef, startedAt: entityRoles.startedAt, endedAt: entityRoles.endedAt })
+      .from(entityRoles)
+      .where(and(eq(entityRoles.businessId, businessId), inArray(entityRoles.entityId, uniq([...entityIds])), isNull(entityRoles.endedAt)))
+      .orderBy(desc(entityRoles.startedAt), asc(entityRoles.id));
+    for (const { entityId, ...role } of rows) out.set(entityId, [...(out.get(entityId) ?? []), role]);
+    return out;
   },
 
   async get(db: Executor, businessId: string, entityId: string): Promise<Entity> {
@@ -327,13 +550,15 @@ export const entitiesRepo = {
       .orderBy(desc(score), asc(entities.displayName), asc(entities.id))
       .limit(v.limit);
 
-    const hits: SearchHit[] = rows
+    const scored = rows
       .map((r) => {
         const s = Number(r.score);
         const matchedOn: SearchMatch = r.identifier ? "identifier" : r.prefix ? "prefix" : Number(r.vec) * 0.9 >= s - 1e-9 && Number(r.vec) > 0 ? "meaning" : Number(r.nameSim) >= s - 1e-9 ? "name" : Number(r.aliasSim) >= s - 1e-9 ? "alias" : "text";
         return { entity: r.entity, score: Math.round(s * 1000) / 1000, matchedOn };
       })
       .filter((h) => h.score >= v.minScore);
+    const roles = await entitiesRepo.activeRoles(db, businessId, scored.map((h) => h.entity.id));
+    const hits: SearchHit[] = scored.map((h) => ({ ...h, roles: roles.get(h.entity.id) ?? [] }));
     const byKind = new Map<EntityKind, SearchHit[]>();
     for (const h of hits) byKind.set(h.entity.kind, [...(byKind.get(h.entity.kind) ?? []), h]);
     const groups = ENTITY_KINDS.filter((k) => byKind.has(k)).map((kind) => ({ kind, hits: byKind.get(kind)! }));
@@ -528,11 +753,19 @@ export const entitiesRepo = {
     const o = parseInput(MergeOptions, options, "merge options");
     if (keptId === mergedId) throw new ValidationError("Cannot merge an entity into itself", { keptId });
     return db.transaction(async (tx) => {
-      const kept = await entitiesRepo.get(tx, businessId, keptId);
-      const merged = await entitiesRepo.get(tx, businessId, mergedId);
+      const locked = await lockEntities(tx, businessId, [keptId, mergedId]);
+      const kept = one(locked.filter((e) => e.id === keptId), "entity", keptId);
+      const merged = one(locked.filter((e) => e.id === mergedId), "entity", mergedId);
       if (kept.mergedIntoId || merged.mergedIntoId) throw new ValidationError("One of the entities is already merged", { keptId, mergedId });
       const snapshotOf = (e: Entity) => Object.fromEntries(SNAPSHOT_FIELDS.map((k) => [k, e[k] instanceof Date ? (e[k] as Date).toISOString() : e[k]]));
 
+      // Interactions that already list the kept record get the merged one back on unmerge (the kept one stays).
+      const sharedInteractionIds = (
+        await tx
+          .select({ id: interactions.id })
+          .from(interactions)
+          .where(and(eq(interactions.businessId, businessId), sql`${interactions.entityIds} @> array[${mergedId}::uuid, ${keptId}::uuid]`))
+      ).map((r) => r.id);
       const roleIds = (await tx.update(entityRoles).set({ entityId: keptId }).where(and(eq(entityRoles.businessId, businessId), eq(entityRoles.entityId, mergedId))).returning({ id: entityRoles.id })).map((r) => r.id);
       const relFrom = await tx
         .update(relationships)
@@ -580,17 +813,11 @@ export const entitiesRepo = {
           .returning({ id: interactions.id })
       ).map((r) => r.id);
 
-      const keptIdentifiers = Object.fromEntries(Object.entries(kept.identifiers).filter(([, v]) => v !== null && v !== undefined && v !== ""));
+      const fields = mergedFields(fieldsOf(kept), fieldsOf(merged));
       const updatedKept = one(
         await tx
           .update(entities)
-          .set({
-            aliases: uniq([...kept.aliases, merged.displayName, ...merged.aliases].filter((a) => a !== kept.displayName)),
-            identifiers: { ...merged.identifiers, ...keptIdentifiers } as Entity["identifiers"],
-            avatarUrl: kept.avatarUrl ?? merged.avatarUrl,
-            lawfulBasis: kept.lawfulBasis ?? merged.lawfulBasis,
-            source: kept.source ?? merged.source,
-          })
+          .set({ ...fields, identifiers: fields.identifiers as Entity["identifiers"] })
           .where(scoped(businessId, keptId))
           .returning(),
         "entity",
@@ -600,7 +827,14 @@ export const entitiesRepo = {
       const snapshot: MergeSnapshot = {
         kept: snapshotOf(kept),
         merged: snapshotOf(merged),
-        moved: { roles: roleIds, relationships: [...relFrom.map((r) => r.id), ...relTo.map((r) => r.id)], mentions: mentionIds, provenance: provenanceIds, interactions: interactionIds },
+        moved: {
+          roles: roleIds,
+          relationships: [...relFrom.map((r) => r.id), ...relTo.map((r) => r.id)],
+          mentions: mentionIds,
+          provenance: provenanceIds,
+          interactions: interactionIds,
+          sharedInteractions: sharedInteractionIds,
+        },
       };
       const log = one(
         await tx.insert(mergeLog).values({ businessId, keptId, mergedId, byKind: o.byKind, byId: o.byId ?? null, reversibleSnapshot: snapshot as unknown as Record<string, unknown> }).returning(),
@@ -610,26 +844,36 @@ export const entitiesRepo = {
     });
   },
 
-  /** Restores both records exactly as they were before the merge and moves the child rows back. */
+  /**
+   * Undoes one merge: the merged record is live again, the child rows the merge moved go back to it, and the kept
+   * record loses only what the merge gave it (`revertPlan`), so later edits and other merges stay. Refuses with a
+   * CONFLICT that names the later merge to undo first while one relies on this merge (`unmergeBlockers`).
+   */
   async unmerge(db: Executor, businessId: string, mergeLogId: string): Promise<{ kept: Entity; merged: Entity; log: MergeLogEntry }> {
     return db.transaction(async (tx) => {
-      const log = one(await tx.select().from(mergeLog).where(and(eq(mergeLog.businessId, businessId), eq(mergeLog.id, mergeLogId))).limit(1), "merge log", mergeLogId);
+      const log = one(await tx.select().from(mergeLog).where(and(eq(mergeLog.businessId, businessId), eq(mergeLog.id, mergeLogId))).for("update").limit(1), "merge log", mergeLogId);
       if (log.revertedAt) throw new ValidationError("Merge already reverted", { mergeLogId });
       const snap = log.reversibleSnapshot as unknown as MergeSnapshot;
-      const restore = (s: Record<string, unknown>) => ({
-        displayName: s.displayName as string,
-        aliases: s.aliases as string[],
-        avatarUrl: (s.avatarUrl as string | null) ?? null,
-        identifiers: s.identifiers as Entity["identifiers"],
-        lawfulBasis: (s.lawfulBasis as string | null) ?? null,
-        source: (s.source as string | null) ?? null,
-        visibility: s.visibility as Entity["visibility"],
-        agentId: (s.agentId as string | null) ?? null,
-        mergedIntoId: (s.mergedIntoId as string | null) ?? null,
-        archivedAt: s.archivedAt ? new Date(s.archivedAt as string) : null,
-      });
-      const kept = one(await tx.update(entities).set(restore(snap.kept)).where(scoped(businessId, log.keptId)).returning(), "entity", log.keptId);
-      const merged = one(await tx.update(entities).set(restore(snap.merged)).where(scoped(businessId, log.mergedId)).returning(), "entity", log.mergedId);
+      const locked = await lockEntities(tx, businessId, [log.keptId, log.mergedId]);
+      const current = one(locked.filter((e) => e.id === log.keptId), "entity", log.keptId);
+      one(locked.filter((e) => e.id === log.mergedId), "entity", log.mergedId);
+      const history = await mergeLogsOf(tx, businessId, log.keptId);
+      const blockers = await unmergeBlockers(tx, businessId, log, current, history);
+      if (blockers.length) throw new AppError("merge_relied_on", describeUnmergeBlockers(blockers), 409, { mergeLogId, blockers });
+
+      const { patch } = revertPlan(snap, fieldsOf(current));
+      const kept = one(await tx.update(entities).set(patch).where(scoped(businessId, log.keptId)).returning(), "entity", log.keptId);
+      // The merge only archived the merged record and pointed it at the kept one; put exactly that back.
+      const mergedBefore = snap.merged;
+      const merged = one(
+        await tx
+          .update(entities)
+          .set({ mergedIntoId: (mergedBefore.mergedIntoId as string | null | undefined) ?? null, archivedAt: mergedBefore.archivedAt ? new Date(mergedBefore.archivedAt as string) : null })
+          .where(scoped(businessId, log.mergedId))
+          .returning(),
+        "entity",
+        log.mergedId,
+      );
       const m = snap.moved;
       if (m.roles.length) await tx.update(entityRoles).set({ entityId: log.mergedId }).where(and(eq(entityRoles.businessId, businessId), inArray(entityRoles.id, m.roles)));
       if (m.relationships.length) {
@@ -638,23 +882,44 @@ export const entitiesRepo = {
       }
       if (m.mentions.length) await tx.update(mentions).set({ entityId: log.mergedId }).where(and(eq(mentions.businessId, businessId), inArray(mentions.id, m.mentions)));
       if (m.provenance.length) await tx.update(fieldProvenance).set({ entityId: log.mergedId }).where(and(eq(fieldProvenance.businessId, businessId), inArray(fieldProvenance.id, m.provenance)));
-      if (m.interactions.length) {
+      // The kept record stays on an interaction it was already part of, or that another open merge into it moved there
+      // (merges logged before `sharedInteractions` existed rely on the second test alone); there the merged record is
+      // added back. Elsewhere it is swapped back for the merged record.
+      const keepKept = new Set([...(m.sharedInteractions ?? []), ...history.filter((h) => h.id !== log.id && !h.revertedAt && h.keptId === log.keptId).flatMap((h) => (h.reversibleSnapshot as unknown as MergeSnapshot).moved.interactions)]);
+      const swap = m.interactions.filter((id) => !keepKept.has(id));
+      const addBack = m.interactions.filter((id) => keepKept.has(id));
+      if (swap.length) {
         await tx
           .update(interactions)
           .set({ entityIds: sql`array(select distinct case when x = ${log.keptId}::uuid then ${log.mergedId}::uuid else x end from unnest(${interactions.entityIds}) x)` })
-          .where(and(eq(interactions.businessId, businessId), inArray(interactions.id, m.interactions)));
+          .where(and(eq(interactions.businessId, businessId), inArray(interactions.id, swap)));
+      }
+      if (addBack.length) {
+        await tx
+          .update(interactions)
+          .set({ entityIds: sql`case when ${interactions.entityIds} @> array[${log.mergedId}::uuid] then ${interactions.entityIds} else array_append(${interactions.entityIds}, ${log.mergedId}::uuid) end` })
+          .where(and(eq(interactions.businessId, businessId), inArray(interactions.id, addBack)));
       }
       const updatedLog = one(await tx.update(mergeLog).set({ revertedAt: new Date() }).where(eq(mergeLog.id, mergeLogId)).returning(), "merge log", mergeLogId);
       return { kept, merged, log: updatedLog };
     });
   },
 
-  async mergeHistory(db: Executor, businessId: string, entityId: string): Promise<MergeLogEntry[]> {
-    return db
-      .select()
-      .from(mergeLog)
-      .where(and(eq(mergeLog.businessId, businessId), or(eq(mergeLog.keptId, entityId), eq(mergeLog.mergedId, entityId))))
-      .orderBy(desc(mergeLog.createdAt));
+  /**
+   * Every merge an entity took part in, newest first. Each open merge into it says whether Unmerge is available now
+   * (`undoBlocked` is the reason when a later merge relies on it), so the profile can explain instead of failing.
+   */
+  async mergeHistory(db: Executor, businessId: string, entityId: string): Promise<MergeHistoryEntry[]> {
+    const history = await mergeLogsOf(db, businessId, entityId);
+    const open = history.filter((m) => !m.revertedAt && m.keptId === entityId);
+    const current = open.length ? await entitiesRepo.get(db, businessId, entityId) : null;
+    return Promise.all(
+      history.map(async (m) => {
+        if (!current || m.revertedAt || m.keptId !== entityId) return { ...m, undoBlocked: null };
+        const blockers = await unmergeBlockers(db, businessId, m, current, history);
+        return { ...m, undoBlocked: blockers.length ? describeUnmergeBlockers(blockers) : null };
+      }),
+    );
   },
 
   /** Interactions referencing an entity re-pointed by a merge keep both ids distinct; this is the profile view's bundle. */

@@ -1,6 +1,8 @@
 /** CRM entities: hybrid search ranking, filters, scoping, roles/relationships/interactions/mentions/provenance, reversible merge. */
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { repos } from "../../repos";
+import { mergeLog } from "../../schema";
 import { setupRepoHarness, type RepoHarness } from "./helpers";
 
 let r: RepoHarness;
@@ -102,6 +104,30 @@ describe("list, manifest, enrichment", () => {
     expect(counts.venue).toBe(1);
   });
 
+  it("lists with each entity's active roles (newest first, ended ones left out) and filters on them", async () => {
+    const A = r.A.businessId;
+    await repos.entities.addRole(r.db, A, ids.sarah!, { role: "champion", startedAt: "2020-01-01" });
+    const ended = await repos.entities.addRole(r.db, A, ids.sarah!, { role: "lead" });
+    await repos.entities.endRole(r.db, A, ended.id);
+    const page = await repos.entities.listWithRoles(r.db, A, { kind: ["person", "organisation"], limit: 100 });
+    const byId = new Map(page.items.map((e) => [e.id, e]));
+    expect(byId.get(ids.sara!)!.roles).toEqual([expect.objectContaining({ role: "lead", stage: "qualified", ownerRef: { kind: "agent", id: r.A.agentId }, endedAt: null })]);
+    expect(byId.get(ids.sarah!)!.roles.map((role) => role.role)).toEqual(["customer", "champion"]);
+    expect(byId.get(ids.northwind!)!.roles).toEqual([]);
+
+    const only = async (filter: Parameters<typeof repos.entities.listWithRoles>[2]) => (await repos.entities.listWithRoles(r.db, A, filter)).items.map((e) => e.id).sort();
+    expect(await only({ role: "Customer" })).toEqual([ids.sarah]);
+    expect(await only({ role: "lead", stage: "QUALIFIED" })).toEqual([ids.sara]);
+    expect(await only({ role: "lead", stage: "signed_up" })).toEqual([]);
+    expect(await only({ ownerId: r.A.agentId })).toEqual([ids.sara]);
+    expect(await only({ departmentId: r.A.agentId })).toEqual([]);
+    expect(await only({ kind: "organisation", role: "customer" })).toEqual([]);
+
+    const search = await repos.entities.search(r.db, A, { q: "sar" });
+    expect(Object.fromEntries(search.hits.map((h) => [h.entity.id, h.roles.map((role) => role.role)]))).toMatchObject({ [ids.sara!]: ["lead"], [ids.sarah!]: ["customer", "champion"] });
+    expect(await repos.entities.activeRoles(r.db, r.B.businessId, [ids.sara!])).toEqual(new Map());
+  });
+
   it("enrich fills empty fields only", async () => {
     const before = await repos.entities.get(r.db, r.A.businessId, ids.northstar!);
     const after = await repos.entities.enrich(r.db, r.A.businessId, ids.northstar!, { identifiers: { domain: "evil.example", linkedin: "https://linkedin.com/company/northstar" }, aliases: ["NSL"], avatarUrl: "https://img.example/ns.png" });
@@ -188,6 +214,127 @@ describe("merge / unmerge (AC-11.12.3)", () => {
     expect((await repos.entities.listMentions(r.db, A, dup.id)).length).toBe(1);
     await expect(repos.entities.unmerge(r.db, A, merged.log.id)).rejects.toThrow(/already reverted/);
     expect((await repos.entities.mergeHistory(r.db, A, dup.id)).length).toBe(1);
+  });
+
+  it("undoing an earlier merge keeps later edits and an independent later merge", async () => {
+    const A = r.A.businessId;
+    const x = await repos.entities.create(r.db, A, { kind: "person", displayName: "Ada Audit", identifiers: { email: "ada@audit.example" } });
+    const y = await repos.entities.create(r.db, A, { kind: "person", displayName: "A. Audit", aliases: ["Ada A."], identifiers: { linkedin: "https://linkedin.com/in/ada" } });
+    const z = await repos.entities.create(r.db, A, { kind: "person", displayName: "Ada Z Audit", identifiers: { phone: "+15550100" }, avatarUrl: "https://img.example/ada.png" });
+    await repos.entities.addRole(r.db, A, y.id, { role: "lead" });
+    await repos.entities.addRole(r.db, A, z.id, { role: "customer" });
+    const first = await repos.entities.merge(r.db, A, x.id, y.id);
+    // The founder renames the record and changes its email after the first merge.
+    await repos.entities.update(r.db, A, x.id, { displayName: "Ada Lovelace", identifiers: { email: "ada@new.example", linkedin: "https://linkedin.com/in/ada" } });
+    const second = await repos.entities.merge(r.db, A, x.id, z.id);
+    expect((await repos.entities.mergeHistory(r.db, A, x.id)).map((m) => m.undoBlocked)).toEqual([null, null]);
+
+    await repos.entities.unmerge(r.db, A, first.log.id);
+    const after = await repos.entities.get(r.db, A, x.id);
+    expect(after.displayName).toBe("Ada Lovelace");
+    expect(after.identifiers).toEqual({ email: "ada@new.example", phone: "+15550100" });
+    expect(after.aliases).toEqual(["Ada Z Audit"]);
+    expect(after.avatarUrl).toBe("https://img.example/ada.png");
+    // Y is its own record again with its role; Z stays merged into X with its role.
+    expect((await repos.entities.resolve(r.db, A, y.id)).id).toBe(y.id);
+    expect((await repos.entities.listRoles(r.db, A, y.id)).map((role) => role.role)).toEqual(["lead"]);
+    expect((await repos.entities.resolve(r.db, A, z.id)).id).toBe(x.id);
+    expect((await repos.entities.listRoles(r.db, A, x.id)).map((role) => role.role)).toEqual(["customer"]);
+
+    await repos.entities.unmerge(r.db, A, second.log.id);
+    const last = await repos.entities.get(r.db, A, x.id);
+    expect(last).toMatchObject({ displayName: "Ada Lovelace", aliases: [], avatarUrl: null });
+    expect(last.identifiers).toEqual({ email: "ada@new.example" });
+    expect((await repos.entities.get(r.db, A, z.id)).mergedIntoId).toBeNull();
+    expect((await repos.entities.listRoles(r.db, A, z.id)).map((role) => role.role)).toEqual(["customer"]);
+  });
+
+  it("keeps a value edited since the merge and gives the merged record back to an interaction it shared", async () => {
+    const A = r.A.businessId;
+    const x = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Kept Co" });
+    const y = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Kept Company", identifiers: { domain: "kept.example" }, avatarUrl: "https://img.example/y.png", lawfulBasis: "contract" });
+    const both = await repos.entities.createInteraction(r.db, A, { kind: "meeting", entityIds: [x.id, y.id], summary: "Both" });
+    const onlyY = await repos.entities.createInteraction(r.db, A, { kind: "call", entityIds: [y.id], summary: "Only Y" });
+    const merged = await repos.entities.merge(r.db, A, x.id, y.id);
+    expect((await repos.entities.listInteractions(r.db, A, { entityId: x.id })).items.map((i) => i.id).sort()).toEqual([both.id, onlyY.id].sort());
+    await repos.entities.update(r.db, A, x.id, { avatarUrl: "https://img.example/founder.png" });
+    await repos.entities.unmerge(r.db, A, merged.log.id);
+    const after = await repos.entities.get(r.db, A, x.id);
+    expect(after).toMatchObject({ avatarUrl: "https://img.example/founder.png", lawfulBasis: null, aliases: [] });
+    expect(after.identifiers).toEqual({});
+    expect((await repos.entities.listInteractions(r.db, A, { entityId: x.id })).items.map((i) => i.id)).toEqual([both.id]);
+    expect((await repos.entities.listInteractions(r.db, A, { entityId: y.id })).items.map((i) => i.id).sort()).toEqual([both.id, onlyY.id].sort());
+  });
+
+  it("keeps the kept record on an interaction another open merge moved there, also for merges logged before sharedInteractions", async () => {
+    const A = r.A.businessId;
+    const x = await repos.entities.create(r.db, A, { kind: "person", displayName: "Legacy Kept" });
+    const a = await repos.entities.create(r.db, A, { kind: "person", displayName: "Legacy A" });
+    const b = await repos.entities.create(r.db, A, { kind: "person", displayName: "Legacy B" });
+    const call = await repos.entities.createInteraction(r.db, A, { kind: "call", entityIds: [a.id, b.id], summary: "Three-way call" });
+    const first = await repos.entities.merge(r.db, A, x.id, a.id);
+    const second = await repos.entities.merge(r.db, A, x.id, b.id);
+    // As a merge_log row written before `sharedInteractions` existed.
+    await r.db.update(mergeLog).set({ reversibleSnapshot: sql`${mergeLog.reversibleSnapshot} #- '{moved,sharedInteractions}'` }).where(eq(mergeLog.id, second.log.id));
+    const ids = async (entityId: string) => (await repos.entities.listInteractions(r.db, A, { entityId })).items.map((i) => i.id);
+
+    await repos.entities.unmerge(r.db, A, second.log.id);
+    expect(await ids(x.id)).toEqual([call.id]);
+    expect(await ids(b.id)).toEqual([call.id]);
+    await repos.entities.unmerge(r.db, A, first.log.id);
+    expect(await ids(x.id)).toEqual([]);
+    expect((await ids(a.id)).concat(await ids(b.id))).toEqual([call.id, call.id]);
+  });
+
+  it("refuses, with the reason, while a later merge relies on the one being undone; in reverse order both undo exactly", async () => {
+    const A = r.A.businessId;
+    const x = await repos.entities.create(r.db, A, { kind: "person", displayName: "Rel Kept" });
+    const y = await repos.entities.create(r.db, A, { kind: "person", displayName: "Rel Y", aliases: ["Rel"], identifiers: { email: "y@rel.example" } });
+    const z = await repos.entities.create(r.db, A, { kind: "person", displayName: "Rel Z", aliases: ["Rel"], identifiers: { email: "z@rel.example" } });
+    await repos.entities.upsertRelationship(r.db, A, { fromEntity: y.id, toEntity: ids.meridian!, type: "advises" });
+    await repos.entities.upsertRelationship(r.db, A, { fromEntity: z.id, toEntity: ids.meridian!, type: "advises" });
+    const xBefore = await repos.entities.get(r.db, A, x.id);
+    const first = await repos.entities.merge(r.db, A, x.id, y.id);
+    const second = await repos.entities.merge(r.db, A, x.id, z.id);
+    // Z's email and its "advises" tie were set aside because Y's were already there, and both carry the name "Rel".
+    expect(second.kept.identifiers).toEqual({ email: "y@rel.example" });
+
+    const refused = await repos.entities.unmerge(r.db, A, first.log.id).catch((e: unknown) => e);
+    expect(refused).toMatchObject({ code: "merge_relied_on", status: 409 });
+    expect((refused as Error).message).toBe("Undo the later merge of “Rel Z” first: it relies on what this merge brought in (the email, the name “Rel” and a relationship both records had).");
+    expect((refused as { details: { blockers: { mergeLogId: string }[] } }).details.blockers.map((b) => b.mergeLogId)).toEqual([second.log.id]);
+    const history = await repos.entities.mergeHistory(r.db, A, x.id);
+    expect(history.map((m) => [m.id, m.undoBlocked])).toEqual([
+      [second.log.id, null],
+      [first.log.id, (refused as Error).message],
+    ]);
+    // Nothing changed.
+    expect((await repos.entities.get(r.db, A, y.id)).mergedIntoId).toBe(x.id);
+    expect((await repos.entities.listRelationships(r.db, A, x.id)).map((rel) => rel.other.id)).toEqual([ids.meridian]);
+
+    await repos.entities.unmerge(r.db, A, second.log.id);
+    await repos.entities.unmerge(r.db, A, first.log.id);
+    const strip = (e: typeof xBefore) => {
+      const { updatedAt: _u, ...rest } = e;
+      return rest;
+    };
+    expect(strip(await repos.entities.get(r.db, A, x.id))).toEqual(strip(xBefore));
+    expect((await repos.entities.listRelationships(r.db, A, y.id)).map((rel) => rel.other.id)).toEqual([ids.meridian]);
+    expect((await repos.entities.listRelationships(r.db, A, z.id)).map((rel) => rel.other.id)).toEqual([ids.meridian]);
+    expect(await repos.entities.listRelationships(r.db, A, x.id)).toHaveLength(0);
+  });
+
+  it("refuses to undo a merge into a record that was itself merged away since", async () => {
+    const A = r.A.businessId;
+    const w = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Umbrella Holdings" });
+    const x = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Umbrella" });
+    const y = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Umbrella Ltd" });
+    const first = await repos.entities.merge(r.db, A, x.id, y.id);
+    const outer = await repos.entities.merge(r.db, A, w.id, x.id);
+    await expect(repos.entities.unmerge(r.db, A, first.log.id)).rejects.toThrow("This record was merged into “Umbrella Holdings” afterwards. Undo that merge first.");
+    await repos.entities.unmerge(r.db, A, outer.log.id);
+    await repos.entities.unmerge(r.db, A, first.log.id);
+    expect((await repos.entities.get(r.db, A, y.id)).mergedIntoId).toBeNull();
   });
 
   it("refuses to merge across businesses or into itself", async () => {

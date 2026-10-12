@@ -35,7 +35,8 @@ test.describe("crm", () => {
     await input.press("Enter");
     await expect(page.getByTestId("crm-search")).toContainText("role:customer");
     await expect(page.getByTestId("crm-search")).toContainText("stage:churned");
-    // Chips alone filter the listing client-side (data-mode stays "list"); free text switches to server search.
+    // Chips alone filter the listing on the server (crm.entity.list, data-mode stays "list"); free text switches to
+    // search.
     await expect(page.getByTestId("crm-screen")).toHaveAttribute("data-mode", "list");
     await page.getByRole("button", { name: "Clear all" }).click();
     await expect(page.getByTestId("crm-search")).not.toContainText("role:customer");
@@ -44,6 +45,31 @@ test.describe("crm", () => {
     await input.press("Enter");
     await expect(page.getByTestId("crm-search")).toContainText("kind:organization");
     await expect(page.getByTestId("crm-screen")).toHaveAttribute("data-mode", "search");
+  });
+
+  test("rows carry their roles and stages; chip filters and natural language reach every record", async ({ page }) => {
+    const grid = page.getByRole("grid", { name: "CRM records" });
+    const roles = grid.locator('td[data-col="roles"]');
+    const input = page.getByTestId("crm-search-input");
+    // The placeholder's own example: Northwind's six suppliers, each with its role and stage.
+    await input.fill("kind:organization role:supplier");
+    await input.press("Enter");
+    await expect(page.getByTestId("crm-screen")).toHaveAttribute("data-mode", "list");
+    await expect(grid.getByText("Pennine Contract Cosmetics")).toBeVisible({ timeout: LONG });
+    await expect(roles.filter({ hasText: "Supplier" })).toHaveCount(6);
+    await expect(roles.filter({ hasNotText: "Supplier" })).toHaveCount(0);
+    await expect(grid.locator('td[data-col="stage"]').filter({ hasText: "Contracted" }).first()).toBeVisible();
+    await page.getByRole("button", { name: /^View: / }).click();
+    await page.getByRole("menuitemradio", { name: "By stage" }).click();
+    await expect(page.getByTestId("crm-groups")).toContainText("Contracted");
+    await expect(page.getByTestId("crm-groups")).not.toContainText("No stage");
+
+    await page.getByRole("button", { name: "Clear all" }).click();
+    await input.fill("customers");
+    await input.press("Enter");
+    await expect(page.getByTestId("crm-search")).toContainText("role:customer");
+    await expect(roles.filter({ hasText: "Customer" }).first()).toBeVisible({ timeout: LONG });
+    await expect(roles.filter({ hasNotText: "Customer" })).toHaveCount(0);
   });
 
   test("new record dialog and the merge flow from a row", async ({ page }) => {
