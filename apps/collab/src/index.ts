@@ -6,7 +6,7 @@
  * fallback → graceful shutdown flushes pending stores before closing.
  */
 import { closeDb, createServiceDb } from "@foundmill/db";
-import { loadEnv, servicePort } from "@foundmill/shared";
+import { admittedBy, loadEnv, parseSignupAllowlist, servicePort } from "@foundmill/shared";
 import { createLogger } from "@foundmill/shared/logger";
 import { createCollabAuthenticator } from "./auth";
 import { prepareDb } from "./db-boot";
@@ -39,7 +39,9 @@ export async function main(): Promise<void> {
     devUserId: env.DEV_AUTH_USER_ID ?? null,
   });
   if (!env.SESSION_TOKEN_SECRET) log.warn({}, "SESSION_TOKEN_SECRET is not set; agents cannot connect to the collab server");
-  const server = createCollabServer({ db, auth, log, dbReady: () => readiness.ok });
+  // The api's invite list (SIGNUP_ALLOWLIST): a person it does not name opens no spec block either.
+  const allowlist = parseSignupAllowlist(env.SIGNUP_ALLOWLIST);
+  const server = createCollabServer({ db, auth, log, dbReady: () => readiness.ok, admit: (user) => admittedBy(allowlist, user, auth.devUserId) });
   await server.listen(servicePort(env, "COLLAB_PORT"));
   log.info({ db: readiness.ok, driver: readiness.driver }, "collab ready");
 

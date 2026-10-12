@@ -32,3 +32,22 @@ export function hasSectionAccess(membership: SectionMembership, section: Section
   if (level === "read") return have !== "none";
   return have === "write" && WRITE_ROLES.includes(membership.role);
 }
+
+export const isSection = (value: string): value is Section => (SECTIONS as readonly string[]).includes(value);
+
+/** The sections the membership may not read at all (permission "none"); empty for an owner. */
+export function walledSections(membership: SectionMembership): Section[] {
+  return SECTIONS.filter((section) => !hasSectionAccess(membership, section, "read"));
+}
+
+/** Where agent sessions are watched and replayed (Development › Live sessions, `dev.sessions.*`). */
+export const SESSION_SECTION: Section = "development";
+
+/**
+ * The sections an agent session's live output belongs to: Development, plus the modules of the department its work is
+ * filed under (a Finance agent's terminal shows Finance's figures). Reading a session (`dev.sessions.*` in apps/api,
+ * `as:<sessionId>` in apps/stream) needs read access to every one of them.
+ */
+export function sessionSections(moduleKeys: readonly string[]): Section[] {
+  return [...new Set<Section>([SESSION_SECTION, ...moduleKeys.filter(isSection)])];
+}

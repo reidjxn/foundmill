@@ -272,6 +272,24 @@ describe("a whole team in a few statements (commit)", () => {
   });
 });
 
+describe("agent sessions", () => {
+  it("files a session's work under its task's department, else under its agent's departments (security review S1)", async () => {
+    const A = r.A.businessId;
+    const finance = await repos.departments.create(r.db, A, { name: "Money", slug: "money-sessions", moduleKeys: ["finance", "legal"] });
+    const growth = await repos.departments.create(r.db, A, { name: "Growth", slug: "growth-sessions", moduleKeys: ["distribution"] });
+    const task = await repos.tasks.create(r.db, A, { kind: "ops", title: "Reconcile March", departmentId: finance.id, assigneeAgentId: r.A.agent2Id });
+    const ofTask = await repos.agents.createSession(r.db, A, { agentId: r.A.agent2Id, taskId: task.id, modelKey: "sonnet" });
+    expect(await repos.agents.sessionModuleKeys(r.db, A, ofTask)).toEqual(["finance", "legal"]);
+    await repos.agents.update(r.db, A, r.A.agentId, { departmentIds: [growth.id, finance.id] });
+    const ofAgent = await repos.agents.createSession(r.db, A, { agentId: r.A.agentId, modelKey: "sonnet" });
+    expect(await repos.agents.sessionModuleKeys(r.db, A, ofAgent)).toEqual(["distribution", "finance", "legal"]);
+    await repos.agents.update(r.db, A, r.A.agentId, { departmentIds: [] });
+    expect(await repos.agents.sessionModuleKeys(r.db, A, ofAgent)).toEqual([]);
+    // Another business's departments are never read, even when an id is given.
+    expect(await repos.agents.sessionModuleKeys(r.db, r.B.businessId, ofTask)).toEqual([]);
+  });
+});
+
 describe("tasks, playbooks, holidays", () => {
   it("task graph: dependencies, cycle refusal, transitions, dispatchable set", async () => {
     const A = r.A.businessId;

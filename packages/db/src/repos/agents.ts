@@ -5,7 +5,7 @@
 import { AGENT_LAYERS, AGENT_PAUSE_REASONS, AGENT_STATUSES, AGENT_STOP_REASONS, AGENT_VERSION_STATES, MODEL_KEYS, uuid, ValidationError, type AgentPauseReason, type AgentStatus } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { agentMetrics, agentSessions, agentVersions, agents, CREATED_BY_KINDS, type Agent, type AgentMetric, type AgentSession, type AgentVersion } from "../schema";
+import { agentMetrics, agentSessions, agentVersions, agents, CREATED_BY_KINDS, departments, tasks, type Agent, type AgentMetric, type AgentSession, type AgentVersion } from "../schema";
 import { Currency, DayRange, dayRange, defined, Id, JsonArray, JsonObject, MinorAmount, numericText, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
 
 export const AgentInstructions = z.object({
@@ -444,6 +444,23 @@ export const agentsRepo = {
 
   async getSession(db: Executor, businessId: string, sessionId: string): Promise<AgentSession> {
     return one(await db.select().from(agentSessions).where(and(eq(agentSessions.businessId, businessId), eq(agentSessions.id, sessionId))).limit(1), "agent session", sessionId);
+  },
+
+  /**
+   * The module keys of the department a session's work is filed under: its task's department, else the agent's own
+   * departments. With Development they are the sections its live output belongs to (`sessionSections` in
+   * @foundmill/shared; dev.sessions.* in apps/api and `as:<sessionId>` in apps/stream read them).
+   */
+  async sessionModuleKeys(db: Executor, businessId: string, session: Pick<AgentSession, "agentId" | "taskId">): Promise<string[]> {
+    const [task] = session.taskId ? await db.select({ departmentId: tasks.departmentId }).from(tasks).where(and(eq(tasks.businessId, businessId), eq(tasks.id, session.taskId))).limit(1) : [];
+    let departmentIds: string[] = task?.departmentId ? [task.departmentId] : [];
+    if (departmentIds.length === 0) {
+      const [agent] = await db.select({ departmentIds: agents.departmentIds }).from(agents).where(and(eq(agents.businessId, businessId), eq(agents.id, session.agentId))).limit(1);
+      departmentIds = agent?.departmentIds ?? [];
+    }
+    if (departmentIds.length === 0) return [];
+    const rows = await db.select({ moduleKeys: departments.moduleKeys }).from(departments).where(and(eq(departments.businessId, businessId), inArray(departments.id, departmentIds)));
+    return [...new Set(rows.flatMap((r) => r.moduleKeys))].sort();
   },
 
   /** Opens a session row; its workflow id is `session:<id>` from the start (`sessionWorkflowId`). */

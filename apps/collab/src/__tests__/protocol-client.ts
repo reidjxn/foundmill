@@ -83,6 +83,8 @@ export class RawHocuspocusClient {
   status: ClientStatus = "connecting";
   scope: "readonly" | "read-write" | null = null;
   deniedReason: string | null = null;
+  /** The reason of a Close message (the server closed this document's connection); null until one arrives. */
+  closeReason: string | null = null;
   /** SyncStatus acknowledgements received (true = applied, false = rejected because read-only). */
   readonly syncStatuses: boolean[] = [];
   private ws: WebSocket | null = null;
@@ -165,6 +167,10 @@ export class RawHocuspocusClient {
       }
       case MSG.SyncStatus:
         this.syncStatuses.push(dec.readVarUint() === 1);
+        this.notify();
+        break;
+      case MSG.Close:
+        this.closeReason = dec.readVarString();
         this.notify();
         break;
       case MSG.Ping:

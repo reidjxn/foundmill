@@ -7,7 +7,11 @@ export const COUNTER_NAMES = [
   "bad_frames_total",
   "subscriptions_total",
   "subscriptions_denied_total",
+  /** Live subscriptions closed by a re-check (a membership change, or the periodic one). */
+  "subscriptions_revoked_total",
   "events_in_total",
+  /** Business events a reader's section walls kept from them (dropped whole); redacted ones are still sent. */
+  "events_walled_total",
   "frames_out_total",
   "batches_out_total",
   "events_dropped_total",

@@ -34,6 +34,11 @@ export interface StreamHubOptions {
   reconnectMaxMs?: number;
   log?: StreamLog;
   metrics?: Metrics;
+  /**
+   * Called once per entry read, before its listeners (the server watches `membership.changed` here, so it re-checks a
+   * person's subscriptions before that event, or any later one, reaches them).
+   */
+  tap?: (streamKey: string, entry: StreamEntry) => void;
 }
 
 interface Reader {
@@ -69,6 +74,7 @@ export class StreamHub {
   private readonly reconnectMaxMs: number;
   private readonly log: StreamLog;
   private readonly metrics: Metrics | undefined;
+  private readonly tap: StreamHubOptions["tap"];
   private closed = false;
 
   constructor(
@@ -81,6 +87,7 @@ export class StreamHub {
     this.reconnectMaxMs = Math.max(this.reconnectMinMs, opts.reconnectMaxMs ?? 5_000);
     this.log = opts.log ?? silentLog;
     this.metrics = opts.metrics;
+    this.tap = opts.tap;
   }
 
   /** Number of live readers (one per stream key with at least one listener). */
@@ -173,6 +180,13 @@ export class StreamHub {
         this.metrics?.inc("events_in_total", entries.length);
         for (const entry of entries) {
           reader.lastId = entry.id;
+          if (this.tap) {
+            try {
+              this.tap(reader.key, entry);
+            } catch (err) {
+              this.log.error({ err, stream: reader.key }, "stream tap threw");
+            }
+          }
           for (const listener of reader.listeners) {
             try {
               listener(entry);

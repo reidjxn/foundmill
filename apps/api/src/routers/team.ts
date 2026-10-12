@@ -109,6 +109,8 @@ export const teamRouter = router({
         await assertSeatAvailable(tx, ctx.business);
         const membership = await repos.memberships.add(tx, ctx.businessId, { userId: input.userId, role: input.role, sectionPermissions: input.sectionPermissions });
         await audit(tx, ctx, { action: "team.humans.invite", target: { kind: "membership", id: membership.id }, details: { userId: input.userId, role: input.role } });
+        // Open tabs refetch the staff list; apps/stream re-checks this person's subscriptions.
+        await emit(tx, ctx, { type: "membership.changed", payload: { userId: input.userId, change: "added" } });
         return membership;
       }),
     ),
@@ -126,6 +128,8 @@ export const teamRouter = router({
         if (input.role) membership = await repos.memberships.setRole(tx, ctx.businessId, input.userId, input.role);
         if (input.sectionPermissions) membership = await repos.memberships.setSectionPermissions(tx, ctx.businessId, input.userId, input.sectionPermissions);
         await audit(tx, ctx, { action: "team.humans.role", target: { kind: "membership", id: membership.id }, details: { role: input.role ?? null, sections: input.sectionPermissions ? Object.keys(input.sectionPermissions) : [] } });
+        // apps/stream re-checks the member's open subscriptions at once, under the new walls.
+        await emit(tx, ctx, { type: "membership.changed", payload: { userId: input.userId, change: "updated" } });
         return membership;
       }),
     ),
@@ -136,6 +140,8 @@ export const teamRouter = router({
         if (target?.role === "owner") throw new ValidationError("The owner cannot be removed");
         await repos.memberships.remove(tx, ctx.businessId, input.userId);
         await audit(tx, ctx, { action: "team.humans.remove", target: { kind: "membership", id: input.userId } });
+        // apps/stream closes the removed person's open subscriptions to this business at once.
+        if (target) await emit(tx, ctx, { type: "membership.changed", payload: { userId: input.userId, change: "removed" } });
         return { removed: true };
       }),
     ),
