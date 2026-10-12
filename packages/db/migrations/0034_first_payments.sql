@@ -4,6 +4,16 @@
 -- (`payments`) from first payments only and revenue from every payment.
 alter table conversions add column first_payment boolean not null default true;
 --> statement-breakpoint
+-- Payments recorded before 0034 were all counted as customers. Those the connector reported as renewals or repeat
+-- orders (the source event's firstPayment), and those whose CRM record had already paid, are revenue only from here on.
+update conversions c set first_payment = false
+  from events e
+ where c.kind = 'payment' and e.id = c.source_event_id and e.business_id = c.business_id and e.payload ->> 'firstPayment' = 'false';
+--> statement-breakpoint
+update conversions c set first_payment = false
+ where c.kind = 'payment' and c.first_payment and c.entity_id is not null
+   and exists (select 1 from conversions p where p.business_id = c.business_id and p.entity_id = c.entity_id and p.kind = 'payment' and p.occurred_at < c.occurred_at);
+--> statement-breakpoint
 create index conversions_first_payment_idx on conversions (business_id, kind, occurred_at) where first_payment;
 --> statement-breakpoint
 -- The models the journey builder used for the weights and the xC curve (null on records written before 0034, for
