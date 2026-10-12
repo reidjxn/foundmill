@@ -4,6 +4,7 @@
  * apps/api/src/routers/idea.ts), Compare selection, hrefs and the per-user studio state kept in localStorage
  * (shortlist, discarded-card snapshots) that the API has no procedure for.
  */
+import { CREDITS_CURRENCY } from "@foundmill/config";
 import { ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
 import { CONCEPT_ATTRIBUTE_KEYS, CONCEPT_ATTRIBUTE_LABELS, createRng, hslToRgb, kitOnPrimaryDetail, rgbToHex, type Concept, type ConceptAttribute, type ConceptEvidence, type Kit } from "@foundmill/dugout";
 import { DISPLAY_LOCALE } from "@/lib/format";
@@ -313,8 +314,11 @@ export function orderDeck(deck: readonly IdeaLike[], shortlist: readonly string[
   });
 }
 
-/** Money label for the generation cost ("Estimate · €0.12"). */
-export function costLabel(costMinor: number, currency = "EUR"): string {
+/**
+ * Money label for the generation cost ("$0.12", shown with Estimate). Model costs are metered in US dollars, the model
+ * price list's currency (`CREDITS_CURRENCY`), whatever the founder's own currency.
+ */
+export function costLabel(costMinor: number, currency: string = CREDITS_CURRENCY): string {
   try {
     return new Intl.NumberFormat(DISPLAY_LOCALE, { style: "currency", currency, currencyDisplay: "narrowSymbol", minimumFractionDigits: 2 }).format(costMinor / 100);
   } catch {

@@ -1,4 +1,5 @@
 import { getArchetypeSeed } from "@foundmill/agents";
+import { includedCreditsMinor } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { CHANNEL_KEYS } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -95,6 +96,36 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(me.departments.length).toBe(departments.length);
     const squad = await caller.team.agents.list({ businessId: bid });
     expect(squad.agents.length).toBe(agents.items.length);
+  });
+
+  it("starts on the free tier with this month's included credits in US dollars, keeps the spend cap, and refuses a second business", async () => {
+    const userId = await hz.h.createUser("tier@test.local");
+    const caller = hz.caller({ userId, email: "tier@test.local" });
+    await caller.founder.profile.update({ displayName: "Ada", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    const generated = await caller.idea.generate({ prompt: "invoicing for dog groomers" });
+    const [first, second] = generated.ideas;
+
+    const result = await caller.idea.commit({ ideaId: first!.id, name: "Tier One", archetype: "b2b_saas", gameMode: "personal", currency: "USD", spendCapMinor: 5_000 });
+    const bid = result.business.id;
+    expect(await repos.businesses.get(hz.db, bid)).toMatchObject({ planTier: "free", modelBilling: "credits", spendCapMinor: 5_000 });
+    const period = new Date().toISOString().slice(0, 7);
+    expect(await repos.usage.creditBalance(hz.db, bid, period)).toMatchObject({ grantedMinor: includedCreditsMinor("free"), balanceMinor: includedCreditsMinor("free"), currency: "USD" });
+    const plan = await caller.billing.plan({ businessId: bid });
+    expect(plan).toMatchObject({ tier: "free", modelBilling: "credits", creditsCurrency: "USD", includedCreditsMinor: includedCreditsMinor("free"), credits: { currency: "USD", exhausted: false }, usage: { currency: "USD" } });
+    expect((await repos.audit.list(hz.db, bid, { action: "idea.commit" })).items[0]?.details).toMatchObject({ spendCapMinor: 5_000, planTier: "free", modelBilling: "credits", includedCreditsMinor: includedCreditsMinor("free") });
+
+    // The free plan holds one business: the second commit is refused with a typed error and creates nothing.
+    await expect(caller.idea.commit({ ideaId: second!.id, name: "Tier Two", archetype: "b2b_saas", gameMode: "personal" })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      cause: { code: "tier_limit", details: { limit: "businesses", tier: "free", allowed: 1, used: 1, planBusinessId: bid } },
+    });
+    expect((await repos.businesses.listForUser(hz.db, userId)).map((b) => b.id)).toEqual([bid]);
+    expect((await repos.ideas.get(hz.db, userId, second!.id)).businessId).toBeNull();
+
+    // An archived business frees its place.
+    await caller.business.archive({ businessId: bid, reason: "trying another idea" });
+    const again = await caller.idea.commit({ ideaId: second!.id, name: "Tier Two", archetype: "b2b_saas", gameMode: "personal" });
+    expect(again.business).toMatchObject({ planTier: "free", spendCapMinor: null });
   });
 
   it("preview lists what an archetype seeds, labelled Estimate", async () => {

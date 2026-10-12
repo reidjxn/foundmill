@@ -17,6 +17,8 @@ export const timestampsWithArchive = () => ({ ...timestamps(), archivedAt: archi
 /** Money in minor units (bigint in SQL, number in TS; values stay below 2^53). */
 export const minor = (name: string) => bigint(name, { mode: "number" });
 export const currency = () => char("currency", { length: 3 }).notNull().default("EUR");
+/** Platform costs and credits (usage_ledger, credit_balances; 0024): metered in US dollars, the model price list's currency. */
+export const usdCurrency = () => char("currency", { length: 3 }).notNull().default("USD");
 
 export const tsvector = customType<{ data: string; driverData: string }>({
   dataType: () => "tsvector",

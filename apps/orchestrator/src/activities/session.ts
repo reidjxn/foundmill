@@ -15,7 +15,7 @@
  * while the npm registry is reachable, with every script off; then the network closes and the agent's code runs offline.
  */
 import { AgentInstructions, buildSystemPrompt, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentTemplate } from "@foundmill/agents";
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { bookUsage, loadByokApiKey, repos, type Agent, type AgentVersion, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { resolveModel, type RouteKey } from "@foundmill/models";
@@ -401,7 +401,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       }
 
       let taskStatus: TaskStatus;
-      const cost = { amountMinor: Math.round(result.costMinor), currency: task.currency ?? "EUR" };
+      const cost = { amountMinor: Math.round(result.costMinor), currency: CREDITS_CURRENCY }; // model cost: US cents (DECISIONS 2026-10-12)
       switch (result.outcome) {
         case "done": {
           taskStatus = result.progress.merged ? "done" : result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";

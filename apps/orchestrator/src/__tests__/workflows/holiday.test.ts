@@ -53,7 +53,7 @@ function mockActivities(clock: FakeClock, untilAt: string | null): { acts: Parti
     },
     // the businessCycle child
     async loadBrief() {
-      return { businessId: B, businessName: "Ledgerly", businessMode: "automated", archetype: null, currency: "EUR", glossary: {}, holidayActive: true, departments: [], agents: [], chiefOfStaffId: id(1), openTasks: [], pendingApprovals: 0, blockingInboxItems: 0, budgetRemainingMinor: null, maxAgents: 2, capacity: "mock", text: "", approxTokens: 0, builtAt: clock.now().toISOString() };
+      return { businessId: B, businessName: "Ledgerly", businessMode: "automated", archetype: null, currency: "EUR", glossary: {}, holidayActive: true, departments: [], agents: [], chiefOfStaffId: id(1), openTasks: [], pendingApprovals: 0, blockingInboxItems: 0, budgetRemainingMinor: null, creditsCurrency: "USD", maxAgents: 2, capacity: "mock", text: "", approxTokens: 0, builtAt: clock.now().toISOString() };
     },
     async planCycle() {
       return { summary: "nothing to do", timeBoxHours: 4, starts: [], deferred: [], approvalsNeeded: [], modelKey: "opus", warning: null, costMinor: 0 };

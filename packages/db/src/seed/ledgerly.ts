@@ -271,6 +271,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     ],
     financeLeadAgentId: squad.byTemplate.get("finance_lead")?.agent.id ?? null,
     recentSessions: journey.recentSessions,
+    modelBilling: "byok",
     mrrMinorNow: journey.mrrMinorNow,
   });
   const legal = await seedLegal(ctx, businessId, {

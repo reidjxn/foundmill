@@ -38,18 +38,25 @@ test.describe("settings, plain words", () => {
     await expect(dialog).toBeHidden();
   });
 
-  test("Billing: correct plurals, whole numbers in the usage tables, the business's currency", async ({ page }) => {
+  test("Billing: correct plurals, whole numbers in the usage tables, credits and model costs in US dollars", async ({ page }) => {
     await page.goto(`${B}/settings/billing`);
     const screen = page.getByTestId("settings-screen");
     await expect(screen.locator("[data-tier]").first()).toBeVisible({ timeout: LONG });
     await expect(screen).not.toContainText(/\b1 (businesses|seats|agents)\b/);
     await expect(screen.locator("[data-tier=free]")).toContainText("1 business");
+    await expect(screen.locator("[data-tier=free]")).toContainText("$5.00 of model credits a month");
+    // Northwind keeps its books in pounds, but credits and metered model costs are US dollars, never relabeled.
+    await expect(page.getByTestId("credits-balance")).toContainText("$");
+    await expect(page.getByTestId("spent-this-month")).toContainText("$");
+    await expect(page.getByTestId("spent-this-month")).not.toContainText(/^£/);
+    await expect(page.getByRole("combobox", { name: "Top-up amount" })).toContainText("$");
     const usage = page.getByRole("table", { name: "Usage by agent" });
     if (await usage.count()) {
       // Numbers never truncate: every numeric cell shows its whole text.
       const cut = await usage.locator("td").evaluateAll((tds) => tds.filter((td) => td.scrollWidth > td.clientWidth + 1).length);
       expect(cut).toBe(0);
       await expect(usage).not.toContainText("€");
+      await expect(usage).not.toContainText("£");
     }
   });
 

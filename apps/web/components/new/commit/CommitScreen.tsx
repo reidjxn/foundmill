@@ -17,7 +17,7 @@ import { ARCHETYPE_LABELS, type Archetype, type BusinessMode, type GameMode } fr
 import { routes } from "@foundmill/widgets/shared/routes";
 import { Avatar, Button, Chip, ConceptCard, EmptyState, Field, Input, MoneyInput, Panel, ProvenanceChip, RadioGroup, RadioGroupItem, SkeletonRows, StatusPill, cn, formatMoney, useToast, type Kit } from "@foundmill/dugout";
 import { plainWords, plural } from "@/lib/format";
-import { errorMessage, type RouterOutputs } from "@/lib/trpc";
+import { errorMessage, tierLimitOf, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
 import { StudioFrame } from "../StudioFrame";
@@ -148,6 +148,7 @@ export function CommitScreen({ ideaId, viewer, currency }: CommitScreenProps) {
       onArchetypeChange={setArchetype}
       committing={commit.isPending}
       error={commit.error ? errorMessage(commit.error) : null}
+      upgradeHref={upgradeHrefOf(commit.error)}
       onCommit={(input) => commit.mutate(input)}
       logoApi={logoApi}
       back={back}
@@ -170,15 +171,23 @@ export interface CommitFormProps {
   onArchetypeChange?: (archetype: Archetype | null) => void;
   committing?: boolean;
   error?: string | null;
+  /** Where the plan changes when the commit was refused by the plan's business limit (an upgrade prompt). */
+  upgradeHref?: string | null;
   onCommit: (input: ReturnType<typeof commitInput>) => void;
   /** Upload checks and logo generation (idea.logo.*). */
   logoApi: CommitLogoApi;
   back?: ReactNode;
 }
 
+/** Settings › Billing of the business whose plan sets the owner's business limit, when the plan refused the commit. */
+export function upgradeHrefOf(err: unknown): string | null {
+  const tier = tierLimitOf(err);
+  return tier?.limit === "businesses" && tier.planBusinessId ? routes.settings(tier.planBusinessId, "billing") : null;
+}
+
 const DEBOUNCE_MS = 350;
 
-export function CommitForm({ idea, viewer, currency, initialName, preview, previewLoading, onArchetypeChange, committing, error, onCommit, logoApi, back }: CommitFormProps) {
+export function CommitForm({ idea, viewer, currency, initialName, preview, previewLoading, onArchetypeChange, committing, error, upgradeHref, onCommit, logoApi, back }: CommitFormProps) {
   const concept = useMemo(() => toConcept(idea), [idea]);
   // The idea's seed only picks the starting brand colours now; the logo is uploaded or generated.
   const ideaSeed = String(readMeta(idea.current?.research).crest_seed ?? idea.id);
@@ -363,9 +372,16 @@ export function CommitForm({ idea, viewer, currency, initialName, preview, previ
           </Panel>
 
           {error ? (
-            <StatusPill tone="bad" role="alert">
-              {error}
-            </StatusPill>
+            <div className="flex flex-wrap items-center gap-2" data-testid="commit-error">
+              <StatusPill tone="bad" role="alert">
+                {error}
+              </StatusPill>
+              {upgradeHref ? (
+                <LinkButton variant="default" size="sm" iconRight={ArrowRight} href={upgradeHref} data-testid="commit-upgrade">
+                  See plans
+                </LinkButton>
+              ) : null}
+            </div>
           ) : null}
         </div>
 

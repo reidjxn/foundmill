@@ -10,3 +10,8 @@ export class UnauthorizedError extends AppError { constructor(message = "Unautho
 export class ValidationError extends AppError { constructor(message: string, details?: unknown) { super("validation", message, 400, details); } }
 export class HardGateError extends AppError { constructor(action: string) { super("hard_gate", `"${action}" always requires a human action (BUILD §2.2)`, 403); } }
 export class PolicyDeniedError extends AppError { constructor(reason: string) { super("policy_denied", reason, 403); } }
+/**
+ * A plan tier limit (BUILD §10.5 `TIERS`): businesses per owner, seats or concurrent agents. `details.limit` names it;
+ * the web turns the code into an upgrade prompt rather than a plain failure.
+ */
+export class TierLimitError extends AppError { constructor(message: string, details: { limit: "businesses" | "seats" | "concurrent_agents"; tier: string; allowed: number; used: number } & Record<string, unknown>) { super("tier_limit", message, 403, details); } }

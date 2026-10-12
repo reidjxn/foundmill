@@ -29,6 +29,8 @@ export interface AgentSkillRow {
 
 export interface AgentWage {
   costMinor: number;
+  /** The currency of `costMinor`: platform costs are metered in US dollars (the cap is in the agent's currency). */
+  currency?: string;
   capMinor?: number | null;
   period?: string;
   label?: "Estimate";

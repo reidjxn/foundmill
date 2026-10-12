@@ -1,5 +1,5 @@
 /**
- * business.get/update/setGameMode/setBusinessMode/continue/pauseCycle/resumeCycle/startHoliday/endHoliday/stopAllAgents/
+ * business.get/update/setGameMode/setBusinessMode/setSpendCap/continue/pauseCycle/resumeCycle/startHoliday/endHoliday/stopAllAgents/
  * export/archive/requestDeletion/cancelDeletion (BUILD §9.4, §9.6, §11.15, §14).
  */
 import { LIMITS } from "@foundmill/config";
@@ -99,6 +99,20 @@ export const businessRouter = router({
         await emit(tx, ctx, { type: "mode.changed", payload: { scope: "business", from, to: input.businessMode, reason: input.reason ?? null } });
         await audit(tx, ctx, { action: "business.set_business_mode", target: { kind: "business", id: ctx.businessId }, details: { from, to: input.businessMode } });
       }
+      return business;
+    }),
+  ),
+
+  /**
+   * The "Spend cap per action" (Settings › Mode; first set on Commit), in minor units of the business currency: above it
+   * every spend asks the founder first, whatever the mode (the gateway lowers each agent's approval threshold to it).
+   * Null removes the business cap; each agent's own threshold then applies.
+   */
+  setSpendCap: adminProcedure.input(z.object({ spendCapMinor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable() })).mutation(({ ctx, input }) =>
+    ctx.rls(async (tx) => {
+      const from = ctx.business.spendCapMinor;
+      const business = await repos.businesses.setSpendCap(tx, ctx.businessId, input.spendCapMinor);
+      if (from !== input.spendCapMinor) await audit(tx, ctx, { action: "business.set_spend_cap", target: { kind: "business", id: ctx.businessId }, details: { from, to: input.spendCapMinor } });
       return business;
     }),
   ),

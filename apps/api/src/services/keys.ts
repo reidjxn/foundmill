@@ -5,8 +5,8 @@
  *
  * The key is sealed as the connector credential shape `{ kind: "api_key", secret }` under the default credential kind
  * (`BYOK_CREDENTIAL_KIND`), the row the gateway's `loadCredential` and the orchestrator's `loadByokApiKey` read. Storing
- * a key moves the business onto its own key (`model_billing = byok`); revoking it moves a paid tier back to credits and
- * leaves the free tier, which has no credits, on `byok` with the team paused until a new key is set.
+ * a key moves the business onto its own key (`model_billing = byok`); revoking it moves it back to credits (every tier
+ * includes a bounded monthly credit since 2026-10-12; a tier without credits would stay on `byok`), team paused.
  */
 import { TIERS } from "@foundmill/config";
 import { mockIntegrationRecord, type Connector, type ToolContext } from "@foundmill/connectors";

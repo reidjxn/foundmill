@@ -2,7 +2,8 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CONCEPT_ATTRIBUTE_KEYS, TooltipProvider } from "@foundmill/dugout";
-import { CommitForm, type CommitLogoApi } from "../commit/CommitScreen";
+import { TRPCClientError } from "@trpc/client";
+import { CommitForm, upgradeHrefOf, type CommitLogoApi } from "../commit/CommitScreen";
 import { META_KIND, type IdeaLike } from "../ideate/concepts";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
@@ -211,6 +212,16 @@ describe("CommitForm (BUILD §11.1 Commit screen; AC-11.1.6, AC-11.1.7)", () => 
     // The header says it too, beside the top button, which reads as the work in progress rather than the action.
     expect(screen.getAllByText(/^Setting up your business/)).toHaveLength(2);
     expect(screen.getByTestId("take-charge").textContent).toMatch(/Setting up…/);
+  });
+
+  it("turns the plan's business limit into an upgrade prompt that opens Billing of the business whose plan sets it", () => {
+    const refusal = new TRPCClientError("The Free plan holds 1 business and you already own 1.", { result: { error: { code: -32003, message: "x", data: { code: "FORBIDDEN", httpStatus: 403, appCode: "tier_limit", details: { limit: "businesses", tier: "free", allowed: 1, used: 1, planBusinessId: "b1" } } } } } as never);
+    expect(upgradeHrefOf(refusal)).toBe("/b/b1/settings/billing");
+    expect(upgradeHrefOf(new TRPCClientError("Seats", { result: { error: { code: -32003, message: "x", data: { appCode: "tier_limit", details: { limit: "seats", planBusinessId: "b1" } } } } } as never))).toBeNull();
+    expect(upgradeHrefOf(new Error("network"))).toBeNull();
+    renderForm(vi.fn(), { error: refusal.message, upgradeHref: upgradeHrefOf(refusal) });
+    expect(screen.getByRole("alert").textContent).toMatch(/Free plan holds 1 business/);
+    expect(screen.getByTestId("commit-upgrade").getAttribute("href")).toBe("/b/b1/settings/billing");
   });
 
   it("shows the team the archetype seeds", () => {

@@ -9,7 +9,7 @@
  * `training.completed`. The live version is never touched here; Promote is the founder's button (apps/api).
  */
 import { AgentInstructions, buildSystemPrompt, detectClubRuleViolation, getPrompt, getSkillDefinition, getSkillTests, ratingFromTested, runDeterministicChecks, type AgentTemplate, type SkillTest } from "@foundmill/agents";
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { SkillGradeOutput, resolveModel } from "@foundmill/models";
 import { MockSandboxProvider, RECORDINGS, type MockSandbox } from "@foundmill/sandbox";
@@ -179,7 +179,7 @@ export function createTrainingActivities(deps: OrchestratorDeps) {
         businessId: input.businessId,
         type: "training.completed",
         actor: systemActor,
-        payload: { trainingRunId: run.id, agentId: input.agentId, fromVersionId: input.liveVersionId ?? input.draftVersionId, toVersionId: input.draftVersionId, status: input.status === "cancelled" ? "cancelled" : input.status === "failed" ? "failed" : "succeeded", cost: { amountMinor: Math.max(0, Math.round(costMinor)), currency: run.currency ?? "EUR" }, durationMs: Math.max(0, deps.clock.nowMs() - new Date(input.startedAt).getTime()), testsRun: input.outcomes.reduce((a, o) => a + o.testsRun, 0), skillDeltas: skillDeltas.map((d) => ({ skillKey: d.skillKey, group: input.outcomes.find((o) => o.skillKey === d.skillKey)?.group ?? "craft", before: d.before, after: d.after })), coachSummary: coachSummaryMd.slice(0, 4000), recommendation: input.status ? null : drops.length === 0 && gains.length > 0 ? "promote" : "discard" },
+        payload: { trainingRunId: run.id, agentId: input.agentId, fromVersionId: input.liveVersionId ?? input.draftVersionId, toVersionId: input.draftVersionId, status: input.status === "cancelled" ? "cancelled" : input.status === "failed" ? "failed" : "succeeded", cost: { amountMinor: Math.max(0, Math.round(costMinor)), currency: CREDITS_CURRENCY }, durationMs: Math.max(0, deps.clock.nowMs() - new Date(input.startedAt).getTime()), testsRun: input.outcomes.reduce((a, o) => a + o.testsRun, 0), skillDeltas: skillDeltas.map((d) => ({ skillKey: d.skillKey, group: input.outcomes.find((o) => o.skillKey === d.skillKey)?.group ?? "craft", before: d.before, after: d.after })), coachSummary: coachSummaryMd.slice(0, 4000), recommendation: input.status ? null : drops.length === 0 && gains.length > 0 ? "promote" : "discard" },
       });
       await repos.audit.append(db, input.businessId, { actorKind: "system", action: "training.complete", target: { kind: "training_run", id: run.id }, details: { status, skills: skillDeltas.length, flags: input.clubRuleFlags.length } });
       return { status, skillDeltas, eventId: ev.id };

@@ -59,6 +59,12 @@ export const businesses = pgTable(
     committedAt: tstz("committed_at"),
     planTier: text("plan_tier", { enum: PLAN_TIERS }).notNull().default("free"),
     modelBilling: text("model_billing", { enum: MODEL_BILLING }).notNull().default("credits"),
+    /**
+     * The founder's "Spend cap per action" (Commit, Settings › Mode; 0024), in minor units of the business currency.
+     * Above it every spend asks first, whatever the mode: the gateway lowers each agent's approval threshold to it.
+     * Null: no business cap (each agent's own threshold applies).
+     */
+    spendCapMinor: minor("spend_cap_minor"),
     glossary: jsonb("glossary").$type<Record<string, string>>().notNull().default(emptyObject),
     createdBy: uuid("created_by").references(() => authUsers.id, { onDelete: "set null" }),
     ...timestampsWithArchive(),

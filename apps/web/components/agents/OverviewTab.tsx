@@ -95,7 +95,7 @@ export function OverviewTab({ businessId, profile, currency }: TabProps) {
           labelClassName="w-36"
           items={[
             { label: "Wage cap", value: money(agent.wageCapMinor === null ? null : Number(agent.wageCapMinor)), numeric: true },
-            { label: wageLabel(profile.wage.period, undefined, datePrefs).replace(/^Wage/, "Spent"), value: <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: profile.wage.costMinor, currency })} <ProvenanceChip kind="estimate" /></span>, numeric: true },
+            { label: wageLabel(profile.wage.period, undefined, datePrefs).replace(/^Wage/, "Spent"), value: <span className="inline-flex items-center gap-1">{formatMoney({ amountMinor: profile.wage.costMinor, currency: profile.wage.currency })} <ProvenanceChip kind="estimate" /></span>, numeric: true },
             { label: "Spend cap per action", value: money(autonomy.spendCapMinor), numeric: true },
             { label: "Asks above", value: money(autonomy.approvalThresholdMinor), numeric: true },
             { label: "Autonomy", value: autonomy.mode === "inherit" ? "Business mode" : autonomy.mode === "lower" ? "Asks more often" : "Acts more freely" },

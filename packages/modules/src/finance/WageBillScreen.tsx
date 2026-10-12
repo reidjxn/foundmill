@@ -1,8 +1,9 @@
 "use client";
 /**
- * Finance › Wage bill (BUILD §11.8): per-agent monthly cost (tokens, sandbox minutes, tool calls, training) against
- * each agent's wage cap, the human payroll line from categorised bank transactions, and output per euro (tasks
- * completed per 100 units of cost). Every figure is an Estimate: the founder's Anthropic invoice is the only real cost.
+ * Finance › Payroll (BUILD §11.8): per-agent monthly cost (tokens, sandbox minutes, tool calls, training) against
+ * each agent's wage cap, the human payroll line from categorised bank transactions, and output per 100 units of team
+ * cost. Every figure is an Estimate: the founder's Anthropic invoice is the only real cost. The team's cost is metered
+ * in US dollars and is never added to staff payroll or compared with a cap in another currency (nothing is converted).
  */
 import { useMemo, useState } from "react";
 import { AlertTriangle, Bot, GraduationCap, UserRound, Users } from "lucide-react";
@@ -48,7 +49,9 @@ export function readAgents(data: TeamAgentRow[] | { agents: TeamAgentRow[] } | u
 }
 
 /** One row per agent with usage in the period; agents without usage still appear (zero cost) so caps are visible. */
-export function wageBillRows(wages: readonly WageRow[], agents: readonly TeamAgentRow[], tasks: readonly TaskRow[], period: string): WageBillRow[] {
+export function wageBillRows(wages: readonly WageRow[], agents: readonly TeamAgentRow[], tasks: readonly TaskRow[], period: string, currencies: { cost: string; cap: string } | null = null): WageBillRow[] {
+  // Costs are metered in US dollars and a wage cap is in the agent's currency: the share used shows only when they match.
+  const comparable = currencies === null || currencies.cost === currencies.cap;
   const doneByAgent = new Map<string, number>();
   for (const t of tasks) {
     if (t.status !== "done" || !t.assigneeAgentId) continue;
@@ -73,7 +76,7 @@ export function wageBillRows(wages: readonly WageRow[], agents: readonly TeamAge
     byAgent.set(w.agentId, row);
   }
   return [...byAgent.values()]
-    .map((r) => ({ ...r, capUsedPct: capUsedPct(r.costMinor, r.capMinor), outputPerHundred: outputPerHundred(r.tasksDone, r.costMinor) }))
+    .map((r) => ({ ...r, capUsedPct: comparable ? capUsedPct(r.costMinor, r.capMinor) : null, outputPerHundred: outputPerHundred(r.tasksDone, r.costMinor) }))
     .sort((a, b) => b.costMinor - a.costMinor || a.name.localeCompare(b.name));
 }
 
@@ -114,7 +117,8 @@ export function perHundredLabel(currency: string): string {
   return symbol ? `Tasks per ${symbol}100` : `Tasks per 100 ${currency}`;
 }
 
-export function wageColumns(businessId: string, currency: string, sizes: Record<WageColumnId, number> = fitColumns<WageColumnId>(null, WAGE_FIT, [])): DataTableColumn<WageBillRow>[] {
+/** `currency` is the costs' (US dollars, metered); `capCurrency` the wage caps' (the agents' currency). */
+export function wageColumns(businessId: string, currency: string, sizes: Record<WageColumnId, number> = fitColumns<WageColumnId>(null, WAGE_FIT, []), capCurrency: string = currency): DataTableColumn<WageBillRow>[] {
   return [
     { id: "name", accessorKey: "name", header: "Agent", size: sizes.name, cell: ({ row }) => <EntityLink entity={{ id: row.original.agentId, kind: "agent", name: row.original.name, href: routes.agent(businessId, row.original.agentId) }} />, meta: { locked: true } },
     { id: "role", accessorKey: "role", header: "Role", size: sizes.role, cell: ({ getValue }) => <span className="truncate text-secondary">{String(getValue() ?? "") || "—"}</span> },
@@ -134,10 +138,12 @@ export function wageColumns(businessId: string, currency: string, sizes: Record<
       cell: ({ row }) => {
         const r = row.original;
         if (r.capMinor === null) return <span className="text-secondary">Uncapped</span>;
-        const pct = r.capUsedPct ?? 0;
+        // No share when the cap and the cost are in different currencies (nothing is converted).
+        if (r.capUsedPct === null) return <span className="tabular-nums">{fmtMoney(r.capMinor, capCurrency)}</span>;
+        const pct = r.capUsedPct;
         return (
           <span className="flex items-center justify-end gap-1.5">
-            <span className="tabular-nums">{fmtMoney(r.capMinor, currency)}</span>
+            <span className="tabular-nums">{fmtMoney(r.capMinor, capCurrency)}</span>
             {pct >= 100 ? (
               <StatusPill tone="bad" icon={AlertTriangle} className="whitespace-nowrap">
                 Over cap
@@ -179,8 +185,10 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
   const pnl = useWidgetQuery<PnlResponse>("finance.pnl", range);
   const [views, setViews] = useState<SavedView[]>(WAGE_VIEWS);
 
-  const rows = useMemo(() => wageBillRows(wages.data?.rows ?? [], readAgents(agents.data), tasks.data?.items ?? [], period), [wages.data, agents.data, tasks.data, period]);
-  const columns = useMemo(() => fitToGrow(wageColumns(businessId, currency), WAGE_FIT), [businessId, currency]);
+  // The team's cost is metered in US dollars (finance.wages `currency`); staff payroll and wage caps are the business's.
+  const teamCurrency = wages.data?.currency ?? currency;
+  const rows = useMemo(() => wageBillRows(wages.data?.rows ?? [], readAgents(agents.data), tasks.data?.items ?? [], period, { cost: teamCurrency, cap: currency }), [wages.data, agents.data, tasks.data, period, teamCurrency, currency]);
+  const columns = useMemo(() => fitToGrow(wageColumns(businessId, teamCurrency, undefined, currency), WAGE_FIT), [businessId, teamCurrency, currency]);
   const squadMinor = rows.reduce((n, r) => n + r.costMinor, 0);
   const tasksDone = rows.reduce((n, r) => n + r.tasksDone, 0);
   const payrollMinor = useMemo(() => {
@@ -191,10 +199,13 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
   const overCap = rows.filter((r) => (r.capUsedPct ?? 0) >= CAP_WARN_PCT);
 
   const tiles: MetricTileProps[] = [
-    { label: "Team payroll", value: { amountMinor: squadMinor, currency }, estimate: "estimate", provenance: { source: "Usage ledger: tokens, sandbox minutes, tool calls, training", query: "finance.wages", note: "Metered at list prices; the Anthropic invoice is the only real cost." }, caption: `${rows.filter((r) => r.costMinor > 0).length} agents with usage in ${formatMonth(period, datePrefs)}` },
+    { label: "Team payroll", value: { amountMinor: squadMinor, currency: teamCurrency }, estimate: "estimate", provenance: { source: "Usage ledger: tokens, sandbox minutes, tool calls, training", query: "finance.wages", note: "Metered at list prices; the Anthropic invoice is the only real cost." }, caption: `${rows.filter((r) => r.costMinor > 0).length} agents with usage in ${formatMonth(period, datePrefs)}` },
     { label: "Human payroll", value: { amountMinor: payrollMinor, currency }, estimate: "estimate", provenance: { source: pnl.data?.label ?? "Management P&L, unaudited, cash basis", query: "finance.pnl categories Payroll, Contractors", note: "Bank outflows categorized as payroll or contractors in the month." }, caption: `${staff.length} staff member${staff.length === 1 ? "" : "s"}` },
-    { label: "Total payroll", value: { amountMinor: squadMinor + payrollMinor, currency }, estimate: "estimate", provenance: { source: "Team payroll + human payroll", note: "Team and staff together for the month." }, caption: formatMonth(period, datePrefs) },
-    { label: perHundredLabel(currency), value: outputPerHundred(tasksDone, squadMinor) ?? "—", format: "decimal", estimate: outputPerHundred(tasksDone, squadMinor) === null ? undefined : "estimate", provenance: { source: "Tasks completed ÷ team payroll", query: "dev.tasks.list status=done", note: `Tasks marked done in the month for every ${perHundredLabel(currency).replace("Tasks per ", "")} of team cost.` }, caption: `${tasksDone} task${tasksDone === 1 ? "" : "s"} done` },
+    teamCurrency === currency
+      ? { label: "Total payroll", value: { amountMinor: squadMinor + payrollMinor, currency }, estimate: "estimate", provenance: { source: "Team payroll + human payroll", note: "Team and staff together for the month." }, caption: formatMonth(period, datePrefs) }
+      : // Never added across currencies (nothing is converted): both parts, each in its own currency.
+        { label: "Total payroll", value: `${fmtMoney(squadMinor, teamCurrency, { compact: true })} + ${fmtMoney(payrollMinor, currency, { compact: true })}`, estimate: "estimate", provenance: { source: "Team payroll + human payroll", note: "Kept apart: the team is metered in US dollars, staff are paid in the business's currency." }, caption: formatMonth(period, datePrefs) },
+    { label: perHundredLabel(teamCurrency), value: outputPerHundred(tasksDone, squadMinor) ?? "—", format: "decimal", estimate: outputPerHundred(tasksDone, squadMinor) === null ? undefined : "estimate", provenance: { source: "Tasks completed ÷ team payroll", query: "dev.tasks.list status=done", note: `Tasks marked done in the month for every ${perHundredLabel(teamCurrency).replace("Tasks per ", "")} of team cost.` }, caption: `${tasksDone} task${tasksDone === 1 ? "" : "s"} done` },
   ];
 
   const rowActions = (): RowAction<WageBillRow>[] => [
@@ -231,7 +242,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
             <SimpleSelect aria-label="Period" controlSize="sm" value={period} onValueChange={setPeriod} options={periods.map((p) => ({ value: p, label: formatMonth(p, datePrefs) }))} />
           </div>
         }
-        footer={<span className="tabular-nums">{rows.length} agents · {fmtMoney(squadMinor, currency)} in {formatMonth(period, datePrefs)} · Estimate: metered usage at list prices</span>}
+        footer={<span className="tabular-nums">{rows.length} agents · {fmtMoney(squadMinor, teamCurrency)} in {formatMonth(period, datePrefs)} · Estimate: metered usage at list prices</span>}
       >
         <div className="min-w-0">
           <DataTable<WageBillRow> aria-label="Team payroll" data={rows} columns={columns} getRowId={(r) => r.agentId} views={views} onViewsChange={setViews} defaultViewId="all" height={480} exportFileName={`wage-bill-${period}`} rowActions={rowActions} onRowOpen={(r) => navigate(routes.agent(businessId, r.agentId))} />

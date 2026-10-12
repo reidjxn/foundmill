@@ -99,5 +99,12 @@ test.describe("commit", () => {
     await expect(page.getByTestId("decision-bar")).toHaveAttribute("data-state", "open");
     // The sidebar carries the departments the commit created.
     expect(await page.locator("[data-testid=app-shell] nav a[href*='/d/']").count()).toBeGreaterThanOrEqual(1);
+    // The spend cap per action chosen on Commit (the Assisted default, 250) is kept on the business, editable in Settings › Mode.
+    const bid = /\/b\/([0-9a-f-]+)\//.exec(page.url())![1]!;
+    await page.goto(`/b/${bid}/settings/mode`);
+    await expect(page.getByTestId("spend-cap-form").getByLabel("Spend cap per action")).toHaveValue("250", { timeout: LONG });
+    // A new business starts on the free plan with this month's included credits, in US dollars.
+    await page.goto(`/b/${bid}/settings/billing`);
+    await expect(page.getByTestId("credits-balance")).toContainText("$5.00", { timeout: LONG });
   });
 });

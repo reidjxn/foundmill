@@ -123,8 +123,9 @@ describe("studio state: discard is reversible (AC-11.1.3)", () => {
     expect(parseStudioState(JSON.stringify({ shortlist: [A, 3], discarded: [{ idea: { id: B } }, { nope: true }], lastPrompt: 7 }))).toEqual({ shortlist: [A], discarded: [{ idea: { id: B } }], restored: [], lastPrompt: "" });
   });
 
-  it("labels model cost as money", () => {
-    expect(costLabel(12)).toBe("€0.12");
+  it("labels model cost as money in US dollars, the currency model prices are metered in (never a silent euro)", () => {
+    expect(costLabel(12)).toBe("$0.12");
+    expect(costLabel(12, "GBP")).toBe("£0.12");
   });
 });
 

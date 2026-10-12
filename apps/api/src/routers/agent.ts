@@ -4,7 +4,7 @@
  * ("agent" | "type" | "all", BUILD §9.6 ApplyScopeDialog). BUILD §11.10; AC-11.10.1/2/5/6.
  */
 import { AgentInstructions, detectClubRuleViolation, deriveTraits, getSkillTests, getTemplateByAgentType, redactHeldOut } from "@foundmill/agents";
-import { LIMITS } from "@foundmill/config";
+import { CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
 import { UpdateAgentInput, repos, type Agent } from "@foundmill/db";
 import { MODELS, meter, resolveModel, type RouteKey } from "@foundmill/models";
 import { MODEL_KEYS, ValidationError, type ModelKey } from "@foundmill/shared";
@@ -63,7 +63,7 @@ export const agentRouter = router({
           metrics,
           trainingRuns: runs.items,
           sessions: sessions.items,
-          wage: { ...spend, period, label: "Estimate" as const },
+          wage: { ...spend, currency: CREDITS_CURRENCY, period, label: "Estimate" as const },
           departments: departments.filter((d) => agent.departmentIds.includes(d.id)).map((d) => ({ id: d.id, name: d.name, colourToken: d.colourToken })),
           lineManager: agent.lineManagerId ? await repos.agents.get(tx, ctx.businessId, agent.lineManagerId) : null,
           stars: { current: tested === null ? null : Math.max(1, Math.min(5, Math.round(tested / 4))), potential: potential === null ? null : Math.max(1, Math.min(5, Math.round(potential / 4))) },

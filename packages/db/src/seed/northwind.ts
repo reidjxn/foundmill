@@ -258,6 +258,7 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
     financing: [{ at: atHour(addDays(ctx.startDate, 1), 10), counterparty: `${DEMO_OWNER_DISPLAY_NAME} (director loan)`, amountMinor: 6_000_000, description: "Director loan to fund the first batch", category: "financing", counterpartyEntityId: agentEntities.founder.id }],
     financeLeadAgentId: squad.byTemplate.get("finance_lead")?.agent.id ?? null,
     recentSessions: journey.recentSessions,
+    modelBilling: "credits",
     mrrMinorNow: journey.mrrMinorNow,
   });
   const legal = await seedLegal(ctx, businessId, {

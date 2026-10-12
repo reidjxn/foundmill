@@ -94,7 +94,7 @@ export function AgentProfileScreen({ agentId, tab }: AgentProfileScreenProps) {
       label: "Line manager",
       value: profile.lineManager ? <EntityLink entity={{ id: profile.lineManager.id, kind: "agent", name: profile.lineManager.name, href: routes.agent(businessId, profile.lineManager.id) }} hoverCard={false} contextMenu={false} /> : <span className="text-secondary">You</span>,
     },
-    { label: wageLabel(profile.wage.period, undefined, datePrefs), value: `${formatMoney({ amountMinor: profile.wage.costMinor, currency: agent.currency ?? currency })}${profile.wage.wageCapMinor !== null ? ` of ${formatMoney({ amountMinor: profile.wage.wageCapMinor, currency: agent.currency ?? currency })}` : ""}`, provenance: "estimate" },
+    { label: wageLabel(profile.wage.period, undefined, datePrefs), value: `${formatMoney({ amountMinor: profile.wage.costMinor, currency: profile.wage.currency })}${profile.wage.wageCapMinor !== null ? ` of ${formatMoney({ amountMinor: profile.wage.wageCapMinor, currency: agent.currency ?? currency })}` : ""}`, provenance: "estimate" },
     { label: "Tasks · 30 days", value: profile.metrics.reduce((s, m) => s + m.tasksDone, 0) },
   ];
   const typeCount = squadQ.data?.agents.filter((a) => a.agentType === agent.agentType).length;

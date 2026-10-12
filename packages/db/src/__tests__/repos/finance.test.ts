@@ -131,12 +131,19 @@ describe("usage", () => {
     await repos.usage.record(r.db, A, { kind: "training", quantity: 1, costMinor: 250, occurredAt: day("2026-10-04") });
     await repos.usage.record(r.db, A, { agentId: r.A.agentId, kind: "tokens", quantity: 1, costMinor: 999, occurredAt: day("2026-09-30") }); // previous month
     await expect(repos.usage.record(r.db, A, { kind: "tokens", costMinor: -1 })).rejects.toThrow(/Invalid usage entry/);
+    // Third-party tool spend in the vendor's currency is listed apart, never added to the US dollar costs.
+    await repos.usage.record(r.db, A, { agentId: r.A.agentId, kind: "tool", quantity: 1, unit: "calls", costMinor: 700, currency: "GBP", occurredAt: day("2026-10-03") });
 
     const totals = await repos.usage.totals(r.db, A, { from: day("2026-10-01"), to: day("2026-11-01") });
+    expect(totals.currency).toBe("USD");
     expect(totals.costMinor).toBe(415);
+    expect(totals.otherCurrencies).toEqual([{ currency: "GBP", costMinor: 700 }]);
     expect(totals.byKind.tokens.quantity).toBe(170000);
+    expect(totals.byKind.tool).toEqual({ costMinor: 0, quantity: 1 });
     expect(totals.byBilledTo.byok).toBe(120);
-    expect(totals.entries).toBe(4);
+    expect(totals.entries).toBe(5);
+    // A row written without a currency is US dollars (platform costs are metered in the model price list's currency).
+    expect(new Set((await repos.usage.list(r.db, A, { kind: ["tokens", "sandbox", "training"] })).items.map((u) => u.currency))).toEqual(new Set(["USD"]));
     const daily = await repos.usage.daily(r.db, A, { from: day("2026-10-01"), to: day("2026-11-01") });
     expect(daily.map((d) => d.costMinor)).toEqual([45, 120, 250]);
 
@@ -147,6 +154,7 @@ describe("usage", () => {
       [r.A.agent2Id, 45],
     ]);
     expect(wages.find((w) => w.agentId === r.A.agent2Id)).toMatchObject({ tokens: 120000, sandboxMinutes: 45 });
+    expect(wages.find((w) => w.agentId === r.A.agentId)).toMatchObject({ costMinor: 120, toolCalls: 1 });
     await repos.agents.update(r.db, A, r.A.agent2Id, { wageCapMinor: 100 });
     expect(await repos.usage.agentSpend(r.db, A, r.A.agent2Id, "2026-10")).toEqual({ costMinor: 45, wageCapMinor: 100, remainingMinor: 55 });
     expect((await repos.usage.list(r.db, A, { agentId: r.A.agentId, kind: "tokens" })).items).toHaveLength(2);
@@ -163,5 +171,8 @@ describe("usage", () => {
     await expect(repos.usage.debitCredits(r.db, r.B.businessId, "2026-10", 1)).rejects.toThrow(/Insufficient credits/);
     expect((await repos.usage.creditBalance(r.db, A, "2026-10"))?.balanceMinor).toBe(300);
     await expect(repos.usage.grantCredits(r.db, A, "2026/10", 1)).rejects.toThrow(/Invalid credit grant/);
+    // Credits are US dollars: a grant in another currency is refused, never merged into the balance.
+    await expect(repos.usage.grantCredits(r.db, A, "2026-10", 2500, "JPY")).rejects.toThrow(/Invalid credit grant/);
+    expect((await repos.usage.creditBalance(r.db, A, "2026-10"))).toMatchObject({ balanceMinor: 300, currency: "USD" });
   });
 });

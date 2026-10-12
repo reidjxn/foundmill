@@ -2,8 +2,8 @@
  * `loadBrief`: the ~4,000-token business brief rebuilt each cycle (BUILD §9.7) and prompt-cached for every agent call.
  * Facts come from the repositories; nothing is invented and every non-real number carries its label.
  */
-import { LIMITS } from "@foundmill/config";
-import { periodOf, repos } from "@foundmill/db";
+import { CREDITS_CURRENCY } from "@foundmill/config";
+import { concurrencyAllowance, creditsState, periodOf, repos } from "@foundmill/db";
 import type { TaskStatus } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import type { BriefAgent, BriefDepartment, BriefTask, BusinessBrief } from "./types";
@@ -90,15 +90,19 @@ export function createBriefActivities(deps: OrchestratorDeps) {
         };
       });
 
+      // Credits (USD) for a business on credits: the period's balance, or what its tier includes before the first charge
+      // of the month. A business on its own key has no Foundmill budget here (null).
       let budgetRemainingMinor: number | null = null;
       try {
-        const credits = await repos.usage.creditBalance(db, businessId, periodOf(now));
-        if (credits) budgetRemainingMinor = Number(credits.balanceMinor);
+        const credits = await creditsState(db, business, periodOf(now));
+        if (credits) budgetRemainingMinor = credits.balanceMinor;
       } catch (err) {
         deps.log.debug({ err: (err as Error).message }, "credit balance unavailable");
       }
 
-      const maxAgents = business.planTier === "scale" ? LIMITS.hardMaxConcurrentAgents : LIMITS.defaultMaxConcurrentAgents;
+      // The plan tier's concurrent-agent limit (BUILD §10.5), less the sessions still open from earlier cycles or starts.
+      const concurrency = await concurrencyAllowance(db, business, now);
+      const maxAgents = concurrency.room;
       const capacity = deps.models.mode === "mock" ? "mock models: unlimited" : "requests 50/min, input 80k tok/min, output 16k tok/min (Estimate until headers are read)";
 
       // ---- prose brief (≈ 4k tokens) ------------------------------------------------------------------------------
@@ -111,7 +115,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
         .sort((a, b) => b.priority - a.priority)
         .map((t) => `- [${t.status}] ${t.title} (${t.kind}, id ${t.id}${t.assigneeAgentId ? `, assignee ${t.assigneeAgentId}` : ""}${t.departmentId ? `, dept ${t.departmentId}` : ""}${t.blocked ? ", blocked by dependencies" : ""}${t.fileScope.length ? `, files ${t.fileScope.slice(0, 3).join(" ")}` : ""})`);
       sections.push(`## Open tasks (${openTasks.length})\n${fit(taskLines, 1600).join("\n") || "- none"}`);
-      sections.push(`## Governance\nApprovals waiting: ${pendingApprovals}. Inbox items blocking Continue: ${blockingInboxItems}. Concurrency limit: ${maxAgents} agents. Budget remaining this period: ${budgetRemainingMinor === null ? "not capped" : formatMinor(budgetRemainingMinor, currency) + " (Estimate)"}. Rate-limit capacity: ${capacity}.`);
+      sections.push(`## Governance\nApprovals waiting: ${pendingApprovals}. Inbox items blocking Continue: ${blockingInboxItems}. Concurrency limit: ${maxAgents} agents (plan ${business.planTier}: ${concurrency.limit} at once, ${concurrency.running} already running). Model budget remaining this period: ${budgetRemainingMinor === null ? "the founder's own Anthropic key (no credits)" : formatMinor(budgetRemainingMinor, CREDITS_CURRENCY) + " of credits (Estimate)"}. Rate-limit capacity: ${capacity}.`);
       sections.push(`## Rules of engagement\nFacts live in the database; query them through tools rather than guessing. Every external action or spend goes through the gateway and its policy. Hard gates (money movement, signing, filings in the founder's name, deletions, security settings) always become founder tasks. Label estimates and forecasts.`);
       let text = sections.join("\n\n");
       if (approxTokens(text) > BRIEF_TOKEN_BUDGET) text = text.slice(0, BRIEF_TOKEN_BUDGET * CHARS_PER_TOKEN - 1) + "…";
@@ -131,6 +135,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
         pendingApprovals,
         blockingInboxItems,
         budgetRemainingMinor,
+        creditsCurrency: CREDITS_CURRENCY,
         maxAgents,
         capacity,
         text,

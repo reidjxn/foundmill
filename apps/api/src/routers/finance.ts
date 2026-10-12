@@ -2,7 +2,7 @@
  * finance.overview / pnl / transactions.recategorise / forecast.update / capTable.(get, create*, update*) / wages (BUILD §11.8). Read-only module in
  * v1: no procedure here can initiate a payment (AC-11.8.5). Every derived number is labelled Estimate/Forecast.
  */
-import { LIMITS } from "@foundmill/config";
+import { CREDITS_CURRENCY, LIMITS } from "@foundmill/config";
 import { CreateEntryInput, CreateForecastInput, CreateSecurityInput, UpdateEntryInput, repos } from "@foundmill/db";
 import { z } from "zod";
 import { Id, audit, emit, router, sectionAdmin, sectionRead, sectionWrite } from "../trpc";
@@ -152,7 +152,12 @@ export const financeRouter = router({
     ctx.rls(async (tx) => {
       const period = input?.period ?? currentPeriod();
       const [wages, agents] = await Promise.all([repos.usage.wages(tx, ctx.businessId, period), repos.agents.list(tx, ctx.businessId, { limit: 500 })]);
-      return { period, label: "Estimate" as const, rows: wages.map((w) => ({ ...w, wageCapMinor: agents.items.find((a) => a.id === w.agentId)?.wageCapMinor ?? null })), totalMinor: wages.reduce((a, w) => a + w.costMinor, 0) };
+      // The team's cost is platform spend metered in US dollars (`currency`); a wage cap is in its agent's currency.
+      const rows = wages.map((w) => {
+        const agent = agents.items.find((a) => a.id === w.agentId);
+        return { ...w, wageCapMinor: agent?.wageCapMinor ?? null, wageCapCurrency: agent?.currency ?? null };
+      });
+      return { period, label: "Estimate" as const, currency: CREDITS_CURRENCY, rows, totalMinor: wages.reduce((a, w) => a + w.costMinor, 0) };
     }),
   ),
 });

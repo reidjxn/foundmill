@@ -13,6 +13,7 @@
  * `/v1/call` and `/mcp/:connector` both run this function; nothing reaches a vendor any other way.
  */
 import { createHash } from "node:crypto";
+import { LIMITS } from "@foundmill/config";
 import { AppError, BUSINESS_MODES, NotFoundError, type BusinessMode } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
 import { bookUsage, codeRepositoryOf, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
@@ -170,6 +171,16 @@ export function agentAutonomy(agent: Pick<Agent, "autonomy">, businessMode: Busi
   return { autonomy, spendCapMinor: minor(raw["spendCapMinor"]), approvalThresholdMinor: minor(raw["approvalThresholdMinor"]) };
 }
 
+/**
+ * The approval threshold the Cedar request carries: the agent's own (the policy default when it has none), lowered to
+ * the business's "Spend cap per action" when the founder set one (`businesses.spend_cap_minor`; DECISIONS 2026-10-05
+ * "caps copied from the business"). Undefined leaves the policy default.
+ */
+export function businessApprovalThreshold(agentThresholdMinor: number | undefined, businessCapMinor: number | null): number | undefined {
+  if (businessCapMinor === null) return agentThresholdMinor;
+  return Math.min(agentThresholdMinor ?? LIMITS.approvalThresholdMinorDefault, businessCapMinor);
+}
+
 const argsHash = (args: unknown): string => createHash("sha256").update(canonical(args), "utf8").digest("hex").slice(0, 32);
 
 function canonical(value: unknown): string {
@@ -306,6 +317,9 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
 
   // Spend cap: the agent's own cap, tightened by a holiday budget ceiling while one is active (BUILD §9.6).
   const caps = [autonomy.spendCapMinor, loaded.holidayActive ? (loaded.holidayBudgetMinor ?? undefined) : undefined].filter((v): v is number => typeof v === "number");
+  // Approval threshold: the agent's own, lowered to the founder's "Spend cap per action" (Commit, Settings › Mode), so
+  // above the business cap every spend asks first, whatever the mode.
+  const approvalThresholdMinor = businessApprovalThreshold(autonomy.approvalThresholdMinor, business.spendCapMinor);
   const principal: AgentCtxInput = {
     id: agent.id,
     department: agent.departmentIds[0] ?? "unassigned",
@@ -313,7 +327,7 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     modelKey: agent.modelKey,
     autonomy: autonomy.autonomy,
     ...(caps.length ? { spendCapMinor: Math.min(...caps) } : {}),
-    ...(autonomy.approvalThresholdMinor !== undefined ? { approvalThresholdMinor: autonomy.approvalThresholdMinor } : {}),
+    ...(approvalThresholdMinor !== undefined ? { approvalThresholdMinor } : {}),
   };
 
   // Recipients: suppression and untrusted-content checks only matter for tools that contact a third party.

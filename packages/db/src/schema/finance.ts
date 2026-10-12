@@ -1,7 +1,7 @@
 /** 0009 — finance: bank accounts, transactions, ledger, forecasts, cap table, usage, credits. */
 import { MODEL_BILLING, MODEL_KEYS, SECURITY_KINDS, USAGE_KINDS } from "@foundmill/shared";
 import { date, index, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
-import { currency, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
+import { currency, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz, usdCurrency } from "./_common";
 import { businessId } from "./_refs";
 import { agentSessions, agents } from "./agents";
 import { entities } from "./crm";
@@ -149,7 +149,8 @@ export const usageLedger = pgTable(
     quantity: minor("quantity").notNull().default(0),
     unit: text("unit").notNull().default("tokens"),
     costMinor: minor("cost_minor").notNull().default(0),
-    currency: currency(),
+    /** USD for every platform cost (tokens, sandbox, training; 0024); a tool row keeps the vendor's currency. */
+    currency: usdCurrency(),
     billedTo: text("billed_to", { enum: MODEL_BILLING }).notNull().default("credits"),
     occurredAt: tstz("occurred_at").notNull().defaultNow(),
     details: jsonb("details").$type<Record<string, unknown>>().notNull().default(emptyObject),
@@ -174,7 +175,8 @@ export const creditBalances = pgTable(
     balanceMinor: minor("balance_minor").notNull().default(0),
     grantedMinor: minor("granted_minor").notNull().default(0),
     spentMinor: minor("spent_minor").notNull().default(0),
-    currency: currency(),
+    /** Always USD (a check holds it, 0024): credits are bought and charged in the model price list's currency. */
+    currency: usdCurrency(),
     ...timestamps(),
   },
   (t) => [uniqueIndex("credit_balances_business_id_period_key").on(t.businessId, t.period), index("credit_balances_business_id_idx").on(t.businessId, t.period)],

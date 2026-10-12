@@ -1,13 +1,15 @@
 "use client";
 /**
  * Settings › Mode: game mode (Live ⇄ Personal) behind a review wizard, business mode (Augmented / Assisted /
- * Automated) and the holiday (HolidayDialog → business.startHoliday / endHoliday). BUILD §9.6, §11.15.
+ * Automated), the spend cap per action (business.setSpendCap) and the holiday (HolidayDialog →
+ * business.startHoliday / endHoliday). BUILD §9.6, §11.15.
  */
 import { useMutation } from "@tanstack/react-query";
 import { Globe, Lock, Palmtree } from "lucide-react";
 import { useState } from "react";
-import { BUSINESS_MODE_INFO, Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, HolidayDialog, KeyValueList, RadioCard, RadioGroup, StatusPill, useDateFormat, type HolidaySettings } from "@foundmill/dugout";
+import { BUSINESS_MODE_INFO, Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, HolidayDialog, KeyValueList, MoneyInput, RadioCard, RadioGroup, StatusPill, useDateFormat, type HolidaySettings } from "@foundmill/dugout";
 import { BUSINESS_MODES, type BusinessMode, type GameMode } from "@foundmill/shared/constants";
+import { parseSpendCapMinor } from "@/components/new/commit/naming";
 import { formatDate, formatMoney, plainWords } from "@/lib/format";
 import { toStartHolidayInput } from "@/lib/holiday";
 import { useTRPC } from "@/lib/trpc-react";
@@ -20,6 +22,40 @@ export const GAME_MODE_REVIEW: Record<GameMode, string[]> = {
   live: ["Your business profile and logo become visible on the network.", "Verified metrics can rank on leaderboards; self-reported numbers never rank.", "Connections, communities and human messages open up.", "Search also shows public profiles, labeled with the product name."],
   personal: ["The business leaves search and leaderboards within 15 minutes.", "Connections and communities are hidden; nothing is deleted.", "Agents keep working exactly as before."],
 };
+
+/**
+ * The business's "Spend cap per action" (first set on Commit; business.setSpendCap): above it every spend asks first,
+ * whatever the mode. Empty removes the cap, and each agent's own approval threshold applies.
+ */
+function SpendCapForm({ businessId, capMinor, currency }: { businessId: string; capMinor: number | null; currency: string }) {
+  const trpc = useTRPC();
+  const invalidate = useInvalidateRouters();
+  const t = useSettingsToast();
+  const [value, setValue] = useState(capMinor === null ? "" : String(capMinor / 100));
+  const parsed = parseSpendCapMinor(value);
+  const invalid = Number.isNaN(parsed) || (parsed !== null && parsed < 0);
+  const setSpendCap = useMutation(trpc.business.setSpendCap.mutationOptions({ onSuccess: (r) => (void invalidate(["business"]), t.saved(r.spendCapMinor === null ? "Spend cap removed" : "Spend cap saved")), onError: (e) => t.failed(e) }));
+  return (
+    <form
+      className="flex flex-col gap-3"
+      data-testid="spend-cap-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!invalid) setSpendCap.mutate({ businessId, spendCapMinor: parsed });
+      }}
+    >
+      <div className="flex flex-wrap items-end gap-3">
+        <Field htmlFor="settings-spend-cap" label="Spend cap per action" error={invalid ? "Use a number, like 250." : undefined} className="w-72">
+          <MoneyInput id="settings-spend-cap" controlSize="lg" value={value} currency={currency} onValueChange={setValue} invalid={invalid} placeholder="No cap" />
+        </Field>
+        <Button type="submit" variant="default" disabled={invalid || parsed === capMinor} loading={setSpendCap.isPending}>
+          Save cap
+        </Button>
+      </div>
+      <Hint>Above this every spend asks you first, whatever the mode; below it each agent&apos;s own approval threshold applies. Empty means no cap. Money movement, signatures and identity always ask.</Hint>
+    </form>
+  );
+}
 
 export function ModeTab() {
   const datePrefs = useDateFormat();
@@ -81,6 +117,10 @@ export function ModeTab() {
           ))}
         </RadioGroup>
         <Hint>Hard gates (money, signatures, filings, legal terms, permanent deletion, security settings, acting on untrusted content) always need you, whatever the mode.</Hint>
+      </SettingsSection>
+
+      <SettingsSection title="Spend cap per action">
+        <SpendCapForm key={b.spendCapMinor ?? "none"} businessId={businessId} capMinor={b.spendCapMinor} currency={currency} />
       </SettingsSection>
 
       <SettingsSection title="Vacation">

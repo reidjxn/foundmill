@@ -147,7 +147,7 @@ export function HierarchyScreen({ businessId }: ModuleScreenProps) {
                     label: "Wage",
                     value: (
                       <span className="inline-flex items-center gap-1.5 tabular-nums">
-                        {formatMoney({ amountMinor: selectedAgent.wage?.costMinor ?? 0, currency: selectedAgent.currency ?? currency })}/mo <ProvenanceChip kind="estimate" />
+                        {formatMoney({ amountMinor: selectedAgent.wage?.costMinor ?? 0, currency: selectedAgent.wage?.currency ?? selectedAgent.currency ?? currency })}/mo <ProvenanceChip kind="estimate" />
                       </span>
                     ),
                   },
