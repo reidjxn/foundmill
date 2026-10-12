@@ -1,5 +1,5 @@
 import { buildMockConnector } from "../../define";
-import { decimalFromMinor, MOCK_NOW, mockHealth, mockIntegrationRecord, stableHash } from "../../mock-utils";
+import { decimalFromMinor, MOCK_NOW, mockHealth, mockIntegrationRecord, perBusiness, stableHash } from "../../mock-utils";
 import { makeWebhookRequest, ReplayGuard } from "../../webhooks";
 import { MOCK_SHOP_DOMAIN, MOCK_SHOPIFY_WEBHOOK_SECRET, SH_CUSTOMERS, SH_ORDERS, SH_PRODUCTS, SH_SHOP } from "./fixtures/shop";
 import { mapCustomer, mapDraftOrder, mapOrder, mapProduct, mapShop, SHOPIFY_KEY, SHOPIFY_RATE_LIMITS, SHOPIFY_SCOPES, shopifyTools, type ShDraftOrder, type ShOrder } from "./tools";
@@ -20,9 +20,9 @@ export function signedShopifyRequest(businessId: string, topic: string, payload:
   });
 }
 
+/** One shop per business (the fixtures are copied for each): orders one business cancels and drafts it creates, no other business sees. */
 export function createShopifyMock() {
-  const orders = new Map<string, ShOrder>(SH_ORDERS.map((o) => [String(o.id), structuredClone(o)]));
-  const drafts = new Map<string, ShDraftOrder>();
+  const world = perBusiness(() => ({ orders: new Map<string, ShOrder>(SH_ORDERS.map((o) => [String(o.id), structuredClone(o)])), drafts: new Map<string, ShDraftOrder>() }));
   const webhook = createShopifyWebhook({ secretFor: async () => MOCK_SHOPIFY_WEBHOOK_SECRET, replay: new ReplayGuard({ now: () => MOCK_NOW.getTime() }), now: () => MOCK_NOW });
 
   const connector = buildMockConnector({
@@ -36,15 +36,16 @@ export function createShopifyMock() {
     webhooks: [webhook],
     handlers: {
       get_shop: async () => mapShop(SH_SHOP),
-      list_orders: async ({ financialStatus, createdAtMin, limit }) => ({ items: [...orders.values()].filter((o) => (financialStatus === "any" || o.financial_status === financialStatus) && (!createdAtMin || o.created_at >= createdAtMin)).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, limit).map(mapOrder) }),
-      get_order: async ({ orderId }) => {
-        const o = orders.get(orderId);
+      list_orders: async ({ financialStatus, createdAtMin, limit }, ctx) => ({ items: [...world(ctx.businessId).orders.values()].filter((o) => (financialStatus === "any" || o.financial_status === financialStatus) && (!createdAtMin || o.created_at >= createdAtMin)).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, limit).map(mapOrder) }),
+      get_order: async ({ orderId }, ctx) => {
+        const o = world(ctx.businessId).orders.get(orderId);
         if (!o) throw notFound(`order ${orderId}`);
         return mapOrder(o);
       },
       list_products: async ({ status, limit }) => ({ items: SH_PRODUCTS.filter((p) => !status || p.status === status).slice(0, limit).map(mapProduct) }),
       list_customers: async ({ email, limit }) => ({ items: SH_CUSTOMERS.filter((c) => !email || c.email?.toLowerCase() === email.toLowerCase()).slice(0, limit).map(mapCustomer) }),
-      create_draft_order: async ({ email, lineItems, discountPercent, note, tags }) => {
+      create_draft_order: async ({ email, lineItems, discountPercent, note, tags }, ctx) => {
+        const { drafts } = world(ctx.businessId);
         const id = stableHash(["draft", email, lineItems, discountPercent], 12);
         const existing = drafts.get(id);
         if (existing) return mapDraftOrder(existing);
@@ -60,8 +61,8 @@ export function createShopifyMock() {
         drafts.set(id, d);
         return mapDraftOrder(d);
       },
-      cancel_order: async ({ orderId }) => {
-        const o = orders.get(orderId);
+      cancel_order: async ({ orderId }, ctx) => {
+        const o = world(ctx.businessId).orders.get(orderId);
         if (!o) throw notFound(`order ${orderId}`);
         if (o.cancelled_at) throw Object.assign(new Error(`order ${orderId} is already canceled`), { status: 422 });
         if (o.fulfillment_status === "fulfilled") throw Object.assign(new Error(`order ${orderId} is fulfilled and cannot be canceled`), { status: 422 });
@@ -70,7 +71,7 @@ export function createShopifyMock() {
       },
     },
     connect: async (businessId) => mockIntegrationRecord(SHOPIFY_KEY, businessId, { accountLabel: `${SH_SHOP.name} (${MOCK_SHOP_DOMAIN}, mock)`, externalAccountId: MOCK_SHOP_DOMAIN, scopes: SHOPIFY_SCOPES, config: { shop: MOCK_SHOP_DOMAIN, currency: "EUR" } }),
-    healthcheck: async () => mockHealth(SHOPIFY_KEY, { shop: MOCK_SHOP_DOMAIN, orders: orders.size }),
+    healthcheck: async (integration) => mockHealth(SHOPIFY_KEY, { shop: MOCK_SHOP_DOMAIN, orders: world(integration.businessId).orders.size }),
     simulations: {
       "payment.received": (params) => {
         const base = SH_ORDERS[0]!;
@@ -81,7 +82,8 @@ export function createShopifyMock() {
       "signup.created": (params) => normaliseShopifyEvent("customers/create", { ...SH_CUSTOMERS[2]!, id: 6_200_000_000 + (Number.parseInt(stableHash([params.businessId, String(params.seed ?? "default")], 8), 16) % 100_000_000), created_at: (params.occurredAt ?? MOCK_NOW).toISOString() }, params.businessId, () => MOCK_NOW),
     },
   });
-  return Object.assign(connector, { drafts });
+  /** `draftsFor(businessId)`: the draft orders that business's agents created (tests). */
+  return Object.assign(connector, { draftsFor: (businessId: string) => world(businessId).drafts });
 }
 
 export const shopifyMock = createShopifyMock();

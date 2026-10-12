@@ -1,6 +1,6 @@
 import { createPrivateKey, sign as cryptoSign } from "node:crypto";
 import { buildMockConnector } from "../../define";
-import { MOCK_NOW, makeEvent, mockHealth, mockIntegrationRecord, simulate, stableHash, uuidFromSeed } from "../../mock-utils";
+import { MOCK_NOW, makeEvent, mockHealth, mockIntegrationRecord, perBusiness, simulate, stableHash, uuidFromSeed } from "../../mock-utils";
 import { makeWebhookRequest, ReplayGuard } from "../../webhooks";
 import { MOCK_SENDER_EMAIL, MOCK_SENDGRID_INBOUND_TOKEN, MOCK_SENDGRID_PRIVATE_KEY_PEM, MOCK_SENDGRID_PUBLIC_KEY, SG_SINGLE_SENDS, SG_STATS, SG_SUPPRESSIONS, SG_VERIFIED_SENDERS } from "./fixtures/sendgrid";
 import { allRecipients, assertNoneSuppressed, assertUnsubscribe, assertVerifiedSender, buildMailData, mapSingleSend, mapVerifiedSender, SENDGRID_KEY, SENDGRID_RATE_LIMITS, sendgridTools, summariseStats, type SgSingleSend } from "./tools";
@@ -29,10 +29,16 @@ export const sgEvent = (event: string, email: string, extra: Partial<SgEvent> = 
 
 export const isMockSuppressed = (email: string): boolean => Boolean(SG_SUPPRESSIONS[email.toLowerCase()]);
 
+/**
+ * One SendGrid account per business (the fixtures are copied for each): campaigns, sends and suppressions are the
+ * business's own, so one business's `add_suppression` never blocks another's mail and nobody schedules another's campaign.
+ */
 export function createSendgridMock() {
-  const singleSends = new Map<string, SgSingleSend>(SG_SINGLE_SENDS.map((s) => [s.id, structuredClone(s)]));
-  const suppressions = new Map<string, (typeof SG_SUPPRESSIONS)[string]>(Object.entries(SG_SUPPRESSIONS));
-  const sent: { messageId: string; to: string[]; subject: string; kind: string; body: Record<string, unknown> }[] = [];
+  const world = perBusiness(() => ({
+    singleSends: new Map<string, SgSingleSend>(SG_SINGLE_SENDS.map((s) => [s.id, structuredClone(s)])),
+    suppressions: new Map<string, (typeof SG_SUPPRESSIONS)[string]>(Object.entries(SG_SUPPRESSIONS).map(([k, v]) => [k, [...v]])),
+    sent: [] as { messageId: string; to: string[]; subject: string; kind: string; body: Record<string, unknown> }[],
+  }));
   const eventWebhook = createSendgridEventWebhook({ publicKeyFor: async () => MOCK_SENDGRID_PUBLIC_KEY, replay: new ReplayGuard({ now: () => MOCK_NOW.getTime() }), now: () => MOCK_NOW });
   const inboundWebhook = createSendgridInboundWebhook({ tokenFor: async () => MOCK_SENDGRID_INBOUND_TOKEN, replay: new ReplayGuard({ now: () => MOCK_NOW.getTime() }), now: () => MOCK_NOW });
 
@@ -47,18 +53,21 @@ export function createSendgridMock() {
     webhooks: [eventWebhook, inboundWebhook],
     handlers: {
       list_verified_senders: async () => ({ items: SG_VERIFIED_SENDERS.map(mapVerifiedSender) }),
-      check_suppression: async ({ emails }) => {
+      check_suppression: async ({ emails }, ctx) => {
+        const { suppressions } = world(ctx.businessId);
         const suppressed = emails.filter((e) => suppressions.has(e.toLowerCase())).map((e) => ({ email: e, kinds: [...suppressions.get(e.toLowerCase())!] }));
         return { suppressed, clear: emails.filter((e) => !suppressions.has(e.toLowerCase())) };
       },
-      add_suppression: async ({ emails }) => {
+      add_suppression: async ({ emails }, ctx) => {
+        const { suppressions } = world(ctx.businessId);
         for (const e of emails) {
           const kinds = suppressions.get(e.toLowerCase()) ?? [];
           if (!kinds.includes("global_unsubscribe")) suppressions.set(e.toLowerCase(), [...kinds, "global_unsubscribe"]);
         }
         return { added: emails.map((e) => e.toLowerCase()) };
       },
-      send_mail: async (mail) => {
+      send_mail: async (mail, ctx) => {
+        const { suppressions, sent } = world(ctx.businessId);
         assertVerifiedSender(mail.from, SG_VERIFIED_SENDERS.map(mapVerifiedSender));
         assertUnsubscribe(mail);
         await assertNoneSuppressed(allRecipients(mail), (e) => suppressions.has(e));
@@ -67,8 +76,9 @@ export function createSendgridMock() {
         sent.push({ messageId, to: mail.to.map((t) => t.email), subject: mail.subject, kind: mail.kind, body });
         return { messageId, accepted: allRecipients(mail), rejected: [], scheduledFor: mail.sendAt ?? null };
       },
-      list_campaigns: async ({ pageSize }) => ({ items: [...singleSends.values()].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1)).slice(0, pageSize).map(mapSingleSend) }),
-      create_campaign: async ({ name, subject, html, text, senderId, listIds, suppressionGroupId, customUnsubscribeUrl }) => {
+      list_campaigns: async ({ pageSize }, ctx) => ({ items: [...world(ctx.businessId).singleSends.values()].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1)).slice(0, pageSize).map(mapSingleSend) }),
+      create_campaign: async ({ name, subject, html, text, senderId, listIds, suppressionGroupId, customUnsubscribeUrl }, ctx) => {
+        const { singleSends } = world(ctx.businessId);
         if (!SG_VERIFIED_SENDERS.some((s) => s.id === senderId && s.verified)) throw Object.assign(new Error(`sender ${senderId} is not a verified sender`), { status: 400 });
         const id = `ss_${stableHash(["ss", name, subject, listIds], 16)}`;
         const existing = singleSends.get(id);
@@ -77,8 +87,8 @@ export function createSendgridMock() {
         singleSends.set(id, s);
         return mapSingleSend(s);
       },
-      schedule_campaign: async ({ campaignId, sendAt }) => {
-        const s = singleSends.get(campaignId);
+      schedule_campaign: async ({ campaignId, sendAt }, ctx) => {
+        const s = world(ctx.businessId).singleSends.get(campaignId);
         if (!s) throw Object.assign(new Error(`single send ${campaignId} not found`), { status: 404 });
         if (s.status === "triggered") throw Object.assign(new Error(`single send ${campaignId} was already sent`), { status: 400 });
         s.status = sendAt === "now" ? "triggered" : "scheduled";
@@ -89,7 +99,7 @@ export function createSendgridMock() {
       get_stats: async ({ startDate, endDate }) => summariseStats(SG_STATS.filter((d) => d.date >= startDate && (!endDate || d.date <= endDate))),
     },
     connect: async (businessId) => mockIntegrationRecord(SENDGRID_KEY, businessId, { accountLabel: "Northwind Skincare (SendGrid, mock)", config: { verifiedSenders: SG_VERIFIED_SENDERS.filter((s) => s.verified).map((s) => s.from_email), inboundDomain: "reply.northwindskincare.com" } }),
-    healthcheck: async () => mockHealth(SENDGRID_KEY, { verifiedSenders: SG_VERIFIED_SENDERS.filter((s) => s.verified).length, sent: sent.length }),
+    healthcheck: async (integration) => mockHealth(SENDGRID_KEY, { verifiedSenders: SG_VERIFIED_SENDERS.filter((s) => s.verified).length, sent: world(integration.businessId).sent.length }),
     simulations: {
       "lead.replied": (params) => {
         const email = typeof params.email === "string" ? params.email : "maja@sensitiveskinclub.se";
@@ -109,7 +119,8 @@ export function createSendgridMock() {
       "credential.expiry": (params) => simulate("credential.expiry", { ...params, connectorKey: SENDGRID_KEY }),
     },
   });
-  return Object.assign(connector, { sent, suppressions });
+  /** `sentFor(businessId)` / `suppressionsFor(businessId)`: that business's sends and suppression list (tests). */
+  return Object.assign(connector, { sentFor: (businessId: string) => world(businessId).sent, suppressionsFor: (businessId: string) => world(businessId).suppressions });
 }
 
 export const sendgridMock = createSendgridMock();

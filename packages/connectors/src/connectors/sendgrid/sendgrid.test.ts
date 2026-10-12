@@ -58,9 +58,9 @@ describe("sendgrid mock: mail composition and signals", () => {
     const mock = createSendgridMock();
     const ctx = makeToolContext(mock);
     await mock.callTool("send_mail", { ...base, kind: "marketing", unsubscribeUrl: "https://northwindskincare.com/u/abc", text: "Hello {{{unsubscribe}}}", categories: ["lifecycle"] }, ctx);
-    expect(mock.sent[0]!.body).toMatchObject({ headers: { "List-Unsubscribe": "<https://northwindskincare.com/u/abc>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" }, text: "Hello https://northwindskincare.com/u/abc", categories: ["lifecycle"], trackingSettings: { subscriptionTracking: { enable: true } } });
+    expect(mock.sentFor(ctx.businessId)[0]!.body).toMatchObject({ headers: { "List-Unsubscribe": "<https://northwindskincare.com/u/abc>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" }, text: "Hello https://northwindskincare.com/u/abc", categories: ["lifecycle"], trackingSettings: { subscriptionTracking: { enable: true } } });
     await mock.callTool("send_mail", { ...base, kind: "marketing", unsubscribeGroupId: 21_904 }, ctx);
-    expect(mock.sent[1]!.body).toMatchObject({ asm: { groupId: 21_904 } });
+    expect(mock.sentFor(ctx.businessId)[1]!.body).toMatchObject({ asm: { groupId: 21_904 } });
     expect(mock.policyHints.send_mail).toEqual({ contactsThirdParty: true, irreversible: true });
     expect(mock.policyHints.schedule_campaign).toEqual({ contactsThirdParty: true, irreversible: true });
   });

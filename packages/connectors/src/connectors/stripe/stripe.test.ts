@@ -100,7 +100,7 @@ describe("stripe webhook normalisation and signature details", () => {
     const id = (created.data as { id: string }).id;
     const sent = await mock.callTool("send_invoice", { invoiceId: id }, ctx);
     expect(sent.ok).toBe(true);
-    expect(mock.sentInvoices).toEqual([id]);
+    expect(mock.sentInvoicesFor(ctx.businessId)).toEqual([id]);
   });
 });
 
