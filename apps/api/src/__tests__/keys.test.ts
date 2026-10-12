@@ -74,11 +74,12 @@ describe("keys.setAnthropic / validate / rotate / revoke (BUILD §10.2)", () => 
     expect((await owner.keys.status({ businessId: hz.A.businessId })).configured).toBe(false);
     expect((await repos.agents.get(hz.db, hz.A.businessId, hz.A.agentId)).status).toBe("paused");
     expect(await loadByokApiKey(hz.db, hz.deps.vault!, hz.A.businessId)).toBeNull();
-    // The free tier has no credits to fall back to: the business stays on byok, paused until a new key is set.
+    // The free tier includes a monthly platform credit (DECISIONS 2026-10-12): the business falls back to it, still
+    // bounded by its balance, and stays paused until the founder resumes the team or sets a new key.
     expect((await repos.businesses.get(hz.db, hz.A.businessId)).planTier).toBe("free");
-    expect(revoked.modelBilling).toBe("byok");
-    expect((await repos.businesses.get(hz.db, hz.A.businessId)).modelBilling).toBe("byok");
-    expect(note.bodyMd).toMatch(/Set a new key/);
+    expect(revoked.modelBilling).toBe("credits");
+    expect((await repos.businesses.get(hz.db, hz.A.businessId)).modelBilling).toBe("credits");
+    expect(note.bodyMd).toMatch(/plan's credits, or set a new key/);
   });
 
   it("on a tier with credits, revoking the key moves the business back to credits", async () => {

@@ -41,6 +41,7 @@ function brief(): BusinessBrief {
     pendingApprovals: 0,
     blockingInboxItems: 0,
     budgetRemainingMinor: null,
+    creditsCurrency: "USD",
     maxAgents: 3,
     capacity: "mock",
     text: "brief",
@@ -146,7 +147,7 @@ describe("businessCycle workflow", () => {
     expect(m.calls.overlapSeen).toBe(false);
     expect(m.calls.maxConcurrent).toBeLessThanOrEqual(3);
     expect(m.calls.narrated[0]).toEqual([id(777), id(777), id(777), id(777)]);
-    expect(m.calls.completed[0]).toMatchObject({ cycleId: id(900), outcome: "completed", tasksDispatched: 4, tasksCompleted: 4, inboxItemIds: [id(555)], currency: "EUR" });
+    expect(m.calls.completed[0]).toMatchObject({ cycleId: id(900), outcome: "completed", tasksDispatched: 4, tasksCompleted: 4, inboxItemIds: [id(555)], currency: "USD" });
   });
 
   it("stop ends the cycle early and fans the stop out to the running sessions", async () => {

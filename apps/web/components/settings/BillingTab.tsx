@@ -2,17 +2,21 @@
 /**
  * Settings › Billing (BUILD §10.5, §11.15): tier (prices are open decisions → PRICE_TBA_LABEL), credits, usage by
  * agent and by department (every number an Estimate), top-ups (mock grants credits; live never moves money here).
+ *
+ * Credits and model costs are US dollars (`CREDITS_CURRENCY`, the model price list's currency), whatever the business's
+ * own currency: they are never shown with the business's symbol. Third-party spend booked in another currency (tool
+ * calls billed by each provider) is listed apart, never added to the US dollar total.
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Coins } from "lucide-react";
 import { useState } from "react";
-import { APP_NAME, PRICE_TBA_LABEL, TIERS, type TierKey } from "@foundmill/config";
+import { APP_NAME, CREDITS_CURRENCY, includedCreditsMinor, PRICE_TBA_LABEL, TIERS, type TierKey } from "@foundmill/config";
 import { Button, Chip, KeyValueList, MiniTable, ProvenanceChip, SimpleSelect, formatCompact, useDateFormat, type DateFormatPrefs } from "@foundmill/dugout";
 import { PLAN_TIERS } from "@foundmill/shared/constants";
 import { formatMoney, formatMonthYear, formatNumber, plainWords, plural } from "@/lib/format";
 import { errorMessage } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
-import { useBusiness, useBusinessCurrency } from "@/components/shell/business-context";
+import { useBusiness } from "@/components/shell/business-context";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { useInvalidateRouters } from "./SettingsScreen";
 import { Hint, SettingsSection, useSettingsToast } from "./shared";
@@ -42,11 +46,18 @@ export function periodLabel(period: string, prefs?: DateFormatPrefs | null): str
   return formatMonthYear(new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, 1)), { long: true }, prefs);
 }
 
+/** "$5.00 of model credits a month" ("to be announced, at least $5.00" while a paid tier's size is open). */
+export function includedCreditsFact(tier: TierKey): string {
+  const amount = formatMoney({ amountMinor: includedCreditsMinor(tier), currency: CREDITS_CURRENCY });
+  return typeof TIERS[tier].includedCreditsMinor === "number" ? `${amount} of model credits a month` : `Monthly credits to be announced (at least ${amount})`;
+}
+
 /** What a tier includes, in plain words with correct plurals ("1 business", "3 seats", "Unlimited businesses"). */
 export function tierFacts(tier: TierKey): string[] {
   const spec = TIERS[tier];
   const businesses = typeof spec.businesses === "number" ? plural(spec.businesses, "business", "businesses") : "Unlimited businesses";
-  return [businesses, `${plural(spec.maxConcurrentAgents, "agent")} at once`, plural(spec.seats, "seat"), spec.modelBilling === "byok_required" ? "Your Anthropic key" : "Credits or your key"];
+  const billing: string = spec.modelBilling;
+  return [businesses, `${plural(spec.maxConcurrentAgents, "agent")} at once`, plural(spec.seats, "seat"), includedCreditsFact(tier), billing === "byok_required" ? "Your Anthropic key" : "Then credits or your key"];
 }
 
 export function BillingTab() {
@@ -55,7 +66,6 @@ export function BillingTab() {
   const trpc = useTRPC();
   const invalidate = useInvalidateRouters();
   const t = useSettingsToast();
-  const businessCurrency = useBusinessCurrency();
   const plan = useQuery(trpc.billing.plan.queryOptions({ businessId }));
   const usage = useQuery(trpc.billing.usage.queryOptions({ businessId }));
   const changeTier = useMutation(trpc.billing.changeTier.mutationOptions({ onSuccess: () => (void invalidate(["billing", "business"]), t.saved("Tier changed")), onError: (e) => t.failed(e) }));
@@ -65,8 +75,9 @@ export function BillingTab() {
 
   if (plan.error) return <ErrorPanel title="Billing" message={errorMessage(plan.error)} onRetry={() => void plan.refetch()} />;
   const p = plan.data;
-  // Credits keep their own currency once granted; everything else is in the business's currency.
-  const currency = p?.balance?.currency ?? businessCurrency;
+  // Credits and model costs are US dollars, never the business's currency.
+  const currency = p?.creditsCurrency ?? CREDITS_CURRENCY;
+  const money = (amountMinor: number) => formatMoney({ amountMinor, currency });
 
   return (
     <>
@@ -77,8 +88,28 @@ export function BillingTab() {
               items={[
                 { label: "Tier", value: <span className="flex flex-wrap items-center gap-2">{plainWords(p.tier)} <Chip tone="neutral">{tierPriceLabel(p.tier)}</Chip></span> },
                 { label: "Model calls", value: MODEL_BILLING_WORD[p.modelBilling] ?? plainWords(p.modelBilling) },
-                { label: "Credits", value: p.balance ? formatMoney({ amountMinor: p.balance.balanceMinor, currency: p.balance.currency }) : "No credits this month", numeric: true },
-                { label: "Spent this month", value: <span className="inline-flex items-center gap-2">{formatMoney({ amountMinor: p.usage.costMinor, currency })} <ProvenanceChip kind="estimate" /></span>, numeric: true },
+                {
+                  label: "Credits",
+                  value: p.credits ? (
+                    <span className="inline-flex flex-wrap items-center gap-2" data-testid="credits-balance">
+                      {money(p.credits.balanceMinor)} left of {money(p.credits.grantedMinor)} <ProvenanceChip kind="estimate" />
+                      {p.credits.exhausted ? <Chip tone="bad">Used up: team paused</Chip> : null}
+                    </span>
+                  ) : (
+                    "Not used: your own key pays for model calls"
+                  ),
+                  numeric: true,
+                },
+                {
+                  label: "Spent this month",
+                  value: (
+                    <span className="inline-flex flex-wrap items-center gap-2" data-testid="spent-this-month">
+                      {money(p.usage.costMinor)} <ProvenanceChip kind="estimate" />
+                      {p.usage.otherCurrencies.length ? <span className="text-small text-secondary">plus {p.usage.otherCurrencies.map((o) => formatMoney({ amountMinor: o.costMinor, currency: o.currency })).join(" and ")} billed by providers</span> : null}
+                    </span>
+                  ),
+                  numeric: true,
+                },
               ]}
             />
             <div className="grid grid-cols-3 gap-3">
@@ -112,12 +143,12 @@ export function BillingTab() {
 
       <SettingsSection title="Credits" loading={plan.isLoading}>
         <div className="flex flex-wrap items-center gap-3">
-          <SimpleSelect aria-label="Top-up amount" controlSize="sm" value={amount} onValueChange={setAmount} options={TOP_UP_OPTIONS.map((a) => ({ value: String(a), label: formatMoney({ amountMinor: a, currency }) }))} className="w-40" />
+          <SimpleSelect aria-label="Top-up amount" controlSize="sm" value={amount} onValueChange={setAmount} options={TOP_UP_OPTIONS.map((a) => ({ value: String(a), label: money(a) }))} className="w-40" />
           <Button variant="primary" icon={Coins} disabled={!isOwner} loading={topUp.isPending} onClick={() => topUp.mutate({ businessId, amountMinor: Number(amount), currency })}>
             Top up
           </Button>
         </div>
-        <Hint>Paying is always yours to do: you complete the payment yourself and the credits arrive once it clears. In test mode no money moves: credits are granted at once and labeled as such.</Hint>
+        <Hint>Credits are in US dollars, the currency model prices are listed in, and pay for model calls on {APP_NAME}&apos;s key. Your plan includes {p ? money(p.includedCreditsMinor) : "some"} a month; when they run out the team pauses until you top up or add your own Anthropic key in Settings › Keys. Paying is always yours to do: you complete the payment yourself and the credits arrive once it clears. In test mode no money moves: credits are granted at once and labeled as such.</Hint>
       </SettingsSection>
 
       <SettingsSection wide title="Usage" meta={usage.data ? periodLabel(usage.data.period, datePrefs) : undefined} loading={usage.isLoading} error={usage.error ? errorMessage(usage.error) : undefined} onRetry={() => void usage.refetch()} actions={<ProvenanceChip kind="estimate" />}>

@@ -9,7 +9,7 @@ import { repos } from "@foundmill/db";
 import { storeCredential } from "../credentials";
 import { GatewayClientError } from "../client";
 import { createGatewayApp, MAX_CALL_BODY_BYTES, MAX_MCP_BODY_BYTES, MAX_SERVICE_BODY_BYTES } from "../app";
-import { guardGithubWrite, modeFor } from "../pipeline";
+import { businessApprovalThreshold, guardGithubWrite, modeFor } from "../pipeline";
 import { signServiceToken } from "../tokens";
 import { hashRecipient } from "../recipients";
 import { SAFE_EMAIL, setupGateway, TEST_CONNECTOR, TEST_SECRET, UNTRUSTED_EMAIL, type GatewayFixture } from "./harness";
@@ -171,6 +171,27 @@ describe("business modes", () => {
     }
   });
 
+  it("the founder's Spend cap per action (Commit, Settings › Mode) makes every agent ask above it, whatever the mode", async () => {
+    expect(businessApprovalThreshold(undefined, null)).toBeUndefined();
+    expect(businessApprovalThreshold(300, null)).toBe(300);
+    expect(businessApprovalThreshold(undefined, 5_000)).toBe(5_000);
+    expect(businessApprovalThreshold(300, 5_000)).toBe(300);
+    await repos.businesses.setSpendCap(g.db, g.businessId, 5_000);
+    try {
+      for (const mode of ["assisted", "automated"] as const) {
+        await repos.businesses.setBusinessMode(g.db, g.businessId, mode);
+        const token = await g.token();
+        asAllow(await g.client.call(token, { connector: "test", tool: "spend", args: { amountMinor: 5_000 }, context: { amountMinor: 5_000, currency: "USD" } }));
+        // Below the agent's own threshold (the policy default) but above the business cap: asks.
+        const over = asAsk(await g.client.call(token, { connector: "test", tool: "spend", args: { amountMinor: 5_001 }, context: { amountMinor: 5_001, currency: "USD" } }));
+        expect(over.policyIds).toEqual([`${mode}-ask-above-threshold`]);
+      }
+    } finally {
+      await repos.businesses.setSpendCap(g.db, g.businessId, null);
+    }
+    asAllow(await g.client.call(await g.token(), { connector: "test", tool: "spend", args: { amountMinor: 5_001 }, context: { amountMinor: 5_001, currency: "USD" } }));
+  });
+
   it("automated: within caps everything non-gated runs; a holiday budget ceiling tightens the cap", async () => {
     await repos.businesses.setBusinessMode(g.db, g.businessId, "automated");
     const token = await g.token();
@@ -262,7 +283,10 @@ describe("allow path", () => {
     const note = asAllow(await g.client.call(token, { connector: "test", tool: "note", args: { text: "x" } }));
     expect(note.costMinor).toBe(3); // connector.costModel
     const after = await repos.usage.totals(g.db, g.businessId, { agentId: g.agentId });
-    expect(after.costMinor - before.costMinor).toBe(10);
+    // Tool spend is booked in the agent's currency; the totals keep it apart from the US dollar platform costs.
+    const currency = (await repos.agents.get(g.db, g.businessId, g.agentId)).currency;
+    const spent = (t: typeof after) => (t.currency === currency ? t.costMinor : (t.otherCurrencies.find((o) => o.currency === currency)?.costMinor ?? 0));
+    expect(spent(after) - spent(before)).toBe(10);
     expect(after.byKind.tool.quantity - before.byKind.tool.quantity).toBe(2);
     const entries = await repos.usage.list(g.db, g.businessId, { sessionId: g.sessionId, kind: "tool" });
     expect(entries.items[0]?.details).toMatchObject({ connector: "test", label: "Estimate" });

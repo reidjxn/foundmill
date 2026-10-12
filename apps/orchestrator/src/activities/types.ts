@@ -70,8 +70,11 @@ export interface BusinessBrief {
    * an owner or admin resumes it. Absent in briefs built before the flag existed.
    */
   agentsStopped?: boolean;
-  /** Credits remaining for the period (label "Estimate"); null when unknown/uncapped. */
+  /** Credits remaining for the period in `creditsCurrency` (label "Estimate"); null for a business on its own key. */
   budgetRemainingMinor: number | null;
+  /** The currency of credits and of every model cost (USD, `CREDITS_CURRENCY`), never the business's `currency`. */
+  creditsCurrency: string;
+  /** Agents this cycle may run at once: the plan tier's limit less the sessions already open (0: none may start). */
   maxAgents: number;
   /** Rate-limit capacity summary for the planner prompt. */
   capacity: string;

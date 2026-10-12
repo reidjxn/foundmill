@@ -154,10 +154,14 @@ export interface WageRow {
   toolCalls: number;
   trainingMinor: number;
   wageCapMinor: number | null;
+  /** The agent's currency, which its wage cap is in. */
+  wageCapCurrency?: string | null;
 }
 export interface WagesResponse {
   period: string;
   label: "Estimate";
+  /** The currency every cost here is in: US dollars, the model price list's (absent from older answers). */
+  currency?: string;
   rows: WageRow[];
   totalMinor: number;
 }

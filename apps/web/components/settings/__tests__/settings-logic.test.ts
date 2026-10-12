@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PRICE_TBA_LABEL } from "@foundmill/config";
-import { periodLabel, tierPriceLabel } from "../BillingTab";
+import { includedCreditsFact, periodLabel, tierFacts, tierPriceLabel } from "../BillingTab";
 import { glossaryRows, rowsToGlossary } from "../GlossaryTab";
 import { connectorDetail, formatSimulateResult, simulateInput, simulateRefusalMessage, SIMULATIONS } from "../IntegrationsTab";
 import { GAME_MODE_REVIEW } from "../ModeTab";
@@ -10,6 +10,12 @@ describe("settings logic", () => {
     expect(tierPriceLabel("free")).toBe("Free");
     expect(tierPriceLabel("pro")).toBe(PRICE_TBA_LABEL);
     expect(tierPriceLabel("scale")).toBe(PRICE_TBA_LABEL);
+  });
+
+  it("states each tier's limits and its monthly model credits in US dollars", () => {
+    expect(tierFacts("free")).toEqual(["1 business", "4 agents at once", "1 seat", "$5.00 of model credits a month", "Then credits or your key"]);
+    expect(includedCreditsFact("pro")).toBe("Monthly credits to be announced (at least $5.00)");
+    expect(tierFacts("scale")[0]).toBe("Unlimited businesses");
   });
 
   it("dates billing periods and connector checks in the person's own format (Settings › Preferences)", () => {

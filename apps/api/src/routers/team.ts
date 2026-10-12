@@ -1,6 +1,7 @@
 /** team.agents.* / team.humans.* / team.responsibilities.* (BUILD §11.9; AC-11.9.2 responsibilities route approvals). */
 import { TEMPLATE_KEYS, listTemplates } from "@foundmill/agents";
-import { SectionPermissions, repos } from "@foundmill/db";
+import { CREDITS_CURRENCY } from "@foundmill/config";
+import { SectionPermissions, assertSeatAvailable, repos } from "@foundmill/db";
 import { DECISION_TYPES, MEMBERSHIP_ROLES, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { hireFromTemplate } from "../services/squad";
@@ -37,7 +38,7 @@ export const teamRouter = router({
               currentTask: running.items.find((t) => t.assigneeAgentId === a.id) ?? null,
               skills,
               rating,
-              wage: { costMinor: wages.find((w) => w.agentId === a.id)?.costMinor ?? 0, capMinor: a.wageCapMinor, period, label: "Estimate" as const },
+              wage: { costMinor: wages.find((w) => w.agentId === a.id)?.costMinor ?? 0, currency: CREDITS_CURRENCY, capMinor: a.wageCapMinor, period, label: "Estimate" as const },
             };
           }),
         );
@@ -102,6 +103,8 @@ export const teamRouter = router({
     invite: adminProcedure.input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).default("member"), sectionPermissions: SectionPermissions.default({}), email: z.string().email().optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         if (input.role === "owner") throw new ValidationError("Ownership is transferred, not granted by invitation");
+        // Every membership is a seat; the plan tier's seats are a limit (TierLimitError past it).
+        await assertSeatAvailable(tx, ctx.business);
         const membership = await repos.memberships.add(tx, ctx.businessId, { userId: input.userId, role: input.role, sectionPermissions: input.sectionPermissions });
         await audit(tx, ctx, { action: "team.humans.invite", target: { kind: "membership", id: membership.id }, details: { userId: input.userId, role: input.role } });
         return membership;

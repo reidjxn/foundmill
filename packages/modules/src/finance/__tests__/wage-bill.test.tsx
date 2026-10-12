@@ -83,4 +83,20 @@ describe("WageBillScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(failing.refetches["finance.wages"]).toBe(1);
   });
+
+  it("shows the team's cost in US dollars, keeps it apart from staff payroll in the business's currency, and shows no cap share across currencies", () => {
+    const fake = createFakeSource({ businessId: BID, currency: "GBP", responses: { ...dataResponses, "finance.wages": { ...wages, currency: "USD" } } });
+    renderScreen(fake, <WageBillScreen {...props} />);
+    const strip = screen.getByRole("region", { name: "Payroll summary" });
+    expect(within(strip).getByText("Team payroll").parentElement!.parentElement!.textContent).toContain("$545.00");
+    expect(within(strip).getByText("Human payroll").parentElement!.parentElement!.textContent).toContain("£16K");
+    // Never added across currencies: both parts, each in its own currency.
+    expect(within(strip).getByText("Total payroll").parentElement!.parentElement!.textContent).toContain("$545 + £16K");
+    const table = screen.getByRole("grid", { name: "Team payroll" });
+    expect(within(table).getByText("$420.00")).toBeTruthy();
+    expect(within(table).getByText("£500.00")).toBeTruthy(); // Atlas's wage cap, in the business's currency
+    expect(within(table).queryByText("84%")).toBeNull();
+    expect(wageBillRows(wages.rows, readAgents(agentsResponse), tasksDone.items, "2026-10", { cost: "USD", cap: "GBP" })[0]).toMatchObject({ costMinor: 42_000, capMinor: 50_000, capUsedPct: null });
+    expect(wageBillRows(wages.rows, readAgents(agentsResponse), tasksDone.items, "2026-10", { cost: "USD", cap: "USD" })[0]).toMatchObject({ capUsedPct: 84 });
+  });
 });

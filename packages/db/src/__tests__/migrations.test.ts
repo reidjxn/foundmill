@@ -49,6 +49,7 @@ describe("journal", () => {
       "0021_us_english_copy",
       "0022_account_preferences",
       "0023_business_controls",
+      "0024_billing_enforcement",
     ]);
     // strictly increasing `when` so drizzle applies them in order
     const whens = ours.map((m) => m.when);
@@ -116,7 +117,17 @@ describe("structural invariants", () => {
     for (const c of cur) expect([c.data_type, c.character_maximum_length], c.table_name).toEqual(["character", 3]);
     const tablesWithMinor = new Set(r.rows.map((c) => c.table_name));
     const tablesWithCurrency = new Set(cur.map((c) => c.table_name));
-    for (const t of tablesWithMinor) expect(tablesWithCurrency.has(t), `${t} has *_minor but no currency`).toBe(true);
+    // businesses.spend_cap_minor (0024) is in the business currency, the businesses.currency column of 0025.
+    const currencyFromBusiness = new Set(["businesses"]);
+    for (const t of tablesWithMinor) if (!currencyFromBusiness.has(t)) expect(tablesWithCurrency.has(t), `${t} has *_minor but no currency`).toBe(true);
+    // Credits and platform costs are US dollars (0024).
+    const defaults = (await rows<{ table_name: string; column_default: string }>(sql`
+      select table_name, column_default from information_schema.columns
+       where table_schema = 'public' and column_name = 'currency' and table_name in ('usage_ledger', 'credit_balances')`)).rows;
+    expect(defaults.map((d) => [d.table_name, d.column_default.replace(/::bpchar$/, "")]).sort()).toEqual([
+      ["credit_balances", "'USD'"],
+      ["usage_ledger", "'USD'"],
+    ]);
   });
   it("vector(1024) columns exist (or the documented real[] fallback when pgvector is absent)", async () => {
     const r = await rows<{ table_name: string; udt_name: string }>(sql`select table_name, udt_name from information_schema.columns where column_name = 'embedding'`);

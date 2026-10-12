@@ -20,6 +20,15 @@ export const CYCLE_STOP_DISPATCH_PATCH = "cycle-stop-dispatch";
 
 /** Tasks without a budget reserve this much of the cycle budget (minor units; an Estimate). */
 export const DEFAULT_TASK_RESERVE_MINOR = 2_000;
+
+/**
+ * What a starting task reserves of the credits left (an Estimate): its own budget or the default, but never more than
+ * an equal share of what is left for the slots still free, so a small balance (a tier's included credits) still runs
+ * work rather than refusing every task. Credits are settled after the fact; the charge that uses the last one pauses.
+ */
+export function taskReserveMinor(budgetMinor: number | null, budgetRemaining: number, freeSlots: number): number {
+  return Math.max(0, Math.min(budgetMinor ?? DEFAULT_TASK_RESERVE_MINOR, Math.floor(budgetRemaining / Math.max(1, freeSlots))));
+}
 const HOUR_MS = 60 * 60 * 1000;
 
 interface Running {
@@ -94,7 +103,7 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
       if (r.start.agentId === s.agentId) return "agent busy";
       if (fileScopesOverlap(r.start.fileScope, s.fileScope)) return "file scope overlap";
     }
-    if (budgetRemaining !== null && budgetRemaining - (s.budgetMinor ?? DEFAULT_TASK_RESERVE_MINOR) < 0) return "budget";
+    if (budgetRemaining !== null && (budgetRemaining <= 0 || budgetRemaining - taskReserveMinor(s.budgetMinor, budgetRemaining, maxConcurrent - running.size) < 0)) return "budget";
     return null;
   };
 
@@ -129,7 +138,7 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
       });
       const entry: Running = { start: s, sessionId, handle, done: false, outcome: null, error: null };
       running.set(s.taskId, entry);
-      if (budgetRemaining !== null) budgetRemaining -= s.budgetMinor ?? DEFAULT_TASK_RESERVE_MINOR;
+      if (budgetRemaining !== null) budgetRemaining -= taskReserveMinor(s.budgetMinor, budgetRemaining, maxConcurrent - running.size + 1);
       if (paused) void handle.signal(pauseSignal, {}).catch(() => undefined);
       void handle
         .result()
@@ -191,7 +200,7 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
     inboxItemIds = [];
   }
   const agentHours = outcomes.reduce((a, o) => a + o.result.durationMs, 0) / HOUR_MS;
-  await acts.completeCycle({ businessId: input.businessId, cycleId, cycleNumber: input.cycleNumber, workflowId: info.workflowId, outcome, tasksDispatched: finished.length + running.size, tasksCompleted, tasksBlocked, agentHours: Math.round(agentHours * 1000) / 1000, costMinor, currency: brief.currency, inboxItemIds, durationMs: Date.now() - startedAt });
+  await acts.completeCycle({ businessId: input.businessId, cycleId, cycleNumber: input.cycleNumber, workflowId: info.workflowId, outcome, tasksDispatched: finished.length + running.size, tasksCompleted, tasksBlocked, agentHours: Math.round(agentHours * 1000) / 1000, costMinor, currency: brief.creditsCurrency, inboxItemIds, durationMs: Date.now() - startedAt });
   await condition(allHandlersFinished);
   return { cycleId, outcome, tasksDispatched: finished.length + running.size, tasksCompleted, tasksBlocked, inboxItemIds, costMinor };
 }

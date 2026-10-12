@@ -44,6 +44,7 @@ import {
   type FoundationsStepContext,
   type FoundationsUsage,
 } from "@foundmill/agents/foundations-steps";
+import { CREDITS_CURRENCY } from "@foundmill/config";
 import { repos, type Executor } from "@foundmill/db";
 import type { OrchestratorDeps } from "../deps";
 import { agentActor, emitEvent, systemActor } from "../events";
@@ -208,7 +209,7 @@ export function createFoundationsActivities(deps: OrchestratorDeps) {
             businessId: input.businessId,
             type: "inbox.item_created",
             actor: agentActor(item.fromAgentId),
-            payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: Number(input.model.costMinor ?? 0), currency: "EUR" } },
+            payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: { amountMinor: Number(input.model.costMinor ?? 0), currency: CREDITS_CURRENCY } },
           });
         },
         // Open tabs refetch on it and turn ready at once.

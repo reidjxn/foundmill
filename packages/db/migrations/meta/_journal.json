@@ -162,6 +162,13 @@
       "when": 1792066320000,
       "tag": "0023_business_controls",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792152720000,
+      "tag": "0024_billing_enforcement",
+      "breakpoints": true
     }
   ]
 }

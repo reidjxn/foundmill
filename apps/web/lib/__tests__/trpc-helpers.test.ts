@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TRPCClientError } from "@trpc/client";
-import { apiTrpcUrl, createApiLinks, createUntypedApiClient, errorMessage, isStreamingOperation, resolveBearer, STREAMING_PROCEDURES, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
+import { apiTrpcUrl, createApiLinks, createUntypedApiClient, errorMessage, isStreamingOperation, resolveBearer, STREAMING_PROCEDURES, tierLimitOf, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
 import { routersToInvalidate, withBusiness } from "../widget-data";
 
 describe("trpc helpers", () => {
@@ -33,6 +33,14 @@ describe("trpc helpers", () => {
     expect(errorMessage(err)).toBe("Sign in to continue");
     expect(trpcErrorCode(new Error("x"))).toBeNull();
     expect(errorMessage("weird", "fallback")).toBe("fallback");
+  });
+
+  it("reads a plan tier limit refusal (an upgrade prompt), and nothing from other errors", () => {
+    const tier = new TRPCClientError("The Free plan holds 1 business", { result: { error: { code: -32003, message: "x", data: { code: "FORBIDDEN", httpStatus: 403, appCode: "tier_limit", details: { limit: "businesses", tier: "free", allowed: 1, used: 1, planBusinessId: "b1" } } } } } as never);
+    expect(tierLimitOf(tier)).toEqual({ limit: "businesses", planBusinessId: "b1" });
+    const forbidden = new TRPCClientError("Forbidden", { result: { error: { code: -32003, message: "x", data: { code: "FORBIDDEN", httpStatus: 403, appCode: "forbidden" } } } } as never);
+    expect(tierLimitOf(forbidden)).toBeNull();
+    expect(tierLimitOf(new Error("x"))).toBeNull();
   });
 
   it("derives the tRPC url", () => {

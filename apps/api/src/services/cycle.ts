@@ -8,7 +8,7 @@
  * composer (service or in-process fallback) and records `cycle.completed`, so the loop moves on a laptop with no
  * worker. `pauseCycle` / `resumeCycle` signal the workflow and mirror the intent on the local task state.
  */
-import { LIMITS } from "@foundmill/config";
+import { CREDITS_CURRENCY, LIMITS, TIERS } from "@foundmill/config";
 import { repos, type Executor, type InboxItem } from "@foundmill/db";
 import { AppError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
@@ -182,7 +182,7 @@ export async function runLocalCycleStep(ctx: BusinessContext, cycleNumber: numbe
   const startedAt = Date.now();
   const cycleId = crypto.randomUUID();
   const workflowId = workflowIds.cycle(ctx.businessId, cycleNumber);
-  const dispatchable = await repos.tasks.dispatchable(ctx.db, ctx.businessId, LIMITS.defaultMaxConcurrentAgents);
+  const dispatchable = await repos.tasks.dispatchable(ctx.db, ctx.businessId, TIERS[ctx.business.planTier].maxConcurrentAgents);
   await ctx.rls(async (tx) => {
     await emit(tx, ctx, {
       type: "cycle.started",
@@ -200,7 +200,7 @@ export async function runLocalCycleStep(ctx: BusinessContext, cycleNumber: numbe
       emit(tx, ctx, {
         type: "cycle.completed",
         actor: LOCAL_ACTOR,
-        payload: { cycleId, cycleNumber, workflowId, outcome: "failed", tasksDispatched: 0, tasksCompleted: 0, tasksBlocked: 0, agentHours: 0, cost: { amountMinor: 0, currency: "EUR" }, inboxItemIds: [], durationMs: Date.now() - startedAt },
+        payload: { cycleId, cycleNumber, workflowId, outcome: "failed", tasksDispatched: 0, tasksCompleted: 0, tasksBlocked: 0, agentHours: 0, cost: { amountMinor: 0, currency: CREDITS_CURRENCY }, inboxItemIds: [], durationMs: Date.now() - startedAt },
       }),
     );
     throw err;

@@ -24,7 +24,7 @@
  */
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, buildSystemPrompt, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentTemplate } from "@foundmill/agents";
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { bookUsage, loadByokApiKey, repos, type Agent, type AgentVersion, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
@@ -635,7 +635,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       const agentPaused = agent.status === "paused";
 
       let taskStatus: TaskStatus;
-      const cost = { amountMinor: Math.round(result.costMinor), currency: "USD" };
+      const cost = { amountMinor: Math.round(result.costMinor), currency: CREDITS_CURRENCY }; // model cost: US cents (DECISIONS 2026-10-12)
       // A session cut short by a pause of its agent or a team-wide stop did not fail on its merits: the task waits
       // `paused` and the next cycle after the resume picks it up (0023).
       const teamStopped = agentPaused || (await repos.businesses.agentsStopped(db, input.businessId));

@@ -86,6 +86,17 @@ export function errorMessage(err: unknown, fallback = "Something went wrong"): s
   return fallback;
 }
 
+/**
+ * A plan tier limit refusal (`tier_limit`, BUILD §10.5: businesses, seats or concurrent agents) with the business whose
+ * Settings › Billing changes the plan; null for any other error. Screens turn it into an upgrade prompt.
+ */
+export function tierLimitOf(err: unknown): { limit: string; planBusinessId: string | null } | null {
+  if (!(err instanceof TRPCClientError)) return null;
+  const data = err.data as { appCode?: string; details?: { limit?: string; planBusinessId?: string | null } } | undefined;
+  if (data?.appCode !== "tier_limit") return null;
+  return { limit: data.details?.limit ?? "businesses", planBusinessId: data.details?.planBusinessId ?? null };
+}
+
 /** The query key @trpc/tanstack-react-query uses for a procedure path, so path-string queries and typed hooks share a cache. */
 export function trpcQueryKey(path: string, input?: unknown, type: "query" | "infinite" | "any" = "query"): readonly unknown[] {
   const parts = path.split(".");

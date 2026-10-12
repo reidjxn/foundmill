@@ -1,9 +1,9 @@
 /** businesses — the club record (BUILD §7.2 "Accounts and businesses", routers business.*). */
 import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, GAME_MODES, MODEL_BILLING, PLAN_TIERS, slugify, uuid, type AgentStopReason } from "@foundmill/shared";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { businesses, memberships, type Business } from "../schema";
-import { defined, Id, IsoDateInput, maybeOne, one, parseInput, type Executor } from "./_shared";
+import { defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, type Executor } from "./_shared";
 
 const HexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "brand colors are #RRGGBB");
 
@@ -20,6 +20,8 @@ export const CreateBusinessInput = z.object({
   region: z.enum(DATA_REGIONS).default("eu"),
   planTier: z.enum(PLAN_TIERS).default("free"),
   modelBilling: z.enum(MODEL_BILLING).default("credits"),
+  /** "Spend cap per action" (Commit, Settings › Mode) in minor units of the business currency; null: no business cap. */
+  spendCapMinor: MinorAmount.nonnegative().nullable().default(null),
   glossary: z.record(z.string(), z.string()).default({}),
   createdBy: Id.nullable().optional(),
 });
@@ -87,6 +89,7 @@ export const businessesRepo = {
       region: v.region,
       planTier: v.planTier,
       modelBilling: v.modelBilling,
+      spendCapMinor: v.spendCapMinor,
       glossary: v.glossary,
       createdBy: v.createdBy ?? null,
     });
@@ -105,6 +108,7 @@ export const businessesRepo = {
       committedAt: null,
       planTier: v.planTier,
       modelBilling: v.modelBilling,
+      spendCapMinor: v.spendCapMinor,
       glossary: v.glossary,
       createdBy: v.createdBy ?? null,
       agentsStoppedAt: null,
@@ -150,6 +154,21 @@ export const businessesRepo = {
   async setBusinessMode(db: Executor, businessId: string, businessMode: (typeof BUSINESS_MODES)[number]): Promise<Business> {
     const mode = parseInput(z.enum(BUSINESS_MODES), businessMode, "business mode");
     return one(await db.update(businesses).set({ businessMode: mode }).where(and(eq(businesses.id, businessId), notArchived)).returning(), "business", businessId);
+  },
+
+  /**
+   * Account-scoped: holds a per-owner lock until the transaction ends, so two commits by one owner are counted against
+   * the plan's business limit one after the other (`assertBusinessAllowance`, packages/db/src/tiers.ts).
+   */
+  async lockOwnerBusinesses(db: Executor, userId: string): Promise<void> {
+    const id = parseInput(Id, userId, "user id");
+    await db.execute(sql`select pg_advisory_xact_lock(hashtext('business_allowance'), hashtext(${id}::text))`);
+  },
+
+  /** The founder's "Spend cap per action" (Settings › Mode); null removes the business cap. */
+  async setSpendCap(db: Executor, businessId: string, spendCapMinor: number | null): Promise<Business> {
+    const cap = parseInput(MinorAmount.nonnegative().nullable(), spendCapMinor, "spend cap");
+    return one(await db.update(businesses).set({ spendCapMinor: cap }).where(and(eq(businesses.id, businessId), notArchived)).returning(), "business", businessId);
   },
 
   /** Marks the idea committed (BUILD §11.1): sets archetype and committed_at. */

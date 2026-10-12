@@ -1,12 +1,18 @@
 /**
- * usage_ledger + credit_balances — what the squad costs (BUILD §10.4, §10.5, §11.8 "Wage bill"; routers
+ * usage_ledger + credit_balances — what the team costs (BUILD §10.4, §10.5, §11.8 "Payroll"; routers
  * billing.usage / finance.wages).
  *
  * `record` is the one write path (orchestrator after every model call, sandbox minute, tool call or
- * training run); `wages` and `totals` are the Wage bill tab's numbers, every one an "Estimate" because
+ * training run); `wages` and `totals` are the Payroll tab's numbers, every one an "Estimate" because
  * the founder's Anthropic invoice is the only real cost (DECISIONS "Prices are config"). Credits: one
  * balance row per period, debited inside a transaction so it can never go negative unnoticed.
+ *
+ * Currencies (0024): platform costs (tokens, sandbox minutes, training) are metered in US dollars, the model price
+ * list's currency (`CREDITS_CURRENCY`), and a row written without a currency is USD. A tool row keeps its vendor's
+ * currency. Sums never add amounts in different currencies: `totals`, `daily`, `wages` and `agentSpend` count USD rows,
+ * and `totals.otherCurrencies` lists what was booked in anything else. A credit balance is always USD.
  */
+import { CREDITS_CURRENCY } from "@foundmill/config";
 import { MODEL_BILLING, MODEL_KEYS, USAGE_KINDS, ValidationError, type UsageKind } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -37,18 +43,24 @@ export const UsageListFilter = PageInput.extend(DateRange.shape).extend({
 export type UsageListFilter = z.input<typeof UsageListFilter>;
 
 export const Period = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "period is YYYY-MM");
+const CreditsCurrency = Currency.refine((c) => c === CREDITS_CURRENCY, { message: `credits are kept in US dollars (${CREDITS_CURRENCY})` });
 
 export interface UsageTotals {
+  /** Every cost below is in this currency (USD): the rows booked in it. */
+  currency: typeof CREDITS_CURRENCY;
   costMinor: number;
   quantity: number;
   entries: number;
   byKind: Record<UsageKind, { costMinor: number; quantity: number }>;
   byBilledTo: Record<(typeof MODEL_BILLING)[number], number>;
+  /** Rows booked in another currency (third-party tool spend in the vendor's currency), never added to `costMinor`. */
+  otherCurrencies: { currency: string; costMinor: number }[];
 }
 
 export interface AgentWage {
   agentId: string | null;
   name: string | null;
+  /** USD (`CREDITS_CURRENCY`): rows in another currency are not added in. */
   costMinor: number;
   tokens: number;
   sandboxMinutes: number;
@@ -84,7 +96,8 @@ export const usageRepo = {
           quantity: v.quantity,
           unit: v.unit,
           costMinor: v.costMinor,
-          ...(v.currency ? { currency: v.currency } : {}),
+          // Platform costs are US cents; a sink that names no currency books USD, never the old EUR column default.
+          currency: v.currency ?? CREDITS_CURRENCY,
           billedTo: v.billedTo,
           occurredAt: v.occurredAt ?? new Date(),
           details: v.details,
@@ -117,75 +130,85 @@ export const usageRepo = {
     return toPage(rows, f, ks);
   },
 
-  /** Cost and quantity totals in a range, split by kind and by who is billed. */
+  /** Cost and quantity totals in a range, split by kind and by who is billed. Costs are USD; see `otherCurrencies`. */
   async totals(db: Executor, businessId: string, range: DateRange & { agentId?: string } = {}): Promise<UsageTotals> {
     const r = parseInput(DateRange.extend({ agentId: Id.optional() }), range, "date range");
     const rows = await db
-      .select({ kind: usageLedger.kind, billedTo: usageLedger.billedTo, cost: sql<number>`coalesce(sum(${usageLedger.costMinor}), 0)::bigint`, quantity: sql<number>`coalesce(sum(${usageLedger.quantity}), 0)::bigint`, n: sql<number>`count(*)::int` })
+      .select({ kind: usageLedger.kind, billedTo: usageLedger.billedTo, currency: usageLedger.currency, cost: sql<number>`coalesce(sum(${usageLedger.costMinor}), 0)::bigint`, quantity: sql<number>`coalesce(sum(${usageLedger.quantity}), 0)::bigint`, n: sql<number>`count(*)::int` })
       .from(usageLedger)
       .where(and(eq(usageLedger.businessId, businessId), r.agentId ? eq(usageLedger.agentId, r.agentId) : undefined, timeRange(usageLedger.occurredAt, r)))
-      .groupBy(usageLedger.kind, usageLedger.billedTo);
+      .groupBy(usageLedger.kind, usageLedger.billedTo, usageLedger.currency);
     const out: UsageTotals = {
+      currency: CREDITS_CURRENCY,
       costMinor: 0,
       quantity: 0,
       entries: 0,
       byKind: Object.fromEntries(USAGE_KINDS.map((k) => [k, { costMinor: 0, quantity: 0 }])) as UsageTotals["byKind"],
       byBilledTo: Object.fromEntries(MODEL_BILLING.map((b) => [b, 0])) as UsageTotals["byBilledTo"],
+      otherCurrencies: [],
     };
+    const other = new Map<string, number>();
     for (const row of rows) {
       const cost = Number(row.cost);
       const qty = Number(row.quantity);
-      out.costMinor += cost;
       out.quantity += qty;
       out.entries += Number(row.n);
-      out.byKind[row.kind].costMinor += cost;
       out.byKind[row.kind].quantity += qty;
+      if (row.currency !== CREDITS_CURRENCY) {
+        if (cost) other.set(row.currency, (other.get(row.currency) ?? 0) + cost);
+        continue;
+      }
+      out.costMinor += cost;
+      out.byKind[row.kind].costMinor += cost;
       out.byBilledTo[row.billedTo] += cost;
     }
+    out.otherCurrencies = [...other].map(([currency, costMinor]) => ({ currency, costMinor })).sort((a, b) => a.currency.localeCompare(b.currency));
     return out;
   },
 
-  /** Cost per day (the budget chart; alerts at 50/80/100 % are computed by the caller against the monthly budget). */
+  /** USD cost per day (the budget chart; alerts at 50/80/100 % are computed by the caller against the monthly budget). */
   async daily(db: Executor, businessId: string, range: DateRange = {}): Promise<{ day: string; costMinor: number }[]> {
     const r = parseInput(DateRange, range, "date range");
     const day = sql<string>`to_char(${usageLedger.occurredAt} at time zone 'UTC', 'YYYY-MM-DD')`;
     const rows = await db
       .select({ day, cost: sql<number>`coalesce(sum(${usageLedger.costMinor}), 0)::bigint` })
       .from(usageLedger)
-      .where(and(eq(usageLedger.businessId, businessId), timeRange(usageLedger.occurredAt, r)))
+      .where(and(eq(usageLedger.businessId, businessId), eq(usageLedger.currency, CREDITS_CURRENCY), timeRange(usageLedger.occurredAt, r)))
       .groupBy(day)
       .orderBy(day);
     return rows.map((x) => ({ day: x.day, costMinor: Number(x.cost) }));
   },
 
-  /** The Wage bill: per-agent cost for a month (tokens, sandbox minutes, tool calls, training), highest first. */
+  /** Payroll: per-agent cost for a month (tokens, sandbox minutes, tool calls, training) in USD, highest first. */
   async wages(db: Executor, businessId: string, period: string): Promise<AgentWage[]> {
     const { from, to } = periodRange(period);
+    const usd = sql`${usageLedger.currency} = ${CREDITS_CURRENCY}`;
+    const cost = sql<number>`coalesce(sum(case when ${usd} then ${usageLedger.costMinor} else 0 end), 0)::bigint`;
     const rows = await db
       .select({
         agentId: usageLedger.agentId,
         name: agents.name,
-        cost: sql<number>`coalesce(sum(${usageLedger.costMinor}), 0)::bigint`,
+        cost,
         tokens: sql<number>`coalesce(sum(case when ${usageLedger.kind} = 'tokens' then ${usageLedger.quantity} else 0 end), 0)::bigint`,
         sandbox: sql<number>`coalesce(sum(case when ${usageLedger.kind} = 'sandbox' then ${usageLedger.quantity} else 0 end), 0)::bigint`,
         tools: sql<number>`coalesce(sum(case when ${usageLedger.kind} = 'tool' then ${usageLedger.quantity} else 0 end), 0)::bigint`,
-        training: sql<number>`coalesce(sum(case when ${usageLedger.kind} = 'training' then ${usageLedger.costMinor} else 0 end), 0)::bigint`,
+        training: sql<number>`coalesce(sum(case when ${usageLedger.kind} = 'training' and ${usd} then ${usageLedger.costMinor} else 0 end), 0)::bigint`,
       })
       .from(usageLedger)
       .leftJoin(agents, eq(agents.id, usageLedger.agentId))
       .where(and(eq(usageLedger.businessId, businessId), timeRange(usageLedger.occurredAt, { from, to })))
       .groupBy(usageLedger.agentId, agents.name)
-      .orderBy(desc(sql`sum(${usageLedger.costMinor})`), asc(agents.name));
+      .orderBy(desc(cost), asc(agents.name));
     return rows.map((x) => ({ agentId: x.agentId, name: x.name, costMinor: Number(x.cost), tokens: Number(x.tokens), sandboxMinutes: Number(x.sandbox), toolCalls: Number(x.tools), trainingMinor: Number(x.training) }));
   },
 
-  /** Month-to-date spend for an agent against its wage cap (null cap = uncapped). */
+  /** Month-to-date USD spend for an agent against its wage cap (null cap = uncapped). */
   async agentSpend(db: Executor, businessId: string, agentId: string, period: string): Promise<{ costMinor: number; wageCapMinor: number | null; remainingMinor: number | null }> {
     const { from, to } = periodRange(period);
     const [row] = await db
       .select({ cost: sql<number>`coalesce(sum(${usageLedger.costMinor}), 0)::bigint` })
       .from(usageLedger)
-      .where(and(eq(usageLedger.businessId, businessId), eq(usageLedger.agentId, agentId), timeRange(usageLedger.occurredAt, { from, to })));
+      .where(and(eq(usageLedger.businessId, businessId), eq(usageLedger.agentId, agentId), eq(usageLedger.currency, CREDITS_CURRENCY), timeRange(usageLedger.occurredAt, { from, to })));
     const agent = one(await db.select({ cap: agents.wageCapMinor }).from(agents).where(and(eq(agents.businessId, businessId), eq(agents.id, agentId))).limit(1), "agent", agentId);
     const cost = Number(row?.cost ?? 0);
     const cap = agent.cap === null ? null : Number(agent.cap);
@@ -203,13 +226,16 @@ export const usageRepo = {
     return db.select().from(creditBalances).where(eq(creditBalances.businessId, businessId)).orderBy(desc(creditBalances.period));
   },
 
-  /** Grants credits for a period (included credits or a top-up): adds to granted and balance. */
-  async grantCredits(db: Executor, businessId: string, period: string, amountMinor: number, currency?: string): Promise<CreditBalance> {
-    const v = parseInput(z.object({ period: Period, amountMinor: MinorAmount.positive(), currency: Currency.optional() }), { period, amountMinor, currency }, "credit grant");
+  /**
+   * Grants credits for a period (a top-up, or a grant on top of the included credits): adds to granted and balance.
+   * Credits are US dollars (`CREDITS_CURRENCY`); an amount in any other currency is refused, never merged.
+   */
+  async grantCredits(db: Executor, businessId: string, period: string, amountMinor: number, currency: string = CREDITS_CURRENCY): Promise<CreditBalance> {
+    const v = parseInput(z.object({ period: Period, amountMinor: MinorAmount.positive(), currency: CreditsCurrency }), { period, amountMinor, currency }, "credit grant");
     return one(
       await db
         .insert(creditBalances)
-        .values({ businessId, period: v.period, balanceMinor: v.amountMinor, grantedMinor: v.amountMinor, spentMinor: 0, ...(v.currency ? { currency: v.currency } : {}) })
+        .values({ businessId, period: v.period, balanceMinor: v.amountMinor, grantedMinor: v.amountMinor, spentMinor: 0, currency: v.currency })
         .onConflictDoUpdate({
           target: [creditBalances.businessId, creditBalances.period],
           set: { balanceMinor: sql`${creditBalances.balanceMinor} + ${v.amountMinor}`, grantedMinor: sql`${creditBalances.grantedMinor} + ${v.amountMinor}` },
@@ -220,17 +246,40 @@ export const usageRepo = {
   },
 
   /**
-   * Charges a metered cost to the period's credits after the fact (every sink that books a `credits` row). Unlike
-   * `debitCredits` it never refuses: the call already happened, so `spent` grows by the full amount and the balance
-   * stops at zero. Returns null when the business holds no balance row for the period (nothing granted yet: included
-   * credits are an open decision, BUILD §19), so nothing is enforced; otherwise whether this charge used the last
-   * credit (`exhausted: "now"`) or the balance was already empty (`"already"`).
+   * The period's balance row, created with the tier's included credits (`includedCreditsMinor`, packages/config) when
+   * the period has none yet: at commit, and on the first charge of every month. `created` is true only for the call
+   * that inserted it; an existing row (a top-up came first) is returned untouched.
    */
-  async chargeCredits(db: Executor, businessId: string, period: string, amountMinor: number): Promise<{ balance: CreditBalance; exhausted: "now" | "already" | null } | null> {
+  async ensurePeriodCredits(db: Executor, businessId: string, period: string, includedMinor: number): Promise<{ balance: CreditBalance; created: boolean }> {
+    const v = parseInput(z.object({ period: Period, includedMinor: MinorAmount.nonnegative() }), { period, includedMinor }, "included credits");
+    const inserted = await db
+      .insert(creditBalances)
+      .values({ businessId, period: v.period, balanceMinor: v.includedMinor, grantedMinor: v.includedMinor, spentMinor: 0, currency: CREDITS_CURRENCY })
+      .onConflictDoNothing({ target: [creditBalances.businessId, creditBalances.period] })
+      .returning();
+    if (inserted[0]) return { balance: inserted[0], created: true };
+    const existing = await usageRepo.creditBalance(db, businessId, v.period);
+    return { balance: one(existing ? [existing] : [], "credit balance"), created: false };
+  },
+
+  /**
+   * Charges a metered USD cost to the period's credits after the fact (every sink that books a `credits` row). Unlike
+   * `debitCredits` it never refuses: the call already happened, so `spent` grows by the full amount and the balance
+   * stops at zero. With `includedMinor` (what `bookUsage` always passes) a period without a row starts with the tier's
+   * included credits, so a business on credits is always enforced; without it, a period with no row returns null.
+   * `exhausted` says whether this charge used the last credit (`"now"`, also when the period started with nothing
+   * included) or the balance was already empty (`"already"`).
+   */
+  async chargeCredits(db: Executor, businessId: string, period: string, amountMinor: number, options: { includedMinor?: number } = {}): Promise<{ balance: CreditBalance; exhausted: "now" | "already" | null } | null> {
     const v = parseInput(z.object({ period: Period, amountMinor: MinorAmount.nonnegative() }), { period, amountMinor }, "credit charge");
     return db.transaction(async (tx) => {
-      const before = await tx.select().from(creditBalances).where(and(eq(creditBalances.businessId, businessId), eq(creditBalances.period, v.period))).for("update").limit(1);
-      const current = before[0];
+      const lockRow = async () => (await tx.select().from(creditBalances).where(and(eq(creditBalances.businessId, businessId), eq(creditBalances.period, v.period))).for("update").limit(1))[0];
+      let current = await lockRow();
+      let created = false;
+      if (!current && options.includedMinor !== undefined) {
+        created = (await usageRepo.ensurePeriodCredits(tx, businessId, v.period, options.includedMinor)).created;
+        current = await lockRow();
+      }
       if (!current) return null;
       const balanceBefore = Number(current.balanceMinor);
       const balanceAfter = Math.max(0, balanceBefore - v.amountMinor);
@@ -240,7 +289,7 @@ export const usageRepo = {
         .where(eq(creditBalances.id, current.id))
         .returning();
       const balance = one(row ? [row] : [], "credit balance");
-      const exhausted = balanceAfter > 0 ? null : balanceBefore > 0 ? "now" : v.amountMinor > 0 ? "already" : null;
+      const exhausted = balanceAfter > 0 || v.amountMinor === 0 ? null : balanceBefore > 0 || created ? "now" : "already";
       return { balance, exhausted };
     });
   },

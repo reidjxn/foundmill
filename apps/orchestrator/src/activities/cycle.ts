@@ -54,9 +54,12 @@ export function createCycleActivities(deps: OrchestratorDeps) {
       const chiefAgent = brief.agents.find((a) => a.id === brief.chiefOfStaffId) ?? null;
       // A stopped team plans nothing, and no model is called (or charged) for it.
       if (brief.agentsStopped) return { summary: "The team is stopped, so nothing was planned. An owner or admin resumes the agents with Resume agents in the top bar.", timeBoxHours: 0.25, starts: [], deferred: [], approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
+      // Every concurrent-agent slot of the plan tier is in use (`brief.maxAgents` is the room left): nothing new can start,
+      // so no plan is drafted (and nothing spent on one); the open work is listed as deferred.
+      if (brief.maxAgents <= 0) return { summary: "Every agent the plan runs at once is already at work; nothing new starts this cycle.", timeBoxHours: LIMITS.cycleTimeBoxAgentHours, starts: [], deferred: brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked).map((t) => ({ taskId: t.id, reason: "plan limit: every concurrent agent slot is in use" })), approvalsNeeded: [], modelKey: chiefAgent?.modelKey ?? "opus", warning: null, costMinor: 0 };
       const chief = getTemplate("chief_of_staff");
       const system = buildSystemPrompt({ businessName: brief.businessName, appName: APP_NAME, template: chief, brief: brief.text, glossary: brief.glossary });
-      const budgetText = brief.budgetRemainingMinor === null ? "not capped" : `${(brief.budgetRemainingMinor / 100).toFixed(2)} ${brief.currency} (Estimate)`;
+      const budgetText = brief.budgetRemainingMinor === null ? "the founder's own key (no credits)" : `${(brief.budgetRemainingMinor / 100).toFixed(2)} ${brief.creditsCurrency} of credits (Estimate)`;
       const prompt = getPrompt("chief_of_staff_planner").render({ business_name: brief.businessName, max_agents: brief.maxAgents, budget: budgetText, capacity: brief.capacity });
       const waiting = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && retryDeferral(t) !== null);
       const candidates = brief.openTasks.filter((t) => DISPATCHABLE.has(t.status) && !t.blocked && retryDeferral(t) === null);
@@ -119,7 +122,7 @@ export function createCycleActivities(deps: OrchestratorDeps) {
     /** Record the start of a cycle (`cycle.started`). */
     async startCycle(input: { businessId: string; cycleNumber: number; workflowId: string; trigger: CycleTrigger; plan: CyclePlan; brief: BusinessBrief }): Promise<{ cycleId: string; eventId: string }> {
       const cycleId = uuid();
-      const budget = input.brief.budgetRemainingMinor === null ? null : { amountMinor: input.brief.budgetRemainingMinor, currency: input.brief.currency };
+      const budget = input.brief.budgetRemainingMinor === null ? null : { amountMinor: input.brief.budgetRemainingMinor, currency: input.brief.creditsCurrency };
       const ev = await emitEvent(deps.db, {
         businessId: input.businessId,
         type: "cycle.started",

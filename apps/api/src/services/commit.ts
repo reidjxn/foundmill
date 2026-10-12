@@ -15,7 +15,8 @@
  */
 import { randomUUID } from "node:crypto";
 import { getArchetypeSeed, getTemplate } from "@foundmill/agents";
-import { repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
+import { includedCreditsMinor, initialModelBilling } from "@foundmill/config";
+import { assertBusinessAllowance, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
 import { CHANNEL_KEYS, CHANNEL_META, DEFAULT_BUSINESS_MODE, MODULE_TABS, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
 import { PRESET_LAYOUTS } from "../presets";
@@ -113,6 +114,11 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     // Claim the idea before anything is created. Of two concurrent commits only one gets past this line; the other has
     // waited for the winner's row lock, finds the idea committed and creates nothing (answered below).
     if (!(await repos.ideas.claimForCommit(tx, userId, input.ideaId))) return null;
+    // Tier limits (BUILD §10.5): the owner's plan holds a number of businesses (TierLimitError past it, which the Commit
+    // screen turns into an upgrade prompt). A new business starts on the free tier, paid for by its included credits.
+    await assertBusinessAllowance(tx, userId);
+    const planTier = "free" as const;
+    const modelBilling = initialModelBilling(planTier);
     const business = await repos.businesses.create(tx, {
       name: input.name,
       slug: uniqueSlug(input.name),
@@ -121,11 +127,17 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       archetype: input.archetype,
       kitPrimary: input.kit?.primary,
       kitSecondary: input.kit?.secondary,
+      planTier,
+      modelBilling,
+      // The founder's "Spend cap per action": every agent asks above it, whatever the mode (the gateway applies it).
+      spendCapMinor: input.spendCapMinor ?? null,
       createdBy: userId,
       glossary: {},
     });
     const businessId = business.id;
     await repos.memberships.add(tx, businessId, { userId, role: "owner" });
+    // This month's included credits (USD), so the first cycle already runs against a balance that pauses the team.
+    const credits = modelBilling === "credits" ? (await repos.usage.ensurePeriodCredits(tx, businessId, periodOf(new Date()), includedCreditsMinor(planTier))).balance : null;
     const logo = input.logo && checkedLogo ? (await repos.logos.set(tx, businessId, { source: input.logo.source, logo: checkedLogo, createdBy: userId })).meta : null;
     await repos.businesses.commit(tx, businessId, { archetype: input.archetype });
     await repos.ideas.commit(tx, userId, input.ideaId, businessId);
@@ -283,6 +295,9 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
         departments: departmentIds.length,
         agents: agentIds.length,
         spendCapMinor: input.spendCapMinor ?? null,
+        planTier,
+        modelBilling,
+        includedCreditsMinor: credits ? Number(credits.grantedMinor) : null,
         logo: logo ? { source: logo.source, mime: logo.mime, sha256: logo.sha256, bytes: logo.bytes } : null,
         door: importLink ? "import" : "ideation",
         importSources: importSources.length,

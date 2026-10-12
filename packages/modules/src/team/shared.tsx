@@ -363,7 +363,7 @@ export function toSquadRow(agent: AgentRow, currency = "EUR"): SquadRow {
     rating: skillRating(agent),
     tools: toolKeys(agent),
     model: agent.modelKey,
-    wage: { amountMinor: agent.wage?.costMinor ?? 0, currency: agent.currency ?? currency },
+    wage: { amountMinor: agent.wage?.costMinor ?? 0, currency: agent.wage?.currency ?? agent.currency ?? currency },
     latestUpdate: latest,
     expectedReturnAt: expected,
   };
@@ -430,7 +430,7 @@ export function agentEntity(businessId: string, agent: AgentRow, currency = "EUR
     chips: [{ label: STATUS_WORD[agent.status], tone: agentStatusTone(agent.status).tone }, { label: MODEL_LABELS[agent.modelKey] ?? agent.modelKey }],
     facts: [
       { label: "Departments", value: (agent.departments ?? []).map((d) => d.name).join(", ") || "—" },
-      { label: "Wage (Estimate)", value: `${new Intl.NumberFormat("en-US", { style: "currency", currency: agent.currency ?? currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 }).format(wage / 100)}/mo` },
+      { label: "Wage (Estimate)", value: `${new Intl.NumberFormat("en-US", { style: "currency", currency: agent.wage?.currency ?? agent.currency ?? currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 }).format(wage / 100)}/mo` },
       { label: "Current task", value: agent.currentTask?.title ?? "None" },
     ],
     verbs: ["open_profile", "message"],
