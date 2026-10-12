@@ -11,9 +11,16 @@ import type * as EnvModule from "@/lib/env";
 type OtpError = { code?: string; status?: number; name?: string; message: string };
 const signInWithOtp = vi.fn(async (_args: { email: string; options: { emailRedirectTo: string } }): Promise<{ error: OtpError | null }> => ({ error: null }));
 let search = new URLSearchParams();
+/** Set to make the auth client's chunk fail to load (offline, a new deploy). */
+let clientLoadError: Error | null = null;
 
 vi.mock("next/navigation", () => ({ useSearchParams: () => search }));
-vi.mock("@/lib/supabase/client", () => ({ createClient: vi.fn(async () => ({ auth: { signInWithOtp } })) }));
+vi.mock("@/lib/supabase/client", () => ({
+  createClient: vi.fn(async () => {
+    if (clientLoadError) throw clientLoadError;
+    return { auth: { signInWithOtp } };
+  }),
+}));
 // Staging, as on foundmill.com: Supabase configured, no NEXT_PUBLIC_APP_URL, no developer bypass.
 vi.mock("@/lib/env", async (importOriginal) => {
   const actual = await importOriginal<typeof EnvModule>();
@@ -41,6 +48,7 @@ async function sendLink(email = "founder@example.com") {
 beforeEach(() => {
   signInWithOtp.mockClear();
   search = new URLSearchParams();
+  clientLoadError = null;
 });
 
 describe("LoginForm", () => {
@@ -117,6 +125,18 @@ describe("LoginForm", () => {
     fireEvent.change(screen.getByLabelText("Work email"), { target: { value: "founder@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
     expect((await screen.findByRole("alert")).textContent).toMatch(/couldn't be sent/);
+    expect(screen.getByRole("button", { name: "Send sign-in link" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("an auth client that fails to load shows the plain failure instead of doing nothing", async () => {
+    clientLoadError = new TypeError("Failed to fetch dynamically imported module");
+    render(<LoginForm />);
+    fireEvent.change(screen.getByLabelText("Work email"), { target: { value: "founder@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send sign-in link" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/couldn't be sent/);
+    expect(alert.textContent).not.toContain("dynamically imported");
+    expect(signInWithOtp).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Send sign-in link" }).hasAttribute("disabled")).toBe(false);
   });
 });

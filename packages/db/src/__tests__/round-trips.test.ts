@@ -4,11 +4,11 @@
  * production (about 28 ms from Railway's Amsterdam region to the eu-north-1 pooler), so these counts are the latency
  * budget of every procedure (docs/DECISIONS.md "Round trips per procedure").
  *
- * Until 2026-10-12 postgres.js, with prepared statements off, asked the server for a statement's parameter types
- * before sending its values: two round trips for every statement with parameters, and nothing else sent on the
+ * Until 2026-10-12 postgres.js asked the server for a statement's parameter types before sending its values (Drizzle
+ * never prepares a statement): two round trips for every statement with parameters, and nothing else sent on the
  * connection in between. patches/postgres@3.4.9.patch sends a statement whose untyped values are strings, numbers or
- * null in one go; the reference for "the same answer" is a client with prepared statements on, where the server
- * describes every statement first.
+ * null in one go; the reference for "the same answer" (`createWireDb(pg, { describe: true })`) still has the server
+ * describe every statement first and serializes each value for the type it names, as before the patch.
  */
 import { and, eq, ne, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -30,7 +30,7 @@ beforeAll(async () => {
   A = await createBusinessFixture(h, "trips-a");
   B = await createBusinessFixture(h, "trips-b");
   wire = await createWireDb(h.pg);
-  described = await createWireDb(h.pg, { prepare: true });
+  described = await createWireDb(h.pg, { describe: true });
 }, 120_000);
 
 afterAll(async () => {
@@ -59,17 +59,38 @@ describe("postgres.js with prepared statements off (patched)", () => {
     expect((value as unknown as Array<{ xs: string[] }>)[0]?.xs).toEqual(["a", 'b "c"', "d,e"]);
   });
 
+  it("is compared with a reference that really has the server describe each statement first", async () => {
+    // A statement the clients have not sent before (a prepared statement would be reused): two round trips on the
+    // reference, as every statement with values took before the patch, and one on the patched driver.
+    const fresh = (on: WireDb) => on.db.execute(sql`select ${7}::int as ${sql.identifier(`fresh_${Math.random().toString(36).slice(2)}`)}`);
+    expect((await count(() => fresh(described), described)).trips).toBe(2);
+    expect((await count(() => fresh(wire))).trips).toBe(1);
+  });
+
   it("answers exactly what a client that describes every statement answers, for every kind of value Drizzle sends", async () => {
     const probe = sql`select
       ${`o'hara "q" \\ é ✓ \u0001`}::text as t, ${42}::int as i, ${-1.5}::float8 as f, ${"12.30"}::numeric as n,
-      ${"9007199254740993"}::int8 as big, ${'{"a":[1,"x"],"b":null}'}::jsonb as j, ${'{"k":"v"}'}::json as js,
+      ${"9007199254740993"}::int8 as big, ${'{"a":[1,"x"],"b":null}'}::jsonb as j, ${'{"k":"v"}'}::json as js, ${"42"}::jsonb as jn,
       ${"2026-10-12T10:00:00.000Z"}::timestamptz as ts, ${"2026-10-12"}::date as d, ${'{a,"b c"}'}::text[] as arr,
-      ${A.businessId}::uuid as u, ${null}::text as nul, ${true} as b, ${"true"}::boolean as bs, ${0}::boolean as b0,
-      ${"\\x68656c6c6f"}::bytea as bytes, ${new Date("2026-10-12T10:00:00.000Z").toISOString()}::timestamptz as iso`;
+      ${A.businessId}::uuid as u, ${null}::text as nul, ${true} as b, ${false} as bf, ${new Uint8Array([104, 105])}::bytea as bytes,
+      ${new Date("2026-10-12T10:00:00.000Z").toISOString()}::timestamptz as iso, ${"active"} = 'active' as eq`;
     const patched = (await wire.db.execute(probe)) as unknown as Record<string, unknown>[];
     const reference = (await described.db.execute(probe)) as unknown as Record<string, unknown>[];
     expect(patched).toEqual(reference);
-    expect(patched[0]).toMatchObject({ t: `o'hara "q" \\ é ✓ \u0001`, i: 42, f: -1.5, j: { a: [1, "x"], b: null }, arr: ["a", "b c"], nul: null, b: true, bs: true, b0: false });
+    expect(patched[0]).toMatchObject({ t: `o'hara "q" \\ é ✓ \u0001`, i: 42, f: -1.5, j: { a: [1, "x"], b: null }, jn: 42, arr: ["a", "b c"], nul: null, b: true, bf: false, eq: true });
+    expect(Buffer.from(patched[0]!.bytes as Uint8Array).toString()).toBe("hi");
+  });
+
+  it("differs only for values Drizzle never binds: a string or a number for a boolean, a string for bytea", async () => {
+    // Described, these went through postgres.js's JavaScript serializer for the type: anything but `true` became false,
+    // and a string became the bytes of its characters. Undescribed, the text is read as Postgres reads a literal.
+    // Drizzle binds a boolean as a JavaScript boolean and bytea as a Uint8Array, both typed before sending, so no
+    // column or condition reaches either case.
+    const odd = sql`select ${"true"}::boolean as bs, ${1}::boolean as b1, ${0}::boolean as b0, ${"\\x6869"}::bytea as bytes`;
+    const [patched] = (await wire.db.execute(odd)) as unknown as Array<{ bs: boolean; b1: boolean; b0: boolean; bytes: Uint8Array }>;
+    const [reference] = (await described.db.execute(odd)) as unknown as Array<{ bs: boolean; b1: boolean; b0: boolean; bytes: Uint8Array }>;
+    expect({ ...patched, bytes: Buffer.from(patched!.bytes).toString() }).toEqual({ bs: true, b1: true, b0: false, bytes: "hi" });
+    expect({ ...reference, bytes: Buffer.from(reference!.bytes).toString() }).toEqual({ bs: false, b1: false, b0: false, bytes: "\\x6869" });
   });
 
   it("writes rows that read back the same, through Drizzle's own builders", async () => {
@@ -179,6 +200,28 @@ describe("withRls", () => {
     expect((await h.db.select().from(businesses).where(eq(businesses.id, B.businessId)))[0]?.name).not.toBe("Renamed by a viewer");
     // Nothing was written, and the connection is clean afterwards.
     expect((await h.db.select().from(memberships).where(and(eq(memberships.businessId, B.businessId), eq(memberships.userId, A.viewerId))))).toEqual([]);
+    expect(await withRls(wire.db, { userId: A.ownerId }, (tx) => tx.select({ id: businesses.id }).from(businesses))).toHaveLength(1);
+  });
+
+  it("lets none of fn's statements take effect when the setup fails, and reports the setup's error", async () => {
+    // fn starts before the setup is answered, so a failed setup must abort the transaction ahead of fn's statements.
+    // The setup only fails when its role is missing (or the connection drops): rename the role for a moment. The write
+    // is one service_role may make, so only the aborted transaction keeps it out.
+    await h.db.execute(sql`alter role service_role rename to service_role_away`);
+    let started = false;
+    let failed: unknown;
+    try {
+      failed = await withRls(wire.db, { userId: A.ownerId, role: "service_role" }, async (tx) => {
+        started = true;
+        await tx.update(businesses).set({ name: "Written before RLS applied" }).where(eq(businesses.id, A.businessId));
+      }).catch((err: unknown) => err);
+    } finally {
+      await h.db.execute(sql`alter role service_role_away rename to service_role`);
+    }
+    expect(started).toBe(true);
+    expect(String((failed as Error).message)).toMatch(/role "service_role" does not exist/);
+    expect((await h.db.select().from(businesses).where(eq(businesses.id, A.businessId)))[0]?.name).not.toBe("Written before RLS applied");
+    // The connection is clean afterwards.
     expect(await withRls(wire.db, { userId: A.ownerId }, (tx) => tx.select({ id: businesses.id }).from(businesses))).toHaveLength(1);
   });
 
