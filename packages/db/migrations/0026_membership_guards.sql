@@ -32,12 +32,17 @@ create policy memberships_delete on memberships for delete using (
 );
 --> statement-breakpoint
 -- After the statement's rows are written (so a statement touching several owners is judged on its end state).
--- Security definer: the caller may no longer see the business's rows once they have left it.
+-- Security definer: the caller may no longer see the business's rows once they have left it. Two owners stepping each
+-- other down at the same moment would each still see the other as owner, so the check takes a per-business lock
+-- first: the second waits for the first to commit, then sees its result (each query here reads the latest commit).
 create function fm_memberships_keep_owner() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
-  if old.role = 'owner'
-    and exists (select 1 from businesses b where b.id = old.business_id)
+  if old.role <> 'owner' then
+    return null;
+  end if;
+  perform pg_advisory_xact_lock(hashtext('fm_memberships_keep_owner'), hashtext(old.business_id::text));
+  if exists (select 1 from businesses b where b.id = old.business_id)
     and exists (select 1 from auth.users u where u.id = old.user_id)
     and not exists (select 1 from memberships m where m.business_id = old.business_id and m.role = 'owner') then
     raise exception 'A business must keep at least one owner' using errcode = '23514';

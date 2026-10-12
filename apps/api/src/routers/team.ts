@@ -98,8 +98,10 @@ export const teamRouter = router({
 
   humans: router({
     list: read.query(({ ctx }) => ctx.rls((tx) => repos.memberships.list(tx, ctx.businessId))),
-    /** Invite by user id (Supabase auth user); e-mail invitations are sent by the web app's auth flow. */
-    /** Adds a new member only: an existing member (the owner included) is never overwritten (409; use `role`). */
+    /**
+     * Invite by user id (Supabase auth user); e-mail invitations are sent by the web app's auth flow. Adds a new member
+     * only: an existing member (the owner included) is never overwritten (409; use `role`).
+     */
     invite: adminProcedure.input(z.object({ userId: Id, role: z.enum(MEMBERSHIP_ROLES).default("member"), sectionPermissions: SectionPermissions.default({}), email: z.string().email().optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         if (input.role === "owner") throw new ValidationError("Ownership is granted by an owner from Role and permissions, not by invitation");
