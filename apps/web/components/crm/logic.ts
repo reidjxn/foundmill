@@ -7,7 +7,7 @@ import type { FilterChipValue, SavedView } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
 import type { RouterOutputs } from "@/lib/trpc";
 import { formatDate, plainWords } from "@/lib/format";
-import { chipValue, type CrmFilterField } from "./search";
+import { chipValue, roleKey, type CrmFilterField } from "./search";
 
 export type EntityGet = RouterOutputs["crm"]["entity"]["get"];
 export type EntityRecord = EntityGet["entity"];
@@ -77,7 +77,7 @@ export interface RowFocus {
 
 export function rowFromEntity(e: EntityLike, roles: readonly RoleLike[] = [], focus: RowFocus = {}): CrmRow {
   const active = roles.filter((r) => !r.endedAt).sort((a, b) => ms(b.startedAt) - ms(a.startedAt));
-  const same = (a: string | null | undefined, b: string | undefined) => !b || (a ?? "").toLowerCase() === b.toLowerCase();
+  const same = (a: string | null | undefined, b: string | undefined) => !b || roleKey(a ?? "") === roleKey(b);
   const primary = active.find((r) => (focus.role || focus.stage) && same(r.role, focus.role) && same(r.stage, focus.stage)) ?? active[0];
   return {
     id: e.id,
@@ -117,8 +117,8 @@ export function applyChipFilters(rows: readonly CrmRow[], chips: readonly Filter
   const department = want("department");
   return rows.filter((r) => {
     if (kind && r.kind !== kind) return false;
-    if (role && !r.roles.includes(role)) return false;
-    if (stage && (r.stage ?? "").toLowerCase() !== stage) return false;
+    if (role && !r.roles.some((x) => roleKey(x) === roleKey(role))) return false;
+    if (stage && roleKey(r.stage ?? "") !== roleKey(stage)) return false;
     if (owner) {
       if (!r.owner) return false;
       const name = resolvers.ownerName?.(r.owner)?.toLowerCase() ?? r.owner.id.toLowerCase();

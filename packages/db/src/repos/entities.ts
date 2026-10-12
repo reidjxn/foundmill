@@ -284,8 +284,9 @@ async function mergeLogsOf(db: Executor, businessId: string, entityId: string): 
 /**
  * The later, still-open merges that rely on `log`, so undoing it now would not be exact: the kept record was merged
  * into another one since; or a later merge into the same record carried an identifier, filled field or name that this
- * merge had already brought in (so the later merge did not add it), shares an interaction with it, or left a
- * relationship or mention on its own record because a row this merge moved already held that slot.
+ * merge had already brought in (so the later merge did not add it), shares an interaction with it, left a relationship
+ * or mention on its own record because a row this merge moved already held that slot, or left behind a relationship
+ * this merge moved between the two records.
  * `history` is `mergeLogsOf(keptId)` (newest first, in the database's own order, so "later" is exact to the
  * microsecond); `current` is the kept record now.
  */
@@ -314,6 +315,23 @@ async function unmergeBlockers(db: Executor, businessId: string, log: MergeLogEn
 
   const laterIds = [...byMergedId.keys()];
   if (snap.moved.relationships.length) {
+    // A tie this merge moved that now links the kept record to a later-merged one: that merge left it behind (it would
+    // have tied the record to itself), so undoing this one first would leave it on an archived record.
+    const between = await db
+      .select({ from: relationships.fromEntity, to: relationships.toEntity })
+      .from(relationships)
+      .where(
+        and(
+          eq(relationships.businessId, businessId),
+          inArray(relationships.id, snap.moved.relationships),
+          or(and(eq(relationships.fromEntity, log.keptId), inArray(relationships.toEntity, laterIds)), and(eq(relationships.toEntity, log.keptId), inArray(relationships.fromEntity, laterIds))),
+        ),
+      );
+    for (const row of between) {
+      const laterId = byMergedId.get(row.from === log.keptId ? row.to : row.from)!;
+      const laterName = fieldsOf((later.find((m) => m.id === laterId)!.reversibleSnapshot as unknown as MergeSnapshot).merged).displayName;
+      reasons.get(laterId)?.push(`a relationship between “${fieldsOf(snap.merged).displayName}” and “${laterName}”`);
+    }
     const z = alias(relationships, "z");
     const rows = await db
       .select({ from: z.fromEntity, to: z.toEntity })
@@ -355,46 +373,60 @@ const toArray = <T>(v: T | T[] | undefined): T[] | undefined => (v === undefined
 const uniq = (xs: string[]) => [...new Set(xs)];
 const vectorLiteral = (v: number[]) => `[${v.join(",")}]`;
 
-/** An active role matching every given filter (role and stage case-insensitively, as the founder types them). */
+/**
+ * A role or stage as the CRM filters compare it: case, spaces, hyphens and underscores do not matter, so "Signed up"
+ * finds signed_up and a stage stored as "Account manager" is found again from its group key or a typed chip.
+ */
+const roleKey = (v: string) => v.trim().toLowerCase().replace(/[\s_-]+/g, "_");
+const roleKeyOf = (column: SQL) => sql`regexp_replace(lower(btrim(${column})), '[[:space:]_-]+', '_', 'g')`;
+
+/** An active role matching every given filter (role and stage by `roleKey`, as the founder types them). */
 function roleFilter(businessId: string, f: { role?: string; stage?: string; ownerId?: string; departmentId?: string }): SQL | undefined {
   if (!f.role && !f.stage && !f.ownerId && !f.departmentId) return undefined;
   const conds: SQL[] = [sql`r.business_id = ${businessId}::uuid`, sql`r.entity_id = ${entities.id}`, sql`r.ended_at is null`];
-  if (f.role) conds.push(sql`lower(r.role) = lower(${f.role})`);
-  if (f.stage) conds.push(sql`lower(r.stage) = lower(${f.stage})`);
+  if (f.role) conds.push(sql`${roleKeyOf(sql`r.role`)} = ${roleKey(f.role)}`);
+  if (f.stage) conds.push(sql`${roleKeyOf(sql`r.stage`)} = ${roleKey(f.stage)}`);
   if (f.ownerId) conds.push(sql`r.owner_ref ->> 'id' = ${f.ownerId}`);
   if (f.departmentId) conds.push(sql`r.owner_ref ->> 'kind' = 'department' and r.owner_ref ->> 'id' = ${f.departmentId}`);
   return sql`exists (select 1 from entity_roles r where ${sql.join(conds, sql` and `)})`;
+}
+
+/** The records an `EntityListFilter` matches, before paging. */
+function listWhere(businessId: string, f: z.output<typeof EntityListFilter>): SQL | undefined {
+  const kinds = toArray(f.kind);
+  return and(
+    eq(entities.businessId, businessId),
+    f.includeArchived ? undefined : isNull(entities.archivedAt),
+    f.includeMerged ? undefined : isNull(entities.mergedIntoId),
+    kinds?.length ? inArray(entities.kind, kinds) : undefined,
+    f.visibility ? eq(entities.visibility, f.visibility) : undefined,
+    roleFilter(businessId, f),
+  );
 }
 
 export const entitiesRepo = {
   async list(db: Executor, businessId: string, filter: EntityListFilter = {}): Promise<Page<Entity>> {
     const f = parseInput(EntityListFilter, filter, "entity filter");
     const ks = timeKeyset<Entity>(entities.createdAt, entities.id, (r) => ({ at: r.createdAt, id: r.id }));
-    const kinds = toArray(f.kind);
     const rows = await db
       .select()
       .from(entities)
-      .where(
-        and(
-          eq(entities.businessId, businessId),
-          f.includeArchived ? undefined : isNull(entities.archivedAt),
-          f.includeMerged ? undefined : isNull(entities.mergedIntoId),
-          kinds?.length ? inArray(entities.kind, kinds) : undefined,
-          f.visibility ? eq(entities.visibility, f.visibility) : undefined,
-          roleFilter(businessId, f),
-          ks.after(f.cursor),
-        ),
-      )
+      .where(and(listWhere(businessId, f), ks.after(f.cursor)))
       .orderBy(...ks.orderBy)
       .limit(f.limit + 1);
     return toPage(rows, f, ks);
   },
 
-  /** `list` with each entity's active roles (role, stage, owner): what the CRM list, its views and its filters read. */
-  async listWithRoles(db: Executor, businessId: string, filter: EntityListFilter = {}): Promise<Page<EntityWithRoles>> {
-    const page = await entitiesRepo.list(db, businessId, filter);
+  /**
+   * `list` with each entity's active roles (role, stage, owner): what the CRM list, its views and its filters read.
+   * `total` counts every record the filters match (not just this page), so the list can say how many it has not loaded.
+   */
+  async listWithRoles(db: Executor, businessId: string, filter: EntityListFilter = {}): Promise<Page<EntityWithRoles> & { total: number }> {
+    const f = parseInput(EntityListFilter, filter, "entity filter");
+    const page = await entitiesRepo.list(db, businessId, f);
     const roles = await entitiesRepo.activeRoles(db, businessId, page.items.map((e) => e.id));
-    return { ...page, items: page.items.map((e) => ({ ...e, roles: roles.get(e.id) ?? [] })) };
+    const total = !f.cursor && !page.nextCursor ? page.items.length : Number((await db.select({ n: sql<number>`count(*)::int` }).from(entities).where(listWhere(businessId, f)))[0]?.n ?? 0);
+    return { ...page, items: page.items.map((e) => ({ ...e, roles: roles.get(e.id) ?? [] })), total };
   },
 
   /** Active roles of many entities in one query, newest first per entity. */
@@ -839,8 +871,13 @@ export const entitiesRepo = {
           sharedInteractions: sharedInteractionIds,
         },
       };
+      // clock_timestamp(), not the transaction's now(): merges done in one transaction still log in the order they ran,
+      // which is what `unmergeBlockers` reads as "later".
       const log = one(
-        await tx.insert(mergeLog).values({ businessId, keptId, mergedId, byKind: o.byKind, byId: o.byId ?? null, reversibleSnapshot: snapshot as unknown as Record<string, unknown> }).returning(),
+        await tx
+          .insert(mergeLog)
+          .values({ businessId, keptId, mergedId, byKind: o.byKind, byId: o.byId ?? null, reversibleSnapshot: snapshot as unknown as Record<string, unknown>, createdAt: sql`clock_timestamp()` })
+          .returning(),
         "merge log",
       );
       return { kept: updatedKept, merged: updatedMerged, log };

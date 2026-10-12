@@ -128,6 +128,36 @@ describe("list, manifest, enrichment", () => {
     expect(await repos.entities.activeRoles(r.db, r.B.businessId, [ids.sara!])).toEqual(new Map());
   });
 
+  it("matches a role or stage stored with spaces from its group key or a typed chip, and counts every match", async () => {
+    const A = r.A.businessId;
+    // Seeded and imported stages are free text ("Account manager"); the list groups by that text and a chip may
+    // arrive as the stored key ("account_manager") or as typed ("Account Manager").
+    const hana = await repos.entities.create(r.db, A, { kind: "person", displayName: "Hana Brandt" });
+    const ivo = await repos.entities.create(r.db, A, { kind: "person", displayName: "Ivo Castel" });
+    await repos.entities.addRole(r.db, A, hana.id, { role: "Supplier contact", stage: "Account manager" });
+    await repos.entities.addRole(r.db, A, ivo.id, { role: "supplier_contact", stage: "Sales lead" });
+    const only = async (filter: Parameters<typeof repos.entities.listWithRoles>[2]) => (await repos.entities.listWithRoles(r.db, A, filter)).items.map((e) => e.id).sort();
+    expect(await only({ stage: "Account manager" })).toEqual([hana.id]);
+    expect(await only({ stage: "account_manager" })).toEqual([hana.id]);
+    expect(await only({ stage: " ACCOUNT-manager " })).toEqual([hana.id]);
+    expect(await only({ role: "supplier_contact" })).toEqual([hana.id, ivo.id].sort());
+    expect(await only({ role: "Supplier Contact", stage: "sales lead" })).toEqual([ivo.id]);
+    expect(await only({ stage: "account" })).toEqual([]);
+    expect((await repos.entities.search(r.db, A, { q: "Hana", stage: "account_manager" })).hits.map((h) => h.entity.id)).toEqual([hana.id]);
+
+    // `total` is every match, not just the page.
+    const first = await repos.entities.listWithRoles(r.db, A, { role: "supplier_contact", limit: 1 });
+    expect(first).toMatchObject({ total: 2, nextCursor: expect.any(String) });
+    expect(first.items).toHaveLength(1);
+    const rest = await repos.entities.listWithRoles(r.db, A, { role: "supplier_contact", limit: 1, cursor: first.nextCursor });
+    expect(rest).toMatchObject({ total: 2, nextCursor: null });
+    expect([...first.items, ...rest.items].map((e) => e.id).sort()).toEqual([hana.id, ivo.id].sort());
+    const all = await repos.entities.list(r.db, A, { limit: 500 });
+    expect((await repos.entities.listWithRoles(r.db, A, { limit: 500 })).total).toBe(all.items.length);
+    await repos.entities.archive(r.db, A, hana.id);
+    await repos.entities.archive(r.db, A, ivo.id);
+  });
+
   it("enrich fills empty fields only", async () => {
     const before = await repos.entities.get(r.db, r.A.businessId, ids.northstar!);
     const after = await repos.entities.enrich(r.db, r.A.businessId, ids.northstar!, { identifiers: { domain: "evil.example", linkedin: "https://linkedin.com/company/northstar" }, aliases: ["NSL"], avatarUrl: "https://img.example/ns.png" });
@@ -335,6 +365,40 @@ describe("merge / unmerge (AC-11.12.3)", () => {
     await repos.entities.unmerge(r.db, A, outer.log.id);
     await repos.entities.unmerge(r.db, A, first.log.id);
     expect((await repos.entities.get(r.db, A, y.id)).mergedIntoId).toBeNull();
+  });
+
+  it("refuses while a later merge left behind a relationship this one moved between the two duplicates", async () => {
+    const A = r.A.businessId;
+    const x = await repos.entities.create(r.db, A, { kind: "person", displayName: "Tie Kept" });
+    const y = await repos.entities.create(r.db, A, { kind: "person", displayName: "Tie Y" });
+    const z = await repos.entities.create(r.db, A, { kind: "person", displayName: "Tie Z" });
+    const tie = await repos.entities.upsertRelationship(r.db, A, { fromEntity: z.id, toEntity: y.id, type: "knows" });
+    const first = await repos.entities.merge(r.db, A, x.id, y.id);
+    const second = await repos.entities.merge(r.db, A, x.id, z.id);
+    // The first merge pointed Z's tie at X; the second left it on Z (it would have tied X to itself).
+    expect((await repos.entities.listRelationships(r.db, A, z.id)).map((rel) => [rel.id, rel.other.id])).toEqual([[tie.id, x.id]]);
+    await expect(repos.entities.unmerge(r.db, A, first.log.id)).rejects.toThrow("Undo the later merge of “Tie Z” first: it relies on what this merge brought in (a relationship between “Tie Y” and “Tie Z”).");
+    await repos.entities.unmerge(r.db, A, second.log.id);
+    await repos.entities.unmerge(r.db, A, first.log.id);
+    expect((await repos.entities.listRelationships(r.db, A, z.id)).map((rel) => [rel.id, rel.other.id])).toEqual([[tie.id, y.id]]);
+  });
+
+  it("orders merges made in one transaction by when each ran, so the earlier one waits for the later one", async () => {
+    const A = r.A.businessId;
+    const p = await repos.entities.create(r.db, A, { kind: "person", displayName: "Batch Kept" });
+    const q = await repos.entities.create(r.db, A, { kind: "person", displayName: "Batch Q", identifiers: { email: "q@batch.example" } });
+    const s = await repos.entities.create(r.db, A, { kind: "person", displayName: "Batch S", identifiers: { email: "s@batch.example" } });
+    // As an import that folds several duplicates into one record in a single transaction (now() is the same for both).
+    const [early, late] = await r.db.transaction(async (tx) => [await repos.entities.merge(tx, A, p.id, q.id), await repos.entities.merge(tx, A, p.id, s.id)]);
+    expect(late.log.createdAt.getTime()).toBeGreaterThanOrEqual(early.log.createdAt.getTime());
+    expect((await repos.entities.mergeHistory(r.db, A, p.id)).map((m) => [m.id, m.undoBlocked === null])).toEqual([
+      [late.log.id, true],
+      [early.log.id, false],
+    ]);
+    await expect(repos.entities.unmerge(r.db, A, early.log.id)).rejects.toMatchObject({ code: "merge_relied_on" });
+    await repos.entities.unmerge(r.db, A, late.log.id);
+    await repos.entities.unmerge(r.db, A, early.log.id);
+    expect((await repos.entities.get(r.db, A, p.id)).identifiers).toEqual({});
   });
 
   it("refuses to merge across businesses or into itself", async () => {

@@ -35,6 +35,12 @@ describe("crm", () => {
 
     const search = await owner.crm.search({ businessId, q: "Lena" });
     expect(search.hits.find((h) => h.entity.id === customer.id)?.roles.map((r) => r.stage)).toEqual(["churned"]);
+    // A stage stored as words is found from its normalized chip, and the page says how many match in all.
+    await owner.crm.roles.add({ businessId, entityId: customer.id, role: { role: "supplier_contact", stage: "Account manager" } });
+    expect(await ids({ role: "Supplier contact", stage: "account_manager" })).toEqual([customer.id]);
+    const page = await owner.crm.entity.list({ businessId, limit: 1, role: "supplier" });
+    expect(page).toMatchObject({ total: 1, nextCursor: null });
+    expect((await owner.crm.entity.list({ businessId, limit: 1 })).total).toBe(list.items.length);
     // Another business's member sees none of it.
     await expect(hz.caller({ userId: hz.B.ownerId }).crm.entity.list({ businessId, limit: 10 })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });

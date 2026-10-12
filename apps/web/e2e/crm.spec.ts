@@ -64,12 +64,25 @@ test.describe("crm", () => {
     await expect(page.getByTestId("crm-groups")).toContainText("Contracted");
     await expect(page.getByTestId("crm-groups")).not.toContainText("No stage");
 
+    // Supplier contacts carry their title as a stage stored in words ("Account manager"); its group filters to it.
+    await page.getByRole("button", { name: "Clear all" }).click();
+    await input.fill("role:supplier_contact");
+    await input.press("Enter");
+    await page.getByTestId("crm-groups").getByRole("button", { name: /Account manager/ }).click();
+    await expect(page.getByTestId("crm-search")).toContainText('stage:"Account manager"');
+    await expect(grid.getByText("Hana Brandt")).toBeVisible({ timeout: LONG });
+    await expect(grid.locator('td[data-col="stage"]')).toHaveCount(1);
+
     await page.getByRole("button", { name: "Clear all" }).click();
     await input.fill("customers");
     await input.press("Enter");
     await expect(page.getByTestId("crm-search")).toContainText("role:customer");
     await expect(roles.filter({ hasText: "Customer" }).first()).toBeVisible({ timeout: LONG });
     await expect(roles.filter({ hasNotText: "Customer" })).toHaveCount(0);
+    // Northwind has thousands of customers: the footer says how many and loads the next ones.
+    await expect(page.getByTestId("crm-list-count")).toContainText(/The 500 newest of [\d,]+ records that match the filters/);
+    await page.getByTestId("crm-load-more").click();
+    await expect(page.getByTestId("crm-list-count")).toContainText(/The 1,000 newest of [\d,]+ records/, { timeout: LONG });
   });
 
   test("new record dialog and the merge flow from a row", async ({ page }) => {

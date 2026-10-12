@@ -219,6 +219,17 @@ describe("seedDemo on PGlite", () => {
     const suppliers = await repos.entities.listByRole(db, NORTHWIND_BUSINESS_ID, "supplier");
     expect(suppliers.items.length).toBe(6);
     expect((await repos.entities.listRelationships(db, NORTHWIND_BUSINESS_ID, suppliers.items[0]!.id)).length).toBeGreaterThan(0);
+    // The CRM list's "kind:organization role:supplier" (crm.entity.list): the same six, each with its role and stage.
+    const listed = await repos.entities.listWithRoles(db, NORTHWIND_BUSINESS_ID, { kind: "organisation", role: "supplier", limit: 500 });
+    expect(listed.items.map((e) => e.id).sort()).toEqual(suppliers.items.map((e) => e.id).sort());
+    expect(listed.items.every((e) => e.roles.some((r) => r.role === "supplier" && !!r.stage && !!r.ownerRef))).toBe(true);
+    // "customers": every active customer counts, not just the first page.
+    const customerRoles = await db.execute(sql`select count(distinct r.entity_id)::int as n from entity_roles r join entities e on e.id = r.entity_id where r.business_id = ${NORTHWIND_BUSINESS_ID}::uuid and r.role = 'customer' and r.ended_at is null and e.archived_at is null and e.merged_into_id is null`);
+    const customerCount = Number((customerRoles as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0);
+    const customerPage = await repos.entities.listWithRoles(db, NORTHWIND_BUSINESS_ID, { role: "customer", limit: 5 });
+    expect(customerCount).toBeGreaterThan(5);
+    expect(customerPage.total).toBe(customerCount);
+    expect(customerPage.items.every((e) => e.roles.some((r) => r.role === "customer"))).toBe(true);
   });
 
   it("gives Ledgerly its LIVE extras: holiday, GitHub repo, Stripe payments, cap table with two SAFEs, community, leaderboard, training", async () => {
