@@ -48,6 +48,7 @@ describe("foundations", () => {
   it("inputs read the business, the founder, the committed idea, the outline and the imported sources", async () => {
     const { businessId, ownerId } = r.A;
     await repos.founders.upsert(r.db, ownerId, { displayName: "Reid", experience: "first-time", targetMarkets: ["Nordics"], constraints: ["bootstrapped"], budgetMinor: 2_500_000 });
+    await r.svc((tx) => repos.businesses.update(tx, businessId, { currency: "gbp" }));
     const idea = await repos.ideas.create(r.db, ownerId, { title: "Ledgerly", pitch: "Ledgerly helps accountants.", archetype: "b2b_saas", attributes: { market_pull: { value: 15, evidence: "Strong demand" } }, research: { citations: [{ title: "Comparables", url: "https://x.test", note: "39-79 a month" }, { kind: "foundmill:meta", qa: [{ question: "Who pays?", answer: "Owners." }] }] } });
     await repos.ideas.commit(r.db, ownerId, idea.id, businessId);
     await repos.product.createBlock(r.db, businessId, { section: "Problem", position: 1, authoredByKind: "system" });
@@ -57,7 +58,8 @@ describe("foundations", () => {
     await repos.product.createSource(r.db, businessId, { kind: "doc", title: "Not imported", relevance: {} });
 
     const inputs = await repos.foundations.inputs(r.db, businessId);
-    expect(inputs).toMatchObject({ businessName: "FOUND-A", archetype: "b2b_saas", door: "import", currency: "EUR" });
+    // The business's own currency (0025), not the founder's profile currency (EUR here): business money is priced in it.
+    expect(inputs).toMatchObject({ businessName: "FOUND-A", archetype: "b2b_saas", door: "import", currency: "GBP" });
     expect(inputs.founder).toMatchObject({ targetMarkets: ["Nordics"], constraints: ["bootstrapped"], budget: { amountMinor: 2_500_000, currency: "EUR" } });
     expect(inputs.idea).toMatchObject({ title: "Ledgerly", attributes: [{ key: "market_pull", value: 15, evidence: "Strong demand" }], citations: [{ title: "Comparables" }], qa: [{ question: "Who pays?", answer: "Owners." }] });
     expect(inputs.outline.map((o) => o.section)).toEqual(["vision", "Problem", "Features", "Pricing"]);

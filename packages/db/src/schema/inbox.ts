@@ -3,7 +3,7 @@ import { INBOX_ITEM_TYPES, INBOX_STATES, PLAN_ACTION_TYPES, PLAN_ORIGINS, PLAN_S
 import { sql } from "drizzle-orm";
 import { boolean, index, integer, jsonb, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
-import { currency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
+import { emptyArray, emptyList, emptyObject, id, minor, pricingCurrency, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businessId } from "./_refs";
 import { agents, playbooks } from "./agents";
 
@@ -28,7 +28,7 @@ export const inboxItems = pgTable(
     entityIds: uuid("entity_ids").array().notNull().default(emptyArray),
     state: text("state", { enum: INBOX_STATES }).notNull().default("unread"),
     costMinor: minor("cost_minor").notNull().default(0),
-    currency: currency(),
+    currency: pricingCurrency(),
     ...timestampsWithArchive(),
   },
   (t) => [

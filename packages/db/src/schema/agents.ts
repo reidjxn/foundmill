@@ -5,7 +5,7 @@ import {
 import { sql } from "drizzle-orm";
 import { boolean, date, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
-import { currency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
+import { businessCurrency, emptyArray, emptyList, emptyObject, id, minor, pricingCurrency, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businessId, businessIdNullable } from "./_refs";
 import { inboxItems, planActions } from "./inbox";
 import { roadmapItems } from "./product";
@@ -34,7 +34,7 @@ export const agents = pgTable(
     negotiation: jsonb("negotiation").$type<Record<string, unknown>>().notNull().default(emptyObject),
     schedule: jsonb("schedule").$type<Record<string, unknown>>().notNull().default(emptyObject),
     wageCapMinor: minor("wage_cap_minor"),
-    currency: currency(),
+    currency: businessCurrency(),
     avatarSeed: text("avatar_seed").notNull().default(""),
     ...timestampsWithArchive(),
   },
@@ -85,7 +85,7 @@ export const departments = pgTable(
     leadAgentId: uuid("lead_agent_id").references(() => agents.id, { onDelete: "set null" }),
     moduleKeys: text("module_keys").array().notNull().default(emptyArray),
     budgetMinor: minor("budget_minor"),
-    currency: currency(),
+    currency: businessCurrency(),
     approvers: jsonb("approvers").$type<unknown[]>().notNull().default(emptyList),
     hidden: boolean("hidden").notNull().default(false),
     ...timestampsWithArchive(),
@@ -232,7 +232,7 @@ export const trainingRuns = pgTable(
     toVersionId: uuid("to_version_id").references(() => agentVersions.id, { onDelete: "set null" }),
     status: text("status", { enum: TRAINING_STATUSES }).notNull().default("queued"),
     costMinor: minor("cost_minor").notNull().default(0),
-    currency: currency(),
+    currency: pricingCurrency(),
     results: jsonb("results").$type<Record<string, { old: number; new: number }>>().notNull().default(emptyObject),
     coachSummaryMd: text("coach_summary_md").notNull().default(""),
     decision: text("decision", { enum: TRAINING_DECISIONS }),
@@ -272,7 +272,7 @@ export const tasks = pgTable(
     eta: tstz("eta"),
     priority: integer("priority").notNull().default(0),
     budgetMinor: minor("budget_minor"),
-    currency: currency(),
+    currency: businessCurrency(),
     startedAt: tstz("started_at"),
     endedAt: tstz("ended_at"),
     /** When an owner or admin forgot the task's saved code (0013); sessions that started earlier cannot save it again. */
@@ -324,7 +324,7 @@ export const agentSessions = pgTable(
     tokensIn: minor("tokens_in").notNull().default(0),
     tokensOut: minor("tokens_out").notNull().default(0),
     costMinor: minor("cost_minor").notNull().default(0),
-    currency: currency(),
+    currency: pricingCurrency(),
     outcome: text("outcome"),
     recordingRef: text("recording_ref"),
     ...timestamps(),
@@ -353,7 +353,7 @@ export const agentMetrics = pgTable(
     approvalsRejected: integer("approvals_rejected").notNull().default(0),
     ratingAvg: numeric("rating_avg", { precision: 4, scale: 2 }),
     costMinor: minor("cost_minor").notNull().default(0),
-    currency: currency(),
+    currency: pricingCurrency(),
     ...timestamps(),
   },
   (t) => [uniqueIndex("agent_metrics_agent_id_day_key").on(t.agentId, t.day), index("agent_metrics_business_id_idx").on(t.businessId, t.day)],
@@ -389,7 +389,7 @@ export const holidayPeriods = pgTable(
     untilCondition: jsonb("until_condition").$type<Record<string, unknown>>(),
     authority: jsonb("authority").$type<Record<string, unknown>>().notNull().default(emptyObject),
     budgetCeilingMinor: minor("budget_ceiling_minor"),
-    currency: currency(),
+    currency: businessCurrency(),
     wakeEvents: text("wake_events").array().notNull().default(emptyArray),
     startedAt: tstz("started_at"),
     endedAt: tstz("ended_at"),

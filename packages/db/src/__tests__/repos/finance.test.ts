@@ -13,7 +13,7 @@ describe("finance", () => {
   let accountId: string;
 
   it("upserts accounts idempotently and reports the cash position per currency", async () => {
-    const a1 = await repos.finance.upsertAccount(r.db, r.A.businessId, { provider: "tink", externalId: "acc-1", name: "Operating", balanceMinor: 1_000_000, balanceAt: day("2026-10-01"), consentExpiresAt: day("2026-10-10") });
+    const a1 = await repos.finance.upsertAccount(r.db, r.A.businessId, { provider: "tink", externalId: "acc-1", name: "Operating", currency: "EUR", balanceMinor: 1_000_000, balanceAt: day("2026-10-01"), consentExpiresAt: day("2026-10-10") });
     const a1b = await repos.finance.upsertAccount(r.db, r.A.businessId, { provider: "tink", externalId: "acc-1", name: "Operating EUR", balanceMinor: 1_200_000 });
     expect(a1b.id).toBe(a1.id);
     expect(a1b.name).toBe("Operating EUR");
