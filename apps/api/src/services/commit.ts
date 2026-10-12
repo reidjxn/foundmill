@@ -137,8 +137,8 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     const businessId = business.id;
     await repos.memberships.add(tx, businessId, { userId, role: "owner" });
     // This month's included credits (USD), so the first cycle already runs against a balance that pauses the team. They
-    // come from the founder's monthly pool (`includedCreditsFor`): a business that replaces an archived one this month
-    // starts with what is left of it, never a second grant.
+    // come from the founder's monthly pool (`includedCreditsFor`): once its places are taken this month (archived
+    // businesses included), a new business starts with nothing included, never a second grant.
     const period = periodOf(new Date());
     const credits = modelBilling === "credits" ? (await repos.usage.ensurePeriodCredits(tx, businessId, period, await includedCreditsFor(tx, business, period, { lock: true }))).balance : null;
     const logo = input.logo && checkedLogo ? (await repos.logos.set(tx, businessId, { source: input.logo.source, logo: checkedLogo, createdBy: userId })).meta : null;
