@@ -87,11 +87,12 @@ export const membershipsRepo = {
   /**
    * Holds the business's owner lock until the transaction ends: the lock 0035's keep-owner trigger takes before it counts
    * owners (re-entrant within one transaction). Two owners demoting or removing each other at the same moment are
-   * judged one after the other, so the second sees the first one's change and the business keeps an owner.
+   * judged one after the other, so the second sees the first one's change and the business keeps an owner. The key is
+   * the id as Postgres writes it (`::uuid::text`, lowercase), the trigger's `business_id::text`, however it was typed.
    */
   async lockOwners(db: Executor, businessId: string): Promise<void> {
     const id = parseInput(Id, businessId, "business id");
-    await db.execute(sql`select pg_advisory_xact_lock(hashtext('memberships_owner'), hashtext(${id}::text))`);
+    await db.execute(sql`select pg_advisory_xact_lock(hashtext('memberships_owner'), hashtext(${id}::uuid::text))`);
   },
 
   /** Changes a member's role. The last owner cannot be demoted: a business always keeps at least one owner. */

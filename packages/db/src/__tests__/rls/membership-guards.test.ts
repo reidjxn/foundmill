@@ -143,6 +143,11 @@ describe("memberships: a business always keeps an owner", () => {
       await repos.memberships.remove(tx as unknown as Db, A.businessId, "00000000-0000-4000-8000-000000000000");
       expect(await ownerLocks(tx, A.businessId)).toBe(1);
     });
+    // The same lock however the id was typed: the trigger keys it on `business_id::text` (lowercase).
+    await h.db.transaction(async (tx) => {
+      await repos.memberships.lockOwners(tx as unknown as Db, A.businessId.toUpperCase());
+      expect(await ownerLocks(tx, A.businessId)).toBe(1);
+    });
     expect(await roleOf(A.businessId, A.adminId)).toBe("admin");
   });
 
