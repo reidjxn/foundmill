@@ -1,7 +1,7 @@
 import { getArchetypeSeed } from "@foundmill/agents";
 import { repos } from "@foundmill/db";
 import { CHANNEL_KEYS } from "@foundmill/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -135,6 +135,34 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     const other = hz.caller({ userId: otherId, email: "other-twice@test.local" });
     await other.founder.profile.update({ displayName: "Other", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
     await expect(other.idea.commit(input)).rejects.toThrow(/not found/);
+  });
+
+  it("a commit that read the idea before another commit landed (READ COMMITTED) still builds nothing and answers with the first business", async () => {
+    // PGlite runs one transaction at a time, so the race is replayed the way Postgres interleaves it: the second commit's
+    // reads of the idea (before and inside its transaction) still see it uncommitted, as they did on the stack where a
+    // double click built two businesses. Only a claim that does not trust an earlier read stops it.
+    const userId = await hz.h.createUser("stale@test.local");
+    const caller = hz.caller({ userId, email: "stale@test.local" });
+    await caller.founder.profile.update({ displayName: "Stale", experience: "first-time", skills: { engineering: 10 }, targetMarkets: ["US"], riskAppetite: "low" });
+    const idea = (await caller.idea.generate({ prompt: "rota planning for small kitchens" })).ideas[0]!;
+    const input = { ideaId: idea.id, name: "Stale Rota", archetype: "b2b_saas" as const, gameMode: "personal" as const };
+    const uncommitted = await repos.ideas.get(hz.db, userId, idea.id);
+    const first = await caller.idea.commit(input);
+
+    const get = repos.ideas.get;
+    const staleReads = vi.spyOn(repos.ideas, "get").mockImplementationOnce(async () => uncommitted).mockImplementationOnce(async () => uncommitted);
+    let second: Awaited<ReturnType<typeof caller.idea.commit>>;
+    try {
+      second = await caller.idea.commit({ ...input, name: "Stale Rota Again" });
+    } finally {
+      staleReads.mockRestore();
+    }
+    expect(repos.ideas.get).toBe(get);
+    expect(second).toMatchObject({ alreadyCommitted: true, business: { id: first.business.id } });
+    const mine = (await repos.businesses.listForUser(hz.db, userId)).filter((b) => b.name.startsWith("Stale Rota"));
+    expect(mine.map((b) => b.id)).toEqual([first.business.id]);
+    expect((await repos.ideas.get(hz.db, userId, idea.id)).businessId).toBe(first.business.id);
+    expect(temporal.starts.filter((s) => s.type === "businessCycle" && s.workflowId === `cycle:${first.business.id}:1`)).toHaveLength(1);
   });
 
   it("preview lists what an archetype seeds, labelled Estimate", async () => {
