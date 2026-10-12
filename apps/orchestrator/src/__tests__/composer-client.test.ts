@@ -8,6 +8,7 @@ import { repos } from "@foundmill/db";
 import { ApplicationFailure } from "@temporalio/common";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createCycleActivities } from "../activities/cycle";
+import { createJourneyActivities } from "../activities/journey";
 import { ComposerRequestError, ComposerUnavailableError, createComposerClient, type ComposerClient } from "../composer-client";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
@@ -49,7 +50,7 @@ describe("composer client", () => {
   });
 });
 
-describe("narrateCycle", () => {
+describe("narrateCycle and the journey commentary", () => {
   let t: OrchestratorTestHarness;
   beforeAll(async () => {
     t = await setupOrchestratorHarness({ prefix: "narrate-cycle" });
@@ -70,6 +71,15 @@ describe("narrateCycle", () => {
       .narrateCycle(input())
       .catch((e: unknown) => e);
     expect(outage).toBeInstanceOf(ComposerUnavailableError);
+  });
+
+  it("a journey stands without commentary when the composer turns the request down (4xx), and the win is still announced", async () => {
+    const rejected = createJourneyActivities({ ...t.deps, composer: failing(new ComposerRequestError("not_found", "journey not found", 404)) });
+    const entityId = t.fixture.entityId;
+    const conversion = await repos.journeys.recordConversion(t.db, t.businessId, { entityId, kind: "payment", amountMinor: 4_900, currency: "EUR", occurredAt: new Date(t.clock.nowMs() - 60_000) });
+    const result = await rejected.buildJourneyRecord({ businessId: t.businessId, conversionId: conversion.id });
+    expect(result.journeyId).toBeTruthy();
+    expect((await repos.events.get(t.db, t.businessId, result.eventId!)).type).toBe("customer.converted");
   });
 
   it("in development a 4xx still ends in the plain cycle update, as an outage does", async () => {

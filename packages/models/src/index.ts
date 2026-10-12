@@ -16,6 +16,7 @@ export {
   validateApiKey,
   keyFingerprint,
   MAX_TOKENS_CEILING,
+  ROUTE_RESERVE_TOKENS,
   DEFAULT_MAX_ATTEMPTS,
   type CreateModelClientOptions,
   type LiveModelClientOptions,

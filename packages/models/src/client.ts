@@ -27,7 +27,8 @@
  *   (routing.ts), sized for the reply plus the thinking Opus 5.5 and Sonnet 5.5 always do (it counts toward
  *   `max_tokens`). A schema request cut off at `max_tokens` before its JSON is complete is sent once more with the
  *   budget doubled (up to `MAX_TOKENS_CEILING`) instead of failing at once (audit CML-03); both calls are metered.
- * - The limiter books `reserveTokens` (default `max_tokens`) output tokens per call.
+ * - The limiter books `reserveTokens` output tokens per call: by default the request's own `max_tokens`, or at most
+ *   `ROUTE_RESERVE_TOKENS` when the call runs on its route's budget (mostly thinking headroom it rarely uses).
  * - A call stopped by its signal after the request went out is still metered: the prompt's estimated input tokens, no
  *   output, flagged `aborted` on the usage event (the provider may bill it and reports nothing). A call stopped before
  *   it was sent books nothing.
@@ -69,6 +70,12 @@ import type {
  * `REQUEST_TIMEOUT_MS`; longer outputs belong on `streamStructured`.
  */
 export const MAX_TOKENS_CEILING = 32_000;
+/**
+ * Output tokens the limiter books for a call that runs on its route's budget (it sent neither `maxTokens` nor
+ * `reserveTokens`). That budget is mostly room for thinking the call rarely uses, so booking all of it would let one
+ * planner call take a whole small key's output bucket; this is what such a call booked before budgets were sized.
+ */
+export const ROUTE_RESERVE_TOKENS = 4_096;
 export const DEFAULT_MAX_ATTEMPTS = 4;
 export const REQUEST_TIMEOUT_MS = 600_000;
 
@@ -288,8 +295,9 @@ export class LiveModelClient implements ModelClient {
   private plan(req: PlanInput): CallPlan {
     const resolution = resolveModel(req.route, req.modelOverride);
     if (resolution.warning) this.opts.logger?.warn({ route: req.route, override: req.modelOverride }, resolution.warning);
-    const maxTokens = req.maxTokens ?? this.opts.defaultMaxTokens ?? resolution.maxTokens;
-    const reserve = Math.max(1, Math.min(maxTokens, Math.round(req.reserveTokens ?? maxTokens)));
+    const sized = req.maxTokens ?? this.opts.defaultMaxTokens;
+    const maxTokens = sized ?? resolution.maxTokens;
+    const reserve = Math.max(1, Math.min(maxTokens, Math.round(req.reserveTokens ?? sized ?? ROUTE_RESERVE_TOKENS)));
     const output = req.schema ? structuredOutputFor(req.schema) : undefined;
     if (output?.kind === "prompt") this.opts.logger?.debug({ route: req.route, gaps: output.gaps.slice(0, 5) }, "schema not expressible as structured output; sending it in the system prompt instead");
     const systemBlocks = output?.kind === "prompt" ? [...systemTexts(req.system), output.instruction] : req.system;
