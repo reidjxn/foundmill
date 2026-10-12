@@ -634,6 +634,16 @@ export function planStatusLine(plan: PlanLike | null | undefined): { word: strin
   }
 }
 
+/**
+ * The chip beside an action the policy left to the founder (`ask`): "Needs your go-ahead" while the plan awaits
+ * confirmation or the action still waits on an approval, "Confirmed by you" only after that; none for other actions
+ * and for one the founder turned down (its status says so).
+ */
+export function askedActionChip(plan: Pick<PlanLike, "status">, action: Pick<PlanActionLike, "status" | "policyOutcome">): string | null {
+  if (action.policyOutcome !== "ask" || action.status === "denied") return null;
+  return plan.status === "pending_confirmation" || action.status === "awaiting_approval" ? "Needs your go-ahead" : "Confirmed by you";
+}
+
 /** The id of the item from the pathname (`/b/<bid>/inbox/<itemId>`), or null on the list route. */
 export function itemIdFromPath(pathname: string | null | undefined): string | null {
   const m = /\/inbox\/([^/?#]+)/.exec(pathname ?? "");

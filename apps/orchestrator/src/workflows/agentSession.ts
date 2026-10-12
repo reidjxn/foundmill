@@ -10,9 +10,9 @@
  * stays open), and a session paused for SESSION_PAUSE_HOLD_MINUTES "parks": the run saves its work and returns, this
  * workflow waits for Resume or Stop without any slot, then starts the next run where the last one stopped.
  */
-import { ActivityCancellationType, ActivityFailure, ApplicationFailure, CancellationScope, allHandlersFinished, condition, isCancellation, patched, proxyActivities, setHandler, workflowInfo, type ActivityOptions } from "@temporalio/workflow";
+import { ActivityCancellationType, ActivityFailure, ApplicationFailure, CancellationScope, TimeoutFailure, allHandlersFinished, condition, isCancellation, patched, proxyActivities, setHandler, workflowInfo, type ActivityOptions } from "@temporalio/workflow";
 import type { Activities, AgentSessionInput, ProgressSnapshot, SessionCommand, SessionFinish, SessionLaunch, SessionResult, SessionRunOptions } from "../activities";
-import { AGENT_PAUSED_FAILURE, SESSION_QUEUE_PATCH, sessionTaskQueue } from "../session-contract";
+import { AGENT_PAUSED_FAILURE, CANCELLED_REASON, SESSION_QUEUE_PATCH, sessionTaskQueue, usageFromHeartbeat, type RunUsage } from "../session-contract";
 import { decisionSignal, pauseSignal, progressQuery, resumeSignal, shoutSignal, stopSignal } from "./signals";
 
 const acts = proxyActivities<Activities>({ startToCloseTimeout: "5 minutes", retry: { maximumAttempts: 3, initialInterval: "2 seconds" } });
@@ -39,6 +39,12 @@ export interface AgentSessionWorkflowInput extends AgentSessionInput {
 
 /** The activity's own error rather than Temporal's "Activity task failed" wrapper. */
 const failureMessage = (err: unknown): string => (err instanceof ActivityFailure && err.cause ? err.cause.message : (err as Error).message);
+
+/**
+ * What a failed run spent: a run that timed out (its worker lost, or no heartbeat for too long) books the usage its
+ * last heartbeat reported (an Estimate); any other failure returned before spending or booked its own.
+ */
+export const failedRunUsage = (err: unknown): RunUsage => usageFromHeartbeat(err instanceof ActivityFailure && err.cause instanceof TimeoutFailure ? err.cause.lastHeartbeatDetails : null);
 
 /** One session made of several runs (a park and a resume): usage and counts add up, the last run says how it ended. */
 export function combineRuns(a: SessionResult, b: SessionResult): SessionResult {
@@ -67,6 +73,8 @@ export async function agentSession(input: AgentSessionWorkflowInput): Promise<Ag
   let pausedByFounder = false;
   /** Every command posted to the control bus is numbered; a run ignores numbers from before it started. */
   let nextSeq = 0;
+  /** The nudges and decisions posted to the current run: a parked run says which of them it never read. */
+  let postedToRun: SessionCommand[] = [];
   let flushing: Promise<void> = Promise.resolve();
 
   const deliver = (command: SessionCommand) => {
@@ -82,6 +90,7 @@ export async function agentSession(input: AgentSessionWorkflowInput): Promise<Ag
       return;
     }
     const numbered: SessionCommand = { ...command, seq: nextSeq++ };
+    if (numbered.kind === "shout" || numbered.kind === "decision") postedToRun.push(numbered);
     // Serialise control activities so commands reach the runner in signal order.
     flushing = flushing.then(() => control.postSessionCommand({ sessionId: input.sessionId, command: numbered })).catch(() => undefined);
   };
@@ -150,14 +159,16 @@ export async function agentSession(input: AgentSessionWorkflowInput): Promise<Ag
       snapshot.state = "running";
       running = true;
       const run: SessionRunOptions = { fromSeq: nextSeq, resume };
+      postedToRun = [];
       const backlog = queued.splice(0, queued.length);
       for (const c of backlog) deliver(c);
       let r: SessionResult;
       try {
         r = await CancellationScope.nonCancellable(() => runner.runAgentSession(input, launch, input.briefText ?? null, run));
       } catch (err) {
-        if (isCancellation(err)) r = fail("cancelled", "stopped", "stopped");
-        else r = fail(`run failed: ${failureMessage(err)}`.slice(0, 500), "error", "failed");
+        if (isCancellation(err)) r = fail(CANCELLED_REASON, "stopped", "stopped");
+        // A run that died without returning still books what it spent, as of its last heartbeat (an Estimate).
+        else r = { ...fail(`run failed: ${failureMessage(err)}`.slice(0, 500), "error", "failed"), ...failedRunUsage(err) };
       }
       running = false;
       await flushing;
@@ -165,12 +176,16 @@ export async function agentSession(input: AgentSessionWorkflowInput): Promise<Ag
       if (!r.parked) break;
 
       // Parked: the run saved its work and freed its slot while the founder keeps the session paused. Wait here for
-      // Resume or Stop; nudges and decisions that reach a parked session go to the next run.
+      // Resume or Stop; nudges and decisions that reach a parked session go to the next run, and so do the ones this run
+      // read but did not act on (`carry`) or never read (numbered after `lastSeq`: they reached the list after its last
+      // poll, and the run cleared it).
       parked = true;
       snapshot.state = "paused";
       snapshot.progress = r.progress.progress;
       snapshot.detail = "Paused: the session freed its place and continues on Resume.";
-      queued.unshift(...r.parked.carry);
+      const lastSeq = r.parked.lastSeq;
+      const unread = postedToRun.filter((c) => (c.seq ?? -1) > lastSeq);
+      queued.unshift(...r.parked.carry, ...unread);
       resume = { cursor: r.parked.cursor, progress: r.progress };
       const woke = await condition(() => !pausedByFounder || stopRequested !== null, PARK_LIMIT);
       parked = false;

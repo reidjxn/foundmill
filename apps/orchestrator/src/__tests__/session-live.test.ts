@@ -16,12 +16,16 @@ import { repos, workspaceSnapshots } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
 import { meter, type ModelId } from "@foundmill/models";
 import { LONG_LIVED_NAME_PATTERNS, parseSandboxSpec, type Sandbox, type SandboxProvider, type SandboxSpecInput } from "@foundmill/sandbox";
+import { MockActivityEnvironment } from "@temporalio/testing";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createGithubMock } from "@foundmill/connectors/connectors/github/mock";
 import { makeToolContext } from "@foundmill/connectors/testing/contract-suite";
 import { ACCEPTANCE_EGRESS, classifyTurnEnd, createSessionActivities, SANDBOX_TTL_MINUTES } from "../activities/session";
+import type { SessionResult } from "../activities/types";
+import type { SessionControlBus } from "../control-bus";
 import { createOfflineGatewayClient } from "../gateway-client";
 import { FILE_TOOLS, SDK_MODEL_KEY_NAME, SDK_SESSION_TOKEN_NAME } from "../activities/sdk-isolation";
+import { usageFromHeartbeat } from "../session-contract";
 import { openSessionRow, setupOrchestratorHarness, wait, type OrchestratorTestHarness } from "./harness";
 
 type QueryCall = { prompt: unknown; options: Record<string, unknown> };
@@ -603,6 +607,28 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     expect(expected).toBeGreaterThan(0);
   });
 
+  it("a cancel (the worker shutting down for a deploy) interrupts the turn, books what was spent and returns the task for a later cycle (O-04)", async () => {
+    const { sessionId, input, launch } = await start();
+    const env = new MockActivityEnvironment();
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-cancel" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "text", text: "Comparing suppliers." }], usage: { input_tokens: 80, output_tokens: 30 } } };
+      env.cancel();
+      await until(() => interrupts.length > 0, "the interrupt");
+      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["[Request interrupted by user]"], modelUsage: modelUsage(80, 30, 0.04) };
+    };
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "running", { force: true });
+    const result = (await env.run(acts.runAgentSession, input, launch)) as SessionResult;
+    expect(result).toMatchObject({ outcome: "stopped", reason: "cancelled", blockedReason: "stopped", tokensIn: 80, tokensOut: 30, costMinor: 4 });
+    const finish = await acts.finishSession(input, launch, result);
+    // Not anyone's Stop: the task is not dropped, and the agent is not marked failing.
+    expect(finish.taskStatus).toBe("ready");
+    expect((await repos.agents.get(t.db, t.businessId, t.workerId)).status).toBe("idle");
+    expect((await repos.usage.list(t.db, t.businessId, { sessionId, limit: 10 })).items.find((u) => u.kind === "tokens")?.quantity).toBe(110);
+  });
+
   it("a detected loop interrupts the run and ends failed with reason loop_detected and its usage, not as an error with none (O-04)", async () => {
     const { input, launch } = await start();
     script = async function* (call) {
@@ -623,9 +649,11 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     let settledWhilePaused: boolean | null = null;
     let verdict: unknown;
     let resumedWith: string | undefined;
+    let hookTimeout: number | undefined;
     script = async function* (call) {
       const prompts = promptsOf(call);
       await prompts.next();
+      hookTimeout = (call.options.hooks as { PreToolUse: { timeout?: number }[] }).PreToolUse[0]!.timeout;
       yield { type: "system", subtype: "init", session_id: "sdk-pause" };
       await t.control.post(sessionId, { kind: "pause", by: t.fixture.ownerId });
       await until(() => interrupts.length > 0, "the interrupt");
@@ -648,11 +676,32 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     const result = await acts.runAgentSession(input, launch);
     expect(settledWhilePaused).toBe(false);
     expect(verdict).toEqual({ continue: true });
+    // The CLI never gives up on a held call (and lets it through) before the run ends on its own.
+    expect(hookTimeout).toBeGreaterThan(Math.max(t.deps.env.APPROVAL_WAIT_MINUTES, t.deps.env.SESSION_PAUSE_HOLD_MINUTES) * 60);
     expect(resumedWith).toMatch(/paused the session mid-step and has now resumed it/);
     // The interrupted turn was not a failure.
     expect(result).toMatchObject({ outcome: "done", tokensIn: 15, tokensOut: 4, costMinor: 2 });
     const notes = await notesOf(sessionId);
     expect(notes.map((n) => n.text)).toEqual(expect.arrayContaining(["Paused.", "Resumed."]));
+  });
+
+  it("every heartbeat carries the usage so far, so a run whose worker is lost still books what it spent (BILL-12)", async () => {
+    const { input, launch } = await start();
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-beat" };
+      yield { type: "assistant", message: { id: "m1", model: launch.modelId, content: [{ type: "text", text: "Reading the brief." }], usage: { input_tokens: 300, output_tokens: 40 } } };
+      await wait(700); // the control loop heartbeats meanwhile
+      yield resultOf(modelUsage(300, 40, 0.02));
+    };
+    const env = new MockActivityEnvironment();
+    const beats: unknown[] = [];
+    env.on("heartbeat", (details: unknown) => beats.push(details));
+    const result = await env.run(acts.runAgentSession, input, launch);
+    expect(result).toMatchObject({ outcome: "done", tokensIn: 300, tokensOut: 40, costMinor: 2 });
+    // Mid-turn (no result yet), the beat carries the turn's usage so far, as the workflow would book it after a timeout.
+    expect(beats.map(usageFromHeartbeat).some((u) => u.tokensIn === 300 && u.tokensOut === 40)).toBe(true);
   });
 
   it("an API refusal for billing (is_error on a success result) blocks the session for budget instead of booking it done (BF-03)", async () => {
@@ -684,6 +733,8 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     expect(classifyTurnEnd({ subtype: "success", is_error: true, api_error_status: 400, result: "Your credit balance is too low to access the Anthropic API." }, null, "byok")).toMatchObject({ outcome: "blocked", blockedReason: "budget", summary: expect.stringMatching(/your Anthropic account refused the call for billing/) });
     expect(classifyTurnEnd({ subtype: "success", is_error: true, api_error_status: 401, result: "invalid x-api-key" }, null, "byok")).toMatchObject({ outcome: "blocked", blockedReason: "credential" });
     expect(classifyTurnEnd({ subtype: "success", is_error: true, api_error_status: null, result: "x" }, { kind: "authentication_failed", text: "Invalid API key" }, "platform")).toMatchObject({ blockedReason: "credential" });
+    // An account the provider put on hold refuses every call too: the key's owner has to act, so the task waits.
+    expect(classifyTurnEnd({ subtype: "success", is_error: true, api_error_status: null, result: "x" }, { kind: "account_on_hold", text: "Your account is on hold" }, "byok")).toMatchObject({ outcome: "blocked", blockedReason: "credential" });
     expect(classifyTurnEnd({ subtype: "success", is_error: true, api_error_status: 429, result: "rate_limit_error" }, null, "platform")).toMatchObject({ outcome: "blocked", blockedReason: "rate_limit" });
     expect(classifyTurnEnd({ subtype: "success", is_error: true, api_error_status: 500, result: "Internal server error" }, null, "platform")).toMatchObject({ outcome: "failed", blockedReason: "error" });
     expect(classifyTurnEnd({ subtype: "error_max_turns", is_error: true, errors: ["Reached maximum number of turns (60)"] }, null, "platform")).toMatchObject({ outcome: "failed", blockedReason: "error", reason: "error_max_turns: Reached maximum number of turns (60)" });
@@ -764,6 +815,70 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     expect(resumed.outcome).toBe("done");
     expect(prompt).toMatch(/This session was paused for a while and has been resumed/);
     expect((await notesOf(sessionId)).some((n) => /^Session resumed for /.test(n.text))).toBe(true);
+  });
+
+  it("a nudge read by a poll still in flight when the run parks is handed to the next run with the number it was read under", async () => {
+    const { sessionId, input, launch } = await start();
+    const parkNoted = async () => (await notesOf(sessionId)).some((n) => /^Paused for 10 minutes/.test(n.text));
+    let lateSent = false;
+    // The first poll after the park takes a while (Redis is slow) and brings a nudge with it.
+    const control: SessionControlBus = {
+      post: (id, command) => t.control.post(id, command),
+      drain: async (id) => {
+        if (lateSent || !(await parkNoted())) return t.control.drain(id);
+        lateSent = true;
+        await wait(300);
+        return [...(await t.control.drain(id)), { kind: "shout", message: "Late nudge", seq: 5 }];
+      },
+      clear: (id) => t.control.clear(id),
+    };
+    const localActs = createSessionActivities({ ...t.deps, control, env: { ...t.deps.env, ANTHROPIC_API_KEY: MODEL_KEY, ORCHESTRATOR_WORKSPACE_DIR: workspaceRoot }, sandbox: async () => ({ provider, mode: "docker" as const, fellBackFrom: null }) });
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      yield { type: "system", subtype: "init", session_id: "sdk-late" };
+      await t.control.post(sessionId, { kind: "pause", by: t.fixture.ownerId, seq: 0 });
+      await until(() => interrupts.length > 0, "the interrupt");
+      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["[Request interrupted by user]"], modelUsage: modelUsage(4, 1, 0.01) };
+      await prompts.next(); // the input closes when the run parks
+      await wait(400); // the CLI takes a moment to exit; the slow poll is under way meanwhile
+    };
+    const run = localActs.runAgentSession(input, launch);
+    await until(async () => (await notesOf(sessionId)).some((n) => n.text === "Paused."), "the pause");
+    await wait(300);
+    await t.clock.advance(11 * 60_000);
+    const result = await run;
+    expect(lateSent).toBe(true);
+    // Either the run hands the nudge back (carry) or it says it never read it (lastSeq below 5); here it read it.
+    expect(result).toMatchObject({ outcome: "stopped", reason: "paused", parked: { cursor: null, carry: [{ kind: "shout", message: "Late nudge", seq: 5 }], lastSeq: 5 } });
+  });
+
+  it("an approval left undecided ends a paused live session even when its interrupted turn never reported back", async () => {
+    const { sessionId, input, launch } = await start();
+    let inputEnded = false;
+    script = async function* (call) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      const tool = (call.options.allowedTools as string[]).find((x) => x.startsWith("mcp__"))!;
+      yield { type: "system", subtype: "init", session_id: "sdk-ask-paused" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "tool_use", id: "tu-ask-p", name: tool, input: { amount: 900 } }], usage: { input_tokens: 25, output_tokens: 5 } } };
+      yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-ask-p", content: JSON.stringify({ outcome: "ask", approvalId: "00000000-0000-4000-8000-0000000000bb", reason: "spend above the agent's authority" }) }] } };
+      // The founder pauses while the turn is still open; the interrupt goes out, but no result ever comes back.
+      await t.control.post(sessionId, { kind: "pause", by: t.fixture.ownerId });
+      await until(() => interrupts.length > 0, "the interrupt");
+      inputEnded = (await prompts.next()).done === true;
+    };
+    const run = acts.runAgentSession(input, launch);
+    let settled = false;
+    void run.then(() => (settled = true));
+    await until(async () => (await repos.approvals.pending(t.db, t.businessId)).some((a) => a.sessionId === sessionId), "the approval row");
+    await until(async () => (await notesOf(sessionId)).some((n) => n.text === "Paused."), "the pause");
+    await wait(300);
+    await t.clock.advance(31 * 60_000);
+    await until(() => settled, "the session to end on the approval wait", 3_000);
+    const result = await run;
+    expect(inputEnded).toBe(true);
+    expect(result).toMatchObject({ outcome: "blocked", blockedReason: "awaiting_approval", tokensIn: 25, tokensOut: 5 });
   });
 
   it("a sandbox that cannot start fails the acceptance run, not the session", async () => {

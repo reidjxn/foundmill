@@ -5,11 +5,13 @@
  *
  * Waiting for the founder is bounded: an undecided approval ends the session `blocked` after APPROVAL_WAIT_MINUTES and
  * a long pause parks the run (the next run continues the replay where it stopped). Nothing a session does un-pauses an
- * agent, and a Redis outage never takes a session (or the worker) down.
+ * agent, a run the platform cancels (a deploy) is not a Stop (its task runs again), and a Redis outage never takes a
+ * session (or the worker) down.
  */
 import { repos } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
 import { LongLivedCredentialError, MockSandboxProvider, RECORDINGS, findRecording } from "@foundmill/sandbox";
+import { MockActivityEnvironment } from "@temporalio/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildSandboxEnv, createSessionActivities, mcpToolNames, recordingForTask, toolRefs } from "../activities/session";
 import type { SessionResult } from "../activities/types";
@@ -279,7 +281,7 @@ describe("waiting for the founder never holds a slot for long", () => {
       await wait(600);
       await clock.advance(11 * 60_000);
       const parked = await first;
-      expect(parked).toMatchObject({ outcome: "stopped", reason: "paused", parked: { cursor: expect.stringMatching(/^ledgerly-webhook-retry@\d+$/), carry: [] } });
+      expect(parked).toMatchObject({ outcome: "stopped", reason: "paused", parked: { cursor: expect.stringMatching(/^ledgerly-webhook-retry@\d+$/), carry: [], lastSeq: 0 } });
       const index = Number(parked.parked!.cursor!.split("@")[1]);
       expect(index).toBeGreaterThan(0);
       expect(index).toBeLessThan(recording.events.length);
@@ -342,9 +344,43 @@ describe("a Redis outage never takes a session or the worker down (O-10)", () =>
   });
 });
 
-describe("a paused agent stays paused (O-06)", () => {
-  const resultOf = (outcome: SessionResult["outcome"], blockedReason: SessionResult["blockedReason"]): SessionResult => ({ outcome, reason: outcome, blockedReason, approvalId: null, progress: { planStepsDone: 0, planSteps: 0, acceptanceTestsPassing: 0, acceptanceTests: 0, reviewPassed: false, merged: false, phase: null, progress: 0.5, etaAt: null, at: null }, eventsEmitted: 3, toolCalls: 1, toolFailures: 0, tokensIn: 0, tokensOut: 0, costMinor: 0, durationMs: 60_000, prNumber: null, summary: outcome, providerSessionId: null });
+const resultOf = (outcome: SessionResult["outcome"], blockedReason: SessionResult["blockedReason"], reason: string = outcome): SessionResult => ({ outcome, reason, blockedReason, approvalId: null, progress: { planStepsDone: 0, planSteps: 0, acceptanceTestsPassing: 0, acceptanceTests: 0, reviewPassed: false, merged: false, phase: null, progress: 0.5, etaAt: null, at: null }, eventsEmitted: 3, toolCalls: 1, toolFailures: 0, tokensIn: 0, tokensOut: 0, costMinor: 0, durationMs: 60_000, prNumber: null, summary: outcome, providerSessionId: null });
 
+describe("a session the platform cancelled is not a Stop", () => {
+  it("returns its task to ready for a later cycle (or keeps the founder's pause), where a Stop leaves it stopped", async () => {
+    for (const [before, reason, expected] of [["running", "cancelled", "ready"], ["paused", "cancelled", "paused"], ["running", "founder_stop", "stopped"]] as const) {
+      const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+      const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+      const launch = await acts.prepareSession(input);
+      await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, before, { force: true });
+      const finish = await acts.finishSession(input, launch, resultOf("stopped", "stopped", reason));
+      expect(finish.taskStatus).toBe(expected);
+      expect((await repos.tasks.get(t.db, t.businessId, t.codeTaskId)).status).toBe(expected);
+      expect((await repos.agents.get(t.db, t.businessId, t.workerId)).status).toBe("idle");
+    }
+    await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "ready", { force: true });
+  });
+
+  it("a mock replay the worker cancels ends stopped with the cancel reason", async () => {
+    const clock = new FakeClock("2026-10-05T08:00:00.000Z");
+    const localActs = createSessionActivities({ ...t.deps, clock, sandbox: async () => ({ provider: clockedProvider(clock), mode: "mock" as const, fellBackFrom: null }) });
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = { ...(await localActs.prepareSession(input)), recordingKey: "ledgerly-webhook-retry" };
+    const env = new MockActivityEnvironment();
+    const run = env.run(localActs.runAgentSession, input, launch);
+    await vi.waitFor(async () => {
+      if ((await readSessionEvents(t.redis, sessionId)).length < 2) throw new Error("not started");
+    }, { timeout: 5_000, interval: 25 });
+    env.cancel();
+    const result = (await run) as SessionResult;
+    expect(result).toMatchObject({ outcome: "stopped", reason: "cancelled", blockedReason: "stopped" });
+    expect((await acts.finishSession(input, launch, result)).taskStatus).toBe("ready");
+    await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
+  });
+});
+
+describe("a paused agent stays paused (O-06)", () => {
   it("prepareSession refuses a paused agent with a non-retryable AgentPaused failure, so the session ends stopped, not failed", async () => {
     const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
     await repos.agents.setStatus(t.db, t.businessId, t.workerId, "paused");
@@ -415,5 +451,49 @@ describe("a paused agent stays paused (O-06)", () => {
     expect(changes.items.some((e) => (e.payload as { sessionId: string; from: string; to: string }).sessionId === sessionId && (e.payload as { to: string }).to === "healthy")).toBe(true);
     await acts.finishSession(input, launch, result);
     expect((await repos.agents.get(t.db, t.businessId, t.workerId)).status).toBe("idle");
+  });
+
+  it("a pause that lands while the session settles is kept: the health write never undoes it", async () => {
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = await acts.prepareSession(input);
+    await repos.agents.setStatus(t.db, t.businessId, t.workerId, "failing");
+    // Stop all agents lands after finishSession read the agent (failing), before it writes the agent's health.
+    const listSessions = repos.agents.listSessions.bind(repos.agents);
+    const spy = vi.spyOn(repos.agents, "listSessions").mockImplementationOnce(async (...args) => {
+      await repos.agents.setStatus(t.db, t.businessId, t.workerId, "paused");
+      return listSessions(...args);
+    });
+    try {
+      const finish = await acts.finishSession(input, launch, resultOf("done", null));
+      expect(spy).toHaveBeenCalled();
+      expect((await repos.agents.get(t.db, t.businessId, t.workerId)).status).toBe("paused");
+      expect(finish.healthChanged).toBe(false);
+    } finally {
+      spy.mockRestore();
+      await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
+      await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "ready", { force: true });
+    }
+  });
+
+  it("a pause that lands while the run starts is kept: marking the agent working never undoes it", async () => {
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = { ...(await acts.prepareSession(input)), recordingKey: "ledgerly-webhook-retry" };
+    // Stop all agents lands after the run read the agent (idle), before it marks it working.
+    const drain = t.control.drain.bind(t.control);
+    const spy = vi.spyOn(t.control, "drain").mockImplementationOnce(async (id) => {
+      await repos.agents.setStatus(t.db, t.businessId, t.workerId, "paused");
+      return drain(id);
+    });
+    try {
+      await acts.runAgentSession(input, launch);
+      expect((await repos.agents.get(t.db, t.businessId, t.workerId)).status).toBe("paused");
+      const changes = await repos.events.list(t.db, t.businessId, { type: "agent.health_changed", limit: 20 });
+      expect(changes.items.some((e) => (e.payload as { sessionId?: string }).sessionId === sessionId)).toBe(false);
+    } finally {
+      spy.mockRestore();
+      await repos.agents.setStatus(t.db, t.businessId, t.workerId, "idle");
+    }
   });
 });

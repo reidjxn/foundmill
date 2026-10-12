@@ -37,7 +37,7 @@ import type { SessionCommand } from "../control-bus";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { applySessionEvent, initialProgress, type ProgressState } from "../progress";
-import { AGENT_PAUSED_FAILURE } from "../session-contract";
+import { AGENT_PAUSED_FAILURE, CANCELLED_REASON, type RunUsage } from "../session-contract";
 import { LoopDetector } from "./loop";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
 import { describePush, pushWorkspace, type PushContext } from "./workspace-push";
@@ -220,17 +220,26 @@ const minutesText = (ms: number): string => {
 const approvalTimeoutNote = (ms: number) => `No decision on the pending approval after ${minutesText(ms)}. The session ends here and frees its place for other work; the request stays open, and approving it lets the task run again.`;
 const parkNote = (ms: number) => `Paused for ${minutesText(ms)}: the session saves its work and frees its place for other work. Resume picks it up again.`;
 
-/** This run's control commands, oldest first. Never throws: a failed poll (Redis down) is logged and the next one retries. */
-function commandFeed(deps: OrchestratorDeps, sessionId: string, fromSeq: number): () => Promise<SessionCommand[]> {
-  return async () => {
-    let commands: SessionCommand[];
-    try {
-      commands = await deps.control.drain(sessionId);
-    } catch (err) {
-      deps.log.warn({ err: (err as Error).message, sessionId }, "session control poll failed; retrying on the next poll");
-      return [];
-    }
-    return commands.filter((c) => c.seq === undefined || c.seq >= fromSeq);
+/**
+ * This run's control commands, oldest first (`pull`), and the number of the last one read (`lastSeq`). `pull` never
+ * throws: a failed poll (Redis down) is logged and the next one retries.
+ */
+function commandFeed(deps: OrchestratorDeps, sessionId: string, fromSeq: number): { pull: () => Promise<SessionCommand[]>; lastSeq: () => number } {
+  let last = fromSeq - 1;
+  return {
+    async pull() {
+      let commands: SessionCommand[];
+      try {
+        commands = await deps.control.drain(sessionId);
+      } catch (err) {
+        deps.log.warn({ err: (err as Error).message, sessionId }, "session control poll failed; retrying on the next poll");
+        return [];
+      }
+      const mine = commands.filter((c) => c.seq === undefined || c.seq >= fromSeq);
+      for (const c of mine) if (c.seq !== undefined && c.seq > last) last = c.seq;
+      return mine;
+    },
+    lastSeq: () => last,
   };
 }
 
@@ -249,9 +258,10 @@ const carriedOver = (commands: readonly SessionCommand[]): SessionCommand[] => c
 
 /**
  * Heartbeat and run `tick` every CONTROL_POLL_MS, one at a time. A tick that throws is logged: a rejection left
- * unhandled in a timer would take the whole worker down, and every session running on it.
+ * unhandled in a timer would take the whole worker down, and every session running on it. `stop()` ends the timer and
+ * resolves once a tick still in flight has applied what it read, so nothing it read is left out of the run's result.
  */
-function controlLoop(deps: OrchestratorDeps, sessionId: string, tick: () => Promise<void>, details: () => unknown): { flush(): Promise<void>; stop(): void } {
+function controlLoop(deps: OrchestratorDeps, sessionId: string, tick: () => Promise<void>, details: () => unknown): { flush(): Promise<void>; stop(): Promise<void> } {
   let chain: Promise<void> = Promise.resolve();
   let pending = 0;
   const step = (): Promise<void> => {
@@ -268,7 +278,13 @@ function controlLoop(deps: OrchestratorDeps, sessionId: string, tick: () => Prom
     heartbeat(details());
     if (pending === 0) void step();
   }, CONTROL_POLL_MS);
-  return { flush: step, stop: () => clearInterval(timer) };
+  return {
+    flush: step,
+    stop: () => {
+      clearInterval(timer);
+      return chain;
+    },
+  };
 }
 
 interface RunnerContext {
@@ -313,6 +329,16 @@ class SessionRecorder {
     return `${this.ctx.input.sessionId.slice(0, 8)}-${this.seq}`;
   }
 
+  /**
+   * What every heartbeat carries. The usage so far is among it: when the run dies without returning (its worker lost,
+   * a heartbeat timeout), the workflow books the spend from the last heartbeat (`usageFromHeartbeat`).
+   */
+  heartbeatDetails(extra: Record<string, unknown> = {}): Record<string, unknown> {
+    const u = this.usage.totals();
+    const usage: RunUsage = { tokensIn: u.tokensIn, tokensOut: u.tokensOut, costMinor: Math.round(u.costMinor) };
+    return { sessionId: this.ctx.input.sessionId, events: this.eventsEmitted, progress: this.progress.progress, usage, ...extra };
+  }
+
   /** Publish one event to the session stream and fold it into progress / loop detection / approvals. */
   async publish(event: SessionEventInput): Promise<{ loop: boolean }> {
     const { deps, ctx } = this;
@@ -324,7 +350,7 @@ class SessionRecorder {
       deps.log.warn({ err: (err as Error).message, sessionId: ctx.input.sessionId }, "session stream publish failed");
     }
     this.eventsEmitted += 1;
-    heartbeat({ sessionId: ctx.input.sessionId, events: this.eventsEmitted, progress: this.progress.progress });
+    heartbeat(this.heartbeatDetails());
 
     if (full.kind === "tool_call") {
       if (full.status === "started") this.toolCalls += 1;
@@ -479,10 +505,13 @@ export function createSessionActivities(deps: OrchestratorDeps) {
     }
   }
 
-  /** An idle agent that starts a session is working: `healthy`, with the event the Team screen listens for. */
+  /**
+   * An idle agent that starts a session is working: `healthy`, with the event the Team screen listens for. A pause that
+   * landed since the agent was read is kept (guarded write).
+   */
   async function markWorking(input: AgentSessionInput, agent: Agent, task: Task): Promise<void> {
     try {
-      await repos.agents.setStatus(deps.db, input.businessId, agent.id, "healthy");
+      if (!(await repos.agents.setHealthStatus(deps.db, input.businessId, agent.id, "healthy"))) return;
       await emitEvent(deps.db, {
         businessId: input.businessId,
         type: "agent.health_changed",
@@ -560,8 +589,8 @@ export function createSessionActivities(deps: OrchestratorDeps) {
 
       // Commands posted while the run waited for a slot (the list is never cleared at start, so none is lost). A stop
       // among them, or an agent paused meanwhile, ends the run before anything starts.
-      const pull = commandFeed(deps, input.sessionId, run.fromSeq);
-      const waiting = await pull();
+      const feed = commandFeed(deps, input.sessionId, run.fromSeq);
+      const waiting = await feed.pull();
       const earlyStop = waiting.find((c): c is Extract<SessionCommand, { kind: "stop" }> => c.kind === "stop");
       if (earlyStop) {
         await clearControl(input.sessionId);
@@ -588,18 +617,17 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         const where = launch.sandboxMode === "mock" ? "mock sandbox" : acceptanceCommandFor(task) ? `${launch.sandboxMode} sandbox for the acceptance tests` : "no sandbox needed";
         await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `Session ${run.resume ? "resumed" : "started"} for ${agent.name} on "${task.title}" (${where}${launch.fellBackFrom ? `, fell back from ${launch.fellBackFrom}` : ""}, ${launch.modelKey}).` });
 
-        const feed = withPrefetched(waiting, pull);
-        if (sandbox instanceof MockSandbox) {
-          const r = await runMockSession(deps, recorder, sandbox, input, signal, feed);
-          return { ...base(), ...r };
-        }
+        const pull = withPrefetched(waiting, feed.pull);
+        // A parked run says which command it read last: the workflow also hands the next run the nudges and decisions
+        // that reached the list after that (they are cleared below, unread).
+        const settle = ({ parked, ...r }: RunOutcome): SessionResult => ({ ...base(), ...r, ...(parked ? { parked: { ...parked, lastSeq: feed.lastSeq() } } : {}) });
+        if (sandbox instanceof MockSandbox) return settle(await runMockSession(deps, recorder, sandbox, input, signal, pull));
         const acquireSandbox = async (): Promise<Sandbox> => {
           const created = await provider.create(spec);
           await created.start();
           return created;
         };
-        const r = await runLiveSession(deps, recorder, { input, launch, task, agent, startedAtMs, run }, { business, version, template, briefText, resolveApiKey, sandboxEnv: env, acquireSandbox, pull: feed });
-        return { ...base(), ...r };
+        return settle(await runLiveSession(deps, recorder, { input, launch, task, agent, startedAtMs, run }, { business, version, template, briefText, resolveApiKey, sandboxEnv: env, acquireSandbox, pull }));
       } catch (err) {
         // `base()` carries the usage recorded so far: tokens already spent are booked whatever went wrong.
         const message = (err as Error).message ?? String(err);
@@ -675,14 +703,19 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         }
         default:
           // Stopped with its agent paused or the team stopped (Stop all agents, the credits pause, a refused start):
-          // the task waits instead of being dropped, and runs again once the team is resumed.
-          taskStatus = teamStopped || task.status === "paused" ? "paused" : "stopped";
+          // the task waits instead of being dropped, and runs again once the team is resumed. Cancelled by the platform
+          // (its worker shut down for a deploy), not by anyone's Stop: the task goes back to `ready` (or stays `paused`
+          // when the founder paused it) and a later cycle runs it again.
+          if (teamStopped) taskStatus = "paused";
+          else if (result.reason === CANCELLED_REASON) taskStatus = task.status === "paused" ? "paused" : "ready";
+          else taskStatus = task.status === "paused" ? "paused" : "stopped";
       }
       if (task.status !== taskStatus) await repos.tasks.setStatus(db, input.businessId, task.id, taskStatus, { force: true });
       if (taskStatus === "done") await repos.tasks.setProgress(db, input.businessId, task.id, { progress: Math.max(result.progress.progress, task.status === "done" ? 1 : result.progress.progress), phase: result.progress.phase ?? "done" });
 
       // Health: loops and failures mark the agent; a clean finish returns it to idle when nothing else is open. A
-      // paused agent stays paused whatever the outcome.
+      // paused agent stays paused whatever the outcome, including a pause that lands after the read above (the write is
+      // guarded, so it never undoes one).
       let healthChanged = false;
       const from: AgentStatus = agent.status;
       let to: AgentStatus = from;
@@ -721,10 +754,13 @@ export type SessionActivities = ReturnType<typeof createSessionActivities>;
 // Mock runner (packages/sandbox replay)
 // ---------------------------------------------------------------------------------------------------------------------
 
-type RunOutcome = Pick<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> & Partial<Pick<SessionResult, "tokensIn" | "tokensOut" | "costMinor" | "parked">>;
+/** A parked runner's half of `SessionParked`; runAgentSession adds the number of the last command its feed read. */
+type RunnerParked = Omit<SessionParked, "lastSeq">;
+
+type RunOutcome = Pick<SessionResult, "outcome" | "reason" | "blockedReason" | "approvalId" | "summary" | "providerSessionId"> & Partial<Pick<SessionResult, "tokensIn" | "tokensOut" | "costMinor">> & { parked?: RunnerParked };
 
 /** Why a replay frees its slot early: the founder left an approval undecided, or a pause outlasted the hold. */
-type MockEnding = { kind: "approval_timeout" } | ({ kind: "park" } & SessionParked);
+type MockEnding = { kind: "approval_timeout" } | ({ kind: "park" } & RunnerParked);
 
 async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder, sandbox: MockSandbox, input: AgentSessionInput, signal: AbortSignal | null, pull: () => Promise<SessionCommand[]>): Promise<RunOutcome> {
   const replay = sandbox.replay;
@@ -803,11 +839,11 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   };
 
   const onCancel = () => {
-    stoppedBy = { reason: "cancelled", by: null };
-    replay.stop("cancelled");
+    stoppedBy = { reason: CANCELLED_REASON, by: null };
+    replay.stop(CANCELLED_REASON);
   };
   signal?.addEventListener("abort", onCancel, { once: true });
-  const loop = controlLoop(deps, input.sessionId, tick, () => ({ sessionId: input.sessionId, status: replay.status, paused }));
+  const loop = controlLoop(deps, input.sessionId, tick, () => recorder.heartbeatDetails({ status: replay.status, paused }));
 
   try {
     const summary = await replay.play();
@@ -823,7 +859,7 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     if (summary.outcome === "stopped") return { outcome: "stopped", reason: summary.stoppedReason ?? "stopped", blockedReason: "stopped", approvalId: null, summary: "Stopped.", providerSessionId: summary.recordingKey };
     return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${sandbox.recording.title}: ${sandbox.recording.summary}`.slice(0, 1800), providerSessionId: summary.recordingKey };
   } finally {
-    loop.stop();
+    await loop.stop();
     signal?.removeEventListener("abort", onCancel);
     unsubscribe();
   }
@@ -933,7 +969,7 @@ export function classifyTurnEnd(result: SdkTurnResult, apiError: { kind: string 
       summary: byok ? "Blocked: your Anthropic account refused the call for billing. Add credit or raise its spend limit in the Anthropic Console, then run the task again." : "Blocked: the model provider refused the call for billing, so no work was done.",
     };
   }
-  if (kind === "authentication_failed" || kind === "oauth_org_not_allowed" || status === 401 || status === 403) {
+  if (kind === "authentication_failed" || kind === "oauth_org_not_allowed" || kind === "account_on_hold" || kind === "verification_required" || kind === "cloud_credential_error" || status === 401 || status === 403) {
     return {
       outcome: "blocked",
       blockedReason: "credential",
@@ -995,6 +1031,11 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? `Work on branch ${launch.branch} inside your working directory; it is the only place you can read or write files.` : "Keep every action inside the tools you were given; this task has no file access.", continuing, resumed, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");
 
   const waits = founderWaits(deps);
+  /**
+   * Seconds the CLI waits on our PreToolUse hook before giving up on it: longer than any founder wait, so a call held by
+   * a pause is refused when the run ends (park, approval wait, stop), never let through by a hook timeout.
+   */
+  const hookTimeoutSeconds = Math.ceil((Math.max(waits.approvalMs, waits.pauseHoldMs) + SDK_STOP_GRACE_MS) / 1000) + 60;
   const queue = new PromptQueue(input.sessionId);
   const abort = new AbortController();
   let q: Query | null = null;
@@ -1106,8 +1147,9 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     if (ending) return;
     const now = deps.clock.nowMs();
     if (recorder.pendingApprovalId && recorder.pendingSince !== null) {
-      // The agent waits on a gated call with nothing else to do: wait for the decision, but not in this slot forever.
-      if (!turnOpen && now - recorder.pendingSince >= waits.approvalMs) {
+      // The agent waits on a gated call with nothing else to do (its turn has ended, or a pause holds it): wait for the
+      // decision, but not in this slot forever.
+      if ((!turnOpen || paused) && now - recorder.pendingSince >= waits.approvalMs) {
         await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: approvalTimeoutNote(waits.approvalMs) });
         await end("approval_timeout");
       }
@@ -1119,10 +1161,10 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     }
   };
 
-  const loop = controlLoop(deps, input.sessionId, tick, () => ({ sessionId: input.sessionId, paused }));
+  const loop = controlLoop(deps, input.sessionId, tick, () => recorder.heartbeatDetails({ paused }));
   const cancel = cancellation();
   const onCancel = () => {
-    stoppedBy = { reason: "cancelled" };
+    stoppedBy = { reason: CANCELLED_REASON };
     void end("stop");
   };
   cancel?.addEventListener("abort", onCancel, { once: true });
@@ -1151,6 +1193,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         hooks: {
           PreToolUse: [
             {
+              timeout: hookTimeoutSeconds,
               hooks: [
                 async (hook) => {
                   if (hook.hook_event_name !== "PreToolUse") return { continue: true };
@@ -1246,6 +1289,9 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     }
     if (how === "park") {
       holdBack = "the session is paused";
+      // A poll still in flight applies what it read first: the carry and the last command number read must agree, or
+      // the workflow would neither hand that nudge to the next run nor send it again.
+      await loop.stop();
       return { outcome: "stopped", reason: "paused", blockedReason: "stopped", approvalId: null, summary: "Paused; the session continues on Resume.", providerSessionId: sdkSessionId, parked: { cursor: null, carry: carriedOver(carry) }, ...usageNow() };
     }
     holdBack = null;
@@ -1256,7 +1302,7 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     if (recorder.pendingApprovalId) return { outcome: "blocked", reason: "waiting for the founder's approval", blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: "Blocked on an approval.", providerSessionId: sdkSessionId, ...usageNow() };
     return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${agent.name} finished "${task.title}" with ${recorder.toolCalls} tool calls.`, providerSessionId: sdkSessionId, ...usageNow() };
   } finally {
-    loop.stop();
+    await loop.stop();
     if (abortTimer) clearTimeout(abortTimer);
     cancel?.removeEventListener("abort", onCancel);
     openGate();

@@ -51,6 +51,7 @@ import { NoteTagChip } from "./InboxList";
 import {
   agentIndex,
   answeredFrom,
+  askedActionChip,
   confirmationLines,
   decisionDeadline,
   decisionExpired,
@@ -355,7 +356,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
                     <li key={a.id} className="flex items-center gap-2">
                       <StatusPill tone={a.status === "done" ? "good" : a.status === "failed" || a.status === "denied" ? "bad" : a.status === "awaiting_approval" || a.status === "pending" ? "warn" : "info"}>{a.status.replace(/_/g, " ")}</StatusPill>
                       <span className="truncate">{confirmationLines([{ action: { type: a.type, params: a.params as Record<string, unknown> | null }, outcome: a.policyOutcome ?? "allow" }], currency)[0]?.label}</span>
-                      {a.policyOutcome === "ask" ? <Chip tone="warn">Confirmed by you</Chip> : null}
+                      {askedActionChip(plan, a) ? <Chip tone="warn">{askedActionChip(plan, a)}</Chip> : null}
                     </li>
                   ))}
                 </ul>

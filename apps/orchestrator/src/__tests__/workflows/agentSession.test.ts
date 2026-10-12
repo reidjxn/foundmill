@@ -5,17 +5,19 @@
  *
  * The run activity executes on the sessions task queue only, so sessions holding every session slot never stop short
  * activities (another business's cycle, the control commands that release them); a refused start for a paused agent
- * ends `stopped`; a parked session waits for Resume in workflow code and the next run continues it.
+ * ends `stopped`; a parked session waits for Resume in workflow code and the next run continues it, with every nudge
+ * the parked run did not act on; a run that dies without returning books the usage of its last heartbeat.
  */
 import { repos } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
 import { MockSandboxProvider, RECORDINGS, findRecording } from "@foundmill/sandbox";
 import { Context } from "@temporalio/activity";
-import { ApplicationFailure } from "@temporalio/common";
+import { ActivityFailure, ApplicationFailure, RetryState, TimeoutFailure, TimeoutType } from "@temporalio/common";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createActivities, type Activities, type SessionCommand, type SessionLaunch, type SessionResult, type SessionRunOptions } from "../../activities";
 import { AGENT_PAUSED_FAILURE, sessionTaskQueue } from "../../session-contract";
 import { agentSession, hello, pauseSignal, progressQuery, resumeSignal, shoutSignal, decisionSignal, stopSignal } from "../../workflows";
+import { failedRunUsage } from "../../workflows/agentSession";
 import { openSessionRow, setupOrchestratorHarness, wait, type OrchestratorTestHarness } from "../harness";
 import { createTemporalRig, type TemporalRig } from "./temporal";
 
@@ -239,7 +241,7 @@ describe("agentSession workflow: sessions on their own task queue", () => {
     expect(finished).toMatchObject({ outcome: "stopped", blockedReason: "stopped" });
   });
 
-  it("a parked session waits for Resume without a slot; the next run continues it with the carried and new nudges, and usage adds up", async () => {
+  it("a parked session waits for Resume without a slot; the next run continues it with the carried, unread and new nudges, and usage adds up", async () => {
     const commands: SessionCommand[] = [];
     const runs: (SessionRunOptions | null)[] = [];
     let finished: SessionResult | null = null;
@@ -250,11 +252,13 @@ describe("agentSession workflow: sessions on their own task queue", () => {
       async runAgentSession(_input, _launch, _brief, run) {
         runs.push(run ?? null);
         if (runs.length === 1) {
-          // Paused past the hold: the run saves its work, hands back one nudge it never acted on, and returns.
-          while (!commands.some((c) => c.kind === "pause")) await wait(20);
-          return doneResult({ outcome: "stopped", reason: "paused", blockedReason: "stopped", parked: { cursor: "rec@4", carry: [{ kind: "shout", message: "Carried over", seq: 1 }] }, tokensIn: 10, tokensOut: 5, costMinor: 3, eventsEmitted: 6, progress: { ...doneResult().progress, progress: 0.4, merged: false } });
+          // Paused past the hold: the run saves its work and returns. It read the pause and nothing after it (lastSeq), and
+          // hands back one nudge it read but never acted on; "Unread" reached the list after its last poll.
+          while (!commands.some((c) => c.kind === "shout" && c.message === "Unread")) await wait(20);
+          const pause = commands.find((c) => c.kind === "pause")!;
+          return doneResult({ outcome: "stopped", reason: "paused", blockedReason: "stopped", parked: { cursor: "rec@4", carry: [{ kind: "shout", message: "Carried over" }], lastSeq: pause.seq! }, tokensIn: 10, tokensOut: 5, costMinor: 3, eventsEmitted: 6, progress: { ...doneResult().progress, progress: 0.4, merged: false } });
         }
-        while (commands.filter((c) => c.kind === "shout").length < 2) await wait(20);
+        while (commands.filter((c) => c.kind === "shout").length < 4) await wait(20);
         return doneResult();
       },
       async postSessionCommand({ command }) {
@@ -269,6 +273,7 @@ describe("agentSession workflow: sessions on their own task queue", () => {
       const handle = await client.workflow.start(agentSession, { workflowId: `session:${crypto.randomUUID()}`, taskQueue, args: [{ businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId: crypto.randomUUID() }] });
       await until(async () => (await handle.query(progressQuery)).state === "running", "the first run");
       await handle.signal(pauseSignal, { by: "founder" });
+      await handle.signal(shoutSignal, { message: "Unread", by: "founder" });
       await until(async () => (await handle.query(progressQuery)).detail?.startsWith("Paused: the session freed its place") === true, "the park");
       const parked = await handle.query(progressQuery);
       await handle.signal(shoutSignal, { message: "While parked", by: "founder" });
@@ -281,11 +286,11 @@ describe("agentSession workflow: sessions on their own task queue", () => {
     expect(outcome.runsWhileParked).toBe(1);
     expect(runs).toHaveLength(2);
     expect(runs[0]).toEqual({ fromSeq: 0, resume: null });
-    expect(runs[1]).toMatchObject({ fromSeq: 1, resume: { cursor: "rec@4", progress: { progress: 0.4 } } });
-    // The carried nudge goes first, then the one sent while parked; both numbered for the second run.
-    const shouts = commands.filter((c): c is Extract<SessionCommand, { kind: "shout" }> => c.kind === "shout");
-    expect(shouts.map((c) => c.message)).toEqual(["Carried over", "While parked"]);
-    expect(shouts.every((c) => (c.seq ?? -1) >= runs[1]!.fromSeq)).toBe(true);
+    expect(runs[1]).toMatchObject({ fromSeq: 2, resume: { cursor: "rec@4", progress: { progress: 0.4 } } });
+    // The carried nudge goes first, then the one the first run never read, then the one sent while parked; all numbered
+    // for the second run (the first run's numbers are ignored by it).
+    const second = commands.filter((c): c is Extract<SessionCommand, { kind: "shout" }> => c.kind === "shout" && (c.seq ?? -1) >= runs[1]!.fromSeq);
+    expect(second.map((c) => c.message)).toEqual(["Carried over", "Unread", "While parked"]);
     // Pause and resume are the workflow's to track while parked; the second run never sees them.
     expect(commands.filter((c) => c.kind === "resume")).toHaveLength(0);
     expect(outcome.r.result).toMatchObject({ outcome: "done", tokensIn: 12, tokensOut: 6, costMinor: 4, eventsEmitted: 10 });
@@ -302,7 +307,7 @@ describe("agentSession workflow: sessions on their own task queue", () => {
       async runAgentSession() {
         runs += 1;
         while (!commands.some((c) => c.kind === "pause")) await wait(20);
-        return doneResult({ outcome: "stopped", reason: "paused", blockedReason: "stopped", parked: { cursor: null, carry: [] }, tokensIn: 7, tokensOut: 3, costMinor: 2 });
+        return doneResult({ outcome: "stopped", reason: "paused", blockedReason: "stopped", parked: { cursor: null, carry: [], lastSeq: 0 }, tokensIn: 7, tokensOut: 3, costMinor: 2 });
       },
       async postSessionCommand({ command }) {
         commands.push(command);
@@ -322,5 +327,22 @@ describe("agentSession workflow: sessions on their own task queue", () => {
     expect(runs).toBe(1);
     expect(outcome.result).toMatchObject({ outcome: "stopped", reason: "founder_stop", tokensIn: 7, tokensOut: 3, costMinor: 2, parked: null });
     expect(outcome.finish?.taskStatus).toBe("stopped");
+  });
+});
+
+describe("a run that dies without returning (BILL-12)", () => {
+  // Proven once against the time-skipping server (a run that heartbeats, then goes silent, books this usage), which
+  // takes 80 s or more to skip the 3-minute heartbeat timeout; the mapping itself is checked here.
+  const timedOut = (details: unknown, type: TimeoutType = TimeoutType.HEARTBEAT) => new ActivityFailure("Activity task timed out", "runAgentSession", "1", RetryState.TIMEOUT, "worker-1", new TimeoutFailure("activity Heartbeat timeout", details, type));
+  const none = { tokensIn: 0, tokensOut: 0, costMinor: 0 };
+
+  it("books the usage the run's last heartbeat reported when it timed out, and nothing it cannot read", () => {
+    expect(failedRunUsage(timedOut({ sessionId: "s", events: 3, progress: 0.2, usage: { tokensIn: 1_200, tokensOut: 300, costMinor: 9 } }))).toEqual({ tokensIn: 1_200, tokensOut: 300, costMinor: 9 });
+    expect(failedRunUsage(timedOut({ usage: { tokensIn: 40, tokensOut: 2, costMinor: 1 } }, TimeoutType.START_TO_CLOSE))).toEqual({ tokensIn: 40, tokensOut: 2, costMinor: 1 });
+    // No usage, nonsense, or a failure that is not a timeout (the run returned its own usage, or spent nothing).
+    expect(failedRunUsage(timedOut(undefined))).toEqual(none);
+    expect(failedRunUsage(timedOut({ usage: { tokensIn: -5, tokensOut: "12", costMinor: Number.NaN } }))).toEqual(none);
+    expect(failedRunUsage(new ActivityFailure("Activity task failed", "runAgentSession", "1", RetryState.MAXIMUM_ATTEMPTS_REACHED, "worker-1", ApplicationFailure.create({ message: "boom" })))).toEqual(none);
+    expect(failedRunUsage(new Error("boom"))).toEqual(none);
   });
 });
