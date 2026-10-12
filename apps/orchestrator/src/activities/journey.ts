@@ -6,7 +6,7 @@
 import { buildJourney, type ConsentState, type TouchInput } from "@foundmill/journey";
 import { repos } from "@foundmill/db";
 import type { ChannelKey } from "@foundmill/shared";
-import { ComposerUnavailableError } from "../composer-client";
+import { ComposerRequestError, ComposerUnavailableError } from "../composer-client";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { JourneyBuildInput, JourneyBuildResult } from "./types";
@@ -52,12 +52,14 @@ export function createJourneyActivities(deps: OrchestratorDeps) {
       const row = existing
         ? existing
         : await repos.journeys.create(db, businessId, { conversionId: conversion.id, touchIds: journey.touchIds, weights: journey.weights, xcSeries: journey.xcSeries, commentary: [], agents: journey.agents, matchdayLevel: journey.matchdayLevel });
-      // Commentary is Sonnet's job in apps/composer; the journey stands without it.
+      // Commentary is Sonnet's job in apps/composer; the journey stands without it, whether the composer is down or
+      // turned the request down (a 4xx), so the win is still announced.
       try {
         const c = await deps.composer.commentary({ businessId, journeyId: row.id });
         if (c.lines.length > 0) await repos.journeys.setCommentary(db, businessId, row.id, c.lines);
       } catch (err) {
-        if (!(err instanceof ComposerUnavailableError)) throw err;
+        if (!(err instanceof ComposerUnavailableError) && !(err instanceof ComposerRequestError)) throw err;
+        deps.log.warn({ businessId, journeyId: row.id, err: err.message }, "journey commentary skipped");
       }
       const fullMatchDay = journey.fullMatchDay;
       let eventId: string | null = null;

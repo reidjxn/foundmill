@@ -8,7 +8,8 @@ import { APP_NAME } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { CyclePlanOutput } from "@foundmill/models";
 import { uuid, type TaskKind } from "@foundmill/shared";
-import { ComposerUnavailableError } from "../composer-client";
+import { ApplicationFailure } from "@temporalio/common";
+import { ComposerRequestError, ComposerUnavailableError } from "../composer-client";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { BriefAgent, BriefTask, BusinessBrief, CyclePlan, CycleStart, CycleTrigger } from "./types";
@@ -152,15 +153,20 @@ export function createCycleActivities(deps: OrchestratorDeps) {
 
     /**
      * Hand the cycle's events to the composer (one inbox item). When the composer is unreachable in development or
-     * test, a plain update from the Chief of Staff is written instead so the founder still sees the cycle end.
+     * test, a plain update from the Chief of Staff is written instead so the founder still sees the cycle end. In
+     * staging and production an outage or a timeout is retried (narrate is idempotent per event set, so a retry gets the
+     * note a slow attempt wrote); a 4xx answer is not, since the same request gets the same answer (audit CML-05).
      */
     async narrateCycle(input: { businessId: string; eventIds: string[]; summary: string; fallbackSubject?: string }): Promise<{ inboxItemIds: string[]; viaComposer: boolean }> {
       try {
         const out = await deps.composer.narrate({ businessId: input.businessId, eventIds: input.eventIds });
         return { inboxItemIds: out.inboxItemId ? [out.inboxItemId] : [], viaComposer: true };
       } catch (err) {
-        if (!(err instanceof ComposerUnavailableError)) throw err;
-        if (deps.env.APP_ENV === "production" || deps.env.APP_ENV === "staging") throw err;
+        if (!(err instanceof ComposerUnavailableError) && !(err instanceof ComposerRequestError)) throw err;
+        if (deps.env.APP_ENV === "production" || deps.env.APP_ENV === "staging") {
+          if (err instanceof ComposerRequestError) throw ApplicationFailure.create({ message: err.message, type: "ComposerRequestError", nonRetryable: true, details: [{ code: err.code, status: err.status }] });
+          throw err;
+        }
         deps.log.warn({ err: err.message }, "composer unavailable; writing a plain cycle update");
         const chief = await repos.agents.chiefOfStaff(deps.db, input.businessId);
         if (!chief) return { inboxItemIds: [], viaComposer: false };

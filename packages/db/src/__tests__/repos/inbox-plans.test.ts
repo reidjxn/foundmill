@@ -140,6 +140,29 @@ describe("inbox tabs, blocking count and decide", () => {
     expect(await repos.inbox.bufferConsume(r.db, r.A.businessId)).toBeNull();
     await expect(repos.inbox.bufferPush(r.db, r.A.businessId, { candidate: { ...note(), subject: "" } as ComposerItem, sourceHash: "bad" })).rejects.toThrow(/Invalid buffer candidate/);
   });
+
+  it("composer buffer: a served candidate stays served when the same key is pushed again (audit CML-01)", async () => {
+    const A = r.A.businessId;
+    await repos.inbox.bufferPush(r.db, A, { candidate: note({ subject: "insight" }), sourceHash: "insight:cpa:x", priority: 199 });
+    const served = await repos.inbox.bufferConsume(r.db, A);
+    expect(served?.sourceHash).toBe("insight:cpa:x");
+    // The background refill pushes the unchanged insight again: the row is not revived as a candidate.
+    const again = await repos.inbox.bufferPush(r.db, A, { candidate: note({ subject: "insight again" }), sourceHash: "insight:cpa:x", priority: 199 });
+    expect(again.consumedAt).not.toBeNull();
+    expect((await repos.inbox.bufferList(r.db, A)).map((b) => b.sourceHash)).not.toContain("insight:cpa:x");
+    expect(await repos.inbox.bufferConsume(r.db, A)).toBeNull();
+    expect([...(await repos.inbox.bufferServed(r.db, A, ["insight:cpa:x", "insight:cpa:y"]))]).toEqual(["insight:cpa:x"]);
+    expect((await repos.inbox.bufferServed(r.db, r.B.businessId, ["insight:cpa:x"])).size).toBe(0);
+    expect((await repos.inbox.bufferServed(r.db, A, [])).size).toBe(0);
+    // A note written on demand is recorded as served under its key, and a pending candidate under that key is closed.
+    await repos.inbox.bufferPush(r.db, A, { candidate: note({ subject: "decision" }), sourceHash: "decision:x:1", priority: 100 });
+    const marked = await repos.inbox.bufferMarkServed(r.db, A, { candidate: note({ subject: "decision" }), sourceHash: "decision:x:1", priority: 100 });
+    expect(marked.consumedAt).not.toBeNull();
+    const fresh = await repos.inbox.bufferMarkServed(r.db, A, { candidate: note({ subject: "cold" }), sourceHash: "event:cold", priority: 300 });
+    expect(fresh.consumedAt).not.toBeNull();
+    expect(await repos.inbox.bufferList(r.db, A)).toEqual([]);
+    expect((await repos.inbox.bufferServed(r.db, A, ["decision:x:1", "event:cold"])).size).toBe(2);
+  });
 });
 
 describe("pagination", () => {

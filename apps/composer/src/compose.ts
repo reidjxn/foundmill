@@ -10,10 +10,10 @@
  * outside the registry (AC-11.3.6) and never puts an unknown id in front of the founder (AC-11.3.1).
  */
 import { clubRulesPrompt, prompts } from "@foundmill/agents";
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, LIMITS } from "@foundmill/config";
 import type { ComposerItem, Event } from "@foundmill/db";
 import { checkComposerText, linkComposerText, stripMarkup, type LinkedText, type ValidationResult } from "@foundmill/entity-linker";
-import { ComposerOutput, type ChatMessage, type CompleteResultWithJson, type ModelClient, type ModelLogger, type TokenUsage } from "@foundmill/models";
+import { ComposerOutput, ModelAbortedError, type ChatMessage, type CompleteResultWithJson, type ModelClient, type ModelLogger, type TokenUsage } from "@foundmill/models";
 import { AppError, type InboxItemType } from "@foundmill/shared";
 import { businessBrief, type ComposeContext } from "./context";
 import type { NextBestDecision } from "./decisions";
@@ -34,6 +34,8 @@ export interface ComposeOptions {
   onInvalidLinks: "reject" | "strip";
   /** Rate-limit scope / cost attribution for the model calls. */
   scope?: string;
+  /** Longest the note may take before it is abandoned (`ComposeTimeoutError`); default `LIMITS.composerDeadlineMs`. */
+  deadlineMs?: number;
 }
 
 export interface ComposedNote {
@@ -63,6 +65,18 @@ export class ComposerRejectedError extends AppError {
   constructor(message: string, details?: unknown) {
     super("composer_rejected", message, 422, details);
     this.name = "ComposerRejectedError";
+  }
+}
+
+/**
+ * The note was not ready within the compose deadline and was abandoned: nothing was written, no event was marked
+ * narrated. The deadline sits below the api's and the orchestrator's wait (`LIMITS.composerClientTimeoutMs`), so a
+ * caller hears this instead of timing out while the note is still being written (audit CML-04).
+ */
+export class ComposeTimeoutError extends AppError {
+  constructor(deadlineMs: number) {
+    super("composer_timeout", `The note took longer than ${Math.round(deadlineMs / 1000)} seconds to write, so nothing was added. Try again.`, 504, { deadlineMs });
+    this.name = "ComposeTimeoutError";
   }
 }
 
@@ -154,6 +168,23 @@ export interface ComposeDeps {
 }
 
 export async function composeNote(deps: ComposeDeps, ctx: ComposeContext, brief: ComposeBrief, options: ComposeOptions): Promise<ComposedNote> {
+  const deadlineMs = options.deadlineMs ?? LIMITS.composerDeadlineMs;
+  const deadline = AbortSignal.timeout(deadlineMs);
+  try {
+    const note = await composeWithin(deps, ctx, brief, options, deadline);
+    // The entity sweep cannot be stopped mid-call; a note finished past the deadline is still abandoned unwritten.
+    if (deadline.aborted) throw new ComposeTimeoutError(deadlineMs);
+    return note;
+  } catch (err) {
+    if (deadline.aborted && (err instanceof ModelAbortedError || err instanceof ComposeTimeoutError)) {
+      deps.log.warn({ businessId: ctx.businessId, slot: brief.mode, deadlineMs }, "composer note abandoned at the deadline; nothing written");
+      throw err instanceof ComposeTimeoutError ? err : new ComposeTimeoutError(deadlineMs);
+    }
+    throw err;
+  }
+}
+
+async function composeWithin(deps: ComposeDeps, ctx: ComposeContext, brief: ComposeBrief, options: ComposeOptions, signal: AbortSignal): Promise<ComposedNote> {
   const events = brief.mode === "events" ? brief.events : [];
   const eventIds = events.map((e) => e.id);
   const system = systemPrompt(ctx);
@@ -162,7 +193,7 @@ export async function composeNote(deps: ComposeDeps, ctx: ComposeContext, brief:
   const attribution = { businessId: ctx.businessId, agentId: ctx.voice.id, kind: "inbox_composer" };
 
   const call = (msgs: ChatMessage[]): Promise<CompleteResultWithJson<ComposerOutput>> =>
-    deps.models.complete({ route: "inboxComposer", schema: ComposerSchema, system, messages: msgs, attribution, cacheSystem: true, scope: options.scope ?? `composer:${ctx.businessId}` });
+    deps.models.complete({ route: "inboxComposer", schema: ComposerSchema, system, messages: msgs, attribution, cacheSystem: true, scope: options.scope ?? `composer:${ctx.businessId}`, signal });
 
   let result = await call(messages);
   let usage = result.usage;

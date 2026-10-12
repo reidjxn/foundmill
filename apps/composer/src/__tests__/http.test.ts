@@ -50,6 +50,10 @@ describe("composer HTTP", () => {
     expect(json.item.sourceEventIds).toEqual([event.id]);
     expect(json.cost.label).toBe("Estimate");
     expect((await repos.inbox.get(hz.db, hz.A.businessId, json.inboxItemId)).id).toBe(json.inboxItemId);
+    // A retry of the same narration (the orchestrator's activity retry) gets the same note back, marked replayed.
+    const retry = await post("/v1/narrate", { businessId: hz.A.businessId, eventIds: [event.id] });
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ inboxItemId: json.inboxItemId, replayed: true, cost: { amountMinor: 0, label: "Estimate" } });
   });
 
   it("POST /v1/refresh returns exactly one item", async () => {

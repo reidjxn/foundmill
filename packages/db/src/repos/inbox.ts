@@ -6,7 +6,7 @@
  * so a note can never carry an id from another club.
  */
 import { EXHIBIT_KINDS, INBOX_ITEM_TYPES, INBOX_STATES, ValidationError, type InboxItemType, type InboxState } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { agents, composerBuffer, DECIDED_BY_KINDS, decisions, entities, events, inboxItems, type ComposerBufferRow, type Decision, type InboxItem } from "../schema";
 import { Currency, Id, MinorAmount, one, PageInput, parseInput, timeKeyset, toPage, type Executor, type Page } from "./_shared";
@@ -276,7 +276,11 @@ export const inboxRepo = {
       .orderBy(desc(composerBuffer.priority), asc(composerBuffer.createdAt));
   },
 
-  /** Adds a candidate (validated as a Composer item); the same source hash replaces the earlier candidate. */
+  /**
+   * Adds a candidate (validated as a Composer item); the same source hash replaces the earlier candidate. A candidate
+   * that was already served stays served (`consumedAt` is kept): an unchanged insight is a note the founder has, and
+   * reviving it served the same note, and paid for it, on every Refresh (audit CML-01). Check `consumedAt` on the row.
+   */
   async bufferPush(db: Executor, businessId: string, input: BufferCandidateInput): Promise<ComposerBufferRow> {
     const v = parseInput(BufferCandidateInput, input, "buffer candidate");
     return one(
@@ -285,8 +289,34 @@ export const inboxRepo = {
         .values({ businessId, candidate: v.candidate as Record<string, unknown>, sourceHash: v.sourceHash, priority: v.priority, valid: true })
         .onConflictDoUpdate({
           target: [composerBuffer.businessId, composerBuffer.sourceHash],
-          set: { candidate: v.candidate as Record<string, unknown>, priority: v.priority, valid: true, consumedAt: null },
+          set: { candidate: v.candidate as Record<string, unknown>, priority: v.priority, valid: true },
         })
+        .returning(),
+      "buffer candidate",
+    );
+  },
+
+  /** Which of these source hashes were already served (their buffer row is consumed). */
+  async bufferServed(db: Executor, businessId: string, sourceHashes: readonly string[]): Promise<Set<string>> {
+    if (sourceHashes.length === 0) return new Set();
+    const rows = await db
+      .select({ sourceHash: composerBuffer.sourceHash })
+      .from(composerBuffer)
+      .where(and(eq(composerBuffer.businessId, businessId), inArray(composerBuffer.sourceHash, [...new Set(sourceHashes)]), isNotNull(composerBuffer.consumedAt)));
+    return new Set(rows.map((r) => r.sourceHash));
+  },
+
+  /**
+   * Records a candidate written on demand (Refresh's cold path) as served under its source hash, so the background
+   * refill does not write the same note again. A row already there is marked served in place.
+   */
+  async bufferMarkServed(db: Executor, businessId: string, input: BufferCandidateInput): Promise<ComposerBufferRow> {
+    const v = parseInput(BufferCandidateInput, input, "buffer candidate");
+    return one(
+      await db
+        .insert(composerBuffer)
+        .values({ businessId, candidate: v.candidate as Record<string, unknown>, sourceHash: v.sourceHash, priority: v.priority, valid: true, consumedAt: new Date() })
+        .onConflictDoUpdate({ target: [composerBuffer.businessId, composerBuffer.sourceHash], set: { consumedAt: sql`coalesce(${composerBuffer.consumedAt}, now())` } })
         .returning(),
       "buffer candidate",
     );

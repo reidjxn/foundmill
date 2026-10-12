@@ -7,6 +7,10 @@ export const LIMITS = {
   hardMaxConcurrentAgents: 64,
   inboxRefreshDebounceMs: 3000,
   inboxBufferSize: 3,
+  /** Longest one composer note may take (Opus call, re-ask, entity sweep) before it is abandoned with nothing written. */
+  composerDeadlineMs: 150_000,
+  /** How long the api and the orchestrator wait for the composer: above the deadline, so they never give up on a note still being written. */
+  composerClientTimeoutMs: 180_000,
   approvalThresholdMinorDefault: 25000, // €250.00
   runwayWarnMonths: [12, 9, 6] as const,
   runwayBlockMonths: 3,

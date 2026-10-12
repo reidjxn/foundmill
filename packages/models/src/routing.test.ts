@@ -1,32 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { MODELS, MODEL_CAPABILITIES, ROUTES, resolveModel } from "./routing";
+import { ALWAYS_THINKS, LOW_EFFORT_MAX_TOKENS, MODELS, MODEL_CAPABILITIES, PLAIN_MAX_TOKENS, ROUTES, THINKING_MAX_TOKENS, maxTokensFor, resolveModel } from "./routing";
 
 describe("routing (BUILD §10.1)", () => {
   it("MODELS and ROUTES are exactly the spec table", () => {
     expect(MODELS).toEqual({ opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-4-5-20251001" });
     expect(ROUTES).toEqual({
-      inboxComposer: { model: "opus", locked: true },
-      planCompiler: { model: "opus", locked: true },
-      chiefOfStaff: { model: "opus", warnOnDowngrade: true },
-      departmentLead: { model: "opus" },
-      planner: { model: "opus" },
-      codeReview: { model: "opus" },
-      ideation: { model: "opus", effort: "low", speed: "fast" },
-      ideationSlate: { model: "opus", effort: "low", speed: "fast" },
-      logoDesigner: { model: "opus", effort: "low", speed: "fast" },
-      foundations: { model: "opus", effort: "low", speed: "fast" },
-      foundationsSkeleton: { model: "opus", effort: "low", speed: "fast" },
-      skillGrader: { model: "opus" },
-      coach: { model: "opus" },
-      worker: { model: "sonnet" },
-      journeyCommentary: { model: "sonnet" },
-      nightlyBatch: { model: "sonnet", batch: true },
-      linker: { model: "haiku" },
-      classifier: { model: "haiku" },
-      categoriser: { model: "haiku" },
-      quarantinedReader: { model: "haiku" },
-      moderation: { model: "haiku" },
-      conversation: { model: "opus", effort: "low" },
+      inboxComposer: { model: "opus", locked: true, maxTokens: 16_000 },
+      planCompiler: { model: "opus", locked: true, maxTokens: 16_000 },
+      chiefOfStaff: { model: "opus", warnOnDowngrade: true, maxTokens: 16_000 },
+      departmentLead: { model: "opus", maxTokens: 16_000 },
+      planner: { model: "opus", maxTokens: 16_000 },
+      codeReview: { model: "opus", maxTokens: 16_000 },
+      ideation: { model: "opus", effort: "low", speed: "fast", maxTokens: 8_000 },
+      ideationSlate: { model: "opus", effort: "low", speed: "fast", maxTokens: 8_000 },
+      logoDesigner: { model: "opus", effort: "low", speed: "fast", maxTokens: 8_000 },
+      foundations: { model: "opus", effort: "low", speed: "fast", maxTokens: 8_000 },
+      foundationsSkeleton: { model: "opus", effort: "low", speed: "fast", maxTokens: 8_000 },
+      skillGrader: { model: "opus", maxTokens: 16_000 },
+      coach: { model: "opus", maxTokens: 16_000 },
+      worker: { model: "sonnet", maxTokens: 16_000 },
+      journeyCommentary: { model: "sonnet", maxTokens: 16_000 },
+      nightlyBatch: { model: "sonnet", batch: true, maxTokens: 16_000 },
+      linker: { model: "haiku", maxTokens: 4_096 },
+      classifier: { model: "haiku", maxTokens: 4_096 },
+      categoriser: { model: "haiku", maxTokens: 4_096 },
+      quarantinedReader: { model: "haiku", maxTokens: 4_096 },
+      moderation: { model: "haiku", maxTokens: 4_096 },
+      conversation: { model: "opus", effort: "low", maxTokens: 8_000 },
     });
   });
 
@@ -80,6 +80,26 @@ describe("routing (BUILD §10.1)", () => {
     const sonnet = resolveModel("ideation", "sonnet");
     expect([sonnet.modelKey, sonnet.effort, sonnet.speed]).toEqual(["sonnet", "low", undefined]);
     expect(MODEL_CAPABILITIES).toEqual({ opus: { effort: true, fastMode: true }, sonnet: { effort: true, fastMode: false }, haiku: { effort: false, fastMode: false } });
+  });
+
+  it("sizes max_tokens for the reply plus the thinking the resolved model always does (audit CML-03)", () => {
+    // Opus 5.5 always thinks (default effort medium) and Sonnet 5.5 too (default high): the thinking counts toward
+    // max_tokens, so every route a planner, a department lead, the Chief of Staff or the composer uses has room for it.
+    for (const route of Object.keys(ROUTES) as (keyof typeof ROUTES)[]) {
+      const r = resolveModel(route);
+      if (!ALWAYS_THINKS[r.modelKey]) expect(r.maxTokens).toBe(PLAIN_MAX_TOKENS);
+      else expect(r.maxTokens).toBe(r.effort === "low" ? LOW_EFFORT_MAX_TOKENS : THINKING_MAX_TOKENS);
+    }
+    expect(THINKING_MAX_TOKENS).toBeGreaterThanOrEqual(12_000);
+    // An override onto a thinking model never keeps a Haiku-sized budget; one onto Haiku keeps the route's.
+    expect(resolveModel("classifier", "opus").maxTokens).toBe(THINKING_MAX_TOKENS);
+    expect(resolveModel("classifier", "sonnet").maxTokens).toBe(THINKING_MAX_TOKENS);
+    expect(resolveModel("ideation", "sonnet").maxTokens).toBe(LOW_EFFORT_MAX_TOKENS);
+    expect(resolveModel("planner", "haiku").maxTokens).toBe(THINKING_MAX_TOKENS);
+    expect(maxTokensFor(PLAIN_MAX_TOKENS, "opus")).toBe(THINKING_MAX_TOKENS);
+    expect(maxTokensFor(PLAIN_MAX_TOKENS, "opus", "low")).toBe(LOW_EFFORT_MAX_TOKENS);
+    expect(maxTokensFor(30_000, "opus", "low")).toBe(30_000);
+    expect(maxTokensFor(PLAIN_MAX_TOKENS, "haiku")).toBe(PLAIN_MAX_TOKENS);
   });
 
   it("plain routes accept any override silently", () => {

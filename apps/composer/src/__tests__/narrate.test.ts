@@ -5,13 +5,14 @@
  */
 import { repos } from "@foundmill/db";
 import { extractEntityIds, validateMarkup } from "@foundmill/entity-linker";
-import { MOCK_ROUTES, type MockGenerator } from "@foundmill/models";
+import { MOCK_ROUTES, createModelClient, type MockGenerator } from "@foundmill/models";
 import type { EventType } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ComposerRejectedError } from "../compose";
+import { ComposeTimeoutError, ComposerRejectedError } from "../compose";
 import { isNamedQueryId } from "../exhibits";
 import { isDraftWorthy } from "../persist";
-import { createComposerHarness, type ComposerHarness } from "./harness";
+import { createComposerService, narrationKey } from "../service";
+import { createComposerHarness, silentLog, type ComposerHarness } from "./harness";
 
 let hz: ComposerHarness;
 beforeAll(async () => {
@@ -136,6 +137,77 @@ describe("narrate — AC-11.3.1", () => {
     expect((err as { status?: number }).status).toBe(404);
     const empty = await service.narrate(hz.A.businessId, []).catch((e: unknown) => e);
     expect((empty as { status?: number }).status).toBe(400);
+  });
+});
+
+describe("narrate is idempotent per event set (audit CML-05)", () => {
+  const composerCalls = (from: number) => hz.usage.slice(from).filter((u) => u.route === "inboxComposer").length;
+
+  it("a retried narration returns the note already written: one item, one paid composition", async () => {
+    const service = hz.service();
+    const a = await hz.writeEvent(hz.A.businessId, "task.completed", { title: "Retry me" });
+    const b = await hz.writeEvent(hz.A.businessId, "pr.merged", { title: "Retry me too" });
+    const inboxBefore = (await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length;
+    const usageBefore = hz.usage.length;
+    const first = await service.narrate(hz.A.businessId, [a.id, b.id]);
+    expect(first.replayed).toBe(false);
+    const calls = composerCalls(usageBefore);
+    expect(calls).toBeGreaterThanOrEqual(1);
+    // Same set in another order, with a repeat: the same key.
+    const again = await service.narrate(hz.A.businessId, [b.id, a.id, b.id]);
+    expect(again.replayed).toBe(true);
+    expect(again.item.id).toBe(first.item.id);
+    expect(again.costMinor).toBe(0);
+    expect(again.eventIds.sort()).toEqual([a.id, b.id].sort());
+    // A new service (a restarted composer) finds it through the database.
+    const restarted = await hz.service().narrate(hz.A.businessId, [a.id, b.id]);
+    expect(restarted).toMatchObject({ replayed: true, model: null });
+    expect(restarted.item.id).toBe(first.item.id);
+    expect((await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length).toBe(inboxBefore + 1);
+    expect(composerCalls(usageBefore)).toBe(calls);
+    const created = await repos.events.list(hz.db, hz.A.businessId, { type: "inbox.item_created", limit: 200 });
+    expect(created.items.filter((e) => (e.payload as { inboxItemId?: string }).inboxItemId === first.item.id)).toHaveLength(1);
+    // A different set is a different narration.
+    const onlyA = await service.narrate(hz.A.businessId, [a.id]);
+    expect(onlyA.replayed).toBe(false);
+    expect(onlyA.item.id).not.toBe(first.item.id);
+  });
+
+  it("concurrent calls for the same events (a retry while the first is still writing) share one note", async () => {
+    const service = hz.service();
+    const event = await hz.writeEvent(hz.A.businessId, "task.completed", { title: "Slow narration" });
+    const usageBefore = hz.usage.length;
+    const inboxBefore = (await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length;
+    const results = await Promise.all([service.narrate(hz.A.businessId, [event.id]), service.narrate(hz.A.businessId, [event.id]), service.narrate(hz.A.businessId, [event.id])]);
+    expect(new Set(results.map((r) => r.item.id)).size).toBe(1);
+    expect(results.filter((r) => !r.replayed)).toHaveLength(1);
+    expect((await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length).toBe(inboxBefore + 1);
+    expect(composerCalls(usageBefore)).toBe(1);
+  });
+
+  it("two composer instances racing on the same events write one note (the event's idempotency key decides)", async () => {
+    const event = await hz.writeEvent(hz.A.businessId, "pr.merged", { title: "Two instances" });
+    const inboxBefore = (await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length;
+    const [x, y] = await Promise.all([hz.service().narrate(hz.A.businessId, [event.id]), hz.service().narrate(hz.A.businessId, [event.id])]);
+    expect(x.item.id).toBe(y.item.id);
+    expect([x.replayed, y.replayed].filter(Boolean)).toHaveLength(1);
+    expect((await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length).toBe(inboxBefore + 1);
+    expect(await repos.events.byIdempotencyKey(hz.db, hz.A.businessId, narrationKey([event.id]))).toMatchObject({ type: "inbox.item_created" });
+  });
+
+  it("a narration past the compose deadline is abandoned unwritten (504), and the retry writes it once", async () => {
+    const event = await hz.writeEvent(hz.A.businessId, "task.completed", { title: "Deadline" });
+    const slow = createModelClient({ mode: "mock", logger: silentLog, mock: { latencyMs: 300 } });
+    const late = createComposerService({ db: hz.db, models: slow, log: silentLog }, { debounceMs: 0, persistDrafts: false, composeDeadlineMs: 50 });
+    const inboxBefore = (await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length;
+    const err = await late.narrate(hz.A.businessId, [event.id]).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ComposeTimeoutError);
+    expect((err as ComposeTimeoutError).status).toBe(504);
+    expect((await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length).toBe(inboxBefore);
+    expect((await repos.events.get(hz.db, hz.A.businessId, event.id)).narrated).toBe(false);
+    const retry = await hz.service().narrate(hz.A.businessId, [event.id]);
+    expect(retry.replayed).toBe(false);
+    expect((await repos.inbox.list(hz.db, hz.A.businessId, { limit: 500 })).items.length).toBe(inboxBefore + 1);
   });
 });
 

@@ -117,7 +117,7 @@ export function importReportOf(inputs: Pick<FoundationsInputs, "importReport">):
 // ---------------------------------------------------------------------------------------------------------------------
 
 export const FOUNDATIONS_ROUTE = "foundations" as const satisfies RouteKey;
-/** Output budget: ten to fifteen sections of Tiptap JSON plus a roadmap run well past the client's 4,096 default. */
+/** Output budget: ten to fifteen sections of Tiptap JSON plus a roadmap run well past the route's low-effort budget (8,000). */
 export const FOUNDATIONS_MAX_TOKENS = 24_000;
 /** The template whose instructions frame the call (the Product lead owns the specification and the roadmap). */
 export const FOUNDATIONS_TEMPLATE_KEY = "product_lead";

@@ -4,11 +4,11 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { LiveModelClient } from "./client";
+import { LiveModelClient, ROUTE_RESERVE_TOKENS } from "./client";
 import { ModelAbortedError, ModelRateLimitError } from "./errors";
 import { FAST_MODE_PRICING, MODEL_PRICING } from "./pricing";
 import { RateLimiter } from "./rate-limit";
-import { FAST_MODE_BETA, MODELS } from "./routing";
+import { FAST_MODE_BETA, MODELS, THINKING_MAX_TOKENS } from "./routing";
 import type { UsageEvent } from "./types";
 
 interface Captured {
@@ -166,6 +166,18 @@ describe("rate-limit reservation (reserveTokens)", () => {
     // Twelve parallel calls of 600 fit where twelve of 20k would not.
     await Promise.all(Array.from({ length: 12 }, () => client.complete({ route: "ideation", maxTokens: 20_000, reserveTokens: 600, messages: [{ role: "user", content: "go" }] })));
     expect(limiter.available(client.rateLimitKey).outputTokens).toBe(1_300);
+  });
+
+  it("a call on its route's budget sends the whole budget but books only ROUTE_RESERVE_TOKENS, so a small key still serves it", async () => {
+    const { limiter, now } = primedLimiter();
+    const { fetch, calls } = fakeFetch([() => message("ok")]);
+    const client = new LiveModelClient({ apiKey: "k", fetch, sleep: noSleep, rateLimiter: limiter });
+    limiter.observe(client.rateLimitKey, { outputTokens: { limit: 8_000, remaining: 8_000, resetAt: now + 60_000 } });
+    await client.complete({ route: "planner", messages: [{ role: "user", content: "go" }] });
+    expect(calls[0]!.body.max_tokens).toBe(THINKING_MAX_TOKENS);
+    expect(limiter.available(client.rateLimitKey).outputTokens).toBe(8_000 - ROUTE_RESERVE_TOKENS);
+    // A caller that sizes max_tokens itself still books it (or its own reserveTokens), as before.
+    await expect(client.complete({ route: "planner", maxTokens: THINKING_MAX_TOKENS, messages: [{ role: "user", content: "go" }] })).rejects.toBeInstanceOf(ModelRateLimitError);
   });
 
   it("clamps the reservation to max_tokens and leaves the request's max_tokens unchanged", async () => {

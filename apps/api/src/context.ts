@@ -100,7 +100,7 @@ export function createApiDeps(options: CreateApiDepsOptions = {}): ApiDeps {
   const temporal = createTemporalService({ address: env.TEMPORAL_ADDRESS, namespace: env.TEMPORAL_NAMESPACE, taskQueue: env.TEMPORAL_TASK_QUEUE, log });
   // Calls made for a business are booked to its usage ledger through the client (services/models.ts).
   const models = createApiModelClient(env, log, { db });
-  const composer = createComposerClient({ url: env.COMPOSER_URL, db, models, log, allowFallback: env.APP_ENV === "development" || env.APP_ENV === "test" });
+  const composer = createComposerClient({ url: env.COMPOSER_URL, db, models, log, timeoutMs: env.COMPOSER_TIMEOUT_MS, allowFallback: env.APP_ENV === "development" || env.APP_ENV === "test" });
 
   let vault: Vault | null = null;
   try {

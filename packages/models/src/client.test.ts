@@ -4,11 +4,11 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { LiveModelClient, createModelClient, grammarGaps, keyFingerprint, structuredOutputFor, validateApiKey } from "./client";
+import { LiveModelClient, MAX_TOKENS_CEILING, createModelClient, grammarGaps, keyFingerprint, structuredOutputFor, validateApiKey } from "./client";
 import { ModelAbortedError, ModelOutputError, ModelRateLimitError, ModelRequestError, ModelUnavailableError } from "./errors";
 import { MockModelClient } from "./mock";
 import { RateLimiter } from "./rate-limit";
-import { MODELS } from "./routing";
+import { MODELS, THINKING_MAX_TOKENS } from "./routing";
 import { AgentReplyDraft, ComposerOutput, ConceptCard, FoundationsOutput, FoundationsSkeletonOutput, IdeationSlateOutput, LogoDesignOutput, PlanOutput, QuarantinedReaderOutput } from "./schemas";
 import type { UsageEvent } from "./types";
 
@@ -171,7 +171,8 @@ describe("LiveModelClient.complete", () => {
     expect(Object.keys(described.properties)).toEqual(["summary", "actions"]);
     expect(JSON.stringify(described)).toContain('"params":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{}}');
     expect(body.model).toBe(MODELS.opus);
-    expect(body.max_tokens).toBe(4096);
+    // No maxTokens on the request: the route's budget, sized for the JSON plus Opus 5.5's thinking (audit CML-03).
+    expect(body.max_tokens).toBe(THINKING_MAX_TOKENS);
   });
 
   it("keeps every closed route schema on structured outputs; only open maps and untyped values go to the prompt", () => {
@@ -236,19 +237,56 @@ describe("LiveModelClient.complete", () => {
     expect(calls[0]!.body.output_config).toBeUndefined();
   });
 
-  it("throws a typed refusal / truncation error for schema requests instead of retrying", async () => {
+  it("throws a typed refusal error for schema requests instead of retrying", async () => {
     const refused = fakeFetch([() => message("I can't help with that.", { stopReason: "refusal" })]);
     const client = new LiveModelClient({ apiKey: "sk-ant-test", fetch: refused.fetch, sleep: noSleep });
     const err = await client.complete({ route: "worker", messages: [{ role: "user", content: "go" }], schema: Note }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ModelOutputError);
     expect((err as ModelOutputError).code).toBe("refusal");
     expect(refused.calls).toHaveLength(1);
+  });
 
+  it("retries a truncated schema answer once with twice the budget, then gives up with max_tokens", async () => {
     const truncated = fakeFetch([() => message('{"subject": "cut', { stopReason: "max_tokens" })]);
-    const client2 = new LiveModelClient({ apiKey: "sk-ant-test", fetch: truncated.fetch, sleep: noSleep });
-    const err2 = await client2.complete({ route: "worker", messages: [{ role: "user", content: "go" }], schema: Note, maxTokens: 50 }).catch((e: unknown) => e);
-    expect((err2 as ModelOutputError).code).toBe("max_tokens");
+    const events: UsageEvent[] = [];
+    const client = new LiveModelClient({ apiKey: "sk-ant-test", fetch: truncated.fetch, sleep: noSleep, onUsage: (e) => void events.push(e) });
+    const err = await client.complete({ route: "worker", messages: [{ role: "user", content: "go" }], schema: Note, maxTokens: 50 }).catch((e: unknown) => e);
+    expect((err as ModelOutputError).code).toBe("max_tokens");
+    expect((err as ModelOutputError).message).toMatch(/max_tokens=100/);
+    expect(truncated.calls.map((c) => c.body.max_tokens)).toEqual([50, 100]);
+    // The retry asks the same question again (no repair turn quoting the cut-off JSON) and both calls are metered.
+    expect(truncated.calls[1]!.body.messages as unknown[]).toHaveLength(1);
+    expect(events).toHaveLength(2);
+  });
+
+  it("a route-sized Opus call cut off by its thinking succeeds on the retry at the larger budget", async () => {
+    const good = JSON.stringify({ subject: "Plan ready", body: "Eight tasks, two of them hard, all with tests.", tags: ["plan"] });
+    const { fetch, calls } = fakeFetch([() => message('{"subject": "Plan ready", "body": "Eight ta', { stopReason: "max_tokens", usage: { output_tokens: THINKING_MAX_TOKENS } }), () => message(good)]);
+    const client = new LiveModelClient({ apiKey: "sk-ant-test", fetch, sleep: noSleep });
+    const result = await client.complete({ route: "planner", messages: [{ role: "user", content: "plan it" }], schema: Note });
+    expect(result.json?.subject).toBe("Plan ready");
+    expect(result.repaired).toBe(false);
+    expect(calls.map((c) => c.body.max_tokens)).toEqual([THINKING_MAX_TOKENS, MAX_TOKENS_CEILING]);
+    expect(result.usage.outputTokens).toBe(THINKING_MAX_TOKENS + 30);
+  });
+
+  it("does not raise a budget that is already at the ceiling", async () => {
+    const truncated = fakeFetch([() => message('{"subject": "cut', { stopReason: "max_tokens" })]);
+    const client = new LiveModelClient({ apiKey: "sk-ant-test", fetch: truncated.fetch, sleep: noSleep });
+    const err = await client.complete({ route: "planner", messages: [{ role: "user", content: "go" }], schema: Note, maxTokens: MAX_TOKENS_CEILING }).catch((e: unknown) => e);
+    expect((err as ModelOutputError).code).toBe("max_tokens");
     expect(truncated.calls).toHaveLength(1);
+  });
+
+  it("sends each route's budget when the request has none: planning routes leave room for thinking, Haiku routes stay small", async () => {
+    const sent: Record<string, unknown> = {};
+    for (const route of ["planner", "chiefOfStaff", "departmentLead", "inboxComposer", "conversation", "classifier"] as const) {
+      const { fetch, calls } = fakeFetch([() => message("ok", { model: route === "classifier" ? MODELS.haiku : MODELS.opus })]);
+      const client = new LiveModelClient({ apiKey: "sk-ant-test", fetch, sleep: noSleep });
+      await client.complete({ route, messages: [{ role: "user", content: "go" }] });
+      sent[route] = calls[0]!.body.max_tokens;
+    }
+    expect(sent).toEqual({ planner: 16_000, chiefOfStaff: 16_000, departmentLead: 16_000, inboxComposer: 16_000, conversation: 8_000, classifier: 4_096 });
   });
 
   it("drops temperature for Opus/Sonnet 5.5 and keeps it for Haiku", async () => {

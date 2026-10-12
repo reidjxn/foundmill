@@ -19,10 +19,10 @@ import { createComposerService } from "./service";
 import { createUsageSink } from "./usage";
 
 export { createApp, NarrateBody, RefreshBody, CommentaryBody, ChapterTitleBody, type ComposerApp } from "./app";
-export { ComposerService, createComposerService, type ComposerServiceDeps, type ComposerServiceOptions, type NarrateResult } from "./service";
+export { ComposerService, createComposerService, narrationKey, type ComposerServiceDeps, type ComposerServiceOptions, type NarrateResult } from "./service";
 export { RefreshEngine, type RefreshResult, type RefreshEngineOptions } from "./refresh";
-export { composeNote, ComposerSchema, ComposerRejectedError, blocksContinueFor, composerInputs, CUSTOMER_UPDATE_OPTIONS, DEFAULT_DECISION_OPTIONS, type ComposedNote, type ComposeBrief } from "./compose";
-export { loadContext, type ComposeContext } from "./context";
+export { composeNote, ComposerSchema, ComposerRejectedError, ComposeTimeoutError, blocksContinueFor, composerInputs, CUSTOMER_UPDATE_OPTIONS, DEFAULT_DECISION_OPTIONS, type ComposedNote, type ComposeBrief } from "./compose";
+export { loadContext, NARRATABLE_EVENT_TYPES, type ComposeContext } from "./context";
 export { NAMED_QUERIES, NAMED_QUERY_IDS, getNamedQuery, isNamedQueryId, namedQueryCatalogue, runNamedQuery, sanitizeExhibit, type ExhibitData, type NamedQuery, type NamedQueryId } from "./exhibits";
 export { loadMetricsSnapshot, statusMetrics, estimateRunwayMonths, runwayThresholdsBelow, blocksForRunway, type MetricsSnapshot } from "./metrics";
 export { computeInsights, DEFAULT_INSIGHT_THRESHOLDS, type Insight, type InsightThresholds } from "./insights";
@@ -30,7 +30,7 @@ export { nextBestDecision, type NextBestDecision } from "./decisions";
 export { composeCommentary, type CommentaryResult, type CommentaryLine } from "./commentary";
 export { composeChapterTitle, loadQuarterFacts, parseQuarter, quarterOf, provisionalTitle, titleAcceptable, ChapterTitleOutput, type ChapterTitleResult } from "./chapter";
 export { createUsageSink } from "./usage";
-export { persistNote, persistDrafts, writeEventRow } from "./persist";
+export { persistNote, persistDrafts, findPersisted, writeEventRow } from "./persist";
 export { prepareDb, type DbReadiness } from "./db-boot";
 
 export async function main(): Promise<void> {
