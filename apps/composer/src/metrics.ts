@@ -73,7 +73,8 @@ export function blocksForRunway(runwayMonths: number | null): boolean {
 }
 
 export async function loadMetricsSnapshot(db: Executor, businessId: string, now = new Date()): Promise<MetricsSnapshot> {
-  const [cash, burn, week, month, tasks, enabledChannels, recent, previous, roadmap] = await Promise.all([
+  const [business, cash, burn, week, month, tasks, enabledChannels, recent, previous, roadmap] = await Promise.all([
+    repos.businesses.get(db, businessId),
     repos.finance.cashPosition(db, businessId),
     repos.finance.netBurn(db, businessId, { asOf: now }),
     repos.journeys.countConversions(db, businessId, { from: daysAgo(now, 7), to: now }),
@@ -88,7 +89,8 @@ export async function loadMetricsSnapshot(db: Executor, businessId: string, now 
   // Cash: the first (alphabetical) currency with accounts, which for a single-currency club is its only one. Multi-currency
   // conversion at the ECB rate belongs to the Finance module; here we never add currencies together.
   const primary = cash.byCurrency[0] ?? null;
-  const currency = primary?.currency ?? enabledChannels[0]?.currency ?? "EUR";
+  // Before a bank is connected, the business's own currency (0025), never a fixed one.
+  const currency = primary?.currency ?? business.currency;
   const cashMinor = primary ? primary.balanceMinor : null;
   const runwayMonths = estimateRunwayMonths(cashMinor, burn.netBurnMinor);
 

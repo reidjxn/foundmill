@@ -50,7 +50,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
         repos.holidays.current(db, businessId),
         repos.agents.chiefOfStaff(db, businessId),
       ]);
-      const currency = (await repos.channels.enabledBudget(db, businessId)).currencies[0] ?? "EUR";
+      const currency = business.currency;
       const edges = await repos.tasks.listEdges(db, businessId, tasksPage.items.map((t) => t.id));
       const openIds = new Set(tasksPage.items.map((t) => t.id));
       const dependsOn = new Map<string, string[]>();

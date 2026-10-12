@@ -9,14 +9,14 @@
  *
  * Exported as a pure function so apps can also use it as a deterministic fallback or pre-check in live mode.
  */
-import { CHANNEL_META, PLAN_ACTION_TYPES, type ChannelKey, type PlanActionType, type TaskKind } from "@foundmill/shared";
+import { CHANNEL_META, DEFAULT_BUSINESS_CURRENCY, PLAN_ACTION_TYPES, type ChannelKey, type PlanActionType, type TaskKind } from "@foundmill/shared";
 import type { PlanAction, PlanOutput } from "../schemas";
 import { type AgentLike, type ManifestEntry, type MockContext, agentsFrom, sentenceCase, truncate } from "./inputs";
 
 export interface PlanCompilerContext {
   manifest?: ManifestEntry[];
   agents?: AgentLike[];
-  /** ISO 4217 code used when the text gives an amount without a currency. Default EUR. */
+  /** ISO 4217 code used when the text gives an amount without a currency: the business's own. Default USD (`DEFAULT_BUSINESS_CURRENCY`). */
   defaultCurrency?: string;
   /** Restrict the emitted action types (BUILD §12.3 `{action_types}`). Defaults to every PlanActionType. */
   actionTypes?: readonly PlanActionType[];
@@ -159,7 +159,8 @@ export function detectChannels(text: string): Array<{ channel: ChannelKey; match
   return out;
 }
 
-export function detectAmounts(text: string, defaultCurrency = "EUR"): DetectedAmount[] {
+/** `defaultCurrency`: the business's own, for an amount written without a symbol or a currency word. */
+export function detectAmounts(text: string, defaultCurrency = DEFAULT_BUSINESS_CURRENCY): DetectedAmount[] {
   const out: DetectedAmount[] = [];
   const seen = new Set<number>();
   const push = (value: number, currency: string, index: number, raw: string) => {
@@ -241,7 +242,7 @@ function splitClauses(text: string): string[] {
 
 export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}): PlanOutput {
   const allowed = new Set<PlanActionType>(ctx.actionTypes ?? PLAN_ACTION_TYPES);
-  const defaultCurrency = (ctx.defaultCurrency ?? "EUR").toUpperCase();
+  const defaultCurrency = (ctx.defaultCurrency ?? DEFAULT_BUSINESS_CURRENCY).toUpperCase();
   const agents = ctx.agents ?? (ctx.manifest ?? []).filter((e) => e.kind === "agent").map<AgentLike>((e) => ({ id: e.id, name: e.name, role: e.role ?? "", department_id: e.department_id, channel: e.channel }));
   const actions: PlanAction[] = [];
   const summary: string[] = [];

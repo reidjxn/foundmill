@@ -11,6 +11,7 @@
 import { LIMITS } from "@foundmill/config";
 import { getTemplate, getTemplateByAgentType, initialVersionFromTemplate, type AgentTemplate } from "@foundmill/agents";
 import { repos, type Agent, type Business, type PlanAction as PlanActionRow } from "@foundmill/db";
+import { PRICING_CURRENCY } from "@foundmill/models";
 import { evaluate, type ToolCtxInput } from "@foundmill/policy";
 import { CHANNEL_KEYS, CHANNEL_META, MODEL_KEYS, TASK_KINDS, uuid, type ChannelKey, type ModelKey, type PlanActionType, type PolicyOutcome, type TaskKind } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
@@ -158,7 +159,7 @@ export function createPlanActivities(deps: OrchestratorDeps) {
             businessId,
             type: "approval.requested",
             actor: { kind: "agent", id: agent.id },
-            payload: { approvalId: approval.id, planActionId: action.id, agentId: agent.id, connectorKey: ACTION_TOOLS[action.type].connector, tool: ACTION_TOOLS[action.type].name, amount: amountOf(params) > 0 ? { amountMinor: amountOf(params), currency: str(params.currency, "EUR").toUpperCase() } : null, reasons: verdict.reasons, policyIds: verdict.policyIds, hardGate: false, summary: `${action.type.replace(/_/g, " ")}: ${str(params.summary, str(params.title, str(params.request, JSON.stringify(params).slice(0, 200))))}`.slice(0, 1000) },
+            payload: { approvalId: approval.id, planActionId: action.id, agentId: agent.id, connectorKey: ACTION_TOOLS[action.type].connector, tool: ACTION_TOOLS[action.type].name, amount: amountOf(params) > 0 ? { amountMinor: amountOf(params), currency: str(params.currency, business.currency).toUpperCase() } : null, reasons: verdict.reasons, policyIds: verdict.policyIds, hardGate: false, summary: `${action.type.replace(/_/g, " ")}: ${str(params.summary, str(params.title, str(params.request, JSON.stringify(params).slice(0, 200))))}`.slice(0, 1000) },
           });
         }
         return { ...empty, status: "awaiting_approval", outcome: "ask", approvalId: approval.id };
@@ -194,7 +195,8 @@ export function createPlanActivities(deps: OrchestratorDeps) {
   async function handle(action: PlanActionRow, p: Record<string, unknown>, ctx: { businessId: string; business: Business; agents: Agent[]; workflowId: string }): Promise<{ result: Record<string, unknown>; spawn: PlanActionResult["spawn"] }> {
     const { db } = deps;
     const { businessId } = ctx;
-    const currency = str(p.currency, "EUR").toUpperCase();
+    // An amount the plan did not price in a currency is in the business's own (0025).
+    const currency = str(p.currency, ctx.business.currency).toUpperCase();
     switch (action.type) {
       case "create_task": {
         const kind = isTaskKind(p.kind) ? p.kind : "ops";
@@ -289,7 +291,8 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         const live = agent.currentVersionId ? await repos.agents.getVersion(db, businessId, agent.currentVersionId) : null;
         const instructions = { ...((live?.instructions ?? {}) as Record<string, unknown>), ...(typeof p.instructions === "object" && p.instructions ? (p.instructions as Record<string, unknown>) : {}) };
         const draft = await repos.agents.createVersion(db, businessId, agent.id, { instructions: instructions as never, tools: live?.tools ?? [], modelKey: isModelKey(p.model_key) ? p.model_key : agent.modelKey, state: "draft", createdByKind: "agent" });
-        const run = await repos.training.create(db, businessId, { agentId: agent.id, fromVersionId: live?.id ?? null, toVersionId: draft.id, status: "queued", currency });
+        // A training run costs model calls: priced in the pricing currency, not the business's.
+        const run = await repos.training.create(db, businessId, { agentId: agent.id, fromVersionId: live?.id ?? null, toVersionId: draft.id, status: "queued", currency: PRICING_CURRENCY });
         return { result: { trainingRunId: run.id, draftVersionId: draft.id }, spawn: [{ workflow: "trainingRun", workflowId: `training:${run.id}`, args: { businessId, trainingRunId: run.id } }] };
       }
       case "set_agent_model": {

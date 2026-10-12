@@ -40,7 +40,8 @@ interface ItemOption {
 
 export async function planContextFor(ctx: BusinessContext): Promise<PlanContext> {
   const [agents, holiday] = await Promise.all([repos.agents.list(ctx.db, ctx.businessId, { limit: 200 }), repos.holidays.current(ctx.db, ctx.businessId)]);
-  return { business: ctx.business, agents: agents.items, holidayActive: holiday !== null, currency: "EUR" };
+  // Amounts the founder writes without a symbol ("spend up to 300 on ads") are in the business's own currency (0025).
+  return { business: ctx.business, agents: agents.items, holidayActive: holiday !== null, currency: ctx.business.currency };
 }
 
 export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInput): Promise<DecideItemResult> {

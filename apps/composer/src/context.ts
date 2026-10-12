@@ -113,6 +113,8 @@ export function businessBrief(ctx: ComposeContext): Record<string, unknown> {
     business_mode: b.businessMode,
     region: b.region,
     kit: { primary: b.kitPrimary, secondary: b.kitSecondary },
+    // The currency the business keeps its money in (0025): an amount an event does not price is in it.
+    currency: b.currency,
     glossary: ctx.glossary,
     departments_note: "Departments are labels over modules; refer to agents by their manifest entry.",
   };

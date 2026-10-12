@@ -105,3 +105,42 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(preview.defaultChannels.length).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe("the business currency (0025)", () => {
+  it("is the founder's at commit, stored on the business, read by every business amount, and changed in Settings by owners and admins", async () => {
+    const userId = await hz.h.createUser("dollars@test.local");
+    const caller = hz.caller({ userId, email: "dollars@test.local" });
+    await caller.founder.profile.update({ displayName: "Dana", experience: "operator", currency: "USD", targetMarkets: ["US"], riskAppetite: "medium" });
+    const generated = await caller.idea.generate({ prompt: "invoicing for contractors in the US" });
+    // The Commit screen sends no currency here: the founder's profile currency is the business's.
+    const result = await caller.idea.commit({ ideaId: generated.ideas[0]!.id, name: "Dollar Books", archetype: "b2b_saas", gameMode: "personal" });
+    const bid = result.business.id;
+    expect(result.business.currency).toBe("USD");
+    expect((await caller.business.get({ businessId: bid })).business.currency).toBe("USD");
+    const departments = await repos.departments.list(hz.db, bid);
+    expect(new Set(departments.map((d) => d.currency))).toEqual(new Set(["USD"]));
+
+    // No bank connected: cash reads in the business's currency (it used to fall back to EUR for every business).
+    expect((await caller.finance.overview({ businessId: bid })).cash).toMatchObject({ amountMinor: 0, currency: "USD", accounts: 0 });
+    expect(await caller.dashboard.customMetric.get({ businessId: bid, queryId: "cash" })).toMatchObject({ value: 0, currency: "USD" });
+
+    // Settings › Business: an admin changes it (audited); a member cannot; a code must be three letters.
+    const memberId = await hz.h.createUser("dollars-member@test.local");
+    await repos.memberships.add(hz.db, bid, { userId: memberId, role: "member" });
+    await expect(hz.caller({ userId: memberId }).business.update({ businessId: bid, currency: "EUR" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(caller.business.update({ businessId: bid, currency: "E1R" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const updated = await caller.business.update({ businessId: bid, currency: "gbp" });
+    expect(updated.currency).toBe("GBP");
+    const audit = await repos.audit.list(hz.db, bid, { action: "business.update" });
+    expect(audit.items[0]!.details).toMatchObject({ currency: { from: "USD", to: "GBP" } });
+
+    // New business amounts follow it: a hire from Recruitment and a vacation without a budget ceiling.
+    const dept = departments.find((d) => d.moduleKeys.includes("development")) ?? departments[0]!;
+    const hired = await caller.team.agents.hire({ businessId: bid, templateKey: "backend_engineer", departmentId: dept.id, name: "Second Engineer" });
+    expect(hired.currency).toBe("GBP");
+    const vacation = await caller.business.startHoliday({ businessId: bid, until: { kind: "return" } });
+    expect(vacation.holiday.currency).toBe("GBP");
+    // Model spend stays in the pricing currency.
+    expect(await caller.dashboard.customMetric.get({ businessId: bid, queryId: "spend_30d" })).toMatchObject({ currency: "USD" });
+  });
+});

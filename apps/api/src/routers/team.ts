@@ -53,7 +53,8 @@ export const teamRouter = router({
     hire: write.input(z.object({ templateKey: z.string().min(1), departmentId: Id, name: z.string().min(1).max(80).optional() })).mutation(async ({ ctx, input }) => {
       const department = await ctx.rls((tx) => repos.departments.get(tx, ctx.businessId, input.departmentId));
       const hired = await ctx.db.transaction(async (tx) => {
-        const h = await hireFromTemplate(tx, ctx.businessId, input.templateKey, { departmentIds: [department.id], lineManagerId: department.leadAgentId, name: input.name, createdBy: ctx.userId });
+        // Wage cap in the business's currency, as the Hire dialog showed it (0025).
+        const h = await hireFromTemplate(tx, ctx.businessId, input.templateKey, { departmentIds: [department.id], lineManagerId: department.leadAgentId, name: input.name, createdBy: ctx.userId, currency: ctx.business.currency });
         await repos.departments.addMember(tx, ctx.businessId, department.id, { memberKind: "agent", memberId: h.agent.id });
         await audit(tx, ctx, { action: "team.agents.hire", target: { kind: "agent", id: h.agent.id }, details: { templateKey: input.templateKey, departmentId: department.id } });
         return h;

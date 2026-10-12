@@ -605,7 +605,7 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
     agent: { id: r.agent.id, name: r.agent.name, role: ctxData.persona.role, instructions: ctxData.ins.instructions, description: ctxData.ins.description, voice },
     glossary: Object.fromEntries(Object.entries(ctx.business.glossary ?? {}).filter(([from]) => from !== "currency")),
     currentWork: { task: taskInput(r.currentTask), nextTask: taskInput(r.nextTask), status: r.agent.status, presence: ctxData.persona.presence },
-    subject: promptSubject(r, "EUR"),
+    subject: promptSubject(r, ctx.business.currency),
     thread: p.history.map((m) => ({ author: m.authorKind, text: m.bubbles.join("\n") })),
     manifest: ctxData.manifest.entries.map((e) => ({ id: e.id, kind: e.kind, name: e.name, aliases: e.aliases ?? [] })),
     founderMessage: { text: p.founderText, quickReply: chip ? { id: chip.id, kind: chip.kind, option_id: chip.option_id } : null },

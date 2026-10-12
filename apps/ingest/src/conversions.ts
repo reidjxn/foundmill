@@ -22,7 +22,8 @@ export interface ConversionFacts {
   kind: ConversionKind;
   entityId: string;
   amountMinor: number;
-  currency: string;
+  /** A payment's own currency; null (a sign-up or an activation, no money) takes the business's own (0025). */
+  currency: string | null;
   conversionRef: string;
 }
 
@@ -30,9 +31,9 @@ export interface ConversionFacts {
 export function conversionFactsFor(event: PlatformEvent): ConversionFacts | null {
   switch (event.type) {
     case "signup.created":
-      return { kind: "signup", entityId: event.payload.entityId, amountMinor: 0, currency: "EUR", conversionRef: event.payload.conversionId };
+      return { kind: "signup", entityId: event.payload.entityId, amountMinor: 0, currency: null, conversionRef: event.payload.conversionId };
     case "activation.reached":
-      return { kind: "activation", entityId: event.payload.entityId, amountMinor: 0, currency: "EUR", conversionRef: event.payload.conversionId };
+      return { kind: "activation", entityId: event.payload.entityId, amountMinor: 0, currency: null, conversionRef: event.payload.conversionId };
     case "payment.received":
       return { kind: "payment", entityId: event.payload.entityId, amountMinor: event.payload.amount.amountMinor, currency: event.payload.amount.currency, conversionRef: event.payload.conversionId };
     default:
@@ -86,7 +87,7 @@ export async function recordConversionForEvent(
     entityId,
     kind: facts.kind,
     amountMinor: Math.max(0, facts.amountMinor),
-    currency: facts.currency,
+    ...(facts.currency ? { currency: facts.currency } : {}),
     occurredAt: event.occurredAt,
     sourceEventId: event.id,
   });
@@ -132,7 +133,7 @@ export async function recordConversionForEvent(
       journeyId: journey.id,
       kind: facts.kind,
       matchdayLevel,
-      amount: facts.amountMinor > 0 ? { amountMinor: facts.amountMinor, currency: facts.currency } : null,
+      amount: facts.amountMinor > 0 ? { amountMinor: facts.amountMinor, currency: conversion.currency } : null,
       nthOfKind,
       fullMatchDay,
       captainChannelKey: (closer?.channelKey as ChannelKey | null | undefined) ?? null,

@@ -233,7 +233,8 @@ export const ideaRouter = router({
         kit: z.object({ primary: Hex, secondary: Hex }).optional(),
         /** The chosen logo (uploaded or generated); checked before anything is created. Null or absent: the initials mark. */
         logo: LogoChoice.nullable().optional(),
-        currency: z.string().length(3).default("EUR"),
+        /** The business's currency; absent: the founder's profile currency (services/commit.ts). */
+        currency: z.string().trim().regex(/^[A-Za-z]{3}$/, "a currency is a 3-letter ISO 4217 code").optional(),
         spendCapMinor: z.number().int().nonnegative().nullable().default(null),
       }),
     )

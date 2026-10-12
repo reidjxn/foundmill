@@ -25,7 +25,7 @@ describe("trophy cabinet", () => {
     [999, 1000, ["customer_1000"]],
     [1000, 5000, []],
   ])("customers %i → %i fires %j", (before, after, keys) => {
-    const out = detectTrophies({ before: counters({ customers: before }), after: counters({ customers: after }), at });
+    const out = detectTrophies({ before: counters({ customers: before }), after: counters({ customers: after }), at, currency: "EUR" });
     expect(out.map((m) => m.trophyKey)).toEqual(keys);
   });
 
@@ -42,17 +42,17 @@ describe("trophy cabinet", () => {
   });
 
   it("MRR trophies fire at exactly the threshold and not below", () => {
-    expect(detectTrophies({ before: counters({ mrrMinor: 99_999 }), after: counters({ mrrMinor: 100_000 }), at }).map((m) => m.trophyKey)).toEqual(["mrr_1k"]);
-    expect(detectTrophies({ before: counters({ mrrMinor: 0 }), after: counters({ mrrMinor: 99_999 }), at })).toEqual([]);
-    expect(detectTrophies({ before: counters({ mrrMinor: 100_000 }), after: counters({ mrrMinor: 999_999 }), at })).toEqual([]);
-    expect(detectTrophies({ before: counters({ mrrMinor: 999_999 }), after: counters({ mrrMinor: 1_000_000 }), at }).map((m) => m.trophyKey)).toEqual(["mrr_10k"]);
+    expect(detectTrophies({ before: counters({ mrrMinor: 99_999 }), after: counters({ mrrMinor: 100_000 }), at, currency: "EUR" }).map((m) => m.trophyKey)).toEqual(["mrr_1k"]);
+    expect(detectTrophies({ before: counters({ mrrMinor: 0 }), after: counters({ mrrMinor: 99_999 }), at, currency: "EUR" })).toEqual([]);
+    expect(detectTrophies({ before: counters({ mrrMinor: 100_000 }), after: counters({ mrrMinor: 999_999 }), at, currency: "EUR" })).toEqual([]);
+    expect(detectTrophies({ before: counters({ mrrMinor: 999_999 }), after: counters({ mrrMinor: 1_000_000 }), at, currency: "EUR" }).map((m) => m.trophyKey)).toEqual(["mrr_10k"]);
     // MRR falling back and crossing again does not re-fire when the trophy is already in the cabinet.
-    expect(detectTrophies({ before: counters({ mrrMinor: 90_000 }), after: counters({ mrrMinor: 120_000 }), at, awarded: ["mrr_1k"] })).toEqual([]);
+    expect(detectTrophies({ before: counters({ mrrMinor: 90_000 }), after: counters({ mrrMinor: 120_000 }), at, currency: "EUR", awarded: ["mrr_1k"] })).toEqual([]);
   });
 
   it("never awards a trophy twice and never for a drop", () => {
-    expect(detectTrophies({ before: counters({ customers: 0 }), after: counters({ customers: 1 }), at, awarded: ["customer_1"] })).toEqual([]);
-    expect(detectTrophies({ before: counters({ customers: 10 }), after: counters({ customers: 9 }), at })).toEqual([]);
+    expect(detectTrophies({ before: counters({ customers: 0 }), after: counters({ customers: 1 }), at, currency: "EUR", awarded: ["customer_1"] })).toEqual([]);
+    expect(detectTrophies({ before: counters({ customers: 10 }), after: counters({ customers: 9 }), at, currency: "EUR" })).toEqual([]);
   });
 
   it("formats labels in the business's currency and attaches refs", () => {
@@ -68,8 +68,8 @@ describe("trophy cabinet", () => {
     expect(isEnterpriseContract(999_999)).toBe(false);
     expect(isEnterpriseContract(1_000_000)).toBe(true);
     expect(isEnterpriseContract(500_000, 500_000)).toBe(true);
-    expect(detectTrophies({ before: counters({ enterpriseContracts: 0 }), after: counters({ enterpriseContracts: 1 }), at }).map((m) => m.trophyKey)).toEqual(["first_enterprise_contract"]);
-    expect(detectTrophies({ before: counters({ enterpriseContracts: 1 }), after: counters({ enterpriseContracts: 2 }), at })).toEqual([]);
+    expect(detectTrophies({ before: counters({ enterpriseContracts: 0 }), after: counters({ enterpriseContracts: 1 }), at, currency: "EUR" }).map((m) => m.trophyKey)).toEqual(["first_enterprise_contract"]);
+    expect(detectTrophies({ before: counters({ enterpriseContracts: 1 }), after: counters({ enterpriseContracts: 2 }), at, currency: "EUR" })).toEqual([]);
   });
 
   it("customerTrophyFor names the trophy the nth customer earns", () => {

@@ -167,7 +167,7 @@ export interface ExecuteResult {
 export interface ExecuteOptions {
   actorUserId: string;
   temporal: TemporalService;
-  /** Defaults from the business glossary / EUR. */
+  /** The business's own currency (`businesses.currency`, 0025) for an amount the plan did not price in one. */
   currency: string;
 }
 

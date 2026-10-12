@@ -5,7 +5,8 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { repos, type InboxItem } from "@foundmill/db";
-import { DECISION_TYPES, type DecisionType, type EventType } from "@foundmill/shared";
+import { PRICING_CURRENCY } from "@foundmill/models";
+import { DECISION_TYPES, formatMoney, type DecisionType, type EventType } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { HolidayCheck, HolidayDecisions, HolidayEnd, HolidayInput, LoadedHoliday } from "./types";
@@ -45,7 +46,7 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
         untilCondition: condition && typeof condition.text === "string" ? condition.text : null,
         authority,
         budgetCeilingMinor: holiday.budgetCeilingMinor === null ? null : Number(holiday.budgetCeilingMinor),
-        currency: holiday.currency ?? "EUR",
+        currency: holiday.currency,
         wakeEvents: holiday.wakeEvents,
         startedAt: new Date(holiday.startedAt ?? holiday.createdAt).toISOString(),
         cadenceAgentHours: input.cadenceAgentHours ?? LIMITS.cycleTimeBoxAgentHours,
@@ -139,8 +140,10 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       const founderTasks = (await repos.tasks.list(db, input.businessId, { status: "ready", limit: 200 })).items.filter((t) => t.assigneeAgentId === null && /^Founder action:/.test(t.title));
       const chiefDecisions = decisions.items.filter((e) => (e.payload as { decidedBy?: string }).decidedBy === "chief_of_staff");
       const moneyIn = payments.items.reduce((sum, e) => sum + Number((e.payload as { amount?: { amountMinor?: number } }).amount?.amountMinor ?? 0), 0);
+      // Money in is the business's (the vacation's currency, the business's own unless the founder priced the ceiling
+      // otherwise); team spend is model cost, metered in the pricing currency. Narrow symbols, US grouping ("£1,240.00").
       const currency = input.holiday.currency;
-      const fmt = (minor: number) => `${(minor / 100).toFixed(2)} ${currency}`;
+      const fmt = (minor: number, inCurrency = currency) => formatMoney({ amountMinor: Math.round(minor), currency: inCurrency });
       const gatedItemsQueued = pendingApprovals + founderTasks.length;
       const days = Math.max(1, Math.round((now.getTime() - since.getTime()) / 86_400_000));
       const lines = [
@@ -151,7 +154,7 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
         ``,
         `**Customer Updates (${conversions.items.length})** — ${conversions.items.length ? "the replays are in the Customers tab, newest first." : "no customers won while you were away."}`,
         ``,
-        `**Money** — in: ${fmt(moneyIn)} across ${payments.items.length} payment${payments.items.length === 1 ? "" : "s"}; team spend: ${fmt(usage.costMinor)} (Estimate).`,
+        `**Money** — in: ${fmt(moneyIn)} across ${payments.items.length} payment${payments.items.length === 1 ? "" : "s"}; team spend: ${fmt(usage.costMinor, PRICING_CURRENCY)} (Estimate).`,
         ``,
         `**Waiting for you (${gatedItemsQueued})** — ${pendingApprovals} approval${pendingApprovals === 1 ? "" : "s"} and ${founderTasks.length} hard-gated action${founderTasks.length === 1 ? "" : "s"} only you can take.`,
       ];
@@ -176,7 +179,7 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
         businessId: input.businessId,
         type: "holiday.ended",
         actor: systemActor,
-        payload: { holidayId: input.holiday.holidayId, startedAt: since.toISOString(), endedAt: now.toISOString(), reason: input.reason, wakeEventType: (input.wakeEventType as EventType | null) ?? null, cyclesRun: input.cyclesRun, decisionsMade: chiefDecisions.length, customersWon: conversions.items.length, spent: { amountMinor: Math.round(usage.costMinor), currency }, gatedItemsQueued, reportInboxItemId },
+        payload: { holidayId: input.holiday.holidayId, startedAt: since.toISOString(), endedAt: now.toISOString(), reason: input.reason, wakeEventType: (input.wakeEventType as EventType | null) ?? null, cyclesRun: input.cyclesRun, decisionsMade: chiefDecisions.length, customersWon: conversions.items.length, spent: { amountMinor: Math.round(usage.costMinor), currency: PRICING_CURRENCY }, gatedItemsQueued, reportInboxItemId },
       });
       return { reportInboxItemId, eventId: ev.id, cyclesRun: input.cyclesRun, decisionsMade: chiefDecisions.length, customersWon: conversions.items.length, spentMinor: usage.costMinor, gatedItemsQueued };
     },

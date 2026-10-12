@@ -58,7 +58,8 @@ export interface DetectTrophiesInput {
   before: TrophyCounters;
   after: TrophyCounters;
   at: string | Date;
-  currency?: string;
+  /** The business's own currency (0025): revenue milestone labels read in it ("First $1K MRR"). */
+  currency: string;
   /** Trophies already in the cabinet; never awarded twice. */
   awarded?: Iterable<TrophyKey>;
   /** Attached to every milestone's `ref` (conversionId, entityId, contractId ...). */
@@ -68,7 +69,7 @@ export interface DetectTrophiesInput {
 
 /** Milestones for every trophy whose counter crossed its threshold between `before` and `after`, in cabinet order. */
 export function detectTrophies(input: DetectTrophiesInput): Milestone[] {
-  const currency = input.currency ?? "EUR";
+  const currency = input.currency;
   const awarded = new Set(input.awarded ?? []);
   const at = toIso(input.at);
   const out: Milestone[] = [];

@@ -7,7 +7,8 @@
  * entry's canonical SQL text: the text is matched against the catalogue, never executed, so nothing a widget sends can
  * read outside the business (docs/DECISIONS.md "custom metric SQL is a catalogue key").
  */
-import { repos, type Executor } from "@foundmill/db";
+import { MAX_PAGE_SIZE, repos, type Executor } from "@foundmill/db";
+import { PRICING_CURRENCY } from "@foundmill/models";
 import { ValidationError } from "@foundmill/shared";
 
 export type MetricFormat = "compact" | "integer" | "decimal" | "percent" | "money";
@@ -35,7 +36,25 @@ export interface CompiledMetric {
 interface MetricDefinition extends CompiledMetric {
   description: string;
   keywords: readonly string[];
-  run(db: Executor, businessId: string, now: Date): Promise<Pick<MetricResult, "value" | "currency" | "series" | "asOf">>;
+  /**
+   * `currency` is the currency of the figure itself; a money metric that has none (no bank connected yet) reads in the
+   * business's own (0025). `provenance` replaces the catalogue's when the figure leaves something out.
+   */
+  run(db: Executor, businessId: string, now: Date): Promise<Pick<MetricResult, "value" | "currency" | "series" | "asOf"> & { provenance?: string }>;
+}
+
+/**
+ * Amounts in several currencies are never added together: the total in the business's currency when it has any (else in
+ * the most used one), and whether anything in another currency was left out.
+ */
+export function totalInOneCurrency(items: readonly { amountMinor: number; currency: string }[], businessCurrency: string): { value: number; currency: string; leftOut: boolean } {
+  const by = new Map<string, { sum: number; n: number }>();
+  for (const i of items) {
+    const t = by.get(i.currency) ?? { sum: 0, n: 0 };
+    by.set(i.currency, { sum: t.sum + i.amountMinor, n: t.n + 1 });
+  }
+  const currency = by.has(businessCurrency) || by.size === 0 ? businessCurrency : [...by.entries()].sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0]))[0]![0];
+  return { value: by.get(currency)?.sum ?? 0, currency, leftOut: by.size > (by.has(currency) ? 1 : 0) };
 }
 
 const DAY_MS = 86_400_000;
@@ -54,7 +73,7 @@ export const METRICS: readonly MetricDefinition[] = [
     async run(db, businessId) {
       const cash = await repos.finance.cashPosition(db, businessId);
       const base = cash.byCurrency[0];
-      return { value: base?.balanceMinor ?? 0, currency: base?.currency ?? "EUR", asOf: base?.oldestBalanceAt?.toISOString() ?? null };
+      return { value: base?.balanceMinor ?? 0, currency: base?.currency, asOf: base?.oldestBalanceAt?.toISOString() ?? null };
     },
   },
   {
@@ -69,7 +88,7 @@ export const METRICS: readonly MetricDefinition[] = [
     async run(db, businessId, now) {
       const burn = await repos.finance.netBurn(db, businessId, { months: 3, asOf: now });
       const cash = await repos.finance.cashPosition(db, businessId);
-      return { value: burn.netBurnMinor, currency: cash.byCurrency[0]?.currency ?? "EUR", asOf: now.toISOString() };
+      return { value: burn.netBurnMinor, currency: cash.byCurrency[0]?.currency, asOf: now.toISOString() };
     },
   },
   {
@@ -97,8 +116,15 @@ export const METRICS: readonly MetricDefinition[] = [
     sql: "select sum(amount_minor) from conversions where business_id = current_business() and kind = 'payment' and occurred_at >= now() - interval '30 days'",
     keywords: ["revenue", "sales", "income", "mrr", "payments"],
     async run(db, businessId, now) {
-      const page = await repos.journeys.listConversions(db, businessId, { ...last30(now), kind: "payment", limit: 1000 });
-      return { value: page.items.reduce((s, c) => s + c.amountMinor, 0), currency: page.items[0]?.currency ?? "EUR", asOf: now.toISOString() };
+      const payments: { amountMinor: number; currency: string }[] = [];
+      let cursor: string | null = null;
+      do {
+        const page = await repos.journeys.listConversions(db, businessId, { ...last30(now), kind: "payment", limit: MAX_PAGE_SIZE, cursor });
+        payments.push(...page.items);
+        cursor = page.nextCursor;
+      } while (cursor);
+      const total = totalInOneCurrency(payments, (await repos.businesses.get(db, businessId)).currency);
+      return { value: total.value, currency: total.currency, asOf: now.toISOString(), ...(total.leftOut ? { provenance: `Payment conversions in ${total.currency}, last 30 days, cash basis (payments in other currencies not added)` } : {}) };
     },
   },
   {
@@ -196,7 +222,8 @@ export const METRICS: readonly MetricDefinition[] = [
     keywords: ["spend", "cost", "wages", "usage", "credits"],
     async run(db, businessId, now) {
       const totals = await repos.usage.totals(db, businessId, last30(now));
-      return { value: totals.costMinor, currency: "EUR", asOf: now.toISOString() };
+      // Model and sandbox costs are metered in the pricing currency, not the business's (an Estimate).
+      return { value: totals.costMinor, currency: PRICING_CURRENCY, asOf: now.toISOString() };
     },
   },
   {
@@ -209,8 +236,12 @@ export const METRICS: readonly MetricDefinition[] = [
     sql: "select sum(spend_minor) / nullif(sum(customers), 0) from channel_metrics where business_id = current_business() and day >= current_date - 30",
     keywords: ["cpa", "cost per customer", "acquisition cost", "cac"],
     async run(db, businessId, now) {
-      const summary = await repos.channels.metricsSummary(db, businessId, { from: new Date(now.getTime() - 30 * DAY_MS).toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) });
-      return { value: summary.blended.cpaMinor, currency: "EUR", asOf: now.toISOString() };
+      const [summary, channels] = await Promise.all([repos.channels.metricsSummary(db, businessId, { from: new Date(now.getTime() - 30 * DAY_MS).toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) }), repos.channels.list(db, businessId)]);
+      // Spend is in each channel's own currency: a blended figure exists only when they share one.
+      const currencyOf = new Map(channels.map((c) => [c.id, c.currency] as const));
+      const currencies = [...new Set(summary.channels.map((c) => currencyOf.get(c.channelId)).filter((c): c is string => Boolean(c)))];
+      if (currencies.length > 1) return { value: null, asOf: now.toISOString(), provenance: "Channels spend in more than one currency; see each channel's cost per customer" };
+      return { value: summary.blended.cpaMinor, currency: currencies[0], asOf: now.toISOString() };
     },
   },
   {
@@ -259,7 +290,8 @@ export function resolveMetric(input: { queryId?: string | null; sql?: string | n
 export async function runMetric(db: Executor, businessId: string, input: { queryId?: string | null; sql?: string | null }, now = new Date()): Promise<MetricResult> {
   const m = resolveMetric(input);
   const r = await m.run(db, businessId, now);
-  return { value: r.value, currency: r.currency, series: r.series, asOf: r.asOf, format: m.format, label: m.label, provenance: m.provenance, estimate: m.estimate };
+  const currency = m.format === "money" ? (r.currency ?? (await repos.businesses.get(db, businessId)).currency) : r.currency;
+  return { value: r.value, currency, series: r.series, asOf: r.asOf, format: m.format, label: m.label, provenance: r.provenance ?? m.provenance, estimate: m.estimate };
 }
 
 const tokenise = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s-]/g, " ").split(/\s+/).filter(Boolean);

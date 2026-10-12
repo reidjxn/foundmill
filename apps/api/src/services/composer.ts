@@ -252,7 +252,7 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
   }
 
   const input = {
-    business: { id: business.id, name: business.name, archetype: business.archetype, business_mode: business.businessMode, glossary: business.glossary },
+    business: { id: business.id, name: business.name, archetype: business.archetype, business_mode: business.businessMode, glossary: business.glossary, currency: business.currency },
     business_name: business.name,
     app_name: APP_NAME,
     from_agent: { id: chief.id, name: chief.name, role: chief.role || "Chief of Staff" },
@@ -303,7 +303,8 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
   };
 
   const created = await db.transaction(async (tx: DbTx) => {
-    const created = await repos.inbox.createItem(tx, businessId, item, { costMinor: result.cost.costMinorInt, currency: business.glossary.currency ?? "EUR" });
+    // The note's own cost is a model cost, metered in the pricing currency (USD), never business money.
+    const created = await repos.inbox.createItem(tx, businessId, item, { costMinor: result.cost.costMinorInt, currency: result.cost.currency });
     if (eventIds.length) await repos.events.markNarrated(tx, businessId, eventIds);
     const createdEventId = await writeEventRow(tx, {
       businessId,
@@ -317,7 +318,7 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
         subject: created.subject,
         blocksContinue: created.blocksContinue,
         sourceEventIds: eventIds,
-        cost: { amountMinor: result.cost.costMinorInt, currency: "EUR" },
+        cost: { amountMinor: result.cost.costMinorInt, currency: result.cost.currency },
       },
     });
     // Not narratable (catalogue): marked at once so Refresh never narrates its own notes, as the composer service does.
