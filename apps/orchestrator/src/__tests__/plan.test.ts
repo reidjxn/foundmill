@@ -6,6 +6,7 @@ import { repos } from "@foundmill/db";
 import { PLAN_ACTION_TYPES } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPlanActivities, evaluateAction, HARD_GATE_ACTIONS } from "../activities/plan";
+import type { GatewayCallRequest, GatewayCallResponse } from "../gateway-client";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
 let t: OrchestratorTestHarness;
@@ -103,8 +104,9 @@ describe("executePlanAction on PGlite", () => {
       await repos.approvals.resolve(t.db, t.businessId, first.approvalId!, { outcome: "approved", byKind: "user", byId: t.fixture.ownerId });
       const third = await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId, workflowId: "plan:test", approved: true, approvalId: first.approvalId });
       expect(third.status).toBe("done");
-      expect(t.gateway.calls.some((c) => c.connector === "sendgrid" && c.tool === "send_email")).toBe(true);
-      expect(t.gateway.minted.at(-1)?.allowedTools).toEqual(["sendgrid:send_email"]);
+      // The connector's own tool and argument shape (no mail connector is connected: Gmail, the default).
+      expect(t.gateway.calls.at(-1)).toMatchObject({ connector: "gmail", tool: "send_message", args: { to: ["cfo@example.com"], subject: "Hello", text: "Hi" } });
+      expect(t.gateway.minted.at(-1)?.allowedTools).toEqual(["gmail:send_message"]);
     } finally {
       await repos.businesses.setBusinessMode(t.db, t.businessId, "assisted");
     }
@@ -148,5 +150,131 @@ describe("executePlanAction on PGlite", () => {
     expect((await repos.agents.get(t.db, t.businessId, t.workerId)).currentVersionId).toBe(before.currentVersionId);
     expect((await repos.training.get(t.db, t.businessId, trainingRunId)).status).toBe("queued");
     expect(result.spawn[0]).toMatchObject({ workflow: "trainingRun", workflowId: `training:${trainingRunId}` });
+  });
+});
+
+describe("send_message and schedule_meeting use the connectors' own tools (#125)", () => {
+  type Respond = (req: GatewayCallRequest) => GatewayCallResponse;
+  /** Script the gateway's answers for one test (the offline stand-in answers allow with no data). */
+  async function withGateway(respond: Respond, fn: () => Promise<void>) {
+    const original = t.gateway.call;
+    t.gateway.call = async (_token, req) => {
+      t.gateway.calls.push(req);
+      return respond(req);
+    };
+    try {
+      await fn();
+    } finally {
+      t.gateway.call = original;
+    }
+  }
+  const run = async (type: "send_message" | "schedule_meeting", params: Record<string, unknown>, extra: { approved?: boolean; approvalId?: string } = {}) => {
+    const plan = await repos.plans.create(t.db, t.businessId, { origin: "free_text", actions: [{ type, params, agentId: t.chiefId }] });
+    const actionId = plan.actions[0]!.id;
+    return { actionId, planId: plan.id, result: await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId, workflowId: "plan:test", ...extra }) };
+  };
+  beforeAll(async () => {
+    await repos.businesses.setBusinessMode(t.db, t.businessId, "automated");
+  });
+  afterAll(async () => {
+    await repos.businesses.setBusinessMode(t.db, t.businessId, "assisted");
+  });
+
+  it("a message to a CRM record named in the plan goes out as gmail.send_message to that record's address", async () => {
+    const ada = await repos.entities.get(t.db, t.businessId, t.fixture.entityId);
+    await withGateway(
+      () => ({ outcome: "allow", result: { ok: true, data: { id: "msg_1", threadId: "t_1", to: [] } }, costMinor: 0 }),
+      async () => {
+        const { result } = await run("send_message", { recipient: ada.displayName, subject: "Your invoice", body: "Here it is." });
+        expect(result.status).toBe("done");
+        expect(t.gateway.calls.at(-1)).toEqual({ connector: "gmail", tool: "send_message", args: { to: [String((ada.identifiers as { email: string }).email)], subject: "Your invoice", text: "Here it is." }, context: expect.objectContaining({ recipient: (ada.identifiers as { email: string }).email }) });
+        expect(result.result).toMatchObject({ connector: "gmail", messageId: "msg_1" });
+      },
+    );
+  });
+
+  it("SendGrid sends from the account's verified sender with its own argument shape", async () => {
+    await withGateway(
+      (req) => (req.tool === "list_verified_senders" ? { outcome: "allow", result: { ok: true, data: { items: [{ id: 1, fromEmail: "hello@biz.example", fromName: "Biz", replyTo: null, verified: true, locked: false }] } } } : { outcome: "allow", result: { ok: true, data: { messageId: "sg_1" } } }),
+      async () => {
+        const { result } = await run("send_message", { to: "lead@example.com", subject: "Hi", body: "Hello there.", connector: "sendgrid" });
+        expect(result.status).toBe("done");
+        expect(t.gateway.calls.at(-1)).toMatchObject({ connector: "sendgrid", tool: "send_mail", args: { kind: "transactional", from: { email: "hello@biz.example", name: "Biz" }, to: [{ email: "lead@example.com" }], subject: "Hi", text: "Hello there." } });
+      },
+    );
+  });
+
+  it("a send the connector refuses fails the action with the connector's reason (never 'done')", async () => {
+    await withGateway(
+      () => ({ outcome: "allow", result: { ok: false, error: { code: "invalid_args", message: "gmail.send_message: to must be an email" } } }),
+      async () => {
+        const { result } = await run("send_message", { to: "x@example.com", body: "Hi" });
+        expect(result.status).toBe("failed");
+        expect((result.result as { error: string }).error).toMatch(/gmail\.send_message failed: gmail\.send_message: to must be an email/);
+      },
+    );
+  });
+
+  it("a recipient with no email on record fails clearly and calls nothing", async () => {
+    const before = t.gateway.calls.length;
+    const { result } = await run("send_message", { recipient: "Nobody We Know", body: "Hi" });
+    expect(result.status).toBe("failed");
+    expect((result.result as { error: string }).error).toMatch(/No email address on record for Nobody We Know/);
+    expect(t.gateway.calls.length).toBe(before);
+  });
+
+  it("a message with only an intent becomes a task for the acting agent, who drafts it with its own tools", async () => {
+    const before = t.gateway.calls.length;
+    const { result, actionId } = await run("send_message", { to: "partner@example.com", intent: "Ask about a pilot", requires_disclosure: true });
+    expect(result.status).toBe("done");
+    expect(result.result).toMatchObject({ delegated: true, assigneeAgentId: t.chiefId });
+    const task = await repos.tasks.get(t.db, t.businessId, (result.result as { taskId: string }).taskId);
+    expect(task).toMatchObject({ planActionId: actionId, assigneeAgentId: t.chiefId });
+    expect(task.goalMd).toContain("partner@example.com");
+    expect(task.goalMd).toContain("AI agent");
+    expect(t.gateway.calls.length).toBe(before);
+  });
+
+  it("schedule_meeting creates a calendar event with create_event's arguments; a rejected argument fails the action", async () => {
+    await withGateway(
+      () => ({ outcome: "allow", result: { ok: true, data: { id: "evt_1" } } }),
+      async () => {
+        const { result } = await run("schedule_meeting", { title: "Intro call", attendees: ["x@example.com"], start: "2026-10-20T15:00:00Z" });
+        expect(result.status).toBe("done");
+        expect(t.gateway.calls.at(-1)).toMatchObject({ connector: "google_calendar", tool: "create_event", args: { calendarId: "primary", summary: "Intro call", start: "2026-10-20T15:00:00.000Z", end: "2026-10-20T15:30:00.000Z", attendees: ["x@example.com"] } });
+        expect(result.result).toMatchObject({ eventId: "evt_1" });
+      },
+    );
+    await withGateway(
+      () => ({ outcome: "allow", result: { ok: false, error: { code: "invalid_args", message: "google_calendar.create_event: invalid start" } } }),
+      async () => {
+        const { result } = await run("schedule_meeting", { title: "Intro call", attendees: ["x@example.com"], start: "2026-10-20T15:00:00Z" });
+        expect(result.status).toBe("failed");
+      },
+    );
+  });
+
+  it("a meeting with no time becomes a task for the acting agent to find a slot", async () => {
+    const { result } = await run("schedule_meeting", { with: "x@example.com", topic: "Pricing review", timeframe: "next week" });
+    expect(result.status).toBe("done");
+    expect(result.result).toMatchObject({ delegated: true });
+  });
+
+  it("the connector's own policy asking makes the action wait once; asking again after the approval fails it", async () => {
+    let approvalId = "";
+    await withGateway(
+      () => ({ outcome: "ask", approvalId, reasons: ["new counterparty"] }),
+      async () => {
+        const approval = await repos.approvals.create(t.db, t.businessId, { agentId: t.chiefId, connectorKey: "gmail", tool: "send_message", args: {}, reasons: ["new counterparty"] });
+        approvalId = approval.id;
+        const first = await run("send_message", { to: "new@example.com", body: "Hello" });
+        expect(first.result).toMatchObject({ status: "awaiting_approval", approvalId });
+        expect((await repos.plans.getAction(t.db, t.businessId, first.actionId)).status).toBe("awaiting_approval");
+        await repos.approvals.resolve(t.db, t.businessId, approvalId, { outcome: "approved", byKind: "user", byId: t.fixture.ownerId });
+        const again = await acts.executePlanAction({ businessId: t.businessId, planId: first.planId, actionId: first.actionId, workflowId: "plan:test", approved: true, approvalId });
+        expect(again.status).toBe("failed");
+        expect((again.result as { error: string }).error).toMatch(/asked again/);
+      },
+    );
   });
 });
