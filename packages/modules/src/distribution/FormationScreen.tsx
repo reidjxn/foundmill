@@ -14,7 +14,7 @@ import { moduleHref, useDepartments } from "@foundmill/widgets/shared/department
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
 import type { ModuleScreenProps } from "../registry";
 import { ChannelProfileDrawer } from "./ChannelProfileDrawer";
-import { buildChannelViews, toChannelToken, totalBudget, type ChannelView } from "./channel-data";
+import { buildChannelViews, channelStatus, toChannelToken, totalBudget, type ChannelView } from "./channel-data";
 import { InlineError, Screen, searchParam, useAction } from "./shared";
 import { localScores, RESCORE_DEBOUNCE_MS, useDebouncedRun } from "./rescore";
 import type { AgentRow, CampaignRow, ChannelMetricRow, ChannelsListResponse, Page, RecommendResponse, RecommendationRow } from "./types";
@@ -66,6 +66,8 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
   const selectedToken = selected ? (tokens.find((t) => t.key === selected) ?? null) : null;
   const scored = views.filter((v) => v.persisted).length;
   const starters = views.filter((v) => v.enabled).length;
+  // On the board but no engine recorded yet: said so, never counted as running (audit GTM-01).
+  const starting = views.filter((v) => channelStatus(v).word === "Starting").length;
 
   const rescore = useCallback(async () => {
     setRescoring(true);
@@ -122,7 +124,7 @@ export function FormationScreen({ businessId, departmentId, animateEntrance = tr
       <GridCell span={12} className="flex gap-gutter">
         <Panel
           title="Board"
-          meta={hasData ? `${starters} of 15 running` : undefined}
+          meta={hasData ? (starting ? `${starters - starting} of 15 running · ${starting} starting` : `${starters} of 15 running`) : undefined}
           loading={channels.isLoading}
           error={channels.error ? channels.error.message : undefined}
           onRetry={channels.refetch}

@@ -108,6 +108,9 @@ describe("tokens and status", () => {
     expect(channelStatus({ enabled: true, paused: true, persisted: true })).toEqual({ tone: "warn", word: "Paused" });
     expect(channelStatus({ enabled: false, paused: false, persisted: true })).toEqual({ tone: "neutral", word: "Off the board" });
     expect(channelStatus({ enabled: false, paused: false, persisted: false })).toEqual({ tone: "neutral", word: "Not scored" });
+    // On the board without an engine is never "Running" (audit GTM-01); with one recorded it is.
+    expect(channelStatus({ enabled: true, paused: false, persisted: true, engineWorkflowId: null })).toEqual({ tone: "warn", word: "Starting" });
+    expect(channelStatus({ enabled: true, paused: false, persisted: true, engineWorkflowId: "engine:x" })).toEqual({ tone: "good", word: "Running" });
   });
 });
 

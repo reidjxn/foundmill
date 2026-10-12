@@ -90,6 +90,15 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(result.cycle.queued).toBe(true);
     expect(temporal.starts.find((s) => s.type === "businessCycle")?.workflowId).toBe(`cycle:${bid}:1`);
 
+    // Every starter channel on the board runs its engine from the start, its id recorded on the channel (audit GTM-01).
+    const running = await repos.channels.list(hz.db, bid, { enabled: true });
+    expect(running.map((c) => c.channelKey).sort()).toEqual([...seed.defaultChannels].sort());
+    for (const c of running) {
+      expect(temporal.starts.some((s) => s.type === "channelEngine" && s.workflowId === `engine:${c.id}`)).toBe(true);
+      expect(c.engineWorkflowId).toBe(`engine:${c.id}`);
+    }
+    expect(result.engines.map((e) => e.workflowId).sort()).toEqual(running.map((c) => `engine:${c.id}`).sort());
+
     // The new owner can read the business and departments through the business procedures.
     const me = await caller.business.get({ businessId: bid });
     expect(me.role).toBe("owner");

@@ -21,8 +21,9 @@ import type { AgentStopReason } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
 import { cycleStatus } from "./cycle";
+import { ensureChannelEngines } from "./engines";
 import { AgentsStoppedError } from "./stop-guard";
-import { WORKFLOWS, workflowIds, type SignalManyResult, type TemporalResult } from "./temporal";
+import { workflowIds, type SignalManyResult, type TemporalResult } from "./temporal";
 
 export { AgentsStoppedError, assertAgentsRunning } from "./stop-guard";
 
@@ -138,8 +139,10 @@ export async function resumeAgents(ctx: BusinessContext): Promise<ResumeAgentsRe
   return { resumed: result.resumed, reason: result.reason, resumedAgents: result.agentIds.length, engines };
 }
 
-/** Start again the engines of enabled channels that had one running when the team stopped (deterministic ids). */
+/**
+ * Start again the engine of every enabled channel (deterministic ids; a running one answers "already running"): every
+ * channel on the board runs its engine, whether or not one was recorded before the stop (audit GTM-01).
+ */
 export async function restartEngines(ctx: BusinessContext): Promise<TemporalResult[]> {
-  const channels = await repos.channels.list(ctx.db, ctx.businessId, { enabled: true });
-  return Promise.all(channels.filter((c) => c.engineWorkflowId).map((c) => ctx.temporal.start(WORKFLOWS.channelEngine, { workflowId: workflowIds.engine(c.id), args: [{ businessId: ctx.businessId, channelId: c.id, channelKey: c.channelKey }] })));
+  return ensureChannelEngines(ctx, await repos.channels.list(ctx.db, ctx.businessId, { enabled: true }));
 }

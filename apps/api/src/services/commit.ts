@@ -6,7 +6,9 @@
  * enabled) → spec outline blocks → the foundations row (pending; Door B also links its Import job: the report is
  * snapshotted and the imported sources become `sources`) → first-cycle tasks → the founder's Home dashboard → the first
  * Board decision in the Inbox → `idea.committed` through the outbox → audit. After commit the first businessCycle is
- * started on Temporal (reported as `{ queued, reason }`; the business is complete without it). The vision,
+ * started on Temporal (reported as `{ queued, reason }`; the business is complete without it), and so is the engine of
+ * every starter channel on the board (`ensureChannelEngines`; the orchestrator's reconciler starts any Temporal could
+ * not take now). The vision,
  * specification content and roadmap are drafted on the first open (services/foundations.ts).
  *
  * One business per idea: the transaction claims the idea (`ideas.claimForCommit`, one conditional statement) before
@@ -23,7 +25,8 @@ import { PRESET_LAYOUTS } from "../presets";
 import { checkLogoChoice, type LogoChoice } from "./logo";
 import { hireMany, type PlannedHire } from "./squad";
 import type { TemporalService } from "./temporal";
-import { WORKFLOWS, workflowIds } from "./temporal";
+import { WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
+import { ensureChannelEngines } from "./engines";
 import { importJobIdOf, resolveImportLink, seedFoundations, type ImportLink } from "./foundations";
 
 export interface CommitIdeaInput {
@@ -47,6 +50,8 @@ export interface CommitIdeaResult {
   boardItem: InboxItem;
   taskIds: string[];
   cycle: { queued: boolean; workflowId: string; reason?: string };
+  /** The starter channels' engines (`engine:<channelId>`), one per channel on the board (audit GTM-01). */
+  engines: TemporalResult[];
   /** The vision, specification and roadmap wait for the first open (BUILD §11.1, §11.5). */
   foundations: { status: "pending"; door: "ideation" | "import"; importSourceIds: string[] };
   /** True when the idea was already a business (a second Take charge): nothing was created and no cycle started. */
@@ -316,7 +321,9 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   if (!result) return committedIdeaResult(db, userId, input.ideaId);
 
   const cycle = await temporal.start(WORKFLOWS.businessCycle, { workflowId: workflowIds.cycle(result.business.id, 1), args: [{ businessId: result.business.id, cycleNumber: 1, trigger: "continue" }] });
-  return { ...result, cycle, alreadyCommitted: false };
+  // The starters are on the board, so their engines run from now on (each records its id on the channel).
+  const engines = await ensureChannelEngines({ db, temporal, businessId: result.business.id }, await repos.channels.list(db, result.business.id, { enabled: true }));
+  return { ...result, cycle, engines, alreadyCommitted: false };
 }
 
 /**
@@ -346,6 +353,7 @@ async function committedIdeaResult(db: Db, userId: string, ideaId: string): Prom
     boardItem,
     taskIds: receipt.taskIds ?? [],
     cycle: { queued: false, workflowId: workflowIds.cycle(businessId, 1), reason: "already committed: the first commit started this cycle" },
+    engines: [],
     foundations: { status: "pending", door: receipt.door ?? "ideation", importSourceIds: receipt.importSourceIds ?? [] },
     alreadyCommitted: true,
   };
