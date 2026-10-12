@@ -6,6 +6,7 @@
  */
 import { Dumbbell, FileClock, Play, Undo2 } from "lucide-react";
 import { useMemo } from "react";
+import { CREDITS_CURRENCY } from "@foundmill/config";
 import { Panel, StatusStrip, Timeline, formatMoney, type MetricTileProps, type TimelineEvent } from "@foundmill/dugout";
 import type { TabProps } from "./AgentProfileScreen";
 import { MODEL_LABELS } from "@foundmill/dugout";
@@ -72,7 +73,7 @@ export function HistoryTab({ profile, currency }: TabProps) {
             { label: "Success rate", value: success, format: "percent" },
             { label: "Review findings", value: findings, format: "integer", delta: findings ? { value: findings, goodWhen: "down", label: "open" } : undefined },
             { label: "Approvals rejected", value: rejected, format: "integer" },
-            { label: "Cost · 30 d", value: { amountMinor: cost, currency }, estimate: "estimate", provenance: { source: "Model and tool usage, last 30 days" } },
+            { label: "Cost · 30 d", value: { amountMinor: cost, currency: CREDITS_CURRENCY }, estimate: "estimate", provenance: { source: "Model and tool usage, last 30 days", note: "Metered in US dollars at list prices." } },
           ] satisfies MetricTileProps[]}
         />
       </div>

@@ -6,6 +6,7 @@
  */
 import { useEffect, useId, useState } from "react";
 import { ArrowLeftRight, Copy, UserRoundMinus, UserRoundPlus } from "lucide-react";
+import { CREDITS_CURRENCY } from "@foundmill/config";
 import { Button, Checkbox, Chip, MODEL_LABELS, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Field, Input, KeyValueList, ProvenanceChip, SimpleSelect, formatMoney } from "@foundmill/dugout";
 import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import { humanise } from "../fit";
@@ -33,12 +34,13 @@ export interface HireDialogProps {
   defaultDepartmentId?: string;
   /** Prefilled name (the agent builder's suggestion). */
   defaultName?: string;
+  /** The wage cap's currency: a wage cap caps metered model cost, so US dollars (`CREDITS_CURRENCY`). */
   currency?: string;
   onHired: (agent: AgentRow, template: TemplateRow) => void;
 }
 
 /** Hire a catalogue template into a department (team.agents.hire). */
-export function HireDialog({ template, onOpenChange, departments, defaultDepartmentId, defaultName, currency = "EUR", onHired }: HireDialogProps) {
+export function HireDialog({ template, onOpenChange, departments, defaultDepartmentId, defaultName, currency = CREDITS_CURRENCY, onHired }: HireDialogProps) {
   const id = useId();
   const action = useAction();
   const options = departmentOptions(departments);

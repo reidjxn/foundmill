@@ -119,12 +119,15 @@ describe("structural invariants", () => {
     // businesses.spend_cap_minor (0024) is in the business currency, the businesses.currency column of 0025.
     const currencyFromBusiness = new Set(["businesses"]);
     for (const t of tablesWithMinor) if (!currencyFromBusiness.has(t)) expect(tablesWithCurrency.has(t), `${t} has *_minor but no currency`).toBe(true);
-    // Credits and platform costs are US dollars (0024).
+    // Credits and platform costs (the ledger, a session's, a training run's and the daily metrics' cost) are US dollars (0024).
     const defaults = (await rows<{ table_name: string; column_default: string }>(sql`
       select table_name, column_default from information_schema.columns
-       where table_schema = 'public' and column_name = 'currency' and table_name in ('usage_ledger', 'credit_balances')`)).rows;
+       where table_schema = 'public' and column_name = 'currency' and table_name in ('usage_ledger', 'credit_balances', 'agent_sessions', 'training_runs', 'agent_metrics')`)).rows;
     expect(defaults.map((d) => [d.table_name, d.column_default.replace(/::bpchar$/, "")]).sort()).toEqual([
+      ["agent_metrics", "'USD'"],
+      ["agent_sessions", "'USD'"],
       ["credit_balances", "'USD'"],
+      ["training_runs", "'USD'"],
       ["usage_ledger", "'USD'"],
     ]);
   });

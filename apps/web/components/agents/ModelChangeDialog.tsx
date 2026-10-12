@@ -8,6 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock, TriangleAlert } from "lucide-react";
 import { useEffect, useState } from "react";
+import { CREDITS_CURRENCY } from "@foundmill/config";
 import { ApplyScopeDialog, Button, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Icon, MODEL_LABELS, ModelPicker, SkeletonText, useToast, type ApplyScope } from "@foundmill/dugout";
 import type { ModelKey } from "@foundmill/shared";
 import { errorMessage, trpcPathPrefix } from "@/lib/trpc";
@@ -22,6 +23,7 @@ export interface ModelChangeDialogProps {
   /** Agents sharing the type and the whole squad, for the scope dialog's copy. */
   typeCount?: number;
   allCount?: number;
+  /** The wage deltas' currency: model costs are metered in US dollars (`CREDITS_CURRENCY`), never the business's. */
   currency?: string;
   /** Open straight at the warning/scope step for this model (Training › Model has its own picker). */
   preselect?: ModelKey | null;
@@ -29,7 +31,7 @@ export interface ModelChangeDialogProps {
 
 type Step = "pick" | "warn" | "scope";
 
-export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typeCount, allCount, currency = "EUR", preselect = null }: ModelChangeDialogProps) {
+export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typeCount, allCount, currency = CREDITS_CURRENCY, preselect = null }: ModelChangeDialogProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -63,7 +65,7 @@ export function ModelChangeDialog({ businessId, profile, open, onOpenChange, typ
   );
 
   const current = compareQ.data?.current ?? agent.modelKey;
-  const options = compareQ.data ? modelOptions(compareQ.data, agent.currency ?? currency) : [];
+  const options = compareQ.data ? modelOptions(compareQ.data, currency) : [];
   const locked = profile.modelLock || compareQ.data?.locked === true;
   const warnings = candidate ? modelChangeWarnings(agent, profile.route, candidate) : [];
   const cosWarning = warnings.find((w) => w.includes("Chief of Staff"));

@@ -105,7 +105,8 @@ export const agentRouter = router({
         let tests = 0;
         for (const s of skills) tests += getSkillTests(s.skillKey, { includeHeldOut: true }).length;
         const perTest = meter(REFERENCE_TEST_USAGE, MODELS[modelKey]).costMicroMinor + meter(REFERENCE_GRADE_USAGE, MODELS.opus).costMicroMinor;
-        return { tests, skills: skills.length, modelKey, costMinor: Math.round((perTest * tests) / 1_000_000), durationMinutes: Math.max(2, Math.min(5, Math.ceil(tests / 20))), label: "Estimate" as const };
+        // Metered at list prices, so in the price list's currency (USD), never the business's.
+        return { tests, skills: skills.length, modelKey, costMinor: Math.round((perTest * tests) / 1_000_000), currency: CREDITS_CURRENCY, durationMinutes: Math.max(2, Math.min(5, Math.ceil(tests / 20))), label: "Estimate" as const };
       }),
     ),
 
@@ -183,6 +184,8 @@ export const agentRouter = router({
         return {
           current: agent.modelKey,
           locked: resolveModel(route).locked,
+          // Predicted from the agent's metered model cost at list prices: US dollars, never the business's currency.
+          currency: CREDITS_CURRENCY,
           options: MODEL_KEYS.map((modelKey) => {
             const r = resolveModel(route, modelKey);
             const ratio = meter(REFERENCE_TEST_USAGE, MODELS[modelKey]).costMicroMinor / reference;

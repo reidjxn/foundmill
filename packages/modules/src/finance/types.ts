@@ -154,7 +154,7 @@ export interface WageRow {
   toolCalls: number;
   trainingMinor: number;
   wageCapMinor: number | null;
-  /** The agent's currency, which its wage cap is in. */
+  /** The wage cap's currency: US dollars, like the metered cost it caps (absent from older answers). */
   wageCapCurrency?: string | null;
 }
 export interface WagesResponse {

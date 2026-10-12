@@ -5,7 +5,7 @@
  * SAFEs, a community, a leaderboard entry, and a coding squad with recorded sessions.
  */
 import { getArchetypeSeed } from "@foundmill/agents";
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { eq } from "drizzle-orm";
 import { repos } from "../repos";
 import { agentSessions, type Entity } from "../schema";
@@ -204,7 +204,7 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     createdByKind: "agent",
     createdBy: squad.byTemplate.get("engineering_lead")?.agent.id ?? null,
   });
-  const run = await repos.training.create(db, businessId, { agentId: backend.agent.id, fromVersionId: v1, toVersionId: v2.id, status: "awaiting_decision", costMinor: 1_850, currency: CURRENCY, requestedBy: ctx.owner.userId });
+  const run = await repos.training.create(db, businessId, { agentId: backend.agent.id, fromVersionId: v1, toVersionId: v2.id, status: "awaiting_decision", costMinor: 1_850, currency: CREDITS_CURRENCY, requestedBy: ctx.owner.userId });
   await repos.training.update(db, businessId, run.id, {
     status: "awaiting_decision",
     results: { testing: { old: 12, new: 14 }, security_awareness: { old: 11, new: 13 }, api_design: { old: 13, new: 13 }, speed: { old: 12, new: 11 } },

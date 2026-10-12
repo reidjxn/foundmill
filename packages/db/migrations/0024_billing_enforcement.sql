@@ -17,6 +17,22 @@ alter table credit_balances alter column currency set default 'USD';
 --> statement-breakpoint
 alter table credit_balances add constraint credit_balances_currency_usd check (currency = 'USD');
 --> statement-breakpoint
+-- The other places a model cost is kept had the same EUR default for US cents: an agent session's cost (Live sessions,
+-- an agent's Logs and History), a training run's cost and the daily agent metrics rolled up from sessions. Their amounts
+-- were always US cents (a plan's training action and the demo seeds only named another currency), so they are relabeled
+-- USD.
+update agent_sessions set currency = 'USD', updated_at = now() where currency <> 'USD';
+--> statement-breakpoint
+alter table agent_sessions alter column currency set default 'USD';
+--> statement-breakpoint
+update training_runs set currency = 'USD', updated_at = now() where currency <> 'USD';
+--> statement-breakpoint
+alter table training_runs alter column currency set default 'USD';
+--> statement-breakpoint
+update agent_metrics set currency = 'USD', updated_at = now() where currency <> 'USD';
+--> statement-breakpoint
+alter table agent_metrics alter column currency set default 'USD';
+--> statement-breakpoint
 -- 2. The Commit screen's "Spend cap per action", kept on the business (it was only written to the audit log) and
 --    editable in Settings › Mode. Minor units of the business currency; null means no business cap. The gateway lowers
 --    every agent's approval threshold to it, so above it every spend asks first, whatever the mode.

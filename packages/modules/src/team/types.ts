@@ -164,6 +164,8 @@ export interface ModelCompareOption {
 export interface ModelCompareResponse {
   current: ModelKey;
   locked?: boolean;
+  /** The predicted wages' currency: metered model cost, so US dollars (absent from older answers). */
+  currency?: string;
   options: ModelCompareOption[];
 }
 

@@ -191,7 +191,6 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
         onOpenChange={(o) => !o && setModelAgent(null)}
         typeCount={typeCount}
         allCount={agents.length}
-        currency={currency}
         onApplied={(result, modelKey) => {
           setNotice(describeModelSet(result, modelKey));
           refetch();
