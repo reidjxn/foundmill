@@ -300,7 +300,7 @@ const CUSTOMER_UPDATE: ExampleCustomerUpdate = {
       // The mention's card shows three facts side by side in about 75 px each: values short enough to read whole.
       { label: "Stores", value: "36" },
       { label: "Terms", value: "Net 30" },
-      { label: "First seen", value: "Aug 27" },
+      { label: "First seen", value: "{date:2026-08-27}" },
     ],
   },
   plan: "Opening order · 3 products in 36 stores",
@@ -470,7 +470,6 @@ export const NORTHWIND: ExampleBusiness = {
   deck: {
     // Where the business is when the page opens: two years in (the Journey), in its ninth chapter.
     startCycle: 191,
-    chapter: "Chapter 9",
     runwayMonths: 13,
     costPerTaskMinor: 52,
     earlierDecision: { title: "You approved creator kits", detail: "Retail Partnerships shipped 30 kits with tracked codes.", from: { name: "Poppy", seed: "poppy", dept: "dept-3" } },

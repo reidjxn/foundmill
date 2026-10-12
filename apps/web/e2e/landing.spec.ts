@@ -169,21 +169,27 @@ test.describe("landing page", () => {
       }
       await expect.poll(() => dayAt(hi)).toBe(day);
     };
-    // The first retail partner's day (Dec 26, 2024): the pharmacy's opening order is the milestone card's customer and
+    // The page moves the story (written for Oct 7, 2026) to the browser's today, every date by the same days.
+    const today = await page.evaluate(() => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    });
+    const moved = (storyDay: string) => new Date(Date.parse(`${storyDay}T00:00:00Z`) + Date.parse(`${today}T00:00:00Z`) - Date.parse("2026-10-07T00:00:00Z")).toISOString().slice(0, 10);
+    // The first retail partner's day (Dec 26, 2024 on the story's calendar): the pharmacy's opening order is the milestone card's customer and
     // value.
-    await hoverDay("2024-12-26");
+    await hoverDay(moved("2024-12-26"));
     await expect(card).toContainText("First retail partner");
     await expect(card).toContainText("Oak Hill Pharmacy");
     await expect(card).toContainText("$3,782.60");
     // "Retail Partnerships" and "Formulation Lab" fit the card's department column (scaled at most, never cut).
     await expect(card.locator('[data-fit="truncated"]')).toHaveCount(0);
     // The 1,000th customer's day has paying customers on it, and two years add up to thousands of them, not hundreds.
-    await hoverDay("2025-09-25");
+    await hoverDay(moved("2025-09-25"));
     await expect(card).toContainText("1,000th customer");
     expect(Number(/Paying\s*(\d+)/i.exec(await card.innerText())?.[1])).toBeGreaterThan(0);
     expect(Number(/(\d+) payments/.exec((await ribbon.getAttribute("aria-label")) ?? "")?.[1])).toBeGreaterThan(3000);
     // Today the chain's opening order is on the Ribbon, at the Customer Update's value.
-    await hoverDay("2026-10-07");
+    await hoverDay(today);
     await expect(card).toContainText("Larkfield Market");
     await expect(card).toContainText("$16,632.00");
     await page.mouse.move(1, 1);

@@ -261,12 +261,14 @@ describe("LandingPage (signed-out /)", () => {
     expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Landed cost per routine")).toBeTruthy();
   });
 
-  it("dates the deck's top bar and the Inbox note today, not a fixed day", () => {
+  it("dates the deck's top bar, the Inbox note and the Customer Update today, not a fixed day", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-15T12:00:00Z"));
     renderPage();
     expect(within(screen.getByTestId("cycle-deck")).getByTestId("kitbar-date").textContent).toBe("Oct 15, 2026");
     expect(within(screen.getByRole("article", { name: "Example Inbox note" })).getByText("Thu, Oct 15 · cycle 215")).toBeTruthy();
+    // The Customer Update moves with the story: first seen on Sunday, Sep 20 on its calendar, eight days later today.
+    expect(within(screen.getByRole("region", { name: "Customer Update" })).getByText(/to the site on a Monday evening\.$/)).toBeTruthy();
   });
 
   it("renders the live tiles in the browser only, already mid-session, then streams them", async () => {
@@ -326,7 +328,8 @@ describe("LandingPage server render", () => {
       const utc = await markupIn("UTC");
       expect(utc).toContain("Oct 12, 2026");
       expect(utc).toContain("Mon, Oct 12");
-      expect(utc).toContain("Sep 25, 2025");
+      // The 100th customer's card (Sep 25, 2025 on the story's calendar) moves with the story: five days to today.
+      expect(utc).toContain("Sep 30, 2025");
       for (const zone of ["America/Los_Angeles", "Pacific/Honolulu", "Asia/Tokyo", "Pacific/Auckland"]) expect(await markupIn(zone), zone).toBe(utc);
     } finally {
       vi.useRealTimers();

@@ -240,16 +240,16 @@ const CUSTOMER_UPDATE: ExampleCustomerUpdate = {
     // The mention's card shows three facts side by side in about 75 px each: values short enough to read whole.
     { label: "Segment", value: "SAT math" },
     { label: "Plan", value: "Pro" },
-    { label: "First seen", value: "Sep 20" },
+    { label: "First seen", value: "{date:2026-09-20}" },
   ] },
   plan: "Pro · practice companion for 18 students",
   stats: { touches: 7, channels: 3, days: 12, acquisitionCostMinor: 4200 },
   commentary: [
-    { text: "Pike's guide 'SAT quadratics: 40 practice questions' brings Adaeze Okafor to the site on a Sunday evening.", highlight: true },
-    { text: "On Tuesday she records a lesson and tries the free recap." },
+    { text: "Pike's guide 'SAT quadratics: 40 practice questions' brings Adaeze Okafor to the site on a {weekday:2026-09-20} evening.", highlight: true },
+    { text: "On {weekday:2026-09-22} she records a lesson and tries the free recap." },
     { text: "Juno's recap lands within the hour: lesson notes, a practice set in her own method and a progress note for the parent.", highlight: true },
     { text: "Nell's follow-up shows her how parents can add the practice companion." },
-    { text: "Three parents ask for the companion by Friday. [[ent:5d0c6a3e-8f1b-4c2a-9e47-2b6f1d8c3a90|Okafor Math Tutoring]] moves to Pro.", highlight: true },
+    { text: "Three parents ask for the companion by {weekday:2026-10-02}. [[ent:5d0c6a3e-8f1b-4c2a-9e47-2b6f1d8c3a90|Okafor Math Tutoring]] moves to Pro.", highlight: true },
   ],
   agents: [
     { name: "Juno", seed: "juno", dept: "dept-2", role: "Lesson recap pipeline", rating: 10, standout: true },
@@ -411,7 +411,6 @@ export const TUTORLANE: ExampleBusiness = {
   deck: {
     // Where the business is when the page opens: two years in (the Journey), in its ninth chapter.
     startCycle: 214,
-    chapter: "Chapter 9",
     runwayMonths: 14,
     costPerTaskMinor: 46,
     earlierDecision: { title: "Domain renewal approved", detail: "Development renewed it for two years.", from: { name: "Forge", seed: "forge", dept: "dept-2" } },

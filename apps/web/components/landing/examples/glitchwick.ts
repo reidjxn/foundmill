@@ -12,7 +12,8 @@
  * nightly playtest caught a save-file crash two weeks before its Steam Next Fest demo.
  *
  * Dates agree with the Journey: the Ribbon is the design system's two-year fixture (today 2026-10-07, Chapter 9), and
- * every milestone card is dated on the day its pin sits. Names of studios and people are invented; GitHub, Steam,
+ * every milestone card is dated on the day its pin sits. The page moves the whole story to the visitor's today
+ * (`STORY_DAY` in ./helpers), so these are dates on the story's own calendar. Names of studios and people are invented; GitHub, Steam,
  * itch.io, Discord, Reddit and Stripe appear only as the tools and channels the business uses. Nothing is presented as
  * real traction, and every money figure that is not a measurement is labeled Estimate where it appears
  * (the fixture's euro MRR pins print in dollars without a mapping here, so no euro sign is in this data). Loaded on
@@ -271,15 +272,15 @@ const CUSTOMER_UPDATE: ExampleCustomerUpdate = {
     facts: [
       { label: "Engine", value: "Godot" },
       { label: "Plan", value: "Indie" },
-      { label: "First seen", value: "Sep 24" },
+      { label: "First seen", value: "{date:2026-09-24}" },
     ],
   },
   plan: "Indie · nightly playtests, $29 a month",
   stats: { touches: 6, channels: 2, days: 11, acquisitionCostMinor: 3400 },
   commentary: [
-    { text: "Pip's devlog 'What broke in 1,000 AI-played runs' brings Rosa Delgado in from r/gamedev on a Thursday night.", highlight: true },
+    { text: "Pip's devlog 'What broke in 1,000 AI-played runs' brings Rosa Delgado in from r/gamedev on a {weekday:2026-09-24} night.", highlight: true },
     { text: "She asks in Glitchwick's Discord whether Godot web exports work. Moss replies with a sample replay ten minutes later." },
-    { text: "On Saturday she installs the GitHub app on the Tidewright repository and starts the 14-day trial." },
+    { text: "On {weekday:2026-09-26} she installs the GitHub app on the Tidewright repository and starts the 14-day trial." },
     { text: "On the third night, Rune's nightly playtest finds a crash: loading a save made just after a relic triggers. It lands in GitHub with a replay of the 20 seconds before it.", highlight: true },
     { text: `Rosa ships the fix the next morning. A week later, with the Steam Next Fest demo locked, [[ent:${KETTLEBIRD.entityId}|${KETTLEBIRD.name}]] moves to the Indie plan.`, highlight: true },
   ],
@@ -437,9 +438,8 @@ export const GLITCHWICK: ExampleBusiness = {
   departments: DEPARTMENTS,
   leads: LEADS,
   deck: {
-    // Two years in (the Journey's 2026-10-07), in its ninth chapter.
+    // Two years in (the Journey's today), in its ninth chapter (the deck computes the chapter from today).
     startCycle: 196,
-    chapter: "Chapter 9",
     runwayMonths: 16,
     costPerTaskMinor: 41,
     // The rule that started this chapter's routing work: Finance flags a month under the floor, Development fixes it.

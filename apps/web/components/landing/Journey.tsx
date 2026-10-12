@@ -8,9 +8,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Clock, Coins, MousePointerClick, Radio, Star, Trophy } from "lucide-react";
 import { Avatar, Chip, EntityLinkProvider, EntityText, Icon, JourneyRibbon, ProvenanceChip, TrophyCabinet, cn } from "@foundmill/dugout";
 import { useExample } from "./examples/context";
-import { exampleJourney, exampleMoney, type ExampleJourneyData } from "./examples/helpers";
+import { datedCustomerUpdate, datedMilestones, exampleJourney, exampleMoney, type ExampleJourneyData } from "./examples/helpers";
 import type { ExampleBusiness } from "./examples/types";
-import { Glass, ProductWindow, Reveal, Section, SectionHeading, useSeen } from "./parts";
+import { Glass, ProductWindow, Reveal, Section, SectionHeading, useSeen, useToday } from "./parts";
 
 /** Taller than Home's 300 px so all four rows (revenue, signups, paying customers, agent hours) read at a glance. */
 const RIBBON_HEIGHT = 400;
@@ -19,8 +19,10 @@ export function JourneySection() {
   const business = useExample();
   const { identity, deck } = business;
   const [ref, seen] = useSeen<HTMLDivElement>("600px");
-  const data = useIdleJourney(seen, business);
-  const milestones = useMemo(() => [...business.milestones], [business]);
+  // The story is moved to today: the Ribbon, the milestone cards and the Customer Update agree on every date.
+  const today = useToday();
+  const data = useIdleJourney(seen, business, today);
+  const milestones = useMemo(() => datedMilestones(business, today), [business, today]);
   return (
     <Section id="journey">
       <SectionHeading
@@ -68,7 +70,7 @@ export function JourneySection() {
       </Reveal>
       <div className="grid grid-cols-12 gap-6">
         <Reveal className="col-span-7">
-          <CustomerUpdate />
+          <CustomerUpdate today={today} />
         </Reveal>
         <Reveal className="col-span-5" delay={90}>
           <Glass className="flex h-full flex-col gap-3 p-5">
@@ -88,25 +90,26 @@ export function JourneySection() {
  * Two years of the example's daily rows take tens of milliseconds to build, so they are built when the browser is idle
  * after the section comes near the window, never during a scroll frame.
  */
-function useIdleJourney(seen: boolean, business: ExampleBusiness): ExampleJourneyData | null {
-  const [data, setData] = useState<ExampleJourneyData | null>(null);
+function useIdleJourney(seen: boolean, business: ExampleBusiness, today: string): ExampleJourneyData | null {
+  const [built, setBuilt] = useState<{ today: string; data: ExampleJourneyData } | null>(null);
+  const data = built?.today === today ? built.data : null;
   useEffect(() => {
     if (!seen || data) return;
-    const build = () => setData(exampleJourney(business));
+    const build = () => setBuilt({ today, data: exampleJourney(business, today) });
     if (typeof window.requestIdleCallback === "function") {
       const id = window.requestIdleCallback(build, { timeout: 800 });
       return () => window.cancelIdleCallback(id);
     }
     const t = setTimeout(build, 0);
     return () => clearTimeout(t);
-  }, [seen, data, business]);
+  }, [seen, data, business, today]);
   return data;
 }
 
 /** A Customer Update, compact: the customer, the path in four numbers, the narrated touches and who was involved. */
-function CustomerUpdate() {
+function CustomerUpdate({ today }: { today: string }) {
   const business = useExample();
-  const u = business.customerUpdate;
+  const u = useMemo(() => datedCustomerUpdate(business, today), [business, today]);
   // The customer is an organisation; on this page there is no profile to open, so the mention carries its facts only.
   const entities = useMemo(
     () => ({

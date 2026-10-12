@@ -119,7 +119,6 @@ export type CycleOutcome = ExampleDecision | ExampleWin;
 export interface ExampleDeck {
   /** The last cycle that finished when the page opens. */
   startCycle: number;
-  chapter: string;
   runwayMonths: number;
   /** Agent spend per task in minor units, for the deck's and the cycle plan's Estimate figures. */
   costPerTaskMinor: number;
@@ -241,7 +240,11 @@ export interface ExampleCustomerUpdate {
   customer: { name: string; entityId: string; facts: ReadonlyArray<{ label: string; value: string }> };
   plan: string;
   stats: { touches: number; channels: number; days: number; acquisitionCostMinor: number };
-  /** The narrated touches; the customer is mentioned as `[[ent:<entityId>|Name]]`. */
+  /**
+   * The narrated touches; the customer is mentioned as `[[ent:<entityId>|Name]]`. A day is written as a token on the
+   * story's calendar, "{date:2026-09-20}" or "{weekday:2026-09-20}", so it moves with the story (`storyText`), as do the
+   * facts' values.
+   */
   commentary: ReadonlyArray<{ text: string; highlight?: boolean }>;
   agents: ReadonlyArray<ExampleAgentRef & { role: string; rating: number; standout: boolean }>;
 }
