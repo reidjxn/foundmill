@@ -325,6 +325,7 @@ export type { MockContext } from "./inputs";
 export { buildMockContext, extractJsonValues, normaliseManifest, agentsFrom, numbersIn, keywords, wordCount } from "./inputs";
 export { synthesizeFromZod, synthesizeFromJsonSchema } from "./synth";
 export { compilePlanRuleBased, detectAmounts, detectChannels, detectHardGates, detectAudience, detectTimeframe, inferTaskKind, type PlanCompilerContext, type HardGate, type DetectedAmount } from "./planCompiler";
+export { compileOptionPlan, NO_ACTION_OPTION_RE, type DecisionOption, type OptionPlanContext } from "./optionPlan";
 export { generateInboxComposer } from "./inboxComposer";
 export { generateIdeation, generateConceptCard, generateIdeationRoute, type MockCardSpec } from "./ideation";
 export { generateLogoDesigner, MOCK_LOGO_DIRECTION_FAMILIES, MOCK_LOGO_FAMILIES } from "./logoDesigner";
