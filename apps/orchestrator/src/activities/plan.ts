@@ -16,6 +16,7 @@ import { CHANNEL_KEYS, CHANNEL_META, MODEL_KEYS, TASK_KINDS, uuid, type ChannelK
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { LoadedPlan, PlanActionResult, PlanActionView } from "./types";
+import { createEventArgs, firstSlotIn, freeSlotArgs, gmailSendArgs, meetingFor, messageFor, resultData, resultError, sendgridSendArgs, verifiedSenderIn } from "./connector-calls";
 
 /** Policy attributes per action type (same table as apps/api/src/services/plans.ts; kept in sync by the plan tests). */
 export const ACTION_TOOLS: Record<PlanActionType, ToolCtxInput & { internal?: boolean }> = {
@@ -85,11 +86,15 @@ export function createPlanActivities(deps: OrchestratorDeps) {
     return (agentId && agents.find((a) => a.id === agentId)) || (await repos.agents.chiefOfStaff(deps.db, businessId)) || agents[0] || null;
   }
 
-  /** Call a connector tool through the gateway as the acting agent (never a vendor directly). */
-  async function gatewayCall(businessId: string, agent: Agent, connector: string, tool: string, args: Record<string, unknown>, context: Record<string, unknown>) {
-    const minted = await deps.gateway.mintSessionToken({ businessId, agentId: agent.id, sessionId: uuid(), allowedTools: [`${connector}:${tool}`], ttlSeconds: 300 });
-    return deps.gateway.call(minted.token, { connector, tool, args, context });
+  /**
+   * Call connector tools through the gateway as the acting agent (never a vendor directly). A plan action runs outside
+   * any agent session, so the token says so (`sessionId: null`) instead of naming a session that does not exist.
+   */
+  async function gatewayFor(businessId: string, agent: Agent, connector: string, tools: readonly string[]) {
+    const minted = await deps.gateway.mintSessionToken({ businessId, agentId: agent.id, sessionId: null, allowedTools: tools.map((t) => `${connector}:${t}`), ttlSeconds: 300 });
+    return (tool: string, args: Record<string, unknown>, context: Record<string, unknown> = {}) => deps.gateway.call(minted.token, { connector, tool, args, context });
   }
+  const refused = (res: { outcome: string; reasons?: string[] }) => res.outcome === "deny" || res.outcome === "rate_limited";
 
   return {
     async loadPlan(input: { businessId: string; planId: string }): Promise<LoadedPlan> {
@@ -258,18 +263,44 @@ export function createPlanActivities(deps: OrchestratorDeps) {
       case "send_message": {
         const agent = await actingAgent(businessId, action.agentId, ctx.agents);
         if (!agent) throw new Error("no agent can send on the business's behalf");
-        const connector = str(p.connector, "sendgrid");
-        const tool = str(p.tool, connector === "gmail" ? "send_message" : "send_email");
-        const res = await gatewayCall(businessId, agent, connector, tool, { to: p.to ?? p.recipient, subject: p.subject, body: p.body ?? p.text }, { recipient: typeof p.to === "string" ? p.to : typeof p.recipient === "string" ? p.recipient : undefined });
-        if (res.outcome === "deny" || res.outcome === "rate_limited") throw new Error(`gateway ${res.outcome}: ${(res.reasons ?? []).join("; ")}`);
-        return { result: { connector, tool, outcome: res.outcome, approvalId: res.approvalId ?? null, costMinor: res.costMinor ?? 0 }, spawn: [] };
+        const message = messageFor(p, ctx.business);
+        if ("error" in message) throw new Error(message.error);
+        const context = { recipient: message.to[0], planActionId: action.id };
+        let tool: string;
+        let res: Awaited<ReturnType<Awaited<ReturnType<typeof gatewayFor>>>>;
+        if (message.connector === "gmail") {
+          tool = "send_message";
+          res = await (await gatewayFor(businessId, agent, "gmail", [tool]))(tool, gmailSendArgs(message), context);
+        } else {
+          tool = "send_mail";
+          const call = await gatewayFor(businessId, agent, "sendgrid", ["list_verified_senders", tool]);
+          const from = verifiedSenderIn(resultData(await call("list_verified_senders", {})));
+          if (!from) throw new Error("SendGrid has no verified sender to send from; verify one in SendGrid first");
+          res = await call(tool, sendgridSendArgs(message, from), context);
+        }
+        if (refused(res)) throw new Error(`gateway ${res.outcome}: ${(res.reasons ?? []).join("; ")}`);
+        const failed = resultError(res);
+        if (failed) throw new Error(`${message.connector}.${tool} failed: ${failed}`);
+        return { result: { connector: message.connector, tool, to: message.to, outcome: res.outcome, approvalId: res.approvalId ?? null, costMinor: res.costMinor ?? 0 }, spawn: [] };
       }
       case "schedule_meeting": {
         const agent = await actingAgent(businessId, action.agentId, ctx.agents);
         if (!agent) throw new Error("no agent can schedule on the business's behalf");
-        const res = await gatewayCall(businessId, agent, str(p.connector, "google_calendar"), str(p.tool, "create_event"), { title: p.title, attendees: p.attendees, start: p.start, end: p.end, description: p.description }, { recipient: Array.isArray(p.attendees) ? String(p.attendees[0] ?? "") : undefined });
-        if (res.outcome === "deny" || res.outcome === "rate_limited") throw new Error(`gateway ${res.outcome}: ${(res.reasons ?? []).join("; ")}`);
-        return { result: { outcome: res.outcome, approvalId: res.approvalId ?? null }, spawn: [] };
+        const meeting = meetingFor(p, deps.clock.now());
+        if ("error" in meeting) throw new Error(meeting.error);
+        const call = await gatewayFor(businessId, agent, "google_calendar", ["find_free_slots", "create_event"]);
+        let slot = meeting.start && meeting.end ? { start: meeting.start, end: meeting.end } : null;
+        if (!slot) {
+          const free = await call("find_free_slots", freeSlotArgs(meeting));
+          if (refused(free)) throw new Error(`gateway ${free.outcome}: ${(free.reasons ?? []).join("; ")}`);
+          slot = firstSlotIn(resultData(free));
+          if (!slot) throw new Error(resultError(free) ?? "no free slot in the next 7 days; name a time in your reply");
+        }
+        const res = await call("create_event", createEventArgs(meeting, slot), { recipient: meeting.attendees[0], planActionId: action.id });
+        if (refused(res)) throw new Error(`gateway ${res.outcome}: ${(res.reasons ?? []).join("; ")}`);
+        const failed = resultError(res);
+        if (failed) throw new Error(`google_calendar.create_event failed: ${failed}`);
+        return { result: { connector: "google_calendar", tool: "create_event", attendees: meeting.attendees, start: slot.start, end: slot.end, outcome: res.outcome, approvalId: res.approvalId ?? null }, spawn: [] };
       }
       case "hire_agent": {
         const key = str(p.template_key, str(p.agent_type));

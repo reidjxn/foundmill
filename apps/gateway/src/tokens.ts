@@ -27,7 +27,12 @@ export type ToolRef = z.infer<typeof ToolRef>;
 export const SessionClaims = z.object({
   businessId: Id,
   agentId: Id,
-  sessionId: Id,
+  /**
+   * The `agent_sessions` row the calls belong to, checked at mint (it must exist and be this agent's), or `null` for a
+   * call the platform makes for the business outside any agent session (a confirmed plan action, a Door B import): its
+   * usage, approvals and audit rows then carry no session. Never an invented id: usage and approvals reference it.
+   */
+  sessionId: Id.nullable(),
   allowedTools: z.array(ToolRef).max(500).default([]),
   /** The session runs a channel in kit mode (agent prepares, founder submits; BUILD §2.3). */
   kitMode: z.boolean().default(false),
@@ -62,6 +67,9 @@ const key = (secret: string): Uint8Array => {
 };
 
 export const toolRef = (connector: string, tool: string): string => `${connector}:${tool}`;
+
+/** Per-session state key (untrusted-recipient register, state cache): the session, or the token itself outside one. */
+export const sessionKey = (session: Pick<SessionToken, "sessionId" | "jti">): string => session.sessionId ?? `token:${session.jti}`;
 
 /** Scope check for a session token: exact `connector:tool`, the connector wildcard, or everything. */
 export function toolAllowed(allowedTools: readonly string[], connector: string, tool: string): boolean {

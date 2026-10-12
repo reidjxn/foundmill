@@ -6,7 +6,7 @@
  * Link (hard gate); `connect()` returns the Tink Link URL the Settings page opens.
  */
 import { uuid } from "@foundmill/shared";
-import { ConfigError, type Connector, type DecryptedCredential, type ToolContext } from "../../contract";
+import { ConfigError, reportRefreshedCredential, type Connector, type DecryptedCredential, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
 import { addDays, isoDay } from "../../mock-utils";
 import { bearer, createHttp, type HttpClient } from "../../http";
@@ -40,7 +40,10 @@ export function createTinkConnector(options: LiveConnectorOptions = {}): Connect
 
   const userHttp = async (ctx: ToolContext): Promise<HttpClient> => {
     const { token, refreshed } = await userToken(ctx.credential);
-    if (refreshed) ctx.log.info({ connector: TINK_KEY, businessId: ctx.businessId }, "minted a fresh Tink user access token");
+    if (refreshed && ctx.credential) {
+      ctx.log.info({ connector: TINK_KEY, businessId: ctx.businessId }, "minted a fresh Tink user access token");
+      await reportRefreshedCredential(ctx, { ...ctx.credential, secret: refreshed.accessToken, expiresAt: refreshed.expiresAt }, TINK_KEY);
+    }
     return createHttp({ connectorKey: TINK_KEY, baseUrl: TINK_BASE_URL, fetch, headers: { authorization: bearer(token) } });
   };
 

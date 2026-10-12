@@ -3,7 +3,7 @@
  * access token (+ refresh token); when it is about to expire and the platform client id/secret are known,
  * the token is refreshed against https://oauth2.googleapis.com/token (RFC 6749 §6).
  */
-import { ConfigError, type IntegrationRecord, type ToolContext } from "../../contract";
+import { ConfigError, reportRefreshedCredential, type IntegrationRecord, type ToolContext } from "../../contract";
 import { createHttp, type FetchLike } from "../../http";
 import type { PlatformSecrets } from "../../platform";
 
@@ -36,6 +36,7 @@ export async function googleAccessToken(ctx: ToolContext, deps: GoogleAuthDeps):
   });
   const refreshedExpiry = new Date(deps.now().getTime() + res.expires_in * 1000).toISOString();
   ctx.log.info({ connector: deps.connectorKey, businessId: ctx.businessId }, "refreshed Google access token");
+  await reportRefreshedCredential(ctx, { ...cred, secret: res.access_token, expiresAt: refreshedExpiry }, deps.connectorKey);
   return { accessToken: res.access_token, refreshed: { accessToken: res.access_token, expiresAt: refreshedExpiry } };
 }
 

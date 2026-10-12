@@ -18,9 +18,9 @@ import { AppError, NotFoundError, UnauthorizedError } from "@foundmill/shared";
 import { isConfigError, type Connector, type HealthResult } from "@foundmill/connectors";
 import { repos } from "@foundmill/db";
 import { cedarVersion, getPolicyEngine } from "@foundmill/policy";
-import { bearerToken, mintSessionToken, verifyServiceToken, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
+import { bearerToken, mintSessionToken, sessionKey, verifyServiceToken, verifySessionToken, type ServiceToken, type SessionToken } from "./tokens";
 import { toIntegrationRecord } from "./credentials";
-import { appInstallationVerified, executeToolCall, GatewayError, modeFor, type GatewayDeps } from "./pipeline";
+import { appInstallationVerified, executeToolCall, GatewayError, modeFor, safeError, type GatewayDeps } from "./pipeline";
 import { handleMcpRequest } from "./mcp";
 import { toCandidates } from "./recipients";
 import { STATE_ERROR_CODES, stateDenial } from "./state";
@@ -58,10 +58,11 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     if (err instanceof ZodError) return c.json(errorBody("validation", "Invalid request", err.issues), 400);
     if (err instanceof AppError) {
       const status = err.status >= 400 && err.status < 600 ? err.status : 500;
-      if (status >= 500) deps.log.error({ err, code: err.code }, "gateway request failed");
+      if (status >= 500) deps.log.error({ err: safeError(err), code: err.code }, "gateway request failed");
       return c.json(errorBody(err.code, err.message, status < 500 ? err.details : undefined), status as 400);
     }
-    deps.log.error({ err }, "unhandled gateway error");
+    // Never the error object: a failed query carries its parameters (tool arguments) and would put them in the log.
+    deps.log.error({ err: safeError(err) }, "unhandled gateway error");
     return c.json(errorBody("internal", "Internal error"), 500);
   });
 
@@ -121,6 +122,14 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     const agent = await repos.agents.get(deps.db, claims.businessId, claims.agentId).catch(() => {
       throw new GatewayError("agent_not_found", `agent ${claims.agentId} is not in business ${claims.businessId}`, 404);
     });
+    // ...and so must the session: usage, approvals and audit rows reference it, so a made-up id would let a vendor
+    // action run and then fail on bookkeeping. A call outside any agent session says so with `sessionId: null`.
+    if (claims.sessionId !== null) {
+      const session = await repos.agents.getSession(deps.db, claims.businessId, claims.sessionId).catch(() => {
+        throw new GatewayError("session_not_found", `session ${claims.sessionId} is not a session of business ${claims.businessId}; mint with sessionId null for a call outside an agent session`, 404);
+      });
+      if (session.agentId !== claims.agentId) throw new GatewayError("session_agent_mismatch", `session ${claims.sessionId} belongs to another agent`, 403);
+    }
     // ...and be allowed to work (SEC-1): no token for an archived club, a released agent or a paused one.
     const denial = stateDenial(business, agent);
     if (denial) {
@@ -134,8 +143,8 @@ export function createGatewayApp(deps: GatewayDeps, options: GatewayAppOptions):
     }
     // Recipients found in what an earlier session left behind are untrusted here from the first call (§9.8 step 4); the
     // token records that a seed exists, so a replica without it fails closed.
-    const seeded = untrusted ? deps.recipients.seed(claims.sessionId, toCandidates(untrusted), untrusted.all) : 0;
     const minted = await mintSessionToken(secret, { ...claims, untrustedSeeded: claims.untrustedSeeded || !!untrusted }, ttl, now);
+    const seeded = untrusted ? deps.recipients.seed(sessionKey({ sessionId: claims.sessionId, jti: minted.jti }), toCandidates(untrusted), untrusted.all) : 0;
     await repos.audit.append(deps.db, claims.businessId, {
       actorKind: "system",
       action: "gateway.session_token.minted",
