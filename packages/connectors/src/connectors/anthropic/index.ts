@@ -4,7 +4,7 @@
  * packages/models. Secrets are never logged and never returned.
  */
 import Anthropic from "@anthropic-ai/sdk";
-import { MODELS } from "@foundmill/models/routing";
+import { MODELS, resolveModel } from "@foundmill/models/routing";
 import { uuid } from "@foundmill/shared";
 import { ConfigError, type Connector, type ToolContext } from "../../contract";
 import { buildLiveConnector, healthResult } from "../../define";
@@ -61,6 +61,14 @@ export function createAnthropicConnector(options: LiveConnectorOptions = {}): Co
             if (status === 401 || status === 403) return { valid: false, reason: `Anthropic rejected the key (${status})`, routedModels: routedModelReport(new Set()), checkedAt: now().toISOString() };
             throw e;
           }
+        },
+        // The business's own key only: a panel question is the business's research, never the platform's spend.
+        ask_panel: async ({ question }, ctx) => {
+          if (!ctx.credential?.secret) throw new ConfigError(ANTHROPIC_KEY, "the business's own Anthropic key", "store one in Settings › Keys");
+          const model = resolveModel("worker").modelId;
+          const response = await clientFor(ctx.credential.secret).messages.create({ model, max_tokens: 2048, output_config: { effort: "low" }, messages: [{ role: "user", content: question }] });
+          const answer = response.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("\n").trim();
+          return { question, answer: answer || "(no answer)", model: response.model };
         },
       },
       connect: async (businessId, input) => {

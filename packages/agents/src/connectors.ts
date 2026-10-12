@@ -2,11 +2,13 @@
  * Connector keys agent templates may reference in their tool grants (BUILD §13.2 catalogue by phase, §9.9 task board).
  *
  * `packages/connectors` owns the real registry; this list is the agreed vocabulary of keys so templates typecheck without
- * importing that package. A contract test in packages/connectors should assert every key here exists in its registry
- * (or is one of the PLATFORM keys served by the gateway itself).
+ * importing that package. Grants name capabilities ("repos.read", "tasks.list"); packages/connectors `resolveGrants`
+ * (src/grants.ts) maps them onto the real tools that serve them, and apps/orchestrator's grants-contract test holds every
+ * template to it: each grant on a connector the gateway serves resolves to at least one real tool, and a key the repo
+ * does not build yet is one of the later-phase keys below (it gets no MCP server).
  */
 
-/** Platform-internal tool surfaces exposed by the gateway (not third-party connectors). */
+/** Platform-internal tool surfaces (not third-party connectors): served by the gateway, or the session workspace for `sandbox`. */
 export const PLATFORM_CONNECTOR_KEYS = [
   /** Typed task board and typed messages (BUILD §9.9): tasks.create/claim/block/handoff/complete, messages.request/inform/review. */
   "platform",

@@ -10,7 +10,7 @@ import { ConfigError, ConnectInputError, connectInputValue, type Connector, type
 import { buildLiveConnector, healthResult } from "../../define";
 import { resolveLiveOptions, type LiveConnectorOptions } from "../../platform";
 import { stripeMock } from "./mock";
-import { mapAccount, mapBalance, mapCheckoutSession, mapCustomer, mapInvoice, mapPayout, STRIPE_API_VERSION, STRIPE_CONNECT_FIELDS, STRIPE_KEY, STRIPE_RATE_LIMITS, stripeTools, type StAccount, type StBalance, type StCheckoutSession, type StCustomer, type StInvoice, type StPayout } from "./tools";
+import { mapAccount, mapBalance, mapCharge, mapCheckoutSession, mapCustomer, mapInvoice, mapPayout, STRIPE_API_VERSION, STRIPE_CONNECT_FIELDS, STRIPE_KEY, STRIPE_RATE_LIMITS, stripeTools, type StAccount, type StBalance, type StCharge, type StCheckoutSession, type StCustomer, type StInvoice, type StPayout } from "./tools";
 import { createStripeWebhook } from "./webhooks";
 
 export function createStripeConnector(options: LiveConnectorOptions = {}): Connector {
@@ -101,6 +101,11 @@ export function createStripeConnector(options: LiveConnectorOptions = {}): Conne
             opts,
           );
           return mapCheckoutSession(session as unknown as StCheckoutSession);
+        },
+        list_charges: async ({ customerId, limit }, ctx) => {
+          const { stripe, opts } = forCtx(ctx);
+          const page = await stripe.charges.list({ limit, ...(customerId ? { customer: customerId } : {}) }, opts);
+          return { items: (page.data as unknown as StCharge[]).map(mapCharge), hasMore: page.has_more };
         },
         list_payouts: async ({ limit }, ctx) => {
           const { stripe, opts } = forCtx(ctx);

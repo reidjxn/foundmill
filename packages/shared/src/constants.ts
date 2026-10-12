@@ -219,6 +219,7 @@ export const EVENT_TYPES = [
   "cycle.started", "cycle.completed", "inbox.item_created", "decision.made",
   "foundations.progressed",
   "conversation.message_posted",
+  "agent.message_sent",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

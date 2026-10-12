@@ -41,14 +41,18 @@ describe("credential assertion before launch (AC-11.6.6)", () => {
     // Every ref must satisfy the gateway's ToolRef grammar (connector:tool, connector:* or *).
     expect(launch.allowedTools.every((ref) => /^[a-z][a-z0-9_]{1,40}:(\*|[a-zA-Z][a-zA-Z0-9_]{0,120})$/.test(ref))).toBe(true);
     expect(launch.mcpConnectors.length).toBeGreaterThan(0);
+    // One MCP server per connector the gateway serves: never the session workspace (`sandbox`), which would 404.
+    expect(launch.mcpConnectors).not.toContain("sandbox");
+    expect(launch.allowedTools).toContain("platform:list_tasks");
     expect(launch.envNames).not.toContain("ANTHROPIC_API_KEY");
     expect(JSON.stringify(launch)).not.toMatch(/sk-ant|Bearer|token/i);
   });
 
-  it("tool grants map to gateway refs and SDK MCP names", () => {
-    const grants = [{ connectorKey: "gmail", tools: ["send_message", "search"] }, { connectorKey: "github", tools: ["*"] }];
-    expect(toolRefs(grants)).toEqual(["gmail:send_message", "gmail:search", "github:*"]);
-    expect(mcpToolNames(grants)).toEqual(["mcp__gmail__send_message", "mcp__gmail__search", "mcp__github"]);
+  it("tool grants map to the real tools behind them: gateway refs and SDK MCP names", () => {
+    // A tool name, a template capability, a wildcard; the session workspace and a later-phase connector get nothing.
+    const grants = [{ connectorKey: "gmail", tools: ["send_message", "threads.read"] }, { connectorKey: "github", tools: ["*"] }, { connectorKey: "sandbox", tools: ["read_file"] }, { connectorKey: "figma", tools: ["files.read"] }];
+    expect(toolRefs(grants)).toEqual(["gmail:send_message", "gmail:list_messages", "gmail:get_message", "gmail:list_labels", "github:*"]);
+    expect(mcpToolNames(grants)).toEqual(["mcp__gmail__send_message", "mcp__gmail__list_messages", "mcp__gmail__get_message", "mcp__gmail__list_labels", "mcp__github"]);
     expect(recordingForTask({ id: "x", kind: "research" })).toBe("northwind-supplier-shortlist");
   });
 });

@@ -12,7 +12,9 @@ import { createVault, type Vault } from "@foundmill/shared/crypto";
 import { drainHttpServer, onShutdown } from "@foundmill/shared/shutdown";
 import { closeDb, createServiceDb, repos, type Db } from "@foundmill/db";
 import { createDefaultRegistry, platformSecretsFromEnv, type ConnectorRegistry } from "@foundmill/connectors";
+import { createModelClient, effectiveModelMode, type ModelClient } from "@foundmill/models";
 import { createGatewayApp, type GatewayApp } from "./app";
+import { createGatewayBuiltins } from "./builtins";
 import { gatewayConfig, type GatewayConfig } from "./config";
 import { prepareDb, type DbReadiness } from "./db-boot";
 import { type GatewayDeps, type GatewayLogger } from "./pipeline";
@@ -31,11 +33,16 @@ export * from "./mcp";
 export * from "./app";
 export * from "./client";
 export * from "./db-boot";
+export * from "./builtins";
+export * from "./platform-host";
 
 export interface BuildDepsOptions {
   env?: Env;
   db?: Db;
+  /** The whole connector registry; when given, the caller also decides which built-ins it serves. */
   registry?: ConnectorRegistry;
+  /** The platform's model client for the quarantined reader (default: MODEL_MODE on ANTHROPIC_API_KEY). */
+  models?: ModelClient;
   vault?: Vault | null;
   rateLimits?: RateLimitStore;
   log?: GatewayLogger;
@@ -69,12 +76,18 @@ export function buildGateway(options: BuildDepsOptions = {}): BuiltGateway {
     }
   }
 
-  const registry =
-    options.registry ??
-    createDefaultRegistry({
-      secrets: platformSecretsFromEnv(env),
+  const secrets = platformSecretsFromEnv(env);
+  let registry = options.registry;
+  if (!registry) {
+    registry = createDefaultRegistry({
+      secrets,
       isSuppressed: (businessId, email) => repos.channels.isSuppressed(db, businessId, { emailHash: hashRecipient("email", email) }),
     });
+    // The task board, typed messages, web reads and the quarantined reader are served here like any connector (BUILD §9.9).
+    const mode = effectiveModelMode(env.MODEL_MODE, env.ANTHROPIC_API_KEY, log);
+    const models = options.models ?? createModelClient({ mode, apiKey: env.ANTHROPIC_API_KEY, logger: log });
+    for (const connector of createGatewayBuiltins({ db, vault, models, mode, log, live: { secrets } })) registry.register(connector);
+  }
 
   let rateLimitStoreKind: "memory" | "redis" = "memory";
   let rateLimits: RateLimitStore;

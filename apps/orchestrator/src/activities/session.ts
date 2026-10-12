@@ -16,6 +16,7 @@
  */
 import { AgentInstructions, buildSystemPrompt, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
+import { resolveGrants } from "@foundmill/connectors";
 import { bookUsage, loadByokApiKey, repos, type Agent, type AgentVersion, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { resolveModel, type RouteKey } from "@foundmill/models";
@@ -75,23 +76,17 @@ export function templateForAgent(agent: Pick<Agent, "agentType">): AgentTemplate
 }
 
 /**
- * Tool names as the gateway accepts them in a session token (`connector:tool`, `[a-zA-Z][a-zA-Z0-9_]*`). The agent
- * templates spell some tools with dots (`tasks.list`, `git.commit`); those become underscores here so the token mints.
- * The vocabulary gap between packages/agents tool names and packages/connectors tool names is an open issue.
+ * The session token's tools (`connector:tool`): every grant resolved to the real tools that serve it. Templates grant
+ * capabilities (`repos.read`, `tasks.list`), the Tools tab saves tool names; packages/connectors `resolveGrants` maps
+ * both onto connector tools (`github:read_tree`, `platform:list_tasks`) and drops what nothing serves yet.
  */
-export const gatewayToolName = (tool: string): string => (tool === "*" ? "*" : tool.replace(/[^A-Za-z0-9_]/g, "_"));
-
 export function toolRefs(grants: readonly { connectorKey: string; tools: readonly string[] }[]): string[] {
-  const out = new Set<string>();
-  for (const g of grants) for (const t of g.tools) out.add(`${g.connectorKey}:${gatewayToolName(t)}`);
-  return [...out];
+  return resolveGrants(grants).toolRefs;
 }
 
-/** MCP tool names the SDK sees for the gateway servers: `mcp__<connector>__<tool>`. */
+/** MCP tool names the SDK sees for the gateway servers: `mcp__<connector>__<tool>` (`mcp__<connector>` for a wildcard). */
 export function mcpToolNames(grants: readonly { connectorKey: string; tools: readonly string[] }[]): string[] {
-  const out = new Set<string>();
-  for (const g of grants) for (const t of g.tools) out.add(t === "*" ? `mcp__${g.connectorKey}` : `mcp__${g.connectorKey}__${gatewayToolName(t)}`);
-  return [...out];
+  return resolveGrants(grants).mcpTools;
 }
 
 function parseGrants(version: AgentVersion | null, template: AgentTemplate): { connectorKey: string; tools: string[] }[] {
@@ -311,7 +306,7 @@ export function createSessionActivities(deps: OrchestratorDeps) {
     async prepareSession(input: AgentSessionInput): Promise<SessionLaunch> {
       const { agent, task, business, version, template } = await loadContext(input);
       if (agent.status === "paused") throw new Error(`Agent ${agent.name} is paused`);
-      const grants = parseGrants(version, template);
+      const grants = resolveGrants(parseGrants(version, template));
       const route: RouteKey = template.route;
       const model = resolveModel(route, agent.modelKey);
       const { provider, mode, fellBackFrom } = await deps.sandbox();
@@ -327,8 +322,8 @@ export function createSessionActivities(deps: OrchestratorDeps) {
         modelKey: model.modelKey,
         modelId: model.modelId,
         recordingKey,
-        allowedTools: toolRefs(grants),
-        mcpConnectors: [...new Set(grants.map((g) => g.connectorKey))],
+        allowedTools: grants.toolRefs,
+        mcpConnectors: grants.servers,
         envNames: Object.keys(env),
         modelBilling: business.modelBilling,
         branch: `agent/${task.id}`,
@@ -606,11 +601,12 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     return { outcome: "blocked", reason, blockedReason: "credential", approvalId: null, summary: "Blocked: no model credential.", providerSessionId: null };
   }
 
-  const grants = parseGrants(live.version, live.template);
+  const grants = resolveGrants(parseGrants(live.version, live.template));
+  if (grants.unresolved.length > 0) deps.log.info({ sessionId: input.sessionId, unresolved: grants.unresolved.map((u) => `${u.connectorKey}.${u.capability}`).slice(0, 50) }, "granted capabilities no tool serves yet");
   // Everything that can fail without a workspace runs before one exists (no restored code left on disk, no token).
   const systemPrompt = buildSystemPrompt({ businessName: live.business.name, appName: APP_NAME, template: { instructions: instructionsFor(live.version, live.template), description: live.template.description }, brief: live.briefText ?? undefined, glossary: live.business.glossary });
   if (!hasClubRulesPrefix(systemPrompt)) throw new Error("house rules missing from the system prompt");
-  const policy = sdkToolPolicyFor(task.kind, mcpToolNames(grants));
+  const policy = sdkToolPolicyFor(task.kind, grants.mcpTools);
   const sdk = await import("@anthropic-ai/claude-agent-sdk");
   // SEC-3: the SDK process lives in a private per-session workspace (cwd, HOME, TMPDIR), with a from-scratch environment
   // (never `process.env`), built-in tools by task kind only, and a path guard on every file-tool call. Deleted in `finally`.
@@ -634,12 +630,13 @@ async function runLiveSession(deps: OrchestratorDeps, recorder: SessionRecorder,
         await recorder.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "warn", text: "The code saved for this task could not be restored; this session starts from an empty workspace, and the saved files are kept." });
       }
     }
-    token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, allowedTools: toolRefs(grants), ttlSeconds: SESSION_TOKEN_TTL_SECONDS, ...(restored && restored.files > 0 ? { untrusted: restored.recipients } : {}) });
+    token = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: agent.id, sessionId: input.sessionId, allowedTools: grants.toolRefs, ttlSeconds: SESSION_TOKEN_TTL_SECONDS, ...(restored && restored.files > 0 ? { untrusted: restored.recipients } : {}) });
   } catch (err) {
     await removeSessionWorkspace(cwd).catch(() => undefined);
     throw err;
   }
-  const mcpServers = Object.fromEntries(grants.map((g) => [g.connectorKey, { type: "http" as const, url: deps.gateway.mcpUrl(g.connectorKey), headers: deps.gateway.sessionHeaders(token.token) }]));
+  // One server per connector the gateway serves for these grants; a connector of a later phase gets none (it would 404).
+  const mcpServers = Object.fromEntries(grants.servers.map((key) => [key, { type: "http" as const, url: deps.gateway.mcpUrl(key), headers: deps.gateway.sessionHeaders(token.token) }]));
 
   const continuing = restored && restored.files > 0 ? restoredWorkspaceNote(restored.files) : "";
   const taskPrompt = [`# Task: ${task.title}`, task.goalMd || "", Array.isArray(task.acceptance) && task.acceptance.length ? `## Acceptance criteria\n${task.acceptance.map((a) => `- ${typeof a === "string" ? a : JSON.stringify(a)}`).join("\n")}` : "", policy.fileTools ? `Work on branch ${launch.branch} inside your working directory; it is the only place you can read or write files.` : "Keep every action inside the tools you were given; this task has no file access.", continuing, "Report each phase change and keep every external action inside the tools you were given."].filter(Boolean).join("\n\n");

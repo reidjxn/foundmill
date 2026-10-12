@@ -18,6 +18,7 @@ import type { Vault } from "@foundmill/shared/crypto";
 import { bookUsage, codeRepositoryOf, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
 import { evaluate, getPolicyEngine, type AgentAutonomy, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
 import {
+  ALWAYS_LIVE_CONNECTORS,
   canonicalJson,
   isConfigError,
   isUntrusted,
@@ -80,9 +81,12 @@ export interface ToolCallResult {
   body: CallResponse;
 }
 
-/** The mode one connector runs in for this gateway. */
+/**
+ * The mode one connector runs in for this gateway. The built-in `platform` and `quarantine` connectors always run live:
+ * their live side is the platform's own database and model client (ALWAYS_LIVE_CONNECTORS), never a vendor.
+ */
 export function modeFor(deps: Pick<GatewayDeps, "mode" | "liveConnectors">, connectorKey: string): ConnectorMode {
-  return deps.mode === "live" || deps.liveConnectors?.includes(connectorKey) ? "live" : deps.mode;
+  return deps.mode === "live" || deps.liveConnectors?.includes(connectorKey) || ALWAYS_LIVE_CONNECTORS.has(connectorKey) ? "live" : deps.mode;
 }
 
 /** Thrown for request errors that are not policy outcomes (unknown connector/tool, missing integration...). */

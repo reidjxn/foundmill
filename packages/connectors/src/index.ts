@@ -30,3 +30,7 @@ export { createSendgridConnector, sendgridMock, SENDGRID_KEY, normaliseSendgridE
 export { createShopifyConnector, shopifyMock, SHOPIFY_KEY, normaliseShopifyEvent, shopifyHmac, signedShopifyRequest } from "./connectors/shopify";
 export { createTinkConnector, tinkMock, TINK_KEY } from "./connectors/tink";
 export { createPlaidConnector, plaidMock, PLAID_KEY } from "./connectors/plaid";
+export * from "./grants";
+export { createPlatformConnector, platformMock, createPlatformMock, createMemoryPlatformHost, PLATFORM_KEY, PlatformToolError, MESSAGE_TYPES, type PlatformHost, type PlatformCaller, type PlatformArgs, type PlatformResult, type TaskSummaryT, type TaskDetailT, type AgentMessageT } from "./connectors/platform";
+export { createWebConnector, webMock, WEB_KEY, htmlToText, isPrivateAddress, publicOnlyLookup } from "./connectors/web";
+export { createQuarantineConnector, quarantineMock, QUARANTINE_KEY, quarantinedReaderRequest } from "./connectors/quarantine";

@@ -1,3 +1,4 @@
+import { resolveModel } from "@foundmill/models/routing";
 import { buildMockConnector } from "../../define";
 import { MOCK_NOW, mockHealth, mockIntegrationRecord, simulate } from "../../mock-utils";
 import { ANTHROPIC_MODEL_FIXTURES } from "./fixtures/models";
@@ -27,6 +28,7 @@ export const anthropicMock = buildMockConnector({
       const available = new Set(valid ? ANTHROPIC_MODEL_FIXTURES.map((m) => m.id) : []);
       return { valid, reason: valid ? null : "Anthropic rejected the key (401 authentication_error)", routedModels: routedModelReport(available), checkedAt: MOCK_NOW.toISOString() };
     },
+    ask_panel: async ({ question }) => ({ question, answer: `A few well-reviewed options come up for "${question}"; compare ingredients and reviews before choosing (mock answer).`, model: resolveModel("worker").modelId }),
   },
   connect: async (businessId) => mockIntegrationRecord(ANTHROPIC_KEY, businessId, { accountLabel: "Anthropic (BYOK, mock)", scopes: ["models:read", "messages:write"] }),
   healthcheck: async () => mockHealth(ANTHROPIC_KEY, { models: ANTHROPIC_MODEL_FIXTURES.length }),
