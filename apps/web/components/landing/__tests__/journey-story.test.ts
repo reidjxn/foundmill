@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { GLITCHWICK } from "../examples/glitchwick";
 import { NORTHWIND } from "../examples/northwind";
 import { TUTORLANE } from "../examples/tutorlane";
-import { LARGE_ORDER_MINOR, customerCountOf, exampleJourney, exampleMoney } from "../examples/helpers";
+import { LARGE_ORDER_MINOR, STORY_DAY, customerCountOf, datedCustomerUpdate, exampleJourney, exampleMoney } from "../examples/helpers";
 import type { ExampleBusiness } from "../examples/types";
 
 /** The running count of customers a pin's label names: "First customer" 1, "10 studios" 10, "1,000th customer" 1,000. */
@@ -171,7 +171,7 @@ describe.each([
   });
 
   it("names the Customer Update's customer on its own payment only: the day its first touch and its days to convert give, at its value", () => {
-    const u = business.customerUpdate;
+    const u = datedCustomerUpdate(business, STORY_DAY);
     expect(updatePayment.name).toBe(u.customer.name);
     const theirs = journey.conversions.filter((c) => c.entityName === u.customer.name);
     expect(theirs).toHaveLength(1);

@@ -6,10 +6,10 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { ArrowRight, CircleStop, FileSignature, Inbox, KeyRound, Landmark, Lock, ShieldCheck, Tag, Trash2, type LucideIcon } from "lucide-react";
-import { Avatar, Button, Chip, DecisionBar, DeptChip, Icon, StatusStrip, TeamOrbit, type DecisionOption } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DecisionBar, DeptChip, Icon, StatusStrip, TeamOrbit, useFormatters, type DecisionOption } from "@foundmill/dugout";
 import { useExample } from "./examples/context";
-import { exampleMoney, orbitDepartments } from "./examples/helpers";
-import { Container, Glass, ProductWindow, Reveal, SIGN_IN, Section, SectionHeading } from "./parts";
+import { exampleMoney, exampleToday, orbitDepartments } from "./examples/helpers";
+import { Container, Glass, ProductWindow, Reveal, SIGN_IN, Section, SectionHeading, useToday } from "./parts";
 
 const HOUSE_RULES: ReadonlyArray<{ icon: LucideIcon; text: string }> = [
   { icon: Landmark, text: "Never moves money" },
@@ -75,6 +75,9 @@ function InboxNote() {
     [note, business.currency],
   );
   const [answer, setAnswer] = useState<string | null>(null);
+  // The note arrived today: "Mon, Oct 12".
+  const { formatDate } = useFormatters();
+  const sentOn = formatDate(exampleToday(useToday()), "weekdayDayMonth");
   return (
     <ProductWindow title="Inbox" chips={<Chip tone="neutral">Example business</Chip>} className="h-full">
       <article aria-label="Example Inbox note" className="flex flex-col">
@@ -85,7 +88,7 @@ function InboxNote() {
               {note.from.name} · {note.from.role}
             </span>
             <span className="text-small text-secondary">
-              {note.sentOn} · cycle {business.deck.startCycle + 1}
+              {sentOn} · cycle {business.deck.startCycle + 1}
             </span>
           </span>
           <DeptChip dept={note.from.dept}>{note.department}</DeptChip>

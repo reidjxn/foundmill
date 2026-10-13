@@ -300,7 +300,7 @@ const CUSTOMER_UPDATE: ExampleCustomerUpdate = {
       // The mention's card shows three facts side by side in about 75 px each: values short enough to read whole.
       { label: "Stores", value: "36" },
       { label: "Terms", value: "Net 30" },
-      { label: "First seen", value: "Aug 27" },
+      { label: "First seen", value: "{date:2026-08-27}" },
     ],
   },
   plan: "Opening order · 3 products in 36 stores",
@@ -335,7 +335,6 @@ const INBOX_NOTE: ExampleInboxNote = {
   department: "Formulation Lab",
   subject: "Place the purchase order for batch 007?",
   /** When the note arrived: today on the example business. */
-  sentOn: "Wed, Oct 7",
   paragraphs: [
     "Larkfield's opening order ships from stock this month and leaves the serum with about nine weeks of cover, into early December. The batch 007 pack is ready: 5,000 of each product from Cranbury Contract Labs in New Jersey, with components from Maumee Valley Packaging in Ohio. Every line cites a quote; the serum's week-12 stability readout is attached.",
     "Cranbury wants a 50% deposit of $21,000 with the order and $21,000 more when the batch passes release testing; Maumee invoices $14,350 on delivery. Placing an order is yours alone. The runway goes from 13 to 12 months (Estimate).",
@@ -471,7 +470,6 @@ export const NORTHWIND: ExampleBusiness = {
   deck: {
     // Where the business is when the page opens: two years in (the Journey), in its ninth chapter.
     startCycle: 191,
-    chapter: "Chapter 9",
     runwayMonths: 13,
     costPerTaskMinor: 52,
     earlierDecision: { title: "You approved creator kits", detail: "Retail Partnerships shipped 30 kits with tracked codes.", from: { name: "Poppy", seed: "poppy", dept: "dept-3" } },

@@ -30,10 +30,10 @@ import {
   type ProcessingSegment,
 } from "@foundmill/dugout";
 import { useExample } from "./examples/context";
-import { exampleMoney, exampleToday, orbitDepartments } from "./examples/helpers";
+import { currentChapter, exampleMoney, exampleToday, orbitDepartments } from "./examples/helpers";
 import type { ActivityLine, ExampleBusiness, ExampleDecision, ExampleWin } from "./examples/types";
 import { continueStateFor, cycleReducer, cycleStatusText, cycleTasks, initialCycleState, type CycleAction, type CycleState, type InboxItem } from "./cycle";
-import { useSeen } from "./parts";
+import { useSeen, useToday } from "./parts";
 
 /** How long a cycle runs in the deck (the product's cycles take hours; this is the replay). */
 export const DECK_CYCLE_MS = 4200;
@@ -51,7 +51,8 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
   const decisionRef = useRef<HTMLButtonElement>(null);
   const continueRef = useRef<HTMLButtonElement>(null);
   const startedAt = useRef(0);
-  const today = useMemo(exampleToday, []);
+  const todayKey = useToday();
+  const today = useMemo(() => exampleToday(todayKey), [todayKey]);
   const working = state.phase === "processing";
   const cycleMs = reduced ? DECK_CYCLE_MS_REDUCED : DECK_CYCLE_MS;
   // The feed moves while a cycle runs (a few seconds, started by the visitor or by the deck's first run) and, when the
@@ -114,7 +115,7 @@ export function CycleDeck({ onOpenJourney }: { onOpenJourney?: () => void }) {
           <span aria-hidden className="mx-1 h-5 w-px bg-kit-on-primary/25" />
           <span className="t-display-md">Home</span>
           <span className="truncate text-small text-kit-on-primary tabular-nums">
-            Cycle {state.phase === "idle" ? state.cycle + 1 : state.cycle} · {deck.chapter}
+            Cycle {state.phase === "idle" ? state.cycle + 1 : state.cycle} · {currentChapter(todayKey)}
           </span>
           <span className="flex-1" />
           <RunwayChip date={today} runwayMonths={deck.runwayMonths} estimate />

@@ -3,8 +3,9 @@
  * Building blocks shared by the landing page's sections: the page container, section frame and heading, the glass
  * panel, the window frame around live product parts, and the one-shot rise-in as a block enters the window.
  */
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { cn, prefersReducedMotion } from "@foundmill/dugout";
+import { calendarDay } from "./examples/helpers";
 
 export const SIGN_IN = "/login";
 
@@ -154,3 +155,13 @@ export function Reveal({ children, className, delay = 0, as: Tag = "div" }: { ch
     </Tag>
   );
 }
+
+/**
+ * Today's calendar day on the example business ("2026-10-12"): the deck's top bar and the Inbox note's date. The server
+ * renders the UTC day and hydration reads the same, so the markup matches in every time zone; once hydrated, the page
+ * shows the visitor's own day.
+ */
+export function useToday(): string {
+  return useSyncExternalStore(noSubscription, () => calendarDay(new Date(), "local"), () => calendarDay(new Date(), "utc"));
+}
+const noSubscription = () => () => {};
