@@ -10,7 +10,9 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
+import { APP_NAME } from "@foundmill/config";
 import { getServerDateFormat } from "@/lib/date-format.server";
+import { businessTitleTemplate } from "@/lib/page-titles";
 import { Prefetched } from "@/lib/hydrate.server";
 import { startBusinessShell } from "@/lib/shell-data.server";
 import { serverApi, serverBusiness } from "@/lib/trpc-server";
@@ -32,7 +34,9 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   try {
     const data = await serverBusiness(bid);
     if (!data) return {};
-    return { title: { default: data.business.name, template: `%s · ${data.business.name}` } };
+    // Next applies only the nearest template, so this one carries the product name too: "Inbox · Northwind · Foundmill".
+    // Every page below gives its "%s" (lib/page-titles.ts).
+    return { title: { default: data.business.name, template: businessTitleTemplate(data.business.name, APP_NAME) } };
   } catch {
     return {};
   }
