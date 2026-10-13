@@ -1,7 +1,7 @@
 /** distribution.recommend / channels.* / campaigns.* / assets.* (BUILD §11.7; AC-11.7.2 enable/disable re-scores). */
 import { CreateCampaignInput, UpdateCampaignInput, repos } from "@foundmill/db";
 import { HOUSE_STYLE } from "@foundmill/agents";
-import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, ChannelKey, type ChannelLine } from "@foundmill/shared";
+import { CAMPAIGN_STATUSES, CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, ChannelKey, CurrencyCode, type ChannelLine } from "@foundmill/shared";
 import { z } from "zod";
 import { assertAgentsRunning } from "../services/stop-guard";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
@@ -69,7 +69,7 @@ export const distributionRouter = router({
         return channel;
       }),
     ),
-    budget: write.input(z.object({ channelId: Id, budgetMinor: z.number().int().nonnegative(), currency: z.string().length(3).optional() })).mutation(({ ctx, input }) =>
+    budget: write.input(z.object({ channelId: Id, budgetMinor: z.number().int().nonnegative(), currency: CurrencyCode.optional() })).mutation(({ ctx, input }) =>
       ctx.rls(async (tx) => {
         const channel = await repos.channels.setBudget(tx, ctx.businessId, input.channelId, input.budgetMinor, input.currency);
         await audit(tx, ctx, { action: "distribution.channels.budget", target: { kind: "channel", id: channel.id }, details: { budgetMinor: input.budgetMinor } });

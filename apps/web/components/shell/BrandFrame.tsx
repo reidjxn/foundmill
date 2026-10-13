@@ -8,7 +8,7 @@
  */
 import type { ReactNode } from "react";
 import { APP_NAME, APP_TAGLINE } from "@foundmill/config";
-import { Panel, ToastPlacement, Wordmark } from "@foundmill/dugout";
+import { NeedsLargerWindow, Panel, ToastPlacement, Wordmark, isViewportTooSmall, useViewportWidth } from "@foundmill/dugout";
 
 export interface BrandFrameProps {
   /** The panel's title ("Sign in", "Not found"). */
@@ -20,6 +20,9 @@ export interface BrandFrameProps {
 }
 
 export function BrandFrame({ title, meta, children, footer }: BrandFrameProps) {
+  // Desktop only: below 1280 px the window is asked to grow, as on the landing page and in the business shell.
+  const width = useViewportWidth();
+  if (isViewportTooSmall(width)) return <NeedsLargerWindow width={width} />;
   return (
     <main className="relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-canvas p-gutter text-primary">
       <div aria-hidden className="brand-backdrop -z-10" />

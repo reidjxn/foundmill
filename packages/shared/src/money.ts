@@ -42,9 +42,15 @@ export const MONEY_LOCALE = "en-US";
 export function formatMoney(m: Money, opts: { compact?: boolean; locale?: string } = {}): string {
   const major = minorToMajor(m.amountMinor, m.currency);
   const locale = opts.locale ?? MONEY_LOCALE;
-  if (opts.compact && Math.abs(major) >= 10_000) return formatCompactMoney(major, m.currency, locale);
-  return new Intl.NumberFormat(locale, {
-    style: "currency", currency: m.currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: opts.compact ? 0 : 2,
-  }).format(major);
+  try {
+    if (opts.compact && Math.abs(major) >= 10_000) return formatCompactMoney(major, m.currency, locale);
+    return new Intl.NumberFormat(locale, {
+      style: "currency", currency: m.currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: opts.compact ? 0 : 2,
+    }).format(major);
+  } catch (err) {
+    // A stored code Intl rejects ("1$X") must not take the screen down: the plain number with the code as written.
+    if (!(err instanceof RangeError)) throw err;
+    return `${new Intl.NumberFormat(locale, { minimumFractionDigits: opts.compact ? 0 : 2, maximumFractionDigits: opts.compact ? 0 : 2 }).format(major)} ${m.currency}`;
+  }
 }
 export const money = (amountMinor: number, currency = "EUR"): Money => ({ amountMinor, currency });

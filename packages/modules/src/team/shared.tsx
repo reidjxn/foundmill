@@ -10,6 +10,7 @@ import { type AgentStatus, type DecisionType, type DeptColourToken, type Members
 import { SECTIONS } from "@foundmill/shared/permissions";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState, type WidgetEvent } from "@foundmill/widgets/data";
+import { formatMoney } from "@foundmill/shared/money";
 import { usSpelling } from "@foundmill/shared/us-spelling";
 import { humanise } from "../fit";
 import type { AgentHealthChangedPayload, AgentRow, AgentsListResponse, FounderProfileResponse, MembershipRow, TemplateRow } from "./types";
@@ -431,7 +432,7 @@ export function agentEntity(businessId: string, agent: AgentRow, currency = "EUR
     chips: [{ label: STATUS_WORD[agent.status], tone: agentStatusTone(agent.status).tone }, { label: MODEL_LABELS[agent.modelKey] ?? agent.modelKey }],
     facts: [
       { label: "Departments", value: (agent.departments ?? []).map((d) => d.name).join(", ") || "—" },
-      { label: "Wage (Estimate)", value: `${new Intl.NumberFormat("en-US", { style: "currency", currency: agent.wage?.currency ?? agent.currency ?? currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 }).format(wage / 100)}/mo` },
+      { label: "Wage (Estimate)", value: `${formatMoney({ amountMinor: wage, currency: agent.wage?.currency ?? agent.currency ?? currency }, { compact: true })}/mo` },
       { label: "Current task", value: agent.currentTask?.title ?? "None" },
     ],
     verbs: ["open_profile", "message"],

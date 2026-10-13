@@ -16,7 +16,7 @@ import { CREDITS_CURRENCY } from "@foundmill/config";
 import { MODEL_BILLING, MODEL_KEYS, USAGE_KINDS, ValidationError, type UsageKind } from "@foundmill/shared";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { agents, creditBalances, usageLedger, type CreditBalance, type UsageEntry } from "../schema";
+import { agentSessions, agents, creditBalances, usageLedger, type CreditBalance, type UsageEntry } from "../schema";
 import { Currency, DateRange, Id, IsoDateInput, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page } from "./_shared";
 
 export const RecordUsageInput = z.object({
@@ -90,7 +90,9 @@ export const usageRepo = {
         .values({
           businessId,
           agentId: v.agentId ?? null,
-          sessionId: v.sessionId ?? null,
+          // Linked only to a session that exists: a gateway call made outside a session (an import read, a plan action)
+          // carries a token id that has no `agent_sessions` row, and the foreign key must not turn that into a failed call.
+          sessionId: v.sessionId ? sql<string | null>`(select ${agentSessions.id} from ${agentSessions} where ${agentSessions.id} = ${v.sessionId})` : null,
           kind: v.kind,
           modelKey: v.modelKey ?? null,
           quantity: v.quantity,

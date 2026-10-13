@@ -82,10 +82,33 @@ describe("import.prepareConcept / import.continue (audit P7)", () => {
     expect(result.costLabel).toBe("Estimate");
     expect(readMeta(result.idea.current?.research)).toMatchObject({ import_job_id: jobId });
     expect((await repos.ideas.listForUser(hz.db, userId, {})).items).toHaveLength(before.items.length + 1);
-    // The draft is used once: continuing again drafts a fresh card.
+    expect(result.alreadySaved).toBe(false);
+    // One card per job (audit IAE-07): continuing again (Back, then Continue) answers with the same idea, drafts nothing.
     const again = await caller.import.continue({ jobId });
-    expect(again.speculative).toBe(false);
-    expect(calls).toHaveLength(2);
+    expect(again).toMatchObject({ alreadySaved: true, speculative: false, costMinor: 0 });
+    expect(again.idea.id).toBe(result.idea.id);
+    expect(await caller.import.prepareConcept({ jobId })).toEqual({ status: "ready" });
+    expect(calls).toHaveLength(1);
+    expect((await repos.ideas.listForUser(hz.db, userId, {})).items).toHaveLength(before.items.length + 1);
+  });
+
+  it("a double click (two Continues in one batch) saves one card and makes one model call", async () => {
+    const mock = new MockModelClient();
+    const { userId, caller, jobId } = await founder(mock, "import-card-double@test.local");
+    const [a, b] = await Promise.all([caller.import.continue({ jobId }), caller.import.continue({ jobId })]);
+    expect(a.idea.id).toBe(b.idea.id);
+    expect(mock.history.filter((r) => r.route === "ideation")).toHaveLength(1);
+    expect((await repos.ideas.listForUser(hz.db, userId, {})).items.filter((i) => readMeta(i.current?.research).import_job_id === jobId)).toHaveLength(1);
+  });
+
+  it("the saved card describes the imported business: the report's name and archetype (audit IAE-10, mock mode)", async () => {
+    const mock = new MockModelClient();
+    const { caller, jobId } = await founder(mock, "import-card-name@test.local");
+    const status = await caller.import.status({ jobId });
+    const { idea } = await caller.import.continue({ jobId });
+    expect(idea.title).toBe(status.report!.suggestedName);
+    expect(idea.archetype).toBe(status.report!.archetypeHint);
+    expect(idea.pitch).toContain(status.report!.suggestedName);
   });
 
   it("Continue while the card is still being drafted waits for that draft instead of starting another", async () => {
@@ -135,9 +158,14 @@ describe("import drafting allowance (security review 2026-10-10)", () => {
     open();
     expect((await caller.import.continue({ jobId })).speculative).toBe(true);
     expect(calls).toHaveLength(1);
-    // The allowance is used up: neither a new draft ahead nor a cold Continue reaches the model.
-    await expect(caller.import.prepareConcept({ jobId })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
-    await expect(caller.import.continue({ jobId })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+    // This job's card is saved: asking again costs nothing.
+    expect(await caller.import.prepareConcept({ jobId })).toEqual({ status: "ready" });
+    expect((await caller.import.continue({ jobId })).alreadySaved).toBe(true);
+    // The allowance is used up: for another import, neither a new draft ahead nor a cold Continue reaches the model.
+    const other = await caller.import.start({ sources: [{ key: "github", value: "acme/other" }], stepMs: 1 });
+    await sleep(30);
+    await expect(caller.import.prepareConcept({ jobId: other.job.id })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+    await expect(caller.import.continue({ jobId: other.job.id })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
     expect(calls).toHaveLength(1);
     hz.limits.reset();
   });

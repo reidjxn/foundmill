@@ -12,12 +12,12 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { repos, type Db, type Source } from "@foundmill/db";
 import { createSeededRng, type SeededRng } from "@foundmill/journey";
-import { AppError, NotFoundError, ValidationError, type Archetype, type Env, type SourceKind } from "@foundmill/shared";
+import { AppError, IMPORT_SOURCE_KEYS, NotFoundError, ValidationError, hasImportConnector, type Archetype, type Env, type SourceKind } from "@foundmill/shared";
 import { z } from "zod";
 import type { TemporalService } from "./temporal";
 import { WORKFLOWS } from "./temporal";
 
-export const IMPORT_SOURCE_KEYS = ["github", "google_drive", "notion", "linear", "jira", "website", "stripe", "shopify", "bank", "registry"] as const;
+export { IMPORT_SOURCE_KEYS };
 export const ImportSourceKey = z.enum(IMPORT_SOURCE_KEYS);
 export type ImportSourceKey = z.infer<typeof ImportSourceKey>;
 
@@ -31,19 +31,21 @@ export interface ImportSourceMeta {
   /** Which `sources.kind` an import of this source becomes. */
   sourceKind: SourceKind;
   input: "repo" | "url" | "regno" | "none";
+  /** False where no connector reads the source yet (Linear, Jira): the preview job lists it, a business import refuses it. */
+  businessImport: boolean;
 }
 
 export const IMPORT_SOURCES: Readonly<Record<ImportSourceKey, ImportSourceMeta>> = {
-  github: { key: "github", label: "GitHub", connectorKey: "github", sourceKind: "doc", input: "repo" },
-  google_drive: { key: "google_drive", label: "Google Drive", connectorKey: "google_drive", sourceKind: "doc", input: "none" },
-  notion: { key: "notion", label: "Notion", connectorKey: "notion", sourceKind: "doc", input: "none" },
-  linear: { key: "linear", label: "Linear", connectorKey: "linear", sourceKind: "issue", input: "none" },
-  jira: { key: "jira", label: "Jira", connectorKey: "jira", sourceKind: "issue", input: "none" },
-  website: { key: "website", label: "Website", connectorKey: "web", sourceKind: "doc", input: "url" },
-  stripe: { key: "stripe", label: "Stripe", connectorKey: "stripe", sourceKind: "finance", input: "none" },
-  shopify: { key: "shopify", label: "Shopify", connectorKey: "shopify", sourceKind: "finance", input: "none" },
-  bank: { key: "bank", label: "Bank (open banking)", connectorKey: "tink", sourceKind: "finance", input: "none" },
-  registry: { key: "registry", label: "Company registry", connectorKey: "companies_house", sourceKind: "legal", input: "regno" },
+  github: { key: "github", label: "GitHub", connectorKey: "github", sourceKind: "doc", input: "repo", businessImport: hasImportConnector("github") },
+  google_drive: { key: "google_drive", label: "Google Drive", connectorKey: "google_drive", sourceKind: "doc", input: "none", businessImport: hasImportConnector("google_drive") },
+  notion: { key: "notion", label: "Notion", connectorKey: "notion", sourceKind: "doc", input: "none", businessImport: hasImportConnector("notion") },
+  linear: { key: "linear", label: "Linear", connectorKey: "linear", sourceKind: "issue", input: "none", businessImport: hasImportConnector("linear") },
+  jira: { key: "jira", label: "Jira", connectorKey: "jira", sourceKind: "issue", input: "none", businessImport: hasImportConnector("jira") },
+  website: { key: "website", label: "Website", connectorKey: "web", sourceKind: "doc", input: "url", businessImport: hasImportConnector("website") },
+  stripe: { key: "stripe", label: "Stripe", connectorKey: "stripe", sourceKind: "finance", input: "none", businessImport: hasImportConnector("stripe") },
+  shopify: { key: "shopify", label: "Shopify", connectorKey: "shopify", sourceKind: "finance", input: "none", businessImport: hasImportConnector("shopify") },
+  bank: { key: "bank", label: "Bank (open banking)", connectorKey: "tink", sourceKind: "finance", input: "none", businessImport: hasImportConnector("bank") },
+  registry: { key: "registry", label: "Company registry", connectorKey: "opencorporates", sourceKind: "legal", input: "regno", businessImport: hasImportConnector("registry") },
 };
 
 const REPO_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -307,7 +309,21 @@ export function localJobAt(token: JobToken, jobId: string, now: Date): ImportJob
   };
 }
 
-/** Temporal job: progress comes from the `sources` rows the orchestrator updates (fetched_at + relevance.imported). */
+/**
+ * How long a business import may take before a source nobody finished is reported as failed. The workflow runs three
+ * sources at a time, each activity bounded at 10 minutes and retried, so this is past anything a healthy run needs; it
+ * only decides for a run whose worker is gone, so the screen can never spin forever.
+ */
+export const IMPORT_DEADLINE_MS = 45 * 60_000;
+
+/** What an unfinished source reads after the deadline. */
+export const IMPORT_TIMED_OUT = "The import did not finish in time. Start it again to retry.";
+
+/**
+ * Temporal job: progress comes from the `sources` rows the orchestrator updates (`fetched_at` + `relevance.imported`,
+ * and `relevance.reason` when a source could not be read). A source is finished when the orchestrator says so, or when
+ * the deadline has passed; `finishedAt` is the time the last source finished, never the time of the poll.
+ */
 export async function temporalJobAt(db: Db, token: JobToken, jobId: string, now: Date): Promise<ImportJob> {
   if (!token.b) throw new NotFoundError("import job", jobId.slice(0, 24));
   const rows = new Map<string, Source>();
@@ -319,15 +335,21 @@ export async function temporalJobAt(db: Db, token: JobToken, jobId: string, now:
       /* archived or gone: shown as failed below */
     }
   }
+  const timedOut = now.getTime() - token.t > IMPORT_DEADLINE_MS;
+  const finishedAtMs: number[] = [];
   const sources: SourceProgress[] = token.s.map((s) => {
     const row = s.id ? rows.get(s.id) : undefined;
     const labels = stepsFor(s.k, s.v);
     const relevance = (row?.relevance ?? {}) as Record<string, unknown>;
-    const finished = row?.fetchedAt != null || relevance.imported === false;
+    const settled = row?.fetchedAt != null || relevance.imported === false;
+    const finished = settled || (row != null && timedOut);
     const ok = relevance.imported === true;
     const status: StepStatus = !row ? "failed" : finished ? (ok ? "done" : "failed") : "running";
     const steps: SourceStep[] = labels.map((label, i) => ({ id: `${s.k}:${i}`, label, status: finished ? (ok || i < labels.length - 1 ? "done" : "failed") : i === 0 ? "running" : "queued" }));
-    const summary = !row ? "source row missing" : finished ? (ok ? `imported through ${String(relevance.connector ?? IMPORT_SOURCES[s.k].connectorKey)}` : String(relevance.reason ?? relevance.outcome ?? "not imported")) : null;
+    const reason = typeof relevance.reason === "string" && relevance.reason ? relevance.reason : typeof relevance.outcome === "string" && relevance.outcome ? `not allowed (${relevance.outcome})` : "not imported";
+    const summary = !row ? "source row missing" : finished ? (ok ? `imported through ${String(relevance.connector ?? IMPORT_SOURCES[s.k].connectorKey)}${typeof relevance.read === "string" && relevance.read ? `: ${relevance.read}` : ""}` : settled ? reason : IMPORT_TIMED_OUT) : null;
+    const at = typeof relevance.finishedAt === "string" ? Date.parse(relevance.finishedAt) : row?.fetchedAt ? row.fetchedAt.getTime() : NaN;
+    finishedAtMs.push(Number.isFinite(at) ? at : settled || !row ? token.t : token.t + IMPORT_DEADLINE_MS);
     return { key: s.k, value: s.v, sourceId: s.id, status, steps, summary };
   });
   const allFinished = sources.every((s) => s.status === "done" || s.status === "failed");
@@ -340,7 +362,7 @@ export async function temporalJobAt(db: Db, token: JobToken, jobId: string, now:
     status: allFinished ? (anyOk ? "done" : "failed") : "running",
     sources,
     startedAt: new Date(token.t).toISOString(),
-    finishedAt: allFinished ? now.toISOString() : null,
+    finishedAt: allFinished ? new Date(Math.max(token.t, ...finishedAtMs)).toISOString() : null,
     stepMs: token.ms,
   };
 }
@@ -515,6 +537,12 @@ export async function startImport(deps: ImportDeps, input: StartImportInput): Pr
 
   if (input.businessId) {
     const businessId = input.businessId;
+    // A business import reads the sources through connectors; one without a connector cannot be read, so it is refused up front.
+    const unreadable = configs.filter((c) => !IMPORT_SOURCES[c.key].businessImport);
+    if (unreadable.length) {
+      const labels = unreadable.map((c) => IMPORT_SOURCES[c.key].label);
+      throw new ValidationError(`${labels.join(" and ")} cannot be imported into a business yet`, Object.fromEntries(unreadable.map((c) => [c.key, `${IMPORT_SOURCES[c.key].label} has no connector yet, so it cannot be read.`])));
+    }
     const rows = await deps.db.transaction(async (tx) => {
       const out: Source[] = [];
       for (const c of configs) {

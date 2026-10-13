@@ -39,7 +39,31 @@ test.describe("import", () => {
     await expect(report.getByText("Estimate").first()).toBeVisible();
 
     await page.getByTestId("continue-to-commit").click();
-    await expect(page).toHaveURL(/\/new\/commit\/[0-9a-f-]+\?name=Ledgerly&from=import/, { timeout: LONG });
+    await expect(page).toHaveURL(/\/new\/commit\/[0-9a-f-]+\?name=Ledgerly&from=import&archetype=b2b_saas&job=/, { timeout: LONG });
     await expect(page.getByLabel(/Business name/)).toHaveValue("Ledgerly");
+    // Import's own trail (no Ideate or Compare), and the report's archetype is the one preselected.
+    await expect(page.locator("[data-step-item]")).toHaveCount(4);
+    await expect(page.locator('[data-step-item="ideate"]')).toHaveCount(0);
+    await expect(page.locator('[data-option="b2b_saas"]')).toHaveAttribute("data-selected", "true");
+  });
+
+  test("the finished import survives a reload and the Back link from Commit (audit IAE-12)", async ({ page }) => {
+    await page.getByLabel("Import from Stripe").check();
+    await page.getByTestId("start-import").click();
+    await expect(page.getByTestId("scouting-report")).toBeVisible({ timeout: LONG });
+    await expect(page).toHaveURL(/\/new\/import\?job=/);
+    await page.reload();
+    await expect(page.getByTestId("scouting-report")).toBeVisible({ timeout: LONG });
+    await page.getByTestId("continue-to-commit").dblclick();
+    await expect(page).toHaveURL(/\/new\/commit\//, { timeout: LONG });
+    await page.getByRole("link", { name: "Back" }).click();
+    await expect(page.getByTestId("scouting-report")).toBeVisible({ timeout: LONG });
+  });
+
+  test("a window under 1280 px asks for a larger one instead of an overflowing top bar (audit PAS-5)", async ({ page }) => {
+    await page.setViewportSize({ width: 1279, height: 800 });
+    await expect(page.getByTestId("needs-larger-window")).toBeVisible();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.getByTestId("import-sources")).toBeVisible();
   });
 });

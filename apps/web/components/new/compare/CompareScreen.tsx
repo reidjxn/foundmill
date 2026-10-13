@@ -14,6 +14,7 @@ import { useTRPC } from "@/lib/trpc-react";
 import { LinkButton } from "../LinkButton";
 import { StudioFrame } from "../StudioFrame";
 import { COMPARE_MIN, commitHref, parseCompareIds, toConcept, type IdeaLike } from "../ideate/concepts";
+import { conceptErrorMessage, isConceptGone } from "../ideate/concept-errors";
 
 export interface CompareScreenProps {
   viewer: { email: string | null };
@@ -104,7 +105,7 @@ function CompareBody({ ids, viewer }: { ids: string[]; viewer: { email: string |
           </div>
         </div>
       ) : compare.error ? (
-        <Panel title="Comparison" error={errorMessage(compare.error)} onRetry={() => compare.mutate({ ideaIds: ids })} />
+        <Panel title="Comparison" error={conceptErrorMessage(compare.error)} onRetry={isConceptGone(compare.error) ? undefined : () => compare.mutate({ ideaIds: ids })} />
       ) : (
         <div className="flex flex-col gap-gutter" data-testid="compare-result" data-count={concepts.length}>
           <ConceptCompare concepts={concepts} />

@@ -10,9 +10,6 @@ import type * as EnvModule from "@/lib/env";
 
 type OtpError = { code?: string; status?: number; name?: string; message: string };
 const signInWithOtp = vi.fn(async (_args: { email: string; options: { emailRedirectTo: string } }): Promise<{ error: OtpError | null }> => ({ error: null }));
-let search = new URLSearchParams();
-
-vi.mock("next/navigation", () => ({ useSearchParams: () => search }));
 vi.mock("@/lib/supabase/client", () => ({ createClient: vi.fn(async () => ({ auth: { signInWithOtp } })) }));
 // Staging, as on foundmill.com: Supabase configured, no NEXT_PUBLIC_APP_URL, no developer bypass.
 vi.mock("@/lib/env", async (importOriginal) => {
@@ -40,14 +37,12 @@ async function sendLink(email = "founder@example.com") {
 
 beforeEach(() => {
   signInWithOtp.mockClear();
-  search = new URLSearchParams();
 });
 
 describe("LoginForm", () => {
   it("asked for on www, the magic link still returns to https://foundmill.com", async () => {
     onHost("https://www.foundmill.com/login?next=%2Fb%2Fabc%2Finbox");
-    search = new URLSearchParams("next=%2Fb%2Fabc%2Finbox");
-    render(<LoginForm />);
+    render(<LoginForm nextParam="/b/abc/inbox" />);
     await sendLink();
     expect(signInWithOtp).toHaveBeenCalledWith({ email: "founder@example.com", options: { emailRedirectTo: "https://foundmill.com/auth/callback?next=%2Fb%2Fabc%2Finbox" } });
   });
@@ -61,8 +56,7 @@ describe("LoginForm", () => {
 
   it("a link opened on a different address explains itself above a working form", async () => {
     onHost("https://foundmill.com/login?error=other_address&next=%2Fb%2Fabc");
-    search = new URLSearchParams("error=other_address&next=%2Fb%2Fabc");
-    render(<LoginForm />);
+    render(<LoginForm errorParam="other_address" nextParam="/b/abc" />);
     const notice = screen.getByTestId("login-link-problem");
     expect(notice.textContent).toMatch(/Link opened on a different address/);
     expect(notice.textContent).toMatch(/Send a new link from this page and open it in this browser/);
@@ -73,18 +67,24 @@ describe("LoginForm", () => {
   });
 
   it("an expired link and an unknown error read as such; no error, no notice", () => {
-    search = new URLSearchParams("error=expired");
-    const { unmount } = render(<LoginForm />);
+    const { unmount } = render(<LoginForm errorParam="expired" />);
     expect(screen.getByTestId("login-link-problem").textContent).toMatch(/Link expired/);
     unmount();
-    search = new URLSearchParams("error=invalid%20request%3A%20both%20auth%20code%20and%20code%20verifier%20should%20be%20non-empty");
-    const second = render(<LoginForm />);
+    const second = render(<LoginForm errorParam="invalid request: both auth code and code verifier should be non-empty" />);
     expect(screen.getByTestId("login-link-problem").textContent).toMatch(/Sign-in failed/);
     expect(screen.getByTestId("login-link-problem").textContent).not.toMatch(/code verifier/);
     second.unmount();
-    search = new URLSearchParams();
     render(<LoginForm />);
     expect(screen.queryByTestId("login-link-problem")).toBeNull();
+  });
+
+  it("is rendered from its props alone, so the server can put the form and the error notice in the page's HTML (audit PAS-9)", async () => {
+    const { renderToString } = await import("react-dom/server");
+    const html = renderToString(<LoginForm errorParam="expired" nextParam="/b/abc" />);
+    expect(html).toContain("Send sign-in link");
+    expect(html).toContain("Work email");
+    expect(html).toContain("Link expired");
+    expect(html).not.toContain("BAILOUT_TO_CLIENT_SIDE_RENDERING");
   });
 
   it("a link Supabase refuses to send reads as what happened and what to do, never Supabase's own words", async () => {

@@ -79,6 +79,15 @@ export function trpcErrorCode(err: unknown): string | null {
   return null;
 }
 
+/** The validation issues an API error carries (`data.details`, Zod's own list: a `path` and a `message` each), or null. */
+export function validationIssues(err: unknown): { path: (string | number)[]; message: string }[] | null {
+  if (!(err instanceof TRPCClientError)) return null;
+  const details = (err.data as { details?: unknown } | undefined)?.details;
+  if (!Array.isArray(details)) return null;
+  const issues = details.filter((d): d is { path: (string | number)[]; message: string } => Boolean(d) && typeof d === "object" && Array.isArray((d as { path?: unknown }).path) && typeof (d as { message?: unknown }).message === "string");
+  return issues.length ? issues : null;
+}
+
 /** The API's own error code (`appCode`: `not_invited`, `rate_limited`, ...) of an unknown error, or null. */
 export function appErrorCode(err: unknown): string | null {
   if (err instanceof TRPCClientError) return (err.data as { appCode?: string } | undefined)?.appCode ?? null;

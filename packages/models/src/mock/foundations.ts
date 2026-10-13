@@ -6,7 +6,7 @@
  * the untrusted wrapper). Deterministic in the input; every figure that
  * is not in the input carries "Estimate" or "Forecast".
  */
-import { ARCHETYPES, ARCHETYPE_LABELS, type Archetype } from "@foundmill/shared";
+import { ARCHETYPES, ARCHETYPE_LABELS, MONEY_LOCALE, type Archetype } from "@foundmill/shared";
 import type { FoundationsOutput, FoundationsRoadmapItem, FoundationsSection, TiptapBlock, TiptapDoc, TiptapParagraph } from "../schemas";
 import { type MockContext, isRecord, keywords, sentenceCase, truncate } from "./inputs";
 
@@ -45,15 +45,31 @@ const DEFAULT_AUDIENCE: Record<Archetype, string> = {
   content_media: "professionals who want a trusted weekly read",
 };
 
-const PRICE: Record<Archetype, string> = {
-  b2b_saas: "€49 per team per month",
-  consumer_app: "€6 per month or €48 a year",
-  marketplace: "a 10% commission on completed transactions",
-  dtc_physical: "€34 per unit, €29 on subscription",
-  hardware: "€249 per unit plus €9 per month for the service",
-  services: "a fixed €1,200 monthly retainer",
-  content_media: "€8 per month or €80 a year",
+/**
+ * Starting prices as whole amounts of the business's own currency (money keeps the business's currency: a pound business
+ * reads "£49", not "€49"). The figure is a price point to test, not a conversion of one currency into another.
+ */
+const PRICE: Record<Archetype, (m: (major: number) => string) => string> = {
+  b2b_saas: (m) => `${m(49)} per team per month`,
+  consumer_app: (m) => `${m(6)} per month or ${m(48)} a year`,
+  marketplace: () => "a 10% commission on completed transactions",
+  dtc_physical: (m) => `${m(34)} per unit, ${m(29)} on subscription`,
+  hardware: (m) => `${m(249)} per unit plus ${m(9)} per month for the service`,
+  services: (m) => `a fixed ${m(1200)} monthly retainer`,
+  content_media: (m) => `${m(8)} per month or ${m(80)} a year`,
 };
+
+/** The archetype's starting price in `currency` ("$49 per team per month"); a code Intl does not know reads as US dollars. */
+export function priceIn(archetype: Archetype, currency: string): string {
+  const format = (code: string) => new Intl.NumberFormat(MONEY_LOCALE, { style: "currency", currency: code, currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 });
+  let formatter: Intl.NumberFormat;
+  try {
+    formatter = format(currency);
+  } catch {
+    formatter = format("USD");
+  }
+  return PRICE[archetype]((major) => formatter.format(major));
+}
 
 const BASE_OUTLINE = ["Problem", "Customers", "Value proposition", "Features", "Non-functional requirements", "Data", "Integrations", "Pricing", "Metrics", "Risks"];
 
@@ -61,6 +77,8 @@ interface Brief {
   name: string;
   archetype: Archetype;
   archetypeLabel: string;
+  /** The business's own currency (ISO 4217): money in the drafted text is written in it. */
+  currency: string;
   audience: string;
   outcome: string;
   pitch: string;
@@ -105,6 +123,7 @@ function readBrief(ctx: MockContext): Brief {
     name,
     archetype,
     archetypeLabel: ARCHETYPE_LABELS[archetype],
+    currency: str(pick(business, "currency")) ?? "USD",
     audience,
     outcome,
     pitch,
@@ -159,7 +178,7 @@ function sectionDoc(section: string, b: Brief): TiptapDoc {
   if (key.includes("integration"))
     return doc(bullets([...(b.imported && b.exists.some((e) => /github/i.test(e)) ? ["GitHub: the existing repository is the starting point for Development"] : []), "Stripe for payments (test mode until the founder approves going live)", "Email for sign-up, receipts and the weekly summary"]));
   if (key.includes("pric"))
-    return doc(text(`Starting price: ${PRICE[b.archetype]} (Estimate).`), bullets(["One plan at launch; tiers once usage shows where value concentrates", "A free trial long enough to reach the first result", "Annual billing at two months free once retention is proven"]));
+    return doc(text(`Starting price: ${priceIn(b.archetype, b.currency)} (Estimate).`), bullets(["One plan at launch; tiers once usage shows where value concentrates", "A free trial long enough to reach the first result", "Annual billing at two months free once retention is proven"]));
   if (key.includes("metric")) {
     const target = Math.round((ns.range[0] + ns.range[1]) / 2);
     return doc(lead("North star:", `${ns.metric}. ${ns.definition}`), bullets([`Target: ${target} ${ns.unit} by the end of the second chapter (Forecast)`, "Activation rate of new accounts in their first week", "Cost per paying customer by channel"]));
@@ -238,7 +257,7 @@ function roadmapOf(b: Brief, outline: string[]): FoundationsRoadmapItem[] {
   );
   items.push(
     { title: f3!.title, description: f3!.story, horizon: "next", sections: [features], acceptance_criteria: f3!.criteria, source_ref: null, confidence: 3 },
-    { title: "Pricing experiment", description: `Test ${PRICE[b.archetype]} (Estimate) against one alternative with new sign-ups.`, horizon: "later", sections: pricing ? [pricing] : [], acceptance_criteria: [], source_ref: null, confidence: 2 },
+    { title: "Pricing experiment", description: `Test ${priceIn(b.archetype, b.currency)} (Estimate) against one alternative with new sign-ups.`, horizon: "later", sections: pricing ? [pricing] : [], acceptance_criteria: [], source_ref: null, confidence: 2 },
     { title: "Second customer segment", description: `Decide whether to widen beyond ${b.audience} once the first segment retains.`, horizon: "later", sections: customers ? [customers] : [], acceptance_criteria: [], source_ref: null, confidence: 2 },
   );
   return items;

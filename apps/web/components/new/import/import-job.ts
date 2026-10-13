@@ -48,7 +48,7 @@ export const IMPORT_SOURCES: readonly ImportSource[] = [
   { key: "stripe", label: "Stripe", group: "Revenue and money", description: "Customers, subscriptions, invoices: real revenue history.", input: "none", connectorKey: "stripe", readOnly: true, consent: "Read-only Stripe Connect. Payouts and transfers are never available to agents." },
   { key: "shopify", label: "Shopify", group: "Revenue and money", description: "Orders, products and customers from your store.", input: "none", connectorKey: "shopify", readOnly: true, consent: "Read access to orders, products, customers." },
   { key: "bank", label: "Bank (open banking)", group: "Revenue and money", description: "Balances and transactions for cash and runway. Read only.", input: "none", connectorKey: "tink", readOnly: true, consent: "Account information only; no payment initiation exists." },
-  { key: "registry", label: "Company registry", group: "Identity", description: "Legal name, officers, filing deadlines from the public register.", input: "regno", placeholder: "Registration number", connectorKey: "companies_house", readOnly: true, consent: "Public record lookup." },
+  { key: "registry", label: "Company registry", group: "Identity", description: "Legal name, officers, filing deadlines from the public register.", input: "regno", placeholder: "Registration number", connectorKey: "opencorporates", readOnly: true, consent: "Public record lookup." },
 ];
 
 export const IMPORT_SOURCE_GROUPS = ["Code and documents", "Work tracking", "Revenue and money", "Identity"] as const;

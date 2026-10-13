@@ -52,4 +52,20 @@ describe("StudioFrame (first-run trail)", () => {
     expect(STUDIO_STEPS.map((s) => s.id)).toEqual(["profile", "new", "ideate", "compare", "commit"]);
     expect(screen.getByTestId("studio-frame").querySelector('[data-step-item="import"]')?.getAttribute("data-state")).toBe("active");
   });
+
+  it("asks for a larger window below 1280 px instead of drawing an overflowing top bar (audit PAS-5)", () => {
+    const before = window.innerWidth;
+    try {
+      Object.defineProperty(window, "innerWidth", { value: 1279, configurable: true, writable: true });
+      render(
+        <StudioFrame step="new" title="New business">
+          <p>body</p>
+        </StudioFrame>,
+      );
+      expect(screen.getByTestId("needs-larger-window")).toBeTruthy();
+      expect(screen.queryByText("body")).toBeNull();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { value: before, configurable: true, writable: true });
+    }
+  });
 });

@@ -165,7 +165,7 @@ export function createOfflineGatewayClient(baseUrl = "http://gateway.offline"): 
     },
     async call(_token, req) {
       calls.push(req);
-      return { outcome: "allow", result: { untrusted: true, content: null, mock: true }, costMinor: 0 };
+      return { outcome: "allow", result: { ok: true, untrusted: true, content: null, mock: true }, costMinor: 0 };
     },
     mcpUrl: (connector) => `${baseUrl}/mcp/${connector}`,
     sessionHeaders: (sessionToken) => ({ authorization: `Bearer ${sessionToken}` }),

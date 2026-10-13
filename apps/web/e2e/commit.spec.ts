@@ -27,6 +27,8 @@ test.describe("commit", () => {
     await expect(page.getByTestId("domain-checks").locator("[data-domain]")).toHaveCount(5);
     await expect(page.getByTestId("trademark-screen").locator("[data-registry]")).toHaveCount(2);
     await expect(page.getByTestId("trademark-caveat")).toContainText("Screen, not legal clearance");
+    // The screen is a heuristic over a list of well-known marks, and says so: an Estimate chip beside its label.
+    await expect(page.getByTestId("trademark-provenance")).toContainText("Estimate");
     await page.getByLabel(/Business name/).fill("Stripe Ledger");
     await expect(page.locator('[data-registry="USPTO"]')).toHaveAttribute("data-status", "conflict");
     await expect(page.locator('[data-domain="stripeledger.com"]')).toBeVisible();

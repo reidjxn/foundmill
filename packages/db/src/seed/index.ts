@@ -32,6 +32,20 @@ export async function demoBusinessesPresent(db: Db): Promise<boolean> {
 }
 
 /**
+ * The slugs of the demo businesses whose seed ran to its end. A seed writes its business row first and about seventy
+ * awaits later (not in one transaction) its `seed.demo` audit entry as the very last write, so the entry is the
+ * completion marker: a business that exists without it was interrupted and is missing parts (audit verify-api-services-x2).
+ */
+export async function completedDemoBusinesses(db: Db): Promise<string[]> {
+  const rows = await db.select({ id: businesses.id, slug: businesses.slug }).from(businesses).where(inArray(businesses.slug, [...DEMO_BUSINESS_SLUGS]));
+  const done: string[] = [];
+  for (const row of rows) {
+    if ((await repos.audit.list(db, row.id, { action: "seed.demo", limit: 1 })).items.length > 0) done.push(row.slug);
+  }
+  return done;
+}
+
+/**
  * Makes Northwind the newer demo business. `/` opens a founder's newest business when no last-business cookie is set
  * (apps/web/app/page.tsx), and Ledgerly is built after Northwind, so without this a first sign-in lands on Ledgerly.
  * Idempotent; returns whether a row changed.

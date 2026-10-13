@@ -4,7 +4,7 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { repos, UpdateBusinessInput } from "@foundmill/db";
-import { BUSINESS_MODES, DECISION_TYPES, EVENT_TYPES, GAME_MODES } from "@foundmill/shared";
+import { BUSINESS_MODES, CurrencyCode, DECISION_TYPES, EVENT_TYPES, GAME_MODES } from "@foundmill/shared";
 import { z } from "zod";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
 import { assertAgentsRunning, resumeAgents, stopAllAgents } from "../services/killswitch";
@@ -125,7 +125,7 @@ export const businessRouter = router({
         until: HolidayUntil,
         authority: z.array(z.enum(DECISION_TYPES)).default(DECISION_TYPES.filter((d) => d !== "sign_contracts")),
         budgetCeilingMinor: z.number().int().nonnegative().nullable().default(null),
-        currency: z.string().length(3).default("EUR"),
+        currency: CurrencyCode.default("EUR"),
         wakeEvents: z.array(z.enum(EVENT_TYPES)).default(["credential.expiring", "filing.due", "runway.threshold_crossed"]),
       }),
     )

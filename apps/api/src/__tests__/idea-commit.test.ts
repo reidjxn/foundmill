@@ -3,6 +3,7 @@ import { includedCreditsMinor } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { CHANNEL_KEYS } from "@foundmill/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { BOARD_FIRST_DECISION_LINE } from "../services/commit";
 import { createApiHarness, fakeTemporalClient, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
@@ -174,5 +175,78 @@ describe("idea.commit (AC-11.1.6, AC-11.1.7)", () => {
     expect(preview.departments.some((d) => d.moduleKeys.includes("development"))).toBe(true);
     expect(preview.agents.every((a) => a.wageLabel === "Estimate")).toBe(true);
     expect(preview.defaultChannels.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("preview names each agent's department as commit hires it, so the Day one list colors agents by department (audit AC-15)", async () => {
+    const userId = await hz.h.createUser("preview-depts@test.local");
+    const preview = await hz.caller({ userId }).idea.preview({ archetype: "hardware" });
+    const seed = getArchetypeSeed("hardware");
+    const bySlug = new Map(preview.agents.map((a) => [a.templateKey, a.departmentSlug]));
+    for (const d of seed.departments) {
+      for (const key of [d.leadTemplateKey, ...d.memberTemplateKeys]) {
+        // The first department that leads with or staffs the template (the Chief of Staff aside).
+        if (key === seed.assistantTemplateKey) continue;
+        const first = seed.departments.find((x) => x.leadTemplateKey === key || x.memberTemplateKeys.includes(key))!;
+        expect(bySlug.get(key)).toBe(first.slug);
+      }
+    }
+    const team = seed.departments.find((d) => d.moduleKeys.includes("team"))!;
+    expect(bySlug.get(seed.assistantTemplateKey)).toBe(team.slug);
+    expect(preview.agents.every((a) => a.departmentSlug !== null)).toBe(true);
+    // Product's lead and its researcher share Product's color; the list index plays no part.
+    expect(bySlug.get("product_lead")).toBe("product");
+    expect(bySlug.get("researcher")).toBe("product");
+  });
+
+  it("a Door A business starts with the concept card's citations as sources, labeled Estimate (audit FR-24)", async () => {
+    const userId = await hz.h.createUser("commit-sources@test.local");
+    const caller = hz.caller({ userId, email: "commit-sources@test.local" });
+    await caller.founder.profile.update({ displayName: "Sam", experience: "operator", skills: {}, targetMarkets: ["US"], riskAppetite: "low" });
+    const idea = await repos.ideas.create(hz.db, userId, {
+      title: "Citewell",
+      pitch: "Citations for clinics.",
+      research: {
+        citations: [
+          { title: "Clinic survey 2026", url: "https://example.com/survey", note: "Two in three clinics still book by phone." },
+          { title: "Pricing page", url: "https://example.com/pricing", note: "" },
+          { title: "Same survey again", url: "https://example.com/survey", note: "duplicate" },
+          { title: "Not a web page", url: "mailto:someone@example.com", note: "" },
+          { kind: "foundmill:meta", crest_seed: "citewell" },
+        ],
+      },
+    });
+    const result = await caller.idea.commit({ ideaId: idea.id, name: "Citewell", archetype: "services", gameMode: "personal" });
+    const sources = (await repos.product.listSources(hz.db, result.business.id)).items;
+    expect(sources.map((s) => [s.kind, s.uri, s.title]).sort()).toEqual([
+      ["doc", "https://example.com/pricing", "Pricing page"],
+      ["doc", "https://example.com/survey", "Clinic survey 2026"],
+    ]);
+    const survey = sources.find((s) => s.uri === "https://example.com/survey")!;
+    expect(survey.relevance).toMatchObject({ summary: "Two in three clinics still book by phone.", provenance: "Estimate", origin: { kind: "concept_card", ideaId: idea.id } });
+  });
+
+  it("the Board's first item never promises that nothing is spent before the decision: the first cycle starts at commit (audit api-services-13)", async () => {
+    expect(BOARD_FIRST_DECISION_LINE).toMatch(/started on the basics/);
+    expect(BOARD_FIRST_DECISION_LINE).not.toMatch(/spends anything/);
+    const archetypeCopy = JSON.stringify(getArchetypeSeed("b2b_saas"));
+    expect(archetypeCopy).not.toMatch(/decision before spending/);
+  });
+
+  it("refuses a currency code Intl cannot format before anything is created (audit ARB-15)", async () => {
+    const userId = await hz.h.createUser("currency@test.local");
+    const caller = hz.caller({ userId, email: "currency@test.local" });
+    await caller.founder.profile.update({ displayName: "Cur", experience: "first-time", skills: { engineering: 14 }, targetMarkets: ["EU"], riskAppetite: "medium" });
+    const { ideas } = await caller.idea.generate({ prompt: "invoicing for freelancers" });
+    const idea = ideas[0]!;
+    const before = (await repos.memberships.listForUser(hz.db, userId)).length;
+    for (const currency of ["1$x", "US", "usdx", "ZZZ"]) {
+      await expect(caller.idea.commit({ ideaId: idea.id, name: "Curr Co", archetype: "b2b_saas", gameMode: "personal", currency }), currency).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
+    expect((await repos.memberships.listForUser(hz.db, userId)).length).toBe(before);
+    // The idea was not consumed by the refused attempts: a valid lower-case code commits, stored upper-cased on every row.
+    const { business } = await caller.idea.commit({ ideaId: idea.id, name: "Curr Co", archetype: "b2b_saas", gameMode: "personal", currency: "gbp" });
+    const departments = await repos.departments.list(hz.db, business.id);
+    expect(departments.length).toBeGreaterThan(0);
+    expect(new Set(departments.map((d) => d.currency))).toEqual(new Set(["GBP"]));
   });
 });

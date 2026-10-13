@@ -2,7 +2,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@foundmill/dugout";
-import { DEFAULT_POLL_MS, ImportFlow, type ImportRunner } from "../import/ImportScreen";
+import { DEFAULT_POLL_MS, ImportFlow, commitFromImportHref, importJobHref, type ImportFlowProps, type ImportRunner } from "../import/ImportScreen";
 import type { ImportJob, ImportStatus, ScoutingReport, SourceConfig } from "../import/import-job";
 
 vi.mock("next/link", () => ({ default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => <a href={href} {...rest}>{children}</a> }));
@@ -74,10 +74,10 @@ function fakeRunner(): ImportRunner & { starts: unknown[]; polls: number } {
   return r;
 }
 
-function renderFlow(runner: ImportRunner, onContinue = vi.fn(), onReport = vi.fn()) {
+function renderFlow(runner: ImportRunner, onContinue = vi.fn(), onReport = vi.fn(), extra: Partial<ImportFlowProps> = {}) {
   render(
     <TooltipProvider>
-      <ImportFlow viewer={{ email: null }} runner={runner} onContinue={onContinue} onReport={onReport} pollMs={0} />
+      <ImportFlow viewer={{ email: null }} runner={runner} onContinue={onContinue} onReport={onReport} pollMs={0} {...extra} />
     </TooltipProvider>,
   );
   return onContinue;
@@ -172,5 +172,90 @@ describe("ImportFlow (BUILD §11.1 Door B, AC-11.1.5)", () => {
     });
     await waitFor(() => expect(screen.getByTestId("import-start-error").textContent).toMatch(/Check the sources/));
     expect(screen.getByTestId("import-sources")).toBeTruthy();
+  });
+
+  it("keeps the job in the address and finds it again after a reload, Back or the Commit Back link (audit IAE-12)", async () => {
+    const runner = fakeRunner();
+    const onJob = vi.fn();
+    renderFlow(runner, vi.fn(), vi.fn(), { onJob });
+    fireEvent.click(screen.getByLabelText("Import from Stripe"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("start-import"));
+    });
+    await waitFor(() => expect(screen.getByTestId("scouting-report")).toBeTruthy());
+    expect(onJob).toHaveBeenCalledWith("job-1");
+    fireEvent.click(screen.getByRole("button", { name: "Change sources" }));
+    expect(onJob).toHaveBeenLastCalledWith(null);
+    expect(importJobHref("job-1")).toBe("/new/import?job=job-1");
+    expect(importJobHref(null)).toBe("/new/import");
+  });
+
+  it("resumes a finished import from ?job= without starting another, and the picker behind it remembers the sources", async () => {
+    const runner = fakeRunner();
+    runner.status = vi.fn(async () => ({ job: jobAt(9), report, workflow: null }));
+    const onReport = vi.fn();
+    renderFlow(runner, vi.fn(), onReport, { resumeJobId: "job-1" });
+    await waitFor(() => expect(screen.getByTestId("scouting-report")).toBeTruthy());
+    expect(runner.start).not.toHaveBeenCalled();
+    expect(runner.status).toHaveBeenCalledWith("job-1");
+    expect(onReport).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Import report: Ledgerly");
+    fireEvent.click(screen.getByRole("button", { name: "Change sources" }));
+    expect((screen.getByLabelText("Import from GitHub") as HTMLInputElement).getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByLabelText("Repository") as HTMLInputElement).value).toBe("acme/ledgerly");
+  });
+
+  it("a job that cannot be found shows the picker with a plain message and clears the address", async () => {
+    const runner = fakeRunner();
+    runner.status = vi.fn(async () => {
+      throw new Error("import job not found");
+    });
+    const onJob = vi.fn();
+    renderFlow(runner, vi.fn(), vi.fn(), { resumeJobId: "gone", onJob });
+    await waitFor(() => expect(screen.getByTestId("import-start-error").textContent).toMatch(/no longer available/));
+    expect(screen.getByTestId("import-start-error").textContent).not.toMatch(/not found/);
+    expect(onJob).toHaveBeenCalledWith(null);
+  });
+
+  it("a double click on Continue to Commit continues once (audit IAE-07)", async () => {
+    const runner = fakeRunner();
+    runner.status = vi.fn(async () => ({ job: jobAt(9), report, workflow: null }));
+    const onContinue = renderFlow(runner, vi.fn(), vi.fn(), { resumeJobId: "job-1" });
+    await waitFor(() => expect(screen.getByTestId("scouting-report")).toBeTruthy());
+    const button = screen.getByTestId("continue-to-commit");
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(onContinue).toHaveBeenCalledTimes(1);
+  });
+
+  it("Commit opens with the name, the report's archetype and the job to come back to", () => {
+    expect(commitFromImportHref("idea-1", report, "job 1/x")).toBe("/new/commit/idea-1?name=Ledgerly&from=import&archetype=b2b_saas&job=job%201%2Fx");
+  });
+
+  it("shows the roadmap seeds' sources as written and lets a long one shrink instead of crushing the title (audit IAE-13)", async () => {
+    const runner = fakeRunner();
+    const seeded = { ...report, roadmapSeeds: [{ title: "Export to CSV", source: "AcmeOrg/web-app issue #89" }, { title: "Rate limit public API", source: "Linear LIN-880" }, { title: "Audit log", source: "Jira ISS-301" }] };
+    runner.status = vi.fn(async () => ({ job: jobAt(9), report: seeded, workflow: null }));
+    renderFlow(runner, vi.fn(), vi.fn(), { resumeJobId: "job-1" });
+    await waitFor(() => expect(screen.getByTestId("scouting-report")).toBeTruthy());
+    const seeds = screen.getByTestId("roadmap-seeds");
+    for (const text of ["AcmeOrg/web-app issue #89", "Linear LIN-880", "Jira ISS-301"]) {
+      const label = Array.from(seeds.querySelectorAll("li span")).find((n) => n.textContent === text);
+      expect(label, text).toBeTruthy();
+      expect(label!.getAttribute("title")).toBe(text);
+      expect(label!.className).toMatch(/\btruncate\b/);
+      expect(label!.className).not.toMatch(/shrink-0/);
+    }
+    expect(seeds.textContent).not.toMatch(/Linear lin|Acmeorg/);
+  });
+
+  it("step icons keep their size when a label wraps (audit IAE-23)", async () => {
+    const runner = fakeRunner();
+    runner.status = vi.fn(async () => ({ job: jobAt(9), report, workflow: null }));
+    renderFlow(runner, vi.fn(), vi.fn(), { resumeJobId: "job-1" });
+    await waitFor(() => expect(screen.getByTestId("scouting-report")).toBeTruthy());
+    const icons = document.querySelectorAll('[data-testid="step-icon"]');
+    expect(icons.length).toBe(9);
+    for (const icon of Array.from(icons)) expect(icon.className).toMatch(/shrink-0/);
   });
 });

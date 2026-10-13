@@ -179,7 +179,7 @@ const b2bSaas = ArchetypeSeed.parse({
     "Where should the first customer come from?",
     [
       "The team is hired and the first cycle has started. Development is planning the first vertical slice; Distribution has scored the channels.",
-      "The Board asks for one decision before spending: which route to the first paying customer should take priority this chapter?",
+      "The Board asks for one decision before committing any budget: which route to the first paying customer should take priority this chapter?",
     ],
     [
       {

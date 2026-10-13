@@ -62,6 +62,25 @@ describe("seedOnBoot", () => {
     expect(await run(env({ SEED_OWNER_EMAILS: "founder@example.com, second@example.com" }))).toMatchObject({ status: "owners_ensured", added: 0 });
   }, 60_000);
 
+  it("reports a seed that stopped after its business row as partial instead of treating it as complete (verify-api-services-x2)", async () => {
+    const ledgerly = (await repos.businesses.getBySlug(db, LEDGERLY_SLUG))!;
+    const warnings: object[] = [];
+    const log = { ...silent, warn: (o: object) => warnings.push(o) };
+    const asBoot = (e = env()) => seedOnBoot({ db, env: e, log }, { auth: stubAuthProvisioner(db), today: TODAY, days: 60 });
+    // Both rows exist but Ledgerly's completion marker (the last write of its seed) is missing: an interrupted seed.
+    await t.pg.exec(`alter table audit_log disable trigger audit_log_immutable`);
+    await db.execute(sql`delete from audit_log where business_id = ${ledgerly.id} and action = 'seed.demo'`);
+    try {
+      expect(await asBoot()).toEqual({ status: "partial", present: [NORTHWIND_SLUG, LEDGERLY_SLUG], unfinished: [LEDGERLY_SLUG] });
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toMatchObject({ unfinished: [LEDGERLY_SLUG] });
+    } finally {
+      await repos.audit.append(db, ledgerly.id, { actorKind: "system", actorId: null, action: "seed.demo", target: { kind: "business", id: ledgerly.id }, details: {} });
+      await t.pg.exec(`alter table audit_log enable trigger audit_log_immutable`);
+    }
+    expect((await asBoot()).status).toBe("owners_ensured");
+  }, 60_000);
+
   it("on a later boot makes Northwind the newer business when an earlier seed left Ledgerly newer", async () => {
     await db.update(businesses).set({ createdAt: sql`now() + interval '1 hour'` }).where(eq(businesses.slug, LEDGERLY_SLUG));
     const userId = await stubAuthProvisioner(db).ensureUser("founder@example.com");

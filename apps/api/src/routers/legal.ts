@@ -5,7 +5,7 @@
 import { mockIntegrationRecord, type ToolContext } from "@foundmill/connectors";
 import { HOUSE_STYLE } from "@foundmill/agents";
 import { CreateContractInput, UpdateContractInput, repos } from "@foundmill/db";
-import { INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
+import { CurrencyCode, INCORPORATION_ROUTES, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
 import { WORKFLOWS, workflowIds } from "../services/temporal";
 import { modelLimited } from "../services/model-limits";
@@ -171,7 +171,7 @@ export const legalRouter = router({
           registeredAddress: z.record(z.string(), z.string()).default({}),
           officers: z.array(z.object({ name: z.string().min(1), role: z.string().min(1), appointedOn: z.string().nullable().default(null) })).default([]),
           shareCapitalMinor: z.number().int().nonnegative().nullable().default(null),
-          currency: z.string().length(3).default("EUR"),
+          currency: CurrencyCode.default("EUR"),
           deadlines: z.array(z.object({ kind: z.string().min(1), dueAt: z.string() })).default([]),
         }),
       )

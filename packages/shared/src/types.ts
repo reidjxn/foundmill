@@ -4,6 +4,7 @@
  * ./constants (no Zod, safe for browser bundles), and the Zod enum of the same name here. Never redeclare these elsewhere.
  */
 import { z } from "zod";
+import { CurrencyCode } from "./currency";
 import {
   GAME_MODES,
   BUSINESS_MODES,
@@ -178,7 +179,7 @@ export type DecisionType = C.DecisionType;
 export const EventType = z.enum(EVENT_TYPES);
 export type EventType = C.EventType;
 /** Money in minor units. */
-export const Money = z.object({ amountMinor: z.number().int(), currency: z.string().length(3) });
+export const Money = z.object({ amountMinor: z.number().int(), currency: CurrencyCode });
 export type Money = z.infer<typeof Money>;
 export const Actor = z.object({ kind: ActorKind, id: z.string() });
 export type Actor = z.infer<typeof Actor>;

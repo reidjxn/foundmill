@@ -3,7 +3,7 @@
  * founder takeover) and Door B business import (sources read through the gateway; nothing scraped directly).
  */
 import { repos } from "@foundmill/db";
-import { uuid } from "@foundmill/shared";
+import { hasImportConnector, importCallFor, uuid } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { ImportSourceResult, LoadedPlaybook } from "./types";
@@ -12,6 +12,19 @@ export const INCORPORATION_STEPS = ["prepare_documents", "founder_review", "foun
 export type IncorporationStep = (typeof INCORPORATION_STEPS)[number];
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * What a connector read, in numbers only ("12 entries"): the first list in the answer. The content itself is
+ * third-party text and stays with the gateway's envelope; nothing from it is copied into a source row.
+ */
+export function describeRead(data: unknown): string | null {
+  const body = data && typeof data === "object" && "content" in data && (data as { untrusted?: unknown }).untrusted === true ? (data as { content: unknown }).content : data;
+  if (!body || typeof body !== "object") return null;
+  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    if (Array.isArray(value)) return `${value.length} ${key.replace(/([A-Z])/g, " $1").toLowerCase()}`;
+  }
+  return null;
+}
 
 export function createMiscActivities(deps: OrchestratorDeps) {
   return {
@@ -111,27 +124,51 @@ export function createMiscActivities(deps: OrchestratorDeps) {
     },
 
     // ---- Door B import ---------------------------------------------------------------------------------------------
-    /** Import one source through the gateway (GitHub, Drive, site, Stripe, registry). Untrusted content stays wrapped. */
+    /**
+     * Import one source through the gateway (code host, Drive, Notion, site, Stripe, Shopify, bank, registry). The source
+     * says what it is (`relevance.import.key` and `.value`, written by the api from the same table, `importCallFor`),
+     * so each connector tool gets its own arguments. A source counts as imported only when the tool itself answered
+     * `ok`: the policy outcome alone ("allow") says the call was permitted, not that anything was read. Every outcome
+     * is written to the source row (imported or not, and why), so the import job always reaches a terminal state.
+     * Untrusted content stays in the gateway's envelope: only counts of what was read are kept here.
+     */
     async importSource(input: { businessId: string; sourceId: string }): Promise<ImportSourceResult> {
       const { db } = deps;
       const source = await repos.product.getSource(db, input.businessId, input.sourceId);
+      const relevance = (source.relevance ?? {}) as Record<string, unknown>;
+      const spec = (relevance.import ?? {}) as { key?: unknown; value?: unknown };
+      const record = async (imported: boolean, summary: string, extra: Record<string, unknown> = {}): Promise<ImportSourceResult> => {
+        const now = deps.clock.now();
+        await repos.product.updateSource(db, input.businessId, source.id, { ...(imported ? { fetchedAt: now } : {}), relevance: { ...relevance, imported, ...(imported ? {} : { reason: summary }), finishedAt: now.toISOString(), untrusted: true, ...extra } });
+        return { sourceId: source.id, ok: imported, summary };
+      };
+      const call = typeof spec.key === "string" ? importCallFor(spec.key, typeof spec.value === "string" ? spec.value : "") : null;
+      if (!call) return record(false, typeof spec.key === "string" && !hasImportConnector(spec.key) ? "no connector reads this source yet" : "the source's details do not fit its connector");
       const chief = await repos.agents.chiefOfStaff(db, input.businessId);
-      const uri = source.uri ?? "";
-      const connector = /github\.com/.test(uri) ? "github" : /docs\.google|drive\.google/.test(uri) ? "google_drive" : /stripe/.test(uri) ? "stripe" : /companieshouse|opencorporates|bolagsverket/.test(uri) ? "opencorporates" : null;
-      if (!connector || !chief) {
-        await repos.product.updateSource(db, input.businessId, source.id, { relevance: { ...(source.relevance as Record<string, unknown>), imported: false, reason: connector ? "no agent" : "no connector for this uri" } });
-        return { sourceId: source.id, ok: false, summary: connector ? "no Chief of Staff to import as" : `no connector for ${uri || "an empty uri"}` };
-      }
-      const tool = connector === "github" ? "read_tree" : connector === "google_drive" ? "search" : connector === "stripe" ? "get_account" : "search_companies";
+      if (!chief) return record(false, "no Chief of Staff to import as");
+      const { connector, tool } = call;
       try {
         const minted = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: chief.id, sessionId: uuid(), allowedTools: [`${connector}:${tool}`], ttlSeconds: 300 });
-        const res = await deps.gateway.call(minted.token, { connector, tool, args: { uri, query: source.title } });
-        const ok = res.outcome === "allow";
-        await repos.product.updateSource(db, input.businessId, source.id, { fetchedAt: deps.clock.now(), relevance: { ...(source.relevance as Record<string, unknown>), imported: ok, outcome: res.outcome, connector, tool, untrusted: true } });
-        return { sourceId: source.id, ok, summary: ok ? `imported through ${connector}.${tool}` : `gateway ${res.outcome}` };
+        const res = await deps.gateway.call(minted.token, { connector, tool, args: call.args });
+        if (res.outcome !== "allow") return record(false, `the gateway did not allow the read (${res.outcome})`, { outcome: res.outcome, connector, tool });
+        const result = (res.result ?? {}) as { ok?: unknown; error?: { code?: unknown; message?: unknown }; data?: unknown; content?: unknown };
+        if (result.ok !== true) {
+          const message = typeof result.error?.message === "string" ? result.error.message : typeof result.error?.code === "string" ? result.error.code : "the connector did not return the content";
+          return record(false, `${connector}.${tool} failed: ${message}`.slice(0, 300), { outcome: res.outcome, connector, tool });
+        }
+        const read = describeRead(result.data ?? result.content);
+        return record(true, `imported through ${connector}.${tool}${read ? `: ${read}` : ""}`, { outcome: res.outcome, connector, tool, ...(read ? { read } : {}) });
       } catch (err) {
-        return { sourceId: source.id, ok: false, summary: `gateway error: ${(err as Error).message.slice(0, 200)}` };
+        return record(false, `gateway error: ${(err as Error).message}`.slice(0, 300), { connector, tool });
       }
+    },
+
+    /** The import workflow could not run a source at all (its activity failed for good, or the run was stopped): the row says so. */
+    async failImportSource(input: { businessId: string; sourceId: string; reason: string }): Promise<void> {
+      const source = await repos.product.getSource(deps.db, input.businessId, input.sourceId);
+      const relevance = (source.relevance ?? {}) as Record<string, unknown>;
+      if (relevance.imported === true || relevance.imported === false) return;
+      await repos.product.updateSource(deps.db, input.businessId, source.id, { relevance: { ...relevance, imported: false, reason: input.reason.slice(0, 300), finishedAt: deps.clock.now().toISOString() } });
     },
 
     async finishImport(input: { businessId: string; results: ImportSourceResult[] }): Promise<{ inboxItemId: string | null }> {
