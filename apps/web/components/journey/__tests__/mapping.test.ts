@@ -134,6 +134,6 @@ describe("journey.get → JourneyStage (AC-11.4.3 deterministic)", () => {
     expect(replayOrigin(`/b/${B}/home`, B).label).toBe("Home");
     expect(replayOrigin(`/b/${B}/d/growth/attribution`, B, departments)).toEqual({ href: `/b/${B}/d/growth/attribution`, label: "Attribution" });
     // Anything unknown, foreign or absolute falls back to the Inbox: the from path is never an open redirect.
-    for (const bad of [`/b/${B}/d/growth/unknown`, `/b/other/crm`, "https://evil.example/b/x", `//evil.example/b/${B}/crm`, `/b/${B}//evil.example`, `/b/${B}/crm\\x`]) expect(replayOrigin(bad, B, departments)).toEqual({ href: `/b/${B}/inbox`, label: "Inbox" });
+    for (const bad of [`/b/${B}/d/growth/unknown`, `/b/other/crm`, "https://evil.example/b/x", `//evil.example/b/${B}/crm`, `/b/${B}//evil.example`, `/b/${B}/crm\\x`, `/b/${B}/crm/../../other`, `/b/${B}/milestones/..`]) expect(replayOrigin(bad, B, departments)).toEqual({ href: `/b/${B}/inbox`, label: "Inbox" });
   });
 });

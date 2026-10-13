@@ -155,6 +155,8 @@ export function replayOrigin(from: string | null | undefined, businessId: string
   if (!from || !from.startsWith(`${base}/`) || from.includes("//") || from.includes("\\") || [...from].some((ch) => ch.charCodeAt(0) < 32)) return inbox;
   const [path = ""] = from.split(/[?#]/);
   const parts = path.slice(base.length + 1).split("/").filter(Boolean);
+  // A dot segment would walk out of this business once the browser resolves the path.
+  if (parts.some((p) => p === "." || p === "..")) return inbox;
   const [section, ...rest] = parts;
   const label = (() => {
     switch (section) {
