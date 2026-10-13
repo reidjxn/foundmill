@@ -1,5 +1,5 @@
 "use client";
-import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef, type FocusEvent, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { IconButton } from "../foundation/IconButton";
@@ -35,12 +35,15 @@ const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayout
  * (200 ms width transition).
  */
 export const RightRail = forwardRef<HTMLElement, RightRailProps>(function RightRail(
-  { title = "Details", open, onOpenChange, actions, hideToggle, focusOnOpen, focusKey, closeOnEscape, className, children, onKeyDown, ...rest },
+  { title = "Details", open, onOpenChange, actions, hideToggle, focusOnOpen, focusKey, closeOnEscape, className, children, onKeyDown, onFocus, onBlur, ...rest },
   ref,
 ) {
   const asideRef = useRef<HTMLElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const originRef = useRef<HTMLElement | null>(null);
+  // Whether the founder's focus is in the rail. A rail that closes in place unmounts its content first, which drops
+  // focus to <body> before the effect below can see it was inside; this remembers it was.
+  const focusInside = useRef(false);
   const setRefs = useCallback(
     (node: HTMLElement | null) => {
       asideRef.current = node;
@@ -58,7 +61,10 @@ export const RightRail = forwardRef<HTMLElement, RightRailProps>(function RightR
     headingRef.current?.focus({ preventScroll: true });
     return () => {
       const origin = originRef.current;
-      if (rail.contains(document.activeElement) && origin?.isConnected) origin.focus({ preventScroll: true });
+      const active = document.activeElement;
+      const lost = active === null || active === document.body;
+      if ((rail.contains(active) || (focusInside.current && lost)) && origin?.isConnected) origin.focus({ preventScroll: true });
+      focusInside.current = false;
     };
   }, [open, focusOnOpen, focusKey]);
   const onRailKeyDown = (e: KeyboardEvent<HTMLElement>) => {
@@ -71,6 +77,15 @@ export const RightRail = forwardRef<HTMLElement, RightRailProps>(function RightR
     <aside
       ref={setRefs}
       onKeyDown={onRailKeyDown}
+      onFocus={(e: FocusEvent<HTMLElement>) => {
+        focusInside.current = true;
+        onFocus?.(e);
+      }}
+      onBlur={(e: FocusEvent<HTMLElement>) => {
+        // Only a move to somewhere else counts as leaving; focus dropped by a removed control has no new target.
+        if (e.relatedTarget instanceof Node && !e.currentTarget.contains(e.relatedTarget)) focusInside.current = false;
+        onBlur?.(e);
+      }}
       aria-label={typeof title === "string" ? title : "Right rail"}
       data-state={open ? "open" : "collapsed"}
       data-side="right"

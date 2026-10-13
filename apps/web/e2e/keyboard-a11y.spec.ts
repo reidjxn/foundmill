@@ -1,12 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
-import { LONG, openBusiness } from "./helpers";
+import { LONG, openBusiness, settingsScreen, signIn } from "./helpers";
+
+/** Ledgerly is seeded on vacation (packages/db/src/seed/ledgerly.ts). */
+const LEDGERLY_BUSINESS_ID = "b1e5e5e5-0000-4000-8000-000000000002";
 
 /**
- * Keyboard-only and screen-reader checks from the accessibility audit (A11Y-01, -03, -04, -07, -08, -09, -11, -16, -18,
- * -21, WEB-01, OL-26): focus comes back to what opened an overlay, Space stays with the focused control, the tab bar's
- * tablist holds only tabs, the CRM row menu opens from the keyboard, the Ribbon is one Tab stop, deltas are read out, the
- * Channel Board's profile takes focus and closes on Esc, and the mode chip says the mode in force on vacation. Nothing
- * here writes: every mutation the keys could send is intercepted. Stack and commands: e2e/README.md.
+ * Keyboard-only and screen-reader checks from the accessibility audit (A11Y-01, -03, -04, -05, -07, -08, -09, -11, -16,
+ * -18, -21, WEB-01, OL-26): focus comes back to what opened an overlay, Space stays with the focused control, the tab
+ * bar's tablist holds only tabs, the CRM row menu opens from the keyboard, the Ribbon is one Tab stop, deltas are read
+ * out, the Channel Board's profile takes focus and closes on Esc, Save keeps focus while it saves, fields expose their
+ * error and required state, first-run primary buttons reach AA, and the mode chip says the mode in force on vacation.
+ * Nothing here writes: every mutation the keys could send is intercepted. Stack and commands: e2e/README.md.
  */
 /** Counts calls to a tRPC procedure and answers them without running anything. */
 async function intercept(page: Page, procedure: string): Promise<{ calls: () => number }> {
@@ -119,5 +123,56 @@ test.describe("keyboard and screen readers", () => {
     await page.keyboard.press("Escape");
     await expect(drawer).toHaveCount(0);
     await expect(token).toBeFocused();
+  });
+
+  test("Settings: fields expose their required and error state, and Save keeps keyboard focus while it saves", async ({ page }) => {
+    await openBusiness(page, "settings/business");
+    await expect(settingsScreen(page)).toHaveAttribute("data-tab", "business", { timeout: LONG });
+    // Field wires its control: required, and in error tied to the message (A11Y-16).
+    const name = page.locator("#biz-name");
+    await expect(name).toHaveAttribute("aria-required", "true");
+    const primary = page.locator("#kit-primary");
+    const colour = await primary.inputValue();
+    await primary.fill("not a color");
+    await expect(primary).toHaveAttribute("aria-invalid", "true");
+    await expect(primary).toHaveAttribute("aria-describedby", /(^| )kit-primary-error( |$)/);
+    await primary.fill(colour);
+    await expect(primary).not.toHaveAttribute("aria-invalid", "true");
+
+    // The save never reaches the API: it is held while the button is busy, then refused (A11Y-07).
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route(/\/trpc\/[^?]*business\.update/, async (route) => {
+      await held;
+      await route.abort();
+    });
+    const original = await name.inputValue();
+    await name.fill(`${original} draft`);
+    const save = page.locator("[data-save-bar]");
+    await save.focus();
+    await page.keyboard.press("Enter");
+    await expect(save).toHaveAttribute("aria-busy", "true");
+    await expect(save).toBeFocused();
+    release();
+    await expect(save).not.toHaveAttribute("aria-busy", "true", { timeout: LONG });
+    await expect(save).toBeFocused();
+    await name.fill(original);
+  });
+
+  test("first-run primary buttons use the darker steel, so their white text reaches 4.5 : 1", async ({ page }) => {
+    await signIn(page);
+    await page.goto("/new");
+    await expect(page.getByTestId("doors")).toBeVisible({ timeout: LONG });
+    const primary = page.getByTestId("doors").locator(".btn-primary").first();
+    await expect(primary).toHaveCSS("background-color", "rgb(53, 112, 204)");
+    await expect(primary).toHaveCSS("color", "rgb(255, 255, 255)");
+  });
+
+  test("on vacation the top bar and Settings › Mode show the mode in force, Automated", async ({ page }) => {
+    await signIn(page);
+    await page.goto(`/b/${LEDGERLY_BUSINESS_ID}/settings/mode`);
+    await expect(page.getByTestId("app-shell")).toBeVisible({ timeout: LONG });
+    await expect(page.getByRole("button", { name: /^Business mode: Automated, on vacation/ })).toBeVisible({ timeout: LONG });
+    await expect(page.getByTestId("mode-in-force")).toContainText("Automated while on vacation");
   });
 });

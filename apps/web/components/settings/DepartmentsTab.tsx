@@ -82,7 +82,9 @@ export function DepartmentsTab() {
                 className="w-auto shrink-0"
                 value={d.shortcutChosen && d.shortcut ? d.shortcut : "auto"}
                 onValueChange={(v) => setShortcut.mutate({ businessId, departmentId: d.id, letter: v === "auto" ? null : v })}
-                disabled={setShortcut.isPending || d.hidden}
+                // Not turned off while the choice saves: the picker keeps keyboard focus (a disabled trigger drops it to
+                // <body>). A hidden department has no chord until it is shown again.
+                disabled={d.hidden}
                 options={shortcutOptions(d)}
                 data-shortcut={letters.get(d.id) ?? ""}
               />

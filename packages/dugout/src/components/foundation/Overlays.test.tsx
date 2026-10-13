@@ -107,6 +107,80 @@ describe("Dialog", () => {
     await user.click(await screen.findByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(document.activeElement).toBe(opener));
   });
+
+  function MenuOpened() {
+    // "Merge…" in a row's menu: the dialog opens as the menu closes, so the item it came from is gone by the time it closes.
+    const [open, setOpen] = useState(false);
+    return (
+      <>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button">Row actions</button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onSelect={() => setOpen(true)}>Merge…</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent aria-describedby={undefined}>
+            <DialogTitle>Merge</DialogTitle>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  it("opened from a menu item, gives focus back to what opened the menu", async () => {
+    const user = userEvent.setup();
+    render(<MenuOpened />);
+    const trigger = screen.getByRole("button", { name: "Row actions" });
+    trigger.focus();
+    await user.keyboard("{Enter}");
+    await screen.findByRole("menuitem", { name: "Merge…" });
+    await user.keyboard("{Enter}");
+    await screen.findByRole("dialog", { name: "Merge" });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
+  function Chained() {
+    // A palette whose command opens another dialog as the palette closes (Ctrl+K › Ask opens the agent's desk).
+    const [dialog, setDialog] = useState<"palette" | "desk" | null>(null);
+    return (
+      <>
+        <button type="button" onClick={() => setDialog("palette")}>
+          Search
+        </button>
+        <Dialog open={dialog === "palette"} onOpenChange={(o) => setDialog(o ? "palette" : null)}>
+          <DialogContent aria-describedby={undefined}>
+            <DialogTitle>Palette</DialogTitle>
+            <button type="button" onClick={() => setDialog("desk")}>
+              Ask Juno
+            </button>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={dialog === "desk"} onOpenChange={(o) => setDialog(o ? "desk" : null)}>
+          <DialogContent aria-describedby={undefined}>
+            <DialogTitle>Desk</DialogTitle>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  it("opened from an overlay that closes as it opens, gives focus back to where both opened from", async () => {
+    const user = userEvent.setup();
+    render(<Chained />);
+    const search = screen.getByRole("button", { name: "Search" });
+    search.focus();
+    await user.keyboard("{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Ask Juno" }));
+    await screen.findByRole("dialog", { name: "Desk" });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(search));
+  });
 });
 
 function Fire({ toasts }: { toasts: ToastOptions[] }) {

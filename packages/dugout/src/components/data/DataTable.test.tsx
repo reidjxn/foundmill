@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { Mail, Trash2 } from "lucide-react";
 import { Chip } from "../foundation/Chip";
+import { Dialog, DialogContent, DialogTitle } from "../foundation/Dialog";
 import { DataTable, cellTitle, type DataTableColumn } from "./DataTable";
 import { generateLeads, LEAD_STAGE_LABELS, LEAD_VIEWS, type LeadRow } from "./fixtures";
 import type { SavedView } from "./types";
@@ -252,6 +253,33 @@ describe("DataTable", () => {
     await user.keyboard("{ArrowUp}");
     fireEvent.contextMenu(grid());
     expect(await screen.findByRole("menuitem", { name: `Message ${leads[1]?.name}` })).toBeTruthy();
+  });
+
+  it("a dialog opened from the keyboard row menu gives focus back to the grid when it closes", async () => {
+    function WithMerge() {
+      const [merging, setMerging] = useState<LeadRow | null>(null);
+      return (
+        <>
+          <DataTable data={leads.slice(0, 3)} columns={columns} aria-label="Leads" rowActions={(row) => [{ id: "merge", label: `Merge ${row.name}`, onSelect: () => setMerging(row) }]} />
+          <Dialog open={merging !== null} onOpenChange={(o) => !o && setMerging(null)}>
+            <DialogContent aria-describedby={undefined}>
+              <DialogTitle>Merge {merging?.name}</DialogTitle>
+            </DialogContent>
+          </Dialog>
+        </>
+      );
+    }
+    const user = userEvent.setup();
+    render(<WithMerge />);
+    grid().focus();
+    await user.keyboard("{ArrowDown}");
+    await user.keyboard("{Shift>}{F10}{/Shift}");
+    await user.keyboard("{Enter}");
+    await screen.findByRole("dialog", { name: `Merge ${leads[1]?.name}` });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Back on the grid, on the same row: the founder carries on from where they were.
+    await waitFor(() => expect(document.activeElement).toBe(grid()));
   });
 
   it("shows loading, error and empty states inside the body", async () => {

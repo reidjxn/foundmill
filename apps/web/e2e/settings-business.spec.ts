@@ -63,8 +63,12 @@ test.describe("settings › mode: the spend cap per action", () => {
     const form = page.getByTestId("spend-cap-form");
     await expect(form).toBeVisible({ timeout: LONG });
     await form.getByLabel("Spend cap per action").fill("300");
-    await form.getByRole("button", { name: "Save cap" }).click();
+    const save = form.getByRole("button", { name: "Save cap" });
+    await save.click();
     await expect(page.getByText("Spend cap saved")).toBeVisible({ timeout: LONG });
+    // Saved, so there is nothing left to save: the button says so without dropping keyboard focus (A11Y-07).
+    await expect(save).toHaveAttribute("aria-disabled", "true");
+    await expect(save).toBeFocused();
     await page.reload();
     const field = page.getByTestId("spend-cap-form").getByLabel("Spend cap per action");
     await expect(field).toHaveValue("300", { timeout: LONG });

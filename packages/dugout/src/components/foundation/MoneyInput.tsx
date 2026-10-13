@@ -103,7 +103,10 @@ export const MoneyInput = forwardRef<HTMLInputElement, MoneyInputProps>(function
           pointer.current = false;
           const grouped = el.value;
           window.setTimeout(() => {
-            if (document.activeElement !== el || el.value !== grouped) return;
+            if (document.activeElement !== el) return;
+            // Changed meanwhile (a keystroke beat the timer, or the value was set from outside): show what was typed as
+            // it is, with the browser's own caret.
+            if (el.value !== grouped) return setFocused(true);
             const start = el.selectionStart ?? grouped.length;
             const end = el.selectionEnd ?? start;
             el.value = raw;

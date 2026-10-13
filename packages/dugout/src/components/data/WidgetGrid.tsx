@@ -171,7 +171,7 @@ export function addWidget(
   return [...layout, item];
 }
 
-/** Keyboard move/resize of one item by one unit; clamps to the grid and the item's limits. */
+/** The grid item a widget renders in, and how the widget tells the grid its own label (useWidgetInstanceLabel). */
 interface WidgetInstance {
   itemId: string;
   setLabel: (itemId: string, label: string | undefined) => void;
@@ -206,6 +206,7 @@ export function nudgeAnnouncement(name: string, action: Parameters<typeof nudgeI
   return resized ? `${name} resized to ${item.w} columns by ${item.h} rows` : `${name} moved to column ${item.x + 1}, row ${item.y + 1}`;
 }
 
+/** Keyboard move/resize of one item by one unit; clamps to the grid and the item's limits. */
 export function nudgeItem(
   layout: WidgetLayout,
   id: string,

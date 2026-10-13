@@ -40,6 +40,34 @@ describe("RightRail", () => {
     expect(document.activeElement).toBe(token);
   });
 
+  it("gives focus back when it closes in place (still mounted, open turned off)", async () => {
+    function InPlace() {
+      const [open, setOpen] = useState(false);
+      return (
+        <div>
+          <button type="button" onClick={() => setOpen(true)}>
+            Paid advertising
+          </button>
+          <RightRail title="Channel profile" open={open} onOpenChange={setOpen} hideToggle focusOnOpen closeOnEscape>
+            <button type="button">Save budget</button>
+          </RightRail>
+        </div>
+      );
+    }
+    const user = userEvent.setup();
+    render(<InPlace />);
+    const token = screen.getByRole("button", { name: "Paid advertising" });
+    token.focus();
+    await user.keyboard("{Enter}");
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Channel profile" }));
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Save budget" }));
+    // The rail's content leaves the page before its effect cleans up, so focus would be on <body> by then.
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "Save budget" })).toBeNull();
+    expect(document.activeElement).toBe(token);
+  });
+
   it("leaves focus alone and ignores Esc unless asked", async () => {
     const user = userEvent.setup();
     let closed = false;

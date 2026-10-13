@@ -35,20 +35,23 @@ function SpendCapForm({ businessId, capMinor, currency }: { businessId: string; 
   const parsed = parseSpendCapMinor(value);
   const invalid = Number.isNaN(parsed) || (parsed !== null && parsed < 0);
   const setSpendCap = useMutation(trpc.business.setSpendCap.mutationOptions({ onSuccess: (r) => (void invalidate(["business"]), t.saved(r.spendCapMinor === null ? "Spend cap removed" : "Spend cap saved")), onError: (e) => t.failed(e) }));
+  // Nothing to save (unchanged or not a number) turns Save off with aria-disabled, not `disabled`: a save that succeeds
+  // leaves the cap unchanged while the button still has keyboard focus, and a disabled button would drop it to <body>.
+  const unchanged = invalid || parsed === capMinor;
   return (
     <form
       className="flex flex-col gap-3"
       data-testid="spend-cap-form"
       onSubmit={(e) => {
         e.preventDefault();
-        if (!invalid) setSpendCap.mutate({ businessId, spendCapMinor: parsed });
+        if (!unchanged && !setSpendCap.isPending) setSpendCap.mutate({ businessId, spendCapMinor: parsed });
       }}
     >
       <div className="flex flex-wrap items-end gap-3">
         <Field htmlFor="settings-spend-cap" label="Spend cap per action" error={invalid ? "Use a number, like 250." : undefined} className="w-72">
           <MoneyInput id="settings-spend-cap" controlSize="lg" value={value} currency={currency} onValueChange={setValue} invalid={invalid} placeholder="No cap" />
         </Field>
-        <Button type="submit" variant="default" disabled={invalid || parsed === capMinor} loading={setSpendCap.isPending}>
+        <Button type="submit" variant="default" aria-disabled={unchanged || undefined} loading={setSpendCap.isPending} data-testid="spend-cap-save">
           Save cap
         </Button>
       </div>
