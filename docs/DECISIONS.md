@@ -1212,3 +1212,1491 @@ Judgement calls:
 - **Design system and widgets migration (judgement calls).** Server-safe components that print a date (`DevelopmentChart`, `FeedPost`, `ReadReceipt`, `LiveRun`) stay server-safe and take `datePrefs` as a prop (named for what it is, beside their other props; `datePrefs` is also the Journey geometry's input name), US and 12-hour without it; a client wrapper reading the context was not added, so a caller that forgets the prop shows US, not a mismatch. A date filter chip's value now reads as a date in the person's format ("Due after Oct 7, 2026", "… 2026-10-07" in ISO) instead of the date input's raw `2026-10-07`, which was ISO for everyone; the chip still stores the machine value. Left as they are: `HolidayDialog`'s `yyyy-MM-dd` (the native date input's value and minimum, which the browser draws in its own locale), the team pulse's weekday row names (`EEE`, the same in every format), the revenue widget's month bars (`10`, the month's number, the same in every format), the Live run fixture's preformatted `atLabel`, and durations and run clocks (`4d 12h`, `00:06 / 00:54`), which are not times of day.
 - **Module screens and apps/web migration (judgement calls).** Table cells built outside a component (the modules' exported column builders) print dates through two small components, `DateText` and `RelativeDateText` (`packages/modules/src/dates.tsx`), which read the person's choice from the provider, rather than a formatter threaded through every builder: the builders keep their signatures and a change of choice redraws the cells without touching each `useMemo`. The hand-built month labels ("Sep 2026" from a fixed month list) now use the shared month form: finance months, the P&L period, the payroll period picker, Runway's months and the compliance calendar read "2026-09" in ISO and stay "Sep 2026" in day first. The roadmap timeline's month ticks keep the month's name ("Feb") in every format; January carries the year in the month form ("Jan 2027", "2027-01"). The long month of apps/web's billing period and an agent's wage ("October 2026") changes only for ISO ("2026-10"), as `formatMonthYear({ long })` does. Accessible names and hover titles follow the choice too ("Open Customer Update 2026-10-10", a roadmap bar's label, a merged pull request's date). A milestone's share text uses the founder's own format: it is what they read on the card and copy themselves. Left US because they are stored once written, not displayed dates: the "Last updated October 9, 2026" line inside a generated legal policy (`policyDate`, part of the text published to the specification) and a CRM deletion request's note. Time zones are unchanged: module screens print local time as before, apps/web's settings helpers print UTC. `e2e/no-clip.spec.ts` measures every screen under each choice when `E2E_DATE_FORMATS` lists them (default: US, 12-hour only, so its run time is unchanged).
 - **Verification (judgement calls).** A table cell whose raw value is a machine date or moment (`2026-10-10T05:16:57.031Z`, `2026-10-07`) no longer carries that value as its tooltip (`cellTitle` in `DataTable`): the cell already prints it in the person's format, and the raw string read the same in every format (the CRM table's Updated column showed it on hover). A formatted moment was not used instead because a local time in a server-rendered attribute would not match after hydration. The Ledgerly seed's milestone note now writes its date in US form like Northwind's (it wrote `2026-04-12`); a database seeded before still holds the old text, which is stored text and left as written.
+
+
+## Audit fixes, release 1 (Oct 13, 2026)
+
+Decisions recorded by the engineers and verifiers of the audit-fix work packages, one block per package. Where a package has both an implementer and a verifier note, both are kept.
+
+### A-session-runtime (fix)
+
+## 2026-10-12 — Agent sessions run on their own task queue; waiting for the founder never holds a slot for long (A-session-runtime)
+
+- **Sessions queue.** `runAgentSession` is scheduled on `${TEMPORAL_TASK_QUEUE}-sessions`, named by `sessionTaskQueue()` in apps/orchestrator/src/session-contract.ts. A second Worker in the orchestrator process serves it. That worker registers this one activity and has `ORCHESTRATOR_MAX_SESSIONS` slots (default 16). The agentSession workflow, the cycles and every short activity stay on the main queue with `ORCHESTRATOR_MAX_ACTIVITIES` (32). Short activities include prepareSession, finishSession and postSessionCommand. The api and businessCycle are unchanged: the workflow picks the runner's queue itself, behind `patched("agent-session-own-task-queue")`. The main worker keeps `runAgentSession` registered for histories that started before the patch. When either worker stops, the other is shut down (`runWorkers`).
+- **Approval waits are capped (contract 3).** The wait is `APPROVAL_WAIT_MINUTES` (default 30), counted from when the approval row opened. For a live session, the session ends only once the agent's turn has ended, so an agent still working is not cut off. For a mock session, the wait runs while the replay holds. When it runs out, the run ends `blocked`/`awaiting_approval` with the approval id. Its usage is booked, a note in the stream explains what happened, and the approval stays open.
+- **Long pauses park.** `SESSION_PAUSE_HOLD_MINUTES` (default 10) is a new knob. A shorter pause holds in the run, and a live session keeps its SDK conversation. A longer one saves the workspace without pushing it and returns `{ outcome: "stopped", parked: { cursor, carry } }`. The workflow then waits for Resume or Stop in workflow code, with no slot held, and ends `stopped` after 7 days. Resume starts the next run with `{ fromSeq, resume: { cursor, progress } }`:
+  - A live session starts a new SDK conversation on the restored workspace, with a "resumed" line in the prompt.
+  - A mock replay continues from `<recording>@<index>` (packages/sandbox `startIndex`).
+  - Usage and counts from both runs are added together.
+  - Nudges and decisions that reach a parked run are carried to the next run.
+  - A run does not park while an approval is pending; the approval cap applies instead.
+- **Numbered control commands.** The workflow stamps `seq` on every command it posts, and each run ignores numbers below its `fromSeq`. A command that reached Redis after a run's last poll therefore never reaches a later run. The control list is no longer cleared when a run starts, because that dropped commands posted while the run waited for a slot. A stop found at start ends the run before anything is created.
+- **Live pause interrupts.** Pause calls `Query.interrupt()` on the turn in flight, and a gate in the PreToolUse hook holds every tool call until Resume. The SDK answers hooks on its own, whatever the consumer does. Resume sends "continue" if the pause cut a turn short, plus any nudges or decisions held while paused.
+- **Stop, loop and cancel book usage.** Each one closes the input, interrupts the turn and gives the SDK `SDK_STOP_GRACE_MS` (10 s) to emit its final result before aborting it. The AbortError of an ending already chosen is not a failure. The session's usage is the latest cumulative `result.modelUsage`. It replaces the earlier totals instead of being added to them, with a max guard against zeroed crash results. On top comes an Estimate at list price (`meter`) for the assistant messages since the last result, using the last usage seen per message id. Every exit path returns this usage. Token rows and `task.completed.cost` are in USD.
+- **API refusals block.** A `result` with `subtype: "success"` and `is_error: true` is classified by `classifyTurnEnd`:
+  - billing → `blocked`/`budget` ("model budget exhausted")
+  - 401/403 or authentication → `blocked`/`credential`
+  - 429/529, rate_limit or overloaded → `blocked`/`rate_limit`
+  - anything else → `failed`/`error`
+
+  The provider's text is never published as the agent's note. The team is not paused, because that needs contract 4's stop flag.
+- **A session never un-pauses its agent.** finishSession reads the agent after `bookUsage`, leaves `paused` alone, and sets a stopped session's task to `paused` when its agent is paused. prepareSession refuses a paused agent with a non-retryable `AgentPaused` failure, and the workflow ends that session `stopped`. An idle agent becomes `healthy` when its run starts.
+- **Sandboxes only for acceptance runs (live).** A live session creates its sandbox right before a code task's acceptance run and stops it afterwards. It asks for `SANDBOX_TTL_MINUTES` = 30, which fits E2B Hobby's one-hour cap; Pro is not required. Mock replays still create their replay sandbox at start. No TTL knob was added, because the acceptance run's own timeouts bound it.
+- **Redis resilience.** Control polls run one at a time, and a failed poll is logged and retried. `RedisControlBus.drain` returns the commands it had already popped when Redis fails. Clearing the list is best-effort. `main()` logs unhandled rejections instead of exiting.
+- **Env knobs:** `ORCHESTRATOR_MAX_SESSIONS`, `APPROVAL_WAIT_MINUTES` and `SESSION_PAUSE_HOLD_MINUTES` join the orchestrator-only knobs parsed in src/env.ts.
+
+### A-session-runtime (verify)
+
+## 2026-10-12 — Agent sessions run on their own task queue; waiting for the founder never holds a slot for long (A-session-runtime)
+
+- **Sessions queue.** `runAgentSession` runs on `${TEMPORAL_TASK_QUEUE}-sessions` (`sessionTaskQueue()` in apps/orchestrator/src/session-contract.ts).
+  - A second Worker in the orchestrator process serves it. It registers only this activity and has `ORCHESTRATOR_MAX_SESSIONS` slots (default 16).
+  - Workflows and every short activity stay on the main queue with `ORCHESTRATOR_MAX_ACTIVITIES` (32). That includes prepare, finish and postSessionCommand.
+  - The workflow picks the queue behind `patched("agent-session-own-task-queue")`. The main worker keeps `runAgentSession` registered for older histories.
+  - When either worker stops, the other is shut down (`runWorkers`).
+- **Approval waits are capped (contract 3).** After `APPROVAL_WAIT_MINUTES` (default 30) from when the approval opened, the run ends `blocked`/`awaiting_approval` and books its usage; the approval stays open.
+  - In a live session the cap applies once the agent's turn has ended, or while a pause holds the session.
+- **Long pauses park.** After `SESSION_PAUSE_HOLD_MINUTES` (default 10), the run saves its work without pushing it and returns `parked`.
+  - The workflow waits for Resume or Stop without a slot, and ends `stopped` after 7 days.
+  - Resume starts the next run: a mock replay continues from `<recording>@<index>`; a live session starts a new SDK conversation on the restored workspace.
+  - Usage and counts add up across runs. A run does not park while an approval is pending; the approval cap applies instead.
+- **Numbered control commands.** The workflow stamps `seq` on every command, and each run ignores numbers below its `fromSeq`. The control list is no longer cleared when a run starts.
+  - A parked run returns the nudges and decisions it read but did not act on (`carry`), and the number of the last command it read (`lastSeq`).
+  - The workflow re-sends to the next run every nudge and decision numbered after `lastSeq`: they reached Redis after the run's last poll and were cleared with the list.
+- **Live pause interrupts.** Pause calls `Query.interrupt()`, and a gate in the PreToolUse hook holds every tool call until Resume.
+  - The hook's `timeout` outlasts every founder wait, so the CLI never lets a held call through on its own; the call is refused when the run ends.
+- **Stop, loop and cancel book usage.** Each one interrupts the turn, waits up to `SDK_STOP_GRACE_MS` (10 s), then aborts. The AbortError of an ending already chosen is not a failure.
+  - Usage is the latest cumulative `result.modelUsage` (never summed), plus an Estimate at list price for a turn cut short.
+  - Every heartbeat carries the usage so far, so a run that dies without returning is booked from its last heartbeat (`failedRunUsage`). Token rows are in USD.
+- **A run the platform cancels is not a Stop.** When the platform cancels a run (its worker shut down for a deploy), the run ends `stopped` with reason `cancelled` (`CANCELLED_REASON`). Its task goes back to `ready`, or stays `paused` if the founder paused it, so a later cycle runs it; a founder Stop still leaves it `stopped`.
+- **API refusals block.** A `result` with `is_error` is classified by `classifyTurnEnd`:
+
+  | Refusal | Outcome |
+  | --- | --- |
+  | Billing | `blocked`/`budget` |
+  | Key or account (401/403, `authentication_failed`, `account_on_hold`, `verification_required`, `cloud_credential_error`) | `blocked`/`credential` |
+  | 429/529, rate limit, overloaded | `blocked`/`rate_limit` |
+  | Anything else | `failed`/`error` |
+
+  The provider's text is never published as the agent's note.
+- **A session never un-pauses its agent.** Session start and end write health through `repos.agents.setHealthStatus`, a guarded update that never overwrites `paused`. prepareSession refuses a paused agent with a non-retryable `AgentPaused` failure, and the workflow ends that session `stopped`.
+- **Sandboxes only for acceptance runs (live).** `SANDBOX_TTL_MINUTES` = 30, which fits E2B Hobby's one-hour cap. Mock replays still create their replay sandbox at start.
+- **Redis resilience.** Control polls run one at a time; a failed poll is logged and retried. `RedisControlBus.drain` keeps the commands it popped before a failure. `main()` logs unhandled rejections instead of exiting.
+- **Inbox (VOL-X1).** An `ask` plan action reads "Needs your go-ahead" until the plan is confirmed and the action no longer waits on an approval. It reads "Confirmed by you" only after that (`askedActionChip`).
+
+### AUTO1-autopilot (fix)
+
+## 2026-10-13 Autopilot (AUTO1)
+
+- **Shape.** The base has no per-business schedule mechanism (apps/orchestrator/src/workflows/schedules.ts is nightly, all businesses), so Autopilot is a small Temporal workflow per business with the deterministic id `autopilot:<businessId>`, started when Autopilot is turned on (or on Commit) and ended by turning it off, Stop all agents, a guard-rail pause or archiving. Setting and state live on `businesses` (migration 0041_autopilot, when 1793621520000): `autopilot_enabled`, `autopilot_cadence` (after_cycle, every_1h, every_4h, every_12h, daily), `autopilot_daily_hour`, `autopilot_max_cycles_per_day` (1-24, default 6), `autopilot_spend_ceiling_minor` (USD cents, null = credits left), `autopilot_max_idle_cycles` (1-10, default 3), `autopilot_paused_reason`, `autopilot_changed_at`, `autopilot_next_at`. No new table, so no new RLS or cross-tenant test; the existing business policies hold (members read, owners/admins change) and are covered by a db test.
+- **Same entry as Continue.** The workflow starts the real `businessCycle` workflow as a child with the same id scheme `cycle:<businessId>:<n>` (n from the cycle.started count, as Continue and the vacation loop do) and trigger `autopilot` (added to the cycle.started enum). A founder press racing it gets the same id and WorkflowExecutionAlreadyStarted, which Autopilot treats as 'a cycle is running'. Every approval, hard gate, section wall and policy check therefore applies unchanged. Autopilot never decides an Inbox item, never approves, never touches the vacation loop.
+- **One pure decision.** `decideAutopilot` (packages/shared/src/autopilot.ts) is the only place the rules live; the workflow's `autopilotEvaluate` activity and `business.autopilot.get` (Home chip, Settings) both call it over the same facts (`loadAutopilotFacts`, packages/db/src/autopilot.ts), so the chip cannot disagree with what runs. Order: off, archived, already paused, stop flag (pause), credits <= 0 (pause), N idle cycles (pause), then waits (vacation, cycle running, blocking Inbox item, day's cycle cap, day's spend ceiling), then the schedule.
+- **Pause vs wait.** Pauses (stop flag, used-up credits, N failed/empty cycles) are persisted in `autopilot_paused_reason`, end the workflow, and are cleared only by an owner/admin turning Autopilot on again, so Resume agents and a top-up never restart it (the brief's 'Resume does not turn Autopilot back on by itself'). Waits are transient and shown as 'Waiting for you' (Inbox item), 'Waiting: on vacation', 'Waiting: daily limit reached', 'Waiting: spend ceiling reached', or On with the next planned time. Turning it on is refused (409) while the team is stopped. `stopBusinessAgents` pauses Autopilot in the same transaction as the stop flag for all three stop reasons.
+- **Failed or empty cycle.** Idle = outcome failed, or nothing dispatched, or 'waiting' with nothing finished; a stopped cycle counts neither way; a time-boxed cycle with work still running counts as progress. The streak counts cycles that finished since Autopilot was last turned on (any trigger, so a productive founder press resets it). A cycle that crashes before writing cycle.completed is closed as failed by `autopilotCycleFailed` (so it is not 'running' forever); one that never wrote cycle.started is counted in the workflow and passed back as `unrecordedFailures`. A cycle open for more than 36 hours is treated as crashed, not running.
+- **Days and hours are UTC.** A business has no time zone of its own, so 'per day' means the UTC day and the daily hour is a UTC hour; the UI says 'UTC' wherever it asks for or shows an hour. The 15-minute floor is between consecutive cycle starts; the first cycle after turning on is due immediately (daily: at the next chosen hour).
+- **Spend ceiling.** Counts all USD model/platform spend of the UTC day (usage totals, not only Autopilot's cycles, because spend cannot be attributed to the trigger) and is capped at spent-today plus credits left, so it never exceeds credits; null means 'credits left'. Always labeled Estimate.
+- **Polling.** Standing waits re-check every 5 minutes (an Inbox decision, vacation end); no sleep exceeds 15 minutes, so a credit exhaustion is noticed and persisted within 15 minutes even when the next cycle is a day away; `autopilotRefresh` (settings saved, turned off) wakes it at once. The run continues as new every 300 rounds to keep history small.
+- **Healing.** If Temporal is down when Autopilot is turned on, the setting is saved and the API says the workflow is not queued; Home calls the idempotent `business.autopilot.ensure` (members with write access; refuses while paused or stopped), so it starts as soon as the orchestrator is back. No boot-time reconciler was added (the orchestrator has no Temporal client and A-session-runtime owns index.ts).
+- **Events.** `autopilot.changed` (turned_on, turned_off, settings_changed, paused) and `autopilot.cycle_started`, declared in packages/events, written through the outbox, non-narratable (consumers stream, metrics). Audit actions: autopilot.turn_on, autopilot.turn_off, autopilot.update_settings, autopilot.pause, autopilot.cycle_start, autopilot.cycle_failed.
+
+### AUTO1-autopilot (verify)
+
+Autopilot (AUTO1, 2026-10-13). Shape: the setting and its state are nine autopilot_* columns on businesses (migration 0041_autopilot), not a new table, so the existing business RLS policies apply (members read, owners/admins and services write). Driver: no schedules mechanism on this base, so one Temporal workflow per business, id autopilot:<businessId>, started when Autopilot is turned on (or on Commit) and ended by off, a guard-rail pause, archive or Stop all agents; it starts businessCycle as a child with the same cycle:<businessId>:<n> id as Continue (trigger 'autopilot'), so every gate applies. One pure decision (decideAutopilot, packages/shared) over facts gathered by loadAutopilotFacts (packages/db) is shared by the workflow activity and the Home/Settings read. Pauses (stop flag, key revoke, credits, N idle cycles) are persisted in autopilot_paused_reason and cleared only when an owner or admin turns Autopilot on again; Resume and top-up never do. Waits (vacation, running cycle, blocking Inbox item, daily cycle cap, daily USD Estimate ceiling capped by credits) keep it on. Days and the daily hour are UTC (a business has no time zone). A cycle open for more than 36 hours with no cycle.completed counts as crashed, not running. The daily cap counts autopilot-triggered cycles only. Verifier additions: a paused Autopilot can be turned off for good from Settings > Mode ('Turn Autopilot off'); a collision with a founder's Continue on the same cycle number is neither a start nor a failure; an Inbox decision is noticed by the workflow's 5 minute poll rather than a signal (no hook was added in inbox decide to avoid touching the approvals/permissions work packages).
+
+### B-approvals (fix)
+
+## 2026-10-12 — Approvals are answered in the Inbox (B-approvals; audit FR-01, O-02, O-26)
+
+- **One gated call has one approval.** A call is the same agent, connector, tool and arguments (jsonb equality) on the same task, or in the same session when there is no task.
+  - The gateway's "ask" first uses a granted approval of that call. `repos.approvals.useGranted` marks it used, so it runs once, and only for an amount no larger than the one it named.
+  - Otherwise the call waits on the call's open approval (`claimOpen`). The approval is handed to the session asking now, so the decision signal reaches the session that is actually waiting.
+  - Only when neither exists does the gateway open a new row, a new `approval.requested` and a new decision item.
+  - The live runner tracks the approval the gateway returned by its id and never creates a duplicate. Mock replays follow the same rules; a hold the founder already approved is released on the next control poll.
+- **Every approval opened for a gated call gets one decision Inbox item.** This covers the gateway's ask, a session's recorded hold, a plan action and a channel launch, and is built by `packages/db/src/approvals.ts`.
+  - The item comes from the agent who asked (the Chief of Staff when the approval names no agent). It names the task, the call, its arguments and the amount.
+  - Its options are Approve (`approve_request`, recommended, because exactly one option must be recommended) and Reject (`reject_request`). It blocks Continue.
+  - The approval stores `inbox_item_id`, and the narrated `approval.requested` is marked so the composer never writes a vaguer second note.
+  - Hard gates are founder tasks, not approvals of this kind: no item, `task_id` null, and approving the row never lifts the deny.
+- **The answer is recorded as a one-action plan.** It is a `reply_only` action whose `acknowledgement` holds the summary, so the item's history, `decision.made` and the reading pane's "Decided" panel work unchanged. Nothing is compiled and no model is called. Text sent with Approve or Reject is the founder's reason (it does not use the planning allowance); free text alone never decides an approval.
+- **Who may answer:** owners and admins, or a member with write on the section the call changes. Connectors map to sections: stripe/tink/plaid/ecb_rates → finance, github/e2b/cloudflare_dns → development, sendgrid/shopify → distribution, gmail/google_calendar → crm, dropbox_sign and the registries → legal. Platform tools map by plan-action type. Anything else needs Inbox write. team.approvals.resolve uses the same rule rather than Team write.
+- **Delivery after the session ended.** Approve on a blocked task sets it to `ready` and starts the next cycle (`trigger: "wake"`, Temporal only, never an in-process step). It does this only when the business is idle: not stopped, not on vacation, no cycle running, and no other note blocking Continue. In any other case the task simply waits for the next cycle or for Resume.
+  - Reject sets the task to `blocked` and writes `task.blocked` with the new reason `approval_rejected`, plus an update from the Chief of Staff that quotes the reason.
+  - `repos.approvals.holds` keeps a task out of the cycle plan while its latest approval is open, or after a rejection until a session is started on it again (by hand).
+- **approvalWait is now patched (`approval-wait-poll`).** It re-reads its approval every hour, which keeps a months-long wait under Temporal's history limit. A timeout returns an answer the founder stored instead of expiring it, which covers a lost signal.
+- **The task link in the Agent request panel** uses the same `entity-link` anchor Team › Agents uses for tasks: tasks are not CRM entities, and EntityKind has no task kind. The agent is an EntityLink.
+- **Approvals opened before 0030** keep `task_id` null and get no item. Migration 0030 does not backfill them, because without an item to answer them by they would hold their tasks back forever. Team › approvals still answers them.
+
+### B-approvals (verify)
+
+## 2026-10-12 — Approvals are answered in the Inbox (B-approvals; audit FR-01, O-02, O-26)
+
+- **One gated call has one approval.** A call is the same agent, connector, tool, arguments, amount and currency (jsonb equality for arguments) on the same task, or in the same session when there is no task.
+  - The gateway's "ask" first uses a granted approval of that call. `repos.approvals.useGranted` marks it used, so it runs once. It covers an amount no larger than the one it named, and a spending call only under an approval in its own currency.
+  - Otherwise the call waits on the call's open approval (`claimOpen`), which is handed to the session asking now, so the decision signal reaches the session that is actually waiting.
+  - Only when neither exists does the gateway open a new row, a new `approval.requested` and a new decision item.
+  - The live runner tracks the approval the gateway returned by its id and never creates a duplicate. Mock replays follow the same rules; a hold the founder already approved is released on the next control poll.
+- **Every approval opened for a gated call gets one decision Inbox item.** This covers the gateway's ask, a session's recorded hold, a plan action and a channel launch, built by `packages/db/src/approvals.ts`.
+  - The item comes from the agent who asked (the Chief of Staff when the approval names none). It names the task, the call, its arguments and the amount. Argument values are shortened (a push carries file contents), and the text stops at 1,000 characters.
+  - Options: Approve (`approve_request`, recommended, because exactly one option must be recommended) and Reject (`reject_request`). It blocks Continue.
+  - The approval stores `inbox_item_id`, and the narrated `approval.requested` is marked so the composer never writes a vaguer second note.
+  - Hard gates are founder tasks, not approvals of this kind: no item, `task_id` null, and approving the row never lifts the deny.
+  - An open request cannot be archived (`inbox.archive` refuses): it is answered. An approval settled another way (a hold that went on by itself, an expiry) closes its note when anyone tries to answer it.
+- **The answer is recorded as a one-action plan** (`reply_only`, `acknowledgement` = the summary), so the item's history, `decision.made` and the "Decided" panel work unchanged. No model is called. Text sent with Approve or Reject is the founder's reason; free text alone never decides an approval.
+- **Who may answer:** owners and admins, or a member with write on the section the call changes. Connectors map to sections: stripe/tink/plaid/ecb_rates to finance, github/e2b/cloudflare_dns to development, sendgrid/shopify to distribution, gmail/google_calendar to crm, dropbox_sign and the registries to legal. Platform tools map by plan-action type. Anything else needs Inbox write. `team.approvals.resolve` uses the same rule instead of Team write. A reader walled from Finance sees no amount (nor the arguments of a call that spends) and masked reasons, in the Inbox and in Team › approvals; a reader who cannot read the call's section sees no arguments.
+- **Delivery after the session ended.** Approve on a blocked task sets it to `ready` and starts the next cycle (`trigger: "wake"`, Temporal only, never in-process), only when the business is idle: not stopped, not on vacation, no cycle running, no other note blocking Continue. Otherwise the task waits for the next cycle or for Resume. A task that moved on (running again, in review, merging, done, stopped) is left as it is. Reject sets the task `blocked`, writes `task.blocked` with the new reason `approval_rejected`, and an update from the Chief of Staff quoting the reason. `repos.approvals.holds` keeps a task out of the cycle plan while its latest approval is open, or after a rejection until a session is started on it again (by hand). If the session cannot be told (Temporal unreachable), the answer is saved and the summary says the task goes on at the next cycle.
+- **The Chief of Staff never answers an approval's item on vacation.** `holidayAutoDecide` skips them (they queue under "Waiting for you"): delegated decision types are matched by note text, and would otherwise close the note without resolving the approval or telling the session, or wave through a spend policy asked about.
+- **`approve_spend` with an `approval_id`** in a plan goes through `grantApproval` (resolve, `approval.resolved` through the outbox, close the item, decision to a waiting session), the same bookkeeping as an Inbox answer.
+- **approvalWait is patched (`approval-wait-poll`).** It re-reads its approval every hour, which keeps a months-long wait inside Temporal's history limit. A timeout returns an answer the founder stored instead of expiring it.
+- **The task link in the Agent request panel** uses the `entity-link` anchor Team › Agents uses for tasks (tasks are not CRM entities); the agent is an EntityLink.
+- **Approvals opened before 0030** keep `task_id` null and get no item (no backfill: with no item to answer them by, they would hold their tasks forever). Team › approvals still lists and answers them.
+
+### C-control-dispatch (fix)
+
+- **2026-10-12 — The team-wide stop is a business flag, not just paused agents (audit fixes C; 0023).** Stop all agents, a revoked Anthropic key and used-up credits set `businesses.agents_stopped_at` with `agents_stopped_reason` (`kill_switch` | `key_revoked` | `credits_exhausted`). Pausing agents alone could be undone by any writer (task start, Stop, a finishing session, a channel toggle). Every work-starting path asks the flag first: api `stop-guard.ts` (409) and the orchestrator's dispatch guard.
+  - Only `business.resumeAgents` (owner or admin) clears every reason. A stored key clears `key_revoked` or `credits_exhausted`; a top-up clears `credits_exhausted`; neither undoes the founder's Stop all agents.
+  - Stop all agents outranks a key or credits stop that is already set.
+  - Resume refuses while the team could not run anyway: a business on its own key with none stored, or used-up credits.
+  - The flag is a column of `businesses`, so its existing policies apply: members read it, owners and admins change it. There is no SQL check on the reason values, so other work packages can add reasons without a migration.
+- **Agents record why they are paused (`agents.paused_reason`, cleared by a trigger whenever an agent leaves `paused`).** A resume lifts only stop reasons and legacy null reasons. A `wage_cap` pause lifts itself once the agent is under its cap. Computed health (session end, health refresh) never writes over a pause (`setHealthStatus`).
+- **What a resume does and does not restart.** Channel engines that were running are restarted under their deterministic ids. Campaigns the stop paused stay paused, because they spend money; Distribution resumes them. Tasks the stop paused are picked up by the next cycle: `paused` was already dispatchable, and a session cut short by the stop now leaves its task `paused` instead of `failed` or `stopped`.
+- **Session ids are written with the row.** `createSession` no longer takes a workflow id and always stores `session:<id>`. Readers compute the id and never trust a stored value. One dispatch guard (`activities/dispatch.ts`) is the only place the orchestrator opens a session. The playbook workflow now starts the children its actions request (`patched("playbook-spawns")`), so a playbook's `create_task` no longer leaves an open row with no workflow behind it.
+- **Bounded retries instead of a permanent drop.** A failed task re-enters the brief and is offered again after 15, then 30, then 60 minutes. After 3 automatic retries it waits for the founder's Start on the Plan. A failing agent with nothing open rests 10 minutes, doubling per failure in a row up to 4 hours, then goes idle. `stopped` tasks stay out of the brief: that is the founder's "Stop and discard", and only Start undoes it.
+- **Wage caps are enforced at dispatch, with no mid-session cut-off.**
+  - The 50 % and 80 % notes are posted once per period; the audit rows (`agent.wage_alert`) are the dedupe record.
+  - At 100 % the agent is paused until the 1st of next month, with one Inbox warning.
+  - A session already running finishes. Its live tokens are booked at the end, and the gateway already refuses tool calls from a paused agent.
+  - The per-business monthly budget, which also applies to BYOK, is left to the spend-cap work (F1).
+- **`dev.tasks.start` claims the task with one conditional UPDATE.** It can be started from planned, ready, paused, blocked, failed or stopped, so a double click opens one session. It refuses an open dependency and a paused, released or capped agent, and it never wakes a paused agent.
+- **Resume lives where the stop was pulled.** While the team is stopped, the top bar's Stop all agents square becomes Resume agents (same size, amber play mark and ring). Its dialog gives the reason, the time and what else lifts the stop. Non-admins see why and who can resume.
+
+### C-control-dispatch (verify)
+
+- **2026-10-12: The team-wide stop is a business flag, not just paused agents (audit fixes C; 0023).**
+  - Stop all agents, a revoked Anthropic key and used-up credits set `businesses.agents_stopped_at` with `agents_stopped_reason` (`kill_switch` | `key_revoked` | `credits_exhausted`).
+  - Every work-starting path asks the flag first: api `services/stop-guard.ts` (409) and the orchestrator's dispatch guard. Pausing agents alone could be undone by any writer.
+  - Only `business.resumeAgents` (owner or admin) clears every reason. A stored key clears `key_revoked` and `credits_exhausted`; a top-up clears `credits_exhausted`. Neither undoes Stop all agents, which outranks a key or credits stop already set.
+  - Resume refuses while the team could not run: a business on its own key with none stored, or used-up credits.
+  - The flag is a column of `businesses`, so its existing policies apply. There is no SQL check on the reason values.
+- **Agents record why they are paused (`agents.paused_reason`; a trigger clears it when the agent leaves `paused`).**
+  - A resume lifts only stop reasons and legacy null reasons.
+  - A `wage_cap` pause lifts itself once the agent is under its cap.
+  - Computed health (session end, health refresh) never writes over a pause (`setHealthStatus`).
+- **What a resume restarts.**
+  - Channel engines with a recorded engine id restart under their deterministic ids.
+  - A plan's `enable_channel` during a stop records the id and starts nothing, so the resume starts it.
+  - Campaigns the stop paused stay paused (they spend money; Distribution resumes them).
+  - Tasks the stop paused are picked up by the next cycle.
+- **0023 backfill of teams stopped before the flag existed.** A business is marked stopped when either:
+  - its whole live team is paused, or
+  - some agents are still paused and its audit trail records Stop all agents, a key revoke or used-up credits. Before 0023 the only way back was starting tasks one by one, so such a team was never really resumed.
+  Archived businesses are included, so a restored one shows Resume agents. The stop time and reason come from the latest such audit entry (kill switch when there is none).
+- **Session ids are written with the row.**
+  - `createSession` always stores `session:<id>`, and readers always compute the id.
+  - `activities/dispatch.ts` is the only place the orchestrator opens a session. It derives the session id from the activity attempt, so a retried `openSession` gets its own row back, and it writes the row, the task update and `task.started` in one transaction.
+  - A cycle stopped while a session is being opened signals that child too (`cycle-stop-dispatch` patch).
+- **`dev.tasks.start` claims the task with one conditional UPDATE and never wakes a paused agent.**
+  - It refuses an open session, an open dependency, and a paused, released or capped agent.
+  - When Temporal does not queue the workflow, the row is closed as `not_started`, the task gets its status back, and the call answers SERVICE_UNAVAILABLE, so a later Start is not refused.
+- **Bounded retries instead of a permanent drop.**
+  - A failed task is offered again after 15, 30, then 60 minutes; after 3 automatic retries it waits for Start.
+  - A failing agent with nothing open rests 10 minutes, doubling per failure in a row up to 4 hours.
+  - A session cut short by a stop or a pause is recorded `stopped` and its task `paused`, so it never counts as a failure.
+  - `stopped` tasks (the founder's "Stop and discard") stay out of the brief.
+- **Wage caps are enforced at dispatch and swept before every plan (`enforceWageCaps`), with no mid-session cutoff.**
+  - The 50% and 80% notes are posted once per period, deduplicated by the period on the `agent.wage_alert` audit row.
+  - At 100% the agent is paused until the 1st of next month.
+  - The per-business monthly budget for BYOK is left to F1.
+- **Resume lives where the stop was pulled.** While the team is stopped, the top bar's Stop all agents square becomes Resume agents.
+
+### CI-ci-perf-signin (fix)
+
+## 2026-10-12 — Round trips per procedure
+
+Staging's api answered business.get in about 560 ms and Home's first batch in 1.7-3 s. The services run in Railway EU West (Amsterdam), the nearest Railway region to Supabase's eu-north-1 pooler, at about 28 ms per round trip, so a procedure's latency is its round trips. business.get made about 20 of them. The 2026-10-09 note "about 50 ms per query" was really two round trips per query.
+
+- **postgres.js is patched (patches/postgres@3.4.9.patch, pnpm patchedDependencies).** With prepared statements off, which the transaction pooler requires, postgres.js asked the server for a statement's parameter types before sending its values. That meant two round trips for every statement with parameters and no pipelining behind it, so `Promise.all` inside a transaction ran serially.
+  - The patch sends a statement whose untyped values are all strings, numbers or null as Parse+Describe+Bind+Execute in one go. postgres.js already does this for statements without parameters.
+  - Under Drizzle's serializers (json and dates pass through as text) the server's inferred type cannot change how such a value is sent. Arrays and objects of unknown type are still described first.
+  - Outside a transaction flow control is unchanged: the statement holds its pooled connection until answered, so there is no new pipelining through Supavisor. Inside sql.begin/reserve the transaction's statements are pipelined.
+  - Prepared statements are not an option on the transaction pooler (Supavisor transaction mode does not support them). The session pooler would hold a server connection per client connection.
+  - Bumping postgres.js means re-applying or dropping the patch. pnpm refuses to install if it no longer applies.
+- **withRls does not await its setup before fn.** The setup is still one statement with both values as bound parameters. It is queued on the transaction's connection (`execute()`) before fn starts. The connection sends in order, so RLS always applies first. If the setup fails the transaction is aborted and none of fn's statements run. Setup and fn are both settled before COMMIT/ROLLBACK. PGlite (no network) still awaits it.
+- **Membership and business in one statement** (`repos.memberships.access`, a left join on non-archived businesses) instead of two lookups on two connections. Same answers: FORBIDDEN for a non-member whether or not the business exists, NOT_FOUND for a member of an archived business.
+- **No cross-request cache of the access lookup.** A revoked member must lose access on the next request. The per-HTTP-request memo stays.
+- **Budgets are tested on the wire.** packages/db `testing/wire.ts` gives postgres.js a socket answered by PGlite's protocol handler (`execProtocolRaw`) and counts round trips. apps/api `round-trips.test.ts` budgets Home's and the shell's first reads at 3-5 each (business.get 4) and checks each answers exactly what PGlite's own driver answers. New per-row reads in a procedure should be batched into one statement or read with `Promise.all` inside one `ctx.rls`.
+- **Region.** It stays as it is. Railway has no region nearer to Stockholm than Amsterdam. Moving the database to eu-central-1 (about 8 ms from Amsterdam) is the remaining lever, recorded in DEPLOY §3, and not done.
+
+## 2026-10-12 — Healthchecks per service; /health is a readiness probe
+
+railway.toml is shared by all six services and the orchestrator has no HTTP server, so it cannot carry a healthcheck. api, gateway, composer, stream and ingest each point their Railway config file at `railway/<service>.toml`. Each file repeats the shared build and teardown and adds `healthcheckPath = "/health"` (180 s for the api, which migrates before it listens; 120 s for the others). `scripts/railway-config.test.mjs` runs in CI and keeps the copies equal. Because config-as-code stops being read on 2026-12-01, the same values are also set as dashboard settings.
+
+`/health` answers 503 until the service can serve:
+- api, gateway, composer and ingest: without their database.
+- stream: without Redis or while closing.
+- For the api, Redis, Temporal and the composer are optional and never fail the check.
+
+## 2026-10-12 — Deploys wait for CI
+
+Three red pushes (7e5760c, c9dd4bb, 76a112c) shipped because Railway's triggers had `checkSuites: false` and main had no protection. Two settings close it, both outside the repository (DEPLOY §1):
+- Railway "Wait for CI" on all six app services.
+- Branch protection on main requiring the four CI jobs, which also gates Vercel (it has no wait-for-CI switch for Git deployments).
+
+PROGRESS records checks only from the commit's CI run.
+
+## 2026-10-12 — Sign-in email
+
+Magic links need a custom SMTP sender on Supabase Auth (DEPLOY §4). The built-in sender only mails the organization's team, 2 an hour.
+
+The login form maps `signInWithOtp` errors by code, then status, then message to a reason and a US-English sentence (`classifySendLinkError`, `sendLinkErrorMessage`). Supabase's own text never reaches the screen, matching what sign-in-errors.ts already promised for link errors.
+
+## 2026-10-12 — Team pulse hour axis
+
+The 12-hour labels ('12 AM', about 35 px) do not fit a one-hour column (24 px at 1280). A label now shows every third hour in a box three columns wide; every hour keeps a screen-reader-only column header. Shortening the labels (for example '12a') was rejected: the person's chosen time format must read the same everywhere.
+
+## 2026-10-12 — Live sessions section test reads the screen every 3 s
+
+The DOM test covers two minutes in 40 steps of 6 ticks, with one render per step. The hook-level test still checks every tick for an overdue ETA. Rendering every 500 ms tick took 38-49 s per business on the shared CI runner.
+
+### CI-ci-perf-signin (verify)
+
+## 2026-10-12 — Round trips per procedure
+
+On staging, the api answered business.get in about 560 ms and Home's first batch in 1.7-3 s. The services run in Railway EU West (Amsterdam), which is the nearest Railway region to Supabase's eu-north-1 pooler. Each round trip costs about 28 ms there, so a procedure's latency is mostly its number of round trips. business.get made about 20. The 2026-10-09 note "about 50 ms per query" was really two round trips per query.
+
+- **postgres.js is patched (patches/postgres@3.4.9.patch, pnpm patchedDependencies).**
+  - Before the patch, postgres.js asked the server for a statement's parameter types before sending its values. Drizzle sends every statement through postgres.js's `unsafe`, which never prepares it. So every statement with parameters cost two round trips and blocked pipelining, and a `Promise.all` inside a transaction ran one statement at a time.
+  - The patch sends a statement in one go (Parse+Describe+Bind+Execute) when every value is typed, null, a string or a number. postgres.js already does this for statements without parameters. Arrays and objects of unknown type are still described first.
+  - Under Drizzle's serializers (json and dates pass through as text), the type the server infers cannot change how a string or a number is sent. The only difference is a string or a number bound to a boolean or bytea parameter. Postgres now reads that as it reads a literal, where postgres.js's serializer used to turn anything but `true` into false. Drizzle binds booleans and bytes typed, so no column reaches that case; a test pins it.
+  - Outside a transaction, flow control is unchanged. A statement holds its pooled connection until it is answered, so nothing new is pipelined through Supavisor.
+  - Inside sql.begin or sql.reserve, the transaction's statements are pipelined.
+  - Bumping postgres.js means re-applying or dropping the patch. pnpm refuses to install if the patch no longer applies.
+- **withRls does not await its setup before fn.**
+  - The setup is still one statement, with both values as bound parameters.
+  - It is queued on the transaction's connection (`execute()`) before fn starts. The connection sends in order, so RLS always applies first.
+  - If the setup fails, the transaction is aborted: fn's statements fail and roll back, and the caller gets the setup's error. A test covers this.
+  - Setup and fn both settle before COMMIT or ROLLBACK.
+  - PGlite (no network) still awaits the setup.
+- **Membership and business in one statement.** `repos.memberships.access` is a left join on non-archived businesses; it replaces two lookups on two connections. The answers are the same: FORBIDDEN for a non-member whether or not the business exists, and NOT_FOUND for a member of an archived business.
+- **No cross-request cache of the access lookup.** A revoked member must lose access on the next request. The per-HTTP-request memo stays.
+- **Budgets are tested on the wire.**
+  - packages/db `testing/wire.ts` gives postgres.js a socket answered by PGlite's protocol handler (`execProtocolRaw`) and counts round trips.
+  - Its `describe` option is the reference for "the same answer": it forces a described statement per query, as before the patch. A client-level `prepare: true` alone changes nothing, because Drizzle's `unsafe` calls opt out of it.
+  - apps/api `round-trips.test.ts` budgets Home's and the shell's first reads at 3-5 each (business.get 4). It also checks that each answers exactly what PGlite's own driver answers.
+  - New per-row reads in a procedure should be batched into one statement, or read with `Promise.all` inside one `ctx.rls`.
+- **Region.** It stays as it is: Railway has no region nearer to Stockholm than Amsterdam. Moving the database to eu-central-1 (about 8 ms from Amsterdam) is the remaining lever. It is recorded in DEPLOY §3 and not done.
+
+## 2026-10-12 — Healthchecks per service; /health is a readiness probe
+
+railway.toml is shared by all six services, and the orchestrator has no HTTP server, so that file cannot carry a healthcheck. Instead, api, gateway, composer, stream and ingest each point their Railway config file at `railway/<service>.toml`. Each of these files repeats the shared build and teardown and adds `healthcheckPath = "/health"`: 180 s for the api, which migrates before it listens, and 120 s for the others. `scripts/railway-config.test.mjs` runs in CI and keeps the copies equal. Railway stops reading config-as-code on 2026-12-01, so the same values are also set as dashboard settings.
+
+`/health` answers 503 until the service can serve:
+- api, gateway, composer and ingest: while their database is unavailable.
+- stream: without Redis, or while closing.
+- For the api, Redis, Temporal and the composer are optional and never fail the check.
+
+## 2026-10-12 — Deploys wait for CI
+
+Three red pushes (7e5760c, c9dd4bb, 76a112c) shipped, because Railway's triggers had `checkSuites: false` and main had no protection. Two settings close this, both outside the repository (DEPLOY §1):
+- Railway "Wait for CI" on all six app services.
+- Branch protection on main, requiring a pull request and the four CI jobs. This also gates Vercel, which has no wait-for-CI switch for Git deployments.
+
+Merges go through pull requests (CI runs on every pull request). GitHub offers protection on a private repository only on a paid plan. Without one, merge only green pull requests; Railway's Wait for CI still keeps a red commit off the backend.
+
+PROGRESS records a check as green only from that commit's CI run.
+
+## 2026-10-12 — Sign-in email
+
+Magic links need a custom SMTP sender on Supabase Auth (DEPLOY §4). The built-in sender only mails the organization's own team, at most 2 an hour.
+
+The login form maps `signInWithOtp` errors to a reason and a US-English sentence (`classifySendLinkError`, `sendLinkErrorMessage`). It reads the error code first, then the status, then the message. An auth-client chunk that fails to load reads as a failed send. Supabase's own text never reaches the screen, which matches what sign-in-errors.ts already promised for link errors.
+
+## 2026-10-12 — Team pulse hour axis
+
+The 12-hour labels ('12 AM', about 35 px) do not fit a one-hour column (24 px at 1280). A label now shows every third hour, in a box three columns wide, and every hour keeps a screen-reader-only column header. Shortening the labels (for example '12a') was rejected: the person's chosen time format must read the same everywhere.
+
+## 2026-10-12 — Live sessions section test reads the screen every 3 s
+
+The DOM test covers two minutes in 40 steps of 6 ticks each, with one render per step. The hook-level test still checks every tick for an overdue ETA. Rendering every 500 ms tick took 38-49 s per business on the shared CI runner.
+
+### D-gateway-connectors (fix)
+
+- **Agent grants resolve through one capability map (2026-10-12, audit GPC-03).**
+  - Templates keep their capability vocabulary (`repos.read`, `tasks.list`). `packages/connectors/src/grants.ts` maps each connector's capabilities onto its real tools (`CAPABILITY_TOOLS`, checked against the tool definitions in `GATEWAY_TOOL_NAMES`).
+  - `resolveGrants` accepts capabilities, real tool names (what the Tools tab saves) and `*`. It returns the token refs, one MCP server per connector the gateway serves, and the SDK built-ins.
+  - A capability nothing serves yet is listed with its reason in `NOT_YET_SERVED`. A later-phase connector gets no MCP server.
+  - `apps/orchestrator/src/__tests__/grants-contract.test.ts` holds every template to this. It lives in the orchestrator because only the orchestrator sees both packages/agents and packages/connectors.
+  - The templates' grants were not rewritten.
+- **`sandbox` is the session workspace, not a server.** `read_file` and `write_file` are the SDK file tools, which code tasks get by task kind. `git.commit` and `git.push_branch` are done by the session runtime (save and push). `shell`, `run_tests` and `playwright` are not served while Bash stays disallowed (SEC-3).
+- **Built-in connectors `platform`, `web` and `quarantine` are served by the gateway** through the same pipeline as vendor connectors. They are not in CONNECTOR_FACTORIES because there is nothing to connect in Settings.
+  - `platform` and `quarantine` run live in every INTEGRATIONS_MODE (`ALWAYS_LIVE_CONNECTORS`), so a mock-mode deployment's agents work on the real task board.
+  - `web` follows the mode.
+  - The platform host lives in apps/gateway (`platform-host.ts`); packages/connectors never touches the database.
+- **Typed agent messages are `agent.message_sent` events.** The event, written through the outbox, is the message's only store; no new table. It is not narrated. `list_messages` reads the newest 500 and returns them as untrusted ("chat"): another agent's text is data.
+- **`request_human_action` is a hard gate.** It never runs; the gateway queues it as a founder approval with its title and instructions. Its descriptor keeps only text from the raw arguments.
+- **Workers act only on their own tasks; any open task can be claimed.** complete, block and hand off are refused with `not_yours` on someone else's task. Creating and assigning tasks is limited by the grant (leads only).
+- **Web page reads are checked twice.** The first check runs before the request: http(s) only, ports 80/443, no credentials in the address, no localhost/.local/.internal names, and every resolved address public, repeated on every redirect hop (at most 3). The second check runs in the socket's own DNS lookup (node:http(s) with `publicOnlyLookup`), so a name cannot rebind to a private address between the check and the connection. Bodies are capped at 2 MB and 15 s.
+- **Web search runs on the platform key**, with the model the `worker` route names, and returns titles and addresses only, booked as a 2-cent Estimate.
+- **Session ids are checked at mint (audit GPC-04).** A session id must be an `agent_sessions` row of that agent, or `null` for a call outside any session (plan actions, imports). A null-session token keys its untrusted-recipient register by the token's `jti`.
+- **After a vendor call nothing may fail the call.** The audit row is written first; a failed usage booking is logged. Errors are logged through `safeError()`, never with query parameters.
+- **One credential kind for integrations.** Every integration credential is stored under `secret` (`INTEGRATION_CREDENTIAL_KIND`), with the auth kind inside the sealed payload. Rows stored under `api_key`/`oauth` before 2026-10-12 are still read as a fallback and are never written. Refreshed OAuth access tokens are re-sealed into the same row.
+- **API-key connectors use the founder's key only.** They declare `connectFields`. Their live `connect()` uses exactly the key entered and refuses with a 400 without it, never falling back to the platform's env key (BUILD §10: the vendor bills the founder).
+- **Mocks keep one world per business.** `perBusiness()` in mock-utils clones fixtures on first use and is LRU-bounded (the GitHub mock's pattern, now everywhere).
+- **Recipient extraction reads raw string leaves, not JSON.** A string with escapes is read both as written and unescaped. URLs need no leading word boundary.
+- **Plan send_message defaults to Gmail.** The founder's mailbox is used unless the action names SendGrid, which sends from the account's first verified sender. The AI disclosure closes the text unless the action says none is needed. schedule_meeting takes the named time or the first free slot in the next 7 days.
+
+### D-gateway-connectors (verify)
+
+- **Agent grants resolve through one capability map (2026-10-12, audit GPC-03).**
+  - Templates keep their capability vocabulary (`repos.read`, `tasks.list`). `packages/connectors/src/grants.ts` maps each connector's capabilities onto its real tools (`CAPABILITY_TOOLS`, checked against the tool definitions in `GATEWAY_TOOL_NAMES`).
+  - `resolveGrants` accepts capabilities, real tool names (what the Tools tab saves) and `*`. It returns the token refs, one MCP server per connector the gateway serves, and the SDK built-ins.
+  - A capability nothing serves yet is listed with its reason in `NOT_YET_SERVED`. A later-phase connector gets no MCP server. Of the 1275 capability grants in the 46 templates, 776 resolve to tools, 283 (49 distinct) are listed gaps, the rest are later-phase connectors.
+  - `apps/orchestrator/src/__tests__/grants-contract.test.ts` holds every template to this; it lives in the orchestrator because only the orchestrator sees both packages/agents and packages/connectors.
+- **`sandbox` is the session workspace, not a server.** `read_file` and `write_file` are the SDK file tools, which code tasks get by task kind. `git.commit` and `git.push_branch` are done by the session runtime. `shell`, `run_tests` and `playwright` are not served while Bash stays disallowed (SEC-3).
+- **Built-in connectors `platform`, `web` and `quarantine` are served by the gateway** through the same pipeline as vendor connectors. They are not in CONNECTOR_FACTORIES because there is nothing to connect in Settings. `platform` and `quarantine` run live in every INTEGRATIONS_MODE (`ALWAYS_LIVE_CONNECTORS`); `web` follows the mode. The platform host lives in apps/gateway (`platform-host.ts`); packages/connectors never touches the database.
+- **Typed agent messages are `agent.message_sent` events.** The event, written through the outbox, is the message's only store; no new table. It is not narrated. `list_messages` reads the newest 500 and returns them as untrusted ("chat"): another agent's text is data. Names found by `search_entities` and bank text from `read_finance` are untrusted too (customers and banks typed them).
+- **`request_human_action` is a hard gate.** It never runs; the gateway queues it as a founder approval with its title and instructions.
+- **Workers act only on their own tasks; any open task can be claimed.** complete, block and hand off are refused with `not_yours` on someone else's task. Creating and assigning tasks is limited by the grant (leads only).
+- **Web page reads are checked twice.** Before the request: http(s) only, ports 80/443, no credentials in the address, no localhost/.local/.internal names, every resolved address public (loopback, private, link-local, metadata, multicast, NAT64 and site-local ranges refused), repeated on every redirect hop (at most 3). Again in the socket's own DNS lookup (`publicOnlyLookup`), so a name cannot rebind to a private address between the check and the connection. Bodies are capped at 2 MB and 15 s. The user agent is built from APP_NAME and APP_ORIGIN.
+- **Web search runs on the platform key**, with the model the `worker` route names, and returns titles and addresses only, booked as a 2-cent Estimate.
+- **The gateway books its own model calls.** The quarantined reader's tokens reach `usage_ledger` through `gatewayUsageSink` (same shape as the orchestrator's `usageSink`), to the agent and session that asked, on credits for the platform key and byok for the business's own. The tool row for `read_untrusted` carries no flat cost. If the orchestrator's sink shape changes (micro-cent usage), change this one with it.
+- **Session ids are checked at mint (audit GPC-04).** A session id must be an `agent_sessions` row of that agent, or `null` for a call outside any session (plan actions, imports). A null-session token keys its untrusted-recipient register by the token's `jti`.
+- **After a vendor call nothing may fail the call.** The audit row is written first; a failed usage booking is logged. Errors are logged through `safeError()`, never with query parameters.
+- **One credential kind for integrations.** Every integration credential is stored under `secret` (`INTEGRATION_CREDENTIAL_KIND`), with the auth kind inside the sealed payload. Rows stored under `api_key`/`oauth` before 2026-10-12 are still read as a fallback and never written. Refreshed OAuth access tokens are re-sealed into the same row.
+- **API-key connectors use the founder's key only.** They declare `connectFields`. Their live `connect()` uses exactly the key entered and refuses with a 400 without it, never falling back to the platform's env key (BUILD §10). The OAuth authorize/callback flow for Google, Notion, Shopify and Stripe Connect is a separate task.
+- **Mocks keep one world per business.** `perBusiness()` in mock-utils clones fixtures on first use and is LRU-bounded.
+- **Recipient extraction reads raw string leaves, not JSON.** A string that still holds JSON escapes is read both as written and with the escapes decoded (`\/`, `\"`, `\uXXXX` as their characters; line breaks, tabs and backslashes as separators). URLs need no leading word boundary.
+- **Plan send_message defaults to Gmail.** The founder's mailbox is used unless the action names SendGrid, which sends from the account's first verified sender. The AI disclosure closes the text unless the action says none is needed. A recipient must be an email address; a bare name fails the action with a reason the founder can act on until recipient resolution lands (H). schedule_meeting takes the named time or the first free slot in the next 7 days.
+
+### DOM1-domain-check (fix)
+
+- **Domain availability is a registry lookup, never a guess (audit 2026-10-13 #458).** A keyless `domains` connector asks RDAP (IANA bootstrap `https://data.iana.org/rdap/dns.json`, cached a day; `GET <base>domain/<name>`: 200 taken, 404 available). A TLD with no RDAP server (.io and .co at the time of writing; .ai when absent) falls back to a DNS NS/SOA lookup (NXDOMAIN = probably available, any record = taken) and is labeled "DNS (Estimate)". Timeout, 429, 5xx, an unexpected answer or a redirect to a non-registry host is `unknown` with a reason. Statuses are `available | taken | unknown`; the invented `premium` is dropped because RDAP cannot tell premium pricing. Provenance is Registry, DNS or Mock. Labels (1 to 63 letters, digits, inner hyphens) and TLDs (.com .io .co .app .ai .org .net .dev) are validated before any URL is built; 3 s timeout; at most 8 domains per call; redirects followed only within the bootstrap's own hosts.
+- **Domain checks run through the gateway when live and in the api when mock.** Live (`LIVE_CONNECTORS=domains` or `INTEGRATIONS_MODE=live`), the api calls `POST /v1/domains/check` (api service token); the gateway is the only service that reaches registries and rate limits per founder (`rl:<userId>:domains`, 20/min and 400/day) because the founder has no business yet. Nothing is audited or stored and the names are not logged. In mock mode the api answers from the deterministic mock itself (a fixed list of well-known names taken, a name containing `unknown-` answers `unknown`, the rest available, provenance "Mock"): it calls nobody, and the e2e and golden-path stack has no gateway. This differs from credit checkout, which always goes through the gateway.
+- **No local guessing fallback on the Commit screen.** The old seeded `screenDomain` is deleted, not kept as a fallback: when the `idea.domainCheck` call itself fails, every row reads "Couldn't check" with a Retry. A founder can still commit with any status; the note says availability is a snapshot, that registering happens at a registrar, and that we never buy domains.
+- **Trademark quick screen stays a heuristic.** Renamed "Trademark quick screen (Estimate, not legal clearance)" with a row caveat that it is a heuristic over a list of well-known marks, not a registry search. A real trademark search (USPTO/EUIPO or a vendor) needs a vendor decision first; none is chosen.
+
+### DOM1-domain-check (verify)
+
+- Domain availability comes from a new keyless `domains` connector (real + mock) that asks RDAP through the IANA bootstrap. TLDs without an RDAP server use a DNS NS/SOA lookup, labeled Estimate. Any failure gives `unknown` with a reason, never a guess. The invented `premium` status is dropped, since RDAP cannot show premium pricing.
+- The api answers from the in-process mock when `domains` is not in LIVE_CONNECTORS, so the e2e stack, which has no gateway, still runs the golden path. For real lookups set LIVE_CONNECTORS=domains on both the gateway and the api.
+- The local `screenDomain` guesser was removed rather than kept as a fallback. If the api call itself fails, every row says \"Couldn't check\" with Retry.
+- The mock answers `unknown` for a label containing \"unknown-\" or starting with \"unknown\". The prefix rule exists because business-name labels have no hyphens.
+- The trademark quick screen stays a local heuristic labeled \"Trademark quick screen (Estimate, not legal clearance)\". A real trademark search needs a vendor decision first.
+
+### E-ingest-conversions (fix)
+
+## 2026-10-12 — Mock webhooks only in development and test; staging deliveries need a live connector and a connected business (audit SIEC-1, SECX-1, GPC-06)
+The mock connectors sign and verify with secrets committed to the repository, so mounting them on a public ingest (staging runs INTEGRATIONS_MODE=mock) let anyone forge payments, signups, merged PRs or lead replies into any business. `ConnectorRegistry.mountableWebhooks({ mode, appEnv, liveConnectors })` now decides what ingest mounts. A mock webhook is mounted only when `mockWebhooksAllowed(APP_ENV)` (development, test). A connector's live webhook is mounted when it runs live (INTEGRATIONS_MODE=live or LIVE_CONNECTORS), verified with real per-business or platform secrets. Everything else is 404. Outside development and test, a verified delivery is written only for a business whose integration for that connector is connected, degraded or expired, because the `:businessId` in the URL is not part of what the vendor signs. Staging fabricates events through the authenticated Simulate route; /health lists `refusedMockWebhooks`. This supersedes the 2026-10-07 assumption that `registry.webhooks(INTEGRATIONS_MODE)` is what ingest mounts.
+
+## 2026-10-12 — Ingest links every converting customer to the CRM (supersedes part of 2026-10-07 "conversions … in the delivery's transaction")
+`entity_id only when the connector's deterministic customer id is an existing CRM entity` is replaced. payment.received and signup.created carry the payer (`customer: { externalId, email, name }`). Ingest resolves the payer in the delivery's transaction: the connector's deterministic id (demo seeds), then a business-scoped id ingest creates (`uuidFromSeed("crm-customer", businessId, connectorEntityId)`, so two businesses never share a customer id), then `stripe_id`, then email. If nothing matches, ingest adds a person with field provenance (source = provider, lawful basis "contract"). Enrichment never overwrites what the founder entered. The `customer` role's stage only moves forward (signed_up → activated → customer). The source event is written naming the CRM record (payload.entityId and entityIds), so its entity links resolve.
+
+## 2026-10-12 — Only a first payment wins a customer; renewals and repeat orders are revenue (0034)
+`conversions.first_payment` (default true). A payment is first when the connector says so (Stripe billing_reason subscription_create/manual or no subscription; Shopify orders_count ≤ 1) and the linked CRM record has not paid before; a returning customer's one-off checkout is a repeat order. A repeat payment writes a conversion with first_payment = false and nothing else: no journey, no customer.converted, no narration, no journeyBuild. journey_daily counts `payments` (customers) from first payments and `revenue_minor` from every payment. countConversions, nthOfKind and the p75 volume rule count first payments. The Ribbon's markers and the day round-up list conversions that won a customer. Migration number 0034 was taken because this work package had none pre-assigned.
+
+## 2026-10-12 — Ingest narrates a win at once, then starts journeyBuild and matching playbooks
+After commit, without delaying the vendor's acknowledgement, ingest: (1) for a conversion that won a customer and plays a full Customer Update, calls the composer's `/v1/narrate` with its customer.converted (AC-11.4.1); (2) starts `journeyBuild` as `journey:{conversionId}`, with `narrate: true` when (1) failed, so the orchestrator narrates the still-un-narrated event with retries (then Refresh); (3) starts `playbook` as `playbook:{playbookId}:{eventId}` for every enabled playbook whose event trigger matches a written event. Temporal unreachable is logged, never a failed delivery; an id already running counts as started. Playbook triggers are `{ event, where?, condition? }`. The condition language is `&&`-joined clauses (`field`, `!field`, `==`, `!=`, `<`, `<=`, `>`, `>=` over payload paths). Anything unreadable, or a field the event lacks, does not match: a playbook acts only on a condition known to hold. Cron triggers are Temporal Schedules (not ingest).
+
+## 2026-10-12 — The first-pass journey is buildJourney's; journeyBuild refines it in place and the record stores its models (closes the 2026-10-07 open issue)
+Ingest's first pass is `buildJourney` over the customer's own touches, including the touch the event reports (signup UTM tags and channel, Shopify landing page, referrer and code), recorded through `parseTouchSource`. That gives 40/20/40 and the archetype-prior xC curve, no longer equal weights with an empty curve. journeyBuild upserts the existing row with: the team; channel CPA (Estimate); the trained xC model from 50 conversions; and the Markov removal-effect model from 200. Both models are fitted on the business's last 180 days of labeled paths (at most 5,000 touches). viewed_at and existing commentary are kept, and no second customer.converted is written. `journeys.attribution_model` and `xc_model_source` store what was actually used, and journey.get labels the Customer Update with them. Only records written before 0034 fall back to the count-based label.
+
+### E-ingest-conversions (verify)
+
+## 2026-10-12 — Mock webhooks only in development and test; staging deliveries need a live connector and a connected business (audit SIEC-1, SECX-1, GPC-06)
+The mock connectors sign and verify with secrets committed to the repository. Mounting them on a public ingest (staging runs INTEGRATIONS_MODE=mock) let anyone forge payments, signups, merged PRs or lead replies into any business. `ConnectorRegistry.mountableWebhooks({ mode, appEnv, liveConnectors })` now decides what ingest mounts:
+- A mock webhook is mounted only when `mockWebhooksAllowed(APP_ENV)` (development, test).
+- A connector's live webhook is mounted when it runs live (INTEGRATIONS_MODE=live or LIVE_CONNECTORS) and is verified with real per-business or platform secrets.
+- Everything else returns 404.
+
+Outside development and test, a verified delivery is written only for a business whose integration for that connector is connected, degraded or expired. The `:businessId` in the URL is not part of what the vendor signs, so it does not count as proof. Staging fabricates events through the authenticated Simulate route, and /health lists `refusedMockWebhooks`. This supersedes the 2026-10-07 assumption that `registry.webhooks(INTEGRATIONS_MODE)` is what ingest mounts.
+
+## 2026-10-12 — Ingest links every converting customer to the CRM (supersedes part of 2026-10-07 "conversions … in the delivery's transaction")
+The old rule set `entity_id` only when the connector's deterministic customer id was an existing CRM entity. Now payment.received and signup.created carry the payer (`customer: { externalId, email, name }`), and ingest resolves the payer in the delivery's transaction, in this order:
+1. The connector's deterministic id (what the demo seeds create).
+2. A business-scoped id that ingest creates (`uuidFromSeed("crm-customer", businessId, connectorEntityId)`), so two businesses never share a customer id.
+3. `stripe_id`.
+4. Email.
+
+If nothing matches, ingest adds a person with field provenance (source = provider, lawful basis "contract"). Two deliveries racing to add the same new customer resolve to one record: the insert runs in a savepoint, and the loser links to the record the winner committed. Enrichment never overwrites what the founder entered. The `customer` role's stage only moves forward (signed_up → activated → customer). The source event is written naming the CRM record (payload.entityId and entityIds), so its entity links resolve.
+
+## 2026-10-12 — Only a first payment wins a customer; renewals and repeat orders are revenue (0034)
+`conversions.first_payment` (default true). A payment is first when:
+- the connector says so: Stripe billing_reason subscription_create or manual, or no subscription; Shopify orders_count ≤ 1;
+- and the linked CRM record has not paid before. So a returning customer's one-off checkout is a repeat order.
+
+A repeat payment writes a conversion with first_payment = false and nothing else: no journey, no customer.converted, no narration, no journeyBuild. 0034 backfills existing payments the same way, from the source event's `firstPayment` or from an earlier payment by the same CRM record. Payments with no linked record and nothing saying they were repeats stay customers.
+
+Every reader counts first payments only:
+- journey_daily counts `payments` (customers) from first payments and `revenue_minor` from every payment.
+- countConversions, nthOfKind and the p75 volume rule count first payments.
+- The Ribbon's markers, the day round-up, the composer's conversions_30d exhibit and the CRM profile's Customer Updates list only conversions that won a customer. The CRM profile shows renewals as "Repeat payment" with no replay link.
+- The web shell refetches journey and finance queries on payment.received.
+
+This work package had no pre-assigned migration number, so it took 0034.
+
+## 2026-10-12 — Ingest narrates a win at once, then starts journeyBuild and matching playbooks
+After commit, without delaying the vendor's acknowledgement, ingest:
+1. For a conversion that won a customer and plays a full Customer Update, calls the composer's `/v1/narrate` with its customer.converted (AC-11.4.1).
+2. Starts `journeyBuild` as `journey:{conversionId}`, with `narrate: true` when step 1 failed, so the orchestrator narrates the still-un-narrated event.
+3. Starts `playbook` as `playbook:{playbookId}:{eventId}` for every enabled playbook whose event trigger matches a written event.
+
+journeyBuild retries a composer outage with backoff. A composer refusal (any 4xx other than 408 and 429, judged by the error's HTTP status rather than the client's error class) is tried once and then left to Refresh, since a retry would pay for the same model calls again.
+
+Temporal handling: when Temporal is unreachable, or a connect does not complete within the connect timeout plus 500 ms, ingest logs it and never fails the delivery. An id already running counts as started.
+
+Playbook triggers are `{ event, where?, condition? }`. The condition language is `&&`-joined clauses (`field`, `!field`, `==`, `!=`, `<`, `<=`, `>`, `>=` over payload paths). Anything unreadable, or a field the event lacks, does not match: a playbook acts only on a condition known to hold. Cron triggers are Temporal Schedules, not ingest.
+
+## 2026-10-12 — The first-pass journey is buildJourney's; journeyBuild refines it in place and the record stores its models (closes the 2026-10-07 open issue)
+Ingest's first pass is `buildJourney` over the customer's own touches, including the touch the event reports (signup UTM tags and channel, Shopify landing page, referrer and code), recorded through `parseTouchSource`. That gives 40/20/40 weights and the archetype-prior xC curve instead of equal weights with an empty curve.
+
+journeyBuild upserts the existing row with:
+- the team;
+- channel CPA (Estimate);
+- the trained xC model from 50 conversions;
+- the Markov removal-effect model from 200.
+
+Both models are fitted on the business's last 180 days of labeled paths, at most 5,000 touches. viewed_at and existing commentary are kept, and no second customer.converted is written. Commentary is requested once per full Customer Update, never for a conversion that rolls into the daily round-up and never again on a retried build. A composer outage or refusal leaves the record without commentary.
+
+`journeys.attribution_model` and `xc_model_source` store the models actually used, and journey.get labels the Customer Update with them. Only records written before 0034 fall back to the count-based label.
+
+### F1-billing-enforcement (fix)
+
+## 2026-10-12 — Billing enforcement: included credits, USD credits, enforced tier limits, the Commit spend cap (audit issues 16, 18, 19, 21)
+
+This entry supersedes these parts of 2026-10-10:
+- "a business never granted anything is metered, never paused"
+- "the free tier stays on byok after a revoke"
+
+**Included credits**
+- Every tier includes a monthly platform credit, so a business on credits is always enforced. The free tier gets $5 (`TIERS.free.includedCreditsMinor = 500`, USD cents). A paid tier whose size is still "TBD" gets at least the free amount (`includedCreditsMinor(tier)`).
+- The credit is granted at commit, and on the first charge of each month (`chargeCredits(..., { includedMinor })` creates the period row).
+- `TIERS.free.modelBilling` is now `credits_or_byok`. New businesses start on credits (`initialModelBilling`). Revoking a key on the free tier moves the business back to credits.
+- The charge that empties a balance pauses the team. This now also covers a month that starts with nothing included.
+- On the free tier the Inbox note asks for the founder's own Anthropic key. On a paid tier it offers a top-up or the founder's own key.
+
+**What credits pay for**
+- A business on its own key never touches credits. That includes the api and composer calls that still run on the platform key; they are metered and labeled Estimate.
+- Only platform costs in USD are charged to credits. Tool rows are never charged: each vendor bills them to the founder's own account. A row in another currency is never subtracted from a balance.
+
+**Credits are US dollars**
+- `credit_balances.currency` is checked to be `USD` (0024).
+- `grantCredits` and `billing.topUp` refuse other currencies.
+- Ledger rows default to USD.
+- 0024 relabels existing platform-cost rows (tokens, sandbox, training) and every balance to USD at face value. All existing balances were mock or seed grants, because no payment path has ever granted credits.
+- `usage.totals`, `daily`, `wages` and `agentSpend` sum USD rows only. `totals.otherCurrencies` lists anything booked in another currency.
+- Screens show credits and model costs in US dollars with Estimate. Payroll never adds team cost to staff payroll in another currency, and shows no cap share when the cap is in another currency. Nothing is converted.
+- Wage caps and vacation budget ceilings stay in the business currency for now. Making them USD is the follow-up.
+
+**Tier limits are enforced**
+- **Businesses:** the plan tier is stored per business, so an owner's allowance is the business limit of the highest tier among the unarchived businesses they own (free when they own none). A new business always starts on free. The check runs inside the commit transaction under a per-owner advisory lock.
+- **Seats:** every membership is a seat, the owner included. The check runs at `team.humans.invite`.
+- **Concurrent agents:** the limit is the tier's `maxConcurrentAgents` less the agent sessions still open. A session counts if it started within the last 24 h; an older open row is treated as lost.
+- Refusals are `TierLimitError` (`tier_limit`, 403) with `details.limit`, `allowed`, `used` and `planBusinessId`. The Commit screen turns a business-limit refusal into a "See plans" link.
+
+**Dispatch reserve**
+- A starting task reserves its own budget, or 2,000 minor units, but never more than an equal share of the credits left over the free slots. A $5 balance therefore still runs work. Credits are settled after the fact, and the charge that uses the last one pauses the team.
+- With no free concurrency slot, the cycle plan defers every start without calling the planner.
+
+**Spend cap per action**
+- The cap is a business setting: `businesses.spend_cap_minor`, in the business currency, null meaning no cap. It is set on Commit and editable in Settings › Mode through `business.setSpendCap` (admin, audited).
+- The gateway sends `approvalThresholdMinor = min(agent threshold or the policy default, business cap)`, so above the cap every spend asks first, whatever the mode. This is the ask line the Commit hint promises. Each agent's own `spendCapMinor` stays the hard forbid.
+
+**Seeds**
+- Ledgerly is on its own key: its usage rows are billed to `byok` and it holds no credits.
+- Northwind is on credits: its usage and credits are in USD.
+
+### F1-billing-enforcement (verify)
+
+## 2026-10-12 — Billing enforcement, verification additions (audit issues 16, 18, 19, 21)
+
+These additions sit on top of the 2026-10-12 billing enforcement entry.
+
+**The credits ceiling is checked before a call, not only settled after it**
+- A business on credits whose month is used up is refused before a platform-key model call is sent. The check is `assertCreditsAvailable` (packages/db), which throws `CreditsExhaustedError` (`credits_exhausted`, HTTP 402, tRPC `PAYMENT_REQUIRED`) with the way back for its tier.
+- On the free tier the way back is the founder's own Anthropic key in Settings › Keys; on a paid tier, a top-up or a key.
+- The check runs in the api's model client (`withCreditsCeiling`) and in the orchestrator's per-business client (`createBusinessModelClient`). It covers conversations, plan compiles, the in-process composer, cycle planning, skill grading and foundations.
+- The verdict is never cached, so a top-up or a stored key lifts it at once.
+- Calls with no business (Ideation before commit) and businesses on their own key are not refused here.
+- The cycle plan drafts nothing on an empty balance.
+- Live Agent SDK sessions and the composer service are bounded by the team pause and by SEC2's session budget and composer gate, not by this check.
+
+**A top-up lands on top of the month's included credits**
+- When a top-up is the first credits event of a month (for example, a team paused at the end of last month makes no charge), the period's row is first created with the tier's included credits (`ensurePeriodCredits`), and the top-up is added to it.
+- Every grant path should do the same.
+
+**Wage caps are US dollars**
+- A wage cap caps an agent's metered model cost, which is USD, so the cap is read and shown in US dollars: `finance.wages.wageCapCurrency`, the agent profile, Recruitment and Hire.
+- This supersedes "wage caps stay in the business currency for now".
+- Agent sessions, training runs and daily agent metrics also store their cost in USD (0024 relabels them and defaults the columns to USD).
+
+**Model comparisons carry their currency**
+- `agent.model.compare` returns `currency: "USD"`, and both model-change dialogs show predicted wage deltas in it, never the business's or the agent's currency.
+
+**One rule for the ask line**
+- `effectiveApprovalThresholdMinor` (packages/config): the agent's own approval threshold (the policy default when it has none), lowered to the business's "Spend cap per action" when one is set.
+- The gateway sends it in every Cedar request, and the agent profile's Contract panel shows it, marked "business cap", when the business cap is the binding line.
+
+### F2-payments-access (fix)
+
+## 2026-10-12 — Paying for credits: Stripe Checkout through the gateway, granted only by the platform webhook (audit #22)
+
+- **A top-up is a checkout, never a grant.** `billing.topUp` (owner) opens a `billing_checkouts` row (0033) and asks the gateway (`POST /v1/billing/checkout-sessions`, `svc: api` only) for a Stripe Checkout session on the platform account. The gateway holds `STRIPE_SECRET_KEY`; it uses the Stripe connector's `create_checkout_session` with the platform key, no `Stripe-Account` header, and the checkout id in the metadata. The api returns Stripe's URL and grants nothing.
+- **Granted in one place, once.** `settleCreditCheckout` (packages/db `payments.ts`) locks the row, grants the USD amount to the current period, marks the row paid with the event that settled it, and audits `billing.credits_purchased`, all in one transaction.
+  - It has two callers: apps/ingest `POST /billing/stripe` for live sessions, and `billing.checkout.completeMock` for simulated ones.
+  - A row already paid answers `duplicate`. This covers Stripe retries and `async_payment_succeeded` arriving after `completed`.
+  - A paid session that disagrees with the row (another session, amount, currency or mode) grants nothing and is audited as `billing.checkout_mismatch`.
+  - A payment for a row closed as failed or expired is still granted, because money was taken.
+  - A checkout this database does not know is acknowledged (200 `unknown`) so Stripe stops retrying. This covers two environments on one Stripe account.
+- **The billing webhook has its own secret.** `STRIPE_BILLING_WEBHOOK_SECRET` is separate from `STRIPE_WEBHOOK_SECRET` (the businesses' own Stripe events), so a delivery signed for one can never pass as the other. There is no fixture or mock fallback: without the secret every billing delivery is refused (503), in every mode. Event ids are claimed in the nonce store and released if the write fails.
+- **Mock payments never fund live model calls.** The checkout runs mock whenever Stripe is not live (`connectorMode(env, "stripe")`); the simulated checkout is the Billing tab itself, labeled 'no money moves'. Mock checkouts and their completion are refused while `MODEL_MODE=live` outside development and test, because free credits would otherwise pay for real platform spend (audit PH-1). On staging with live models and no Stripe, top-ups are unavailable and the tab points to Settings › Keys.
+- **Paid tiers are not on sale.** While their prices are 'to be announced' and there is no subscription checkout, `billing.changeTier` refuses Pro and Scale outside development and test (seeded demos and tests still switch). Moving to Free is always allowed. The tab shows 'Not on sale yet' with the reason.
+- **Unpausing after a top-up** stays with the stop-flag owner (contract 4). The hook belongs on `settleCreditCheckout`'s `granted` outcome.
+
+## 2026-10-12 — Who may use a deployment: SIGNUP_ALLOWLIST in the api (audit #26)
+
+- Supabase creates an account for anyone who asks for a magic link, and every signed-in account can drive model calls on the platform key. When `SIGNUP_ALLOWLIST` is set (emails and `@domain`s, comma- or space-separated, case-insensitive; a domain matches only itself, not its subdomains), `protectedProcedure` refuses every other signed-in account with FORBIDDEN and appCode `not_invited`, before any work.
+- Enforced in the api, not the login form. The api is where model calls and businesses are created, and it covers every procedure at once. The web renders an 'Invite only for now' page from the server pages' first API call (`ApiErrorPage`), with Sign out.
+- The development bypass user (`DEV_AUTH_USER_ID`, cleared outside development and test) is always admitted. An account without an email is refused while the list is set.
+- Turning off Supabase sign-ups is documented as a second lock (DEPLOY.md §4); the allow-list still applies.
+
+## 2026-10-12 — Allowances on every model-backed procedure, shared across replicas (audit #31, SEC-13)
+
+- **One store for every allowance:** `ctx.limits` (`RateLimitStore`).
+  - Staging and production use Redis: one sorted set per window, checked and written by one Lua script (all keys or none, `PEXPIRE` per window), with ZREM refunds.
+  - When Redis does not answer, the store falls back to memory for 30 s and then retries Redis. The limits still hold per replica, and a Redis outage never blocks a founder.
+  - Development and tests use memory.
+  - The drafting, logo and conversation allowances moved onto this store unchanged.
+- **`modelLimited(<rule>)`** on each model-backed procedure spends one hit from the rule's per-person and per-business windows and one from `SHARED_MODEL_LIMITS` (60/min, 600/h and 3,000/day per person; 1,200/h and 6,000/day per business). The refusal names what the founder pressed, whichever window is full.
+  - Rules: refresh 10/min and 120/h per person, 240/h per business; plan (plan.preview and free-text decisions) 10/min and 120/h, 300/h; planner 20/h, 60/day; recommend 10/h, 20/h and 60/day; foundations retry 3/h and 10/day per business; training 20/h, 60/day; continue 20/min, 120/h; lookup 30/h, 100/day; checkout 10/h, 30/day.
+  - A request refused before the model (validation, access, conflict, another limit) gets its hit back.
+- **Compare spends a draft.** `idea.compare` is an Opus call with no business to book it to, so it now takes the drafting allowance too.
+- **`plan.preview` needs Inbox write.** Viewers and advisors can no longer loop a model call.
+- **`product.foundations.ensure` is not limited.** It is idempotent (a pending draft is claimed once) and runs on every shell load. Only `retry` is limited.
+- **The web never retries a 429,** because a retry would spend the allowance again.
+
+### F2-payments-access (verify)
+
+## 2026-10-12 — Paying for credits: Stripe Checkout through the gateway, granted only by the platform webhook (audit #22)
+
+- **A top-up is a checkout, never a grant.** `billing.topUp` (owner, its own allowance) opens a `billing_checkouts` row (0033) and returns the page to send the founder to; the api grants nothing.
+- **The platform's billing has its own live switch.** It is live with `INTEGRATIONS_MODE=live` or `LIVE_CONNECTORS` naming `stripe_billing` (`PLATFORM_BILLING_LIVE_KEY` / `platformBillingMode`, packages/shared), read alike by the api and the gateway. It is separate from `stripe`, the businesses' own Stripe connector, so taking real payments never turns every business's Stripe tools live, and the reverse.
+- **Live:** the api asks the gateway (`POST /v1/billing/checkout-sessions`, `svc: api` only), the one service holding `STRIPE_SECRET_KEY`, for a Stripe Checkout session on the platform account (the connector's `create_checkout_session`, no stored credential, no `Stripe-Account`, the checkout id in the metadata, audited).
+- **Mock:** a simulated checkout calls no vendor, so the api simulates it itself without the gateway (a `cs_mock_` session whose page is the Billing tab, open 24 hours). The e2e, CI and local stacks run without a gateway. A gateway still on mock while the api is live answers a simulated session, which is held to the same rule below.
+- **Granted in one place, once.** `settleCreditCheckout` (packages/db `payments.ts`) locks the row, grants the USD amount to the current period, marks the row paid with the event that settled it, and audits `billing.credits_purchased`, all in one transaction. It has two callers: apps/ingest `POST /billing/stripe` for live sessions, and `billing.checkout.completeMock` for simulated ones.
+  - A row already paid answers `duplicate`, which covers Stripe retries and `async_payment_succeeded` arriving after `completed`.
+  - A paid session that disagrees with the row (another session, amount, currency or mode) grants nothing and is audited as `billing.checkout_mismatch`.
+  - A payment for a row closed as failed or expired is still granted, because money was taken.
+  - A checkout this database does not know is acknowledged (200 `unknown`).
+  - `checkout.session.expired` closes the row as expired. `checkout.session.async_payment_failed` (a bank debit that bounced) closes it as failed, with a sentence the Billing tab shows under "Not paid".
+- **The billing webhook has its own secret.** `STRIPE_BILLING_WEBHOOK_SECRET` is separate from `STRIPE_WEBHOOK_SECRET`, with no fixture or mock fallback: without it every billing delivery is refused (503). Event ids are claimed in the nonce store and released if the write fails.
+- **Mock payments never fund live model calls.** Mock checkouts and their completion are refused while `MODEL_MODE=live` outside development and test (audit PH-1). On staging with live models and no live billing, the Billing tab says top-ups are not available and points to Settings › Keys.
+- **Paid tiers are not on sale.** While their prices are "to be announced" and there is no subscription checkout, `billing.changeTier` refuses Pro and Scale outside development and test. Moving to Free is always allowed.
+- **Unpausing after a top-up** stays with the stop-flag owner (contract 4). The hook belongs on `settleCreditCheckout`'s `granted` outcome, not on `topUp`.
+
+## 2026-10-12 — Who may use a deployment: SIGNUP_ALLOWLIST in the api (audit #26)
+
+- When `SIGNUP_ALLOWLIST` is set, `protectedProcedure` refuses every other signed-in account with FORBIDDEN and appCode `not_invited`, before any work. The list holds emails and `@domain`s, comma- or space-separated, case-insensitive; a domain matches only itself, not its subdomains. The api is where model calls and businesses are created, so one check covers every procedure.
+- The web renders an "Invite only for now" page (Sign out) from the server pages' first API call.
+- The development bypass user is always admitted. An account without an email is refused while the list is set.
+- Turning off Supabase sign-ups is documented as a second lock (DEPLOY.md §4).
+- stream, collab and social do not check the list. An unlisted account cannot create a business, so it only reaches a business it was invited to.
+
+## 2026-10-12 — Allowances on every model-backed procedure, shared across replicas (audit #31, SEC-13)
+
+- **One store for every allowance:** `ctx.limits` (`RateLimitStore`).
+  - Staging and production use Redis: one sorted set per window, checked and written by one Lua script, all keys or none, with ZREM refunds.
+  - When Redis does not answer, the store falls back to memory for 30 s and then retries Redis.
+  - Development and tests use memory.
+  - The drafting, logo and conversation allowances moved onto this store unchanged.
+- **`modelLimited(<rule>)`** spends one hit from the rule's per-person and per-business windows and one from `SHARED_MODEL_LIMITS` (60/min, 600/h and 3,000/day per person; 1,200/h and 6,000/day per business).
+  - Rules: refresh, plan, planner, recommend, foundations retry, training, continue, lookup and checkout. Two more:
+    - **Starting tasks** (`dev.tasks.start`, an agent session with a sandbox): 30/h per person, 200/day per business.
+    - **Taking charge of a business** (`idea.commit`, whose foundations are drafted on Opus): 10/h and 30/day per person.
+  - **Refunds only before the model.** A request refused before any model call (bad input, access, a conflict, another limit) gets its hit back. One refused after a model call keeps it. The middleware hands the procedure a `ctx.models` that notes every call, so a crafted input that fails after the model (a cyclic task graph from the Planner) cannot loop Opus.
+- **Compare spends a draft.**
+- **`plan.preview` needs Inbox write.**
+- **`product.foundations.ensure` is not limited** (it is idempotent; only `retry` is).
+- **The web never retries a 429.**
+
+### G-business-currency (fix)
+
+### 2026-10-12 — Each business has its own currency (0025, audit #20)
+- `businesses.currency` is `char(3) not null`, ISO 4217 (checked as `^[A-Z]{3}$`), default USD.
+  - Backfill order: the business's departments (most common currency), then its channels, then the creator's founder profile, then USD.
+  - Commit stores the founder's chosen currency: the Commit form's, otherwise the profile's, otherwise `DEFAULT_BUSINESS_CURRENCY` (USD).
+  - Owners and admins change it in Settings › Business (`business.update`, audited with from/to).
+  - Changing it converts nothing. Stored amounts keep their own currency; new business amounts use the new one.
+- Business-money tables have no fixed currency default. These are departments, agents, tasks, vacations, channels, campaigns, channel metrics, conversions, bank accounts and transactions, ledger snapshots, forecasts, the cap table, legal entities and contracts.
+  - An insert that names no currency gets the business's from the `fm_business_currency_fill` trigger (security definer, before insert). An explicit currency is kept, for example a USD bank account in a GBP business.
+  - In the schema these columns use `businessCurrency()`, which sends `default` so the trigger fills it.
+  - A new business-money table registers the same trigger.
+- Model costs are not business money. Sessions, agent metrics, training runs, Inbox note costs and live tile costs default to and display in the pricing currency, USD (`MODEL_COST_CURRENCY` in @foundmill/shared, the same as models `PRICING_CURRENCY` and config `CREDITS_CURRENCY`).
+- The web takes the business currency only from the business row (`useBusinessCurrency`). It never uses a bank account's currency, a glossary entry or a fixed code. The glossary is a word map only.
+- Amounts in different currencies are never added together:
+  - Revenue metric: totals the business currency (else the most used one) and says what was left out.
+  - Blended CPA: given only when all channels share one currency.
+  - Plan confirmation total: one figure per currency.
+  - CRM commercial summary and the day's round-up: also never mixed.
+- A cycle in which no session finished is narrated by the Chief of Staff's plain cycle update in every environment, without calling the composer (it refuses an empty event list).
+- Training: the model client's usage sink books each call. The trainSkill "training" usage row records the number of tests with cost 0, keeps the metered amount in `details.meteredMinor`, and is in USD.
+- Decided panel: an `ask` action shows "Needs your go-ahead" while the plan is pending confirmation or the action awaits approval. It shows "Confirmed by you" only after confirmation, and no chip when the action was denied or skipped.
+
+### G-business-currency (verify)
+
+Business currency (WP G, contract 6): businesses.currency char(3) not null, default USD, constrained to /^[A-Z]{3}$/. Migration 0025 backfills from the most common department currency, else channels, else the creator's founder profile, else USD. Business-money tables lose their EUR default. A security-definer BEFORE INSERT trigger (fm_business_currency_fill) fills a missing currency from the business row. Drizzle sends `default` through businessCurrency() so the trigger runs. Model-cost tables (agent_sessions, agent_metrics, training_runs, inbox_items) default to USD. Commit stores the Commit form's currency, else the founder profile's, else USD. Changing the currency in Settings > Business converts nothing: amounts already stored keep their own currency, and an action the plan priced in another currency keeps it. Model, credit and team spend stay in USD (PRICING_CURRENCY) and are labeled Estimate. Blended cost per customer is given only when all channels share one currency, and revenue never adds two currencies.
+
+### H-background-gtm (fix)
+
+- 2026-10-12 · Periodic jobs are Temporal Schedules the orchestrator registers at boot. Registration is idempotent: a fingerprint in the schedule note decides create, update or leave alone, and an update keeps a paused schedule paused. It runs fire-and-forget with exponential backoff (5 s to 5 min) and never fails startup. Ids are `<task queue>:<id>`, overlap SKIP, catch-up window 1 hour. Runs list businesses at start instead of carrying ids, so new businesses are picked up without re-registering. Jobs that start agent work skip businesses whose team is stopped. Chosen over a cron container or a long-lived workflow loop: schedules survive deploys and show in `temporal schedule list`.
+- 2026-10-12 · Business deletion purges the business's audit chain too, through `fm_purge_business(uuid)`. It is SECURITY DEFINER, executable only by service_role, and sets `fm.purge_business` so the append-only trigger allows deletes for that one business only. The alternative of keeping orphaned audit rows would retain data the founder asked to delete; an owner session cannot call the function.
+- 2026-10-12 · A CRM deletion request suppresses at once and deletes 7 days later in the nightly job. This gives a window to undo a mistaken request while outreach stops immediately. A cap-table holder is never purged. Suppression hashes survive the purge so the person is not re-imported.
+- 2026-10-12 · The 24-month lead retention rule is not automated (there is no founder approval at setup). The copy says "due for deletion" and no longer claims a job runs it.
+- 2026-10-12 · Assisted mode asks for approval on a channel's first campaign only. Augmented mode and offline tracking ask every time, and an offline-tracking launch creates a founder task with the materials. Mock creative is labeled in its first line, not by a separate flag, so the label travels with the copy wherever it is shown.
+- 2026-10-12 · Mock lead channels (lead generation, content, events) write deterministic `.example` leads as CRM records, and the counted metric equals the records written (suppressed contacts are not counted). Live mode has no lead-sourcing connector yet, so live lead counts come only from future integrations. The seed writes one lead per lead-channel signup (it was 2) so seeded counts match the records.
+- 2026-10-12 · Milestone MRR is trailing 30-day revenue, stored with `{estimate: true, basis: "trailing_30_day_revenue"}`. Milestones are awarded at ingest, in journeyBuild and in the nightly catch-up, once per trophy key per business (unique index in 0028).
+- 2026-10-12 · Plan send_message prefers gmail and falls back to sendgrid with a verified sender. With no email on record it fails. With no body, or a meeting with no start time, the work goes to the acting agent as an ops task instead of sending something invented.
+- 2026-10-12 · The Board reads "Starting" for a channel on the board whose engine id is not recorded, and counts only the others as running.
+
+### H-background-gtm (verify)
+
+- 2026-10-12 · Periodic jobs are Temporal Schedules the orchestrator registers at boot. A fingerprint in the schedule note decides create, update or leave alone, and an update keeps a paused schedule paused. Registration runs in the background with exponential backoff (5 s to 5 min) and never fails startup. Ids are `<task queue>:<id>`, overlap is SKIP, the catch-up window is 1 hour. Runs list businesses when they start, so new businesses are picked up. Jobs that start agent work skip businesses whose team is stopped. Chosen over a cron container or a long-lived workflow loop because schedules survive deploys and show in `temporal schedule list`.
+- 2026-10-12 · Business deletion also purges the business's audit chain, through `fm_purge_business(uuid)` (SECURITY DEFINER, service_role only). It sets `fm.purge_business` so the append-only trigger allows deletes for that one business. The sweep first signals stop to the business's engines, sessions, vacation, executing plans and last 3 cycles, then sets the stop flag. A partial index on audit_log serves the sweep's read.
+- 2026-10-12 · A CRM deletion request suppresses at once (hashes that match the gateway's hashRecipient) and deletes after 7 days in the nightly job. A cap-table holder is never purged, and the suppression hashes survive the purge. The 24-month lead retention rule is not automated, because the product has no founder approval step at setup; the copy says 'due for deletion' only.
+- 2026-10-12 · Assisted mode asks for approval on a channel's first campaign only. Augmented mode and offline tracking ask every time, and an offline-tracking launch creates a founder task with the materials. Nothing launches with zero approved assets. Mock creative is labeled in its first line, so the label travels with the copy.
+- 2026-10-12 · Mock lead channels (lead generation, content, events) write deterministic `.example` leads as CRM records, and the counted metric equals the records written. Suppressed contacts are skipped and not counted. Live mode has no lead-sourcing connector yet.
+- 2026-10-12 · Milestone MRR is trailing 30-day revenue, stored with `{estimate: true, basis: 'trailing_30_day_revenue'}`. Milestones are awarded at ingest, in journeyBuild and in the nightly catch-up, once per trophy key per business (0028 unique index).
+- 2026-10-12 · Plan send_message prefers gmail and falls back to sendgrid with a verified sender. With no email on record it fails. With no body, or a meeting with no start time, the work goes to the acting agent as an ops task. Gateway results are checked: deny and rate_limited throw, ask waits for approval, ok:false fails the action.
+- 2026-10-12 · A gateway service call (a token whose session id has no agent_sessions row, such as a plan action or a Source Watcher read) books usage and approvals with no session. The audit entry keeps the id.
+- 2026-10-12 · The Board reads 'Starting' for a channel on the board whose engine id is not recorded, and counts only the others as running.
+
+### I-inbox-vacation (fix)
+
+## 2026-10-12: A plan waiting for the go-ahead lives in the database, not in the page (audit OL-01, FR-08, VOL-X1)
+
+- **The record is the plan row itself.** It is `plans.status = pending_confirmation` plus each action's `policy_outcome`, with no new table or migration.
+  - `inbox.get` returns `confirmation` for the reader: `{ planId, asks, hardGates, denied, canConfirm, blockedReason }`. `canConfirm` needs Inbox write and write on every section the plan changes.
+  - `plan.confirm` needs only the plan id. `repos.plans.claimConfirmation` moves the plan from pending_confirmation to executing in one conditional update. A second press, another tab or a race gets `alreadyConfirmed: true`, and nothing runs, is written or is audited again.
+- **Respond.** An answered note whose plan waits stays in the Respond tab (an `exists` on plans) but not in the blocking count, so Continue stays free, as decided on 2026-10-07 ("decision → plan → policy → execution").
+  - inbox.list rows carry `awaitingConfirmation`, read with one query of the business's waiting plans sent beside the page's own query.
+  - The row says "Respond" and the note header says "Needs your go-ahead".
+- **Decided panel.**
+  - "Review what will happen" shows whenever the plan waits and the reader may confirm. The dialog is rebuilt from the stored actions. Otherwise the panel says who can confirm.
+  - An `ask` action reads "Needs your go-ahead" until the plan is confirmed, then "Confirmed". It used to say "Confirmed by you" even before anything was confirmed.
+  - Follow-up links are hidden while the plan waits. A task links to Development › Plan as "Open the task" (with `?task=` when there is exactly one) or "Open the tasks", never "Open the plan".
+- **Staged hand-offs.** `agent.conversation.get` reports each staged plan's `planStatus`. The desk keeps "Review the plan" until the plan is confirmed; re-staging returns the stored plan with no model call.
+
+## 2026-10-12: Vacation decisions run down the founder's plan path (audit O-16)
+
+- **Same path as the founder.** The Chief of Staff uses the same compile (`compileOptionPlan`, now in @foundmill/models), the same per-action policy (`evaluateAction`) and the same section walls (`planActionSection` / `planSectionWalls`, now in @foundmill/shared).
+  - The plan is written with origin `holiday` and `plan:{id}` recorded, beside the decision, in one transaction.
+  - The holiday workflow starts `planExecution` for it (ParentClosePolicy.ABANDON).
+- **What the Chief of Staff never decides.** These stay open in the Inbox (the brief's "leave the item unanswered when policy says ask"), and the report lists them under "Waiting for you" with the reason:
+  - signing;
+  - anything outside the authority given;
+  - an option with a cost;
+  - a compiled plan with a hard gate, a money action (set_budget, approve_spend, train_agent, any amount_minor or budget_minor), or a policy ask or deny;
+  - anything the person who started the vacation could not write. When that person is no longer a member, the owner's walls (none) apply.
+- **Money always waits.** The `spend_above_threshold` authority therefore cannot authorize spending on vacation, per CLAUDE.md "Never" and the brief.
+- **The founder's own pending plans** are never confirmed by the Chief of Staff.
+- **The stop flag wins.** No decisions are made while the business is stopped.
+- **Retries are safe.** Each pass hands back all of this vacation's executing holiday plans. Starting `plan:<id>` again is harmless: it is refused while running, and planExecution skips actions that already ran. So a start lost to an activity retry happens on the next pass.
+- **No Temporal patch marker.** The child starts depend only on the activity's answer, and answers recorded by the old activity have no `planIds`. Two histories recorded on the previous workflow code are kept as replay fixtures.
+
+### I-inbox-vacation (verify)
+
+## 2026-10-13: An agent's approval note is never answered by a vacation option plan (I-verify, with B-approvals)
+
+- A note whose options are `approve_request` / `reject_request` is an agent's gated call the policy asked the founder about. It is answered through `inbox.decide`, which resolves the approval. The Chief of Staff leaves it open on vacation ("an agent's call waits for your approval").
+- "While you were away" lists it under Waiting for you but counts it once, as the approval it answers, not as a decision too.
+- The Decided panel reads "Chief of Staff's answer" when the Chief of Staff decided on vacation, and "Your answer" otherwise.
+- The option ids are duplicated in `activities/holiday.ts` (`APPROVAL_OPTION_IDS`) to match `APPROVAL_OPTIONS` in packages/db (B-approvals). Import it once B merges.
+
+### M-models-composer (fix)
+
+### 2026-10-12 — Model output budgets per route (audit CML-03)
+Every route in ROUTES (packages/models/src/routing.ts) sets `maxTokens`, used when a request sends none:
+- 16,000 for routes on a thinking model at the API default effort (Opus 5.5 medium, Sonnet 5.5 high);
+- 8,000 at effort low;
+- 4,096 for Haiku 4.5, which does not think unless asked.
+
+Opus 5.5 always thinks and the thinking counts toward max_tokens, so the old 4,096 client default truncated planner graphs, channel scores, legal cards and cycle plans. An override onto a thinking model never runs below its floor (`maxTokensFor`).
+
+A schema answer cut off at max_tokens is sent once more with the budget doubled, up to MAX_TOKENS_CEILING = 32,000 (non-streaming), before failing with `max_tokens`. Both calls are metered. We chose budgets over lowering effort so planning quality stays at the API default effort.
+
+### 2026-10-12 — Composer deadlines (audit CML-04)
+The composer abandons one note after LIMITS.composerDeadlineMs = 150 s (504 `composer_timeout`, nothing written). The api and the orchestrator wait LIMITS.composerClientTimeoutMs = 180 s (env COMPOSER_TIMEOUT_MS). The wait is longer than the deadline, so a caller never gives up on a note that is still being written.
+
+We kept Refresh synchronous, with a timeout that covers one live Opus call, instead of returning 202 and pushing the note over the stream: the Inbox flow and its tests already expect the item in the response.
+
+The api reports a composer timeout as 504, never 503, and passes the composer's own errors through. It composes in-process (development/test only) only when the service could not be reached, never after a timeout or an answer.
+
+### 2026-10-12 — /v1/narrate is idempotent per event set (audit CML-05)
+The key is `narrate:<stableHash(sorted unique event ids)>`, stored as the idempotency key of the note's `inbox.item_created` event. Using the existing unique index means no new column or migration.
+- A repeat returns the existing note (`replayed: true`, cost 0).
+- A concurrent repeat joins the running narration.
+- Two instances racing commit one note.
+
+The orchestrator retries a timeout or 5xx (safe now) and never retries a 4xx (ComposerRequestError, a non-retryable ApplicationFailure in staging/production).
+
+### 2026-10-12 — Refresh: served keys stay served; lookahead reads narratable types (audits CML-01, EXTRA-STARVE, EXTRA-PRIO)
+`composer_buffer.consumed_at` is never cleared, and a note written on the cold path is recorded under its slot key. The plan skips insights already served and moves the decision to the first unserved variant. This refines the 2026-10-07 composer note: an unchanged insight is one note; it comes back only when its facts change.
+
+The un-narrated lookahead filters to the catalogue's narratable types in SQL, with priorities cast to int (an untyped bind sorted them as text), and marks non-narratable rows narrated, as the api's in-process path does.
+
+### 2026-10-12 — In-process plan actions start channel engines (audit VGJC-X1)
+DECISIONS line 370 moved channel toggles in-process. An `enable_channel` or `disable_channel` executed by an Inbox decision or a confirmed plan now starts `channelEngine` (or signals it to stop) after commit, the same as `distribution.channels.enable`.
+
+### M-models-composer (verify)
+
+- **2026-10-12 — Route budgets for `max_tokens` (audit CML-03).** This revises two earlier decisions: "routes without an explicit max_tokens keep the 4,096 default" and "Refusals and truncation are not repaired".
+  - Every route in `ROUTES` has a `maxTokens` used when a request sends none:
+    - 16,000 for thinking routes at the API default effort (Opus 5.5 `medium`, Sonnet 5.5 `high`);
+    - 8,000 at `low` effort;
+    - 4,096 for Haiku 4.5.
+  - An override onto a thinking model never drops below that model's floor (`maxTokensFor`).
+  - A schema answer cut off at `max_tokens` is sent once more with the same messages at double the budget, capped at `MAX_TOKENS_CEILING` = 32,000. Both calls are metered, and an answer is sent at most three times in total (first call, one budget raise, one repair). Refusals are still not retried.
+- **2026-10-12 — A route-sized call books an estimate, not its budget.** The rate-limit concern behind the old 4,096 default still holds.
+  - A call that runs on its route's budget (no `maxTokens`, no `reserveTokens`) books at most `ROUTE_RESERVE_TOKENS` = 4,096 output tokens in the local limiter. That is what it booked before.
+  - So a key whose output-token limit is below 16,000 is not refused locally.
+  - Callers that size `max_tokens` themselves still book it, or their own `reserveTokens`.
+- **2026-10-12 — Composer deadlines (audit CML-04).**
+  - One note gets up to 150 s (`LIMITS.composerDeadlineMs`: the model calls, the re-ask and the entity sweep). Past that it is abandoned unwritten with 504 `composer_timeout`.
+  - The api and the orchestrator wait 180 s (`LIMITS.composerClientTimeoutMs`, overridable with `COMPOSER_TIMEOUT_MS`), longer than the deadline.
+  - The api client separates three failures:
+    - unreachable: 503, with the in-process fallback only in development/test;
+    - timed out: 504, never composed in-process;
+    - answered with an error: the composer's own code and status.
+- **2026-10-12 — `/v1/narrate` is idempotent per event set (audit CML-05).**
+  - The key is `narrate:<stableHash(sorted unique ids)>`, stored on the note's `inbox.item_created` event through `events_idempotency_idx`; no migration.
+  - A repeat returns the earlier note (`replayed: true`, cost 0, model null). A concurrent repeat joins the call already in flight.
+  - When two instances race, the unique index lets one commit and the other returns the winner's note.
+  - The orchestrator retries a timeout or 5xx. A 4xx (`ComposerRequestError`) is a non-retryable `ApplicationFailure` in staging/production. The optional journey commentary tolerates both errors.
+- **2026-10-12 — Refresh lookahead and priority (audits EXTRA-STARVE, EXTRA-PRIO).**
+  - `unnarrated` binds priorities as integers.
+  - The composer reads only narratable types (from the event catalogue) and marks un-narrated rows of other types as narrated, as the api's in-process path already did.
+- **2026-10-12 — A served Refresh slot stays served (audit CML-01).** This amends "Buffer slots are keyed by what they depend on".
+  - `bufferPush` keeps `consumed_at`, and a cold-path note is recorded under its slot key (`bufferMarkServed`).
+  - The plan drops served insight keys and moves to the first decision variant not yet served.
+  - An unchanged insight is one note; it returns only when its facts change.
+- **2026-10-12 — Plan-driven channel toggles start or stop the engine (audit VGJC-X1).** An Inbox decision or confirmed plan that enables or disables a channel in-process calls `syncChannelEngines` after commit, the same way `distribution.channels.enable` does.
+
+### P-permissions (fix)
+
+### 2026-10-12 — Ownership and section walls (audit fixes #24, #27, #29, #30, #32, #35)
+- **Ownership (0026_membership_guards).**
+  - Only an owner changes an owner's membership or grants the role 'owner'. Admins manage everyone else.
+  - Nobody changes their own role or section permissions; another owner or admin does it.
+  - `team.humans.invite` only adds new members (409 for an existing one).
+  - A business always keeps an owner. An after-update/delete trigger enforces this for the service connection too, and stands aside when the business or the owner's account is being deleted.
+  - Ownership is granted from Team › Staff › Role and permissions (owners only). There is no separate transfer flow; the old "transfer from Settings" copy described a screen that never existed and is gone. Settings › Members still never offers Owner.
+- **Section permissions are one helper.** `effectivePermission` and `hasSectionAccess` live in `@foundmill/shared/permissions`. Writing needs both the section's write permission and a write role, so an explicit "write" never lets a viewer or advisor change anything. apps/collab uses the helper: spec blocks belong to the Product section.
+- **Custom metric sections.**
+  - Finance: cash, net burn, runway, revenue and agent spend. Spend goes to Finance, not Billing, because Finance › Payroll already shows agent cost.
+  - Distribution: customers, sign-ups, activation, CPA and channels enabled. Conversions belong to the funnel the Distribution › Attribution tab shows.
+  - Development: tasks running and done. Team: active agents.
+- **Plan action → section.**
+  - Distribution: enable/disable_channel, set_budget on a channel, and create_task with a channel.
+  - Finance: set_budget on a department or the business, and approve_spend.
+  - Development: create_task of kind code.
+  - Product: update_spec and update_roadmap. CRM: send_message and schedule_meeting.
+  - Team: hire_agent, train_agent, set_agent_model and create_playbook.
+  - Inbox write is enough for reply_only, request_human_action and a plain task.
+  - A plan that needs a section the decider (or confirmer, or hand-off stager) cannot write to is refused whole with 403, before anything is written, and the note stays open for someone who can. It is not partly executed.
+- **Inbox redaction happens at read time.**
+  - Notes are not tagged with sections. A note is classified when it is read (strip metric names and sources, exhibit query, money patterns, mention ids), so existing rows are covered with no migration.
+  - Finance walls mask money amounts (a currency symbol, or an ISO 4217 code on either side) and runway figures as "(amount hidden)" / "(hidden)".
+  - CRM walls replace mentions and the plain names of the note's CRM records with "a customer", "a contact", "an organization" and similar.
+  - Agents and team_member records stay named. Ids are never masked.
+  - Over-redaction is preferred to a leak. For example, a strip metric whose source is "accounts" is dropped behind a Finance wall.
+- **Incorporation submit.**
+  - The API signals `incorporation:<id>` computed from the incorporation row it loaded under the caller's business, rather than the row's stored `workflowId`, because members can write that column.
+  - The workflow checks every submit or cancel signal's sender (an owner or admin of the business) behind the Temporal patch `incorporation-submitter-checked`. A refused signal is ignored and the pack keeps waiting.
+
+### P-permissions (verify)
+
+### 2026-10-12 — Ownership and section walls (audit fixes #24, #27, #29, #30, #32, #35)
+- **Ownership (0026_membership_guards).**
+  - Only an owner changes an owner's membership or grants the role 'owner'. Admins manage everyone else.
+  - Nobody changes their own role or section permissions; another owner or admin does it.
+  - `team.humans.invite` only adds new members (409 for an existing one).
+  - A business always keeps an owner. An after-update/delete trigger enforces this on every connection, including the service connection. It stands aside when the business or the owner's account is being deleted.
+  - The trigger takes a per-business transaction advisory lock before it counts owners. Two owners stepping down at once are therefore serialized, and the second is refused.
+  - Ownership is granted from Team › Staff › Role and permissions (owners only). There is no separate transfer flow. The old "transfer from Settings" copy described a screen that never existed and is gone. Settings › Members still never offers Owner.
+- **Section permissions are one helper.**
+  - `effectivePermission` and `hasSectionAccess` live in `@foundmill/shared/permissions`.
+  - Writing needs both the section's write permission and a write role, so an explicit "write" never lets a viewer or advisor change anything.
+  - apps/collab uses the helper; spec blocks belong to the Product section.
+- **Custom metric sections.**
+  - Finance: cash, net burn, runway, revenue and agent spend. Spend goes to Finance, not Billing, because Finance › Payroll already shows agent cost.
+  - Distribution: customers, sign-ups, activation, CPA and channels enabled.
+  - Development: tasks running and done.
+  - Team: active agents.
+- **Plan action → section.**
+  - Distribution: enable/disable_channel, set_budget on a channel, and create_task with a channel or of kind channel.
+  - Finance: set_budget on a department or the business, approve_spend, and create_task of kind finance.
+  - Legal: create_task of kind legal.
+  - Development: create_task of kind code.
+  - Product: update_spec and update_roadmap. CRM: send_message and schedule_meeting.
+  - Team: hire_agent, train_agent, set_agent_model and create_playbook.
+  - Inbox write is enough for reply_only, request_human_action and a research, specialist or ops task.
+  - A plan that needs a section the decider (or confirmer, or hand-off stager) cannot write to is refused whole with 403 before anything is written. It is never partly executed, and the note stays open for someone who can decide it.
+- **Inbox redaction happens at read time, on every answer that carries a note, plan or desk message.**
+  - Covered: inbox.list, get, refresh, markRead, archive, decide and confirm results; plan.list and plan.status; business.continue's in-process note; the agent's desk (manifest, thread, starters, prompt); agent.conversation.send answers.
+  - Notes are not tagged with sections. Each note is classified when it is read, so existing rows are covered with no migration.
+  - Finance walls mask amounts as "(amount hidden)": a currency symbol, an ISO 4217 code on either side, or a currency word or lowercase code a founder typed ("500 euros", "1,200 usd"). Runway figures become "(hidden)".
+  - CRM walls replace mentions and the plain names of the note's CRM records with "a customer", "a contact" or "an organization". A plan summary also hides the names of its note's records.
+  - "Go with: …" chips are rebuilt from the masked option label, never by masking the cut label, so a cut name cannot slip through.
+  - Agents and team_member records stay named. Ids are never masked. Stored threads stay whole; only what is returned is masked.
+  - Over-redaction is preferred to a leak.
+- **Incorporation submit.**
+  - The API signals `incorporation:<id>`, computed from the incorporation row it loaded under the caller's business, not from the row's stored `workflowId` (members can write that column).
+  - The workflow checks the sender of every submit or cancel signal (an owner or admin of the business) behind the Temporal patch `incorporation-submitter-checked`.
+  - A refused signal is ignored and the pack keeps waiting.
+  - Workflows already at the founder's gate on deploy finish on the old, unchecked wait. The API's tenancy check covers them. Replay fixtures of the old histories are kept in apps/orchestrator tests.
+
+### R-crm (fix)
+
+- **CRM Undo merge reverts only what the merge changed, and waits while a later merge relies on it (2026-10-12, replaces "The merge_log snapshot … so `unmerge` restores both records exactly").** Restoring the full pre-merge snapshot of the kept record wiped renames, new emails and the data of later merges. `unmerge` now recomputes the merge's own change from the snapshot, using `mergedFields`, which is also what `merge` writes with. It reverts each change only where the record still holds what the merge wrote: added aliases are removed, filled identifiers and empty fields (photo, lawful basis, source) go back, and the merged record gets back only `merged_into_id` and `archived_at`. Undoing in reverse order is still exact field for field. Unmerge returns 409 CONFLICT, naming the merge to undo first, when a later open merge relies on this one: the kept record was merged away since; or a later merge into it had an identifier, filled field or name this merge would revert, shares an interaction with it, or left a relationship or mention behind because a row this merge moved held that slot. We chose to refuse rather than rebase the later merge's snapshot, because rewriting another merge's log would make that merge's own undo unverifiable. "Later" is the database's merge_log order (created_at desc, id desc); two merges in one transaction are ordered by id. `merge` now also records `moved.sharedInteractions`, the interactions that already listed the kept record, and unmerge adds the merged record back to those instead of removing the kept one. For merge_log rows written before this change, an interaction another open merge moved to the kept record keeps it. `crm.entity.get` returns `mergeHistory[].undoBlocked`, so the profile shows the reason in place of the Unmerge button.
+- **The CRM list reads `crm.entity.list` with each record's active roles; the role-listing union is gone (2026-10-12, replaces "The CRM list unions role listings because there is no `crm.entity.list`").** `crm.entity.list` (`repos.entities.listWithRoles`) and `crm.search` return each record's active roles (role, stage, ownerRef), newest first, from one batched query. Chips go to the server in both modes (`chipFilters`): kind, role, stage (stored keys, case-insensitive), owner and department ids. Only chips the screen cannot resolve to an id are filtered on the loaded rows. A row filtered by role or stage shows that role's stage and owner. The list loads up to 500 records, the API's page maximum, and its footer says when more exist. The export keeps using the bare `repos.entities.list`.
+
+### R-crm (verify)
+
+- **CRM Undo merge reverts only what the merge changed, and waits while a later merge relies on it (2026-10-12, replaces "The merge_log snapshot stores both rows' mutable fields … so `unmerge` restores both records exactly").** Restoring the full pre-merge snapshot of the kept record wiped renames, new emails and the data of later merges. `unmerge` now recomputes the merge's own change from its snapshot with `mergedFields`, which `merge` also writes with. It reverts each change only where the record still holds what the merge wrote: added aliases are removed, and filled identifiers and empty fields (photo, lawful basis, source) go back. The merged record gets back only `merged_into_id` and `archived_at`. Undoing merges in reverse order still restores every field exactly.
+  - **When it refuses.** Unmerge returns 409 CONFLICT, naming the merge to undo first, while a later open merge relies on this one. That is when the kept record was merged away since, or when a later merge into it:
+    - had an identifier, filled field or name this merge would revert;
+    - shares an interaction with it;
+    - left a relationship or mention on its own record because a row this merge moved held that slot;
+    - left a tie between the two duplicates behind.
+  - **Why refuse.** We refuse rather than rewrite the later merge's snapshot, because rewriting another merge's log would make that merge's own undo unverifiable.
+  - **Order.** "Later" is the merge_log order (created_at desc, id desc). `merge` logs `clock_timestamp()`, so merges in one transaction keep the order they ran in.
+  - **Interactions.** `merge` records `moved.sharedInteractions`, the interactions that already listed the kept record, and unmerge adds the merged record back to those instead of removing the kept one.
+  - **Profile.** `crm.entity.get` returns `mergeHistory[].undoBlocked`, so the profile shows the reason in place of the Unmerge button.
+- **The CRM list reads `crm.entity.list` with each record's active roles; the role-listing union is gone (2026-10-12, replaces "The CRM list unions role listings because there is no `crm.entity.list`").**
+  - `crm.entity.list` (`repos.entities.listWithRoles`) and `crm.search` return each record's active roles (role, stage, ownerRef), newest first, from one batched query. The list also returns `total`, the number of records the filters match.
+  - Chips go to the server in both modes (`chipFilters`): kind, role, stage, owner and department. Role and stage compare a normalized key on both sides, so case, spaces, hyphens and underscores do not matter.
+  - An owner chip resolves to an id from an exact agent or department name, or from the only one whose name contains it (`matchOwner`). Only chips that resolve to no id filter the loaded rows.
+  - A row filtered by role or stage shows that role's stage and owner.
+  - The list loads 500 records at a time, the API's page maximum. Its footer gives the total and offers to load more.
+  - The export keeps using the bare `repos.entities.list`.
+
+### S-live-social (fix)
+
+## 2026-10-12 — LIVE social: delivery, groups, moderation, adults only (audit #28, #34, #65, #66)
+
+- **Requests and messages reach the recipient, never the sender.** A new connection request goes to each listed business (LIVE, committed, active) where the recipient is owner or admin, at most 5 and oldest first; a repeat request goes nowhere. Each such business gets the event (`connection.requested` / `message.received`) and a `human_message` note in Inbox › Messages, in the same transaction as the request or message. Every message is delivered the same way. The api writes the note itself. Both events are `narratable: false`, so the composer never narrates them. A thread has at most one unread note per business. A muted thread produces no event, note or signal. A person with no listed business gets the badge only.
+- **What the note says.** The sender's text is quoted as plain text: up to 280 characters of a message, 500 of a request note. Entity markup is reduced to its name; Markdown and HTML punctuation are dropped. The sender is named as the recipient would see them, and having written counts as contact. Members with Inbox access in that business can read the note, as BUILD's Inbox Messages tab implies. A founder who wants a conversation kept out of the business Inbox can mute it.
+- **Person stream `u:{userId}`.** It carries content-free signals (`connection_requested`, `connection_changed`, `message_received`, `community_invited`, `moderation`), published best effort after commit. apps/stream opens it to that user only. The tab refetches `live.*` through the api, which applies the visibility rules. Polling (30 s) covers the case where the stream is down.
+- **Network is in the sidebar in every mode**, badged from `live.summary` (unread messages + requests + invitations). Communities is badged with posts to moderate. Communities and Leaderboards appear only once the business is LIVE.
+- **Every Send needs a connection with everyone else in the thread.** This revises 2026-10-09's "or an existing shared thread". A group needs every pair connected, both when it starts and on every Send. Removing a connection therefore closes the direct thread, and unblocking does not reopen it. Past messages stay readable. A closed thread reads the same whether the cause is a block or a missing connection.
+- **A block needs no prior row.** `live.connections.block({ userId })` turns an existing request or connection into a block, or inserts a blocked row. A block the other person set is left alone and never announced.
+- **Threads are left and muted per person.** Leaving removes the person from `participant_ids` and lists them in `left_ids`; the last person to leave deletes the thread. Muting is private to the person who mutes. A group that shrinks to two people stays a group, `kind = 'group'`, and is never mistaken for the pair's direct thread.
+- **Moderation.** Every new or edited post, and a community's name and description, pass deterministic checks first: markup and script URLs, email addresses, phone numbers. The `moderation` route (Haiku) runs next and treats the text as untrusted data; in mock mode it is deterministic. A deterministic hit, a disallowed verdict, a critical flag, or a harassment / pii_exposure / claims_to_be_human / fake_testimonial / prohibited_automation flag holds the post as `pending_review`. A screen that fails holds the post too. Three open reports from different members hold a visible post, and an author's edit does not release a report hold. Moderators can hide (restorable) or remove (final). An author's delete marks the post `removed` with a note. Every decision resolves the post's open reports.
+- **Community roles.** The owner and the moderators moderate. Nobody moderates the owner, and only the owner moderates moderators and changes roles. A muted member keeps reading but cannot post; a mute outlives leaving the community. A ban is lifted to "left". Invitations go only to the inviter's accepted connections. The owner of an invitation-only community cannot leave it. Community kinds are cohort, category and geography; Private is a visibility, not a kind.
+- **The network is for adults (self-attestation).** A person confirms once that they are 18 or older (`network_attestations`). That confirmation is required before asking to connect, accepting, writing, starting, joining or posting in a community, inviting, going LIVE in Settings › Mode, and taking charge of a LIVE business. Stepping back never requires it: blocking, removing, leaving, muting, reporting, deleting and declining all work without it. The demo seed confirms its founders. Identity verification (BUILD: founders verified before they rank) is not built; it needs a vendor and is deferred.
+- **Limits** (per person, process-local, the same replica caveat as the logo limits): 30 requests per hour; 20 messages per minute and 200 per hour; 6 posts or edits per minute and 40 per hour; 3 new communities per day; 50 invitations per day; 30 reports per hour.
+
+### S-live-social (verify)
+
+## 2026-10-12 — LIVE social: delivery to the recipient, group rules, moderation (audit #28, #34, #65, #66)
+
+- **Requests and messages reach the recipient, not the sender.** A new connection request and every message write `connection.requested` / `message.received`, plus a `human_message` Inbox note filed by the api, into each listed business (LIVE, committed, not archived; at most 5, oldest first) where the recipient is owner or admin. This happens in the same transaction as the request or message.
+  - Nothing is filed in a business the sender belongs to. Two co-founders writing to each other get only the badge and the stream signal.
+  - Both events are `narratable: false`, so the composer never narrates them.
+  - One unread note per thread, and one per requester, however often they ask again.
+  - A content-free signal on the person's own stream `u:{userId}` refreshes their Network badge (`live.summary`) in every business and mode. Nobody but that user may subscribe to it.
+- **This supersedes 2026-10-09 "New threads need a connection … or an existing shared thread".** Every Send now rechecks that the sender is connected with, and neither blocks nor is blocked by, everyone else still in the thread. Removing a connection or lifting a block therefore closes the pair's direct thread to new messages; history stays readable.
+  - A new group needs every two of its people connected. An introducer cannot put strangers in a room.
+  - A thread is `direct` or `group`. A group that shrinks to two is never taken for the pair's direct thread.
+- **A block belongs to a person, not only to a request.** `live.connections.block({ userId })` creates a blocked row when none exists. Blocked and not connected still read the same.
+- **Threads can be left** (`left_ids`; the last person to leave deletes the thread, and the row is locked while leaving) **and muted per person** (`muted_ids`: no badge, no Inbox note). The api never shows who muted a thread.
+- **Communities have a kind** (cohort, category, geography). Private is a visibility: it is joined only by an `invited` membership, which owners and moderators send to their connections. The owner of a private community cannot leave it.
+- **Posts pass a screen before members see them.**
+  - Deterministic checks run first (markup, email, phone). Then the `moderation` route (Haiku; deterministic mock).
+  - The marketing-email categories (unsubscribe, sender identity) never hold a post. A failed screen holds the post.
+  - A held post waits as `pending_review`. Three open member reports hold a visible post, and an edit does not release that hold.
+  - Authors edit (screened again) and delete. A post written as a business is edited only while its author may still speak for it.
+  - Owners and moderators hide, restore and remove posts and mute, ban and restore members. Only the owner acts on moderators and sets roles. Authors see moderation notes but not which moderator acted.
+- **18+ is the person's own statement, not identity verification.** It is recorded once in `network_attestations`. It is asked before any step onto the network (ask, accept, write, start, join, post, invite) and when a business goes LIVE (`setGameMode` and `idea.commit`). Stepping back (block, remove, leave, mute, report, delete, decline) never asks.
+- **Limits.** Requests, messages, posts, new communities, invitations and reports are rate-limited per person, process-local, like the logo limits.
+
+### SEC1-stream-walls (fix)
+
+- **Section walls on the business stream (security review S1, 2026-10-12).** The event → section table lives in `apps/stream/src/walls.ts`, typed `satisfies { [K in EventType]: EventWall }`, so every new event type must be filed there. It is not in the packages/events catalogue, to keep the many parallel catalogue edits conflict-free. Walls drop an event whole when it belongs to a section the reader cannot read. Otherwise they remove named payload fields and mark the event `redacted: [...]`; they remove rather than mask, because the stream cannot apply the Inbox's text masking and tabs refetch through the walled procedures anyway. Free text that can quote other sections (note subject, task summary and blocked detail, decision and approval text, desk previews) is hidden behind both the Finance and the CRM wall. An unknown type reaches only readers with no walls.
+- **Sessions belong to Development plus their department's modules.** The department is the task's, else the agent's departments (`sessionSections` in @foundmill/shared, `agents.sessionModuleKeys` in packages/db). `as:<sessionId>` and dev.sessions.stream/replay both require read on all of them.
+- **Access follows membership changes.** New event `membership.changed` {userId, change: added|updated|removed}, never narrated, carrying no role or permissions. The stream holds that person's subscriptions to the business, re-checks them, then releases the held events or closes the subscription. Every live subscription is re-checked every 30 s, and a database failure keeps the last decision on a routine re-check. apps/collab re-authorizes open connections every 15 s, since it reads no Redis.
+- **One invite list for every service.** `SIGNUP_ALLOWLIST` parsing lives in @foundmill/shared (allowlist.ts). Stream (403 at the upgrade) and collab (denied like a non-member) enforce it at connect, so a changed list takes effect when the services restart with it.
+- **Owner lock (0035).** The keep-owner trigger and membershipsRepo.setRole/remove take `pg_advisory_xact_lock(hashtext('memberships_owner'), hashtext(business_id))` before counting owners. An advisory lock was chosen over `select … for update` on businesses because the repo also runs as app roles, which have no update right on businesses. The guarantee holds under READ COMMITTED (the app's level) and SERIALIZABLE.
+- **Pinned web reader transport.** node:http/https with a connect-time `lookup` that only returns checked public addresses. This was chosen over an undici Agent to avoid a new dependency and lockfile change. The reader swaps it in for the platform's global fetch; an injected fetch (tests) is used as given.
+
+### SEC1-stream-walls (verify)
+
+- **Section walls on the business stream (security review S1, 2026-10-12).** The event-to-section table lives in `apps/stream/src/walls.ts`, typed `satisfies { [K in EventType]: EventWall }`, so every new event type must be filed there. It is not in the packages/events catalogue, to keep the many parallel catalogue edits conflict-free. Walls drop an event whole when it belongs to a section the reader cannot read. Otherwise they remove named payload fields and mark the event `redacted: [...]`. They remove rather than mask, because the stream cannot apply the Inbox's text masking and tabs refetch through the walled procedures anyway. Free text that can quote other sections is hidden behind both the Finance and the CRM wall: note subject, task summary and blocked detail, decision and approval text, desk previews, and a negotiation's terms. A test checks every hidden path against the event's Zod schema. An unknown type reaches only readers with no walls.
+- **Sessions belong to Development plus their department's modules.** The department is the task's, else the agent's departments (`sessionSections` in @foundmill/shared, `agents.sessionModuleKeys` in packages/db). `as:<sessionId>` and dev.sessions.stream/replay both require read on all of them.
+- **Access follows membership changes.** New event `membership.changed` {userId, change: added|updated|removed}, never narrated, carrying no role or permissions. The stream holds that person's subscriptions to the business, re-checks them, then releases the held events or closes the subscription. Every live subscription is re-checked every 30 s, and a database failure keeps the last decision on a routine re-check. apps/collab re-authorizes open connections every 15 s, since it reads no Redis.
+- **One invite list for every service.** `SIGNUP_ALLOWLIST` parsing lives in @foundmill/shared (allowlist.ts). Stream (403 at the upgrade) and collab (denied like a non-member) enforce it at connect, so a changed list takes effect when the services restart with it. The variable must be set on api, stream and collab.
+- **Owner lock (0035).** The keep-owner trigger and membershipsRepo.setRole/remove take `pg_advisory_xact_lock(hashtext('memberships_owner'), hashtext(business_id::text))` before counting owners. An advisory lock was chosen over `select ... for update` on businesses because the repo also runs as app roles, which have no update right on businesses. The repo casts the id through uuid so any spelling of the id takes the trigger's lock. It holds under READ COMMITTED and SERIALIZABLE.
+- **Pinned web reader transport.** node:http/https with a connect-time `lookup` that only returns checked public addresses, chosen over an undici Agent to avoid a new dependency and lockfile change. The reader swaps it in for the platform's global fetch; an injected fetch (tests) is used as given. A page's odd status line or header fails that read only, never the process.
+
+### SEC2-spend-ceiling (fix)
+
+## 2026-10-12 — The ceiling on Foundmill's Anthropic key (SEC2)
+
+Supersedes three earlier decisions: F1's "A business on its own key never touches credits" and "Ledgerly … holds no credits", and F2's "Mock checkouts … refused while MODEL_MODE=live".
+
+- **Every call on the platform key is charged to credits, whatever the business's model billing.** BUILD §10.2 step 3 keeps BYOK key decryption out of apps/api and apps/composer. So a BYOK business's conversations, Refresh, planning and narration necessarily run on Foundmill's key, and were free and unbounded.
+  - Options weighed: (a) decrypt BYOK keys in the api/composer, which is forbidden by §10.2; (b) route these calls through the orchestrator, which needs a large rework and adds latency to conversations; (c) charge them to credits and gate them. Chose (c).
+  - When credits run out on a BYOK business, the team keeps working on the founder's own key. Only the platform-key work pauses, with an Inbox note that does not block Continue.
+- **One gate before every platform-key call:** gateModelClient (packages/models) wraps the api and composer clients, and the orchestrator checks it in pick() for platform routes.
+  - The gate refuses with 402 credits_exhausted when the balance is ≤ 0 or the team was stopped for credits this period. A credits stop from an earlier month does not count.
+- **Live sessions are capped, not charged after the fact.** A session on the platform key:
+  - gets the spendable amount as the SDK's maxBudgetUsd;
+  - books its spend every turn and every 15 s, with settles serialized;
+  - ends blocked/budget when the credits are used up;
+  - and finishSession books only the remainder.
+  - Accepted overrun: at most one turn, or 15 s of spend, per concurrent session.
+- **Concurrency is checked wherever a session opens:** dev.tasks.start and openAgentSession, not only in the cycle. The count is unlocked, so a small race between two simultaneous opens is accepted.
+- **Rate-limit refunds (S3) follow whether a model call was made**, tracked in a per-request AsyncLocalStorage scope, not the error code alone. A composer call is counted as a model call conservatively. The plan-section check for free text runs on the rule engine before any model call.
+- **Included credits (S6) are one pool a month per founder** (businesses.created_by), and archived businesses keep their place.
+  - Any credits row with granted_minor > 0 holds a place, so a top-up-only row also counts. This errs toward granting less.
+  - The count is taken under a transaction advisory lock.
+  - Commit stops a business that got no included credits and has no balance, with a note explaining the pool.
+  - No migration.
+- **Mock payments (S10) need ALLOW_MOCK_PAYMENTS.** The default is on in development and test only.
+  - Credits from simulated payments still show, but never pay for live model calls: they are subtracted from what a live call may spend (reason mock_only).
+  - This was chosen over zeroing mock grants, so mock-mode demos keep working.
+- **The allow-list (S11) trusts only a confirmed address:** user_metadata.email_verified, or an amr method that proves the inbox. A bare password sign-in is not enough, because "otp" alone could also be a phone OTP, and Supabase "Confirm email" must stay on (DEPLOY.md §4). Anonymous sessions are refused.
+- **Seeds:** Ledgerly (own key) holds $200 of platform credits, so its conversations and Refresh work in the demo.
+
+### SEC2-spend-ceiling (verify)
+
+## 2026-10-13 (SEC2 verification): the allow-list trusts only the token's amr
+
+Amends the SEC2 S11 entry. `user_metadata.email_verified` is no longer evidence that an address is confirmed: Supabase lets a signed-in user edit their own user_metadata, so a session obtained without proving the inbox (Confirm email off, a password sign-up) could forge it. Only `amr` (written by Supabase Auth) counts: magiclink, otp, email/signup, invite, recovery or email_change. Anonymous tokens never count. The web signs in by magic link only, so real sessions always carry the proof. DEPLOY.md keeps "Confirm email" on and says to keep the Phone provider off, because an SMS code also appears as `otp`.
+
+### SEC3-stop-coverage (fix)
+
+### 2026-10-12 — Stop all agents: what it covers and how (SEC3)
+- **The flag is written before any signal.** One transaction sets `agents_stopped_at`, pauses the agents, running tasks and live campaigns, cancels training in flight and writes the health events; only then are workflows signalled. After that, open sessions are listed again and any opened meanwhile is signalled too. The audit entry is written last so it records what reached Temporal.
+- **Every spender checks the flag on its own and does not rely on a signal arriving:**
+  - The gateway denies tool calls and token mints with `agents-stopped`.
+  - Sessions refuse to start and re-read the flag every 5 s (`STOP_CHECK_MS`), then stop themselves.
+  - Training cancels before loading and before each test.
+  - Plan messages and meetings fail.
+  - This covers the stops that signal nothing: a revoked key and used-up credits.
+- **Training runs a stop catches end `cancelled`, not `failed`.** The summary reads "Training canceled: <reason>. Train again once the agents resume." Tests already run are booked. Resume does not restart them.
+- **A model change during a stop applies at once, but its retests wait.** Changing the model costs nothing and lets a founder move to a cheaper model before resuming. The retests stay `queued` (`retestsWaitForResume`) and every way back (Resume agents, a new key, a top-up) starts every queued training run (`restartAfterResume`). Refusing the change was the alternative and was rejected.
+- **An agent hired, cloned or created by a plan during a stop starts paused** with the stop's reason (`agents.create`/`createMany`), so Resume agents brings it back with the others. Refusing the hire was the alternative and was rejected: a hire spends nothing, and the gateway's business-level denial covers any agent anyway.
+- **Campaigns cannot go live during a stop.** Setting or creating a campaign live answers 409. Pausing, ending and drafting stay allowed. Campaigns the stop paused still stay paused after a resume; Distribution resumes them.
+
+### SEC3-stop-coverage (verify)
+
+### 2026-10-12 — Stop all agents: what it covers and how (SEC3)
+- **The flag is written before any signal.** One transaction sets `agents_stopped_at`, pauses the agents, running tasks and live campaigns, cancels training in flight and writes the health events. Only then are workflows signalled. After that, open sessions are listed again and any opened meanwhile is signalled too. The audit entry is written last. A failure while listing or signalling is reported in the result (`workflows.queued: false` with a reason) and in the audit entry, never thrown over a stop already in effect.
+- **Every spender checks the flag itself and does not rely on a signal arriving:**
+  - The gateway denies tool calls and session-token mints with `agents-stopped`.
+  - Sessions refuse to start, and re-read the flag every 5 s (`STOP_CHECK_MS`) and stop themselves. A starting session never marks a paused agent working.
+  - Training cancels before loading and before each test. A run that already ended starts no further test, even after the agents resume.
+  - A plan's send_message and schedule_meeting fail.
+  - This covers the stops that signal nothing: a revoked key and used-up credits.
+- **Training runs a stop catches end `cancelled`, not `failed`.** Tests already run are booked. Resume does not restart them.
+- **A model change during a stop applies at once, but its retests wait.** They stay `queued` (`retestsWaitForResume`). Every way back starts every queued training run (`restartAfterResume`): Resume agents, a new key, a mock top-up and a paid Stripe top-up (ingest `followups.resumed`).
+- **An agent hired, cloned or created by a plan during a stop starts paused** with the stop's reason, and Resume agents brings it back. Refusing the hire was the alternative and was rejected: a hire spends nothing, and the gateway's business-level denial covers any agent anyway.
+- **Campaigns cannot go live during a stop.** Setting or creating a campaign live answers 409. Pausing, ending and drafting stay allowed. Campaigns the stop paused stay paused after a resume; Distribution resumes them.
+
+### T1-product (fix)
+
+## 2026-10-12: Change proposals are applied on accept and published on settle (T1, issue #47)
+
+- **Accepting a hunk writes it at once, with a three-way merge.** `repos.product.decideHunk` / `acceptAll` / `rejectProposal` lock the proposal row. An accepted or edited hunk is written into its spec block or roadmap item by merging `base → theirs` into the live content (`packages/db/src/repos/spec-merge.ts`: diff3 over top-level nodes; equal-length unstable regions are settled node by node). Edits made after the proposal are kept. In a true conflict the decided side wins, because the founder decides against the live text: the Changes tab now shows the block as it reads now when it changed since drafting. A hunk drafted without `base` replaces the block, which is what accepting it has always promised. This makes DECISIONS 2026-10-07 ("the three-way merge … in repos.product.decideHunk") true.
+- **Authorship.** An accepted hunk is authored by the proposing agent (or the system), and the block's pin is left as it was. A hunk saved as edited is authored by the founder and pins the block, the same as a human edit in the editor.
+- **A decision is final.** Deciding a hunk differently after it was decided is refused. Repeating the same decision is a no-op (this covers a double click). An applied change is undone by a new edit or a restore, never by re-deciding.
+- **Publishing.** The decision that settles a proposal with at least one accepted or edited hunk publishes the next version. The changelog is one line ("Change proposal "<title>": Pricing accepted; Features rejected; …"). The router emits `spec.version_published` with the proposal id and counts. Rejecting the remaining hunks of a partly accepted proposal settles it as `partially_accepted` (it used to be marked `rejected` even though blocks had changed) and publishes what was accepted. A proposal with nothing accepted publishes nothing.
+- **createProposal fills `base`/`ours`** from the target's current content when the drafter leaves them out, and refuses a target of another business.
+
+## 2026-10-12: The Source Watcher (T1, issue #48)
+
+- **Reading goes through a new `web` connector** (tool `fetch`, read-only, policy hints `{}`, no account). It reads public http(s) pages only. Private, loopback, link-local and reserved addresses are refused after DNS on every redirect hop; credentials in links and non-standard ports are refused; robots.txt is honored per RFC 9309 (a robots.txt that answers with a server error means the page is not read, and a missing one means no restrictions); a page that needs a login is never bypassed; size and time are capped. The result is untrusted content. DNS rebinding between the address check and the connection is a residual risk, because Node's global fetch cannot pin the address without undici, which is not a dependency.
+- **Two model steps on existing routes.** Haiku (`classifier`, prompt `source_relevance` v2) scores up to 8 candidate blocks, picked by weighted word overlap. This stands in for embeddings until a business has them. It writes the summary, blocks, topics and severity, plus pricing, strengths and weaknesses for competitor pages. Opus (`departmentLead`, prompt `source_watcher` v2) drafts the whole proposed text of each block scored 0.6 or higher (at most 4 per proposal), and unchanged paragraphs keep their nodes. In v2 the source, and the classifier's summary of it, appear only inside `<untrusted_content>`; v1 interpolated the summary into the instructions. Everything stored is plain text, and impact is labeled Estimate.
+- **The watcher acts as the Product lead** (department with the product module), falling back to the Chief of Staff, with a gateway token scoped to `web:fetch` only. A paused agent means the business is stopped, and the read waits.
+- **Idempotence.** The read stores a content hash. The same content is not scored again, and a proposal is drafted at most once per hash (`relevance.watch.proposalHash`, written in the proposal's transaction).
+- **The relevance JSON shape** read by Sources and Research is `{ summary, blocks: [{ blockId, score, reason }], topics, severity, pricing?, strengths?, weaknesses?, notes?, contentHash, watch: { status: scored|unreachable|failed, reason, checkedAt, page, proposalId, proposalHash } }`. Seeds now use it.
+- **When it runs.** It runs when a source is added (the api starts `sourceWatch`). The `sourceWatchSweep` schedule workflow picks up anything never checked (including sources added while Temporal was unreachable) and re-reads web pages older than 24 hours. Notes and files are read once. Import sources are left to the import.
+- **Inbox.** Critical proposals (legal, safety, security) are narrated at once; others wait for the composer's refresh (batched), per BUILD §11.5.
+- **product.sources.add input.** It accepts only kind, link (http or https), title and notes. Relevance, fetch times and embeddings are no longer client-writable.
+
+### T1-product (verify)
+
+## 2026-10-12: T1 verification follow-ups (issues #47, #48)
+
+- **Gateway calls made outside an agent session are booked to the agent.** The Source Watcher, plan actions and imports mint a gateway token for one call, with a one-off session id. `usage_ledger.session_id` references `agent_sessions`, so the gateway now books an allowed call with its session id only when that id names an agent session of the business, and with `session_id` null otherwise. Before this, every such call failed with a 500 when its usage was booked.
+- **The Source Watcher reads sources it has never read, including old rows.** `repos.product.listSourcesToWatch` returns:
+  - sources with no `relevance.watch`, including rows seeded before the watcher in the old `{ score, sections }` shape;
+  - reads that failed, of any kind;
+  - web pages last checked before the stale line.
+
+  A database seeded before this change therefore fills its Sources and Research tabs on the next sweep, with no reseed needed.
+- **A lasting refusal is final.** A page the site refuses for good (a tool error with `retryable: false`, such as 410) is recorded as unreachable at once. Only transient errors are retried.
+- **Insertions on both sides are kept.** When the live block and an accepted hunk both only added paragraphs at the same place, the merge keeps both (the live ones first) and counts no conflict. A true conflict, where both sides changed the same paragraphs, still goes to the decided side.
+- **The web reader refuses IPv6 transition prefixes** (6to4 2002::/16, Teredo 2001:0::/32) as non-public, because they can carry a private IPv4 address.
+- **Left open (not T1's area):** accepting a hunk writes `spec_blocks` directly. A block open in apps/collab at that moment can be overwritten by that editor's next save. Local-mode `editBlock` and agent drafting already have the same limitation. The fix belongs with the collab owner: reload the document, or apply the change through the collab HTTP reconcile.
+
+### T2-team (fix)
+
+- **Model changes apply at once; the retest scores a copy (2026-10-12, T2, audit TPD-03/O-18/RA-04).** `agent.model.set` still changes `agents.model_key` immediately (AC-11.10.5 "updates exactly those agents"). The retest no longer targets the live version, which the orchestrator rightly refuses (AC-11.10.1). `repos.training.createModelRetest` copies the live version's instructions and tools into a system-created draft (`created_by_kind = 'system'`, version > 1) on the new model, and queues a run from live to that draft. Promote makes the copy live (its model matches the agent's). Discard keeps the live version, and the agent stays on the new model until the founder changes it back; the summary and the discard notice say so. No retest is queued when an agent was already on the chosen model. A newer model change cancels that agent's retests still in flight, and their workflows get `stop`.
+- **No training run stays queued (2026-10-12, T2).** `loadTrainingRun` fails runs that can never start with a non-retryable `TrainingRunError` whose message is readable by the founder. The `trainingRun` workflow catches a failed start and ends the run as failed through `failTrainingRun`; any other failure stores a generic reason, never worker text. `repos.training.transition` only moves a run from the given statuses, so a founder's cancel is never overwritten by a worker. `agent.training.cancel` cancels a queued or running run at once (and signals `stop`). This also covers DECISIONS' earlier note that runs stay `queued` without an orchestrator: the founder can now cancel them, and the tab flags a run queued for more than 10 minutes.
+- **Retest copies are not the editing base (2026-10-12, T2).** `latestDraft` skips system-created versions above version 1, so a model change never replaces a draft in progress. Edits of the live version train on the agent's current model (`agents.model_key`) rather than the live version's model.
+- **Typed money stays text until save (2026-10-12, T2, audit WEB-03).** Agent › Autonomy keeps raw text in MoneyInputs and converts on validation and save. `parseMajor` in apps/web/components/agents/logic.ts follows US grouping (the comma separates thousands), accepts k/m/b shorthand, and returns NaN, never a rounded guess, for anything else, including fractions of a cent.
+
+### T2-team (verify)
+
+- **Model changes apply at once; the retest scores a copy (2026-10-12, T2, audit TPD-03/O-18/RA-04).** `agent.model.set` still changes `agents.model_key` immediately (AC-11.10.5). Its retest no longer targets the live version, which the orchestrator rightly refuses (AC-11.10.1). `repos.training.createModelRetest` copies the live version's instructions and tools into a system-created draft (`created_by_kind = 'system'`, version > 1) on the new model and queues a run from live to that copy. Promote makes the copy live. Discard or Cancel keeps the live version; the agent stays on the new model until the founder changes it back, and the notices say so. A newer model change withdraws the agent's earlier retests, whether still in flight or awaiting a decision (status `cancelled`, their workflows get `stop`), so promoting a stale retest can never quietly switch the model back. A change back to the model the live version already runs on queues no retest.
+- **No training run stays queued (2026-10-12, T2).** `loadTrainingRun` refuses runs that can never start with a non-retryable `TrainingRunError` whose message the founder can read. The `trainingRun` workflow ends a failed start, or a finalize that keeps failing, as failed through `failTrainingRun`, with a generic reason (never worker text) when the failure is unexpected. `repos.training.transition` only moves a run from the given statuses, so a worker never overwrites a founder's cancel. `agent.training.cancel` and the Cancel run button free any queued or running run; the tab flags a run queued for more than 10 minutes. Existing stuck rows (from = to, queued) clear through Cancel run or the agent's next model change. No migration.
+- **Retest copies are not the editing base and never count as applied (2026-10-12, T2).** `latestDraft` skips system-created versions above version 1. `isRetestRun` (a retest copy, or the old from = to shape) names retests in History and in the notices. The skill chart draws a canceled run like a discarded one. Edits of the live version train on the agent's current model.
+- **Typed money stays text until save (2026-10-12, T2, audit WEB-03).** Agent › Autonomy keeps raw text in MoneyInputs and converts it to minor units only for validation and save. `parseMajor` (apps/web/components/agents/logic.ts) is exact: it follows US grouping, accepts k/m/b shorthand, and returns NaN, never a rounded guess, for anything else, including fractions of a cent.
+
+### U-finance-settings-import (fix)
+
+### 2026-10-12: Settings lifecycle, finance math and the Door B import (U-finance-settings-import)
+- **Net burn is operating cash flow.** monthlyTotals adds operatingInflowMinor and operatingOutflowMinor. These leave out the non-operating category keys (financing, funding, investment, equity, safe, loan, loan repayment, grant, founder loan, director loan, share capital, transfer(s), internal transfer, between accounts), matched on lower-case keys with `_`/`-` read as spaces, the same way the finance chart of accounts files Financing and Transfers. netBurn and gross burn read only these. Every revenue figure built from bank totals reads operating inflows too (`monthRevenueMinor` in widgets, `operatingInflow` in modules): the Overview spark, Home's Revenue this month, the revenue and customers chart, and the Inbox strip. The plain totals stay for the cash history.
+- **Payback divides by the paying base, not by new customers.** finance.overview payingCustomers is the paying base of the trailing three-month revenue window: everyone with a payment conversion by the window's end, minus customers who churned before it began. Churn means a CRM `customer` role that ended before the window, or is marked `churned` and was last changed before it, with no open customer role since. A payment with no linked customer counts once, and only inside the window. Counting only the payers inside the window was rejected: conversions record wins (first payments), so it would count new customers again. Acquisition cost keeps the blended new-customer count.
+- **Export is a file in the browser; nothing is stored on the server.** Format foundmill-export/2 keys tables by their SQL name. Every business-scoped table is classified once in packages/db `EXPORT_TABLES` / `EXPORT_EXCLUDED_TABLES`, and a test fails if one is unclassified. Excluded: credentials, webhooks, events, outbox, composer_buffer, workspace snapshots, LIVE posts, community members and leaderboard rows. Memberships, integrations and app installations keep only safe columns, and accounts drop externalId. Sections the admin is walled off from are left out and the export says so. Tables are read to the end; the only limit is 250,000 rows per table per request, and hitting it is reported in `truncated`, the toast and the Inbox note.
+- **Archive can be undone (supersedes DECISIONS.md:1168, which listed archive as irreversible).** An archived business still allows export (admin), restore (owner, idempotent, audited), requestDeletion, cancelDeletion and deletionStatus. Everything else answers NOT_FOUND. Owners find archived businesses under New business › Archived businesses (`/new#archived`). Restore leaves agents stopped until the founder resumes them.
+- **The Door B sign-up import reads nothing and claims nothing.** Before a business exists there is no connection and no gateway session. The job checks the typed values and plans the reads. The Import report states each source as read, planned or not read, words planned strengths "once …", lists failures as missing, and invents no counts or roadmap seeds. Commit stores sources as pending and starts importBusiness. Each source is read with one read-only gateway call named in packages/shared `IMPORT_READERS`, and "read" means the tool itself succeeded. Linear, Jira and website have no reader yet and say so. Read now (import.readAgain, owner/admin) re-reads sources that were not read. Migration 0031_settings_lifecycle turns the old simulated "done" rows into "not read".
+
+### U-finance-settings-import (verify)
+
+### 2026-10-12: Settings lifecycle, finance math and the Door B import (U-finance-settings-import)
+- **Net burn is operating cash flow.** monthlyTotals adds operatingInflowMinor and operatingOutflowMinor. These leave out the non-operating category keys (financing, funding, investment, equity, safe, loan, loan repayment, grant, founder loan, director loan, share capital, transfer(s), internal transfer, between accounts), matched on lower-case keys with `_`/`-` read as spaces. The single list is `NON_OPERATING_CATEGORY_KEYS` in packages/shared (`financing` and `transfers` groups). Both packages/db netBurn and the finance chart of accounts (Financing and Transfers lines) use it, so the P&L and the burn tiles agree on what a raise is. netBurn and gross burn read only operating totals. Every revenue figure built from bank totals reads operating inflows too (`monthRevenueMinor` in widgets, `operatingInflow` in modules): the Overview spark, Home's Revenue this month, the revenue and customers chart, and the Inbox strip. The plain totals stay for the cash history.
+- **Payback divides by the paying base, not by new customers.** finance.overview payingCustomers is the paying base of the trailing three-month revenue window: everyone with a payment conversion by the window's end, minus customers who churned before it began. Churn means every `customer` role ended before the window (or is marked `churned` and was last changed before it); a customer who paid again inside the window, or has an open role (stage or no stage), is still counted. A payment with no linked customer counts once, and only inside the window. Counting only the payers inside the window was rejected: conversions record wins (first payments), so it would count new customers again. Acquisition cost keeps the blended new-customer count.
+- **Export is a file in the browser; nothing is stored on the server.** Format foundmill-export/2 keys tables by their SQL name. Every business-scoped table is classified once in packages/db `EXPORT_TABLES` / `EXPORT_EXCLUDED_TABLES`, and a test fails if one is unclassified. Excluded: credentials, webhooks, events, outbox, composer_buffer, workspace snapshots, LIVE posts, community members and leaderboard rows. Memberships, integrations and app installations keep only safe columns, and accounts drop externalId. Sections the admin is walled off from are left out and the export says so. Tables are read to the end; the only limit is 250,000 rows per table per request, and hitting it is reported in `truncated`, the toast and the Inbox note.
+- **Archive can be undone (supersedes DECISIONS.md:1168, which listed archive as irreversible).** An archived business still allows export (admin), restore (owner, idempotent, audited), requestDeletion, cancelDeletion and deletionStatus. Everything else answers NOT_FOUND. Owners find archived businesses under New business > Archived businesses (`/new#archived`). Restore leaves agents stopped until the founder resumes them.
+- **The Door B sign-up import reads nothing and claims nothing.** Before a business exists there is no connection and no gateway session. The job checks the typed values and plans the reads. The Import report states each source as read, planned or not read, words planned strengths "once ...", lists failures as missing, and invents no counts or roadmap seeds. A source that was read is credited only with what its one read returned (an account answering is not its revenue history; a bank account list is not transactions), so forecasts and runway stay estimates until the history is imported. Commit stores sources as pending and starts importBusiness. Each source is read with one read-only gateway call named in packages/shared `IMPORT_READERS`, and "read" means the tool itself succeeded. Linear, Jira and website have no reader yet and say so. A stop leaves unstarted sources as not read (importBusiness reports them), and finishImport closes any row whose read never finished. Read now (import.readAgain, owner/admin) re-reads sources that were not read. Migration 0031_settings_lifecycle turns the old simulated "done" rows, and legacy import rows no read ever recorded, into "not read".
+
+### W01-agents-orchestration (fix)
+
+- Idle cycles (2026-10-13, audit OL-10): when no task is dispatchable the cycle calls neither the Chief of Staff planner nor the narrator and posts one plain note 'Nothing is ready to start' (not repeated while unread) that names roadmap items without tasks and points to Development > Plan > Build a task graph. We chose the note over auto-running the task-graph planner, so a billed model call is never made on the founder's behalf for an empty cycle.
+- Retry policy (BF-14): failed and blocked tasks return to the planner after a doubling wait (15, 30, 60 min) and at most TASK_RETRY_LIMIT (3) automatic retries; after that they wait for the founder's Start on the Plan. One list, PLANNABLE_TASK_STATUSES in packages/shared, serves the planner, the brief and the mock planner.
+- Automated mode (SOAK-01, BUILD 11.3): setting it starts workflow autopilot:<businessId>. Authority is every decision type except sign_contracts, inside the business spend cap; hard gates still queue for the founder. It holds while a vacation runs or the team is stopped, ends on a mode change, continues as new every 50 cycles (HOLIDAY_CYCLES_PER_RUN) and chains up to 3 cycles per tick while decisions keep unblocking work. The api workflow reconciler (boot + every 5 min) starts the autopilot and vacation workflows that are missing; it never ends anything.
+- Vacations: one running vacation per business, enforced by a partial unique index (migration 0036); a dated vacation past its date is over in holidays.current() before its workflow writes the end; the api ends the row and signals, the workflow writes the single away report keyed by holiday id and emits holiday.ended once. The 400-cycle cap now ends with reason cycle_cap and honest copy; a 'return' vacation stores 'you return' and the top bar reads 'On vacation until you return'.
+- Cycle visibility (SOAK-05, RUI-15): a cycle exists from the press. The cycle.queue / business.continue audit row with the workflow id marks it queued until the orchestrator writes cycle.started (queued rows expire after 6 h). A duplicate press returns already_running with no audit row. reconcileCycle (api) closes a cycle whose Temporal workflow is gone, at most every 30 s per workflow and only after 90 s, and only when Temporal is reachable.
+- Pause/resume (OL-25): pause records the task ids it paused in the audit details; resume signals and restores only those.
+- Mock replay (IAE-22, FR-07): the mock sandbox auto-picks only recordings that end 'done' (same task kind first, else any kind; never across kinds into a failure). Failed and blocked recordings are opt-in via MOCK_SESSION_SCENARIOS=all or by key (this amends the earlier loop-detection demo choice: the loop recording is now a drill, not a first-cycle accident). A done-outcome finance recording (ledgerly-runway-forecast) was added so the first runway forecast completes. SessionReplay.resume() only ends a pause; holds end by decide(), their own timer, or stop().
+- Playbooks (AC-07): a single Zod contract (CreatePlaybookParams in packages/shared playbook.ts: source_text, trigger {event, where?, condition?}, steps [{action:{type,params}, label}], approvals [{step, scope}], stop). Playbooks are saved off and turned on by the founder; steps follow the usual approvals and hard gates, and a rule that includes a hard-gated step is refused at compile time.
+- Idempotency (O-33, BILL-20): cycle ids are chosen by the workflow, cycle events carry idempotency keys per cycle id, usage_ledger rows carry an idempotency_key (session:<id>:sandbox|tokens) with a partial unique index, and the credit charge, exhaustion pause and note commit in one transaction.
+- Conversation (RES-09): the client makes up a clientMessageId per outgoing message and keeps it across retries; the server stores it on agent_messages (unique per thread) and answers a repeat with the stored exchange. After a dropped connection the desk refetches the thread before it offers Try again; the offline copy reads 'I couldn't confirm your message' rather than claiming it never arrived.
+- Live controls (OL-04, TPD-16): a 200 from the api is not delivery. The UI reads results[].queued or workflow.queued and shows 'Not delivered: <reason>' instead of the agent's acknowledgement.
+
+### W01-agents-orchestration (verify)
+
+No new decisions from verification. Please confirm these implementer decisions when merging DECISIONS.md. (1) Automated mode is an autopilot workflow per business (autopilot:<businessId>) that auto-decides blocking items within all decision types except signing, within the spend cap, and holds during a vacation or a stopped team. (2) The api workflow reconciler (boot, then every 5 minutes) starts missing vacation and autopilot workflows and never ends anything. (3) An Estimate-free idle cycle posts one Chief of Staff note and calls no model. (4) Mock mode auto-picks only recordings that end well; failed and blocked recordings are opt-in via MOCK_SESSION_SCENARIOS=all or by key. (5) Migration 0036 adds three things: holiday_periods_one_running_idx, usage_ledger.idempotency_key (+ unique partial index) and agent_messages.client_message_id (+ unique partial index).
+
+### W03-finance-legal (fix)
+
+## 2026-10-13 - W03 finance and legal fixes
+
+- Round modeling (supersedes the 2026-10-07 'post-money SAFE method' wording): price, discount/price-converted SAFE shares and the pool top-up are solved together (cap SAFEs are fixed share counts; discount SAFEs and the top-up are linear in the pre-round fully diluted total; the cap-or-discount choice is iterated). Result: the new investor holds exactly investment / post-money and the unallocated pool lands on its target, in whole shares (conversions and new shares round down, the top-up to nearest). The previously recorded 19.51% investor stake for the discount-only case was a defect of the old method, not a feature.
+- SAFEs and convertible notes are not shares: capTable.summary excludes them from totalQuantity and from every fully diluted percentage (null pct, `convertible: true`, shown at principal as 'Not converted'). Round modeling converts them, labeled Estimate.
+- A cap-table entry's price is in its share class's currency: createEntry defaults `currency` to the security's, readers use `entryCurrency(entry, security)`. Migration 0038 backfills existing rows.
+- Vesting has one stored shape, `VestingSchedule {months, cliffMonths, startDate?, acceleration?}` (packages/shared/src/vesting.ts); `readVesting` still reads the older `{schedule:'4y', startsAt}` / `{totalMonths, cliff, start}` rows and falls back to the issue date; a schedule with no start anywhere reads 'start date unknown', never 100% vested.
+- Forecast drivers contract (2026-10-07) is now enforced by one projection, `projectForecast` in packages/shared/src/forecast.ts, used by the seeds, Runway and Overview. Seeds write `monthlyCostsMinor` and `horizonMonths` and project from the current month; migration 0038 renames stored `monthlyOutflowMinor`; `readDrivers` still accepts the old key. Runway shows 'Runway not known yet' + reason (shared runwayWords) when there is no bank and nothing saved.
+- runway.threshold_crossed is a Base-scenario event, raised once per downward crossing relative to the previous Base forecast (idempotency key per previous version + threshold); Upside/Downside saves never raise it.
+- Regulatory gates are no longer window-only (supersedes the 2026-10-07 'regulatory gates ... are window state' decision for sector gates; the IP marks list stays window-only and its footer says so): choices persist in `regulatory_gates` (migration 0038, RLS) via legal.regulatory.list/set, and every open gate is written into the cycle brief ('Regulated areas (gates open)'). This is brief-level guidance to the agents plus the existing hard gates; it is not a technical block in the gateway/policy engine, and the screen copy says so.
+- Incorporation lifecycle: `complete` activates the forming entity (formedAt = clock date, regNo from the founder's submit reference if given; legal.entity.update lets the founder add them later); founderSubmitted is accepted only from `awaiting_founder` (conditional transition, 503 if the workflow could not hear it); `legal.incorporate.cancel` (admin) signals the workflow or abandons directly, and abandoning archives the forming entity; a start that could not be queued is abandoned. Cancel is offered until the filing is submitted.
+- legal.import.confirm is an upsert on (jurisdiction, normalized regNo): the entity is updated in place, officers are matched to existing officer people by name (registry 'SURNAME, Forename' becomes 'Forename Surname', the registry form kept as an alias), deadlines are skipped when kind + due day exist, and the 'Ordinary' class is reused/updated.
+- Contracts: 'Send for signature' only changed status, so it is 'Mark awaiting signature'; DocuSign is removed from the provider choices (no connector). A Dropbox Sign all-signed callback is matched to the contract by `docRef` in ingest, which records the contract as signed (the signature happened at the vendor) and rewrites contract.signed to name the contract; repeated 'signed' is a no-op (no event, no audit row).
+- Policies: the first publication is a human action on the Policies screen (legal.policies.publish creates the pinned 'Policies' spec block); later versions stay per-hunk refreshes through product.spec.editBlock.
+- The demo bank's revenue is booked from the series the journey's MRR and MRR milestones come from (recurring: month-average MRR, with annual contracts spread over twelve months; one-off businesses: monthly sales), so Finance's cash-basis MRR and the Inbox's MRR describe one business (within 0.6-1.05x for Ledgerly).
+
+### W04-money-billing (fix)
+
+2026-10-13 (W04 money and billing): (1) Usage ledger keeps exact cost in cost_micro_minor (bigint, null on pre-0039 rows = cost_minor x 1,000,000); every sum adds micro units and rounds once; credits are charged via credit_balances.carry_micro_minor (always < 1,000,000) so sub-cent calls are charged what they cost. (2) Anthropic billing refusals (400 credit balance too low or usage limit reached, 429 enforced_spend_limit_reached) are a non-retryable ModelBillingError (code billing); api maps to 402 model_billing; the platform key logs an error line with alert model_billing and sets a /health flag; a business's own key only logs a warning. (3) BYOK key validation follows MODEL_MODE, not INTEGRATIONS_MODE: live models require a real one-token messages call. (4) The Anthropic key is stored/revoked only through Settings > Keys; integrations.connect refuses it and integrations.disconnect revokes via revokeAnthropicKey. (5) Sandbox time is an Estimate: E2B list price per second (SANDBOX_MICRO_MINOR_PER_SECOND in packages/config), USD, billed to credits (platform pays E2B), docker and replay 0, only for the acceptance run actually held. (6) Training: per-call token rows are the cost record; the training row is a zero-cost test count; training_runs total is the exact sum rounded once. (7) Live sessions get maxBudgetUsd = min(task budget or DEFAULT_TASK_RESERVE_MINOR less earlier sessions, credits left when the platform key pays); error_max_budget_usd blocks the task with blockedReason budget. (8) A cycle that cannot be planned ends failed with a Chief of Staff Inbox warning rather than dying. (9) Ledgerly is seeded on credits, not byok. (10) Currency minor units come from Intl currency data (minorUnitDigits); trophy thresholds scale from major units; enterprise minimum is 10,000 major units. (11) billing.usage byDepartment counts each agent's cost once in its primary live department.
+
+### W04-money-billing (verify)
+
+- 2026-10-13: Billing refusals (ModelBillingError, code `billing`: 400 'credit balance is too low' / 'reached your specified API usage limits', 429 enforced_spend_limit_reached) are final everywhere: never retried, no fast-mode downgrade. The api answers 402 `model_billing` (tRPC PAYMENT_REQUIRED) in plain words; the platform key's refusal is logged with alert: "model_billing" and shown on /health as modelBilling; a business's own key only warns. An ideation draft fails at once on one (no per-card retries).
+- 2026-10-13: Key validation follows MODEL_MODE, not INTEGRATIONS_MODE: with live models a real one-token messages call must succeed before the routed-model check.
+- 2026-10-13: usage_ledger keeps cost_micro_minor (0039); every sum adds exact micro-cents (rows before 0039 count as cost_minor x 1e6) and rounds once. Credits are charged through a per-period carry (credit_balances.carry_micro_minor), so sub-cent calls are charged what they cost.
+- 2026-10-13: Sandbox time is an Estimate priced per second at E2B list price (3,025 micro-cents per second for the default 2 vCPU / 512 MiB template), USD, billed to credits (the platform pays E2B); docker and replay cost 0; only the measured acceptance run of a live code task is booked.
+- 2026-10-13: A live session runs under maxBudgetUsd = min(task budget or the cycle's default reserve less earlier sessions, credits left when the platform key pays); a task with nothing left is blocked on budget. businessCycle reconciles each session's reserve with its real cost.
+- 2026-10-13: The Anthropic key is stored, rotated and revoked only in Settings > Keys; Settings > Integrations links to it, and a disconnect there runs the revoke.
+- 2026-10-13: Minor-unit digits come from Intl currency data; milestone thresholds and the enterprise minimum scale from major units of the business currency.
+- 2026-10-13: byDepartment on Billing attributes each agent's cost once, to its first live department.
+
+### W05-design-system (fix)
+
+- **2026-10-12 — Department shortcuts are stored (W05 #400, migration 0040_design_system).**
+  - departments.shortcut holds one letter, never G/H/I/C, unique per business among live departments. shortcut_chosen marks a letter the founder picked.
+  - departmentsRepo settles letters on every create, rename and setShortcut.
+    - Stored letters stay.
+    - Empty slots take the first free letter of the name (departmentLetters, now in @foundmill/shared). Visible departments go first in sidebar order, so pre-0040 businesses keep the letters their sidebar showed.
+  - A rename re-derives only that department's letter, unless the founder chose it.
+  - Choosing a letter another department holds swaps the two letters. Archiving frees the letter.
+  - The shell prefers stored letters and derives letters only for rows without one.
+- **2026-10-12 — Space belongs to the focused control (W05 #207).** The global Space=Continue hotkey and ContinueButton's bindSpace refuse when focus is on a button, link, form control, ARIA widget role or contenteditable (spaceBelongsTo in dugout shell/keyboard.ts).
+- **2026-10-12 — Busy controls stay focusable (W05 #386).**
+  - Button `loading` uses aria-busy and aria-disabled and refuses clicks, instead of the disabled attribute.
+  - Callers pass `pending` (ContinueButton) or `loading` for in-flight work and keep `disabled` for controls that are truly unavailable.
+  - After a decision locks, focus moves to the Decided summary.
+- **2026-10-12 — Overlays return focus to their opener (W05 #189).** Dialog and AgentDesk record the focused element on open (FocusOrigin and useReturnFocus) and restore it on close when it is still in the document. Stop all agents opens on Cancel (#406).
+- **2026-10-12 — Steel is #3570CC and kit-on-primary needs WCAG 4.5:1 as well as APCA Lc 75 (W05 #202).** When no candidate meets both, the one that still meets 4.5:1 wins, else the higher ratio. LogoColoursEditor's existing 'hard to read' flag uses the same `passes`. The .btn-desc second line on primary, danger and gold buttons inherits the on-color (#213).
+- **2026-10-12 — On vacation the policies see Automated (W05 #214, BUILD 9.6).**
+  - effectiveBusinessMode returns 'automated' for agents that inherit the business mode while a vacation is active. An agent with its own autonomy keeps it, and the vacation budget ceiling still tightens the cap.
+  - The mode chip and Settings > Mode show Automated and name the mode that returns afterward.
+- **2026-10-12 — Ribbon keyboard model (W05 #195).**
+  - One Tab stop.
+  - Arrows walk days with a spoken readout, and Shift+arrows pan half a plot width.
+  - Home returns to today, Escape clears and Enter opens the day or bar.
+  - Payment markers are pointer-only inside the aria-hidden chart.
+- **2026-10-12 — RightRail can own focus (W05 #365).**
+  - focusOnOpen focuses the rail heading and restores the opener on close.
+  - focusKey refocuses when the subject changes.
+  - closeOnEscape closes the rail.
+  - The Channel Board profile uses all three.
+- **2026-10-12 — Avatar health is never color alone (W05 #362).** Each status carries a glyph badge and a word. Paused is a neutral dashed ring, not the idle tone.
+- **2026-10-12 — Field wires its control's ARIA (W05 #380).** Field provides describedby, invalid and required through context. Input, Textarea and Select apply them and merge them with the caller's own aria-describedby.
+- **2026-10-12 — 24 px minimum target token (W05 #404).** --target-size with the size-target, w-target and min-h-target utilities is used for icon-only buttons and dense rows (WCAG 2.5.8).
+
+### W05-design-system (verify)
+
+- **2026-10-12 — Department shortcuts are stored (W05 #400, migration 0040_design_system).**
+  - departments.shortcut holds one letter, never G/H/I/C, unique per business among live departments. shortcut_chosen marks a letter the founder picked.
+  - departmentsRepo settles letters on every create, rename and setShortcut.
+    - Stored letters stay.
+    - Empty slots take the first free letter of the name (departmentLetters, now in @foundmill/shared). Visible departments go first in sidebar order, so pre-0040 businesses keep the letters their sidebar showed.
+  - A rename re-derives only that department's letter, unless the founder chose it.
+  - Choosing a letter another department holds swaps the two letters. Archiving frees the letter.
+  - The shell prefers stored letters and derives letters only for rows without one.
+- **2026-10-12 — Space belongs to the focused control (W05 #207).** The global Space=Continue hotkey and ContinueButton's bindSpace refuse when focus is on a button, link, form control, ARIA widget role or contenteditable (spaceBelongsTo in dugout shell/keyboard.ts).
+- **2026-10-12 — Busy controls stay focusable (W05 #386).**
+  - Button `loading` uses aria-busy and aria-disabled and refuses clicks, instead of the disabled attribute.
+  - Callers pass `pending` (ContinueButton) or `loading` for in-flight work and keep `disabled` for controls that are truly unavailable.
+  - After a decision locks, focus moves to the Decided summary.
+  - A Save that has nothing left to save (spend cap, SaveBar) is aria-disabled, not disabled, so a successful save keeps focus.
+- **2026-10-12 — Overlays return focus to their opener (W05 #189).**
+  - Dialog and AgentDesk record the focused element on open (FocusOrigin and useReturnFocus) and restore it on close when it is still in the document.
+  - For a dialog opened from a menu item, the origin is the menu's opener, since the menu closes as the dialog opens. If that has gone too, focus goes to the place the overlays opened over.
+  - Stop all agents opens on Cancel (#406).
+- **2026-10-12 — Steel is #3570CC and kit-on-primary needs WCAG 4.5:1 as well as APCA Lc 75 (W05 #202).** When no candidate meets both, the one that still meets 4.5:1 wins, else the higher ratio. The .btn-desc second line on primary, danger and gold buttons inherits the on-color (#213).
+- **2026-10-12 — On vacation the policies see Automated (W05 #214, BUILD 9.6).**
+  - effectiveBusinessMode returns 'automated' for agents that inherit the business mode while a vacation is active. An agent with its own autonomy keeps it, and the vacation budget ceiling still tightens the cap.
+  - The mode chip and Settings > Mode show Automated and name the mode that returns afterward.
+- **2026-10-12 — Ribbon keyboard model (W05 #195).** One Tab stop. Arrows walk days with a spoken readout, Shift+arrows pan half a plot width, Home returns to today, Escape clears and Enter opens the day or bar. Payment markers are pointer-only inside the aria-hidden chart.
+- **2026-10-12 — RightRail can own focus (W05 #365).** focusOnOpen focuses the rail heading and restores the opener on close, including when the rail closes in place and unmounts its content first. focusKey refocuses when the subject changes. closeOnEscape closes the rail. The Channel Board profile uses all three.
+- **2026-10-12 — Avatar health is never color alone (W05 #362).** Each status carries a glyph badge and a word. Paused is a neutral dashed ring, not the idle tone.
+- **2026-10-12 — Field wires its control's ARIA (W05 #380).** Field provides describedby, invalid and required through context. Input, Textarea and Select apply them and merge them with the caller's own aria-describedby.
+- **2026-10-12 — 24 px minimum target token (W05 #404).** --target-size with the size-target, w-target and min-h-target utilities is used for icon-only buttons and dense rows (WCAG 2.5.8).
+
+### W06-widgets-modules (fix)
+
+- Saved table views (audit #204): stored per person x business x table in saved_table_views (0041), RLS to own rows and to businesses the person belongs to; business_id is null for the account-wide LIVE pages. Built-in views stay in code; only the person's own views and last active view id are stored. One hook (packages/widgets/src/shared/saved-views.ts useSavedViews) is used by every DataTable caller.
+- Business time zone (audit #196): businesses.time_zone (IANA, nullable; null reads as UTC). Set automatically from the owner's/admin's browser on first open and editable in Settings > Business. journey_daily_mv buckets timestamps in that zone; widgets use useToday(); the top bar uses the same zone.
+- Glossary (audit #206): one deterministic helper applyGlossary in packages/shared (whole-word, case- and plural-preserving, never touches entity mentions, code or links). Applied once at persist in repos.inbox.createItem (human messages are stored as written) and at render for panel titles, footers, tile labels and Inbox tabs.
+- Team health (audit #210): idle and paused agents count as healthy; only failing, down (injured) and degraded need the founder. Pill words: Failing, Down, Waiting, Degraded, Healthy. Summary says Everyone is working only when every agent is on a task.
+- Failed query is never empty data: a shared errors helper maps FORBIDDEN to No access and anything else to Couldn't load. Setup advice (Connect a bank) is shown only when finance answered and is really empty.
+- Channel window (audit #385): CHANNEL_WINDOW_DAYS = 35 is today plus the 34 days before it, inclusive, in the business zone; all labels derive from that constant.
+- Pin to Home (audit #394): WidgetFrame provides the default caret menu when the host supplies a widget instance (department screens); module-only panels opt in with usePinToHomeMenu naming a gallery widget. Pinning appends the widget with its settings to the active Home dashboard via dashboard.update and toggles to Unpin from Home.
+- Package preset layouts (widgets/src/presets.ts) are kept but aligned to the catalog ids and registry heights; the API's PRESET_LAYOUTS remain what the app applies.
+
+### W06-widgets-modules (verify)
+
+Business time zone (audit #196): businesses.time_zone is null until an owner or admin first opens the business. The shell then claims the browser's zone via business.setTimeZone, and Settings > Business changes it. Null reads as UTC everywhere. journey_daily_mv buckets days in that zone, and setTimeZone refreshes it right away. Migration 0041 rebuilds the matview from the 0034 definition, so any other work package that redefines journey_daily_mv must be merged by hand to keep the zone bucketing.
+
+Saved table views (audit #204): stored per person, business and table in saved_table_views (RLS: own rows only, and only for businesses the person belongs to). Built-in views stay in code and are merged in at read time. The account-wide LIVE pages use a null business_id.
+
+Glossary (audit #206): one applyGlossary helper in packages/shared. It matches whole words, keeps case and plurals, skips entity mentions, code and links, and reads the text once. It runs in repos.inbox.createItem, so every composed or templated note is stored in the business's words (person-written messages excepted). On screen, WidgetFrame renames titles and footer text, and widgets rename tile labels.
+
+Team health (audit #210): one teamHealth() counts idle and paused agents as healthy. Only failing, injured (Down) and degraded agents need the founder.
+
+Channel window (audit #385): CHANNEL_WINDOW_DAYS = 35, counted as today plus the 34 days before it, inclusive, in the business zone.
+
+### W07-web-shell-home (fix)
+
+- 2026-10-13 (W07): business.update uses per-field expected values (not a single expectedUpdatedAt): the businesses row has no per-field version, and a whole-row precondition would make two admins editing different fields (rename vs brand colors) conflict. Only fields the form changed are sent and checked; a stale one returns CONFLICT with product-language copy naming the field; business.updated (non-narratable, consumer stream) refetches business.get in every open tab.
+- Chunk-load recovery reloads once per 30 s (sessionStorage key fm.chunk-reload-at); a second failure inside the window shows a Reload button instead of looping. Other route errors use Next's retry (re-fetch), not reset.
+- Entity mentions resolve through crm.entity.lookup (batches of up to 50, cached per business). Agent mentions open the agent profile whether they arrive as an agent id (composer manifest) or as the agent's CRM record (entities.agent_id). Members walled from the CRM make no lookups; their mentions keep the name only. Mentions known absent from the business render as plain names, never links.
+- Request timeouts: queries 45 s, mutations composer budget + 30 s (so a note being written is never cut off); streaming procedures are exempt. Stop all agents / Resume stay locked while pending until 35 s (just past the server's 30 s kill-switch budget), then become dismissable with a still-pending note.
+- Day one ends at the first finished cycle (commit already starts cycle 1); the copy is chosen from cycle running state and blocking Respond count, never telling the founder to start a cycle that is running.
+- Vacation 'until' date is stored as 23:59:59.999 of the picked day in the founder's own zone; Settings > Mode and the top bar both format it in local time.
+- Palette ranking: a keyword equal to the query ranks above prefix and substring matches, so 'switch' lists Open <business> before Stop all agents (whose description mentions the kill switch).
+- Viewport: the width=1280 override is removed (Next default device-width); DesktopOnly renders NeedsLargerWindow under 1280 px, so phones and tablets get the notice instead of a 390 px slice.
+- The landing Live now feed: under reduced motion nothing advances by itself between cycles (a visitor-started cycle still runs its few seconds); otherwise a Pause updates control is offered; fade applies to the avatar only.
+
+### W07-web-shell-home (verify)
+
+W07 verification (2026-10-13). The entity resolver treats a FORBIDDEN lookup as definitive (the mention stays plain text for the session). Any other failure is transient: the mention stays linked and is looked up again no sooner than 30 s later. The entity-linker partial tier (lone first name or surname) applies to person entities and to agents whose name reads as a person's name. It does not apply to agents or organizations named with common nouns. This refines the W07 decision to restrict partial links to person entities. Brief #374 and #376 are the source.
+
+### W08-web-inbox-settings-live (fix)
+
+2026-10-13 (W08): Going live is for adults (BUILD 11.14): business.setGameMode and idea.commit refuse gameMode live without confirmAdult: true, the go-live review and the Commit screen ask for I am 18 or older, and the attestation is recorded in the audit log (business.set_game_mode details.confirmedAdult). No schema change: the audit chain is the record. Founder identity verification to rank is not built; leaderboards still rank verified integration metrics only.
+2026-10-13 (W08): Public profiles are served from the public_profiles view only (LIVE committed businesses, founders whose visibility is public). live.people.search and live.people.profile return public-card fields only (name, archetype, brand colors, region, since; no crest URL), exclude the viewer's own founder row and blocked people (connection_is_blocked), and the profile page lets a founder ask to connect as the current LIVE business through the existing live.connections.request.
+2026-10-13 (W08): Deleting a department is archive (reversible): the confirm names the tabs, the toast has Undo, department.restore brings back exactly the tabs archived with the department (matched by the department's archived_at), and the archived slug stays reserved, so a new department with the same name gets slug-2 and resetDefaults restores the archived seed row. Add department from a sentence is a local, deterministic reading into an editable draft (no model call), like the CRM natural-language filters.
+2026-10-13 (W08): Canceling a scheduled business deletion archives the Inbox warning the request created (its id is stored on the business.request_deletion audit entry) and adds a Deletion canceled note from the Chief of Staff; the cancel action stays in Settings > Danger zone (no Inbox cancel button).
+2026-10-13 (W08): Browser titles inside a business are Screen · Business · Foundmill; the business layout's template carries the product name because Next applies only the nearest template.
+
+### W08-web-inbox-settings-live (verify)
+
+2026-10-13 (W08 verification): The 18+ attestation for going LIVE is a boolean confirmAdult on business.setGameMode (switching to live from not-live) and on idea.commit (gameMode live). It is refused with a validation error when absent, and recorded as confirmedAdult:true on the business.set_game_mode and idea.commit audit rows. It is a self-attestation; the BUILD §11.14 founder identity verification to rank gate is not implemented. Department approvals in the per-department settings dialog edit that department's row of the responsibilities matrix (team.responsibilities) and not a separate approvers field. department.create and repos.departments.create take the next free slug (team-2, team-3) when the slug is taken, because the unique (business_id, slug) key also covers archived rows.
+
+### W09-home-api-data (fix)
+
+- Viewers and advisors (read-only roles) get no personal Home row: dashboard.get returns the Founder's view built per request (stored:false, id = nil uuid, editable:false) and writes nothing; every dashboard mutation including compileMetric is writeProcedure (403). dashboard_layouts insert/update/delete RLS requires owner/admin/member, consistent with 'Viewers never write, anywhere'.
+- dashboard_layouts SELECT is open to every business member for live (non-archived) rows so 'Share with co-founders' links open read-only; archived dashboards stay readable only to their owner. Writes stay on a person's own rows.
+- One active dashboard per person and business is enforced by a partial unique index (0044); creating via New or Copy to my dashboards adds an inactive tab unless the user has none; Make default is the only way to change the default; deleting the default promotes the oldest remaining dashboard.
+- Dashboard presets have one source: packages/config dashboard-presets.ts. The Founder's view sizes department cards to the visible departments (default 6 when unknown). Investor update uses catalogue metrics revenue_30d and customers_30d (the old mrr and active_customers ids do not exist in the API catalogue).
+- Unique violations: repositories translate the ones founders hit daily (businesses_slug_key -> 'That slug is taken' with field slug; explicit department slug); toTRPCError maps every other 23505 to CONFLICT 'That already exists' without the statement. Department create/split without an explicit slug take the next free slug (-2, -3), archived departments' slugs count as taken because the unique index covers them.
+- Demo businesses: businesses.is_demo (Northwind and Ledgerly). They are LIVE for their own members but never listed on the network for outsiders (is_public, public_profiles, leaderboard entries, public communities they own); real businesses rank ahead of demo entries. Ledgerly's boards are seeded with the current quarter's facts.
+- Chapter titles: composer stores the model-written title for an ended quarter in chapter_titles (0044, service-role write, member read); the Ribbon asks the composer for ended quarters lacking a title (two at a time, at most once a day per quarter per API process) and never waits; provisional titles are never stored.
+- Time keyset cursors must be an ISO instant exactly as cursorOf writes it (toISOString) plus a uuid; anything else is a 400 'Malformed pagination cursor'.
+- Vacation caption: a stored condition keeps its words (including 'until I return' for the open-ended vacation) and the caption strips a leading 'until' before adding its own.
+
+### W09-home-api-data (verify)
+
+- Home dashboards (W09, migration 0044): every member reads a co-member's live dashboard (the Share with co-founders link opens read-only), and only a person's own rows are writable, by owner, admin and member roles. This supersedes dashboard_layouts_own. Viewers and advisors write nothing (consistent with 'Viewers never write, anywhere'): dashboard.get returns an unsaved Founder's view for them (stored:false, id nil uuid), and every dashboard mutation and compileMetric is a writeProcedure.
+- A person has one default Home per business: a partial unique index on (business_id, user_id) where is_active and not archived. New/Copy never takes the default unless the person has none. Make default moves it, and deleting the default promotes the oldest remaining dashboard.
+- Presets: one preset table in packages/config (dashboard-presets.ts) feeds the api's stored layouts and the widgets previews. The Founder's view has one department card per visible department, three to a row.
+- Demo businesses: businesses.is_demo (Northwind, Ledgerly). is_public() and public_profiles exclude them. A demo's leaderboard entries and public communities are shown only to its members, and real businesses rank ahead of demos. This keeps the seeded numbers synthetic and off the network for real founders (SEED_ON_BOOT=1).
+- Unique violations: repos map the common ones to ConflictError (a taken business slug is 'That slug is taken' with details.field slug). toTRPCError maps any other 23505 to CONFLICT with a safe message and never echoes the statement.
+- Chapters: chapter_titles (0044, written by the composer with the service role) stores the composer's title once a quarter has ended. The ribbon asks the composer for untitled ended quarters (at most 2 per read, throttled to once a day per quarter per api process), and keeps the provisional title until a model title exists. journey.ribbon bounds from (10 years back) and to (2 years ahead).
+- Department slugs: create and split take the next free slug (-2, -3) because archived departments keep their slug under the non-partial unique index. An explicit taken slug is a ConflictError. Reset to defaults restores archived seed departments (with their tabs) and removes seed modules from departments of the founder's own.
+
+### W10-gtm-screens (fix)
+
+2026-10-13 (W10 GTM screens). (1) Attribution 'Model in use' counts labeled conversions, meaning the first conversion of each kind from repos.journeys.countConversions, summed by services/journey.ts labeledConversionCount. chooseModel, journey.get and journey.attribution all use this one basis. It supersedes the 2026-10-07 wording 'labelled paying wins'; the screen also shows Paying customers separately. (2) A Customer Update is partial when the visitor on the earliest visitor-bearing touch of the journey has consent other than granted (none = unknown = partial). journey.get, journey.list and the Attribution count all read this via repos.journeys.consentForJourneys/consentSummary/isPartialConsent. (3) Campaign launch bookkeeping lives in campaigns.config (launchedAt, pausedFrom), no migration. campaign.launched fires, and the approved-asset rule applies, only for a campaign's first move to live. Pause records the status it interrupted and Resume restores it (paused -> scheduled is now an allowed transition). This refines the 2026-10-07 rule 'live again on resume': resume returns to the pre-pause status. A campaign paused before this change counts as launched unless it was paused while scheduled. (4) The CRM list loads every page automatically up to 5,000 rows, then offers 'Load more'; the footer shows 'N of M records' from crm.entity.count. Search pages by offset, 100 per request. (5) The Customer Update back button and breadcrumb follow a ?from= in-app path of the same business (validated; Inbox otherwise); links that know the origin pass it via routes.journey(bid, id, from). (6) End campaign always asks for confirmation, since Ended has no transitions out.
+
+### W10-gtm-screens (verify)
+
+- Attribution 'Model in use' counts labeled conversions (first conversion of each kind, repeat payments excluded) over the whole history. That is the same count chooseModel and journey.get use, shared through labeledConversionCount in apps/api/src/services/journey.ts. The panel shows labeled conversions and paying customers separately.
+- A journey's consent is the consent of the visitor on its earliest visitor-bearing touch (by time, then id), or 'unknown' with none. It is partial unless that consent is 'granted'. journey.get, journey.list and the Attribution summary all read it through consentForJourneys.
+- Launch bookkeeping lives in campaigns.config (launchedAt, pausedFrom), so no migration was needed. hasLaunched and resumeStatus are exported from @foundmill/db, and CAMPAIGN_TRANSITIONS allows paused -> scheduled in both packages/db and packages/modules.
+- The CRM list auto-loads pages up to 5,000 rows, then offers 'Load more'. The footer shows the true server count through the new crm.entity.count. crm.search pages by offset at 100 per request.
+- The replay's back button and breadcrumb follow ?from=, accepted only for in-app paths of this business with no '//', backslash, control characters or dot segments. Anything else goes to the Inbox.
+
+### W11-gtm-services (fix)
+
+## 2026-10-13 - Distribution and journey services (W11)
+
+- **Assisted mode asks for a new campaign** (BUILD 9.6): the engine's weekly campaign waits for an approval when the channel has never launched one, or when this week's budget is above the last launched campaign's. A repeat campaign at the same or lower budget is routine and schedules without asking. Augmented, offline tracking and amounts above the approval threshold (lowered by the founder's spend cap) still ask in every mode.
+- **channels.budget_minor is monthly.** A weekly campaign gets budget x 7 / 30.4375; the mock engine's measured week spends 90% of that. Mock metrics are stored with channel_metrics.source = 'estimate' and are written only for a live campaign.
+- **Off the board is the full stop:** channels.setEnabled(false) and archive end the channel's open campaigns and expire their pending launch approvals in the same transaction (DECISIONS 2026-10-07 'bench = full stop').
+- **Scored vs seeded:** channels.scored_at is null until the Distribution Strategist scores the channel; commit seeds all 15 channels unscored and the screens read 'Not scored' / 'Get recommendation'. distribution.recommend writes only scores (never line, enabled, budget, owner or offline tracking); the Strategist's kit_mode_required can only turn offline tracking on. A 'channels.score' tool handler was not added: the first-cycle strategist task still does not write scores, and distribution.recommend (Board or Channels button) remains the one writer.
+- **Synthetic data stops at the seed instant:** generateSyntheticJourneyData({ now }) dates nothing later; renewals are payment conversions with firstPayment=false (revenue, not customers); 'paying accounts' = customers who paid and have not churned; MRR milestones of non-recurring archetypes carry ref.estimate (DECISIONS 2026-10-06 'consumers must label Estimate').
+- **CRM merge moves the whole history** (conversions, touches, visitors, Inbox items) and unmerge reverses exactly those ids; the record's status is its most advanced active stage (champion > customer > churned > negotiating > activated > shortlisted/qualified > signed up > new), recency only breaks ties. crm.entity.create refuses a duplicate strong identifier unless allowDuplicate.
+- **Volume rule round-up:** rolled-up wins (customer.converted fullMatchDay=false) are narrated as one results note per UTC day by Refresh (max 50 wins per note); journey.roundup returns rolledUp ids (computed with the business-wide payment 75th percentile, like journey.get) and the day digest renders them in MatchdayRoundupTable.
+- **Referrer hosts match by label** (host or subdomain; 'google.'-style prefixes at a label boundary), never by substring.
+- **Commentary:** CommentaryLine.touch_index is nullable (first touch and debrief lines); tone 'goal' stays the stored key but means the win moment.
+
+### W11-gtm-services (verify)
+
+2026-10-13 (W11 verifier): (1) Assisted mode asks before a channel's first launched campaign and before any campaign whose weekly budget exceeds the last one that ran; every mode asks above the approval threshold (min of the default and the business spend cap); Augmented and offline-tracking channels always ask. Routine weekly campaigns at an unchanged budget in Assisted run without asking. (2) channels.scored_at (null = never scored by the Strategist) decides whether fit and potential mean anything; stored fit 1 / potential 0 on an unscored row is a column default, not a score. Rows with a non-empty why_md were backfilled as scored. (3) channel_metrics.source is 'measured' or 'estimate'; the mock engine writes 'estimate' only for a campaign that went live, and the migration deleted mock metrics of engine campaigns that never launched (starts_at null). (4) channels.budget_minor is the MONTHLY budget; a weekly campaign gets budget x 7 / 30.4375. (5) A strong identifier (email, domain, linkedin, reg_no, stripe_id) belongs to one live CRM record; crm.entity.create refuses a duplicate with CONFLICT duplicate_entity unless allowDuplicate. (6) Merge moves conversions, touches, visitors and Inbox items to the kept record and records the ids in merge_log.reversible_snapshot.moved so unmerge reverses them; the record header and lead score use the most advanced active stage, recency only as a tie-break. (7) The synthetic generator stops at the seed instant (now); renewals are payment conversions with first_payment=false; non-recurring archetypes' MRR milestones carry ref.estimate and are labeled Estimate. (8) Taking a channel off the board (or archiving it) ends its open campaigns and expires their pending launch approvals in the same transaction; campaigns are created as drafts in the channel's currency and cannot be scheduled or launched on a channel that is off the board.
+
+### W12-inbox-screens (fix)
+
+## 2026-10-13 W12 inbox screens
+
+- **Decision deadline (expires_at) does not auto-answer (#120).** Nothing on the server applies an option for the founder, and an agent must not decide a founder's call (a spend one least) outside a vacation's authority, so a decision past expires_at stays open and keeps blocking Continue (AC-11.3.3). The UI shows 'This decision is past its deadline. The team is still waiting for your call, and Continue waits too.' and keeps the options, Ask and free text enabled. The previous 'expired, the team moved on with the recommended option' lock was removed. A future auto-apply would need a scheduled workflow, an audit row and a vacation-like authority check.
+- **Plan-action params are one schema (#128).** packages/models/src/planParams.ts is the contract between the plan compilers (rules and live), apps/api and the orchestrator. A renamed key now fails a test. The legacy 'scope' key is read as 'apply_scope'. update_roadmap needs a resolvable item (id, or the one title sharing words with the instruction) or an explicit create; a tie or no match fails the action with a message, never a placeholder item.
+- **Irreversible or costed options ask in Assisted and Augmented (#291).** PlanContext.choice carries the chosen option's reversible flag and cost_minor. Internal actions no longer skip Cedar for such a choice. Automated mode still allows. A choice that compiles to request_human_action or reply_only is not marked irreversible.
+- **MRR in notes is Finance's definition (#117).** The trailing 3 full months of P&L revenue divided by 3, fetched with finance.pnl over the same range as the Finance screen, falling back to the cash inflow of those months. The current partial month is never used. Captions are 'per month' / 'trailing 3 months', not month keys.
+- **Inbox paging (#287).** inbox.list carries counts, blocking and continueState on the first page only. The screen keeps its infinite query, but a refetch fetches the first page and folds it into the held one (cursor of the held page kept), and reuses the older pages for 60 s (OLDER_PAGE_REUSE_MS). A row in a deeper page can therefore show its old state for up to a minute. The list draws only nearby rows above 80 rows (dugout VirtualList). If the first page cannot reach back to the held one (a flood of more than 50 notes), the fresh page is taken alone and the older pages are refetched.
+- **Vacation until-label.** Stored vacation 'until' conditions are words that follow 'until' ('you return', 'MRR hits 10k'); readers strip a leading 'until ' and map 'I return' to 'you return', so existing rows read correctly.
+- **Vacation authority.** An item needs every authority its wording touches, plus spend_above_threshold when the chosen option costs more than the Chief's approval threshold (lowered to the business spend cap per action) or talks about spend without a cost. The Chief never chooses an option past its own spend cap or the budget ceiling left after the vacation's spend and its earlier choices.
+
+### W12-inbox-screens (verify)
+
+Same as the implementer's decisions_md, which I verified against the code. Decision expires_at does not auto-answer, and a past-deadline decision stays open and blocks Continue. Plan-action params are one shared Zod contract in packages/models/src/planParams.ts. Irreversible or costed options ask in Assisted and Augmented mode. MRR in notes is trailing 3 full months of P&L revenue divided by 3, as on Finance. Inbox paging is first-page-only counts, a first-page merge on refresh with older pages reused for 60 s, and a virtualized list. Vacation until-labels are stored as words after 'until' ('you return'). Vacation authority requires every authority an item touches, plus a cost check against the Chief's threshold, spend cap and the remaining ceiling.
+
+### W13-inbox-services (fix)
+
+2026-10-13 W13 (Inbox services): (1) Read state is per person: inbox_item_reads(business_id, inbox_item_id, user_id) with own-row RLS for any member; inbox_items.state keeps answered/archived (and a system-written 'read' for the whole business, e.g. the Chief of Staff deciding a win on vacation). Callers that pass no viewer (composer, orchestrator) see the stored state. (2) Pre-written options (Board decision, Import first decisions) carry typed actions (OptionAction in @foundmill/shared); the option click never compiles their prose, and an option's costMinor must equal the spend its actions budget (schema refine), so the cost shown is exactly what policy checks. Composer-written options compile their label only (never the consequence); a costed option adds a set_budget on its channel or an approve_spend that policy evaluates. (3) A plan whose orchestrator dispatch fails is the durable record itself (status executing, workflow_id null, an action pending); redispatchPlans starts such plans on the next decision/Continue instead of adding an outbox row. (4) Plan policy checks use agentPrincipal in @foundmill/policy (shared with the gateway and orchestrator): the acting agent's autonomy, cap and threshold, the business spend cap and the vacation budget ceiling. (5) Option and plan costs are labeled Estimate in the UI and the agent prompt. (6) Archiving an unanswered blocking decision with options is refused (BUILD 11.3); answered items and blocking warnings without options still archive.
+
+### W13-inbox-services (verify)
+
+- 2026-10-13, W13 verification: plans stranded by an unreachable Temporal are restarted on the next Inbox decision or confirmation and on Continue (startCycle, after the stop and blocked checks). Only the plans the api itself dispatches (origin option or free_text) are redispatched. Playbook-step and vacation plans are created and run by the orchestrator without a planExecution workflow, so they are never started from the api.
+- 2026-10-13, W13 verification: inbox_item_reads is a user-scoped table with own-row RLS (user_id = auth.uid() and is_member(business_id)), like dashboard_layouts. It is listed in NON_TENANT_TABLES and in the cross-tenant catalogue's covered set, and its own tests are in inbox-reads.test.ts.
+- 2026-10-13, W13 verification: issue 282 stays partial. The business-currency package (G, businesses.currency, migration 0025) is not on this base, so planContextFor (decide.ts) and the conversation promptSubject call still carry the literal 'EUR'. After G merges, both call sites should pass the business's currency.
+
+### W14-security-web-stream (fix)
+
+2026-10-13 (W14): (1) A thread is named by its participants; the subject is secondary text, and subjects/display names may not carry the product name (anywhere, also spaced or in look-alike letters) or a staff word (display name: any word; subject: lead word only), so ordinary subjects such as 'Anyone want to support my launch?' still work. (2) Stream auth: token travels in the foundmill.bearer.<base64url> subprotocol, never the URL; sockets close at token exp (4001) unless refreshed by an auth frame. (3) A FORBIDDEN 'not a member' carries appCode not_a_member so a tab can tell a removal from a role refusal; UNAUTHORIZED anywhere sends the tab to /login?next=..., with a 15 s sessionStorage guard against a loop when the proxy accepts a session the API refuses. (4) /auth/signout is POST-only and signs out with scope local (this browser only); 'sign out everywhere' is not offered yet. (5) Reference fields are checked in the repos (repos/_refs.ts) rather than with composite (business_id, id) foreign keys, to avoid a migration across many tables; the repo check also covers ownerRef jsonb, which has no foreign key. (6) A request to connect counts as contact for the private-name rule while pending and after it is accepted. (7) CSP keeps 'unsafe-inline' for scripts and styles (Next inline bootstrap, no nonce so the landing page stays static); revisit with nonces if the landing page goes dynamic.
+
+### W14-security-web-stream (verify)
+
+- 2026-10-13 (W14 security web and stream). /auth/signout is POST-only and signs out with scope local. This supersedes the 2026-10-11 decision in docs/DECISIONS.md ('The GET route stays for the existing plain links'): every sign-out control is now the SignOutButton, which posts through lib/auth/sign-out. Reason: a GET sign-out lets any site log the founder out with a link, and the default global scope revoked refresh tokens on every device.
+- Message threads are titled by the other participants, never by the sender's subject. The subject is secondary text. The product name and staff words (support, staff, admin, administrator, moderator, official, helpdesk) are reserved in display names, and as the lead word of a thread subject, after folding look-alike characters, accents and zero-width characters (isReservedName in packages/config). Existing profiles are not rewritten; the rule applies on write.
+- The stream token travels in the foundmill.bearer.<base64url> WebSocket subprotocol. A ?token= upgrade is refused with 400. A socket closes at its token's exp (4001) unless the client sends a fresh token in an auth frame (authed reply). Open subscriptions are re-authorized every 30 s and on membership.changed events.
+- A private founder who asked someone to connect stays named to that person after the request is accepted: an accepted request they sent counts as contact. The reverse direction does not.
+- Reference fields (line manager, departments, lead, task department, assignee, roadmap item, CRM owner, contract counterparty, spec blocks) are checked in the repos (repos/_refs.ts) rather than with composite foreign keys, so no migration was needed (0049 unused). An unknown roadmap item id is a 404, never an insert under the caller's id.
+- Web security headers (CSP with frame-ancestors none, X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy, HSTS) are set from lib/security-headers.ts in next.config.ts. The CSP uses 'unsafe-inline' for scripts and styles (no nonce, so landing pages stay static).
+
+### W15-security-services (fix)
+
+## 2026-10-13: W15 security services
+
+- LIVE stays closed unless an operator opens it: `liveModeOpen(env)` = `FLAGS.liveMode || LIVE_MODE in (1, true, yes, on)`. While closed, `business.setGameMode('live')`, committing as LIVE and every `live.*` procedure answer 403 'LIVE is not open yet'; a stored 'live' reads as Personal; the web hides Go live and the Live option. Switching back to Personal is never blocked. The local stack, Playwright and the demo set `LIVE_MODE=1`. This supersedes the earlier state where the flag was dead.
+- Who may decide: owners and admins always; a member only when Team > Responsibilities names them (a `user` handler) for the decision type in the decision's department (business-wide decisions need every department to name them). Applies to `team.approvals.resolve` and `plan.confirm` of 'ask' actions. Autonomy, caps and negotiation are `sectionAdmin('team')`, with caps bounded at `LIMITS.agentCapMaxMinor` (10,000,000 minor units); a larger spend is always the founder's to approve. New tool grants (saveDraft with new tools, promote of a version that adds tools) are owner/admin; removing tools stays anyone's with Team write.
+- Staff procedures need Team write (`sectionAdmin('team')`), nobody edits their own membership, and invite is insert-only. `business.export` needs read access to every exported section (product, development, distribution, finance, team, legal, inbox, crm, settings) rather than silently omitting walled sections; an owner exports.
+- Journey data: Customer Updates are Distribution; money follows Finance, names follow CRM; the Ribbon is Home's for everyone and keeps its shape with zeros and `redacted` markers.
+- DNS: MX, NS, CAA, SPF, DKIM, DMARC and any TXT update/delete are a security-settings hard gate decided by the gateway from the call's arguments (`securitySettings` Tool attribute, Cedar `hard-gate-security-settings`), because static hints cannot see the record type. Updates and deletes must name the record's type and name and the connector verifies them against the record. Other DNS writes are contactsThirdParty+irreversible, so they ask in every mode.
+- Spend policy amount = max(connector-declared cost, reported amount); a spendsMoney tool the connector cannot price is treated as above the approval threshold. `kitMode` is session-only.
+- Quarantined reader: only for sessions whose grants include a contactsThirdParty, spendsMoney or irreversible tool; typed digest only; a reader failure withholds the content. The untrusted-recipient register is per business (Redis `gw:untrusted:<businessId>`, TTL, memory fallback).
+- Stripe connect(): an account id alone proves nothing (the platform key reads any connected account). Accepted only when the account carries `metadata.foundmill_business_id` equal to this business, or together with the account's own API key.
+- API bounds: body 2 MB (6 MB for logo-upload procedures), batch 25, enforced on server (413/400) and by the web batch link.
+- Demo businesses are identified by their fixed ids; their slugs are reserved against other businesses.
+- Blocks stay invisible: to anyone but the blocker the row reads like a missing one, and a blocked outgoing request keeps showing as 'requested' to its sender.
+
+### W15-security-services (verify)
+
+### 2026-10-13 W15 verification: journey.list redaction
+journey.list applies the same Finance and CRM redaction to each row's commentary as journey.get (customer names become 'a customer', money becomes '(amount hidden)'). Conversion amounts were already zeroed under the Finance wall. The list is Distribution-read only, as before. The rest of the W15 decisions stand as the implementer recorded them: LIVE closed unless LIVE_MODE=1, the demo businesses are found by id, DNS security-record changes are a hard gate, and the quarantined reader and the per-business Redis register back SEC-6.
+
+### W16-onboarding (fix)
+
+## 2026-10-13 Onboarding fixes (W16)
+
+- Restore is real: idea.restore clears archived_at (replacing the 2026-10-08 note that restore is local-only). The Studio keeps `restored` cards in localStorage only until the API's pages carry them, and asks the API for shortlisted and restored cards by id (idea.listByIds, at most 100) so they stay pinned and counted. Ids the API no longer has (discarded elsewhere, or committed) are dropped from the shortlist.
+- The USPTO / EUIPO quick screen stays a local heuristic and is always captioned Estimate (matches the 2026-10-08 decision): it compares the name's words with a fixed list of well-known marks, says so, and never invents similar marks.
+- Business import: one table in packages/shared/src/import-routes.ts maps every source key to a connector, tool and arguments. The api writes it into sources.relevance.import and the orchestrator reads it back. A source counts as imported only when the tool answered ok:true; counts of what was read are kept, never the third-party content. Linear and Jira have no connector, so a business import refuses them up front (the sign-up preview job still lists them). The registry source uses opencorporates. A business import that nobody finishes is reported as failed after 45 minutes (IMPORT_DEADLINE_MS) and the job's finishedAt is the time its last source finished.
+- usage_ledger.session_id is linked only to an agent_sessions row that exists, so tool calls made outside a session (import reads, plan actions) are booked and audited instead of failing.
+- import.continue is one card per founder and job: a second call (double click, Back then Continue) answers with the idea already saved from that job.
+- The Import job id rides in the address as ?job=<signed id> (self-contained, verified by import.status). Commit reached from Import receives &archetype= and &job=, shows the Import trail, preselects the report's archetype (badge 'From the import report') and links Back to the finished report.
+- Currency inputs are validated with CurrencyCode (ISO 4217 as Intl knows it); formatMoney shows a plain number plus the code as written when Intl rejects a stored code.
+- The first cycle still starts at commit (BUILD section 11.1). The Board copy now says the team has started on the basics and the Board asks for one decision before committing any budget.
+- Door A commit copies the committed card's http(s) citations into sources (kind doc, provenance Estimate). Competitor names are not stored on the idea, so no competitor sources are created.
+- /login reads ?next and ?error on the server and passes them to the form as props.
+- StudioFrame and BrandFrame gate on the 1280 px minimum like the landing page and the business shell.
+
+### W16-onboarding (verify)
+
+- Business import refuses Linear and Jira up front (no connector), instead of listing them and failing later.
+- A business import's unfinished sources are reported failed after a 45 minute deadline (IMPORT_DEADLINE_MS). The workflow's own failure paths write the row first, so the deadline only matters when a worker is lost.
+- Door A commit seeds the concept card's http(s) citations as 'doc' sources with provenance Estimate. Competitors are not stored on the idea, so none are seeded.
+- /login reads next and error on the server and passes them as props. The page is rendered per request instead of statically prerendered, and the frame and form are in the HTML.
+- Import's Continue is idempotent per founder and job: the saved idea is returned, and no new draft or ideation allowance is spent.
+- The gateway usage booking links session_id only when an agent_sessions row exists, so gateway calls made outside a session no longer fail the foreign key.
+
+### W17-product-development (fix)
+
+- 2026-10-12 (W17) Human edits pin spec blocks in the collab server. The server tracks documents changed by a `user` principal in onChange, and the store saves them with `pinned: true` (option `humanEdited`). This is the same rule the HTTP editBlock path already followed: a founder's words are pinned until they unpin them.
+- 2026-10-12 (W17) Section write access reaches module screens through `ModuleEnv.canWrite(section)`. The default allows, so Storybook and tests keep working. The host computes it with `hasSectionAccess`. The collab token's `read` scope independently makes the editor read only.
+- 2026-10-12 (W17) Spec version numbers are taken under `pg_advisory_xact_lock(hashtext('spec_versions'), hashtext(business_id))`. product.spec.publish skips a snapshot identical to the latest version (`unlessUnchanged`) and returns that version, so a double click is idempotent. Agent versions use the same pattern, keyed on agent_versions.
+- 2026-10-12 (W17) The spec outline orders sections by their first block's position, with a canonical order as the tiebreak. A new section's first block goes after all existing blocks; the archetype outline decides the order.
+- 2026-10-12 (W17) Roadmap reordering is its own procedure, product.roadmap.move. It changes only horizon and position and renumbers the target column 0..n-1. product.roadmap.update no longer carries moves. product.roadmap.link adds to the existing links and never resets other fields.
+- 2026-10-12 (W17) dev.prs.list "merged" = GitHub pr.merged events plus done code tasks that the platform's merge queue landed with no event (`source: "merge_queue"`, `eventId: null`), one row per task, GitHub winning. Only `kind: "code"` tasks are pull requests.
+- 2026-10-12 (W17) Departments can declare a tab subset (`tabSlugs`). The physical-product Operations department gets Specialists and Plan only. Migration 0052 trims existing businesses only where the layout is still the untouched default; customized layouts are left alone.
+- 2026-10-12 (W17) Stream subscriptions are focused by default (server and client agree). Live sessions marks only the focused tile's `as:` channel focused and uses `setFocus` when focus moves.
+- 2026-10-12 (W17) A started session is shown as "Queued" when its replay read the stream (`source: "stream"`) and found no events, until its first event arrives. Without Redis (`source: "none"`) the tile behaves as before. Every tile seeds itself from `dev.sessions.replay`, not only the focused one.
+- 2026-10-12 (W17) Tile clocks tick once a second via `useNow` while any non-queued session is live, and pause while the tab is hidden.
+- 2026-10-12 (W17) An empty specialist tile opens on the view that has data. Until the founder picks a view, it reads "No supplier records yet" rather than a view-specific line such as "no RFQs sent".
+- 2026-10-12 (W17) `formatDateSmart` shows the year only when the date is outside the current year ("Oct 7" vs "Jan 12, 2027").
+
+### W17-product-development (verify)
+
+- 2026-10-12 (W17) Human edits pin spec blocks in the collab server. The server tracks documents changed by a `user` principal in onChange, and the store saves them with `pinned: true` (option `humanEdited`). This is the same rule the HTTP editBlock path already followed: a founder's words are pinned until they unpin them.
+- 2026-10-12 (W17) Section write access reaches module screens through `ModuleEnv.canWrite(section)`. The default allows, so Storybook and tests keep working. The host computes it with `hasSectionAccess`. The collab token's `read` scope independently makes the editor read only.
+- 2026-10-12 (W17) Spec version numbers are taken under `pg_advisory_xact_lock(hashtext('spec_versions'), hashtext(business_id))`. product.spec.publish skips a snapshot identical to the latest version (`unlessUnchanged`) and returns that version, so a double click is idempotent. Agent versions use the same pattern, keyed on agent_versions.
+- 2026-10-12 (W17) The spec outline orders sections by their first block's position, with a canonical order as the tiebreak. A new section's first block goes after all existing blocks; the archetype outline decides the order.
+- 2026-10-12 (W17) Roadmap reordering is its own procedure, product.roadmap.move. It changes only horizon and position and renumbers the target column 0..n-1. A card dropped on itself is a no-op. product.roadmap.update no longer carries moves. product.roadmap.link adds to the existing links and never resets other fields.
+- 2026-10-12 (W17) dev.prs.list "merged" = GitHub pr.merged events plus done code tasks that the platform's merge queue landed with no event (`source: "merge_queue"`, `eventId: null`), one row per task, GitHub winning. Only `kind: "code"` tasks are pull requests.
+- 2026-10-12 (W17) Departments can declare a tab subset (`tabSlugs`). The physical-product Operations department gets Specialists and Plan only. Migration 0052 trims existing businesses only where the layout is still the untouched default; customized layouts are left alone.
+- 2026-10-12 (W17) Stream subscriptions are focused by default (server and client agree). The latest sub or focus frame decides a channel's focus. Live sessions marks only the focused tile's `as:` channel focused and uses `setFocus` when focus moves.
+- 2026-10-12 (W17) A started session is shown as "Queued" when its replay read the stream (`source: "stream"`) and found no events, until its first event arrives. Without Redis (`source: "none"`) the tile behaves as before. Every tile seeds itself from `dev.sessions.replay`, not only the focused one.
+- 2026-10-12 (W17) Tile clocks tick once a second via `useNow` while any non-queued session is live, and pause while the tab is hidden.
+- 2026-10-12 (W17) An empty specialist tile opens on the view that has data. Until the founder picks a view, it reads "No supplier records yet" rather than a view-specific line such as "no RFQs sent".
+- 2026-10-12 (W17) `formatDateSmart` shows the year only when the date is outside the current year ("Oct 7" vs "Jan 12, 2027").
+- 2026-10-13 (W17 verify) Source links opened from the browser (Sources, Research, Changes) must be http(s) (`isWebUri`). Any other stored uri falls back to the in-app source view.
+
+### W18-production-deploy-ci (fix)
+
+- 2026-10-13 (W18): Agent sessions hand off on worker shutdown instead of failing. On SIGTERM the orchestrator stops polling, then begins a SessionDrain: each running session saves its place and workspace and returns a hand-off, and the agentSession workflow starts the next run at once on the next worker. Runner retries go from 1 to 3 attempts (patch 'session-runner-retry', continuing from the last heartbeat) for workers that die without handing off. The sandbox is stopped before the workspace save and push.
+- 2026-10-13 (W18): Session events are saved to Postgres (table session_recordings, migration 0053) when a session finishes, and replay reads the saved copy first. The as:<id> Redis stream then expires after 1 hour, with a 14-day backstop TTL on every publish. ev:<businessId> keeps 30 days (MINID trim plus TTL) because every event is in Postgres. Alert on Redis used_memory and set maxmemory on Railway (founder action).
+- 2026-10-13 (W18): The demo seed no longer disables the audit trigger with ALTER TABLE (an ACCESS EXCLUSIVE lock for the whole cascade). audit_log_immutable() allows a DELETE only when the transaction-local setting fm.purge_business equals the row's business id. Demo businesses are found and deleted by fixed id, never slug, and a real business holding a demo slug blocks the rebuild. Seed-on-boot treats a demo as complete only when its final seed.demo audit entry exists.
+- 2026-10-13 (W18): Connectors that run on a platform secret declare auth.platformKey; the gateway skips the stored-credential requirement for them when the integration is connected. Gateway IntegrationRecord.config is settings.config (the shape the api writes), with flat settings accepted for old rows.
+- 2026-10-13 (W18): OAuth connectors (Google, Notion, Shopify) connect in two steps: connect() without a code returns the consent URL with HMAC-signed state (user, business, connector, shop); the vendor redirects to the web route /integrations/oauth/callback, which finishes through integrations.connect. The redirect URI is always the api's own (APP_URL based) and must be registered with each vendor.
+- 2026-10-13 (W18): Observability uses a small OTLP/HTTP and Sentry client in packages/shared/src/telemetry.ts (no vendor SDK), enabled only by OTEL_EXPORTER_OTLP_ENDPOINT and SENTRY_DSN. Orchestrator /ready (healthcheck) is separate from /health (also fails on an old task-queue backlog), so a new deployment sent to clear a wedged queue is not held back. restartPolicyMaxRetries is 10.
+- 2026-10-13 (W18): format:check is dropped instead of gated in CI (the tree is not Prettier-clean and reformatting it would conflict with every parallel package); 'pnpm format' remains. CI instead builds and boots the Docker image and checks .env.example against the Zod schema. Docker base pinned to node:22.23.3-bookworm-slim and engines.node to >=22.23.3 (corepack 0.34.7+ is needed for pnpm 12). The Node row of the DECISIONS toolchain should state that minimum.
+- 2026-10-13 (W18): DATA_REGION removed from env.ts (never read). SUPABASE_JWT_SECRET moved into the shared schema.
+
+### W18-production-deploy-ci (verify)
+
+- Graceful deploys (#222): on SIGTERM the orchestrator stops polling, then asks every running agent session to hand off (save place and workspace, no GitHub push, stop the acceptance sandbox first). agentSession starts the next run at once. The runner activity gets 3 attempts behind the workflow patch session-runner-retry, and a retry resumes from its last heartbeat. Telemetry exports to Sentry and OTLP go direct from each service as infrastructure telemetry, not through the gateway.
+- Audit trigger (#232): migration 0053 redefines audit_log_immutable() so a transaction may delete one business's audit chain when set_config('fm.purge_business', <business id>, true) names it. Updates and other deletes are still refused. A later business purge must use the same setting and must not redefine the function with a different body.
+- Recordings (#233): finished sessions are saved to session_recordings (8 MB cap, long output cut). as:<id> streams expire 1 hour after saving, with a 14-day backstop TTL. ev:<businessId> is trimmed to 30 days by MINID and carries a TTL.
+- Platform keys (#228): connectors declare auth.platformKey. The gateway then requires a connected or degraded integration row in live mode, not a stored credential. Stripe only uses the platform key through a Connect account or the platform billing record.
+- OAuth (#225): Google, Notion and Shopify connect() without a code return a consent URL with api-signed state (user, business, connector, shop). The web callback only redirects, and the api verifies the state when the founder finishes.
+- CI (#435): the failing format:check script is dropped rather than gated; a docker job builds and boots the api image.
+- Toolchain (#439): the Node minimum is 22.23.3 (corepack 0.34.7 or later is needed for pnpm 12.9.1). Record it in the toolchain row.
+- Pre-existing failures: the two businessCycle workflow tests fail on the base e9b9917 as well; they belong to the C-control-dispatch area.
+
+### W19-team (fix)
+
+2026-10-13 W19 Team. (1) Negotiation: agent.negotiation.set keeps the limits but forces enabled=false until a LIVE B2B negotiation workflow exists (AC-11.14.3); the panel says it is not available yet. (2) Co-founder invite: Account ID shown on founder profile and Preferences, and team.humans.invite also accepts the sign-in email (resolved server-side to an existing account); no invitation email is sent because none exists yet. (3) Release semantics: open tasks are handed back (running/paused return to ready, unassigned; review/done keep their record), the department lead is cleared (no automatic replacement), reports re-parent to the released agent's own line manager, open session workflows get a stop signal. Only the designated Chief of Staff (repos.agents.chiefOfStaff) cannot be released or cloned; assistant-family templates cannot be hired. (4) Responsibilities routing: decision type is inferred from the gated tool; a staff handler answers their approvals (owners/admins can step in); an agent handler decides at once, never for hard gates or signing; responsibilities.set is admin-only. (5) Months: 'this month' for wages stays the UTC billing month (Payroll, billing and usage use the same), evaluated per request; not business time zone. (6) Operations hiring: specialists and the Operations Lead default to the department led by an operations_lead rather than introducing an 'operations' module key. (7) Custom skills: Opus-drafted tests wait for the founder's review (skill_tests.reviewed_at) and only reviewed tests, held-out included, are scored by training. (8) Hire copy no longer promises a first training run; training starts from the profile.
+
+### W19-team (verify)
+
+Approvals routing (W19, issue #153): `departments.approvers` is the source of truth. `approvals` records decision_type, handler_kind (user or agent) and handler_id (migration 0054). A null handler means the founder, i.e. owners and admins.
+- A named staff member sees the approval as theirs. team.approvals.resolve enforces the handler, and owners and admins can always step in.
+- A named agent decides the approval the moment it opens (by_kind 'agent'). An agent never decides a signature (sign_contracts is a hard gate) or an explicit null decision type. A handler who left, is paused or released, or is not a member hands it back to the founder.
+- An agent handler also hands back its own requests (added in verification): an agent cannot approve itself.
+Other W19 decisions:
+- UTC billing months stay (agent.profile.get takes an optional period from the viewer's clock).
+- Negotiation cannot be switched on until a runtime exists (AC-11.14.3, arrives with LIVE B2B). The limits can be saved while it is off.
+- Operations specialists resolve through the department whose lead is an operations_lead, instead of a new module key.
+
+### X-freshness-commit (fix)
+
+## 2026-10-12 — Freshness follows each business's channel; the stream acknowledges subscriptions (audit #67)
+
+- **apps/stream sends `{ t: "subscribed", ch }`** once a subscription is live (again for a repeated `sub`). This is the fourth protocol extension after 2026-10-07 "apps/stream: protocol extensions" and is backward compatible. Readers still start at `$` (no replay). Replay from a last-seen id was considered and rejected: it needs per-tab ids, longer stream retention and server-side reader changes. A refetch after the acknowledgement covers the same gap.
+- **A channel, not the socket, decides freshness.** The 5-minute staleTime for stream-kept routers applies only when the query's business channel has been live since the data was fetched. Otherwise the router's short staleTime applies. This supersedes the 2026-10-09 rule (ARCHITECTURE §14) that 'while the event stream is connected the shell stops polling and stream-kept routers stay fresh for 5 minutes'.
+- **Resync after a gap, not on first load.** When `ev:<bid>` comes back after a gap (a reconnect, a silent socket replaced, a refusal retried, or a return to a business this tab had before), every query of that business is invalidated: mounted ones refetch now, others on their next mount. The first acknowledgement after a page load does not refetch, to avoid doubling Home's load-time requests. Data hydrated before that first acknowledgement is not stream-fresh: it keeps its short staleTime, and the safety poll and the next event refresh it.
+- **A slow safety poll stays on.** inbox.list and cycle.status poll every 60 s while the business's channel is live (30 s while not). Archive, markRead and plan confirmation by another member publish no event yet, so they show up within a minute. Mutations refetch on failure, so a view that fell behind catches up.
+- **Refusals are retried.** unavailable, forbidden, too_many_subscriptions and shutting_down are asked again with backoff (0.5-1 s doubling, capped at 30 s) on the same socket. invalid_channel is not retried.
+- **Heartbeat and visibility.** A socket whose last ping got no frame back is replaced, whatever its readyState says. When a tab becomes visible or the browser comes back online, a pending reconnect is tried at once and an open socket is probed with a 5 s deadline. `refetchOnWindowFocus` is on for business-scoped queries only (TanStack refetches them only when stale).
+
+## 2026-10-12 — One business per idea; a second Take charge answers with the first (audit #37)
+
+- The commit transaction claims the idea before creating anything (a conditional `committed_at IS NULL` UPDATE). The idea's business stamp is conditional on `business_id IS NULL`.
+- A second commit of the same idea (double click, second tab, retried request) succeeds with `alreadyCommitted: true` and returns the first business instead of failing. Its Board item, Chief of Staff, first tasks and import sources come from the `idea.commit` audit row, which now records them as the commit's receipt (precedent: cycle pause state and deletion requests are also read from audit). It starts no cycle. If the founder is no longer a member, or the commit predates the receipt, the call is still refused with 'Idea is already committed'.
+- The web guards Take charge with a ref (`useSingleFlight`), not with `isPending`, because TanStack publishes isPending only after both clicks of a double click have run.
+
+### X-freshness-commit (verify)
+
+## 2026-10-12 — Freshness follows each business's channel; the stream acknowledges subscriptions (audit #67)
+
+- **apps/stream sends `{ t: "subscribed", ch }`** once a subscription is live, and again for a repeated `sub`.
+  - This is the fourth protocol extension after 2026-10-07 "apps/stream: protocol extensions". It is backward compatible.
+  - Readers still start at `$` (no replay). Replay from a last-seen id was rejected: it needs per-tab ids, longer stream retention and reader changes. A refetch after the acknowledgement covers the same gap.
+- **A channel, not the socket, decides freshness.**
+  - Stream-kept routers (`inbox`, `cycle`, `finance`) stay fresh for 5 minutes only while the query's business channel has been live since the data was fetched. Otherwise the short default applies.
+  - `department` is no longer stream-kept: department edits and hires publish no event.
+  - This supersedes the 2026-10-09 rule (ARCHITECTURE §14) that "while the event stream is connected the shell stops polling and stream-kept routers stay fresh for 5 minutes".
+- **Resync after a gap, not on first load.**
+  - When `ev:<bid>` comes back after a gap, every query of that business is invalidated. Gaps are a reconnect, a silent socket replaced, a refusal retried, or a return to a business this tab had before.
+  - The first acknowledgement after a page load does not refetch, to keep Home's load requests single. Data hydrated before it keeps its short staleTime.
+- **Safety polls stay on.**
+  - `inbox.list` and `cycle.status` poll every 60 s while the business's channel is live, and every 30 s while it is not.
+  - `department.list` polls every 60 s whatever the channel.
+  - Mutations refetch the inbox when they fail, so a view that fell behind catches up.
+- **Changes another member makes publish events where it matters.**
+  - `inbox.archive` and `plan.confirm` write `inbox.item_updated` through the outbox. The payload is ids only (item, change, plan, follow-up), so a member walled from the item learns nothing.
+  - A read publishes nothing: an event per opened item would flood the stream. The inbox safety poll covers it.
+- **Refusals are retried.** `unavailable`, `forbidden`, `too_many_subscriptions` and `shutting_down` are asked again with backoff on the same socket (0.5-1 s, doubling, capped at 30 s). `invalid_channel` is not retried.
+- **Heartbeat and visibility.**
+  - A socket whose last ping got no frame back is replaced, whatever its readyState says.
+  - When a tab becomes visible or the browser comes back online, a pending reconnect is tried at once and an open socket is probed with a 5 s deadline.
+  - `refetchOnWindowFocus` is on for business-scoped queries only. All model-backed procedures are mutations, so a focus refetch never calls a model.
+
+## 2026-10-12 — One business per idea; a second Take charge answers with the first (audit #37)
+
+- The commit transaction claims the idea before creating anything, with a conditional `committed_at IS NULL` UPDATE. The idea's business stamp is conditional on `business_id IS NULL`.
+- A second commit of the same idea (double click, second tab, retried request) succeeds with `alreadyCommitted: true` and returns the first business instead of failing.
+  - Its Board item, Chief of Staff, first tasks and import sources come from the `idea.commit` audit row, which now records them as the commit's receipt.
+  - It starts no cycle.
+  - If the founder is no longer a member, or the commit predates the receipt, the call is still refused with "Idea is already committed".
+- The web guards Take charge with a ref (`useSingleFlight`), not with `isPending`, which TanStack publishes only after both clicks of a double click have run.
+- PGlite runs one transaction at a time, so the race is tested by replaying the READ COMMITTED interleaving: the losing commit is served a read of the idea from before the first commit landed.
+
+### Release 1 scope and merge decisions (integration)
+
+- **Held back to a second release:** W02 (copy rules, 20 low and medium items) and W03 (finance and legal screens, 27 items) were unfinished when usage limits stopped their engineers; everything else that was verified is in this release. The migrations of all packages ship together (journal in file order, `when` strictly increasing; the autopilot migration is `0055_autopilot`).
+- **Delegated approvals (W19 with W15):** Team › Responsibilities may name an agent as the handler of a decision type (spend above the threshold, publish, merge, message customers, hire, change models). Hard gates are never routed (money movement, signing and anything marked `hardGate` stay the founder's), `sign_contracts` is never delegated to an agent, an agent never approves its own request, and the default handler is the founder. The decision is recorded as `approval.resolved` by that agent. This sits next to the CLAUDE.md rule that agents never move money or sign: only an owner or admin configures the delegation, and the hard gates still hold.
+- **Domain lookups:** the `domains` connector is keyless; enable it with `LIVE_CONNECTORS=domains` on the gateway and the api.
