@@ -87,6 +87,37 @@ describe("departments, screens, dashboards", () => {
     expect((await repos.dashboards.active(r.db, A, r.A.ownerId))?.id).toBe(dash.id);
     expect(await repos.dashboards.list(r.db, A, r.B.ownerId)).toHaveLength(0);
   });
+
+  it("archive keeps the slug taken, a new department of the same name gets a free one, and restore brings back the department with the tabs it had (audit MLSL-08)", async () => {
+    const B = r.B.businessId;
+    const team = await repos.departments.create(r.db, B, { name: "Team", moduleKeys: ["team"] });
+    expect(team.slug).toBe("team");
+    const agents = await repos.screens.upsert(r.db, B, { departmentId: team.id, tabSlug: "squad", title: "Agents", layout: { widgets: [] } });
+    const removedEarlier = await repos.screens.upsert(r.db, B, { departmentId: team.id, tabSlug: "health", title: "Health", layout: { widgets: [] } });
+    await repos.screens.archive(r.db, B, removedEarlier.id);
+
+    const archived = await repos.departments.archive(r.db, B, team.id);
+    expect(archived.archivedAt).toBeInstanceOf(Date);
+    expect(archived.hidden).toBe(true);
+    expect((await repos.departments.list(r.db, B, { includeHidden: true })).map((d) => d.id)).not.toContain(team.id);
+    expect(await repos.screens.list(r.db, B, team.id)).toHaveLength(0);
+
+    // The unique (business, slug) key covers archived rows: the same name gets the next free slug instead of failing.
+    const second = await repos.departments.create(r.db, B, { name: "Team", moduleKeys: ["team"] });
+    expect(second.slug).toBe("team-2");
+    expect((await repos.departments.create(r.db, B, { name: "Team", slug: "team", moduleKeys: [] })).slug).toBe("team-3");
+
+    const restored = await repos.departments.restore(r.db, B, team.id);
+    expect(restored.archivedAt).toBeNull();
+    expect(restored.hidden).toBe(false);
+    expect(restored.slug).toBe("team");
+    expect((await repos.departments.list(r.db, B)).map((d) => d.id)).toContain(team.id);
+    // Only the tab archived with the department comes back; the one removed earlier on its own stays removed.
+    expect((await repos.screens.list(r.db, B, team.id)).map((s) => s.id)).toEqual([agents.id]);
+    // Restoring a live department is a no-op; another business cannot restore it.
+    expect((await repos.departments.restore(r.db, B, team.id)).id).toBe(team.id);
+    await expect(repos.departments.restore(r.db, r.A.businessId, team.id)).rejects.toThrow(/not found/);
+  });
 });
 
 describe("agents, versions, skills, training", () => {

@@ -6,7 +6,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CircleAlert, CircleDashed, CirclePause } from "lucide-react";
 import { Avatar, EntityLink, MODEL_LABELS, PageGrid, StatusPill, agentStatusTone, cn, formatRelative, type EntityDetails, type IconComponent, type SquadRow } from "@foundmill/dugout";
-import { type AgentStatus, type DecisionType, type DeptColourToken, type MembershipRole } from "@foundmill/shared/constants";
+import { type AgentStatus, type DeptColourToken, type MembershipRole } from "@foundmill/shared/constants";
 import { SECTIONS } from "@foundmill/shared/permissions";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState, type WidgetEvent } from "@foundmill/widgets/data";
@@ -459,28 +459,8 @@ export function memberEntity(businessId: string, m: MembershipRow, me?: Me | nul
 
 /* ---------- Responsibilities ---------- */
 
-export const DECISION_LABELS: Record<DecisionType, string> = {
-  spend_above_threshold: "Spend above threshold",
-  publish_content: "Publish content",
-  merge_to_main: "Merge to main",
-  sign_contracts: "Sign contracts",
-  message_customers: "Message customers",
-  hire_agents: "Hire agents",
-  change_models: "Change models",
-};
-
-export const DECISION_DESCRIPTIONS: Record<DecisionType, string> = {
-  spend_above_threshold: "Any purchase or budget above the business's approval threshold.",
-  publish_content: "Posts, pages, newsletters and ads going live under the business's name.",
-  merge_to_main: "Pull requests merging into the main branch.",
-  sign_contracts: "Signatures and accepted terms. A hard gate: an agent can never hold this.",
-  message_customers: "Outbound messages to customers and leads.",
-  hire_agents: "Adding agents to the team and their wage caps.",
-  change_models: "Moving an agent to a different model.",
-};
-
-/** Decision types an agent may never handle (BUILD §2.2 hard gates; the API rejects it too). */
-export const AGENT_GATED_DECISIONS: readonly DecisionType[] = ["sign_contracts"];
+// The words live in ./decisions (no React) so Settings › Departments can read them without the Team screens.
+export { AGENT_GATED_DECISIONS, DECISION_DESCRIPTIONS, DECISION_LABELS } from "./decisions";
 
 /* ---------- Recruitment ---------- */
 
