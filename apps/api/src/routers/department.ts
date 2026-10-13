@@ -1,21 +1,12 @@
 /** department.list/create/update/merge/split/reorder/archive/restore/resetDefaults + screen.* + dashboard.* (BUILD §11.2, §11.13). */
 import { DEPARTMENT_DEFAULTS, getArchetypeSeed } from "@foundmill/agents";
-import { CreateDepartmentInput, repos, ScreenLayout, UpdateDepartmentInput, type Department, type Executor } from "@foundmill/db";
-import { MODULE_KEYS, MODULE_TABS, ValidationError, type ModuleKey } from "@foundmill/shared";
-
-const isModuleKey = (v: string): v is ModuleKey => (MODULE_KEYS as readonly string[]).includes(v);
-/** Default tabs for a module key stored as text on a department row. */
-const tabsFor = (moduleKey: string) => (isModuleKey(moduleKey) ? MODULE_TABS[moduleKey] : []);
+import { CreateDepartmentInput, repos, ScreenLayout, UpdateDepartmentInput, type DashboardLayout, type Department, type Executor } from "@foundmill/db";
+import { MODULE_KEYS, ValidationError, WRITE_ROLES, type ModuleKey } from "@foundmill/shared";
 import { z } from "zod";
-import { DASHBOARD_PRESETS, PRESET_LAYOUTS } from "../presets";
+import { DASHBOARD_PRESETS, presetLayout, type DashboardPreset } from "../presets";
+import { moveModuleScreens, syncModuleScreens } from "../services/department-screens";
 import { compileMetric, listMetrics, runMetric, type MetricReader } from "../services/metrics";
 import { Id, adminProcedure, audit, businessProcedure, hasSectionAccess, router, writeProcedure, type BusinessContext } from "../trpc";
-
-/** Default screens for a department's modules, one per module tab (a new, split or re-created department). */
-async function seedScreens(tx: Executor, businessId: string, departmentId: string, moduleKeys: readonly string[]): Promise<void> {
-  let position = 0;
-  for (const moduleKey of moduleKeys) for (const tab of tabsFor(moduleKey)) await repos.screens.upsert(tx, businessId, { departmentId, tabSlug: tab.slug, title: tab.title, position: position++, layout: { widgets: [{ key: `module:${moduleKey}/${tab.slug}`, x: 0, y: 0, w: 12, h: 60, settings: {} }] } });
-}
 
 /**
  * Makes `leadId` the department's lead (BUILD §11.13 people). The agent must be an active agent of the business; it
@@ -41,6 +32,31 @@ async function assignLead(tx: Executor, businessId: string, department: Departme
 
 /** The custom-metric catalogue as the caller may see it: only sections they can read (BUILD §11.9). */
 const metricReader = (ctx: Pick<BusinessContext, "membership">): MetricReader => ({ canRead: (section) => hasSectionAccess(ctx.membership, section, "read") });
+
+/** Viewers and advisors never write, anywhere (DECISIONS): not even a Home layout of their own. */
+const canWrite = (ctx: Pick<BusinessContext, "role">) => WRITE_ROLES.includes(ctx.role);
+
+/** A dashboard as Home reads it: `stored` false for the unsaved Founder's view of a read-only role; `editable` for the caller. */
+export type HomeDashboard = DashboardLayout & { stored: boolean; editable: boolean };
+
+function homeDashboard(ctx: Pick<BusinessContext, "role" | "userId">, row: DashboardLayout, stored: boolean): HomeDashboard {
+  return { ...row, stored, editable: stored && row.userId === ctx.userId && row.archivedAt === null && canWrite(ctx) };
+}
+
+/** The id of the unsaved Founder's view (no row has it: the nil uuid). */
+export const UNSAVED_DASHBOARD_ID = "00000000-0000-0000-0000-000000000000";
+
+/** The Founder's view a viewer or an advisor reads: built per request, never written. */
+function unsavedHome(ctx: Pick<BusinessContext, "businessId" | "userId" | "business">, layout: ScreenLayout): DashboardLayout {
+  const at = ctx.business.committedAt ?? ctx.business.createdAt;
+  return { id: UNSAVED_DASHBOARD_ID, businessId: ctx.businessId, userId: ctx.userId, name: "Home", preset: "founder", layout, version: 1, isActive: true, createdAt: at, updatedAt: at, archivedAt: null };
+}
+
+/** A preset's layout for this business: the Founder's view gets a department card per visible department. */
+async function sizedPresetLayout(tx: Executor, businessId: string, preset: DashboardPreset): Promise<ScreenLayout> {
+  if (preset !== "founder") return presetLayout(preset);
+  return presetLayout(preset, { departments: (await repos.departments.list(tx, businessId)).length });
+}
 
 export const departmentRouter = router({
   list: businessProcedure.input(z.object({ includeHidden: z.boolean().default(false), includeArchived: z.boolean().default(false) })).query(({ ctx, input }) =>
@@ -92,7 +108,7 @@ export const departmentRouter = router({
     ctx.rls(async (tx) => {
       const { leadAgentId, ...rest } = input;
       let dept = await repos.departments.create(tx, ctx.businessId, rest);
-      await seedScreens(tx, ctx.businessId, dept.id, dept.moduleKeys);
+      await syncModuleScreens(tx, ctx.businessId, dept.id, dept.moduleKeys);
       if (leadAgentId) {
         await assignLead(tx, ctx.businessId, dept, leadAgentId);
         dept = await repos.departments.setLead(tx, ctx.businessId, dept.id, leadAgentId);
@@ -141,10 +157,16 @@ export const departmentRouter = router({
     }),
   ),
 
+  /**
+   * Split `sourceId`: a new department takes the chosen modules, and their tabs move with them (layouts and all), so
+   * the source keeps only its remaining modules' tabs (AC-11.13.2).
+   */
   split: adminProcedure.input(z.object({ sourceId: Id, department: CreateDepartmentInput })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const result = await repos.departments.split(tx, ctx.businessId, input.sourceId, input.department);
-      await seedScreens(tx, ctx.businessId, result.created.id, result.created.moduleKeys);
+      await moveModuleScreens(tx, ctx.businessId, result.source.id, result.created.id, result.created.moduleKeys);
+      await syncModuleScreens(tx, ctx.businessId, result.created.id, result.created.moduleKeys);
+      await syncModuleScreens(tx, ctx.businessId, result.source.id, result.source.moduleKeys);
       await audit(tx, ctx, { action: "department.split", target: { kind: "department", id: result.created.id }, details: { source: input.sourceId } });
       return result;
     }),
@@ -176,29 +198,41 @@ export const departmentRouter = router({
   ),
 
   /**
-   * Restore archetype seeds: existing ones get their default identity back, archived ones are restored first (their slug
-   * still holds the unique key, so they are never inserted twice), missing ones are re-created.
+   * Restore the archetype's departments (the way back after a merge, a split or an archive): a seed department that was
+   * archived or merged away comes back with its tabs (its slug still holds the unique key, so it is never inserted
+   * twice), a missing one is created, and every seed department gets its default identity, modules and module tabs back.
+   * A department of the founder's own gives back the modules the seed departments hold again; one left with none is
+   * archived.
    */
   resetDefaults: adminProcedure.mutation(({ ctx }) =>
     ctx.rls(async (tx) => {
       if (!ctx.business.archetype) throw new ValidationError("The business has no archetype to reset to");
       const seed = getArchetypeSeed(ctx.business.archetype);
+      // Archived rows too: their slug stays taken (the unique index covers them), so they are restored, never re-created.
       const existing = await repos.departments.list(tx, ctx.businessId, { includeHidden: true, includeArchived: true });
       const restored: string[] = [];
       for (const d of seed.departments) {
         const slug = d.slug.replace(/_/g, "-");
         const match = existing.find((e) => e.slug === slug);
+        let id: string;
         if (match) {
           if (match.archivedAt) await repos.departments.restore(tx, ctx.businessId, match.id);
           await repos.departments.update(tx, ctx.businessId, match.id, { name: d.name, icon: d.icon, colourToken: d.colourToken, position: d.position, moduleKeys: d.moduleKeys, hidden: false });
-          // A department that comes back without tabs (all of them removed before it was archived) gets its module tabs.
-          if ((await repos.screens.list(tx, ctx.businessId, match.id)).length === 0) await seedScreens(tx, ctx.businessId, match.id, d.moduleKeys);
-          restored.push(match.id);
+          id = match.id;
         } else {
-          const created = await repos.departments.create(tx, ctx.businessId, { name: d.name, slug, icon: d.icon, colourToken: d.colourToken, position: d.position, moduleKeys: d.moduleKeys, budgetMinor: d.budgetMinor });
-          await seedScreens(tx, ctx.businessId, created.id, d.moduleKeys);
-          restored.push(created.id);
+          id = (await repos.departments.create(tx, ctx.businessId, { name: d.name, slug, icon: d.icon, colourToken: d.colourToken, position: d.position, moduleKeys: d.moduleKeys, budgetMinor: d.budgetMinor })).id;
         }
+        await syncModuleScreens(tx, ctx.businessId, id, d.moduleKeys);
+        restored.push(id);
+      }
+      const seedModules = new Set<string>(seed.departments.flatMap((d) => d.moduleKeys));
+      for (const d of existing) {
+        if (restored.includes(d.id) || d.archivedAt) continue;
+        const remaining = d.moduleKeys.filter((k) => !seedModules.has(k)) as ModuleKey[];
+        if (remaining.length === d.moduleKeys.length) continue;
+        await repos.departments.update(tx, ctx.businessId, d.id, { moduleKeys: remaining });
+        await syncModuleScreens(tx, ctx.businessId, d.id, remaining);
+        if (remaining.length === 0) await repos.departments.archive(tx, ctx.businessId, d.id);
       }
       await audit(tx, ctx, { action: "department.reset_defaults", target: { kind: "business", id: ctx.businessId }, details: { restored } });
       return repos.departments.list(tx, ctx.businessId);
@@ -224,7 +258,7 @@ export const screenRouter = router({
 });
 
 export const dashboardRouter = router({
-  presets: businessProcedure.query(() => DASHBOARD_PRESETS.map((id) => ({ id, layout: PRESET_LAYOUTS[id] }))),
+  presets: businessProcedure.query(({ ctx }) => ctx.rls(async (tx) => Promise.all(DASHBOARD_PRESETS.map(async (id) => ({ id, layout: await sizedPresetLayout(tx, ctx.businessId, id) }))))),
   /**
    * Custom metric widget (BUILD §11.2, AC-11.2.5): catalogue queries only, run under the caller's RLS transaction, and
    * only from sections the caller may read (each catalogue entry names its section; BUILD §11.9).
@@ -233,8 +267,11 @@ export const dashboardRouter = router({
     list: businessProcedure.query(({ ctx }) => listMetrics(metricReader(ctx))),
     get: businessProcedure.input(z.object({ queryId: z.string().max(80).nullish(), sql: z.string().max(4000).nullish() })).query(({ ctx, input }) => ctx.rls((tx) => runMetric(tx, ctx.businessId, input, metricReader(ctx)))),
   }),
-  /** A sentence → the catalogue metric it means, with a preview. Deterministic; nothing the founder types is executed. */
-  compileMetric: businessProcedure.input(z.object({ sentence: z.string().min(1).max(400) })).mutation(({ ctx, input }) =>
+  /**
+   * A sentence → the catalogue metric it means, with a preview. Deterministic; nothing the founder types is executed.
+   * Part of editing a widget, so a role that writes (viewers and advisors never edit a dashboard).
+   */
+  compileMetric: writeProcedure.input(z.object({ sentence: z.string().min(1).max(400) })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const compiled = await compileMetric(tx, ctx.businessId, input.sentence, metricReader(ctx));
       await audit(tx, ctx, { action: "dashboard.compile_metric", target: { kind: "metric", id: compiled.queryId }, details: { sentence: input.sentence.slice(0, 200) } });
@@ -242,21 +279,31 @@ export const dashboardRouter = router({
     }),
   ),
   list: businessProcedure.query(({ ctx }) => ctx.rls((tx) => repos.dashboards.list(tx, ctx.businessId, ctx.userId))),
+  /**
+   * One dashboard: by id (yours, or a co-member's shared one, read-only), else your default Home. A role that writes
+   * gets a default Home created on the first open (idempotently: two first loads make one); a viewer or an advisor
+   * writes nothing anywhere, so they read the Founder's view built for them, unsaved (`stored: false`). `editable`
+   * says whether the caller may change it: their own stored dashboard and a role that writes.
+   */
   get: businessProcedure.input(z.object({ dashboardId: Id.optional() })).query(({ ctx, input }) =>
-    ctx.rls(async (tx) => {
-      if (input.dashboardId) return repos.dashboards.get(tx, ctx.businessId, input.dashboardId);
+    ctx.rls(async (tx): Promise<HomeDashboard> => {
+      if (input.dashboardId) return homeDashboard(ctx, await repos.dashboards.get(tx, ctx.businessId, input.dashboardId), true);
       const active = await repos.dashboards.active(tx, ctx.businessId, ctx.userId);
-      return active ?? repos.dashboards.create(tx, ctx.businessId, { userId: ctx.userId, name: "Home", preset: "founder", layout: PRESET_LAYOUTS.founder, isActive: true });
+      if (active) return homeDashboard(ctx, active, true);
+      const layout = await sizedPresetLayout(tx, ctx.businessId, "founder");
+      if (!canWrite(ctx)) return homeDashboard(ctx, unsavedHome(ctx, layout), false);
+      return homeDashboard(ctx, await repos.dashboards.ensureActive(tx, ctx.businessId, { userId: ctx.userId, name: "Home", preset: "founder", layout }), true);
     }),
   ),
-  create: businessProcedure.input(z.object({ name: z.string().min(1).max(80).default("Home"), preset: z.enum(DASHBOARD_PRESETS).default("founder") })).mutation(({ ctx, input }) =>
+  /** A new tab from a preset (New › …, Copy to my dashboards). It becomes your default Home only when you have none. */
+  create: writeProcedure.input(z.object({ name: z.string().min(1).max(80).default("Home"), preset: z.enum(DASHBOARD_PRESETS).default("founder") })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const dashboard = await repos.dashboards.create(tx, ctx.businessId, { userId: ctx.userId, name: input.name, preset: input.preset, layout: PRESET_LAYOUTS[input.preset], isActive: true });
+      const dashboard = await repos.dashboards.add(tx, ctx.businessId, { userId: ctx.userId, name: input.name, preset: input.preset, layout: await sizedPresetLayout(tx, ctx.businessId, input.preset) });
       await audit(tx, ctx, { action: "dashboard.create", target: { kind: "dashboard", id: dashboard.id }, details: { preset: input.preset } });
       return dashboard;
     }),
   ),
-  update: businessProcedure.input(z.object({ dashboardId: Id, name: z.string().min(1).max(80).optional(), layout: ScreenLayout.optional(), setActive: z.boolean().optional() })).mutation(({ ctx, input }) =>
+  update: writeProcedure.input(z.object({ dashboardId: Id, name: z.string().min(1).max(80).optional(), layout: ScreenLayout.optional(), setActive: z.boolean().optional() })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const existing = await repos.dashboards.get(tx, ctx.businessId, input.dashboardId);
       if (existing.userId !== ctx.userId) throw new ValidationError("Dashboards are per user; copy a shared one to edit it");
@@ -266,7 +313,7 @@ export const dashboardRouter = router({
       return dashboard;
     }),
   ),
-  delete: businessProcedure.input(z.object({ dashboardId: Id })).mutation(({ ctx, input }) =>
+  delete: writeProcedure.input(z.object({ dashboardId: Id })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
       const existing = await repos.dashboards.get(tx, ctx.businessId, input.dashboardId);
       if (existing.userId !== ctx.userId) throw new ValidationError("Only the owner of a dashboard can delete it");
@@ -275,9 +322,11 @@ export const dashboardRouter = router({
       return dashboard;
     }),
   ),
-  applyPreset: businessProcedure.input(z.object({ dashboardId: Id, preset: z.enum(DASHBOARD_PRESETS) })).mutation(({ ctx, input }) =>
+  applyPreset: writeProcedure.input(z.object({ dashboardId: Id, preset: z.enum(DASHBOARD_PRESETS) })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const dashboard = await repos.dashboards.applyPreset(tx, ctx.businessId, input.dashboardId, input.preset, PRESET_LAYOUTS[input.preset]);
+      const existing = await repos.dashboards.get(tx, ctx.businessId, input.dashboardId);
+      if (existing.userId !== ctx.userId) throw new ValidationError("Dashboards are per user; copy a shared one to edit it");
+      const dashboard = await repos.dashboards.applyPreset(tx, ctx.businessId, input.dashboardId, input.preset, await sizedPresetLayout(tx, ctx.businessId, input.preset));
       await audit(tx, ctx, { action: "dashboard.apply_preset", target: { kind: "dashboard", id: dashboard.id }, details: { preset: input.preset } });
       return dashboard;
     }),

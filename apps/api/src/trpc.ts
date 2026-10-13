@@ -7,13 +7,13 @@
 import { initTRPC, TRPCError, type TRPC_ERROR_CODE_KEY } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError, z } from "zod";
-import { repos, withRls, type Business, type DbTx, type Executor, type Membership } from "@foundmill/db";
+import { repos, SLUG_TAKEN, uniqueViolation, withRls, type Business, type DbTx, type Executor, type Membership } from "@foundmill/db";
 import type { EventPayloadInput } from "@foundmill/events";
 import { isModelBillingError } from "@foundmill/models";
 import { assertAllowlisted } from "./services/access";
 import { modelBillingAppError } from "./services/model-errors";
 import { writeEventRow } from "./services/events";
-import { AppError, NotFoundError, WRITE_ROLES, effectivePermission, type Actor, type EventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
+import { AppError, ConflictError, NotFoundError, WRITE_ROLES, effectivePermission, type Actor, type EventType, type MembershipRole, type PermissionLevel, type Section } from "@foundmill/shared";
 import type { Context } from "./context";
 
 export const Id = z.guid();
@@ -144,6 +144,15 @@ export function toTRPCError(err: unknown): TRPCError {
       ? new TRPCError({ code: "NOT_FOUND", message: "A record this request refers to does not exist", cause: cause as Error })
       : new TRPCError({ code: "CONFLICT", message: "This record is still in use by something else", cause: cause as Error });
   }
+  // A unique violation is the caller's doing too (a name or an address someone already has): CONFLICT with a line a
+  // founder can act on and the field when one is known, never the failed statement. Repositories turn the ones a
+  // founder meets every day into their own messages first; this is the net under the rest.
+  const unique = !(err instanceof TRPCError) || err.code === "INTERNAL_SERVER_ERROR" ? uniqueViolation(cause) : undefined;
+  if (unique) {
+    const known = UNIQUE_CONSTRAINTS[unique.constraint ?? ""];
+    const conflict = new ConflictError(known?.message ?? "That already exists", known?.field ? { field: known.field } : undefined);
+    return new TRPCError({ code: "CONFLICT", message: conflict.message, cause: conflict });
+  }
   if (err instanceof TRPCError) return err;
   const message = (cause as { message?: string })?.message ?? String(cause);
   const nested = (cause as { cause?: { message?: string } })?.cause?.message ?? "";
@@ -154,6 +163,12 @@ export function toTRPCError(err: unknown): TRPCError {
 }
 
 const PG_FOREIGN_KEY_VIOLATION = "23503";
+
+/** What a unique violation of a constraint a founder can reach means, in their words, and the form field it is about. */
+const UNIQUE_CONSTRAINTS: Record<string, { message: string; field?: string }> = {
+  businesses_slug_key: { message: SLUG_TAKEN, field: "slug" },
+  departments_business_id_slug_key: { message: "Another department already uses that address", field: "slug" },
+};
 
 /**
  * A foreign-key violation, if `err` is one: "reference" when a write names a row that does not exist (Postgres says

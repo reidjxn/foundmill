@@ -57,13 +57,13 @@ interface MetricDefinition extends CompiledMetric {
 
 /**
  * Amounts in several currencies are never added together: the total in the business's currency when it has any (else in
- * the most used one), and whether anything in another currency was left out.
+ * the most used one; `count` is how many payments an item stands for), and whether anything in another currency was left out.
  */
-export function totalInOneCurrency(items: readonly { amountMinor: number; currency: string }[], businessCurrency: string): { value: number; currency: string; leftOut: boolean } {
+export function totalInOneCurrency(items: readonly { amountMinor: number; currency: string; count?: number }[], businessCurrency: string): { value: number; currency: string; leftOut: boolean } {
   const by = new Map<string, { sum: number; n: number }>();
   for (const i of items) {
     const t = by.get(i.currency) ?? { sum: 0, n: 0 };
-    by.set(i.currency, { sum: t.sum + i.amountMinor, n: t.n + 1 });
+    by.set(i.currency, { sum: t.sum + i.amountMinor, n: t.n + (i.count ?? 1) });
   }
   const currency = by.has(businessCurrency) || by.size === 0 ? businessCurrency : [...by.entries()].sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0]))[0]![0];
   return { value: by.get(currency)?.sum ?? 0, currency, leftOut: by.size > (by.has(currency) ? 1 : 0) };
@@ -132,14 +132,9 @@ export const METRICS: readonly MetricDefinition[] = [
     sql: "select sum(amount_minor) from conversions where business_id = current_business() and kind = 'payment' and occurred_at >= now() - interval '30 days'",
     keywords: ["revenue", "sales", "income", "mrr", "payments"],
     async run(db, businessId, now) {
-      const payments: { amountMinor: number; currency: string }[] = [];
-      let cursor: string | null = null;
-      do {
-        const page = await repos.journeys.listConversions(db, businessId, { ...last30(now), kind: "payment", limit: MAX_PAGE_SIZE, cursor });
-        payments.push(...page.items);
-        cursor = page.nextCursor;
-      } while (cursor);
-      const total = totalInOneCurrency(payments, (await repos.businesses.get(db, businessId)).currency);
+      // Summed in SQL (every payment, no page cap), per currency: the business's own currency, never a mix of two.
+      const sums = await repos.journeys.sumConversions(db, businessId, { ...last30(now), kind: "payment" });
+      const total = totalInOneCurrency(sums, (await repos.businesses.get(db, businessId)).currency);
       return { value: total.value, currency: total.currency, asOf: now.toISOString(), ...(total.leftOut ? { provenance: `Payment conversions in ${total.currency}, last 30 days, cash basis (payments in other currencies not added)` } : {}) };
     },
   },

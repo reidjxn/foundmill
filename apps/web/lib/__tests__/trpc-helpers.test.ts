@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TRPCClientError } from "@trpc/client";
-import { apiTrpcUrl, appErrorCode, createApiLinks, createUntypedApiClient, errorMessage, fetchWithTimeout, forbiddenMessage, isNotInvited, NO_ACCESS_PREFIX, isStreamingOperation, notInvitedReason, RATE_LIMITED_MESSAGE, REQUEST_TIMEOUT_MESSAGE, resolveBearer, STREAMING_PROCEDURES, tierLimitOf, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
+import { apiTrpcUrl, appErrorCode, createApiLinks, createUntypedApiClient, errorMessage, fetchWithTimeout, fieldConflictOf, forbiddenMessage, isNotInvited, NO_ACCESS_PREFIX, isStreamingOperation, notInvitedReason, RATE_LIMITED_MESSAGE, REQUEST_TIMEOUT_MESSAGE, resolveBearer, STREAMING_PROCEDURES, tierLimitOf, trpcErrorCode, trpcPathPrefix, trpcQueryKey } from "../trpc";
 import { makeQueryClient } from "../query-client";
 import { routersToInvalidate, withBusiness } from "../widget-data";
 
@@ -34,6 +34,14 @@ describe("trpc helpers", () => {
     expect(errorMessage(err)).toBe("Sign in to continue");
     expect(trpcErrorCode(new Error("x"))).toBeNull();
     expect(errorMessage("weird", "fallback")).toBe("fallback");
+  });
+
+  it("reads a conflict on a form field (a taken slug) and nothing from other errors", () => {
+    const conflict = new TRPCClientError("That slug is taken", { result: { error: { code: -32009, message: "x", data: { code: "CONFLICT", httpStatus: 409, appCode: "conflict", details: { field: "slug" } } } } } as never);
+    expect(fieldConflictOf(conflict)).toEqual({ field: "slug", message: "That slug is taken" });
+    const noField = new TRPCClientError("That already exists", { result: { error: { code: -32009, message: "x", data: { code: "CONFLICT", httpStatus: 409, appCode: "conflict" } } } } as never);
+    expect(fieldConflictOf(noField)).toBeNull();
+    expect(fieldConflictOf(new Error("x"))).toBeNull();
   });
 
   it("reads a plan tier limit refusal (an upgrade prompt), and nothing from other errors", () => {

@@ -163,7 +163,9 @@ describe("departments, screens, dashboards", () => {
     // The unique (business, slug) key covers archived rows: the same name gets the next free slug instead of failing.
     const second = await repos.departments.create(r.db, B, { name: "Team", moduleKeys: ["team"] });
     expect(second.slug).toBe("team-2");
-    expect((await repos.departments.create(r.db, B, { name: "Team", slug: "team", moduleKeys: [] })).slug).toBe("team-3");
+    // An address given on purpose that is taken is refused, not renamed (audit AC-06).
+    await expect(repos.departments.create(r.db, B, { name: "Team", slug: "team", moduleKeys: [] })).rejects.toThrow(/already uses the address/);
+    expect((await repos.departments.create(r.db, B, { name: "Team", moduleKeys: [] })).slug).toBe("team-3");
 
     const restored = await repos.departments.restore(r.db, B, team.id);
     expect(restored.archivedAt).toBeNull();

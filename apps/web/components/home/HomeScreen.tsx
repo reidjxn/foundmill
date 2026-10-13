@@ -39,6 +39,7 @@ import {
 import { FoundationsBanner, useFoundations } from "@foundmill/modules/product/foundations";
 import { DASHBOARD_PRESET_LIST, fromGridLayout, prepareLayout, routes, toGridLayout, toScreenLayout, type DashboardPresetId } from "@foundmill/widgets";
 import { useToday } from "@foundmill/widgets/data";
+import { WRITE_ROLES } from "@foundmill/shared/constants";
 import { recentRibbonInput } from "@foundmill/widgets/shared/ribbon";
 import { usePageShortcuts } from "@/lib/keys";
 import { shellQueryInputs } from "@/lib/shell-queries";
@@ -50,7 +51,7 @@ import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
-import { dashboardTabs, dayOneLine, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, isOwnDashboard, nextDashboardName, pickDashboardId, resetPresetFor, sameLayout, shareHref, versionConflict } from "./dashboards";
+import { dashboardActions, dashboardTabs, dayOneLine, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, isOwnDashboard, nextDashboardName, pickDashboardId, resetPresetFor, sameLayout, shareHref, versionConflict } from "./dashboards";
 import { isGuid } from "@/lib/ids";
 
 type DashboardRow = RouterOutputs["dashboard"]["get"];
@@ -85,6 +86,8 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
   // (empty) list was read, and must open as the person's own, editable dashboard (audit RUI-12).
   const viewerId = data.membership?.userId ?? null;
   const mine = !!row && isOwnDashboard(row, list, viewerId);
+  // Viewers and advisors read Home and never write it: no edit mode, no New, no copies (the api refuses them too).
+  const actions = dashboardActions(row, { canWrite: (WRITE_ROLES as readonly string[]).includes(data.role), mine });
   const invalidate = useCallback(() => queryClient.invalidateQueries({ queryKey: trpcPathPrefix("dashboard") as unknown[] }), [queryClient]);
   // The default Home was just created by `dashboard.get`: the list read before it does not have it yet.
   const missingFromList = !!row && listQ.isSuccess && mine && !list.some((d) => d.id === row.id);
@@ -94,7 +97,7 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
 
   // --- Edit mode (E) ----------------------------------------------------------------------------------------------
   const [editing, setEditing] = useState(false);
-  const editable = mine;
+  const editable = actions.edit;
   usePageShortcuts({ onEditLayout: editable ? () => setEditing((e) => !e) : undefined, onEscape: editing ? () => setEditing(false) : undefined });
   useEffect(() => {
     if (!editable) setEditing(false);
@@ -116,8 +119,8 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
   const update = useMutation(
     trpc.dashboard.update.mutationOptions({
       onSuccess: (saved) => {
-        queryClient.setQueriesData<DashboardRow>({ queryKey: trpcPathPrefix("dashboard.get") as unknown[] }, (old) => (old && old.id === saved.id && saved.version >= old.version ? saved : old));
-        queryClient.setQueryData(trpc.dashboard.get.queryKey({ businessId, dashboardId: saved.id }), (old: DashboardRow | undefined) => (old && old.version > saved.version ? old : saved));
+        queryClient.setQueriesData<DashboardRow>({ queryKey: trpcPathPrefix("dashboard.get") as unknown[] }, (old) => (old && old.id === saved.id && saved.version >= old.version ? { ...saved, stored: true, editable: true } : old));
+        queryClient.setQueryData(trpc.dashboard.get.queryKey({ businessId, dashboardId: saved.id }), (old: DashboardRow | undefined) => (old && old.version > saved.version ? old : { ...saved, stored: true, editable: true }));
         void queryClient.invalidateQueries({ queryKey: trpc.dashboard.list.queryKey({ businessId }) });
       },
       onError: (err) => toast({ title: "Dashboard not saved", description: errorMessage(err), tone: "bad" }),
@@ -136,7 +139,7 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
   const applyPreset = useMutation(
     trpc.dashboard.applyPreset.mutationOptions({
       onSuccess: (saved, vars) => {
-        queryClient.setQueryData(trpc.dashboard.get.queryKey({ businessId, dashboardId: vars.dashboardId }), saved);
+        queryClient.setQueryData(trpc.dashboard.get.queryKey({ businessId, dashboardId: vars.dashboardId }), { ...saved, stored: true, editable: true });
         void invalidate();
         toast({ title: "Preset applied", description: DASHBOARD_PRESET_LIST.find((p) => p.id === vars.preset)?.name, tone: "info" });
       },
@@ -178,27 +181,29 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
             {editing ? "Done" : "Edit"}
             <Kbd>E</Kbd>
           </Button>
-        ) : row ? (
+        ) : actions.copy ? (
           <Button size="sm" variant="ghost" icon={Copy} onClick={() => void onCopyShared()} loading={create.isPending || update.isPending} data-testid="copy-dashboard">
             Copy to my dashboards
           </Button>
         ) : null}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="sm" variant="ghost" icon={Plus} data-testid="new-dashboard">
-              New
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Start from a preset</DropdownMenuLabel>
-            {DASHBOARD_PRESET_LIST.map((p) => (
-              <DropdownMenuItem key={p.id} onSelect={() => onNew(p.id)} data-preset={p.id}>
-                {p.name}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {row && mine ? (
+        {actions.create ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="ghost" icon={Plus} data-testid="new-dashboard">
+                New
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Start from a preset</DropdownMenuLabel>
+              {DASHBOARD_PRESET_LIST.map((p) => (
+                <DropdownMenuItem key={p.id} onSelect={() => onNew(p.id)} data-preset={p.id}>
+                  {p.name}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+        {row && editable ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <IconButton icon={LayoutDashboard} label="Dashboard menu" size="sm" variant="ghost" data-testid="dashboard-menu" />
@@ -221,7 +226,7 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
         ) : null}
       </div>
     ),
-    [editable, editing, row, mine, list.length, create.isPending, onCopyShared, onNew, update, businessId, invalidate],
+    [editable, editing, row, actions.copy, actions.create, list.length, create.isPending, onCopyShared, onNew, update, businessId, invalidate],
   );
   useShellChrome({ title: "Home", tabs: tabs.length ? { tabs, activeId: row?.id ?? dashboardId ?? "", onChange: (id) => router.push(routes.home(businessId, id)), trailing, "aria-label": "Dashboards" } : undefined }, [tabs, row?.id, dashboardId, trailing]);
 
@@ -290,13 +295,14 @@ interface DashboardGridProps {
   onEditingChange: (editing: boolean) => void;
   onApplyPreset: (preset: DashboardPresetId) => void;
   onReset: () => void;
-  save: (layout: ReturnType<typeof toScreenLayout>) => Promise<DashboardRow>;
+  save: (layout: ReturnType<typeof toScreenLayout>) => Promise<Pick<DashboardRow, "version">>;
   onConflict: () => void;
 }
 
 function DashboardGrid({ businessId, row, live, editable, editing, onEditingChange, onApplyPreset, onReset, save, onConflict }: DashboardGridProps) {
   const registry = useMemo(() => gridRegistry("home", businessId, live), [businessId, live]);
-  const presets = useMemo(() => gridPresets(), []);
+  const departmentCount = useBusiness().departments.length;
+  const presets = useMemo(() => gridPresets(departmentCount), [departmentCount]);
   const prepared = useMemo(() => prepareLayout(row.layout, { live }), [row.layout, live]);
   const [layout, setLayout] = useState<WidgetLayout>(() => toGridLayout(prepared.layout));
   const known = useRef(row.version);

@@ -6,7 +6,7 @@
 import type { TabItem, TrophyCard, WidgetLayout, WidgetPreset } from "@foundmill/dugout";
 import { applyGlossary } from "@foundmill/shared/glossary";
 import { TROPHIES } from "@foundmill/journey";
-import { DASHBOARD_PRESET_LIST, fromGridLayout, isDashboardPresetId, layoutsEqual, routes, toGridLayout, type DashboardPresetId } from "@foundmill/widgets";
+import { DASHBOARD_PRESET_LIST, dashboardPresets, fromGridLayout, isDashboardPresetId, layoutsEqual, routes, toGridLayout, type DashboardPresetId } from "@foundmill/widgets";
 import { formatNumber } from "@/lib/format";
 
 export interface DashboardSummary {
@@ -16,6 +16,8 @@ export interface DashboardSummary {
   version: number;
   isActive: boolean;
   userId: string;
+  /** False for the Founder's view a viewer or an advisor reads: built by the api, never saved (`dashboard.get`). */
+  stored?: boolean;
 }
 
 export const DEFAULT_PRESET: DashboardPresetId = "founder";
@@ -23,11 +25,14 @@ export const DEFAULT_PRESET: DashboardPresetId = "founder";
 /**
  * One tab per dashboard of the signed-in founder; a dashboard opened from a co-founder's link gets a trailing "Shared:"
  * tab. The person's own dashboard that the list does not hold yet (the first Home, created by `dashboard.get` after the
- * list was read) gets a plain tab.
+ * list was read) gets a plain tab, and so does the unsaved Founder's view of a read-only role (its link has no id:
+ * nothing is stored).
  */
 export function dashboardTabs(list: readonly DashboardSummary[], businessId: string, current: DashboardSummary | null | undefined, viewerId: string | null = null): TabItem[] {
   const tabs: TabItem[] = list.map((d) => ({ id: d.id, label: d.name, href: routes.home(businessId, d.id) }));
-  if (current && !list.some((d) => d.id === current.id)) tabs.push({ id: current.id, label: isOwnDashboard(current, list, viewerId) ? current.name : `Shared: ${current.name}`, href: routes.home(businessId, current.id) });
+  if (current && !list.some((d) => d.id === current.id)) {
+    tabs.push(current.stored === false ? { id: current.id, label: current.name, href: routes.home(businessId) } : { id: current.id, label: isOwnDashboard(current, list, viewerId) ? current.name : `Shared: ${current.name}`, href: routes.home(businessId, current.id) });
+  }
   return tabs;
 }
 
@@ -39,6 +44,16 @@ export function isOwnDashboard(row: Pick<DashboardSummary, "id" | "userId">, lis
 /** Same widgets, places, sizes and settings (order aside): nothing to save. */
 export function sameLayout(a: WidgetLayout, b: WidgetLayout): boolean {
   return layoutsEqual(fromGridLayout(a), fromGridLayout(b));
+}
+
+/**
+ * What Home lets the signed-in person do with the dashboard on screen (BUILD §11.2; DECISIONS "Viewers never write,
+ * anywhere"): edit it when the api says so (their own, stored, with a role that writes), start new dashboards and copy
+ * a co-founder's shared one only with a role that writes.
+ */
+export function dashboardActions(row: { stored?: boolean; editable?: boolean } | null | undefined, opts: { canWrite: boolean; mine: boolean }): { edit: boolean; create: boolean; copy: boolean } {
+  const edit = !!row?.editable;
+  return { edit, create: opts.canWrite, copy: !!row && opts.canWrite && row.stored !== false && !opts.mine };
 }
 
 /** "Dashboard 2", "Dashboard 3", … never clashing with an existing name. */
@@ -55,9 +70,13 @@ export function shareHref(origin: string, businessId: string, dashboardId: strin
   return `${origin.replace(/\/+$/, "")}${routes.home(businessId, dashboardId)}`;
 }
 
-/** Presets for the WidgetGrid toolbar (Founder's view, Builder, Seller, Investor update). */
-export function gridPresets(): WidgetPreset[] {
-  return DASHBOARD_PRESET_LIST.map((p) => ({ id: p.id, name: p.name, description: p.description, layout: toGridLayout(p.layout) }));
+/**
+ * Presets for the WidgetGrid toolbar (Founder's view, Builder, Seller, Investor update), as the api stores them: the
+ * Founder's view with a department card for each of the business's `departments` (visible ones).
+ */
+export function gridPresets(departments?: number): WidgetPreset[] {
+  const presets = dashboardPresets(departments === undefined ? {} : { departments });
+  return DASHBOARD_PRESET_LIST.map((p) => presets[p.id]).map((p) => ({ id: p.id, name: p.name, description: p.description, layout: toGridLayout(p.layout) }));
 }
 
 /** The preset a dashboard resets to: the one it was created from, else the Founder's view. */

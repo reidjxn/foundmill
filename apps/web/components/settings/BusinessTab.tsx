@@ -15,7 +15,7 @@ import { readLogoStream } from "@/components/logo/logo-stream";
 import { useBusinessLogoSrc } from "@/components/logo/useBusinessLogo";
 import { currencyName } from "@/lib/format";
 import type { LogoDraft } from "@/lib/logo";
-import { trpcErrorCode, type RouterOutputs } from "@/lib/trpc";
+import { fieldConflictOf, trpcErrorCode, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC, useTRPCClient } from "@/lib/trpc-react";
 import { useBusiness } from "@/components/shell/business-context";
 import { useInvalidateRouters } from "./SettingsScreen";
@@ -29,6 +29,11 @@ export function timeZoneOptions(current: string | null | undefined): { value: st
   const names = timeZoneNames();
   const all = current && !names.includes(current) ? [current, ...names] : names;
   return all.map((z) => ({ value: z, label: timeZoneLabel(z) }));
+}
+
+/** The message under the Slug field: the API's "That slug is taken" while the field still holds the refused slug. */
+export function slugFieldError(slug: string, taken: { slug: string; message: string } | null): string | undefined {
+  return taken && taken.slug === slug ? taken.message : undefined;
 }
 
 export function BusinessTab() {
@@ -50,6 +55,8 @@ export function BusinessTab() {
   const currencyOptions = useMemo(() => [...new Set([...CURRENCIES, state.base.currency])].map((c) => ({ value: c, code: c, label: currencyName(c), textValue: c })), [state.base.currency]);
   const setPrimary = (kitPrimary: string) => set({ kitPrimary });
   const setSecondary = (kitSecondary: string) => set({ kitSecondary });
+  // The slug the API refused because another business has it, with its message, shown under the field until it changes.
+  const [takenSlug, setTakenSlug] = useState<{ slug: string; message: string } | null>(null);
 
   const update = useMutation(
     trpc.business.update.mutationOptions({
@@ -59,7 +66,12 @@ export function BusinessTab() {
         void invalidate(["business"]);
         t.saved("Business saved", "The top bar and the initials mark follow the new brand colors.");
       },
-      onError: (e) => {
+      onError: (e, vars) => {
+        const conflict = fieldConflictOf(e);
+        if (conflict?.field === "slug" && vars.slug) {
+          setTakenSlug({ slug: vars.slug, message: conflict.message });
+          return;
+        }
         // Someone changed a field this save changes: show the latest values, the founder decides again.
         if (trpcErrorCode(e) === "CONFLICT") {
           void queryClient.fetchQuery(trpc.business.get.queryOptions({ businessId }, { staleTime: 0 })).then((fresh) => setState(initialBusinessForm(businessFields(fresh.business))));
@@ -70,6 +82,7 @@ export function BusinessTab() {
       },
     }),
   );
+  const slugError = slugFieldError(slug, takenSlug);
 
   // --- the logo: saved at once (business.logo.*) ----------------------------------------------------------------------
   const meta = data.logo;
@@ -136,8 +149,8 @@ export function BusinessTab() {
           <Field htmlFor="biz-name" label="Name" required>
             <Input id="biz-name" value={name} onChange={(e) => set({ name: e.target.value })} maxLength={120} />
           </Field>
-          <Field htmlFor="biz-slug" label="Slug" hint="Lower-case letters, digits and dashes.">
-            <Input id="biz-slug" mono value={slug} onChange={(e) => set({ slug: e.target.value.toLowerCase() })} maxLength={80} invalid={!/^[a-z0-9-]+$/.test(slug)} />
+          <Field htmlFor="biz-slug" label="Slug" hint="Lower-case letters, digits and dashes." error={slugError}>
+            <Input id="biz-slug" mono value={slug} onChange={(e) => set({ slug: e.target.value.toLowerCase() })} maxLength={80} invalid={!!slugError || !/^[a-z0-9-]+$/.test(slug)} data-testid="business-slug" />
           </Field>
         </FormRow>
         <Field htmlFor="biz-archetype" label="Archetype" hint="Drives the default departments, channels and the Board's first decisions.">
@@ -175,7 +188,7 @@ export function BusinessTab() {
             update.mutate({ businessId, ...changes, archetype: changes.archetype as Archetype | null | undefined, expected });
           }}
           saving={update.isPending}
-          disabled={!dirty || !validHex || name.trim().length === 0 || !/^[a-z0-9-]+$/.test(slug)}
+          disabled={!dirty || !validHex || name.trim().length === 0 || !/^[a-z0-9-]+$/.test(slug) || !!slugError}
         />
       </SettingsSection>
     </AdminOnly>

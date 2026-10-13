@@ -12,12 +12,20 @@ describe("chapters — one per quarter", () => {
     expect(chapters.map((c) => c.status)).toEqual(["past", "past", "past", "past", "past", "past", "past", "current", "future", "future"]);
     expect(chapters.map((c) => c.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(chapters[0]).toMatchObject({ year: 2024, quarter: 1, startsOn: "2024-01-01", endsOn: "2024-03-31", title: null, provisionalTitle: "Getting started" });
-    expect(chapters[0]!.summary.days).toBe(91);
+    expect(chapters[0]!.summary.days).toBe(77); // 15 January – 31 March inclusive: counted from kick-off
     expect(chapters[7]!.summary.days).toBe(6); // 1–6 October inclusive
     expect(chapters[8]!.summary.days).toBe(0);
     expect(chapters[9]!.provisionalTitle).toBe("Up next");
     expect(chapters[3]).toMatchObject({ startsOn: "2024-10-01", endsOn: "2024-12-31" });
     for (const c of chapters) expect(Chapter.parse(c)).toEqual(c);
+  });
+
+  it("counts the kick-off chapter's days from kick-off, not from the first day of its quarter", () => {
+    const chapters = buildChapters({ startDay: "2024-10-12", today: "2025-01-20", horizonQuarters: 0 });
+    expect(chapters[0]!.summary.days).toBe(81); // 12 Oct – 31 Dec inclusive
+    expect(chapters[1]!.summary.days).toBe(20);
+    // A business that started in the current quarter counts from its first day too.
+    expect(buildChapters({ startDay: "2025-10-04", today: "2025-10-06", horizonQuarters: 0 })[0]!.summary.days).toBe(3);
   });
 
   it("respects the horizon and a same-quarter start", () => {

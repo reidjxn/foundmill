@@ -1,9 +1,9 @@
 /** businesses — the business record (BUILD §7.2 "Accounts and businesses", routers business.*). */
-import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, DEFAULT_BUSINESS_CURRENCY, GAME_MODES, MODEL_BILLING, PLAN_TIERS, ValidationError, slugify, uuid, type AgentStopReason } from "@foundmill/shared";
+import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, ConflictError, DATA_REGIONS, DEFAULT_BUSINESS_CURRENCY, GAME_MODES, MODEL_BILLING, PLAN_TIERS, ValidationError, slugify, uuid, type AgentStopReason } from "@foundmill/shared";
 import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { auditLog, businesses, memberships, type Business } from "../schema";
-import { Currency, defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, rowsOf, type Executor } from "./_shared";
+import { Currency, defined, Id, IsoDateInput, maybeOne, MinorAmount, one, parseInput, rowsOf, uniqueViolation, type Executor } from "./_shared";
 
 const HexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/, "brand colors are #RRGGBB");
 /** ISO 4217: three letters (0025 holds the column to the same shape). */
@@ -31,6 +31,8 @@ export const CreateBusinessInput = z.object({
   /** The business's own currency (0025); commit passes the founder's choice. Mirrors the column default. */
   currency: BusinessCurrency.default(DEFAULT_BUSINESS_CURRENCY),
   createdBy: Id.nullable().optional(),
+  /** A seeded demo business (0044): kept off the network for everyone outside it. The demo seed sets it; nothing else does. */
+  isDemo: z.boolean().default(false),
 });
 export type CreateBusinessInput = z.input<typeof CreateBusinessInput>;
 
@@ -58,6 +60,8 @@ export const BUSINESS_DELETION_REQUEST_ACTION = "business.request_deletion";
 export const BUSINESS_DELETION_CANCEL_ACTION = "business.cancel_deletion";
 /** Days between the request and the purge, when the request does not carry its own `scheduledFor`. */
 export const BUSINESS_DELETION_DELAY_DAYS = 7;
+/** What Settings › Business shows under the Slug field when another business already has the slug. */
+export const SLUG_TAKEN = "That slug is taken";
 
 export const businessesRepo = {
   /** The business, or NotFoundError. Archived businesses are not found unless `includeArchived`. */
@@ -124,6 +128,7 @@ export const businessesRepo = {
       glossary: v.glossary,
       currency: v.currency,
       createdBy: v.createdBy ?? null,
+      isDemo: v.isDemo,
     });
     return {
       id,
@@ -147,6 +152,7 @@ export const businessesRepo = {
       agentsStoppedAt: null,
       agentsStoppedReason: null,
       timeZone: null,
+      isDemo: v.isDemo,
       createdAt: new Date(),
       updatedAt: new Date(),
       archivedAt: null,
@@ -189,10 +195,19 @@ export const businessesRepo = {
     return { stopped: row.stoppedAt !== null || row.archivedAt !== null, stoppedAt: row.stoppedAt, reason: row.reason, archived: row.archivedAt !== null };
   },
 
+  /**
+   * Updates the business record. Slugs are unique across every business (`businesses_slug_key`), so a slug another
+   * business holds is a ConflictError on the `slug` field ("That slug is taken"), never a database error.
+   */
   async update(db: Executor, businessId: string, input: UpdateBusinessInput): Promise<Business> {
     const v = parseInput(UpdateBusinessInput, input, "business update");
-    const rows = await db.update(businesses).set(defined(v)).where(and(eq(businesses.id, businessId), notArchived)).returning();
-    return one(rows, "business", businessId);
+    try {
+      const rows = await db.update(businesses).set(defined(v)).where(and(eq(businesses.id, businessId), notArchived)).returning();
+      return one(rows, "business", businessId);
+    } catch (err) {
+      if (v.slug !== undefined && uniqueViolation(err)?.constraint === "businesses_slug_key") throw new ConflictError(SLUG_TAKEN, { field: "slug" });
+      throw err;
+    }
   },
 
   async setGameMode(db: Executor, businessId: string, gameMode: (typeof GAME_MODES)[number]): Promise<Business> {

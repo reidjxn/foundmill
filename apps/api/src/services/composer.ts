@@ -36,7 +36,16 @@ export interface ComposerClient {
   narrate(businessId: string, eventIds: readonly string[], opts?: { actorUserId?: string | null }): Promise<ComposeResult>;
   /** True when the HTTP service answered recently (health). */
   reachable(): Promise<boolean>;
+  /**
+   * Ask the composer to title an ended quarter (BUILD §11.2 "Chapters … titled by Opus"; it stores the title it writes
+   * in `chapter_titles`). Fire and forget: the Ribbon shows the provisional title until then, and a quarter is asked
+   * about at most once per `CHAPTER_TITLE_RETRY_MS` by this process, whatever the answer.
+   */
+  requestChapterTitle(businessId: string, chapterId: string): void;
 }
+
+/** How long before an unanswered (or unstored) chapter title is asked for again. */
+export const CHAPTER_TITLE_RETRY_MS = 24 * 60 * 60 * 1000;
 
 export interface CreateComposerClientOptions {
   url: string;
@@ -140,8 +149,17 @@ export function createComposerClient(opts: CreateComposerClientOptions): Compose
     }
   };
 
+  const chapterTitleAskedAt = new Map<string, number>();
+
   return {
     refresh: (businessId, o = {}) => run("/v1/refresh", { businessId }, businessId, () => composeLocallyWithSlot(opts.db, opts.models, businessId, { actorUserId: o.actorUserId ?? null })),
+    requestChapterTitle(businessId, chapterId) {
+      const key = `${businessId}:${chapterId}`;
+      const now = Date.now();
+      if (now - (chapterTitleAskedAt.get(key) ?? -Infinity) < CHAPTER_TITLE_RETRY_MS) return;
+      chapterTitleAskedAt.set(key, now);
+      void post("/v1/chapter-title", { businessId, quarter: chapterId }).catch((err: unknown) => opts.log.debug({ err: (err as Error).message, businessId, chapterId }, "chapter title not composed; the provisional title stays"));
+    },
     narrate: (businessId, eventIds, o = {}) =>
       run("/v1/narrate", { businessId, eventIds }, businessId, () => composeLocallyWithSlot(opts.db, opts.models, businessId, { eventIds, actorUserId: o.actorUserId ?? null })),
     async reachable() {

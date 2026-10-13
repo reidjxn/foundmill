@@ -1,7 +1,7 @@
 /** 0002 — founder profiles, businesses, ideas (+ the businessId() helper every business-scoped table uses); 0022 — account preferences; 0025 — the business currency. */
 import { AGENT_STOP_REASONS, ARCHETYPES, BUSINESS_MODES, DATA_REGIONS, DATE_FORMAT_PREFERENCES, GAME_MODES, MODEL_BILLING, PLAN_TIERS, TIME_FORMAT_PREFERENCES, VISIBILITY } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
-import { char, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { boolean, char, index, integer, jsonb, numeric, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { archivedAt, currency, emptyArray, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 
@@ -84,6 +84,11 @@ export const businesses = pgTable(
      * as UTC.
      */
     timeZone: text("time_zone"),
+    /**
+     * 0044 — a seeded demo business (Northwind, Ledgerly): its numbers are synthetic, so it is never listed on the
+     * network (public views, leaderboards, community owners) for anyone outside it. Set by the seed only.
+     */
+    isDemo: boolean("is_demo").notNull().default(false),
     ...timestampsWithArchive(),
   },
   (t) => [

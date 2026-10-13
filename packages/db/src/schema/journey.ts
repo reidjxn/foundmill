@@ -125,6 +125,25 @@ export const milestones = pgTable(
 export type Milestone = typeof milestones.$inferSelect;
 export type NewMilestone = typeof milestones.$inferInsert;
 
+export const CHAPTER_MOODS = ["rising", "steady", "turbulent", "breakthrough"] as const;
+
+/** 0044 — the composer's title for a quarter that has ended (BUILD §11.2 "Chapters … titled by Opus"); written by the composer. */
+export const chapterTitles = pgTable(
+  "chapter_titles",
+  {
+    id: id(),
+    businessId: businessId(),
+    /** "2026-Q3" (packages/journey `chapterIdFor`). */
+    chapterId: text("chapter_id").notNull(),
+    title: text("title").notNull(),
+    subtitle: text("subtitle").notNull().default(""),
+    mood: text("mood", { enum: CHAPTER_MOODS }).notNull().default("steady"),
+    ...timestamps(),
+  },
+  (t) => [uniqueIndex("chapter_titles_business_chapter_key").on(t.businessId, t.chapterId)],
+);
+export type ChapterTitle = typeof chapterTitles.$inferSelect;
+
 const journeyDailyColumns = {
   businessId: uuid("business_id").notNull(),
   day: date("day", { mode: "string" }).notNull(),

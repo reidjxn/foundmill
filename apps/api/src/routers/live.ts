@@ -74,6 +74,8 @@ async function visibleCommunity(ctx: Ctx, communityId: string) {
   const isMember = membership?.status === "active" || membership?.status === "muted";
   const invited = membership?.status === "invited";
   if (community.archivedAt || (community.visibility !== "public" && !isMember && !invited)) throw new NotFoundError("community", communityId);
+  // A demo business's community (synthetic posts) is there only for the demo's own members and the community's (0044).
+  if (!isMember && !invited && (await repos.social.demoBusinessesHiddenFrom(ctx.db, ctx.userId, [community.ownerBusinessId])).size) throw new NotFoundError("community", communityId);
   const canModerate = membership?.status === "active" && (membership.role === "owner" || membership.role === "moderator");
   return { community, membership, isMember, invited, canPost: membership?.status === "active", canModerate };
 }
@@ -468,10 +470,11 @@ export const liveRouter = router({
     get: protectedProcedure.input(z.object({ leaderboardId: Id })).query(({ ctx, input }) => repos.social.getLeaderboard(ctx.db, input.leaderboardId)),
     /**
      * A board's entries, each with the business's public card (name, logo inputs) when it is listed (null otherwise),
-     * and whether the viewer belongs to it (their own rows offer no "Ask to connect").
+     * and whether the viewer belongs to it (their own rows offer no "Ask to connect"). A demo business's entry
+     * (synthetic numbers) is there only for its own members (0044).
      */
     entries: protectedProcedure.input(z.object({ leaderboardId: Id, limit: z.number().int().min(1).max(500).default(100) })).query(async ({ ctx, input }) => {
-      const rows = await repos.social.leaderboardEntries(ctx.db, input.leaderboardId, input.limit);
+      const rows = await repos.social.leaderboardEntries(ctx.db, input.leaderboardId, input.limit, { viewerId: ctx.userId });
       const [{ businesses }, mine] = await Promise.all([repos.social.lookupPeople(ctx.db, ctx.userId, { businessIds: rows.map((r) => r.businessId) }), repos.memberships.listForUser(ctx.db, ctx.userId)]);
       const cards = new Map(businesses.map((b) => [b.businessId, b]));
       const own = new Set(mine.map((m) => m.businessId));

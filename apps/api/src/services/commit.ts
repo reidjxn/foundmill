@@ -22,7 +22,7 @@ import { initialModelBilling } from "@foundmill/config";
 import { assertBusinessAllowance, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
 import { CHANNEL_KEYS, CHANNEL_META, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, MODULE_TABS, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode } from "@foundmill/shared";
-import { PRESET_LAYOUTS } from "../presets";
+import { presetLayout } from "../presets";
 import { QUEUE_ACTION } from "./cycle";
 import { checkLogoChoice, type LogoChoice } from "./logo";
 import { hireMany, type PlannedHire } from "./squad";
@@ -267,8 +267,8 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
       taskIds.push(task.id);
     }
 
-    // Founder's Home dashboard.
-    await repos.dashboards.create(tx, businessId, { userId, name: "Home", preset: "founder", layout: PRESET_LAYOUTS.founder, isActive: true });
+    // Founder's Home dashboard: a department card for every department the archetype seeds (all visible).
+    await repos.dashboards.create(tx, businessId, { userId, name: "Home", preset: "founder", layout: presetLayout("founder", { departments: seed.departments.length }), isActive: true });
 
     // The Board's first decision (vision + first decisions), from the Chief of Staff.
     const board = (importLink && importBoardDecision(business.name, importLink)) ?? seed.boardDecision;

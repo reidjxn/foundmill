@@ -65,16 +65,19 @@ export function continueButtonLabel(state: ContinueState): string {
 }
 
 /**
+ * What a vacation waits for, without a leading "until": the caption adds that word itself, and a stored condition is a
+ * whole phrase ("until I return" for the open-ended vacation, whatever a founder typed for a condition).
+ */
+export function untilPhrase(label: string): string {
+  return label.trim().replace(/^until\s+/i, "");
+}
+
+/**
  * "On vacation until Oct 14, 2026" / "On vacation until the launch ships" / "On vacation". The date follows the
  * signed-in person's format when `prefs` is given ("14 Oct 2026", "2026-10-14").
  */
-/** A condition's words after "until" ("I return", "the launch ships"), whether or not the label already starts with it. */
-function untilWords(label: string): string {
-  return label.replace(/^until\s+/i, "");
-}
-
 export function holidayCaption(state: Extract<ContinueState, { kind: "holiday" }>, prefs?: DateFormatPrefs | null): string {
-  if (state.untilLabel) return `On vacation until ${untilWords(state.untilLabel)}`;
+  if (state.untilLabel) return `On vacation until ${untilPhrase(state.untilLabel)}`;
   if (state.until) return `On vacation until ${formatDate(state.until, "date", prefs)}`;
   return "On vacation";
 }
@@ -85,7 +88,7 @@ export function holidayCaption(state: Extract<ContinueState, { kind: "holiday" }
  * ("Until Oct 14"). Exported for tests.
  */
 export function holidayCaptionParts(state: Extract<ContinueState, { kind: "holiday" }>, prefs?: DateFormatPrefs | null): { full: string; date: DateYearParts | null; short: string } {
-  if (state.untilLabel) return { full: `On vacation until ${untilWords(state.untilLabel)}`, date: null, short: `Until ${untilWords(state.untilLabel)}` };
+  if (state.untilLabel) return { full: `On vacation until ${untilPhrase(state.untilLabel)}`, date: null, short: `Until ${untilPhrase(state.untilLabel)}` };
   if (state.until) return { full: "On vacation until ", date: formatDateYearParts(state.until, prefs), short: `Until ${formatDate(state.until, "dayMonth", prefs)}` };
   return { full: "On vacation", date: null, short: "On vacation" };
 }

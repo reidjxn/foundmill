@@ -53,6 +53,23 @@ test.describe("settings › business: the logo", () => {
   });
 });
 
+test.describe("settings › business: the slug", () => {
+  test("a slug another business holds is refused inline as 'That slug is taken', and nothing is saved", async ({ page }) => {
+    await openBusiness(page, "settings/business");
+    await expect(settingsScreen(page)).toHaveAttribute("data-tab", "business", { timeout: LONG });
+    const slug = page.getByTestId("business-slug");
+    const original = await slug.inputValue();
+    await slug.fill("ledgerly");
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(page.getByText("That slug is taken")).toBeVisible({ timeout: LONG });
+    // No raw SQL anywhere, and the Save button waits for a different slug.
+    await expect(page.getByText(/Failed query/)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    await slug.fill(original);
+    await expect(page.getByText("That slug is taken")).toHaveCount(0);
+  });
+});
+
 /**
  * Settings › Mode: the "Spend cap per action" set on Commit is stored on the business and editable here (above it every
  * spend asks first, whatever the mode). The spec leaves Northwind without a cap, as the seed has it.

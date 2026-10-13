@@ -1,5 +1,5 @@
 /** departments + department_members (BUILD §11.13; routers department.*). Departments are labels over modules. */
-import { departmentLetters, DEPT_COLOUR_TOKENS, isDepartmentShortcut, MODULE_KEYS, slugify, ValidationError } from "@foundmill/shared";
+import { ConflictError, departmentLetters, DEPT_COLOUR_TOKENS, isDepartmentShortcut, MODULE_KEYS, slugify, ValidationError } from "@foundmill/shared";
 import { and, asc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { departmentMembers, departments, MEMBER_KINDS, screenDefinitions, type Department, type DepartmentMember } from "../schema";
@@ -69,26 +69,34 @@ export const departmentsRepo = {
   },
 
   /**
-   * A slug no department of the business uses yet: `base`, else `base-2`, `base-3`, … The unique key covers archived
-   * departments too, so a new "Team" next to an archived one gets `team-2` instead of failing the insert.
+   * The address a new department named `name` takes: its slug, or the slug with the first free `-2`, `-3`, … suffix.
+   * Archived departments keep their slug (the unique index covers them, and a reset restores them by it), so a name an
+   * archived or merged-away department had still gets a department of its own.
    */
-  async freeSlug(db: Executor, businessId: string, base: string): Promise<string> {
+  async freeSlug(db: Executor, businessId: string, name: string): Promise<string> {
+    const base = slugify(name).slice(0, 56).replace(/-+$/, "") || "department";
     const rows = await db
       .select({ slug: departments.slug })
       .from(departments)
       .where(and(eq(departments.businessId, businessId), or(eq(departments.slug, base), like(departments.slug, `${base}-%`))));
     const taken = new Set(rows.map((r) => r.slug));
     if (!taken.has(base)) return base;
-    for (let n = 2; ; n++) {
-      const candidate = `${base.slice(0, 59 - String(n).length)}-${n}`;
-      if (!taken.has(candidate)) return candidate;
-    }
+    let n = 2;
+    while (taken.has(`${base}-${n}`)) n += 1;
+    return `${base}-${n}`;
   },
 
+  /**
+   * Creates a department. Without a slug it takes the name's free slug (`freeSlug`); a slug given explicitly that is
+   * already used (by a live or an archived department) is a ConflictError, never a database error.
+   */
   async create(db: Executor, businessId: string, input: CreateDepartmentInput): Promise<Department> {
     const v = parseInput(CreateDepartmentInput, input, "department");
     const position = v.position ?? Number(one(await db.select({ n: sql<number>`coalesce(max(${departments.position}), -1) + 1` }).from(departments).where(live(businessId)), "position").n);
-    const slug = await departmentsRepo.freeSlug(db, businessId, v.slug ?? slugify(v.name));
+    const slug = v.slug ?? (await departmentsRepo.freeSlug(db, businessId, v.name));
+    if (v.slug && (await db.select({ id: departments.id }).from(departments).where(and(eq(departments.businessId, businessId), eq(departments.slug, v.slug))).limit(1)).length) {
+      throw new ConflictError(`Another department already uses the address "${v.slug}"`, { field: "slug" });
+    }
     const created = one(
       await db
         .insert(departments)
@@ -196,6 +204,14 @@ export const departmentsRepo = {
       await settleShortcuts(tx, businessId);
       return departmentsRepo.get(tx, businessId, departmentId);
     });
+  },
+
+  /**
+   * Brings an archived (or merged-away) department back into the sidebar, visible. Its tabs are the caller's to
+   * restore (apps/api syncs them with its modules); its member rows were kept by `archive`.
+   */
+  async unarchive(db: Executor, businessId: string, departmentId: string): Promise<Department> {
+    return one(await db.update(departments).set({ archivedAt: null, hidden: false }).where(and(eq(departments.businessId, businessId), eq(departments.id, departmentId))).returning(), "department", departmentId);
   },
 
   /**

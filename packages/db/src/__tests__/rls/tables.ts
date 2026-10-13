@@ -105,6 +105,8 @@ export const TENANT_TABLES: TenantTableSpec[] = [
     return { conversionId, matchdayLevel: "friendly" };
   }),
   spec("milestones", s.milestones, "member", () => ({ kind: "customer", label: uniq("milestone") })),
+  // 0044 chapter titles (written by the composer with the service role)
+  spec("chapter_titles", s.chapterTitles, "service", () => ({ chapterId: `${1000 + (counter() % 9000)}-Q${1 + (counter() % 4)}`, title: uniq("Chapter") })),
   // 0008 crm
   spec("entities", s.entities, "member", () => ({ kind: "person", displayName: uniq("Person"), identifiers: { email: `${uniq("p")}@x.test` } })),
   spec("entity_roles", s.entityRoles, "member", (f) => ({ entityId: f.entityId, role: "lead", stage: "new" })),
