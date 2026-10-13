@@ -6,7 +6,9 @@
  *   revoked BYOK key: deny before Cedar, SEC-1) → build the Cedar request (agent attrs from repos.agents,
  *   tool hints from the connector, business mode + holiday, suppression + untrusted-recipient context) → evaluate →
  *     deny  → audit, 403 (a hard gate also queues an approval so the founder sees the task)
- *     ask   → approvals row + `approval.requested` through the outbox, audit, return approvalId
+ *     ask   → the founder's approval of this very call runs it once (allow below); else the open approval of the same
+ *             call, or a new approvals row + `approval.requested` + its Inbox decision item through the outbox; audit,
+ *             return approvalId
  *     allow → decrypt credential in memory → connector.callTool → wrap untrusted content and remember
  *             its recipients for the session → meter into usage_ledger → audit → return
  *
@@ -16,7 +18,7 @@ import { createHash } from "node:crypto";
 import { effectiveApprovalThresholdMinor } from "@foundmill/config";
 import { AppError, BUSINESS_MODES, NotFoundError, type BusinessMode } from "@foundmill/shared";
 import type { Vault } from "@foundmill/shared/crypto";
-import { bookUsage, codeRepositoryOf, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
+import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
 import { evaluate, getPolicyEngine, type AgentAutonomy, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
 import {
   canonicalJson,
@@ -272,7 +274,18 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
   const decision = evaluate(policyInput, deps.policyEngine ?? getPolicyEngine());
 
   if (decision.outcome === "deny") return deny(deps, session, req, loaded, decision, args, log);
-  if (decision.outcome === "ask") return ask(deps, session, req, loaded, decision, args, log);
+  if (decision.outcome === "ask") {
+    // The founder already approved this very call (0030): it runs once under that approval instead of asking again,
+    // whether the session still waiting retries it or the next session on the task makes it. The approval covers the
+    // amount it was asked for, in the same currency, and no more; a deny (spend cap, hard gate, suppression) never
+    // reaches this point.
+    const granted = await repos.approvals.useGranted(deps.db, businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: connector.key, tool: tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0, currency: req.context.currency ?? loaded.agent.currency });
+    if (granted) {
+      log.info({ approvalId: granted.id }, "tool call runs under the founder's approval");
+      return allow(deps, session, req, loaded, { ...decision, reasons: [...decision.reasons, `Approved by the founder (approval ${granted.id})`] }, args, log, now, granted.id);
+    }
+    return ask(deps, session, req, loaded, decision, args, log);
+  }
   return allow(deps, session, req, loaded, decision, args, log, now);
 }
 
@@ -462,12 +475,15 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
       planActionId: req.context.planActionId ?? null,
       agentId: session.agentId,
       sessionId: session.sessionId,
+      // A hard gate is a founder task, not a question: it never holds the task back for an answer (0030).
+      ...(hardGate ? { taskId: null } : {}),
       connectorKey: loaded.connector.key,
       tool: loaded.tool.name,
       args: argsObject(args),
       reasons: decision.reasons,
+      ...(amount ? { amountMinor: amount.amountMinor, currency: amount.currency } : {}),
     });
-    await writeGatewayEvent(tx, {
+    const requested = await writeGatewayEvent(tx, {
       businessId: session.businessId,
       type: "approval.requested",
       actor: { kind: "agent", id: session.agentId },
@@ -487,6 +503,17 @@ async function queueApproval(deps: GatewayDeps, session: SessionToken, req: Call
         expiresAt: null,
       },
     });
+    // The founder answers an "ask" in the Inbox (audit FR-01): one decision item names the agent, the task, the call
+    // and its amount, and its Approve or Reject reaches the session waiting on it. A hard gate stays a note.
+    if (!hardGate) {
+      const { item } = await openApprovalItem(tx, session.businessId, approval, { agentId: session.agentId, agentName: loaded.agent.name, connectorName: loaded.connector.displayName, sourceEventIds: [requested.id] });
+      await writeGatewayEvent(tx, {
+        businessId: session.businessId,
+        type: "inbox.item_created",
+        actor: { kind: "agent", id: session.agentId },
+        payload: { inboxItemId: item.id, type: item.type, fromAgentId: item.fromAgentId, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [requested.id], cost: null },
+      });
+    }
     return approval.id;
   });
 }
@@ -501,14 +528,17 @@ function decisionTypeFor(loaded: Loaded, req: CallRequestParsed, decision: Evalu
 }
 
 async function ask(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger): Promise<ToolCallResult> {
-  const approvalId = await queueApproval(deps, session, req, loaded, decision, args, false);
+  // One gated call has one approval (audit O-26): asked again while its approval is open (a retry, or the next session
+  // on the task), the call waits on that one instead of queueing a second request and a second Inbox item.
+  const open = await repos.approvals.claimOpen(deps.db, session.businessId, { sessionId: session.sessionId, agentId: session.agentId, connectorKey: loaded.connector.key, tool: loaded.tool.name, args: argsObject(args), amountMinor: req.context.amountMinor ?? 0, currency: req.context.currency ?? loaded.agent.currency });
+  const approvalId = open?.id ?? (await queueApproval(deps, session, req, loaded, decision, args, false));
   const audit = await appendAudit(deps, session, req, { outcome: "ask", reasons: decision.reasons, policyIds: decision.policyIds, approvalId });
   log.info({ approvalId, reasons: decision.reasons }, "tool call needs approval");
   const body: AskResponse = { outcome: "ask", approvalId, reasons: decision.reasons, policyIds: decision.policyIds, costMinor: 0, auditId: audit.id };
   return { status: 200, body };
 }
 
-async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date): Promise<ToolCallResult> {
+async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestParsed, loaded: Loaded, decision: EvaluateResult, args: unknown, log: GatewayLogger, now: () => Date, approvalId?: string): Promise<ToolCallResult> {
   const { connector, tool } = loaded;
   const mode = modeFor(deps, connector.key);
   // Credential: decrypted in memory for this call only; never logged, never part of any response.
@@ -592,6 +622,7 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     outcome: "allow",
     reasons: decision.reasons,
     policyIds: decision.policyIds,
+    ...(approvalId ? { approvalId } : {}),
     costMinor,
     resultOk: result.ok,
     errorCode: result.error?.code,

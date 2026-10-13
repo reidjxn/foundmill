@@ -622,7 +622,8 @@ export async function sendConversationMessage(ctx: BusinessContext, input: SendI
   if (chip?.kind === "choose_option" && input.subject.kind === "inbox_item" && chip.option_id) {
     const decision = await decideInboxItem(ctx, { itemId: r.subject.id, chosenOption: chip.option_id });
     const option = r.options.find((o) => o.id === chip.option_id);
-    const next = decision.requiresConfirmation ? "It's outside policy, so nothing runs until you confirm the plan." : decision.followUp ? "The plan is under way; the follow-up is in the Inbox." : "The plan is under way.";
+    // An approval's item says what the answer did ("Legal Lead carries on."), not that a plan is under way.
+    const next = decision.approval ? decision.approval.summary : decision.requiresConfirmation ? "It's outside policy, so nothing runs until you confirm the plan." : decision.followUp ? "The plan is under way; the follow-up is in the Inbox." : "The plan is under way.";
     // The first sentence of the voice's acknowledgement ("Noted."), then what was chosen.
     const fullAck = ackLine(voice, seed);
     const ack = fullAck.match(/^.*?[.!](?=\s|$)/)?.[0] ?? fullAck;

@@ -8,7 +8,8 @@
  * the decision) and the DecisionBar (1–4 through the shell's keyboard map; "Ask <agent>" opens the conversation's
  * Write field instead of a free-text box). When policy says "ask", "Here is what will happen" lists every action with
  * its cost before `plan.confirm`. Answered items show what was chosen, the plan's progress and follow-up links. Won
- * customers open their Customer Update (the replay).
+ * customers open their Customer Update (the replay). An agent's request to make a gated call (audit FR-01) shows the
+ * agent, the task, the call and its amount above the DecisionBar's Approve and Reject, with an optional reason.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, ArrowRight, CirclePause, ExternalLink, EyeOff, Play, ShieldAlert, Trophy } from "lucide-react";
@@ -45,6 +46,7 @@ import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
 import { AgentConversation, type AgentConversationHandle } from "@/components/conversation/AgentConversation";
 import { useAgentDesk } from "@/components/conversation/DeskHost";
 import { roleBesideName } from "@/components/conversation/logic";
+import { ApprovalPanel } from "./ApprovalPanel";
 import { ConfirmPlanDialog } from "./ConfirmPlanDialog";
 import { Exhibit } from "./Exhibit";
 import { NoteTagChip } from "./InboxList";
@@ -112,7 +114,7 @@ interface BodyProps {
 }
 
 function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps) {
-  const { item, decisions, plan: storedPlan, fromAgent, entities } = data;
+  const { item, decisions, plan: storedPlan, fromAgent, entities, approval } = data;
   const { businessId } = useBusiness();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -157,6 +159,9 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
   // --- decision ------------------------------------------------------------------------------------------------------
   const options = useMemo(() => toDecisionOptions(item.decision, currency), [item.decision, currency]);
   const expired = decisionExpired(item.decision);
+  // An agent's request: the founder's optional reason goes with Approve or Reject.
+  const [reason, setReason] = useState("");
+  const cannotAnswer = approval ? !approval.canAnswer : false;
   const [result, setResult] = useState<DecideResult | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const plan = result?.plan ?? storedPlan;
@@ -172,7 +177,10 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
       setResult(res);
       // Continue follows inbox.list (AC-11.3.3); plan/dev/distribution screens follow the executed actions.
       void invalidate(["inbox", "plan", "dev", "distribution", "team", "business"]);
-      if (res.requiresConfirmation) setConfirmOpen(true);
+      if (res.approval) {
+        const a = res.approval;
+        toast({ title: a.outcome === "approved" ? "Approved" : "Rejected", description: `${a.summary}${a.cycle?.started ? " A cycle started." : ""}`, tone: a.outcome === "approved" ? "good" : "info", action: res.followUp ? { label: "Open the note", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
+      } else if (res.requiresConfirmation) setConfirmOpen(true);
       else {
         toast({ title: "Decided", description: res.executed.length ? `${res.executed.length} action${res.executed.length === 1 ? "" : "s"} done, ${res.deferred.length} handed to the team.` : res.plan.summaryMd.slice(0, 140), tone: "good", action: res.followUp ? { label: "Open the update", onClick: () => router.push(routes.inbox(businessId, res.followUp!.id)) } : undefined });
         if (won && journeyId) router.push(routes.journey(businessId, journeyId));
@@ -219,8 +227,11 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
     }),
   );
 
-  const locked = isAnswered || expired || decide.isPending || confirm.isPending;
-  const onChoose = useCallback((o: DecisionOption) => decide.mutate({ businessId, itemId: item.id, chosenOption: o.id }), [decide, businessId, item.id]);
+  const locked = isAnswered || expired || decide.isPending || confirm.isPending || cannotAnswer;
+  const onChoose = useCallback(
+    (o: DecisionOption) => decide.mutate({ businessId, itemId: item.id, chosenOption: o.id, ...(approval && reason.trim() ? { freeText: reason.trim() } : {}) }),
+    [decide, businessId, item.id, approval, reason],
+  );
   // The conversation under the note (DIRECTION #6): Alt+1–4 answer the agent (1–4 stay on the options), T talks.
   const desk = useRef<AgentConversationHandle>(null);
   const showDesk = hasAgentDesk(item.type);
@@ -337,6 +348,8 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 
         <InboxNote bodyMd={item.bodyMd} />
 
+        {approval ? <ApprovalPanel approval={approval} businessId={businessId} departments={departments} reason={reason} onReasonChange={setReason} answered={isAnswered || decide.isPending} /> : null}
+
         {tiles.length ? <StatusStrip tiles={tiles} data-testid="status-strip" /> : null}
 
         <Exhibit exhibit={item.exhibit} entityIds={item.entityIds} fromAgentId={item.fromAgentId} currency={currency} />
@@ -413,7 +426,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
           askLabel={`Ask ${agentName}`}
           askDescription="Talk it through first"
           deadline={decisionDeadline(item.decision) ?? undefined}
-          disabled={expired || item.state === "archived"}
+          disabled={expired || item.state === "archived" || cannotAnswer}
           executing={decide.isPending || confirm.isPending}
           answered={answered}
           hotkeys={false}

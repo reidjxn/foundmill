@@ -289,6 +289,7 @@ const taskCompleted = declareEvent(
 
 export const TASK_BLOCKED_REASONS = [
   "awaiting_approval",
+  "approval_rejected",
   "dependency",
   "credential",
   "budget",

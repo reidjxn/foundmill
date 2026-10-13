@@ -7,6 +7,7 @@
 import { getArchetypeSeed } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
 import { eq } from "drizzle-orm";
+import { openApprovalItem } from "../approvals";
 import { repos } from "../repos";
 import { agentSessions, type Entity } from "../schema";
 import { agentMention, seedAgentEntities, seedChannels, seedDashboards, seedHistoricalTasks, seedInbox, seedIntegrations, seedRoadmap, seedSpec, seedTasks, seededRelevance, type InboxSpec, type RoadmapSpec, type TaskSpec } from "./content";
@@ -361,14 +362,18 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
     ],
   });
   const pendingAction = plan.actions[0]!;
-  await repos.approvals.create(db, businessId, {
+  const pendingApproval = await repos.approvals.create(db, businessId, {
     planActionId: pendingAction.id,
     agentId: paidAds?.agent.id ?? null,
     connectorKey: "platform",
     tool: "set_budget",
     args: { channelKey: "paid_ads", budgetMinor: 60_000, currency: CURRENCY },
     reasons: ["spend above the vacation per-decision cap (£500.00)", "assisted-caps rule"],
+    amountMinor: 60_000,
+    currency: CURRENCY,
   });
+  // The founder answers it in the Inbox, like every approval (audit FR-01): Approve or Reject on its decision item.
+  if (paidAds) await openApprovalItem(db, businessId, pendingApproval, { agentId: paidAds.agent.id, agentName: paidAds.agent.name, taskTitle: null, argsSummary: "Raise the paid search budget to £600.00 for the month-end close keyword cluster" });
 
   // --- social: community and leaderboard (LIVE) ----------------------------------------------------------------------
   const community = await repos.social.createCommunity(db, { name: "Fintech ops founders", slug: LEDGERLY_COMMUNITY_SLUG, descriptionMd: "Founders selling to operations teams at fintechs. Benchmarks are shared as verified metrics only.", visibility: "public", ownerBusinessId: businessId, createdBy: ctx.owner.userId });

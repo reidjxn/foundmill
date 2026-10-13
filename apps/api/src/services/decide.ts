@@ -5,12 +5,17 @@
  * write plan + plan_actions and execute
  * / outside: return `{ requiresConfirmation: true, plan }` → item marked answered (releases Continue) →
  * `decision.made` through the outbox → follow-up Update item with links to the artefacts.
+ *
+ * An approval's decision item (an agent's gated call waiting for the founder, audit FR-01) is answered without a plan
+ * compiler: Approve or Reject resolves the approval (./approvals), records a one-line plan for the history, and the
+ * decision reaches the session or wait that asked.
  */
 import { classifyFounderText } from "@foundmill/agents";
-import { repos, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
+import { approvalOutcomeOf, closeApprovalItem, repos, type Approval, type DbTx, type Decision, type InboxItem, type PlanWithActions } from "@foundmill/db";
 import { ValidationError } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
+import { assertApprovalAccess, deliverApprovalAnswer, recordApprovalAnswer, type ApprovalAnswer } from "./approvals";
 import { idsOfItem, inboxWalls, isWalled, loadRedactionSource, mentionIds, noteMask, redactInboxItem, redactPlan, redactValue } from "./inbox-redaction";
 import { assertInstructionSectionAccess, assertPlanSectionAccess, compileOptionPlan, compilePlan, dispatchPlan, evaluatePlan, executePlanActions, requiresConfirmation, syncChannelEngines, type ActionEvaluation, type PlanContext } from "./plans";
 
@@ -31,6 +36,8 @@ export interface DecideItemResult {
   denied: string[];
   dispatch: { queued: boolean; workflowId: string; reason?: string } | null;
   followUp: InboxItem | null;
+  /** The answer to an approval's decision item: where it was delivered and what the task does next. */
+  approval?: ApprovalAnswer | null;
 }
 
 interface ItemOption {
@@ -67,6 +74,9 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
   const options = ((item.decision as { options?: ItemOption[] } | null)?.options ?? []) as ItemOption[];
   const option = chosenOption ? options.find((o) => o.id === chosenOption) : undefined;
   if (chosenOption && !option) throw new ValidationError("chosenOption is not one of the item's options", { chosenOption, options: options.map((o) => o.id) });
+  // An agent's gated call waiting for the founder: Approve or Reject answers the approval itself.
+  const approval = await ctx.rls((tx) => repos.approvals.forInboxItem(tx, ctx.businessId, item.id));
+  if (approval) return decideApprovalItem(ctx, item, approval, { chosenOption, freeText });
 
   const planCtx = await planContextFor(ctx);
   // Section walls hold in the Inbox too (audit RUI-01): a plan that changes a section the decider cannot write to is
@@ -131,6 +141,57 @@ export async function decideInboxItem(ctx: BusinessContext, input: DecideItemInp
     denied: written.exec.denied,
     dispatch,
     followUp: written.followUp,
+  });
+}
+
+/**
+ * Approve or Reject on an approval's decision item. Free text alongside the choice is the founder's reason (for a
+ * rejection, the agent and the Chief of Staff note quote it); free text alone decides nothing. The plan written here
+ * records the answer as one done action, so the item's history reads like any other decision; nothing is compiled
+ * and no model is called.
+ */
+async function decideApprovalItem(ctx: BusinessContext, item: InboxItem, approval: Approval, input: { chosenOption: string | null; freeText: string | null }): Promise<DecideItemResult> {
+  const outcome = approvalOutcomeOf(input.chosenOption);
+  if (!outcome) throw new ValidationError("Choose Approve or Reject: this note asks about one call an agent wants to make.", { itemId: item.id, approvalId: approval.id });
+  if (approval.outcome !== null) {
+    // Settled some other way (a hold that went on by itself, an expiry, a plan): the note stops asking and stops
+    // blocking Continue, instead of waiting for an answer nobody can give any more.
+    await ctx.rls((tx) => closeApprovalItem(tx, ctx.businessId, approval));
+    throw new ValidationError(`This request was already ${approval.outcome}`, { itemId: item.id, approvalId: approval.id });
+  }
+  // Section walls hold here too: approving a Stripe call needs Finance write, a GitHub call Development write.
+  assertApprovalAccess(ctx.membership, approval);
+  const note = input.freeText?.slice(0, 2000) ?? null;
+  const written = await ctx.rls(async (tx) => {
+    const recorded = await recordApprovalAnswer(tx, ctx, approval, outcome, note);
+    const plan = await repos.plans.create(tx, ctx.businessId, {
+      origin: "option",
+      summaryMd: recorded.summary,
+      inboxItemId: item.id,
+      status: "executing",
+      actions: [{ type: "reply_only", params: { acknowledgement: recorded.summary, approval_id: approval.id, outcome }, agentId: approval.agentId, policyOutcome: "allow" }],
+    });
+    const decided = await repos.inbox.decide(tx, ctx.businessId, item.id, { chosenOption: input.chosenOption, freeText: note, decidedByKind: "user", decidedBy: ctx.userId, planId: plan.id });
+    const action = plan.actions[0]!;
+    await repos.plans.startAction(tx, ctx.businessId, action.id);
+    await repos.plans.finishAction(tx, ctx.businessId, action.id, { status: "done", result: { approvalId: approval.id, outcome, taskId: recorded.task?.id ?? null } });
+    await emit(tx, ctx, { type: "decision.made", payload: { decisionId: decided.decision.id, inboxItemId: item.id, chosenOption: input.chosenOption, freeText: note, decidedBy: "user", planId: plan.id, planActionCount: 1, hardGateActions: 0 } });
+    await audit(tx, ctx, { action: "inbox.decide", target: { kind: "inbox_item", id: item.id }, details: { chosenOption: input.chosenOption, approvalId: approval.id, outcome, planId: plan.id } });
+    return { recorded, decided, plan: await repos.plans.get(tx, ctx.businessId, plan.id), actionId: action.id };
+  });
+  const answer = await deliverApprovalAnswer(ctx, written.recorded);
+  return asSeenBy(ctx, item, {
+    item: written.decided.item,
+    decision: written.decided.decision,
+    plan: written.plan,
+    evaluations: [],
+    requiresConfirmation: false,
+    executed: [written.actionId],
+    deferred: [],
+    denied: [],
+    dispatch: null,
+    followUp: answer.note,
+    approval: answer,
   });
 }
 

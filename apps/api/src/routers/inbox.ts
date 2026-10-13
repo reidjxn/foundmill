@@ -1,6 +1,8 @@
 /** inbox.list/get/refresh/decide/markRead/archive + plan.preview/confirm/status (BUILD §11.3). */
-import { InboxListFilter, repos } from "@foundmill/db";
+import { InboxListFilter, isApprovalOption, repos } from "@foundmill/db";
+import { ValidationError } from "@foundmill/shared";
 import { z } from "zod";
+import { approvalView } from "../services/approvals";
 import { confirmPlan, decideInboxItem, planContextFor } from "../services/decide";
 import { entityStubs, idsOfItem, inboxWalls, loadRedactionSource, noteAsSeenBy, noteMask, planSummariesAsSeenBy, redactDecisions, redactInboxItem, redactPlan } from "../services/inbox-redaction";
 import { modelLimited } from "../services/model-limits";
@@ -10,8 +12,11 @@ import { Id, audit, emit, router, sectionRead, sectionWrite } from "../trpc";
 const inboxRead = sectionRead("inbox");
 const inboxWrite = sectionWrite("inbox");
 
-/** A decision with free text (compiled into a plan by the model). */
-const hasFreeText = (input: unknown): boolean => typeof (input as { freeText?: unknown } | null)?.freeText === "string" && Boolean((input as { freeText: string }).freeText.trim());
+/**
+ * A decision with free text (compiled into a plan by the model). Approve or Reject on an approval's item never reaches
+ * the plan compiler: text with it is only the founder's reason.
+ */
+const hasFreeText = (input: unknown): boolean => typeof (input as { freeText?: unknown } | null)?.freeText === "string" && Boolean((input as { freeText: string }).freeText.trim()) && !isApprovalOption((input as { chosenOption?: string | null }).chosenOption);
 
 export const inboxRouter = router({
   /** Notes follow the reader's Finance and CRM walls (services/inbox-redaction.ts; audit RUI-02). */
@@ -28,14 +33,15 @@ export const inboxRouter = router({
     ctx.rls(async (tx) => {
       const item = await repos.inbox.get(tx, ctx.businessId, input.itemId);
       const walls = inboxWalls(ctx.membership);
-      const [decisions, plan, fromAgent, entities, source] = await Promise.all([
+      const [decisions, plan, fromAgent, entities, source, approval] = await Promise.all([
         repos.inbox.decisionsFor(tx, ctx.businessId, item.id),
         repos.plans.forInboxItem(tx, ctx.businessId, item.id),
         item.fromAgentId ? repos.agents.get(tx, ctx.businessId, item.fromAgentId) : Promise.resolve(null),
         item.entityIds.length && !walls.crm ? repos.entities.byIds(tx, ctx.businessId, item.entityIds) : Promise.resolve([]),
         loadRedactionSource(tx, ctx.businessId, walls, idsOfItem(item)),
+        approvalView(tx, ctx, item.id),
       ]);
-      return { item: redactInboxItem(item, source), decisions: redactDecisions(decisions, source, noteMask(item)), plan: plan ? redactPlan(plan, source, noteMask(item)) : null, fromAgent, entities: entityStubs(entities, walls) };
+      return { item: redactInboxItem(item, source), decisions: redactDecisions(decisions, source, noteMask(item)), plan: plan ? redactPlan(plan, source, noteMask(item)) : null, fromAgent, entities: entityStubs(entities, walls), approval };
     }),
   ),
 
@@ -54,6 +60,10 @@ export const inboxRouter = router({
 
   archive: inboxWrite.input(z.object({ itemId: Id })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {
+      // An agent's request still waiting for an answer is answered, not filed away: archived, nobody could approve or
+      // reject it any more, and its task would wait on it for good.
+      const approval = await repos.approvals.forInboxItem(tx, ctx.businessId, input.itemId);
+      if (approval && approval.outcome === null) throw new ValidationError("Approve or reject this request: an agent is waiting on it.", { itemId: input.itemId, approvalId: approval.id });
       const item = await repos.inbox.archive(tx, ctx.businessId, input.itemId);
       // Other members' open Inbox refetches on it (audit RUI-09: they acted on an item that was already gone).
       await emit(tx, ctx, { type: "inbox.item_updated", payload: { inboxItemId: item.id, change: "archived" } });

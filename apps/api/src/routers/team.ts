@@ -4,8 +4,9 @@ import { CREDITS_CURRENCY } from "@foundmill/config";
 import { SectionPermissions, assertSeatAvailable, repos } from "@foundmill/db";
 import { ConflictError, DECISION_TYPES, ForbiddenError, MEMBERSHIP_ROLES, ValidationError } from "@foundmill/shared";
 import { z } from "zod";
+import { pendingApprovals, resolveApproval } from "../services/approvals";
 import { hireFromTemplate } from "../services/squad";
-import { Id, adminProcedure, audit, emit, router, sectionRead, sectionWrite } from "../trpc";
+import { Id, adminProcedure, audit, emit, router, sectionRead, sectionWrite, writeProcedure } from "../trpc";
 
 const read = sectionRead("team");
 const write = sectionWrite("team");
@@ -182,19 +183,13 @@ export const teamRouter = router({
     ),
   }),
 
-  /** Approvals routed to humans (BUILD §11.9 "approvers"), resolvable here when the handler is a human. */
+  /**
+   * Approvals routed to humans (BUILD §11.9 "approvers"), resolvable here when the handler is a human. Answering one
+   * here is the same as on its Inbox item (services/approvals.ts): the decision reaches the session or wait that asked,
+   * and the person needs write on the section the call changes (the service checks it), not on Team.
+   */
   approvals: router({
-    pending: read.query(({ ctx }) => ctx.rls((tx) => repos.approvals.pending(tx, ctx.businessId))),
-    resolve: write.input(z.object({ approvalId: Id, outcome: z.enum(["approved", "rejected"]), note: z.string().max(2000).optional() })).mutation(({ ctx, input }) =>
-      ctx.rls(async (tx) => {
-        const before = await repos.approvals.get(tx, ctx.businessId, input.approvalId);
-        const approval = await repos.approvals.resolve(tx, ctx.businessId, input.approvalId, { outcome: input.outcome, byKind: "user", byId: ctx.userId });
-        if (approval.agentId) {
-          await emit(tx, ctx, { type: "approval.resolved", payload: { approvalId: approval.id, planActionId: approval.planActionId, agentId: approval.agentId, outcome: input.outcome, resolvedBy: { kind: "user", id: ctx.userId }, note: input.note ?? null, latencyMs: Math.max(0, Date.now() - before.createdAt.getTime()) } });
-        }
-        await audit(tx, ctx, { action: "team.approvals.resolve", target: { kind: "approval", id: approval.id }, details: { outcome: input.outcome } });
-        return approval;
-      }),
-    ),
+    pending: read.query(({ ctx }) => ctx.rls((tx) => pendingApprovals(tx, ctx))),
+    resolve: writeProcedure.input(z.object({ approvalId: Id, outcome: z.enum(["approved", "rejected"]), note: z.string().max(2000).optional() })).mutation(({ ctx, input }) => resolveApproval(ctx, input)),
   }),
 });

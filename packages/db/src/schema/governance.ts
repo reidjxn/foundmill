@@ -1,10 +1,10 @@
 /** 0011 — integrations, credentials, webhooks, policies, approvals, audit log, events, outbox. */
 import { ACTOR_KINDS, CONNECTOR_AUTH_KINDS, INTEGRATION_STATUSES } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
-import { bigint, boolean, index, integer, jsonb, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { bigint, boolean, char, index, integer, jsonb, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { bytea, createdAt, emptyArray, emptyObject, id, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businessId } from "./_refs";
-import { agentSessions, agents } from "./agents";
+import { agentSessions, agents, tasks } from "./agents";
 import { inboxItems, planActions } from "./inbox";
 
 export const POLICY_SCOPES = ["business", "department", "agent"] as const;
@@ -145,6 +145,14 @@ export const approvals = pgTable(
     outcome: text("outcome", { enum: APPROVAL_OUTCOMES }),
     byKind: text("by_kind", { enum: APPROVAL_BY_KINDS }),
     byId: uuid("by_id"),
+    /** The task the gated call was for (0030); a task waits while its approval is open and runs again once approved. */
+    taskId: uuid("task_id").references((): AnyPgColumn => tasks.id, { onDelete: "set null" }),
+    /** What the call would commit, in `currency` (0030); null when it spends nothing. */
+    amountMinor: bigint("amount_minor", { mode: "number" }),
+    currency: char("currency", { length: 3 }),
+    /** When a call ran under this approval (0030): a granted approval is used once. */
+    usedAt: tstz("used_at"),
+    usedBySessionId: uuid("used_by_session_id").references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
     ...timestamps(),
   },
   (t) => [
@@ -154,6 +162,8 @@ export const approvals = pgTable(
     index("approvals_agent_id_idx").on(t.agentId),
     index("approvals_session_id_idx").on(t.sessionId),
     index("approvals_inbox_item_id_idx").on(t.inboxItemId),
+    index("approvals_task_id_idx").on(t.taskId),
+    index("approvals_used_by_session_id_idx").on(t.usedBySessionId),
   ],
 );
 export type Approval = typeof approvals.$inferSelect;

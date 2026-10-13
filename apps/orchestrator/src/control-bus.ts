@@ -19,7 +19,7 @@ export type SessionCommand =
   | ({ kind: "resume" } & CommandMeta)
   | ({ kind: "stop"; reason: string } & CommandMeta)
   | ({ kind: "shout"; message: string; preset?: string | null; modelKey?: string | null } & CommandMeta)
-  | ({ kind: "decision"; approvalId: string; outcome: "approved" | "rejected" } & CommandMeta);
+  | ({ kind: "decision"; approvalId: string; outcome: "approved" | "rejected"; note?: string | null } & CommandMeta);
 
 export interface SessionControlBus {
   post(sessionId: string, command: SessionCommand): Promise<void>;

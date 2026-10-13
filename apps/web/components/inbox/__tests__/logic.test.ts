@@ -3,6 +3,10 @@ import { confirmPlanDescription } from "../ConfirmPlanDialog";
 import {
   REFRESH_DEBOUNCE_MS,
   agentIndex,
+  approvalLockedReason,
+  approvalStatus,
+  describeAction,
+  taskHref,
   answeredFrom,
   askedActionChip,
   confirmationLines,
@@ -332,5 +336,29 @@ describe("section walls (inbox.get item.redacted)", () => {
     expect(hiddenNotice(["finance"])).toBe("Figures from Finance are hidden: your access does not include Finance.");
     expect(hiddenNotice(["crm"])).toBe("Customer details from the CRM are hidden: your access does not include the CRM.");
     expect(hiddenNotice(["crm", "finance"])).toMatch(/^Figures from Finance and customer details from the CRM are hidden/);
+  });
+});
+
+describe("an agent's request in the Inbox (audit FR-01)", () => {
+  const departments = [{ slug: "build", moduleKeys: ["development", "product"], tabs: [{ slug: "training-ground", position: 1 }, { slug: "plan", position: 2 }] }];
+  const waiting = { outcome: null, sessionWaiting: true, task: { id: "t-1", title: "Index the usage events" }, canAnswer: true, section: "development" } as const;
+  it("says where the request stands and what Approve does from here", () => {
+    expect(approvalStatus(waiting)).toEqual({ word: "Waiting for you", tone: "warn", detail: "The agent's session is waiting for your answer. Approve and it carries on." });
+    expect(approvalStatus({ ...waiting, sessionWaiting: false }).detail).toBe("The session stopped waiting and freed its place. Approve and the task runs again on the next cycle.");
+    expect(approvalStatus({ ...waiting, sessionWaiting: false, task: null }).detail).toBe("Approve and it runs once, exactly as asked.");
+    expect(approvalStatus({ ...waiting, outcome: "approved" })).toMatchObject({ word: "Approved", tone: "good" });
+    expect(approvalStatus({ ...waiting, outcome: "rejected" })).toMatchObject({ word: "Rejected", tone: "bad", detail: "Nothing ran. The task stays blocked until you start it again." });
+    expect(approvalStatus({ ...waiting, outcome: "expired" })).toMatchObject({ word: "Expired", tone: "neutral" });
+  });
+  it("names the section a reader needs to answer, and links the task to the Plan", () => {
+    expect(approvalLockedReason(waiting)).toBeNull();
+    expect(approvalLockedReason({ canAnswer: false, section: "finance" })).toBe("Answering this needs write access to Finance. Someone who has it can approve or reject it.");
+    expect(approvalLockedReason({ canAnswer: false, section: null })).toMatch(/write access to the Inbox/);
+    expect(taskHref(BID, departments, "t-1")).toBe(`/b/${BID}/d/build/plan?task=t-1`);
+    expect(taskHref(BID, [], "t-1")).toBeNull();
+  });
+  it("a recorded answer reads as itself in the decided plan", () => {
+    expect(describeAction("reply_only", { acknowledgement: "You approved Legal Lead's request to run GitHub › run migration. Legal Lead carries on." })).toBe("You approved Legal Lead's request to run GitHub › run migration. Legal Lead carries on.");
+    expect(describeAction("reply_only", { question: "Which market first?" })).toBe("Reply: Which market first?");
   });
 });

@@ -14,7 +14,7 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { periodOf, repos, resumeBusinessAgents, workspaceSnapshots } from "@foundmill/db";
+import { openApprovalItem, periodOf, repos, resumeBusinessAgents, workspaceSnapshots } from "@foundmill/db";
 import { readSessionEvents } from "@foundmill/events";
 import { meter, type ModelId } from "@foundmill/models";
 import { LONG_LIVED_NAME_PATTERNS, parseSandboxSpec, type Sandbox, type SandboxProvider, type SandboxSpecInput } from "@foundmill/sandbox";
@@ -890,6 +890,65 @@ describe("runAgentSession (live runner): session control, usage and refusals", (
     expect(finish.taskStatus).toBe("blocked");
     const blocked = await repos.events.list(t.db, t.businessId, { type: "task.blocked", limit: 10 });
     expect(blocked.items.find((e) => (e.payload as { sessionId: string }).sessionId === sessionId)?.payload).toMatchObject({ reason: "awaiting_approval", approvalId });
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+  });
+
+  /** The approval the gateway opens for an "ask" (its row and Inbox item), as `queueApproval` writes them. */
+  const gatewayApproval = async (sessionId: string) => {
+    const approval = await repos.approvals.create(t.db, t.businessId, { agentId: t.workerId, sessionId, connectorKey: "gmail", tool: "send_message", args: { to: "pilot@customer.example" }, reasons: ["augmented mode: every external action asks"] });
+    const { item } = await openApprovalItem(t.db, t.businessId, approval, { agentId: t.workerId, agentName: "Test Engineer", connectorName: "Gmail" });
+    return { approval, item };
+  };
+  /** An SDK turn whose tool call the gateway answered "ask" with `approvalId`, then whatever the founder's decision brings. */
+  const askScript = (approvalId: string, sink: { turn?: string; inputEnded?: boolean }) =>
+    async function* (call: QueryCall) {
+      const prompts = promptsOf(call);
+      await prompts.next();
+      const tool = (call.options.allowedTools as string[]).find((x) => x.startsWith("mcp__"))!;
+      yield { type: "system", subtype: "init", session_id: "sdk-gateway-ask" };
+      yield { type: "assistant", message: { id: "m1", content: [{ type: "tool_use", id: "tu-gw", name: tool, input: { to: "pilot@customer.example" } }], usage: { input_tokens: 20, output_tokens: 5 } } };
+      // What the gateway's MCP answer looks like to the SDK: the body as a JSON string.
+      yield { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu-gw", content: JSON.stringify({ outcome: "ask", approvalId, reasons: ["augmented mode: every external action asks"], policyIds: ["augmented-ask-external"], costMinor: 0, auditId: "00000000-0000-4000-8000-000000000001" }) }] } };
+      yield resultOf(modelUsage(20, 5, 0.01));
+      sink.turn = (await prompts.next()).value?.message.content;
+      yield { type: "assistant", message: { id: "m2", content: [{ type: "text", text: "Done." }], usage: { input_tokens: 30, output_tokens: 8 } } };
+      yield resultOf(modelUsage(30, 8, 0.02));
+      sink.inputEnded = (await prompts.next()).done === true;
+    };
+
+  it("tracks the approval the gateway already opened: no second row, item or approval.requested; Approve continues the turn (O-26)", async () => {
+    const { sessionId, input, launch } = await start();
+    const { approval, item } = await gatewayApproval(sessionId);
+    const sink: { turn?: string; inputEnded?: boolean } = {};
+    script = askScript(approval.id, sink);
+    const requestedBefore = (await repos.events.list(t.db, t.businessId, { type: "approval.requested", limit: 200 })).items.length;
+    const run = acts.runAgentSession(input, launch);
+    await wait(700); // the ask is in and the runner waits on it
+    // `inbox.decide` stores the answer, then signals the session.
+    await repos.approvals.resolve(t.db, t.businessId, approval.id, { outcome: "approved", byKind: "user", byId: t.fixture.ownerId });
+    await t.control.post(sessionId, { kind: "decision", approvalId: approval.id, outcome: "approved", by: t.fixture.ownerId });
+    const result = await run;
+    expect(sink.turn).toBe("The founder approved the pending action; continue.");
+    expect(sink.inputEnded).toBe(true);
+    expect(result.outcome).toBe("done");
+    expect((await repos.approvals.list(t.db, t.businessId, { sessionId })).items.map((a) => a.id)).toEqual([approval.id]);
+    expect((await repos.events.list(t.db, t.businessId, { type: "approval.requested", limit: 200 })).items).toHaveLength(requestedBefore);
+    expect(await repos.inbox.get(t.db, t.businessId, item.id)).toMatchObject({ state: "answered", blocksContinue: false });
+    await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
+  });
+
+  it("Reject tells the agent the founder's reason and not to retry the call", async () => {
+    const { sessionId, input, launch } = await start();
+    const { approval } = await gatewayApproval(sessionId);
+    const sink: { turn?: string; inputEnded?: boolean } = {};
+    script = askScript(approval.id, sink);
+    const run = acts.runAgentSession(input, launch);
+    await wait(700);
+    await repos.approvals.resolve(t.db, t.businessId, approval.id, { outcome: "rejected", byKind: "user", byId: t.fixture.ownerId });
+    await t.control.post(sessionId, { kind: "decision", approvalId: approval.id, outcome: "rejected", by: t.fixture.ownerId, note: "Wait until the contract is signed" });
+    await run;
+    expect(sink.turn).toBe("The founder rejected the pending action (their reason: Wait until the contract is signed); do not retry it and continue with the rest of the task.");
+    expect((await repos.approvals.get(t.db, t.businessId, approval.id)).outcome).toBe("rejected");
     await repos.tasks.setStatus(t.db, t.businessId, researchTaskId, "ready", { force: true });
   });
 

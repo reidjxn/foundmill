@@ -62,7 +62,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
         repos.usage.wages(db, businessId, periodOf(now)),
       ]);
       const failedIds = tasksPage.items.filter((t) => t.status === "failed").map((t) => t.id);
-      const recent = await repos.agents.recentOutcomes(db, businessId, { taskIds: failedIds, limit: 20 * failedIds.length });
+      const [recent, holds] = await Promise.all([repos.agents.recentOutcomes(db, businessId, { taskIds: failedIds, limit: 20 * failedIds.length }), repos.approvals.holds(db, businessId, tasksPage.items.map((t) => t.id))]);
       const spentBy = new Map(wages.map((w) => [w.agentId, w.costMinor]));
       const currency = (await repos.channels.enabledBudget(db, businessId)).currencies[0] ?? "EUR";
       const edges = await repos.tasks.listEdges(db, businessId, tasksPage.items.map((t) => t.id));
@@ -103,6 +103,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
           // A dependency still open (in this list) blocks dispatch; done dependencies are no longer listed.
           blocked: deps.some((d) => openIds.has(d)),
           retry: t.status === "failed" ? taskRetry(failureStreak(recent.filter((s) => s.taskId === t.id)), now) : null,
+          approvalHold: holds.get(t.id) ?? null,
         };
       });
       const agentsStopped = business.agentsStoppedAt !== null;
@@ -130,7 +131,7 @@ export function createBriefActivities(deps: OrchestratorDeps) {
       sections.push(`## Team (${agents.length})\n${fit(agents.map((a) => `- ${a.name} — ${a.role || a.agentType} [${a.layer}, ${a.modelKey}, ${a.status}${a.wageRemainingMinor !== null && a.wageRemainingMinor !== undefined && a.wageRemainingMinor <= 0 ? ", wage cap reached" : ""}] id ${a.id}`), 900).join("\n")}`);
       const taskLines = [...openTasks]
         .sort((a, b) => b.priority - a.priority)
-        .map((t) => `- [${t.status}] ${t.title} (${t.kind}, id ${t.id}${t.assigneeAgentId ? `, assignee ${t.assigneeAgentId}` : ""}${t.departmentId ? `, dept ${t.departmentId}` : ""}${t.blocked ? ", blocked by dependencies" : ""}${t.fileScope.length ? `, files ${t.fileScope.slice(0, 3).join(" ")}` : ""})`);
+        .map((t) => `- [${t.status}] ${t.title} (${t.kind}, id ${t.id}${t.assigneeAgentId ? `, assignee ${t.assigneeAgentId}` : ""}${t.departmentId ? `, dept ${t.departmentId}` : ""}${t.blocked ? ", blocked by dependencies" : ""}${t.approvalHold ? (t.approvalHold.outcome === "rejected" ? ", its request was rejected by the founder" : ", waiting for the founder's approval") : ""}${t.fileScope.length ? `, files ${t.fileScope.slice(0, 3).join(" ")}` : ""})`);
       sections.push(`## Open tasks (${openTasks.length})\n${fit(taskLines, 1600).join("\n") || "- none"}`);
       sections.push(`## Governance\n${agentsStopped ? "The team is stopped (Stop all agents, a revoked key or used-up credits): no work starts until an owner or admin resumes it. " : ""}Approvals waiting: ${pendingApprovals}. Inbox items blocking Continue: ${blockingInboxItems}. Concurrency limit: ${maxAgents} agents (plan ${business.planTier}: ${concurrency.limit} at once, ${concurrency.running} already running). Model budget remaining this period: ${budgetRemainingMinor === null ? "the founder's own Anthropic key (no credits)" : formatMinor(budgetRemainingMinor, CREDITS_CURRENCY) + " of credits (Estimate)"}. Rate-limit capacity: ${capacity}.`);
       sections.push(`## Rules of engagement\nFacts live in the database; query them through tools rather than guessing. Every external action or spend goes through the gateway and its policy. Hard gates (money movement, signing, filings in the founder's name, deletions, security settings) always become founder tasks. Label estimates and forecasts.`);

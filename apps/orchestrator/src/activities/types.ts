@@ -49,6 +49,11 @@ export interface BriefTask {
   blocked: boolean;
   /** A failed task's next automatic retry (`retry.ts`); absent for every other status. */
   retry?: { failures: number; due: boolean; exhausted: boolean; nextAttemptAt: string | null } | null;
+  /**
+   * The founder's answer the task waits for (0030): its approval is still open, or was rejected since its last session.
+   * Such a task is not dispatched; approving makes it dispatchable again. Absent in briefs built before it existed.
+   */
+  approvalHold?: { approvalId: string; outcome: null | "rejected" } | null;
 }
 
 export interface BusinessBrief {
@@ -169,7 +174,7 @@ export type SessionOutcome = "done" | "blocked" | "failed" | "stopped";
 export interface SessionResult {
   outcome: SessionOutcome;
   reason: string | null;
-  blockedReason: "awaiting_approval" | "dependency" | "credential" | "budget" | "rate_limit" | "loop_detected" | "error" | "shout" | "stopped" | null;
+  blockedReason: "awaiting_approval" | "approval_rejected" | "dependency" | "credential" | "budget" | "rate_limit" | "loop_detected" | "error" | "shout" | "stopped" | null;
   approvalId: string | null;
   progress: ProgressState;
   eventsEmitted: number;

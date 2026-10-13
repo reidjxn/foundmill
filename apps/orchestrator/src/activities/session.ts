@@ -30,7 +30,7 @@
 import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { AgentInstructions, buildSystemPrompt, getTemplate, getTemplateByAgentType, hasClubRulesPrefix, listTemplates, restoredWorkspaceNote, ToolGrant, type AgentTemplate } from "@foundmill/agents";
 import { APP_NAME, CREDITS_CURRENCY } from "@foundmill/config";
-import { bookUsage, loadByokApiKey, repos, type Agent, type AgentVersion, type Task } from "@foundmill/db";
+import { bookUsage, closeApprovalItem, loadByokApiKey, repos, type Agent, type AgentVersion, type Approval, type Task } from "@foundmill/db";
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
@@ -43,6 +43,7 @@ import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { applySessionEvent, initialProgress, type ProgressState } from "../progress";
 import { AGENT_PAUSED_FAILURE, CANCELLED_REASON, type RunUsage } from "../session-contract";
+import { openApprovalNote } from "./approvals";
 import { LoopDetector } from "./loop";
 import { CREDITS_USED_UP_SUMMARY, SessionCredits, unbookedTokens } from "./session-credits";
 import { createSessionWorkspace, guardToolCall, hookOutputFor, removeSessionWorkspace, sdkEnvFor, sdkToolPolicyFor } from "./sdk-isolation";
@@ -144,6 +145,9 @@ export function recordingForTask(task: Pick<Task, "id" | "kind">, recordings: re
   if (pool.length === 0) throw new Error("no recordings available for the mock sandbox");
   return pool[stableHash32(task.id) % pool.length]!.key;
 }
+
+/** An approval id the gateway returned (a row id); a recording's own ids ("apr-3c88") are not. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const summariseArgs = (args: unknown): string => {
   const s = typeof args === "string" ? args : JSON.stringify(args ?? {});
@@ -340,6 +344,10 @@ class SessionRecorder {
   pendingApprovalId: string | null = null;
   /** When the pending approval opened (clock ms); the wait for the founder is capped at APPROVAL_WAIT_MINUTES. */
   pendingSince: number | null = null;
+  /** Recorded holds whose call the founder had already approved (0030): the replay goes on without asking again. */
+  readonly grantedHolds = new Set<string>();
+  /** The approval the founder rejected in this run, if any (the session ends blocked on it). */
+  rejectedApprovalId: string | null = null;
   prNumber: number | null = null;
   lastPersisted = -1;
   lastPhase: string | null = null;
@@ -392,6 +400,11 @@ class SessionRecorder {
         if (m) this.prNumber = Number(m[1]);
       }
       if (full.status === "awaiting_approval") await this.openApproval(full);
+      else if (full.status !== "started" && this.pendingApprovalId && this.approvalIds.get(full.approvalId ?? full.callId) === this.pendingApprovalId) {
+        // The call that was waiting moved on without a decision from the founder: a recorded hold resolved by itself.
+        // Its approval and Inbox item must not stay open (and block Continue) for a call that already ran or was refused.
+        await this.markApprovalResolved(this.pendingApprovalId, full.status === "denied" ? "rejected" : "approved", null);
+      }
     }
 
     const before = this.progress;
@@ -439,41 +452,76 @@ class SessionRecorder {
     }
   }
 
-  /** A tool call is waiting for the founder: create the approvals row and the `approval.requested` event. */
+  /**
+   * A tool call is waiting for the founder. One gated call has one approval (audit O-26): a live call's approval is the
+   * one the gateway opened (with its Inbox item), tracked by the id the gateway returned; a replayed hold whose call the
+   * founder already approved (an earlier session on the task ended before the answer) goes on under that approval; a
+   * hold asked again while its approval is open waits on it. Otherwise the approvals row, `approval.requested` and the
+   * decision Inbox item are written here (audit FR-01).
+   */
   private async openApproval(call: Extract<SessionEventInput, { kind: "tool_call" }>): Promise<void> {
     const { deps, ctx } = this;
     const key = call.approvalId ?? call.callId;
     if (this.approvalIds.has(key)) return;
+    const businessId = ctx.input.businessId;
+    const connectorKey = call.connectorKey ?? "platform";
     try {
-      const approval = await repos.approvals.create(deps.db, ctx.input.businessId, {
-        agentId: ctx.agent.id,
-        sessionId: ctx.input.sessionId,
-        connectorKey: call.connectorKey ?? "platform",
-        tool: call.tool,
-        args: { summary: call.argsSummary ?? "" },
-        reasons: [call.resultSummary ?? "policy asked for the founder's approval"],
+      const fromGateway = call.approvalId && UUID_RE.test(call.approvalId) ? await repos.approvals.find(deps.db, businessId, call.approvalId) : null;
+      if (fromGateway && fromGateway.sessionId === ctx.input.sessionId) {
+        this.track(key, fromGateway, true);
+        // Opened by a gateway that predates the Inbox item: the founder still gets one.
+        if (!fromGateway.inboxItemId) await openApprovalNote(deps.db, businessId, fromGateway, { agent: ctx.agent, taskTitle: ctx.task.title, argsSummary: call.argsSummary ?? null });
+        return;
+      }
+      const gated = { sessionId: ctx.input.sessionId, agentId: ctx.agent.id, connectorKey, tool: call.tool, args: { summary: call.argsSummary ?? "" } };
+      const granted = await repos.approvals.useGranted(deps.db, businessId, { ...gated, amountMinor: 0 });
+      if (granted) {
+        this.track(key, granted, false);
+        this.grantedHolds.add(key);
+        await this.publishRaw({ kind: "note", at: deps.clock.now().toISOString(), source: "system", level: "info", text: `The founder already approved ${call.tool}; continuing without asking again.` });
+        return;
+      }
+      const open = await repos.approvals.claimOpen(deps.db, businessId, gated);
+      if (open) {
+        this.track(key, open, true);
+        return;
+      }
+      const approval = await deps.db.transaction(async (tx) => {
+        const row = await repos.approvals.create(tx, businessId, { agentId: ctx.agent.id, sessionId: ctx.input.sessionId, taskId: ctx.task.id, connectorKey, tool: call.tool, args: gated.args, reasons: [call.resultSummary ?? "policy asked for the founder's approval"] });
+        const requested = await emitEvent(tx, {
+          businessId,
+          type: "approval.requested",
+          actor: { kind: "agent", id: ctx.agent.id },
+          payload: { approvalId: row.id, agentId: ctx.agent.id, sessionId: ctx.input.sessionId, connectorKey, tool: call.tool, amount: null, reasons: [call.resultSummary ?? "policy outcome: ask"], policyIds: [], hardGate: false, summary: `${ctx.agent.name} wants to call ${connectorKey}.${call.tool}: ${call.argsSummary || "no arguments"}`.slice(0, 1000) },
+        });
+        await openApprovalNote(tx, businessId, row, { agent: ctx.agent, taskTitle: ctx.task.title, argsSummary: call.argsSummary ?? null, sourceEventIds: [requested.id] });
+        return row;
       });
-      this.approvalIds.set(key, approval.id);
-      this.approvalIdsReverse.set(approval.id, key);
-      this.pendingApprovalId = approval.id;
-      this.pendingSince = deps.clock.nowMs();
-      await emitEvent(deps.db, {
-        businessId: ctx.input.businessId,
-        type: "approval.requested",
-        actor: { kind: "agent", id: ctx.agent.id },
-        payload: { approvalId: approval.id, agentId: ctx.agent.id, sessionId: ctx.input.sessionId, connectorKey: call.connectorKey ?? "platform", tool: call.tool, amount: null, reasons: [call.resultSummary ?? "policy outcome: ask"], policyIds: [], hardGate: false, summary: `${ctx.agent.name} wants to call ${call.connectorKey ?? "platform"}.${call.tool}: ${call.argsSummary || "no arguments"}`.slice(0, 1000) },
-      });
+      this.track(key, approval, true);
     } catch (err) {
       deps.log.warn({ err: (err as Error).message }, "approval row creation failed");
     }
   }
 
+  /** Map the recorded (or SDK) approval id to the row; a call that waits on it makes it the pending one. */
+  private track(key: string, approval: Approval, waits: boolean): void {
+    this.approvalIds.set(key, approval.id);
+    this.approvalIdsReverse.set(approval.id, key);
+    if (!waits) return;
+    this.pendingApprovalId = approval.id;
+    this.pendingSince = this.deps.clock.nowMs();
+  }
+
+  /**
+   * Bookkeeping for a decision the run acted on. The founder's answer arrives already stored (`inbox.decide` resolves
+   * the row before it signals); a recorded hold that resolved by itself is stored here, as the system's.
+   */
   async markApprovalResolved(approvalId: string, outcome: "approved" | "rejected", by: string | null): Promise<void> {
     const { deps, ctx } = this;
     try {
-      const approval = await repos.approvals.get(deps.db, ctx.input.businessId, approvalId);
+      let approval = await repos.approvals.get(deps.db, ctx.input.businessId, approvalId);
       if (approval.outcome === null) {
-        await repos.approvals.resolve(deps.db, ctx.input.businessId, approvalId, { outcome, byKind: by ? "user" : "system", byId: by });
+        approval = await repos.approvals.resolve(deps.db, ctx.input.businessId, approvalId, { outcome, byKind: by ? "user" : "system", byId: by });
         await emitEvent(deps.db, {
           businessId: ctx.input.businessId,
           type: "approval.resolved",
@@ -481,9 +529,11 @@ class SessionRecorder {
           payload: { approvalId, agentId: ctx.agent.id, outcome, resolvedBy: by ? { kind: "user", id: by } : systemActor, note: null, latencyMs: Math.max(0, deps.clock.nowMs() - new Date(approval.createdAt).getTime()) },
         });
       }
+      await closeApprovalItem(deps.db, ctx.input.businessId, approval);
     } catch (err) {
       deps.log.warn({ err: (err as Error).message }, "approval resolution bookkeeping failed");
     }
+    if (outcome === "rejected") this.rejectedApprovalId = approvalId;
     if (this.pendingApprovalId === approvalId) {
       this.pendingApprovalId = null;
       this.pendingSince = null;
@@ -868,6 +918,12 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
   const tick = async () => {
     for (const c of await pull()) await apply(c);
     if (ending || stoppedBy || loopTripped || replay.status === "finished" || replay.status === "stopped") return;
+    // A hold whose call the founder approved before this run reached it (0030): released without asking again.
+    const held = replay.pendingApproval;
+    if (held && recorder.grantedHolds.delete(held.approvalId)) {
+      replay.decide(held.approvalId, "approved");
+      return;
+    }
     const now = deps.clock.nowMs();
     holdingSince = replay.pendingApproval ? (holdingSince ?? now) : null;
     if (holdingSince !== null && now - holdingSince >= waits.approvalMs) {
@@ -900,6 +956,8 @@ async function runMockSession(deps: OrchestratorDeps, recorder: SessionRecorder,
     if (end?.kind === "approval_timeout") return { outcome: "blocked", reason: `no decision on the approval within ${minutesText(waits.approvalMs)}`, blockedReason: "awaiting_approval", approvalId: recorder.pendingApprovalId, summary: `Blocked after ${summary.emitted} events: waiting for the founder's approval.`, providerSessionId: summary.recordingKey };
     if (summary.outcome === "blocked") return { outcome: "blocked", reason: recorder.pendingApprovalId ? "waiting for the founder's approval" : "blocked by a dependency or approval", blockedReason: recorder.pendingApprovalId ? "awaiting_approval" : "dependency", approvalId: recorder.pendingApprovalId, summary: `Blocked after ${summary.emitted} events.`, providerSessionId: summary.recordingKey };
     if (summary.outcome === "failed") return { outcome: "failed", reason: summary.stoppedReason ?? "the recorded session failed", blockedReason: "error", approvalId: null, summary: `Failed after ${summary.emitted} events.`, providerSessionId: summary.recordingKey };
+    // The founder rejected the call the replay waited on: the task stays blocked on that answer until it is started again.
+    if (summary.outcome === "stopped" && summary.stoppedReason === "approval_rejected") return { outcome: "blocked", reason: "the founder rejected the approval request", blockedReason: "approval_rejected", approvalId: recorder.rejectedApprovalId, summary: `Blocked after ${summary.emitted} events: the founder rejected the request.`, providerSessionId: summary.recordingKey };
     if (summary.outcome === "stopped") return { outcome: "stopped", reason: summary.stoppedReason ?? "stopped", blockedReason: "stopped", approvalId: null, summary: "Stopped.", providerSessionId: summary.recordingKey };
     return { outcome: "done", reason: null, blockedReason: null, approvalId: null, summary: `${sandbox.recording.title}: ${sandbox.recording.summary}`.slice(0, 1800), providerSessionId: summary.recordingKey };
   } finally {
@@ -969,7 +1027,8 @@ const PAUSE_CUT_TURN = "The founder paused the session mid-step and has now resu
 /** The user turn a nudge or a decision becomes. */
 function turnFor(c: Extract<SessionCommand, { kind: "shout" | "decision" }>): string {
   if (c.kind === "shout") return `Founder nudge: ${c.message}`;
-  return c.outcome === "approved" ? "The founder approved the pending action; continue." : "The founder rejected the pending action; do not retry it and continue with the rest of the task.";
+  if (c.outcome === "approved") return "The founder approved the pending action; continue.";
+  return `The founder rejected the pending action${c.note?.trim() ? ` (their reason: ${c.note.trim().slice(0, 500)})` : ""}; do not retry it and continue with the rest of the task.`;
 }
 
 /** The slice of an SDK result message that says how its turn ended. */

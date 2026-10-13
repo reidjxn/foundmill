@@ -4,7 +4,7 @@
  * build the "While you were away" report. Hard-gated items are never decided here; they queue for the founder.
  */
 import { LIMITS } from "@foundmill/config";
-import { repos, type InboxItem } from "@foundmill/db";
+import { isApprovalOption, repos, type InboxItem } from "@foundmill/db";
 import { DECISION_TYPES, type DecisionType, type EventType } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
@@ -98,6 +98,13 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
         const decision = item.decision as { options?: { id: string; recommended?: boolean; reversible?: boolean; cost_minor?: number }[] } | null;
         const options = decision?.options ?? [];
         const recommended = options.find((o) => o.recommended) ?? options[0];
+        // An agent's request to make one gated call is the founder's to answer (audit FR-01): answering its note here
+        // would close it while nothing resolves the approval or tells the session that waits on it, and a decision type
+        // must not wave through a call policy asked about (a spend above the vacation cap).
+        if (options.some((o) => isApprovalOption(o.id))) {
+          queuedGated += 1;
+          continue;
+        }
         if (!recommended || !chiefId) {
           if (item.blocksContinue) queuedGated += 1;
           continue;
