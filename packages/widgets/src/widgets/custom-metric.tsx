@@ -7,17 +7,20 @@
  *
  * Host contract (apps/api):
  *   query    dashboard.customMetric.get   { queryId } | { sql }   → CustomMetricResult
- *   query    dashboard.customMetric.list  {}                      → { id, label, description? }[]   (optional)
+ *   query    dashboard.customMetric.list  {}                      → MetricCatalogEntry[] (the metrics the caller may read)
  *   mutation dashboard.compileMetric      { sentence }            → CompileMetricResponse (compiled + preview)
+ *
+ * A named query is picked from the server's catalog (`dashboard.customMetric.list`), never typed: an id the server does
+ * not know can only fail.
  */
 import { useId, useState } from "react";
 import { z } from "zod";
 import { Calculator, Sigma } from "lucide-react";
-import { Button, Field, Input, MetricTile, RadioGroup, RadioOption, Textarea, formatCompact, formatNumber, formatPercent, type MetricTileProps } from "@foundmill/dugout";
+import { Button, Field, Input, MetricTile, RadioGroup, RadioOption, SimpleSelect, Textarea, formatCompact, formatNumber, formatPercent, type MetricTileProps, type SelectOption } from "@foundmill/dugout";
 import { useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps, type WidgetSettingsProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
-import type { CompileMetricResponse, CompiledMetric, CustomMetricFormat, CustomMetricResult } from "../shared/types";
+import type { CompileMetricResponse, CompiledMetric, CustomMetricFormat, CustomMetricResult, MetricCatalogEntry } from "../shared/types";
 
 const CustomMetricFormatSchema = z.enum(["compact", "integer", "decimal", "percent", "money"]);
 
@@ -32,7 +35,7 @@ export const CompiledMetricSchema = z.object({
 
 export const CustomMetricSettings = z.object({
   mode: z.enum(["query", "sentence"]).default("query"),
-  /** Named, server-defined query (e.g. "mrr", "active_customers"). */
+  /** Named, server-defined query from the catalog (`dashboard.customMetric.list`, e.g. "revenue_30d", "customers_30d"). */
   queryId: z.string().max(80).nullable().default(null),
   sentence: z.string().max(400).nullable().default(null),
   /** The compiled, previewed query the founder accepted. Never edited by hand. */
@@ -51,6 +54,16 @@ export function queryWords(queryId: string): string {
     .filter(Boolean)
     .map((w) => QUERY_WORDS[w.toLowerCase()] ?? w.toLowerCase())
     .join(" ");
+}
+
+/**
+ * The catalog as Select options, in the server's order. A stored id the catalog no longer lists (or that the caller may
+ * not read) stays visible as "… (not in the catalog)" so the editor never shows an empty field for a saved choice.
+ */
+export function catalogOptions(catalog: readonly MetricCatalogEntry[] | undefined, current: string | null): SelectOption[] {
+  const options: SelectOption[] = (catalog ?? []).map((m) => ({ value: m.id, label: m.label, textValue: m.label }));
+  if (current && !options.some((o) => o.value === current)) options.push({ value: current, label: `${queryWords(current)} (not in the catalog)`, disabled: true });
+  return options;
 }
 
 /** The query input the widget sends; null when the widget is not configured yet. */
@@ -92,14 +105,16 @@ function CustomMetricWidget({ settings }: WidgetProps<CustomMetricSettings>) {
   const { currency = "EUR" } = useWidgetData();
   const input = metricQueryInput(settings);
   const metric = useWidgetQuery<CustomMetricResult>("dashboard.customMetric.get", input ?? undefined, { enabled: !!input, refetchIntervalMs: 60_000 });
+  const catalog = useWidgetQuery<MetricCatalogEntry[]>("dashboard.customMetric.list", {}, { enabled: settings.mode === "query" && !!settings.queryId });
+  const named = settings.queryId ? (catalog.data?.find((m) => m.id === settings.queryId)?.label ?? queryWords(settings.queryId)) : null;
   return (
     <WidgetFrame
       title={settings.label ?? settings.compiled?.label ?? "Custom metric"}
       data-widget="custom_metric"
       queries={input ? [metric] : []}
       flush
-      empty={!input ? { icon: Sigma, text: "Pick a named query or describe the number you want in the widget settings." } : null}
-      footer={settings.mode === "sentence" && settings.compiled ? <span className="truncate">Compiled from: “{settings.sentence}”</span> : settings.queryId ? <span>From the {queryWords(settings.queryId)} query</span> : undefined}
+      empty={!input ? { icon: Sigma, text: "Pick a metric from the catalog or describe the number you want in the widget settings." } : null}
+      footer={settings.mode === "sentence" && settings.compiled ? <span className="truncate">Compiled from: “{settings.sentence}”</span> : named ? <span className="truncate">From the metric catalog: {named}</span> : undefined}
     >
       <MetricTile {...tileFor(metric.data, settings, currency)} className="h-full" />
     </WidgetFrame>
@@ -116,6 +131,8 @@ export function CustomMetricSettingsEditor({ value, onChange }: WidgetSettingsPr
   const [compileError, setCompileError] = useState<string | null>(null);
   const [draft, setDraft] = useState<CompileMetricResponse | null>(null);
   const named = useWidgetQuery<CustomMetricResult>("dashboard.customMetric.get", { queryId: previewQueryId ?? undefined }, { enabled: !!previewQueryId });
+  const catalog = useWidgetQuery<MetricCatalogEntry[]>("dashboard.customMetric.list", {}, { enabled: value.mode === "query" });
+  const options = catalogOptions(catalog.data, value.queryId);
 
   const compile = async () => {
     setCompiling(true);
@@ -138,13 +155,24 @@ export function CustomMetricSettingsEditor({ value, onChange }: WidgetSettingsPr
   return (
     <div className="flex flex-col gap-3" data-custom-metric-settings>
       <RadioGroup value={value.mode} onValueChange={(mode) => onChange({ ...value, mode: mode as CustomMetricSettings["mode"] })} aria-label="Metric source" className="flex flex-col gap-2">
-        <RadioOption id={`${id}-query`} value="query" label="Named query" description="A query the Finance or Data lead already defined." />
+        <RadioOption id={`${id}-query`} value="query" label="From the catalog" description="A metric the business already measures: cash, runway, revenue, customers, signups and more." />
         <RadioOption id={`${id}-sentence`} value="sentence" label="Describe it" description="A sentence; the assistant compiles a read-only query you preview before saving." />
       </RadioGroup>
       {value.mode === "query" ? (
-        <Field htmlFor={`${id}-qid`} label="Query id" hint="For example mrr, active_customers, trial_conversion">
+        <Field htmlFor={`${id}-qid`} label="Metric" hint={catalog.error ? `The metric catalog could not be loaded: ${catalog.error.message}` : "From the business's metric catalog (only the sections you can read)."}>
           <div className="flex gap-2">
-            <Input id={`${id}-qid`} mono value={value.queryId ?? ""} onChange={(e) => onChange({ ...value, queryId: e.target.value.trim() || null })} placeholder="mrr" />
+            <SimpleSelect
+              id={`${id}-qid`}
+              options={options}
+              value={value.queryId ?? undefined}
+              onValueChange={(queryId) => {
+                onChange({ ...value, queryId });
+                setPreviewQueryId(queryId);
+              }}
+              placeholder={catalog.isLoading ? "Loading the catalog…" : "Pick a metric"}
+              disabled={!catalog.data?.length}
+              className="min-w-0 flex-1"
+            />
             <Button size="md" onClick={() => setPreviewQueryId(value.queryId)} disabled={!value.queryId}>
               Preview
             </Button>
@@ -194,7 +222,7 @@ export function CustomMetricSettingsEditor({ value, onChange }: WidgetSettingsPr
 export const customMetricWidget = registerWidget<CustomMetricSettings>({
   key: "custom_metric",
   title: "Custom metric",
-  description: "One number from a named query or a sentence, compiled into a read-only query you preview first.",
+  description: "One number from the metric catalog or a sentence, compiled into a read-only query you preview first.",
   icon: "sigma",
   surfaces: ["home", "department"],
   defaultSize: { w: 3, h: 6, minW: 2, minH: 5 },

@@ -8,10 +8,12 @@ import { CircleAlert, CircleDashed, CirclePause } from "lucide-react";
 import { Avatar, EntityLink, MODEL_LABELS, PageGrid, StatusPill, agentStatusTone, cn, formatRelative, type EntityDetails, type IconComponent, type SquadRow } from "@foundmill/dugout";
 import { type AgentStatus, type DecisionType, type DeptColourToken, type MembershipRole } from "@foundmill/shared/constants";
 import { SECTIONS } from "@foundmill/shared/permissions";
+import { moduleTabHref } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState, type WidgetEvent } from "@foundmill/widgets/data";
 import { usSpelling } from "@foundmill/shared/us-spelling";
 import { humanise } from "../fit";
+import type { DepartmentRow } from "@foundmill/widgets/shared/types";
 import type { AgentHealthChangedPayload, AgentRow, AgentsListResponse, FounderProfileResponse, MembershipRow, TemplateRow } from "./types";
 
 /* ---------- Options the host or a test may override ---------- */
@@ -156,8 +158,9 @@ export function agentHref(businessId: string, agentId: string): string {
   return routes.agent(businessId, agentId);
 }
 
-export function taskHref(businessId: string, taskId: string): string {
-  return `${routes.department(businessId, "development", "plan")}?task=${taskId}`;
+/** A task on the Plan of the department that holds Development now (never a fixed "development" slug). */
+export function taskHref(businessId: string, taskId: string, departments: readonly DepartmentRow[] | undefined): string {
+  return `${moduleTabHref(businessId, departments, "development", "plan")}?task=${taskId}`;
 }
 
 /** Connector keys of an agent's tool grants (the API may send keys or `{ connectorKey, tools }`). */

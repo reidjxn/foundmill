@@ -3,8 +3,10 @@
  * Data contract between widgets/module screens and the host app (docs/ARCHITECTURE.md §18).
  * Widgets never import the tRPC client; the host provides an implementation of `WidgetDataSource`.
  */
-import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, type ReactNode } from "react";
 import type { GameMode } from "@foundmill/shared";
+import { applyGlossary } from "@foundmill/shared/glossary";
+import { dayKeyIn } from "@foundmill/shared/time-zone";
 
 export type QueryState<T> = {
   data: T | undefined;
@@ -32,6 +34,11 @@ export type WidgetDataSource = {
   gameMode?: GameMode;
   /** Business currency for money the API returns without one. Default "EUR". */
   currency?: string;
+  /**
+   * The business time zone (businesses.time_zone, 0041): "today", this week and this month on Home are its days, as
+   * the Journey's daily rows and the top bar's date are. Default UTC (a business without one).
+   */
+  timeZone?: string | null;
   /**
    * Whether the host's event stream is live for this business (a hook, called in render). While it is, the host
    * refetches what each event changes, so a screen can poll slowly or not at all; hosts without a stream leave it out
@@ -64,10 +71,23 @@ export function useHostStreamOpen(): boolean {
   return useOpen();
 }
 
-/** Apply the business glossary to a noun (falls back to the default). */
-export function useGlossary(): (term: string) => string {
+/**
+ * The business glossary as a text transform for captions and labels (Settings › Glossary, AC-11.13.6): whole words in
+ * any case, plurals and the replaced word's case kept ("Customers this week" → "Clients this week"). The same
+ * substitution stores every Inbox note in the business's words (`applyGlossary` in @foundmill/shared).
+ */
+export function useGlossary(): (text: string) => string {
   const { glossary } = useWidgetData();
-  return (term) => glossary[term] ?? term;
+  return useCallback((text: string) => applyGlossary(text, glossary), [glossary]);
+}
+
+/**
+ * Today ("2026-10-12") in the business time zone: the day Home's tiles, cards and charts count from, the same day the
+ * top bar shows and journey_daily buckets in. Read at render, like the clock the widgets had before.
+ */
+export function useToday(): string {
+  const { timeZone } = useWidgetData();
+  return dayKeyIn(new Date(), timeZone);
 }
 
 /* ---------- Realtime events (ev:<businessId>) ---------- */

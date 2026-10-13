@@ -31,6 +31,19 @@ describe("VisionScreen", () => {
     expect(fake.navigations[0]).toBe(`/b/${BID}/d/product/specification?block=${BLOCK.customers}`);
   });
 
+  it("never nests the author's link inside the block's button (the link opens the agent, the button the block)", () => {
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "department.list": departments } });
+    const { container } = renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);
+    for (const button of container.querySelectorAll("[data-pinned-block]")) {
+      expect(button.tagName).toBe("BUTTON");
+      expect(button.querySelector("a, button, [role=button], [tabindex]")).toBeNull();
+    }
+    // The author line (with its link when an agent wrote the block) sits beside the button, in the same row.
+    const meta = container.querySelectorAll("[data-pinned-block-meta]");
+    expect(meta).toHaveLength(2);
+    expect(meta[0]!.closest("button")).toBeNull();
+  });
+
   it("shows empty states when the spec and roadmap are empty, and a loading state before data", () => {
     const fake = createFakeSource({ businessId: BID, responses: { ...emptyResponses, "department.list": [] } });
     renderScreen(fake, <VisionScreen businessId={BID} departmentId="d1" />);

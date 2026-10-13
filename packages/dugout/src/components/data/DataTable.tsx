@@ -387,13 +387,16 @@ export function DataTable<T>(props: DataTableProps<T>) {
     [viewToState, densityProp],
   );
 
-  const lastAppliedView = useRef<string | null>(activeViewId);
+  // Apply a view when the open view changes, or when the open view's own definition changes under it (the caller's
+  // stored copy arriving after the built-in one the table opened with). Saving the current state changes nothing.
+  const activeViewKey = activeView ? `${activeView.id}\u0000${stateKey(viewToState(activeView))}` : activeViewId;
+  const lastAppliedView = useRef<string | null>(activeViewKey);
   useEffect(() => {
-    if (lastAppliedView.current !== activeViewId) {
-      lastAppliedView.current = activeViewId;
+    if (lastAppliedView.current !== activeViewKey) {
+      lastAppliedView.current = activeViewKey;
       applyView(activeView);
     }
-  }, [activeViewId, activeView, applyView]);
+  }, [activeViewKey, activeView, applyView]);
 
   const selectView = (id: string) => {
     if (activeViewIdProp === undefined) setActiveViewIdState(id);
@@ -430,7 +433,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
       density,
     };
     onViewsChange([...views, view]);
-    lastAppliedView.current = view.id; // state already matches
+    lastAppliedView.current = `${view.id}\u0000${stateKey(viewToState(view))}`; // state already matches
     selectView(view.id);
   };
   const renameView = (id: string, name: string) => {

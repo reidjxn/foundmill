@@ -344,6 +344,8 @@ export interface DepartmentMetric {
   delta?: string;
   deltaTone?: HealthTone;
   provenance?: "forecast" | "estimate";
+  /** What the sparkline plots when it is not the metric itself ("Cash at month end, last 6 months"). */
+  seriesLabel?: string;
 }
 
 export interface DepartmentCardData {
@@ -369,13 +371,15 @@ export interface DepartmentCardData {
 }
 
 /**
- * A quiet department's one line (DepartmentCard): a kicker, the line, and an optional short detail. `respond`: a note
- * waiting for the founder's answer; `inbox`: an unread note from the department; `finished`: the last task it
- * finished; `clear`: nothing in progress and nothing waiting on the founder.
+ * A quiet department's one line (DepartmentCard): a kicker, the line, and an optional short detail. `attention`: an
+ * agent of the team that needs the founder (failing, down, degraded) or a task that failed; `respond`: a note waiting
+ * for the founder's answer; `inbox`: an unread note from the department; `finished`: the last task it finished;
+ * `clear`: nothing in progress and nothing waiting on the founder; `error`: the department's work could not be loaded
+ * (the card does not call itself quiet, and the line retries).
  */
 export interface DepartmentQuietLine {
-  kind: "respond" | "inbox" | "finished" | "clear";
-  /** "Waiting for you", "New in your Inbox", "Last finished", "All clear". */
+  kind: "attention" | "respond" | "inbox" | "finished" | "clear" | "error";
+  /** "Needs you", "Waiting for you", "New in your Inbox", "Last finished", "All clear", "Couldn't load". */
   label: string;
   /** The note's subject or the task's title. */
   text: string;

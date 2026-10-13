@@ -112,7 +112,8 @@ interface BodyProps {
 
 function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps) {
   const { item, decisions, plan: storedPlan, fromAgent, entities } = data;
-  const { businessId } = useBusiness();
+  const { businessId, data: biz } = useBusiness();
+  const glossary = biz.business.glossary;
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -141,8 +142,9 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
         conversions: ribbonQ.data?.conversions ?? null,
         tasks: tasksQ.data?.items ?? null,
         channelsEnabled: channelsQ.data ? channelsQ.data.channels.filter((c) => c.enabled).length : null,
+        glossary,
       }).map((t) => ({ ...t, loading: (needs.has("finance") && financeQ.isLoading) || (needs.has("conversions") && ribbonQ.isLoading) || (needs.has("tasks") && tasksQ.isLoading) || (needs.has("channels") && channelsQ.isLoading) })),
-    [item.statusStrip, financeQ.data, financeQ.isLoading, ribbonQ.data, ribbonQ.isLoading, tasksQ.data, tasksQ.isLoading, channelsQ.data, channelsQ.isLoading, needs],
+    [item.statusStrip, financeQ.data, financeQ.isLoading, ribbonQ.data, ribbonQ.isLoading, tasksQ.data, tasksQ.isLoading, channelsQ.data, channelsQ.isLoading, needs, glossary],
   );
 
   // --- won customer → replay ----------------------------------------------------------------------------------------

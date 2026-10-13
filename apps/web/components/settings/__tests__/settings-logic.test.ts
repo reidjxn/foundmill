@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PRICE_TBA_LABEL } from "@foundmill/config";
 import { checkoutNotice, includedCreditsFact, periodLabel, tierFacts, tierPriceLabel } from "../BillingTab";
+import { timeZoneOptions } from "../BusinessTab";
 import { glossaryRows, rowsToGlossary } from "../GlossaryTab";
 import { connectorDetail, formatSimulateResult, simulateInput, simulateRefusalMessage, SIMULATIONS } from "../IntegrationsTab";
 import { GAME_MODE_REVIEW } from "../ModeTab";
@@ -59,5 +60,14 @@ describe("settings logic", () => {
   it("the game-mode review lists what changes both ways", () => {
     expect(GAME_MODE_REVIEW.live.length).toBeGreaterThan(2);
     expect(GAME_MODE_REVIEW.personal.join(" ")).toMatch(/15 minutes/);
+  });
+
+  it("offers UTC first and every known zone for the business time zone, keeping a saved zone the browser does not list (audit #196)", () => {
+    const options = timeZoneOptions(null);
+    expect(options[0]).toEqual({ value: "UTC", label: "UTC" });
+    expect(options).toContainEqual({ value: "America/New_York", label: "America/New York" });
+    // An alias such as US/Eastern is valid but not in the browser's canonical list: it stays on top so the field shows it.
+    expect(timeZoneOptions("US/Eastern")[0]).toEqual({ value: "US/Eastern", label: "US/Eastern" });
+    expect(timeZoneOptions("America/New_York")).toHaveLength(options.length);
   });
 });

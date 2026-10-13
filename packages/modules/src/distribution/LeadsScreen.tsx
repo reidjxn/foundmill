@@ -29,6 +29,7 @@ import {
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { LAWFUL_BASES, lawfulBasisLabel, suppressionOf } from "./channel-data";
 import { RelativeDateText } from "../dates";
@@ -129,7 +130,8 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
   const leads = useWidgetQuery<Page<LeadRow>>("crm.roles.byRole", { role: "lead", limit: 500 });
   const agents = useWidgetQuery<AgentRow[]>("team.agents.list", {});
   const action = useAction();
-  const [views, setViews] = useState<SavedView[]>(LEAD_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("distribution.leads", LEAD_VIEWS, { defaultViewId: "all" });
   const [basisFor, setBasisFor] = useState<LeadRow | null>(null);
   const [noteFor, setNoteFor] = useState<LeadRow | null>(null);
   useBusinessEvents(() => leads.refetch(), ["lead.created", "lead.replied"]);
@@ -176,8 +178,7 @@ export function LeadsScreen({ businessId }: ModuleScreenProps) {
           aria-label="Leads"
           data={rows}
           columns={columns}
-          views={views}
-          onViewsChange={setViews}
+          {...savedViews}
           defaultViewId="all"
           rowActions={rowActions}
           onRowOpen={openProfile}

@@ -8,8 +8,11 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Bot, GraduationCap, UserRound, Users } from "lucide-react";
 import { AgentStatusPill, Chip, DataTable, DeptChip, EntityLink, MiniTable, Panel, StatusPill, StatusStrip, SimpleSelect, currencySymbol, formatCompact, formatNumber, formatPercent, useFormatters, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
+import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { failedWithoutData, unavailableWords } from "@foundmill/widgets/shared/errors";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { capUsedPct, formatMonth, monthKey, monthStart, outputPerHundred, sectionOf, trailingMonths } from "./metrics";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
@@ -171,6 +174,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
   const { prefs: datePrefs, formatMonthYear } = useFormatters();
   const currency = useCurrency();
   const { navigate } = useWidgetData();
+  const departments = useDepartments();
   const periods = useMemo(() => [monthKey(now), ...trailingMonths(now, 6).reverse()], [now]);
   const [period, setPeriod] = useState(periods[0]!);
   const wages = useWidgetQuery<WagesResponse>("finance.wages", { period });
@@ -183,7 +187,8 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
     return { from: from.toISOString(), to: monthStart(from, 1).toISOString() };
   }, [period]);
   const pnl = useWidgetQuery<PnlResponse>("finance.pnl", range);
-  const [views, setViews] = useState<SavedView[]>(WAGE_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("finance.payroll", WAGE_VIEWS, { defaultViewId: "all" });
 
   // The team's cost is metered in US dollars (finance.wages `currency`); staff payroll and wage caps are the business's.
   const teamCurrency = wages.data?.currency ?? currency;
@@ -197,8 +202,13 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
   }, [pnl.data]);
   const staff = humans.data ?? [];
   const overCap = rows.filter((r) => (r.capUsedPct ?? 0) >= CAP_WARN_PCT);
+  // A refused or failed query is unknown, not zero: those tiles say "No access" (a member walled from Finance) or
+  // "Couldn't load", never a made-up €0.00 labeled Estimate.
+  const wagesFailed = failedWithoutData(wages);
+  const pnlFailed = failedWithoutData(pnl);
+  const unavailable = (label: string, error: Error | null): MetricTileProps => ({ label, ...unavailableWords(error, "Finance") });
 
-  const tiles: MetricTileProps[] = [
+  const known: MetricTileProps[] = [
     { label: "Team payroll", value: { amountMinor: squadMinor, currency: teamCurrency }, estimate: "estimate", provenance: { source: "Usage ledger: tokens, sandbox minutes, tool calls, training", query: "finance.wages", note: "Metered at list prices; the Anthropic invoice is the only real cost." }, caption: `${rows.filter((r) => r.costMinor > 0).length} agents with usage in ${formatMonth(period, datePrefs)}` },
     { label: "Human payroll", value: { amountMinor: payrollMinor, currency }, estimate: "estimate", provenance: { source: pnl.data?.label ?? "Management P&L, unaudited, cash basis", query: "finance.pnl categories Payroll, Contractors", note: "Bank outflows categorized as payroll or contractors in the month." }, caption: `${staff.length} staff member${staff.length === 1 ? "" : "s"}` },
     teamCurrency === currency
@@ -206,6 +216,12 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
       : // Never added across currencies (nothing is converted): both parts, each in its own currency.
         { label: "Total payroll", value: `${fmtMoney(squadMinor, teamCurrency, { compact: true })} + ${fmtMoney(payrollMinor, currency, { compact: true })}`, estimate: "estimate", provenance: { source: "Team payroll + human payroll", note: "Kept apart: the team is metered in US dollars, staff are paid in the business's currency." }, caption: formatMonth(period, datePrefs) },
     { label: perHundredLabel(teamCurrency), value: outputPerHundred(tasksDone, squadMinor) ?? "—", format: "decimal", estimate: outputPerHundred(tasksDone, squadMinor) === null ? undefined : "estimate", provenance: { source: "Tasks completed ÷ team payroll", query: "dev.tasks.list status=done", note: `Tasks marked done in the month for every ${perHundredLabel(teamCurrency).replace("Tasks per ", "")} of team cost.` }, caption: `${tasksDone} task${tasksDone === 1 ? "" : "s"} done` },
+  ];
+  const tiles: MetricTileProps[] = [
+    wagesFailed ? unavailable("Team payroll", wages.error) : known[0]!,
+    pnlFailed ? unavailable("Human payroll", pnl.error) : known[1]!,
+    wagesFailed || pnlFailed ? unavailable("Total payroll", wages.error ?? pnl.error) : known[2]!,
+    wagesFailed ? unavailable(perHundredLabel(teamCurrency), wages.error) : known[3]!,
   ];
 
   const rowActions = (): RowAction<WageBillRow>[] => [
@@ -231,7 +247,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
           wages.refetch();
           agents.refetch();
         }}
-        empty={wages.data && agents.data && rows.length === 0 ? { icon: Users, title: "No agents hired yet", children: "Hire agents from Team › Recruitment and their monthly cost appears here against each wage cap.", action: { label: "Open recruitment", icon: Users, onClick: () => navigate(routes.department(businessId, "team", "recruitment")) } } : undefined}
+        empty={wages.data && agents.data && rows.length === 0 ? { icon: Users, title: "No agents hired yet", children: "Hire agents from Team › Recruitment and their monthly cost appears here against each wage cap.", action: { label: "Open recruitment", icon: Users, onClick: () => navigate(moduleTabHref(businessId, departments.data, "team", "recruitment")) } } : undefined}
         actions={
           <div className="flex items-center gap-2">
             {overCap.length ? (
@@ -242,10 +258,10 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
             <SimpleSelect aria-label="Period" controlSize="sm" value={period} onValueChange={setPeriod} options={periods.map((p) => ({ value: p, label: formatMonth(p, datePrefs) }))} />
           </div>
         }
-        footer={<span className="tabular-nums">{rows.length} agents · {fmtMoney(squadMinor, teamCurrency)} in {formatMonth(period, datePrefs)} · Estimate: metered usage at list prices</span>}
+        footer={wages.data ? <span className="tabular-nums">{rows.length} agents · {fmtMoney(squadMinor, teamCurrency)} in {formatMonth(period, datePrefs)} · Estimate: metered usage at list prices</span> : undefined}
       >
         <div className="min-w-0">
-          <DataTable<WageBillRow> aria-label="Team payroll" data={rows} columns={columns} getRowId={(r) => r.agentId} views={views} onViewsChange={setViews} defaultViewId="all" height={480} exportFileName={`wage-bill-${period}`} rowActions={rowActions} onRowOpen={(r) => navigate(routes.agent(businessId, r.agentId))} />
+          <DataTable<WageBillRow> aria-label="Team payroll" data={rows} columns={columns} getRowId={(r) => r.agentId} {...savedViews} defaultViewId="all" height={480} exportFileName={`wage-bill-${period}`} rowActions={rowActions} onRowOpen={(r) => navigate(routes.agent(businessId, r.agentId))} />
         </div>
       </Panel>
       <Panel title="Staff" span={4} loading={humans.isLoading || pnl.isLoading} error={humans.error ? humans.error.message : undefined} onRetry={humans.refetch} empty={humans.data && staff.length === 0 ? { icon: UserRound, children: "Invite staff from Team › Staff; their payroll shows here from bank transactions." } : undefined} footer={<span>Payroll is the month's bank outflows categorized Payroll or Contractors.</span>}>
@@ -259,7 +275,7 @@ export function WageBillScreen({ businessId }: ModuleScreenProps) {
             { id: "role", header: "Role", width: 84, cell: (m) => <Chip tone="neutral">{memberRoleWord(m.role)}</Chip> },
             { id: "since", header: "Since", width: 80, cell: (m) => <span className="tabular-nums">{m.createdAt ? formatMonthYear(m.createdAt) : "—"}</span> },
           ]}
-          caption={<span className="tabular-nums">Payroll {fmtMoney(payrollMinor, currency)} · Estimate</span>}
+          caption={pnlFailed ? <span>Payroll: {unavailableWords(pnl.error, "Finance").caption}</span> : <span className="tabular-nums">Payroll {fmtMoney(payrollMinor, currency)} · Estimate</span>}
         />
       </Panel>
     </Screen>

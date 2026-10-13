@@ -11,6 +11,7 @@ import { DataTable, FitText, Panel, StatusPill, type DataTableColumn, type IconC
 import type { TaskStatus } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import { RelativeDateText } from "../dates";
 import { fitColumns, fitToGrow, humanise, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
@@ -207,6 +208,8 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
   const prs = useWidgetQuery<PrsListResponse>("dev.prs.list", {});
   const agents = useAgents();
   const agentIndex = useAgentIndex(agents.data?.agents);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("development.environments", ENVIRONMENT_VIEWS, { defaultViewId: "all" });
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   useBusinessEvents(
     (event) => {
@@ -329,7 +332,7 @@ export function EnvironmentsScreen({ businessId, departmentId }: ModuleScreenPro
         footer={<span>Every agent branch gets its own preview deployment once its tests pass; the URL, provider and commit appear with the first one. Production releases show on the Journey.</span>}
       >
         <div className="min-w-0">
-          <DataTable<EnvironmentRow> data={rows} columns={columns} views={ENVIRONMENT_VIEWS} defaultViewId="all" rowActions={rowActions} onRowOpen={(r) => r.url && window.open(r.url, "_blank", "noopener")} height={Math.min(520, Math.max(4, rows.length) * 28 + 42)} hideEmptyColumns exportFileName="environments" empty={{ icon: Boxes, children: "Environments appear here as code tasks start: one preview deployment per agent branch.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } }} aria-label="Environments" className="border-0" />
+          <DataTable<EnvironmentRow> data={rows} columns={columns} {...savedViews} defaultViewId="all" rowActions={rowActions} onRowOpen={(r) => r.url && window.open(r.url, "_blank", "noopener")} height={Math.min(520, Math.max(4, rows.length) * 28 + 42)} hideEmptyColumns exportFileName="environments" empty={{ icon: Boxes, children: "Environments appear here as code tasks start: one preview deployment per agent branch.", action: { label: "Go to Plan", onClick: () => navigate(routes.department(businessId, deptSlug, "plan")) } }} aria-label="Environments" className="border-0" />
         </div>
       </Panel>
     </Screen>

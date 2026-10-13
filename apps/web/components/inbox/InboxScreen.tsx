@@ -138,7 +138,8 @@ export function InboxScreen({ itemId: routeItemId }: InboxScreenProps) {
   usePageShortcuts({ onRefreshInbox: onRefresh, onNextInboxItem: onNext, onPrevInboxItem: onPrev });
 
   // --- chrome ---------------------------------------------------------------------------------------------------------
-  const tabs = useMemo(() => inboxTabs(businessId, live, counts), [businessId, live, counts]);
+  const glossary = data.business.glossary;
+  const tabs = useMemo(() => inboxTabs(businessId, live, counts, glossary), [businessId, live, counts, glossary]);
   const trailing = useMemo(
     () => (
       <Button size="sm" variant="ghost" icon={RefreshCw} onClick={onRefresh} loading={refresh.isPending} aria-disabled={waitMs > 0 || undefined} data-testid="inbox-refresh" data-wait-ms={waitMs > 0 ? waitMs : undefined} title={waitMs > 0 ? `Settling for ${Math.ceil(waitMs / 1000)} s` : "Pull one new note"}>

@@ -8,14 +8,16 @@ import { useMemo } from "react";
 import { z } from "zod";
 import { Gauge } from "lucide-react";
 import { StatusStrip, formatNumber, type MetricTileProps } from "@foundmill/dugout";
-import { useBusinessEvents, useWidgetData, useWidgetQuery } from "../data";
+import { useBusinessEvents, useGlossary, useToday, useWidgetData, useWidgetQuery } from "../data";
 import { RUNWAY_WORDS, runwayWords } from "../shared/runway";
 import { registerWidget, type WidgetProps } from "../registry";
 import { moduleHref, orderedDepartments, useDepartments } from "../shared/departments";
 import { WidgetFrame } from "../shared/frame";
+import { unavailableWords } from "../shared/errors";
+import { TEAM_HEALTH_SOURCE, teamHealth } from "../shared/health";
 import { useRecentRibbon } from "../shared/ribbon";
 import { routes } from "../shared/routes";
-import { addDays, dailySeries, dayKey, lastDays, monthKey, sumInRange } from "../shared/time";
+import { addDays, dailySeries, lastDays, monthKey, sumInRange } from "../shared/time";
 import type { DepartmentRow, FinanceOverview, LeaderboardPositionRow, RibbonResponse } from "../shared/types";
 
 export const StatusStripSettings = z.object({
@@ -33,17 +35,19 @@ export interface StatusStripInputs {
   today: string;
   currency: string;
   loading: { finance: boolean; ribbon: boolean; departments: boolean; positions: boolean };
+  /** Queries that failed with nothing cached: their tiles say "No access" or "Couldn't load", never a zero or setup advice. */
+  errors?: { finance?: Error | null; ribbon?: Error | null; departments?: Error | null };
   open: (where: "finance" | "customers" | "team" | "league", id?: string) => void;
 }
 
-/** Squad health as the share of healthy agents across every department (0–1), null without a squad. */
+/**
+ * Team health across every department (0–1), null without a team: the shared definition (shared/health.ts), the same
+ * figure the Team department card shows, counting each agent once even when it sits in several departments.
+ */
 export function squadHealth(departments: readonly DepartmentRow[] | undefined): number | null {
   const seen = new Map<string, string>();
   for (const d of departments ?? []) for (const a of d.squad) seen.set(a.id, a.status);
-  if (seen.size === 0) return null;
-  let healthy = 0;
-  for (const s of seen.values()) if (s === "healthy" || s === "idle") healthy += 1;
-  return healthy / seen.size;
+  return teamHealth(seen.values());
 }
 
 /**
@@ -77,7 +81,17 @@ export function boardWords(kind: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+/** A tile whose query failed: what happened instead of a figure (shared/errors.ts). */
+function unavailableTile(label: string, error: Error, section: string, onClick: () => void): MetricTileProps {
+  const words = unavailableWords(error, section);
+  return { label, value: words.value, caption: words.caption, onClick };
+}
+
 export function statusTiles(i: StatusStripInputs): MetricTileProps[] {
+  const financeError = !i.finance ? (i.errors?.finance ?? null) : null;
+  const ribbonError = !i.ribbon ? (i.errors?.ribbon ?? null) : null;
+  const departmentsError = !i.departments ? (i.errors?.departments ?? null) : null;
+  const openFinance = () => i.open("finance");
   const weekFrom = addDays(i.today, -6);
   const prevFrom = addDays(i.today, -13);
   const prevTo = addDays(i.today, -7);
@@ -90,11 +104,19 @@ export function statusTiles(i: StatusStripInputs): MetricTileProps[] {
   const health = squadHealth(i.departments);
   const currency = i.finance?.cash.currency ?? i.currency;
   const tiles: MetricTileProps[] = [
-    { label: "Cash", value: i.finance ? { amountMinor: i.finance.cash.amountMinor, currency } : null, loading: i.loading.finance, caption: i.finance?.cash.accounts ? `${i.finance.cash.accounts} account${i.finance.cash.accounts === 1 ? "" : "s"}` : "Connect a bank in Settings", provenance: { source: "Bank balances", asOf: i.finance?.cash.asOf ?? undefined }, onClick: () => i.open("finance") },
-    runwayTile(i.finance, i.loading.finance, () => i.open("finance")),
-    { label: "Revenue this month", value: revenueMonth === null ? (i.loading.finance ? null : "—") : { amountMinor: revenueMonth, currency }, spark: revenueSeries, loading: i.loading.finance, caption: i.finance?.revenue.label ?? "Cash basis", provenance: { source: "Bank inflows, cash basis" }, onClick: () => i.open("finance") },
-    { label: "Customers this week", value: i.ribbon ? customersWeek : null, format: "integer", loading: i.loading.ribbon, delta: i.ribbon ? { value: customersWeek - customersPrev, label: "vs last week" } : undefined, spark: i.ribbon ? dailySeries(rows, lastDays(14, i.today), (r) => r.payments) : undefined, provenance: { source: "Payments (first payments count as customers)" }, onClick: () => i.open("customers") },
-    { label: "Business health", value: health === null ? (i.loading.departments ? null : "—") : health, format: "percent", loading: i.loading.departments, caption: health === null ? "No agents hired yet" : health >= 0.9 ? "Team healthy" : health >= 0.6 ? "Some agents need attention" : "Team in trouble", provenance: { source: "Share of agents healthy or idle" }, onClick: () => i.open("team") },
+    financeError
+      ? unavailableTile("Cash", financeError, "Finance", openFinance)
+      : { label: "Cash", value: i.finance ? { amountMinor: i.finance.cash.amountMinor, currency } : null, loading: i.loading.finance, caption: i.finance ? (i.finance.cash.accounts ? `${i.finance.cash.accounts} account${i.finance.cash.accounts === 1 ? "" : "s"}` : "Connect a bank in Settings") : undefined, provenance: { source: "Bank balances", asOf: i.finance?.cash.asOf ?? undefined }, onClick: openFinance },
+    financeError ? unavailableTile("Runway", financeError, "Finance", openFinance) : runwayTile(i.finance, i.loading.finance, openFinance),
+    financeError
+      ? unavailableTile("Revenue this month", financeError, "Finance", openFinance)
+      : { label: "Revenue this month", value: revenueMonth === null ? (i.loading.finance ? null : "—") : { amountMinor: revenueMonth, currency }, spark: revenueSeries, loading: i.loading.finance, caption: i.finance?.revenue.label ?? "Cash basis", provenance: { source: "Bank inflows, cash basis" }, onClick: openFinance },
+    ribbonError
+      ? unavailableTile("Customers this week", ribbonError, "The Journey", () => i.open("customers"))
+      : { label: "Customers this week", value: i.ribbon ? customersWeek : null, format: "integer", loading: i.loading.ribbon, delta: i.ribbon ? { value: customersWeek - customersPrev, label: "vs last week" } : undefined, spark: i.ribbon ? dailySeries(rows, lastDays(14, i.today), (r) => r.payments) : undefined, provenance: { source: "Payments (first payments count as customers)" }, onClick: () => i.open("customers") },
+    departmentsError
+      ? unavailableTile("Business health", departmentsError, "The team", () => i.open("team"))
+      : { label: "Business health", value: health === null ? (i.loading.departments ? null : "—") : health, format: "percent", loading: i.loading.departments, caption: health === null ? "No agents hired yet" : health >= 0.9 ? "Team healthy" : health >= 0.6 ? "Some agents need attention" : "Team in trouble", provenance: { source: TEAM_HEALTH_SOURCE }, onClick: () => i.open("team") },
   ];
   if (i.live) {
     const best = (i.positions ?? []).slice().sort((a, b) => a.position - b.position)[0];
@@ -113,7 +135,7 @@ export function statusTiles(i: StatusStripInputs): MetricTileProps[] {
 
 function StatusStripWidget({ settings }: WidgetProps<StatusStripSettings>) {
   const { businessId, navigate, gameMode = "personal", currency = "EUR" } = useWidgetData();
-  const today = dayKey();
+  const today = useToday();
   const live = gameMode === "live" && settings.showLeague;
   const finance = useWidgetQuery<FinanceOverview>("finance.overview", {});
   // The recent ribbon Home shares with the department cards (the strip reads its last 14 days).
@@ -137,6 +159,7 @@ function StatusStripWidget({ settings }: WidgetProps<StatusStripSettings>) {
         today,
         currency,
         loading: { finance: finance.isLoading, ribbon: ribbon.isLoading, departments: departments.isLoading, positions: positions.isLoading },
+        errors: { finance: finance.error, ribbon: ribbon.error, departments: departments.error },
         open: (where, id) => {
           if (where === "finance") navigate(moduleHref(businessId, departments.data, "finance") ?? routes.settings(businessId, "integrations"));
           else if (where === "team") navigate(moduleHref(businessId, departments.data, "team") ?? routes.home(businessId));
@@ -144,13 +167,17 @@ function StatusStripWidget({ settings }: WidgetProps<StatusStripSettings>) {
           else navigate(id ? routes.leaderboard(id) : "/leaderboards");
         },
       }),
-    [finance.data, finance.isLoading, ribbon.data, ribbon.isLoading, departments.data, departments.isLoading, positions.data, positions.isLoading, live, today, currency, navigate, businessId],
+    [finance.data, finance.isLoading, finance.error, ribbon.data, ribbon.isLoading, ribbon.error, departments.data, departments.isLoading, departments.error, positions.data, positions.isLoading, live, today, currency, navigate, businessId],
   );
+  // Tile labels and captions in the business's words ("Customers this week" → "Clients this week").
+  const g = useGlossary();
+  const glossed = useMemo(() => tiles.map((t) => ({ ...t, label: typeof t.label === "string" ? g(t.label) : t.label, caption: typeof t.caption === "string" ? g(t.caption) : t.caption })), [tiles, g]);
   const failed = finance.error && ribbon.error && departments.error;
   return (
     <WidgetFrame title="Status" data-widget="status_strip" error={failed ? (finance.error ?? undefined) : undefined} onRetry={failed ? () => [finance, ribbon, departments].forEach((q) => q.refetch()) : undefined} flush empty={null}>
-      <StatusStrip tiles={tiles} className="rounded-none border-0" aria-label="Business status" />
-      {!failed && !finance.isLoading && (!finance.data || (finance.data.cash.accounts === 0 && finance.data.revenue.monthly.length === 0)) ? (
+      <StatusStrip tiles={glossed} className="rounded-none border-0" aria-label="Business status" />
+      {/* Setup advice only when finance answered and there is no bank or revenue yet, never because the query failed. */}
+      {finance.data && finance.data.cash.accounts === 0 && finance.data.revenue.monthly.length === 0 ? (
         <p className="flex items-center gap-2 px-panel-pad py-2 text-small text-secondary">
           <Gauge size={14} aria-hidden /> Finance figures appear once a bank or Stripe is connected.
         </p>

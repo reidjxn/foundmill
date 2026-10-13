@@ -32,6 +32,8 @@ import {
 import { Screen, fmtAxisMoney, fmtMoney, fmtMonths, useCurrency, useNow } from "./shared";
 import type { ChannelsListResponse, FinanceOverview, PnlResponse } from "./types";
 import { runwayWords } from "@foundmill/widgets/shared/runway";
+import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
+import { CHANNEL_WINDOW_DAYS } from "@foundmill/shared/constants";
 
 const TRAILING = 3;
 const HISTORY = 6;
@@ -93,7 +95,7 @@ export function overviewTiles(args: { overview: FinanceOverview; pnl: PnlRespons
     { key: "mrr", label: METRIC_DEFINITIONS.mrr.label, value: { amountMinor: mrr, currency }, estimate: "estimate", provenance: prov("mrr", pnlSource, `revenue ÷ ${TRAILING}`), caption: "per month" },
     { key: "arr", label: METRIC_DEFINITIONS.arr.label, value: { amountMinor: mrr * 12, currency }, estimate: "estimate", provenance: prov("arr", pnlSource, "MRR × 12"), caption: "annualized" },
     { key: "grossMargin", label: METRIC_DEFINITIONS.grossMargin.label, value: gm === null ? "—" : gm / 100, format: "percent", estimate: gm === null ? undefined : "estimate", provenance: prov("grossMargin", pnlSource, "(revenue − cost of sales) ÷ revenue"), caption: gm === null ? "Appears with the first revenue" : `trailing ${TRAILING} months` },
-    { key: "acquisitionCost", label: METRIC_DEFINITIONS.acquisitionCost.label, value: cpa === null ? "—" : { amountMinor: cpa, currency }, estimate: cpa === null ? undefined : "estimate", provenance: prov("acquisitionCost", "Distribution board, channel spend and customers", "spend ÷ new customers", perChannelText), caption: blended ? `${blended.customers} customer${blended.customers === 1 ? "" : "s"}, ${blended.days} days` : "Appears once a channel spends" },
+    { key: "acquisitionCost", label: METRIC_DEFINITIONS.acquisitionCost.label, value: cpa === null ? "—" : { amountMinor: cpa, currency }, estimate: cpa === null ? undefined : "estimate", provenance: prov("acquisitionCost", "Distribution board, channel spend and customers", "spend ÷ new customers", perChannelText), caption: blended ? `${blended.customers} customer${blended.customers === 1 ? "" : "s"}, last ${CHANNEL_WINDOW_DAYS} days` : "Appears once a channel spends" },
     { key: "payback", label: METRIC_DEFINITIONS.payback.label, value: payback === null ? "—" : `${payback}`, unit: payback === null ? undefined : "mo", estimate: payback === null ? undefined : "estimate", provenance: prov("payback", "Acquisition cost and gross profit per customer", "CPA ÷ (MRR × gross margin ÷ customers)"), caption: payback === null ? "Appears with acquisition cost, margin and customers" : `${payingCustomers} paying customer${payingCustomers === 1 ? "" : "s"}` },
   ];
   return tiles;
@@ -127,6 +129,8 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
   const range = useMemo(() => ({ from: monthStart(now, -TRAILING).toISOString(), to: monthStart(now, 0).toISOString() }), [now]);
   const overview = useWidgetQuery<FinanceOverview>("finance.overview", {});
+  // Pin to Home (audit #394): the Cash panel is the gallery's Cash and runway widget.
+  const pinMenu = usePinToHomeMenu({ key: "cash_runway" });
   const pnl = useWidgetQuery<PnlResponse>("finance.pnl", range);
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
 
@@ -181,6 +185,7 @@ export function OverviewScreen({ businessId }: ModuleScreenProps) {
       </section>
       <Panel
         title="Cash"
+        menu={pinMenu}
         meta={`last ${HISTORY} months and the Base forecast`}
         span={8}
         loading={overview.isLoading}

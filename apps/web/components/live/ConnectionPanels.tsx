@@ -4,8 +4,9 @@
  * sent (withdraw), and the connections themselves in a DataTable with saved views and a right-click menu.
  */
 import { Ban, Check, Clock, MessageSquare, UserCheck, UserMinus, UserRound, Users, UsersRound } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Avatar, Button, DataTable, Panel, StatusPill, formatRelative, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
+import { useTableViews } from "@/lib/table-views";
 import type { People } from "./shared";
 
 export interface ConnectionRow {
@@ -142,7 +143,8 @@ export const CONNECTION_VIEWS: SavedView[] = [
 ];
 
 export function ConnectionsPanel({ rows, viewerId, people, loading, error, onRetry, onBlock, onRemove, onMessage, onFind }: CommonProps) {
-  const [views, setViews] = useState<SavedView[]>(CONNECTION_VIEWS);
+  // Saved per person across their businesses: the LIVE pages are the account's, not one business's (audit #204).
+  const savedViews = useTableViews("live.network.connections", CONNECTION_VIEWS, { defaultViewId: "connected" });
   const data = useMemo<ConnectionTableRow[]>(
     () =>
       rows.flatMap((row) =>
@@ -205,8 +207,7 @@ export function ConnectionsPanel({ rows, viewerId, people, loading, error, onRet
         aria-label="Connections"
         data={data}
         columns={columns}
-        views={views}
-        onViewsChange={setViews}
+        {...savedViews}
         defaultViewId="connected"
         rowActions={rowActions}
         onRowOpen={(r) => r.status === "accepted" && onMessage?.(r.source)}

@@ -24,12 +24,12 @@ import {
   type RoadmapFlag,
   type ZoomLevel,
 } from "@foundmill/dugout";
-import { useBusinessEvents, useWidgetData, useWidgetQuery, type WidgetEvent } from "../data";
+import { useBusinessEvents, useToday, useWidgetData, useWidgetQuery, type WidgetEvent } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { toRibbonDepartments, useDepartments } from "../shared/departments";
 import { WidgetFrame } from "../shared/frame";
 import { routes } from "../shared/routes";
-import { addDays, dayKey } from "../shared/time";
+import { addDays } from "../shared/time";
 import type { FinanceOverview, ForecastRecord, ForecastSeriesPoint, RibbonResponse, RoadmapListResponse, RoundupResponse } from "../shared/types";
 
 export const JourneyRibbonSettings = z.object({
@@ -131,7 +131,7 @@ export function roadmapFlags(items: RoadmapListResponse["items"] | undefined, to
 
 function JourneyRibbonWidget({ settings, updateSettings }: WidgetProps<JourneyRibbonSettings>) {
   const { businessId, navigate, currency = "EUR" } = useWidgetData();
-  const today = dayKey();
+  const today = useToday();
   const ribbon = useWidgetQuery<RibbonResponse>("journey.ribbon", { from: addDays(today, -RIBBON_HISTORY_DAYS), to: today });
   const departments = useDepartments();
   const roadmap = useWidgetQuery<RoadmapListResponse>("product.roadmap.list", {}, { enabled: settings.showRoadmap });

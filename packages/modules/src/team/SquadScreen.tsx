@@ -9,9 +9,10 @@ import { useMemo, useState } from "react";
 import { ArrowLeftRight, Copy, Cpu, ExternalLink, UserRoundMinus, UserRoundPlus, Users } from "lucide-react";
 import { Button, DataTable, FormCells, MODEL_LABELS, Panel, SQUAD_VIEWS, formatRelative, squadColumns, type DataTableColumn, type RowAction, type SavedView, type SquadRow } from "@foundmill/dugout";
 import { AGENT_STATUSES } from "@foundmill/shared/constants";
-import { departmentForModule, useDepartments } from "@foundmill/widgets/shared/departments";
-import { routes } from "@foundmill/widgets/shared/routes";
+import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { useWidgetData } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
+import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import { fitToGrow, plural, type ColumnFit } from "../fit";
 import type { ModuleScreenProps } from "../registry";
 import { CloneDialog, LoanDialog, ReleaseDialog } from "./dialogs";
@@ -57,12 +58,15 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
   const { liveRefetchMs } = useTeamOptions();
   const now = useNow();
   const agentsQuery = useAgents();
+  // Pin to Home (audit #394): the agents are the gallery's team pulse widget.
+  const pinMenu = usePinToHomeMenu({ key: "squad_pulse" });
   const departments = useDepartments();
   const live = useLiveAgentStatus(agentsQuery, { debounceMs: liveRefetchMs });
   const agents = useMemo(() => withLiveStatus(agentsQuery.data?.agents, live).filter((a) => !a.archivedAt), [agentsQuery.data, live]);
   const byId = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
   const rows = useMemo(() => agents.map((a) => toSquadRow(a, currency)), [agents, currency]);
-  const [views, setViews] = useState<SavedView[]>(TEAM_SQUAD_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("team.agents", TEAM_SQUAD_VIEWS, { defaultViewId: "general" });
   const [modelAgent, setModelAgent] = useState<AgentRow | null>(null);
   const [release, setRelease] = useState<AgentRow | null>(null);
   const [clone, setClone] = useState<AgentRow | null>(null);
@@ -70,8 +74,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
   const [notice, setNotice] = useState<string | null>(null);
 
   const open = (agentId: string) => navigate(agentHref(businessId, agentId));
-  const teamDept = departmentForModule(departments.data, "team");
-  const recruitHref = routes.department(businessId, teamDept?.slug ?? "team", "recruitment");
+  const recruitHref = moduleTabHref(businessId, departments.data, "team", "recruitment");
 
   const columns = useMemo<DataTableColumn<SquadRow>[]>(() => {
     // Sized from SQUAD_FIT; the table shares its spare width by the specs' weights itself (DataTable `meta.grow`).
@@ -84,11 +87,11 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
       renderTask: (row) =>
         row.currentTask ? (
           <a
-            href={taskHref(businessId, row.currentTask.id)}
+            href={taskHref(businessId, row.currentTask.id, departments.data)}
             className="entity-link block min-w-0 truncate"
             onClick={(e) => {
               e.preventDefault();
-              navigate(taskHref(businessId, row.currentTask!.id));
+              navigate(taskHref(businessId, row.currentTask!.id, departments.data));
             }}
           >
             {row.currentTask.title}
@@ -145,6 +148,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
       <Panel
         span={12}
         title="Agents"
+        menu={pinMenu}
         flush
         loading={agentsQuery.isLoading && !agentsQuery.data}
         error={agentsQuery.error ? agentsQuery.error.message : undefined}
@@ -173,8 +177,7 @@ export function SquadScreen({ businessId, departmentId }: ModuleScreenProps) {
             aria-label="Agents"
             data={rows}
             columns={columns}
-            views={views}
-            onViewsChange={setViews}
+            {...savedViews}
             defaultViewId="general"
             rowActions={rowActions}
             onRowOpen={(row) => open(row.id)}

@@ -9,6 +9,7 @@ import { AlertTriangle, Inbox, Save, TrendingUp, Undo2 } from "lucide-react";
 import { Button, Chip, Field, Input, KeyValueList, LineChart, MoneyInput, Panel, ProvenanceChip, SegmentedControl, StatusPill, useFormatters, type LineSeries, type SeriesTone } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
 import { FORECAST_SCENARIOS, type FinanceOverview, type ForecastDrivers, type ForecastRow, type ForecastScenario, type PnlResponse } from "./types";
 import { RUNWAY_BLOCK_MONTHS, formatMonth, monthKey, monthStart, pnlTotals, projectForecast, readDrivers, runwayTone, runwayWarnings, runwayWord, seedDrivers } from "./metrics";
@@ -61,6 +62,8 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
   const id = useId();
   const action = useAction();
   const list = useWidgetQuery<ForecastRow[]>("finance.forecast.list", {});
+  // Pin to Home (audit #394): the forecast is the gallery's Cash and runway widget.
+  const pinMenu = usePinToHomeMenu({ key: "cash_runway" });
   const overview = useWidgetQuery<FinanceOverview>("finance.overview", {});
   const range = useMemo(() => ({ from: monthStart(now, -3).toISOString(), to: monthStart(now, 0).toISOString() }), [now]);
   const pnl = useWidgetQuery<PnlResponse>("finance.pnl", range);
@@ -135,6 +138,7 @@ export function RunwayScreen({ businessId }: ModuleScreenProps) {
     <Screen name="finance/runway">
       <Panel
         title="Cash forecast"
+        menu={pinMenu}
         span={8}
         loading={loading}
         error={error ? error.message : undefined}

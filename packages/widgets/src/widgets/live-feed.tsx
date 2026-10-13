@@ -7,7 +7,7 @@ import { useMemo, useState } from "react";
 import { z } from "zod";
 import { CircleCheck, CircleX, Coins, GitMerge, Handshake, Hourglass, MessageSquare, Play, Radio, Rocket, Trophy, UserPlus, type LucideIcon } from "lucide-react";
 import { Timeline, formatMoney, type StatusTone, type TimelineEvent } from "@foundmill/dugout";
-import { useBusinessEvents, useWidgetQuery, type WidgetEvent } from "../data";
+import { useBusinessEvents, useGlossary, useWidgetQuery, type WidgetEvent } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
 import type { Page, TaskRow } from "../shared/types";
@@ -108,10 +108,12 @@ function LiveFeedWidget({ settings }: WidgetProps<LiveFeedSettings>) {
     if (settings.quiet && QUIET_TYPES.has(e.type)) return;
     setLive((prev) => [toTimelineEvent(e, new Date().toISOString()), ...prev].slice(0, settings.max));
   });
+  const g = useGlossary();
   const events = useMemo(() => {
     const seen = new Set(live.map((e) => e.id));
-    return [...live, ...seedFromTasks(tasks.data?.items ?? []).filter((e) => !seen.has(e.id))].slice(0, settings.max);
-  }, [live, tasks.data, settings.max]);
+    // Lines in the business's words ("Customer won" → "Client won").
+    return [...live, ...seedFromTasks(tasks.data?.items ?? []).filter((e) => !seen.has(e.id))].slice(0, settings.max).map((e) => (typeof e.title === "string" ? { ...e, title: g(e.title) } : e));
+  }, [live, tasks.data, settings.max, g]);
   return (
     <WidgetFrame
       title="Live feed"
@@ -131,7 +133,8 @@ export const liveFeedWidget = registerWidget<LiveFeedSettings>({
   description: "Everything that happens in the business, as it happens.",
   icon: "radio",
   surfaces: ["home", "department"],
-  defaultSize: { w: 4, h: 12, minW: 3, minH: 8 },
+  // A feed: the body scrolls; this shows about eight events.
+  defaultSize: { w: 4, h: 14, minW: 3, minH: 8 },
   settingsSchema: LiveFeedSettings,
   defaultSettings: LiveFeedSettings.parse({}),
   Component: LiveFeedWidget,

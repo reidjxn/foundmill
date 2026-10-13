@@ -174,7 +174,7 @@ export function ResearchScreen({ businessId }: ModuleScreenProps) {
       >
         {coverageMax === 0 && coverage.length ? <p className="mb-2 text-small text-secondary">No source is linked to a section yet; the Source Watcher links them as it reads.</p> : null}
         {/* A list rather than a chart: section names wrap in full and counts are whole numbers (no "0 0 0 1 1 1" ticks). */}
-        <ul role="img" aria-label={`Sources per spec section. ${coverage.map((c) => `${c.section} ${c.count}`).join(", ")}`} className="flex flex-col gap-1.5">
+        <ul aria-label="Sources per spec section" className="flex flex-col gap-1.5">
           {coverage.map((c) => (
             <li key={c.section} className="grid grid-cols-[minmax(0,1fr)_4.5rem_2rem] items-center gap-2" data-coverage={c.section}>
               <span className="break-words text-small text-primary">{c.section}</span>

@@ -7,12 +7,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { Copy, Home, Trophy } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Chip, DataTable, DeltaBadge, FormCells, Panel, StatusStrip, formatRelative, useToast, type DataTableColumn, type MetricTileProps, type RowAction, type SavedView } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { boardKindLabel, boardScope, boardTitle, describeMetric, formResults, formatMetricValue, periodLabel, positionLabel } from "@/lib/live";
 import { errorMessage, trpcErrorCode } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
+import { useTableViews } from "@/lib/table-views";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
 import { BusinessLogo, PersonalNotice, type BusinessCard } from "./shared";
@@ -46,7 +47,8 @@ export function LeaderboardScreen({ boardId }: { boardId: string }) {
   const entriesQ = useQuery(trpc.live.leaderboards.entries.queryOptions({ leaderboardId: boardId, limit: 200 }, { enabled: !!boardQ.data, staleTime: 30_000 }));
   const board = boardQ.data;
   const entries = useMemo(() => entriesQ.data ?? [], [entriesQ.data]);
-  const [views, setViews] = useState<SavedView[]>(ENTRY_VIEWS);
+  // Saved per person across their businesses: the LIVE pages are the account's, not one business's (audit #204).
+  const savedViews = useTableViews("live.leaderboard", ENTRY_VIEWS, { defaultViewId: "ranking" });
 
   const title = board ? boardTitle(board) : "Leaderboard";
   useShellChrome({ title, breadcrumbs: [{ label: "Leaderboards", href: "/leaderboards", icon: Trophy }, ...(board ? [{ label: title }] : [])] }, [title]);
@@ -148,8 +150,7 @@ export function LeaderboardScreen({ boardId }: { boardId: string }) {
           aria-label={`${title} entries`}
           data={rows}
           columns={columns}
-          views={views}
-          onViewsChange={setViews}
+          {...savedViews}
           defaultViewId="ranking"
           rowActions={rowActions}
           selectedIds={mine ? [mine.id] : []}

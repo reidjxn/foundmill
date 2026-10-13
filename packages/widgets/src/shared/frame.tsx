@@ -5,7 +5,8 @@
  */
 import type { ReactNode } from "react";
 import { Panel, type EmptyStateProps, type IconComponent, type PanelMenu } from "@foundmill/dugout";
-import type { QueryState } from "../data";
+import { useGlossary, type QueryState } from "../data";
+import { usePinToHomeMenu, useWidgetInstance } from "./pin";
 
 export interface WidgetEmpty {
   icon?: IconComponent;
@@ -43,12 +44,23 @@ export function combineQueries(queries: readonly QueryState<unknown>[]): { isLoa
   };
 }
 
+/**
+ * The body of a widget on the grid: a column that scrolls inside its cell when the content is taller than the cell (a
+ * founder's resize, a long feed, a wide-to-narrow reflow), so it never paints under the footer or past the panel.
+ */
+export const WIDGET_BODY_CLASS = "flex min-h-0 flex-col overflow-y-auto overflow-x-hidden";
+
 function errorText(error: Error | string): string {
   if (typeof error === "string") return error;
   return error.message && error.message.length < 160 ? error.message : "The data for this panel could not be loaded.";
 }
 
 export function WidgetFrame({ title, queries = [], loading, error, onRetry, empty, actions, footer, menu, flush, bodyClassName, className, children, ...rest }: WidgetFrameProps) {
+  // Captions in the business's words (Settings › Glossary): a string title or footer is renamed, markup is left alone.
+  const g = useGlossary();
+  // Away from Home (a department screen) the caret menu offers Pin to Home for this widget (audit #394).
+  const pin = usePinToHomeMenu(useWidgetInstance());
+  const panelMenu = pin ? { ...pin, ...menu } : menu;
   const combined = combineQueries(queries);
   const isLoading = loading ?? combined.isLoading;
   const err = error ?? combined.error;
@@ -56,16 +68,16 @@ export function WidgetFrame({ title, queries = [], loading, error, onRetry, empt
   const emptyProps = !isLoading && !err && empty ? { icon: empty.icon, title: empty.title, action: empty.action, children: empty.text } : undefined;
   return (
     <Panel
-      title={title}
-      menu={menu}
+      title={typeof title === "string" ? g(title) : title}
+      menu={panelMenu}
       actions={actions}
       loading={isLoading}
       error={err ? errorText(err) : undefined}
       onRetry={retry}
       empty={emptyProps}
-      footer={footer}
+      footer={typeof footer === "string" ? g(footer) : footer}
       flush={flush}
-      bodyClassName={bodyClassName ?? "flex min-h-0 flex-col"}
+      bodyClassName={bodyClassName ?? WIDGET_BODY_CLASS}
       className={className ? `h-full ${className}` : "h-full"}
       data-widget={rest["data-widget"]}
     >

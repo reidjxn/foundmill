@@ -19,6 +19,8 @@ export interface FakeSourceOptions {
   gameMode?: GameMode;
   currency?: string;
   glossary?: Record<string, string>;
+  /** The business time zone (default unset: UTC). */
+  timeZone?: string | null;
   /** Default for paths with no response: LOADING (never resolves) or undefined data (not loading). */
   missing?: "loading" | "empty";
   /** Handler for `mutate`; defaults to resolving `{}` (recorded either way). */
@@ -68,10 +70,12 @@ export function createFakeSource(opts: FakeSourceOptions = {}): FakeSource {
     if (options?.enabled === false) state = { data: undefined, isLoading: false, error: null, refetch };
     else {
       queried.set(path, input);
-      const r = responses.has(path) ? responses.get(path) : opts.missing === "empty" ? undefined : LOADING;
+      const raw = responses.has(path) ? responses.get(path) : opts.missing === "empty" ? undefined : LOADING;
+      // A function of the input may answer one input with data and another with an Error (or LOADING).
+      const r = typeof raw === "function" ? (raw as (i: Record<string, unknown> | undefined) => unknown)(input) : raw;
       if (r === LOADING) state = { data: undefined, isLoading: true, error: null, refetch };
       else if (r instanceof Error) state = { data: undefined, isLoading: false, error: r, refetch };
-      else state = { data: typeof r === "function" ? (r as (i: Record<string, unknown> | undefined) => unknown)(input) : r, isLoading: false, error: null, refetch };
+      else state = { data: r, isLoading: false, error: null, refetch };
     }
     cache.set(key, state);
     return state;
@@ -82,6 +86,7 @@ export function createFakeSource(opts: FakeSourceOptions = {}): FakeSource {
     glossary: opts.glossary ?? {},
     gameMode: opts.gameMode ?? "personal",
     currency: opts.currency ?? "EUR",
+    timeZone: opts.timeZone ?? null,
     useQuery<T>(path: string, input: Record<string, unknown> | undefined, options?: QueryOptions): QueryState<T> {
       useSyncExternalStore(
         (l) => {

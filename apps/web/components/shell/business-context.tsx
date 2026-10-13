@@ -52,12 +52,13 @@ export const FALLBACK_CURRENCY = "EUR";
 
 /**
  * The business's currency: the one its money is kept in (finance.overview's cash currency), read from the query the
- * shell already runs for the top bar, so it costs no request. Screens use it for every amount they format, never a
- * hard-coded code or a glossary entry.
+ * shell already runs for the top bar, so it costs no request. When that query is refused (a member walled from Finance)
+ * or fails, the currency the business was committed with (`business.get`) answers instead, so amounts elsewhere never
+ * turn into the fallback currency. Screens use it for every amount they format, never a hard-coded code.
  */
 export function useBusinessCurrency(): string {
-  const { businessId } = useBusiness();
+  const { businessId, data } = useBusiness();
   const trpc = useTRPC();
   const finance = useQuery(trpc.finance.overview.queryOptions({ businessId }, { staleTime: 60_000, retry: false }));
-  return finance.data?.cash.currency ?? FALLBACK_CURRENCY;
+  return finance.data?.cash.currency ?? data.business.glossary?.currency ?? FALLBACK_CURRENCY;
 }

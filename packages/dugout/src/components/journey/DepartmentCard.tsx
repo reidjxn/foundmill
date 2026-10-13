@@ -1,5 +1,5 @@
 "use client";
-import { ArrowRight, CircleCheck, CircleX, Clock, Inbox, MessageSquareReply, Moon, TriangleAlert } from "lucide-react";
+import { ArrowRight, CircleCheck, CircleX, Clock, Inbox, MessageSquareReply, Moon, RefreshCw, TriangleAlert } from "lucide-react";
 import type { EntityKind } from "@foundmill/shared";
 import { cn } from "../../lib/cn";
 import { Avatar } from "../foundation/Avatar";
@@ -53,6 +53,8 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
   const extra = d.squad.length - squad.length;
   const working = d.squad.filter((m) => m.status === "healthy").length;
   const quiet = d.now.length === 0 && !d.nowLoading;
+  // A failed load is not a quiet department: the line says so instead of "Quiet".
+  const failed = quiet && d.quiet?.kind === "error";
   return (
     <section className={cn("@container surface-panel glow-dept edge-tint flex min-w-0 flex-col overflow-hidden", DEPT_TONE[d.dept], className)} aria-label={`${d.name} department`} data-department={d.id} data-health={d.health}>
       <header className="flex h-panel-header shrink-0 items-center gap-2 pl-panel-pad pr-2.5 rule-fade">
@@ -114,7 +116,7 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
         <div className="flex flex-1 flex-col" data-now>
           <div className="flex items-center gap-1.5">
             <span className="t-data">Now</span>
-            {quiet ? (
+            {quiet && !failed ? (
               <>
                 <span aria-hidden className="t-data">
                   ·
@@ -156,7 +158,7 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
               {d.metric.provenance ? <ProvenanceChip kind={d.metric.provenance} /> : null}
             </div>
           </div>
-          <TileSpark data={d.metric.series} className={cn("mb-1 max-w-32 shrink-0 basis-1/3", DEPT_TEXT[d.dept])} label={`${d.metric.label}, ${d.metric.series.length} periods`} />
+          <TileSpark data={d.metric.series} className={cn("mb-1 max-w-32 shrink-0 basis-1/3", DEPT_TEXT[d.dept])} label={d.metric.seriesLabel ?? `${d.metric.label}, ${d.metric.series.length} periods`} />
         </div>
         <div className="flex items-center gap-2">
           <Icon icon={Clock} size="inline" className="shrink-0 text-tertiary" />
@@ -175,7 +177,10 @@ export function DepartmentCard({ department: d, onOpen, onOpenAgent, onOpenEntit
   );
 }
 
-const QUIET_ICON: Record<DepartmentQuietLine["kind"] | "unknown", IconComponent> = { respond: MessageSquareReply, inbox: Inbox, finished: CircleCheck, clear: Moon, unknown: Moon };
+const QUIET_ICON: Record<DepartmentQuietLine["kind"] | "unknown", IconComponent> = { attention: TriangleAlert, respond: MessageSquareReply, inbox: Inbox, finished: CircleCheck, clear: Moon, error: RefreshCw, unknown: Moon };
+
+/** Lines that open something (the note, the agent or task that needs the founder, a retry); the rest are plain text. */
+const QUIET_OPENS: ReadonlySet<DepartmentQuietLine["kind"]> = new Set(["attention", "respond", "inbox", "error"]);
 
 /**
  * A quiet card's one line, set in the space "Now" lines would take: the department's light on an icon disc, a kicker
@@ -185,7 +190,7 @@ const QUIET_ICON: Record<DepartmentQuietLine["kind"] | "unknown", IconComponent>
 function QuietLine({ line, onOpen }: { line: DepartmentQuietLine | null; onOpen?: () => void }) {
   const kind = line?.kind ?? "unknown";
   const text = line?.text ?? "Nothing in progress right now.";
-  const opens = !!onOpen && (kind === "respond" || kind === "inbox");
+  const opens = !!onOpen && !!line && QUIET_OPENS.has(line.kind);
   const body = (
     <>
       <span aria-hidden className="icon-halo size-control-md">

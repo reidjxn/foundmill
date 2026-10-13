@@ -35,7 +35,7 @@ import { SIDEBAR_BRAND, SIDEBAR_IDS, activeSidebarId, buildSidebarItems, ordered
 import { signOut } from "@/lib/auth/sign-out";
 import { useStreamSubscription } from "@/lib/stream-client";
 import { streamPollInterval, useBusinessLive } from "@/lib/stream-status";
-import { useClientToday } from "@/lib/today";
+import { browserTimeZone, timeZoneToClaim, useClientToday } from "@/lib/today";
 import { getBrowserAccessToken } from "@/lib/supabase/client";
 import { errorMessage, trpcErrorCode, trpcPathPrefix, type RouterOutputs } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
@@ -153,7 +153,6 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const router = useRouter();
-  const today = useClientToday();
   const pathname = usePathname();
   const { toast } = useToast();
   const chrome = useShellChromeValue();
@@ -197,6 +196,8 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   const departments = departmentsQ.data ?? initialDepartments;
   const visibleDepartments = useMemo(() => orderedVisibleDepartments(departments), [departments]);
   const business = data.business;
+  // The business's day (audit #196): the same day Home's tiles and the Journey's rows count in.
+  const today = useClientToday(business.timeZone);
   const logoSrc = useBusinessLogoSrc(businessId, data.logo);
   const live = business.gameMode === "live";
   const currency = financeQ.data?.cash.currency ?? "EUR";
@@ -213,6 +214,19 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
   }, [cycleQ.data]);
 
   const invalidate = useCallback((routers: readonly string[]) => Promise.all(routers.map((r) => queryClient.invalidateQueries({ queryKey: trpcPathPrefix(r) as unknown[] }))), [queryClient]);
+
+  // --- time zone: the first open by an owner or admin sets the business's zone from their browser (audit #196) -----
+  // Until then days read as UTC everywhere; Settings › Business changes it. Once per business per mount, best effort.
+  const claimZone = useMutation(trpc.business.setTimeZone.mutationOptions({ onSuccess: () => void invalidate(["business", "journey", "finance"]) }));
+  const claimZoneFor = claimZone.mutate;
+  const zoneClaimed = useRef<string | null>(null);
+  useEffect(() => {
+    if (zoneClaimed.current === businessId) return;
+    const zone = timeZoneToClaim(business.timeZone, data.role, browserTimeZone());
+    if (!zone) return;
+    zoneClaimed.current = businessId;
+    claimZoneFor({ businessId, timeZone: zone });
+  }, [businessId, business.timeZone, data.role, claimZoneFor]);
 
   useStreamSubscription(`ev:${businessId}`, (raw) => {
     const event: WidgetEvent | null = readWidgetEvent(raw);
@@ -449,7 +463,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
 
   return (
     <BusinessProvider value={businessCtx}>
-      <WidgetDataHost businessId={businessId} glossary={business.glossary ?? {}} gameMode={business.gameMode} currency={currency}>
+      <WidgetDataHost businessId={businessId} glossary={business.glossary ?? {}} gameMode={business.gameMode} currency={currency} timeZone={business.timeZone ?? null}>
         <ModuleEnvProvider value={moduleEnv}>
           <SpecUserProvider value={specUser}>
           <EntityLinkProvider value={entityLinks}>
@@ -498,7 +512,7 @@ function ShellInner({ businessId, initialBusiness, initialDepartments, viewer, c
                   onAsk,
                   placeholder: "Search, ask an agent or generate…",
                 }}
-                // The founder's own day, known only in the browser (null on the server: UTC is tomorrow on a US evening).
+                // The business's day, known only in the browser (null on the server, so hydration never disagrees).
                 date={today}
                 runwayMonths={financeQ.data?.runway.months ?? null}
                 // Without a figure the chip says what Home's tiles say ("No limit", "Not known yet") with the reason.

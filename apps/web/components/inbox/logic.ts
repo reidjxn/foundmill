@@ -5,6 +5,7 @@
  */
 import type { DecisionAnswer, DecisionOption, MetricTileProps, TabItem } from "@foundmill/dugout";
 import type { InboxItemType, InboxState, Money } from "@foundmill/shared";
+import { applyGlossary } from "@foundmill/shared/glossary";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { runwayWords } from "@foundmill/widgets/shared/runway";
 import { NOTE_TYPE_TAGS, noteRowTag, type NoteTag as SharedNoteTag, type NoteTagIcon, type NoteTagTone } from "@foundmill/widgets/shared/note-tags";
@@ -22,11 +23,14 @@ export function parseInboxTab(raw: string | null | undefined, live: boolean): In
   return tab === "messages" && !live ? "all" : tab;
 }
 
-/** Messages is LIVE-only (BUILD §11.3). Badges: Respond carries the count of items waiting for an answer. */
-export function inboxTabs(businessId: string, live: boolean, counts: Partial<Record<string, number>> | undefined): TabItem[] {
+/**
+ * Messages is LIVE-only (BUILD §11.3). Badges: Respond carries the count of items waiting for an answer. Labels are in
+ * the business's words (Settings › Glossary: "Customers" reads "Clients").
+ */
+export function inboxTabs(businessId: string, live: boolean, counts: Partial<Record<string, number>> | undefined, glossary?: Record<string, string>): TabItem[] {
   return INBOX_TABS.filter((t) => live || t !== "messages").map((t) => ({
     id: t,
-    label: INBOX_TAB_LABELS[t],
+    label: applyGlossary(INBOX_TAB_LABELS[t], glossary),
     href: t === "all" ? routes.inbox(businessId) : `${routes.inbox(businessId)}?tab=${t}`,
     badge: t === "respond" && counts?.respond ? counts.respond : undefined,
   }));
@@ -252,6 +256,8 @@ export interface MetricSources {
   conversions?: readonly { kind: string; occurredAt: Date | string }[] | null;
   tasks?: readonly { status: string }[] | null;
   channelsEnabled?: number | null;
+  /** The business glossary (Settings › Glossary): tile captions read in the business's words, like the note's text. */
+  glossary?: Record<string, string> | null;
   now?: Date;
 }
 
@@ -358,10 +364,15 @@ export function metricKey(metric: string): string | null {
  * Resolve the Composer's `status_strip` entries (`{ metric, source }`) to MetricTiles. The note never carries the
  * numbers (AC-11.3.6); they come from the live queries the page already holds. A free-form entry whose live metric is
  * not in the catalogue shows the figure it carries, split from its label; one with no figure at all renders "—" with
- * the source as provenance so the strip stays honest. Provenance is in plain words, never a table name.
+ * the source as provenance so the strip stays honest. Provenance is in plain words, never a table name. Captions read
+ * in the business's words (Settings › Glossary: "Customers this week" → "Clients this week"), as the note's text does.
  */
 export function statusStripTiles(strip: unknown, sources: MetricSources): MetricTileProps[] {
   if (!Array.isArray(strip)) return [];
+  return statusStripFigures(strip, sources).map((t) => (typeof t.label === "string" ? { ...t, label: applyGlossary(t.label, sources.glossary) } : t));
+}
+
+function statusStripFigures(strip: readonly unknown[], sources: MetricSources): MetricTileProps[] {
   const now = sources.now ?? new Date();
   const f = sources.finance ?? null;
   const currency = f?.cash.currency ?? "EUR";

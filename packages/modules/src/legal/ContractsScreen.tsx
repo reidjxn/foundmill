@@ -9,6 +9,7 @@ import { ArrowRight, Ban, CheckCircle2, ExternalLink, FileSignature, FileText, P
 import { Button, Chip, DataTable, EntityLink, Field, Input, KeyValueList, MiniTable, MoneyInput, Panel, SimpleSelect, useFormatters, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { CONTRACT_NEXT, CONTRACT_STATUS_WORD, contractKindLabel, isExternalHref, readObligations, type Obligation } from "./legal-data";
 import { DateText } from "../dates";
@@ -99,7 +100,8 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
   const id = useId();
   const list = useWidgetQuery<ContractsListResponse>("legal.contracts.list", CONTRACTS_INPUT);
   const business = useWidgetQuery<BusinessGetResponse>("business.get", BUSINESS_INPUT);
-  const [views, setViews] = useState<SavedView[]>(CONTRACT_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("legal.contracts", CONTRACT_VIEWS, { defaultViewId: "all" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const detail = useWidgetQuery<ContractRow>("legal.contracts.get", selectedId ? { contractId: selectedId } : undefined, { enabled: !!selectedId });
   const action = useAction();
@@ -226,7 +228,7 @@ export function ContractsScreen({ businessId }: ModuleScreenProps) {
           </form>
         ) : null}
         <div className="min-w-0">
-          <DataTable<ContractRow> aria-label="Contracts" data={rows} columns={columns} views={views} onViewsChange={setViews} defaultViewId="all" hideEmptyColumns height={fitTableHeight(rows.length, { minRows: showForm ? 4 : 6, maxRows: 16 })} exportFileName="contracts" rowActions={rowActions} onRowOpen={(r) => setSelectedId(r.id)} rowClassName={(r) => (r.id === selectedId ? "row-selected" : undefined)} />
+          <DataTable<ContractRow> aria-label="Contracts" data={rows} columns={columns} {...savedViews} defaultViewId="all" hideEmptyColumns height={fitTableHeight(rows.length, { minRows: showForm ? 4 : 6, maxRows: 16 })} exportFileName="contracts" rowActions={rowActions} onRowOpen={(r) => setSelectedId(r.id)} rowClassName={(r) => (r.id === selectedId ? "row-selected" : undefined)} />
         </div>
         <InlineError error={action.error} className="px-panel-pad py-1" />
       </Panel>

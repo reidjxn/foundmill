@@ -35,6 +35,7 @@ function seed(over: Partial<FakeApi["handlers"]> = {}) {
     "live.profile.visibility.set": () => ({}),
     "live.connections.respond": (v) => ({ ...(v as object) }),
     "live.connections.remove": () => ({ removed: true }),
+    "founder.tableViews.get": () => null,
     ...over,
   };
   api.calls = [];

@@ -27,6 +27,22 @@ test.describe("product", () => {
     await expect(page.getByRole("list", { name: "Roadmap items in Now" })).toBeVisible();
   });
 
+  test("Vision: a pinned block's author link opens the agent, and the block opens the Specification (audit #397)", async ({ page }) => {
+    await openProductTab(page, "vision");
+    const pinned = page.getByRole("list", { name: "Pinned blocks" });
+    await expect(pinned).toBeVisible({ timeout: LONG });
+    // Nothing interactive sits inside a block's button.
+    expect(await pinned.locator("[data-pinned-block] a, [data-pinned-block] button").count()).toBe(0);
+    const author = pinned.locator("[data-pinned-block-meta] a[href*='/agents/']").first();
+    test.skip((await author.count()) === 0, "no pinned block written by an agent in this seed");
+    const href = (await author.getAttribute("href"))!;
+    await author.click();
+    await expect(page).toHaveURL(new RegExp(href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), { timeout: LONG });
+    await page.goBack();
+    await page.locator("[data-pinned-block]").first().click();
+    await expect(page).toHaveURL(/\/specification\?block=/, { timeout: LONG });
+  });
+
   test("Roadmap board: owners by name, linked blocks inside their cards", async ({ page }) => {
     await openProductTab(page, "roadmap");
     const board = page.locator("[data-roadmap-board]");

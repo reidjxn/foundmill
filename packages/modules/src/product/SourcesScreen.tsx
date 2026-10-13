@@ -9,6 +9,7 @@ import { ExternalLink, FileText, Inbox, Plus } from "lucide-react";
 import { Button, Chip, DataTable, Panel, formatRelative, type DataTableColumn, type SavedView } from "@foundmill/dugout";
 import { SOURCE_KINDS, type SourceKind } from "@foundmill/shared";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { Screen, blockTitle } from "./shared";
 import { AddSourceDialog } from "./sources/AddSourceDialog";
@@ -120,7 +121,8 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
   const list = useWidgetQuery<SourcesListResponse>("product.sources.list", kind ? { kind, limit: 200 } : { limit: 200 });
   const spec = useWidgetQuery<SpecGetResponse>("product.spec.get", {});
   const departments = useDepartments();
-  const [views, setViews] = useState<SavedView[]>(SOURCE_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("product.sources", SOURCE_VIEWS, { defaultViewId: "all" });
   const [adding, setAdding] = useState(false);
   const [highlight] = useState<string | null>(() => sourceFromLocation());
   useBusinessEvents(() => list.refetch(), ["source.added", "source.scored", "spec.proposal_created"]);
@@ -170,8 +172,7 @@ export function SourcesScreen({ businessId }: ModuleScreenProps) {
           aria-label="Sources"
           data={rows}
           columns={columns}
-          views={views}
-          onViewsChange={setViews}
+          {...savedViews}
           defaultViewId="all"
           height={560}
           exportFileName="sources"

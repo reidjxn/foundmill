@@ -4,6 +4,7 @@
  * share link co-founders open, and the day-one state (ghosted milestones).
  */
 import type { TabItem, TrophyCard, WidgetPreset } from "@foundmill/dugout";
+import { applyGlossary } from "@foundmill/shared/glossary";
 import { TROPHIES } from "@foundmill/journey";
 import { DASHBOARD_PRESET_LIST, isDashboardPresetId, routes, toGridLayout, type DashboardPresetId } from "@foundmill/widgets";
 import { formatNumber } from "@/lib/format";
@@ -80,9 +81,9 @@ function describeTrophy(t: (typeof TROPHIES)[number], currency: string): string 
   return "A signed contract above the enterprise threshold.";
 }
 
-/** Every milestone ghosted: the cabinet on day one. */
-export function ghostedMilestones(currency: string): TrophyCard[] {
-  return TROPHIES.map((t) => ({ key: t.key, label: t.label(currency), description: describeTrophy(t, currency), achievedAt: null, currency }));
+/** Every milestone ghosted: the cabinet on day one, named in the business's words (Settings › Glossary). */
+export function ghostedMilestones(currency: string, glossary?: Record<string, string>): TrophyCard[] {
+  return TROPHIES.map((t) => ({ key: t.key, label: applyGlossary(t.label(currency), glossary), description: applyGlossary(describeTrophy(t, currency), glossary), achievedAt: null, currency }));
 }
 
 /** Which dashboard the route shows (server-safe, shared with the Home page's server prefetch). */

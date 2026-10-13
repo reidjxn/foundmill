@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { LONG, logoPng, openBusiness, settingsScreen } from "./helpers";
+import { expect, test, type Page } from "@playwright/test";
+import { LONG, NORTHWIND_BUSINESS_ID, logoPng, openBusiness, settingsScreen } from "./helpers";
 
 /**
  * Settings › Business (BUILD §11.15): the owner uploads a real logo, generates marks and picks one, or goes back to the
@@ -74,5 +74,79 @@ test.describe("settings › mode: the spend cap per action", () => {
     await field.fill("");
     await page.getByTestId("spend-cap-form").getByRole("button", { name: "Save cap" }).click();
     await expect(page.getByText("Spend cap removed")).toBeVisible({ timeout: LONG });
+  });
+});
+
+/** The day key of `zone` now, as the app formats a short US date ("Oct 13"). */
+function shortDayIn(zone: string): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone: zone, month: "short", day: "numeric" }).format(new Date());
+}
+
+/**
+ * Settings › Business: the time zone (audit #196). Home's today, the Journey's days and the top bar's date follow the
+ * business's zone, not UTC and not each viewer's clock. Kiritimati (UTC+14) makes the difference visible at any hour
+ * for a UTC runner. The spec puts Northwind back on the zone it had.
+ */
+test.describe("settings › business: the time zone", () => {
+  test("picked once, the top bar and the Journey's Today both name the business's day", async ({ page }) => {
+    await openBusiness(page, "settings/business");
+    const field = page.getByLabel("Time zone");
+    await expect(field).toBeVisible({ timeout: LONG });
+    const before = ((await field.textContent()) ?? "").trim();
+    await field.click();
+    await page.getByRole("option", { name: "Pacific/Kiritimati", exact: true }).click();
+    await expect(page.getByText("Time zone saved")).toBeVisible({ timeout: LONG });
+    await expect(field).toHaveText("Pacific/Kiritimati");
+    const day = shortDayIn("Pacific/Kiritimati");
+    await expect(page.getByTestId("kitbar-date")).toContainText(day, { timeout: LONG });
+    await page.getByRole("link", { name: "Home", exact: true }).first().click();
+    await expect(page.locator("[data-today-tag]").first()).toHaveText(new RegExp(`^Today · ${day}\\b`), { timeout: LONG });
+    await expect(page.getByTestId("kitbar-date")).toContainText(day);
+
+    // Back to the zone Northwind had (UTC when it had none yet).
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/settings/business`);
+    await page.getByLabel("Time zone").click();
+    const restore = /^[A-Z][A-Za-z]+(\/[A-Za-z_ -]+)+$|^UTC$/.test(before) ? before : "UTC";
+    await page.getByRole("option", { name: restore, exact: true }).click();
+    await expect(page.getByLabel("Time zone")).toHaveText(restore, { timeout: LONG });
+  });
+});
+
+/**
+ * Settings › Glossary (BUILD §11.13, AC-11.13.6, audit #206): a renamed noun reaches Home's captions and the Inbox tabs,
+ * not only model prompts. The spec removes its rows again so Northwind keeps the product's words.
+ */
+test.describe("settings › glossary: the business's own words", () => {
+  async function saveGlossary(page: Page, rows: [string, string][]): Promise<void> {
+    await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/settings/glossary`);
+    const list = page.getByTestId("glossary-rows");
+    await expect(list).toBeVisible({ timeout: LONG });
+    // Clear every row, then add the wanted ones.
+    while (await list.getByRole("button", { name: "Remove term" }).count()) await list.getByRole("button", { name: "Remove term" }).first().click();
+    for (const [term, word] of rows) {
+      await list.getByRole("button", { name: "Add term" }).click();
+      await list.getByRole("textbox", { name: "Default word" }).last().fill(term);
+      await list.getByRole("textbox", { name: "Your word" }).last().fill(word);
+    }
+    const save = page.getByRole("button", { name: "Save changes" });
+    if (await save.isEnabled()) {
+      await save.click();
+      await expect(page.getByText("Glossary saved")).toBeVisible({ timeout: LONG });
+    }
+  }
+
+  test("customer → client renames Home's captions and the Inbox's Customers tab", async ({ page }) => {
+    await openBusiness(page);
+    try {
+      await saveGlossary(page, [["customer", "client"]]);
+      await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/home`);
+      const strip = page.getByRole("region", { name: "Status" });
+      await expect(strip.getByText("Clients this week")).toBeVisible({ timeout: LONG });
+      await expect(strip.getByText("Customers this week")).toHaveCount(0);
+      await page.goto(`/b/${NORTHWIND_BUSINESS_ID}/inbox`);
+      await expect(page.getByRole("link", { name: /^Clients\b/ }).or(page.getByRole("tab", { name: /^Clients\b/ })).first()).toBeVisible({ timeout: LONG });
+    } finally {
+      await saveGlossary(page, []);
+    }
   });
 });

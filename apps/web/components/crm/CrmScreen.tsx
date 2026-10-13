@@ -9,10 +9,11 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Building2, Database, Download, GitMerge, Search, Shield, Sparkles, UserRound, UserRoundPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Avatar, Button, Chip, DataTable, ENTITY_KIND_ICONS, EntityLink, FilterChips, Icon, Input, Kbd, Panel, Popover, PopoverAnchor, PopoverContent, StatusPill, formatRelative, type DataTableColumn, type FilterChipValue, type RowAction, type SavedView } from "@foundmill/dugout";
+import { Avatar, Button, Chip, DataTable, ENTITY_KIND_ICONS, EntityLink, FilterChips, Icon, Input, Kbd, Panel, Popover, PopoverAnchor, PopoverContent, StatusPill, formatRelative, type DataTableColumn, type FilterChipValue, type RowAction } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useTRPC } from "@/lib/trpc-react";
+import { useTableViews } from "@/lib/table-views";
 import { errorMessage } from "@/lib/trpc";
 import { useBusiness } from "@/components/shell/business-context";
 import { useShellChrome } from "@/components/shell/chrome";
@@ -84,8 +85,9 @@ export function CrmScreen() {
   const fields = useMemo(() => crmFilterFields({ roles: index.roles, departments, owners: squadQ.data?.agents.map((a) => ({ id: a.id, name: a.name })) }), [index.roles, departments, squadQ.data]);
 
   // --- table ---------------------------------------------------------------------------------------------------------
-  const [views, setViews] = useState<SavedView[]>(CRM_VIEWS);
-  const [activeViewId, setActiveViewId] = useState<string | null>("all");
+  // Saved per person and business (audit #204): the views and the open one come back after a reload.
+  const savedViews = useTableViews("crm.list", CRM_VIEWS, { businessId, defaultViewId: "all" });
+  const { views, activeViewId, onActiveViewChange: setActiveViewId } = savedViews;
   const activeView = views.find((v) => v.id === activeViewId) ?? null;
   const groupBy = groupByForView(activeView);
   const groups = useMemo(() => (groupBy ? groupCounts(index.rows, groupBy) : []), [index.rows, groupBy]);
@@ -257,7 +259,7 @@ export function CrmScreen() {
             ))}
           </div>
         ) : null}
-        <DataTable<CrmRow> aria-label="CRM records" data={index.rows} columns={columns} views={views} onViewsChange={setViews} activeViewId={activeViewId} onActiveViewChange={setActiveViewId} rowActions={rowActions} onRowOpen={(r) => open_(r.id)} height={typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 360)} exportFileName="crm" className="border-0" hideEmptyColumns hideFilter />
+        <DataTable<CrmRow> aria-label="CRM records" data={index.rows} columns={columns} {...savedViews} rowActions={rowActions} onRowOpen={(r) => open_(r.id)} height={typeof window === "undefined" ? 480 : Math.max(320, window.innerHeight - 360)} exportFileName="crm" className="border-0" hideEmptyColumns hideFilter />
       </Panel>
       </div>
 

@@ -52,6 +52,12 @@ export const QuietCards: Story = {
         <DepartmentCard department={{ ...quietBase, id: "q-clear", name: "Legal", dept: "dept-7", quiet: { kind: "clear", label: "All clear", text: "Nothing in progress, and nothing waiting on you." } }} className="h-full" onOpen={() => {}} />
         <DepartmentCard department={{ ...quietBase, id: "q-loading", name: "Development", dept: "dept-2", nowLoading: true }} className="h-full" onOpen={() => {}} />
       </div>
+      {/* An agent that needs the founder (never "All clear" beside a Down or Failing pill), and work that failed to load. */}
+      <div className="grid h-[368px] grid-cols-3 gap-gutter">
+        <DepartmentCard department={{ ...quietBase, id: "q-down", name: "Development", dept: "dept-2", health: "bad", healthWord: "Down", quiet: { kind: "attention", label: "Needs you", text: "Data Engineer is down", detail: "Back once reconnected" } }} className="h-full" onOpen={() => {}} onOpenQuiet={() => {}} />
+        <DepartmentCard department={{ ...quietBase, id: "q-failed", name: "Product", dept: "dept-1", quiet: { kind: "attention", label: "Last task failed", text: "Draft the pricing page copy", detail: "Oct 11" } }} className="h-full" onOpen={() => {}} onOpenQuiet={() => {}} />
+        <DepartmentCard department={{ ...quietBase, id: "q-error", name: "Retail Partnerships", dept: "dept-3", quiet: { kind: "error", label: "Couldn't load", text: "What this department is working on could not be loaded.", detail: "Retry" }, nextUp: "Couldn't load" }} className="h-full" onOpen={() => {}} onOpenQuiet={() => {}} />
+      </div>
     </div>
   ),
 };

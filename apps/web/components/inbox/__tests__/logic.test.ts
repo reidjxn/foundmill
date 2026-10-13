@@ -42,6 +42,11 @@ describe("tabs", () => {
     expect(inboxTabs(BID, false, {})[0]!.href).toBe(`/b/${BID}/inbox`);
     expect(inboxTabs(BID, false, {})[1]!.href).toBe(`/b/${BID}/inbox?tab=respond`);
   });
+  it("names the tabs in the business's words (Settings › Glossary, AC-11.13.6)", () => {
+    const tabs = inboxTabs(BID, false, {}, { customer: "client" });
+    expect(tabs.find((t) => t.id === "customers")?.label).toBe("Clients");
+    expect(inboxTabs(BID, false, {}).find((t) => t.id === "customers")?.label).toBe("Customers");
+  });
   it("parses the tab from the query, falling back to All (and off Messages when not LIVE)", () => {
     expect(parseInboxTab("respond", false)).toBe("respond");
     expect(parseInboxTab("messages", false)).toBe("all");
@@ -174,6 +179,12 @@ describe("status strip (AC-11.3.6: numbers come from live queries, never the not
     expect(tiles[1]).toMatchObject({ label: "Runway", value: 12.5, unit: "months", estimate: "estimate" });
     expect(tiles[2]).toMatchObject({ label: "Customers this week", value: 1 });
     expect(tiles[3]).toMatchObject({ label: "MRR", value: { amountMinor: 42_000, currency: "EUR" }, caption: "2026-09" });
+  });
+  it("names the note's figures in the business's words (Settings › Glossary, AC-11.13.6)", () => {
+    const strip = [{ metric: "customers_week", source: "Stripe" }, { metric: "Customers 1101", source: "conversions" }];
+    const tiles = statusStripTiles(strip, { finance, conversions, now, glossary: { customer: "client" } });
+    expect(tiles.map((t) => t.label)).toEqual(["Clients this week", "Clients"]);
+    expect(statusStripTiles(strip, { finance, conversions, now }).map((t) => t.label)).toEqual(["Customers this week", "Customers"]);
   });
   it("unknown metrics render honestly empty; missing sources give null values", () => {
     const tiles = statusStripTiles([{ metric: "made_up", source: "x" }, { metric: "cash" }], { finance: null, conversions: null, now });

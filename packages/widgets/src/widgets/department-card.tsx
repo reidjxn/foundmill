@@ -12,13 +12,15 @@ import { LayoutGrid } from "lucide-react";
 import type { AgentStatus, EntityKind, ModuleKey } from "@foundmill/shared";
 import { MODULE_KEYS } from "@foundmill/shared/constants";
 import { DepartmentCard, formatDate, formatMoney, formatNumber, useDateFormat, type DateFormatPrefs, type DepartmentCardData, type DepartmentMetric, type DepartmentQuietLine, type HealthTone, type SquadMember } from "@foundmill/dugout";
-import { useBusinessEvents, useWidgetData, useWidgetQuery, type QueryState } from "../data";
+import { useBusinessEvents, useGlossary, useToday, useWidgetData, useWidgetQuery, type QueryState } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
-import { primaryModule, resolveDepartment, useDepartments } from "../shared/departments";
+import { moduleHref, primaryModule, resolveDepartment, useDepartments } from "../shared/departments";
+import { failedWithoutData, unavailableWords } from "../shared/errors";
 import { WidgetFrame } from "../shared/frame";
+import { NEEDS_ATTENTION_STATUSES, needsAttention, teamHealth } from "../shared/health";
 import { departmentRows, useRecentRibbon } from "../shared/ribbon";
 import { routes } from "../shared/routes";
-import { addDays, dailySeries, dayKey, daysUntil, lastDays, sumInRange } from "../shared/time";
+import { addDays, dailySeries, daysUntil, lastDays, sumInRange } from "../shared/time";
 import type { ChannelsListResponse, ComplianceResponse, DepartmentRow, FinanceOverview, InboxItemRow, InboxListResponse, Page, RibbonResponse, RoadmapListResponse, TaskRow } from "../shared/types";
 import { RESPOND_TAG, noteRowTag } from "../shared/note-tags";
 import { RUNWAY_WORDS, runwayWords } from "../shared/runway";
@@ -65,10 +67,16 @@ const TASK_VERB: Record<string, string> = {
   paused: "paused",
 };
 
-/** Health of the department from its squad and open tasks: any failing agent → bad; waiting/blocked → warn. */
-export function departmentHealth(squad: readonly SquadMember[], tasks: readonly TaskRow[]): { health: HealthTone; word: string } {
-  if (squad.some((m) => m.status === "failing" || m.status === "injured")) return { health: "bad", word: "Failing" };
-  if (tasks.some((t) => t.status === "blocked")) return { health: "warn", word: "Waiting" };
+/**
+ * Health of the department from its team and open tasks, in Team › Health's words: a failing agent → "Failing", a down
+ * one (`injured`: waiting on a credential, with an expected return) → "Down", a blocked task → "Waiting", a degraded
+ * agent → "Degraded". Idle and paused agents are healthy (shared/health.ts). `tasks` null: the open tasks could not be
+ * loaded, so the word comes from the team alone rather than from an empty list.
+ */
+export function departmentHealth(squad: readonly SquadMember[], tasks: readonly TaskRow[] | null): { health: HealthTone; word: string } {
+  if (squad.some((m) => m.status === "failing")) return { health: "bad", word: "Failing" };
+  if (squad.some((m) => m.status === "injured")) return { health: "bad", word: "Down" };
+  if (tasks?.some((t) => t.status === "blocked")) return { health: "warn", word: "Waiting" };
   if (squad.some((m) => m.status === "degraded")) return { health: "warn", word: "Degraded" };
   return { health: "good", word: "Healthy" };
 }
@@ -90,10 +98,15 @@ export function nowLines(tasks: readonly TaskRow[], squad: readonly SquadMember[
  * page lets every card answer from that cache instead of a request of its own.
  */
 export const QUIET_INBOX_PAGE = 50;
-/** Recently finished tasks, one business-wide request shared by every card. */
+/** Recently ended tasks (finished or failed), one business-wide request shared by every card. */
 export const QUIET_DONE_PAGE = 100;
+export const QUIET_ENDED_STATUSES = ["done", "failed"] as const;
 
-export type QuietLine = DepartmentQuietLine & { inboxItemId?: string };
+/** A card whose open tasks could not be loaded: one line that says so and retries (DepartmentCard renders it). */
+export const TASKS_FAILED_LINE: DepartmentQuietLine = { kind: "error", label: "Couldn't load", text: "What this department is working on could not be loaded.", detail: "Retry" };
+
+/** The line plus what it opens: the note in the Inbox, the agent's profile, or the failed task on the Plan. */
+export type QuietLine = DepartmentQuietLine & { inboxItemId?: string; agentId?: string; taskId?: string };
 
 /** Milliseconds of a timestamp as the API sends it (a Date through superjson, an ISO string in fixtures); null if none. */
 function toMs(at: unknown): number | null {
@@ -106,13 +119,30 @@ function dayLabel(ms: number, today: string, prefs?: DateFormatPrefs | null): st
   return formatDate(ms, String(new Date(ms).getUTCFullYear()) === today.slice(0, 4) ? "dayMonth" : "date", prefs);
 }
 
+/** What an agent that needs the founder is doing, in Team › Health's words. */
+const ATTENTION_WORDS: Record<(typeof NEEDS_ATTENTION_STATUSES)[number], { verb: string; detail: string }> = {
+  failing: { verb: "is failing", detail: "Sessions are stopped until you look" },
+  injured: { verb: "is down", detail: "Back once reconnected" },
+  degraded: { verb: "is degraded", detail: "Errors above 10%" },
+};
+
 /**
- * A quiet department's one line, from real data, the most useful first: a note from its agents waiting for the
- * founder's answer ("Waiting for you", the same rule as the Inbox's "Respond" tag), else an unread note from them, else
- * the last task it finished (with the day), else "All clear" once both the Inbox and the finished tasks have answered.
- * Null while that is not known, so the card never claims "nothing waiting" on missing data.
+ * A quiet department's one line, from real data, the most useful first: an agent of its team that needs the founder
+ * (failing, then down, then degraded, as Team › Health says it), else a note from its agents waiting for the founder's
+ * answer ("Waiting for you", the same rule as the Inbox's "Respond" tag), else an unread note from them, else its last
+ * task when that one failed, else the last task it finished (with the day), else "All clear" once both the Inbox and
+ * the finished tasks have answered. Null while that is not known, so the card never claims "nothing waiting" on
+ * missing data, and never "All clear" next to a Failing pill.
  */
-export function quietLine(input: { agentIds: ReadonlySet<string>; departmentId: string; inbox: readonly InboxItemRow[] | undefined; done: readonly TaskRow[] | undefined; today: string; datePrefs?: DateFormatPrefs | null }): QuietLine | null {
+export function quietLine(input: { agentIds: ReadonlySet<string>; departmentId: string; inbox: readonly InboxItemRow[] | undefined; done: readonly TaskRow[] | undefined; today: string; datePrefs?: DateFormatPrefs | null; squad?: readonly SquadMember[] }): QuietLine | null {
+  const squad = input.squad ?? [];
+  for (const status of NEEDS_ATTENTION_STATUSES) {
+    const first = squad.find((m) => m.status === status);
+    if (!first) continue;
+    const others = squad.filter((m) => needsAttention(m.status)).length - 1;
+    const words = ATTENTION_WORDS[status];
+    return { kind: "attention", label: "Needs you", text: `${first.name} ${words.verb}`, detail: others > 0 ? `${others} more ${others === 1 ? "agent needs" : "agents need"} you` : words.detail, agentId: first.id };
+  }
   const notes = (input.inbox ?? [])
     .filter((n) => n.fromAgentId !== null && input.agentIds.has(n.fromAgentId) && n.state !== "archived")
     .sort((a, b) => (toMs(b.createdAt) ?? 0) - (toMs(a.createdAt) ?? 0));
@@ -121,13 +151,14 @@ export function quietLine(input: { agentIds: ReadonlySet<string>; departmentId: 
   if (waiting) return { kind: "respond", label: "Waiting for you", text: waiting.subject, detail: respond.length > 1 ? `${respond.length - 1} more in the Inbox` : undefined, inboxItemId: waiting.id };
   const unread = notes.find((n) => n.state === "unread");
   if (unread) return { kind: "inbox", label: "New in your Inbox", text: unread.subject, inboxItemId: unread.id };
-  const finished = (input.done ?? [])
+  const last = (input.done ?? [])
     .flatMap((t) => {
       const ended = toMs(t.endedAt);
-      return t.departmentId === input.departmentId && t.status === "done" && ended !== null ? [{ title: t.title, ended }] : [];
+      return t.departmentId === input.departmentId && (t.status === "done" || t.status === "failed") && ended !== null ? [{ id: t.id, title: t.title, failed: t.status === "failed", ended }] : [];
     })
     .sort((a, b) => b.ended - a.ended)[0];
-  if (finished) return { kind: "finished", label: "Last finished", text: finished.title, detail: dayLabel(finished.ended, input.today, input.datePrefs) };
+  if (last?.failed) return { kind: "attention", label: "Last task failed", text: last.title, detail: dayLabel(last.ended, input.today, input.datePrefs), taskId: last.id };
+  if (last) return { kind: "finished", label: "Last finished", text: last.title, detail: dayLabel(last.ended, input.today, input.datePrefs) };
   if (input.inbox && input.done) return { kind: "clear", label: "All clear", text: "Nothing in progress, and nothing waiting on you." };
   return null;
 }
@@ -143,12 +174,45 @@ export interface MetricInputs {
   compliance?: ComplianceResponse;
   currency: string;
   today: string;
+  /** The metric's own query failed with nothing cached: the value says so ("No access", "Couldn't load"). */
+  error?: Error | null;
 }
+
+/** The section each metric reads, for "Your role has no access to …" (the squad and the daily rows come with Home). */
+const METRIC_SECTION: Partial<Record<DepartmentMetricKey, string>> = { roadmap_on_track: "Product", blended_cpa: "Distribution", runway: "Finance", next_filing: "Legal" };
 
 const AT_RISK = new Set(["blocked", "at_risk", "late", "overdue"]);
 
-/** The headline metric per BUILD §11.2 module defaults; every non-measured number carries provenance. */
+/**
+ * The business's bank balance at the end of each of the last `months` months (oldest first; the current month as of
+ * now), walked back from today's balance by each month's net cash flow (finance.overview, cash basis). Real figures,
+ * not an estimate; empty without a bank or with under two months of history.
+ */
+export function monthEndCash(finance: FinanceOverview | undefined, months = 6): number[] {
+  if (!finance || !finance.cash.accounts) return [];
+  const monthly = finance.revenue.monthly.slice().sort((a, b) => a.month.localeCompare(b.month));
+  if (monthly.length < 2) return [];
+  const out: number[] = [];
+  let balance = finance.cash.amountMinor;
+  for (let m = monthly.length - 1; m >= 0 && out.length < months; m -= 1) {
+    out.push(balance);
+    balance -= monthly[m]!.netMinor;
+  }
+  return out.reverse();
+}
+
+/**
+ * The headline metric per BUILD §11.2 module defaults; every non-measured number carries provenance. When the metric's
+ * query failed the card says why instead of a figure ("Runway · No access", never "Not known yet" for a refusal).
+ */
 export function headlineMetric(i: MetricInputs): DepartmentMetric {
+  const metric = metricFigure(i);
+  const section = METRIC_SECTION[i.key];
+  if (!i.error || !section) return metric;
+  return { label: metric.label, value: unavailableWords(i.error, section).value, series: [] };
+}
+
+function metricFigure(i: MetricInputs): DepartmentMetric {
   const weekFrom = addDays(i.today, -6);
   const prevFrom = addDays(i.today, -13);
   const prevTo = addDays(i.today, -7);
@@ -172,14 +236,17 @@ export function headlineMetric(i: MetricInputs): DepartmentMetric {
     }
     case "runway": {
       const months = i.finance?.runway.months ?? null;
+      // The line is the business's month-end cash (the department rows carry no money): what the runway moves with.
+      const series = monthEndCash(i.finance);
+      const seriesLabel = series.length ? `Cash at month end, last ${series.length} months` : undefined;
       // The shared runway words when there is no figure ("No limit" when cash-flow positive); Estimate only on a real estimate.
-      if (months === null) return { label: "Runway", value: runwayWords(i.finance)?.value ?? RUNWAY_WORDS.no_bank.value, series: dailySeries(i.rows, i.days, (r) => r.revenueMinor) };
-      return { label: "Runway", value: `${formatNumber(months, { maxDigits: 1 })} mo`, series: dailySeries(i.rows, i.days, (r) => r.revenueMinor), provenance: "estimate" };
+      if (months === null) return { label: "Runway", value: runwayWords(i.finance)?.value ?? RUNWAY_WORDS.no_bank.value, series, seriesLabel };
+      return { label: "Runway", value: `${formatNumber(months, { maxDigits: 1 })} mo`, series, seriesLabel, provenance: "estimate" };
     }
     case "squad_health": {
-      const healthy = i.squad.filter((m) => m.status === "healthy").length;
-      const pct = i.squad.length ? Math.round((healthy / i.squad.length) * 100) : null;
-      return { label: "Team health", value: pct === null ? "—" : `${pct}%`, series: dailySeries(i.rows, i.days, (r) => r.agentHours) };
+      // The one team-health definition (shared/health.ts), the figure the status strip's Business health also uses.
+      const share = teamHealth(i.squad.map((m) => m.status));
+      return { label: "Team health", value: share === null ? "—" : `${Math.round(share * 100)}%`, series: dailySeries(i.rows, i.days, (r) => r.agentHours), seriesLabel: "Agent hours per day, last 14 days" };
     }
     case "next_filing": {
       const dues = [...(i.compliance?.deadlines ?? []), ...(i.compliance?.filings ?? []).filter((f) => !f.filedAt), ...(i.compliance?.events ?? [])]
@@ -187,7 +254,8 @@ export function headlineMetric(i: MetricInputs): DepartmentMetric {
         .filter((d): d is number => d !== null)
         .sort((a, b) => a - b);
       const next = dues[0];
-      return { label: "Days to next filing", value: next === undefined ? "—" : formatNumber(next, { maxDigits: 0 }), series: dailySeries(i.rows, i.days, (r) => r.decisions), deltaTone: next !== undefined && next < 14 ? "warn" : undefined };
+      // No line: no daily series measures a filing calendar (the department rows count no decisions or deadlines).
+      return { label: "Days to next filing", value: next === undefined ? "—" : formatNumber(next, { maxDigits: 0 }), series: [], deltaTone: next !== undefined && next < 14 ? "warn" : undefined };
     }
     case "tasks_done":
     case "auto":
@@ -213,8 +281,9 @@ export function toSquad(dept: DepartmentRow, overrides: Record<string, AgentStat
 
 function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>) {
   const { businessId, navigate, currency = "EUR" } = useWidgetData();
-  const today = dayKey();
+  const today = useToday();
   const datePrefs = useDateFormat();
+  const g = useGlossary();
   const departments = useDepartments();
   const dept = resolveDepartment(departments.data, settings);
   const enabled = !!dept;
@@ -230,7 +299,7 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
   const compliance = useWidgetQuery<ComplianceResponse>("legal.compliance.list", { pendingOnly: true, days: 365 }, { enabled: enabled && metricKey === "next_filing" });
   // A quiet card's line: the shell's own Inbox page (served from its cache) and one shared list of finished tasks.
   const inbox = useWidgetQuery<InboxListResponse>("inbox.list", { limit: QUIET_INBOX_PAGE }, { enabled });
-  const done = useWidgetQuery<Page<TaskRow>>("dev.tasks.list", { status: ["done"], limit: QUIET_DONE_PAGE }, { enabled });
+  const done = useWidgetQuery<Page<TaskRow>>("dev.tasks.list", { status: QUIET_ENDED_STATUSES, limit: QUIET_DONE_PAGE }, { enabled });
 
   const [overrides, setOverrides] = useState<Record<string, AgentStatus>>({});
   const squadIds = useMemo(() => new Set(dept?.squad.map((a) => a.id) ?? []), [dept]);
@@ -253,10 +322,17 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
   }, TASK_EVENTS);
 
   const taskItems = useMemo(() => tasks.data?.items ?? [], [tasks.data]);
+  // The open tasks failed to load (and none are cached): say so, never "Quiet", "Nothing queued" or a health word
+  // computed from an empty list.
+  const tasksFailed = failedWithoutData(tasks);
+  // The headline metric's own query, when it failed with nothing cached.
+  const metricQuery = metricKey === "roadmap_on_track" ? roadmap : metricKey === "blended_cpa" ? channels : metricKey === "runway" ? finance : metricKey === "next_filing" ? compliance : null;
+  const metricError = metricQuery && failedWithoutData(metricQuery) ? metricQuery.error : null;
   const card: DepartmentCardData | null = useMemo(() => {
     if (!dept) return null;
+    const metric = headlineMetric({ key: metricKey, rows, days: lastDays(14, today), squad: toSquad(dept, overrides, taskItems), roadmap: roadmap.data, channels: channels.data, finance: finance.data, compliance: compliance.data, currency, today, error: metricError });
     const squad = toSquad(dept, overrides, taskItems);
-    const { health, word } = departmentHealth(squad, taskItems);
+    const { health, word } = departmentHealth(squad, tasksFailed ? null : taskItems);
     const leadRow = dept.lead ?? dept.squad.find((a) => a.id === dept.leadAgentId) ?? dept.squad[0] ?? null;
     const next = taskItems.find((t) => (NEXT_TASK_STATUSES as readonly string[]).includes(t.status));
     const now = nowLines(taskItems, squad);
@@ -271,17 +347,30 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
       squad,
       now,
       nowLoading: !tasks.data && tasks.isLoading,
-      quiet: now.length === 0 ? quietLine({ agentIds, departmentId: dept.id, inbox: inbox.data?.items, done: done.data?.items, today, datePrefs }) : null,
-      metric: headlineMetric({ key: metricKey, rows, days: lastDays(14, today), squad, roadmap: roadmap.data, channels: channels.data, finance: finance.data, compliance: compliance.data, currency, today }),
+      quiet: tasksFailed ? TASKS_FAILED_LINE : now.length === 0 ? quietLine({ agentIds, departmentId: dept.id, inbox: inbox.data?.items, done: done.data?.items, today, datePrefs, squad }) : null,
+      // The metric's caption in the business's words ("Team health" → "Crew health").
+      metric: { ...metric, label: g(metric.label) },
       // A short status, not an instruction: every quiet card would otherwise repeat the same sentence.
-      nextUp: next ? next.title : "Nothing queued",
+      nextUp: tasksFailed ? "Couldn't load" : next ? next.title : "Nothing queued",
     };
-  }, [dept, overrides, taskItems, tasks.data, tasks.isLoading, inbox.data, done.data, metricKey, rows, roadmap.data, channels.data, finance.data, compliance.data, currency, today, datePrefs]);
+  }, [dept, overrides, taskItems, tasksFailed, tasks.data, tasks.isLoading, inbox.data, done.data, metricKey, rows, roadmap.data, channels.data, finance.data, compliance.data, metricError, currency, today, datePrefs, g]);
 
   const entityKinds = useMemo(() => Object.fromEntries([...squadIds].map((id) => [id, "agent" as EntityKind])), [squadIds]);
   const openEntity = (id: string) => navigate(squadIds.has(id) ? routes.agent(businessId, id) : routes.crm(businessId, id));
   const firstTab = dept?.tabs.slice().sort((a, b) => a.position - b.position)[0];
-  const quietItemId = (card?.quiet as QuietLine | null | undefined)?.inboxItemId;
+  const quiet = card?.quiet as QuietLine | null | undefined;
+  // What the quiet line opens: Retry for a failed load, the note, the agent who needs the founder, the failed task.
+  const planHref = moduleHref(businessId, departments.data, "development", "plan");
+  const openQuiet =
+    quiet?.kind === "error"
+      ? () => tasks.refetch()
+      : quiet?.inboxItemId
+        ? () => navigate(routes.inbox(businessId, quiet.inboxItemId!))
+        : quiet?.agentId
+          ? () => navigate(routes.agent(businessId, quiet.agentId!))
+          : quiet?.taskId && planHref
+            ? () => navigate(`${planHref}?task=${quiet.taskId}`)
+            : undefined;
 
   if (card && dept) {
     return (
@@ -291,7 +380,7 @@ function DepartmentCardWidget({ settings }: WidgetProps<DepartmentCardSettings>)
         onOpen={firstTab ? () => navigate(routes.department(businessId, dept.slug, firstTab.slug)) : undefined}
         onOpenAgent={(agentId) => navigate(routes.agent(businessId, agentId))}
         onOpenEntity={openEntity}
-        onOpenQuiet={quietItemId ? () => navigate(routes.inbox(businessId, quietItemId)) : undefined}
+        onOpenQuiet={openQuiet}
         entityKinds={entityKinds}
       />
     );

@@ -103,7 +103,8 @@ export const agentOfTheWeekWidget = registerWidget<AgentOfTheWeekSettings>({
   description: "The team member with the best week.",
   icon: "award",
   surfaces: ["home", "department"],
-  defaultSize: { w: 4, h: 10, minW: 3, minH: 8 },
+  // The agent, their week and the wage line above the footer.
+  defaultSize: { w: 4, h: 14, minW: 3, minH: 8 },
   settingsSchema: AgentOfTheWeekSettings,
   defaultSettings: AgentOfTheWeekSettings.parse({}),
   Component: AgentOfTheWeekWidget,

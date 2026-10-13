@@ -9,6 +9,7 @@ import { CalendarRange, Columns3, Map as MapIcon, Plus } from "lucide-react";
 import { Button, Panel, StatusPill, cn } from "@foundmill/dugout";
 import type { RoadmapHorizon } from "@foundmill/shared";
 import { moduleHref, routes, useBusinessEvents, useDepartments, useWidgetData, useWidgetQuery } from "@foundmill/widgets";
+import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
 import { FoundationsBanner, useFoundations } from "./foundations";
 import { computeRoadmapStatus, type RoadmapStatus } from "./roadmap-status";
@@ -49,6 +50,8 @@ export function statusCounts(items: readonly RoadmapRow[], today = new Date()): 
 export function RoadmapScreen({ businessId, subView }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
   const roadmap = useWidgetQuery<RoadmapResponse>("product.roadmap.list", {});
+  // Pin to Home (audit #394): the roadmap is the gallery's Roadmap widget.
+  const pinMenu = usePinToHomeMenu({ key: "roadmap_timeline" });
   const spec = useWidgetQuery<SpecGetResponse>("product.spec.get", {});
   const departments = useDepartments();
   const action = useAction();
@@ -95,6 +98,7 @@ export function RoadmapScreen({ businessId, subView }: ModuleScreenProps) {
       <FoundationsBanner foundations={foundations} detail={{ roadmap: true }} />
       <Panel
         title="Roadmap"
+        menu={pinMenu}
         span={12}
         loading={roadmap.isLoading}
         error={roadmap.error ? roadmap.error.message : undefined}

@@ -52,7 +52,7 @@ export function GlossaryTab() {
   return (
     <AdminOnly>
       <SettingsSection title="Glossary">
-        <Hint>Say “clients” instead of “customers”, “patients” instead of “leads”. Words are matched whole and in any case, in inbox notes, updates and panel captions.</Hint>
+        <Hint>Say “clients” instead of “customers”, “patients” instead of “leads”. Words are matched whole and in any case, in Inbox notes and updates, the Inbox tabs and the captions of the Home panels.</Hint>
         <div className="flex flex-col gap-2" data-testid="glossary-rows">
           <div className="flex items-center gap-2">
             <span className="t-data flex-1">Default word</span>

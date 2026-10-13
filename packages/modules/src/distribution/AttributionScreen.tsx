@@ -4,13 +4,15 @@
  * 200 labelled wins, then data-driven Markov), the touch funnel from `distribution.channels.list`, the channel
  * attribution table with "Partial journey" labels for offline and consent-limited journeys, and the latest wins.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { ExternalLink, Route, Trophy } from "lucide-react";
 import { Button, Chip, DataTable, FunnelChart, KeyValueList, Panel, ProvenanceChip, StatusPill, formatMoney, formatNumber, formatPercent, useFormatters, type DataTableColumn, type RowAction, type SavedView } from "@foundmill/dugout";
-import { CHANNEL_LINES, type ChannelKey, type MatchdayLevel } from "@foundmill/shared/constants";
+import { CHANNEL_LINES, CHANNEL_WINDOW_DAYS, type ChannelKey, type MatchdayLevel } from "@foundmill/shared/constants";
 import { moduleHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
+import { usePinToHomeMenu } from "@foundmill/widgets/shared/pin";
 import type { ModuleScreenProps } from "../registry";
 import { MODEL_LABELS, attributionRows, buildChannelViews, funnelStages, isPartialJourney, modelInUse, type AttributionRow } from "./channel-data";
 import { fitColumns, fitToGrow, type ColumnFit } from "../fit";
@@ -25,6 +27,9 @@ export const ATTRIBUTION_VIEWS: SavedView[] = [
 
 /** Update levels brief / standard / featured (CLAUDE.md vocabulary over the stored `matchday_level` keys). */
 export const UPDATE_LEVEL_WORDS: Record<MatchdayLevel, string> = { friendly: "Brief", league: "Standard", cup: "Featured" };
+
+/** The channel window in words, the same on every screen that shows channel figures. */
+const WINDOW_WORDS = `last ${CHANNEL_WINDOW_DAYS} days`;
 
 /** Conversion kinds as words; payments show their amount instead. */
 const CONVERSION_WORDS: Record<string, string> = { signup: "Signup", activation: "Activation", lead: "Lead", trial: "Trial started", order: "Order" };
@@ -57,7 +62,7 @@ export function attributionColumns(currency: string, sizes: Record<AttributionCo
     { id: "signups", accessorFn: (r) => r.signups, header: "Signups", size: sizes.signups, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue()), { digits: 0 })}</span>, meta: { numeric: true } },
     { id: "customers", accessorFn: (r) => r.customers, header: "Customers", size: sizes.customers, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue()), { digits: 0 })}</span>, meta: { numeric: true } },
     { id: "share", accessorFn: (r) => r.share, header: "Share", size: sizes.share, cell: ({ getValue }) => <span className="tabular-nums">{formatPercent(Number(getValue()), { digits: 0 })}</span>, meta: { numeric: true, label: "Share of customers" } },
-    { id: "spend", accessorFn: (r) => r.spendMinor, header: "Spend", size: sizes.spend, cell: ({ getValue }) => <span className="tabular-nums">{money(Number(getValue()))}</span>, meta: { numeric: true, label: "Spend, 35 days" } },
+    { id: "spend", accessorFn: (r) => r.spendMinor, header: "Spend", size: sizes.spend, cell: ({ getValue }) => <span className="tabular-nums">{money(Number(getValue()))}</span>, meta: { numeric: true, label: `Spend, ${CHANNEL_WINDOW_DAYS} days` } },
     {
       id: "cpa",
       accessorFn: (r) => r.cpaMinor ?? null,
@@ -91,10 +96,13 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
   const { formatDate } = useFormatters();
   const { navigate, currency } = useWidgetData();
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
+  // Pin to Home (audit #394): the touch funnel is the gallery's Funnel widget.
+  const pinMenu = usePinToHomeMenu({ key: "funnel" });
   const journeys = useWidgetQuery<Page<JourneyRow>>("journey.list", { limit: 200 });
   const departments = useDepartments();
   const action = useAction();
-  const [views, setViews] = useState<SavedView[]>(ATTRIBUTION_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("distribution.attribution", ATTRIBUTION_VIEWS, { defaultViewId: "all" });
   useBusinessEvents(() => {
     channels.refetch();
     journeys.refetch();
@@ -176,11 +184,12 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
       </Panel>
       <Panel
         title="Touch funnel"
+        menu={pinMenu}
         span={8}
         loading={channels.isLoading}
         error={channels.error ? channels.error.message : undefined}
         onRetry={channels.refetch}
-        meta={reach === null ? "last 35 days" : `last 35 days · ${formatNumber(reach, { digits: 0 })} impressions`}
+        meta={reach === null ? WINDOW_WORDS : `${WINDOW_WORDS} · ${formatNumber(reach, { digits: 0 })} impressions`}
         actions={stages.length ? <ProvenanceChip kind="estimate" /> : undefined}
         empty={channels.data && stages.every((s) => s.value === 0) ? "The funnel fills as channels report impressions, leads, signups, activations and customers." : undefined}
         footer={<span>Counts come from links, codes, webhooks and conversion APIs across every channel; a stage no channel measures yet is left out.</span>}
@@ -193,7 +202,7 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
         loading={channels.isLoading}
         error={channels.error ? channels.error.message : undefined}
         onRetry={channels.refetch}
-        meta={`${rows.length} channel${rows.length === 1 ? "" : "s"} with activity · last 35 days`}
+        meta={`${rows.length} channel${rows.length === 1 ? "" : "s"} with activity · ${WINDOW_WORDS}`}
         footer={<span>Share is of measured customers. Offline channels carry partial journeys because the touches before a code redemption are unknown.</span>}
         flush
       >
@@ -203,8 +212,7 @@ export function AttributionScreen({ businessId }: ModuleScreenProps) {
           data={rows}
           columns={columns}
           getRowId={(r) => r.channelKey}
-          views={views}
-          onViewsChange={setViews}
+          {...savedViews}
           defaultViewId="all"
           rowActions={rowActions}
           onRowOpen={(r) => openChannel(r.channelKey)}

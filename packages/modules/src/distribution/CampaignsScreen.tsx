@@ -23,8 +23,10 @@ import {
   type SavedView,
 } from "@foundmill/dugout";
 import { ASSET_KINDS, CAMPAIGN_STATUSES, type CampaignStatus } from "@foundmill/shared/constants";
+import { moduleTabHref, useDepartments } from "@foundmill/widgets/shared/departments";
 import { routes } from "@foundmill/widgets/shared/routes";
 import { useBusinessEvents, useWidgetData, useWidgetQuery } from "@foundmill/widgets/data";
+import { useSavedViews } from "@foundmill/widgets/shared/saved-views";
 import type { ModuleScreenProps } from "../registry";
 import { APPROVAL_WORDS, CAMPAIGN_STATUS_WORDS, assetCounts, canTransition } from "./channel-data";
 import { ASSET_KIND_WORD } from "./channel-data";
@@ -108,12 +110,14 @@ export function campaignColumns(sizes: Record<CampaignColumnId, number> = fitCol
 
 export function CampaignsScreen({ businessId }: ModuleScreenProps) {
   const { navigate } = useWidgetData();
+  const departments = useDepartments();
   const campaigns = useWidgetQuery<Page<CampaignRow>>("distribution.campaigns.list", { limit: 200 });
   const channels = useWidgetQuery<ChannelsListResponse>("distribution.channels.list", {});
   const assets = useWidgetQuery<AssetRow[]>("distribution.assets.list", {});
   const agents = useWidgetQuery<AgentRow[]>("team.agents.list", {});
   const action = useAction();
-  const [views, setViews] = useState<SavedView[]>(CAMPAIGN_VIEWS);
+  // Saved per person, business and table (audit #204): they come back after a reload.
+  const savedViews = useSavedViews("distribution.campaigns", CAMPAIGN_VIEWS, { defaultViewId: "all" });
   const [selectedId, setSelectedId] = useState<string | null>(() => searchParam("campaign"));
   useBusinessEvents(() => {
     campaigns.refetch();
@@ -181,8 +185,7 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
           aria-label="Campaigns"
           data={rows}
           columns={columns}
-          views={views}
-          onViewsChange={setViews}
+          {...savedViews}
           defaultViewId="all"
           rowActions={rowActions}
           onRowOpen={(r) => setSelectedId(r.id)}
@@ -207,7 +210,7 @@ export function CampaignsScreen({ businessId }: ModuleScreenProps) {
           ) : null
         }
       >
-        {selected ? <CampaignDetail row={selected} agents={agents.data} businessId={businessId} pending={action.pending} onStatus={(s) => setStatus(selected, s)} onDecide={decideAsset} onOpenAsset={(a) => navigate(`${routes.department(businessId, "distribution", "creative")}?asset=${a.id}`)} /> : null}
+        {selected ? <CampaignDetail row={selected} agents={agents.data} businessId={businessId} pending={action.pending} onStatus={(s) => setStatus(selected, s)} onDecide={decideAsset} onOpenAsset={(a) => navigate(`${moduleTabHref(businessId, departments.data, "distribution", "creative")}?asset=${a.id}`)} /> : null}
       </Panel>
     </Screen>
   );

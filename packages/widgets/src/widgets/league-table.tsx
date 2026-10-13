@@ -1,15 +1,17 @@
 "use client";
 /**
- * Leaderboard widget (LIVE only, BUILD §11.14; registry key `league_table`): one leaderboard with this club's row highlighted. Positions come
- * from verified integration metrics only (AC-11.14.1); the widget never computes rank itself.
+ * Leaderboard widget (LIVE only, BUILD §11.14; registry key `league_table`): one leaderboard with this business's row
+ * highlighted. Positions come from verified integration metrics only (AC-11.14.1); the widget never computes rank
+ * itself. The board reads in the LIVE pages' words (shared/leaderboards.ts): its title, period and ranked metric.
  */
 import { useMemo } from "react";
 import { z } from "zod";
 import { ListOrdered, Minus, TrendingDown, TrendingUp } from "lucide-react";
-import { Button, EmptyState, MiniTable, formatCompact, type MiniTableColumn } from "@foundmill/dugout";
+import { Button, EmptyState, MiniTable, type MiniTableColumn } from "@foundmill/dugout";
 import { useWidgetData, useWidgetQuery } from "../data";
 import { registerWidget, type WidgetProps } from "../registry";
 import { WidgetFrame } from "../shared/frame";
+import { boardTitle, describeMetric, metricValueText, periodLabel } from "../shared/leaderboards";
 import { routes } from "../shared/routes";
 import type { LeaderboardEntryRow, LeaderboardRow } from "../shared/types";
 
@@ -25,7 +27,7 @@ export function pickBoard(boards: readonly LeaderboardRow[] | undefined, boardKi
   return (boardKind && boards.find((b) => b.boardKind === boardKind)) || boards[0];
 }
 
-/** The rows around this club: top N, and this club's neighbourhood when it sits below the cut. */
+/** The rows around this business: top N, and its neighborhood when it sits below the cut. */
 export function windowRows(entries: readonly LeaderboardEntryRow[], businessId: string, rows: number): LeaderboardEntryRow[] {
   const sorted = entries.slice().sort((a, b) => a.position - b.position);
   const mine = sorted.findIndex((e) => e.businessId === businessId);
@@ -52,11 +54,12 @@ function LeagueTableWidget({ settings }: WidgetProps<LeagueTableSettings>) {
   const board = pickBoard(boards.data, settings.boardKind);
   const entries = useWidgetQuery<LeaderboardEntryRow[]>("live.leaderboards.entries", { leaderboardId: board?.id, limit: 100 }, { enabled: live && !!board });
   const rows = useMemo(() => windowRows(entries.data ?? [], businessId, settings.rows), [entries.data, businessId, settings.rows]);
+  const metric = describeMetric(board?.metric ?? board?.boardKind ?? "");
   const columns: MiniTableColumn<LeaderboardEntryRow>[] = [
     { id: "pos", header: "#", numeric: true, width: 36, cell: (r) => r.position },
     { id: "club", header: "Business", cell: (r) => <span className={r.businessId === businessId ? "text-body-strong" : undefined}>{r.businessName ?? (r.businessId === businessId ? "Your business" : `Business ${r.businessId.slice(0, 6)}`)}</span> },
     { id: "move", header: "Move", width: 56, cell: (r) => <Movement n={r.movement} /> },
-    { id: "metric", header: board?.metricLabel ?? "Metric", numeric: true, width: 90, cell: (r) => formatCompact(Number(r.metricValue)) },
+    { id: "metric", header: board?.metricLabel ?? metric.label, numeric: true, width: 90, cell: (r) => metricValueText(r.metricValue, metric.format) },
   ];
   if (!live) {
     return (
@@ -70,13 +73,13 @@ function LeagueTableWidget({ settings }: WidgetProps<LeagueTableSettings>) {
   const mine = entries.data?.find((e) => e.businessId === businessId);
   return (
     <WidgetFrame
-      title={board?.title ? `Leaderboard · ${board.title}` : "Leaderboard"}
+      title={board ? `Leaderboard · ${board.title ?? boardTitle({ boardKind: board.boardKind, division: board.division ?? "open", archetype: board.archetype ?? null, region: board.region ?? null })}` : "Leaderboard"}
       data-widget="league_table"
       queries={board ? [boards, entries] : [boards]}
       flush
       empty={boards.data && !board ? { icon: ListOrdered, text: "No leaderboard is open this period." } : entries.data && rows.length === 0 ? { icon: ListOrdered, text: "No verified businesses on this board yet. Connect Stripe or Shopify to be ranked." } : null}
       actions={board ? <Button size="sm" variant="ghost" className="px-1.5" onClick={() => navigate(routes.leaderboard(board.id))}>Open</Button> : null}
-      footer={<span>{board ? `${board.period}${board.division ? ` · ${board.division}` : ""}` : "Live"} · {mine ? `You are #${mine.position}` : "Not ranked yet"} · verified metrics only</span>}
+      footer={<span>{board ? periodLabel(board.period) : "Live"} · {mine ? `You are #${mine.position}` : "Not ranked yet"} · verified metrics only</span>}
     >
       <MiniTable columns={columns} rows={rows} getRowKey={(r) => r.businessId} highlight={(r) => r.businessId === businessId} onRowClick={() => board && navigate(routes.leaderboard(board.id))} aria-label="Leaderboard" emptyText="No entries." />
     </WidgetFrame>

@@ -3,7 +3,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest";
 import { HealthScreen, groupByHealth, healthDetails, healthReason } from "../HealthScreen";
 import { STATUS_DESCRIPTION, agentRoleLine } from "../shared";
-import { AGENT_JUNO, AGENT_MARA, BID, DEPT_TEAM, agents, dataResponses, emptyResponses } from "./fixtures";
+import { AGENT_JUNO, AGENT_MARA, BID, DEPT_TEAM, agents, agentsResponse, dataResponses, emptyResponses } from "./fixtures";
 import { createFakeSource, renderScreen } from "./fake-source";
 
 const props = { businessId: BID, departmentId: DEPT_TEAM };
@@ -74,6 +74,16 @@ describe("HealthScreen", () => {
     expect(within(failing).getByText(/Loop detected on the last session/)).toBeTruthy();
     expect(screen.getByTestId("health-summary").textContent).toBe("3 agents need you");
     await waitFor(() => expect(fake.refetches["team.agents.list"]).toBe(1));
+  });
+
+  it("never says everyone is working when nobody is: an idle team needs nobody, with the counts beside it", async () => {
+    const idle = agents.map((a) => ({ ...a, status: "idle" as const, currentTask: null }));
+    const fake = createFakeSource({ businessId: BID, responses: { ...dataResponses, "team.agents.list": { ...agentsResponse, agents: idle } } });
+    renderScreen(fake, <HealthScreen {...props} />);
+    await screen.findByRole("list", { name: "Agents by health" });
+    expect(screen.getByTestId("health-summary").textContent).toBe("Nobody needs you");
+    expect(screen.getByText(`0 working · ${idle.length} idle`)).toBeTruthy();
+    expect(screen.queryByText("Everyone is working")).toBeNull();
   });
 
   it("shows the empty state, loading and an error with retry", async () => {

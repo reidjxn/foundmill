@@ -41,7 +41,8 @@ function HeatmapSvg({ rows, cols, values, label, width, height, cellHeight, tone
   const total = values.flat().reduce((s, v) => s + v, 0);
   return (
     <>
-      <svg width={width} height={height} role="img" aria-label={`${label}. ${rows.length} rows by ${cols.length} columns, total ${format(total)}, peak ${format(top)}`} className="block">
+      {/* Selectable cells are buttons, so the map is a named group then; a plain map is one image. */}
+      <svg width={width} height={height} role={onSelect ? "group" : "img"} aria-label={`${label}. ${rows.length} rows by ${cols.length} columns, total ${format(total)}, peak ${format(top)}`} className="block">
         {cols.map((c, j) => (j % every === 0 ? (
           <text key={c} x={labelW + j * cellW + cellW / 2} y={12} textAnchor="middle" fill="var(--text-secondary)" fontFamily="var(--font-body)" fontSize={11}>
             {c}
