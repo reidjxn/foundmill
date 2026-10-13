@@ -2,7 +2,7 @@
  * Section walls on business events (security review S1): what a reader walled from Finance or the CRM receives of each
  * event, decided once per entry and wall set, and the exhaustive event → section table.
  */
-import type { StreamEntry } from "@foundmill/events";
+import { EVENTS, type StreamEntry } from "@foundmill/events";
 import { EVENT_FIXTURES, fixtureId } from "@foundmill/events/testing/fixtures";
 import { EVENT_TYPES, type EventType, type SectionMembership } from "@foundmill/shared";
 import { describe, expect, it } from "vitest";
@@ -31,6 +31,24 @@ const seen = (e: StreamEntry, view = OPEN) => {
 describe("event walls", () => {
   it("file every event type under its sections (compile-time and at runtime)", () => {
     expect(Object.keys(EVENT_WALLS).sort()).toEqual([...EVENT_TYPES].sort());
+  });
+
+  it("hide only fields the event declares (a renamed payload field must not silently stop being hidden)", () => {
+    // Walks a Zod schema by dotted path, through optional, nullable and default wrappers.
+    const declares = (schema: unknown, path: string[]): boolean => {
+      const def = (schema as { _zod?: { def?: { type?: string; innerType?: unknown; shape?: Record<string, unknown> } } })._zod?.def;
+      if (!def) return false;
+      if (def.innerType) return declares(def.innerType, path);
+      if (path.length === 0) return true;
+      const [head, ...rest] = path;
+      return def.type === "object" && !!def.shape && head! in def.shape && declares(def.shape[head!], rest);
+    };
+    for (const [type, wall] of Object.entries(EVENT_WALLS) as [EventType, (typeof EVENT_WALLS)[EventType]][]) {
+      const hide: Record<string, readonly string[]> = "hide" in wall ? wall.hide : {};
+      for (const [section, paths] of Object.entries(hide)) {
+        for (const path of paths) expect(declares(EVENTS[type].schema, path.split(".")), `${type} hides ${path} for ${section}`).toBe(true);
+      }
+    }
   });
 
   it("a reader without walls gets each event's own JSON, untouched and unparsed", () => {
