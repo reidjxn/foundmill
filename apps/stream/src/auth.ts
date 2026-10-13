@@ -1,8 +1,10 @@
 /**
- * Query-string token verification (docs/ARCHITECTURE.md §12, §13; docs/DECISIONS.md "Development auth bypass").
+ * Token verification for the upgrade and for refreshed tokens (docs/ARCHITECTURE.md §12, §13; docs/DECISIONS.md
+ * "Development auth bypass"). The token arrives in the `foundmill.bearer.*` subprotocol, never in the URL (protocol.ts).
  *
  * - Supabase access tokens are verified with `jose` against `${SUPABASE_URL}/auth/v1/.well-known/jwks.json`
- *   (ES256/RS256; jose caches the JWKS and refreshes it on an unknown kid). Audience must be `authenticated`.
+ *   (ES256/RS256; jose caches the JWKS and refreshes it on an unknown kid). Audience must be `authenticated`, and
+ *   the token must carry `exp`: it is when the server closes the socket (`AuthUser.expiresAt`).
  * - Legacy HS256 project secrets are accepted when one is supplied (`jwtSecret`).
  * - When `DEV_AUTH_USER_ID` is set and `APP_ENV` is development/test: a missing token, the literal token `dev`, or
  *   `dev:<uuid>` (to impersonate another seeded user in Playwright) resolves without touching the network, and an
@@ -14,10 +16,12 @@ import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify, type JWTPayload, 
 export interface AuthUser {
   userId: string;
   email: string | null;
+  /** When the token stops being valid (epoch ms; its `exp`), so a socket never outlives it. Null for dev tokens. */
+  expiresAt: number | null;
 }
 
 export interface TokenVerifier {
-  /** Resolves the user for a `?token=` value; null when anonymous or invalid. */
+  /** Resolves the user for a token; null when anonymous or invalid. */
   resolve(token: string | null | undefined): Promise<AuthUser | null>;
   /** Verifies a JWT; throws `StreamAuthError` on failure. */
   verify(token: string): Promise<AuthUser>;
@@ -47,7 +51,7 @@ export class StreamAuthError extends Error {
 function userFromPayload(payload: JWTPayload): AuthUser {
   const sub = payload.sub;
   if (!sub || !UUID_RE.test(sub)) throw new StreamAuthError("token has no UUID subject");
-  return { userId: sub, email: typeof payload.email === "string" ? payload.email : null };
+  return { userId: sub, email: typeof payload.email === "string" ? payload.email : null, expiresAt: typeof payload.exp === "number" ? payload.exp * 1000 : null };
 }
 
 /** `dev` → the configured dev user; `dev:<uuid>` → that user. Null when the token is not a dev token. */
@@ -84,10 +88,10 @@ export function createTokenVerifier(opts: TokenVerifierOptions): TokenVerifier {
     try {
       if (alg === "HS256") {
         if (!hsKey) throw new StreamAuthError("HS256 token but no JWT secret is configured");
-        const { payload } = await jwtVerify(token, hsKey, { algorithms: ["HS256"], audience });
+        const { payload } = await jwtVerify(token, hsKey, { algorithms: ["HS256"], audience, requiredClaims: ["exp"] });
         return userFromPayload(payload);
       }
-      const { payload } = await jwtVerify(token, getJwks(), { audience });
+      const { payload } = await jwtVerify(token, getJwks(), { audience, requiredClaims: ["exp"] });
       return userFromPayload(payload);
     } catch (err) {
       if (err instanceof StreamAuthError) throw err;
@@ -100,15 +104,15 @@ export function createTokenVerifier(opts: TokenVerifierOptions): TokenVerifier {
     verify,
     async resolve(token) {
       const t = token?.trim() || null;
-      if (!t) return devUserId ? { userId: devUserId, email: null } : null;
+      if (!t) return devUserId ? { userId: devUserId, email: null, expiresAt: null } : null;
       if (devUserId) {
         const dev = parseDevToken(t, devUserId);
-        if (dev) return { userId: dev, email: null };
+        if (dev) return { userId: dev, email: null, expiresAt: null };
       }
       try {
         return await verify(t);
       } catch {
-        return devUserId ? { userId: devUserId, email: null } : null;
+        return devUserId ? { userId: devUserId, email: null, expiresAt: null } : null;
       }
     },
   };

@@ -16,6 +16,8 @@ export const COUNTER_NAMES = [
   "batches_out_total",
   "events_dropped_total",
   "heartbeat_timeouts_total",
+  /** Sockets closed because their token expired before the client sent a fresh one. */
+  "tokens_expired_total",
   "slow_consumers_closed_total",
   "reader_reconnects_total",
   "reader_errors_total",

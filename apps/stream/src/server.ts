@@ -4,6 +4,11 @@
  * every subscription is authorised against memberships, Redis streams are read once per key through `StreamHub`
  * and fanned out through a per-socket `OutboundQueue` (20 frames/s coalescing, backpressure shedding).
  *
+ * Tokens (security review SEC-12, audit SIEC-4): the token comes in the `foundmill.bearer.*` subprotocol, never the
+ * URL (a `?token=` upgrade is refused with 400), and the upgrade answer is `no-store`. A socket lives no longer than
+ * its token: at `exp` it is closed with 4001 (the client reconnects with a fresh token) unless the client has sent a
+ * fresh token for the same account first (`{ t: "auth" }`, answered by `{ t: "authed", exp }`).
+ *
  * Heartbeat: the server pings every `heartbeatMs`; a socket that has neither answered a ping nor sent a frame by
  * the next tick is terminated (4000). Clients may also send `{ "t": "ping" }` and get `{ "t": "pong" }`.
  * Shutdown: `close()` stops accepting upgrades, closes every socket with 1001, stops the readers and the HTTP server.
@@ -27,7 +32,7 @@ import { OutboundQueue, type OutboundQueueOptions } from "./connection";
 import { MAX_INBOUND_BYTES, parseClientFrame } from "./frames";
 import { silentLog, StreamHub, type StreamHubOptions, type StreamLog } from "./hub";
 import { Metrics, type MetricsSnapshot } from "./metrics";
-import { CLOSE_CODES, parseChannel, type ClientFrame, type ErrorFrame, type StreamErrorCode, type SubscribedFrame } from "./protocol";
+import { CLOSE_CODES, parseChannel, STREAM_SUBPROTOCOL, tokenFromProtocols, type AuthedFrame, type ClientFrame, type ErrorFrame, type StreamErrorCode, type SubscribedFrame } from "./protocol";
 import { eventView, membershipChangeOf, viewEvent, type EventView } from "./walls";
 
 export interface StreamServerOptions {
@@ -104,10 +109,16 @@ interface Client {
   pending: Set<string>;
   alive: boolean;
   badFrames: number;
+  /** Closes the socket when the token expires; re-armed by a fresh token. */
+  expiry: ReturnType<typeof setTimeout> | null;
+  /** Bumped by every `auth` frame: only the latest one's answer counts. */
+  auths: number;
 }
 
 /** Entries a subscription holds at most while it is re-checked; past that it is closed as unavailable. */
 const MAX_HELD = 1_000;
+/** Longest delay a Node timer takes (about 24.8 days); a later expiry is re-armed when it fires. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
 const sameUser = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 const HOST_FALLBACKS = ["::", "0.0.0.0"] as const;
@@ -134,7 +145,15 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
   let reauthorizer: ReturnType<typeof setInterval> | null = null;
 
   const http = createServer((req, res) => handleHttp(req, res));
-  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_INBOUND_BYTES, clientTracking: false, perMessageDeflate: false });
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: MAX_INBOUND_BYTES,
+    clientTracking: false,
+    perMessageDeflate: false,
+    // Only the stream's own subprotocol is ever selected: the bearer one carries the token, which is never echoed.
+    handleProtocols: (protocols) => (protocols.has(STREAM_SUBPROTOCOL) ? STREAM_SUBPROTOCOL : false),
+  });
+  wss.on("headers", (headers) => headers.push("Cache-Control: no-store"));
 
   async function health(): Promise<HealthReport> {
     let redis = hub.healthy;
@@ -158,19 +177,24 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
       return;
     }
     res.writeHead(404, { "content-type": "application/json" });
-    res.end(JSON.stringify({ error: "not_found", hint: "WebSocket at /?token=…; health at /health" }));
+    res.end(JSON.stringify({ error: "not_found", hint: `WebSocket at / (subprotocols ${STREAM_SUBPROTOCOL} and foundmill.bearer.<token>); health at /health` }));
   }
 
   function rejectUpgrade(socket: Duplex, status: number, text: string): void {
-    socket.write(`HTTP/1.1 ${status} ${text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+    socket.write(`HTTP/1.1 ${status} ${text}\r\nConnection: close\r\nCache-Control: no-store\r\nContent-Length: 0\r\n\r\n`);
     socket.destroy();
   }
 
   http.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     if (closing) return rejectUpgrade(socket, 503, "Service Unavailable");
-    const url = new URL(req.url ?? "/", "http://localhost");
-    const token = url.searchParams.get("token");
     socket.on("error", () => {});
+    // A token in the URL lands in every proxy's and CDN's access log: refuse it rather than let a client rely on it.
+    if (new URL(req.url ?? "/", "http://localhost").searchParams.has("token")) {
+      metrics.inc("auth_failures_total");
+      log.warn({}, "upgrade with a token in the URL refused; send it in the foundmill.bearer subprotocol");
+      return rejectUpgrade(socket, 400, "Bad Request");
+    }
+    const token = tokenFromProtocols(req.headers["sec-websocket-protocol"]);
     deps.auth
       .resolve(token)
       .then((user) => {
@@ -192,7 +216,7 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
       });
   });
 
-  function sendControl(client: Client, frame: ErrorFrame | SubscribedFrame | { t: "pong" }): void {
+  function sendControl(client: Client, frame: ErrorFrame | SubscribedFrame | AuthedFrame | { t: "pong" }): void {
     if (client.ws.readyState !== client.ws.OPEN) return;
     client.ws.send(JSON.stringify(frame));
   }
@@ -210,11 +234,14 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
       pending: new Set(),
       alive: true,
       badFrames: 0,
+      expiry: null,
+      auths: 0,
     };
     clients.add(client);
     metrics.inc("connections_total");
     metrics.set("connections_open", clients.size);
     log.debug({ userId: user.userId }, "socket opened");
+    armExpiry(client);
 
     ws.on("pong", () => {
       client.alive = true;
@@ -234,6 +261,8 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
     });
     ws.on("error", (err) => log.warn({ err, userId: user.userId }, "socket error"));
     ws.on("close", () => {
+      if (client.expiry) clearTimeout(client.expiry);
+      client.expiry = null;
       for (const sub of client.subs.values()) sub.detach();
       client.subs.clear();
       client.pending.clear();
@@ -243,6 +272,56 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
       updateSubscriptionGauge();
       log.debug({ userId: user.userId }, "socket closed");
     });
+  }
+
+  /** Arms (or re-arms) the close at the token's expiry; a token without one (development) never expires. */
+  function armExpiry(client: Client): void {
+    if (client.expiry) clearTimeout(client.expiry);
+    client.expiry = null;
+    const at = client.user.expiresAt;
+    if (at === null) return;
+    client.expiry = setTimeout(() => expire(client), Math.min(MAX_TIMER_MS, Math.max(0, at - now())));
+    client.expiry.unref?.();
+  }
+
+  function expire(client: Client): void {
+    client.expiry = null;
+    const at = client.user.expiresAt;
+    if (at !== null && at > now()) return armExpiry(client); // a timer capped at MAX_TIMER_MS, or a clock that differs
+    if (client.ws.readyState !== client.ws.OPEN) return;
+    metrics.inc("tokens_expired_total");
+    log.info({ userId: client.user.userId }, "token expired; closing socket");
+    client.ws.close(CLOSE_CODES.unauthorized, "token expired");
+  }
+
+  /**
+   * A fresh token on an open socket (the client refreshes before `exp`): it must verify, name the same account and still
+   * be admitted; then the socket lives until the new expiry. Anything else closes the socket (4001, or 4003 when the
+   * invite list no longer names the account), and the client reconnects through the normal checks.
+   */
+  async function reauthenticate(client: Client, token: string): Promise<void> {
+    const attempt = ++client.auths;
+    let user: AuthUser | null;
+    try {
+      user = await deps.auth.resolve(token);
+    } catch (err) {
+      log.error({ err }, "token refresh failed");
+      user = null;
+    }
+    if (attempt !== client.auths || client.ws.readyState !== client.ws.OPEN) return;
+    if (!user || !sameUser(user.userId, client.user.userId)) {
+      metrics.inc("auth_failures_total");
+      log.info({ userId: client.user.userId }, user ? "refreshed token names another account; closing socket" : "refreshed token does not verify; closing socket");
+      return client.ws.close(CLOSE_CODES.unauthorized, "unauthorized");
+    }
+    if (deps.admit && !deps.admit(user)) {
+      metrics.inc("auth_failures_total");
+      log.info({ userId: user.userId }, "account is not on the invite list; closing socket");
+      return client.ws.close(CLOSE_CODES.forbidden, "forbidden");
+    }
+    client.user = { ...user, userId: client.user.userId };
+    armExpiry(client);
+    sendControl(client, { t: "authed", exp: user.expiresAt });
   }
 
   function updateSubscriptionGauge(): void {
@@ -274,6 +353,8 @@ export function createStreamServer(deps: StreamServerDeps): StreamServer {
         return;
       case "sub":
         return subscribe(client, frame.ch, frame.focus === true);
+      case "auth":
+        return reauthenticate(client, frame.token);
     }
   }
 

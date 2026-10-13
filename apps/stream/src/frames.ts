@@ -9,10 +9,11 @@ export const ClientFrameSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("unsub"), ch: Channel }),
   z.object({ t: z.literal("ping") }),
   z.object({ t: z.literal("focus"), ch: Channel, focused: z.boolean() }),
+  z.object({ t: z.literal("auth"), token: z.string().min(1).max(7_000) }),
 ]);
 
-/** Largest inbound frame we accept; clients only send tiny control frames. */
-export const MAX_INBOUND_BYTES = 4096;
+/** Largest inbound frame we accept; clients send tiny control frames, and now and then a refreshed access token. */
+export const MAX_INBOUND_BYTES = 8192;
 
 export type ParsedFrame = { ok: true; frame: ClientFrame } | { ok: false; reason: string };
 

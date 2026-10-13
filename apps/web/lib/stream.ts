@@ -4,8 +4,13 @@
  * implemented here, frame-compatible with apps/stream/src/client.ts:
  *
  *   client → server  { t:"sub", ch, focus? } · { t:"unsub", ch } · { t:"ping" } · { t:"focus", ch, focused }
+ *                    · { t:"auth", token }
  *   server → client  { ch, e } · [ { ch, e }, … ] (coalesced burst) · { t:"pong" } · { t:"err", ch?, code, message }
- *                    · { t:"subscribed", ch }
+ *                    · { t:"subscribed", ch } · { t:"authed", exp }
+ *
+ * The access token never goes in the URL, where proxies and CDNs log it (security review SEC-12): it travels in the
+ * `foundmill.bearer.<base64url>` subprotocol next to `foundmill.stream.v1`. The server closes a socket when its token
+ * expires (4001), so before then the client fetches a fresh token and sends it on the open socket (`auth`).
  *
  * One WebSocket per tab multiplexes every subscription; `sub` is sent once per channel (first handler) and `unsub`
  * when the last handler leaves. Reconnects with exponential backoff + jitter, re-subscribing every channel and
@@ -41,9 +46,35 @@ export interface StreamSubscribedFrame {
   t: "subscribed";
   ch: string;
 }
-export type StreamClientFrame = { t: "sub"; ch: string; focus?: boolean } | { t: "unsub"; ch: string } | { t: "ping" } | { t: "focus"; ch: string; focused: boolean };
+export type StreamClientFrame = { t: "sub"; ch: string; focus?: boolean } | { t: "unsub"; ch: string } | { t: "ping" } | { t: "focus"; ch: string; focused: boolean } | { t: "auth"; token: string };
 
-export const CLOSE_CODES = { goingAway: 1001, policyViolation: 1008, tooSlow: 1013, heartbeatTimeout: 4000, unauthorized: 4001 } as const;
+export const CLOSE_CODES = { goingAway: 1001, policyViolation: 1008, tooSlow: 1013, heartbeatTimeout: 4000, unauthorized: 4001, forbidden: 4003 } as const;
+/** The subprotocol every socket offers (and the server selects); the token rides in a second one (`bearerProtocol`). */
+export const STREAM_SUBPROTOCOL = "foundmill.stream.v1";
+export const BEARER_PROTOCOL_PREFIX = "foundmill.bearer.";
+
+function base64Url(text: string): string {
+  let binary = "";
+  for (const b of new TextEncoder().encode(text)) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** The subprotocols a socket offers: the stream's own, plus the token when there is one. */
+export function streamProtocols(token: string | null | undefined): string[] {
+  return token ? [STREAM_SUBPROTOCOL, `${BEARER_PROTOCOL_PREFIX}${base64Url(token)}`] : [STREAM_SUBPROTOCOL];
+}
+
+/** When a JWT expires (epoch ms), read without verifying it; null for a dev token or anything that is not a JWT. */
+export function tokenExpiry(token: string | null | undefined): number | null {
+  const payload = token?.split(".")[1];
+  if (!payload || !/^[A-Za-z0-9_-]+$/.test(payload)) return null;
+  try {
+    const exp = (JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/"))) as { exp?: unknown }).exp;
+    return typeof exp === "number" && Number.isFinite(exp) ? exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
 export const UNFOCUSED_BURSTS_PER_SECOND = 4;
 /**
  * Refusals asked again on the same socket, with backoff: a membership check that failed (`unavailable`), a membership
@@ -84,11 +115,13 @@ export interface WebSocketLike {
 export type TimerHandle = unknown;
 
 export interface StreamClientOptions {
-  /** WebSocket endpoint (NEXT_PUBLIC_STREAM_URL); `?token=` is appended. */
+  /** WebSocket endpoint (NEXT_PUBLIC_STREAM_URL); the token is never put in it. */
   url: string;
   /** Current access token; "" connects anonymously (dev bypass). */
   getToken: () => string | Promise<string>;
-  webSocket?: new (url: string) => WebSocketLike;
+  webSocket?: new (url: string, protocols?: string[]) => WebSocketLike;
+  /** How long before the token expires a fresh one is sent on the open socket (default 60 000 ms). */
+  renewBeforeMs?: number;
   minBackoffMs?: number;
   maxBackoffMs?: number;
   pingMs?: number;
@@ -136,6 +169,7 @@ export class StreamClient {
   private attempt = 0;
   private reconnectTimer: TimerHandle | null = null;
   private pingTimer: TimerHandle | null = null;
+  private renewTimer: TimerHandle | null = null;
   private lastFrameAt = 0;
   /** When the outstanding heartbeat ping was sent; any frame after it proves the link alive. */
   private pingSentAt: number | null = null;
@@ -146,6 +180,7 @@ export class StreamClient {
   private readonly minBackoff: number;
   private readonly maxBackoff: number;
   private readonly pingMs: number;
+  private readonly renewBefore: number;
   private readonly probeMs: number;
   private readonly maxResubscribe: number;
   private readonly burstIntervalMs: number;
@@ -159,6 +194,7 @@ export class StreamClient {
     this.minBackoff = Math.max(1, opts.minBackoffMs ?? 250);
     this.maxBackoff = Math.max(this.minBackoff, opts.maxBackoffMs ?? 10_000);
     this.pingMs = Math.max(10, opts.pingMs ?? 20_000);
+    this.renewBefore = Math.max(0, opts.renewBeforeMs ?? 60_000);
     this.probeMs = Math.max(10, Math.min(this.pingMs, opts.probeMs ?? 5_000));
     this.maxResubscribe = Math.max(this.minBackoff, opts.maxResubscribeMs ?? 30_000);
     this.burstIntervalMs = Math.max(1, Math.round(1000 / (opts.unfocusedBurstsPerSecond ?? UNFOCUSED_BURSTS_PER_SECOND)));
@@ -347,17 +383,16 @@ export class StreamClient {
       .then(() => this.opts.getToken())
       .catch(() => "");
     if (seq !== this.connectSeq || this.closedByUser) return;
-    const Ctor = this.opts.webSocket ?? (globalThis as unknown as { WebSocket?: new (url: string) => WebSocketLike }).WebSocket;
+    const Ctor = this.opts.webSocket ?? (globalThis as unknown as { WebSocket?: new (url: string, protocols?: string[]) => WebSocketLike }).WebSocket;
     if (!Ctor) {
       this.setStatus("closed", { reason: "no WebSocket implementation" });
       return;
     }
     const url = new URL(this.opts.url);
-    if (token) url.searchParams.set("token", token);
-    else url.searchParams.delete("token");
+    url.searchParams.delete("token"); // the server refuses a token in the URL
     let ws: WebSocketLike;
     try {
-      ws = new Ctor(url.toString());
+      ws = new Ctor(url.toString(), streamProtocols(token));
     } catch {
       this.scheduleReconnect();
       return;
@@ -372,6 +407,7 @@ export class StreamClient {
       this.setStatus("open");
       for (const [channel, state] of this.channels) this.sendSub(channel, state);
       this.startPing();
+      this.scheduleRenewal(token);
     };
     ws.onmessage = (ev) => {
       if (this.ws !== ws) return;
@@ -390,7 +426,7 @@ export class StreamClient {
       const code = typeof ev?.code === "number" ? ev.code : undefined;
       const reason = typeof ev?.reason === "string" ? ev.reason : undefined;
       if (this.closedByUser) return this.setStatus("closed", { code, reason });
-      if (code === CLOSE_CODES.unauthorized) this.attempt = Math.max(this.attempt, 3);
+      if (code === CLOSE_CODES.unauthorized || code === CLOSE_CODES.forbidden) this.attempt = Math.max(this.attempt, 3);
       this.scheduleReconnect({ code, reason });
     };
   }
@@ -444,11 +480,42 @@ export class StreamClient {
     this.scheduleReconnect({ code: CLOSE_CODES.heartbeatTimeout, reason: "no frames" });
   }
 
+  /**
+   * Before the token in use expires, fetch a fresh one and send it on the open socket, so the server (which closes a
+   * socket at its token's expiry) keeps it. A dev token has no expiry. A token the server refuses closes the socket,
+   * and the reconnect fetches a token again.
+   */
+  private scheduleRenewal(token: string, retryInMs?: number): void {
+    if (this.renewTimer !== null) this.clearTimer(this.renewTimer);
+    this.renewTimer = null;
+    const exp = tokenExpiry(token);
+    if (exp === null) return;
+    const ws = this.ws;
+    this.renewTimer = this.setTimer(
+      () => {
+        this.renewTimer = null;
+        void Promise.resolve()
+          .then(() => this.opts.getToken())
+          .catch(() => "")
+          .then((fresh) => {
+            if (this.ws !== ws || !this.isOpen) return;
+            // Not refreshed yet (or signed out): ask again shortly, until the server closes the socket at expiry.
+            if (!fresh || fresh === token) return this.now() < exp ? this.scheduleRenewal(token, Math.max(1_000, Math.min(15_000, this.renewBefore / 4))) : undefined;
+            this.send({ t: "auth", token: fresh });
+            this.scheduleRenewal(fresh);
+          });
+      },
+      retryInMs ?? Math.max(0, exp - this.now() - this.renewBefore),
+    );
+  }
+
   private clearTimers(): void {
     if (this.reconnectTimer !== null) this.clearTimer(this.reconnectTimer);
     if (this.pingTimer !== null) this.clearTimer(this.pingTimer);
+    if (this.renewTimer !== null) this.clearTimer(this.renewTimer);
     this.reconnectTimer = null;
     this.pingTimer = null;
+    this.renewTimer = null;
     this.pingSentAt = null;
   }
 
