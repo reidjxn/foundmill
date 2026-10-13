@@ -6,7 +6,7 @@
  */
 import { IDEATION_CARD_MAX_TOKENS, IDEATION_CARD_RESERVE_TOKENS, IDEATION_SLATE_MAX_TOKENS } from "@foundmill/agents";
 import { repos } from "@foundmill/db";
-import { MockModelClient, ModelAbortedError, ModelOutputError, ModelUnavailableError, type CompleteRequest, type ModelClient } from "@foundmill/models";
+import { MockModelClient, ModelAbortedError, ModelBillingError, ModelOutputError, ModelUnavailableError, type CompleteRequest, type ModelClient } from "@foundmill/models";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createApp } from "../app";
 import { SINGLE_CONCEPT_MAX_TOKENS, type DraftEvent } from "../routers/idea";
@@ -112,6 +112,24 @@ describe("idea.generate", () => {
     // Only the failed card was asked again: eight cards, nine card calls.
     expect(mock.history.filter((r) => r.route === "ideation")).toHaveLength(8);
     expect(events.filter((e) => e.type === "writing" && e.index !== 3).every((e) => (e as { attempt: number }).attempt === 1)).toBe(true);
+  });
+
+  it("fails the draft with the billing message when the model account cannot pay for a card", async () => {
+    const mock = new MockModelClient({ overrides: { ideationSlate: slateOf(8) } });
+    const asked: string[] = [];
+    const broke: ModelClient = {
+      mode: "mock",
+      streamStructured: (req) => mock.streamStructured(req),
+      complete: ((req: CompleteRequest) => {
+        if (req.route !== "ideation") return mock.complete(req as never);
+        asked.push(conceptOf(req));
+        return Promise.reject(new ModelBillingError("credit balance is too low", "credit_balance", "credits", 400));
+      }) as ModelClient["complete"],
+    };
+    const { caller } = await callerFor(broke, "billing@test.local");
+    await expect(collect(await caller.idea.draft({ prompt: "no credit" }))).rejects.toMatchObject({ code: "PAYMENT_REQUIRED", message: expect.stringMatching(/out of credit/) });
+    // Final at once: no card is asked twice.
+    expect(new Set(asked).size).toBe(asked.length);
   });
 
   it("finishes the set without a card that fails twice, as long as six remain", async () => {
