@@ -83,15 +83,14 @@ const INBOX_PROVING_METHODS = new Set(["magiclink", "otp", "email/signup", "invi
 
 /**
  * Whether a Supabase access token shows its holder controls its `email` (SEC2 S11). Supabase access tokens carry no
- * `email_confirmed_at`; they carry `is_anonymous`, the provider's `user_metadata.email_verified` (set once the address
- * is confirmed, and by OAuth providers that verified it) and `amr`, how the session was authenticated. An anonymous
- * sign-in never counts; otherwise either a verified address or an inbox-proving sign-in does.
+ * `email_confirmed_at`; they carry `is_anonymous` and `amr`, how the session was authenticated. An anonymous sign-in
+ * never counts; otherwise only an inbox-proving sign-in does. `user_metadata.email_verified` is deliberately not
+ * trusted: a signed-in user can write their own `user_metadata`, so a client could set it for an address it cannot read.
+ * `amr` is written by Supabase Auth alone. The web signs in by magic link only, so every real session carries a proof.
  */
 export function emailConfirmedFromPayload(payload: JWTPayload): boolean {
   if (payload.is_anonymous === true) return false;
   if (typeof payload.email !== "string" || !payload.email.trim()) return false;
-  const metadata = payload.user_metadata as { email_verified?: unknown } | undefined;
-  if (metadata?.email_verified === true) return true;
   const amr = Array.isArray(payload.amr) ? (payload.amr as unknown[]) : [];
   return amr.some((entry) => INBOX_PROVING_METHODS.has(String((entry as { method?: unknown })?.method ?? "")));
 }

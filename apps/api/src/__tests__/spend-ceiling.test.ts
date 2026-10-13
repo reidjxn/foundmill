@@ -212,18 +212,19 @@ describe("the allow-list trusts a confirmed address only (S11)", () => {
   const sign = (claims: Record<string, unknown>, sub: string) => new SignJWT(claims).setProtectedHeader({ alg: "HS256" }).setSubject(sub).setAudience("authenticated").setIssuedAt().setExpirationTime("10m").sign(secret);
   const now = () => Math.floor(Date.now() / 1000);
 
-  it("reads confirmation from the token: a verified address or an inbox-proving sign-in; never an anonymous one", () => {
-    expect(emailConfirmedFromPayload({ email: "a@x.test", user_metadata: { email_verified: true } })).toBe(true);
+  it("reads confirmation from the token: an inbox-proving sign-in only; never an anonymous one, never the user-writable user_metadata", () => {
+    expect(emailConfirmedFromPayload({ email: "a@x.test", user_metadata: { email_verified: true } })).toBe(false);
+    expect(emailConfirmedFromPayload({ email: "a@x.test", amr: [{ method: "password", timestamp: now() }], user_metadata: { email_verified: true } })).toBe(false);
     expect(emailConfirmedFromPayload({ email: "a@x.test", amr: [{ method: "magiclink", timestamp: now() }] })).toBe(true);
     expect(emailConfirmedFromPayload({ email: "a@x.test", amr: [{ method: "otp", timestamp: now() }] })).toBe(true);
     expect(emailConfirmedFromPayload({ email: "a@x.test", amr: [{ method: "password", timestamp: now() }] })).toBe(false);
     expect(emailConfirmedFromPayload({ email: "a@x.test", amr: [{ method: "oauth", timestamp: now() }], user_metadata: { email_verified: false } })).toBe(false);
-    expect(emailConfirmedFromPayload({ email: "a@x.test", is_anonymous: true, user_metadata: { email_verified: true } })).toBe(false);
+    expect(emailConfirmedFromPayload({ email: "a@x.test", is_anonymous: true, amr: [{ method: "otp", timestamp: now() }] })).toBe(false);
     expect(emailConfirmedFromPayload({ amr: [{ method: "otp", timestamp: now() }] })).toBe(false);
-    expect(emailConfirmedFromPayload({ email: "", user_metadata: { email_verified: true } })).toBe(false);
+    expect(emailConfirmedFromPayload({ email: "", amr: [{ method: "otp", timestamp: now() }] })).toBe(false);
   });
 
-  it("over HTTP: a listed address is refused until the token shows it confirmed, and an anonymous sign-in never passes", async () => {
+  it("over HTTP: a listed address is refused until the token shows it confirmed; an anonymous sign-in and a self-written user_metadata never pass", async () => {
     const auth = createAuthVerifier({ appEnv: "production", hsKey: secret });
     const deps = { ...hz.deps, auth, env: { ...hz.deps.env, SIGNUP_ALLOWLIST: "owner@ceiling.test" } };
     const app = createApp(deps);
@@ -234,12 +235,14 @@ describe("the allow-list trusts a confirmed address only (S11)", () => {
     };
     const unconfirmed = await call(await sign({ email: "owner@ceiling.test", amr: [{ method: "password", timestamp: now() }] }, hz.A.ownerId));
     expect(unconfirmed).toEqual({ status: 403, message: EMAIL_UNCONFIRMED_MESSAGE, appCode: "not_invited", reason: "email_unconfirmed" });
-    const anonymous = await call(await sign({ email: "owner@ceiling.test", is_anonymous: true, user_metadata: { email_verified: true } }, hz.A.ownerId));
+    const anonymous = await call(await sign({ email: "owner@ceiling.test", is_anonymous: true, amr: [{ method: "anonymous", timestamp: now() }], user_metadata: { email_verified: true } }, hz.A.ownerId));
     expect(anonymous).toMatchObject({ status: 403, appCode: "not_invited", reason: "email_unconfirmed" });
-    const stranger = await call(await sign({ email: "someone@else.test", user_metadata: { email_verified: true } }, hz.A.ownerId));
+    const forged = await call(await sign({ email: "owner@ceiling.test", amr: [{ method: "password", timestamp: now() }], user_metadata: { email_verified: true } }, hz.A.ownerId));
+    expect(forged).toMatchObject({ status: 403, appCode: "not_invited", reason: "email_unconfirmed" });
+    const stranger = await call(await sign({ email: "someone@else.test", amr: [{ method: "magiclink", timestamp: now() }] }, hz.A.ownerId));
     expect(stranger).toMatchObject({ status: 403, appCode: "not_invited", reason: "not_listed" });
     expect((await call(await sign({ email: "owner@ceiling.test", amr: [{ method: "magiclink", timestamp: now() }] }, hz.A.ownerId))).status).toBe(200);
-    expect((await call(await sign({ email: "owner@ceiling.test", user_metadata: { email_verified: true } }, hz.A.ownerId))).status).toBe(200);
+    expect((await call(await sign({ email: "owner@ceiling.test", amr: [{ method: "otp", timestamp: now() }] }, hz.A.ownerId))).status).toBe(200);
     // Without a list nothing about the address is checked.
     const open = createApp({ ...deps, env: { ...deps.env, SIGNUP_ALLOWLIST: undefined } });
     const res = await open.request("/trpc/founder.preferences.get", { headers: { authorization: `Bearer ${await sign({ email: "owner@ceiling.test", amr: [{ method: "password", timestamp: now() }] }, hz.A.ownerId)}` } });
