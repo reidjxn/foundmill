@@ -78,7 +78,12 @@ describe("business.continue without an orchestrator (BUILD §9.4 in-process cycl
     const owner = hz.caller({ userId: hz.A.ownerId });
     // Clear whatever the first cycle step left blocking, then add one known blocker.
     const open = await owner.inbox.list({ businessId: hz.A.businessId, blocking: true, state: ["unread", "read"], limit: 50 });
-    for (const i of open.items) await owner.inbox.archive({ businessId: hz.A.businessId, itemId: i.id });
+    // A blocking decision is answered, never archived away (audit RUI-14); a blocking note with nothing to choose is archived.
+    for (const i of open.items) {
+      const options = (i.decision as { options?: { id: string }[] } | null)?.options ?? [];
+      if (options.length > 0) await owner.inbox.decide({ businessId: hz.A.businessId, itemId: i.id, chosenOption: options[0]!.id });
+      else await owner.inbox.archive({ businessId: hz.A.businessId, itemId: i.id });
+    }
     const item = await blockingItem(hz, "Blocking decision");
     const cs = await owner.cycle.continueState({ businessId: hz.A.businessId });
     expect(cs).toMatchObject({ kind: "blocked", count: 1 });

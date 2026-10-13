@@ -24,7 +24,7 @@ export function describeAction(type: string, p: Record<string, unknown> | null |
     case "set_budget":
       return `Set budget for ${s("channel").replace(/_/g, " ") || s("department") || "the business"}`;
     case "approve_spend":
-      return `Approve spend${s("purpose") ? `: ${s("purpose")}` : ""}`;
+      return `Approve spend${s("purpose") || s("what") ? `: ${s("purpose") || s("what")}` : ""}`;
     case "send_message":
       return `Send a message${s("to") ? ` to ${s("to")}` : ""}`;
     case "schedule_meeting":

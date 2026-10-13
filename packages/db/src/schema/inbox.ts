@@ -1,7 +1,7 @@
 /** 0005 — inbox items, decisions, plans, plan actions, composer buffer. */
 import { INBOX_ITEM_TYPES, INBOX_STATES, PLAN_ACTION_TYPES, PLAN_ORIGINS, PLAN_STATUSES, POLICY_OUTCOMES } from "@foundmill/shared";
 import { sql } from "drizzle-orm";
-import { boolean, index, integer, jsonb, pgTable, text, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { boolean, foreignKey, index, integer, jsonb, pgTable, text, unique, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { authUsers } from "drizzle-orm/supabase";
 import { currency, emptyArray, emptyList, emptyObject, id, minor, timestamps, timestampsWithArchive, tstz } from "./_common";
 import { businessId } from "./_refs";
@@ -32,6 +32,7 @@ export const inboxItems = pgTable(
     ...timestampsWithArchive(),
   },
   (t) => [
+    unique("inbox_items_id_business_id_key").on(t.id, t.businessId),
     index("inbox_items_business_id_idx").on(t.businessId, t.createdAt),
     index("inbox_items_state_idx").on(t.businessId, t.state).where(sql`${t.state} <> 'archived'`),
     index("inbox_items_type_idx").on(t.businessId, t.type),
@@ -41,6 +42,31 @@ export const inboxItems = pgTable(
 );
 export type InboxItem = typeof inboxItems.$inferSelect;
 export type NewInboxItem = typeof inboxItems.$inferInsert;
+
+/**
+ * 0048 — who has opened which note. `inbox_items.state` is `unread` until the note is answered or archived; whether a
+ * given person has read it is a receipt here (one per person and note), so one person opening a note no longer marks it
+ * read for everyone, and viewers and advisors keep their own. User-owned within a business, like dashboard_layouts.
+ */
+export const inboxItemReads = pgTable(
+  "inbox_item_reads",
+  {
+    id: id(),
+    businessId: businessId(),
+    inboxItemId: uuid("inbox_item_id").notNull(),
+    userId: uuid("user_id").notNull().references(() => authUsers.id, { onDelete: "cascade" }),
+    readAt: tstz("read_at").notNull().defaultNow(),
+    ...timestamps(),
+  },
+  (t) => [
+    foreignKey({ name: "inbox_item_reads_item_fkey", columns: [t.inboxItemId, t.businessId], foreignColumns: [inboxItems.id, inboxItems.businessId] }).onDelete("cascade"),
+    unique("inbox_item_reads_item_user_key").on(t.inboxItemId, t.userId),
+    index("inbox_item_reads_business_id_idx").on(t.businessId),
+    index("inbox_item_reads_user_id_idx").on(t.userId, t.businessId),
+  ],
+);
+export type InboxItemRead = typeof inboxItemReads.$inferSelect;
+export type NewInboxItemRead = typeof inboxItemReads.$inferInsert;
 
 export const plans = pgTable(
   "plans",

@@ -54,6 +54,8 @@ const num = (v: unknown): number | null => (typeof v === "number" && Number.isFi
 export interface CycleScope {
   db: Executor;
   businessId: string;
+  /** Who is asking: a win waits for *their* Customer Update until they have opened it (per-person reads, 0048). */
+  userId?: string;
 }
 
 export async function cycleStatus(ctx: CycleScope): Promise<CycleStatus> {
@@ -106,7 +108,7 @@ export async function cycleStatus(ctx: CycleScope): Promise<CycleStatus> {
 /** The Continue button state (BUILD §5.4, AC-11.3.3): holiday › blocked › win waiting for its Customer Update › processing › idle. */
 export async function continueStateFor(ctx: CycleScope, status?: CycleStatus): Promise<ContinueState> {
   const { db, businessId } = ctx;
-  const [holiday, blocking, wins] = await Promise.all([repos.holidays.current(db, businessId), repos.inbox.countBlocking(db, businessId), repos.inbox.list(db, businessId, { type: "customer_won", state: "unread", limit: 1 })]);
+  const [holiday, blocking, wins] = await Promise.all([repos.holidays.current(db, businessId), repos.inbox.countBlocking(db, businessId), repos.inbox.list(db, businessId, { type: "customer_won", state: "unread", limit: 1 }, ctx.userId)]);
   if (holiday) {
     const condition = holiday.untilCondition as { text?: string } | null;
     return { kind: "holiday", until: holiday.untilAt ? holiday.untilAt.toISOString() : null, untilLabel: holiday.untilAt ? null : (condition?.text ?? "until I return") };

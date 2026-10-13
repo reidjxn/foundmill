@@ -17,7 +17,7 @@ export const inboxRouter = router({
   /** Notes follow the reader's Finance and CRM walls (services/inbox-redaction.ts; audit RUI-02). */
   list: inboxRead.input(InboxListFilter).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const [page, counts, blocking] = await Promise.all([repos.inbox.list(tx, ctx.businessId, input ?? {}), repos.inbox.countByTab(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId)]);
+      const [page, counts, blocking] = await Promise.all([repos.inbox.list(tx, ctx.businessId, input ?? {}, ctx.userId), repos.inbox.countByTab(tx, ctx.businessId), repos.inbox.countBlocking(tx, ctx.businessId)]);
       const walls = inboxWalls(ctx.membership);
       const source = await loadRedactionSource(tx, ctx.businessId, walls, page.items.flatMap(idsOfItem));
       return { ...page, items: page.items.map((i) => redactInboxItem(i, source)), counts, blocking, continueState: blocking > 0 ? ({ kind: "blocked", count: blocking } as const) : ({ kind: "idle" } as const) };
@@ -26,7 +26,7 @@ export const inboxRouter = router({
 
   get: inboxRead.input(z.object({ itemId: Id })).query(({ ctx, input }) =>
     ctx.rls(async (tx) => {
-      const item = await repos.inbox.get(tx, ctx.businessId, input.itemId);
+      const item = await repos.inbox.get(tx, ctx.businessId, input.itemId, ctx.userId);
       const walls = inboxWalls(ctx.membership);
       const [decisions, plan, fromAgent, entities, source] = await Promise.all([
         repos.inbox.decisionsFor(tx, ctx.businessId, item.id),
@@ -53,7 +53,7 @@ export const inboxRouter = router({
   // Free text is compiled into a plan (a model call) and spends the planning allowance; choosing an option does not.
   decide: inboxWrite.input(z.object({ itemId: Id, chosenOption: z.string().max(40).nullable().optional(), freeText: z.string().max(4000).nullable().optional() })).use(modelLimited("plan", { when: hasFreeText })).mutation(({ ctx, input }) => decideInboxItem(ctx, input)),
 
-  markRead: inboxRead.input(z.object({ itemId: Id })).mutation(({ ctx, input }) => ctx.rls((tx) => repos.inbox.markRead(tx, ctx.businessId, input.itemId))),
+  markRead: inboxRead.input(z.object({ itemId: Id })).mutation(({ ctx, input }) => ctx.rls((tx) => repos.inbox.markRead(tx, ctx.businessId, input.itemId, ctx.userId))),
 
   archive: inboxWrite.input(z.object({ itemId: Id })).mutation(({ ctx, input }) =>
     ctx.rls(async (tx) => {

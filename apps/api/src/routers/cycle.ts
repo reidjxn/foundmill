@@ -11,7 +11,7 @@ export const cycleRouter = router({
   status: businessProcedure.query(({ ctx }) => ctx.rls((tx) => cycleStatus({ db: tx, businessId: ctx.businessId }))),
 
   /** Continue button state computed server-side: holiday › blocked › win awaiting its Customer Update › processing › idle. */
-  continueState: businessProcedure.query(({ ctx }) => ctx.rls((tx) => continueStateFor({ db: tx, businessId: ctx.businessId }))),
+  continueState: businessProcedure.query(({ ctx }) => ctx.rls((tx) => continueStateFor({ db: tx, businessId: ctx.businessId, userId: ctx.userId }))),
 
   /** Past cycles, newest first (from `cycle.started` / `cycle.completed`). */
   history: businessProcedure.input(z.object({ limit: z.number().int().min(1).max(100).default(20) })).query(({ ctx, input }) =>

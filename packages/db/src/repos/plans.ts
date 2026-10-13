@@ -138,21 +138,41 @@ export const plansRepo = {
     });
   },
 
-  /** Founder confirmed "Here is what will happen": the plan starts executing. */
+  /** Founder confirmed "Here is what will happen": the plan starts executing. Refuses a plan that is not waiting. */
   async confirm(db: Executor, businessId: string, planId: string, options: { workflowId?: string | null } = {}): Promise<Plan> {
-    return db.transaction(async (tx) => {
-      const plan = one(await tx.select().from(plans).where(scoped(businessId, planId)).limit(1), "plan", planId);
-      if (plan.status !== "pending_confirmation") throw new ValidationError(`Plan is ${plan.status}, not pending confirmation`, { planId, status: plan.status });
-      return one(
-        await tx
-          .update(plans)
-          .set({ status: "executing", confirmedAt: new Date(), ...(options.workflowId !== undefined ? { workflowId: options.workflowId } : {}) })
-          .where(scoped(businessId, planId))
-          .returning(),
-        "plan",
-        planId,
-      );
-    });
+    const claimed = await plansRepo.claimConfirmation(db, businessId, planId, options);
+    if (claimed) return claimed;
+    const plan = one(await db.select().from(plans).where(scoped(businessId, planId)).limit(1), "plan", planId);
+    throw new ValidationError(`Plan is ${plan.status}, not pending confirmation`, { planId, status: plan.status });
+  },
+
+  /**
+   * pending_confirmation → executing in one conditional update, or null when the plan is no longer waiting (another tab,
+   * device or member confirmed it first). Two confirmations at once never both run the plan: the second waits on the
+   * row, then finds it executing and gets null.
+   */
+  async claimConfirmation(db: Executor, businessId: string, planId: string, options: { workflowId?: string | null } = {}): Promise<Plan | null> {
+    const rows = await db
+      .update(plans)
+      .set({ status: "executing", confirmedAt: new Date(), ...(options.workflowId !== undefined ? { workflowId: options.workflowId } : {}) })
+      .where(and(scoped(businessId, planId), eq(plans.status, "pending_confirmation")))
+      .returning();
+    return rows[0] ?? null;
+  },
+
+  /**
+   * Plans the orchestrator should be running and is not (audit api-services-15): executing, an action still pending,
+   * and no workflow id because their dispatch never reached Temporal. Oldest first; the api starts them again
+   * (`redispatchPlans`) and records the workflow id once Temporal takes the start.
+   */
+  async awaitingDispatch(db: Executor, businessId: string, options: { limit?: number } = {}): Promise<Plan[]> {
+    const pending = sql`exists (select 1 from ${planActions} where ${planActions.businessId} = ${plans.businessId} and ${planActions.planId} = ${plans.id} and ${planActions.status} = 'pending')`;
+    return db
+      .select()
+      .from(plans)
+      .where(and(eq(plans.businessId, businessId), eq(plans.status, "executing"), isNull(plans.workflowId), isNull(plans.archivedAt), pending))
+      .orderBy(asc(plans.createdAt))
+      .limit(Math.min(Math.max(options.limit ?? 20, 1), 100));
   },
 
   async setStatus(db: Executor, businessId: string, planId: string, status: PlanStatus): Promise<Plan> {

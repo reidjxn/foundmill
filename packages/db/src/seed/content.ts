@@ -292,6 +292,7 @@ export interface InboxSpec {
   statusStrip?: Array<{ metric: string; source: string }>;
   exhibit?: { kind: "chart" | "table" | "entity_card" | "diagram" | "diff" | "agent_tile"; spec_ref: string };
   decision?: { options: Array<{ id: string; label: string; recommended: boolean; consequence: string; cost_minor: number; reversible: boolean }>; free_text: boolean; expires_at: string | null };
+  /** Overrides the type rule below (a decision and a win block Continue until they are answered). */
   blocksContinue?: boolean;
   sourceEventIds?: string[];
   /** Extra entity ids beyond those found in the body markup. */
@@ -305,6 +306,15 @@ export interface InboxSpec {
 
 export const entityIdsIn = (body: string): string[] => [...new Set([...body.matchAll(ENTITY_MARKUP_RE)].map((m) => m[1]!))];
 
+/**
+ * The composer's rule (DECISIONS: `blocks_continue` is set by the type rules): a decision and a win block Continue while
+ * they are open, so the demo businesses show the Continue states a real one does (audit OL-32).
+ */
+function blocksContinueFor(s: Pick<InboxSpec, "type" | "state" | "decided">): boolean {
+  if (s.decided || s.state === "answered" || s.state === "archived") return false;
+  return s.type === "decision" || s.type === "customer_won";
+}
+
 export async function seedInbox(ctx: SeedCtx, businessId: string, specs: InboxSpec[], currency: string): Promise<InboxItem[]> {
   const out: InboxItem[] = [];
   for (const s of specs) {
@@ -316,7 +326,7 @@ export async function seedInbox(ctx: SeedCtx, businessId: string, specs: InboxSp
       status_strip: s.statusStrip ?? [],
       exhibit: s.exhibit ?? { kind: "none", spec_ref: null },
       decision: s.decision ?? null,
-      blocks_continue: s.blocksContinue ?? false,
+      blocks_continue: s.blocksContinue ?? blocksContinueFor(s),
       source_event_ids: s.sourceEventIds ?? [],
       entity_ids: [...new Set([...entityIdsIn(s.bodyMd), ...(s.entityIds ?? [])])],
     };

@@ -106,6 +106,31 @@ describe("archetype seeds (BUILD §11.1, AC-11.1.6)", () => {
     }
   });
 
+  it("every Board option runs typed actions its own team can carry out, and budgets exactly what it costs (audit IAE-20, AC-01, FR-10)", () => {
+    for (const seed of ARCHETYPE_SEED_LIST) {
+      const hired = new Set(templateKeysForArchetype(seed.archetype));
+      for (const o of seed.boardDecision.options) {
+        const where = `${seed.archetype}/${o.id}`;
+        expect(o.actions.length, where).toBeGreaterThan(0);
+        // Never a hard gate dressed as work, never a payment, never a hire nobody asked for.
+        for (const a of o.actions) expect(["create_task", "enable_channel", "disable_channel", "set_budget", "approve_spend"], where).toContain(a.type);
+        for (const a of o.actions) {
+          if (a.assignee) expect(hired.has(a.assignee), `${where}: ${a.assignee} is not hired by ${seed.archetype}`).toBe(true);
+          const channel = a.params.channel;
+          if (typeof channel === "string") expect(hired.has(`channel_${channel}`), `${where}: nobody runs ${channel}`).toBe(true);
+          if (a.type === "create_task") expect(typeof a.params.title === "string" && typeof a.params.goal === "string", where).toBe(true);
+        }
+        const spend = o.actions.filter((a) => a.type === "set_budget" || a.type === "approve_spend").reduce((n, a) => n + Number(a.params.amount_minor), 0);
+        expect(spend, where).toBe(o.costMinor);
+        // A channel is budgeted only once it runs (or already runs as a starter).
+        for (const a of o.actions.filter((x) => x.type === "set_budget")) {
+          const channel = a.params.channel as (typeof CHANNEL_KEYS)[number];
+          expect(o.actions.some((x) => x.type === "enable_channel" && x.params.channel === channel) || seed.defaultChannels.includes(channel), where).toBe(true);
+        }
+      }
+    }
+  });
+
   it("templateKeysForArchetype starts with the Chief of Staff, hires the utilities and never repeats a key", () => {
     for (const a of ARCHETYPES) {
       const keys = templateKeysForArchetype(a);

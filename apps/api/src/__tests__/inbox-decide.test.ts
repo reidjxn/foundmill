@@ -127,11 +127,31 @@ describe("inbox.decide (BUILD §11.3, AC-11.3.3/4/5)", () => {
     expect(first.source).toBe("local");
     expect(first.item.businessId).toBe(hz.A.businessId);
     expect(first.item.subject.length).toBeLessThanOrEqual(80);
+    // The founder answers it, so the next press has something new to say (a decision still waiting is not written twice).
+    if (first.item.type === "decision") await owner.inbox.decide({ businessId: hz.A.businessId, itemId: first.item.id, chosenOption: ((first.item.decision as { options: { id: string }[] }).options[0])!.id });
     const second = await owner.inbox.refresh({ businessId: hz.A.businessId });
     expect(second.item.id).not.toBe(first.item.id);
     const after = await owner.inbox.list({ businessId: hz.A.businessId, limit: 200 });
-    expect(after.items.length).toBe(before.items.length + 2);
+    expect(after.items.length).toBeGreaterThanOrEqual(before.items.length + 2);
     const created = await repos.events.list(hz.db, hz.A.businessId, { type: "inbox.item_created" });
     expect(created.items.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("audit CML-02: Refresh with nothing new does not write the same blocking decision again; it points at the open one", async () => {
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    let last = await owner.inbox.refresh({ businessId: hz.A.businessId });
+    for (let i = 0; i < 4 && last.item.type !== "decision"; i++) last = await owner.inbox.refresh({ businessId: hz.A.businessId });
+    expect(last.item.type).toBe("decision");
+    const before = await owner.inbox.list({ businessId: hz.A.businessId, limit: 200 });
+    const again = await owner.inbox.refresh({ businessId: hz.A.businessId });
+    const third = await owner.inbox.refresh({ businessId: hz.A.businessId });
+    const after = await owner.inbox.list({ businessId: hz.A.businessId, limit: 200 });
+    // Every grounded decision the in-process composer knows is open now: the presses answer with one of them.
+    const decisions = after.items.filter((i) => i.type === "decision" && i.state !== "answered");
+    const subjects = decisions.map((i) => i.subject);
+    expect(new Set(subjects).size).toBe(subjects.length);
+    expect(after.blocking).toBeLessThanOrEqual(before.blocking + 1);
+    expect(decisions.map((i) => i.id)).toContain(third.item.id);
+    expect(again.item.type).toBe("decision");
   });
 });

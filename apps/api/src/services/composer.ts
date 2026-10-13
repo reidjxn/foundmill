@@ -15,7 +15,7 @@ import { buildManifest, checkComposerText, type ManifestEntityInput } from "@fou
 import { ComposerOutput, type ModelClient } from "@foundmill/models";
 import { APP_NAME, LIMITS } from "@foundmill/config";
 import { HOUSE_STYLE } from "@foundmill/agents";
-import { AppError, type EntityKind } from "@foundmill/shared";
+import { AppError, futureDeadline, type EntityKind } from "@foundmill/shared";
 import type { ApiLogger } from "./log";
 
 export interface ComposeResult {
@@ -281,8 +281,14 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
   if (events.length === 0) {
     const candidates = localNextBestDecisions({ tasks: taskCounts, channelsEnabled: channels.length, customers30d: conversions.payment ?? 0, signups30d: conversions.signup ?? 0 });
     const open = await repos.inbox.list(db, businessId, { type: "decision", state: ["unread", "read"], limit: 100 });
-    const openSubjects = new Set(open.items.map((i) => i.subject));
-    grounded = candidates.find((c) => !openSubjects.has(c.title)) ?? candidates[open.items.length % candidates.length]!;
+    const isOpen = (c: LocalDecision) => open.items.some((i) => (i.decision as { key?: unknown } | null)?.key === localDecisionKey(c) || i.subject === c.title);
+    grounded = candidates.find((c) => !isOpen(c)) ?? null;
+    if (!grounded) {
+      // Everything the state calls for is already waiting for the founder: point at it rather than write a copy (audit CML-02).
+      const existing = open.items.find((i) => candidates.some((c) => (i.decision as { key?: unknown } | null)?.key === localDecisionKey(c) || i.subject === c.title));
+      if (existing) return { item: existing, slot: "decision" };
+      grounded = candidates[0]!;
+    }
   }
 
   const input = {
@@ -295,6 +301,8 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
     events: events.map((e) => ({ id: e.id, type: e.type, occurred_at: e.occurredAt, payload: e.payload, entity_ids: e.entityIds })),
     metrics,
     named_queries: NAMED_QUERIES,
+    // The model has no clock; without today's date it guesses deadlines (audit CML-13).
+    now: new Date().toISOString(),
     ...(grounded
       ? {
           type: "decision",
@@ -330,7 +338,7 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
     body_md: bodyMd.trim().length > 0 ? bodyMd : out.subject,
     status_strip: out.status_strip.slice(0, 4),
     exhibit: NAMED_QUERIES.some((q) => q.id === out.exhibit.spec_ref) ? out.exhibit : { kind: "none" as const, spec_ref: null },
-    decision: out.type === "decision" || out.type === "customer_won" ? (out.decision ?? defaultDecision()) : out.decision,
+    decision: withSaneDeadline(out.type === "decision" || out.type === "customer_won" ? (out.decision ?? defaultDecision()) : out.decision, grounded),
     blocks_continue: out.type === "decision" || out.type === "customer_won" ? true : out.blocks_continue,
     source_event_ids: eventIds,
     entity_ids: entityIds,
@@ -360,6 +368,14 @@ async function composeLocallyWithSlot(db: Db, models: ModelClient, businessId: s
   });
   return { item: created, slot: grounded ? "decision" : "events" };
 }
+
+/** A deadline is a future ISO timestamp within the horizon or none (audit CML-13); a grounded decision carries what it is about (audit CML-02). */
+function withSaneDeadline<D extends { expires_at: string | null }>(decision: D | null, grounded: LocalDecision | null): (D & { key?: string }) | null {
+  if (!decision) return null;
+  return { ...decision, expires_at: futureDeadline(decision.expires_at, new Date()), ...(grounded ? { key: localDecisionKey(grounded) } : {}) };
+}
+
+const localDecisionKey = (c: LocalDecision): string => `local:${c.kind}`;
 
 function defaultDecision() {
   return {

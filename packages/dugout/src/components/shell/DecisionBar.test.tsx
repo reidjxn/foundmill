@@ -10,6 +10,8 @@ describe("DecisionBar", () => {
     expect(costText(null)).toBe("No cost");
     expect(costText({ amountMinor: 0, currency: "EUR" })).toBe("No cost");
     expect(costText({ amountMinor: 1840000, currency: "EUR" })).toContain("18,400");
+    // A cost written with an option is not a real number yet (audit FR-10).
+    expect(costText({ amountMinor: 50000, currency: "USD" })).toBe("$500.00 (Estimate)");
     expect(reversibilityText(true)).toBe("Reversible");
     expect(reversibilityText(false)).toBe("Not reversible");
     expect(optionDescription(REORDER_OPTIONS[0]!)).toMatch(/^Recommended\. Meridian Labs ships.*Not reversible\.$/);

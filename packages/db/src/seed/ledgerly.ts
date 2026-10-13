@@ -436,7 +436,6 @@ export async function seedLedgerly(ctx: SeedCtx): Promise<SeededBusiness> {
         free_text: true,
         expires_at: addDays(ctx.today, 11).toISOString(),
       },
-      blocksContinue: false,
       createdDaysAgo: 0,
       costMinor: 220,
     },

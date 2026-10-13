@@ -12,7 +12,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { repos, type Db, type Source } from "@foundmill/db";
 import { createSeededRng, type SeededRng } from "@foundmill/journey";
-import { AppError, NotFoundError, ValidationError, type Archetype, type Env, type SourceKind } from "@foundmill/shared";
+import { AppError, NotFoundError, ValidationError, type Archetype, type Env, type OptionAction, type SourceKind, type TaskKind } from "@foundmill/shared";
 import { z } from "zod";
 import type { TemporalService } from "./temporal";
 import { WORKFLOWS } from "./temporal";
@@ -353,6 +353,8 @@ export interface ScoutingDecision {
   recommended: boolean;
   consequence: string;
   reversible: boolean;
+  /** What choosing it runs (the Board item's option carries them): never parsed from the words (audit IAE-20). */
+  actions?: OptionAction[];
 }
 
 export interface RoadmapSeed {
@@ -465,14 +467,50 @@ export function buildScoutingReport(configs: readonly SourceConfig[], job?: Impo
   if (!has("stripe") && !has("shopify") && has("github")) weaknesses.push("Code without customers: distribution clarity is the main risk.");
   if (weaknesses.length === 0) weaknesses.push("The sources agree with each other; the risk is pace, not knowledge.");
 
+  const task = (assignee: string, kind: TaskKind, title: string, goal: string): OptionAction => ({ type: "create_task", params: { kind, title, goal }, assignee });
   const firstDecisions: ScoutingDecision[] = [
-    { id: "spec", label: "Rebuild the Specification from the imported sources", recommended: true, consequence: "The Product lead drafts the spec from what exists; you review it before any task starts.", reversible: true },
+    {
+      id: "spec",
+      label: "Rebuild the Specification from the imported sources",
+      recommended: true,
+      consequence: "The Product lead drafts the spec from what exists; you review it before any task starts.",
+      reversible: true,
+      actions: [task("product_lead", "research", "Rebuild the specification from the imported sources", "Draft the specification from what the import found, one block per outline section with every claim citing its source; the founder reviews it before any task starts.")],
+    },
     any(TRACKING_SOURCES) || has("github")
-      ? { id: "roadmap", label: "Seed the roadmap from open issues", recommended: false, consequence: "Open issues become roadmap items in a Proposed state; nothing is scheduled until you decide.", reversible: true }
-      : { id: "roadmap", label: "Let the Board propose a first roadmap", recommended: false, consequence: "Three proposals arrive in the Inbox for you to accept or edit.", reversible: true },
+      ? {
+          id: "roadmap",
+          label: "Seed the roadmap from open issues",
+          recommended: false,
+          consequence: "Open issues become roadmap items in a Proposed state; nothing is scheduled until you decide.",
+          reversible: true,
+          actions: [task("product_lead", "research", "Seed the roadmap from open issues", "Turn the imported open issues into roadmap items in a Proposed state, each linked to its issue; nothing is scheduled until the founder decides.")],
+        }
+      : {
+          id: "roadmap",
+          label: "Let the Board propose a first roadmap",
+          recommended: false,
+          consequence: "Three proposals arrive in the Inbox for you to accept or edit.",
+          reversible: true,
+          actions: [task("product_lead", "research", "Propose a first roadmap", "Draft three first-roadmap proposals from the import for the founder to accept or edit in the Inbox.")],
+        },
     any(REVENUE_SOURCES)
-      ? { id: "finance", label: "Build the management P&L from revenue history", recommended: false, consequence: "Finance reconciles the imported revenue into a cash-basis P&L.", reversible: true }
-      : { id: "finance", label: "Connect a revenue or bank source later", recommended: false, consequence: "Finance works from labeled estimates until then.", reversible: true },
+      ? {
+          id: "finance",
+          label: "Build the management P&L from revenue history",
+          recommended: false,
+          consequence: "Finance reconciles the imported revenue into a cash-basis P&L.",
+          reversible: true,
+          actions: [task("finance_lead", "finance", "Management P&L from revenue history", "Reconcile the imported revenue history into a cash-basis management P&L; every figure not from a source is labeled Estimate.")],
+        }
+      : {
+          id: "finance",
+          label: "Connect a revenue or bank source later",
+          recommended: false,
+          consequence: "Finance works from labeled estimates until then.",
+          reversible: true,
+          actions: [{ type: "reply_only", params: { acknowledgement: "You chose to connect a revenue or bank source later; Finance keeps working from labeled estimates until then." } }],
+        },
   ];
   const roadmapSeeds = seedsFor(configs, rng);
   const summary = `${name}: ${whatExists.length} source${whatExists.length === 1 ? "" : "s"} imported. ${strengths[0] ?? ""} ${whatIsMissing[0] ?? ""}`.trim();

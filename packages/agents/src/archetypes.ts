@@ -7,7 +7,7 @@
  * founder can rename (AC-11.13.1); code routes by `slug`, `moduleKeys` and template keys, never by name.
  */
 import { LIMITS } from "@foundmill/config";
-import { ARCHETYPES, type Archetype, ARCHETYPE_LABELS, type ChannelKey, type DeptColourToken, type ModuleKey } from "@foundmill/shared";
+import { ARCHETYPES, type Archetype, ARCHETYPE_LABELS, type ChannelKey, type DeptColourToken, type ModuleKey, type OptionAction, type TaskKind } from "@foundmill/shared";
 import { ArchetypeSeed, type BoardDecision, type DepartmentSeed, type FirstCycleTask } from "./types";
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -142,6 +142,16 @@ function board(archetype: Archetype, subject: string, body: string[], options: B
 
 const THRESHOLD = LIMITS.approvalThresholdMinorDefault;
 
+// What each Board option runs (audit IAE-20, AC-01, FR-10): typed actions, so a click never parses the option's prose.
+// A channel's work goes to the agent running the channel; other work names its template. Budgets are monthly and capped,
+// in minor units of the business's currency; an option's budgets and approved spends add up to its cost.
+const enable = (channel: ChannelKey): OptionAction => ({ type: "enable_channel", params: { channel } });
+const pause = (channel: ChannelKey): OptionAction => ({ type: "disable_channel", params: { channel } });
+const budget = (channel: ChannelKey, amountMinor: number): OptionAction => ({ type: "set_budget", params: { channel, amount_minor: amountMinor, period: "monthly", cap: true } });
+const approve = (amountMinor: number, what: string, assignee: string): OptionAction => ({ type: "approve_spend", params: { amount_minor: amountMinor, what }, assignee });
+const channelWork = (channel: ChannelKey, title: string, goal: string): OptionAction => ({ type: "create_task", params: { kind: "channel", channel, title, goal } });
+const work = (assignee: string, kind: TaskKind, title: string, goal: string): OptionAction => ({ type: "create_task", params: { kind, title, goal }, assignee });
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Seeds
 // ---------------------------------------------------------------------------------------------------------------------
@@ -189,6 +199,14 @@ const b2bSaas = ArchetypeSeed.parse({
         consequence: "Lead generation and email automation start first; Development builds the demo path they need.",
         costMinor: THRESHOLD * 2,
         reversible: true,
+        actions: [
+          enable("lead_generation"),
+          budget("lead_generation", THRESHOLD * 2),
+          channelWork("lead_generation", "Build the narrow ICP prospect list", "Source the first prospect list for one narrow ICP (one segment, one buyer role), with the reason each account fits."),
+          enable("email_automation"),
+          channelWork("email_automation", "Write the first outbound sequence", "Write the first outbound email sequence for the ICP list; every send goes through policy and the suppression list."),
+          work("planner", "code", "Build the demo path outbound needs", "Plan and build the shortest demo path the outbound sequence sends prospects to, with acceptance tests."),
+        ],
       },
       {
         id: "inbound",
@@ -197,6 +215,13 @@ const b2bSaas = ArchetypeSeed.parse({
         consequence: "Slower signal (8-12 weeks) but compounding; outbound waits until the content base exists.",
         costMinor: THRESHOLD,
         reversible: true,
+        actions: [
+          enable("seo"),
+          channelWork("seo", "Keyword map for the first articles", "Map the keywords the first customers search for and pick the first articles to write, with the expected traffic labeled Estimate."),
+          enable("content"),
+          budget("content", THRESHOLD),
+          channelWork("content", "Write the first articles from the keyword map", "Write and publish the first articles from the keyword map; outbound waits until the content base exists."),
+        ],
       },
       {
         id: "design_partners",
@@ -205,6 +230,10 @@ const b2bSaas = ArchetypeSeed.parse({
         consequence: "Fastest feedback, no channel spend; depends on the founder's time this month.",
         costMinor: 0,
         reversible: true,
+        actions: [
+          work("chief_of_staff", "ops", "Shortlist three design partners", "Draft a shortlist of design-partner candidates from the founder's network and an outreach note for each; the founder sends the notes."),
+          work("product_lead", "research", "Design-partner interview guide", "Write the interview guide and the feedback template the three design partners use, so their feedback lands in the specification."),
+        ],
       },
     ],
   ),
@@ -253,6 +282,11 @@ const consumerApp = ArchetypeSeed.parse({
         consequence: "Signal within two weeks; the engine pauses any campaign over cap for 48 hours.",
         costMinor: THRESHOLD * 2,
         reversible: true,
+        actions: [
+          enable("paid_ads"),
+          budget("paid_ads", THRESHOLD * 2),
+          channelWork("paid_ads", "Small paid test with a hard CPA cap", "Run a small paid acquisition test with a hard CPA cap; pause any campaign over the cap for 48 hours and report the signal within two weeks."),
+        ],
       },
       {
         id: "creator_seeding",
@@ -261,6 +295,11 @@ const consumerApp = ArchetypeSeed.parse({
         consequence: "Cheaper per install if creators fit; disclosure checked before any payout.",
         costMinor: THRESHOLD,
         reversible: true,
+        actions: [
+          enable("influencer"),
+          budget("influencer", THRESHOLD),
+          channelWork("influencer", "Seed 10 creators with codes", "Shortlist 10 creators who fit and give each a tracked code; check every disclosure before a creator is paid. Payouts are the founder's to make."),
+        ],
       },
       {
         id: "organic_only",
@@ -269,6 +308,11 @@ const consumerApp = ArchetypeSeed.parse({
         consequence: "No spend, slow signal; the team focuses on retention loops first.",
         costMinor: 0,
         reversible: true,
+        actions: [
+          pause("paid_ads"),
+          work("product_lead", "research", "Retention loops first", "Map the first retention loops and the events that prove retention; paid acquisition waits until retention is proven."),
+          channelWork("social", "Organic posting schedule", "Plan an organic posting schedule that supports the retention loops, with no paid spend."),
+        ],
       },
     ],
   ),
@@ -316,6 +360,11 @@ const marketplace = ArchetypeSeed.parse({
         consequence: "Lead generation sources 50 suppliers; demand channels start when 20 listings are live.",
         costMinor: THRESHOLD,
         reversible: true,
+        actions: [
+          enable("lead_generation"),
+          budget("lead_generation", THRESHOLD),
+          channelWork("lead_generation", "Source 50 suppliers by hand", "Find and qualify 50 suppliers for the first category or city and record each as a CRM entity; demand channels start when 20 listings are live."),
+        ],
       },
       {
         id: "demand_first",
@@ -324,6 +373,13 @@ const marketplace = ArchetypeSeed.parse({
         consequence: "Slower, but suppliers come to a market with buyers; risk of empty results early.",
         costMinor: THRESHOLD,
         reversible: true,
+        actions: [
+          enable("seo"),
+          channelWork("seo", "Keyword map for buyers", "Map what buyers search for in the first category or city, with the expected traffic labeled Estimate."),
+          enable("content"),
+          budget("content", THRESHOLD),
+          channelWork("content", "Buyer guides from the keyword map", "Write the first buyer guides from the keyword map so suppliers arrive to a market that already has buyers."),
+        ],
       },
       {
         id: "both",
@@ -332,6 +388,14 @@ const marketplace = ArchetypeSeed.parse({
         consequence: "Faster liquidity in one geography; doubles the first budget.",
         costMinor: THRESHOLD * 2,
         reversible: true,
+        actions: [
+          enable("lead_generation"),
+          budget("lead_generation", THRESHOLD),
+          channelWork("lead_generation", "Source suppliers in one city", "Find and qualify the first suppliers in one city and record each as a CRM entity."),
+          enable("content"),
+          budget("content", THRESHOLD),
+          channelWork("content", "Bring buyers in the same city", "Write the first buyer guides for the same city so both sides meet in one geography."),
+        ],
       },
     ],
   ),
@@ -396,6 +460,12 @@ const dtcPhysical = ArchetypeSeed.parse({
         consequence: "The first money goes to samples; the storefront is ready when the formula is.",
         costMinor: THRESHOLD * 4,
         reversible: true,
+        actions: [
+          approve(THRESHOLD * 4, "Samples and costing", "sourcing_manufacturing"),
+          work("sourcing_manufacturing", "specialist", "Order the first samples", "Request samples from the shortlisted suppliers and compare them against the specification; no purchase order or deposit without the founder."),
+          work("costing", "specialist", "Landed cost from the samples", "Update the landed cost model from the sample quotes, labeled Estimate."),
+          work("planner", "code", "Storefront at low priority", "Plan the storefront in parallel at low priority so it is ready when the formula is."),
+        ],
       },
       {
         id: "storefront_first",
@@ -404,6 +474,12 @@ const dtcPhysical = ArchetypeSeed.parse({
         consequence: "Earlier demand signal, but promises are made before the product exists; claims must stay provisional.",
         costMinor: THRESHOLD,
         reversible: false,
+        actions: [
+          work("planner", "code", "Pre-order storefront", "Build the pre-order storefront; every product claim stays provisional until samples exist, and taking payments waits for the founder's go-live."),
+          enable("paid_ads"),
+          budget("paid_ads", THRESHOLD),
+          channelWork("paid_ads", "Pre-order launch campaign", "Drive the first visitors to the pre-order page within the budget; claims stay provisional."),
+        ],
       },
       {
         id: "both_full",
@@ -412,6 +488,14 @@ const dtcPhysical = ArchetypeSeed.parse({
         consequence: "Fastest if cash allows; doubles the first month's spend.",
         costMinor: THRESHOLD * 6,
         reversible: true,
+        actions: [
+          approve(THRESHOLD * 4, "Samples and costing", "sourcing_manufacturing"),
+          work("sourcing_manufacturing", "specialist", "Order the first samples", "Request samples from the shortlisted suppliers and compare them against the specification; no purchase order or deposit without the founder."),
+          work("planner", "code", "Storefront at full pace", "Build the storefront at full pace alongside the samples; claims stay provisional until the formula is final."),
+          enable("paid_ads"),
+          budget("paid_ads", THRESHOLD * 2),
+          channelWork("paid_ads", "Launch campaign for the storefront", "Drive the first visitors to the storefront within the budget."),
+        ],
       },
     ],
   ),
@@ -472,6 +556,13 @@ const hardware = ArchetypeSeed.parse({
         consequence: "No money taken before the risk is known; demand is measured through the waitlist.",
         costMinor: THRESHOLD,
         reversible: true,
+        actions: [
+          work("planner", "code", "Waitlist page with source codes", "Build the waitlist page with source codes so demand is measured; no money is taken."),
+          work("certification", "specialist", "Cost the certification plan", "Cost the certification plan per target market, labeled Estimate, so pre-orders open once the risk is known."),
+          enable("content"),
+          budget("content", THRESHOLD),
+          channelWork("content", "Waitlist launch story", "Publish the waitlist launch story and track sign-ups by source code."),
+        ],
       },
       {
         id: "preorders_now",
@@ -480,6 +571,13 @@ const hardware = ArchetypeSeed.parse({
         consequence: "Cash earlier, but refunds and consumer-law exposure if certification slips.",
         costMinor: THRESHOLD,
         reversible: false,
+        actions: [
+          work("planner", "code", "Paid pre-order page", "Build the pre-order page with clear delivery terms; taking payments waits for the founder's go-live."),
+          work("legal_lead", "legal", "Pre-order terms and refund policy", "Draft the pre-order terms and the refund policy for a certification slip, for the founder to review."),
+          enable("paid_ads"),
+          budget("paid_ads", THRESHOLD),
+          channelWork("paid_ads", "Pre-order launch campaign", "Drive the first visitors to the pre-order page within the budget."),
+        ],
       },
       {
         id: "pilot_batch",
@@ -488,6 +586,11 @@ const hardware = ArchetypeSeed.parse({
         consequence: "Real units for testers and press; the largest first commitment.",
         costMinor: THRESHOLD * 20,
         reversible: false,
+        actions: [
+          approve(THRESHOLD * 20, "A 50-unit pilot batch", "sourcing_manufacturing"),
+          work("sourcing_manufacturing", "specialist", "Quote a 50-unit pilot batch", "Get comparable quotes for a 50-unit pilot batch with lead times; the founder places any order and pays any deposit."),
+          channelWork("pr", "Line up testers and press for the pilot units", "Shortlist testers and press for the pilot units and prepare the briefing they receive."),
+        ],
       },
     ],
   ),
@@ -535,6 +638,10 @@ const services = ArchetypeSeed.parse({
         consequence: "Simpler sales and delivery checklists; agents can run most of the process.",
         costMinor: 0,
         reversible: true,
+        actions: [
+          work("product_lead", "research", "Define the fixed-price package", "Write the package scope, price and the delivery checklist agents can run, labeled Estimate where costs are assumed."),
+          work("planner", "code", "Delivery checklist in the client portal", "Plan the client portal so the package's delivery checklist drives task status."),
+        ],
       },
       {
         id: "bespoke",
@@ -543,6 +650,10 @@ const services = ArchetypeSeed.parse({
         consequence: "Higher revenue per client and better learning; founder time is the bottleneck.",
         costMinor: 0,
         reversible: true,
+        actions: [
+          work("product_lead", "research", "Engagement playbook for the first five clients", "Write the discovery questions and the engagement playbook for the first five bespoke clients, noting where the founder's time is needed."),
+          work("legal_lead", "legal", "Engagement terms for bespoke work", "Draft engagement terms for bespoke work, for the founder to review."),
+        ],
       },
       {
         id: "retainer",
@@ -551,6 +662,10 @@ const services = ArchetypeSeed.parse({
         consequence: "Predictable revenue; harder first sale without references.",
         costMinor: 0,
         reversible: true,
+        actions: [
+          work("product_lead", "research", "Design the monthly retainer", "Define what a monthly retainer includes, the hours it covers and the first offer to make."),
+          work("finance_lead", "finance", "Retainer pricing and cash forecast", "Price the retainer and add it to the cash forecast, labeled Forecast."),
+        ],
       },
     ],
   ),
@@ -598,6 +713,14 @@ const contentMedia = ArchetypeSeed.parse({
         consequence: "Faster audience growth; sponsorship starts when reach justifies it.",
         costMinor: THRESHOLD,
         reversible: true,
+        actions: [
+          enable("content"),
+          budget("content", THRESHOLD),
+          channelWork("content", "Grow the free audience to 1,000 subscribers", "Publish the free first chapter on a steady cadence and grow the list toward 1,000 subscribers; sponsorship waits until reach justifies it."),
+          enable("email_automation"),
+          channelWork("email_automation", "Welcome sequence for free subscribers", "Write the welcome sequence every new free subscriber receives."),
+          work("planner", "code", "Paid tier ready at 1,000 subscribers", "Build the paid membership tier behind a switch so it opens at 1,000 subscribers; taking payments waits for the founder's go-live."),
+        ],
       },
       {
         id: "paid_now",
@@ -606,6 +729,11 @@ const contentMedia = ArchetypeSeed.parse({
         consequence: "Revenue immediately from a smaller base; slower growth.",
         costMinor: 0,
         reversible: true,
+        actions: [
+          work("planner", "code", "Paid membership from issue one", "Build paid membership through the billing connector so issue one can be sold; taking payments waits for the founder's go-live."),
+          enable("email_automation"),
+          channelWork("email_automation", "Launch sequence for paid members", "Write the launch sequence that turns early readers into paid members."),
+        ],
       },
       {
         id: "sponsor_first",
@@ -614,6 +742,11 @@ const contentMedia = ArchetypeSeed.parse({
         consequence: "Depends on landing sponsors early; every sponsor contract is a founder signature.",
         costMinor: 0,
         reversible: true,
+        actions: [
+          work("chief_of_staff", "ops", "Sponsor prospect list and media kit", "Build a list of sponsor prospects and a media kit with the audience figures labeled Estimate; every sponsor contract is the founder's to sign."),
+          enable("content"),
+          channelWork("content", "Audience proof for sponsors", "Publish the first issues on a steady cadence so sponsors can see the audience."),
+        ],
       },
     ],
   ),

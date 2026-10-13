@@ -123,6 +123,22 @@ export const PlanStatus = z.enum(PLAN_STATUSES);
 export type PlanStatus = C.PlanStatus;
 export const PolicyOutcome = z.enum(POLICY_OUTCOMES);
 export type PolicyOutcome = C.PolicyOutcome;
+/**
+ * What choosing a pre-written Inbox option runs (BUILD §11.3; audit IAE-20, AC-01, FR-10): typed plan actions written
+ * with the option (the Board's first decision, the Import report's first decisions), so an option click never parses
+ * the option's prose. `assignee` names who does it by agent template key ("product_lead", "channel_lead_generation");
+ * without one a channel's action goes to the agent that runs the channel, anything else to the agent who asked.
+ * Amounts are minor units of the business's currency, which the plan fills in.
+ */
+export const OptionAction = z.object({
+  type: z.enum(PLAN_ACTION_TYPES),
+  params: z.record(z.string(), z.unknown()),
+  assignee: z
+    .string()
+    .regex(/^[a-z][a-z0-9_]{1,63}$/)
+    .optional(),
+});
+export type OptionAction = z.infer<typeof OptionAction>;
 export const ChannelKey = z.enum(CHANNEL_KEYS);
 export type ChannelKey = C.ChannelKey;
 export const ChannelLine = z.enum(CHANNEL_LINES);

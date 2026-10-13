@@ -34,13 +34,18 @@ export type HardGate =
 const HARD_GATES: Array<{ gate: HardGate; re: RegExp; instruction: string; unless?: RegExp }> = [
   {
     gate: "move_money",
-    re: /\b(pay(?:ing|s|ment|ments)?|paid(?!\s+(?:ads?|advertising|social|search|media|campaigns?|marketing|traffic|channels?))|wire|transfer(?:ring|s)?|send(?:ing)?\s+(?:the\s+|them\s+|him\s+|her\s+)?(?:money|funds|a\s+payment|the\s+payment)|refund(?:ing|s)?|payout(?:s)?|settle\s+(?:the\s+)?(?:invoice|bill|balance)|reimburse|top[- ]?up|buy(?:ing)?\s+(?:shares|stock|securities|crypto|bitcoin|options)|purchas(?:e|ing)\s+(?:shares|stock|securities)|trade\s+(?:shares|stock|crypto))\b/i,
+    // The act of moving money, never the words for it (audit AC-01): "pay the supplier", "refund Mara's order",
+    // "issue a refund", "make the payout", "wire €2,000". A "paid test", a "paid tier", "paid pre-orders", a "refund
+    // policy", "refunds and consumer-law exposure" or "before any payout" name money and move none, so they compile
+    // to the work they describe.
+    re: /\b(pay(?:s)?(?![-\s]*(?:as|per|what|walls?|tiers?|plans?|pages?|gates?|gap|scale|rates?|structure|attention)\b)|paying(?![-\s]*(?:customers?|users?|subscribers?|members?|clients?|accounts?|buyers?|tiers?|plans?|for\s+(?:itself|ads?))\b)|payments?\s+(?:of\s+[€$£\d]|to\s)|(?:make|send|issue|release|authori[sz]e)\s+(?:a\s+|an\s+|the\s+|their\s+|her\s+|his\s+)?(?:\w+\s+)?(?:payments?|payouts?|refunds?|transfers?|wire)|wire(?!\s+(?:up|in|into|through|together|frames?)\b)|transfer(?:ring|s)?|send(?:ing)?\s+(?:the\s+|them\s+|him\s+|her\s+)?(?:money|funds|a\s+payment|the\s+payment)|refund(?:ing|s)?\s+(?!(?:polic(?:y|ies)|windows?|rates?|terms|requests?|process(?:es)?|flows?|pages?|and|or|if|when|exposure|risks?)\b)(?:the|a|an|her|his|their|them|him|this|that|these|those|all|every|each|our|my|customers?|buyers?|orders?|payments?|deposits?|[\w-]+'s|[€$£]|\d)|settle\s+(?:the\s+)?(?:invoice|bill|balance)|reimburse|top[- ]?up|buy(?:ing)?\s+(?:shares|stock|securities|crypto|bitcoin|options)|purchas(?:e|ing)\s+(?:shares|stock|securities)|trade\s+(?:shares|stock|crypto))\b/i,
     instruction: "Moving money is a hard gate. Review the amount and payee, then make the payment yourself from your own account or provider dashboard.",
   },
   {
     gate: "sign",
-    // "sign"/"signs"/"signing" as the act; not "signed" (an adjective: "the signed contract") and not "sign up/off/in".
-    re: /\b(?:sign|signs|signing)(?!\s*(?:up|off|in)\b)\b|\b(?:signature|e-?sign|docusign|countersign|execute\s+the\s+(?:contract|agreement|nda|io|insertion\s+order))\b/i,
+    // "sign"/"signs"/"signing" as the act; not "signed" (an adjective: "the signed contract") and not "sign up/off/in/on"
+    // with or without the hyphen: "the sign-up flow", "fix sign-in", "single sign-on" are product words (audit VRB-X2).
+    re: /\b(?:sign|signs|signing)(?![\s-]*(?:up|off|in|on)\b)\b|\b(?:signature|e-?sign|docusign|countersign|execute\s+the\s+(?:contract|agreement|nda|io|insertion\s+order))\b/i,
     instruction: "Signing is a hard gate. The document is prepared for you; review it and sign with your own identity.",
   },
   {
@@ -88,7 +93,8 @@ const CHANNEL_SYNONYMS: Array<[ChannelKey, RegExp]> = [
   ["broadcast", /\b(?:broadcast|radio|podcast\s+ads?|tv|ctv|streaming\s+audio|spotify\s+ads?|television)\b/i],
   ["outdoor", /\b(?:outdoor|billboards?|ooh|dooh|transit\s+ads?|posters?|out-of-home)\b/i],
   ["pr", /\b(?:pr|press(?:\s+release)?|journalists?|media\s+coverage|publicity|trustpilot|review\s+campaign|press\s+kit)\b/i],
-  ["events", /\b(?:events?|conferences?|trade\s+shows?|webinars?|meetups?|pop-?ups?|sponsorships?|exhibitions?)\b/i],
+  // Not "sponsorship": a newsletter's sponsor revenue is not an events channel (audit AC-01).
+  ["events", /\b(?:events?|conferences?|trade\s+shows?|webinars?|meetups?|pop-?ups?|exhibitions?)\b/i],
 ];
 
 const CURRENCY_SYMBOLS: Record<string, string> = { "€": "EUR", $: "USD", "£": "GBP" };
@@ -114,16 +120,18 @@ const SEND_MESSAGE_RE = new RegExp(`\\b${MESSAGE_VERB}\\s+(?:to\\s+)?${RECIPIENT
 const INTENT = {
   enable: /\b(?:spend|run|launch|start|try|test|turn\s+on|enable|invest|kick\s+off|put\s+[^.;,]*?\b(?:into|on|behind)|double\s+down|scale|ramp\s+up|go\s+(?:big|hard)\s+on|experiment\s+with|set\s+up|open\s+up|activate)\b/i,
   disable: /\b(?:pause|stop|turn\s+off|disable|kill|cancel|halt|switch\s+off|wind\s+down|cut|shut\s+down|suspend)\b/i,
-  hire: /\b(?:hire|recruit|onboard\s+(?:an?\s+)?(?:new\s+)?agent|add\s+(?:an?\s+|another\s+)?(?:agent|engineer|specialist|designer|writer|researcher|analyst)|bring\s+in\s+(?:an?\s+)?(?:agent|engineer|specialist))\b/i,
+  // Hiring names who joins the team ("hire a growth agent", "recruit two engineers"); "recruit supply by hand" or "hire a
+  // venue" hires no agent (audit VIAE-X1).
+  hire: /\b(?:(?:hire|recruit)\s+(?:an?\s+|another\s+|a\s+new\s+|(?:one|two|three|more)\s+)?(?:[\w-]+\s+){0,2}?(?:agents?|engineers?|developers?|specialists?|designers?|writers?|copywriters?|researchers?|analysts?|marketers?|strategists?|leads?|managers?|assistants?|editors?|accountants?|counsel|lawyers?)|onboard\s+(?:an?\s+)?(?:new\s+)?agent|add\s+(?:an?\s+|another\s+)?(?:agent|engineer|specialist|designer|writer|researcher|analyst)|bring\s+in\s+(?:an?\s+)?(?:agent|engineer|specialist))\b/i,
   train: /\b(?:train|coach|retrain|run\s+training|improve\s+[^.;,]*\bskills?)\b/i,
   setModel: /\b(?:switch|upgrade|downgrade|move|change|put)\b[^.;,]*\b(?:opus|sonnet|haiku|model)\b/i,
-  updateSpec: /\b(?:update|change|edit|revise|rewrite|add\s+to|amend)\b[^.;,]*\b(?:spec|specification|requirements?|prd|acceptance\s+criteria)\b/i,
+  updateSpec: /\b(?:update|change|edit|revise|rewrite|rebuild|redraft|draft|add\s+to|amend)\b[^.;,]*\b(?:spec|specification|requirements?|prd|acceptance\s+criteria)\b/i,
   updateRoadmap: /\b(?:update|move|push|pull|reprioriti[sz]e|bump|delay|bring\s+forward|reschedule|deprioriti[sz]e)\b[^.;,]*\b(?:roadmap|milestone|release|launch\s+date|sprint|timeline)\b/i,
   sendMessage: SEND_MESSAGE_RE,
   schedule: /\b(?:schedule|book|set\s+up|arrange|organi[sz]e)\b[^.;,]*\b(?:call|meeting|demo|chat|interview|session|catch-?up)\b/i,
   approveSpend: /\b(?:approve|ok|okay|go\s+ahead\s+with|green-?light|sign\s+off\s+on|authorise\s+the\s+spend)\b[^.;,]*\b(?:spend|budget|purchase\s+order|po|quote|cost|invoice\s+for\s+approval)\b|\b(?:approve|approved)\b/i,
   playbook: /\b(?:every\s+time|whenever|each\s+time|automatically\s+when|playbook|from\s+now\s+on|always\s+(?:do|send|create|run))\b/i,
-  createTask: /\b(?:build|write|draft|prepare|research|investigate|look\s+into|ship|fix|implement|design|create|set\s+up|make|put\s+together|analy[sz]e|compare|review|audit|benchmark|source|find|explore|map|document|plan|prototype|test|launch|run|spend|target|reach|get|grow|double|improve|optimi[sz]e|ask)\b/i,
+  createTask: /\b(?:(?:re)?build|(?:re)?write|(?:re)?draft|prepare|research|investigate|look\s+into|ship|fix|implement|design|create|set\s+up|make|put\s+together|analy[sz]e|compare|review|audit|benchmark|source|find|explore|map|document|plan|prototype|test|launch|run|spend|target|reach|get|grow|double|improve|optimi[sz]e|ask|seed|recruit)\b/i,
   question: /\?\s*$|^\s*(?:should|could|would|can|is|are|do|does|what|why|how|when|which|who|any\s+thoughts)\b/i,
 };
 
@@ -236,7 +244,8 @@ function splitClauses(text: string): string[] {
     }
     out.push(current);
   }
-  return out.filter((c) => c.trim().length > 0);
+  // A clause is templated into summaries and task titles ("Create an ops task: …."), so it never keeps its own full stop.
+  return out.map((c) => c.trim().replace(/[.;,:!]+$/, "").trim()).filter((c) => c.length > 0);
 }
 
 export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}): PlanOutput {
@@ -325,7 +334,7 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
             currency: amount?.currency ?? null,
           },
           agentId,
-          `Create a ${label} task${audience ? ` targeting ${audience}` : ""}${timeframe ? ` for ${timeframe}` : ""}.`,
+          `Create ${withArticle(label)} task${audience ? ` targeting ${audience}` : ""}${timeframe ? ` for ${timeframe}` : ""}.`,
         );
       }
       continue;
@@ -334,7 +343,7 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
     let handled = false;
     if (INTENT.hire.test(clause)) {
       const role = /\b(?:hire|recruit|add|bring\s+in)\s+(?:an?\s+|another\s+|a\s+new\s+)?([\w-]+(?:\s+[\w-]+)?)/i.exec(clause)?.[1] ?? "specialist";
-      add("hire_agent", { role: role.trim(), brief: sentenceCase(clause) }, null, `Hire a ${role.trim()} agent.`);
+      add("hire_agent", { role: role.trim(), brief: sentenceCase(clause) }, null, `Hire ${withArticle(role.trim())}${/\bagents?$/i.test(role.trim()) ? "" : " agent"}.`);
       handled = true;
     }
     if (INTENT.setModel.test(clause)) {
@@ -379,12 +388,12 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
       handled = true;
       if (INTENT.createTask.test(clause.replace(/\bspend\b/gi, ""))) {
         const kind = inferTaskKind(clause);
-        add("create_task", { kind, title: truncate(sentenceCase(clause), 80), goal: sentenceCase(clause), audience: audience ?? null, timeframe: timeframe ?? null, budget_minor: amount.amountMinor, currency: amount.currency }, pickAgent(agents, { kind }), `Create a ${kind} task: ${truncate(clause, 50)}.`);
+        add("create_task", { kind, title: truncate(sentenceCase(clause), 80), goal: sentenceCase(clause), audience: audience ?? null, timeframe: timeframe ?? null, budget_minor: amount.amountMinor, currency: amount.currency }, pickAgent(agents, { kind }), `Create ${withArticle(kind)} task: ${truncate(clause, 50)}.`);
       }
     }
     if (!handled && INTENT.createTask.test(clause) && !INTENT.question.test(clause)) {
       const kind = inferTaskKind(clause);
-      add("create_task", { kind, title: truncate(sentenceCase(clause), 80), goal: sentenceCase(clause), audience: audience ?? null, timeframe: timeframe ?? null }, pickAgent(agents, { kind }), `Create a ${kind} task: ${truncate(clause, 50)}.`);
+      add("create_task", { kind, title: truncate(sentenceCase(clause), 80), goal: sentenceCase(clause), audience: audience ?? null, timeframe: timeframe ?? null }, pickAgent(agents, { kind }), `Create ${withArticle(kind)} task: ${truncate(clause, 50)}.`);
     }
   }
 
@@ -397,6 +406,13 @@ export function compilePlanRuleBased(text: string, ctx: PlanCompilerContext = {}
   return { summary: summary.join(" "), actions };
 }
 
+/** "a channel", "an ops", "an Email automation", "an SEO", "a PR": the article the word is read with. */
+export function withArticle(word: string): string {
+  const w = word.trim();
+  const an = /^[A-Z]{2,}\b/.test(w) ? /^[AEFHILMNORSX]/.test(w) : /^(?:[aeio]|u(?!s|ni|ti|ra))/i.test(w);
+  return `${an ? "an" : "a"} ${w}`;
+}
+
 function formatAmount(a: DetectedAmount): string {
   const symbol = ({ EUR: "€", USD: "$", GBP: "£" } as Record<string, string>)[a.currency];
   const major = a.amountMinor / 100;
@@ -404,15 +420,23 @@ function formatAmount(a: DetectedAmount): string {
   return symbol ? `${symbol}${n}` : `${n} ${a.currency}`;
 }
 
+/** Words in channel names that also sit in many role titles, so they never pick an agent on their own. */
+const GENERIC_ROLE_WORDS: ReadonlySet<string> = new Set(["lead", "direct", "paid", "engine", "channel"]);
+
 function pickAgent(agents: AgentLike[], want: { channel?: ChannelKey; kind?: TaskKind }): string | null {
   if (agents.length === 0) return null;
   if (want.channel) {
     const label = CHANNEL_META[want.channel].label.toLowerCase();
-    const words = [want.channel.replace(/_/g, " "), label, ...label.split(/\s+/).filter((w) => w.length > 3)];
     const direct = agents.find((a) => a.channel === want.channel);
     if (direct) return direct.id;
-    const byRole = agents.find((a) => words.some((w) => `${a.role} ${a.name}`.toLowerCase().includes(w)));
-    if (byRole) return byRole.id;
+    // The whole channel name first ("lead generation"), then its distinctive words; never a word every role carries
+    // ("lead" would hand Lead generation to the Product Lead, audit FR-20).
+    const phrases = [...new Set([want.channel.replace(/_/g, " "), label])];
+    const byPhrase = agents.find((a) => phrases.some((w) => `${a.role} ${a.name}`.toLowerCase().includes(w)));
+    if (byPhrase) return byPhrase.id;
+    const words = label.split(/\s+/).filter((w) => w.length > 3 && !GENERIC_ROLE_WORDS.has(w));
+    const byWord = agents.find((a) => words.some((w) => new RegExp(`\\b${w}\\b`, "i").test(`${a.role} ${a.name}`)));
+    if (byWord) return byWord.id;
     const strategist = agents.find((a) => /distribution|growth|marketing|strategist/i.test(`${a.role} ${a.name}`));
     if (strategist) return strategist.id;
   }

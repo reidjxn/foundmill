@@ -20,6 +20,8 @@ interface MetricIn {
   metric: string;
   value?: string;
   source: string;
+  /** "Estimate" on a value that is not a real number (CLAUDE.md: label every non-real number). */
+  label?: string;
 }
 
 interface NamedQuery {
@@ -140,7 +142,7 @@ function readMetrics(ctx: MockContext): MetricIn[] {
       if (!metric) continue;
       const value = m.value === undefined || m.value === null ? undefined : String(m.value);
       const source = typeof m.source === "string" ? m.source : "metrics";
-      out.push({ metric, value, source });
+      out.push({ metric, value, source, ...(typeof m.label === "string" && m.label ? { label: m.label } : {}) });
     }
   } else if (isRecord(raw)) {
     for (const [metric, v] of Object.entries(raw)) {
@@ -356,7 +358,7 @@ function metricPhrase(e: EventIn): string {
 
 function whySentence(type: InboxItemType, metrics: MetricIn[], channel: ChannelKey | undefined, rng: MockContext["rng"]): string {
   const m = metrics.find((x) => x.value !== undefined);
-  const metricClause = m ? `${humaniseKey(m.metric)} stands at ${m.value} (from ${humaniseKey(m.source)})` : undefined;
+  const metricClause = m ? `${humaniseKey(m.metric)} stands at ${m.value} (${m.label ? `${m.label}, ` : ""}from ${humaniseKey(m.source)})` : undefined;
   switch (type) {
     case "customer_won":
       return rng.pick([
