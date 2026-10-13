@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import { businesses, repos, type Db } from "@foundmill/db";
-import { LEDGERLY_SLUG, NORTHWIND_SLUG, stubAuthProvisioner } from "@foundmill/db/seed";
+import { LEDGERLY_BUSINESS_ID, LEDGERLY_SLUG, NORTHWIND_BUSINESS_ID, NORTHWIND_SLUG, stubAuthProvisioner } from "@foundmill/db/seed";
 import { seedOnBoot, seedOnBootEnabled } from "../services/seed-on-boot";
 
 const silent = { info: () => {}, warn: () => {}, error: () => {} };
@@ -68,5 +68,31 @@ describe("seedOnBoot", () => {
     expect((await repos.businesses.listForUser(db, userId))[0]?.slug).toBe(LEDGERLY_SLUG);
     expect((await run()).status).toBe("owners_ensured");
     expect((await repos.businesses.listForUser(db, userId)).map((b) => b.slug)).toEqual([NORTHWIND_SLUG, LEDGERLY_SLUG]);
+  }, 60_000);
+
+  // Audit api-services-21: the demo businesses are found by their fixed ids, never by (founder-editable) slug.
+  it("never adds owners to, or rewrites, a stranger's business that holds a demo slug", async () => {
+    const stub = stubAuthProvisioner(db);
+    const stranger = await stub.ensureUser("stranger@example.com");
+    // The demo owner renamed both demo businesses; strangers took the freed demo slugs.
+    await db.update(businesses).set({ slug: "northwind-renamed" }).where(eq(businesses.id, NORTHWIND_BUSINESS_ID));
+    await db.update(businesses).set({ slug: "ledgerly-renamed" }).where(eq(businesses.id, LEDGERLY_BUSINESS_ID));
+    const taken = await repos.businesses.create(db, { name: "Stranger Northwind", slug: NORTHWIND_SLUG });
+    const takenLedgerly = await repos.businesses.create(db, { name: "Stranger Ledgerly", slug: LEDGERLY_SLUG });
+    await repos.memberships.add(db, taken.id, { userId: stranger, role: "owner" });
+    await repos.memberships.add(db, takenLedgerly.id, { userId: stranger, role: "owner" });
+    const createdBefore = (await repos.businesses.get(db, taken.id)).createdAt.getTime();
+
+    const outcome = await run(env({ SEED_OWNER_EMAILS: "founder@example.com, newcomer@example.com" }));
+    expect(outcome.status).toBe("owners_ensured");
+
+    const founder = await stub.ensureUser("founder@example.com");
+    const newcomer = await stub.ensureUser("newcomer@example.com");
+    for (const id of [taken.id, takenLedgerly.id]) {
+      expect(await repos.memberships.get(db, id, founder), "an owner address is not added to a stranger's business").toBeNull();
+      expect(await repos.memberships.get(db, id, newcomer)).toBeNull();
+    }
+    expect(await repos.memberships.get(db, NORTHWIND_BUSINESS_ID, newcomer)).toMatchObject({ role: "owner" });
+    expect((await repos.businesses.get(db, taken.id)).createdAt.getTime(), "the stranger's created_at is untouched").toBe(createdBefore);
   }, 60_000);
 });

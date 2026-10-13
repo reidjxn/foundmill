@@ -4,9 +4,10 @@
  * and localhost:3000, request logging with pino.
  * `createApp(deps)` is pure so tests can boot it on an ephemeral port.
  */
-import { APP_NAME } from "@foundmill/config";
+import { APP_NAME, LIMITS } from "@foundmill/config";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import type { ApiDeps } from "./context";
@@ -64,6 +65,26 @@ export function isStreamingRequest(headers: Headers): boolean {
     const type = t.split(";")[0]?.trim();
     return type === "application/jsonl" || type === "text/event-stream";
   });
+}
+
+/** Procedures whose input carries a logo file (a `data:` URL up to a 2 MB SVG): their requests get the larger body limit. */
+export const LOGO_UPLOAD_PROCEDURES: ReadonlySet<string> = new Set(["business.logo.prepare", "business.logo.upload", "idea.logo.prepare", "idea.commit"]);
+
+/** The procedure paths a `/trpc/<a>,<b>` request names (a batch lists several). */
+export function trpcPaths(pathname: string): string[] {
+  const rest = pathname.replace(/^.*?\/trpc\/?/, "");
+  let decoded = rest;
+  try {
+    decoded = decodeURIComponent(rest);
+  } catch {
+    /* keep the raw path */
+  }
+  return decoded.split(",").filter(Boolean);
+}
+
+/** The body limit of one tRPC request: the logo limit when any procedure it names uploads a logo, else the default. */
+export function trpcBodyLimitFor(pathname: string): number {
+  return trpcPaths(pathname).some((p) => LOGO_UPLOAD_PROCEDURES.has(p)) ? LIMITS.trpcMaxLogoBodyBytes : LIMITS.trpcMaxBodyBytes;
 }
 
 export function createApp(deps: ApiDeps) {
@@ -130,12 +151,21 @@ export function createApp(deps: ApiDeps) {
   const compressJson = compress({ threshold: 1024 });
   app.use("/trpc/*", (c, next) => (isStreamingRequest(c.req.raw.headers) ? next() : compressJson(c, next)));
 
+  // Request bodies are bounded before tRPC reads or parses them (audit RA-12): 2 MB, 6 MB for a request that carries a
+  // logo file. A larger body is a 413 whatever its Content-Length says (a chunked body is counted as it arrives).
+  const tooLarge = (maxSize: number) => bodyLimit({ maxSize, onError: (c) => c.json({ error: "payload_too_large", message: `Request body is larger than ${Math.round(maxSize / (1024 * 1024))} MB` }, 413) });
+  const defaultLimit = tooLarge(LIMITS.trpcMaxBodyBytes);
+  const logoLimit = tooLarge(LIMITS.trpcMaxLogoBodyBytes);
+  app.use("/trpc/*", (c, next) => (trpcBodyLimitFor(c.req.path) === LIMITS.trpcMaxLogoBodyBytes ? logoLimit(c, next) : defaultLimit(c, next)));
+
   // tRPC's fetch adapter, not @hono/trpc-server: that adapter overwrites the context's `env` with Hono's bindings
-  // (`c.env`, the Node request and response), so every `ctx.env` read over HTTP came back undefined.
+  // (`c.env`, the Node request and response), so every `ctx.env` read over HTTP came back undefined. A batch carries at
+  // most `LIMITS.trpcMaxBatchSize` calls (400 past it; the web's batch link splits at the same size).
   app.all("/trpc/*", (c) =>
     fetchRequestHandler({
       router: appRouter,
       endpoint: "/trpc",
+      maxBatchSize: LIMITS.trpcMaxBatchSize,
       req: c.req.raw,
       createContext: (opts) => contextFactory(opts, c),
       onError({ error, path }) {

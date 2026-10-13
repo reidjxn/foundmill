@@ -12,7 +12,7 @@
  *   rebuild deletes the demo businesses, which stays a deliberate `pnpm db:seed`.
  */
 import { repos, type Db } from "@foundmill/db";
-import { DEMO_BUSINESS_SLUGS, parseOwnerEmails, putNorthwindFirst, seedDemo, stubAuthProvisioner, supabaseAuthProvisioner, type AuthProvisioner } from "@foundmill/db/seed";
+import { DEMO_BUSINESS_IDS, findDemoBusinesses, parseOwnerEmails, putNorthwindFirst, seedDemo, stubAuthProvisioner, supabaseAuthProvisioner, type AuthProvisioner } from "@foundmill/db/seed";
 import type { Env } from "@foundmill/shared";
 
 export type SeedOnBootOutcome =
@@ -63,9 +63,11 @@ export async function seedOnBoot(deps: SeedOnBootDeps, options: SeedOnBootOption
       return { status: "skipped", reason: "no owner provisioner" };
     }
     const ownerEmails = parseOwnerEmails(env.SEED_OWNER_EMAILS);
-    const existing = (await Promise.all(DEMO_BUSINESS_SLUGS.map((slug) => repos.businesses.getBySlug(db, slug)))).filter((b) => b !== null);
+    // The demo businesses are found by their fixed ids: a slug is founder-editable, and owner memberships are never
+    // added to whichever business happens to hold a demo slug.
+    const existing = await findDemoBusinesses(db);
 
-    if (existing.length === DEMO_BUSINESS_SLUGS.length) {
+    if (existing.length === DEMO_BUSINESS_IDS.length) {
       let added = 0;
       for (const email of ownerEmails) {
         const userId = await auth.ensureUser(email, { displayName: email.split("@")[0] });

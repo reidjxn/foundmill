@@ -13,6 +13,7 @@
  */
 import { createTRPCClient, createTRPCUntypedClient, httpBatchLink, httpBatchStreamLink, splitLink, TRPCClientError, type TRPCLink } from "@trpc/client";
 import superjson from "superjson";
+import { LIMITS } from "@foundmill/config";
 import type { AppRouter } from "@foundmill/api/router";
 import { DEV_BEARER_TOKEN } from "@/lib/auth/constants";
 import { isDevLike, publicEnv } from "@/lib/env";
@@ -57,7 +58,8 @@ export function createApiLinks(opts: { getToken: TokenGetter; url?: string; fetc
   };
   // One stream per request (`maxItems: 1`): a batched request is only aborted once every operation in it is, so Stop on
   // a draft that shared a request with another stream would leave the API drafting.
-  return [splitLink({ condition: isStreamingOperation, true: httpBatchStreamLink({ ...common, maxItems: 1 }), false: httpBatchLink(common) })];
+  // A batch carries at most `LIMITS.trpcMaxBatchSize` calls: the api refuses a longer one (400).
+  return [splitLink({ condition: isStreamingOperation, true: httpBatchStreamLink({ ...common, maxItems: 1 }), false: httpBatchLink({ ...common, maxItems: LIMITS.trpcMaxBatchSize }) })];
 }
 
 export function createApiClient(opts: { getToken: TokenGetter; url?: string; fetch?: typeof fetch }) {
