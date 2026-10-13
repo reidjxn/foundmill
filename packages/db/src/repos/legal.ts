@@ -122,6 +122,13 @@ async function assertLegalEntity(db: Executor, businessId: string, legalEntityId
   if (rows.length === 0) throw new ValidationError("legalEntityId is not a legal entity of this business", { legalEntityId });
 }
 
+/** A contract's counterparty is an entity of the business (the foreign key knows nothing about tenants). */
+async function assertCounterparty(db: Executor, businessId: string, counterpartyEntityId: string | null | undefined): Promise<void> {
+  if (!counterpartyEntityId) return;
+  const rows = await db.select({ id: entities.id }).from(entities).where(and(eq(entities.businessId, businessId), eq(entities.id, counterpartyEntityId))).limit(1);
+  if (rows.length === 0) throw new ValidationError("counterpartyEntityId is not an entity of this business", { counterpartyEntityId });
+}
+
 export const legalRepo = {
   // legal entities ----------------------------------------------------------------------------------------------------
   async listEntities(db: Executor, businessId: string, options: { includeArchived?: boolean } = {}): Promise<LegalEntity[]> {
@@ -337,10 +344,7 @@ export const legalRepo = {
 
   async createContract(db: Executor, businessId: string, input: CreateContractInput): Promise<Contract> {
     const v = parseInput(CreateContractInput, input, "contract");
-    if (v.counterpartyEntityId) {
-      const rows = await db.select({ id: entities.id }).from(entities).where(and(eq(entities.businessId, businessId), eq(entities.id, v.counterpartyEntityId))).limit(1);
-      if (rows.length === 0) throw new ValidationError("counterpartyEntityId is not an entity of this business", { counterpartyEntityId: v.counterpartyEntityId });
-    }
+    await assertCounterparty(db, businessId, v.counterpartyEntityId);
     return one(
       await db
         .insert(contracts)
@@ -364,6 +368,8 @@ export const legalRepo = {
 
   async updateContract(db: Executor, businessId: string, contractId: string, input: UpdateContractInput): Promise<Contract> {
     const v = parseInput(UpdateContractInput, input, "contract update");
+    // The same check as on create: signing a contract writes events that name the counterparty (audit ARB-08).
+    await assertCounterparty(db, businessId, v.counterpartyEntityId);
     return one(await db.update(contracts).set(defined(v)).where(scopedContract(businessId, contractId)).returning(), "contract", contractId);
   },
 

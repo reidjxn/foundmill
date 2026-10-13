@@ -42,6 +42,11 @@ describe("businesses, memberships, founders, ideas", () => {
   it("founder profile upsert/update and ideas (account-scoped until commit)", async () => {
     const p = await repos.founders.upsert(r.db, r.A.ownerId, { displayName: "Reid", skills: { marketing: 14 }, targetMarkets: ["SE", "GB"] });
     expect(p.displayName).toBe("Reid");
+    // A display name cannot pose as the platform or its staff: other founders read it as who wrote to them (audit LS2-04).
+    for (const displayName of ["Foundmill Support", "Foundmill", "Ana (Support)", "F o u n d m i l l"]) {
+      await expect(repos.founders.upsert(r.db, r.A.ownerId, { displayName }), displayName).rejects.toThrow(/reserved/);
+      await expect(repos.founders.update(r.db, r.A.ownerId, { displayName }), displayName).rejects.toThrow(/reserved/);
+    }
     const p2 = await repos.founders.update(r.db, r.A.ownerId, { riskAppetite: "medium" });
     expect(p2.riskAppetite).toBe("medium");
     expect(p2.skills).toEqual({ marketing: 14 }); // a patch never resets defaulted fields (patchSchema)

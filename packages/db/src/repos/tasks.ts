@@ -3,6 +3,7 @@ import { TASK_KINDS, TASK_PHASES, TASK_STATUSES, ValidationError, type TaskStatu
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { taskEdges, tasks, type Task, type TaskEdge } from "../schema";
+import { assertAgentsOwned, assertDepartmentsOwned, assertRoadmapItemsOwned } from "./_refs";
 import { Currency, defined, Id, JsonArray, MinorAmount, numericText, one, PageInput, parseInput, rowsOf, timeKeyset, toPage, type Executor, type Page, patchSchema } from "./_shared";
 
 export const CreateTaskInput = z.object({
@@ -55,6 +56,13 @@ export const TASK_TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
 
 const scoped = (businessId: string, taskId: string) => and(eq(tasks.businessId, businessId), eq(tasks.id, taskId));
 
+/** The department, assignee and roadmap item of a task must be this business's own (audit RA-07). */
+async function assertTaskReferences(db: Executor, businessId: string, v: { departmentId?: string | null; assigneeAgentId?: string | null; roadmapItemId?: string | null }): Promise<void> {
+  await assertDepartmentsOwned(db, businessId, [v.departmentId], "departmentId");
+  await assertAgentsOwned(db, businessId, [v.assigneeAgentId], "assigneeAgentId");
+  await assertRoadmapItemsOwned(db, businessId, [v.roadmapItemId], "roadmapItemId");
+}
+
 export const tasksRepo = {
   async list(db: Executor, businessId: string, filter: TaskListFilter = {}): Promise<Page<Task>> {
     const f = parseInput(TaskListFilter, filter, "task filter");
@@ -87,6 +95,7 @@ export const tasksRepo = {
   async create(db: Executor, businessId: string, input: CreateTaskInput): Promise<Task> {
     const v = parseInput(CreateTaskInput, input, "task");
     return db.transaction(async (tx) => {
+      await assertTaskReferences(tx, businessId, v);
       const task = one(
         await tx
           .insert(tasks)
@@ -118,6 +127,7 @@ export const tasksRepo = {
 
   async update(db: Executor, businessId: string, taskId: string, input: UpdateTaskInput): Promise<Task> {
     const v = parseInput(UpdateTaskInput, input, "task update");
+    await assertTaskReferences(db, businessId, v);
     return one(await db.update(tasks).set(defined(v)).where(scoped(businessId, taskId)).returning(), "task", taskId);
   },
 

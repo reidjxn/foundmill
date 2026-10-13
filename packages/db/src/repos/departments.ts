@@ -3,6 +3,7 @@ import { DEPT_COLOUR_TOKENS, MODULE_KEYS, slugify, ValidationError } from "@foun
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { departmentMembers, departments, MEMBER_KINDS, screenDefinitions, type Department, type DepartmentMember } from "../schema";
+import { assertAgentsOwned, assertDepartmentsOwned } from "./_refs";
 import { Currency, defined, Id, JsonArray, maybeOne, MinorAmount, one, parseInput, type Executor, patchSchema } from "./_shared";
 
 export const CreateDepartmentInput = z.object({
@@ -50,6 +51,7 @@ export const departmentsRepo = {
 
   async create(db: Executor, businessId: string, input: CreateDepartmentInput): Promise<Department> {
     const v = parseInput(CreateDepartmentInput, input, "department");
+    await assertAgentsOwned(db, businessId, [v.leadAgentId], "leadAgentId");
     const position = v.position ?? Number(one(await db.select({ n: sql<number>`coalesce(max(${departments.position}), -1) + 1` }).from(departments).where(live(businessId)), "position").n);
     return one(
       await db
@@ -75,7 +77,14 @@ export const departmentsRepo = {
 
   async update(db: Executor, businessId: string, departmentId: string, input: UpdateDepartmentInput): Promise<Department> {
     const v = parseInput(UpdateDepartmentInput, input, "department update");
+    // The lead is one of this business's agents (the foreign key knows nothing about tenants, audit RA-07).
+    await assertAgentsOwned(db, businessId, [v.leadAgentId], "leadAgentId");
     return one(await db.update(departments).set(defined(v)).where(and(eq(departments.businessId, businessId), eq(departments.id, departmentId))).returning(), "department", departmentId);
+  },
+
+  /** Throws a ValidationError (400) unless every id is a department of the business (an id from another tenant is not). */
+  assertOwned(db: Executor, businessId: string, ids: readonly (string | null | undefined)[], field = "departmentId"): Promise<void> {
+    return assertDepartmentsOwned(db, businessId, ids, field);
   },
 
   async setLead(db: Executor, businessId: string, departmentId: string, leadAgentId: string | null): Promise<Department> {

@@ -96,6 +96,8 @@ export const devRouter = router({
   tasks: router({
     /** Planner (Opus) builds a task graph from a roadmap item or a goal; tasks + edges are written (BUILD §11.6). */
     plan: write.input(z.object({ roadmapItemId: Id.optional(), goal: z.string().max(4000).optional(), departmentId: Id.optional() })).use(modelLimited("planner")).mutation(async ({ ctx, input }) => {
+      // Before the planner is paid for: the department must be this business's own (400), as the tasks' repo insists (audit RA-07).
+      if (input.departmentId) await ctx.rls((tx) => repos.departments.assertOwned(tx, ctx.businessId, [input.departmentId], "departmentId"));
       const roadmapItem = input.roadmapItemId ? await ctx.rls((tx) => repos.product.getRoadmapItem(tx, ctx.businessId, input.roadmapItemId!)) : null;
       const goal = input.goal ?? roadmapItem?.descriptionMd ?? roadmapItem?.title;
       if (!goal) throw new ValidationError("Give a goal or a roadmap item to plan");
