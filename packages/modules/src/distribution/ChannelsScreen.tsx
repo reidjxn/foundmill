@@ -108,13 +108,13 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
       size: sizes.line,
       meta: { filter: "select", filterOptions: CHANNEL_LINES.map((l) => ({ value: LINE_LABELS[l], label: LINE_LABELS[l] })) },
     },
-    { id: "fit", accessorFn: (r) => r.fit, header: "Fit", size: sizes.fit, cell: ({ row }) => (row.original.persisted ? <RatingFigure value={row.original.fit} /> : <span className="text-secondary">—</span>), meta: { numeric: true } },
+    { id: "fit", accessorFn: (r) => r.fit, header: "Fit", size: sizes.fit, cell: ({ row }) => (row.original.scored ? <RatingFigure value={row.original.fit} /> : <span className="text-secondary">—</span>), meta: { numeric: true } },
     {
       id: "stars",
       accessorFn: (r) => r.stars,
       header: "Potential",
       size: sizes.stars,
-      cell: ({ row }) => (row.original.persisted ? <StarRating value={row.original.stars} label={`${row.original.meta?.label ?? row.original.channelKey} potential`} showValue /> : <span className="text-secondary">—</span>),
+      cell: ({ row }) => (row.original.scored ? <StarRating value={row.original.stars} label={`${row.original.meta?.label ?? row.original.channelKey} potential`} showValue /> : <span className="text-secondary">—</span>),
       meta: { numeric: true },
     },
     {
@@ -151,9 +151,19 @@ export function channelColumns(sizes: Record<ChannelColumnId, number> = fitColum
       cell: ({ row }) => (row.original.kitMode ? <Chip tone="info" className="whitespace-nowrap">{OFFLINE_TRACKING_LABEL}</Chip> : <span className="text-secondary">Connected</span>),
       meta: { filter: "boolean", label: "Offline tracking" },
     },
-    { id: "leads", accessorFn: (r) => r.form?.leads ?? 0, header: `Leads, ${CHANNEL_WINDOW_DAYS} days`, size: sizes.leads, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue() ?? 0), { digits: 0 })}</span>, meta: { numeric: true } },
-    { id: "customers", accessorFn: (r) => r.form?.customers ?? 0, header: `Customers, ${CHANNEL_WINDOW_DAYS} days`, size: sizes.customers, cell: ({ getValue }) => <span className="tabular-nums">{formatNumber(Number(getValue() ?? 0), { digits: 0 })}</span>, meta: { numeric: true } },
+    { id: "leads", accessorFn: (r) => r.form?.leads ?? 0, header: `Leads, ${CHANNEL_WINDOW_DAYS} days`, size: sizes.leads, cell: ({ row, getValue }) => <MetricCount value={Number(getValue() ?? 0)} estimate={row.original.form?.estimate === true} />, meta: { numeric: true } },
+    { id: "customers", accessorFn: (r) => r.form?.customers ?? 0, header: `Customers, ${CHANNEL_WINDOW_DAYS} days`, size: sizes.customers, cell: ({ row, getValue }) => <MetricCount value={Number(getValue() ?? 0)} estimate={row.original.form?.estimate === true} />, meta: { numeric: true } },
   ];
+}
+
+/** A 35-day count; simulated weeks (the mock engine) carry the Estimate label. */
+export function MetricCount({ value, estimate }: { value: number; estimate: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 tabular-nums">
+      {formatNumber(value, { digits: 0 })}
+      {estimate ? <ProvenanceChip kind="estimate" appearance="word" /> : null}
+    </span>
+  );
 }
 
 /** The Strategist's cost-per-customer range when it has one, else the measured cost, else why there is none. */
@@ -256,7 +266,7 @@ export function ChannelsScreen({ businessId, rescoreDelayMs = RESCORE_DEBOUNCE_M
     [openProfile, toggle, pause],
   );
 
-  const scored = rows.filter((r) => r.persisted).length;
+  const scored = rows.filter((r) => r.scored).length;
   return (
     <Screen name="distribution/channels">
       <Panel

@@ -361,6 +361,48 @@ describe("merge / unmerge (AC-11.12.3)", () => {
     expect((await ids(a.id)).concat(await ids(b.id))).toEqual([call.id, call.id]);
   });
 
+  it("moves the merged record's wins, touches and Inbox items to the kept record, and unmerge gives them back (audit #160)", async () => {
+    const A = r.A.businessId;
+    const x = await repos.entities.create(r.db, A, { kind: "person", displayName: "Yara Kept" });
+    const y = await repos.entities.create(r.db, A, { kind: "person", displayName: "Yara Duplicate" });
+    const paid = await repos.journeys.recordConversion(r.db, A, { entityId: x.id, kind: "payment", amountMinor: 4900, currency: "GBP" });
+    const signup = await repos.journeys.recordConversion(r.db, A, { entityId: y.id, kind: "signup" });
+    const touch = await repos.journeys.recordTouch(r.db, A, { entityId: y.id, kind: "email_open" });
+    const own = await repos.journeys.recordTouch(r.db, A, { entityId: x.id, kind: "visit" });
+    const onlyY = await repos.inbox.createHumanMessage(r.db, A, { fromUserId: r.A.ownerId, subject: "About the duplicate", bodyMd: "Hello", entityIds: [y.id] });
+    const both = await repos.inbox.createHumanMessage(r.db, A, { fromUserId: r.A.ownerId, subject: "About both", bodyMd: "Hello", entityIds: [x.id, y.id] });
+    const winsOf = async (entityId: string) => (await repos.journeys.listConversions(r.db, A, { entityId })).items.map((c) => c.id).sort();
+    const touchesOf = async (entityId: string) => (await repos.journeys.listTouches(r.db, A, { entityId })).items.map((t) => t.id).sort();
+    const itemEntities = async (id: string) => [...((await repos.inbox.get(r.db, A, id)).entityIds as string[])].sort();
+
+    const merged = await repos.entities.merge(r.db, A, x.id, y.id);
+    expect(await winsOf(x.id)).toEqual([paid.id, signup.id].sort());
+    expect(await winsOf(y.id)).toEqual([]);
+    expect(await touchesOf(x.id)).toEqual([own.id, touch.id].sort());
+    expect(await itemEntities(onlyY.id)).toEqual([x.id]);
+    expect(await itemEntities(both.id)).toEqual([x.id]);
+
+    await repos.entities.unmerge(r.db, A, merged.log.id);
+    expect(await winsOf(x.id)).toEqual([paid.id]);
+    expect(await winsOf(y.id)).toEqual([signup.id]);
+    expect(await touchesOf(x.id)).toEqual([own.id]);
+    expect(await touchesOf(y.id)).toEqual([touch.id]);
+    expect(await itemEntities(onlyY.id)).toEqual([y.id]);
+    expect(await itemEntities(both.id)).toEqual([x.id, y.id].sort());
+  });
+
+  it("serializes opposite and repeated merges of one pair: only the first wins, no merge cycle, one merge log (audit #328)", async () => {
+    const A = r.A.businessId;
+    const a = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Race Org A" });
+    const b = await repos.entities.create(r.db, A, { kind: "organisation", displayName: "Race Org B" });
+    const results = await Promise.allSettled([repos.entities.merge(r.db, A, a.id, b.id), repos.entities.merge(r.db, A, b.id, a.id), repos.entities.merge(r.db, A, a.id, b.id)]);
+    expect(results.filter((x) => x.status === "fulfilled")).toHaveLength(1);
+    for (const x of results) if (x.status === "rejected") expect(String(x.reason)).toMatch(/already merged/);
+    const [ea, eb] = [await repos.entities.get(r.db, A, a.id), await repos.entities.get(r.db, A, b.id)];
+    expect([ea.mergedIntoId, eb.mergedIntoId].filter(Boolean)).toHaveLength(1);
+    expect((await repos.entities.mergeHistory(r.db, A, a.id)).length).toBe(1);
+  });
+
   it("refuses, with the reason, while a later merge relies on the one being undone; in reverse order both undo exactly", async () => {
     const A = r.A.businessId;
     const x = await repos.entities.create(r.db, A, { kind: "person", displayName: "Rel Kept" });

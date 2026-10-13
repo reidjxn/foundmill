@@ -19,6 +19,9 @@ test.describe("milestones", () => {
     // Money milestones are in the business's own currency: Northwind keeps its books in pounds, never euros.
     await expect(page.locator("[data-trophy]").filter({ hasText: "MRR" }).first()).toContainText("£");
     await expect(page.locator("[data-trophy]").filter({ hasText: "€" })).toHaveCount(0);
+    // Northwind sells a physical product (no subscriptions): a reached "MRR" milestone is trailing revenue, labeled Estimate.
+    const reachedMrr = page.locator("[data-trophy][data-achieved]").filter({ hasText: "MRR" });
+    for (const card of await reachedMrr.all()) await expect(card.locator("[data-provenance='estimate']")).toBeVisible();
   });
 
   test("a reached milestone opens its Customer Update when one is recorded", async ({ page }) => {

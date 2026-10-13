@@ -54,6 +54,8 @@ export interface RibbonResponse {
 export interface RoundupResponse {
   day: DayKey;
   conversions: RibbonResponse["conversions"];
+  /** Ids of the day's wins the volume rule rolled into the daily results table (no full Customer Update). */
+  rolledUp?: string[];
 }
 
 /* journey.list */

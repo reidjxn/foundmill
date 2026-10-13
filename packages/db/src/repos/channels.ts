@@ -8,11 +8,12 @@
  * blended CPA the screen labels "Estimate".
  */
 import { createHash } from "node:crypto";
-import { CHANNEL_KEYS, CHANNEL_LINES, type ChannelKey, type ChannelLine } from "@foundmill/shared";
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { CHANNEL_KEYS, CHANNEL_LINES, CHANNEL_META, type ChannelKey, type ChannelLine } from "@foundmill/shared";
+import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { businesses, channelMetrics, channels, SUPPRESSION_SCOPES, suppressionList, type Channel, type ChannelMetric, type SuppressionEntry } from "../schema";
+import { businesses, CHANNEL_METRIC_SOURCES, channelMetrics, channels, SUPPRESSION_SCOPES, suppressionList, type Channel, type ChannelMetric, type SuppressionEntry } from "../schema";
 import { Currency, DayRange, dayRange, defined, Id, MinorAmount, numericText, one, parseInput, type Executor } from "./_shared";
+import { campaignsRepo } from "./campaigns";
 
 export const UpsertChannelInput = z.object({
   channelKey: z.enum(CHANNEL_KEYS),
@@ -26,8 +27,25 @@ export const UpsertChannelInput = z.object({
   currency: Currency.optional(),
   kitMode: z.boolean().optional(),
   ownerAgentId: Id.nullable().optional(),
+  /** When the Distribution Strategist scored the row (fit, potential, why); omit to leave it as it is. */
+  scoredAt: z.coerce.date().nullable().optional(),
 });
 export type UpsertChannelInput = z.input<typeof UpsertChannelInput>;
+
+/**
+ * One channel's verdict from the Distribution Strategist (`distribution.recommend`): the score fields only. The Board
+ * arrangement (line, on or off), budget, owner and offline tracking are the founder's, so a re-score never touches them;
+ * `kitModeRequired` can only switch offline tracking on (the channel cannot be automated within its terms), never off.
+ */
+export const ChannelScoreInput = z.object({
+  channelKey: z.enum(CHANNEL_KEYS),
+  fit: z.number().int().min(1).max(20),
+  potential: z.number().min(0).max(100),
+  recommended: z.boolean(),
+  whyMd: z.string().trim().min(1),
+  kitModeRequired: z.boolean().optional(),
+});
+export type ChannelScoreInput = z.input<typeof ChannelScoreInput>;
 
 export const ChannelListFilter = z.object({
   enabled: z.boolean().optional(),
@@ -48,6 +66,8 @@ export const UpsertChannelMetricInput = z.object({
   signups: z.number().int().nonnegative().default(0),
   activations: z.number().int().nonnegative().default(0),
   customers: z.number().int().nonnegative().default(0),
+  /** `estimate` for simulated numbers (the mock engine's week); the screens label them Estimate. */
+  source: z.enum(CHANNEL_METRIC_SOURCES).default("measured"),
 });
 export type UpsertChannelMetricInput = z.input<typeof UpsertChannelMetricInput>;
 
@@ -67,6 +87,8 @@ export interface ChannelMetricsSummary {
   /** spend ÷ customers in minor units; null without customers. Label "Estimate". */
   cpaMinor: number | null;
   days: number;
+  /** True when any folded row is simulated (`source = 'estimate'`): every number here is then labeled Estimate. */
+  estimate: boolean;
 }
 
 export type SuppressionKind = "email" | "phone" | "address";
@@ -140,6 +162,7 @@ export const channelsRepo = {
       currency: v.currency,
       kitMode: v.kitMode,
       ownerAgentId: v.ownerAgentId,
+      scoredAt: v.scoredAt,
       archivedAt: null,
     });
     return one(
@@ -172,6 +195,7 @@ export const channelsRepo = {
         currency: v.currency,
         kitMode: v.kitMode,
         ownerAgentId: v.ownerAgentId,
+        scoredAt: v.scoredAt,
         archivedAt: null,
       }) as Record<string, unknown>;
       const fields = Object.keys(patch).sort().join(",");
@@ -187,8 +211,64 @@ export const channelsRepo = {
     return parsed.map((v) => byKey.get(v.channelKey)!);
   },
 
+  /**
+   * Stores the Distribution Strategist's scores (`ChannelScoreInput`) and stamps `scored_at`, in one statement. A channel
+   * without a row gets one off the board, on its default line, with its default offline tracking; an existing row keeps
+   * its line, on/off state, budget, owner and offline tracking, which only switches on where the Strategist requires it.
+   * The scores given are the whole starter set: a channel left out keeps its last score but is no longer recommended.
+   * Rows come back in the order given; a repeated key keeps its last entry.
+   */
+  async saveScores(db: Executor, businessId: string, inputs: ChannelScoreInput[], scoredAt: Date = new Date()): Promise<Channel[]> {
+    const parsed = [...new Map(inputs.map((i) => parseInput(ChannelScoreInput, i, "channel score")).map((v) => [v.channelKey, v] as const)).values()];
+    if (parsed.length === 0) return [];
+    const written = await db
+      .insert(channels)
+      .values(
+        parsed.map((v) => ({
+          businessId,
+          channelKey: v.channelKey,
+          line: CHANNEL_META[v.channelKey].line,
+          kitMode: CHANNEL_META[v.channelKey].kitModeByDefault || v.kitModeRequired === true,
+          fit: v.fit,
+          potential: numericText(v.potential) ?? "0",
+          recommended: v.recommended,
+          whyMd: v.whyMd,
+          scoredAt,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [channels.businessId, channels.channelKey],
+        set: { fit: sql.raw(`excluded."fit"`), potential: sql.raw(`excluded."potential"`), recommended: sql.raw(`excluded."recommended"`), whyMd: sql.raw(`excluded."why_md"`), scoredAt: sql.raw(`excluded."scored_at"`) },
+      })
+      .returning();
+    // The verdict is the whole starter set: a channel it did not score this time is no longer a recommended starter.
+    await db
+      .update(channels)
+      .set({ recommended: false })
+      .where(and(eq(channels.businessId, businessId), eq(channels.recommended, true), notInArray(channels.channelKey, parsed.map((v) => v.channelKey))));
+    const required = parsed.filter((v) => v.kitModeRequired).map((v) => v.channelKey);
+    const switched = required.length
+      ? await db
+          .update(channels)
+          .set({ kitMode: true })
+          .where(and(eq(channels.businessId, businessId), inArray(channels.channelKey, required), eq(channels.kitMode, false)))
+          .returning()
+      : [];
+    const byKey = new Map([...written, ...switched].map((r) => [r.channelKey, r] as const));
+    return parsed.map((v) => byKey.get(v.channelKey)!);
+  },
+
+  /**
+   * Puts a channel on or takes it off the board. Off the board is the full stop (DECISIONS 2026-10-07): in the same
+   * transaction the channel's open campaigns end and their pending launch approvals expire (`campaigns.endForChannel`).
+   */
   async setEnabled(db: Executor, businessId: string, channelId: string, enabled: boolean): Promise<Channel> {
-    return one(await db.update(channels).set({ enabled }).where(scoped(businessId, channelId)).returning(), "channel", channelId);
+    if (enabled) return one(await db.update(channels).set({ enabled }).where(scoped(businessId, channelId)).returning(), "channel", channelId);
+    return db.transaction(async (tx) => {
+      const row = one(await tx.update(channels).set({ enabled }).where(scoped(businessId, channelId)).returning(), "channel", channelId);
+      await campaignsRepo.endForChannel(tx, businessId, channelId);
+      return row;
+    });
   },
 
   /** Moves a channel to another line of the formation. */
@@ -230,7 +310,11 @@ export const channelsRepo = {
   },
 
   async archive(db: Executor, businessId: string, channelId: string): Promise<Channel> {
-    return one(await db.update(channels).set({ archivedAt: new Date(), enabled: false }).where(scoped(businessId, channelId)).returning(), "channel", channelId);
+    return db.transaction(async (tx) => {
+      const row = one(await tx.update(channels).set({ archivedAt: new Date(), enabled: false }).where(scoped(businessId, channelId)).returning(), "channel", channelId);
+      await campaignsRepo.endForChannel(tx, businessId, channelId);
+      return row;
+    });
   },
 
   /** Total enabled budget per month in minor units (currency of the business's channels; mixed currencies are summed as-is and flagged). */
@@ -276,6 +360,7 @@ export const channelsRepo = {
         activations: sql<number>`coalesce(sum(${channelMetrics.activations}), 0)::int`,
         customers: sql<number>`coalesce(sum(${channelMetrics.customers}), 0)::int`,
         days: sql<number>`count(distinct ${channelMetrics.day})::int`,
+        estimate: sql<boolean>`coalesce(bool_or(${channelMetrics.source} = 'estimate'), false)`,
       })
       .from(channelMetrics)
       .innerJoin(channels, eq(channels.id, channelMetrics.channelId))
@@ -297,9 +382,10 @@ export const channelsRepo = {
         customers,
         cpaMinor: cpa(spend, customers),
         days: Number(x.days),
+        estimate: x.estimate === true,
       };
     });
-    const sum = (k: keyof Omit<ChannelMetricsSummary, "channelId" | "channelKey" | "line" | "cpaMinor">) => perChannel.reduce((n, c) => n + c[k], 0);
+    const sum = (k: keyof Omit<ChannelMetricsSummary, "channelId" | "channelKey" | "line" | "cpaMinor" | "estimate">) => perChannel.reduce((n, c) => n + c[k], 0);
     const blendedSpend = sum("spendMinor");
     const blendedCustomers = sum("customers");
     return {
@@ -313,6 +399,7 @@ export const channelsRepo = {
         customers: blendedCustomers,
         cpaMinor: cpa(blendedSpend, blendedCustomers),
         days: perChannel.reduce((n, c) => Math.max(n, c.days), 0),
+        estimate: perChannel.some((c) => c.estimate),
       },
     };
   },
@@ -334,6 +421,7 @@ export const channelsRepo = {
       activations: v.activations,
       customers: v.customers,
       cpaMinor: cpa(v.spendMinor, v.customers),
+      source: v.source,
     };
     // (channel_id, campaign_id, day) is unique, but a null campaign_id never conflicts: handle that case explicitly.
     if (v.campaignId == null) {

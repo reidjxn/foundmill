@@ -8,7 +8,7 @@ import { getSkillTests } from "@foundmill/agents";
 import { openApprovalItem, periodOf, repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
 import { createModelClient } from "@foundmill/models";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createChannelActivities, emptyChannelState } from "../activities/channel";
+import { createChannelActivities, emptyChannelState, launchApprovalReason, weeklyBudgetMinor } from "../activities/channel";
 import { createCycleActivities } from "../activities/cycle";
 import { ComposerRequestError, ComposerUnavailableError, createComposerClient } from "../composer-client";
 import { createHealthActivities } from "../activities/health";
@@ -503,6 +503,109 @@ describe("channel engine steps (BUILD §11.7)", () => {
     // Disabled channel stops the engine.
     await repos.channels.setEnabled(t.db, t.businessId, channel.id, false);
     expect((await acts.channelStep({ ...base, step: "plan", state: report.state })).stop).toBe(true);
+  });
+
+  it("decides who approves a launch by mode: offline tracking and Augmented always, Assisted a new campaign, every mode above the threshold", () => {
+    const base = { kitMode: false, newCampaign: false, budgetMinor: 10_000, thresholdMinor: 25_000 } as const;
+    expect(launchApprovalReason({ ...base, businessMode: "automated", kitMode: true })).toMatch(/offline tracking/);
+    expect(launchApprovalReason({ ...base, businessMode: "augmented" })).toMatch(/augmented mode/);
+    expect(launchApprovalReason({ ...base, businessMode: "assisted", newCampaign: true })).toBe("assisted mode: a new campaign needs your approval");
+    expect(launchApprovalReason({ ...base, businessMode: "assisted" })).toBeNull();
+    expect(launchApprovalReason({ ...base, businessMode: "automated", newCampaign: true })).toBeNull();
+    expect(launchApprovalReason({ ...base, businessMode: "automated", budgetMinor: 25_001 })).toMatch(/above the approval threshold/);
+    expect(launchApprovalReason({ ...base, businessMode: "assisted", budgetMinor: 25_001 })).toMatch(/above the approval threshold/);
+    // The monthly budget is spread over the weeks: one week is 7 / 30.4375 of it.
+    expect(weeklyBudgetMinor(100_000)).toBe(22_998);
+    expect(weeklyBudgetMinor(null)).toBe(0);
+    expect(weeklyBudgetMinor("0")).toBe(0);
+  });
+
+  it("Assisted asks before a channel's first campaign, then runs the weekly ones at the same budget alone (audit #154)", async () => {
+    const acts = createChannelActivities(t.deps);
+    await repos.businesses.setBusinessMode(t.db, t.businessId, "assisted");
+    const channel = await repos.channels.upsert(t.db, t.businessId, { channelKey: "events", line: "midfield", enabled: true, kitMode: false, budgetMinor: 40_000, currency: "EUR", ownerAgentId: t.workerId });
+    const base = { businessId: t.businessId, channelId: channel.id, channelKey: "events" };
+    let state = (await acts.channelStep({ ...base, weekIndex: 0, step: "create", state: emptyChannelState() })).state;
+    const campaign = await repos.campaigns.get(t.db, t.businessId, state.campaignId!);
+    expect(Number(campaign.budgetMinor)).toBe(weeklyBudgetMinor(40_000)); // the weekly share, not the monthly budget (#334)
+    const ask = await acts.channelStep({ ...base, weekIndex: 0, step: "approve", state });
+    expect(ask.awaitingApprovalId).toBeTruthy();
+    expect((await repos.campaigns.get(t.db, t.businessId, campaign.id)).status).toBe("pending_approval");
+    expect((await repos.approvals.get(t.db, t.businessId, ask.awaitingApprovalId!)).reasons).toEqual(["assisted mode: a new campaign needs your approval"]);
+    const requested = await repos.events.list(t.db, t.businessId, { type: "approval.requested", limit: 5 });
+    expect(requested.items[0]?.payload).toMatchObject({ approvalId: ask.awaitingApprovalId, amount: { amountMinor: weeklyBudgetMinor(40_000) } });
+    state = (await acts.channelStep({ ...base, weekIndex: 0, step: "approve", state: ask.state, approvedApprovalId: ask.awaitingApprovalId })).state;
+    state = (await acts.channelStep({ ...base, weekIndex: 0, step: "launch", state })).state;
+    state = (await acts.channelStep({ ...base, weekIndex: 0, step: "report", state })).state;
+
+    // Week 2 at the same budget: routine, scheduled without asking.
+    state = (await acts.channelStep({ ...base, weekIndex: 1, step: "create", state })).state;
+    const routine = await acts.channelStep({ ...base, weekIndex: 1, step: "approve", state });
+    expect(routine.awaitingApprovalId).toBeNull();
+    expect((await repos.campaigns.get(t.db, t.businessId, routine.state.campaignId!)).status).toBe("scheduled");
+    state = (await acts.channelStep({ ...base, weekIndex: 1, step: "launch", state: routine.state })).state;
+    state = (await acts.channelStep({ ...base, weekIndex: 1, step: "report", state })).state;
+
+    // A bigger budget is a new commitment: it asks again.
+    await repos.channels.setBudget(t.db, t.businessId, channel.id, 80_000);
+    state = (await acts.channelStep({ ...base, weekIndex: 2, step: "create", state })).state;
+    expect((await acts.channelStep({ ...base, weekIndex: 2, step: "approve", state })).awaitingApprovalId).toBeTruthy();
+    await repos.channels.setEnabled(t.db, t.businessId, channel.id, false);
+  });
+
+  it("measures and learns only from a campaign that went live, as an Estimate within the weekly budget (audit #158, #334)", async () => {
+    const acts = createChannelActivities(t.deps);
+    await repos.businesses.setBusinessMode(t.db, t.businessId, "augmented");
+    const channel = await repos.channels.upsert(t.db, t.businessId, { channelKey: "affiliate", line: "attack", enabled: true, kitMode: false, budgetMinor: 100_000, currency: "EUR", ownerAgentId: t.workerId });
+    const base = { businessId: t.businessId, channelId: channel.id, channelKey: "affiliate", weekIndex: 0 };
+    let state = (await acts.channelStep({ ...base, step: "create", state: emptyChannelState() })).state;
+    const ask = await acts.channelStep({ ...base, step: "approve", state });
+    expect(ask.awaitingApprovalId).toBeTruthy();
+    // The founder never answers: the engine clears the approval but the campaign is still waiting.
+    state = { ...ask.state, approvalId: null };
+    expect((await acts.channelStep({ ...base, step: "launch", state })).note).toMatch(/not approved/);
+    const measured = await acts.channelStep({ ...base, step: "measure", state });
+    expect(measured.note).toMatch(/not live; nothing to measure/);
+    expect(await repos.channels.metricsRange(t.db, t.businessId, { channelId: channel.id })).toEqual([]);
+    expect((await acts.channelStep({ ...base, step: "learn", state })).state.learnings).toEqual(state.learnings);
+    expect((await repos.events.list(t.db, t.businessId, { type: "channel.threshold_breached", limit: 50 })).items.filter((e) => (e.payload as { channelId: string }).channelId === channel.id)).toEqual([]);
+    const reported = await acts.channelStep({ ...base, step: "report", state });
+    expect((await repos.campaigns.get(t.db, t.businessId, state.campaignId!)).status).toBe("ended");
+
+    // Next week the founder approves: the live campaign's simulated week is stored as an estimate within its budget.
+    state = (await acts.channelStep({ ...base, weekIndex: 1, step: "create", state: reported.state })).state;
+    const next = await acts.channelStep({ ...base, weekIndex: 1, step: "approve", state });
+    state = (await acts.channelStep({ ...base, weekIndex: 1, step: "approve", state: next.state, approvedApprovalId: next.awaitingApprovalId })).state;
+    state = (await acts.channelStep({ ...base, weekIndex: 1, step: "launch", state })).state;
+    await acts.channelStep({ ...base, weekIndex: 1, step: "measure", state });
+    const rows = await repos.channels.metricsRange(t.db, t.businessId, { channelId: channel.id });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ source: "estimate", spendMinor: Math.round(weeklyBudgetMinor(100_000) * 0.9) });
+    const summary = await repos.channels.metricsSummary(t.db, t.businessId, {});
+    expect(summary.channels.find((c) => c.channelId === channel.id)?.estimate).toBe(true);
+    expect(summary.blended.estimate).toBe(true);
+    await repos.channels.setEnabled(t.db, t.businessId, channel.id, false);
+  });
+
+  it("taking a channel off the board ends its open campaigns and expires their launch approvals (audit #164)", async () => {
+    const acts = createChannelActivities(t.deps);
+    await repos.businesses.setBusinessMode(t.db, t.businessId, "assisted");
+    const channel = await repos.channels.upsert(t.db, t.businessId, { channelKey: "pr", line: "midfield", enabled: true, kitMode: false, budgetMinor: 20_000, currency: "EUR", ownerAgentId: t.workerId });
+    const base = { businessId: t.businessId, channelId: channel.id, channelKey: "pr", weekIndex: 0 };
+    // One campaign running live, one waiting for the founder.
+    const running = await repos.campaigns.create(t.db, t.businessId, { channelId: channel.id, name: "PR — running", budgetMinor: 1_000 });
+    await repos.campaigns.setStatus(t.db, t.businessId, running.id, "scheduled");
+    await repos.campaigns.setStatus(t.db, t.businessId, running.id, "live");
+    const created = await acts.channelStep({ ...base, step: "create", state: emptyChannelState() });
+    const ask = await acts.channelStep({ ...base, step: "approve", state: created.state });
+    expect(ask.awaitingApprovalId).toBeTruthy();
+
+    await repos.channels.setEnabled(t.db, t.businessId, channel.id, false);
+    expect((await repos.campaigns.get(t.db, t.businessId, running.id)).status).toBe("ended");
+    expect((await repos.campaigns.get(t.db, t.businessId, created.state.campaignId!)).status).toBe("ended");
+    expect(await repos.approvals.get(t.db, t.businessId, ask.awaitingApprovalId!)).toMatchObject({ outcome: "expired", byKind: "system" });
+    // The engine's next step finds the channel off the board and stops; ending again is harmless.
+    expect((await acts.channelStep({ ...base, step: "launch", state: ask.state })).stop).toBe(true);
   });
 });
 

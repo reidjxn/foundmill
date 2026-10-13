@@ -121,6 +121,23 @@ describe("journey.get returns the full Journey record (BUILD §11.4, AC-11.4.3)"
     expect(await hz.caller({ userId: hz.B.ownerId }).journey.forConversion({ businessId: hz.B.businessId, conversionId: win.id })).toEqual({ journeyId: null });
     expect((await hz.caller({ userId: hz.B.ownerId }).journey.attribution({ businessId: hz.B.businessId })).conversionCount).toBeLessThan(200);
   });
+
+  it("reads the model of a row stored without one from its weights, not from the business's conversion count (audit #330)", async () => {
+    const { businessId, entityId } = hz.A;
+    const base = Date.parse("2026-09-02T10:00:00.000Z");
+    const a = await repos.journeys.recordTouch(hz.db, businessId, { entityId, occurredAt: new Date(base), channelKey: "seo", kind: "visit" });
+    const b = await repos.journeys.recordTouch(hz.db, businessId, { entityId, occurredAt: new Date(base + 3_600_000), channelKey: "email_automation", kind: "email_click" });
+    const c = await repos.journeys.recordTouch(hz.db, businessId, { entityId, occurredAt: new Date(base + 2 * 3_600_000), channelKey: "social", kind: "visit" });
+    const conversion = await repos.journeys.recordConversion(hz.db, businessId, { entityId, kind: "payment", amountMinor: 1900, currency: "EUR", occurredAt: new Date(base + 3 * 3_600_000) });
+    const owner = hz.caller({ userId: hz.A.ownerId });
+    const modelOf = async (weights: Record<string, number>) => {
+      const row = await repos.journeys.create(hz.db, businessId, { conversionId: conversion.id, touchIds: [a.id, b.id, c.id], weights, matchdayLevel: "league" });
+      return (await owner.journey.get({ businessId, journeyId: row.id })).journey.attributionModel;
+    };
+    // The 40 / 20 / 40 split is position-based whatever the business's count of wins is today; any other split is data-driven.
+    expect(await modelOf({ [a.id]: 0.4, [b.id]: 0.2, [c.id]: 0.4 })).toBe("position_based_40_20_40");
+    expect(await modelOf({ [a.id]: 0.1, [b.id]: 0.6, [c.id]: 0.3 })).toBe("data_driven_markov");
+  });
 });
 
 describe("journey.ribbon rows (the Ribbon's daily data)", () => {
@@ -161,6 +178,22 @@ describe("journey.ribbon rows (the Ribbon's daily data)", () => {
     expect(byId.get(anonymous.id)).toMatchObject({ entityName: null, journeyId: null });
     const ribbon = await owner.journey.ribbon({ businessId, from: "2026-08-01", to: "2026-08-31" });
     expect(ribbon.conversions.find((c) => c.id === paid.id)).toMatchObject({ entityName: entity!.name, journeyId: update.id });
+  });
+
+  it("names the wins the volume rule rolled into the day's results table: signups past the 100th of the kind (audit #342)", async () => {
+    const { businessId } = hz.A;
+    const early = Array.from({ length: 101 }, (_, i) => ({ businessId, kind: "signup" as const, amountMinor: 0, currency: "EUR", occurredAt: new Date(Date.UTC(2026, 5, 1, 0, i)) }));
+    await hz.db.insert(conversions).values(early);
+    const first = await repos.journeys.recordConversion(hz.db, businessId, { entityId: null, kind: "signup", amountMinor: 0, currency: "EUR", occurredAt: new Date("2026-06-20T08:00:00.000Z") });
+    const second = await repos.journeys.recordConversion(hz.db, businessId, { entityId: null, kind: "signup", amountMinor: 0, currency: "EUR", occurredAt: new Date("2026-06-20T09:00:00.000Z") });
+    const day = await hz.caller({ userId: hz.A.ownerId }).journey.roundup({ businessId, day: "2026-06-20" });
+    // Both are past the 100th signup, so neither earns a full update: both are in the round-up.
+    expect(day.conversions.map((c) => c.id).sort()).toEqual([first.id, second.id].sort());
+    expect([...day.rolledUp].sort()).toEqual([first.id, second.id].sort());
+    // Of the first day's 101 signups, only the 101st is past the hundredth.
+    const earlyDay = await hz.caller({ userId: hz.A.ownerId }).journey.roundup({ businessId, day: "2026-06-01" });
+    expect(earlyDay.conversions.length).toBe(101);
+    expect(earlyDay.rolledUp.length).toBe(1);
   });
 
   it("a renewal is revenue on the day's row but not a customer marker or a paying customer", async () => {

@@ -397,6 +397,8 @@ export interface TrophyCard {
   amountMinor?: number | null;
   currency?: string;
   shareable?: boolean;
+  /** The figure behind the milestone is an estimate (an "MRR" milestone of a business without subscriptions): labeled Estimate. */
+  estimate?: boolean;
 }
 
 export interface SquadPulseCell {

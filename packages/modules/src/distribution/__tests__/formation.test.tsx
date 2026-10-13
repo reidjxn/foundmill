@@ -14,8 +14,9 @@ describe("FormationScreen", () => {
     const fake = createFakeSource({ businessId: BID, responses: dataResponses });
     renderScreen(fake, <FormationScreen {...props} />);
     const board = screen.getByRole("region", { name: "Channel Board" });
-    const tokens = within(board).getAllByRole("button", { name: /fit \d+ of 20/ });
-    expect(tokens).toHaveLength(15);
+    // Six channels carry a stored score; the other nine were never scored and say so instead of showing a default fit.
+    expect(within(board).getAllByRole("button", { name: /fit \d+ of 20/ })).toHaveLength(6);
+    expect(within(board).getAllByRole("button", { name: /not scored yet/ })).toHaveLength(9);
     const paid = within(board).getByRole("button", { name: /^Paid advertising, fit 17 of 20/ });
     expect(paid.getAttribute("aria-pressed")).toBe("true");
     expect(paid.getAttribute("aria-label")).toContain("recommended");
@@ -108,7 +109,7 @@ describe("FormationScreen", () => {
     renderScreen(empty, <FormationScreen {...props} />);
     expect(screen.getByRole("status").textContent).toContain("All 15 channels are off the board");
     expect(screen.getByRole("region", { name: "Channel Board" })).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /fit 1 of 20/ })).toHaveLength(15);
+    expect(screen.getAllByRole("button", { name: /not scored yet/ })).toHaveLength(15);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Get recommendation" }));
     });

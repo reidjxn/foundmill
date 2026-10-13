@@ -160,8 +160,13 @@ const CODE_PREFIXES: ReadonlyArray<[prefixes: readonly string[], channel: Channe
   [["EVENT", "EXPO", "CONF", "BOOTH"], "events", "promo"],
 ];
 
+/**
+ * A host is a pattern's own or a subdomain of it ("t.co" is t.co and l.t.co, never "washingtonpost.com"); a pattern with a
+ * trailing dot ("google.") names a brand across its country domains and matches at a label boundary ("google.co.uk",
+ * "news.google.com", never "notgoogle.com").
+ */
 const hostMatches = (host: string, patterns: readonly string[]): boolean =>
-  patterns.some((p) => (p.endsWith(".") ? host.includes(p) : host === p || host.endsWith(`.${p}`) || (p.includes(".") && host.includes(p))));
+  patterns.some((p) => (p.endsWith(".") ? host.startsWith(p) || host.includes(`.${p}`) : host === p || host.endsWith(`.${p}`)));
 
 function parseUrl(url: string | null | undefined): URL | null {
   if (!url) return null;

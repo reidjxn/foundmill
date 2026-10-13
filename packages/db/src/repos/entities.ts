@@ -20,7 +20,7 @@ import { and, asc, desc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import {
-  ACTOR_BY_KINDS, capTableEntries, entities, entityRoles, fieldProvenance, interactions, INTERACTION_DIRECTIONS, mentions, mergeLog, relationships,
+  ACTOR_BY_KINDS, capTableEntries, conversions, entities, entityRoles, fieldProvenance, inboxItems, interactions, INTERACTION_DIRECTIONS, mentions, mergeLog, relationships, touches, visitors,
   type Entity, type EntityRole, type FieldProvenance, type Interaction, type Mention, type MergeLogEntry, type Relationship,
 } from "../schema";
 import { DateRange, defined, Id, IsoDateInput, numericText, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page, patchSchema } from "./_shared";
@@ -195,9 +195,22 @@ interface MergeSnapshot {
   /**
    * The child rows the merge re-pointed. `sharedInteractions` (absent on merges logged before it existed) are the
    * moved interactions that already listed the kept record: undoing the merge adds the merged record back to them
-   * instead of swapping the kept one out.
+   * instead of swapping the kept one out. `conversions`, `touches`, `visitors`, `inboxItems` and `sharedInboxItems` (the
+   * same idea for Inbox items) are absent on merges logged before the journey rows moved with a merge.
    */
-  moved: { roles: string[]; relationships: string[]; mentions: string[]; provenance: string[]; interactions: string[]; sharedInteractions?: string[] };
+  moved: {
+    roles: string[];
+    relationships: string[];
+    mentions: string[];
+    provenance: string[];
+    interactions: string[];
+    sharedInteractions?: string[];
+    conversions?: string[];
+    touches?: string[];
+    visitors?: string[];
+    inboxItems?: string[];
+    sharedInboxItems?: string[];
+  };
 }
 
 const SNAPSHOT_FIELDS = ["displayName", "aliases", "avatarUrl", "identifiers", "lawfulBasis", "source", "visibility", "agentId", "mergedIntoId", "archivedAt"] as const;
@@ -861,8 +874,9 @@ export const entitiesRepo = {
   // merge / unmerge (AC-11.12.3) --------------------------------------------------------------------------------------
   /**
    * Folds `mergedId` into `keptId`: the kept record gains the merged name as an alias, the merged aliases and any
-   * identifiers it lacked; CRM child rows (roles, relationships, mentions, provenance, interactions) move over;
-   * the merged row is archived with `merged_into_id` set. Everything needed to undo it is in the merge_log row.
+   * identifiers it lacked; CRM child rows (roles, relationships, mentions, provenance, interactions) and the journey
+   * rows (wins, touches, visitors, Inbox items about the record) move over, so the kept record shows all of its
+   * history; the merged row is archived with `merged_into_id` set. Everything needed to undo it is in the merge_log row.
    */
   async merge(db: Executor, businessId: string, keptId: string, mergedId: string, options: MergeOptions = {}): Promise<{ kept: Entity; merged: Entity; log: MergeLogEntry }> {
     const o = parseInput(MergeOptions, options, "merge options");
@@ -880,6 +894,12 @@ export const entitiesRepo = {
           .select({ id: interactions.id })
           .from(interactions)
           .where(and(eq(interactions.businessId, businessId), sql`${interactions.entityIds} @> array[${mergedId}::uuid, ${keptId}::uuid]`))
+      ).map((r) => r.id);
+      const sharedInboxItemIds = (
+        await tx
+          .select({ id: inboxItems.id })
+          .from(inboxItems)
+          .where(and(eq(inboxItems.businessId, businessId), sql`${inboxItems.entityIds} @> array[${mergedId}::uuid, ${keptId}::uuid]`))
       ).map((r) => r.id);
       const roleIds = (await tx.update(entityRoles).set({ entityId: keptId }).where(and(eq(entityRoles.businessId, businessId), eq(entityRoles.entityId, mergedId))).returning({ id: entityRoles.id })).map((r) => r.id);
       const relFrom = await tx
@@ -927,6 +947,17 @@ export const entitiesRepo = {
           .where(and(eq(interactions.businessId, businessId), sql`${interactions.entityIds} @> array[${mergedId}::uuid]`))
           .returning({ id: interactions.id })
       ).map((r) => r.id);
+      // The merged record's wins, touches, visitors and Inbox items belong to the kept record now (audit #160).
+      const conversionIds = (await tx.update(conversions).set({ entityId: keptId }).where(and(eq(conversions.businessId, businessId), eq(conversions.entityId, mergedId))).returning({ id: conversions.id })).map((r) => r.id);
+      const touchIds = (await tx.update(touches).set({ entityId: keptId }).where(and(eq(touches.businessId, businessId), eq(touches.entityId, mergedId))).returning({ id: touches.id })).map((r) => r.id);
+      const visitorIds = (await tx.update(visitors).set({ entityId: keptId }).where(and(eq(visitors.businessId, businessId), eq(visitors.entityId, mergedId))).returning({ id: visitors.id })).map((r) => r.id);
+      const inboxItemIds = (
+        await tx
+          .update(inboxItems)
+          .set({ entityIds: sql`array(select distinct case when x = ${mergedId}::uuid then ${keptId}::uuid else x end from unnest(${inboxItems.entityIds}) x)` })
+          .where(and(eq(inboxItems.businessId, businessId), sql`${inboxItems.entityIds} @> array[${mergedId}::uuid]`))
+          .returning({ id: inboxItems.id })
+      ).map((r) => r.id);
 
       const fields = mergedFields(fieldsOf(kept), fieldsOf(merged));
       const updatedKept = one(
@@ -949,6 +980,11 @@ export const entitiesRepo = {
           provenance: provenanceIds,
           interactions: interactionIds,
           sharedInteractions: sharedInteractionIds,
+          conversions: conversionIds,
+          touches: touchIds,
+          visitors: visitorIds,
+          inboxItems: inboxItemIds,
+          sharedInboxItems: sharedInboxItemIds,
         },
       };
       // clock_timestamp(), not the transaction's now(): merges done in one transaction still log in the order they ran,
@@ -1019,6 +1055,27 @@ export const entitiesRepo = {
           .update(interactions)
           .set({ entityIds: sql`case when ${interactions.entityIds} @> array[${log.mergedId}::uuid] then ${interactions.entityIds} else array_append(${interactions.entityIds}, ${log.mergedId}::uuid) end` })
           .where(and(eq(interactions.businessId, businessId), inArray(interactions.id, addBack)));
+      }
+      // The journey rows the merge moved go back to the merged record (those still on the kept one; a later re-link stays).
+      const back = { entityId: log.mergedId };
+      if (m.conversions?.length) await tx.update(conversions).set(back).where(and(eq(conversions.businessId, businessId), inArray(conversions.id, m.conversions), eq(conversions.entityId, log.keptId)));
+      if (m.touches?.length) await tx.update(touches).set(back).where(and(eq(touches.businessId, businessId), inArray(touches.id, m.touches), eq(touches.entityId, log.keptId)));
+      if (m.visitors?.length) await tx.update(visitors).set(back).where(and(eq(visitors.businessId, businessId), inArray(visitors.id, m.visitors), eq(visitors.entityId, log.keptId)));
+      // Inbox items follow the interaction rule: the kept record stays on an item it was already part of.
+      const keepKeptItems = new Set([...(m.sharedInboxItems ?? []), ...history.filter((h) => h.id !== log.id && !h.revertedAt && h.keptId === log.keptId).flatMap((h) => (h.reversibleSnapshot as unknown as MergeSnapshot).moved.inboxItems ?? [])]);
+      const swapItems = (m.inboxItems ?? []).filter((id) => !keepKeptItems.has(id));
+      const addBackItems = (m.inboxItems ?? []).filter((id) => keepKeptItems.has(id));
+      if (swapItems.length) {
+        await tx
+          .update(inboxItems)
+          .set({ entityIds: sql`array(select distinct case when x = ${log.keptId}::uuid then ${log.mergedId}::uuid else x end from unnest(${inboxItems.entityIds}) x)` })
+          .where(and(eq(inboxItems.businessId, businessId), inArray(inboxItems.id, swapItems)));
+      }
+      if (addBackItems.length) {
+        await tx
+          .update(inboxItems)
+          .set({ entityIds: sql`case when ${inboxItems.entityIds} @> array[${log.mergedId}::uuid] then ${inboxItems.entityIds} else array_append(${inboxItems.entityIds}, ${log.mergedId}::uuid) end` })
+          .where(and(eq(inboxItems.businessId, businessId), inArray(inboxItems.id, addBackItems)));
       }
       const updatedLog = one(await tx.update(mergeLog).set({ revertedAt: new Date() }).where(eq(mergeLog.id, mergeLogId)).returning(), "merge log", mergeLogId);
       return { kept, merged, log: updatedLog };

@@ -332,6 +332,8 @@ export interface ChannelTokenData {
   key: ChannelKey;
   /** 1–20 fit from the Distribution Strategist. */
   fit: number;
+  /** False until the Distribution Strategist has scored the channel: the fit badge and the card show no score. Default true. */
+  scored?: boolean;
   recommended: boolean;
   /** On the board (engine enabled) or on the bench. */
   enabled: boolean;

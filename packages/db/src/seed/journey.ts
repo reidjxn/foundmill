@@ -156,6 +156,8 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
     siteHost: opts.siteHost,
     volumeScale: ctx.volumeScale,
     today: ctx.todayKey,
+    // Nothing is dated after the instant the seed runs at (a win or a touch "later today" would read as already happened).
+    now: ctx.today,
   });
   log(`generated ${data.customers.length} customers, ${data.touches.length} touches, ${data.conversions.length} conversions, ${data.daily.length} daily rows`);
 
@@ -194,7 +196,9 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
   const roleRows: NewEntityRole[] = [];
   const domains = ["example", "test", "invalid"];
   for (const c of data.customers) {
-    const handle = slugName(c.displayName) || "customer";
+    // The handle carries part of the record id: two customers who share a name never share an email or domain (a strong
+    // identifier belongs to one record, so the demo holds no same-identifier duplicates).
+    const handle = `${slugName(c.displayName) || "customer"}-${c.entityId.replace(/-/g, "").slice(0, 6)}`;
     const identifiers = c.kind === "organisation" ? { domain: `${handle}.${rng.pick(domains)}`, ...(opts.customerSource === "stripe" ? { stripe_id: `cus_${c.entityId.replace(/-/g, "").slice(0, 14)}` } : {}) } : { email: `${handle}@${rng.pick(["mail", "inbox", "post"])}.${rng.pick(domains)}` };
     entityRows.push({
       id: c.entityId,
@@ -296,7 +300,8 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
   log(`inserted ${touchRows.length} touches`);
 
   // --- events for the most recent payments (webhook-shaped, so inbox items can cite them) ---------------------------
-  const payments = data.conversions.filter((c) => c.kind === "payment");
+  // First payments are the wins; renewals are revenue on a record that is already a customer (no event, no journey).
+  const payments = data.conversions.filter((c) => c.kind === "payment" && c.firstPayment);
   const latest = payments.slice(-5);
   const eventRows: NewEvent[] = [];
   const outboxRows: NewOutboxRow[] = [];
@@ -339,6 +344,7 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
     currency: c.currency,
     occurredAt: new Date(c.occurredAt),
     sourceEventId: eventIdByConversion.get(c.id) ?? null,
+    firstPayment: c.firstPayment,
   }));
   await bulkInsert(db, conversions, conversionRows);
 
@@ -360,6 +366,7 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
   const recentCutoff = ctx.today.getTime() - 45 * DAY_MS;
   let seen = 0;
   for (const c of data.conversions) {
+    if (c.kind === "payment" && !c.firstPayment) continue;
     seen += 1;
     kindCount[c.kind] += 1;
     const customer = c.entityId ? customersByEntityId.get(c.entityId) : undefined;
@@ -447,7 +454,8 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
     for (let k = 0; k < n; k++) {
       const member = members[(dayIndex + k) % members.length]!;
       const startedAt = atHour(day, 8, 30 + k * 20 + rng.int(0, 25));
-      const endedAt = new Date(startedAt.getTime() + hoursEach * HOUR_MS);
+      if (startedAt.getTime() >= ctx.today.getTime()) continue; // today's later sessions have not happened yet
+      const endedAt = new Date(Math.min(startedAt.getTime() + hoursEach * HOUR_MS, ctx.today.getTime()));
       const tokensIn = Math.round(hoursEach * (member.agent.modelKey === "opus" ? 120_000 : member.agent.modelKey === "haiku" ? 400_000 : 220_000) * rng.range(0.8, 1.2));
       const tokensOut = Math.round(tokensIn * rng.range(0.08, 0.16));
       const id = rng.uuid();
@@ -498,7 +506,7 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
     if (c.kind === "signup") bump(day, channel, { signups: 1, leads: channel && SEED_LEAD_CHANNELS.has(channel) ? 1 : 0 });
     else if (c.kind === "activation") bump(day, channel, { activations: 1 });
     else {
-      bump(day, channel, { customers: 1 });
+      if (c.firstPayment) bump(day, channel, { customers: 1 });
       const mk = c.occurredAt.slice(0, 7);
       revenueByMonth.set(mk, (revenueByMonth.get(mk) ?? 0) + c.amountMinor);
     }
@@ -557,7 +565,8 @@ export async function seedJourney(ctx: SeedCtx, opts: JourneySeedOptions): Promi
     revenueByMonth,
     agentSpendByMonth,
     adSpendByMonth,
-    paidCustomers: data.series.customersByDay[data.series.customersByDay.length - 1] ?? 0,
+    // Paying accounts now: every customer that has paid, less the ones that have churned since.
+    paidCustomers: data.customers.filter((c) => c.paidAt && !(c.churnedAt && Date.parse(c.churnedAt) <= ctx.today.getTime())).length,
     signups: kindCount.signup,
     activations: kindCount.activation,
     mrrMinorNow: data.series.mrrMinorByDay[data.series.mrrMinorByDay.length - 1] ?? 0,

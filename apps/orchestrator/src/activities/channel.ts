@@ -7,10 +7,9 @@
  *   worker route, billed to the agent as an Estimate); each draft is a `pending` asset on the Creative tab. In mock mode
  *   the drafts come from the mock model and say so in their first line. A failed draft leaves the campaign without
  *   creative, and it does not launch (audit GTM-12).
- * - approve: a campaign with no creative stops here. Automated mode (within its caps) approves the drafts with the
- *   launch; augmented mode, offline tracking (kit mode) and a channel's first campaign in assisted mode ask the founder
- *   (BUILD §9.6: new campaigns ask), whose approval approves the campaign's drafts. Assets the founder rejected stay
- *   rejected.
+ * - approve: a campaign with no creative stops here. Inside policy (`launchApprovalReason`) the drafts are approved with
+ *   the launch; otherwise the founder is asked, and their approval approves the campaign's drafts. Assets the founder
+ *   rejected stay rejected.
  * - launch: never with zero approved assets; `campaign.launched` carries their ids. With offline tracking the founder
  *   gets a task with every material attached and nothing is booked (AC-11.7.6).
  * - measure (mock): the week's numbers, and for the lead channels (lead generation, content, events) one CRM record
@@ -18,9 +17,10 @@
  *   (audit GTM-02).
  */
 import { buildChannelCreativeRequest, docText, finaliseCreative, getChannelTemplate } from "@foundmill/agents";
+import { LIMITS } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { stableHash } from "@foundmill/models";
-import { CHANNEL_KEYS, CHANNEL_META, type ChannelKey } from "@foundmill/shared";
+import { CHANNEL_KEYS, CHANNEL_META, type BusinessMode, type ChannelKey } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import { openApprovalNote } from "./approvals";
@@ -55,6 +55,29 @@ export function mockLead(seed: string): { displayName: string; email: string; co
   return { displayName: `${first} ${last}`, email: `${first}.${last}.${(n % 997).toString(36)}@${domain}`.toLowerCase(), company, domain };
 }
 
+/** Average days in a month (365.25 / 12): a week is 7 / 30.4375 of a monthly budget. */
+const DAYS_PER_MONTH = 30.4375;
+
+/** The weekly share of a monthly budget (minor units), what one weekly campaign may spend. */
+export function weeklyBudgetMinor(monthlyMinor: number | string | null): number {
+  const monthly = monthlyMinor === null ? 0 : Number(monthlyMinor);
+  return Number.isFinite(monthly) && monthly > 0 ? Math.round((monthly * 7) / DAYS_PER_MONTH) : 0;
+}
+
+/**
+ * Whether this week's campaign waits for the founder before it is scheduled (BUILD §9.6 business modes, §11.7
+ * "Approve (policy)"), and why. Offline tracking always asks (the agent prepares, the founder submits); Augmented asks for
+ * every launch; every mode asks above the approval threshold; Assisted also asks for a new campaign (the channel has not
+ * launched one yet, or this one commits more than the last one that ran). Null: schedule without asking.
+ */
+export function launchApprovalReason(input: { businessMode: BusinessMode; kitMode: boolean; newCampaign: boolean; budgetMinor: number; thresholdMinor: number }): string | null {
+  if (input.kitMode) return "offline tracking: the agent prepares, the founder submits";
+  if (input.businessMode === "augmented") return "augmented mode: every external action asks";
+  if (input.budgetMinor > input.thresholdMinor) return "the weekly budget is above the approval threshold";
+  if (input.businessMode === "assisted" && input.newCampaign) return "assisted mode: a new campaign needs your approval";
+  return null;
+}
+
 export function createChannelActivities(deps: OrchestratorDeps) {
   /** The business brief the creative is written from: the spec's opening sections, as plain text. */
   async function creativeBrief(businessId: string): Promise<string | null> {
@@ -77,7 +100,11 @@ export function createChannelActivities(deps: OrchestratorDeps) {
       const state: ChannelEngineState = { ...input.state, learnings: [...input.state.learnings] };
       const channel = await repos.channels.get(db, businessId, input.channelId);
       const done = (note: string, extra: Partial<ChannelStepResult> = {}): ChannelStepResult => ({ step: input.step, state: { ...state, lastStep: input.step }, awaitingApprovalId: null, stop: false, note, ...extra });
-      if (!channel.enabled || channel.archivedAt) return done("channel disabled; engine stopping", { stop: true });
+      if (!channel.enabled || channel.archivedAt) {
+        // Off the board is the full stop: whatever the engine had open on the channel ends with it.
+        await repos.campaigns.endForChannel(db, businessId, channel.id);
+        return done("channel disabled; engine stopping", { stop: true });
+      }
       // Stop all agents (or a revoked key, used-up credits) ends the engine even when its stop signal was missed;
       // resuming the agents starts it again.
       if (await repos.businesses.agentsStopped(db, businessId)) return done("agents are stopped; engine stopping", { stop: true });
@@ -93,13 +120,13 @@ export function createChannelActivities(deps: OrchestratorDeps) {
 
       switch (input.step) {
         case "plan": {
-          const budgetMinor = channel.budgetMinor === null ? 0 : Number(channel.budgetMinor);
+          const monthlyMinor = channel.budgetMinor === null ? 0 : Number(channel.budgetMinor);
           state.learnings = state.learnings.slice(-8);
-          return done(`Plan for ${meta.label}: core metric ${meta.coreMetric}; weekly budget ${(budgetMinor / 100).toFixed(2)} ${currency} (Estimate); ${template.name} owns the work.`);
+          return done(`Plan for ${meta.label}: core metric ${meta.coreMetric}; monthly budget ${(monthlyMinor / 100).toFixed(2)} ${currency}, this week's share ${(weeklyBudgetMinor(monthlyMinor) / 100).toFixed(2)} (Estimate); ${template.name} owns the work.`);
         }
         case "create": {
-          const budgetMinor = channel.budgetMinor === null ? 0 : Number(channel.budgetMinor);
-          const campaign = await repos.campaigns.create(db, businessId, { channelId: channel.id, name: `${meta.label} — ${weekLabel}`, goal: `Improve ${meta.coreMetric}`, status: "draft", budgetMinor: Math.max(0, budgetMinor), currency, config: { weekIndex: input.weekIndex, learnings: state.learnings, kitMode: channel.kitMode } });
+          const budgetMinor = weeklyBudgetMinor(channel.budgetMinor);
+          const campaign = await repos.campaigns.create(db, businessId, { channelId: channel.id, name: `${meta.label} — ${weekLabel}`, goal: `Improve ${meta.coreMetric}`, status: "draft", budgetMinor, currency, config: { weekIndex: input.weekIndex, learnings: state.learnings, kitMode: channel.kitMode } });
           state.campaignId = campaign.id;
           // The channel's agent drafts the week's creative; the cost is the agent's (an Estimate).
           let drafted = 0;
@@ -126,22 +153,31 @@ export function createChannelActivities(deps: OrchestratorDeps) {
           if (!state.campaignId) return done("no campaign to approve");
           const assets = (await repos.campaigns.listAssets(db, businessId, { campaignId: state.campaignId })).filter((a) => a.approvalState !== "rejected");
           if (assets.length === 0) return done("No creative to approve; the campaign does not launch this week.");
-          const firstCampaign = business.businessMode === "assisted" && !(await repos.campaigns.channelHasLaunched(db, businessId, channel.id));
-          const needsApproval = business.businessMode === "augmented" || channel.kitMode || firstCampaign;
-          if (!needsApproval) {
-            const approved = await repos.campaigns.approveCampaignAssets(db, businessId, state.campaignId);
-            await repos.campaigns.setStatus(db, businessId, state.campaignId, "scheduled");
-            return done(`Inside policy: ${approved.length} creative draft${approved.length === 1 ? "" : "s"} approved with the launch; scheduled without asking.`);
-          }
+          const campaign = await repos.campaigns.get(db, businessId, state.campaignId);
+          const budgetMinor = Number(campaign.budgetMinor);
           if (input.approvedApprovalId && state.approvalId === input.approvedApprovalId) {
             const approved = await repos.campaigns.approveCampaignAssets(db, businessId, state.campaignId);
             await repos.campaigns.setStatus(db, businessId, state.campaignId, "scheduled");
             state.approvalId = null;
             return done(`Founder approved; ${approved.length} creative draft${approved.length === 1 ? "" : "s"} approved and the campaign scheduled.`);
           }
+          // A campaign the channel already ran at this budget is routine work; its first one, or a bigger one, is new.
+          const last = await repos.campaigns.lastLaunched(db, businessId, channel.id, campaign.id);
+          const reason = launchApprovalReason({
+            businessMode: business.businessMode,
+            kitMode: channel.kitMode,
+            newCampaign: !last || budgetMinor > Number(last.budgetMinor),
+            budgetMinor,
+            // The founder's spend cap per action lowers the threshold, as it does at the gateway.
+            thresholdMinor: business.spendCapMinor === null ? LIMITS.approvalThresholdMinorDefault : Math.min(LIMITS.approvalThresholdMinorDefault, Number(business.spendCapMinor)),
+          });
+          if (!reason) {
+            const approved = await repos.campaigns.approveCampaignAssets(db, businessId, state.campaignId);
+            await repos.campaigns.setStatus(db, businessId, state.campaignId, "scheduled");
+            return done(`Inside policy: ${approved.length} creative draft${approved.length === 1 ? "" : "s"} approved with the launch; scheduled without asking.`);
+          }
           await repos.campaigns.setStatus(db, businessId, state.campaignId, "pending_approval");
-          const reason = business.businessMode === "augmented" ? "augmented mode: every external action asks" : channel.kitMode ? "offline tracking: the agent prepares, the founder submits" : "assisted mode: a channel's first campaign asks";
-          const budget = channel.budgetMinor === null || Number(channel.budgetMinor) <= 0 ? null : { amountMinor: Number(channel.budgetMinor), currency };
+          const budget = budgetMinor <= 0 ? null : { amountMinor: budgetMinor, currency: campaign.currency };
           const approval = await repos.approvals.create(db, businessId, { agentId: owner?.id ?? null, connectorKey: "platform", tool: "launch_campaign", args: { campaignId: state.campaignId, channelKey: key, assetIds: assets.map((a) => a.id) }, reasons: [reason], ...(budget ?? {}) });
           state.approvalId = approval.id;
           const requested = owner ? await emitEvent(db, { businessId, type: "approval.requested", actor: { kind: "agent", id: owner.id }, payload: { approvalId: approval.id, agentId: owner.id, connectorKey: "platform", tool: "launch_campaign", amount: budget, reasons: ["campaign launch needs your approval"], policyIds: [], decisionType: "publish_content", hardGate: false, summary: `${owner.name} wants to launch "${meta.label} — ${weekLabel}"` } }) : null;
@@ -176,25 +212,28 @@ export function createChannelActivities(deps: OrchestratorDeps) {
         }
         case "measure": {
           if (!state.campaignId) return done("nothing to measure");
-          // Mock mode: deterministic weekly numbers seeded by business + campaign + week; labeled Estimate on the row.
+          // Only a campaign that went live produced anything (a rejected or unanswered one never launched).
+          const campaign = await repos.campaigns.get(db, businessId, state.campaignId);
+          if (campaign.status !== "live") return done(`campaign is ${campaign.status.replace(/_/g, " ")}, not live; nothing to measure`);
+          // Mock mode: deterministic numbers for the week, seeded by business + campaign + week, stored as an estimate.
           if (deps.env.INTEGRATIONS_MODE === "mock") {
-            const campaign = await repos.campaigns.get(db, businessId, state.campaignId);
-            if (campaign.status !== "live") return done("The campaign did not go live; nothing to measure.");
             const seed = parseInt(stableHash(`${businessId}:${state.campaignId}:${input.weekIndex}`).slice(0, 8), 16);
-            const budget = channel.budgetMinor === null ? 0 : Number(channel.budgetMinor);
             const day = clock.now().toISOString().slice(0, 10);
             const impressions = 400 + (seed % 3000);
             const leadChannel = LEAD_CHANNELS[key];
             // Lead channels count the leads they record; the others measure signups from their reach.
             const recorded = leadChannel ? await recordMockLeads(businessId, channel.id, key, state.campaignId, owner?.id ?? null, 1 + (seed % leadChannel.maxPerWeek), leadChannel.basis, `${state.campaignId}:${input.weekIndex}`) : 0;
             const signups = leadChannel ? Math.round(recorded * 0.3) : Math.round(impressions * (0.002 + (seed % 5) / 1000));
-            await repos.channels.upsertMetric(db, businessId, { channelId: channel.id, campaignId: state.campaignId, day, spendMinor: Math.round(budget * 0.9), currency, impressions, leads: recorded, signups, activations: Math.round(signups * 0.5), customers: Math.round(signups * 0.2) });
+            await repos.channels.upsertMetric(db, businessId, { channelId: channel.id, campaignId: state.campaignId, day, spendMinor: Math.round(Number(campaign.budgetMinor) * 0.9), currency: campaign.impressions, leads: recorded, signups, activations: Math.round(signups * 0.5), customers: Math.round(signups * 0.2), source: "estimate" });
             requestJourneyDailyRefresh(deps);
             return done(`Measured (mock, Estimate): ${impressions} impressions, ${recorded} leads, ${signups} signups.`);
           }
           return done("Metrics arrive through the connector webhooks (ingest); nothing to pull here.");
         }
         case "learn": {
+          if (!state.campaignId) return done("nothing launched this week; nothing to learn");
+          const ran = await repos.campaigns.get(db, businessId, state.campaignId);
+          if (ran.status !== "live") return done(`campaign is ${ran.status.replace(/_/g, " ")}, not live; nothing to learn`);
           const summary = await repos.channels.metricsSummary(db, businessId, {});
           const mine = summary.channels.find((c) => c.channelId === channel.id);
           const cpa = mine?.cpaMinor ?? null;

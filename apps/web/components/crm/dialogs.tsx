@@ -11,7 +11,8 @@ import { downloadText } from "@/lib/download";
 import { plainWords } from "@/lib/format";
 import { Button, Chip, Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ENTITY_KIND_ICONS, ENTITY_KIND_LABELS, Field, Icon, Input, RadioGroup, RadioOption, SimpleSelect, Textarea, useToast } from "@foundmill/dugout";
 import type { EntityKind } from "@foundmill/shared";
-import { errorMessage, trpcErrorCode, trpcPathPrefix } from "@/lib/trpc";
+import { TRPCClientError } from "@trpc/client";
+import { appErrorCode, errorMessage, trpcErrorCode, trpcPathPrefix } from "@/lib/trpc";
 import { useTRPC } from "@/lib/trpc-react";
 import { useUntypedApi } from "@/components/providers/AppProviders";
 import { LAWFUL_BASES, LAWFUL_BASIS_LABEL, deletionRequestNote, exportEntityJson, type EntityGet, type EntityRecord } from "./logic";
@@ -30,7 +31,14 @@ export function useCrmInvalidate() {
 
 // --- new record -----------------------------------------------------------------------------------------------------
 
-export function NewEntityDialog({ businessId, open, onOpenChange, onCreated }: { businessId: string; open: boolean; onOpenChange: (o: boolean) => void; onCreated: (entity: EntityRecord) => void }) {
+/** The record a refused "New record" matched (`duplicate_entity`: a live record already holds the email or domain). */
+function duplicateOf(err: unknown): { id: string; displayName: string; message: string } | null {
+  if (appErrorCode(err) !== "duplicate_entity" || !(err instanceof TRPCClientError)) return null;
+  const existing = (err.data as { details?: { existing?: { id?: string; displayName?: string } } } | undefined)?.details?.existing;
+  return existing?.id ? { id: existing.id, displayName: existing.displayName ?? "That record", message: err.message } : null;
+}
+
+export function NewEntityDialog({ businessId, open, onOpenChange, onCreated, onOpenExisting }: { businessId: string; open: boolean; onOpenChange: (o: boolean) => void; onCreated: (entity: EntityRecord) => void; onOpenExisting?: (entityId: string) => void }) {
   const trpc = useTRPC();
   const { toast } = useToast();
   const invalidate = useCrmInvalidate();
@@ -39,11 +47,13 @@ export function NewEntityDialog({ businessId, open, onOpenChange, onCreated }: {
   const [email, setEmail] = useState("");
   const [domain, setDomain] = useState("");
   const [lawfulBasis, setLawfulBasis] = useState<string>("legitimate_interest");
+  const [duplicate, setDuplicate] = useState<{ id: string; displayName: string; message: string } | null>(null);
   useEffect(() => {
     if (!open) {
       setName("");
       setEmail("");
       setDomain("");
+      setDuplicate(null);
     }
   }, [open]);
   const create = useMutation(
@@ -54,7 +64,11 @@ export function NewEntityDialog({ businessId, open, onOpenChange, onCreated }: {
         onOpenChange(false);
         onCreated(e);
       },
-      onError: (err) => toast({ title: "Could not add the record", description: errorMessage(err), tone: "bad" }),
+      onError: (err) => {
+        const dup = duplicateOf(err);
+        if (dup) setDuplicate(dup);
+        else toast({ title: "Could not add the record", description: errorMessage(err), tone: "bad" });
+      },
     }),
   );
   const identifiers: Record<string, string> = {};
@@ -89,6 +103,28 @@ export function NewEntityDialog({ businessId, open, onOpenChange, onCreated }: {
             <Field htmlFor="new-basis" label="Lawful basis" hint="Why the business may hold this person's data (recorded per person).">
               <SimpleSelect id="new-basis" value={lawfulBasis} onValueChange={setLawfulBasis} options={LAWFUL_BASES.map((b) => ({ value: b, label: LAWFUL_BASIS_LABEL[b]! }))} />
             </Field>
+          ) : null}
+          {duplicate ? (
+            <div role="alert" className="flex flex-col gap-2 rounded-md border border-line bg-panel p-3 text-small" data-testid="new-entity-duplicate">
+              <p className="text-status-warn">{duplicate.message}</p>
+              <div className="flex flex-wrap gap-2">
+                {onOpenExisting ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      onOpenChange(false);
+                      onOpenExisting(duplicate.id);
+                    }}
+                    data-testid="new-entity-open-existing"
+                  >
+                    Open {duplicate.displayName}
+                  </Button>
+                ) : null}
+                <Button variant="ghost" loading={create.isPending} onClick={() => create.mutate({ businessId, kind, displayName: name.trim(), identifiers, aliases: [], lawfulBasis: kind === "person" ? lawfulBasis : null, allowDuplicate: true })} data-testid="new-entity-add-anyway">
+                  Add anyway
+                </Button>
+              </div>
+            </div>
           ) : null}
         </DialogBody>
         <DialogFooter>

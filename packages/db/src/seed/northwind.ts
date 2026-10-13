@@ -335,6 +335,8 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
   const won = latest ? mention(latest.customer.entityId, latest.customer.displayName) : "a new customer";
   const runwayText = finance.runwayMonths === null ? "no runway limit yet, as the business stays cash-flow positive" : `${finance.runwayMonths} months of runway (Estimate)`;
   const trophy = journey.data.milestones.filter((m) => m.trophyKey).at(-1);
+  // A non-recurring business's "MRR" is its trailing 30-day revenue: the milestone says Estimate.
+  const trophyLabel = trophy ? `${trophy.label}${trophy.ref?.estimate === true ? " (Estimate)" : ""}` : "";
   const inboxDrafts: Array<InboxSpec | null> = [
     {
       type: "decision",
@@ -407,8 +409,8 @@ export async function seedNorthwind(ctx: SeedCtx): Promise<SeededBusiness> {
       ? {
           type: "milestone",
           fromAgentId: chief.agent.id,
-          subject: `Milestone: ${trophy.label}`,
-          bodyMd: `${trophy.label} reached on ${new Date(trophy.achievedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole team gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
+          subject: `Milestone: ${trophyLabel}`,
+          bodyMd: `${trophyLabel} reached on ${new Date(trophy.achievedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}. ${journey.paidCustomers} paying customers so far (synthetic demo data). The whole team gets the credit; ${agentMention(agentEntities, squad.byTemplate.get("channel_influencer")!)} brought the most first touches this quarter.`,
           createdDaysAgo: 2,
           state: "read",
         }

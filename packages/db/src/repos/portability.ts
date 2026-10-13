@@ -70,6 +70,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   touches: t(s.touches, "distribution"),
   conversions: t(s.conversions, "distribution"),
   journeys: t(s.journeys, "distribution"),
+  chapter_titles: t(s.chapterTitles, "distribution"),
   milestones: t(s.milestones, "distribution"),
   // crm
   entities: t(s.entities, "crm"),
@@ -111,6 +112,7 @@ export const EXPORT_TABLES: Readonly<Record<string, ExportTableSpec>> = {
   holiday_periods: t(s.holidayPeriods, "settings"),
   screen_definitions: t(s.screenDefinitions, "settings"),
   dashboard_layouts: t(s.dashboardLayouts, "settings"),
+  saved_table_views: t(s.savedTableViews, "settings"),
   business_logos: t(s.businessLogos, "settings"),
   audit_log: t(s.auditLog, "settings"),
 };

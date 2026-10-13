@@ -14,6 +14,8 @@ import type { AgentRow, AssetRow, BlendedSummary, CampaignRow, ChannelMetricRow,
 export interface ChannelView extends ChannelRow {
   /** False when the API has no row for the channel yet (never scored, never enabled). */
   persisted: boolean;
+  /** The Distribution Strategist has scored it (a stored score or this session's answer); else fit and stars are blank. */
+  scored: boolean;
   /** 0–5 in halves. */
   stars: number;
   cpaRange: { low: number; high: number } | null;
@@ -45,6 +47,7 @@ const defaultRow = (key: ChannelKey, currency: string): ChannelRow => ({
   potential: 0,
   recommended: false,
   whyMd: "",
+  scoredAt: null,
   budgetMinor: 0,
   currency,
   kitMode: CHANNEL_META[key].kitModeByDefault,
@@ -71,13 +74,16 @@ export function buildChannelViews({ channels, campaigns = [], metrics = [], reco
     const row: ChannelRow = stored ? { ...defaultRow(key, currency), ...stored } : defaultRow(key, currency);
     const rec = recByKey.get(key);
     const mine = campaigns.filter((c) => c.channelId === row.id && row.id);
-    const cpaRange = rec ? rec.cpa_range_minor : null;
+    // A range only when it is one (high above zero, low at most high); an empty or unscored range shows nothing.
+    const range = rec?.cpa_range_minor ?? null;
+    const cpaRange = range && range.high > 0 ? { low: Math.min(range.low, range.high), high: Math.max(range.low, range.high) } : null;
     const cap = cpaRange?.high ?? row.form?.cpaMinor ?? null;
     return {
       ...row,
       fit: clampFit(rec?.fit ?? row.fit),
       recommended: rec ? rec.recommended : row.recommended,
       persisted: !!stored,
+      scored: !!rec || !!stored?.scoredAt,
       stars: rec ? potentialStars(rec.potential) : potentialStars(row.potential),
       cpaRange,
       why: (rec?.why ?? row.whyMd ?? "").trim(),
@@ -168,6 +174,7 @@ export function toChannelToken(view: ChannelView, opts: TokenOptions = {}): Chan
   return {
     key: view.channelKey,
     fit: view.fit,
+    scored: view.scored,
     recommended: view.recommended,
     enabled: view.enabled,
     form: view.form5,
@@ -183,13 +190,15 @@ export function toChannelToken(view: ChannelView, opts: TokenOptions = {}): Chan
   };
 }
 
+/** The 35-day results on the channel profile; simulated weeks (the mock engine) label every figure Estimate. */
 export function summaryResults(form: ChannelSummaryRow, currency: string): Array<{ label: string; value: string }> {
   const money = (minor: number) => formatMoney({ amountMinor: minor, currency }, { compact: Math.abs(minor) >= 1_000_000 });
+  const est = form.estimate ? " (Estimate)" : "";
   return [
-    { label: `Leads (${CHANNEL_WINDOW_DAYS} days)`, value: String(form.leads) },
-    { label: "Signups", value: String(form.signups) },
-    { label: "Customers", value: String(form.customers) },
-    { label: "Spend", value: money(form.spendMinor) },
+    { label: `Leads (${CHANNEL_WINDOW_DAYS} days${form.estimate ? ", Estimate" : ""})`, value: String(form.leads) },
+    { label: `Signups${est}`, value: String(form.signups) },
+    { label: `Customers${est}`, value: String(form.customers) },
+    { label: `Spend${est}`, value: money(form.spendMinor) },
     // As the Channels table says it (EstimatedMoney): a channel that spent nothing has no cost to estimate.
     { label: "Cost per customer (Estimate)", value: form.cpaMinor === null ? "No customers yet" : form.cpaMinor === 0 && !form.spendMinor ? "No spend" : money(form.cpaMinor) },
   ];
@@ -210,11 +219,11 @@ export const ENGINE_STARTING_HINT = "On the board, but its engine has not starte
  * A channel on the board is "Running" only when its engine is recorded (`engineWorkflowId`); one without an engine reads
  * "Starting" (audit GTM-01). A row from before the field existed (undefined) is taken as running.
  */
-export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "persisted"> & { engineWorkflowId?: string | null }): { tone: "good" | "warn" | "neutral"; word: ChannelStatusWord } {
+export function channelStatus(view: Pick<ChannelView, "enabled" | "paused" | "scored"> & { persisted?: boolean; engineWorkflowId?: string | null }): { tone: "good" | "warn" | "neutral"; word: ChannelStatusWord } {
   if (view.enabled && view.paused) return { tone: "warn", word: "Paused" };
-  if (view.enabled && view.persisted && view.engineWorkflowId === null) return { tone: "warn", word: "Starting" };
+  if (view.enabled && view.persisted !== false && view.engineWorkflowId === null) return { tone: "warn", word: "Starting" };
   if (view.enabled) return { tone: "good", word: "Running" };
-  if (!view.persisted) return { tone: "neutral", word: "Not scored" };
+  if (!view.scored) return { tone: "neutral", word: "Not scored" };
   return { tone: "neutral", word: "Off the board" };
 }
 
