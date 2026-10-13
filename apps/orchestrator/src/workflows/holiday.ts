@@ -19,6 +19,11 @@ export interface HolidayResult extends HolidayEnd {
   wakeEventType: string | null;
 }
 
+/** Why a `stop` signal ended the vacation: the founder came back, or anything else that stops it (the kill switch). */
+export function holidayStopReason(signalled: string | null | undefined): "founder_returned" | "kill_switch" {
+  return signalled === "founder_returned" ? "founder_returned" : "kill_switch";
+}
+
 export async function holiday(input: HolidayInput): Promise<HolidayResult> {
   const info = workflowInfo();
   let wake: WakePayload | null = null;
@@ -38,7 +43,8 @@ export async function holiday(input: HolidayInput): Promise<HolidayResult> {
 
   const settle = async (): Promise<boolean> => {
     if (stopped) {
-      reason = "kill_switch";
+      // The founder's Come back (`business.endHoliday`) sends `founder_returned`; Stop all agents sends the kill switch.
+      reason = holidayStopReason(stopped.reason);
       return true;
     }
     if (wake) {

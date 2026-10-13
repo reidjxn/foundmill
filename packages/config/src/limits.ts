@@ -11,6 +11,8 @@ export const LIMITS = {
   composerDeadlineMs: 150_000,
   /** How long the api and the orchestrator wait for the composer: above the deadline, so they never give up on a note still being written. */
   composerClientTimeoutMs: 180_000,
+  /** Most events one `POST /v1/narrate` takes (one note); a cycle with more is narrated in several calls. */
+  narrateMaxEvents: 50,
   approvalThresholdMinorDefault: 25000, // €250.00
   runwayWarnMonths: [12, 9, 6] as const,
   runwayBlockMonths: 3,

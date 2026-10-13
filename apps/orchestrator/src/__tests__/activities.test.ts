@@ -8,7 +8,7 @@ import { repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
 import { createHealthActivities } from "../activities/health";
-import { classifyDecision, createHolidayActivities } from "../activities/holiday";
+import { classifyDecision, createHolidayActivities, decisionAuthorities } from "../activities/holiday";
 import { createJourneyActivities } from "../activities/journey";
 import { createScheduleActivities } from "../activities/schedules";
 import { createTrainingActivities, scoreTest } from "../activities/training";
@@ -103,9 +103,21 @@ describe("holiday activities (BUILD §9.6)", () => {
     expect(classifyDecision(item("Sign the supplier contract"))).toBe("sign_contracts");
     expect(classifyDecision(item("Merge the billing PR"))).toBe("merge_to_main");
     expect(classifyDecision(item("Publish the launch post"))).toBe("publish_content");
-    expect(classifyDecision(item("Approve the ad spend", "", 50_000))).toBe("publish_content");
+    // Cost outranks the wording (audit VO-E1): a costed ad or customer decision is a spending decision.
+    expect(classifyDecision(item("Approve the ad spend", "", 50_000))).toBe("spend_above_threshold");
+    expect(classifyDecision(item("Where should the first customer come from?", "", 50_000))).toBe("spend_above_threshold");
     expect(classifyDecision(item("Raise the budget", "spend 500 on tooling"))).toBe("spend_above_threshold");
-    expect(classifyDecision(item("Pick a colour"))).toBeNull();
+    expect(classifyDecision(item("Pick a color"))).toBeNull();
+  });
+
+  it("lists every authority a decision needs: each topic, and spend above the approval threshold for the chosen option", () => {
+    const item = (subject: string, options: { id: string; recommended?: boolean; cost_minor?: number }[]) => ({ subject, bodyMd: "", decision: { options } });
+    const customer = item("Where should the first customer come from?", [{ id: "outbound", recommended: true, cost_minor: 50_000 }, { id: "content", cost_minor: 0 }]);
+    expect(decisionAuthorities(customer)).toEqual(["message_customers", "spend_above_threshold"]);
+    // Choosing the free option spends nothing, and a cost within the threshold needs no spend authority.
+    expect(decisionAuthorities(customer, { optionId: "content" })).toEqual(["message_customers"]);
+    expect(decisionAuthorities(customer, { thresholdMinor: 50_000 })).toEqual(["message_customers"]);
+    expect(decisionAuthorities(item("Raise the Google Ads budget?", [{ id: "yes", recommended: true }]))).toEqual(["publish_content", "spend_above_threshold"]);
   });
 
   it("auto-decides blocking items within authority, queues gated ones, then builds the report", async () => {
@@ -145,6 +157,39 @@ describe("holiday activities (BUILD §9.6)", () => {
     expect((await repos.holidays.get(t.db, t.businessId, h.id)).endedAt).not.toBeNull();
     const ended = await repos.events.list(t.db, t.businessId, { type: "holiday.ended", limit: 2 });
     expect(ended.items[0]?.payload).toMatchObject({ holidayId: h.id, reason: "until_reached", cyclesRun: 3 });
+  });
+
+  it("queues a costed decision without the spend authority, and never chooses past the budget ceiling (audit VO-E1)", async () => {
+    const acts = createHolidayActivities(t.deps);
+    const mk = (subject: string, costMinor: number) =>
+      repos.inbox.createItem(t.db, t.businessId, { type: "decision", from_agent_id: t.chiefId, subject, body_md: "The details are in the note.", status_strip: [], exhibit: { kind: "none", spec_ref: null }, decision: { options: [{ id: "go", label: "Go", recommended: true, consequence: "It happens", cost_minor: costMinor, reversible: true }, { id: "wait", label: "Wait", recommended: false, consequence: "Nothing", cost_minor: 0, reversible: true }], free_text: true, expires_at: null }, blocks_continue: true, source_event_ids: [], entity_ids: [] });
+
+    // 1. Spend withheld: the $500 customer decision and the ads budget queue; a free post is still decided.
+    const noSpend = await repos.holidays.start(t.db, t.businessId, { untilCondition: { text: "until I return" }, authority: { decisionTypes: ["message_customers", "publish_content"] }, startedAt: t.clock.now(), currency: "USD" });
+    const loadedNoSpend = await acts.loadHoliday({ businessId: t.businessId, holidayId: noSpend.id });
+    const customer = await mk("Where should the first customer come from?", 50_000);
+    const ads = await mk("Raise the Google Ads budget?", 200_000);
+    const post = await mk("Publish the pricing post", 0);
+    const first = await acts.holidayAutoDecide({ businessId: t.businessId, holiday: loadedNoSpend });
+    expect(first.inboxItemIds).toContain(post.id);
+    expect(first.inboxItemIds).not.toContain(customer.id);
+    expect(first.inboxItemIds).not.toContain(ads.id);
+    expect((await repos.inbox.get(t.db, t.businessId, customer.id)).state).toBe("unread");
+    await repos.holidays.end(t.db, t.businessId, noSpend.id, { endedAt: t.clock.now() });
+
+    // 2. Spend granted with a $10 ceiling: a $500 option is still beyond it; within the ceiling, an option is chosen once.
+    const ceiling = await repos.holidays.start(t.db, t.businessId, { untilCondition: { text: "until I return" }, authority: { decisionTypes: ["message_customers", "publish_content", "spend_above_threshold"] }, budgetCeilingMinor: 1_000, startedAt: t.clock.now(), currency: "USD" });
+    const loadedCeiling = await acts.loadHoliday({ businessId: t.businessId, holidayId: ceiling.id });
+    const small = await mk("Boost the launch post", 600);
+    const second = await mk("Boost the follow-up post", 600);
+    const out = await acts.holidayAutoDecide({ businessId: t.businessId, holiday: loadedCeiling });
+    expect(out.inboxItemIds).not.toContain(customer.id);
+    expect(out.inboxItemIds).not.toContain(ads.id);
+    // $6 fits the $10 ceiling once; the second $6 would pass it.
+    expect([small.id, second.id].filter((id) => out.inboxItemIds.includes(id))).toHaveLength(1);
+    const again = await acts.holidayAutoDecide({ businessId: t.businessId, holiday: loadedCeiling });
+    expect(again.inboxItemIds).toEqual([]);
+    await repos.holidays.end(t.db, t.businessId, ceiling.id, { endedAt: t.clock.now() });
   });
 });
 

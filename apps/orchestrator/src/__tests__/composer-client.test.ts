@@ -5,7 +5,6 @@
  */
 import { LIMITS } from "@foundmill/config";
 import { repos } from "@foundmill/db";
-import { ApplicationFailure } from "@temporalio/common";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createCycleActivities } from "../activities/cycle";
 import { createJourneyActivities } from "../activities/journey";
@@ -60,17 +59,42 @@ describe("narrateCycle and the journey commentary", () => {
   const failing = (err: Error): ComposerClient => ({ baseUrl: "http://composer.test", narrate: () => Promise.reject(err), commentary: () => Promise.reject(err), chapterTitle: () => Promise.reject(err) });
   const input = () => ({ businessId: t.businessId, eventIds: [t.fixture.eventIds[0]!], summary: "Cycle 1: done." });
 
-  it("in staging a 4xx is a non-retryable failure, while an outage is rethrown for the activity retry", async () => {
-    const staging = { ...t.deps, env: { ...t.deps.env, APP_ENV: "staging" as const } };
-    const rejected = await createCycleActivities({ ...staging, composer: failing(new ComposerRequestError("composer_rejected", "rejected after the re-ask", 422)) })
-      .narrateCycle(input())
-      .catch((e: unknown) => e);
-    expect(rejected).toBeInstanceOf(ApplicationFailure);
-    expect(rejected).toMatchObject({ type: "ComposerRequestError", nonRetryable: true });
-    const outage = await createCycleActivities({ ...staging, composer: failing(new ComposerUnavailableError("Composer /v1/narrate did not answer within 180 s")) })
+  const staging = () => ({ ...t.deps, env: { ...t.deps.env, APP_ENV: "staging" as const } });
+  const itemBody = async (id: string) => (await repos.inbox.get(t.db, t.businessId, id)).bodyMd;
+
+  it("in staging a 4xx is not retried: the founder gets the plain cycle update (no outage notice), while an outage is rethrown for the activity retry", async () => {
+    const rejected = await createCycleActivities({ ...staging(), composer: failing(new ComposerRequestError("composer_rejected", "rejected after the re-ask", 422)) }).narrateCycle({ ...input(), summary: "Cycle 2: 1 session dispatched." });
+    expect(rejected.viaComposer).toBe(false);
+    expect(rejected.inboxItemIds).toHaveLength(1);
+    const body = await itemBody(rejected.inboxItemIds[0]!);
+    expect(body).toBe("Cycle 2: 1 session dispatched.");
+    expect(body).not.toMatch(/unavailable/i);
+    const outage = await createCycleActivities({ ...staging(), composer: failing(new ComposerUnavailableError("Composer /v1/narrate did not answer within 180 s")) })
       .narrateCycle(input())
       .catch((e: unknown) => e);
     expect(outage).toBeInstanceOf(ComposerUnavailableError);
+  });
+
+  it("a cycle that finished no session gets a normal update from its summary, without calling the composer (audit FR-13, OL-09, O-21)", async () => {
+    const narrate = vi.fn(() => Promise.reject(new ComposerRequestError("validation", "Invalid request body", 400)));
+    const composer: ComposerClient = { ...failing(new Error("unused")), narrate };
+    const out = await createCycleActivities({ ...staging(), composer }).narrateCycle({ businessId: t.businessId, eventIds: [], summary: "Nothing could run.\n\nCycle 3: 0 sessions dispatched, 0 finished, 0 blocked.", fallbackSubject: "Cycle 3 waiting" });
+    expect(narrate).not.toHaveBeenCalled();
+    expect(out.inboxItemIds).toHaveLength(1);
+    const item = await repos.inbox.get(t.db, t.businessId, out.inboxItemIds[0]!);
+    expect(item.subject).toBe("Cycle 3 waiting");
+    expect(item.bodyMd).toBe("Nothing could run.\n\nCycle 3: 0 sessions dispatched, 0 finished, 0 blocked.");
+    expect(item.blocksContinue).toBe(false);
+  });
+
+  it(`a cycle with more than ${LIMITS.narrateMaxEvents} events is narrated in calls of at most ${LIMITS.narrateMaxEvents}, every event once`, async () => {
+    const ids = Array.from({ length: LIMITS.narrateMaxEvents * 2 + 3 }, (_, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`);
+    const calls: string[][] = [];
+    const composer: ComposerClient = { ...failing(new Error("unused")), narrate: async ({ eventIds }) => (calls.push(eventIds), { inboxItemId: `item-${calls.length}`, replayed: false }) };
+    const out = await createCycleActivities({ ...staging(), composer }).narrateCycle({ businessId: t.businessId, eventIds: [...ids, ids[0]!], summary: "Busy cycle." });
+    expect(calls.map((c) => c.length)).toEqual([LIMITS.narrateMaxEvents, LIMITS.narrateMaxEvents, 3]);
+    expect(calls.flat()).toEqual(ids);
+    expect(out).toEqual({ inboxItemIds: ["item-1", "item-2", "item-3"], viaComposer: true });
   });
 
   it("a journey stands without commentary when the composer turns the request down (4xx), and the win is still announced", async () => {
@@ -82,11 +106,14 @@ describe("narrateCycle and the journey commentary", () => {
     expect((await repos.events.get(t.db, t.businessId, result.eventId!)).type).toBe("customer.converted");
   });
 
-  it("in development a 4xx still ends in the plain cycle update, as an outage does", async () => {
+  it("in development a 4xx ends in the plain cycle update without an outage notice; an outage's plain update says so", async () => {
     const before = (await repos.inbox.list(t.db, t.businessId, { limit: 500 })).items.length;
     const out = await createCycleActivities({ ...t.deps, composer: failing(new ComposerRequestError("validation", "Invalid request body", 400)) }).narrateCycle(input());
     expect(out.viaComposer).toBe(false);
     expect(out.inboxItemIds).toHaveLength(1);
-    expect((await repos.inbox.list(t.db, t.businessId, { limit: 500 })).items.length).toBe(before + 1);
+    expect(await itemBody(out.inboxItemIds[0]!)).toBe("Cycle 1: done.");
+    const down = await createCycleActivities({ ...t.deps, composer: failing(new ComposerUnavailableError("Composer /v1/narrate unreachable")) }).narrateCycle(input());
+    expect(await itemBody(down.inboxItemIds[0]!)).toMatch(/without the Inbox Composer \(service unavailable\)/);
+    expect((await repos.inbox.list(t.db, t.businessId, { limit: 500 })).items.length).toBe(before + 2);
   });
 });
