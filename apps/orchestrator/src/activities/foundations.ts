@@ -50,8 +50,8 @@ import type { OrchestratorDeps } from "../deps";
 import { agentActor, emitEvent, systemActor } from "../events";
 import type { BusinessFoundationsInput, FoundationsDrafted, FoundationsPlanned, FoundationsStepDone } from "./types";
 
-/** Errors a retry cannot fix: the key was refused, or the model declined. */
-const NON_RETRYABLE_CODES = new Set(["auth", "refusal", "request"]);
+/** Errors a retry cannot fix: the key was refused, the model declined, or the model account cannot pay (until someone adds credit). */
+const NON_RETRYABLE_CODES = new Set(["auth", "refusal", "request", "billing"]);
 
 /**
  * The only failure type the drafting activities throw, and the only one whose message the workflow stores as the

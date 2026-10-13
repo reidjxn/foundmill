@@ -9,7 +9,7 @@ import { AppError, connectorMode } from "@foundmill/shared";
 import { buildAad, encryptJson, redactSecret } from "@foundmill/shared/crypto";
 import { z } from "zod";
 import { signInstallState, verifyInstallState } from "../services/install-state";
-import { revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey } from "../services/keys";
+import { ANTHROPIC, revokeAnthropicKey, storeAnthropicKey, validateAnthropicKey } from "../services/keys";
 import { Id, audit, router, sectionAdmin, sectionRead } from "../trpc";
 
 const read = sectionRead("settings");
@@ -45,6 +45,9 @@ export const integrationsRouter = router({
   connect: admin.input(z.object({ connectorKey: z.string().min(1).max(60), input: z.record(z.string(), z.unknown()).default({}) })).mutation(async ({ ctx, input }) => {
     const mode = connectorMode(ctx.env, input.connectorKey);
     if (!ctx.connectors.has(input.connectorKey)) throw new AppError("not_found", `Unknown connector ${input.connectorKey}`, 404);
+    // The Anthropic key decides who pays for model calls and resumes a stopped team: it is stored only through
+    // Settings › Keys (`storeAnthropicKey`), never as a generic connection that would skip all of that (audit ARB-04).
+    if (input.connectorKey === ANTHROPIC) throw new AppError("validation", "The Anthropic key is stored in Settings › Keys, where it is checked and the team moves onto it.", 400, { manageIn: "keys" });
     const connector = ctx.connectors.get(input.connectorKey, mode);
 
     let record: Omit<IntegrationRecord, "id" | "businessId" | "connectorKey" | "credentialRef" | "lastHealthAt" | "createdAt"> & { credentialToStore?: IntegrationRecord["credentialToStore"] };
@@ -91,16 +94,24 @@ export const integrationsRouter = router({
     return { integration, record: { ...safe, connectorKey: input.connectorKey }, consentUrl, founderConsentRequired: consentUrl !== null };
   }),
 
-  disconnect: admin.input(z.object({ integrationId: Id })).mutation(({ ctx, input }) =>
-    ctx.db.transaction(async (tx: Executor) => {
+  disconnect: admin.input(z.object({ integrationId: Id })).mutation(async ({ ctx, input }) => {
+    // Disconnecting the Anthropic key is revoking it (Settings › Keys): billing moves back to credits where the plan
+    // includes them, the team stops and the Inbox says why. A plain disconnect left the business on a key it no longer
+    // had, so every model call failed with no explanation (audit ARB-04).
+    const target = await repos.integrations.get(ctx.db, ctx.businessId, input.integrationId);
+    if (target.connectorKey === ANTHROPIC) {
+      await revokeAnthropicKey(ctx);
+      return repos.integrations.get(ctx.db, ctx.businessId, target.id);
+    }
+    return ctx.db.transaction(async (tx: Executor) => {
       const integration = await repos.integrations.get(tx, ctx.businessId, input.integrationId);
       const metas = await repos.credentials.listMetadata(tx, ctx.businessId, { integrationId: integration.id });
       for (const m of metas) await repos.credentials.revoke(tx, ctx.businessId, m.id);
       const row = await repos.integrations.disconnect(tx, ctx.businessId, integration.id);
       await audit(tx, ctx, { action: "integrations.disconnect", target: { kind: "integration", id: row.id }, details: { connectorKey: row.connectorKey, credentialsRevoked: metas.length } });
       return row;
-    }),
-  ),
+    });
+  }),
 
   health: read.input(z.object({ integrationId: Id })).mutation(async ({ ctx, input }) => {
     const integration = await repos.integrations.get(ctx.db, ctx.businessId, input.integrationId);

@@ -12,7 +12,9 @@ import { createApiHarness, type ApiHarness } from "./harness";
 
 let hz: ApiHarness;
 beforeAll(async () => {
-  hz = await createApiHarness({ prefix: "tiers" });
+  // A Temporal client that takes every workflow: the last check starts a task, which needs the session queued.
+  const temporal = { workflow: { start: async () => ({}), getHandle: () => ({ signal: async () => undefined }) } };
+  hz = await createApiHarness({ prefix: "tiers", temporalClient: temporal });
 }, 120_000);
 afterAll(() => hz.close());
 

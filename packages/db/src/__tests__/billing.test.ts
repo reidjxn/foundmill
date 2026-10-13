@@ -250,6 +250,18 @@ describe("the platform-key gate (SEC2 S2, S10)", () => {
   });
 });
 
+describe("bookUsage, calls under half a cent", () => {
+  it("a stream of 0.2-cent calls is charged to credits: the carry completes a cent on every fifth call", async () => {
+    const B = r.B.businessId;
+    await repos.businesses.update(r.db, B, { modelBilling: "credits" });
+    const call = () => bookUsage(r.db, B, { agentId: r.B.agentId, kind: "tokens", modelKey: "haiku", quantity: 1150, costMicroMinor: 200_000, billedTo: "credits", occurredAt: new Date(Date.UTC(2027, 3, 5, 12)) });
+    const spent: number[] = [];
+    for (let i = 0; i < 10; i++) spent.push(Number((await call()).credits?.balance?.spentMinor));
+    expect(spent).toEqual([0, 0, 0, 0, 1, 1, 1, 1, 1, 2]);
+    expect((await repos.usage.totals(r.db, B, { from: new Date(Date.UTC(2027, 3, 1)), to: new Date(Date.UTC(2027, 4, 1)) })).costMinor).toBe(2);
+  });
+});
+
 describe("loadByokApiKey", () => {
   const vault = createVault({ DEV_MASTER_KEY: generateMasterKey(), APP_ENV: "test" });
   const seal = async (businessId: string, integrationId: string, kind: string, payload: unknown) => {

@@ -183,7 +183,11 @@ export interface SessionResult {
   tokensIn: number;
   tokensOut: number;
   costMinor: number;
+  /** The exact model cost in millionths of a US cent (`costMinor` is its rounding); absent on results from before 0039. */
+  costMicroMinor?: number;
   durationMs: number;
+  /** Milliseconds a sandbox was running for this session (a live code task's acceptance run); 0 when none was used. */
+  sandboxMs?: number;
   prNumber: number | null;
   summary: string;
   /** Last SDK/replay session id for resume. */
@@ -308,6 +312,8 @@ export interface SkillTestsOutcome {
   tested: number;
   previousTested: number | null;
   costMinor: number;
+  /** The exact cost in millionths of a US cent (`costMinor` is its rounding); absent on outcomes from before 0039. */
+  costMicroMinor?: number;
   checksFailed: number;
 }
 

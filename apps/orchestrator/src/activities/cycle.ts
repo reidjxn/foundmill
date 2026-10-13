@@ -2,20 +2,37 @@
  * businessCycle activities (BUILD §9.4, §12.4, ARCHITECTURE §10): Chief of Staff planning through the `chiefOfStaff`
  * route, dispatch bookkeeping (sessions, task status, `task.started`), cycle events and the composer hand-off.
  */
+import { ApplicationFailure } from "@temporalio/common";
 import { LIMITS } from "@foundmill/config";
-import { buildSystemPrompt, getPrompt, getTemplate, getTemplateByAgentType } from "@foundmill/agents";
+import { buildSystemPrompt, getPrompt, getTemplate, getTemplateByAgentType, modelBillingFacts, modelBillingMessage } from "@foundmill/agents";
 import { APP_NAME } from "@foundmill/config";
 import { repos } from "@foundmill/db";
 import { CyclePlanOutput } from "@foundmill/models";
 import { uuid, type TaskKind } from "@foundmill/shared";
 import { ComposerRequestError, ComposerUnavailableError } from "../composer-client";
+import { CYCLE_PLAN_FAILURE, type PlanFailureDetails } from "../cycle-contract";
 import type { OrchestratorDeps } from "../deps";
 import { requestJourneyDailyRefresh } from "../journey-refresh";
-import { emitEvent, systemActor } from "../events";
+import { agentActor, emitEvent, systemActor } from "../events";
 import { openAgentSession, type DispatchRefusal } from "./dispatch";
 import type { BriefAgent, BriefTask, BusinessBrief, CyclePlan, CycleStart, CycleTrigger } from "./types";
 
 const DISPATCHABLE = new Set(["planned", "ready", "paused", "blocked", "failed"]);
+
+/**
+ * A model failure in planning as the activity's failure: a billing refusal, a refused or missing key and any other
+ * refused request are final at once (non-retryable `CYCLE_PLAN_FAILURE`, readable message); anything else (a rate limit,
+ * an outage, an unreadable answer) is returned unchanged so Temporal retries it as before.
+ */
+export function planFailure(err: unknown): unknown {
+  const billing = modelBillingFacts(err);
+  if (billing) return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: modelBillingMessage(billing, "This cycle's plan"), nonRetryable: true, details: [{ kind: "billing", billedTo: billing.billedTo, reason: billing.reason } satisfies PlanFailureDetails] });
+  const e = err as { name?: unknown; code?: unknown; apiErrorType?: unknown } | null;
+  if (e?.name !== "ModelRequestError") return err;
+  if (e.apiErrorType === "missing_api_key") return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This cycle's plan could not run: this business works on its own Anthropic key and none is stored. Add one in Settings › Keys, then press Continue.", nonRetryable: true, details: [{ kind: "credential" } satisfies PlanFailureDetails] });
+  if (e.code === "auth") return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This cycle's plan could not run: Anthropic refused the key. Check the key in Settings › Keys, then press Continue.", nonRetryable: true, details: [{ kind: "credential" } satisfies PlanFailureDetails] });
+  return ApplicationFailure.create({ type: CYCLE_PLAN_FAILURE, message: "This cycle's plan could not run: the model service refused the request. Press Continue to try again; if it happens again, the team has the details.", nonRetryable: true, details: [{ kind: "request" } satisfies PlanFailureDetails] });
+}
 
 /** An agent the cycle may give work: not paused, injured or failing (failing agents rest first, `recoverAgents`), and under its wage cap. */
 export function agentUsable(a: BriefAgent): boolean {
@@ -91,16 +108,20 @@ export function createCycleActivities(deps: OrchestratorDeps) {
         agents: brief.agents.map((a) => ({ id: a.id, name: a.name, role: a.role, agent_type: a.agentType, layer: a.layer, department_id: a.departmentIds[0] ?? null, status: a.status })),
         open_tasks: candidates.map((t) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, department_id: t.departmentId ?? "general", assignee_agent_id: t.assigneeAgentId ?? undefined, priority: Math.max(1, Math.min(5, 3 - Math.sign(t.priority))), blocked_by: t.dependsOn })),
       };
-      const result = await deps.models.complete({
-        route: "chiefOfStaff",
-        schema: CyclePlanOutput,
-        system: [system],
-        messages: [{ role: "user", content: `${prompt}\n\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\`` }],
-        modelOverride: chiefAgent?.modelKey,
-        cacheSystem: true,
-        scope: `cycle:${input.businessId}`,
-        attribution: { businessId: input.businessId, agentId: chiefAgent?.id, kind: "cycle_plan" },
-      });
+      const result = await deps.models
+        .complete({
+          route: "chiefOfStaff",
+          schema: CyclePlanOutput,
+          system: [system],
+          messages: [{ role: "user", content: `${prompt}\n\n\`\`\`json\n${JSON.stringify(payload)}\n\`\`\`` }],
+          modelOverride: chiefAgent?.modelKey,
+          cacheSystem: true,
+          scope: `cycle:${input.businessId}`,
+          attribution: { businessId: input.businessId, agentId: chiefAgent?.id, kind: "cycle_plan" },
+        })
+        .catch((err: unknown) => {
+          throw planFailure(err);
+        });
       const plan = result.json;
       const byId = new Map(candidates.map((t) => [t.id, t]));
       const starts: CycleStart[] = [];
@@ -158,6 +179,42 @@ export function createCycleActivities(deps: OrchestratorDeps) {
       const opened = await openAgentSession(deps, input);
       if (opened.refused) deps.log.info({ businessId: input.businessId, taskId: input.taskId, agentId: input.agentId, refused: opened.refused }, "session not opened");
       return { sessionId: opened.sessionId, refused: opened.refused, detail: opened.detail };
+    },
+
+    /**
+     * The cycle could not be planned (audit BILL-06): one warning in the Inbox from the Chief of Staff with the reason
+     * (`message`, from `planFailure` or the generic line), an audit row, and, when Anthropic refused to bill the platform's
+     * key, the operator's alert (`alert: "model_billing"`). businessCycle then ends the cycle `failed`.
+     */
+    async notePlanFailure(input: { businessId: string; cycleNumber: number; message: string; details: PlanFailureDetails | null }): Promise<{ inboxItemIds: string[] }> {
+      const kind = input.details?.kind ?? "error";
+      if (kind === "billing" && input.details?.billedTo !== "byok") deps.log.error({ alert: "model_billing", businessId: input.businessId, cycleNumber: input.cycleNumber, reason: input.details?.reason }, "cycle not planned: Anthropic refused to bill the platform key");
+      else deps.log.warn({ businessId: input.businessId, cycleNumber: input.cycleNumber, kind }, "cycle not planned");
+      const chief = await repos.agents.chiefOfStaff(deps.db, input.businessId);
+      const inboxItemIds: string[] = [];
+      if (chief) {
+        const item = await repos.inbox.createItem(deps.db, input.businessId, {
+          type: "warning",
+          from_agent_id: chief.id,
+          subject: `Cycle ${input.cycleNumber} did not start`.slice(0, 80),
+          body_md: `${input.message.trim()}\n\nNo new work started this cycle; work already under way carries on.`,
+          status_strip: [],
+          exhibit: { kind: "none", spec_ref: null },
+          decision: null,
+          blocks_continue: false,
+          source_event_ids: [],
+          entity_ids: [],
+        });
+        await emitEvent(deps.db, {
+          businessId: input.businessId,
+          type: "inbox.item_created",
+          actor: agentActor(chief.id),
+          payload: { inboxItemId: item.id, type: item.type, fromAgentId: chief.id, subject: item.subject, blocksContinue: item.blocksContinue, sourceEventIds: [], cost: null },
+        });
+        inboxItemIds.push(item.id);
+      }
+      await repos.audit.append(deps.db, input.businessId, { actorKind: "system", action: "cycle.plan_failed", target: { kind: "business", id: input.businessId }, details: { cycleNumber: input.cycleNumber, kind, billedTo: input.details?.billedTo ?? null, reason: input.details?.reason ?? null, inboxItemIds } });
+      return { inboxItemIds };
     },
 
     /** Record the end of a cycle (`cycle.completed`). */

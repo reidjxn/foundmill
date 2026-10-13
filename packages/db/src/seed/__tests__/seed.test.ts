@@ -278,6 +278,22 @@ describe("seedDemo on PGlite", () => {
     expect((await repos.training.latestForAgent(db, LEDGERLY_BUSINESS_ID, backend.id))?.decision).toBe("promoted");
   });
 
+  it("each business's billing tells one story: usage billed the way it pays for models, credits only for credits, no key connection without a key (BILL-05, DB-16)", async () => {
+    for (const businessId of [NORTHWIND_BUSINESS_ID, LEDGERLY_BUSINESS_ID]) {
+      const business = await repos.businesses.get(db, businessId);
+      const usage = await db.select().from(s.usageLedger).where(eq(s.usageLedger.businessId, businessId));
+      expect(usage.length).toBeGreaterThan(0);
+      expect(new Set(usage.map((u) => u.billedTo))).toEqual(new Set([business.modelBilling]));
+      const balances = await db.select().from(s.creditBalances).where(eq(s.creditBalances.businessId, businessId));
+      expect(balances.length > 0).toBe(business.modelBilling === "credits");
+      // A BYOK connection exists only with a stored credential behind it: the demo seeds none, so none runs on its own key.
+      const anthropic = (await db.select().from(s.integrations).where(eq(s.integrations.businessId, businessId))).filter((i) => i.connectorKey === "anthropic");
+      const keys = await db.select().from(s.credentials).where(eq(s.credentials.businessId, businessId));
+      if (business.modelBilling === "byok" || anthropic.length > 0) expect(keys.length).toBeGreaterThan(0);
+    }
+    expect((await repos.businesses.get(db, LEDGERLY_BUSINESS_ID)).modelBilling).toBe("credits");
+  });
+
   it("RLS: the demo owner sees both businesses and their journey_daily rows; a stranger sees none", async () => {
     const stranger = await h.createUser("stranger@test.local");
     const mine = await h.asUser(result.owner.userId).run((tx) => repos.businesses.listForUser(tx, result.owner.userId));

@@ -70,6 +70,8 @@ export function usageSink(db: Db, log: Logger): (event: UsageEvent) => Promise<v
         quantity: event.usage.inputTokens + event.usage.outputTokens,
         unit: "tokens",
         costMinor: Math.max(0, event.cost.costMinorInt),
+        // The exact cost (0039): sums and credits add these, so a call under half a cent is not booked at 0.
+        costMicroMinor: Math.max(0, event.cost.costMicroMinor),
         currency: event.cost.currency,
         billedTo: event.billedTo,
         occurredAt: event.occurredAt,

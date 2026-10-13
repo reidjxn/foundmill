@@ -11,6 +11,10 @@
  * list's currency (`CREDITS_CURRENCY`), and a row written without a currency is USD. A tool row keeps its vendor's
  * currency. Sums never add amounts in different currencies: `totals`, `daily`, `wages` and `agentSpend` count USD rows,
  * and `totals.otherCurrencies` lists what was booked in anything else. A credit balance is always USD.
+ *
+ * Precision (0039, DECISIONS 2026-10-05 "sum costMicroMinor, round once"): a row keeps its exact cost in millionths of a
+ * cent (`costMicroMinor`) beside the rounded `costMinor`; every sum here adds the exact costs and rounds once, and
+ * credits are charged through a per-period carry (`chargeCreditsMicro`), so calls under half a cent are counted.
  */
 import { CREDITS_CURRENCY } from "@foundmill/config";
 import { MODEL_BILLING, MODEL_KEYS, USAGE_KINDS, ValidationError, type UsageKind } from "@foundmill/shared";
@@ -19,6 +23,15 @@ import { z } from "zod";
 import { agents, businesses, creditBalances, usageLedger, type CreditBalance, type UsageEntry } from "../schema";
 import { Currency, DateRange, Id, IsoDateInput, JsonObject, MinorAmount, one, PageInput, parseInput, timeKeyset, timeRange, toPage, type Executor, type Page } from "./_shared";
 
+/** Millionths of a minor unit per minor unit (the meter's `costMicroMinor`, packages/models pricing.ts). */
+export const MICRO_PER_MINOR = 1_000_000;
+
+/** Minor units from summed micro-minor units, rounded once. */
+export const microToMinor = (micro: number): number => Math.round(micro / MICRO_PER_MINOR);
+
+/** A row's exact cost: `cost_micro_minor`, or `cost_minor` × 1,000,000 on a row written before 0039. */
+const exactCost = sql<number>`coalesce(${usageLedger.costMicroMinor}, ${usageLedger.costMinor} * ${MICRO_PER_MINOR})`;
+
 export const RecordUsageInput = z.object({
   agentId: Id.nullable().optional(),
   sessionId: Id.nullable().optional(),
@@ -26,7 +39,10 @@ export const RecordUsageInput = z.object({
   modelKey: z.enum(MODEL_KEYS).nullable().optional(),
   quantity: z.number().int().nonnegative().default(0),
   unit: z.string().max(20).default("tokens"),
-  costMinor: MinorAmount.nonnegative().default(0),
+  /** The rounded cost; derived from `costMicroMinor` when only that is given. */
+  costMinor: MinorAmount.nonnegative().optional(),
+  /** The exact cost in millionths of a minor unit (a model call's `cost.costMicroMinor`); `costMinor` × 1,000,000 when omitted. */
+  costMicroMinor: MinorAmount.nonnegative().optional(),
   currency: Currency.optional(),
   billedTo: z.enum(MODEL_BILLING).default("credits"),
   occurredAt: IsoDateInput.optional(),
@@ -84,6 +100,7 @@ export function periodOf(date: Date): string {
 export const usageRepo = {
   async record(db: Executor, businessId: string, input: RecordUsageInput): Promise<UsageEntry> {
     const v = parseInput(RecordUsageInput, input, "usage entry");
+    const costMicroMinor = v.costMicroMinor ?? (v.costMinor ?? 0) * MICRO_PER_MINOR;
     return one(
       await db
         .insert(usageLedger)
@@ -95,7 +112,8 @@ export const usageRepo = {
           modelKey: v.modelKey ?? null,
           quantity: v.quantity,
           unit: v.unit,
-          costMinor: v.costMinor,
+          costMinor: v.costMinor ?? microToMinor(costMicroMinor),
+          costMicroMinor,
           // Platform costs are US cents; a sink that names no currency books USD, never the old EUR column default.
           currency: v.currency ?? CREDITS_CURRENCY,
           billedTo: v.billedTo,
@@ -134,7 +152,7 @@ export const usageRepo = {
   async totals(db: Executor, businessId: string, range: DateRange & { agentId?: string } = {}): Promise<UsageTotals> {
     const r = parseInput(DateRange.extend({ agentId: Id.optional() }), range, "date range");
     const rows = await db
-      .select({ kind: usageLedger.kind, billedTo: usageLedger.billedTo, currency: usageLedger.currency, cost: sql<number>`coalesce(sum(${usageLedger.costMinor}), 0)::bigint`, quantity: sql<number>`coalesce(sum(${usageLedger.quantity}), 0)::bigint`, n: sql<number>`count(*)::int` })
+      .select({ kind: usageLedger.kind, billedTo: usageLedger.billedTo, currency: usageLedger.currency, micro: sql<number>`coalesce(sum(${exactCost}), 0)::bigint`, quantity: sql<number>`coalesce(sum(${usageLedger.quantity}), 0)::bigint`, n: sql<number>`count(*)::int` })
       .from(usageLedger)
       .where(and(eq(usageLedger.businessId, businessId), r.agentId ? eq(usageLedger.agentId, r.agentId) : undefined, timeRange(usageLedger.occurredAt, r)))
       .groupBy(usageLedger.kind, usageLedger.billedTo, usageLedger.currency);
@@ -147,22 +165,29 @@ export const usageRepo = {
       byBilledTo: Object.fromEntries(MODEL_BILLING.map((b) => [b, 0])) as UsageTotals["byBilledTo"],
       otherCurrencies: [],
     };
+    // Exact costs are added per figure and each figure is rounded once (calls under half a cent still count).
     const other = new Map<string, number>();
+    const byKind = new Map<UsageKind, number>();
+    const byBilledTo = new Map<(typeof MODEL_BILLING)[number], number>();
+    let total = 0;
     for (const row of rows) {
-      const cost = Number(row.cost);
+      const micro = Number(row.micro);
       const qty = Number(row.quantity);
       out.quantity += qty;
       out.entries += Number(row.n);
       out.byKind[row.kind].quantity += qty;
       if (row.currency !== CREDITS_CURRENCY) {
-        if (cost) other.set(row.currency, (other.get(row.currency) ?? 0) + cost);
+        if (micro) other.set(row.currency, (other.get(row.currency) ?? 0) + micro);
         continue;
       }
-      out.costMinor += cost;
-      out.byKind[row.kind].costMinor += cost;
-      out.byBilledTo[row.billedTo] += cost;
+      total += micro;
+      byKind.set(row.kind, (byKind.get(row.kind) ?? 0) + micro);
+      byBilledTo.set(row.billedTo, (byBilledTo.get(row.billedTo) ?? 0) + micro);
     }
-    out.otherCurrencies = [...other].map(([currency, costMinor]) => ({ currency, costMinor })).sort((a, b) => a.currency.localeCompare(b.currency));
+    out.costMinor = microToMinor(total);
+    for (const [kind, micro] of byKind) out.byKind[kind].costMinor = microToMinor(micro);
+    for (const [billedTo, micro] of byBilledTo) out.byBilledTo[billedTo] = microToMinor(micro);
+    out.otherCurrencies = [...other].map(([currency, micro]) => ({ currency, costMinor: microToMinor(micro) })).sort((a, b) => a.currency.localeCompare(b.currency));
     return out;
   },
 
@@ -171,19 +196,19 @@ export const usageRepo = {
     const r = parseInput(DateRange, range, "date range");
     const day = sql<string>`to_char(${usageLedger.occurredAt} at time zone 'UTC', 'YYYY-MM-DD')`;
     const rows = await db
-      .select({ day, cost: sql<number>`coalesce(sum(${usageLedger.costMinor}), 0)::bigint` })
+      .select({ day, micro: sql<number>`coalesce(sum(${exactCost}), 0)::bigint` })
       .from(usageLedger)
       .where(and(eq(usageLedger.businessId, businessId), eq(usageLedger.currency, CREDITS_CURRENCY), timeRange(usageLedger.occurredAt, r)))
       .groupBy(day)
       .orderBy(day);
-    return rows.map((x) => ({ day: x.day, costMinor: Number(x.cost) }));
+    return rows.map((x) => ({ day: x.day, costMinor: microToMinor(Number(x.micro)) }));
   },
 
   /** Payroll: per-agent cost for a month (tokens, sandbox minutes, tool calls, training) in USD, highest first. */
   async wages(db: Executor, businessId: string, period: string): Promise<AgentWage[]> {
     const { from, to } = periodRange(period);
     const usd = sql`${usageLedger.currency} = ${CREDITS_CURRENCY}`;
-    const cost = sql<number>`coalesce(sum(case when ${usd} then ${usageLedger.costMinor} else 0 end), 0)::bigint`;
+    const cost = sql<number>`coalesce(sum(case when ${usd} then ${exactCost} else 0 end), 0)::bigint`;
     const rows = await db
       .select({
         agentId: usageLedger.agentId,
@@ -192,27 +217,28 @@ export const usageRepo = {
         tokens: sql<number>`coalesce(sum(case when ${usageLedger.kind} = 'tokens' then ${usageLedger.quantity} else 0 end), 0)::bigint`,
         sandbox: sql<number>`coalesce(sum(case when ${usageLedger.kind} = 'sandbox' then ${usageLedger.quantity} else 0 end), 0)::bigint`,
         tools: sql<number>`coalesce(sum(case when ${usageLedger.kind} = 'tool' then ${usageLedger.quantity} else 0 end), 0)::bigint`,
-        // A training run's model calls are booked once, as tokens attributed to the run (answers `training`, grading
-        // `skill_grader`); its own `training` row counts the tests and carries no cost of its own. Dollars only.
-        training: sql<number>`coalesce(sum(case when (${usageLedger.kind} = 'training' or (${usageLedger.kind} = 'tokens' and ${usageLedger.details}->>'kind' in ('training', 'skill_grader'))) and ${usd} then ${usageLedger.costMinor} else 0 end), 0)::bigint`,
+        // Training is the model calls a run made (the candidate's answers and the grader's scores, booked per call as
+        // `tokens` rows whose details.kind says so), part of `cost`, not on top of it (audit O-19). The run's own row is
+        // a count of tests at no cost; a pre-0039 summary row that still carries one is zeroed by the migration.
+        training: sql<number>`coalesce(sum(case when ${usd} and (${usageLedger.kind} = 'training' or ${usageLedger.details}->>'kind' in ('training', 'skill_grader')) then ${exactCost} else 0 end), 0)::bigint`,
       })
       .from(usageLedger)
       .leftJoin(agents, eq(agents.id, usageLedger.agentId))
       .where(and(eq(usageLedger.businessId, businessId), timeRange(usageLedger.occurredAt, { from, to })))
       .groupBy(usageLedger.agentId, agents.name)
       .orderBy(desc(cost), asc(agents.name));
-    return rows.map((x) => ({ agentId: x.agentId, name: x.name, costMinor: Number(x.cost), tokens: Number(x.tokens), sandboxMinutes: Number(x.sandbox), toolCalls: Number(x.tools), trainingMinor: Number(x.training) }));
+    return rows.map((x) => ({ agentId: x.agentId, name: x.name, costMinor: microToMinor(Number(x.cost)), tokens: Number(x.tokens), sandboxMinutes: Number(x.sandbox), toolCalls: Number(x.tools), trainingMinor: microToMinor(Number(x.training)) }));
   },
 
   /** Month-to-date USD spend for an agent against its wage cap, which is in US dollars too (null cap = uncapped). */
   async agentSpend(db: Executor, businessId: string, agentId: string, period: string): Promise<{ costMinor: number; wageCapMinor: number | null; remainingMinor: number | null }> {
     const { from, to } = periodRange(period);
     const [row] = await db
-      .select({ cost: sql<number>`coalesce(sum(${usageLedger.costMinor}), 0)::bigint` })
+      .select({ micro: sql<number>`coalesce(sum(${exactCost}), 0)::bigint` })
       .from(usageLedger)
       .where(and(eq(usageLedger.businessId, businessId), eq(usageLedger.agentId, agentId), eq(usageLedger.currency, CREDITS_CURRENCY), timeRange(usageLedger.occurredAt, { from, to })));
     const agent = one(await db.select({ cap: agents.wageCapMinor }).from(agents).where(and(eq(agents.businessId, businessId), eq(agents.id, agentId))).limit(1), "agent", agentId);
-    const cost = Number(row?.cost ?? 0);
+    const cost = microToMinor(Number(row?.micro ?? 0));
     const cap = agent.cap === null ? null : Number(agent.cap);
     return { costMinor: cost, wageCapMinor: cap, remainingMinor: cap === null ? null : Math.max(0, cap - cost) };
   },
@@ -312,6 +338,16 @@ export const usageRepo = {
    */
   async chargeCredits(db: Executor, businessId: string, period: string, amountMinor: number, options: { includedMinor?: number | ((tx: Executor) => Promise<number>) } = {}): Promise<{ balance: CreditBalance; exhausted: "now" | "already" | null } | null> {
     const v = parseInput(z.object({ period: Period, amountMinor: MinorAmount.nonnegative() }), { period, amountMinor }, "credit charge");
+    return usageRepo.chargeCreditsMicro(db, businessId, v.period, v.amountMinor * MICRO_PER_MINOR, options);
+  },
+
+  /**
+   * `chargeCredits` for an exact cost in millionths of a cent (a ledger row's `costMicroMinor`, 0039): the period's carry
+   * plus this amount is charged in whole cents and what is left below a cent is carried to the next charge, so a stream
+   * of calls under half a cent is charged what it costs. `chargedMinor` is what this charge took from the balance.
+   */
+  async chargeCreditsMicro(db: Executor, businessId: string, period: string, microMinor: number, options: { includedMinor?: number | ((tx: Executor) => Promise<number>) } = {}): Promise<{ balance: CreditBalance; exhausted: "now" | "already" | null; chargedMinor: number } | null> {
+    const v = parseInput(z.object({ period: Period, microMinor: MinorAmount.nonnegative() }), { period, microMinor }, "credit charge");
     return db.transaction(async (tx) => {
       const lockRow = async () => (await tx.select().from(creditBalances).where(and(eq(creditBalances.businessId, businessId), eq(creditBalances.period, v.period))).for("update").limit(1))[0];
       let current = await lockRow();
@@ -322,16 +358,18 @@ export const usageRepo = {
         current = await lockRow();
       }
       if (!current) return null;
+      const carried = Number(current.carryMicroMinor ?? 0) + v.microMinor;
+      const amountMinor = Math.floor(carried / MICRO_PER_MINOR);
       const balanceBefore = Number(current.balanceMinor);
-      const balanceAfter = Math.max(0, balanceBefore - v.amountMinor);
+      const balanceAfter = Math.max(0, balanceBefore - amountMinor);
       const [row] = await tx
         .update(creditBalances)
-        .set({ balanceMinor: balanceAfter, spentMinor: sql`${creditBalances.spentMinor} + ${v.amountMinor}` })
+        .set({ balanceMinor: balanceAfter, spentMinor: sql`${creditBalances.spentMinor} + ${amountMinor}`, carryMicroMinor: carried - amountMinor * MICRO_PER_MINOR })
         .where(eq(creditBalances.id, current.id))
         .returning();
       const balance = one(row ? [row] : [], "credit balance");
-      const exhausted = balanceAfter > 0 || v.amountMinor === 0 ? null : balanceBefore > 0 || created ? "now" : "already";
-      return { balance, exhausted };
+      const exhausted = balanceAfter > 0 || amountMinor === 0 ? null : balanceBefore > 0 || created ? "now" : "already";
+      return { balance, exhausted, chargedMinor: amountMinor };
     });
   },
 

@@ -9,6 +9,7 @@ export type ModelErrorCode =
   | "rate_limited"
   | "unavailable"
   | "aborted"
+  | "billing"
   | "mock";
 
 export class ModelError extends Error {
@@ -38,10 +39,45 @@ export class ModelRequestError extends ModelError {
     readonly status: number | undefined,
     readonly apiErrorType: string | null = null,
     details?: unknown,
+    code: ModelErrorCode = status === 401 ? "auth" : "request",
   ) {
-    super(status === 401 ? "auth" : "request", message, false, details);
+    super(code, message, false, details);
     this.name = "ModelRequestError";
   }
+}
+
+/**
+ * Why Anthropic refused to bill a call: the organization's prepaid `credit_balance` is used up (400 "Your credit balance
+ * is too low"), or a `spend_limit` is reached (the Console's own limit, 400 "You have reached your specified API usage
+ * limits"; the tier's monthly cap, 429 `enforced_spend_limit_reached` with no retry-after).
+ */
+export type ModelBillingReason = "credit_balance" | "spend_limit";
+
+/**
+ * The key's account cannot pay for calls (code `billing`). Never retried: it lasts until someone pays or the month
+ * ends, so retrying (or backing off as for a rate limit) only delays the answer. Services turn it into a plain message
+ * for the founder and an alert for the operator (whose key it is depends on `billedTo`).
+ */
+export class ModelBillingError extends ModelRequestError {
+  constructor(
+    message: string,
+    readonly reason: ModelBillingReason,
+    /** Whose account refused: `credits` is the platform's key (the operator pays), `byok` the business's own. */
+    readonly billedTo: "credits" | "byok",
+    status: number | undefined,
+    apiErrorType: string | null = null,
+    details?: unknown,
+  ) {
+    super(message, status, apiErrorType, details, "billing");
+    this.name = "ModelBillingError";
+  }
+}
+
+/** True for a `ModelBillingError`, also across package copies and serialization (Temporal failures keep the name). */
+export function isModelBillingError(err: unknown): err is ModelBillingError {
+  if (err instanceof ModelBillingError) return true;
+  const e = err as { name?: unknown; code?: unknown } | null;
+  return typeof e === "object" && e !== null && (e.name === "ModelBillingError" || e.code === "billing");
 }
 
 /** Rate limit (429) still in force after every allowed attempt, or a wait longer than the limiter permits. */

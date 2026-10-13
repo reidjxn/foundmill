@@ -31,13 +31,16 @@ import { CreditsExhaustedError } from "@foundmill/shared";
 import { stopBusinessAgents } from "./controls";
 import { repos } from "./repos";
 import type { Executor } from "./repos/_shared";
-import { periodOf, periodRange, type RecordUsageInput } from "./repos/usage";
+import { MICRO_PER_MINOR, periodOf, periodRange, type RecordUsageInput } from "./repos/usage";
 import type { Business, CreditBalance, UsageEntry } from "./schema";
 import { businessAllowance } from "./tiers";
 
 export const CREDITS_EXHAUSTED_SUBJECT = "Credits used up: team paused";
 /** The warning a business on its own key gets: its agents keep working, the platform-key features wait. */
 export const PLATFORM_CREDITS_EXHAUSTED_SUBJECT = "Credits used up: conversations and Refresh paused";
+
+/** Why `agent.health_changed` says the team stopped (the agent's pill and Activity read it). */
+export const CREDITS_EXHAUSTED_HEALTH_REASON = "Credits used up";
 
 export interface CreditsOutcome {
   /** Always true since 2026-10-12 (every business holds a balance for the platform key); kept for callers that read it. */
@@ -83,7 +86,8 @@ export async function bookUsage(db: Executor, businessId: string, input: RecordU
   if (!chargesCredits(entry)) return { entry, credits: null };
   const business = await repos.businesses.get(db, businessId, { includeArchived: true });
   const period = periodOf(entry.occurredAt);
-  const charged = await repos.usage.chargeCredits(db, businessId, period, Number(entry.costMinor), { includedMinor: (tx) => includedCreditsFor(tx, business, period, { lock: true }) });
+  // The exact cost (0039): a call under half a cent is carried until the period's charges complete a cent.
+  const charged = await repos.usage.chargeCreditsMicro(db, businessId, period, Number(entry.costMicroMinor ?? Number(entry.costMinor) * MICRO_PER_MINOR), { includedMinor: (tx) => includedCreditsFor(tx, business, period, { lock: true }) });
   if (!charged) return { entry, credits: { enforced: false, balance: null, exhausted: null, pausedAgents: 0, noteId: null } };
   if (charged.exhausted !== "now") return { entry, credits: { enforced: true, balance: charged.balance, exhausted: charged.exhausted, pausedAgents: 0, noteId: null } };
   const { pausedAgents, noteId } = await creditsUsedUp(db, business, period, charged.balance);
@@ -212,7 +216,17 @@ function creditsWayBack(tier: Business["planTier"], state: "used up" | "paused",
  */
 async function pauseForCredits(db: Executor, business: Business, period: string, balance: CreditBalance): Promise<{ pausedAgents: number; noteId: string | null }> {
   const businessId = business.id;
-  const pausedAgents = (await stopBusinessAgents(db, businessId, { reason: "credits_exhausted" })).paused.length;
+  const stop = await stopBusinessAgents(db, businessId, { reason: "credits_exhausted" });
+  const pausedAgents = stop.paused.length;
+  // Every agent the stop paused tells the open screens (audit BILL-21), as the kill switch does.
+  for (const a of stop.paused) {
+    await repos.events.write(db, businessId, {
+      type: "agent.health_changed",
+      actor: { kind: "system", id: "billing" },
+      entityIds: [a.id],
+      payload: { agentId: a.id, from: a.from, to: "paused", reason: CREDITS_EXHAUSTED_HEALTH_REASON, signals: {}, expectedReturnAt: null, sessionId: null },
+    });
+  }
   const chief = await repos.agents.chiefOfStaff(db, businessId);
   let noteId: string | null = null;
   if (chief) {
@@ -230,6 +244,12 @@ async function pauseForCredits(db: Executor, business: Business, period: string,
       entity_ids: [],
     });
     noteId = note.id;
+    await repos.events.write(db, businessId, {
+      type: "inbox.item_created",
+      actor: { kind: "agent", id: chief.id },
+      entityIds: [note.id],
+      payload: { inboxItemId: note.id, type: note.type, fromAgentId: chief.id, subject: note.subject, blocksContinue: note.blocksContinue, sourceEventIds: [], cost: null },
+    });
   }
   await repos.audit.append(db, businessId, { actorKind: "system", action: "billing.credits_exhausted", target: { kind: "business", id: businessId }, details: { period, pausedAgents, noteId, planTier: business.planTier, modelBilling: business.modelBilling, teamStopped: true } });
   return { pausedAgents, noteId };

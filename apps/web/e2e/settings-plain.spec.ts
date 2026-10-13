@@ -66,6 +66,11 @@ test.describe("settings, plain words", () => {
     await expect(list).toBeVisible({ timeout: LONG });
     await expect(list).not.toContainText(/api_key|oauth\b|phase \d/);
     await expect(list).toContainText(/API key|Sign in with the vendor|Install the app|No sign-in needed/);
+    // The Anthropic key decides who pays for model calls and pauses or resumes the team: it lives on the Keys tab only
+    // (audit ARB-04), so its row links there instead of offering a generic Connect or Disconnect.
+    const anthropic = list.locator('[data-connector="anthropic"]');
+    await expect(anthropic.getByRole("button", { name: /Disconnect|^Connect$/ })).toHaveCount(0);
+    await expect(anthropic.getByTestId("manage-in-keys")).toHaveAttribute("href", /\/settings\/keys$/);
   });
 
   test("Integrations: a live API-key connector asks for the founder's own key (masked) and connects with it", async ({ page }) => {

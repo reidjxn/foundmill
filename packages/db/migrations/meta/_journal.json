@@ -232,6 +232,13 @@
       "when": 1793103120000,
       "tag": "0035_owner_lock",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793448720000,
+      "tag": "0039_money_billing",
+      "breakpoints": true
     }
   ]
 }

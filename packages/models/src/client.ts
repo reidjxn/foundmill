@@ -11,7 +11,10 @@
  *   §10.4). Prefixes below the model's minimum (512 tokens on the 5.5 models, 4096 on Haiku 4.5) silently do not cache.
  * - Rate limits read from `anthropic-ratelimit-*` headers via `.withResponse()`; 429 backoff with jitter is scoped to
  *   the caller (`req.scope`) through `RateLimiter`. The SDK's own retries are disabled (`maxRetries: 0`) so this module
- *   owns the policy: 429 → scoped backoff, 5xx/529/connection → short exponential backoff, 4xx → typed error.
+ *   owns the policy: 429 → scoped backoff, 5xx/529/connection → short exponential backoff, 4xx → typed error. A refusal
+ *   to bill (400 "credit balance is too low" or "reached your specified API usage limits", 429
+ *   `enforced_spend_limit_reached`) is a `ModelBillingError`, never retried: it lasts until someone pays or the month
+ *   ends (`billingRefusal`).
  * - Sampling parameters are rejected (400) by Opus 5.5 and Sonnet 5.5; `temperature` is only sent to Haiku.
  * - `effort` goes in `output_config.effort`: the request's own, else the route's from `ROUTES` (routing.ts), else the
  *   API default. Never sent to a model without the parameter (Haiku 4.5).
@@ -38,7 +41,8 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { loadEnv } from "@foundmill/shared";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { ModelAbortedError, ModelOutputError, ModelRateLimitError, ModelRequestError, ModelUnavailableError } from "./errors";
+import { ModelAbortedError, ModelBillingError, ModelOutputError, ModelRateLimitError, ModelRequestError, ModelUnavailableError, type ModelBillingReason } from "./errors";
+import { clearPlatformBillingRefusal, notePlatformBillingRefusal } from "./billing-state";
 import { parseJsonLoose } from "./json";
 import { MockModelClient, type MockModelClientOptions } from "./mock";
 import { type MeterResult, ZERO_USAGE, addUsage, estimateTokens, meter, sumMeters } from "./pricing";
@@ -346,6 +350,7 @@ export class LiveModelClient implements ModelClient {
           : await this.anthropic.messages.create(params, { signal: req.signal }).withResponse();
         this.rateLimiter.observe(this.bucket(fast), response.headers);
         this.rateLimiter.clearPenalty(scope);
+        this.billed();
         const message = data as Anthropic.Message & { usage: { speed?: string | null } };
         return { message, requestId: request_id ?? undefined, speed: speedOf(message.usage, fast) };
       } catch (error) {
@@ -379,6 +384,7 @@ export class LiveModelClient implements ModelClient {
         const { response, request_id } = await stream.withResponse();
         this.rateLimiter.observe(this.bucket(fast), response.headers);
         this.rateLimiter.clearPenalty(scope);
+        this.billed();
         return { stream, requestId: request_id ?? undefined, fast };
       } catch (error) {
         if (isAbort(error, req)) {
@@ -435,6 +441,11 @@ export class LiveModelClient implements ModelClient {
       }
       if (callbackFailed) throw error;
       if (isAbort(error, req)) throw new ModelAbortedError();
+      const billing = billingErrorFor(error, req.route, this.opts.billedTo ?? "credits");
+      if (billing) {
+        this.noteBilling(billing, req.route);
+        throw billing;
+      }
       if (error instanceof Anthropic.APIError && typeof error.status === "number" && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429) {
         throw new ModelRequestError(`Anthropic request failed (${error.status}): ${error.message}`, error.status, error.type ?? null, { requestId: error.requestID });
       }
@@ -445,6 +456,12 @@ export class LiveModelClient implements ModelClient {
   /** The retry policy for one failed attempt: sleeps and returns to retry, or throws the typed error. */
   private async handleAttemptError(error: unknown, req: CallContext, scope: string, attempt: number, maxAttempts: number, call: number, state: AttemptState): Promise<void> {
     if (isAbort(error, req)) throw new ModelAbortedError();
+    // The account cannot pay: neither standard speed nor waiting changes that, so it is final at once.
+    const billing = billingErrorFor(error, req.route, this.opts.billedTo ?? "credits");
+    if (billing) {
+      this.noteBilling(billing, req.route);
+      throw billing;
+    }
     const last = attempt + 1 >= maxAttempts;
     if (state.fast && !last && error instanceof Anthropic.APIError && (error instanceof Anthropic.RateLimitError || error.status === 400 || error.status === 403 || error.status === 404)) {
       // Fast mode's own pool is exhausted, or the beta is not enabled for this key: standard speed now beats waiting.
@@ -489,6 +506,9 @@ export class LiveModelClient implements ModelClient {
       };
     } catch (error) {
       if (error instanceof Anthropic.AuthenticationError) return { ok: false, reason: "invalid_key", message: "Anthropic rejected the key (401)." };
+      // A key whose account cannot pay is valid but useless: storing it would stop the team at its first call.
+      const billing = billingRefusal(error);
+      if (billing) return { ok: false, reason: "billing", message: billing === "credit_balance" ? "The key works, but its Anthropic account has no credit left. Add credit in the Anthropic Console, then try again." : "The key works, but its Anthropic account has reached its spend limit. Raise the limit in the Anthropic Console, then try again." };
       if (error instanceof Anthropic.PermissionDeniedError) return { ok: false, reason: "permission", message: error.message };
       if (error instanceof Anthropic.RateLimitError) return { ok: false, reason: "rate_limited", message: "The key is valid but currently rate limited; try again shortly." };
       if (error instanceof Anthropic.APIConnectionError) return { ok: false, reason: "network", message: error.message };
@@ -521,6 +541,26 @@ export class LiveModelClient implements ModelClient {
       ...(streamed ? { streamed: true } : {}),
       ...(speed ? { speed } : {}),
     });
+  }
+
+  /**
+   * A billing refusal: an error log the operator's alerting can match (`alert: "model_billing"`, for the platform key),
+   * and the process's platform billing state for /health (`platformBillingRefusal`). A business's own key is the
+   * founder's to fund, so it only logs a warning.
+   */
+  private noteBilling(error: ModelBillingError, route: string): void {
+    const fields = { route, reason: error.reason, status: error.status, billedTo: error.billedTo, rateLimitKey: this.rateLimitKey, requestId: (error.details as { requestId?: string } | undefined)?.requestId };
+    if (error.billedTo === "byok") {
+      this.opts.logger?.warn(fields, "Anthropic refused to bill a call on a business's own key; not retrying");
+      return;
+    }
+    notePlatformBillingRefusal(error.reason, route);
+    this.opts.logger?.error({ ...fields, alert: "model_billing" }, "Anthropic refused to bill a call on the platform key: add credit or raise the spend limit in the Anthropic Console");
+  }
+
+  /** A call on the platform key went through: whatever refused to bill before has been fixed. */
+  private billed(): void {
+    if ((this.opts.billedTo ?? "credits") === "credits") clearPlatformBillingRefusal();
   }
 
   private async emit(partial: Omit<UsageEvent, "billedTo">): Promise<void> {
@@ -648,6 +688,29 @@ const estimateInputTokens = (params: Pick<Anthropic.MessageCreateParamsNonStream
 
 /** The caller stopped the call (its signal), whatever the SDK made of it. */
 const isAbort = (error: unknown, req: Pick<CallContext, "signal">): boolean => req.signal?.aborted === true || error instanceof Anthropic.APIUserAbortError;
+
+/**
+ * Whether an API error is Anthropic refusing to bill the call, and why (`ModelBillingReason`): a 400 or 402 whose message
+ * says the credit balance is too low or the account's usage limit is reached, or a 429 whose `error_code` (in the body's
+ * `details`, or anywhere in the error) is `enforced_spend_limit_reached`. Anything else is not a billing refusal.
+ */
+export function billingRefusal(error: unknown): ModelBillingReason | null {
+  if (!(error instanceof Anthropic.APIError) || typeof error.status !== "number") return null;
+  const text = `${error.message} ${JSON.stringify(error.error ?? {})}`;
+  if (error.status === 429) return /enforced_spend_limit_reached/i.test(text) ? "spend_limit" : null;
+  if (error.status !== 400 && error.status !== 402) return null;
+  if (/credit balance is too low/i.test(text)) return "credit_balance";
+  if (/reached your specified (API )?usage limits?/i.test(text)) return "spend_limit";
+  return error.status === 402 ? "credit_balance" : null;
+}
+
+function billingErrorFor(error: unknown, route: string, billedTo: BilledTo): ModelBillingError | null {
+  const reason = billingRefusal(error);
+  if (!reason || !(error instanceof Anthropic.APIError)) return null;
+  const what = reason === "credit_balance" ? "the account's credit balance is too low" : "the account's spend limit is reached";
+  const whose = billedTo === "byok" ? "the business's own key" : "the platform key";
+  return new ModelBillingError(`Anthropic refused to bill route "${route}" on ${whose}: ${what} (${error.status})`, reason, billedTo, error.status, error.type ?? null, { requestId: error.requestID });
+}
 
 /** The speed that served a call: the response's `usage.speed` when present, else what was requested. */
 function speedOf(usage: { speed?: string | null } | undefined, requestedFast: boolean): Speed | undefined {

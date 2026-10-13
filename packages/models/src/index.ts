@@ -3,6 +3,7 @@ export * from "./routing";
 export * from "./pricing";
 export * from "./types";
 export * from "./errors";
+export { platformBillingRefusal, clearPlatformBillingRefusal, notePlatformBillingRefusal, type PlatformBillingRefusal } from "./billing-state";
 export { canonicalJson, stableHash, seededRng, uuidFromSeed, isUuidLike, UUID_RE, type Rng } from "./hash";
 export { parseJsonLoose } from "./json";
 export { JsonElementScanner, getAtPath, arrayAtPath, elementPathKeys, type ScannedElement, type JsonElementScannerOptions } from "./stream-json";
@@ -15,6 +16,7 @@ export {
   effectiveModelMode,
   LiveModelClient,
   validateApiKey,
+  billingRefusal,
   keyFingerprint,
   MAX_TOKENS_CEILING,
   ROUTE_RESERVE_TOKENS,

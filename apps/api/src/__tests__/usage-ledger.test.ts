@@ -39,6 +39,8 @@ describe("createApiModelClient: the usage ledger", () => {
       details: { service: "api", route: "planCompiler", kind: "plan_compiler", mode: "mock", label: "Estimate", attempt: 0 },
     });
     expect((row.details as { aborted?: boolean }).aborted).toBeUndefined();
+    // The exact cost is stored beside its rounding, so calls under half a cent still add up (audit BILL-09).
+    expect(Number(row.costMicroMinor)).toBe(result.cost.costMicroMinor);
     expect(await ledger(hz.B.businessId)).toHaveLength(beforeB.length);
   });
 

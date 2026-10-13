@@ -1,7 +1,30 @@
 import type { Money } from "./types";
-const ZERO_DECIMAL = new Set(["JPY", "KRW", "CLP", "ISK", "VND"]);
+
+const DIGITS = new Map<string, number>();
+/**
+ * Decimal places of a currency's minor unit (ISO 4217): 2 for USD, EUR and GBP, 0 for JPY, KRW, XOF, UGX and the rest of
+ * the zero-decimal currencies, 3 for KWD, BHD, OMR, JOD and TND. Read from the runtime's currency data, not a list kept
+ * here, so a currency a payment webhook brings is never off by a factor of 10 or 100. An unknown code counts as 2.
+ */
+export function minorUnitDigits(currency: string): number {
+  const code = currency.toUpperCase();
+  const known = DIGITS.get(code);
+  if (known !== undefined) return known;
+  let digits = 2;
+  try {
+    digits = new Intl.NumberFormat("en-US", { style: "currency", currency: code }).resolvedOptions().maximumFractionDigits ?? 2;
+  } catch {
+    /* not a currency code: two places */
+  }
+  DIGITS.set(code, digits);
+  return digits;
+}
 export function minorToMajor(amountMinor: number, currency: string): number {
-  return ZERO_DECIMAL.has(currency.toUpperCase()) ? amountMinor : amountMinor / 100;
+  return amountMinor / 10 ** minorUnitDigits(currency);
+}
+/** Whole minor units for an amount in major units, rounded to the currency's last place. */
+export function majorToMinor(amountMajor: number, currency: string): number {
+  return Math.round(amountMajor * 10 ** minorUnitDigits(currency));
 }
 const COMPACT_UNITS: ReadonlyArray<readonly [number, string]> = [
   [1e12, "T"],
@@ -44,7 +67,7 @@ export function formatMoney(m: Money, opts: { compact?: boolean; locale?: string
   const locale = opts.locale ?? MONEY_LOCALE;
   if (opts.compact && Math.abs(major) >= 10_000) return formatCompactMoney(major, m.currency, locale);
   return new Intl.NumberFormat(locale, {
-    style: "currency", currency: m.currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: opts.compact ? 0 : 2,
+    style: "currency", currency: m.currency, currencyDisplay: "narrowSymbol", maximumFractionDigits: opts.compact ? 0 : minorUnitDigits(m.currency),
   }).format(major);
 }
 /** Money in a named currency: there is no default one (a business amount is in the business's own, `businesses.currency`). */

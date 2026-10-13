@@ -136,6 +136,9 @@ describe("cash and runway", () => {
     expect(s.map((x) => x.id)).toEqual(["downside", "base", "upside"]);
     expect(s.every((x) => x.dashed)).toBe(true);
     expect(s[1]!.data[0]!.y).toBe(180_000);
+    // The chart reads the currency's own decimals: the same minor amount is 100 times more yen, 10 times less dinars (JM-14).
+    expect(forecastSeries(finance.forecasts, "JPY")[1]!.data[0]!.y).toBe(18_000_000);
+    expect(forecastSeries(finance.forecasts, "KWD")[1]!.data[0]!.y).toBe(18_000);
   });
 });
 

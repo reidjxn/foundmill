@@ -5,7 +5,8 @@
  * build and the credential expiry scan. Everything runs in mock mode without a network.
  */
 import { getSkillTests } from "@foundmill/agents";
-import { openApprovalItem, repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
+import { openApprovalItem, periodOf, repos, resumeBusinessAgents, stopBusinessAgents } from "@foundmill/db";
+import { createModelClient } from "@foundmill/models";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createChannelActivities, emptyChannelState } from "../activities/channel";
 import { createCycleActivities } from "../activities/cycle";
@@ -16,6 +17,7 @@ import { createJourneyActivities } from "../activities/journey";
 import { createPlanActivities } from "../activities/plan";
 import { createScheduleActivities } from "../activities/schedules";
 import { createTrainingActivities, scoreTest } from "../activities/training";
+import { usageSink } from "../deps";
 import { setupOrchestratorHarness, type OrchestratorTestHarness } from "./harness";
 
 let t: OrchestratorTestHarness;
@@ -72,6 +74,38 @@ describe("training run (BUILD §11.10)", () => {
     for (const u of usage.items) expect({ cost: Number(u.costMinor), currency: u.currency }).toEqual({ cost: 0, currency: "USD" });
     const completed = events.items.find((e) => (e.payload as { trainingRunId: string }).trainingRunId === run.id)!;
     expect((completed.payload as { cost: { currency: string } }).cost.currency).toBe("USD");
+  });
+
+  it("books each model call once: the run's own row is a count of tests at no cost (O-19, BILL-10)", async () => {
+    // The mock client metered like the live one: every answer and grader call reaches the ledger through the usage sink.
+    const log = { debug() {}, info() {}, warn() {}, error() {} };
+    const metered = { ...t.deps, models: createModelClient({ mode: "mock", onUsage: usageSink(t.db, log as never) }) };
+    const acts = createTrainingActivities(metered);
+    const agent = await repos.agents.get(t.db, t.businessId, t.workerId);
+    const live = await repos.agents.getVersion(t.db, t.businessId, agent.currentVersionId!);
+    const draft = await repos.agents.createVersion(t.db, t.businessId, agent.id, { instructions: live.instructions as never, tools: live.tools, modelKey: "opus", state: "draft", createdByKind: "user" });
+    const run = await repos.training.create(t.db, t.businessId, { agentId: agent.id, fromVersionId: live.id, toVersionId: draft.id });
+    const loaded = await acts.loadTrainingRun({ businessId: t.businessId, trainingRunId: run.id });
+    const seen = new Set((await repos.usage.list(t.db, t.businessId, { agentId: agent.id, limit: 500 })).items.map((u) => u.id));
+    const outcome = await acts.runSkillTests({ businessId: t.businessId, trainingRunId: run.id, agentId: agent.id, draftVersionId: draft.id, skillKey: loaded.skillKeys[0]!, modelKey: "opus" });
+    const rows = (await repos.usage.list(t.db, t.businessId, { agentId: agent.id, limit: 500 })).items.filter((u) => !seen.has(u.id));
+    const calls = rows.filter((u) => u.kind === "tokens" && ["training", "skill_grader"].includes((u.details as { kind?: string }).kind ?? ""));
+    expect(calls.length).toBe(outcome.testsRun * 2);
+    const summary = rows.filter((u) => u.kind === "training");
+    expect(summary).toHaveLength(1);
+    // The marker says how many tests, costs nothing, and is in US dollars (not the column default EUR).
+    expect(summary[0]).toMatchObject({ quantity: outcome.testsRun, unit: "tests", currency: "USD", billedTo: "credits" });
+    expect(Number(summary[0]!.costMinor)).toBe(0);
+    expect(Number(summary[0]!.costMicroMinor)).toBe(0);
+    // What the ledger holds for the run is the calls' exact cost, once; the run reports the same figure.
+    const micro = rows.reduce((a, u) => a + Number(u.costMicroMinor), 0);
+    expect(micro).toBeGreaterThan(0);
+    expect(outcome.costMicroMinor).toBe(micro);
+    expect(outcome.costMinor).toBe(Math.round(micro / 1_000_000));
+    // Payroll's training column is those calls: part of the cost, not on top of it.
+    const wage = (await repos.usage.wages(t.db, t.businessId, periodOf(new Date()))).find((w) => w.agentId === agent.id);
+    expect(wage?.trainingMinor).toBeGreaterThan(0);
+    expect(wage?.trainingMinor).toBeLessThanOrEqual(wage?.costMinor ?? 0);
   });
 
   it("refuses to train against the live version and caps scores when a deterministic check failed", async () => {

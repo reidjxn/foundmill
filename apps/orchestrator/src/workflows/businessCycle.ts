@@ -6,10 +6,13 @@
  * Ends when every branch is done or waiting, at the time box (children keep working; the next cycle picks them up),
  * or on `stop`. Signals pause/resume/shout/decision/stop are fanned out to the running children. Each session row is
  * opened before its child starts and carries the child's id `session:<id>`; a stopped team (the brief says so, or a
- * dispatch is refused for it) ends the cycle as `stopped` without planning or opening anything more.
+ * dispatch is refused for it) ends the cycle as `stopped` without planning or opening anything more. A plan that cannot
+ * be drafted (the model account cannot pay, a missing or refused key, or every retry failed) ends the cycle `failed`
+ * with a note in the Inbox saying why, instead of the workflow failing without a word (audit BILL-06).
  */
-import { ParentClosePolicy, allHandlersFinished, condition, patched, proxyActivities, setHandler, startChild, workflowInfo, type ChildWorkflowHandle } from "@temporalio/workflow";
-import type { Activities, BusinessCycleInput, BusinessCycleResult, CycleStart } from "../activities";
+import { ActivityFailure, ApplicationFailure, ParentClosePolicy, allHandlersFinished, condition, patched, proxyActivities, setHandler, startChild, workflowInfo, type ChildWorkflowHandle } from "@temporalio/workflow";
+import type { Activities, BusinessBrief, BusinessCycleInput, BusinessCycleResult, CyclePlan, CycleStart } from "../activities";
+import { CYCLE_PLAN_FAILURE, DEFAULT_TASK_RESERVE_MINOR, PLAN_FAILED_MESSAGE, type PlanFailureDetails } from "../cycle-contract";
 import { agentSession, type AgentSessionOutcome } from "./agentSession";
 import { decisionSignal, pauseSignal, resumeSignal, shoutSignal, stopSignal } from "./signals";
 
@@ -18,8 +21,10 @@ const acts = proxyActivities<Activities>({ startToCloseTimeout: "10 minutes", re
 /** A cycle stops opening sessions the moment it is stopped, not only between dispatch rounds (histories before it replay without). */
 export const CYCLE_STOP_DISPATCH_PATCH = "cycle-stop-dispatch";
 
-/** Tasks without a budget reserve this much of the cycle budget (minor units; an Estimate). */
-export const DEFAULT_TASK_RESERVE_MINOR = 2_000;
+export { DEFAULT_TASK_RESERVE_MINOR };
+
+/** A finished session returns its reserve to the cycle and takes what it really cost (histories before it replay without). */
+export const CYCLE_BUDGET_RECONCILE_PATCH = "cycle-budget-reconcile";
 
 /**
  * What a starting task reserves of the credits left (an Estimate): its own budget or the default, but never more than
@@ -38,6 +43,8 @@ interface Running {
   done: boolean;
   outcome: AgentSessionOutcome | null;
   error: string | null;
+  /** What the cycle set aside of its credits for this session when it started (US cents, an Estimate). */
+  reservedMinor: number;
 }
 
 export function fileScopesOverlap(a: readonly string[], b: readonly string[]): boolean {
@@ -55,6 +62,35 @@ export function fileScopesOverlap(a: readonly string[], b: readonly string[]): b
     }
   }
   return false;
+}
+
+/** What the founder reads about a planning failure, and its kind: the activity's own words when it said why. */
+export function planFailureOf(err: unknown): { message: string; details: PlanFailureDetails | null } {
+  const cause = err instanceof ActivityFailure ? err.cause : err;
+  if (cause instanceof ApplicationFailure && cause.type === CYCLE_PLAN_FAILURE && cause.message) {
+    const details = (cause.details?.[0] ?? null) as PlanFailureDetails | null;
+    return { message: cause.message, details };
+  }
+  return { message: PLAN_FAILED_MESSAGE, details: { kind: "error" } };
+}
+
+/**
+ * The plan could not be drafted: the cycle is recorded (started with nothing planned, then completed `failed`) so the
+ * shell stops showing it as processing, and the Chief of Staff's note in the Inbox says why.
+ */
+async function endUnplanned(input: BusinessCycleInput, brief: BusinessBrief, err: unknown, startedAt: number): Promise<BusinessCycleResult> {
+  const info = workflowInfo();
+  const failure = planFailureOf(err);
+  const empty: CyclePlan = { summary: failure.message, timeBoxHours: 0.25, starts: [], deferred: [], approvalsNeeded: [], modelKey: "opus", warning: null, costMinor: 0 };
+  const { cycleId } = await acts.startCycle({ businessId: input.businessId, cycleNumber: input.cycleNumber, workflowId: info.workflowId, trigger: input.trigger, plan: empty, brief });
+  let inboxItemIds: string[];
+  try {
+    inboxItemIds = (await acts.notePlanFailure({ businessId: input.businessId, cycleNumber: input.cycleNumber, message: failure.message, details: failure.details })).inboxItemIds;
+  } catch {
+    inboxItemIds = [];
+  }
+  await acts.completeCycle({ businessId: input.businessId, cycleId, cycleNumber: input.cycleNumber, workflowId: info.workflowId, outcome: "failed", tasksDispatched: 0, tasksCompleted: 0, tasksBlocked: 0, agentHours: 0, costMinor: 0, currency: brief.creditsCurrency, inboxItemIds, durationMs: Date.now() - startedAt });
+  return { cycleId, outcome: "failed", tasksDispatched: 0, tasksCompleted: 0, tasksBlocked: 0, inboxItemIds, costMinor: 0 };
 }
 
 export async function businessCycle(input: BusinessCycleInput): Promise<BusinessCycleResult> {
@@ -85,12 +121,18 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
   const brief = await acts.loadBrief({ businessId: input.businessId });
   // A stopped team (Stop all agents, a revoked key, used-up credits) plans nothing and dispatches nothing.
   if (brief.agentsStopped) stopped = { reason: "agents_stopped", by: null };
-  const plan = await acts.planCycle({ businessId: input.businessId, cycleNumber: input.cycleNumber, trigger: input.trigger, brief });
+  let plan: CyclePlan;
+  try {
+    plan = await acts.planCycle({ businessId: input.businessId, cycleNumber: input.cycleNumber, trigger: input.trigger, brief });
+  } catch (err) {
+    return endUnplanned(input, brief, err, startedAt);
+  }
   const timeBoxHours = input.timeBoxAgentHours ?? plan.timeBoxHours;
   const { cycleId } = await acts.startCycle({ businessId: input.businessId, cycleNumber: input.cycleNumber, workflowId: info.workflowId, trigger: input.trigger, plan, brief });
 
   const maxConcurrent = Math.max(1, Math.min(input.maxConcurrent ?? brief.maxAgents, brief.maxAgents));
   let budgetRemaining = brief.budgetRemainingMinor;
+  const reconcileBudget = patched(CYCLE_BUDGET_RECONCILE_PATCH);
   const pending: CycleStart[] = [...plan.starts];
   const skipped: { taskId: string; reason: string }[] = [];
   const finished: Running[] = [];
@@ -136,9 +178,12 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
         args: [{ businessId: input.businessId, agentId: s.agentId, taskId: s.taskId, sessionId, cycleId, briefText: brief.text }],
         parentClosePolicy: ParentClosePolicy.ABANDON,
       });
-      const entry: Running = { start: s, sessionId, handle, done: false, outcome: null, error: null };
+      const entry: Running = { start: s, sessionId, handle, done: false, outcome: null, error: null, reservedMinor: 0 };
       running.set(s.taskId, entry);
-      if (budgetRemaining !== null) budgetRemaining -= taskReserveMinor(s.budgetMinor, budgetRemaining, maxConcurrent - running.size + 1);
+      if (budgetRemaining !== null) {
+        entry.reservedMinor = taskReserveMinor(s.budgetMinor, budgetRemaining, maxConcurrent - running.size + 1);
+        budgetRemaining -= entry.reservedMinor;
+      }
       if (paused) void handle.signal(pauseSignal, {}).catch(() => undefined);
       // The stop landed while this session was being opened: the fan-out ran before the child existed, so it gets its own.
       const stop: { reason: string; by: string | null } | null = stopped;
@@ -147,9 +192,13 @@ export async function businessCycle(input: BusinessCycleInput): Promise<Business
         .result()
         .then((outcome) => {
           entry.outcome = outcome;
+          // The reserve was a guess: it goes back, and what the session really cost comes off (audit O-29). Later
+          // dispatches see what is left, so a cycle stops starting work once its credits are spent.
+          if (reconcileBudget && budgetRemaining !== null) budgetRemaining += entry.reservedMinor - Math.max(0, Math.round(outcome.result.costMinor));
         })
         .catch((err: unknown) => {
           entry.error = (err as Error).message ?? String(err);
+          if (reconcileBudget && budgetRemaining !== null) budgetRemaining += entry.reservedMinor;
         })
         .finally(() => {
           entry.done = true;

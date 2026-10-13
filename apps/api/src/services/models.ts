@@ -47,6 +47,8 @@ export function apiUsageSink(db: Db, log: ApiLogger): UsageSink {
         quantity: event.usage.inputTokens + event.usage.outputTokens,
         unit: "tokens",
         costMinor: Math.max(0, event.cost.costMinorInt),
+        // The exact cost (0039): sums and credits add these, so a call under half a cent is not booked at 0.
+        costMicroMinor: Math.max(0, event.cost.costMicroMinor),
         // The meter's currency (PRICING_CURRENCY): list prices are USD, never relabelled as the business's currency.
         currency: event.cost.currency,
         billedTo: event.billedTo,

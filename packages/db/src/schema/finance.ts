@@ -148,7 +148,13 @@ export const usageLedger = pgTable(
     modelKey: text("model_key", { enum: MODEL_KEYS }),
     quantity: minor("quantity").notNull().default(0),
     unit: text("unit").notNull().default("tokens"),
+    /** The cost rounded to a whole minor unit (one row's display figure). Sums use `costMicroMinor`. */
     costMinor: minor("cost_minor").notNull().default(0),
+    /**
+     * The exact cost in millionths of a minor unit (0039): what sums add before rounding once, so calls under half a
+     * cent are not lost. Null on rows written before 0039 (they count as `costMinor` × 1,000,000).
+     */
+    costMicroMinor: minor("cost_micro_minor"),
     /** USD for every platform cost (tokens, sandbox, training; 0024); a tool row keeps the vendor's currency. */
     currency: usdCurrency(),
     billedTo: text("billed_to", { enum: MODEL_BILLING }).notNull().default("credits"),
@@ -175,6 +181,8 @@ export const creditBalances = pgTable(
     balanceMinor: minor("balance_minor").notNull().default(0),
     grantedMinor: minor("granted_minor").notNull().default(0),
     spentMinor: minor("spent_minor").notNull().default(0),
+    /** Charges below a whole cent not yet charged to the balance, in millionths of a cent (0039; always under 1,000,000). */
+    carryMicroMinor: minor("carry_micro_minor").notNull().default(0),
     /** Always USD (a check holds it, 0024): credits are bought and charged in the model price list's currency. */
     currency: usdCurrency(),
     ...timestamps(),

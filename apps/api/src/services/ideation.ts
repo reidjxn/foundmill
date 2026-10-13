@@ -16,7 +16,7 @@
  */
 import { buildIdeationCardRequest, buildIdeationSlateRequest, buildSingleConceptRequest, IDEATION_AGENT_NAME, IDEATION_MAX_CONCEPTS, IDEATION_MIN_CONCEPTS, type IdeationBrief } from "@foundmill/agents";
 import { repos, type CreateIdeaInput, type IdeaWithVersion } from "@foundmill/db";
-import { ModelAbortedError, ModelOutputError, streamStructured, type ConceptCard, type IdeationSlateItem, type ModelClient, type ModelMode } from "@foundmill/models";
+import { isModelBillingError, ModelAbortedError, ModelOutputError, streamStructured, type ConceptCard, type IdeationSlateItem, type ModelClient, type ModelMode } from "@foundmill/models";
 import { AppError, type Archetype } from "@foundmill/shared";
 import { takeOrThrow, type LimitEntry, type LimitTicket, type RateLimitStore, type WindowLimit } from "./rate-limit";
 
@@ -276,6 +276,9 @@ export async function draftIdeas(deps: DraftDeps, input: DraftInput, opts: Draft
         });
       } catch (err) {
         if (isAbort(err, cardsAbort.signal)) throw err;
+        // The model account cannot pay: every other card would be refused too, and "could not finish this concept" would
+        // hide why. Final at once; the draft fails with the founder-facing billing message (audit BILL-06).
+        if (isModelBillingError(err)) throw err;
         const message = err instanceof Error ? err.message : String(err);
         deps.log?.warn({ index, attempt, err: message }, "ideation card failed");
         if (attempt < attempts) continue;

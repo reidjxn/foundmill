@@ -574,3 +574,40 @@ describe("a paused agent stays paused (O-06)", () => {
     }
   });
 });
+
+describe("what a session books for its sandbox and its model (BILL-09, BILL-11)", () => {
+  const live = (sandboxMs: number, extra: Partial<SessionResult> = {}): SessionResult => ({ outcome: "done", reason: null, blockedReason: null, approvalId: null, progress: { planStepsDone: 0, planSteps: 0, acceptanceTestsPassing: 0, acceptanceTests: 0, reviewPassed: false, merged: false, phase: null, progress: 1, etaAt: null, at: null }, eventsEmitted: 1, toolCalls: 1, toolFailures: 0, tokensIn: 400, tokensOut: 100, costMinor: 0, costMicroMinor: 300_000, durationMs: 3_600_000, sandboxMs, prNumber: null, summary: "done", providerSessionId: null, ...extra });
+  const run = async (sandboxMode: "e2b" | "docker", result: SessionResult) => {
+    const sessionId = await openSessionRow(t, t.workerId, t.codeTaskId);
+    const input = { businessId: t.businessId, agentId: t.workerId, taskId: t.codeTaskId, sessionId };
+    const launch = { ...(await acts.prepareSession(input)), sandboxMode };
+    await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "running", { force: true });
+    await acts.finishSession(input, launch, result);
+    await repos.tasks.setStatus(t.db, t.businessId, t.codeTaskId, "ready", { force: true });
+    return (await repos.usage.list(t.db, t.businessId, { sessionId, limit: 10 })).items;
+  };
+
+  it("an E2B sandbox is priced for the time it ran, in US dollars, and billed to credits (the platform pays E2B)", async () => {
+    const rows = await run("e2b", live(150_000));
+    const sandbox = rows.find((u) => u.kind === "sandbox")!;
+    // 150 s at 3,025 millionths of a cent a second; the session itself lasted an hour but held no sandbox for it.
+    expect(sandbox).toMatchObject({ quantity: 3, unit: "minutes", currency: "USD", billedTo: "credits" });
+    expect(Number(sandbox.costMicroMinor)).toBe(453_750);
+    expect(sandbox.details).toMatchObject({ label: "Estimate", sandboxMode: "e2b" });
+  });
+
+  it("a Docker sandbox costs nothing, and a live session that never needed a sandbox books none", async () => {
+    const docker = await run("docker", live(90_000));
+    expect(Number(docker.find((u) => u.kind === "sandbox")!.costMicroMinor)).toBe(0);
+    const none = await run("e2b", live(0));
+    expect(none.some((u) => u.kind === "sandbox")).toBe(false);
+  });
+
+  it("the model's exact cost is booked, not its rounding to whole cents", async () => {
+    const rows = await run("e2b", live(0));
+    const tokens = rows.find((u) => u.kind === "tokens")!;
+    expect(tokens).toMatchObject({ quantity: 500, currency: "USD" });
+    expect(Number(tokens.costMicroMinor)).toBe(300_000);
+    expect(Number(tokens.costMinor)).toBe(0);
+  });
+});

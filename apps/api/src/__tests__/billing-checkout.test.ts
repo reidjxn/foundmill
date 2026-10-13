@@ -7,7 +7,7 @@
  * gateway failure closes the row with a sentence the founder can act on; a paid tier cannot be chosen while its price is
  * to be announced.
  */
-import { assertPlatformCredits, platformCredits, repos } from "@foundmill/db";
+import { assertPlatformCredits, periodOf, platformCredits, repos } from "@foundmill/db";
 import { TRPCError } from "@trpc/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { ApiDeps, CallerUser } from "../context";
@@ -120,6 +120,8 @@ describe("billing.topUp (mock)", () => {
     const business = await repos.businesses.create(hz.db, { name: "Mock Only Credits", createdBy: userId, planTier: "scale" });
     await repos.memberships.add(hz.db, business.id, { userId, role: "owner" });
     const flagged = callerWith({ APP_ENV: "staging", MODEL_MODE: "live", ALLOW_MOCK_PAYMENTS: true }, { userId });
+    // The month opened with nothing included (the founder's pool was used): a top-up that opens a period also grants the tier's included credits.
+    await repos.usage.ensurePeriodCredits(hz.db, business.id, periodOf(new Date()), 0);
     const r = await flagged.billing.topUp({ businessId: business.id, amountMinor: 2500 });
     expect(r).toMatchObject({ mode: "mock", label: "Mock checkout (no money moves)" });
     await flagged.billing.checkout.completeMock({ businessId: business.id, checkoutId: r.checkout.id });
