@@ -38,7 +38,7 @@ Build command and output are Next defaults. `NODE_OPTIONS=--max-old-space-size=4
 
 Project `founder-manager`, environment `production` (it is the staging environment; the name is Railway's default). One service per app, all connected to `reidjxn/foundmill` on `main`, root `Dockerfile`, service variable `APP` = `api` | `gateway` | `composer` | `stream` | `ingest` | `orchestrator` (`collab` and `social` are optional in staging). Railway's private network is IPv6; every service listens on `::` and reads `PORT` (ARCHITECTURE.md §17). The `temporalio/auto-setup` service must have `TEMPORAL_ADDRESS=temporal.railway.internal:7233` (its own private domain), not `0.0.0.0:7233`: the server binds the container's IPv6 address, the setup script polls `TEMPORAL_ADDRESS` to register the `default` namespace, and with `0.0.0.0` it waits forever, so the orchestrator crashes with "Namespace default is not found" (fixed 2026-10-08).
 
-Shared by every service:
+Shared by every service, except the two secrets marked "only on" (least privilege: a service that never opens the vault or mints a token must not hold the key to it, and `stream` is on the public internet):
 
 | Variable | Value |
 | --- | --- |
@@ -51,8 +51,8 @@ Shared by every service:
 | `SUPABASE_URL` | the Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (api and collab only; never on the web) |
 | `SUPABASE_JWT_SECRET` | optional; lets the api/stream verify HS256 tokens without JWKS |
-| `SESSION_TOKEN_SECRET` | 32+ random bytes, identical on api, gateway and orchestrator |
-| `DEV_MASTER_KEY` | output of `generateMasterKey()` from `@foundmill/shared` (base64, 32 bytes); identical on api and gateway. Set `KMS_KEY_ID` instead when an AWS KMS key exists |
+| `SESSION_TOKEN_SECRET` | 32+ random bytes, identical on api, gateway, ingest, orchestrator and collab, which mint or verify the session tokens. **Only on those five**: not on stream or composer, which never use it |
+| `DEV_MASTER_KEY` | output of `generateMasterKey()` from `@foundmill/shared` (base64, 32 bytes); identical on api, gateway, ingest and orchestrator, the services that open the credential vault. **Only on those four**: it decrypts every stored credential (BYOK model keys, GitHub tokens), so stream (public) and composer must not hold it. Set `KMS_KEY_ID` instead when an AWS KMS key exists |
 | `LOG_LEVEL` | `info` |
 | `SHUTDOWN_TIMEOUT_MS` | optional; default `45000`. Time from SIGTERM to exit; keep it below `drainingSeconds` in railway.toml (60) |
 | `DATA_REGION` | `eu` |
@@ -139,7 +139,8 @@ Checked against the Railway GraphQL API (team token), the Vercel and Supabase co
 | --- | --- |
 | `main` carries the full build (`main-emurwq` merged, 0 commits apart) | ✅ |
 | Railway services exist: api, gateway, composer, stream, ingest, orchestrator, temporal, temporal-ui, Redis, Postgres | ✅ (Redis, Postgres, temporal, temporal-ui deployed and healthy) |
-| Shared variables on all six app services (APP, APP_ENV, INTEGRATIONS_MODE, MODEL_MODE, APP_URL, REDIS_URL, SUPABASE_URL, SESSION_TOKEN_SECRET, DEV_MASTER_KEY, LOG_LEVEL, DATA_REGION, TEMPORAL_*) | ✅ |
+| Shared variables on all six app services (APP, APP_ENV, INTEGRATIONS_MODE, MODEL_MODE, APP_URL, REDIS_URL, SUPABASE_URL, LOG_LEVEL, DATA_REGION, TEMPORAL_*) | ✅ |
+| `SESSION_TOKEN_SECRET` only on api, gateway, ingest, orchestrator and collab; `DEV_MASTER_KEY` only on api, gateway, ingest and orchestrator. **Remove both from stream and composer in Railway** (they were set on all six services until 2026-10-13; neither service reads either) | ⏳ founder: Railway variables |
 | api: `SEED_ON_BOOT=1`, `SEED_OWNER_EMAILS=reidjcksn@gmail.com` | ✅ 2026-10-08: seed-on-boot implemented (`apps/api/src/services/seed-on-boot.ts`); the owner is the address the founder signs in with |
 | `TEMPORAL_TASK_QUEUE=foundmill` on api and orchestrator (was `founder-manager`) | ✅ set 2026-10-08 |
 | `DATABASE_URL` on the app services | ✅ Supabase transaction pooler string as a shared variable on all six |
