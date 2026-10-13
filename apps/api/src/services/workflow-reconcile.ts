@@ -15,12 +15,12 @@ export const WORKFLOW_RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
 export interface ReconcileResult {
   reachable: boolean;
   holidaysStarted: number;
-  autopilotsStarted: number;
+  automatedStarted: number;
 }
 
 export async function reconcileWorkflows(deps: { db: Db; temporal: TemporalService; log: ApiLogger }): Promise<ReconcileResult> {
   const { db, temporal, log } = deps;
-  const result: ReconcileResult = { reachable: false, holidaysStarted: 0, autopilotsStarted: 0 };
+  const result: ReconcileResult = { reachable: false, holidaysStarted: 0, automatedStarted: 0 };
   if (!(await temporal.reachable())) return result;
   result.reachable = true;
 
@@ -36,10 +36,10 @@ export async function reconcileWorkflows(deps: { db: Db; temporal: TemporalServi
   }
 
   for (const b of await repos.businesses.listAutomated(db)) {
-    const started = await temporal.start(WORKFLOWS.autopilot, { workflowId: workflowIds.autopilot(b.id), args: [{ businessId: b.id }] });
+    const started = await temporal.start(WORKFLOWS.automatedMode, { workflowId: workflowIds.automatedMode(b.id), args: [{ businessId: b.id }] });
     if (started.queued && !started.alreadyStarted) {
-      result.autopilotsStarted += 1;
-      log.info({ businessId: b.id }, "started the autopilot of a business in Automated mode");
+      result.automatedStarted += 1;
+      log.info({ businessId: b.id }, "started the Automated mode loop of a business");
     } else if (!started.queued) break;
   }
   return result;

@@ -1,11 +1,11 @@
 /**
  * Cycle, vacation and Automated-mode activities on PGlite (audit W01): a retried activity never repeats its effect
  * (cycle events, sessions, the away report), a failed cycle is closed and announced once, an idle cycle says what is
- * in the way without calling a model, and the autopilot holds exactly when it should.
+ * in the way without calling a model, and the automated-mode loop holds exactly when it should.
  */
 import { repos } from "@foundmill/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createAutopilotActivities } from "../activities/autopilot";
+import { createAutomatedModeActivities } from "../activities/automatedMode";
 import { createBriefActivities, foldDuplicates } from "../activities/brief";
 import { createCycleActivities, cycleEventKey, IDLE_CYCLE_SUBJECT } from "../activities/cycle";
 import { createHolidayActivities } from "../activities/holiday";
@@ -146,22 +146,22 @@ describe("the away report is written once (audit O-35)", () => {
   });
 });
 
-describe("Automated mode's autopilot (audit SOAK-01, #75)", () => {
+describe("Automated mode's loop (audit SOAK-01, #75)", () => {
   it("is active only in Automated mode, holds while a vacation runs or the team is stopped, and ends with the mode", async () => {
-    const acts = createAutopilotActivities(t.deps);
+    const acts = createAutomatedModeActivities(t.deps);
     const A = t.businessId;
     await repos.businesses.setBusinessMode(t.db, A, "assisted");
-    expect(await acts.autopilotCheck({ businessId: A })).toMatchObject({ active: false, reason: "mode_changed" });
+    expect(await acts.automatedModeCheck({ businessId: A })).toMatchObject({ active: false, reason: "mode_changed" });
 
     await repos.businesses.setBusinessMode(t.db, A, "automated");
-    expect(await acts.autopilotCheck({ businessId: A })).toMatchObject({ active: true, hold: null });
+    expect(await acts.automatedModeCheck({ businessId: A })).toMatchObject({ active: true, hold: null });
 
     const vacation = await repos.holidays.start(t.db, A, { untilAt: new Date(t.clock.now().getTime() + 5 * DAY), startedAt: t.clock.now(), currency: "USD" });
-    expect(await acts.autopilotCheck({ businessId: A })).toMatchObject({ active: true, hold: "vacation" });
+    expect(await acts.automatedModeCheck({ businessId: A })).toMatchObject({ active: true, hold: "vacation" });
     await repos.holidays.end(t.db, A, vacation.id);
-    expect(await acts.autopilotCheck({ businessId: A })).toMatchObject({ active: true, hold: null });
+    expect(await acts.automatedModeCheck({ businessId: A })).toMatchObject({ active: true, hold: null });
 
-    const loaded = await acts.loadAutopilot({ businessId: A });
+    const loaded = await acts.loadAutomatedMode({ businessId: A });
     // Signing is never delegated, in Automated mode or on vacation.
     expect(loaded.authority).not.toContain("sign_contracts");
     expect(loaded.chiefOfStaffId).toBe(t.chiefId);

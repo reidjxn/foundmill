@@ -19,13 +19,14 @@
 import { randomUUID } from "node:crypto";
 import { departmentTabs, getArchetypeSeed, getTemplate } from "@foundmill/agents";
 import { initialModelBilling } from "@foundmill/config";
-import { assertBusinessAllowance, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
+import { assertBusinessAllowance, autopilotChangedPayload, creditsUsedUp, includedCreditsFor, periodOf, repos, type Business, type Db, type DbTx, type InboxItem } from "@foundmill/db";
 import { writeEventRow } from "./events";
 import { CHANNEL_KEYS, CHANNEL_META, CurrencyCode, DEFAULT_BUSINESS_CURRENCY, DEFAULT_BUSINESS_MODE, ValidationError, slugify, type Archetype, type BusinessMode, type GameMode, type OptionAction } from "@foundmill/shared";
 import { presetLayout } from "../presets";
 import { QUEUE_ACTION } from "./cycle";
 import { checkLogoChoice, type LogoChoice } from "./logo";
 import { hireMany, type PlannedHire } from "./squad";
+import { startAutopilotWorkflow } from "./autopilot";
 import type { TemporalService } from "./temporal";
 import { WORKFLOWS, workflowIds, type TemporalResult } from "./temporal";
 import { ensureChannelEngines } from "./engines";
@@ -47,6 +48,8 @@ export interface CommitIdeaInput {
   /** The business's currency (ISO 4217), chosen on the Commit screen; absent: the founder's profile currency. */
   currency?: string;
   spendCapMinor?: number | null;
+  /** "Run on autopilot" (Commit): the business starts its own cycles (0055). Off unless chosen. */
+  autopilot?: boolean;
 }
 
 export interface CommitIdeaResult {
@@ -61,6 +64,8 @@ export interface CommitIdeaResult {
   import: { queued: boolean; workflowId: string; reason?: string } | null;
   /** The starter channels' engines (`engine:<channelId>`), one per channel on the board (audit GTM-01). */
   engines: TemporalResult[];
+  /** The Autopilot workflow start, when the founder chose to run on autopilot. */
+  autopilot?: { queued: boolean; workflowId: string; reason?: string } | null;
   /** The vision, specification and roadmap wait for the first open (BUILD §11.1, §11.5). */
   foundations: { status: "pending"; door: "ideation" | "import"; importSourceIds: string[] };
   /** True when the idea was already a business (a second Take charge): nothing was created and no cycle started. */
@@ -165,7 +170,13 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
     });
     const businessId = business.id;
     await repos.memberships.add(tx, businessId, { userId, role: "owner" });
-    // This month's included credits (USD), so the first cycle already runs against a balance that pauses the team. They
+    // "Run on autopilot": on from the first minute, audited like turning it on in Settings.
+    if (input.autopilot) {
+      const on = await repos.autopilot.set(tx, businessId, { enabled: true });
+      await repos.audit.append(tx, businessId, { actorKind: "user", actorId: userId, action: "autopilot.turn_on", target: { kind: "business", id: businessId }, details: { enabled: true, cadence: on.business.autopilotCadence, maxCyclesPerDay: on.business.autopilotMaxCyclesPerDay, via: "commit" } });
+      await writeEventRow(tx, { businessId, type: "autopilot.changed", actor: { kind: "user", id: userId }, payload: autopilotChangedPayload(on.business, "turned_on", null) });
+    }
+        // This month's included credits (USD), so the first cycle already runs against a balance that pauses the team. They
     // come from the founder's monthly pool (`includedCreditsFor`): once its places are taken this month (archived
     // businesses included), a new business starts with nothing included, never a second grant.
     const period = periodOf(new Date());
@@ -332,6 +343,7 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
         departments: departmentIds.length,
         agents: agentIds.length,
         spendCapMinor: input.spendCapMinor ?? null,
+        autopilot: input.autopilot === true,
         planTier,
         modelBilling,
         includedCreditsMinor: credits ? Number(credits.grantedMinor) : null,
@@ -359,7 +371,9 @@ export async function commitIdea(db: Db, temporal: TemporalService, userId: stri
   const imported = result.foundations.importSourceIds.length ? await queueImportReads({ db, temporal }, result.business.id, result.foundations.importSourceIds) : null;
   // The starters are on the board, so their engines run from now on (each records its id on the channel).
   const engines = await ensureChannelEngines({ db, temporal, businessId: result.business.id }, await repos.channels.list(db, result.business.id, { enabled: true }));
-  return { ...result, cycle, import: imported, engines, alreadyCommitted: false };
+  // Autopilot starts after the first cycle, which it waits for (and for the Board decision, which blocks Continue).
+  const autopilot = input.autopilot ? await startAutopilotWorkflow({ businessId: result.business.id, temporal }) : null;
+  return { ...result, cycle, import: imported, engines, autopilot, alreadyCommitted: false };
 }
 
 /**

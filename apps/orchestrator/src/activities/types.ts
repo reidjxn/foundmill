@@ -128,7 +128,7 @@ export interface CyclePlan {
   idle?: boolean;
 }
 
-export type CycleTrigger = "continue" | "holiday" | "schedule" | "wake";
+export type CycleTrigger = "continue" | "holiday" | "schedule" | "wake" | "autopilot";
 
 export interface BusinessCycleInput {
   businessId: string;
@@ -384,24 +384,24 @@ export interface HolidayCheck {
   now: string;
 }
 
-export interface AutopilotInput {
+export interface AutomatedModeInput {
   businessId: string;
-  /** Cycles run by earlier runs of this autopilot (it continues as new to keep its history short). */
+  /** Cycles run by earlier runs of this loop (it continues as new to keep its history short). */
   cyclesRun?: number;
   /** Override the cadence between cycles (agent-hours). */
   cadenceAgentHours?: number;
 }
 
-export interface LoadedAutopilot {
+export interface LoadedAutomatedMode {
   chiefOfStaffId: string | null;
   authority: string[];
   cadenceAgentHours: number;
 }
 
-export interface AutopilotCheck {
-  /** False once the business left Automated mode or was archived: the autopilot ends. */
+export interface AutomatedModeCheck {
+  /** False once the business left Automated mode or was archived: the loop ends. */
   active: boolean;
-  /** Why no cycle runs this tick although the autopilot continues. */
+  /** Why no cycle runs this tick although the loop continues. */
   hold: "vacation" | "stopped" | null;
   reason: string;
 }

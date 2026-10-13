@@ -11,6 +11,9 @@
  * key clears only a key revoke and a top-up only used-up credits (`onlyFor`), so neither undoes the founder's Stop all
  * agents. Agents paused by a stop (or with no recorded reason) become idle; a wage-cap pause stays until the agent is
  * under its cap. Both return the agents they changed so callers can write `agent.health_changed` in their transaction.
+ *
+ * Autopilot (0055) pauses with the stop, in the same transaction, and stays paused through the resume: a stopped team
+ * never auto-starts, and only the founder turns Autopilot back on.
  */
 import type { AgentStatus, AgentStopReason } from "@foundmill/shared";
 import { repos } from "./repos";
@@ -24,13 +27,18 @@ export interface StopBusinessResult {
   alreadyStopped: boolean;
   /** Agents this call paused, with the status each had. */
   paused: { id: string; from: AgentStatus }[];
+  /** Autopilot was on and this call paused it (0055); only the founder turns it back on, so a resume never restarts it. */
+  autopilotPaused: boolean;
 }
 
 export async function stopBusinessAgents(db: Executor, businessId: string, input: { reason: AgentStopReason; at?: Date }): Promise<StopBusinessResult> {
   return db.transaction(async (tx) => {
     const flag = await repos.businesses.setAgentsStopped(tx, businessId, input);
     const paused = await repos.agents.pauseEveryone(tx, businessId, { reason: input.reason });
-    return { stoppedAt: flag.stoppedAt, reason: flag.reason, alreadyStopped: flag.already, paused };
+    // A stopped team never auto-starts: Autopilot pauses in the same transaction and stays paused through the resume.
+    const autopilotPaused = await repos.autopilot.pause(tx, businessId, input.reason);
+    if (autopilotPaused) await repos.audit.append(tx, businessId, { actorKind: "system", action: "autopilot.pause", target: { kind: "business", id: businessId }, details: { reason: input.reason } });
+    return { stoppedAt: flag.stoppedAt, reason: flag.reason, alreadyStopped: flag.already, paused, autopilotPaused };
   });
 }
 

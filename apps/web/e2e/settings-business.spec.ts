@@ -229,3 +229,52 @@ test.describe("settings › glossary: the business's own words", () => {
     }
   });
 });
+
+/**
+ * Settings > Mode > Autopilot: off by default, turned on with the switch (the chip says so and Home shows the same
+ * state), the limits are validated and kept after a reload, and it is turned off again so the seed stays as it was.
+ * Autopilot starts cycles the way Continue does; the spec never waits for one.
+ */
+test.describe("settings > mode: Autopilot", () => {
+  test("off by default; on and off with the switch; limits validated and kept; Home shows the chip", async ({ page }) => {
+    await openBusiness(page, "settings/mode");
+    const section = page.getByTestId("autopilot-section");
+    await expect(section).toBeVisible({ timeout: LONG });
+    await expect(section.getByTestId("autopilot-chip")).toHaveAttribute("data-autopilot-state", "off");
+    await expect(section.getByTestId("autopilot-switch")).toHaveAttribute("aria-checked", "false");
+
+    await section.getByTestId("autopilot-switch").click();
+    await expect(page.getByText("Autopilot is on")).toBeVisible({ timeout: LONG });
+    await expect(section.getByTestId("autopilot-switch")).toHaveAttribute("aria-checked", "true");
+    // On, or waiting for the founder when an Inbox item blocks Continue; never "Off". The next cycle, when shown, is an Estimate.
+    await expect(section.getByTestId("autopilot-chip")).not.toHaveAttribute("data-autopilot-state", "off");
+    if (await section.locator("[data-autopilot-next]").count()) await expect(section.locator("[data-autopilot-next] [data-provenance='estimate']")).toBeVisible();
+
+    const cycles = section.getByLabel(/Most cycles per day/);
+    await cycles.fill("25");
+    await expect(section).toContainText("Use a whole number from 1 to 24");
+    await expect(section.getByTestId("autopilot-save")).toBeDisabled();
+    await cycles.fill("8");
+    await section.getByLabel(/Pause after failed or empty cycles/).fill("2");
+    await section.getByTestId("autopilot-save").click();
+    await expect(page.getByText("Autopilot settings saved")).toBeVisible({ timeout: LONG });
+    await page.reload();
+    await expect(page.getByTestId("autopilot-section").getByLabel(/Most cycles per day/)).toHaveValue("8", { timeout: LONG });
+    await expect(page.getByTestId("autopilot-section").getByLabel(/Pause after failed or empty cycles/)).toHaveValue("2");
+
+    // Home shows the same state in words.
+    await openBusiness(page, "home");
+    await expect(page.getByTestId("home-autopilot").getByTestId("autopilot-chip")).not.toHaveAttribute("data-autopilot-state", "off", { timeout: LONG });
+
+    // Back to the seed: restore the limits and turn it off.
+    await openBusiness(page, "settings/mode");
+    const again = page.getByTestId("autopilot-section");
+    await again.getByLabel(/Most cycles per day/).fill("6");
+    await again.getByLabel(/Pause after failed or empty cycles/).fill("3");
+    await again.getByTestId("autopilot-save").click();
+    await expect(page.getByText("Autopilot settings saved")).toBeVisible({ timeout: LONG });
+    await again.getByTestId("autopilot-switch").click();
+    await expect(page.getByText("Autopilot is off")).toBeVisible({ timeout: LONG });
+    await expect(again.getByTestId("autopilot-chip")).toHaveAttribute("data-autopilot-state", "off");
+  });
+});

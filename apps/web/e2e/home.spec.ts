@@ -101,3 +101,17 @@ test.describe("home", () => {
     await expect(page.getByTestId("home-screen")).toHaveAttribute("data-dashboard-id", first!);
   });
 });
+
+/** Home's Autopilot chip: always there, in words (Off, On, Waiting for you, Paused: reason); it opens Settings > Mode. */
+test.describe("home > Autopilot chip", () => {
+  test("shows the state and opens Settings > Mode", async ({ page }) => {
+    await openBusiness(page);
+    const chip = page.getByTestId("home-autopilot").getByTestId("autopilot-chip");
+    await expect(chip).toBeVisible({ timeout: LONG });
+    await expect(chip).toContainText("Autopilot");
+    await expect(chip).toHaveAttribute("data-autopilot-state", /^(off|on|waiting|paused)$/);
+    await chip.click();
+    await expect(page).toHaveURL(/\/settings\/mode$/);
+    await expect(page.getByTestId("autopilot-section")).toBeVisible({ timeout: LONG });
+  });
+});

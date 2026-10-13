@@ -27,6 +27,17 @@ test.describe("commit", () => {
     await expect(page.getByTestId("commit-adult")).toHaveCount(0);
   });
 
+  test("Run on autopilot is a choice, off by default, and shows in the summary when chosen", async ({ page }) => {
+    const toggle = page.getByTestId("run-on-autopilot");
+    await expect(page.getByTestId("autopilot-choice")).toContainText("Run on autopilot");
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByText("Autopilot", { exact: true }).first()).toBeVisible();
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+  });
+
   test("name suggestions, live domain availability and the trademark screen with its caveat", async ({ page }) => {
     await expect(page.getByTestId("domain-checks").locator("[data-domain]")).toHaveCount(5);
     await expect(page.getByTestId("trademark-screen").locator("[data-registry]")).toHaveCount(2);

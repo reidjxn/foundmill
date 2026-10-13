@@ -51,6 +51,7 @@ import { useShellChrome } from "@/components/shell/chrome";
 import { ErrorPanel } from "@/components/shell/ErrorPanel";
 import { NotFoundPanel, RefreshFailedNotice, isMissing, loadFailed, refreshFailed } from "@/components/shell/QueryStates";
 import { ScreenSkeleton } from "@/components/shell/ScreenSkeleton";
+import { HomeAutopilot } from "./HomeAutopilot";
 import { dashboardActions, dashboardTabs, dayOneLine, editedElsewhere, ghostedMilestones, gridPresets, isDayOne, isOwnDashboard, nextDashboardName, pickDashboardId, resetPresetFor, sameLayout, shareHref, versionConflict } from "./dashboards";
 import { isGuid } from "@/lib/ids";
 
@@ -245,6 +246,7 @@ export function HomeScreen({ dashboardId: routeId }: HomeScreenProps) {
     <div className="flex min-h-full flex-col gap-gutter p-gutter" data-testid="home-screen" data-dashboard-id={row.id} data-dashboard-version={row.version} data-editing={editing || undefined}>
       {refreshFailed(listQ) || refreshFailed(dashboardQ) ? <RefreshFailedNotice query={refreshFailed(dashboardQ) ? dashboardQ : listQ} className="flex items-center gap-2" /> : null}
       <HomeFoundations />
+      <HomeAutopilot />
       <DayOne businessId={businessId} currency={currency} />
       <DashboardGrid
         key={row.id}

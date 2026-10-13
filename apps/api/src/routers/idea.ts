@@ -282,6 +282,8 @@ export const ideaRouter = router({
         spendCapMinor: z.number().int().nonnegative().nullable().default(null),
         /** The founder's 18+ confirmation, asked when they take charge of a LIVE business (the network is for adults). */
         confirmAdult: z.boolean().optional(),
+        /** "Run on autopilot": the business starts its own cycles; off unless chosen. */
+        autopilot: z.boolean().default(false),
       }),
     )
     // A new business drafts its foundations and runs its first cycle on the platform key (SEC-13).

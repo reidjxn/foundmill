@@ -179,13 +179,13 @@ export function waitingReason(item: Pick<InboxItem, "state" | "subject" | "bodyM
 
 /*
  * W01's simple helper (decides inside the given authority without compiling a plan) that Automated mode's activity
- * (./autopilot) calls; the vacation itself takes the plan path above.
+ * (./automatedMode) calls; the vacation itself takes the plan path above.
  */
 export interface AutoDecideOptions {
   chiefOfStaffId: string | null;
   /** Decision types the Chief of Staff may take (signing never is). */
   authority: readonly string[];
-  auditAction: "holiday.decide" | "autopilot.decide";
+  auditAction: "holiday.decide" | "automated_mode.decide";
   /** Words for the audit reason: "vacation" or "Automated mode". */
   scope: string;
   /** Business spend cap per action (minor units): an option that costs more waits for the founder. */

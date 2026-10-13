@@ -98,10 +98,11 @@ const SpecEditor = dynamic(() => import("@/components/spec/SpecEditor").then((m)
 
 /** Events after which the shell refetches a router's queries (or one procedure group's, as a dotted path). */
 export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
-  "inbox.item_created": ["inbox"],
+  // An Inbox item that blocks Continue (or the decision that clears it) moves the Autopilot chip: Waiting for you.
+  "inbox.item_created": ["inbox", "business.autopilot"],
   // Another member archived an item or confirmed its plan (audit RUI-09).
-  "inbox.item_updated": ["inbox", "plan"],
-  "decision.made": ["inbox", "plan"],
+  "inbox.item_updated": ["inbox", "plan", "business.autopilot"],
+  "decision.made": ["inbox", "plan", "business.autopilot"],
   "customer.converted": ["inbox", "journey", "finance"],
   // A renewal or a repeat order is revenue with no customer.converted (only first payments win a customer).
   "payment.received": ["journey", "finance"],
@@ -110,10 +111,13 @@ export const INVALIDATE_ON_EVENT: Record<string, readonly string[]> = {
   "mode.changed": ["business"],
   // A rename or new brand colors saved in another tab or by a co-founder (audit RES-07).
   "business.updated": ["business"],
+  // Autopilot turned on or off, its settings changed, or a guard rail paused it: the chip and Settings read business.autopilot.
+  "autopilot.changed": ["business"],
+  "autopilot.cycle_started": ["business", "cycle"],
   "holiday.started": ["business"],
   "holiday.ended": ["business", "inbox", "cycle"],
-  "cycle.started": ["cycle"],
-  "cycle.completed": ["inbox", "department", "dev", "finance", "cycle"],
+  "cycle.started": ["cycle", "business.autopilot"],
+  "cycle.completed": ["inbox", "department", "dev", "finance", "cycle", "business.autopilot"],
   "bank.balance_updated": ["finance"],
   "runway.threshold_crossed": ["finance", "inbox"],
   "approval.requested": ["inbox"],

@@ -7,6 +7,7 @@
 import { agentsRepo } from "./agents";
 import { approvalsRepo } from "./approvals";
 import { auditRepo } from "./audit";
+import { autopilotRepo } from "./autopilot";
 import { businessesRepo } from "./businesses";
 import { campaignsRepo } from "./campaigns";
 import { capTableRepo } from "./capTable";
@@ -47,6 +48,7 @@ import { tableViewsRepo } from "./table-views";
 
 export const repos = {
   businesses: businessesRepo,
+  autopilot: autopilotRepo,
   memberships: membershipsRepo,
   founders: foundersRepo,
   ideas: ideasRepo,
@@ -96,6 +98,7 @@ export { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, encodeCursor, decodeCursor, decodeTim
 export * from "./agents";
 export * from "./approvals";
 export * from "./audit";
+export * from "./autopilot";
 export * from "./businesses";
 export * from "./campaigns";
 export * from "./capTable";

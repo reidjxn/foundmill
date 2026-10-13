@@ -41,6 +41,8 @@ export const resumeSignal = defineSignal<[CycleHoldPayload]>("resume");
 export const stopSignal = defineSignal<[StopPayload]>("stop");
 export const founderSubmitSignal = defineSignal<[FounderSubmitPayload]>("founderSubmit");
 export const wakeSignal = defineSignal<[WakePayload]>("wake");
+/** Autopilot: look at the guard rails again now (its settings changed, or it was turned on again). */
+export const autopilotRefreshSignal = defineSignal<[ByPayload]>("autopilotRefresh");
 
 export const progressQuery = defineQuery<ProgressSnapshot>("progress");
 

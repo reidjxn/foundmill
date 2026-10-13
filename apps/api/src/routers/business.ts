@@ -7,8 +7,9 @@ import { HolidayRunningError, repos, UpdateBusinessInput } from "@foundmill/db";
 import { demoBusinessIdForSlug } from "@foundmill/db/seed/constants";
 import { BUSINESS_SETTINGS_FIELDS, businessStreamKey } from "@foundmill/events";
 import { PRICING_CURRENCY } from "@foundmill/models";
-import { BUSINESS_MODES, ConflictError, CurrencyCode, DECISION_TYPES, EVENT_TYPES, GAME_MODES, isValidTimeZone } from "@foundmill/shared";
+import { AUTOPILOT_CADENCES, AUTOPILOT_LIMITS, BUSINESS_MODES, ConflictError, CurrencyCode, DECISION_TYPES, EVENT_TYPES, GAME_MODES, isValidTimeZone } from "@foundmill/shared";
 import { z } from "zod";
+import { autopilotStatus, ensureAutopilot, setAutopilot } from "../services/autopilot";
 import { pauseCycle, resumeCycle, startCycle } from "../services/cycle";
 import { assertAgentsRunning, resumeAgents, stopAllAgents } from "../services/killswitch";
 import { requireAdultToGoLive } from "../services/live";
@@ -47,8 +48,30 @@ const HolidayUntil = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("return") }),
 ]);
 
+/** Autopilot's switch and settings (Settings > Mode, Commit); each field is optional so a change sends only what it changes. */
+const AutopilotSettingsInput = z.object({
+  enabled: z.boolean().optional(),
+  cadence: z.enum(AUTOPILOT_CADENCES).optional(),
+  dailyHour: z.number().int().min(AUTOPILOT_LIMITS.dailyHour.min).max(AUTOPILOT_LIMITS.dailyHour.max).optional(),
+  maxCyclesPerDay: z.number().int().min(AUTOPILOT_LIMITS.maxCyclesPerDay.min).max(AUTOPILOT_LIMITS.maxCyclesPerDay.max).optional(),
+  /** USD cents of model spend per UTC day (an Estimate); null: the credits left. */
+  spendCeilingMinor: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable().optional(),
+  maxIdleCycles: z.number().int().min(AUTOPILOT_LIMITS.maxIdleCycles.min).max(AUTOPILOT_LIMITS.maxIdleCycles.max).optional(),
+});
+
 export const businessRouter = router({
   logo: businessLogoRouter,
+
+  /**
+   * Autopilot (0055): the business starts its own cycles. `get` is the chip and the settings (any member reads it);
+   * `set` is the switch and settings (owner or admin, audited, refused while the team is stopped); `ensure` starts the
+   * workflow of an Autopilot that is on and not paused when the orchestrator was down when it was saved.
+   */
+  autopilot: router({
+    get: businessProcedure.query(({ ctx }) => autopilotStatus(ctx)),
+    set: adminProcedure.input(AutopilotSettingsInput).mutation(({ ctx, input }) => setAutopilot(ctx, input)),
+    ensure: writeProcedure.mutation(({ ctx }) => ensureAutopilot(ctx)),
+  }),
 
   get: businessProcedure.query(async ({ ctx }) => {
     const [holiday, blocking, departments, agents, deletion, logo, foundations] = await ctx.rls(async (tx) =>
@@ -145,10 +168,10 @@ export const businessRouter = router({
   }),
 
   /**
-   * Automated runs the business by itself (BUILD §11.3): the mode change starts the business's autopilot workflow, which
+   * Automated runs the business by itself (BUILD §11.3): the mode change starts the business's Automated mode loop (`automatedMode`), which
    * keeps pressing Continue and lets the Chief of Staff answer what blocks it, within Automated mode's authority; any
    * other mode stops it. Without a reachable orchestrator the mode is still saved and the workflow reconciler starts the
-   * autopilot once one is up (audit SOAK-01).
+   * loop once one is up (audit SOAK-01).
    */
   setBusinessMode: adminProcedure.input(z.object({ businessMode: z.enum(BUSINESS_MODES), reason: z.string().max(500).optional() })).mutation(async ({ ctx, input }) => {
     const from = ctx.business.businessMode;
@@ -160,8 +183,8 @@ export const businessRouter = router({
       }
       return changed;
     });
-    if (input.businessMode === "automated" && ctx.business.committedAt) await ctx.temporal.start(WORKFLOWS.autopilot, { workflowId: workflowIds.autopilot(ctx.businessId), args: [{ businessId: ctx.businessId }] });
-    else if (from === "automated" && input.businessMode !== "automated") await ctx.temporal.signal(workflowIds.autopilot(ctx.businessId), "stop", { reason: "mode_changed", by: ctx.userId });
+    if (input.businessMode === "automated" && ctx.business.committedAt) await ctx.temporal.start(WORKFLOWS.automatedMode, { workflowId: workflowIds.automatedMode(ctx.businessId), args: [{ businessId: ctx.businessId }] });
+    else if (from === "automated" && input.businessMode !== "automated") await ctx.temporal.signal(workflowIds.automatedMode(ctx.businessId), "stop", { reason: "mode_changed", by: ctx.userId });
     return business;
   }),
 

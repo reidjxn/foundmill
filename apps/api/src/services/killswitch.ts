@@ -2,7 +2,8 @@
  * business.stopAllAgents — the kill switch (BUILD §14: ≤ 30 s; pauses workflows, engines and campaigns) — and
  * business.resumeAgents, its only way back.
  *
- * Stop writes first, then signals. One transaction sets the business's stop flag (0023), marks every agent paused with
+ * Stop writes first, then signals. One transaction sets the business's stop flag (0023), pauses Autopilot (it stays
+ * paused through the resume), marks every agent paused with
  * the reason, pauses running tasks and live campaigns, cancels the training runs in flight and writes one
  * `agent.health_changed` per agent that changed. From that commit on every path that starts work refuses
  * (`assertAgentsRunning` in stop-guard.ts; the orchestrator's dispatch guard; a session's own start and its periodic
@@ -22,7 +23,7 @@
  * canceled (Train again from the Training tab).
  */
 import { LIMITS } from "@foundmill/config";
-import { periodOf, repos, resumeBusinessAgents, stopBusinessAgents, type Executor } from "@foundmill/db";
+import { autopilotChangedPayload, periodOf, repos, resumeBusinessAgents, stopBusinessAgents, type Executor } from "@foundmill/db";
 import type { AgentStopReason } from "@foundmill/shared";
 import type { BusinessContext } from "../trpc";
 import { audit, emit } from "../trpc";
@@ -71,6 +72,7 @@ export async function stopAllAgents(ctx: BusinessContext, reason = "kill_switch"
     }
     // Training spends model credits too: runs in flight end canceled (a late worker write never undoes it).
     const training = await repos.training.cancelActive(tx, businessId, { coachSummaryMd: TRAINING_STOPPED_SUMMARY });
+    if (stop.autopilotPaused) await emit(tx, ctx, { type: "autopilot.changed", payload: autopilotChangedPayload(ctx.business, "paused", "kill_switch") });
     for (const a of stop.paused) {
       await emit(tx, ctx, {
         type: "agent.health_changed",
@@ -136,6 +138,8 @@ async function signalStop(ctx: BusinessContext, reason: string, cancelledTrainin
   }
   for (const p of plans.items) if (p.workflowId) ids.add(p.workflowId);
   if (holiday) ids.add(workflowIds.holiday(holiday.id));
+  // Autopilot ends with the stop (it also paused in the local write above and stays paused through the resume).
+  if (ctx.business.autopilotEnabled && ctx.business.autopilotPausedReason === null) ids.add(workflowIds.autopilot(businessId));
   for (const runId of cancelledTraining) ids.add(workflowIds.training(runId));
 
   const signal = (list: readonly string[], ms: number) => ctx.temporal.signalMany(list, "stop", [{ reason, by: ctx.userId }], Math.max(1_000, ms));

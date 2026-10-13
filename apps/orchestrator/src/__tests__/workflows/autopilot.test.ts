@@ -1,12 +1,16 @@
 /**
- * autopilot with mocked activities: a business in Automated mode keeps pressing Continue by itself. The Chief of Staff
- * answers what blocks it between cycles, the loop holds while a vacation runs or the team is stopped, and it ends when
- * the mode changes (audit SOAK-01, #75).
+ * autopilot with mocked activities and a fake clock: the real `decideAutopilot` runs inside the mocked evaluate against
+ * a small world (cycles, Inbox, credits, stop flag), and the real `businessCycle` runs as the child. It starts a cycle
+ * once the interval has passed (trigger `autopilot`), waits while an Inbox item blocks and never decides it, pauses
+ * after N empty cycles, and never starts while the team is stopped or the credits are used up.
  */
+import type { Client, WorkflowHandleWithFirstExecutionRunId } from "@temporalio/client";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Activities, AutopilotCheck } from "../../activities";
-import { autopilot, stopSignal } from "../../workflows";
-import { AUTOPILOT_CHAINED_CYCLES } from "../../workflows/autopilot";
+import { AUTOPILOT_DEFAULT_SETTINGS, decideAutopilot, type AutopilotCycleSummary, type AutopilotSettings } from "@foundmill/shared";
+import type { Activities, AutopilotEvaluation } from "../../activities";
+import { FakeClock } from "../../clock";
+import { AUTOPILOT_POLL_MS, AUTOPILOT_MAX_SLEEP_MS } from "../../activities/autopilot";
+import { autopilot, autopilotRefreshSignal, businessCycle, stopSignal, type AutopilotInput, type AutopilotResult } from "../../workflows";
 import { createTemporalRig, type TemporalRig } from "./temporal";
 
 let rig: TemporalRig;
@@ -19,95 +23,291 @@ afterAll(async () => {
 
 const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const H = 60 * 60 * 1000;
+const START = "2026-10-13T08:00:00.000Z";
 
-interface Calls {
-  checks: number;
-  decides: number;
-  cycles: number[];
-  cycleTriggers: string[];
+interface World {
+  clock: FakeClock;
+  settings: AutopilotSettings;
+  blocking: number;
+  stopReason: "kill_switch" | "key_revoked" | "credits_exhausted" | null;
+  credits: number | null;
+  /** Tasks the plan starts per cycle (0: an empty cycle). */
+  tasksPerCycle: number;
+  cycles: { number: number; trigger: string }[];
+  recent: AutopilotCycleSummary[];
+  lastStartedAt: number | null;
+  lastEndedAt: number | null;
+  since: number;
+  pausedReason: string | null;
+  open: boolean;
+  starts: number[];
+  evaluations: number;
+  pauses: string[];
+  recorded: { cycleNumber: number; cyclesToday: number }[];
 }
 
-function mockActivities(opts: { active?: (checks: number, cycles: number) => AutopilotCheck; decided?: (n: number) => number } = {}): { acts: Partial<Activities>; calls: Calls } {
-  const calls: Calls = { checks: 0, decides: 0, cycles: [], cycleTriggers: [] };
-  const acts: Partial<Activities> = {
-    async loadAutopilot() {
-      return { chiefOfStaffId: id(1), authority: ["publish_content", "spend_above_threshold"], cadenceAgentHours: 4 };
+function world(patch: Partial<World> = {}): World {
+  const clock = patch.clock ?? new FakeClock(START);
+  return {
+    clock,
+    settings: { ...AUTOPILOT_DEFAULT_SETTINGS, cadence: "every_4h" },
+    blocking: 0,
+    stopReason: null,
+    credits: 5_000,
+    tasksPerCycle: 1,
+    cycles: [],
+    recent: [],
+    lastStartedAt: null,
+    lastEndedAt: clock.nowMs() - 1 * H,
+    since: clock.nowMs() - 3 * H,
+    pausedReason: null,
+    open: false,
+    starts: [],
+    evaluations: 0,
+    pauses: [],
+    recorded: [],
+    ...patch,
+  };
+}
+
+function mocks(w: World): Partial<Activities> {
+  return {
+    async autopilotEvaluate(input): Promise<AutopilotEvaluation> {
+      w.evaluations += 1;
+      const decision = decideAutopilot({
+        now: w.clock.nowMs(),
+        enabled: true,
+        pausedReason: w.pausedReason as never,
+        since: w.since,
+        settings: w.settings,
+        archived: false,
+        stopReason: w.stopReason,
+        creditsRemainingMinor: w.credits,
+        vacation: false,
+        blockingItems: w.blocking,
+        cycleOpen: w.open,
+        lastCycleStartedAt: w.lastStartedAt,
+        lastCycleEndedAt: w.lastEndedAt,
+        cyclesToday: w.starts.filter((t) => t >= Date.UTC(2026, 9, 13)).length,
+        spentTodayMinor: 0,
+        recentCycles: w.recent,
+        unrecordedFailures: input.unrecordedFailures,
+      });
+      let waitMs = 0;
+      if (decision.action === "wait") {
+        waitMs = Math.max(1_000, Math.min(AUTOPILOT_MAX_SLEEP_MS, decision.until !== null ? decision.until - w.clock.nowMs() : AUTOPILOT_POLL_MS));
+        // The workflow sleeps this long (time is skipped), so the world's clock moves with it.
+        await w.clock.advance(waitMs);
+      }
+      return { decision, waitMs, cadence: w.settings.cadence, maxIdleCycles: w.settings.maxIdleCycles, cyclesToday: 0 };
     },
-    async autopilotCheck() {
-      calls.checks += 1;
-      return opts.active ? opts.active(calls.checks, calls.cycles.length) : { active: true, hold: null, reason: "" };
+    async autopilotPause(input) {
+      w.pauses.push(input.reason);
+      w.pausedReason = input.reason;
+      return { paused: true };
     },
-    async autopilotAutoDecide() {
-      calls.decides += 1;
-      return { decided: opts.decided ? opts.decided(calls.decides) : 0, queuedGated: 0, inboxItemIds: [], planIds: [], waiting: [] };
+    async autopilotCycleStarted(input) {
+      w.recorded.push({ cycleNumber: input.cycleNumber, cyclesToday: input.cyclesToday });
+      return { eventId: id(900) };
     },
-    async autopilotNextCycleNumber() {
-      return { cycleNumber: calls.cycles.length + 1 };
+    async autopilotCycleFailed() {
+      return { recorded: false };
     },
-    // the businessCycle child
+    async nextCycleNumber() {
+      return { cycleNumber: w.cycles.length + 1 };
+    },
+    // The businessCycle child.
     async loadBrief() {
-      return { businessId: B, businessName: "Ledgerly", businessMode: "automated", archetype: null, currency: "USD", glossary: {}, holidayActive: false, departments: [], agents: [], chiefOfStaffId: id(1), openTasks: [], pendingApprovals: 0, blockingInboxItems: 0, budgetRemainingMinor: null, creditsCurrency: "USD", maxAgents: 2, capacity: "mock", text: "", approxTokens: 0, builtAt: "2026-10-05T08:00:00.000Z" };
+      return { businessId: B, businessName: "Ledgerly", businessMode: "assisted", archetype: null, currency: "USD", glossary: {}, holidayActive: false, departments: [], agents: [], chiefOfStaffId: id(1), openTasks: [], pendingApprovals: 0, blockingInboxItems: w.blocking, budgetRemainingMinor: null, creditsCurrency: "USD", maxAgents: 2, capacity: "mock", text: "", approxTokens: 0, builtAt: START };
     },
-    async planCycle() {
-      return { summary: "nothing to do", timeBoxHours: 4, starts: [], deferred: [], approvalsNeeded: [], modelKey: "opus" as const, warning: null, costMinor: 0 };
+    async planCycle(input) {
+      w.cycles.push({ number: input.cycleNumber, trigger: input.trigger });
+      return { summary: "plan", timeBoxHours: 1, starts: [], deferred: [], approvalsNeeded: [], modelKey: "opus", warning: null, costMinor: 0 };
     },
-    async startCycle(input) {
-      calls.cycles.push(input.cycleNumber);
-      calls.cycleTriggers.push(input.trigger);
-      return { cycleId: input.cycleId ?? id(100 + calls.cycles.length), eventId: id(200 + calls.cycles.length) };
+    async startCycle() {
+      w.open = true;
+      w.lastStartedAt = w.clock.nowMs();
+      w.starts.push(w.clock.nowMs());
+      return { cycleId: id(100 + w.cycles.length), eventId: id(200 + w.cycles.length) };
     },
     async narrateCycle() {
       return { inboxItemIds: [], viaComposer: false };
     },
-    async completeCycle() {
+    async completeCycle(input) {
+      // A cycle takes an hour of clock time; its tasks are dispatched and finished (or none, for an empty cycle).
+      await w.clock.advance(H);
+      w.open = false;
+      w.lastEndedAt = w.clock.nowMs();
+      const summary: AutopilotCycleSummary = { outcome: w.tasksPerCycle === 0 ? "completed" : "completed", tasksDispatched: w.tasksPerCycle, tasksCompleted: w.tasksPerCycle };
+      w.recent.unshift(summary);
+      void input;
       return { eventId: id(300) };
     },
   };
-  return { acts, calls };
+}
+
+async function until(cond: () => boolean, ms = 10_000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!cond() && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+  if (!cond()) throw new Error("condition not reached in time");
+}
+
+/**
+ * Starts the workflow and awaits its result right away (the time-skipping test server skips time only while a result is
+ * awaited), then runs `script` against the live workflow.
+ */
+async function drive(client: Client, taskQueue: string, workflowId: string, script: (handle: WorkflowHandleWithFirstExecutionRunId<typeof autopilot>) => Promise<void>, args: AutopilotInput = { businessId: B }): Promise<AutopilotResult> {
+  const handle = await client.workflow.start(autopilot, { workflowId, taskQueue, args: [args] });
+  const result = handle.result();
+  result.catch(() => undefined);
+  await script(handle);
+  return result;
 }
 
 describe("autopilot workflow", () => {
-  it("runs a cycle on each tick with the schedule trigger, and ends with the mode", async () => {
-    // Active for the first three checks (three ticks), then the founder switches the mode.
-    const m = mockActivities({ active: (checks) => (checks <= 3 ? { active: true, hold: null, reason: "" } : { active: false, hold: null, reason: "mode_changed" }) });
-    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(autopilot, { workflowId: `autopilot:${B}`, taskQueue, args: [{ businessId: B }] }));
-    expect(result).toEqual({ cyclesRun: 3, reason: "mode_changed" });
-    expect(m.calls.cycles).toEqual([1, 2, 3]);
-    expect(new Set(m.calls.cycleTriggers)).toEqual(new Set(["schedule"]));
-    // Answers what blocks Continue before the tick's cycle and after it.
-    expect(m.calls.decides).toBe(6);
+  it("waits for the interval, then starts a cycle through businessCycle with trigger autopilot, and again after the next interval", async () => {
+    const w = world();
+    const result = await rig.run(mocks(w), (client, taskQueue) =>
+      drive(client, taskQueue, `autopilot:${B}:interval`, async (handle) => {
+        await until(() => w.cycles.length >= 2);
+        await handle.signal(stopSignal, { reason: "kill_switch", by: "test" });
+      }),
+    );
+    expect(w.cycles.slice(0, 2)).toEqual([
+      { number: 1, trigger: "autopilot" },
+      { number: 2, trigger: "autopilot" },
+    ]);
+    // The first was due 3 hours after the last cycle ended (4 hours less the 1 hour already passed): never before.
+    expect(w.starts[0]! - Date.parse(START)).toBeGreaterThanOrEqual(3 * H);
+    // The second came 4 hours after the first one ended (1 hour cycle + 4 hours).
+    expect(w.starts[1]! - w.starts[0]!).toBeGreaterThanOrEqual(5 * H);
+    expect(w.recorded[0]).toMatchObject({ cycleNumber: 1, cyclesToday: 1 });
+    expect(result.outcome).toBe("stopped");
+    expect(w.pauses).toContain("kill_switch");
   });
 
-  it("runs the next cycle straight away while the decisions it raised keep unblocking work, up to a few times", async () => {
-    const m = mockActivities({ decided: () => 1, active: (checks) => (checks <= 1 ? { active: true, hold: null, reason: "" } : { active: false, hold: null, reason: "archived" }) });
-    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(autopilot, { workflowId: `autopilot:${B}-chain`, taskQueue, args: [{ businessId: B }] }));
-    expect(result.reason).toBe("archived");
-    expect(m.calls.cycles).toHaveLength(AUTOPILOT_CHAINED_CYCLES);
+  it("waits while an Inbox item blocks Continue and never decides it; starts after the founder has", async () => {
+    const w = world({ blocking: 1, lastEndedAt: Date.parse(START) - 10 * H });
+    const result = await rig.run(mocks(w), (client, taskQueue) =>
+      drive(client, taskQueue, `autopilot:${B}:inbox`, async (handle) => {
+        await until(() => w.evaluations >= 3);
+        // Several looks (the poll interval runs out, time skipped), no cycle: it is waiting for the founder.
+        expect(w.cycles).toHaveLength(0);
+        // The founder decides; the refresh makes it look again at once.
+        w.blocking = 0;
+        await handle.signal(autopilotRefreshSignal, {});
+        await until(() => w.cycles.length >= 1);
+        await handle.signal(stopSignal, { reason: "kill_switch" });
+      }),
+    );
+    expect(w.cycles[0]).toEqual({ number: 1, trigger: "autopilot" });
+    expect(result.outcome).toBe("stopped");
   });
 
-  it("starts nothing while a vacation runs or the team is stopped, and carries on after", async () => {
-    const m = mockActivities({
-      active: (checks) => {
-        if (checks === 1) return { active: true, hold: "vacation", reason: "a vacation is running" };
-        if (checks === 2) return { active: true, hold: "stopped", reason: "the team is stopped" };
-        if (checks === 3) return { active: true, hold: null, reason: "" };
-        return { active: false, hold: null, reason: "mode_changed" };
+  it("pauses after N failed or empty cycles in a row and stops starting cycles", async () => {
+    const w = world({ tasksPerCycle: 0, lastEndedAt: Date.parse(START) - 10 * H });
+    const result = await rig.run(mocks(w), (client, taskQueue) => client.workflow.execute(autopilot, { workflowId: `autopilot:${B}:idle`, taskQueue, args: [{ businessId: B }] }));
+    expect(result).toMatchObject({ outcome: "paused", pausedReason: "idle_cycles", cyclesStarted: 3 });
+    expect(w.cycles).toHaveLength(3);
+    expect(w.pauses).toEqual(["idle_cycles"]);
+  });
+
+  it("never starts while the team is stopped, whatever the reason", async () => {
+    for (const stopReason of ["kill_switch", "key_revoked", "credits_exhausted"] as const) {
+      const w = world({ stopReason, lastEndedAt: Date.parse(START) - 10 * H });
+      const result = await rig.run(mocks(w), (client, taskQueue) => client.workflow.execute(autopilot, { workflowId: `autopilot:${B}:stopped-${stopReason}`, taskQueue, args: [{ businessId: B }] }));
+      expect(result).toMatchObject({ outcome: "paused", pausedReason: stopReason, cyclesStarted: 0 });
+      expect(w.cycles).toHaveLength(0);
+    }
+  });
+
+  it("never starts when the credits are used up (402) even before the stop flag is written", async () => {
+    const w = world({ credits: 0, lastEndedAt: Date.parse(START) - 10 * H });
+    const result = await rig.run(mocks(w), (client, taskQueue) => client.workflow.execute(autopilot, { workflowId: `autopilot:${B}:credits`, taskQueue, args: [{ businessId: B }] }));
+    expect(result).toMatchObject({ outcome: "paused", pausedReason: "credits_exhausted", cyclesStarted: 0 });
+    expect(w.cycles).toHaveLength(0);
+  });
+
+  it("stops the cycle it is waiting on when Stop all agents signals it", async () => {
+    const w = world({ lastEndedAt: Date.parse(START) - 10 * H });
+    const result = await rig.run(
+      { ...mocks(w), async startCycle() {
+        w.open = true;
+        w.starts.push(w.clock.nowMs());
+        return { cycleId: id(1), eventId: id(2) };
+      } },
+      (client, taskQueue) =>
+        drive(client, taskQueue, `autopilot:${B}:stopcycle`, async (handle) => {
+          await until(() => w.cycles.length >= 1);
+          await handle.signal(stopSignal, { reason: "kill_switch" });
+        }),
+    );
+    expect(result.outcome).toBe("stopped");
+    expect(w.pauses).toContain("kill_switch");
+  });
+
+  it("yields to a founder's Continue that took the same cycle number, then starts the next cycle", async () => {
+    const w = world({ lastEndedAt: Date.parse(START) - 10 * H });
+    // The founder's cycle 1 is still planning when Autopilot decides to start "cycle 1" as well.
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let numberAsked = 0;
+    let failures = 0;
+    const base = mocks(w);
+    const result = await rig.run(
+      {
+        ...base,
+        async autopilotCycleFailed() {
+          failures += 1;
+          return { recorded: false };
+        },
+        async nextCycleNumber() {
+          numberAsked += 1;
+          return { cycleNumber: numberAsked === 1 ? 1 : w.cycles.length + 1 };
+        },
+        async planCycle(input: Parameters<NonNullable<Activities["planCycle"]>>[0]) {
+          if (input.trigger === "continue") await gate;
+          return base.planCycle!(input);
+        },
       },
-    });
-    const result = await rig.run(m.acts, (client, taskQueue) => client.workflow.execute(autopilot, { workflowId: `autopilot:${B}-hold`, taskQueue, args: [{ businessId: B }] }));
-    expect(result.cyclesRun).toBe(1);
-    expect(m.calls.cycles).toEqual([1]);
+      async (client, taskQueue) => {
+        await client.workflow.start(businessCycle, { workflowId: `cycle:${B}:1`, taskQueue, args: [{ businessId: B, cycleNumber: 1, trigger: "continue" }] });
+        return drive(client, taskQueue, `autopilot:${B}:collision`, async (handle) => {
+          await until(() => numberAsked >= 1);
+          release();
+          await until(() => w.cycles.length >= 2);
+          await handle.signal(stopSignal, { reason: "kill_switch" });
+        });
+      },
+    );
+    expect(w.cycles.slice(0, 2)).toEqual([
+      { number: 1, trigger: "continue" },
+      { number: 2, trigger: "autopilot" },
+    ]);
+    // Only the cycle Autopilot really started is recorded and counted; the collision is neither a start nor a failure.
+    expect(w.recorded).toEqual([{ cycleNumber: 2, cyclesToday: 1 }]);
+    expect(failures).toBe(0);
+    expect(result).toMatchObject({ outcome: "stopped", cyclesStarted: 1 });
   });
 
-  it("the stop signal ends it between ticks", async () => {
-    const m = mockActivities();
-    const result = await rig.run(m.acts, async (client, taskQueue) => {
-      const handle = await client.workflow.start(autopilot, { workflowId: `autopilot:${B}-stop`, taskQueue, args: [{ businessId: B }] });
-      for (let i = 0; i < 400 && m.calls.cycles.length < 1; i++) await new Promise((r) => setTimeout(r, 25));
-      await handle.signal(stopSignal, { reason: "mode_changed", by: "founder" });
-      return handle.result();
-    });
-    expect(result.reason).toBe("stopped");
-    expect(result.cyclesRun).toBeGreaterThanOrEqual(1);
+  it("continues as new after its rounds so the history stays small", async () => {
+    const w = world({ blocking: 1 });
+    const result = await rig.run(mocks(w), (client, taskQueue) =>
+      drive(
+        client,
+        taskQueue,
+        `autopilot:${B}:rounds`,
+        async (handle) => {
+          // Two rounds per run: the third look happens in a new run of the same workflow id.
+          await until(() => w.evaluations >= 3);
+          const current = await client.workflow.getHandle(`autopilot:${B}:rounds`).describe();
+          expect(current.runId).not.toBe(handle.firstExecutionRunId);
+          await client.workflow.getHandle(`autopilot:${B}:rounds`).signal(stopSignal, { reason: "kill_switch" });
+        },
+        { businessId: B, maxRounds: 2 },
+      ),
+    );
+    expect(result.outcome).toBe("stopped");
   });
 });

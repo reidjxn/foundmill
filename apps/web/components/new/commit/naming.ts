@@ -275,6 +275,8 @@ export interface CommitForm {
   /** Major units as typed. */
   spendCap: string;
   currency: string;
+  /** "Run on autopilot": the business starts its own cycles (Settings › Mode can change it later). Off by default. */
+  autopilot: boolean;
 }
 
 export function initialCommitForm(idea: { title: string; archetype: Archetype | null }, kit: Kit, currency: string): CommitForm {
@@ -288,6 +290,7 @@ export function initialCommitForm(idea: { title: string; archetype: Archetype | 
     businessMode: "assisted",
     spendCap: String(DEFAULT_SPEND_CAP_MINOR.assisted / 100),
     currency,
+    autopilot: false,
   };
 }
 
@@ -334,6 +337,7 @@ export function commitInput(ideaId: string, form: CommitForm) {
     spendCapMinor: cap === null || Number.isNaN(cap) ? null : cap,
     // Sent only when the founder ticked it for a LIVE start (the server records it once).
     ...(form.gameMode === "live" && form.adult ? { confirmAdult: true as const } : {}),
+    autopilot: form.autopilot,
   };
 }
 

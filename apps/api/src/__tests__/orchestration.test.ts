@@ -1,7 +1,7 @@
 /**
  * Cycles, vacations, Automated mode, playbooks and retried messages through the api (audit W01): a cycle exists from the
  * press of Continue and Pause reaches it, a dead workflow does not hold Continue, resume leaves a hand-paused task
- * alone, two vacations never run at once, "Come back" twice ends it once, Automated mode starts its autopilot, a playbook
+ * alone, two vacations never run at once, "Come back" twice ends it once, Automated mode starts its loop, a playbook
  * can be created, and a message sent twice is one message.
  */
 import { repos } from "@foundmill/db";
@@ -172,29 +172,29 @@ describe("the workflows that must exist for a row (audit OL-08, SOAK-01, #75)", 
   }, 120_000);
   afterAll(() => hz.close());
 
-  it("setting Automated mode starts the autopilot, and leaving it stops it", async () => {
+  it("setting Automated mode starts its loop, and leaving it stops it", async () => {
     const owner = hz.caller({ userId: hz.A.ownerId });
     const { businessId } = hz.A;
     await repos.businesses.commit(hz.db, businessId, { archetype: "b2b_saas" });
     await owner.business.setBusinessMode({ businessId, businessMode: "automated" });
-    expect(temporal.starts.filter((s) => s.type === "autopilot")).toEqual([{ type: "autopilot", workflowId: `autopilot:${businessId}`, args: [{ businessId }] }]);
+    expect(temporal.starts.filter((s) => s.type === "automatedMode")).toEqual([{ type: "automatedMode", workflowId: `automated:${businessId}`, args: [{ businessId }] }]);
     await owner.business.setBusinessMode({ businessId, businessMode: "assisted" });
-    expect(temporal.signals.at(-1)).toMatchObject({ workflowId: `autopilot:${businessId}`, signal: "stop" });
+    expect(temporal.signals.at(-1)).toMatchObject({ workflowId: `automated:${businessId}`, signal: "stop" });
   });
 
-  it("the reconciler starts the autopilot of an Automated business and the workflow of a running vacation that have none, and nothing twice", async () => {
+  it("the reconciler starts the loop of an Automated business and the workflow of a running vacation that have none, and nothing twice", async () => {
     const { businessId } = hz.A;
     await repos.businesses.setBusinessMode(hz.db, businessId, "automated");
-    // The autopilot the previous test stopped has ended.
-    temporal.statuses.delete(`autopilot:${businessId}`);
+    // The loop the previous test stopped has ended.
+    temporal.statuses.delete(`automated:${businessId}`);
     const vacation = await repos.holidays.start(hz.db, hz.B.businessId, { untilCondition: { text: "you return" } });
     const before = temporal.starts.length;
     const first = await reconcileWorkflows({ db: hz.db, temporal: hz.deps.temporal, log: silentLog() });
     expect(first.reachable).toBe(true);
     expect(first.holidaysStarted).toBe(1);
-    expect(temporal.starts.slice(before).map((s) => s.workflowId)).toEqual(expect.arrayContaining([`holiday:${vacation.id}`, `autopilot:${businessId}`]));
+    expect(temporal.starts.slice(before).map((s) => s.workflowId)).toEqual(expect.arrayContaining([`holiday:${vacation.id}`, `automated:${businessId}`]));
     const second = await reconcileWorkflows({ db: hz.db, temporal: hz.deps.temporal, log: silentLog() });
-    expect(second).toMatchObject({ holidaysStarted: 0, autopilotsStarted: 0 });
+    expect(second).toMatchObject({ holidaysStarted: 0, automatedStarted: 0 });
     await repos.businesses.setBusinessMode(hz.db, businessId, "assisted");
   });
 
@@ -202,7 +202,7 @@ describe("the workflows that must exist for a row (audit OL-08, SOAK-01, #75)", 
     const down = await createApiHarness({ prefix: "orch-down" });
     try {
       await repos.holidays.start(down.db, down.A.businessId, { untilCondition: { text: "you return" } });
-      expect(await reconcileWorkflows({ db: down.db, temporal: down.deps.temporal, log: silentLog() })).toEqual({ reachable: false, holidaysStarted: 0, autopilotsStarted: 0 });
+      expect(await reconcileWorkflows({ db: down.db, temporal: down.deps.temporal, log: silentLog() })).toEqual({ reachable: false, holidaysStarted: 0, automatedStarted: 0 });
     } finally {
       await down.close();
     }

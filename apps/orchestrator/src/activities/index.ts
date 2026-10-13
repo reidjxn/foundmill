@@ -5,6 +5,7 @@
 import { APP_NAME } from "@foundmill/config";
 import type { OrchestratorDeps } from "../deps";
 import { createApprovalActivities } from "./approvals";
+import { createAutomatedModeActivities } from "./automatedMode";
 import { createAutopilotActivities } from "./autopilot";
 import { createBriefActivities } from "./brief";
 import { createChannelActivities } from "./channel";
@@ -34,16 +35,18 @@ export function createActivities(deps: OrchestratorDeps) {
     ...createTrainingActivities(deps),
     ...createHealthActivities(deps),
     ...createHolidayActivities(deps),
-    ...createAutopilotActivities(deps),
+    ...createAutomatedModeActivities(deps),
     ...createChannelActivities(deps),
     ...createJourneyActivities(deps),
     ...createMiscActivities(deps),
     ...createFoundationsActivities(deps),
     ...createScheduleActivities(deps),
+    ...createAutopilotActivities(deps),
     ...createSourceWatcherActivities(deps),
   };
 }
 
 export type Activities = ReturnType<typeof createActivities>;
 export * from "./types";
+export type { AutopilotEvaluation } from "./autopilot";
 export type { SourceWatchInput, SourceWatchReason, SourceWatchResult, SourceWatchSweepInput, SourceWatchWorkflowInput, SourceWatchWorkflowResult } from "./source-watcher";
