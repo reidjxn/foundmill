@@ -144,7 +144,8 @@ export function createPlanActivities(deps: OrchestratorDeps) {
         return { ...empty, status: "denied", outcome: "deny", result: { reasons: verdict.reasons } };
       }
 
-      if (verdict.outcome === "ask" && !input.approved) {
+      let approved = Boolean(input.approved);
+      if (verdict.outcome === "ask" && !approved) {
         const existing = await repos.approvals.forPlanAction(db, businessId, action.id);
         if (existing && existing.outcome === null) return { ...empty, status: "awaiting_approval", outcome: "ask", approvalId: existing.id };
         if (existing?.outcome === "rejected" || existing?.outcome === "expired") {
@@ -152,26 +153,35 @@ export function createPlanActivities(deps: OrchestratorDeps) {
           return { ...empty, status: "denied", outcome: "ask", approvalId: existing.id };
         }
         const agent = await actingAgent(businessId, action.agentId, agents);
-        const approval = await repos.approvals.create(db, businessId, { planActionId: action.id, agentId: agent?.id ?? null, connectorKey: ACTION_TOOLS[action.type].connector, tool: ACTION_TOOLS[action.type].name, args: params, reasons: verdict.reasons });
-        await repos.plans.updateAction(db, businessId, action.id, { status: "awaiting_approval", policyOutcome: "ask" });
-        if (agent) {
-          await emitEvent(db, {
-            businessId,
-            type: "approval.requested",
-            actor: { kind: "agent", id: agent.id },
-            payload: { approvalId: approval.id, planActionId: action.id, agentId: agent.id, connectorKey: ACTION_TOOLS[action.type].connector, tool: ACTION_TOOLS[action.type].name, amount: amountOf(params) > 0 ? { amountMinor: amountOf(params), currency: str(params.currency, "EUR").toUpperCase() } : null, reasons: verdict.reasons, policyIds: verdict.policyIds, hardGate: false, summary: `${action.type.replace(/_/g, " ")}: ${str(params.summary, str(params.title, str(params.request, JSON.stringify(params).slice(0, 200))))}`.slice(0, 1000) },
-          });
+        // Already approved (a retry after the agent Team › Responsibilities names decided it): it runs, never asks twice.
+        const approval = existing?.outcome === "approved" ? existing : await repos.approvals.create(db, businessId, { planActionId: action.id, agentId: agent?.id ?? null, connectorKey: ACTION_TOOLS[action.type].connector, tool: ACTION_TOOLS[action.type].name, args: params, reasons: verdict.reasons });
+        // An agent the Responsibilities matrix names decides the approval the moment it opens (AC-11.9.2): the action runs,
+        // and the decision is on record like any other.
+        approved = approval.outcome === "approved";
+        if (approved && approval !== existing && approval.byKind === "agent" && approval.byId && agent) {
+          await emitEvent(db, { businessId, type: "approval.resolved", actor: { kind: "agent", id: approval.byId }, payload: { approvalId: approval.id, planActionId: action.id, agentId: agent.id, outcome: "approved", resolvedBy: { kind: "agent", id: approval.byId }, note: "Delegated in Team › Responsibilities", latencyMs: 0 } });
         }
-        return { ...empty, status: "awaiting_approval", outcome: "ask", approvalId: approval.id };
+        if (!approved) {
+          await repos.plans.updateAction(db, businessId, action.id, { status: "awaiting_approval", policyOutcome: "ask" });
+          if (agent) {
+            await emitEvent(db, {
+              businessId,
+              type: "approval.requested",
+              actor: { kind: "agent", id: agent.id },
+              payload: { approvalId: approval.id, planActionId: action.id, agentId: agent.id, connectorKey: ACTION_TOOLS[action.type].connector, tool: ACTION_TOOLS[action.type].name, amount: amountOf(params) > 0 ? { amountMinor: amountOf(params), currency: str(params.currency, "EUR").toUpperCase() } : null, reasons: verdict.reasons, policyIds: verdict.policyIds, hardGate: false, summary: `${action.type.replace(/_/g, " ")}: ${str(params.summary, str(params.title, str(params.request, JSON.stringify(params).slice(0, 200))))}`.slice(0, 1000) },
+            });
+          }
+          return { ...empty, status: "awaiting_approval", outcome: "ask", approvalId: approval.id };
+        }
       }
 
       // allow (or approved ask): run the typed handler.
       await repos.plans.startAction(db, businessId, action.id);
       try {
         const handled = await handle(action, params, { businessId, business, agents, workflowId: input.workflowId });
-        const { action: finished } = await repos.plans.finishAction(db, businessId, action.id, { status: "done", result: handled.result, policyOutcome: input.approved ? "ask" : "allow" });
-        await repos.audit.append(db, businessId, { actorKind: "system", action: `plan.action.${action.type}`, target: { kind: "plan_action", id: action.id }, details: { result: handled.result, approved: Boolean(input.approved) } });
-        return { actionId: finished.id, status: "done", outcome: input.approved ? "ask" : "allow", approvalId: input.approvalId ?? null, result: handled.result, spawn: handled.spawn };
+        const { action: finished } = await repos.plans.finishAction(db, businessId, action.id, { status: "done", result: handled.result, policyOutcome: approved ? "ask" : "allow" });
+        await repos.audit.append(db, businessId, { actorKind: "system", action: `plan.action.${action.type}`, target: { kind: "plan_action", id: action.id }, details: { result: handled.result, approved } });
+        return { actionId: finished.id, status: "done", outcome: approved ? "ask" : "allow", approvalId: input.approvalId ?? null, result: handled.result, spawn: handled.spawn };
       } catch (err) {
         const message = (err as Error).message ?? String(err);
         await repos.plans.finishAction(db, businessId, action.id, { status: "failed", result: { error: message.slice(0, 500) }, policyOutcome: verdict.outcome });

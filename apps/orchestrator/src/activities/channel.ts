@@ -63,6 +63,13 @@ export function createChannelActivities(deps: OrchestratorDeps) {
           }
           await repos.campaigns.setStatus(db, businessId, state.campaignId, "pending_approval");
           const approval = await repos.approvals.create(db, businessId, { agentId: owner?.id ?? null, connectorKey: "platform", tool: "launch_campaign", args: { campaignId: state.campaignId, channelKey: key }, reasons: [business.businessMode === "augmented" ? "augmented mode: every external action asks" : "offline tracking: the agent prepares, the founder submits"] });
+          // Publishing delegated to an agent in Team › Responsibilities (AC-11.9.2): it approved as the approval opened.
+          if (approval.outcome === "approved" && approval.byKind === "agent" && approval.byId) {
+            await repos.campaigns.setStatus(db, businessId, state.campaignId, "scheduled");
+            if (owner) await emitEvent(db, { businessId, type: "approval.resolved", actor: { kind: "agent", id: approval.byId }, payload: { approvalId: approval.id, planActionId: null, agentId: owner.id, outcome: "approved", resolvedBy: { kind: "agent", id: approval.byId }, note: "Delegated in Team › Responsibilities", latencyMs: 0 } });
+            state.approvalId = null;
+            return done("Approved by the agent Team › Responsibilities names; scheduled.");
+          }
           state.approvalId = approval.id;
           if (owner) {
             await emitEvent(db, { businessId, type: "approval.requested", actor: { kind: "agent", id: owner.id }, payload: { approvalId: approval.id, agentId: owner.id, connectorKey: "platform", tool: "launch_campaign", amount: channel.budgetMinor === null ? null : { amountMinor: Number(channel.budgetMinor), currency: channel.currency ?? "EUR" }, reasons: ["campaign launch needs your approval"], policyIds: [], decisionType: "publish_content", hardGate: false, summary: `${owner.name} wants to launch "${meta.label} — ${weekLabel}"` } });

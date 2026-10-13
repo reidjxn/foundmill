@@ -29,7 +29,7 @@ import { bookUsage, loadByokApiKey, repos, type Agent, type AgentVersion, type T
 import { publishSessionEvent, type SessionEventInput } from "@foundmill/events";
 import { meter, MODEL_PRICING, resolveModel, type ModelId, type RouteKey } from "@foundmill/models";
 import { assertNoLongLivedCredentials, MockSandbox, MockSandboxProvider, RECORDINGS, redactCredentialValues, stableHash32, type Sandbox, type SandboxSpecInput } from "@foundmill/sandbox";
-import { type AgentStatus, type ModelKey, type TaskStatus } from "@foundmill/shared";
+import { isUuid, type AgentStatus, type ModelKey, type TaskStatus } from "@foundmill/shared";
 import { Context } from "@temporalio/activity";
 import { ApplicationFailure } from "@temporalio/common";
 import { z } from "zod";
@@ -394,9 +394,24 @@ class SessionRecorder {
         tool: call.tool,
         args: { summary: call.argsSummary ?? "" },
         reasons: [call.resultSummary ?? "policy asked for the founder's approval"],
+        // A call the gateway asked about was already routed there (Team › Responsibilities found no agent to decide it):
+        // it stays with the founder here too. A recorded hold is routed now.
+        ...(call.approvalId && isUuid(call.approvalId) ? { decisionType: null } : {}),
       });
       this.approvalIds.set(key, approval.id);
       this.approvalIdsReverse.set(approval.id, key);
+      // Delegated to an agent in Team › Responsibilities (AC-11.9.2): it approved as the approval opened, so the call is
+      // released through the session's own control list, as a founder's decision would be, and nobody is asked.
+      if (approval.outcome === "approved" && approval.byKind === "agent" && approval.byId) {
+        await emitEvent(deps.db, {
+          businessId: ctx.input.businessId,
+          type: "approval.resolved",
+          actor: { kind: "agent", id: approval.byId },
+          payload: { approvalId: approval.id, agentId: ctx.agent.id, outcome: "approved", resolvedBy: { kind: "agent", id: approval.byId }, note: "Delegated in Team › Responsibilities", latencyMs: 0 },
+        });
+        await deps.control.post(ctx.input.sessionId, { kind: "decision", approvalId: approval.id, outcome: "approved", by: null });
+        return;
+      }
       this.pendingApprovalId = approval.id;
       this.pendingSince = deps.clock.nowMs();
       await emitEvent(deps.db, {
@@ -639,7 +654,13 @@ export function createSessionActivities(deps: OrchestratorDeps) {
       // A session cut short by a pause of its agent or a team-wide stop did not fail on its merits: the task waits
       // `paused` and the next cycle after the resume picks it up (0023).
       const teamStopped = agentPaused || (await repos.businesses.agentsStopped(db, input.businessId));
-      switch (teamStopped && result.outcome === "failed" ? "stopped" : result.outcome) {
+      // The task was handed on while the session ran (its agent released, the task reassigned): its state now belongs
+      // to whoever has it, so the session settles only its own row, its usage and its agent.
+      const handedOver = task.assigneeAgentId !== null ? task.assigneeAgentId !== agent.id : agent.archivedAt !== null;
+      switch (handedOver ? "handed_over" : teamStopped && result.outcome === "failed" ? "stopped" : result.outcome) {
+        case "handed_over":
+          taskStatus = task.status;
+          break;
         case "done": {
           taskStatus = result.progress.merged ? "done" : result.progress.reviewPassed || result.progress.phase === "review" || result.progress.phase === "merge" ? "review" : "done";
           const ev = await emitEvent(db, {
