@@ -61,6 +61,18 @@ export interface VacationContext {
   currency: string;
 }
 
+/**
+ * Option ids of an approval's decision item (an agent's gated call the policy asked the founder about; the Inbox answers
+ * it through `inbox.decide`, which resolves the approval, never through an option plan). The policy already said "ask",
+ * so it is the founder's like any `ask` below. Kept in step with packages/db's `APPROVAL_OPTIONS` (B-approvals).
+ */
+const APPROVAL_OPTION_IDS: ReadonlySet<string> = new Set(["approve_request", "reject_request"]);
+
+/** The item is an approval's (its Approve and Reject options): the founder answers it, and it counts as an approval. */
+export function isApprovalItem(item: Pick<InboxItem, "decision">): boolean {
+  return ((item.decision as { options?: { id?: unknown }[] } | null)?.options ?? []).some((o) => typeof o?.id === "string" && APPROVAL_OPTION_IDS.has(o.id));
+}
+
 const MONEY_WORDS: Partial<Record<PlanAction["type"], string>> = { set_budget: "a budget", approve_spend: "approving spend", train_agent: "a paid training run", create_task: "a task with a budget" };
 
 const SECTION_WORDS: Partial<Record<string, string>> = { distribution: "Distribution", finance: "Finance", development: "Development", product: "Product", crm: "the CRM", team: "the Team" };
@@ -75,6 +87,7 @@ export function vacationVerdict(item: Pick<InboxItem, "subject" | "bodyMd" | "de
   const options = ((item.decision as { options?: HolidayOption[] } | null)?.options ?? []).filter((o) => typeof o?.id === "string");
   const recommended = options.find((o) => o.recommended) ?? options[0];
   if (!recommended) return { kind: "wait", reason: "it has no option to choose" };
+  if (isApprovalItem(item)) return { kind: "wait", reason: "an agent's call waits for your approval" };
   if (!ctx.chiefOfStaffId) return { kind: "wait", reason: "there is no Chief of Staff to decide it" };
   const decisionType = classifyDecision(item);
   const safeUnknown = decisionType === null && recommended.reversible === true && (recommended.cost_minor ?? 0) === 0;
@@ -305,10 +318,12 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
       const taken = await Promise.all(chiefDecisions.slice(0, 10).map((e) => decisionLine(input.businessId, e)));
       // Every decision still open, and every plan of the founder's still waiting for their go-ahead, with the reason.
       const waiting = open.items.filter(asksFounder).map((item) => ({ item, reason: waitingReason(item, ctx, stopped) }));
+      // An approval's note is listed with the rest but counted once, as the approval it answers.
+      const decisionsWaiting = waiting.filter((w) => !isApprovalItem(w.item)).length;
       const moneyIn = payments.items.reduce((sum, e) => sum + Number((e.payload as { amount?: { amountMinor?: number } }).amount?.amountMinor ?? 0), 0);
       const currency = input.holiday.currency;
       const fmt = (minor: number) => `${(minor / 100).toFixed(2)} ${currency}`;
-      const gatedItemsQueued = pendingApprovals + founderTasks.length + waiting.length;
+      const gatedItemsQueued = pendingApprovals + founderTasks.length + decisionsWaiting;
       const days = Math.max(1, Math.round((now.getTime() - since.getTime()) / 86_400_000));
       const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
       const lines = [
@@ -321,7 +336,7 @@ export function createHolidayActivities(deps: OrchestratorDeps) {
         ``,
         `**Money** — in: ${fmt(moneyIn)} across ${payments.items.length} payment${payments.items.length === 1 ? "" : "s"}; team spend: ${fmt(usage.costMinor)} (Estimate).`,
         ``,
-        `**Waiting for you (${gatedItemsQueued})** — ${plural(waiting.length, "decision")} to take or confirm, ${plural(pendingApprovals, "approval")} and ${plural(founderTasks.length, "hard-gated action")} only you can take.`,
+        `**Waiting for you (${gatedItemsQueued})** — ${plural(decisionsWaiting, "decision")} to take or confirm, ${plural(pendingApprovals, "approval")} and ${plural(founderTasks.length, "hard-gated action")} only you can take.`,
         ...waiting.slice(0, 10).map((w) => `- "${w.item.subject}": ${w.reason}.`),
       ];
       let reportInboxItemId: string | null = null;

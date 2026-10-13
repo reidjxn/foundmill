@@ -52,6 +52,7 @@ import { Exhibit } from "./Exhibit";
 import { NoteTagChip } from "./InboxList";
 import {
   agentIndex,
+  answerLabel,
   answeredFrom,
   askChip,
   confirmationLines,
@@ -59,6 +60,7 @@ import {
   decisionExpired,
   followUpLinks,
   freeTextAllowed,
+  goAheadState,
   hasAgentDesk,
   headerDates,
   noteOpener,
@@ -261,9 +263,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
 
   // A plan waiting for its go-ahead, from the server's record: the plan that was just decided here, or the stored one
   // inbox.get hands back (after a reload, in another tab, on another device). Its lines come from the plan's own actions.
-  const pendingConfirmation = plan?.status === "pending_confirmation";
-  const canConfirm = confirmation && confirmation.planId === plan?.id ? confirmation.canConfirm : true;
-  const blockedReason = confirmation && !confirmation.canConfirm ? confirmation.blockedReason : null;
+  const { waiting: pendingConfirmation, canConfirm, blockedReason } = goAheadState(plan, confirmation);
   const lines: ConfirmationLine[] = useMemo(() => (pendingConfirmation && plan ? (result?.plan.id === plan.id ? confirmationLines(result.evaluations, currency) : planConfirmationLines(plan.actions, currency)) : []), [pendingConfirmation, plan, result, currency]);
   // Nothing exists yet while the plan waits, so there is nothing to open.
   const links = useMemo(() => (plan && !pendingConfirmation ? followUpLinks(plan.actions, businessId, departments) : []), [plan, pendingConfirmation, businessId, departments]);
@@ -362,7 +362,7 @@ function ReadingPaneBody({ data, currency, departments, onArchived }: BodyProps)
             <div className="flex flex-col gap-3">
               <KeyValueList
                 items={[
-                  { label: "Your answer", value: answered?.optionId ? options.find((o) => o.id === answered.optionId)?.label ?? answered.optionId : answered?.text ? <q>{answered.text}</q> : "Recorded" },
+                  { label: result ? "Your answer" : answerLabel(decisions), value: answered?.optionId ? options.find((o) => o.id === answered.optionId)?.label ?? answered.optionId : answered?.text ? <q>{answered.text}</q> : "Recorded" },
                   ...(plan ? [{ label: "Plan", value: <Markdown variant="body">{plan.summaryMd || "No actions"}</Markdown> }] : []),
                 ]}
               />

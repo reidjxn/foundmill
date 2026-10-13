@@ -3,6 +3,7 @@ import { confirmPlanDescription } from "../ConfirmPlanDialog";
 import {
   REFRESH_DEBOUNCE_MS,
   agentIndex,
+  answerLabel,
   answeredFrom,
   askChip,
   confirmationLines,
@@ -10,6 +11,7 @@ import {
   decisionExpired,
   followUpLinks,
   freeTextAllowed,
+  goAheadState,
   hasAgentDesk,
   hiddenNotice,
   headerDates,
@@ -294,6 +296,26 @@ describe("plans", () => {
     expect(askChip({ status: "done", confirmedAt: "2026-10-07T15:45:00Z" }, { policyOutcome: "ask" })).toEqual({ word: "Confirmed", tone: "neutral" });
     expect(askChip({ status: "executing", confirmedAt: null }, { policyOutcome: "ask" })).toBeNull();
     expect(askChip({ status: "pending_confirmation", confirmedAt: null }, { policyOutcome: "allow" })).toBeNull();
+  });
+  it("Review what will happen follows the stored plan, not the page that decided it (audit OL-01, FR-08)", () => {
+    const waiting = { id: "plan-1", status: "pending_confirmation" };
+    // After a reload: only inbox.get's record, and it says this reader may give the go-ahead.
+    expect(goAheadState(waiting, { planId: "plan-1", canConfirm: true, blockedReason: null })).toEqual({ waiting: true, canConfirm: true, blockedReason: null });
+    // Just decided here, before inbox.get has caught up: the decider may confirm.
+    expect(goAheadState(waiting, null)).toEqual({ waiting: true, canConfirm: true, blockedReason: null });
+    expect(goAheadState(waiting, { planId: "plan-0", canConfirm: false, blockedReason: "Older plan" })).toMatchObject({ canConfirm: true, blockedReason: null });
+    // Someone walled from a section the plan changes, or a viewer: no button, and the reason in words.
+    expect(goAheadState(waiting, { planId: "plan-1", canConfirm: false, blockedReason: "Your access to the Inbox is read-only." })).toEqual({ waiting: true, canConfirm: false, blockedReason: "Your access to the Inbox is read-only." });
+    // Confirmed (here or elsewhere), running or done: nothing waits.
+    for (const status of ["executing", "done", "failed"]) expect(goAheadState({ id: "plan-1", status }, { planId: "plan-1", canConfirm: true, blockedReason: null })).toEqual({ waiting: false, canConfirm: false, blockedReason: null });
+    expect(goAheadState(null, null).waiting).toBe(false);
+  });
+  it("the answer reads as the Chief of Staff's when they decided on vacation (audit O-16)", () => {
+    expect(answerLabel([{ decidedByKind: "user", decidedAt: "2026-10-07T15:45:00Z" }])).toBe("Your answer");
+    expect(answerLabel([{ decidedByKind: "chief_of_staff", decidedAt: "2026-10-07T15:45:00Z" }])).toBe("Chief of Staff's answer");
+    // The latest decision speaks.
+    expect(answerLabel([{ decidedByKind: "chief_of_staff", decidedAt: "2026-10-07T15:45:00Z" }, { decidedByKind: "user", decidedAt: "2026-10-08T09:00:00Z" }])).toBe("Your answer");
+    expect(answerLabel(undefined)).toBe("Your answer");
   });
   it("summarises plan status for the answered strip", () => {
     expect(planStatusLine(null)).toBeNull();

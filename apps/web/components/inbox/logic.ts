@@ -639,6 +639,31 @@ export function askChip(plan: { status: string; confirmedAt?: Date | string | nu
   return plan.confirmedAt ? { word: "Confirmed", tone: "neutral" } : null;
 }
 
+/** inbox.get's `confirmation`: the server's record of a plan waiting for its go-ahead (apps/api `pendingConfirmation`). */
+export interface ConfirmationLike {
+  planId: string;
+  canConfirm: boolean;
+  blockedReason: string | null;
+}
+
+/**
+ * Whether the Decided panel offers "Review what will happen" (audit OL-01, FR-08). It follows the plan's stored status,
+ * so it is there after a reload, in another tab or on another device, never only on the page that decided. Before
+ * inbox.get has caught up with a decision taken here there is no `confirmation` yet, and the decider may confirm (decide
+ * already checked their walls); once it has, it says whether this reader may, and why not.
+ */
+export function goAheadState(plan: { id: string; status: string } | null | undefined, confirmation: ConfirmationLike | null | undefined): { waiting: boolean; canConfirm: boolean; blockedReason: string | null } {
+  if (plan?.status !== "pending_confirmation") return { waiting: false, canConfirm: false, blockedReason: null };
+  if (!confirmation || confirmation.planId !== plan.id) return { waiting: true, canConfirm: true, blockedReason: null };
+  return { waiting: true, canConfirm: confirmation.canConfirm, blockedReason: confirmation.canConfirm ? null : confirmation.blockedReason };
+}
+
+/** The Decided panel's label for the answer: the founder's own, or the Chief of Staff's while they were on vacation. */
+export function answerLabel(decisions: readonly { decidedByKind?: string | null; decidedAt: Date | string }[] | undefined): string {
+  const latest = [...(decisions ?? [])].sort((a, b) => Date.parse(String(b.decidedAt)) - Date.parse(String(a.decidedAt)))[0];
+  return latest?.decidedByKind === "chief_of_staff" ? "Chief of Staff's answer" : "Your answer";
+}
+
 /** One line for the answered strip: "Done · 3 of 3 actions" / "Awaiting your confirmation" / "Running · 1 of 3". */
 export function planStatusLine(plan: PlanLike | null | undefined): { word: string; tone: "good" | "warn" | "bad" | "info" | "neutral"; detail: string } | null {
   if (!plan) return null;

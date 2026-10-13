@@ -131,6 +131,9 @@ describe("holiday activities (BUILD §9.6)", () => {
     expect(vacationVerdict(item("Publish the launch ads", "Turn on LinkedIn ads"), ctx)).toMatchObject({ kind: "decide" });
     expect(vacationVerdict(item("Publish the launch post", "Go"), { ...ctx, chiefOfStaffId: null })).toEqual({ kind: "wait", reason: "there is no Chief of Staff to decide it" });
     expect(vacationVerdict({ ...item("Publish the launch post", "Go"), decision: null }, ctx)).toEqual({ kind: "wait", reason: "it has no option to choose" });
+    // An agent's gated call the policy asked about is answered by the founder's approval, never by an option plan.
+    const approval = { subject: "Juno asks to run Publish post", bodyMd: "Juno wants to run **Publish post**.", fromAgentId: t.chiefId, decision: { options: [{ id: "approve_request", label: "Approve", recommended: true, cost_minor: 0, reversible: false }, { id: "reject_request", label: "Reject", recommended: false, cost_minor: 0, reversible: true }] } };
+    expect(vacationVerdict(approval, ctx)).toEqual({ kind: "wait", reason: "an agent's call waits for your approval" });
   });
 
   it("decisions taken on vacation run as plans; money, signing and the founder's go-ahead wait; the stop flag wins; the report says which", async () => {
@@ -152,11 +155,15 @@ describe("holiday activities (BUILD §9.6)", () => {
     const mine = await mk("Pick the first paid channel", "LinkedIn or Google.");
     await repos.inbox.decide(t.db, t.businessId, mine.id, { chosenOption: "go", decidedBy: t.fixture.ownerId });
     const minePlan = await repos.plans.create(t.db, t.businessId, { origin: "option", inboxItemId: mine.id, status: "pending_confirmation", actions: [{ type: "set_budget", params: { channel: "paid_ads", amount_minor: 50_000, currency: "EUR" }, policyOutcome: "ask" }] });
+    // An agent's call the policy asked about: its note (Approve / Reject) is the founder's, and it is one approval.
+    const asked = await mk("Juno asks to publish the post", "Juno wants to run **Publish post**.", [{ ...go, id: "approve_request", label: "Approve", reversible: false }, { ...wait, id: "reject_request", label: "Reject" }]);
+    await repos.approvals.create(t.db, t.businessId, { agentId: t.chiefId, inboxItemId: asked.id, connectorKey: "platform", tool: "publish_post", reasons: ["publishing asks first"] });
 
     const decided = await acts.holidayAutoDecide({ businessId: t.businessId, holiday: loaded });
     expect(decided.inboxItemIds).toContain(publish.id);
-    for (const other of [contract, budget, stand, mine]) expect(decided.inboxItemIds).not.toContain(other.id);
+    for (const other of [contract, budget, stand, mine, asked]) expect(decided.inboxItemIds).not.toContain(other.id);
     const reasons = Object.fromEntries(decided.waiting.map((w) => [w.inboxItemId, w.reason]));
+    expect(reasons[asked.id]).toBe("an agent's call waits for your approval");
     expect(reasons[contract.id]).toBe("signing is always yours");
     expect(reasons[budget.id]).toBe("it moves money (a budget)");
     expect(reasons[stand.id]).toMatch(/^it costs money \(€1,200\.00\)$/);
@@ -222,6 +229,16 @@ describe("holiday activities (BUILD §9.6)", () => {
     expect(report.bodyMd).toContain(`- "Book the trade show stand": it costs money (€1,200.00).`);
     expect(report.bodyMd).toContain(`- "Pick the first paid channel": ${AWAITING_GO_AHEAD}.`);
     expect(report.bodyMd).toContain(`- "Publish the follow-up post": the agents were stopped before I could take it.`);
+    // The approval's note is listed, but counted once, as the approval it answers (never as a decision as well).
+    expect(report.bodyMd).toContain(`- "Juno asks to publish the post": an agent's call waits for your approval.`);
+    const waitingFrom = report.bodyMd.slice(report.bodyMd.indexOf("**Waiting for you"));
+    const [total, decisionsN, approvalsN, gatedN] = /^\*\*Waiting for you \((\d+)\)\*\* — (\d+) decisions? to take or confirm, (\d+) approvals? and (\d+) hard-gated/.exec(waitingFrom)!.slice(1).map(Number);
+    const listed = waitingFrom.split("\n").filter((l) => l.startsWith(`- "`));
+    expect(listed.length).toBeLessThan(10);
+    expect(decisionsN).toBe(listed.length - 1);
+    expect(approvalsN).toBeGreaterThanOrEqual(1);
+    expect(total).toBe(decisionsN! + approvalsN! + gatedN!);
+    expect(end.gatedItemsQueued).toBe(total);
     expect(report.bodyMd).toMatch(/Estimate/);
     expect((await repos.holidays.get(t.db, t.businessId, h.id)).endedAt).not.toBeNull();
     const ended = await repos.events.list(t.db, t.businessId, { type: "holiday.ended", limit: 2 });
