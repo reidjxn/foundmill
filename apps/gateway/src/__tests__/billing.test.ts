@@ -92,12 +92,12 @@ describe("platform checkout sessions", () => {
   });
 
   it("mock: the mock tool checks the same arguments and the simulated checkout is the success page", async () => {
-    const before = stripeMock.sentInvoices.length;
+    const before = stripeMock.sentInvoicesFor(businessId).length;
     const checkoutId = crypto.randomUUID();
     const res = await post(appFor("mock"), request(checkoutId));
     expect(res).toMatchObject({ status: 201, body: { mode: "mock", session: { url: request(checkoutId).successUrl, amountTotalMinor: 5000, currency: "USD" } } });
     expect((res.body.session as { id: string }).id).toMatch(/^cs_test_/);
-    expect(stripeMock.sentInvoices.length).toBe(before);
+    expect(stripeMock.sentInvoicesFor(businessId).length).toBe(before);
   });
 
   it("refuses other services, bad amounts and other currencies; without STRIPE_SECRET_KEY it says payments are not set up", async () => {

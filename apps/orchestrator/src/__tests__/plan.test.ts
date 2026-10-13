@@ -103,8 +103,11 @@ describe("executePlanAction on PGlite", () => {
       await repos.approvals.resolve(t.db, t.businessId, first.approvalId!, { outcome: "approved", byKind: "user", byId: t.fixture.ownerId });
       const third = await acts.executePlanAction({ businessId: t.businessId, planId: plan.id, actionId, workflowId: "plan:test", approved: true, approvalId: first.approvalId });
       expect(third.status).toBe("done");
-      expect(t.gateway.calls.some((c) => c.connector === "sendgrid" && c.tool === "send_email")).toBe(true);
-      expect(t.gateway.minted.at(-1)?.allowedTools).toEqual(["sendgrid:send_email"]);
+      // A real tool with its real arguments (gmail.send_message's Compose), and no invented session id on the token.
+      const sent = t.gateway.calls.find((c) => c.connector === "gmail" && c.tool === "send_message");
+      expect(sent?.args).toMatchObject({ to: ["cfo@example.com"], subject: "Hello", text: expect.stringMatching(/^Hi\n\nSent on behalf of .+ by its AI assistant\.$/) });
+      expect(sent?.context).toMatchObject({ recipient: "cfo@example.com", planActionId: actionId });
+      expect(t.gateway.minted.at(-1)).toMatchObject({ allowedTools: ["gmail:send_message"], sessionId: null });
     } finally {
       await repos.businesses.setBusinessMode(t.db, t.businessId, "assisted");
     }

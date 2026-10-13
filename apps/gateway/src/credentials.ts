@@ -9,10 +9,11 @@
 import { z } from "zod";
 import { CONNECTOR_AUTH_KINDS } from "@foundmill/shared";
 import { buildAad, decryptJson, encryptJson, VaultError, type Vault } from "@foundmill/shared/crypto";
-import { repos, type Db, type Integration } from "@foundmill/db";
+import { INTEGRATION_CREDENTIAL_KIND, LEGACY_INTEGRATION_CREDENTIAL_KINDS, repos, type Db, type Integration } from "@foundmill/db";
 import type { DecryptedCredential, IntegrationRecord } from "@foundmill/connectors";
 
-export const CREDENTIAL_KIND = "secret";
+/** The row kind of every integration credential (apps/api `integrations.connect` and `keys.*` store under it too). */
+export const CREDENTIAL_KIND = INTEGRATION_CREDENTIAL_KIND;
 export const PROVISIONAL_AAD_ROW = "pending";
 
 export const DecryptedCredentialSchema = z.object({
@@ -24,19 +25,38 @@ export const DecryptedCredentialSchema = z.object({
   extra: z.record(z.string(), z.string()).optional(),
 });
 
+/** A row from before 2026-10-12: the connector credential shape, or the business's own model key as `{ apiKey }`. */
+const LegacyCredentialSchema = z.union([DecryptedCredentialSchema, z.object({ apiKey: z.string().min(1) }).transform((v): DecryptedCredential => ({ kind: "api_key", secret: v.apiKey }))]);
+
 export interface LoadedCredential {
   credential: DecryptedCredential;
   credentialId: string;
   expiresAt: string | null;
 }
 
-/** The live credential of an integration, decrypted. `null` when none is stored. Throws `VaultError` on a bad record. */
-export async function loadCredential(db: Db, vault: Vault, businessId: string, integrationId: string, kind = CREDENTIAL_KIND): Promise<LoadedCredential | null> {
-  const loaded = await repos.credentials.latest(db, businessId, integrationId, kind);
+/**
+ * The live credential of an integration, decrypted. `null` when none is stored. Throws `VaultError` on a bad record.
+ * Without `kind` it reads the `secret` row every writer now uses and, when there is none, the newest row an older
+ * `integrations.connect` stored under the connector's auth kind (`api_key` / `oauth`), so a founder who connected before
+ * the fix is not told the integration is missing.
+ */
+export async function loadCredential(db: Db, vault: Vault, businessId: string, integrationId: string, kind?: string): Promise<LoadedCredential | null> {
+  const current = await repos.credentials.latest(db, businessId, integrationId, kind ?? CREDENTIAL_KIND);
+  const loaded = current ?? (kind === undefined ? await repos.credentials.latest(db, businessId, integrationId, LEGACY_INTEGRATION_CREDENTIAL_KINDS) : null);
   if (!loaded) return null;
   const aad = buildAad(businessId, "credentials", loaded.meta.id);
-  const credential = await decryptJson(vault, loaded.record, aad, DecryptedCredentialSchema);
+  const credential = current ? await decryptJson(vault, loaded.record, aad, DecryptedCredentialSchema) : await decryptJson(vault, loaded.record, aad, LegacyCredentialSchema);
   return { credential, credentialId: loaded.meta.id, expiresAt: loaded.meta.expiresAt ? loaded.meta.expiresAt.toISOString() : null };
+}
+
+/**
+ * Re-seals a refreshed OAuth access token into the same credential row (same id, so the same AAD) after a connector
+ * refreshed it during a call, so the next call does not refresh again. Never logged; the old ciphertext is replaced.
+ */
+export async function persistRefreshedCredential(db: Db, vault: Vault, businessId: string, loaded: LoadedCredential, refreshed: DecryptedCredential): Promise<void> {
+  const parsed = DecryptedCredentialSchema.parse(refreshed);
+  const sealed = await encryptJson(vault, parsed, buildAad(businessId, "credentials", loaded.credentialId));
+  await repos.credentials.rotate(db, businessId, loaded.credentialId, sealed, refreshed.expiresAt ? { expiresAt: new Date(refreshed.expiresAt) } : {});
 }
 
 /** Seals and stores a credential for an integration (connect flow, BYOK key, refreshed OAuth token). Returns the row id. */

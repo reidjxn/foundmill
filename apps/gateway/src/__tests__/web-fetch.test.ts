@@ -5,7 +5,7 @@
  * refuses comes back as a tool error, not an exception.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { loadEnv, uuid } from "@foundmill/shared";
+import { loadEnv } from "@foundmill/shared";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import { repos, type Db } from "@foundmill/db";
 import { buildGateway, createGatewayClient, listenGateway, type GatewayClient, type RunningGateway } from "../index";
@@ -35,7 +35,7 @@ afterAll(async () => {
 
 describe("web.fetch through the gateway (mock mode)", () => {
   it("reads a public page with a per-read token and meters it to the agent (no agent session row)", async () => {
-    const { token } = await client.mintSessionToken({ businessId, agentId, sessionId: uuid(), allowedTools: ["web:fetch"], ttlSeconds: 300 });
+    const { token } = await client.mintSessionToken({ businessId, agentId, sessionId: null, allowedTools: ["web:fetch"], ttlSeconds: 300 });
     const r = await client.call(token, { connector: "web", tool: "fetch", args: { url: "https://example.com/competitor-pricing", maxChars: 12_000 } });
     expect(r.outcome).toBe("allow");
     if (r.outcome !== "allow") return;
@@ -54,7 +54,7 @@ describe("web.fetch through the gateway (mock mode)", () => {
   });
 
   it("a page the site refuses comes back as a tool error the orchestrator can read", async () => {
-    const { token } = await client.mintSessionToken({ businessId, agentId, sessionId: uuid(), allowedTools: ["web:fetch"], ttlSeconds: 300 });
+    const { token } = await client.mintSessionToken({ businessId, agentId, sessionId: null, allowedTools: ["web:fetch"], ttlSeconds: 300 });
     const r = await client.call(token, { connector: "web", tool: "fetch", args: { url: "https://blocked.example/pricing" } });
     expect(r.outcome).toBe("allow");
     if (r.outcome !== "allow") return;
@@ -62,7 +62,7 @@ describe("web.fetch through the gateway (mock mode)", () => {
   });
 
   it("a token for another tool cannot read pages", async () => {
-    const { token } = await client.mintSessionToken({ businessId, agentId, sessionId: uuid(), allowedTools: ["ecb_rates:*"], ttlSeconds: 300 });
+    const { token } = await client.mintSessionToken({ businessId, agentId, sessionId: null, allowedTools: ["ecb_rates:*"], ttlSeconds: 300 });
     const r = await client.call(token, { connector: "web", tool: "fetch", args: { url: "https://example.com/competitor-pricing" } });
     expect(r.outcome).toBe("deny");
   });

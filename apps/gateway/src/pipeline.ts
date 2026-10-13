@@ -21,6 +21,7 @@ import type { Vault } from "@foundmill/shared/crypto";
 import { bookUsage, codeRepositoryOf, openApprovalItem, repos, type Db, type Agent, type AppInstallation, type Business, type Integration } from "@foundmill/db";
 import { evaluate, getPolicyEngine, type AgentAutonomy, type AgentCtxInput, type EvaluateInputInput, type EvaluateResult, type PolicyEngine, type ToolCtxInput } from "@foundmill/policy";
 import {
+  ALWAYS_LIVE_CONNECTORS,
   canonicalJson,
   isConfigError,
   isUntrusted,
@@ -30,6 +31,7 @@ import {
   type Connector,
   type ConnectorMode,
   type ConnectorRegistry,
+  type DecryptedCredential,
   type HumanActionDescriptor,
   type IntegrationRecord,
   type McpToolDefinition,
@@ -37,12 +39,12 @@ import {
   type ToolLogger,
   type ToolResult,
 } from "@foundmill/connectors";
-import { loadCredential, toIntegrationRecord, type LoadedCredential } from "./credentials";
+import { loadCredential, persistRefreshedCredential, toIntegrationRecord, type LoadedCredential } from "./credentials";
 import { writeGatewayEvent } from "./events";
 import { checkRateLimit, type RateLimitStore } from "./rate-limit";
 import { candidatesFromArgs, candidatesFromContent, hashRecipient, type RecipientCandidate, type UntrustedRecipientRegistry } from "./recipients";
 import { checkByokKey, SessionStateCache, stateDenial, type StateDenial } from "./state";
-import { toolAllowed, toolRef, type SessionToken } from "./tokens";
+import { sessionKey, toolAllowed, toolRef, type SessionToken } from "./tokens";
 import type { AllowResponse, AskResponse, CallRequestParsed, CallResponse, DenyResponse, RateLimitedResponse } from "./types";
 
 export interface GatewayLogger extends ToolLogger {
@@ -82,9 +84,12 @@ export interface ToolCallResult {
   body: CallResponse;
 }
 
-/** The mode one connector runs in for this gateway. */
+/**
+ * The mode one connector runs in for this gateway. The built-in `platform` and `quarantine` connectors always run live:
+ * their live side is the platform's own database and model client (ALWAYS_LIVE_CONNECTORS), never a vendor.
+ */
 export function modeFor(deps: Pick<GatewayDeps, "mode" | "liveConnectors">, connectorKey: string): ConnectorMode {
-  return deps.mode === "live" || deps.liveConnectors?.includes(connectorKey) ? "live" : deps.mode;
+  return deps.mode === "live" || deps.liveConnectors?.includes(connectorKey) || ALWAYS_LIVE_CONNECTORS.has(connectorKey) ? "live" : deps.mode;
 }
 
 /** Thrown for request errors that are not policy outcomes (unknown connector/tool, missing integration...). */
@@ -129,6 +134,24 @@ export class GatewayError extends AppError {
     super(code, message, status, details);
     this.name = "GatewayError";
   }
+}
+
+/**
+ * What a log line may carry about an error. A failed query's message ends with its parameters (tool arguments, email
+ * bodies, amounts), and the error object itself carries them, so neither is ever logged: only the statement part of the
+ * message and the database's code, constraint and table.
+ */
+export function safeError(err: unknown): Record<string, unknown> {
+  if (!(err instanceof Error)) return { message: typeof err === "string" ? err.slice(0, 200) : "non-error thrown" };
+  const message = (err.message.split(/\n\s*params:/i)[0] ?? "").slice(0, 500);
+  const cause = (err as { cause?: unknown }).cause;
+  const db = cause && typeof cause === "object" ? (cause as { code?: unknown; constraint?: unknown; constraint_name?: unknown; table?: unknown; table_name?: unknown; message?: unknown }) : null;
+  return {
+    name: err.name,
+    message,
+    ...(err instanceof AppError ? { code: err.code } : {}),
+    ...(db ? { cause: { code: db.code, constraint: db.constraint ?? db.constraint_name, table: db.table ?? db.table_name, message: typeof db.message === "string" ? db.message.slice(0, 300) : undefined } } : {}),
+  };
 }
 
 /** Thrown by `loadContext` when the club or the agent may not work (SEC-1); `executeToolCall` turns it into an audited 403. */
@@ -291,11 +314,11 @@ export async function executeToolCall(deps: GatewayDeps, session: SessionToken, 
 
 async function loadContext(deps: GatewayDeps, session: SessionToken, connector: Connector, tool: McpToolDefinition, now: () => Date): Promise<Loaded> {
   const { db } = deps;
-  const { businessId, agentId, sessionId } = session;
+  const { businessId, agentId } = session;
   // Archived clubs are loaded on purpose: the answer is a 403 with a stable policy id, not a 404.
   const business = await repos.businesses.get(db, businessId, { includeArchived: true }).catch(rethrowNotFound("business", businessId));
   const agent = await repos.agents.get(db, businessId, agentId).catch(rethrowNotFound("agent", agentId));
-  const denial = stateDenial(business, agent) ?? (await checkByokKey(db, stateCacheFor(deps), { businessId, sessionId, business, connectorKey: connector.key }, now().getTime()));
+  const denial = stateDenial(business, agent) ?? (await checkByokKey(db, stateCacheFor(deps), { businessId, sessionId: sessionKey(session), business, connectorKey: connector.key }, now().getTime()));
   if (denial) throw new SessionStateDenied(denial);
   const integrationRow = await repos.integrations.getByKey(db, businessId, connector.key);
   const holiday = await repos.holidays.current(db, businessId);
@@ -351,8 +374,8 @@ async function buildPolicyInput(deps: GatewayDeps, session: SessionToken, req: C
     recipient ??= candidates[0]?.value;
     suppressed = await anySuppressed(deps, session.businessId, candidates);
     // A seeded session whose seed this replica does not hold (restart, another replica) fails closed.
-    const seedMissing = session.untrustedSeeded && !deps.recipients.isSeeded(session.sessionId);
-    recipientFirstSeenInUntrusted = candidates.length > 0 && (seedMissing || deps.recipients.firstSeenInUntrusted(session.sessionId, candidates).length > 0);
+    const seedMissing = session.untrustedSeeded && !deps.recipients.isSeeded(sessionKey(session));
+    recipientFirstSeenInUntrusted = candidates.length > 0 && (seedMissing || deps.recipients.firstSeenInUntrusted(sessionKey(session), candidates).length > 0);
   }
 
   return {
@@ -555,12 +578,16 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   }
   const integration: IntegrationRecord = loaded.integrationRow ? toIntegrationRecord(loaded.integrationRow, credential) : mockIntegrationRecord(connector.key, session.businessId, mode === "mock" ? {} : { status: "connected" });
 
+  const vault = deps.vault;
+  const loadedCredential = credential;
   const ctx: ToolContext = {
     businessId: session.businessId,
     agentId: session.agentId,
     sessionId: session.sessionId,
     integration,
-    ...(credential ? { credential: credential.credential } : {}),
+    ...(loadedCredential ? { credential: loadedCredential.credential } : {}),
+    // A token the connector refreshed (Google, Tink) is sealed back into the same row, so the next call reuses it.
+    ...(loadedCredential && vault ? { onCredentialRefreshed: (refreshed: DecryptedCredential) => persistRefreshedCredential(deps.db, vault, session.businessId, loadedCredential, refreshed) } : {}),
     log,
     mode,
   };
@@ -587,37 +614,15 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
   if (isUntrusted(result.data)) {
     const { content } = readForQuarantine(result.data);
     const found = candidatesFromContent(content);
-    const added = deps.recipients.record(session.sessionId, found);
+    const added = deps.recipients.record(sessionKey(session), found);
     if (added > 0) log.debug({ added }, "recipients first seen in untrusted content recorded for this session");
     data = toAgentEnvelope(result.data);
     untrusted = true;
   }
 
   const costMinor = Math.max(0, Math.round(result.costMinor ?? connector.costModel?.(tool.name, args) ?? 0));
-  if (result.ok) {
-    // A token minted outside an agent session (a plan action, an import, a Source Watcher read) carries a one-off
-    // session id with no agent_sessions row, which usage_ledger.session_id references: that call is booked to the agent.
-    const sessionKnown = await repos.agents.getSession(deps.db, session.businessId, session.sessionId).then(
-      () => true,
-      (e: unknown) => {
-        if (e instanceof NotFoundError) return false;
-        throw e;
-      },
-    );
-    // Billed to the business's own key or the platform's credits; a credits row is charged to the period's balance.
-    await bookUsage(deps.db, session.businessId, {
-      agentId: session.agentId,
-      sessionId: sessionKnown ? session.sessionId : null,
-      kind: "tool",
-      quantity: 1,
-      unit: "calls",
-      costMinor,
-      currency: loaded.agent.currency,
-      billedTo: loaded.business.modelBilling,
-      occurredAt: now(),
-      details: { connector: connector.key, tool: tool.name, mode: modeFor(deps, connector.key), untrusted, label: "Estimate" },
-    });
-  }
+  // The vendor action has run: from here on nothing may turn it into a failure the agent (or a Temporal retry) repeats.
+  // The audit row comes first and on its own; booking the usage cannot fail the call, it is logged instead.
   const audit = await appendAudit(deps, session, req, {
     outcome: "allow",
     reasons: decision.reasons,
@@ -628,6 +633,25 @@ async function allow(deps: GatewayDeps, session: SessionToken, req: CallRequestP
     errorCode: result.error?.code,
     untrusted,
   });
+  if (result.ok) {
+    try {
+      // Billed to the business's own key or the platform's credits; a credits row is charged to the period's balance.
+      await bookUsage(deps.db, session.businessId, {
+        agentId: session.agentId,
+        sessionId: session.sessionId,
+        kind: "tool",
+        quantity: 1,
+        unit: "calls",
+        costMinor,
+        currency: loaded.agent.currency,
+        billedTo: loaded.business.modelBilling,
+        occurredAt: now(),
+        details: { connector: connector.key, tool: tool.name, mode: modeFor(deps, connector.key), untrusted, label: "Estimate", auditId: audit.id },
+      });
+    } catch (e) {
+      log.error({ err: safeError(e), auditId: audit.id, costMinor }, "tool call executed but its usage could not be booked");
+    }
+  }
   log.info({ ok: result.ok, costMinor, untrusted, errorCode: result.error?.code }, "tool call executed");
   const body: AllowResponse = {
     outcome: "allow",

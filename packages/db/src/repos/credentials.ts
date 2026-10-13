@@ -10,15 +10,27 @@
  */
 import { ValidationError } from "@foundmill/shared";
 import { encryptedRecordFromBytes, encryptedRecordToBytes, EncryptedRecordSchema, type EncryptedRecord } from "@foundmill/shared/crypto";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { credentials, integrations, type Credential } from "../schema";
 import { Id, IsoDateInput, one, parseInput, type Executor } from "./_shared";
 
+/**
+ * The kind every connector credential is stored under, whatever the connector's auth (Settings › Integrations, the
+ * gateway, the business's own model key): the auth kind (`api_key`, `oauth`...) travels inside the sealed payload, so
+ * the gateway's loader finds every integration's secret under one kind.
+ */
+export const INTEGRATION_CREDENTIAL_KIND = "secret";
+/**
+ * Kinds apps/api `integrations.connect` used before 2026-10-12 (the connector's auth kind as the row kind), which the
+ * gateway never read. Read as a fallback, never written; reconnecting the integration rewrites the row as `secret`.
+ */
+export const LEGACY_INTEGRATION_CREDENTIAL_KINDS = ["api_key", "oauth"] as const;
+
 export const StoreCredentialInput = z.object({
   integrationId: Id,
   /** What the secret is for: "secret" (API key), "oauth" (token set), "anthropic_key", "webhook_secret"… */
-  kind: z.string().trim().min(1).max(40).default("secret"),
+  kind: z.string().trim().min(1).max(40).default(INTEGRATION_CREDENTIAL_KIND),
   record: EncryptedRecordSchema,
   expiresAt: IsoDateInput.nullable().optional(),
 });
@@ -84,12 +96,14 @@ export const credentialsRepo = {
     return { meta: strip(row), record: encryptedRecordFromBytes(row) };
   },
 
-  /** The live credential of a kind for an integration, or null (e.g. the business's own Anthropic key). */
-  async latest(db: Executor, businessId: string, integrationId: string, kind = "secret"): Promise<LoadedCredential | null> {
+  /** The live credential of a kind (or the newest of several kinds) for an integration, or null (e.g. the business's own Anthropic key). */
+  async latest(db: Executor, businessId: string, integrationId: string, kind: string | readonly string[] = INTEGRATION_CREDENTIAL_KIND): Promise<LoadedCredential | null> {
+    const kinds = typeof kind === "string" ? [kind] : [...kind];
+    if (kinds.length === 0) return null;
     const rows = await db
       .select()
       .from(credentials)
-      .where(and(eq(credentials.businessId, businessId), eq(credentials.integrationId, integrationId), eq(credentials.kind, kind), isNull(credentials.archivedAt)))
+      .where(and(eq(credentials.businessId, businessId), eq(credentials.integrationId, integrationId), kinds.length === 1 ? eq(credentials.kind, kinds[0]!) : inArray(credentials.kind, kinds), isNull(credentials.archivedAt)))
       .orderBy(desc(credentials.createdAt))
       .limit(1);
     const row = rows[0];

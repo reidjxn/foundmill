@@ -58,8 +58,8 @@ export const GatedCall = z.object({
 });
 
 export const ClaimOpenInput = GatedCall.extend({
-  /** The session making the call: the open approval must be for its task (or for this very session). */
-  sessionId: Id,
+  /** The session making the call: the open approval must be for its task (or for this very session). Null for a call made outside any agent session (a plan action, an import): it matches approvals that have no session. */
+  sessionId: Id.nullable(),
   agentId: Id,
   /** What this call would commit: an open approval asks the founder about exactly this amount, in this currency. */
   amountMinor: MinorAmount.nonnegative().default(0),
@@ -68,8 +68,8 @@ export const ClaimOpenInput = GatedCall.extend({
 export type ClaimOpenInput = z.input<typeof ClaimOpenInput>;
 
 export const UseGrantedInput = GatedCall.extend({
-  /** The session making the call: the approval must be for its task (or for this very session). */
-  sessionId: Id,
+  /** The session making the call: the approval must be for its task (or for this very session). Null for a call made outside any agent session: it matches approvals that have no session. */
+  sessionId: Id.nullable(),
   agentId: Id,
   /** What this call would commit; an approval never covers more than the amount it was asked for. */
   amountMinor: MinorAmount.nonnegative().default(0),
@@ -88,6 +88,12 @@ const scoped = (businessId: string, approvalId: string) => and(eq(approvals.busi
 const toArray = <T>(v: T | T[] | undefined): T[] | undefined => (v === undefined ? undefined : Array.isArray(v) ? v : [v]);
 /** Same arguments: jsonb equality ignores key order and whitespace. */
 const sameArgs = (args: Record<string, unknown>) => sql`${approvals.args} = ${JSON.stringify(args)}::jsonb`;
+
+/** Which approvals a call belongs to: its session's task or the session itself, or (outside any session) the ones without a session. */
+function sessionMatch(sessionId: string | null, taskId: string | null) {
+  if (!sessionId) return isNull(approvals.sessionId);
+  return taskId ? or(eq(approvals.sessionId, sessionId), eq(approvals.taskId, taskId)) : eq(approvals.sessionId, sessionId);
+}
 
 async function taskOfSession(db: Executor, businessId: string, sessionId: string): Promise<string | null> {
   const rows = await db.select({ taskId: agentSessions.taskId }).from(agentSessions).where(and(eq(agentSessions.businessId, businessId), eq(agentSessions.id, sessionId))).limit(1);
@@ -209,7 +215,7 @@ export const approvalsRepo = {
    */
   async claimOpen(db: Executor, businessId: string, input: ClaimOpenInput): Promise<Approval | null> {
     const v = parseInput(ClaimOpenInput, input, "gated call");
-    const taskId = await taskOfSession(db, businessId, v.sessionId);
+    const taskId = v.sessionId ? await taskOfSession(db, businessId, v.sessionId) : null;
     const rows = await db
       .select()
       .from(approvals)
@@ -224,13 +230,14 @@ export const approvalsRepo = {
           // The same spend: an open request for another amount (or currency) is not this call's question.
           sql`coalesce(${approvals.amountMinor}, 0) = ${v.amountMinor}`,
           v.amountMinor > 0 ? (v.currency ? eq(approvals.currency, v.currency) : isNull(approvals.currency)) : undefined,
-          taskId ? or(eq(approvals.sessionId, v.sessionId), eq(approvals.taskId, taskId)) : eq(approvals.sessionId, v.sessionId),
+          sessionMatch(v.sessionId, taskId),
         ),
       )
       .orderBy(desc(approvals.requestedAt))
       .limit(1);
     const open = rows[0];
     if (!open || open.sessionId === v.sessionId) return open ?? null;
+    if (!v.sessionId) return null;
     const moved = await db
       .update(approvals)
       .set({ sessionId: v.sessionId, updatedAt: new Date() })
@@ -249,7 +256,7 @@ export const approvalsRepo = {
     const v = parseInput(UseGrantedInput, input, "gated call");
     // ¥5,000 approved is not $5,000: a call that spends needs an approval in its own currency.
     if (v.amountMinor > 0 && !v.currency) return null;
-    const taskId = await taskOfSession(db, businessId, v.sessionId);
+    const taskId = v.sessionId ? await taskOfSession(db, businessId, v.sessionId) : null;
     const candidates = await db
       .select({ id: approvals.id })
       .from(approvals)
@@ -264,7 +271,7 @@ export const approvalsRepo = {
           sameArgs(v.args),
           sql`coalesce(${approvals.amountMinor}, 0) >= ${v.amountMinor}`,
           v.amountMinor > 0 ? eq(approvals.currency, v.currency!) : undefined,
-          taskId ? or(eq(approvals.sessionId, v.sessionId), eq(approvals.taskId, taskId)) : eq(approvals.sessionId, v.sessionId),
+          sessionMatch(v.sessionId, taskId),
         ),
       )
       .orderBy(desc(approvals.resolvedAt))

@@ -154,6 +154,19 @@ describe("event catalogue", () => {
     expect(bad({ change: "promoted" })).toThrow(ValidationError);
   });
 
+  it("agent.message_sent: a typed message between agents (BUILD §9.9), never narrated", () => {
+    const decl = EVENTS["agent.message_sent"];
+    expect(decl.narratable).toBe(false);
+    expect([...decl.consumers].sort()).toEqual(["metrics", "stream"]);
+    const outside = parsePayload("agent.message_sent", { ...EVENT_FIXTURES["agent.message_sent"], sessionId: undefined, taskId: undefined });
+    expect(outside).toMatchObject({ type: "request", sessionId: null, taskId: null });
+    const bad = (patch: Record<string, unknown>) => () => parsePayload("agent.message_sent", { ...EVENT_FIXTURES["agent.message_sent"], ...patch });
+    expect(bad({ type: "chat" })).toThrow(ValidationError);
+    expect(bad({ subject: "" })).toThrow(ValidationError);
+    expect(bad({ body: "x".repeat(4001) })).toThrow(ValidationError);
+    expect(bad({ toAgentId: "not-an-id" })).toThrow(ValidationError);
+  });
+
   it("declareEvent refuses a type outside EVENT_TYPES at runtime", () => {
     expect(() =>
       declareEvent("made.up" as never, z.object({}), { doc: "x", consumers: ["metrics"] }),

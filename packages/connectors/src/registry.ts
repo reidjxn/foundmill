@@ -4,7 +4,7 @@
  * development is always the mock unless the operator opted into live integrations.
  */
 import { loadEnv, NotFoundError } from "@foundmill/shared";
-import type { Connector, ConnectorMode, ConnectorPhase, MockConnector, PolicyHints, McpToolDefinition, ConnectorAuth } from "./contract";
+import type { Connector, ConnectField, ConnectorMode, ConnectorPhase, MockConnector, PolicyHints, McpToolDefinition, ConnectorAuth } from "./contract";
 import { isMockConnector } from "./define";
 import { mockWebhooksAllowed } from "./webhooks";
 
@@ -13,6 +13,8 @@ export interface ConnectorCatalogueEntry {
   displayName: string;
   phase: ConnectorPhase;
   auth: ConnectorAuth;
+  /** What the founder enters to connect it live (always the live side's fields, whatever `mode`). */
+  connectFields: ConnectField[];
   mode: ConnectorMode;
   tools: McpToolDefinition[];
   policyHints: PolicyHints;
@@ -77,6 +79,8 @@ export class ConnectorRegistry {
       displayName: c.displayName,
       phase: c.phase,
       auth: c.auth,
+      // A connector named in LIVE_CONNECTORS runs live while the catalogue is listed in mock mode: its fields still show.
+      connectFields: this.live.get(c.key)?.connectFields ?? [],
       mode,
       tools: c.tools,
       policyHints: c.policyHints,

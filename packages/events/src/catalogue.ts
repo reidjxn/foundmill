@@ -1192,6 +1192,34 @@ const membershipChanged = declareEvent(
   },
 );
 
+// -------------------------------------------------------------------------------------------------
+// Agent ↔ agent typed messages (BUILD §9.9)
+// ---------------------------------------------------------------------------------------------------
+
+export const AGENT_MESSAGE_TYPES = ["request", "inform", "review"] as const;
+
+const agentMessageSent = declareEvent(
+  "agent.message_sent",
+  z.object({
+    messageId: Id,
+    /** request (asks for something), inform (reports something), review (asks for a review): no free-form chat. */
+    type: z.enum(AGENT_MESSAGE_TYPES),
+    fromAgentId: Id,
+    toAgentId: Id,
+    /** The agent session it was sent from (null outside one). */
+    sessionId: Id.nullable().default(null),
+    taskId: Id.nullable().default(null),
+    subject: z.string().min(1).max(200),
+    /** Agent-written text: the recipient reads it as data from another agent, never as instructions. */
+    body: z.string().min(1).max(4000),
+  }),
+  {
+    doc: "An agent sent a typed message (request, inform or review) to another agent of the team through the platform tools (`platform.send_message`); the recipient reads it with `platform.list_messages`. The event is the message's only store. Never narrated: agents coordinating is not Inbox news.",
+    consumers: ["stream", "metrics"],
+    narratable: false,
+  },
+);
+
 // ---------------------------------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------------------------------
@@ -1244,6 +1272,7 @@ export const EVENTS = {
   "foundations.progressed": foundationsProgressed,
   "conversation.message_posted": conversationMessagePosted,
   "membership.changed": membershipChanged,
+  "agent.message_sent": agentMessageSent,
 } as const satisfies { readonly [K in EventTypeT]: EventDeclaration<K> };
 
 export type EventsRegistry = typeof EVENTS;

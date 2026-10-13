@@ -1,13 +1,13 @@
 /**
  * The production dependency graph (`buildGateway`) over PGlite with the real default registry in mock mode:
- * every one of the 19 connectors is catalogued, a real read tool runs, and a real hard-gated tool is denied
- * in every business mode (Gate 0: "gateway denies a hard-gate tool").
+ * every one of the 19 connectors and the built-ins (platform, web, quarantine) is catalogued, a real read tool runs,
+ * and a real hard-gated tool is denied in every business mode (Gate 0: "gateway denies a hard-gate tool").
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BUSINESS_MODES, loadEnv } from "@foundmill/shared";
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import { repos, type Db } from "@foundmill/db";
-import { CONNECTOR_KEYS } from "@foundmill/connectors";
+import { BUILTIN_CONNECTOR_KEYS, CONNECTOR_KEYS } from "@foundmill/connectors";
 import { buildGateway, createGatewayClient, listenGateway, type GatewayClient, type RunningGateway } from "../index";
 import { silentLog, TEST_SECRET } from "./harness";
 
@@ -43,7 +43,7 @@ describe("gateway over the default registry (mock mode)", () => {
   it("catalogues every connector with its tools and hints", async () => {
     const { mode, connectors } = await client.listConnectors();
     expect(mode).toBe("mock");
-    expect(connectors.map((c) => c.key).sort()).toEqual([...CONNECTOR_KEYS].sort());
+    expect(connectors.map((c) => c.key).sort()).toEqual([...CONNECTOR_KEYS, ...BUILTIN_CONNECTOR_KEYS].sort());
     const stripe = connectors.find((c) => c.key === "stripe")!;
     expect(stripe.policyHints["create_payout"]).toMatchObject({ hardGate: true });
     expect(stripe.tools.some((t) => t.name === "get_balance")).toBe(true);

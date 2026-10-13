@@ -1,8 +1,14 @@
 /** Cloudflare DNS: zones and records (sending-domain setup for SendGrid: SPF/DKIM/DMARC). */
 import { z } from "zod";
+import type { ConnectField } from "../../contract";
 import { defineTool } from "../../define";
 
 export const CLOUDFLARE_KEY = "cloudflare_dns";
+
+/** What the founder enters in Settings › Integrations to connect Cloudflare DNS live: a token of their own account. */
+export const CLOUDFLARE_CONNECT_FIELDS: ConnectField[] = [
+  { name: "apiToken", label: "API token", secret: true, required: true, hint: "An API token from your Cloudflare account with Zone:Read and DNS:Edit on the zones agents may change." },
+];
 export const CLOUDFLARE_BASE_URL = "https://api.cloudflare.com/client/v4";
 
 export const RecordType = z.enum(["A", "AAAA", "CNAME", "MX", "TXT", "SRV", "NS", "CAA"]);

@@ -25,6 +25,8 @@ import { createShopifyConnector } from "./connectors/shopify";
 import { createStripeConnector } from "./connectors/stripe";
 import { createTinkConnector } from "./connectors/tink";
 import { createVoyageConnector } from "./connectors/voyage";
+import { createPlatformConnector } from "./connectors/platform";
+import { createQuarantineConnector } from "./connectors/quarantine";
 import { createWebConnector } from "./connectors/web";
 
 export type ConnectorFactory = (options?: LiveConnectorOptions) => Connector;
@@ -45,7 +47,6 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
   e2b: createE2bConnector,
   dropbox_sign: createDropboxSignConnector,
   ecb_rates: createEcbRatesConnector,
-  web: createWebConnector,
   stripe: createStripeConnector,
   sendgrid: createSendgridConnector,
   shopify: createShopifyConnector,
@@ -54,6 +55,31 @@ export const CONNECTOR_FACTORIES: Readonly<Record<string, ConnectorFactory>> = O
 });
 
 export const CONNECTOR_KEYS = Object.freeze(Object.keys(CONNECTOR_FACTORIES));
+
+/**
+ * Connectors the gateway serves itself next to the catalogue (BUILD §9.9 task board and messages, web reads, the
+ * quarantined reader). Not in CONNECTOR_FACTORIES: there is nothing to connect in Settings › Integrations, and their live
+ * side needs host hooks only the gateway has (`platform`, `quarantinedReader`).
+ */
+export const BUILTIN_CONNECTOR_FACTORIES = Object.freeze({
+  platform: createPlatformConnector,
+  web: createWebConnector,
+  quarantine: createQuarantineConnector,
+} satisfies Record<string, ConnectorFactory>);
+
+export const BUILTIN_CONNECTOR_KEYS: readonly string[] = Object.freeze(Object.keys(BUILTIN_CONNECTOR_FACTORIES));
+
+/**
+ * Built-ins whose live side runs in every INTEGRATIONS_MODE: it is the platform's own data (`platform`) or its metered
+ * model client, which follows MODEL_MODE (`quarantine`), so agents in a mock-mode deployment still work on the real task
+ * board. `web` reaches the internet and follows the mode like a vendor.
+ */
+export const ALWAYS_LIVE_CONNECTORS: ReadonlySet<string> = new Set(["platform", "quarantine"]);
+
+/** The built-in connectors, live side wired with `options`. */
+export function createBuiltinConnectors(options: LiveConnectorOptions = {}): Connector[] {
+  return Object.values(BUILTIN_CONNECTOR_FACTORIES).map((factory) => factory(options));
+}
 
 /** Build every connector (live side wired with `options`; the registry serves mocks in mock mode). */
 export function createAllConnectors(options: LiveConnectorOptions = {}): Connector[] {

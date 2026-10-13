@@ -76,6 +76,8 @@ export const EVENT_WALLS = {
   "foundations.progressed": { sections: ["product"] },
   "conversation.message_posted": { sections: conversationSections, hide: freeText("preview") },
   "membership.changed": { sections: [] },
+  // A typed message between two agents (the platform tools): the Team's, and its subject and body are agent-written free text.
+  "agent.message_sent": { sections: ["team"], hide: freeText("subject", "body") },
 } as const satisfies { readonly [K in EventType]: EventWall };
 
 /** What one reader may see of business events: their walls (sections they may not read at all). */

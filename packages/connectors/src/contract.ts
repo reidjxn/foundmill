@@ -121,12 +121,28 @@ export interface ToolLogger {
 export interface ToolContext {
   businessId: string;
   agentId: string;
-  sessionId: string;
+  /** The agent session the call belongs to; null for a call the platform makes for the business outside one (a plan action, an import). */
+  sessionId: string | null;
   integration: IntegrationRecord;
   /** Decrypted secret for this integration; absent for `auth.kind === "none"` and for platform-key connectors. */
   credential?: DecryptedCredential;
   log: ToolLogger;
   mode: ConnectorMode;
+  /**
+   * Set by the gateway: stores a credential the connector refreshed during this call (a new OAuth access token), sealed
+   * in place of the old one, so the next call reuses it instead of refreshing again. Connectors call it best effort.
+   */
+  onCredentialRefreshed?: (credential: DecryptedCredential) => Promise<void>;
+}
+
+/** Hand a refreshed credential to the host (`ctx.onCredentialRefreshed`); a failure to store it never fails the call. */
+export async function reportRefreshedCredential(ctx: ToolContext, credential: DecryptedCredential, connectorKey: string): Promise<void> {
+  if (!ctx.onCredentialRefreshed) return;
+  try {
+    await ctx.onCredentialRefreshed(credential);
+  } catch (e) {
+    ctx.log.warn({ connector: connectorKey, businessId: ctx.businessId, reason: e instanceof Error ? e.name : "unknown" }, "refreshed credential could not be stored; the next call refreshes again");
+  }
 }
 
 export interface ToolError {
@@ -173,11 +189,31 @@ export interface ConnectorWebhook {
   normalise(req: Request): Promise<PlatformEvent[]>;
 }
 
+/**
+ * One value the founder enters in Settings › Integrations to connect a connector live: a field of its `connect()` input,
+ * typically a key the vendor issued to the founder's own account, so the vendor bills the founder (BUILD §10), never
+ * the platform. The web renders the connect dialog from these; the api refuses a live connect that lacks a required one.
+ */
+export interface ConnectField {
+  /** Key in the `connect()` input (`apiKey`, `apiToken`...). */
+  name: string;
+  /** Label in the dialog ("API key"). */
+  label: string;
+  /** Masked while typed; `connect()` hands it back only as `credentialToStore` (sealed), never in settings or logs. */
+  secret: boolean;
+  required: boolean;
+  placeholder?: string;
+  /** What the key must allow and who is billed, one sentence. */
+  hint?: string;
+}
+
 export interface Connector<Cfg = unknown> {
   key: string; // e.g. "sendgrid"
   displayName: string;
   phase: ConnectorPhase;
   auth: ConnectorAuth;
+  /** What the founder enters to connect it live (see ConnectField); absent when connecting needs no input or is an OAuth/App flow. */
+  connectFields?: ConnectField[];
   connect(businessId: string, input: unknown): Promise<IntegrationRecord>;
   healthcheck(integration: IntegrationRecord): Promise<HealthResult>;
   tools: McpToolDefinition[]; // JSON-schema inputs/outputs
@@ -215,6 +251,20 @@ export class ConfigError extends AppError {
 }
 
 export const isConfigError = (e: unknown): e is ConfigError => e instanceof ConfigError || (e instanceof AppError && e.code === "connector_unconfigured");
+
+/** Thrown by a live `connect()` when the founder did not enter a field it needs (400; the message is shown as is). */
+export class ConnectInputError extends AppError {
+  constructor(connectorKey: string, field: string, message: string) {
+    super("connect_input_required", message, 400, { connectorKey, field });
+    this.name = "ConnectInputError";
+  }
+}
+
+/** A non-empty string field of a `connect()` input, trimmed; undefined when absent. */
+export function connectInputValue(input: unknown, name: string): string | undefined {
+  const v = input && typeof input === "object" ? (input as Record<string, unknown>)[name] : undefined;
+  return typeof v === "string" && v.trim().length > 0 ? v.trim() : undefined;
+}
 
 /** Vendor HTTP failure surfaced by the shared http client; mapped to `ToolError` by the builder. */
 export class VendorError extends AppError {

@@ -8,6 +8,7 @@
 import { loadEnv, type Env } from "@foundmill/shared";
 import type { FetchLike } from "./http";
 import type { BusinessResolver } from "./webhooks";
+import type { PlatformHost } from "./connectors/platform/tools";
 
 export interface PlatformSecrets {
   anthropicApiKey?: string;
@@ -78,7 +79,17 @@ export interface LiveConnectorOptions {
   getBusinessSecret?: (businessId: string, name: string) => Promise<string | null>;
   /** Global suppression list check (BUILD §2.3); SendGrid refuses a send when it returns true. */
   isSuppressed?: (businessId: string, address: string) => Promise<boolean>;
+  /** The platform's own data behind the `platform` connector (task board, messages, reads); the gateway provides it. */
+  platform?: PlatformHost;
+  /** The quarantined reader behind `quarantine.read_untrusted` (BUILD §9.8 step 2); the gateway provides it. */
+  quarantinedReader?: QuarantinedReader;
 }
+
+/**
+ * Typed fields out of untrusted content (Haiku, no tools): absent fields are null, instructions inside are ignored. The
+ * caller (business, agent, session) is who the model usage is booked to.
+ */
+export type QuarantinedReader = (input: { businessId: string; agentId: string; sessionId: string | null; fields: string[]; content: string }) => Promise<Record<string, string | number | boolean | null>>;
 
 export type ResolvedLiveOptions = Required<Pick<LiveConnectorOptions, "secrets" | "fetch" | "now">> & Omit<LiveConnectorOptions, "secrets" | "fetch" | "now">;
 

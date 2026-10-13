@@ -41,8 +41,10 @@ export const STATE_ERROR_CODES: Readonly<Record<StatePolicyId, string>> = {
 
 /** The connector whose tools run on the club's own Anthropic key when `modelBilling` is `byok` (BUILD §10.2). */
 export const ANTHROPIC_CONNECTOR_KEY = "anthropic";
+/** The built-in quarantined reader: its model call runs on the club's own key too when `modelBilling` is `byok`. */
+export const QUARANTINE_CONNECTOR_KEY = "quarantine";
 /** Gateway-owned, like `FINANCE_CONNECTORS`: connectors that need the club's BYOK key, never a connector hint. */
-export const BYOK_KEY_CONNECTORS: ReadonlySet<string> = new Set([ANTHROPIC_CONNECTOR_KEY]);
+export const BYOK_KEY_CONNECTORS: ReadonlySet<string> = new Set([ANTHROPIC_CONNECTOR_KEY, QUARANTINE_CONNECTOR_KEY]);
 
 /** How long a per-session credential verdict may be reused. A revoked key is refused within this window. */
 export const STATE_CACHE_TTL_MS = 5_000;

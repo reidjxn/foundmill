@@ -4,7 +4,7 @@
  * needs one; secrets returned by a connector are encrypted into `credentials` and never echoed.
  */
 import type { HealthResult, IntegrationRecord } from "@foundmill/connectors";
-import { repos, type Executor } from "@foundmill/db";
+import { INTEGRATION_CREDENTIAL_KIND, repos, type Executor } from "@foundmill/db";
 import { AppError, connectorMode } from "@foundmill/shared";
 import { buildAad, encryptJson, redactSecret } from "@foundmill/shared/crypto";
 import { z } from "zod";
@@ -79,7 +79,8 @@ export const integrationsRouter = router({
       if (credentialToStore) {
         if (!ctx.vault) throw new AppError("config", "No vault is configured (set KMS_KEY_ID or DEV_MASTER_KEY)", 412);
         const bootstrap = await encryptJson(ctx.vault, credentialToStore, buildAad(ctx.businessId, "credentials", "pending"));
-        const meta = await repos.credentials.store(tx, ctx.businessId, { integrationId: row.id, kind: credentialToStore.kind, record: bootstrap, expiresAt: credentialToStore.expiresAt ? new Date(credentialToStore.expiresAt) : null });
+        // Stored under the one kind the gateway loads; the connector's auth kind is inside the sealed payload.
+        const meta = await repos.credentials.store(tx, ctx.businessId, { integrationId: row.id, kind: INTEGRATION_CREDENTIAL_KIND, record: bootstrap, expiresAt: credentialToStore.expiresAt ? new Date(credentialToStore.expiresAt) : null });
         const bound = await encryptJson(ctx.vault, credentialToStore, buildAad(ctx.businessId, "credentials", meta.id));
         await repos.credentials.rotate(tx, ctx.businessId, meta.id, bound);
       }

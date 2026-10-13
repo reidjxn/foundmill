@@ -7,6 +7,7 @@ import { uuid } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { emitEvent, systemActor } from "../events";
 import type { ImportSourceResult, LoadedPlaybook } from "./types";
+import { importCallFor, resultError } from "./connector-calls";
 
 export const INCORPORATION_STEPS = ["prepare_documents", "founder_review", "founder_submits", "record_filing", "complete"] as const;
 export type IncorporationStep = (typeof INCORPORATION_STEPS)[number];
@@ -117,16 +118,18 @@ export function createMiscActivities(deps: OrchestratorDeps) {
       const source = await repos.product.getSource(db, input.businessId, input.sourceId);
       const chief = await repos.agents.chiefOfStaff(db, input.businessId);
       const uri = source.uri ?? "";
-      const connector = /github\.com/.test(uri) ? "github" : /docs\.google|drive\.google/.test(uri) ? "google_drive" : /stripe/.test(uri) ? "stripe" : /companieshouse|opencorporates|bolagsverket/.test(uri) ? "opencorporates" : null;
-      if (!connector || !chief) {
-        await repos.product.updateSource(db, input.businessId, source.id, { relevance: { ...(source.relevance as Record<string, unknown>), imported: false, reason: connector ? "no agent" : "no connector for this uri" } });
-        return { sourceId: source.id, ok: false, summary: connector ? "no Chief of Staff to import as" : `no connector for ${uri || "an empty uri"}` };
+      // The real tool and its arguments for this address (connector-calls.ts), so the gateway can run what it is asked.
+      const read = importCallFor(uri, source.title ?? "");
+      if (!read || !chief) {
+        await repos.product.updateSource(db, input.businessId, source.id, { relevance: { ...(source.relevance as Record<string, unknown>), imported: false, reason: read ? "no agent" : "no connector for this uri" } });
+        return { sourceId: source.id, ok: false, summary: read ? "no Chief of Staff to import as" : `no connector for ${uri || "an empty uri"}` };
       }
-      const tool = connector === "github" ? "read_tree" : connector === "google_drive" ? "search" : connector === "stripe" ? "get_account" : "search_companies";
+      const { connector, tool, args } = read;
       try {
-        const minted = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: chief.id, sessionId: uuid(), allowedTools: [`${connector}:${tool}`], ttlSeconds: 300 });
-        const res = await deps.gateway.call(minted.token, { connector, tool, args: { uri, query: source.title } });
-        const ok = res.outcome === "allow";
+        // An import runs outside any agent session: the token says so instead of naming a session that does not exist.
+        const minted = await deps.gateway.mintSessionToken({ businessId: input.businessId, agentId: chief.id, sessionId: null, allowedTools: [`${connector}:${tool}`], ttlSeconds: 300 });
+        const res = await deps.gateway.call(minted.token, { connector, tool, args });
+        const ok = res.outcome === "allow" && resultError(res) === null;
         await repos.product.updateSource(db, input.businessId, source.id, { fetchedAt: deps.clock.now(), relevance: { ...(source.relevance as Record<string, unknown>), imported: ok, outcome: res.outcome, connector, tool, untrusted: true } });
         return { sourceId: source.id, ok, summary: ok ? `imported through ${connector}.${tool}` : `gateway ${res.outcome}` };
       } catch (err) {

@@ -232,6 +232,7 @@ export const EVENT_TYPES = [
   "foundations.progressed",
   "conversation.message_posted",
   "membership.changed",
+  "agent.message_sent",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

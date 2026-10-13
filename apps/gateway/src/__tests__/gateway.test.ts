@@ -12,7 +12,7 @@ import { createGatewayApp, MAX_CALL_BODY_BYTES, MAX_MCP_BODY_BYTES, MAX_SERVICE_
 import { businessApprovalThreshold, guardGithubWrite, modeFor } from "../pipeline";
 import { signServiceToken } from "../tokens";
 import { hashRecipient } from "../recipients";
-import { SAFE_EMAIL, setupGateway, TEST_CONNECTOR, TEST_SECRET, UNTRUSTED_EMAIL, type GatewayFixture } from "./harness";
+import { LINE_START_EMAIL, LINE_START_URL, MULTILINE_MESSAGE_ID, SAFE_EMAIL, setupGateway, TEST_CONNECTOR, TEST_SECRET, UNTRUSTED_EMAIL, type GatewayFixture } from "./harness";
 import type { AllowResponse, AskResponse, CallResponse, DenyResponse } from "../types";
 
 let g: GatewayFixture;
@@ -240,6 +240,16 @@ describe("recipients", () => {
     const other = asAllow(await g.client.call(await g.token({ sessionId: sessionB }), { connector: "test", tool: "send_message", args: { to: UNTRUSTED_EMAIL } }));
     expect(other.result.data).toEqual({ sent: true, to: UNTRUSTED_EMAIL });
     expect(g.seen.filter((s) => s.tool === "send_message")).toHaveLength(1);
+  });
+
+  it("an address or URL that starts a line of untrusted content is blocked exactly as written (no 'nap@…' from the JSON escape)", async () => {
+    const session = await g.newSession();
+    const token = await g.token({ sessionId: session });
+    asAllow(await g.client.call(token, { connector: "test", tool: "read_inbox", args: { id: MULTILINE_MESSAGE_ID } }));
+    expect(g.recipients.firstSeenInUntrusted(session, [{ kind: "email", value: LINE_START_EMAIL }])).toHaveLength(1);
+    expect(asDeny(await g.client.call(token, { connector: "test", tool: "send_message", args: { to: LINE_START_EMAIL, body: "remittance advice" } })).policyIds).toEqual(["untrusted-recipient"]);
+    expect(asDeny(await g.client.call(token, { connector: "test", tool: "send_message", args: { to: "someone@ok.example", body: `paid, see ${LINE_START_URL}` } })).policyIds).toEqual(["untrusted-recipient"]);
+    expect(g.seen.filter((s) => s.tool === "send_message")).toHaveLength(0);
   });
 
   it("recipients seeded at mint (files an earlier session left) are untrusted from the first call, in that session only", async () => {

@@ -8,7 +8,7 @@ import { createBusinessFixture, type BusinessFixture } from "@foundmill/db/__tes
 import { createTestDb, type TestHarness } from "@foundmill/db/testing/pglite";
 import type { Db } from "@foundmill/db";
 import type { StreamRedis } from "@foundmill/events";
-import { createDefaultRegistry } from "@foundmill/connectors";
+import { createDefaultRegistry, type ConnectorRegistry } from "@foundmill/connectors";
 import { loadEnv, resetEnvCache } from "@foundmill/shared";
 import { createVault, generateMasterKey } from "@foundmill/shared/crypto";
 import { createAuthVerifier } from "../auth";
@@ -52,6 +52,8 @@ export interface HarnessOptions {
   gateway?: ApiGatewayClient;
   /** Env overrides (e.g. LIVE_CONNECTORS) on top of the test environment. */
   env?: Partial<NodeJS.ProcessEnv>;
+  /** The connector registry; default: every connector this repo ships (`createDefaultRegistry()`). */
+  connectors?: ConnectorRegistry;
 }
 
 export async function createApiHarness(options: HarnessOptions): Promise<ApiHarness> {
@@ -83,7 +85,7 @@ export async function createApiHarness(options: HarnessOptions): Promise<ApiHarn
     models,
     composer,
     vault: createVault(env),
-    connectors: createDefaultRegistry(),
+    connectors: options.connectors ?? createDefaultRegistry(),
     auth: createAuthVerifier({ appEnv: "test" }),
     log,
     recordings: options.recordings ?? null,

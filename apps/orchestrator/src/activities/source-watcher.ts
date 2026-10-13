@@ -34,7 +34,6 @@ import {
   type SourceWatchSource,
 } from "@foundmill/agents";
 import { repos, type Source } from "@foundmill/db";
-import { uuid } from "@foundmill/shared";
 import type { OrchestratorDeps } from "../deps";
 import { agentActor, emitEvent, systemActor } from "../events";
 
@@ -131,7 +130,7 @@ export function createSourceWatcherActivities(deps: OrchestratorDeps) {
 
   /** Read a public page through the gateway (`web.fetch`). Transient failures throw so Temporal retries the activity. */
   async function readPage(businessId: string, agentId: string, url: string): Promise<PageRead> {
-    const minted = await deps.gateway.mintSessionToken({ businessId, agentId, sessionId: uuid(), allowedTools: ["web:fetch"], ttlSeconds: 300 });
+    const minted = await deps.gateway.mintSessionToken({ businessId, agentId, sessionId: null, allowedTools: ["web:fetch"], ttlSeconds: 300 });
     const res = await deps.gateway.call(minted.token, { connector: "web", tool: "fetch", args: { url, maxChars: SOURCE_TEXT_LIMIT } });
     if (res.outcome === "rate_limited") retryable("The web reader is rate limited; trying again shortly.");
     if (res.outcome !== "allow") return { ok: false, reason: "The gateway did not allow reading this page." };

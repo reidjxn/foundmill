@@ -467,6 +467,16 @@ export const EVENT_FIXTURES: { readonly [K in EventType]: EventPayloadInput<K> }
     userId: fixtureId("member"),
     change: "updated",
   },
+  "agent.message_sent": {
+    messageId: fixtureId("message"),
+    type: "request",
+    fromAgentId: FIXTURE_AGENT_ID,
+    toAgentId: fixtureId("lead"),
+    sessionId: fixtureId("session"),
+    taskId: fixtureId("task"),
+    subject: "Review the pricing page copy",
+    body: "The draft is on the task; check the claims against the spec before Friday.",
+  },
 };
 
 /** A valid `WriteEventInput` for the given type, with the fixture payload and envelope. */
